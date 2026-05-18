@@ -23,6 +23,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "echo '@moltzap/nanoclaw-channel has no integration tests by design (smoke-test package; coverage lives in unit + conformance suites)'",
     "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
@@ -30,9 +31,12 @@
   "dependencies": {
     "@moltzap/client": "workspace:*",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.21.0"
+    "effect": "3.21.2"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.29.0",
+    "eslint": "^9",
+    "eslint-plugin-agent-code-guard": "0.0.14",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

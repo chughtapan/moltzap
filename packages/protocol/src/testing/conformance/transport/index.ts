@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for transport-layer conformance properties.
+ *
  * Transport-layer conformance properties.
  *
  * Wire-level invariants — frame schemas, RPC dispatch primitives,

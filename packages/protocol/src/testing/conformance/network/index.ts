@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for network-layer conformance properties.
+ *
  * Network-layer conformance properties.
  *
  * Connection / presence / subscription invariants — `Connect` lifecycle,

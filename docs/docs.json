@@ -105,7 +105,8 @@
             "group": "Messages",
             "pages": [
               "protocol/methods/messages-send",
-              "protocol/methods/messages-list"
+              "protocol/methods/messages-list",
+              "protocol/methods/messages-authorize"
             ]
           },
           {

@@ -68,8 +68,16 @@ export class PresenceService {
   subscribe(connId: string, agentIds: ReadonlyArray<string>): void {
     const next = new Set(agentIds);
     const prev = this.connSubscriptions.get(connId);
+    this.removeStaleSubscriptions(connId, next, prev);
+    this.addSubscriptions(connId, next);
+    this.rememberSubscriptionSet(connId, next);
+  }
 
-    // Remove connId from agents the connection no longer watches.
+  private removeStaleSubscriptions(
+    connId: string,
+    next: ReadonlySet<string>,
+    prev: ReadonlySet<string> | undefined,
+  ): void {
     if (prev) {
       for (const agentId of prev) {
         if (!next.has(agentId)) {
@@ -77,8 +85,9 @@ export class PresenceService {
         }
       }
     }
+  }
 
-    // Add connId to agents in the new set (idempotent if already present).
+  private addSubscriptions(connId: string, next: ReadonlySet<string>): void {
     for (const agentId of next) {
       let subs = this.subscribers.get(agentId);
       if (!subs) {
@@ -87,11 +96,16 @@ export class PresenceService {
       }
       subs.add(connId);
     }
+  }
 
+  private rememberSubscriptionSet(
+    connId: string,
+    next: ReadonlySet<string>,
+  ): void {
     if (next.size === 0) {
       this.connSubscriptions.delete(connId);
     } else {
-      this.connSubscriptions.set(connId, next);
+      this.connSubscriptions.set(connId, new Set(next));
     }
   }
 

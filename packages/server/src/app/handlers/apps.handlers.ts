@@ -26,7 +26,7 @@ export const appHandlers: RpcMethodRegistry = [
         const connId = yield* ConnIdTag;
         appHost.registerRemoteApp(params.manifest, connId);
         return { appId: params.manifest.appId };
-      }),
+      }).pipe(Effect.withSpan("apps.register")),
   }),
   // `dispatch/request` — returns ack immediately, forks the moderator
   // round-trip, recipient observes the verdict via `dispatch/release`
@@ -50,7 +50,7 @@ export const appHandlers: RpcMethodRegistry = [
           pending: params.pending,
         });
         return minted;
-      }),
+      }).pipe(Effect.withSpan("dispatch.request")),
   }),
   // `dispatches/get` — moderator-only read. Scope-enforced: the
   // calling connection MUST be the lease's `moderatorConnectionId`
@@ -71,11 +71,12 @@ export const appHandlers: RpcMethodRegistry = [
         const record = yield* registry
           .read({ _tag: "dispatchId", value: params.dispatchId })
           .pipe(
-            Effect.mapError(
-              () =>
+            Effect.catchTag("LeaseNotFoundError", () =>
+              Effect.fail(
                 new ForbiddenError({
                   message: "dispatches/get not authorized for this lease",
                 }),
+              ),
             ),
           );
         if (record.binding.moderatorConnectionId !== connId) {
@@ -86,6 +87,6 @@ export const appHandlers: RpcMethodRegistry = [
           );
         }
         return { lease: leaseRecordToWire(record) };
-      }),
+      }).pipe(Effect.withSpan("dispatches.get")),
   }),
 ];

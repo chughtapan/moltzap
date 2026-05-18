@@ -204,7 +204,7 @@ New notification (Phase 9): `task/admissionComplete` — fires to TM with `admit
 - On disconnect: remove (whether authed or not)
 - Multimap throughout: same agent, multiple connections both go in the Set
 
-Perf assertion: 50-recipient fan-out completes in <50ms total. Multi-process / restart durability is a future scaling concern, not v1.
+Perf assertion: 50-recipient fan-out completes in under 50ms total. Multi-process / restart durability is a future scaling concern, not v1.
 
 ---
 
@@ -244,7 +244,7 @@ Phase 1D   Delete dead lifecycle/hook orphans
             ├── server dispatchOnJoinHook, onJoinParamsForWire, onAppJoin, OnJoinHook
             ├── MoltZapApp.onJoin() SDK method
             ├── apps.ts on_join field from manifest
-            └── 2 fixtures + generate-protocol-docs.ts entries + app-hooks-rpc.mdx references
+            └── 2 fixtures + protocol docs generator metadata + app-hooks-rpc.mdx references
 
    NOTE: apps/authorizeDispatch and the channel-side admission machinery are NOT deleted in
    Phase 1D. They survive until Phase 9 (slice C / TM-as-endpoint topology) where the
@@ -407,7 +407,7 @@ For each new codepath, one realistic production failure scenario:
 2. arena werewolf full-game E2E under refactored stack (in arena repo)
 3. Boundary type-test canaries (new files under `packages/server/src/{network,task}/__tests__/`)
 4. Destructive migration round-trip test (fresh DB → run migration → assert schema)
-5. AgentEndpointResolver fan-out perf test (50 recipients <50ms)
+5. AgentEndpointResolver fan-out perf test (50 recipients under 50ms)
 
 ---
 

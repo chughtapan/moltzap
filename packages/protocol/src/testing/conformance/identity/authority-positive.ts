@@ -20,6 +20,13 @@ const PROPERTY = "authority-positive";
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
 
+const invariant = (reason: string): PropertyInvariantViolation =>
+  new PropertyInvariantViolation({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason,
+  });
+
 export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -32,13 +39,8 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
           baseUrl: ctx.realServer.baseUrl,
           name: "ap",
         }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `agent registration failed: ${e.body}`,
-              }),
+          Effect.mapError((e) =>
+            invariant(`agent registration failed: ${e.body}`),
           ),
         );
         const client = yield* makeTestClient({
@@ -48,13 +50,8 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
           defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
           captureCapacity: DEFAULT_CAPTURE_CAPACITY,
         }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `client acquire failed: ${String(e)}`,
-              }),
+          Effect.mapError((e) =>
+            invariant(`client acquire failed: ${String(e)}`),
           ),
         );
         const outcome = yield* client
@@ -70,7 +67,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             }),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerAuthorityPositive")),
     ),
   );
 }

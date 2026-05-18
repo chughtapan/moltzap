@@ -1,4 +1,5 @@
-import { Effect, pipe } from "effect";
+import { NodeContext } from "@effect/platform-node";
+import { Effect, Exit, Fiber, Option, pipe } from "effect";
 
 import type {
   Runtime,
@@ -9,9 +10,13 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 import {
-  ensureNanoclawRuntimeInstalled,
-  startNanoclawRuntime,
-  stopNanoclawRuntime,
+  processExitLoop,
+  promoteTimeoutIfProcessExited,
+} from "./adapter-readiness.js";
+import {
+  ensureNanoclawRuntimeInstalledEffect,
+  startNanoclawRuntimeEffect,
+  stopNanoclawRuntimeEffect,
   getNanoclawRuntimeLogs,
   type NanoclawRuntimeHandle,
 } from "./nanoclaw-process.js";
@@ -25,6 +30,19 @@ interface AdapterState {
   handle: NanoclawRuntimeHandle;
   spawnInput: SpawnInput;
   tornDown: boolean;
+}
+
+function exitToCode(exit: Exit.Exit<number, never>): number {
+  return Exit.match(exit, {
+    onSuccess: (code) => code,
+    onFailure: () => -1,
+  });
+}
+
+function pollNanoclawExitCode(
+  handle: NanoclawRuntimeHandle,
+): Effect.Effect<Option.Option<number>, never, never> {
+  return Fiber.poll(handle.exitFiber).pipe(Effect.map(Option.map(exitToCode)));
 }
 
 export class NanoclawAdapter implements Runtime {
@@ -43,25 +61,18 @@ export class NanoclawAdapter implements Runtime {
     };
 
     return Effect.gen(this, function* () {
-      yield* Effect.tryPromise({
-        try: () => ensureNanoclawRuntimeInstalled(),
-        catch: toSpawnFailed,
-      });
+      yield* ensureNanoclawRuntimeInstalledEffect();
 
-      const handle = yield* Effect.tryPromise({
-        try: () =>
-          startNanoclawRuntime({
-            apiKey: input.apiKey,
-            serverUrl: input.serverUrl,
-            workspaceFiles: input.workspaceFiles,
-          }),
-        catch: toSpawnFailed,
+      const handle = yield* startNanoclawRuntimeEffect({
+        apiKey: input.apiKey,
+        serverUrl: input.serverUrl,
+        workspaceFiles: input.workspaceFiles,
       });
 
       yield* Effect.sync(() => {
         this.state = { handle, spawnInput: input, tornDown: false };
       });
-    });
+    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
@@ -72,50 +83,21 @@ export class NanoclawAdapter implements Runtime {
     const agentId = spawnInput.agentId;
 
     const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
-
-    // Adapter-side `ProcessExited` detector. Polls the nanoclaw subprocess'
-    // exit code until it terminates, then surfaces stderr from the runtime's
-    // log accumulator.
-    const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
-      Effect.sync(() => {
-        if (handle.proc.exitCode === null) return null;
-        return {
-          _tag: "ProcessExited" as const,
-          exitCode: handle.proc.exitCode,
-          stderr: getNanoclawRuntimeLogs(handle),
-        };
-      });
-    const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
-      Effect.iterate(null as ReadyOutcome | null, {
-        while: (s) => s === null,
-        body: () => Effect.sleep("250 millis").pipe(Effect.zipRight(exitTick)),
-      }),
-      Effect.map(
-        (s): ReadyOutcome => s ?? { _tag: "Timeout" as const, timeoutMs },
-      ),
-    );
+    const processExit = {
+      pollExitCode: () => pollNanoclawExitCode(handle),
+      stderr: () => getNanoclawRuntimeLogs(handle),
+      timeoutMs,
+    };
 
     return pipe(
-      Effect.race(serverReady, exitLoop),
+      Effect.race(serverReady, processExitLoop(processExit)),
       // Final-check: if the race resolved `Timeout`, nanoclaw's subprocess
       // may have exited within the last `exitLoop` tick window — one last
       // sync probe promotes that case to `ProcessExited` with the actual
       // exit code so the diagnostic stderr isn't lost behind an opaque
       // `Timeout`.
-      Effect.flatMap(
-        (outcome): Effect.Effect<ReadyOutcome, never, never> =>
-          outcome._tag !== "Timeout"
-            ? Effect.succeed(outcome)
-            : Effect.sync(
-                (): ReadyOutcome =>
-                  handle.proc.exitCode !== null
-                    ? {
-                        _tag: "ProcessExited" as const,
-                        exitCode: handle.proc.exitCode,
-                        stderr: getNanoclawRuntimeLogs(handle),
-                      }
-                    : outcome,
-              ),
+      Effect.flatMap((outcome) =>
+        promoteTimeoutIfProcessExited(outcome, processExit),
       ),
       Effect.tap((outcome) =>
         outcome._tag === "Ready" ? Effect.void : this.teardown(),
@@ -148,10 +130,10 @@ export class NanoclawAdapter implements Runtime {
       Effect.flatMap((handle) =>
         handle === null
           ? Effect.void
-          : Effect.tryPromise({
-              try: () => stopNanoclawRuntime(handle),
-              catch: () => undefined,
-            }).pipe(Effect.catchAll(() => Effect.void)),
+          : stopNanoclawRuntimeEffect(handle).pipe(
+              Effect.provide(NodeContext.layer),
+              Effect.catchAll(() => Effect.void),
+            ),
       ),
     );
   }

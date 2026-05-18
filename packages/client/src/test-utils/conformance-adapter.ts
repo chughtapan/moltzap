@@ -33,6 +33,7 @@ import {
   type NotificationFrame,
   type ParamsOf,
   type ResponseFrame,
+  type RpcCallError,
 } from "@moltzap/protocol";
 import type {
   RealClientCloseEvent,
@@ -54,6 +55,8 @@ import {
 } from "@moltzap/protocol";
 
 const CONNECT_READY_TIMEOUT_MS = 30_000;
+type ClientRpcCause = RpcCallError | RpcTimeoutError;
+type ReadyState = "pending" | "resolved" | { readonly cause: unknown };
 
 /**
  * Options for the adapter factory. `agentKey` and `agentId` are caller-
@@ -88,10 +91,7 @@ function lifecycleError(cause: unknown): RealClientLifecycleError {
   return new RealClientLifecycleFailure({ cause }) as RealClientLifecycleError;
 }
 
-function rpcError(
-  cause: NotConnectedError | RpcServerError | RpcTimeoutError,
-  method: string,
-): RealClientRpcError {
+function rpcError(cause: ClientRpcCause, method: string): RealClientRpcError {
   if (cause instanceof RpcTimeoutError) {
     return new RealClientRpcFailure({
       cause,
@@ -118,10 +118,16 @@ function rpcError(
   }
   return new RealClientRpcFailure({
     cause,
-    documentedErrorTag: null,
-    kind: "malformed-response",
+    documentedErrorTag: typeof cause._tag === "string" ? cause._tag : null,
+    kind: "server-error",
     method,
   }) as RealClientRpcError;
+}
+
+function rpcErrorForMethod(
+  method: string,
+): (cause: ClientRpcCause) => RealClientRpcError {
+  return (cause) => rpcError(cause, method);
 }
 
 /**
@@ -137,6 +143,215 @@ function filterFromRealClient(
     conversationId: filter.conversationId,
     notificationNamePrefix: filter.notificationNamePrefix,
   };
+}
+
+function logConformanceAdapterWarning(message: string, cause: unknown): void {
+  Effect.runSync(
+    Effect.logWarning(message).pipe(
+      Effect.annotateLogs({ cause: String(cause) }),
+    ),
+  );
+}
+
+function closeEventFromInfo(close: CloseInfo): RealClientCloseEvent {
+  return {
+    code: close.code,
+    reason: close.reason,
+    observedAtMs: Date.now(),
+  };
+}
+
+function recordCloseEvent(
+  closeRef: Ref.Ref<RealClientCloseEvent | null>,
+  close: CloseInfo,
+): void {
+  try {
+    Effect.runSync(
+      Ref.update(closeRef, (current) => current ?? closeEventFromInfo(close)),
+    );
+  } catch (closeErr) {
+    logConformanceAdapterWarning(
+      "failed to record conformance close event",
+      closeErr,
+    );
+  }
+}
+
+function observedNotificationFromFrame(
+  frame: NotificationFrame,
+): ObservedNotification {
+  const wireFrame: NotificationFrame = {
+    jsonrpc: frame.jsonrpc,
+    method: frame.method,
+    ...(frame.params !== undefined ? { params: frame.params } : {}),
+  };
+  const encoded = new TextEncoder().encode(JSON.stringify(wireFrame));
+  return {
+    emissionTag: null,
+    decoded: wireFrame,
+    rawBytes: encoded,
+    observedAtMs: Date.now(),
+  };
+}
+
+function recordObservedNotification(
+  notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
+  frame: NotificationFrame,
+): void {
+  const obs = observedNotificationFromFrame(frame);
+  try {
+    Effect.runSync(Ref.update(notificationsRef, (xs) => [...xs, obs]));
+  } catch (recordErr) {
+    logConformanceAdapterWarning(
+      "failed to record conformance observation",
+      recordErr,
+    );
+  }
+}
+
+function resolveRpcDefinition(
+  method: string,
+  params: unknown,
+): Effect.Effect<AnyRpcDefinition, RealClientRpcError> {
+  const definition = rpcMethods.find(
+    (d): d is AnyRpcDefinition => d.name === method,
+  );
+  if (definition !== undefined && definition.validateParams(params)) {
+    return Effect.succeed(definition);
+  }
+  return Effect.fail(
+    new RealClientRpcFailure({
+      cause: { method, params },
+      documentedErrorTag: null,
+      kind: "malformed-response",
+      method,
+    }) as RealClientRpcError,
+  );
+}
+
+function makeConformanceClient(
+  args: { readonly testServerUrl: string },
+  opts: RealClientFactoryOptions,
+  closeRef: Ref.Ref<RealClientCloseEvent | null>,
+): MoltZapWsClient {
+  return new MoltZapWsClient({
+    serverUrl: args.testServerUrl,
+    agentKey: opts.agentKey,
+    onDisconnect: (close: CloseInfo) => recordCloseEvent(closeRef, close),
+  });
+}
+
+function captureAllNotifications(
+  ws: MoltZapWsClient,
+  notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
+): Effect.Effect<RealClientSubscription, RealClientLifecycleError> {
+  return ws
+    .subscribe({}, (frame: NotificationFrame) =>
+      Effect.sync(() => {
+        recordObservedNotification(notificationsRef, frame);
+      }),
+    )
+    .pipe(Effect.mapError((cause) => lifecycleError(cause)));
+}
+
+function addClientFinalizer(
+  ws: MoltZapWsClient,
+  captureAll: RealClientSubscription,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.addFinalizer(() =>
+    captureAll.unsubscribe.pipe(Effect.zipRight(ws.close())),
+  );
+}
+
+function forkReadyWatcher(
+  ws: MoltZapWsClient,
+  readyRef: Ref.Ref<ReadyState>,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.forkScoped(
+    ws.connect().pipe(
+      Effect.either,
+      Effect.flatMap(
+        Either.match({
+          onLeft: (cause) => Ref.set(readyRef, { cause }),
+          onRight: () => Ref.set(readyRef, "resolved"),
+        }),
+      ),
+    ),
+  ).pipe(Effect.asVoid);
+}
+
+function waitForReady(
+  readyRef: Ref.Ref<ReadyState>,
+): Effect.Effect<void, RealClientLifecycleError> {
+  return Effect.gen(function* () {
+    const deadline = Date.now() + CONNECT_READY_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const state = yield* Ref.get(readyRef);
+      if (state === "resolved") return;
+      if (typeof state === "object") {
+        return yield* Effect.fail(lifecycleError(state.cause));
+      }
+      yield* Effect.sleep("25 millis");
+    }
+    return yield* Effect.fail(lifecycleError("connect timeout"));
+  });
+}
+
+function subscribeRealClient(
+  ws: MoltZapWsClient,
+  filter: RealClientNotificationFilter,
+): Effect.Effect<RealClientSubscription, RealClientLifecycleError> {
+  return ws
+    .subscribe(filterFromRealClient(filter), () => Effect.void)
+    .pipe(
+      Effect.map((handle) => ({
+        id: handle.id,
+        unsubscribe: handle.unsubscribe,
+      })),
+      Effect.mapError((cause) => lifecycleError(cause)),
+    );
+}
+
+function makeNotificationSubscriber(
+  ws: MoltZapWsClient,
+  notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
+): RealClientNotificationSubscriber {
+  return {
+    subscribe: (filter) => subscribeRealClient(ws, filter),
+    snapshot: Ref.get(notificationsRef),
+  };
+}
+
+function callRealClientRpc(
+  ws: MoltZapWsClient,
+  method: string,
+  params: unknown,
+): Effect.Effect<ResponseFrame, RealClientRpcError> {
+  return Effect.gen(function* () {
+    const definition = yield* resolveRpcDefinition(method, params);
+    const result = yield* ws
+      .sendRpc(definition, params as ParamsOf<typeof definition>)
+      .pipe(Effect.mapError(rpcErrorForMethod(method)));
+    return definition.encodeResponse(null, result) as ResponseFrame;
+  });
+}
+
+function makeRpcCaller(ws: MoltZapWsClient): RealClientRpcCaller {
+  return {
+    call: (method, params) => callRealClientRpc(ws, method, params),
+  };
+}
+
+function closeSignalEffect(
+  closeRef: Ref.Ref<RealClientCloseEvent | null>,
+): Effect.Effect<RealClientCloseEvent> {
+  return Effect.gen(function* () {
+    while (true) {
+      const cur = yield* Ref.get(closeRef);
+      if (cur !== null) return cur;
+      yield* Effect.sleep("25 millis");
+    }
+  });
 }
 
 /**
@@ -156,181 +371,20 @@ export function createMoltZapRealClientFactory(
         ReadonlyArray<ObservedNotification>
       >([]);
       const closeRef = yield* Ref.make<RealClientCloseEvent | null>(null);
+      const ws = makeConformanceClient(args, opts, closeRef);
+      const captureAll = yield* captureAllNotifications(ws, notificationsRef);
 
-      const ws = new MoltZapWsClient({
-        serverUrl: args.testServerUrl,
-        agentKey: opts.agentKey,
-        // V7: real WebSocket close metadata flows through `close.code`
-        // / `close.reason`, not the deleted `{1000, "disconnect"}`
-        // hardcode. The reader fiber's `extractCloseInfo` derives these
-        // from the actual `Exit.Exit<…, Socket.SocketError>`.
-        onDisconnect: (close: CloseInfo) => {
-          try {
-            Effect.runSync(
-              Ref.update(
-                closeRef,
-                (cur) =>
-                  cur ?? {
-                    code: close.code,
-                    reason: close.reason,
-                    observedAtMs: Date.now(),
-                  },
-              ),
-            );
-          } catch (closeErr) {
-            console.warn("failed to record conformance close event", closeErr);
-          }
-        },
-      });
-
-      // C4 + subscribe-stub: register a `{}`-filter subscription that
-      // captures every frame into `notificationsRef`. The previous top-level
-      // `onNotification` callback was deleted — `subscribe({})` is the
-      // replacement. Pre-`connect()` registration is supported.
-      const captureAll = yield* ws
-        .subscribe({}, (frame: NotificationFrame) =>
-          Effect.sync(() => {
-            // Strip `definition` (added by `decodeNotification` post-Phase-12)
-            // before re-encoding so `rawBytes` matches the wire form the
-            // TestServer originally emitted. Conformance correlation in
-            // `lookupTagForRawBytes` keys on the wire form.
-            const wireFrame: NotificationFrame = {
-              jsonrpc: frame.jsonrpc,
-              method: frame.method,
-              ...(frame.params !== undefined ? { params: frame.params } : {}),
-            };
-            const encoded = new TextEncoder().encode(JSON.stringify(wireFrame));
-            const obs: ObservedNotification = {
-              emissionTag: null,
-              decoded: wireFrame,
-              rawBytes: encoded,
-              observedAtMs: Date.now(),
-            };
-            try {
-              Effect.runSync(
-                Ref.update(notificationsRef, (xs) => [...xs, obs]),
-              );
-            } catch (recordErr) {
-              console.warn(
-                "failed to record conformance observation",
-                recordErr,
-              );
-            }
-          }),
-        )
-        .pipe(Effect.mapError((cause) => lifecycleError(cause)));
-
-      // Scope-release finalizer: drop the capture subscription and
-      // close the WS client. `ws.close()` is Effect-native post-#234,
-      // so the finalizer chains them with `Effect.zipRight` and no
-      // `Effect.sync(runSync(...))` bridge.
-      yield* Effect.addFinalizer(() =>
-        captureAll.unsubscribe.pipe(Effect.zipRight(ws.close())),
-      );
-
-      // Kick off the connect; tracked via the `ready` Effect below.
-      const readyDeferred = yield* Ref.make<
-        "pending" | "resolved" | { readonly cause: unknown }
-      >("pending");
-      yield* Effect.forkScoped(
-        ws.connect().pipe(
-          Effect.either,
-          Effect.flatMap(
-            Either.match({
-              onLeft: (cause) => Ref.set(readyDeferred, { cause }),
-              onRight: () => Ref.set(readyDeferred, "resolved"),
-            }),
-          ),
-        ),
-      );
-
-      const ready: Effect.Effect<void, RealClientLifecycleError> = Effect.gen(
-        function* () {
-          // Internal handshake budget is generous — the outer
-          // `_fixtures.acquireFixture` wraps the whole `ready` with a
-          // suite-level timeout that defines the actual property budget.
-          const deadline = Date.now() + CONNECT_READY_TIMEOUT_MS;
-          while (Date.now() < deadline) {
-            const state = yield* Ref.get(readyDeferred);
-            if (state === "resolved") return;
-            if (typeof state === "object") {
-              return yield* Effect.fail(lifecycleError(state.cause));
-            }
-            yield* Effect.sleep("25 millis");
-          }
-          return yield* Effect.fail(lifecycleError("connect timeout"));
-        },
-      );
-
-      const subscribe: RealClientNotificationSubscriber["subscribe"] = (
-        filter,
-      ): Effect.Effect<RealClientSubscription, RealClientLifecycleError> =>
-        ws
-          .subscribe(filterFromRealClient(filter), () => Effect.void)
-          .pipe(
-            Effect.map((handle) => ({
-              id: handle.id,
-              unsubscribe: handle.unsubscribe,
-            })),
-            Effect.mapError((cause) => lifecycleError(cause)),
-          );
-
-      const snapshot: RealClientNotificationSubscriber["snapshot"] =
-        Ref.get(notificationsRef);
-
-      const notifications: RealClientNotificationSubscriber = {
-        subscribe,
-        snapshot,
-      };
-
-      const call: RealClientRpcCaller["call"] = (
-        method: string,
-        params: unknown,
-      ) =>
-        Effect.gen(function* () {
-          // The conformance suite passes string method names; resolve to
-          // the protocol descriptor by name. Per-def `validateParams` is
-          // checked inside `ws.sendRpc` via wire validation.
-          const definition = rpcMethods.find(
-            (d): d is AnyRpcDefinition => d.name === method,
-          );
-          if (definition === undefined || !definition.validateParams(params)) {
-            return yield* Effect.fail(
-              new RealClientRpcFailure({
-                cause: { method, params },
-                documentedErrorTag: null,
-                kind: "malformed-response",
-                method,
-              }) as RealClientRpcError,
-            );
-          }
-          const result = yield* ws
-            .sendRpc(definition, params as ParamsOf<typeof definition>)
-            .pipe(Effect.mapError((cause) => rpcError(cause, method)));
-          return definition.encodeResponse(null, result) as ResponseFrame;
-        });
-
-      const rpcCaller: RealClientRpcCaller = { call };
-
-      const closeSignal: Effect.Effect<RealClientCloseEvent> = Effect.gen(
-        function* () {
-          while (true) {
-            const cur = yield* Ref.get(closeRef);
-            if (cur !== null) return cur;
-            yield* Effect.sleep("25 millis");
-          }
-        },
-      );
-
-      const close: Effect.Effect<void, RealClientLifecycleError> = ws.close();
+      yield* addClientFinalizer(ws, captureAll);
+      const readyRef = yield* Ref.make<ReadyState>("pending");
+      yield* forkReadyWatcher(ws, readyRef);
 
       return {
         agentId: opts.agentId,
-        ready,
-        notifications,
-        call: rpcCaller,
-        closeSignal,
-        close,
+        ready: waitForReady(readyRef),
+        notifications: makeNotificationSubscriber(ws, notificationsRef),
+        call: makeRpcCaller(ws),
+        closeSignal: closeSignalEffect(closeRef),
+        close: ws.close(),
       } satisfies RealClientHandle;
-    });
+    }).pipe(Effect.withSpan("createMoltZapRealClientFactory"));
 }

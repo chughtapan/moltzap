@@ -19,6 +19,7 @@
  */
 
 import type { EnrichedInboundMessage } from "@moltzap/client";
+import { Either } from "effect";
 import type {
   ClaudeChannelNotification,
   ConversationId,
@@ -27,6 +28,7 @@ import type {
   UserId,
 } from "./types.js";
 import {
+  CLAUDE_CHANNEL_NOTIFICATION_METHOD,
   ConversationId as makeConversationId,
   MessageId as makeMessageId,
   UserId as makeUserId,
@@ -38,71 +40,75 @@ export type EventShapeResult =
   | { readonly _tag: "Ok"; readonly value: ClaudeChannelNotification }
   | { readonly _tag: "Err"; readonly error: EventShapeError };
 
-type BrandResult<T> =
-  | { readonly _tag: "Ok"; readonly value: T }
-  | { readonly _tag: "Err"; readonly reason: string };
+type BrandResult<T> = Either.Either<T, MetaInvalid>;
 
 const metaInvalid = (reason: string): MetaInvalid =>
   new MetaInvalid({ reason, message: reason });
 
+function unwrapBrand<T>(result: BrandResult<T>, name: string): T {
+  return Either.match(result, {
+    onLeft: (error) => {
+      throw metaInvalid(`${name}: ${error.reason}`);
+    },
+    onRight: (value) => value,
+  });
+}
+
 function brandConversationIdSafe(raw: string): BrandResult<ConversationId> {
-  if (typeof raw !== "string" || raw.trim().length === 0) {
-    return { _tag: "Err", reason: "chat_id must be a non-empty string" };
+  if (raw.trim().length === 0) {
+    return Either.left(metaInvalid("chat_id must be a non-empty string"));
   }
   try {
-    return { _tag: "Ok", value: makeConversationId(raw) };
+    return Either.right(makeConversationId(raw));
   } catch (cause) {
-    return {
-      _tag: "Err",
-      reason: `chat_id must be a valid conversation id: ${String(cause)}`,
-    };
+    return Either.left(
+      metaInvalid(`chat_id must be a valid conversation id: ${String(cause)}`),
+    );
   }
 }
 
 function brandMessageIdSafe(raw: string): BrandResult<MessageId> {
-  if (typeof raw !== "string" || raw.trim().length === 0) {
-    return { _tag: "Err", reason: "message_id must be a non-empty string" };
+  if (raw.trim().length === 0) {
+    return Either.left(metaInvalid("message_id must be a non-empty string"));
   }
   try {
-    return { _tag: "Ok", value: makeMessageId(raw) };
+    return Either.right(makeMessageId(raw));
   } catch (cause) {
-    return {
-      _tag: "Err",
-      reason: `message_id must be a valid message id: ${String(cause)}`,
-    };
+    return Either.left(
+      metaInvalid(`message_id must be a valid message id: ${String(cause)}`),
+    );
   }
 }
 
 function brandUserIdSafe(raw: string): BrandResult<UserId> {
-  if (typeof raw !== "string" || raw.trim().length === 0) {
-    return { _tag: "Err", reason: "user must be a non-empty string" };
+  if (raw.trim().length === 0) {
+    return Either.left(metaInvalid("user must be a non-empty string"));
   }
   try {
-    return { _tag: "Ok", value: makeUserId(raw) };
+    return Either.right(makeUserId(raw));
   } catch (cause) {
-    return {
-      _tag: "Err",
-      reason: `user must be a valid agent id: ${String(cause)}`,
-    };
+    return Either.left(
+      metaInvalid(`user must be a valid agent id: ${String(cause)}`),
+    );
   }
 }
 
-// Loose ISO-8601 shape: date-only or date + T + time + optional tz.
-const ISO_SHAPE =
-  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}:?\d{2}|Z)?)?$/;
+// Keep the shape check shallow and let the platform date parser validate the
+// actual calendar/time semantics.
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}(?:$|[T ])/u;
 
 function brandIsoTimestampSafe(raw: string): BrandResult<IsoTimestamp> {
-  if (typeof raw !== "string" || raw.trim().length === 0) {
-    return { _tag: "Err", reason: "ts must be a non-empty string" };
+  if (raw.trim().length === 0) {
+    return Either.left(metaInvalid("ts must be a non-empty string"));
   }
-  if (!ISO_SHAPE.test(raw)) {
-    return { _tag: "Err", reason: `ts must be an ISO-8601 timestamp: ${raw}` };
+  if (!ISO_DATE_PREFIX.test(raw)) {
+    return Either.left(metaInvalid(`ts must be an ISO-8601 timestamp: ${raw}`));
   }
-  const parsed = Date.parse(raw);
+  const parsed = Date.parse(raw.replace(" ", "T"));
   if (Number.isNaN(parsed)) {
-    return { _tag: "Err", reason: `ts could not be parsed as a date: ${raw}` };
+    return Either.left(metaInvalid(`ts could not be parsed as a date: ${raw}`));
   }
-  return { _tag: "Ok", value: raw as IsoTimestamp };
+  return Either.right(raw as IsoTimestamp);
 }
 
 /**
@@ -111,35 +117,48 @@ function brandIsoTimestampSafe(raw: string): BrandResult<IsoTimestamp> {
  * result; this helper is for callers that have already validated upstream.
  */
 export function brandConversationId(raw: string): ConversationId {
-  const r = brandConversationIdSafe(raw);
-  if (r._tag === "Err") {
-    throw metaInvalid(`brandConversationId: ${r.reason}`);
-  }
-  return r.value;
+  return unwrapBrand(brandConversationIdSafe(raw), "brandConversationId");
 }
 
 export function brandMessageId(raw: string): MessageId {
-  const r = brandMessageIdSafe(raw);
-  if (r._tag === "Err") {
-    throw metaInvalid(`brandMessageId: ${r.reason}`);
-  }
-  return r.value;
+  return unwrapBrand(brandMessageIdSafe(raw), "brandMessageId");
 }
 
 export function brandUserId(raw: string): UserId {
-  const r = brandUserIdSafe(raw);
-  if (r._tag === "Err") {
-    throw metaInvalid(`brandUserId: ${r.reason}`);
-  }
-  return r.value;
+  return unwrapBrand(brandUserIdSafe(raw), "brandUserId");
 }
 
 export function brandIsoTimestamp(raw: string): IsoTimestamp {
-  const r = brandIsoTimestampSafe(raw);
-  if (r._tag === "Err") {
-    throw metaInvalid(`brandIsoTimestamp: ${r.reason}`);
-  }
-  return r.value;
+  return unwrapBrand(brandIsoTimestampSafe(raw), "brandIsoTimestamp");
+}
+
+interface ClaudeChannelMeta {
+  readonly chat_id: ConversationId;
+  readonly message_id: MessageId;
+  readonly user: UserId;
+  readonly ts: IsoTimestamp;
+}
+
+function decodeNotificationMeta(
+  event: EnrichedInboundMessage,
+): Either.Either<ClaudeChannelMeta, EventShapeError> {
+  return Either.gen(function* () {
+    const senderId =
+      event.sender && typeof event.sender.id === "string"
+        ? event.sender.id
+        : "";
+    const chatId = yield* brandConversationIdSafe(event.conversationId);
+    const messageId = yield* brandMessageIdSafe(event.id);
+    const userId = yield* brandUserIdSafe(senderId);
+    const timestamp = yield* brandIsoTimestampSafe(event.createdAt);
+
+    return {
+      chat_id: chatId,
+      message_id: messageId,
+      user: userId,
+      ts: timestamp,
+    };
+  });
 }
 
 /**
@@ -154,50 +173,17 @@ export function toClaudeChannelNotification(
     return { _tag: "Err", error: new ContentEmpty() };
   }
 
-  const conversationIdR = brandConversationIdSafe(event.conversationId);
-  if (conversationIdR._tag === "Err") {
-    return {
-      _tag: "Err",
-      error: metaInvalid(conversationIdR.reason),
-    };
-  }
-  const messageIdR = brandMessageIdSafe(event.id);
-  if (messageIdR._tag === "Err") {
-    return {
-      _tag: "Err",
-      error: metaInvalid(messageIdR.reason),
-    };
-  }
-  const senderId =
-    event.sender && typeof event.sender.id === "string" ? event.sender.id : "";
-  const userR = brandUserIdSafe(senderId);
-  if (userR._tag === "Err") {
-    return {
-      _tag: "Err",
-      error: metaInvalid(userR.reason),
-    };
-  }
-  const tsR = brandIsoTimestampSafe(event.createdAt);
-  if (tsR._tag === "Err") {
-    return {
-      _tag: "Err",
-      error: metaInvalid(tsR.reason),
-    };
-  }
-
-  return {
-    _tag: "Ok",
-    value: {
-      method: "notifications/claude/channel",
-      params: {
-        content,
-        meta: {
-          chat_id: conversationIdR.value,
-          message_id: messageIdR.value,
-          user: userR.value,
-          ts: tsR.value,
+  return Either.match(decodeNotificationMeta(event), {
+    onLeft: (error) => ({ _tag: "Err", error }),
+    onRight: (meta) => ({
+      _tag: "Ok",
+      value: {
+        method: CLAUDE_CHANNEL_NOTIFICATION_METHOD,
+        params: {
+          content,
+          meta,
         },
       },
-    },
-  };
+    }),
+  });
 }

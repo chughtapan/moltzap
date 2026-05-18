@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for the MoltZap client package.
+ */
 export {
   MoltZapService,
   formatCrossConversationBlock,
@@ -26,7 +29,6 @@ export {
 } from "./channel-core.js";
 export {
   MoltZapWsClient,
-  type WsClientLogger,
   type MoltZapWsClientOptions,
   type ServerRpcContext,
   type ServerRpcHandler,

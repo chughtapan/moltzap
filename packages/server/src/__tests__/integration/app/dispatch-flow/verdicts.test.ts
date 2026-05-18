@@ -6,47 +6,32 @@
  * (Phase 2B reorg, #543). Each split file owns its own server-fixture
  * `beforeAll`/`afterAll`/`beforeEach` so vitest's `fileParallelism: true`
  * runner can execute buckets concurrently without sharing state.
- *
- * See parent dispatch-flow architecture comment in the original file
- * (now replaced by these 6 bucket files): the recipient calls
- * `dispatch/request` over WS; server mints a lease, returns ack
- * synchronously, forks the moderator round-trip; recipient observes
- * the verdict via `dispatch/release` notification. `messages/send(
- * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
- * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { it as effectIt } from "@effect/vitest";
+import type { AppManifest } from "@moltzap/protocol";
 import { Effect } from "effect";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
-import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
-  registerAndConnect,
-  setupAgentPair,
-  getTestCoreApp,
-} from "../../helpers.js";
+  DISPATCH_RELEASE_TIMEOUT_MS,
+  DISPATCH_VERDICT_DENY,
+  DISPATCH_VERDICT_HOLD,
+  MODERATOR_TIMEOUT_REASON,
+  createDispatchFlowFixture,
+  createModeratedDm,
+  requestDispatch,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+  waitForDispatchRelease,
+  waitForParticipantsRemoved,
+} from "./fixture.js";
+import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
+const DENIAL_REASON = "phase closed";
+const HOLD_REASON = "waiting for turn";
+const MODERATOR_TIMEOUT_MS = 10_000;
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
@@ -54,235 +39,134 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
+beforeEach(() => Effect.runPromise(fixture.reset));
+
+function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
+  return Effect.gen(function* () {
+    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const ack = yield* requestDispatch(bob, conversationId, alice);
+    return { ack, conversationId };
   });
-});
-
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
 }
 
-describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
-  // Scenario 3 — deny path
-  it.live(
-    "deny path: moderator deny → dispatch/release{deny} fires",
-    () =>
-      Effect.gen(function* () {
-        const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "deny", reason: "phase closed" };
-        const task = yield* alice.client.sendRpc(TasksCreate, {
-          appId: TEST_APP_ID,
-          tmType: "self",
-        });
-        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
-          taskId: task.task.id,
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        });
-        const ack = yield* bob.client.sendRpc(DispatchRequest, {
-          conversationId: conv.conversation.id,
-          messageId: makeProbeMessageId(),
-          senderAgentId: protocolAgentId(alice.agentId),
-          parts: [{ type: "text", text: "probe" }],
-        });
-        const release = yield* bob.client.waitForNotification(
-          DispatchRelease,
-          5000,
-        );
-        const params = release.params as {
-          leaseId: string;
-          verdict: { decision: string; reason?: string };
-        };
-        expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("deny");
-        expect(params.verdict.reason).toBe("phase closed");
-      }),
-    20_000,
-  );
+function expectReleaseVerdict(
+  release: { leaseId: string; verdict: { decision: string; reason?: string } },
+  expected: {
+    readonly leaseId: string;
+    readonly decision: string;
+    readonly reason?: string;
+  },
+) {
+  expect(release.leaseId).toBe(expected.leaseId);
+  expect(release.verdict.decision).toBe(expected.decision);
+  if (expected.reason !== undefined) {
+    expect(release.verdict.reason).toBe(expected.reason);
+  }
+}
 
-  // Scenario 4 — hold path
-  it.live(
-    "hold path: moderator hold → dispatch/release{hold} fires",
-    () =>
-      Effect.gen(function* () {
-        const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "hold", reason: "waiting for turn" };
-        const task = yield* alice.client.sendRpc(TasksCreate, {
-          appId: TEST_APP_ID,
-          tmType: "self",
-        });
-        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
-          taskId: task.task.id,
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        });
-        const ack = yield* bob.client.sendRpc(DispatchRequest, {
-          conversationId: conv.conversation.id,
-          messageId: makeProbeMessageId(),
-          senderAgentId: protocolAgentId(alice.agentId),
-          parts: [{ type: "text", text: "probe" }],
-        });
-        const release = yield* bob.client.waitForNotification(
-          DispatchRelease,
-          5000,
-        );
-        const params = release.params as {
-          leaseId: string;
-          verdict: { decision: string };
-        };
-        expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("hold");
-      }),
-    20_000,
-  );
+function expectParticipantRemoved(
+  removed: { conversationId: string; agentId: string },
+  expected: { readonly conversationId: string; readonly agentId: string },
+) {
+  expect(removed.conversationId).toBe(expected.conversationId);
+  expect(removed.agentId).toBe(expected.agentId);
+}
 
-  // ── Scenario 5 — moderator timeout (architect §8 #5, plan risk #3) ──
-  //
-  // Architect plan §8 #5: "moderator never responds → dispatch/release
-  // {deny, reason: \"timeout\"} fires + participants/removed fires".
-  // Synthesized timeout-deny IS verdict-deny per architect risk #3 + #5
-  // — both arms call `removeParticipant`. Synthesized infra-hold (no
-  // hook registered, see scenario 17) does NOT (architect risk #5,
-  // epic decision #10). The deny → removeParticipant wire is in
-  // `app-host.ts`'s `runForkedDispatchRoundTrip` deny arm. Authority:
-  // `requireConversationAdminAuthority` (prereq 2) accepts the
-  // moderator's agentId because `task.app_id IS NOT NULL` and
-  // `task.tm_endpoint_address === tm:agent:<moderatorAgentId>`.
-  it.live(
-    "moderator timeout: never-reply hook → dispatch/release{deny, reason: timeout} + participants/removed fires (architect §8 #5)",
-    () =>
-      Effect.gen(function* () {
-        const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { kind: "never-reply" };
-        // Default DEFAULT_APP_HOOK_TIMEOUT_MS is 5000ms; assert against
-        // that. (Architect plan §3.4: timeout source is manifest
-        // hooks.dispatch_authorize.timeout_ms ?? DEFAULT_APP_HOOK_TIMEOUT_MS.)
-        const task = yield* alice.client.sendRpc(TasksCreate, {
-          appId: TEST_APP_ID,
-          tmType: "self",
-        });
-        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
-          taskId: task.task.id,
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        });
-        const ack = yield* bob.client.sendRpc(DispatchRequest, {
-          conversationId: conv.conversation.id,
-          messageId: makeProbeMessageId(),
-          senderAgentId: protocolAgentId(alice.agentId),
-          parts: [{ type: "text", text: "probe" }],
-        });
-        // Wait long enough for the 5s server-side timeout to fire.
-        const release = yield* bob.client.waitForNotification(
-          DispatchRelease,
-          10_000,
-        );
-        const params = release.params as {
-          leaseId: string;
-          verdict: { decision: string; reason?: string };
-        };
-        expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("deny");
-        expect(params.verdict.reason).toBe("timeout");
-        // Architect §8 #5: participants/removed fires alongside
-        // dispatch/release{deny}. The participants/removed broadcast
-        // includes the about-to-be-removed agent (snapshot taken
-        // BEFORE the delete), so bob (the recipient being removed)
-        // observes the notification on his own connection.
-        const removed = yield* bob.client.waitForNotification(
-          ParticipantsRemovedNotificationDefinition,
-          5000,
-        );
-        const removedParams = removed.params as {
-          conversationId: string;
-          agentId: string;
-        };
-        expect(removedParams.conversationId).toBe(conv.conversation.id);
-        expect(removedParams.agentId).toBe(bob.agentId);
-      }),
+function moderatorDenyReleasesDeny() {
+  return Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({
+      decision: "deny",
+      reason: DENIAL_REASON,
+    });
+    const { ack } = yield* requestModeratedDispatch(alice, bob);
+    const release = yield* waitForDispatchRelease(bob);
+
+    expectReleaseVerdict(release, {
+      leaseId: ack.leaseId,
+      decision: DISPATCH_VERDICT_DENY,
+      reason: DENIAL_REASON,
+    });
+  });
+}
+
+function moderatorHoldReleasesHold() {
+  return Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({
+      decision: "hold",
+      reason: HOLD_REASON,
+    });
+    const { ack } = yield* requestModeratedDispatch(alice, bob);
+    const release = yield* waitForDispatchRelease(bob);
+
+    expectReleaseVerdict(release, {
+      leaseId: ack.leaseId,
+      decision: DISPATCH_VERDICT_HOLD,
+    });
+  });
+}
+
+function moderatorTimeoutRemovesRecipient() {
+  return Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({ kind: "never-reply" });
+    const { ack, conversationId } = yield* requestModeratedDispatch(alice, bob);
+    const release = yield* waitForDispatchRelease(bob, MODERATOR_TIMEOUT_MS);
+
+    expectReleaseVerdict(release, {
+      leaseId: ack.leaseId,
+      decision: DISPATCH_VERDICT_DENY,
+      reason: MODERATOR_TIMEOUT_REASON,
+    });
+    const removed = yield* waitForParticipantsRemoved(
+      bob,
+      DISPATCH_RELEASE_TIMEOUT_MS,
+    );
+    expectParticipantRemoved(removed, { conversationId, agentId: bob.agentId });
+  });
+}
+
+function explicitDenyRemovesRecipient() {
+  return Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({
+      decision: "deny",
+      reason: DENIAL_REASON,
+    });
+    const { ack, conversationId } = yield* requestModeratedDispatch(alice, bob);
+    const release = yield* waitForDispatchRelease(bob);
+
+    expectReleaseVerdict(release, {
+      leaseId: ack.leaseId,
+      decision: DISPATCH_VERDICT_DENY,
+    });
+    const removed = yield* waitForParticipantsRemoved(bob);
+    expectParticipantRemoved(removed, { conversationId, agentId: bob.agentId });
+  });
+}
+
+describe("dispatch/* — release verdicts (#529 reshape additive)", () => {
+  it("moderator deny releases deny", moderatorDenyReleasesDeny, 20_000);
+  it("moderator hold releases hold", moderatorHoldReleasesHold, 20_000);
+});
+
+describe("dispatch/* — deny removes recipient (#529 reshape additive)", () => {
+  it(
+    "moderator timeout releases deny and removes the recipient",
+    moderatorTimeoutRemovesRecipient,
     25_000,
   );
 
-  // ── Scenario 5b — verdict-deny → participants/removed (architect §8 #3) ─
-  //
-  // Companion to scenario 5: explicit-deny (moderator returns {deny})
-  // also triggers removeParticipant. Distinct from scenario 3 above
-  // (which only asserts the dispatch/release arm).
-  it.live(
-    "verdict-deny: moderator deny → dispatch/release{deny} + participants/removed fires",
-    () =>
-      Effect.gen(function* () {
-        const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "deny", reason: "phase closed" };
-        const task = yield* alice.client.sendRpc(TasksCreate, {
-          appId: TEST_APP_ID,
-          tmType: "self",
-        });
-        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
-          taskId: task.task.id,
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        });
-        const ack = yield* bob.client.sendRpc(DispatchRequest, {
-          conversationId: conv.conversation.id,
-          messageId: makeProbeMessageId(),
-          senderAgentId: protocolAgentId(alice.agentId),
-          parts: [{ type: "text", text: "probe" }],
-        });
-        const release = yield* bob.client.waitForNotification(
-          DispatchRelease,
-          5000,
-        );
-        const params = release.params as {
-          leaseId: string;
-          verdict: { decision: string; reason?: string };
-        };
-        expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("deny");
-        const removed = yield* bob.client.waitForNotification(
-          ParticipantsRemovedNotificationDefinition,
-          5000,
-        );
-        const removedParams = removed.params as {
-          conversationId: string;
-          agentId: string;
-        };
-        expect(removedParams.conversationId).toBe(conv.conversation.id);
-        expect(removedParams.agentId).toBe(bob.agentId);
-      }),
+  it(
+    "explicit moderator deny releases deny and removes the recipient",
+    explicitDenyRemovesRecipient,
     20_000,
   );
 });

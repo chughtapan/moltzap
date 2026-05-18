@@ -53,10 +53,12 @@ export interface Channel {
 
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
 
-export type OnChatMetadata = (
-  chatJid: string,
-  timestamp: string,
-  name?: string,
-  channel?: string,
-  isGroup?: boolean,
-) => void;
+interface ChatMetadata {
+  readonly chatJid: string;
+  readonly timestamp: string;
+  readonly name?: string;
+  readonly channel?: string;
+  readonly isGroup?: boolean;
+}
+
+export type OnChatMetadata = (metadata: ChatMetadata) => void;

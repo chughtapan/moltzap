@@ -3,7 +3,7 @@
  * the wire. Decides between the singleton daemon (Unix socket) and a
  * direct WebSocket per invocation.
  *
- * This file is the `--as <apiKey>` branch point (spec sbd#177 rev 3 §5.1,
+ * This file is the `--as &lt;apiKey>` branch point (spec sbd#177 rev 3 §5.1,
  * Invariant §4.2). Command handlers pull `Transport` from Effect context;
  * they do NOT open sockets or construct clients themselves. The kind of
  * transport in effect is decided once at CLI boot by {@link makeTransportLayer}
@@ -13,8 +13,17 @@
  * that provides a recording `Transport`; unit tests provide `Transport`
  * directly via `Effect.provideService`.
  */
-import * as net from "node:net";
-import { Config, Context, Data, Effect, Layer, Option, Scope } from "effect";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import {
+  Config,
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Option,
+  Redacted,
+  Scope,
+} from "effect";
 import { MoltZapService } from "../service.js";
 import {
   NotConnectedError,
@@ -95,7 +104,9 @@ export class TransportConfigError extends Data.TaggedError(
  * Kind of transport currently in use. Observable for logs and tests.
  * Commands never branch on kind.
  */
-export type TransportKind = "daemon" | "direct" | "test";
+export const DIRECT_TRANSPORT_KIND = "direct";
+
+type TransportKind = "daemon" | typeof DIRECT_TRANSPORT_KIND | "test";
 
 /**
  * Transport surface used by every CLI command. One generic RPC call; the
@@ -119,9 +130,9 @@ export const Transport = Context.GenericTag<Transport>("moltzap/cli/Transport");
  * `impersonateKey` wins over `profileKey` wins over daemon.
  */
 export interface TransportOptions {
-  /** `--as <apiKey>` literal. When set, force direct transport. */
+  /** `--as &lt;apiKey>` literal. When set, force direct transport. */
   readonly impersonateKey?: string;
-  /** Resolved profile apiKey if `--profile <name>` supplied. */
+  /** Resolved profile apiKey if `--profile &lt;name>` supplied. */
   readonly profileKey?: string;
   /** Resolved MOLTZAP_API_KEY for the legacy direct fallback branch. */
   readonly envFallbackKey?: string;
@@ -129,6 +140,7 @@ export interface TransportOptions {
   readonly serverUrl: string;
   /** Daemon socket path (absent only in tests that don't set it). */
   readonly socketPath?: string;
+
   /**
    * Lazy probe: called ONLY on the env-fallback branch (step 2 below).
    * The as-flag branch never invokes it (Invariant §4.2: --as must not
@@ -157,7 +169,12 @@ const JSON_RPC_SERVER_ERROR_CODE = -32000;
 const PROBE_DAEMON_TIMEOUT_MS = 250;
 
 const EnvServerUrl = Config.option(Config.string("MOLTZAP_SERVER_URL"));
-const EnvApiKey = Config.option(Config.string("MOLTZAP_API_KEY"));
+const EnvApiKey = Config.option(Config.redacted("MOLTZAP_API_KEY"));
+
+type DirectTransportDecision = Extract<
+  TransportDecision,
+  { readonly _tag: "UseDirect" }
+>;
 
 const loadEnvServerUrl: Effect.Effect<string | undefined, never> =
   EnvServerUrl.pipe(
@@ -169,9 +186,27 @@ const loadEnvServerUrlWithDefault: Effect.Effect<string, never> =
     Effect.map((serverUrl) => serverUrl ?? DEFAULT_SERVER_URL),
   );
 const loadEnvApiKey: Effect.Effect<string | undefined, never> = EnvApiKey.pipe(
-  Effect.map(Option.getOrUndefined),
+  Effect.map((value) =>
+    Option.match(value, {
+      onNone: () => undefined,
+      onSome: Redacted.value,
+    }),
+  ),
   Effect.orElseSucceed(() => undefined),
 );
+
+const selectDirectTransportKey = (
+  decision: DirectTransportDecision,
+  options: TransportOptions,
+): string | undefined => {
+  const keyByReason = {
+    "as-flag": options.impersonateKey,
+    "env-fallback": options.envFallbackKey,
+    profile: options.profileKey,
+  } satisfies Record<DirectTransportDecision["reason"], string | undefined>;
+
+  return keyByReason[decision.reason];
+};
 
 /**
  * Decision function — Effect-returning because the env-fallback branch
@@ -201,7 +236,7 @@ export const decideTransport = (
     // Default: daemon branch.
     const socketPath = options.socketPath ?? MoltZapService.SOCKET_PATH;
     return { _tag: "UseDaemon", socketPath } as const;
-  });
+  }).pipe(Effect.withSpan("decideTransport"));
 
 // Map daemon-branch Error to TransportError tags. The daemon socket client
 // surfaces a generic Error; we re-tag at the boundary so command handlers
@@ -245,7 +280,11 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
 
 // Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
 // to TransportError tags.
-/** @internal exported for decoder-fixture tests only (sbd#198). */
+
+/**
+ * Exported for decoder-fixture tests only (sbd#198).
+ * @internal
+ */
 export const tagWsError = (method: string, err: unknown): TransportError => {
   if (err instanceof NotConnectedError) {
     return new ServiceUnreachableError({
@@ -269,6 +308,26 @@ export const tagWsError = (method: string, err: unknown): TransportError => {
   }
   return new TransportDecodeError({ method, cause: err });
 };
+
+type DirectConnectOnce = Effect.Effect<MoltZapWsClient, TransportError>;
+
+function mapDirectRpcError(method: string): (err: unknown) => TransportError {
+  return (err) => tagWsError(method, err);
+}
+
+function sendDirectRpc<D extends RpcDefinition<string, any, any>>(
+  connectOnce: DirectConnectOnce,
+  definition: D,
+  params: ParamsOf<D>,
+): Effect.Effect<ResultOf<D>, TransportError> {
+  return connectOnce.pipe(
+    Effect.flatMap((client) =>
+      client
+        .sendRpc(definition, params)
+        .pipe(Effect.mapError(mapDirectRpcError(definition.name))),
+    ),
+  );
+}
 
 /**
  * Build a direct-WebSocket transport. Requires `Scope` so `Layer.scoped`
@@ -329,18 +388,12 @@ const makeDirectTransport = (
     );
 
     return {
-      kind: "direct" as const,
+      kind: DIRECT_TRANSPORT_KIND,
       rpc: <D extends RpcDefinition<string, any, any>>(
         definition: D,
         params: ParamsOf<D>,
       ): Effect.Effect<ResultOf<D>, TransportError> =>
-        connectOnce.pipe(
-          Effect.flatMap((c) =>
-            c
-              .sendRpc(definition, params)
-              .pipe(Effect.mapError((e) => tagWsError(definition.name, e))),
-          ),
-        ),
+        sendDirectRpc(connectOnce, definition, params),
     };
   });
 
@@ -369,18 +422,7 @@ export const makeTransportLayer = (
         case "UseDaemon":
           return makeDaemonTransport(decision.socketPath);
         case "UseDirect": {
-          let key: string | undefined;
-          switch (decision.reason) {
-            case "as-flag":
-              key = options.impersonateKey;
-              break;
-            case "profile":
-              key = options.profileKey;
-              break;
-            case "env-fallback":
-              key = options.envFallbackKey;
-              break;
-          }
+          const key = selectDirectTransportKey(decision, options);
           if (key === undefined) {
             return yield* Effect.fail(
               new TransportConfigError({
@@ -400,7 +442,7 @@ export const makeTransportLayer = (
         default:
           return absurd(decision);
       }
-    }),
+    }).pipe(Effect.withSpan("makeTransportLayer")),
   );
 
 /**
@@ -416,7 +458,7 @@ export const rpc = <D extends RpcDefinition<string, any, any>>(
 
 /**
  * Uniform error-to-exit adapter for subcommand handlers. Catches every error
- * channel, prints `Failed: <msg>` to stderr, and exits non-zero. Uses the
+ * channel, prints `Failed: &lt;msg>` to stderr, and exits non-zero. Uses the
  * tagged-error `message` field if present, otherwise the `_tag`, otherwise
  * a generic fallback. Shared across every v2 subcommand wrapper so the
  * exit-code contract (Invariant §4.6) has a single implementation.
@@ -493,7 +535,7 @@ export const resolveTransportInputs = (parsed: {
       socketPath: MoltZapService.SOCKET_PATH,
       probeDaemon: probeDaemonDefault,
     };
-  });
+  }).pipe(Effect.withSpan("resolveTransportInputs"));
 
 /**
  * Default daemon reachability probe: attempt a real connect to the daemon
@@ -504,21 +546,15 @@ export const resolveTransportInputs = (parsed: {
  * path and still fails fast when the socket refuses or hangs.
  */
 const probeDaemonDefault = (): Effect.Effect<boolean, never> =>
-  Effect.async<boolean, never>((resume) => {
-    let settled = false;
-    const done = (reachable: boolean): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      conn.removeAllListeners();
-      conn.destroy();
-      resume(Effect.succeed(reachable));
-    };
-    const conn = net.createConnection(MoltZapService.SOCKET_PATH);
-    const timer = setTimeout(() => done(false), PROBE_DAEMON_TIMEOUT_MS);
-    conn.once("connect", () => done(true));
-    conn.once("error", () => done(false));
-  });
+  Effect.scoped(
+    NodeSocket.makeNet({
+      path: MoltZapService.SOCKET_PATH,
+      openTimeout: `${PROBE_DAEMON_TIMEOUT_MS} millis`,
+    }).pipe(
+      Effect.as(true),
+      Effect.catchAll(() => Effect.succeed(false)),
+    ),
+  );
 
 function absurd(x: never): never {
   throw new Error(`unreachable: ${String(x)}`);

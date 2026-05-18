@@ -35,6 +35,7 @@ import { Effect, Either } from "effect";
 import {
   arbitraryConfidentCall,
   confidentOracleMethods,
+  type ArbitraryRpcCall,
 } from "../../arbitraries/rpc.js";
 import { applyCall } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";
@@ -46,6 +47,7 @@ import {
   assertProperty,
   registerProperty,
 } from "../_shared/registry.js";
+import type { PropertyAssertionFailure } from "../_shared/registry.js";
 
 const CATEGORY = "rpc-semantics" as const;
 const PROPERTY = "model-equivalence";
@@ -65,53 +67,78 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
     CATEGORY,
     PROPERTY,
     `when model predicts ok, server MUST return ok (K=${K} confident methods)`,
-    assertProperty(CATEGORY, PROPERTY, () =>
-      fc.assert(
-        fc.asyncProperty(arbitraryConfidentCall(), (call) => {
-          const modelTag = applyCall(initialReferenceState, call).outcome._tag;
-          if (modelTag === "error") {
-            // Safety-net guard: `arbitraryConfidentCall` derived this
-            // method as confident at module load. If the model now
-            // disagrees, applyCall became param-sensitive for the
-            // kept method and the derivation must widen. Surface
-            // loudly instead of silent short-circuit.
-            return Effect.runPromise(
-              Effect.fail(
-                new PropertyInvariantViolation({
-                  category: CATEGORY,
-                  name: PROPERTY,
-                  reason: `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to fc.sample-based check per architect #197 §2.2`,
-                }),
-              ),
-            );
-          }
-          return Effect.runPromise(
-            Effect.scoped(
-              Effect.gen(function* () {
-                const agent = yield* registerTestAgent({
-                  baseUrl: ctx.realServer.baseUrl,
-                  name: "me",
-                });
-                const client = yield* makeTestClient({
-                  serverUrl: ctx.realServer.wsUrl,
-                  agentKey: agent.apiKey,
-                  agentId: agent.agentId,
-                  defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-                  captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-                });
-                const outcome = yield* client
-                  .sendRpc(call.definition, call.params)
-                  .pipe(Effect.either);
-                return Either.match(outcome, {
-                  onLeft: () => "error" as const,
-                  onRight: () => "ok" as const,
-                });
-              }),
-            ).pipe(Effect.map((serverTag) => serverTag === "ok")),
-          );
-        }),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? numRunsFloor },
-      ),
-    ),
+    assertProperty(CATEGORY, PROPERTY, (onFailure) =>
+      assertModelEquivalence(ctx, numRunsFloor, onFailure),
+    ).pipe(Effect.withSpan("registerModelEquivalence")),
+  );
+}
+
+function assertModelEquivalence(
+  ctx: ConformanceRunContext,
+  numRunsFloor: number,
+  onFailure: (cause: unknown) => PropertyAssertionFailure,
+): Effect.Effect<void, PropertyAssertionFailure> {
+  return Effect.tryPromise({
+    try: () =>
+      fc.assert(modelEquivalenceProperty(ctx), {
+        seed: ctx.seed,
+        numRuns: ctx.opts.numRuns ?? numRunsFloor,
+      }),
+    catch: onFailure,
+  });
+}
+
+function modelEquivalenceProperty(ctx: ConformanceRunContext) {
+  return fc.asyncProperty(arbitraryConfidentCall(), (call) =>
+    checkModelEquivalenceCall(ctx, call),
+  );
+}
+
+function checkModelEquivalenceCall(
+  ctx: ConformanceRunContext,
+  call: ArbitraryRpcCall,
+) {
+  const modelTag = applyCall(initialReferenceState, call).outcome._tag;
+  if (modelTag === "error") {
+    return Effect.runPromise(Effect.fail(paramInvariantViolation(call)));
+  }
+  return Effect.runPromise(serverCallSucceeded(ctx, call));
+}
+
+function paramInvariantViolation(
+  call: ArbitraryRpcCall,
+): PropertyInvariantViolation {
+  return new PropertyInvariantViolation({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason: `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to fc.sample-based check per architect #197 §2.2`,
+  });
+}
+
+function serverCallSucceeded(
+  ctx: ConformanceRunContext,
+  call: ArbitraryRpcCall,
+) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const agent = yield* registerTestAgent({
+        baseUrl: ctx.realServer.baseUrl,
+        name: "me",
+      });
+      const client = yield* makeTestClient({
+        serverUrl: ctx.realServer.wsUrl,
+        agentKey: agent.apiKey,
+        agentId: agent.agentId,
+        defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+        captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+      });
+      const outcome = yield* client
+        .sendRpc(call.definition, call.params)
+        .pipe(Effect.either);
+      return Either.match(outcome, {
+        onLeft: () => false,
+        onRight: () => true,
+      });
+    }),
   );
 }

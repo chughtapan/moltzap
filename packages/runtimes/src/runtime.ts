@@ -6,9 +6,13 @@ import type { SpawnFailed } from "./errors.js";
 export type AgentName = string & Brand.Brand<"AgentName">;
 export type ApiKey = string & Brand.Brand<"ApiKey">;
 export type ServerUrl = string & Brand.Brand<"ServerUrl">;
-export const AgentName = Brand.nominal<AgentName>();
-export const ApiKey = Brand.nominal<ApiKey>();
-export const ServerUrl = Brand.nominal<ServerUrl>();
+const AgentNameBrand = Brand.nominal<AgentName>();
+const ApiKeyBrand = Brand.nominal<ApiKey>();
+const ServerUrlBrand = Brand.nominal<ServerUrl>();
+
+export const AgentName = (value: string): AgentName => AgentNameBrand(value);
+export const ApiKey = (value: string): ApiKey => ApiKeyBrand(value);
+export const ServerUrl = (value: string): ServerUrl => ServerUrlBrand(value);
 
 export interface WorkspaceFile {
   readonly relativePath: string;

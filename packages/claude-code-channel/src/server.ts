@@ -1,33 +1,19 @@
 /**
- * server — MCP stdio server that fronts the Claude Code channel contract.
+ * MCP stdio server fronting the Claude Code channel contract.
  *
- * Transplanted from zapbot `src/claude-channel/server.ts` (verdict §(b) MOVE
- * row 2). Adapted:
- *   - Capability declaration is FIXED to
- *       `{ tools: {}, experimental: { "claude/channel": {} } }`
- *     (spec I3, A14). Zapbot's conditional `enableReplyTool` / permission-
- *     relay branches are removed — reply is mandatory, permission-relay
- *     does not ship (non-goal §3.2, A6).
- *   - Tool set reduced to `reply` only (spec A4, A7). `send_direct_message`
- *     DELETED (non-goal §3.1). `edit_message` OMITTED in v1 (OQ4 default B;
- *     `~/moltzap/packages/protocol/` has no edit-message RPC as of
- *     commit 025ba58 — verified via `grep -rn "edit|update" packages/protocol/src`).
- *   - `reply` tool resolves target conversation via `RoutingState` (OQ5). Tool's
- *     inputSchema is `{text, reply_to?, files?}` exactly per contract; NO
- *     `conversationId` required param.
- *
- * Reference: fakechat/server.ts:59-66 (capability), 67-92 (tool list),
- * 135-148 (notification shape).
+ * Capabilities: `{ tools: {}, experimental: { "claude/channel": {} } }`.
+ * Tools: `reply` only. `reply` resolves the target conversation via
+ * `RoutingState`; inputSchema is `{ text, reply_to?, files? }`.
  */
 
 import { Data, Effect, Either } from "effect";
-import type { WsClientLogger } from "@moltzap/client";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  type CallToolRequest,
   type CallToolResult,
   type ListToolsResult,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -59,13 +45,8 @@ function toMcpNotificationParams(
 }
 
 /**
- * Dependencies the server receives from `entry.ts`. The server does not
- * instantiate `MoltZapChannelCore`; the entry module does, and injects the
- * narrow capabilities the server actually uses.
- *
- * `transportFactory` is optional and internal — defaulting to a real
- * `StdioServerTransport`. Tests inject an in-memory transport to exercise
- * handshake and tool-call behavior without spawning subprocesses.
+ * Capabilities the server receives from `entry.ts`. `transportFactory` is an
+ * internal test seam; production defaults to `new StdioServerTransport()`.
  */
 export interface ServerDeps {
   readonly sendReply: (
@@ -73,7 +54,6 @@ export interface ServerDeps {
     text: string,
   ) => Effect.Effect<void, ReplyError>;
   readonly routing: RoutingState;
-  readonly logger: WsClientLogger;
   /** Internal test seam; production defaults to `new StdioServerTransport()`. */
   readonly transportFactory?: () => Transport;
 }
@@ -90,26 +70,28 @@ export interface ServerHandle {
   readonly stop: () => Effect.Effect<void>;
 }
 
-export class StdioConnectFailed extends Data.TaggedError("StdioConnectFailed")<{
+class StdioConnectFailed extends Data.TaggedError("StdioConnectFailed")<{
   readonly cause: string;
 }> {}
 
-export class ToolRegistrationFailed extends Data.TaggedError(
+class ToolRegistrationFailed extends Data.TaggedError(
   "ToolRegistrationFailed",
 )<{
   readonly cause: string;
 }> {}
 
-export type ServerBootError = StdioConnectFailed | ToolRegistrationFailed;
+type ServerBootError = StdioConnectFailed | ToolRegistrationFailed;
 
 export type ServerBootResult =
   | { readonly _tag: "Ok"; readonly value: ServerHandle }
   | { readonly _tag: "Err"; readonly error: ServerBootError };
 
-/**
- * Schema for the `reply` tool's inputSchema field. Matches contract verbatim
- * (fakechat/server.ts:75-86). Required: `text`. Optional: `reply_to`, `files`.
- */
+interface PendingNotificationState {
+  initialized: boolean;
+  readonly pending: ClaudeChannelNotification[];
+}
+
+/** Schema for the `reply` tool's inputSchema field. Required: `text`. Optional: `reply_to`, `files`. */
 export const REPLY_TOOL_INPUT_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -150,107 +132,89 @@ function buildReplyInputSchema(): {
   };
 }
 
-export interface DecodedReplyArgs {
+interface DecodedReplyArgs {
   readonly text: string;
   readonly replyTo?: MessageId;
   readonly files?: ReadonlyArray<string>;
 }
 
-export type ReplyArgsDecodeResult =
-  | { readonly _tag: "Ok"; readonly value: DecodedReplyArgs }
-  | {
-      readonly _tag: "Err";
-      readonly error: {
-        readonly _tag: "ReplyArgsInvalid";
-        readonly reason: string;
-      };
-    };
+class ReplyArgsInvalid extends Data.TaggedError("ReplyArgsInvalid")<{
+  readonly reason: string;
+}> {
+  override get message(): string {
+    return this.reason;
+  }
+}
 
-/**
- * Decode and validate a raw `reply` tool-call `arguments` object at the MCP
- * boundary (Principle 2). No `as` casts across this seam.
- */
+export type ReplyArgsDecodeResult = Either.Either<
+  DecodedReplyArgs,
+  ReplyArgsInvalid
+>;
+
+function invalidReplyArgs(reason: string): ReplyArgsInvalid {
+  return new ReplyArgsInvalid({ reason });
+}
+
+function decodeReplyTo(
+  raw: unknown,
+): Either.Either<MessageId | undefined, ReplyArgsInvalid> {
+  if (raw === undefined) return Either.right(undefined);
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return Either.left(invalidReplyArgs("reply_to must be a non-empty string"));
+  }
+  try {
+    return Either.right(makeMessageId(raw));
+  } catch (cause) {
+    return Either.left(
+      invalidReplyArgs(`reply_to must be a valid message_id: ${String(cause)}`),
+    );
+  }
+}
+
+function decodeReplyFiles(
+  raw: unknown,
+): Either.Either<ReadonlyArray<string> | undefined, ReplyArgsInvalid> {
+  if (raw === undefined) return Either.right(undefined);
+  if (!Array.isArray(raw)) {
+    return Either.left(invalidReplyArgs("files must be an array"));
+  }
+  for (const file of raw) {
+    if (typeof file !== "string") {
+      return Either.left(invalidReplyArgs("files must be an array of strings"));
+    }
+  }
+  return Either.right(raw as ReadonlyArray<string>);
+}
+
+function decodedReplyArgsValue(
+  text: string,
+  replyTo: MessageId | undefined,
+  files: ReadonlyArray<string> | undefined,
+): DecodedReplyArgs {
+  if (files !== undefined) return { text, replyTo, files };
+  if (replyTo !== undefined) return { text, replyTo };
+  return { text };
+}
+
 export function decodeReplyArgs(raw: unknown): ReplyArgsDecodeResult {
   if (!isStringKeyedRecord(raw)) {
-    return {
-      _tag: "Err",
-      error: {
-        _tag: "ReplyArgsInvalid",
-        reason: "arguments must be an object",
-      },
-    };
+    return Either.left(invalidReplyArgs("arguments must be an object"));
   }
   const obj = raw;
 
   if (typeof obj.text !== "string") {
-    return {
-      _tag: "Err",
-      error: { _tag: "ReplyArgsInvalid", reason: "text must be a string" },
-    };
+    return Either.left(invalidReplyArgs("text must be a string"));
   }
   const text = obj.text;
   if (text.trim().length === 0) {
-    return {
-      _tag: "Err",
-      error: { _tag: "ReplyArgsInvalid", reason: "text must be non-empty" },
-    };
+    return Either.left(invalidReplyArgs("text must be non-empty"));
   }
 
-  let replyTo: MessageId | undefined;
-  if (obj.reply_to !== undefined) {
-    if (typeof obj.reply_to !== "string" || obj.reply_to.trim().length === 0) {
-      return {
-        _tag: "Err",
-        error: {
-          _tag: "ReplyArgsInvalid",
-          reason: "reply_to must be a non-empty string",
-        },
-      };
-    }
-    try {
-      replyTo = makeMessageId(obj.reply_to);
-    } catch (cause) {
-      return {
-        _tag: "Err",
-        error: {
-          _tag: "ReplyArgsInvalid",
-          reason: `reply_to must be a valid message_id: ${String(cause)}`,
-        },
-      };
-    }
-  }
-
-  let files: ReadonlyArray<string> | undefined;
-  if (obj.files !== undefined) {
-    if (!Array.isArray(obj.files)) {
-      return {
-        _tag: "Err",
-        error: { _tag: "ReplyArgsInvalid", reason: "files must be an array" },
-      };
-    }
-    for (const f of obj.files) {
-      if (typeof f !== "string") {
-        return {
-          _tag: "Err",
-          error: {
-            _tag: "ReplyArgsInvalid",
-            reason: "files must be an array of strings",
-          },
-        };
-      }
-    }
-    files = obj.files as ReadonlyArray<string>;
-  }
-
-  return {
-    _tag: "Ok",
-    value:
-      files !== undefined
-        ? { text, replyTo, files }
-        : replyTo !== undefined
-          ? { text, replyTo }
-          : { text },
-  };
+  return Either.gen(function* () {
+    const replyTo = yield* decodeReplyTo(obj.reply_to);
+    const files = yield* decodeReplyFiles(obj.files);
+    return decodedReplyArgsValue(text, replyTo, files);
+  });
 }
 
 function toolErrorResult(message: string): CallToolResult {
@@ -261,13 +225,251 @@ function toolOkResult(message: string): CallToolResult {
   return { content: [{ type: "text", text: message }] };
 }
 
-/**
- * Boot the Claude Code channel MCP stdio server.
- *
- * Advertises capabilities `{ tools: {}, experimental: { "claude/channel": {} } }`.
- * Registers exactly one tool: `reply`. No other notification methods, no
- * `send_direct_message`, no `edit_message`, no caller-injected tools.
- */
+function filesUnsupportedResult(fileCount: number): CallToolResult {
+  return toolErrorResult(
+    `FilesUnsupported: reply.files is not supported in v1 (${fileCount.toString()} file(s) rejected). Tracked as v1.1 follow-up.`,
+  );
+}
+
+function sendFailureResult(error: ReplyError): CallToolResult {
+  if (error instanceof LeaseAlreadyConsumed) {
+    return toolErrorResult(
+      `LeaseAlreadyConsumed: dispatch lease ${error.leaseId} was already consumed by an earlier reply in this dispatch turn.`,
+    );
+  }
+  return toolErrorResult(
+    error instanceof SendFailed
+      ? `send failed: ${error.cause}`
+      : `reply error: ${error.name}`,
+  );
+}
+
+function sendResolvedReply(
+  deps: ServerDeps,
+  conversationId: string,
+  decoded: DecodedReplyArgs,
+): Effect.Effect<CallToolResult> {
+  return Effect.gen(function* () {
+    const sendResult = yield* Effect.either(
+      deps.sendReply(conversationId, decoded.text),
+    );
+    return Either.match(sendResult, {
+      onLeft: sendFailureResult,
+      onRight: () => toolOkResult(`Reply sent to ${conversationId}.`),
+    });
+  });
+}
+
+function handleDecodedReplyCall(
+  decoded: DecodedReplyArgs,
+  deps: ServerDeps,
+): Effect.Effect<CallToolResult> {
+  if (decoded.files !== undefined && decoded.files.length > 0) {
+    return Effect.succeed(filesUnsupportedResult(decoded.files.length));
+  }
+
+  const resolution = deps.routing.resolveTarget(decoded.replyTo);
+  switch (resolution._tag) {
+    case "Resolved":
+      return sendResolvedReply(deps, resolution.conversationId, decoded);
+    case "NoActiveConversation":
+      return Effect.succeed(
+        toolErrorResult(
+          "no active conversation: no inbound message has been observed yet; pass reply_to after an inbound arrives",
+        ),
+      );
+    case "ReplyToUnknown":
+      return Effect.succeed(
+        toolErrorResult(
+          `reply_to does not match a known message_id: ${resolution.replyTo as string}`,
+        ),
+      );
+    default: {
+      const _exhaustive: never = resolution;
+      return Effect.succeed(
+        toolErrorResult(`unreachable routing: ${JSON.stringify(_exhaustive)}`),
+      );
+    }
+  }
+}
+
+function handleCallToolRequest(
+  request: CallToolRequest,
+  deps: ServerDeps,
+): Effect.Effect<CallToolResult> {
+  if (request.params.name !== REPLY_TOOL_NAME) {
+    return Effect.succeed(
+      toolErrorResult(`unknown tool: ${request.params.name}`),
+    );
+  }
+
+  return Either.match(decodeReplyArgs(request.params.arguments), {
+    onLeft: (error) => Effect.succeed(toolErrorResult(error.reason)),
+    onRight: (decoded) => handleDecodedReplyCall(decoded, deps),
+  });
+}
+
+function emitMcpNotification(
+  server: Server,
+  notification: ClaudeChannelNotification,
+): Effect.Effect<void, unknown> {
+  return Effect.tryPromise({
+    try: () =>
+      server.notification({
+        method: notification.method,
+        params: toMcpNotificationParams(notification.params),
+      }),
+    catch: (cause) => cause,
+  });
+}
+
+function ignoreQueuedNotificationEmitFailure(
+  err: unknown,
+): Effect.Effect<void> {
+  const message = "claude-code-channel: queued notification emit failed";
+  return Effect.logError(message).pipe(
+    Effect.annotateLogs({ err: stringifyCause(err) }),
+  );
+}
+
+function flushPendingNotifications(
+  server: Server,
+  pending: ClaudeChannelNotification[],
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    while (pending.length > 0) {
+      const notification = pending.shift();
+      if (notification === undefined) break;
+      yield* emitMcpNotification(server, notification).pipe(
+        Effect.catchAll((err) => ignoreQueuedNotificationEmitFailure(err)),
+      );
+    }
+  });
+}
+
+function emitPushNotification(
+  server: Server,
+  notification: ClaudeChannelNotification,
+): Effect.Effect<void, PushError> {
+  return Effect.tryPromise({
+    try: () =>
+      server.notification({
+        method: notification.method,
+        params: toMcpNotificationParams(notification.params),
+      }),
+    catch: (cause): PushError =>
+      new EmitFailed({
+        cause: stringifyCause(cause),
+      }),
+  });
+}
+
+function closeMcpServer(server: Server): Effect.Effect<void> {
+  return Effect.tryPromise({
+    try: () => server.close(),
+    catch: (cause): Error =>
+      cause instanceof Error ? cause : new Error(stringifyCause(cause)),
+  }).pipe(Effect.catchAll((err) => logMcpCloseFailure(err)));
+}
+
+function makeMcpServer(config: ServerConfig): Server {
+  return new Server(
+    { name: config.serverName, version: "0.1.0" },
+    {
+      capabilities: CHANNEL_CAPABILITIES,
+      instructions: config.instructions,
+    },
+  );
+}
+
+function buildToolList(): ListToolsResult {
+  return {
+    tools: [
+      {
+        name: REPLY_TOOL_NAME,
+        description:
+          "Send a message back through the MoltZap channel. Pass reply_to (a message_id from the channel) to target a specific conversation; omit to reply to the most recent inbound.",
+        inputSchema: buildReplyInputSchema(),
+      },
+    ],
+  };
+}
+
+function registerServerHandlers(
+  server: Server,
+  deps: ServerDeps,
+): Effect.Effect<void, ToolRegistrationFailed> {
+  return Effect.try({
+    try: () => {
+      const toolList = buildToolList();
+      server.setRequestHandler(ListToolsRequestSchema, () =>
+        Promise.resolve(toolList),
+      );
+      server.setRequestHandler(CallToolRequestSchema, (request) =>
+        Effect.runPromise(handleCallToolRequest(request, deps)),
+      );
+    },
+    catch: (cause) =>
+      new ToolRegistrationFailed({ cause: stringifyCause(cause) }),
+  });
+}
+
+function connectServer(
+  server: Server,
+  deps: ServerDeps,
+): Effect.Effect<ServerBootResult | null> {
+  const transport = deps.transportFactory
+    ? deps.transportFactory()
+    : new StdioServerTransport();
+  return Effect.tryPromise({
+    try: () => server.connect(transport),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.match({
+      onFailure: (cause): ServerBootResult => ({
+        _tag: "Err",
+        error: new StdioConnectFailed({
+          cause: stringifyCause(cause),
+        }),
+      }),
+      onSuccess: () => null,
+    }),
+  );
+}
+
+function markServerInitialized(
+  server: Server,
+  state: PendingNotificationState,
+): void {
+  state.initialized = true;
+  Effect.runFork(flushPendingNotifications(server, state.pending));
+}
+
+function makeServerHandle(
+  server: Server,
+  state: PendingNotificationState,
+): ServerHandle {
+  return {
+    push: (notification) =>
+      Effect.gen(function* () {
+        if (!state.initialized) {
+          state.pending.push(notification);
+          return;
+        }
+        yield* emitPushNotification(server, notification);
+      }),
+    stop: () => closeMcpServer(server),
+  };
+}
+
+function logMcpCloseFailure(err: unknown): Effect.Effect<void> {
+  const message = "claude-code-channel: MCP close failed (swallowed per I8)";
+  return Effect.logError(message).pipe(
+    Effect.annotateLogs({ err: stringifyCause(err) }),
+  );
+}
+
+/** Boot the Claude Code channel MCP stdio server. */
 export function bootChannelMcpServer(config: ServerConfig, deps: ServerDeps) {
   return Effect.runPromise(bootChannelMcpServerEffect(config, deps));
 }
@@ -277,202 +479,22 @@ function bootChannelMcpServerEffect(
   deps: ServerDeps,
 ): Effect.Effect<ServerBootResult, never, never> {
   return Effect.gen(function* () {
-    const server = new Server(
-      { name: config.serverName, version: "0.1.0" },
-      {
-        capabilities: CHANNEL_CAPABILITIES,
-        instructions: config.instructions,
-      },
+    const server = makeMcpServer(config);
+    const state: PendingNotificationState = { initialized: false, pending: [] };
+    server.oninitialized = () => markServerInitialized(server, state);
+
+    const registration = yield* Effect.either(
+      registerServerHandlers(server, deps),
     );
+    const registrationFailure = Either.match(registration, {
+      onLeft: (error): ServerBootResult => ({ _tag: "Err", error }),
+      onRight: () => null,
+    });
+    if (registrationFailure !== null) return registrationFailure;
 
-    // Pending-notification queue for pre-initialization push calls.
-    let initialized = false;
-    const pending: ClaudeChannelNotification[] = [];
-    server.oninitialized = () => {
-      initialized = true;
-      // Best-effort flush; failures log and continue so one bad push doesn't
-      // hide the rest from the client.
-      void Effect.runPromise(
-        Effect.gen(function* () {
-          while (pending.length > 0) {
-            const n = pending.shift();
-            if (n === undefined) break;
-            yield* Effect.tryPromise({
-              try: () =>
-                server.notification({
-                  method: n.method,
-                  params: toMcpNotificationParams(n.params),
-                }),
-              catch: (err) => err,
-            }).pipe(
-              Effect.catchAll((err) =>
-                Effect.sync(() =>
-                  deps.logger.error(
-                    { err },
-                    "claude-code-channel: queued notification emit failed",
-                  ),
-                ),
-              ),
-            );
-          }
-        }),
-      );
-    };
-
-    try {
-      const toolList: ListToolsResult = {
-        tools: [
-          {
-            name: REPLY_TOOL_NAME,
-            description:
-              "Send a message back through the MoltZap channel. Pass reply_to (a message_id from the channel) to target a specific conversation; omit to reply to the most recent inbound.",
-            inputSchema: buildReplyInputSchema(),
-          },
-        ],
-      };
-      server.setRequestHandler(ListToolsRequestSchema, () =>
-        Promise.resolve(toolList),
-      );
-
-      server.setRequestHandler(CallToolRequestSchema, (request) =>
-        Effect.runPromise(
-          Effect.gen(function* () {
-            if (request.params.name !== REPLY_TOOL_NAME) {
-              return toolErrorResult(`unknown tool: ${request.params.name}`);
-            }
-            const decoded = decodeReplyArgs(request.params.arguments);
-            if (decoded._tag === "Err") {
-              return toolErrorResult(decoded.error.reason);
-            }
-            // v1 ships the contract-shaped `files` input (spec A4, fakechat parity),
-            // but attachment upload is a v1.1 follow-up. Reject explicitly with a
-            // tagged error rather than silently dropping the files (reviewer-187).
-            if (
-              decoded.value.files !== undefined &&
-              decoded.value.files.length > 0
-            ) {
-              return toolErrorResult(
-                `FilesUnsupported: reply.files is not supported in v1 (${decoded.value.files.length.toString()} file(s) rejected). Tracked as v1.1 follow-up.`,
-              );
-            }
-            const resolution = deps.routing.resolveTarget(
-              decoded.value.replyTo,
-            );
-            switch (resolution._tag) {
-              case "Resolved": {
-                const sendResult = yield* Effect.either(
-                  deps.sendReply(resolution.conversationId, decoded.value.text),
-                );
-                const sendFailure = Either.match(sendResult, {
-                  onLeft: (error) => {
-                    if (error instanceof LeaseAlreadyConsumed) {
-                      // Cutover #533: surface the single-use lease
-                      // contract verbatim. Multi-turn agents that call
-                      // `reply` more than once in one dispatch see this
-                      // as a structured tool-error rather than a silent
-                      // send failure.
-                      return toolErrorResult(
-                        `LeaseAlreadyConsumed: dispatch lease ${error.leaseId} was already consumed by an earlier reply in this dispatch turn.`,
-                      );
-                    }
-                    return toolErrorResult(
-                      error instanceof SendFailed
-                        ? `send failed: ${error.cause}`
-                        : `reply error: ${error.name}`,
-                    );
-                  },
-                  onRight: () => null,
-                });
-                if (sendFailure !== null) return sendFailure;
-                return toolOkResult(
-                  `Reply sent to ${resolution.conversationId as string}.`,
-                );
-              }
-              case "NoActiveConversation":
-                return toolErrorResult(
-                  "no active conversation: no inbound message has been observed yet; pass reply_to after an inbound arrives",
-                );
-              case "ReplyToUnknown":
-                return toolErrorResult(
-                  `reply_to does not match a known message_id: ${resolution.replyTo as string}`,
-                );
-              default: {
-                // Principle 4: exhaustiveness. Reach here only if RoutingResolution adds a tag.
-                const _exhaustive: never = resolution;
-                return toolErrorResult(
-                  `unreachable routing: ${JSON.stringify(_exhaustive)}`,
-                );
-              }
-            }
-          }),
-        ),
-      );
-    } catch (cause) {
-      return {
-        _tag: "Err",
-        error: new ToolRegistrationFailed({
-          cause: stringifyCause(cause),
-        }),
-      };
-    }
-
-    const transport = deps.transportFactory
-      ? deps.transportFactory()
-      : new StdioServerTransport();
-    const connectFailure = yield* Effect.tryPromise({
-      try: () => server.connect(transport),
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.match({
-        onFailure: (cause): ServerBootResult => ({
-          _tag: "Err",
-          error: new StdioConnectFailed({
-            cause: stringifyCause(cause),
-          }),
-        }),
-        onSuccess: () => null,
-      }),
-    );
+    const connectFailure = yield* connectServer(server, deps);
     if (connectFailure !== null) return connectFailure;
 
-    const handle: ServerHandle = {
-      push: (notification) =>
-        Effect.gen(function* () {
-          if (!initialized) {
-            pending.push(notification);
-            return;
-          }
-          yield* Effect.tryPromise({
-            try: () =>
-              server.notification({
-                method: notification.method,
-                params: toMcpNotificationParams(notification.params),
-              }),
-            catch: (cause): PushError =>
-              new EmitFailed({
-                cause: stringifyCause(cause),
-              }),
-          });
-        }),
-      stop: () =>
-        Effect.gen(function* () {
-          yield* Effect.tryPromise({
-            try: () => server.close(),
-            catch: (cause): Error =>
-              cause instanceof Error ? cause : new Error(stringifyCause(cause)),
-          }).pipe(
-            Effect.catchAll((err) =>
-              Effect.sync(() => {
-                deps.logger.error(
-                  { err },
-                  "claude-code-channel: MCP close failed (swallowed per I8)",
-                );
-              }),
-            ),
-          );
-        }),
-    };
-
-    return { _tag: "Ok", value: handle };
+    return { _tag: "Ok", value: makeServerHandle(server, state) };
   });
 }

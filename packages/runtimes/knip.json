@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/trace-capture-harness.ts",
+    "src/**/*.test.ts",
+    "src/**/*.integration.test.ts",
+    "vitest*.config.ts"
+  ],
+  "project": ["src/**/*.ts", "vitest*.config.ts"]
+}

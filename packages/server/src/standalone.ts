@@ -1,35 +1,32 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Kysely, PostgresDialect, sql } from "kysely";
+import { sql } from "./db/sql.js";
 import { Data, Effect, Either } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { AppManifestSchema, type AppManifest } from "@moltzap/protocol";
+import { validateAppManifest, type AppManifest } from "@moltzap/protocol";
 import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
-import { WebhookClient, WebhookContactService } from "./adapters/webhook.js";
+import { WebhookClient } from "./adapters/webhook.js";
+import { WebhookContactService } from "./adapters/webhook-contact-service.js";
 import { WebhookSessionValidator } from "./identity/services/session-validator.js";
-import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
 import type { Database } from "./db/database.js";
+import type { Db } from "./db/client.js";
+import { PostgresDialect } from "./db/postgres-dialect.js";
 import {
-  RuntimeConfigPath,
+  runtimeConfigPath,
   loadRuntimeProcessConfig,
+  type RuntimeProcessConfig,
   type RuntimeConfigSurfaceError,
 } from "./runtime-surface/config.js";
-import {
-  createRuntimeObservability,
-  type RuntimeObservabilityError,
-} from "./runtime-surface/logging.js";
+import { currentArgv, isStandaloneDirectRun } from "./runtime/direct-run.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
@@ -59,7 +56,6 @@ export class InvalidAppManifest extends Data.TaggedError("InvalidAppManifest")<{
 
 type StandaloneServerError =
   | RuntimeConfigSurfaceError
-  | RuntimeObservabilityError
   | StandaloneOperationFailed
   | SchemaFileNotFound;
 
@@ -76,61 +72,81 @@ const operationFailed = (
 // ── App-manifest boundary validation ───────────────────────────────
 //
 // Principle 2: data crossing a boundary (JSON file on disk) is decoded
-// against `AppManifestSchema` before it reaches `app.registerApp(...)`.
+// against the protocol manifest validator before it reaches
+// `app.registerApp(...)`.
 // Without this, a malformed-but-JSON-parseable manifest (missing
 // `appId`, wrong `participantFilter`, retired hook key, etc.) would
 // flow as `any` into `AppHost` and only surface deep inside RPC
-// handlers. Compile once at module scope; AJV validators are
-// thread-safe and cheap to reuse.
-const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
-const validateAppManifest = ajv.compile(AppManifestSchema);
+// handlers.
 
 /**
- * Parse and validate a JSON manifest blob. Returns `Right(AppManifest)`
+ * Parses and validates a JSON manifest blob. Returns `Right(AppManifest)`
  * on success, `Left(InvalidAppManifest)` on either JSON-parse failure
  * (`kind: "parse"`) or schema-validation failure (`kind: "schema"`).
  * Never throws. Exported for test access only.
  */
-// eslint-disable-next-line agent-code-guard/manual-result -- Returns Effect's Either<A, E>; the rule's name-pattern heuristic mis-fires on Either.left/Either.right MemberExpressions inside the body. Same false-positive class as openclaw-entry.ts:185.
-export function decodeAppManifest(
+function parseAppManifestJson(
   json: string,
   path: string,
-): Either.Either<AppManifest, InvalidAppManifest> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (cause) {
-    return Either.left(
+): Effect.Effect<unknown, InvalidAppManifest> {
+  return Effect.try({
+    try: () => JSON.parse(json) as unknown,
+    catch: (cause) =>
       new InvalidAppManifest({
         kind: "parse",
         path,
         errors: [cause instanceof Error ? cause.message : String(cause)],
       }),
-    );
-  }
-  if (!validateAppManifest(parsed)) {
-    const errors = (validateAppManifest.errors ?? []).map(
-      (e) => `${e.instancePath || "/"} ${e.message ?? "validation failed"}`,
-    );
-    return Either.left(
-      new InvalidAppManifest({
-        kind: "schema",
-        path,
-        errors: errors.length > 0 ? errors : ["unknown validation failure"],
-      }),
-    );
-  }
-  return Either.right(parsed as AppManifest);
+  });
+}
+
+function validateParsedAppManifest(
+  parsed: unknown,
+  path: string,
+): Effect.Effect<AppManifest, InvalidAppManifest> {
+  return Either.match(validateAppManifest(parsed), {
+    onLeft: (error) =>
+      Effect.fail(
+        new InvalidAppManifest({
+          kind: "schema",
+          path,
+          errors: error.errors,
+        }),
+      ),
+    onRight: Effect.succeed,
+  });
+}
+
+function decodeAppManifestEffect(
+  json: string,
+  path: string,
+): Effect.Effect<AppManifest, InvalidAppManifest> {
+  return Effect.gen(function* () {
+    const parsed = yield* parseAppManifestJson(json, path);
+    return yield* validateParsedAppManifest(parsed, path);
+  });
+}
+
+export function decodeAppManifest(
+  json: string,
+  path: string,
+): Either.Either<AppManifest, InvalidAppManifest> {
+  return Effect.runSync(Effect.either(decodeAppManifestEffect(json, path)));
 }
 
 // ── Database factory ────────────────────────────────────────────────
 
 interface DbHandle {
-  db: Kysely<Database>;
+  db: Db;
   cleanup: () => Effect.Effect<void, StandaloneOperationFailed, never>;
   runMigrationSql: (
     sql: string,
   ) => Effect.Effect<void, StandaloneOperationFailed, never>;
+}
+
+interface PgLiteClientHandle {
+  readonly close: () => PromiseLike<void>;
+  readonly exec: (sql: string) => PromiseLike<unknown>;
 }
 
 function createPgLiteDb(
@@ -157,28 +173,40 @@ function createPgLiteDb(
 
     return {
       db,
-      cleanup: () =>
-        // Close the PGlite client after Kysely releases its connection. We use
-        // an Effect chain here rather than raw Promise composition to keep the
-        // sequencing guard-friendly.
-        Effect.tryPromise({
-          try: () => db.destroy(),
-          catch: (cause) => operationFailed("destroy pglite kysely", cause),
-        }).pipe(
-          Effect.flatMap(() =>
-            Effect.tryPromise({
-              try: () => kpg.client.close(),
-              catch: (cause) => operationFailed("close pglite client", cause),
-            }),
-          ),
-        ),
+      cleanup: () => cleanupPgLiteDb(db, kpg.client),
       runMigrationSql: (sqlText: string) =>
-        Effect.tryPromise({
-          try: () => kpg.client.exec(sqlText),
-          catch: (cause) => operationFailed("run pglite migration sql", cause),
-        }).pipe(Effect.asVoid),
+        runPgLiteMigrationSql(kpg.client, sqlText),
     };
   });
+}
+
+function cleanupPgLiteDb(
+  db: Db,
+  client: PgLiteClientHandle,
+): Effect.Effect<void, StandaloneOperationFailed> {
+  return Effect.tryPromise({
+    try: () => db.destroy(),
+    catch: (cause) => operationFailed("destroy pglite kysely", cause),
+  }).pipe(Effect.flatMap(() => closePgLiteClient(client)));
+}
+
+function closePgLiteClient(
+  client: PgLiteClientHandle,
+): Effect.Effect<void, StandaloneOperationFailed> {
+  return Effect.tryPromise({
+    try: () => client.close(),
+    catch: (cause) => operationFailed("close pglite client", cause),
+  });
+}
+
+function runPgLiteMigrationSql(
+  client: PgLiteClientHandle,
+  sqlText: string,
+): Effect.Effect<void, StandaloneOperationFailed> {
+  return Effect.tryPromise({
+    try: () => client.exec(sqlText),
+    catch: (cause) => operationFailed("run pglite migration sql", cause),
+  }).pipe(Effect.asVoid);
 }
 
 function createPostgresDb(
@@ -220,21 +248,27 @@ function createPostgresDb(
 // ── Migration ───────────────────────────────────────────────────────
 
 function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound, never> {
-  // Docker: copied to package root
-  const dockerPath = join(__dirname, "..", "core-schema.sql");
-  if (existsSync(dockerPath)) return Effect.succeed(dockerPath);
-  // Dev (tsx): running from src/, schema in src/app/
-  const devPath = join(__dirname, "app", "core-schema.sql");
-  if (existsSync(devPath)) return Effect.succeed(devPath);
-  // Compiled (node dist/): schema in ../src/app/
-  const distPath = join(__dirname, "..", "src", "app", "core-schema.sql");
-  if (existsSync(distPath)) return Effect.succeed(distPath);
-  return Effect.fail(
-    new SchemaFileNotFound({
-      message:
-        "Cannot find core-schema.sql. Ensure it exists at the package root or in src/app/.",
-    }),
-  );
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const exists = (candidate: string) =>
+      fs.exists(candidate).pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+    // Docker: copied to package root
+    const dockerPath = join(__dirname, "..", "core-schema.sql");
+    if (yield* exists(dockerPath)) return dockerPath;
+    // Dev (tsx): running from src/, schema in src/app/
+    const devPath = join(__dirname, "app", "core-schema.sql");
+    if (yield* exists(devPath)) return devPath;
+    // Compiled (node dist/): schema in ../src/app/
+    const distPath = join(__dirname, "..", "src", "app", "core-schema.sql");
+    if (yield* exists(distPath)) return distPath;
+    return yield* Effect.fail(
+      new SchemaFileNotFound({
+        message:
+          "Cannot find core-schema.sql. Ensure it exists at the package root or in src/app/.",
+      }),
+    );
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 /**
@@ -263,11 +297,13 @@ function autoMigrateEffect(
     });
 
     if (result.rows[0]?.has_schema) {
-      logger.info("Database schema already exists, skipping migration");
+      yield* Effect.logInfo(
+        "Database schema already exists, skipping migration",
+      );
       return;
     }
 
-    logger.info("Applying database schema...");
+    yield* Effect.logInfo("Applying database schema...");
 
     const fs = yield* FileSystem.FileSystem;
     const schemaPath = yield* findSchemaFile();
@@ -284,18 +320,21 @@ function autoMigrateEffect(
         catch: (cause) => operationFailed("seed encryption key", cause),
       });
     } else {
-      logger.info(
+      yield* Effect.logInfo(
         "Encryption not configured — messages will be stored as plaintext",
       );
     }
 
-    logger.info("Database schema applied successfully");
+    yield* Effect.logInfo("Database schema applied successfully");
   });
 }
 
 // ── Main ────────────────────────────────────────────────────────────
 
 export function startServer(configPath?: string) {
+  if (configPath === undefined) {
+    return Effect.runPromise(startServerEffect());
+  }
   return Effect.runPromise(startServerEffect(configPath));
 }
 
@@ -305,179 +344,287 @@ interface StandaloneServerHandle {
   readonly stop: CoreApp["close"];
 }
 
+interface StandaloneDatabase {
+  readonly handle: DbHandle;
+  readonly usePgLite: boolean;
+}
+
+type AppManifestRef = NonNullable<MoltZapConfig["apps"]>[number];
+
 function startServerEffect(
   configPath?: string,
 ): Effect.Effect<StandaloneServerHandle, StandaloneServerError, never> {
   return Effect.gen(function* () {
-    const runtimeConfig = yield* loadRuntimeProcessConfig(
-      configPath === undefined
-        ? {}
-        : { configPath: RuntimeConfigPath(configPath) },
-    );
-    const observability = yield* createRuntimeObservability(runtimeConfig);
-    const log = observability.logger;
-
-    // Create database (PGlite if no URL, Postgres otherwise)
-    const appConfig = runtimeConfig.app;
-    const databaseUrl = runtimeConfig.server.database.url;
-    const usePgLite = databaseUrl.length === 0;
-    const handle = yield* usePgLite
-      ? createPgLiteDb(appConfig.database?.data_dir)
-      : createPostgresDb(databaseUrl);
-
-    if (usePgLite) {
-      log.info("Using embedded PGlite database (no external Postgres needed)");
-    }
-
-    // Auto-migrate
-    yield* autoMigrateEffect(
-      handle,
-      runtimeConfig.server.encryption.masterSecret,
-    ).pipe(Effect.provide(NodeFileSystem.layer));
-
+    const runtimeConfig = yield* loadStandaloneRuntimeConfig(configPath);
+    const database = yield* createStandaloneDatabase(runtimeConfig);
+    yield* logDatabaseSelection(database.usePgLite);
+    yield* migrateStandaloneDatabase(database.handle, runtimeConfig);
     const webhookClient = new WebhookClient();
-
-    const sessionValidatorCfg = appConfig.services?.sessions;
-    const sessionValidator =
-      sessionValidatorCfg?.type === "webhook" && sessionValidatorCfg.webhook_url
-        ? new WebhookSessionValidator(
-            webhookClient,
-            sessionValidatorCfg.webhook_url,
-            sessionValidatorCfg.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
-            log,
-          )
-        : undefined;
-
-    // Dev mode: when `dev_mode.enabled` in YAML, agents registered via the
-    // default HTTP register route are auto-owned by this UUID — the
-    // "developer at the keyboard". Skips the external-claim handshake so
-    // the quickstart can reach the app-session flow without Supabase etc.
-    // Production MUST leave `dev_mode.enabled` false (or absent).
-    const devModeUserId = appConfig.dev_mode?.enabled
-      ? (appConfig.dev_mode.user_id ?? randomUUID())
-      : undefined;
-    if (devModeUserId) {
-      log.warn(
-        { devModeUserId },
-        "dev_mode.enabled=true — registered agents will be auto-owned; do not use in production",
-      );
-    }
-
-    const coreConfig: CoreConfig = {
-      db: handle.db,
-      dbCleanup: () => Effect.runPromise(handle.cleanup()),
-      encryptionMasterSecret: runtimeConfig.server.encryption.masterSecret,
-      port: runtimeConfig.server.server.port,
-      corsOrigins: runtimeConfig.server.server.corsOrigins.exact,
-      registrationSecret: appConfig.registration?.secret,
-      devMode: runtimeConfig.server.devMode,
+    const sessionValidator = makeSessionValidator(
+      runtimeConfig.app,
+      webhookClient,
+    );
+    const devModeUserId = resolveDevModeUserId(runtimeConfig.app);
+    yield* warnDevModeUserId(devModeUserId);
+    const coreConfig = makeCoreConfig({
+      runtimeConfig,
+      handle: database.handle,
       devModeUserId,
       sessionValidator,
       webhookClient,
-    };
-
+    });
     const app = createCoreApp(coreConfig);
-
-    if (
-      appConfig.services?.contacts?.type === "webhook" &&
-      appConfig.services.contacts.webhook_url
-    ) {
-      app.setContactService(
-        new WebhookContactService(
-          webhookClient,
-          appConfig.services.contacts.webhook_url,
-          appConfig.services.contacts.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
-          log,
-        ),
-      );
-    }
-
-    // Register app manifests (resolve paths relative to config file location)
-    if (appConfig.apps) {
-      const configDir = runtimeConfig.configDirectory;
-      const fsReadAppManifest = (manifestPath: string) =>
-        Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          return yield* fs
-            .readFileString(manifestPath, "utf-8")
-            .pipe(
-              Effect.mapError((cause) =>
-                operationFailed("read app manifest", cause),
-              ),
-            );
-        }).pipe(Effect.provide(NodeFileSystem.layer));
-
-      for (const appRef of appConfig.apps) {
-        const manifestPath = isAbsolute(appRef.manifest)
-          ? appRef.manifest
-          : resolve(configDir, appRef.manifest);
-        yield* fsReadAppManifest(manifestPath).pipe(
-          Effect.either,
-          Effect.flatMap(
-            Either.match({
-              onLeft: (err) =>
-                Effect.sync(() => {
-                  log.error(
-                    { err, path: appRef.manifest },
-                    "Failed to load app manifest",
-                  );
-                }),
-              onRight: (json) =>
-                Effect.sync(() => {
-                  Either.match(decodeAppManifest(json, appRef.manifest), {
-                    onLeft: (err) => {
-                      log.error(
-                        {
-                          path: err.path,
-                          kind: err.kind,
-                          errors: err.errors,
-                        },
-                        err.kind === "parse"
-                          ? "App manifest JSON parse failed; skipping registration"
-                          : "App manifest failed schema validation; skipping registration",
-                      );
-                    },
-                    onRight: (manifest) => {
-                      app.registerApp(manifest);
-                      log.info(
-                        { appId: manifest.appId, path: appRef.manifest },
-                        "App manifest registered",
-                      );
-                    },
-                  });
-                }),
-            }),
-          ),
-        );
-      }
-    }
-
-    log.info(
-      {
-        port: app.port,
-        mode: "standalone",
-        db: usePgLite ? "pglite" : "postgres",
-      },
-      "MoltZap server started (standalone mode)",
-    );
-
+    yield* installContactService(app, runtimeConfig.app, webhookClient);
+    yield* registerConfiguredApps(app, runtimeConfig);
+    yield* logStandaloneStarted(app, database.usePgLite);
     return {
       app,
-      config: appConfig,
-      // `app.close()` already returns `Promise<void>` — forward it directly.
+      config: runtimeConfig.app,
       stop: () => app.close(),
     };
+  }).pipe(Effect.withSpan("startServerEffect"));
+}
+
+function loadStandaloneRuntimeConfig(
+  configPath: string | undefined,
+): Effect.Effect<RuntimeProcessConfig, RuntimeConfigSurfaceError> {
+  if (configPath === undefined) return loadRuntimeProcessConfig({});
+  return loadRuntimeProcessConfig({
+    configPath: runtimeConfigPath(configPath),
   });
+}
+
+function createStandaloneDatabase(
+  runtimeConfig: RuntimeProcessConfig,
+): Effect.Effect<StandaloneDatabase, StandaloneOperationFailed> {
+  return Effect.gen(function* () {
+    const databaseUrl = runtimeConfig.server.database.url;
+    if (databaseUrl.length === 0) {
+      const handle = yield* createPgLiteDb(
+        runtimeConfig.app.database?.data_dir,
+      );
+      return { handle, usePgLite: true };
+    }
+    const handle = yield* createPostgresDb(databaseUrl);
+    return { handle, usePgLite: false };
+  }).pipe(Effect.withSpan("createStandaloneDatabase"));
+}
+
+function logDatabaseSelection(usePgLite: boolean): Effect.Effect<void> {
+  if (!usePgLite) return Effect.void;
+  return Effect.logInfo(
+    "Using embedded PGlite database (no external Postgres needed)",
+  );
+}
+
+function migrateStandaloneDatabase(
+  handle: DbHandle,
+  runtimeConfig: RuntimeProcessConfig,
+) {
+  return autoMigrateEffect(
+    handle,
+    runtimeConfig.server.encryption.masterSecret,
+  ).pipe(Effect.provide(NodeFileSystem.layer));
+}
+
+function makeSessionValidator(
+  appConfig: MoltZapConfig,
+  webhookClient: WebhookClient,
+): CoreConfig["sessionValidator"] {
+  const sessionConfig = appConfig.services?.sessions;
+  if (sessionConfig?.type !== "webhook") return undefined;
+  const webhookUrl = sessionConfig.webhook_url;
+  if (!webhookUrl) return undefined;
+  return new WebhookSessionValidator(
+    webhookClient,
+    webhookUrl,
+    sessionConfig.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
+  );
+}
+
+function resolveDevModeUserId(appConfig: MoltZapConfig): string | undefined {
+  const devMode = appConfig.dev_mode;
+  if (devMode?.enabled !== true) return undefined;
+  return devMode.user_id ?? randomUUID();
+}
+
+function warnDevModeUserId(
+  devModeUserId: string | undefined,
+): Effect.Effect<void> {
+  if (devModeUserId === undefined) return Effect.void;
+  return Effect.logWarning(
+    "dev_mode.enabled=true - registered agents will be auto-owned; do not use in production",
+  ).pipe(Effect.annotateLogs({ devModeUserId }));
+}
+
+function makeCoreConfig(options: {
+  readonly runtimeConfig: RuntimeProcessConfig;
+  readonly handle: DbHandle;
+  readonly devModeUserId: string | undefined;
+  readonly sessionValidator: CoreConfig["sessionValidator"];
+  readonly webhookClient: WebhookClient;
+}): CoreConfig {
+  const { runtimeConfig, handle } = options;
+  return {
+    db: handle.db,
+    dbCleanup: () => Effect.runPromise(handle.cleanup()),
+    encryptionMasterSecret: runtimeConfig.server.encryption.masterSecret,
+    port: runtimeConfig.server.server.port,
+    corsOrigins: runtimeConfig.server.server.corsOrigins.exact,
+    registrationSecret: runtimeConfig.app.registration?.secret,
+    devMode: runtimeConfig.server.devMode,
+    devModeUserId: options.devModeUserId,
+    sessionValidator: options.sessionValidator,
+    webhookClient: options.webhookClient,
+  };
+}
+
+function installContactService(
+  app: CoreApp,
+  appConfig: MoltZapConfig,
+  webhookClient: WebhookClient,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    const contacts = appConfig.services?.contacts;
+    if (contacts?.type !== "webhook") return;
+    const webhookUrl = contacts.webhook_url;
+    if (!webhookUrl) return;
+    app.setContactService(
+      new WebhookContactService(
+        webhookClient,
+        webhookUrl,
+        contacts.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
+      ),
+    );
+  });
+}
+
+function registerConfiguredApps(
+  app: CoreApp,
+  runtimeConfig: RuntimeProcessConfig,
+): Effect.Effect<void> {
+  const apps = runtimeConfig.app.apps;
+  if (apps === undefined) return Effect.void;
+  return Effect.forEach(
+    apps,
+    (appRef) => registerConfiguredApp(app, runtimeConfig, appRef),
+    { concurrency: 1, discard: true },
+  );
+}
+
+function registerConfiguredApp(
+  app: CoreApp,
+  runtimeConfig: RuntimeProcessConfig,
+  appRef: AppManifestRef,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const manifestPath = resolveManifestPath(
+      runtimeConfig.configDirectory,
+      appRef.manifest,
+    );
+    const readResult = yield* Effect.either(readAppManifestFile(manifestPath));
+    yield* Either.match(readResult, {
+      onLeft: (err) => logManifestReadFailure(err, appRef.manifest),
+      onRight: (json) => decodeAndRegisterManifest(app, appRef.manifest, json),
+    });
+  }).pipe(Effect.withSpan("registerConfiguredApp"));
+}
+
+function resolveManifestPath(configDir: string, manifest: string): string {
+  if (isAbsolute(manifest)) return manifest;
+  return resolve(configDir, manifest);
+}
+
+function readAppManifestFile(
+  manifestPath: string,
+): Effect.Effect<string, StandaloneOperationFailed> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    return yield* fs
+      .readFileString(manifestPath, "utf-8")
+      .pipe(
+        Effect.mapError((cause) => operationFailed("read app manifest", cause)),
+      );
+  }).pipe(Effect.provide(NodeFileSystem.layer));
+}
+
+function logManifestReadFailure(
+  err: StandaloneOperationFailed,
+  path: string,
+): Effect.Effect<void> {
+  return Effect.logError("Failed to load app manifest").pipe(
+    Effect.annotateLogs({ err, path }),
+  );
+}
+
+function decodeAndRegisterManifest(
+  app: CoreApp,
+  path: string,
+  json: string,
+): Effect.Effect<void> {
+  return Either.match(decodeAppManifest(json, path), {
+    onLeft: logManifestDecodeFailure,
+    onRight: (manifest) => registerManifest(app, path, manifest),
+  });
+}
+
+function logManifestDecodeFailure(
+  err: InvalidAppManifest,
+): Effect.Effect<void> {
+  return Effect.logError(manifestDecodeFailureMessage(err)).pipe(
+    Effect.annotateLogs({
+      path: err.path,
+      kind: err.kind,
+      errors: err.errors,
+    }),
+  );
+}
+
+function manifestDecodeFailureMessage(err: InvalidAppManifest): string {
+  if (err.kind === "parse") {
+    return "App manifest JSON parse failed; skipping registration";
+  }
+  return "App manifest failed schema validation; skipping registration";
+}
+
+function registerManifest(
+  app: CoreApp,
+  path: string,
+  manifest: AppManifest,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    app.registerApp(manifest);
+  }).pipe(
+    Effect.zipRight(
+      Effect.logInfo("App manifest registered").pipe(
+        Effect.annotateLogs({ appId: manifest.appId, path }),
+      ),
+    ),
+  );
+}
+
+function logStandaloneStarted(
+  app: CoreApp,
+  usePgLite: boolean,
+): Effect.Effect<void> {
+  return Effect.logInfo("MoltZap server started (standalone mode)").pipe(
+    Effect.annotateLogs({
+      port: app.port,
+      mode: "standalone",
+      db: usePgLite ? "pglite" : "postgres",
+    }),
+  );
 }
 
 // Auto-start when run directly (e.g. `node dist/standalone.js`, `tsx src/standalone.ts`)
 // bin/moltzap-server calls startServer() explicitly via import.
-const isDirectRun =
-  process.argv[1]?.endsWith("standalone.js") ||
-  process.argv[1]?.endsWith("standalone.ts");
-if (isDirectRun) {
+if (isStandaloneDirectRun(currentArgv())) {
   startServer().catch((err) => {
-    logger.error({ err }, "Server startup failed");
+    Effect.runFork(
+      Effect.logError("Server startup failed").pipe(
+        Effect.annotateLogs({ err }),
+      ),
+    );
     process.exit(1);
   });
 }

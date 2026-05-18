@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
-import { sql } from "kysely";
 import type { Db } from "../../db/client.js";
+import { sql } from "../../db/sql.js";
 import type { ParamsOf, Register } from "@moltzap/protocol";
 import type { AgentId, UserId } from "../../app/types.js";
 
@@ -17,7 +17,7 @@ import {
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
 
-export const REGISTRATION_CONFLICT = "RegistrationConflict" as const;
+const REGISTRATION_CONFLICT = "RegistrationConflict" as const;
 
 export type UpsertAgentResult =
   | { agentId: AgentId; apiKey: string; rotated: boolean }
@@ -48,6 +48,7 @@ export class AuthService {
 
   registerAgent(
     params: RegisterParams,
+
     /**
      * When set, populates `owner_user_id` at insert time. Callers MUST
      * validate the value upstream — this argument is treated as trusted.

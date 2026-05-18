@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for Toxiproxy toxic profiles and control helpers.
+ */
 export {
   type ToxicProfile,
   type ToxicTag,
@@ -9,7 +12,7 @@ export { defaultToxicProfile } from "./defaults.js";
 export {
   type ToxiproxyClient,
   type ToxiproxyConfig,
-  type Proxy,
+  type ToxiproxyProxy,
   type ToxicHandle,
   makeToxiproxyClient,
 } from "./client.js";

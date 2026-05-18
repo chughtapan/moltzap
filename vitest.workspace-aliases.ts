@@ -1,6 +1,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Alias } from "vite";
+
+interface WorkspaceSourceAlias {
+  readonly find: string | RegExp;
+  readonly replacement: string;
+}
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -8,7 +12,7 @@ function fromRoot(...segments: string[]): string {
   return path.join(repoRoot, ...segments);
 }
 
-export const workspaceSourceAliases: Alias[] = [
+export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   {
     find: /^@moltzap\/server-core\/test-utils$/,
     replacement: fromRoot("packages/server/src/test-utils/index.ts"),

@@ -1,4 +1,4 @@
-import { Deferred, Effect, HashMap, Ref, Scope } from "effect";
+import { Deferred, Effect, HashMap, Option, Ref, Scope } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 import {
   decodeRpcResult,
@@ -14,8 +14,6 @@ import type { RegisteredTaggedError } from "../rpc-registry.js";
 
 type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 
-type WriteError = unknown;
-
 interface PendingCall {
   readonly method: string;
   readonly definition: AnyRpcDefinition;
@@ -27,8 +25,10 @@ export type RpcCallError =
   | RpcServerError
   | RegisteredTaggedError;
 
-/** Originator side of a JSON-RPC connection. Scope-bound: closing the
- * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts. */
+/**
+ * Originator side of a JSON-RPC connection. Scope-bound: closing the
+ * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
+ */
 export interface JsonRpcClient {
   readonly call: <D extends AnyRpcDefinition>(
     definition: D,
@@ -38,24 +38,198 @@ export interface JsonRpcClient {
   readonly failAllPending: (error: NotConnectedError) => Effect.Effect<void>;
 }
 
+interface JsonRpcClientConfig {
+  readonly write: (raw: string) => Effect.Effect<void, unknown>;
+  readonly idPrefix: string;
+}
+
+interface JsonRpcClientRefs {
+  readonly counterRef: Ref.Ref<number>;
+  readonly pendingRef: Ref.Ref<HashMap.HashMap<JsonRpcId, PendingCall>>;
+}
+
+function incrementCounter(n: number): readonly [number, number] {
+  const value = n + 1;
+  return [value, value] as const;
+}
+
+function addPendingEntry(
+  id: JsonRpcId,
+  entry: PendingCall,
+): (
+  pending: HashMap.HashMap<JsonRpcId, PendingCall>,
+) => HashMap.HashMap<JsonRpcId, PendingCall> {
+  return (pending) => HashMap.set(pending, id, entry);
+}
+
+function takePendingEntry(
+  id: JsonRpcId,
+): (
+  pending: HashMap.HashMap<JsonRpcId, PendingCall>,
+) => readonly [
+  Option.Option<PendingCall>,
+  HashMap.HashMap<JsonRpcId, PendingCall>,
+] {
+  return (pending) => [HashMap.get(pending, id), HashMap.remove(pending, id)];
+}
+
+function wireErrorToRpcCallError(error: {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+}): RpcCallError {
+  const cls = errorClassFor(error.code);
+  if (cls === undefined) {
+    return new RpcServerError({
+      code: error.code,
+      message: error.message,
+      data: error.data,
+    });
+  }
+  // The wire-error registry stores the class factory keyed by code; the
+  // constructor produces a concrete tagged-error instance whose runtime tag
+  // matches one of the union arms in `RegisteredTaggedError`. The type system
+  // can't see through the open-ended `new (...) => { _tag: string }` factory
+  // shape, so the cast bridges the static factory to the closed runtime union.
+  // The `data` argument is forwarded so any payload set by the server reaches
+  // the typed instance rather than being dropped (#511).
+  return new cls({ data: error.data } as never) as RegisteredTaggedError;
+}
+
+function failAllPendingFromRef(
+  pendingRef: JsonRpcClientRefs["pendingRef"],
+  error: NotConnectedError,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const drained = yield* Ref.getAndSet(
+      pendingRef,
+      HashMap.empty<JsonRpcId, PendingCall>(),
+    );
+    for (const [, entry] of HashMap.entries(drained)) {
+      yield* Deferred.fail(entry.deferred, error).pipe(Effect.ignore);
+    }
+  });
+}
+
+function resolvePendingFrame(
+  pendingRef: JsonRpcClientRefs["pendingRef"],
+  frame: ResponseFrame,
+): Effect.Effect<boolean> {
+  return Effect.gen(function* () {
+    if (frame.id === null) return false;
+    const removed = yield* Ref.modify(pendingRef, takePendingEntry(frame.id));
+    return yield* Option.match(removed, {
+      onNone: () => Effect.succeed(false),
+      onSome: (entry) => completePendingFrame(entry, frame),
+    });
+  });
+}
+
+function completePendingFrame(
+  entry: PendingCall,
+  frame: ResponseFrame,
+): Effect.Effect<boolean> {
+  const { deferred } = entry;
+  if ("error" in frame && frame.error !== undefined) {
+    return Deferred.fail(deferred, wireErrorToRpcCallError(frame.error)).pipe(
+      Effect.ignore,
+      Effect.as(true),
+    );
+  }
+  if ("result" in frame) {
+    return Deferred.succeed(deferred, frame.result).pipe(
+      Effect.ignore,
+      Effect.as(true),
+    );
+  }
+  return Effect.succeed(true);
+}
+
+function failWrite(
+  deferred: Deferred.Deferred<unknown, RpcCallError>,
+  method: string,
+): Effect.Effect<never, RpcCallError> {
+  const err = new NotConnectedError({
+    message: `JsonRpcClient: write failed for ${method}`,
+  });
+  return Deferred.fail(deferred, err).pipe(
+    Effect.ignore,
+    Effect.zipRight(Effect.fail<RpcCallError>(err)),
+  );
+}
+
+function writeRequestFrame(
+  config: JsonRpcClientConfig,
+  raw: string,
+  method: string,
+  deferred: Deferred.Deferred<unknown, RpcCallError>,
+): Effect.Effect<void, RpcCallError> {
+  return config
+    .write(raw)
+    .pipe(Effect.catchAll(() => failWrite(deferred, method)));
+}
+
+function decodeCallResult<D extends AnyRpcDefinition>(
+  definition: D,
+  method: string,
+  result: unknown,
+): Effect.Effect<ResultOf<D>, RpcCallError> {
+  return decodeRpcResult(definition, result).pipe(
+    Effect.catchTag("RpcResultDecodeError", () =>
+      Effect.fail(
+        new RpcServerError({
+          code: JSON_RPC_RESERVED_CODES.InternalError,
+          message: `Invalid result for method: ${method}`,
+          data: result,
+        }),
+      ),
+    ),
+    Effect.map((decoded) => decoded as ResultOf<D>),
+  );
+}
+
+function callWithRefs<D extends AnyRpcDefinition>(
+  config: JsonRpcClientConfig,
+  refs: JsonRpcClientRefs,
+  definition: D,
+  params: ParamsOf<D>,
+): Effect.Effect<ResultOf<D>, RpcCallError> {
+  return Effect.gen(function* () {
+    const method = definition.name;
+    const next = yield* Ref.modify(refs.counterRef, incrementCounter);
+    const frame = requestFrame(
+      `${config.idPrefix}-${next}`,
+      definition,
+      params,
+    );
+    const id = frame.id;
+    const deferred = yield* Deferred.make<unknown, RpcCallError>();
+    yield* Ref.update(
+      refs.pendingRef,
+      addPendingEntry(id, { method, definition, deferred }),
+    );
+    return yield* Effect.gen(function* () {
+      yield* writeRequestFrame(config, JSON.stringify(frame), method, deferred);
+      const result = yield* Deferred.await(deferred);
+      return yield* decodeCallResult(definition, method, result);
+    }).pipe(
+      Effect.ensuring(
+        Ref.update(refs.pendingRef, (pending) => HashMap.remove(pending, id)),
+      ),
+    );
+  });
+}
+
 export const makeJsonRpcClient = (config: {
-  readonly write: (raw: string) => Effect.Effect<void, WriteError>;
+  readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }): Effect.Effect<JsonRpcClient, never, Scope.Scope> =>
   Effect.gen(function* () {
     const counterRef = yield* Ref.make(0);
     const pendingRef = yield* Ref.make(HashMap.empty<JsonRpcId, PendingCall>());
-
+    const refs: JsonRpcClientRefs = { counterRef, pendingRef };
     const failAllPending = (error: NotConnectedError): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const drained = yield* Ref.getAndSet(
-          pendingRef,
-          HashMap.empty<JsonRpcId, PendingCall>(),
-        );
-        for (const [, entry] of HashMap.entries(drained)) {
-          yield* Deferred.fail(entry.deferred, error).pipe(Effect.ignore);
-        }
-      });
+      failAllPendingFromRef(pendingRef, error);
 
     yield* Effect.addFinalizer(() =>
       failAllPending(
@@ -66,109 +240,17 @@ export const makeJsonRpcClient = (config: {
     );
 
     const resolve = (frame: ResponseFrame): Effect.Effect<boolean> =>
-      Effect.gen(function* () {
-        if (frame.id === null) return false;
-        const id = frame.id;
-        const removed = yield* Ref.modify(pendingRef, (m) => {
-          const entry = HashMap.get(m, id);
-          return [entry, HashMap.remove(m, id)] as const;
-        });
-        if (removed._tag === "None") return false;
-        const { deferred } = removed.value;
-        if ("error" in frame && frame.error !== undefined) {
-          const cls = errorClassFor(frame.error.code);
-          const failureValue: RpcCallError =
-            cls === undefined
-              ? new RpcServerError({
-                  code: frame.error.code,
-                  message: frame.error.message,
-                  data: frame.error.data,
-                })
-              : // `cls` accepts `RpcErrorPayload` by construction (every
-                // registered class extends `Data.TaggedError(<tag>)<RpcErrorPayload>`).
-                // The cast to `RegisteredTaggedError` bridges the registry's
-                // open factory shape (`{ _tag: string }`) to the closed
-                // runtime union; the runtime invariant — every registered
-                // class is a union arm — is asserted at registration, not
-                // at decode.
-                (new cls({ data: frame.error.data }) as RegisteredTaggedError);
-          yield* Deferred.fail(deferred, failureValue).pipe(Effect.ignore);
-          return true;
-        }
-        if ("result" in frame) {
-          yield* Deferred.succeed(deferred, frame.result).pipe(Effect.ignore);
-        }
-        return true;
-      });
+      resolvePendingFrame(pendingRef, frame);
 
     const call = <D extends AnyRpcDefinition>(
       definition: D,
       params: ParamsOf<D>,
     ): Effect.Effect<ResultOf<D>, RpcCallError> =>
-      Effect.gen(function* () {
-        const method = definition.name;
-        const next = yield* Ref.modify(counterRef, (n) => {
-          const value = n + 1;
-          return [value, value] as const;
-        });
-        const frame = requestFrame(
-          `${config.idPrefix}-${next}`,
-          definition,
-          params,
-        );
-        const id = frame.id;
-        const deferred = yield* Deferred.make<unknown, RpcCallError>();
-
-        // Issue #310 contract: the pending insert/remove are an
-        // acquireUseRelease pair. Release runs on success, error, AND
-        // interrupt, so a caller-driven cancellation
-        // (Effect.timeout, Fiber.interrupt) cleans up before the exit
-        // unwinds. A late inbound response then finds nothing in the
-        // map and `resolve` returns false (no Deferred re-resolve).
-        return yield* Effect.acquireUseRelease(
-          // acquire: register the pending entry. Atomic Ref.update —
-          // `resolve` and the Scope finalizer key off the same Ref, so
-          // all writers serialize.
-          Ref.update(pendingRef, (m) =>
-            HashMap.set(m, id, { method, definition, deferred }),
-          ),
-          // use: write the frame and await the response. Write
-          // failures fail the Deferred so a late inbound frame's
-          // `Deferred.succeed` is a no-op via `Effect.ignore` on an
-          // already-failed Deferred.
-          () =>
-            Effect.gen(function* () {
-              yield* config.write(JSON.stringify(frame)).pipe(
-                Effect.catchAll(() => {
-                  const err = new NotConnectedError({
-                    message: `JsonRpcClient: write failed for ${method}`,
-                  });
-                  return Deferred.fail(deferred, err).pipe(
-                    Effect.ignore,
-                    Effect.zipRight(Effect.fail<RpcCallError>(err)),
-                  );
-                }),
-              );
-              const result = yield* Deferred.await(deferred);
-              const decoded = yield* decodeRpcResult(definition, result).pipe(
-                Effect.mapError(
-                  () =>
-                    new RpcServerError({
-                      code: JSON_RPC_RESERVED_CODES.InternalError,
-                      message: `Invalid result for method: ${method}`,
-                      data: result,
-                    }),
-                ),
-              );
-              return decoded as ResultOf<D>;
-            }),
-          // release: remove the entry. Idempotent — `HashMap.remove`
-          // on an already-removed key is a no-op, so this is safe
-          // whether `resolve` already removed it (success/error path)
-          // or the Scope finalizer drained it (disconnect path).
-          () => Ref.update(pendingRef, (m) => HashMap.remove(m, id)),
-        );
-      });
+      // Issue #310 contract: insert the pending entry before writing and
+      // remove it on success, error, or interrupt. A late inbound response
+      // then finds nothing in the map and `resolve` returns false (no
+      // Deferred re-resolve).
+      callWithRefs(config, refs, definition, params);
 
     return { call, resolve, failAllPending };
-  });
+  }).pipe(Effect.withSpan("makeJsonRpcClient"));

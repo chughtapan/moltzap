@@ -61,7 +61,7 @@ export function registerSubscribeAfterConnect(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerSubscribeAfterConnect")),
     ),
   );
 }

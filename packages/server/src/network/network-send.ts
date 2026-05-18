@@ -1,6 +1,6 @@
 /**
  * `network.send(to: EndpointAddress, payload: OpaquePayload)
- *   → Effect<DeliveryAck, DeliveryError, never>`
+ *   → Effect&lt;DeliveryAck, DeliveryError, never>`
  *
  * Outbound-routing primitive. Two collaborators: the
  * {@link AgentEndpointResolver} for the durable `agent` lookup and the
@@ -12,12 +12,12 @@
  * the address prefix; the switch is exhaustive over
  * {@link EndpointAddressKind}):
  *
- * - `tm:agent:<agentId>` — durable per-agent address used by
+ * - `tm:agent:&lt;agentId>` — durable per-agent address used by
  *   `tasks.tm_endpoint_address` and for any consumer addressing an
  *   agent by identity. Resolves via the resolver's forward map and
  *   writes to one of the agent's live connections;
  *   {@link RecipientNotResolved} when no socket holds the address.
- * - `tm:app:<id>` — app-TM registrations dispatched through the
+ * - `tm:app:&lt;id>` — app-TM registrations dispatched through the
  *   in-process {@link AppTmRegistry} (default DM / group TMs and any
  *   future custom in-process TMs register handlers at boot);
  *   {@link RecipientNotResolved} when no handler is registered.
@@ -25,7 +25,7 @@
  * Same code path runs whether the resolved connection lives in this
  * process or another (plan §1.3 in-process loopback policy).
  */
-import { Brand, Data, Effect, HashSet, Match } from "effect";
+import { Brand, Data, Effect, Either, HashSet, Match } from "effect";
 import {
   endpointAddressKind,
   type EndpointAddress,
@@ -37,7 +37,6 @@ import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 import type { AppTmRegistry } from "./app-tm-registry.js";
-import { logger } from "../logger.js";
 
 /**
  * Branded raw-string payload. The send primitive writes the exact
@@ -57,24 +56,30 @@ export const opaquePayload = (raw: string): OpaquePayload =>
 // Result + error channel
 // ---------------------------------------------------------------------------
 
-/** Successful single-recipient write. The fan-out variant
+/**
+ * Successful single-recipient write. The fan-out variant
  * {@link NetworkSendService.broadcast} returns the delivered agent ids
- * in its success channel and absorbs `DeliveryError` cases. */
+ * in its success channel and absorbs `DeliveryError` cases.
+ */
 export class DeliveryAck extends Data.TaggedClass("DeliveryAck")<{
   readonly to: EndpointAddress;
 }> {}
 
-/** Recipient address has no live connection. Caller-recoverable —
- * usually drop or queue rather than retry. */
+/**
+ * Recipient address has no live connection. Caller-recoverable —
+ * usually drop or queue rather than retry.
+ */
 export class RecipientNotResolved extends Data.TaggedError(
   "RecipientNotResolved",
 )<{
   readonly to: EndpointAddress;
 }> {}
 
-/** Socket write failed. The inner {@link Socket.SocketError} cause is
+/**
+ * Socket write failed. The inner {@link Socket.SocketError} cause is
  * preserved so the caller distinguishes a write failure from a
- * resolution failure without re-running the lookup. */
+ * resolution failure without re-running the lookup.
+ */
 export class WriteFailed extends Data.TaggedError("WriteFailed")<{
   readonly to: EndpointAddress;
   readonly cause: Socket.SocketError;
@@ -85,6 +90,19 @@ export type DeliveryError = RecipientNotResolved | WriteFailed;
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
+
+interface BroadcastOptions {
+  readonly forConversation?: ConversationId;
+  readonly excludeConnectionId?: string;
+  readonly messageId?: MessageId;
+}
+
+interface BroadcastWrite {
+  readonly cid: string;
+  readonly target: AgentId;
+  readonly payload: OpaquePayload;
+  readonly options: BroadcastOptions;
+}
 
 /**
  * The outbound-routing primitive. Use the constructor directly in code;
@@ -97,8 +115,10 @@ export class NetworkSendService {
     private readonly appTmRegistry: AppTmRegistry,
   ) {}
 
-  /** Route `payload` to the connection bound to `to`. Dispatches by
-   * address kind. */
+  /**
+   * Route `payload` to the connection bound to `to`. Dispatches by
+   * address kind.
+   */
   send(
     to: EndpointAddress,
     payload: OpaquePayload,
@@ -134,81 +154,83 @@ export class NetworkSendService {
   broadcast(
     agentIds: readonly AgentId[],
     payload: OpaquePayload,
-    opts?: {
-      readonly forConversation?: ConversationId;
-      readonly excludeConnectionId?: string;
-      /**
-       * #463 v3 — context tag threaded through to the structured log
-       * emitted inside the per-connection `WriteFailed` catchAll. The
-       * caller (`MessageService.sendCommit`) supplies the message id
-       * so operators can correlate a `broadcast.write_failed` log line
-       * with the durable row (which is unaffected — preflight already
-       * proved the recipient was reachable before INSERT; this branch
-       * fires only on a TOCTOU disconnect mid-frame). Plain log
-       * annotation, no DB column; #463 v3 dropped the v2 column +
-       * CAS scaffolding.
-       */
-      readonly messageId?: MessageId;
-    },
+    opts: BroadcastOptions = {},
   ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
     return Effect.gen(this, function* () {
-      const forConversation = opts?.forConversation;
-      const excludeConnectionId = opts?.excludeConnectionId;
-      const messageId = opts?.messageId;
       const delivered: AgentId[] = [];
       for (const target of agentIds) {
-        const connIds = yield* this.resolver.resolveAll(target);
-        let agentReached = false;
-        for (const cid of HashSet.values(connIds)) {
-          if (excludeConnectionId !== undefined && cid === excludeConnectionId)
-            continue;
-          const conn = this.connections.get(cid);
-          if (conn === undefined) continue;
-          if (conn.auth === null) continue;
-          if (forConversation !== undefined) {
-            if (!conn.conversationIds.has(forConversation)) continue;
-            if (conn.mutedConversations.has(forConversation)) continue;
-          }
-          // Fork-and-forget so a hung recipient does not block siblings
-          // or extend the caller's RPC latency.
-          Effect.runFork(
-            conn.write(payload).pipe(
-              Effect.catchAll((cause) =>
-                Effect.sync(() => {
-                  // #463 v3 — single structured log site for the
-                  // post-INSERT WriteFailed residual. Reason tag is
-                  // stable so operators can grep
-                  // `broadcast.write_failed`; messageId + conversationId
-                  // bind the line to the durable row (still present and
-                  // recoverable via `messages/list`).
-                  logger.warn(
-                    {
-                      event: "broadcast.write_failed",
-                      reason: "WriteFailed",
-                      connId: cid,
-                      agentId: target,
-                      conversationId: forConversation,
-                      messageId,
-                      cause: String(cause),
-                    },
-                    "broadcast: socket write failed",
-                  );
-                }),
-              ),
-            ),
-          );
-          agentReached = true;
-        }
-        if (agentReached) delivered.push(target);
+        const reached = yield* this.broadcastToAgent(target, payload, opts);
+        if (reached) delivered.push(target);
       }
       return { delivered };
     });
   }
 
-  /** App-TM dispatch (`tm:app:<id>`) — routes through the in-process
+  private broadcastToAgent(
+    target: AgentId,
+    payload: OpaquePayload,
+    options: BroadcastOptions,
+  ): Effect.Effect<boolean, never, never> {
+    return Effect.gen(this, function* () {
+      const connIds = yield* this.resolver.resolveAll(target);
+      let agentReached = false;
+      for (const cid of HashSet.values(connIds)) {
+        if (!this.connectionCanReceive(cid, options)) continue;
+        this.forkBroadcastWrite({ cid, target, payload, options });
+        agentReached = true;
+      }
+      return agentReached;
+    });
+  }
+
+  private connectionCanReceive(
+    cid: string,
+    options: BroadcastOptions,
+  ): boolean {
+    if (
+      options.excludeConnectionId !== undefined &&
+      cid === options.excludeConnectionId
+    ) {
+      return false;
+    }
+    const conn = this.connections.get(cid);
+    if (conn === undefined || conn.auth === null) return false;
+    const conversationId = options.forConversation;
+    if (conversationId === undefined) return true;
+    return (
+      conn.conversationIds.has(conversationId) &&
+      !conn.mutedConversations.has(conversationId)
+    );
+  }
+
+  private forkBroadcastWrite(write: BroadcastWrite): void {
+    const conn = this.connections.get(write.cid);
+    if (conn === undefined) return;
+    Effect.runFork(
+      conn.write(write.payload).pipe(
+        Effect.catchAll((cause) =>
+          Effect.logWarning("broadcast: socket write failed").pipe(
+            Effect.annotateLogs({
+              event: "broadcast.write_failed",
+              reason: "WriteFailed",
+              connId: write.cid,
+              agentId: write.target,
+              conversationId: write.options.forConversation,
+              messageId: write.options.messageId,
+              cause: String(cause),
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /**
+   * App-TM dispatch (`tm:app:&lt;id>`) — routes through the in-process
    * {@link AppTmRegistry}; no WebSocket round-trip.
    * {@link RecipientNotResolved} when no handler is registered.
-   * Handler errors are absorbed inside the handler's `never` channel. */
+   * Handler errors are absorbed inside the handler's `never` channel.
+   */
   private sendToAppTm(
     to: EndpointAddress,
     payload: OpaquePayload,
@@ -223,12 +245,14 @@ export class NetworkSendService {
     });
   }
 
-  /** Durable-agent delivery (`tm:agent:<agentId>`). Picks one live
+  /**
+   * Durable-agent delivery (`tm:agent:&lt;agentId>`). Picks one live
    * connection of the agent and writes; iterates the resolver set so a
    * stale entry does not poison the send when a sibling connection is
    * still live. {@link RecipientNotResolved} folds "no resolver
    * entry" and "every resolved connection has gone away" — callers
-   * can't act on the distinction without poking internal state. */
+   * can't act on the distinction without poking internal state.
+   */
   private sendToDurableAgent(
     to: EndpointAddress,
     payload: OpaquePayload,
@@ -239,9 +263,15 @@ export class NetworkSendService {
       for (const candidate of HashSet.values(conns)) {
         const conn = this.connections.get(candidate);
         if (conn === undefined) continue;
-        yield* conn
-          .write(payload)
-          .pipe(Effect.mapError((cause) => new WriteFailed({ to, cause })));
+        yield* conn.write(payload).pipe(
+          Effect.either,
+          Effect.flatMap(
+            Either.match({
+              onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
+              onRight: () => Effect.void,
+            }),
+          ),
+        );
         return new DeliveryAck({ to });
       }
       return yield* Effect.fail(new RecipientNotResolved({ to }));

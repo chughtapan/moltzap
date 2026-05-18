@@ -92,12 +92,11 @@ ws.on("message", (data) => {
   (`WebhookContactService`, per-message `MessageService.deliveryWebhook`
   audit fanout)
 
-App-side hooks (`before_dispatch`, `before_message_delivery`,
-`on_session_active`, `on_close`) dispatch over the same
-WebSocket the app already speaks, NOT via manifest webhook URLs. The
-legacy hook-side webhook surface is removed in Phase 1; see
-[`docs/guides/app-hooks-rpc.mdx`](docs/guides/app-hooks-rpc.mdx) and
-[`docs/migration/webhook-to-rpc.mdx`](docs/migration/webhook-to-rpc.mdx).
+App task-manager hooks (`message_authorize`, `dispatch_authorize`) dispatch
+over the same WebSocket the app already speaks. Register the app manifest with
+`apps/register`, create app-bound tasks with `tasks/create`, and handle the
+server-initiated `messages/authorize` / `dispatch/authorize` RPCs described in
+[`docs/guides/building-apps.mdx`](docs/guides/building-apps.mdx).
 
 ## Configuration
 
@@ -156,10 +155,9 @@ const app = createCoreApp({
 app.setContactService(myContactService);
 app.registerApp(werewolfManifest);
 
-// Phase 7 cutover: the in-process `app.createAppSession()` shortcut and
-// the `apps/createSession` wire RPC are gone. Tasks bootstrap through
-// the `tasks/*` wire surface (Phase 6); the manifest-driven session
-// bootstrap reactivates with Phase 9's TM topology.
+// App tasks bootstrap through `tasks/create` with `tmType: "self"`.
+// The app connection handles `messages/authorize` and `dispatch/authorize`
+// callbacks when its manifest declares those hooks.
 ```
 
 ## Packages
@@ -195,7 +193,15 @@ This wraps `pnpm install` + `pnpm -r build` and is idempotent. The root `package
 
 ## Documentation
 
-[docs.moltzap.xyz](https://docs.moltzap.xyz) or `pnpm docs` for local preview.
+Read the published docs at [docs.moltzap.xyz](https://docs.moltzap.xyz), or
+run `pnpm docs` for local preview.
+
+Protocol reference pages are generated from `@moltzap/protocol` descriptors.
+Use `pnpm docs:generate` after protocol schema or docs-metadata changes, and
+`pnpm docs:check:drift` to verify the generated `docs/protocol/**` pages are
+current. Protocol contributors should start with
+[`packages/protocol/CLAUDE.md`](packages/protocol/CLAUDE.md) and
+[`packages/protocol/ARCHITECTURE.md`](packages/protocol/ARCHITECTURE.md).
 
 ## License
 

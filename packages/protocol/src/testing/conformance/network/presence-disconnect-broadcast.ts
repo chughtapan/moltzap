@@ -43,7 +43,7 @@ export function registerDisconnectBroadcast(ctx: ConformanceRunContext): void {
           { agentId: a.agentId, status: "offline" },
           NAME,
         );
-      }),
+      }).pipe(Effect.withSpan("registerDisconnectBroadcast")),
     ),
   );
 }

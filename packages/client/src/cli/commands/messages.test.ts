@@ -2,13 +2,13 @@
  * Unit tests for `moltzap messages list` handler. Spec test-coverage floor:
  * one success + one RPC-failure path.
  */
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
+import { it as effectIt } from "@effect/vitest";
 import {
   afterEach,
   beforeEach,
   describe,
   expect,
-  it,
   vi,
   type MockInstance,
 } from "vitest";
@@ -18,6 +18,55 @@ import { makeFakeTransport } from "./test-transport.js";
 
 import { MessagesList } from "@moltzap/protocol";
 
+const it = effectIt.effect;
+const CONVERSATION_ID = "00000000-0000-4000-8000-00000000000c";
+const FIRST_MESSAGE_ID = "00000000-0000-4000-8000-00000000000a";
+const SECOND_MESSAGE_ID = "00000000-0000-4000-8000-00000000000b";
+const SENDER_A = "00000000-0000-4000-8000-0000000000a1";
+const SENDER_B = "00000000-0000-4000-8000-0000000000b1";
+const FIRST_CREATED_AT = "2026-04-24T00:00:00Z";
+const SECOND_CREATED_AT = "2026-04-24T00:00:01Z";
+const DEFAULT_LIMIT = 50;
+
+const messagesListSuccess = () => ({
+  messages: [
+    {
+      id: FIRST_MESSAGE_ID,
+      conversationId: CONVERSATION_ID,
+      senderId: SENDER_A,
+      createdAt: FIRST_CREATED_AT,
+      parts: [{ type: "text" as const, text: "hello" }],
+    },
+    {
+      id: SECOND_MESSAGE_ID,
+      conversationId: CONVERSATION_ID,
+      senderId: SENDER_B,
+      createdAt: SECOND_CREATED_AT,
+      parts: [{ type: "text" as const, text: "hi" }],
+    },
+  ],
+  hasMore: false,
+});
+
+const emptyMessagesList = () => ({
+  messages: [],
+  hasMore: false,
+});
+
+function transportFailure() {
+  return new Error("fail");
+}
+
+function runMessagesList(
+  transport: ReturnType<typeof makeFakeTransport>["transport"],
+  limit?: number,
+) {
+  return messagesListHandler({
+    conversationId: CONVERSATION_ID,
+    ...(limit !== undefined ? { limit } : {}),
+  }).pipe(Effect.provideService(Transport, transport));
+}
+
 describe("messages list", () => {
   let stdout: MockInstance;
   beforeEach(() => {
@@ -25,76 +74,43 @@ describe("messages list", () => {
   });
   afterEach(() => stdout.mockRestore());
 
-  it("calls messages/list with { conversationId, limit? } and emits one line per message", async () => {
-    // Fixture matches the `messages/list` result shape: every required
-    // `MessageSchema` field is present (including `conversationId`).
-    // `senderName` is the CLI display fallback the handler reads; it is
-    // not part of `MessageSchema` itself (see WireMessage in messages.ts).
-    const SENDER_A = "00000000-0000-4000-8000-0000000000a1";
-    const SENDER_B = "00000000-0000-4000-8000-0000000000b1";
-    const { calls, transport } = makeFakeTransport(() => ({
-      messages: [
-        {
-          id: "00000000-0000-4000-8000-00000000000a",
-          conversationId: "00000000-0000-4000-8000-00000000000c",
-          senderId: SENDER_A,
-          createdAt: "2026-04-24T00:00:00Z",
-          parts: [{ type: "text", text: "hello" }],
+  it("calls messages/list with { conversationId, limit? } and emits one line per message", () =>
+    Effect.gen(function* () {
+      // Fixture matches the `messages/list` result shape: every required
+      // `MessageSchema` field is present (including `conversationId`).
+      // `senderName` is the CLI display fallback the handler reads; it is
+      // not part of `MessageSchema` itself (see WireMessage in messages.ts).
+      const { calls, transport } = makeFakeTransport(messagesListSuccess);
+      yield* runMessagesList(transport, DEFAULT_LIMIT);
+      expect(calls[0]).toEqual({
+        method: MessagesList.name,
+        params: {
+          conversationId: CONVERSATION_ID,
+          limit: DEFAULT_LIMIT,
         },
-        {
-          id: "00000000-0000-4000-8000-00000000000b",
-          conversationId: "00000000-0000-4000-8000-00000000000c",
-          senderId: SENDER_B,
-          createdAt: "2026-04-24T00:00:01Z",
-          parts: [{ type: "text", text: "hi" }],
-        },
-      ],
-      hasMore: false,
+      });
+      expect(stdout).toHaveBeenCalledTimes(2);
+      // Regression #216: first column is `createdAt`, never `undefined`.
+      // MessageSchema has no `seq` field; the previous output stringified
+      // `m.seq` as the literal "undefined" in the leading column.
+      const firstLine = String(stdout.mock.calls[0]?.[0] ?? "");
+      expect(firstLine.startsWith("undefined\t")).toBe(false);
+      expect(firstLine).toBe(`${FIRST_CREATED_AT}\t${SENDER_A}\thello`);
     }));
-    await Effect.runPromise(
-      messagesListHandler({
-        conversationId: "00000000-0000-4000-8000-00000000000c",
-        limit: 50,
-      }).pipe(Effect.provideService(Transport, transport)),
-    );
-    expect(calls[0]).toEqual({
-      method: MessagesList.name,
-      params: {
-        conversationId: "00000000-0000-4000-8000-00000000000c",
-        limit: 50,
-      },
-    });
-    expect(stdout).toHaveBeenCalledTimes(2);
-    // Regression #216: first column is `createdAt`, never `undefined`.
-    // MessageSchema has no `seq` field; the previous output stringified
-    // `m.seq` as the literal "undefined" in the leading column.
-    const firstLine = String(stdout.mock.calls[0]?.[0] ?? "");
-    expect(firstLine.startsWith("undefined\t")).toBe(false);
-    expect(firstLine).toBe(`2026-04-24T00:00:00Z\t${SENDER_A}\thello`);
-  });
 
-  it("omits limit when absent", async () => {
-    const { calls, transport } = makeFakeTransport(() => ({
-      messages: [],
-      hasMore: false,
+  it("omits limit when absent", () =>
+    Effect.gen(function* () {
+      const { calls, transport } = makeFakeTransport(emptyMessagesList);
+      yield* runMessagesList(transport);
+      expect(calls[0]?.params).toEqual({
+        conversationId: CONVERSATION_ID,
+      });
     }));
-    await Effect.runPromise(
-      messagesListHandler({
-        conversationId: "00000000-0000-4000-8000-00000000000c",
-      }).pipe(Effect.provideService(Transport, transport)),
-    );
-    expect(calls[0]?.params).toEqual({
-      conversationId: "00000000-0000-4000-8000-00000000000c",
-    });
-  });
 
-  it("surfaces TransportRpcError", async () => {
-    const { transport } = makeFakeTransport(() => new Error("fail"));
-    const result = await Effect.runPromiseExit(
-      messagesListHandler({
-        conversationId: "00000000-0000-4000-8000-00000000000c",
-      }).pipe(Effect.provideService(Transport, transport)),
-    );
-    expect(result._tag).toBe("Failure");
-  });
+  it("surfaces TransportRpcError", () =>
+    Effect.gen(function* () {
+      const { transport } = makeFakeTransport(transportFailure);
+      const result = yield* Effect.exit(runMessagesList(transport));
+      expect(Exit.isFailure(result)).toBe(true);
+    }));
 });

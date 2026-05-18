@@ -53,7 +53,7 @@ export interface RoutingState {
   readonly resolveTarget: (replyTo: MessageId | undefined) => RoutingResolution;
 }
 
-export type RoutingResolution =
+type RoutingResolution =
   | { readonly _tag: "Resolved"; readonly conversationId: ConversationId }
   | { readonly _tag: "NoActiveConversation" }
   | { readonly _tag: "ReplyToUnknown"; readonly replyTo: MessageId };
@@ -62,10 +62,9 @@ const DEFAULT_CAPACITY = 256;
 
 /**
  * Construct a fresh routing state. One instance per boot.
- *
  * @param capacity bounded LRU size (default 256 recent message_ids, per
- *        architect design doc §2.4). Exceeding the cap evicts the oldest
- *        (FIFO) — relying on JavaScript `Map` preserving insertion order.
+ * architect design doc §2.4). Exceeding the cap evicts the oldest
+ * (FIFO) — relying on JavaScript `Map` preserving insertion order.
  */
 export function createRoutingState(
   capacity: number = DEFAULT_CAPACITY,
@@ -78,7 +77,7 @@ export function createRoutingState(
   }
   const cap = Math.floor(capacity);
   const map = new Map<MessageId, ConversationId>();
-  let lastActive: ConversationId | undefined = undefined;
+  let lastActive: ConversationId | undefined;
 
   function recordInbound(
     messageId: MessageId,

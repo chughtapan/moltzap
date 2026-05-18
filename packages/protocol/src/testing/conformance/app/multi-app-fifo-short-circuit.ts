@@ -25,7 +25,6 @@ export function registerMultiAppFifoShortCircuit(
     "two apps; first denies; second hook is NOT invoked",
     Effect.scoped(
       Effect.gen(function* () {
-        void ctx;
         return yield* Effect.fail(
           new PropertyDeferred({
             category: CATEGORY,
@@ -33,7 +32,7 @@ export function registerMultiAppFifoShortCircuit(
             followUp: `dual-app first-deny short-circuit needs TM-topology dispatch; reactivate alongside #555 (${TasksCreate.name} bootstrap)`,
           }),
         );
-      }),
+      }).pipe(Effect.withSpan("registerMultiAppFifoShortCircuit")),
     ),
   );
 }

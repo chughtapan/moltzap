@@ -2,7 +2,7 @@
  * Unit tests for the close-metadata classifier.
  *
  * Spec #222 §5.4 (V7): the reader-fiber `onExit` path projects an
- * `Exit.Exit<void, Socket.SocketError>` onto a `CloseInfo`. The OQ-5
+ * `Exit.Exit&lt;void, Socket.SocketError>` onto a `CloseInfo`. The OQ-5
  * default map fans across five `CloseKind` branches; the live
  * integration tests in `ws-client.test.ts` cover the `Clean` branch
  * via real WebSocket close frames. This file covers the remaining
@@ -16,7 +16,8 @@
  * mutation that collapses the map (e.g. always returns
  * `DEFAULT_GRACEFUL_CLOSE`) trips a specific assertion.
  */
-import { describe, expect, it } from "vitest";
+import * as fc from "fast-check";
+import { expect, it } from "vitest";
 import { Cause, Exit } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
@@ -26,90 +27,109 @@ import {
   extractCloseInfo,
 } from "./close-info.js";
 
-describe("extractCloseInfo — OQ-5 default map", () => {
-  it("EndOfStream (Exit.Success) → DEFAULT_GRACEFUL_CLOSE", () => {
-    const exit = Exit.succeed<void>(undefined);
-    expect(extractCloseInfo(exit)).toEqual(DEFAULT_GRACEFUL_CLOSE);
-  });
+const PROPERTY_RUNS = 25;
 
-  it("Clean (SocketCloseError) → {code, reason} round-tripped", () => {
-    const err = new Socket.SocketCloseError({
-      reason: "Close",
-      code: 1001,
-      closeReason: "going away",
-    });
-    const exit = Exit.fail(err);
-    expect(extractCloseInfo(exit)).toEqual({
-      code: 1001,
-      reason: "going away",
-    });
-  });
+it("property: Clean close cause preserves code and reason", () => {
+  expect.hasAssertions();
+  fc.assert(
+    fc.property(
+      fc.integer({ min: 1000, max: 4999 }),
+      fc.string(),
+      (code, reason) => {
+        const close = classifyCloseCause(
+          Cause.fail(
+            new Socket.SocketCloseError({
+              reason: "Close",
+              code,
+              closeReason: reason,
+            }),
+          ),
+        );
+        expect(close).toEqual({ _tag: "Clean", code, reason });
+      },
+    ),
+    { numRuns: PROPERTY_RUNS },
+  );
+});
 
-  it("Clean with no closeReason → empty-string reason (no synthesized text)", () => {
-    const err = new Socket.SocketCloseError({
-      reason: "Close",
-      code: 1000,
-    });
-    const exit = Exit.fail(err);
-    expect(extractCloseInfo(exit)).toEqual({ code: 1000, reason: "" });
-  });
+it("EndOfStream maps to DEFAULT_GRACEFUL_CLOSE", () => {
+  const exit = Exit.succeed<void>(undefined);
+  expect(extractCloseInfo(exit)).toEqual(DEFAULT_GRACEFUL_CLOSE);
+});
 
-  it("HandshakeFailure (Open) → DEFAULT_ABNORMAL_CLOSE", () => {
-    const err = new Socket.SocketGenericError({
-      reason: "Open",
-      cause: new Error("boom"),
-    });
-    const exit = Exit.fail(err);
-    expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
+it("Clean SocketCloseError round-trips code and reason", () => {
+  const err = new Socket.SocketCloseError({
+    reason: "Close",
+    code: 1001,
+    closeReason: "going away",
   });
-
-  it("HandshakeFailure (OpenTimeout) → DEFAULT_ABNORMAL_CLOSE", () => {
-    const err = new Socket.SocketGenericError({
-      reason: "OpenTimeout",
-      cause: new Error("timeout"),
-    });
-    const exit = Exit.fail(err);
-    expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
-  });
-
-  it("TransportFailure (Read) → DEFAULT_ABNORMAL_CLOSE", () => {
-    const err = new Socket.SocketGenericError({
-      reason: "Read",
-      cause: new Error("ECONNRESET"),
-    });
-    const exit = Exit.fail(err);
-    expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
-  });
-
-  it("TransportFailure (Write) → DEFAULT_ABNORMAL_CLOSE", () => {
-    const err = new Socket.SocketGenericError({
-      reason: "Write",
-      cause: new Error("EPIPE"),
-    });
-    const exit = Exit.fail(err);
-    expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
-  });
-
-  it("Unknown (interrupt with no SocketError failure) → DEFAULT_ABNORMAL_CLOSE", () => {
-    // An interrupted reader fiber emits a Cause with no failure; the
-    // classifier must route it to `Unknown`, not collapse to graceful.
-    const exit = Exit.failCause(Cause.interrupt(0 as never));
-    expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
+  const exit = Exit.fail(err);
+  expect(extractCloseInfo(exit)).toEqual({
+    code: 1001,
+    reason: "going away",
   });
 });
 
-describe("classifyCloseCause", () => {
-  it("Clean preserves the upstream code + closeReason", () => {
-    const err = new Socket.SocketCloseError({
-      reason: "Close",
-      code: 4321,
-      closeReason: "custom",
-    });
-    const cause = Cause.fail(err);
-    expect(classifyCloseCause(cause)).toEqual({
-      _tag: "Clean",
-      code: 4321,
-      reason: "custom",
-    });
+it("Clean with no closeReason uses empty-string reason", () => {
+  const err = new Socket.SocketCloseError({
+    reason: "Close",
+    code: 1000,
+  });
+  const exit = Exit.fail(err);
+  expect(extractCloseInfo(exit)).toEqual({ code: 1000, reason: "" });
+});
+
+it("HandshakeFailure Open maps to DEFAULT_ABNORMAL_CLOSE", () => {
+  const err = new Socket.SocketGenericError({
+    reason: "Open",
+    cause: new Error("boom"),
+  });
+  const exit = Exit.fail(err);
+  expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
+});
+
+it("HandshakeFailure OpenTimeout maps to DEFAULT_ABNORMAL_CLOSE", () => {
+  const err = new Socket.SocketGenericError({
+    reason: "OpenTimeout",
+    cause: new Error("timeout"),
+  });
+  const exit = Exit.fail(err);
+  expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
+});
+
+it("TransportFailure Read maps to DEFAULT_ABNORMAL_CLOSE", () => {
+  const err = new Socket.SocketGenericError({
+    reason: "Read",
+    cause: new Error("ECONNRESET"),
+  });
+  const exit = Exit.fail(err);
+  expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
+});
+
+it("TransportFailure Write maps to DEFAULT_ABNORMAL_CLOSE", () => {
+  const err = new Socket.SocketGenericError({
+    reason: "Write",
+    cause: new Error("EPIPE"),
+  });
+  const exit = Exit.fail(err);
+  expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
+});
+
+it("interrupt with no SocketError failure maps to DEFAULT_ABNORMAL_CLOSE", () => {
+  const exit = Exit.failCause(Cause.interrupt(0 as never));
+  expect(extractCloseInfo(exit)).toEqual(DEFAULT_ABNORMAL_CLOSE);
+});
+
+it("classifyCloseCause preserves upstream code and closeReason", () => {
+  const err = new Socket.SocketCloseError({
+    reason: "Close",
+    code: 4321,
+    closeReason: "custom",
+  });
+  const cause = Cause.fail(err);
+  expect(classifyCloseCause(cause)).toEqual({
+    _tag: "Clean",
+    code: 4321,
+    reason: "custom",
   });
 });

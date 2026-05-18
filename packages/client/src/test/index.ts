@@ -1,22 +1,36 @@
-import { Data, Effect } from "effect";
+/**
+ * @file Compatibility helpers for tests that import `@moltzap/client/test`.
+ */
+
+import { Effect } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { registerAgent, type RegisterAgentOptions } from "@moltzap/client";
+import type { RegisterAgentError } from "../auth.js";
+import type { ServiceRpcError } from "../service.js";
 
-/** Back-compat re-exports. `registerAgent` and its types were promoted to
+/**
+ * Back-compat re-exports. `registerAgent` and its types were promoted to
  * the `@moltzap/client` root; this surface stays so existing test imports
  * (`@moltzap/client/test`) keep working unchanged. New callers should
- * import from `@moltzap/client` directly. */
+ * import from `@moltzap/client` directly.
+ */
 export {
   registerAgent,
   type RegisterAgentOptions,
   type RegisterResponse,
 } from "@moltzap/client";
 
-/** Strip the `/ws` suffix that test harnesses tack onto the WebSocket URL —
- * `MoltZapWsClient` re-appends it internally. */
+/**
+ * Strip the `/ws` suffix that test harnesses tack onto the WebSocket URL.
+ * @param wsUrl WebSocket URL supplied by a test harness.
+ * @returns Base URL suitable for `MoltZapWsClient`.
+ */
 export const stripWsPath = (wsUrl: string): string =>
   wsUrl.replace(/\/ws\/?$/, "");
 
+/**
+ * Registered and connected test agent credentials.
+ */
 export interface ConnectedTestAgent {
   client: MoltZapWsClient;
   agentId: string;
@@ -25,16 +39,21 @@ export interface ConnectedTestAgent {
   claimToken: string;
 }
 
-export class RegisterAndConnectError extends Data.TaggedError(
-  "RegisterAndConnectError",
-)<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+/**
+ * Error union surfaced by {@link registerAndConnect}.
+ */
+export type RegisterAndConnectError = RegisterAgentError | ServiceRpcError;
 
-/** Register a fresh agent, build a `MoltZapWsClient` with its apiKey, and
+/**
+ * Register a fresh agent, build a `MoltZapWsClient` with its apiKey, and
  * complete the `network/connect` handshake. Returns the live client ready for
- * RPCs and event waits. Caller is responsible for `yield* client.close()`. */
+ * RPCs and event waits. Caller is responsible for `yield* client.close()`.
+ * @param baseUrl HTTP base URL for the server.
+ * @param wsUrl WebSocket URL from the test server.
+ * @param name Agent name to register.
+ * @param opts Optional registration fields.
+ * @returns Connected test agent and credentials.
+ */
 export const registerAndConnect = (
   baseUrl: string,
   wsUrl: string,
@@ -42,35 +61,11 @@ export const registerAndConnect = (
   opts?: RegisterAgentOptions,
 ): Effect.Effect<ConnectedTestAgent, RegisterAndConnectError> =>
   Effect.gen(function* () {
-    const reg = yield* registerAgent(baseUrl, name, opts).pipe(
-      Effect.mapError(
-        (cause) =>
-          new RegisterAndConnectError({
-            message: "Agent registration failed",
-            cause,
-          }),
-      ),
-    );
+    const reg = yield* registerAgent(baseUrl, name, opts);
     const client = new MoltZapWsClient({
       serverUrl: stripWsPath(wsUrl),
       agentKey: reg.apiKey,
     });
-    yield* client.connect().pipe(
-      Effect.catchTag("RpcTimeoutError", (err) =>
-        Effect.fail(
-          new RegisterAndConnectError({
-            message: `RPC timeout: ${err.method}`,
-            cause: err,
-          }),
-        ),
-      ),
-      Effect.mapError(
-        (cause) =>
-          new RegisterAndConnectError({
-            message: cause.message,
-            cause,
-          }),
-      ),
-    );
+    yield* client.connect();
     return { client, ...reg };
-  });
+  }).pipe(Effect.withSpan("registerAndConnect"));

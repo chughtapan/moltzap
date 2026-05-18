@@ -46,7 +46,7 @@ const fanOut = <D extends NotificationDefinition<string, any>>(
     const frame = definition.encode(params);
     const payload = opaquePayload(JSON.stringify(frame));
     yield* networkSendService.broadcast(agentIds, payload);
-  });
+  }).pipe(Effect.withSpan("contacts.fanOut"));
 
 export const contactHandlers: RpcMethodRegistry = [
   defineTaskMethod(ContactsList, {
@@ -56,7 +56,7 @@ export const contactHandlers: RpcMethodRegistry = [
         const owner = yield* requireOwner(ctx);
         const contacts = yield* contactService.list(owner);
         return { contacts: [...contacts] };
-      }),
+      }).pipe(Effect.withSpan("contacts.list")),
   }),
 
   defineTaskMethod(ContactsAdd, {
@@ -71,7 +71,7 @@ export const contactHandlers: RpcMethodRegistry = [
           { contact },
         );
         return { contact };
-      }),
+      }).pipe(Effect.withSpan("contacts.add")),
   }),
 
   defineTaskMethod(ContactsAccept, {
@@ -88,7 +88,7 @@ export const contactHandlers: RpcMethodRegistry = [
           );
         }
         return { contact: result.contact };
-      }),
+      }).pipe(Effect.withSpan("contacts.accept")),
   }),
 
   defineTaskMethod(ContactsById, {
@@ -98,6 +98,6 @@ export const contactHandlers: RpcMethodRegistry = [
         const owner = yield* requireOwner(ctx);
         const contact = yield* contactService.byId(owner, params.contactId);
         return { contact };
-      }),
+      }).pipe(Effect.withSpan("contacts.byId")),
   }),
 ];

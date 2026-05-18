@@ -1,10 +1,10 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   setupAgentGroup,
 } from "../helpers.js";
 import type { ConnectedAgent } from "../helpers.js";
@@ -15,68 +15,57 @@ import {
   ConversationUpdatedNotificationDefinition,
 } from "@moltzap/protocol";
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+const OLD_CONVERSATION_NAME = "Old Name";
+const NEW_CONVERSATION_NAME = "New Name";
 
-afterAll(async () => {
-  await stopTestServer();
-});
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-describe("Update Conversation Name", () => {
-  it.live("conversation rename broadcasts update event and persists", () =>
-    Effect.gen(function* () {
-      const group = yield* setupAgentGroup(3, {
-        groupName: "Old Name",
-      });
-      const [alice, bob, eve] = group.agents as [
-        ConnectedAgent,
-        ConnectedAgent,
-        ConnectedAgent,
-      ];
-      const conversationId = group.conversationId!;
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-      // Set up event waiters on Bob and Eve BEFORE the update
+it("conversation rename broadcasts update event and persists", () =>
+  Effect.gen(function* () {
+    const group = yield* setupAgentGroup(3, {
+      groupName: OLD_CONVERSATION_NAME,
+    });
+    const [alice, bob, eve] = group.agents as [
+      ConnectedAgent,
+      ConnectedAgent,
+      ConnectedAgent,
+    ];
+    const conversationId = group.conversationId!;
 
-      const updateResult = (yield* alice.client.sendRpc(ConversationsUpdate, {
-        conversationId,
-        name: "New Name",
-      })) as { conversation: { id: string; name: string } };
+    // Set up event waiters on Bob and Eve BEFORE the update
 
-      expect(updateResult.conversation.name).toBe("New Name");
+    const updateResult = (yield* alice.client.sendRpc(ConversationsUpdate, {
+      conversationId,
+      name: NEW_CONVERSATION_NAME,
+    })) as { conversation: { id: string; name: string } };
 
-      const bobUpdated = yield* bob.client.waitForNotification(
-        ConversationUpdatedNotificationDefinition,
-      );
-      const eveUpdated = yield* eve.client.waitForNotification(
-        ConversationUpdatedNotificationDefinition,
-      );
+    expect(updateResult.conversation.name).toBe(NEW_CONVERSATION_NAME);
 
-      expect(
-        (bobUpdated.params as { conversation: { name: string } }).conversation
-          .name,
-      ).toBe("New Name");
-      expect(
-        (eveUpdated.params as { conversation: { name: string } }).conversation
-          .name,
-      ).toBe("New Name");
+    const bobUpdated = yield* bob.client.waitForNotification(
+      ConversationUpdatedNotificationDefinition,
+    );
+    const eveUpdated = yield* eve.client.waitForNotification(
+      ConversationUpdatedNotificationDefinition,
+    );
 
-      // Verify persistence via conversations/list
-      const listResult = (yield* alice.client.sendRpc(
-        ConversationsList,
-        {},
-      )) as {
-        conversations: Array<{ id: string; name?: string }>;
-      };
-      const found = listResult.conversations.find(
-        (c) => c.id === conversationId,
-      );
-      expect(found).toBeDefined();
-      expect(found!.name).toBe("New Name");
-    }),
-  );
-});
+    expect(
+      (bobUpdated.params as { conversation: { name: string } }).conversation
+        .name,
+    ).toBe(NEW_CONVERSATION_NAME);
+    expect(
+      (eveUpdated.params as { conversation: { name: string } }).conversation
+        .name,
+    ).toBe(NEW_CONVERSATION_NAME);
+
+    // Verify persistence via conversations/list
+    const listResult = (yield* alice.client.sendRpc(ConversationsList, {})) as {
+      conversations: Array<{ id: string; name?: string }>;
+    };
+    const found = listResult.conversations.find((c) => c.id === conversationId);
+    expect(found).toBeDefined();
+    expect(found!.name).toBe(NEW_CONVERSATION_NAME);
+  }));

@@ -2,13 +2,13 @@
 
 import type { GlobalSetupContext } from "vitest/node";
 
-export default async function ({ provide }: GlobalSetupContext) {
+export default function ({ provide }: GlobalSetupContext) {
   // PGlite runs in-process — no container setup needed.
   // Signal to test-utils that we're using PGlite.
   provide("testPgHost", "pglite");
   provide("testPgPort", 0);
 
-  return async () => {
+  return () => {
     // No container to tear down.
   };
 }

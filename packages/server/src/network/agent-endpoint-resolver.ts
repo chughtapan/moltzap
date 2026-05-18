@@ -1,5 +1,5 @@
 /**
- * In-memory `AgentId → HashSet<ConnectionId>` multimap with a paired
+ * In-memory `AgentId → HashSet&lt;ConnectionId>` multimap with a paired
  * `ConnectionId → AgentId` reverse index.
  *
  * Plan: `docs/plans/layered-network-refactor-2026-05.md` §2.10 (Slice G1
@@ -16,7 +16,7 @@
  * Why a multimap. An authenticated agent can hold multiple WebSocket
  * connections (web tab + CLI + mobile). Fan-out has to address every live
  * connection of that agent without re-scanning `ConnectionManager`. The
- * forward map (`HashMap<AgentId, HashSet<ConnectionId>>`) gives O(1)
+ * forward map (`HashMap&lt;AgentId, HashSet&lt;ConnectionId>>`) gives O(1)
  * fan-out via {@link AgentEndpointResolver.resolveAll}.
  *
  * Why a paired reverse index. Cross-agent ownership conflict detection
@@ -87,7 +87,7 @@ const emptyState: ResolverState = {
  * fibers.
  */
 export class AgentEndpointResolver {
-  static make: Effect.Effect<AgentEndpointResolver> = Effect.map(
+  static readonly make: Effect.Effect<AgentEndpointResolver> = Effect.map(
     Ref.make<ResolverState>(emptyState),
     (state) => new AgentEndpointResolver(state),
   );
@@ -184,8 +184,8 @@ export class AgentEndpointResolver {
    * immutable and the caller cannot mutate the resolver through it.
    *
    * Phase 9b consumer-migration (sub-issue #460 amendment): post-rename
-   * the return type is `HashSet<ConnectionId>` rather than the
-   * `HashSet<EndpointAddress>` shape the pre-Phase-9b namespace split
+   * the return type is `HashSet&lt;ConnectionId>` rather than the
+   * `HashSet&lt;EndpointAddress>` shape the pre-Phase-9b namespace split
    * carried. Consumers that previously read `EndpointAddress` values
    * out of the resolver and re-wrapped them around `connectionId` now
    * read `ConnectionId` directly.

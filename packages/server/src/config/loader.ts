@@ -6,8 +6,7 @@
  * `runPromiseExit` to inspect failures) and decide how to react.
  */
 
-import { readFileSync, realpathSync } from "node:fs";
-import { dirname } from "node:path";
+import { FileSystem, Path } from "@effect/platform";
 import { parse as parseYaml } from "yaml";
 import {
   Config,
@@ -19,9 +18,14 @@ import {
   Option,
   Schema,
 } from "effect";
+import * as ConfigErrorTree from "effect/ConfigError";
 import type { ConfigError } from "effect/ConfigError";
 import { MoltZapConfig, type MoltZapAppConfig } from "./effect-config.js";
-import { validateConfig, formatConfigErrors } from "./schema.js";
+import {
+  validateConfig,
+  formatConfigErrors,
+  type ConfigError as SchemaConfigError,
+} from "./schema.js";
 
 /**
  * Top-level YAML document shape. `ConfigProvider.fromJson` silently
@@ -65,6 +69,162 @@ const readEnvValue = (
     ),
   );
 };
+
+const dirnameEffect = (
+  pathName: string,
+): Effect.Effect<string, never, Path.Path> =>
+  Path.Path.pipe(Effect.map((path) => path.dirname(pathName)));
+
+const resolveConfigPath = (
+  path: string | undefined,
+  processEnv: ProcessEnvSnapshot | undefined,
+) => path ?? readEnvValue(processEnv, "MOLTZAP_CONFIG") ?? "moltzap.yaml";
+
+function readConfigFile(
+  configPath: string,
+): Effect.Effect<string, ConfigLoadError, FileSystem.FileSystem> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.readFileString(configPath, "utf-8")),
+    Effect.catchTags({
+      BadArgument: (cause) => Effect.fail(readConfigError(configPath, cause)),
+      SystemError: (cause) => Effect.fail(readConfigError(configPath, cause)),
+    }),
+    Effect.withSpan("readConfigFile"),
+  );
+}
+
+function readConfigError(
+  configPath: string,
+  cause: { readonly message: string },
+) {
+  return new ConfigLoadError({
+    kind: "read",
+    path: configPath,
+    message: `Cannot read config file "${configPath}": ${cause.message}`,
+    cause,
+  });
+}
+
+function parseYamlDocument(
+  raw: string,
+  configPath: string,
+): Effect.Effect<unknown, ConfigLoadError> {
+  return Effect.try({
+    try: (): unknown => parseYaml(raw),
+    catch: (cause) =>
+      new ConfigLoadError({
+        kind: "yaml",
+        path: configPath,
+        message: `Invalid YAML in "${configPath}": ${(cause as Error).message}`,
+        cause,
+      }),
+  }).pipe(Effect.withSpan("parseYamlDocument"));
+}
+
+function decodeYamlMapping(
+  parsed: unknown,
+  configPath: string,
+): Effect.Effect<Readonly<Record<string, unknown>>, ConfigLoadError> {
+  return Either.match(decodeYamlDocument(parsed), {
+    onLeft: (cause) =>
+      Effect.fail(
+        new ConfigLoadError({
+          kind: "yaml",
+          path: configPath,
+          message: `Invalid YAML in "${configPath}": top-level value must be a mapping (${cause.message})`,
+          cause,
+        }),
+      ),
+    onRight: (value) => Effect.succeed(value),
+  }).pipe(Effect.withSpan("decodeYamlMapping"));
+}
+
+function validateYamlConfig(
+  value: unknown,
+  configPath: string,
+): Effect.Effect<unknown, ConfigLoadError> {
+  const schemaResult = validateConfig(value);
+  if (schemaResult.ok) {
+    return Effect.succeed(value);
+  }
+  return Effect.fail(
+    new ConfigLoadError({
+      kind: "validation",
+      path: configPath,
+      message: `Invalid config in "${configPath}":\n${formatConfigErrors(schemaResult.errors)}`,
+      configError: schemaErrorsToConfigError(schemaResult.errors),
+    }),
+  );
+}
+
+function schemaErrorsToConfigError(
+  errors: readonly SchemaConfigError[],
+): ConfigError {
+  const [first, ...rest] = errors;
+  const head =
+    first === undefined
+      ? ConfigErrorTree.InvalidData([], "validation failed")
+      : schemaErrorToConfigError(first);
+  return rest.reduce(
+    (acc, error) => ConfigErrorTree.And(acc, schemaErrorToConfigError(error)),
+    head,
+  );
+}
+
+function schemaErrorToConfigError(error: SchemaConfigError): ConfigError {
+  return ConfigErrorTree.InvalidData(
+    configErrorPathSegments(error.path),
+    `${error.problem}; expected ${error.expected}`,
+  );
+}
+
+function configErrorPathSegments(path: string): string[] {
+  return path === "/"
+    ? []
+    : path.split("/").filter((segment) => segment !== "");
+}
+
+function decodeMoltZapConfig(
+  value: unknown,
+  configPath: string,
+): Effect.Effect<MoltZapAppConfig, ConfigLoadError> {
+  return MoltZapConfig.pipe(
+    Effect.withConfigProvider(ConfigProvider.fromJson(value ?? {})),
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (configError) =>
+          Effect.fail(configValidationError(configPath, configError)),
+        onRight: (value) => Effect.succeed(value),
+      }),
+    ),
+    Effect.withSpan("decodeMoltZapConfig"),
+  );
+}
+
+function configValidationError(configPath: string, configError: ConfigError) {
+  return new ConfigLoadError({
+    kind: "validation",
+    path: configPath,
+    message: `Invalid config in "${configPath}": ${formatConfigError(configError)}`,
+    configError,
+  });
+}
+
+function resolveConfigDir(
+  configPath: string,
+): Effect.Effect<string, never, FileSystem.FileSystem | Path.Path> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.realPath(configPath)),
+    Effect.flatMap(dirnameEffect),
+    Effect.catchAll((cause) =>
+      Effect.logWarning("Failed to resolve config path symlink:", cause).pipe(
+        Effect.flatMap(() => dirnameEffect(configPath)),
+      ),
+    ),
+    Effect.withSpan("resolveConfigDir"),
+  );
+}
 
 /** Interpolate `${ENV_VAR}` references in string values throughout a parsed object. */
 function interpolateEnvVars(
@@ -133,89 +293,27 @@ function interpolateEnvVars(
 export const loadConfigFromFile = (
   path?: string,
   processEnv?: ProcessEnvSnapshot,
-): Effect.Effect<MoltZapAppConfig & { _configDir: string }, ConfigLoadError> =>
+): Effect.Effect<
+  MoltZapAppConfig & { _configDir: string },
+  ConfigLoadError,
+  FileSystem.FileSystem | Path.Path
+> =>
   Effect.gen(function* () {
-    const configPath =
-      path ?? readEnvValue(processEnv, "MOLTZAP_CONFIG") ?? "moltzap.yaml";
-
-    const raw = yield* Effect.try({
-      try: () => readFileSync(configPath, "utf-8"),
-      catch: (cause) =>
-        new ConfigLoadError({
-          kind: "read",
-          path: configPath,
-          message: `Cannot read config file "${configPath}": ${(cause as Error).message}`,
-          cause,
-        }),
-    });
-
-    const parsed = yield* Effect.try({
-      try: (): unknown => parseYaml(raw),
-      catch: (cause) =>
-        new ConfigLoadError({
-          kind: "yaml",
-          path: configPath,
-          message: `Invalid YAML in "${configPath}": ${(cause as Error).message}`,
-          cause,
-        }),
-    });
-
-    const decoded = yield* Either.match(decodeYamlDocument(parsed), {
-      onLeft: (cause) =>
-        Effect.fail(
-          new ConfigLoadError({
-            kind: "yaml",
-            path: configPath,
-            message: `Invalid YAML in "${configPath}": top-level value must be a mapping (${cause.message})`,
-            cause,
-          }),
-        ),
-      onRight: (value) => Effect.succeed(value),
-    });
-
-    const interp = yield* interpolateEnvVars(decoded, configPath, processEnv);
-
-    // TypeBox validation runs before Effect Config to catch type mismatches
-    // (e.g. a string where a boolean is required) with clear field-level
-    // messages. Effect Config coerces some primitives; TypeBox does not.
-    const schemaResult = validateConfig(interp);
-    if (!schemaResult.ok) {
-      return yield* Effect.fail(
-        new ConfigLoadError({
-          kind: "validation",
-          path: configPath,
-          message: `Invalid config in "${configPath}":\n${formatConfigErrors(schemaResult.errors)}`,
-        }),
-      );
-    }
-
-    // `fromJson` walks the nested object and produces flat paths that
-    // `Config.all(...)` / `Config.nested(...)` / `Config.array(...)` consume.
-    const provider = ConfigProvider.fromJson(interp ?? {});
-
-    const value = yield* MoltZapConfig.pipe(
-      Effect.withConfigProvider(provider),
-      Effect.mapError(
-        (configError) =>
-          new ConfigLoadError({
-            kind: "validation",
-            path: configPath,
-            message: `Invalid config in "${configPath}": ${formatConfigError(configError)}`,
-            configError,
-          }),
-      ),
+    const configPath = resolveConfigPath(path, processEnv);
+    const raw = yield* readConfigFile(configPath);
+    const parsed = yield* parseYamlDocument(raw, configPath);
+    const decoded = yield* decodeYamlMapping(parsed, configPath);
+    const interpolated = yield* interpolateEnvVars(
+      decoded,
+      configPath,
+      processEnv,
     );
-
-    let configDir: string;
-    try {
-      configDir = dirname(realpathSync(configPath));
-    } catch (err) {
-      console.warn("Failed to resolve config path symlink:", err);
-      configDir = dirname(configPath);
-    }
+    const validated = yield* validateYamlConfig(interpolated, configPath);
+    const value = yield* decodeMoltZapConfig(validated, configPath);
+    const configDir = yield* resolveConfigDir(configPath);
 
     return { ...value, _configDir: configDir };
-  });
+  }).pipe(Effect.withSpan("loadConfigFromFile"));
 
 /** Walk a ConfigError tree and produce a readable string. */
 function formatConfigError(err: ConfigError): string {

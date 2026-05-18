@@ -4,20 +4,25 @@
  * that token verbatim.
  */
 import { Effect } from "effect";
+import type { Static } from "@sinclair/typebox";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
-import { MessagesSend } from "@moltzap/protocol/task";
+import type { CapturedFrame } from "../_shared/captures.js";
+import type { TestClient } from "../_shared/driver/test-client.js";
+import { ConversationId, MessagesSend } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
   adversityViolation,
   createOneOnOneConversation,
   proxyName,
+  type ToxicBodyParams,
   withToxicProxy,
 } from "./_helpers.js";
 
 const ID_RADIX = 36;
 const SLICER_CLIENT_TIMEOUT_MS = 8_000;
+type ConversationIdValue = Static<typeof ConversationId>;
 
 export function registerSlicerFraming(ctx: ConformanceRunContext): void {
   withToxicProxy({
@@ -26,56 +31,80 @@ export function registerSlicerFraming(ctx: ConformanceRunContext): void {
     description: "partial-frame slicing preserves payload byte-identity",
     proxyName: proxyName("sli", ctx.seed),
     profile: defaultToxicProfile.slicer,
-    body: ({ proxy, unavailable, attachToxic }) =>
-      Effect.gen(function* () {
-        const owner = yield* acquireProxiedClient(
-          ctx,
-          proxy,
-          `sli-${ctx.seed}-o`,
-          SLICER_CLIENT_TIMEOUT_MS,
-          unavailable,
-        );
-        const participant = yield* acquireProxiedClient(
-          ctx,
-          proxy,
-          `sli-${ctx.seed}-p`,
-          SLICER_CLIENT_TIMEOUT_MS,
-          unavailable,
-        );
-        const conversationId = yield* createOneOnOneConversation(
-          owner,
-          participant,
-          "slicer-framing",
-        );
-        const token = `sli-token-${ctx.seed}-${Date.now().toString(ID_RADIX)}`;
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            yield* attachToxic;
-            yield* owner.client
-              .sendRpc(MessagesSend, {
-                conversationId,
-                parts: [{ type: "text", text: token }],
-              })
-              .pipe(Effect.either);
-            yield* Effect.sleep("1200 millis"); // slicer fragments are slow
-          }),
-        );
-        const snap = yield* participant.client.snapshot;
-        const matched = snap.some(
-          (s) =>
-            s.kind === "inbound" &&
-            s.frame !== null &&
-            isNotificationFrame(s.frame) &&
-            s.raw.includes(token),
-        );
-        if (!matched) {
-          return yield* Effect.fail(
-            adversityViolation(
-              "slicer-framing",
-              `token ${token} not reassembled in participant's frames`,
-            ),
-          );
-        }
-      }),
+    body: (params) =>
+      runSlicerFraming(ctx, params).pipe(
+        Effect.withSpan("registerSlicerFraming"),
+      ),
   });
+}
+
+function runSlicerFraming(ctx: ConformanceRunContext, params: ToxicBodyParams) {
+  return Effect.gen(function* () {
+    const owner = yield* acquireSlicerClient(ctx, params, "o");
+    const participant = yield* acquireSlicerClient(ctx, params, "p");
+    const conversationId = yield* createOneOnOneConversation(
+      owner,
+      participant,
+      "slicer-framing",
+    );
+    const token = `sli-token-${ctx.seed}-${Date.now().toString(ID_RADIX)}`;
+    yield* sendSlicedMessage(
+      params.attachToxic,
+      owner.client,
+      conversationId,
+      token,
+    );
+    const snap = yield* participant.client.snapshot;
+    if (!snap.some((frame) => containsToken(frame, token))) {
+      return yield* Effect.fail(
+        adversityViolation(
+          "slicer-framing",
+          `token ${token} not reassembled in participant's frames`,
+        ),
+      );
+    }
+  });
+}
+
+function acquireSlicerClient(
+  ctx: ConformanceRunContext,
+  params: ToxicBodyParams,
+  suffix: string,
+) {
+  return acquireProxiedClient({
+    ctx,
+    proxy: params.proxy,
+    name: `sli-${ctx.seed}-${suffix}`,
+    defaultTimeoutMs: SLICER_CLIENT_TIMEOUT_MS,
+    unavailable: params.unavailable,
+  });
+}
+
+function sendSlicedMessage(
+  attachToxic: ToxicBodyParams["attachToxic"],
+  client: TestClient,
+  conversationId: ConversationIdValue,
+  token: string,
+) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      yield* attachToxic;
+      yield* client
+        .sendRpc(MessagesSend, {
+          conversationId,
+          parts: [{ type: "text", text: token }],
+        })
+        .pipe(Effect.either);
+      yield* Effect.sleep("1200 millis");
+    }),
+  );
+}
+
+function containsToken(frame: CapturedFrame, token: string): boolean {
+  return (
+    frame.kind === "inbound" &&
+    frame.frame !== null &&
+    isNotificationFrame(frame.frame) &&
+    frame.raw.includes(token)
+  );
 }

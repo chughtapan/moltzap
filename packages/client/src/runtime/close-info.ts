@@ -1,7 +1,7 @@
 /**
  * Close-metadata extraction for the WebSocket reader fiber.
  *
- * Responsibility: inspect an `Exit.Exit<void, Socket.SocketError>` produced by
+ * Responsibility: inspect an `Exit.Exit&lt;void, Socket.SocketError>` produced by
  * `Socket.runRaw(...)` and project it onto a caller-facing `CloseInfo`
  * (WebSocket `{code, reason}`). Spec #222 AC 5.4 requires the real close
  * metadata, not hardcoded constants, when upstream surfaces it; OQ-5 names
@@ -38,7 +38,7 @@ export interface CloseInfo {
  * every branch has an assigned close pair.
  *
  * Exhaustiveness (Principle 4): the `Unknown` branch is the residual for
- * any `SocketError` variant @effect/platform adds in the future. The
+ * any `SocketError` variant `@effect/platform` adds in the future. The
  * implementation's pattern-match ends in `default: return absurd(kind)`.
  */
 export type CloseKind = Data.TaggedEnum<{
@@ -98,49 +98,40 @@ function absurd(x: never): never {
 export function classifyCloseCause(
   cause: Cause.Cause<Socket.SocketError>,
 ): CloseKind {
-  // The reader fiber emits at most one SocketError-shaped failure on
-  // close; iterate the `Cause.failures` chunk and route on the first
-  // match. `Chunk` is iterable, so a `for…of` walk is sufficient.
   for (const failure of Cause.failures(cause)) {
-    if (Socket.SocketCloseError.is(failure)) {
-      return CloseKind.Clean({
-        code: failure.code,
-        reason: failure.closeReason ?? "",
-      });
-    }
-    if (Socket.isSocketError(failure)) {
-      // SocketGenericError — branch on the four documented reasons and
-      // let any future variant fall through to `Unknown`.
-      const generic = failure as Socket.SocketGenericError;
-      switch (generic.reason) {
-        case "Open":
-        case "OpenTimeout":
-          return CloseKind.HandshakeFailure({
-            underlying: generic.reason,
-          });
-        case "Read":
-        case "Write":
-          return CloseKind.TransportFailure({
-            underlying: generic.reason,
-          });
-        default:
-          return CloseKind.Unknown();
-      }
-    }
+    const kind = classifySocketFailure(failure);
+    if (kind !== null) return kind;
   }
   return CloseKind.Unknown();
 }
 
-/**
- * Project an `Exit` onto `CloseInfo`. Composition of `classifyCloseCause`
- * plus the OQ-5 default map:
- *
- *   Clean              -> { code, reason } from SocketCloseError
- *   EndOfStream        -> DEFAULT_GRACEFUL_CLOSE
- *   HandshakeFailure   -> DEFAULT_ABNORMAL_CLOSE
- *   TransportFailure   -> DEFAULT_ABNORMAL_CLOSE
- *   Unknown            -> DEFAULT_ABNORMAL_CLOSE
- */
+function classifySocketFailure(failure: unknown): CloseKind | null {
+  if (Socket.SocketCloseError.is(failure)) {
+    return CloseKind.Clean({
+      code: failure.code,
+      reason: failure.closeReason ?? "",
+    });
+  }
+  if (!Socket.isSocketError(failure)) return null;
+  return classifyGenericSocketError(failure as Socket.SocketGenericError);
+}
+
+function classifyGenericSocketError(
+  failure: Socket.SocketGenericError,
+): CloseKind {
+  switch (failure.reason) {
+    case "Open":
+    case "OpenTimeout":
+      return CloseKind.HandshakeFailure({ underlying: failure.reason });
+    case "Read":
+    case "Write":
+      return CloseKind.TransportFailure({ underlying: failure.reason });
+    default:
+      return CloseKind.Unknown();
+  }
+}
+
+/** Projects an `Exit` onto `CloseInfo`. */
 export function extractCloseInfo(
   exit: Exit.Exit<void, Socket.SocketError>,
 ): CloseInfo {

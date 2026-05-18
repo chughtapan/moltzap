@@ -15,9 +15,9 @@
 import { Data, Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import {
-  RequestFrameSchema,
-  ResponseFrameSchema,
-  NotificationFrameSchema,
+  requestFrameSchema,
+  responseFrameSchema,
+  notificationFrameSchema,
   type RequestFrame,
   type ResponseFrame,
   type NotificationFrame,
@@ -29,6 +29,9 @@ const OVERSIZED_PADDING_BYTES = 65_536;
 const LCG_MULTIPLIER = 1_664_525;
 const LCG_INCREMENT = 1_013_904_223;
 const LCG_MODULUS = 0x100000000;
+const RequestFrameSchema = requestFrameSchema();
+const ResponseFrameSchema = responseFrameSchema();
+const NotificationFrameSchema = notificationFrameSchema();
 
 /** A frame read off the wire failed `Value.Check` against its schema. */
 export class FrameSchemaError extends Data.TaggedError(
@@ -87,11 +90,7 @@ export function encodeFrame(frame: AnyFrame): string {
   return JSON.stringify(frame);
 }
 
-/**
- * Parse + `Value.Check` an inbound frame. `FrameSchemaError` captures
- * the failing branch so Tier A can assert "drop or typed error, never
- * crash."
- */
+/** Parses and validates an inbound frame. */
 export function decodeFrame(
   raw: string,
   direction: "outbound" | "inbound",
@@ -165,56 +164,63 @@ export function malformFrame(
   seed: number,
 ): string {
   const rawJson = encodeFrame(base);
-  // Deterministic LCG so a `seed` reproduces byte-for-byte. Not crypto.
   const rand = lcg(seed);
 
   switch (kind) {
-    case "bit-flip": {
-      if (rawJson.length === 0) return rawJson;
-      const pos = Math.floor(rand() * rawJson.length);
-      const ch = rawJson.charCodeAt(pos);
-      // Flip one bit in the low byte (XOR with 1<<bit).
-      const bit = Math.floor(rand() * BIT_FLIP_VARIANTS);
-      const flipped = String.fromCharCode(ch ^ (1 << bit));
-      return rawJson.slice(0, pos) + flipped + rawJson.slice(pos + 1);
-    }
-    case "truncated": {
-      if (rawJson.length <= 1) return "";
-      const keep = Math.max(1, Math.floor(rawJson.length * rand()));
-      return rawJson.slice(0, keep);
-    }
-    case "oversized": {
-      // Pad with a long run of whitespace-in-string to exceed likely frame caps.
-      // Uses `_padding` field at top level of the JSON object, which
-      // `additionalProperties: false` rejects — also triggers "extra-property"
-      // under different framing, but here the point is byte-size.
-      const padLen = OVERSIZED_PADDING_BYTES;
-      const pad = "X".repeat(padLen);
-      // Splice "_padding":"...", before the closing `}`.
-      const idx = rawJson.lastIndexOf("}");
-      if (idx === -1) return rawJson + pad;
-      return `${rawJson.slice(0, idx)},"_padding":"${pad}"}`;
-    }
-    case "invalid-utf8": {
-      // Insert a lone surrogate. JSON parser may accept; TypeBox Check rejects
-      // because frame strings (method, id) are expected to be UTF-8 clean.
-      const pos = Math.floor(rand() * rawJson.length);
-      return rawJson.slice(0, pos) + "\uD800" + rawJson.slice(pos);
-    }
-    case "missing-required-field": {
-      // Remove the `jsonrpc` required property.
-      return rawJson.replace(/"jsonrpc":"2\.0",?/, "");
-    }
-    case "extra-property": {
-      const idx = rawJson.lastIndexOf("}");
-      if (idx === -1) return rawJson;
-      return `${rawJson.slice(0, idx)},"__extra":${seed}}`;
-    }
+    case "bit-flip":
+      return malformBitFlip(rawJson, rand);
+    case "truncated":
+      return malformTruncated(rawJson, rand);
+    case "oversized":
+      return malformOversized(rawJson);
+    case "invalid-utf8":
+      return malformInvalidUtf8(rawJson, rand);
+    case "missing-required-field":
+      return malformMissingRequiredField(rawJson);
+    case "extra-property":
+      return malformExtraProperty(rawJson, seed);
     default: {
       const _exhaustive: never = kind;
       return absurdMalformedFrameKind(_exhaustive);
     }
   }
+}
+
+function malformBitFlip(rawJson: string, rand: () => number): string {
+  if (rawJson.length === 0) return rawJson;
+  const pos = Math.floor(rand() * rawJson.length);
+  const ch = rawJson.charCodeAt(pos);
+  const bit = Math.floor(rand() * BIT_FLIP_VARIANTS);
+  const flipped = String.fromCharCode(ch ^ (1 << bit));
+  return rawJson.slice(0, pos) + flipped + rawJson.slice(pos + 1);
+}
+
+function malformTruncated(rawJson: string, rand: () => number): string {
+  if (rawJson.length <= 1) return "";
+  const keep = Math.max(1, Math.floor(rawJson.length * rand()));
+  return rawJson.slice(0, keep);
+}
+
+function malformOversized(rawJson: string): string {
+  const pad = "X".repeat(OVERSIZED_PADDING_BYTES);
+  const idx = rawJson.lastIndexOf("}");
+  if (idx === -1) return rawJson + pad;
+  return `${rawJson.slice(0, idx)},"_padding":"${pad}"}`;
+}
+
+function malformInvalidUtf8(rawJson: string, rand: () => number): string {
+  const pos = Math.floor(rand() * rawJson.length);
+  return rawJson.slice(0, pos) + "\uD800" + rawJson.slice(pos);
+}
+
+function malformMissingRequiredField(rawJson: string): string {
+  return rawJson.replace(/"jsonrpc":"2\.0",?/, "");
+}
+
+function malformExtraProperty(rawJson: string, seed: number): string {
+  const idx = rawJson.lastIndexOf("}");
+  if (idx === -1) return rawJson;
+  return `${rawJson.slice(0, idx)},"__extra":${seed}}`;
 }
 
 function absurdMalformedFrameKind(kind: never): never {

@@ -2,7 +2,7 @@
  * Tagged errors surfaced by the `@moltzap/protocol/testing` primitives.
  *
  * Every public `TestClient` / `TestServer` operation returns an
- * `Effect.Effect<T, TestingError, ...>`. Downstream fast-check properties
+ * `Effect.Effect&lt;T, TestingError, ...>`. Downstream fast-check properties
  * discriminate on `_tag` so shrinks land on a named failure mode rather
  * than an anonymous `unknown`.
  *
@@ -16,6 +16,8 @@
 import { Data } from "effect";
 import { FrameSchemaError } from "./frame-mutator.js";
 import { ToxicControlError } from "../../toxics/errors.js";
+
+export { FrameSchemaError, ToxicControlError };
 
 /** Peer closed the underlying WS before a response arrived. */
 export class TransportClosedError extends Data.TaggedError(

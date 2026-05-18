@@ -117,7 +117,7 @@ IGNORE_PATTERNS=(
 
   # Protocol source-side same-package cross-LAYER: Phase 3 retains these
   # as relative due to tsx self-reference resolution failure when
-  # scripts/generate-protocol-docs.ts loads source transitively (file path
+  # packages/protocol/scripts/generate-docs.ts loads source transitively (file path
   # `packages/protocol/src/<other-layer>/X.ts` importing `../<layer>/Y.js`).
   # Phase 4 (#545) eslint rule will exempt same-package cross-LAYER or land
   # a tsx workaround re-enabling source-side migration. Cross-PACKAGE

@@ -1,21 +1,20 @@
 /**
- * Server-core conformance entry — thin wrapper around
- * `@moltzap/protocol/testing`'s `runConformanceSuite`. Passes
- * `startCoreTestServer` as the real-server factory and asserts the
- * typed suite result in a single `it(...)`.
- *
- * All orchestration (property registration, Effect run loop, artifact
- * dump, seed pinning) lives in protocol. The file here exists only to
- * name the implementation under test.
- *
- * Any other consumer — a third-party server, a client-side harness
- * driving `TestServer`, arena — writes an equivalent ~20-line file.
+ * Server-core conformance entry. The protocol package owns property
+ * registration, seeds, artifacts, and divergence proof logic; this file
+ * supplies the real server factory and optional Toxiproxy lifecycle.
  */
+import {
+  Command,
+  FetchHttpClient,
+  FileSystem,
+  HttpClient,
+  HttpClientResponse,
+  Path,
+} from "@effect/platform";
+import type { PlatformError } from "@effect/platform/Error";
+import { NodeContext } from "@effect/platform-node";
+import { Config, ConfigProvider, Data, Duration, Effect, Exit } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Data, Effect, Exit } from "effect";
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import {
   RealServerAcquireError,
   runConformanceSuite,
@@ -26,14 +25,31 @@ import {
   stopCoreTestServer,
 } from "../../test-utils/index.js";
 
-const SKIP_TOXIPROXY = process.env.SKIP_TOXIPROXY === "1";
-const SKIP_DOCKER = process.env.SKIP_DOCKER === "1";
-const TOXIPROXY_URL = process.env.TOXIPROXY_URL ?? "http://127.0.0.1:8474";
+const ENABLED_ENV_VALUE = "1";
+const DEFAULT_TOXIPROXY_URL = "http://127.0.0.1:8474";
+const COMPOSE_FILE_NAME = "docker-compose.conformance.yml";
 const CONFORMANCE_DEV_MODE_USER_ID = "00000000-0000-4000-8000-000000000340";
 const TOXIPROXY_PROBE_INTERVAL = "500 millis";
+const TOXIPROXY_BOOT_TIMEOUT_MS = 30_000;
+const TOXIPROXY_REUSE_TIMEOUT_MS = 5_000;
+const TOXIPROXY_BEFORE_ALL_TIMEOUT_MS = 60_000;
+const CONFORMANCE_SUITE_TIMEOUT_MS = 600_000;
+const DOCKER_COMMAND = "docker";
+const COMPOSE_SUBCOMMAND = "compose";
+const DOCKER_UP_COMMAND = "docker compose up";
+const DOCKER_DOWN_COMMAND = "docker compose down";
+const SUCCESS_EXIT_CODE = 0;
+const FAILURE_REASON_KEYS = ["cause", "reason", "message"] as const;
 
-class ToxiproxyProbeFailed extends Data.TaggedError("ToxiproxyProbeFailed")<{
-  readonly cause: unknown;
+class ComposeFileNotFound extends Data.TaggedError("ComposeFileNotFound")<{
+  readonly cwd: string;
+}> {}
+
+class ToxiproxyCommandExited extends Data.TaggedError(
+  "ToxiproxyCommandExited",
+)<{
+  readonly command: string;
+  readonly exitCode: number;
 }> {}
 
 class ToxiproxyProbeTimeout extends Data.TaggedError("ToxiproxyProbeTimeout")<{
@@ -45,162 +61,316 @@ class ToxiproxyProbeTimeout extends Data.TaggedError("ToxiproxyProbeTimeout")<{
   }
 }
 
-interface ComposeController {
-  readonly teardown: () => Promise<void>;
+class ConformanceSuiteFailed extends Data.TaggedError(
+  "ConformanceSuiteFailed",
+)<{
+  readonly summary: string;
+}> {
+  override get message(): string {
+    return this.summary;
+  }
 }
 
-function findComposeFile(): string {
-  const fromPkg = path.resolve(
-    process.cwd(),
-    "../../docker-compose.conformance.yml",
+interface ConformanceEnv {
+  readonly skipToxiproxy: boolean;
+  readonly skipDocker: boolean;
+  readonly toxiproxyUrl: string;
+}
+
+interface ComposeController {
+  readonly teardown: Effect.Effect<
+    void,
+    PlatformError | ToxiproxyCommandExited,
+    NodeContext.NodeContext
+  >;
+}
+
+interface ToxiproxySetup {
+  readonly compose: ComposeController | null;
+  readonly url: string | null;
+}
+
+interface ToxiproxyState {
+  compose: ComposeController | null;
+  toxiproxyUrl: string | null;
+}
+
+const ConformanceEnvConfig = Config.all({
+  skipToxiproxy: enabledEnvFlag("SKIP_TOXIPROXY"),
+  skipDocker: enabledEnvFlag("SKIP_DOCKER"),
+  toxiproxyUrl: Config.string("TOXIPROXY_URL").pipe(
+    Config.withDefault(DEFAULT_TOXIPROXY_URL),
+  ),
+});
+const CONFORMANCE_ENV = loadConformanceEnv();
+
+function enabledEnvFlag(name: string) {
+  return Config.string(name).pipe(
+    Config.withDefault("0"),
+    Config.map((value) => value === ENABLED_ENV_VALUE),
   );
-  if (existsSync(fromPkg)) return fromPkg;
-  const fromRoot = path.resolve(
-    process.cwd(),
-    "docker-compose.conformance.yml",
+}
+
+function loadConformanceEnv(): ConformanceEnv {
+  return Effect.runSync(
+    ConformanceEnvConfig.pipe(
+      Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    ),
   );
-  if (existsSync(fromRoot)) return fromRoot;
-  throw new Error(
-    `docker-compose.conformance.yml not found (cwd=${process.cwd()})`,
+}
+
+function dockerComposeDown(composePath: string) {
+  return runDockerCompose(
+    DOCKER_DOWN_COMMAND,
+    dockerComposeCommand(composePath, "down", "-v"),
   );
+}
+
+function dockerComposeUp(composePath: string) {
+  return runDockerCompose(
+    DOCKER_UP_COMMAND,
+    dockerComposeCommand(composePath, "up", "-d"),
+  );
+}
+
+function dockerComposeCommand(composePath: string, ...args: string[]) {
+  return Command.make(
+    DOCKER_COMMAND,
+    COMPOSE_SUBCOMMAND,
+    "-f",
+    composePath,
+    ...args,
+  ).pipe(Command.stdout("inherit"), Command.stderr("inherit"));
+}
+
+function runDockerCompose(command: string, process: Command.Command) {
+  return Command.exitCode(process).pipe(
+    Effect.flatMap((exitCode) =>
+      Number(exitCode) === SUCCESS_EXIT_CODE
+        ? Effect.void
+        : Effect.fail(
+            new ToxiproxyCommandExited({
+              command,
+              exitCode: Number(exitCode),
+            }),
+          ),
+    ),
+  );
+}
+
+function findComposeFile() {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const cwd = process.cwd();
+    const candidates = [
+      path.resolve(cwd, "../../", COMPOSE_FILE_NAME),
+      path.resolve(cwd, COMPOSE_FILE_NAME),
+    ] as const;
+
+    for (const candidate of candidates) {
+      if (yield* fs.exists(candidate)) return candidate;
+    }
+    return yield* Effect.fail(new ComposeFileNotFound({ cwd }));
+  });
 }
 
 function bringUpToxiproxy() {
-  const composePath = findComposeFile();
-  return new Promise((resolve, reject) => {
-    const up = spawn("docker", ["compose", "-f", composePath, "up", "-d"], {
-      stdio: "inherit",
-    });
-    up.on("exit", (code) => {
-      if (code !== 0) {
-        reject(new Error(`docker compose up exited with code ${code}`));
-        return;
-      }
-      resolve({
-        teardown: () =>
-          new Promise((resolveDown) => {
-            const down = spawn(
-              "docker",
-              ["compose", "-f", composePath, "down", "-v"],
-              { stdio: "inherit" },
-            );
-            down.on("exit", () => resolveDown());
-          }),
-      });
-    });
+  return Effect.gen(function* () {
+    const composePath = yield* findComposeFile();
+    yield* dockerComposeUp(composePath);
+    return { teardown: dockerComposeDown(composePath) };
   });
 }
 
 function waitForToxiproxy(url: string, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-  const probe = (): Effect.Effect<
-    void,
-    ToxiproxyProbeFailed | ToxiproxyProbeTimeout,
-    never
-  > =>
-    Date.now() >= deadline
-      ? Effect.fail(new ToxiproxyProbeTimeout({ url, timeoutMs }))
-      : Effect.tryPromise({
-          try: () => fetch(`${url}/version`),
-          catch: (cause) => new ToxiproxyProbeFailed({ cause }),
-        }).pipe(
-          Effect.flatMap((res) =>
-            res.ok
-              ? Effect.void
-              : Effect.fail(
-                  new ToxiproxyProbeFailed({
-                    cause: `HTTP ${res.status.toString()}`,
-                  }),
-                ),
-          ),
-          Effect.catchAll((probeErr) =>
-            Effect.sync(() => {
-              if (probeErr instanceof ToxiproxyProbeFailed) {
-                console.warn(
-                  "toxiproxy readiness probe failed",
-                  probeErr.cause,
-                );
-              }
-            }).pipe(
-              Effect.zipRight(Effect.sleep(TOXIPROXY_PROBE_INTERVAL)),
-              Effect.zipRight(probe()),
-            ),
-          ),
-        );
-
-  return Effect.runPromise(probe());
+  return waitForToxiproxyReady(url).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(timeoutMs),
+      onTimeout: () => new ToxiproxyProbeTimeout({ url, timeoutMs }),
+    }),
+  );
 }
 
-describe("moltzap-server-core conformance", () => {
-  let compose: ComposeController | null = null;
-  let toxiproxyUrl: string | null = null;
+function waitForToxiproxyReady(
+  url: string,
+): Effect.Effect<void, never, HttpClient.HttpClient> {
+  return probeToxiproxy(url).pipe(
+    Effect.catchAll((probeErr) =>
+      Effect.logWarning("toxiproxy readiness probe failed", probeErr).pipe(
+        Effect.zipRight(Effect.sleep(TOXIPROXY_PROBE_INTERVAL)),
+        Effect.zipRight(waitForToxiproxyReady(url)),
+      ),
+    ),
+  );
+}
 
-  beforeAll(async () => {
-    if (SKIP_TOXIPROXY) return;
-    if (!SKIP_DOCKER) {
-      compose = await bringUpToxiproxy();
-      await waitForToxiproxy(TOXIPROXY_URL, 30_000);
-    } else {
-      await waitForToxiproxy(TOXIPROXY_URL, 5_000);
-    }
-    toxiproxyUrl = TOXIPROXY_URL;
-  }, 60_000);
+function probeToxiproxy(url: string) {
+  return HttpClient.get(`${url}/version`).pipe(
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.asVoid,
+  );
+}
 
-  afterAll(async () => {
-    if (compose !== null) await compose.teardown();
-  });
+function setupToxiproxy(env: ConformanceEnv) {
+  if (env.skipToxiproxy) {
+    return Effect.succeed({ compose: null, url: null });
+  }
+  if (env.skipDocker) {
+    return waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_REUSE_TIMEOUT_MS).pipe(
+      Effect.as({ compose: null, url: env.toxiproxyUrl }),
+    );
+  }
+  return bringUpToxiproxy().pipe(
+    Effect.tap(() =>
+      waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_BOOT_TIMEOUT_MS),
+    ),
+    Effect.map((compose) => ({ compose, url: env.toxiproxyUrl })),
+  );
+}
 
-  it("every protocol conformance property passes against the core server", async () => {
-    const exit = await Effect.runPromiseExit(
+function conformanceRealServer() {
+  return Effect.tryPromise({
+    try: () =>
+      startCoreTestServer({
+        devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
+      }),
+    catch: (cause) => new RealServerAcquireError({ cause }),
+  }).pipe(
+    Effect.map((handle) => ({
+      wsUrl: handle.wsUrl,
+      baseUrl: handle.baseUrl,
+      close: Effect.tryPromise({
+        try: () => stopCoreTestServer(),
+        catch: () => undefined,
+      }).pipe(Effect.orElseSucceed(() => undefined)),
+    })),
+  );
+}
+
+function runConformanceAssertion(toxiproxyUrl: string | null) {
+  return Effect.gen(function* () {
+    const exit = yield* Effect.exit(
       runConformanceSuite({
-        realServer: Effect.tryPromise({
-          try: () =>
-            startCoreTestServer({
-              devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
-            }),
-          catch: (cause) => new RealServerAcquireError({ cause }),
-        }).pipe(
-          Effect.map((handle) => ({
-            wsUrl: handle.wsUrl,
-            baseUrl: handle.baseUrl,
-            close: Effect.tryPromise({
-              try: () => stopCoreTestServer(),
-              catch: () => undefined,
-            }).pipe(Effect.orElseSucceed(() => undefined)),
-          })),
-        ),
+        realServer: conformanceRealServer(),
         toxiproxyUrl,
       }),
     );
     expect(Exit.isSuccess(exit)).toBe(true);
     if (!Exit.isSuccess(exit)) return;
+
     const result: SuiteResult = exit.value;
-    console.log(
-      `[conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
-    );
-    if (result.unavailable.length > 0) {
-      console.log(
-        `[conformance] unavailable: ${result.unavailable.map((u) => `${u.name}: ${u.reason}`).join(" | ")}`,
-      );
-    }
+    yield* logSuiteResult(result);
     if (result.failed.length > 0) {
-      const summary = result.failed
-        .map((f) => {
-          const tag = "_tag" in f.failure ? f.failure._tag : "unknown";
-          const reason =
-            "cause" in f.failure
-              ? String(f.failure.cause)
-              : "reason" in f.failure
-                ? f.failure.reason
-                : "message" in f.failure
-                  ? f.failure.message
-                  : "";
-          return `${f.name}: ${tag} — ${reason}`;
-        })
-        .join("; ");
-      throw new Error(
-        `${result.failed.length}/${result.failed.length + result.passed.length + result.deferred.length + result.unavailable.length} failed: ${summary}`,
+      return yield* Effect.fail(
+        new ConformanceSuiteFailed({
+          summary: failedSummary(result),
+        }),
       );
     }
-  }, 600_000);
+  });
+}
+
+function logSuiteResult(result: SuiteResult) {
+  return Effect.gen(function* () {
+    yield* Effect.logInfo(conformanceSummary(result));
+    if (result.unavailable.length > 0) {
+      yield* Effect.logInfo(unavailableSummary(result));
+    }
+  });
+}
+
+function conformanceSummary(result: SuiteResult) {
+  return `[conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`;
+}
+
+function unavailableSummary(result: SuiteResult) {
+  return `[conformance] unavailable: ${result.unavailable.map(formatUnavailable).join(" | ")}`;
+}
+
+function formatUnavailable(unavailable: { name: string; reason: string }) {
+  return `${unavailable.name}: ${unavailable.reason}`;
+}
+
+function failedSummary(result: SuiteResult) {
+  const failed = result.failed.map(formatFailure).join("; ");
+  const total =
+    result.failed.length +
+    result.passed.length +
+    result.deferred.length +
+    result.unavailable.length;
+  return `${result.failed.length}/${total} failed: ${failed}`;
+}
+
+function formatFailure(failure: SuiteResult["failed"][number]) {
+  return `${failure.name}: ${failureTag(failure.failure)} — ${failureReason(failure.failure)}`;
+}
+
+function failureTag(failure: unknown) {
+  const tag = readProperty(failure, "_tag");
+  return typeof tag === "string" ? tag : "unknown";
+}
+
+function failureReason(failure: unknown) {
+  for (const key of FAILURE_REASON_KEYS) {
+    const value = readProperty(failure, key);
+    if (value !== undefined) return String(value);
+  }
+  return "";
+}
+
+function readProperty(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null || !(key in value)) {
+    return undefined;
+  }
+  return Reflect.get(value, key);
+}
+
+function makeToxiproxyState(): ToxiproxyState {
+  return { compose: null, toxiproxyUrl: null };
+}
+
+function setupToxiproxyBeforeAll(state: ToxiproxyState) {
+  return setupToxiproxy(CONFORMANCE_ENV).pipe(
+    Effect.tap(rememberToxiproxySetup(state)),
+    Effect.provide(FetchHttpClient.layer),
+    Effect.provide(NodeContext.layer),
+  );
+}
+
+function rememberToxiproxySetup(state: ToxiproxyState) {
+  return (setup: ToxiproxySetup) =>
+    Effect.sync(() => {
+      state.compose = setup.compose;
+      state.toxiproxyUrl = setup.url;
+    });
+}
+
+function teardownToxiproxyAfterAll(state: ToxiproxyState) {
+  if (state.compose === null) return undefined;
+  return Effect.runPromise(
+    state.compose.teardown.pipe(Effect.provide(NodeContext.layer)),
+  );
+}
+
+describe("moltzap-server-core conformance", () => {
+  const toxiproxyState = makeToxiproxyState();
+
+  beforeAll(
+    () => Effect.runPromise(setupToxiproxyBeforeAll(toxiproxyState)),
+    TOXIPROXY_BEFORE_ALL_TIMEOUT_MS,
+  );
+
+  afterAll(() => teardownToxiproxyAfterAll(toxiproxyState));
+
+  it(
+    "every protocol conformance property passes against the core server",
+    () => {
+      expect.hasAssertions();
+      return Effect.runPromise(
+        runConformanceAssertion(toxiproxyState.toxiproxyUrl),
+      );
+    },
+    CONFORMANCE_SUITE_TIMEOUT_MS,
+  );
 });

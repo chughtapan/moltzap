@@ -7,7 +7,7 @@
  */
 import type { Static } from "@sinclair/typebox";
 import { Effect, type Scope } from "effect";
-import type { Proxy } from "../../toxics/client.js";
+import type { ToxiproxyProxy } from "../../toxics/client.js";
 import type { ToxicProfile } from "../../toxics/profile.js";
 import {
   makeTestClient,
@@ -20,17 +20,17 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { ConversationsCreate, ConversationId } from "@moltzap/protocol/task";
+import { ConversationsCreate } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/task";
 import { conversationId } from "../_shared/test-fixtures.js";
 
 export const ADVERSITY_CATEGORY = "adversity" as const;
 export const DEFAULT_CAPTURE_CAPACITY = 128;
-const ID_RADIX = 36;
-const RANDOM_SUFFIX_START = 2;
-const RANDOM_SUFFIX_END = 8;
+const RANDOM_SUFFIX_LENGTH = 6;
 const PROPERTY_BUDGET_MS = 15_000;
 
 type ConversationIdValue = Static<typeof ConversationId>;
+type ToxicPropertyError = PropertyUnavailable | PropertyInvariantViolation;
 
 export function adversityViolation(
   name: string,
@@ -44,27 +44,33 @@ export function adversityViolation(
 }
 
 function randomIdSuffix(): string {
-  return Math.random()
-    .toString(ID_RADIX)
-    .slice(RANDOM_SUFFIX_START, RANDOM_SUFFIX_END);
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, RANDOM_SUFFIX_LENGTH);
 }
 
 export function proxyName(prefix: string, seed: number): string {
   return `${prefix}-${seed}-${randomIdSuffix()}`;
 }
 
+function hostPortFromWebSocketUrl(wsUrl: string): string {
+  return new URL(wsUrl).host;
+}
+
 /** Acquire a TestClient that routes through the Toxiproxy proxy. */
-export function acquireProxiedClient(
-  ctx: ConformanceRunContext,
-  proxy: Proxy,
-  name: string,
-  defaultTimeoutMs: number,
-  unavailable: (reason: string) => PropertyUnavailable,
-): Effect.Effect<
+export function acquireProxiedClient(opts: {
+  readonly ctx: ConformanceRunContext;
+  readonly proxy: ToxiproxyProxy;
+  readonly name: string;
+  readonly defaultTimeoutMs: number;
+  readonly unavailable: (reason: string) => PropertyUnavailable;
+}): Effect.Effect<
   { agent: TestAgent; client: TestClient },
   PropertyUnavailable,
   Scope.Scope
 > {
+  const { ctx, proxy, name, defaultTimeoutMs, unavailable } = opts;
   // Preserve the upstream path (e.g., `/ws`) when building the
   // proxy-facing URL: Toxiproxy is a raw TCP forwarder, so the client's
   // upgrade path must match what the server's HTTP router expects.
@@ -85,7 +91,7 @@ export function acquireProxiedClient(
       Effect.mapError((e) => unavailable(`makeTestClient: ${String(e)}`)),
     );
     return { agent, client };
-  });
+  }).pipe(Effect.withSpan("acquireProxiedClient"));
 }
 
 /**
@@ -105,7 +111,7 @@ export function acquireProxiedClient(
  * handshake flow cleanly instead of hanging on a black-holed channel.
  */
 export type ToxicBodyParams = {
-  readonly proxy: Proxy;
+  readonly proxy: ToxiproxyProxy;
   readonly unavailable: (reason: string) => PropertyUnavailable;
   readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
 };
@@ -124,60 +130,92 @@ export function withToxicProxy(opts: {
   readonly profile: ToxicProfile;
   readonly body: (
     params: ToxicBodyParams,
-  ) => Effect.Effect<
-    void,
-    PropertyUnavailable | PropertyInvariantViolation,
-    Scope.Scope
-  >;
+  ) => Effect.Effect<void, ToxicPropertyError, Scope.Scope>;
 }): void {
   const { ctx, propertyName, description, proxyName, profile, body } = opts;
-  const toxiproxy = ctx.toxiproxy;
-  const run: Effect.Effect<
-    void,
-    PropertyUnavailable | PropertyInvariantViolation
-  > =
-    toxiproxy === null
-      ? Effect.fail(
-          new PropertyUnavailable({
-            category: ADVERSITY_CATEGORY,
-            name: propertyName,
-            reason: "Toxiproxy client not provisioned for this run",
-          }),
-        )
-      : (() => {
-          const upstreamHostPort = ctx.realServer.wsUrl
-            .replace(/^ws:\/\//, "")
-            .replace(/\/.*$/, "");
-          const unavailable = (reason: string): PropertyUnavailable =>
-            new PropertyUnavailable({
-              category: ADVERSITY_CATEGORY,
-              name: propertyName,
-              reason,
-            });
-          return Effect.scoped(
-            Effect.gen(function* () {
-              const proxy = yield* toxiproxy
-                .proxy({ name: proxyName, upstream: upstreamHostPort })
-                .pipe(Effect.mapError((e) => unavailable(`proxy: ${e.body}`)));
-              const attachToxic: ToxicBodyParams["attachToxic"] = proxy
-                .withToxic(profile)
-                .pipe(
-                  Effect.mapError((e) => unavailable(`toxic: ${e.body}`)),
-                  Effect.asVoid,
-                );
-              yield* body({ proxy, unavailable, attachToxic });
-            }),
-          ).pipe(
-            Effect.timeoutFail({
-              duration: `${PROPERTY_BUDGET_MS} millis`,
-              onTimeout: () =>
-                unavailable(
-                  `property exceeded ${PROPERTY_BUDGET_MS}ms budget under toxic`,
-                ),
-            }),
-          );
-        })();
-  registerProperty(ctx, ADVERSITY_CATEGORY, propertyName, description, run);
+  const run = buildToxicProxyRun({
+    ctx,
+    propertyName,
+    proxyName,
+    profile,
+    body,
+  });
+  registerProperty(
+    ctx,
+    ADVERSITY_CATEGORY,
+    propertyName,
+    description,
+    run.pipe(Effect.withSpan("withToxicProxy")),
+  );
+}
+
+function buildToxicProxyRun(opts: {
+  readonly ctx: ConformanceRunContext;
+  readonly propertyName: string;
+  readonly proxyName: string;
+  readonly profile: ToxicProfile;
+  readonly body: (
+    params: ToxicBodyParams,
+  ) => Effect.Effect<void, ToxicPropertyError, Scope.Scope>;
+}): Effect.Effect<void, ToxicPropertyError> {
+  const toxiproxy = opts.ctx.toxiproxy;
+  const unavailable = makeUnavailable(opts.propertyName);
+  if (toxiproxy === null) {
+    return Effect.fail(
+      unavailable("Toxiproxy client not provisioned for this run"),
+    );
+  }
+  return runWithToxiproxy({
+    ...opts,
+    toxiproxy,
+    unavailable,
+  });
+}
+
+function makeUnavailable(propertyName: string) {
+  return (reason: string): PropertyUnavailable =>
+    new PropertyUnavailable({
+      category: ADVERSITY_CATEGORY,
+      name: propertyName,
+      reason,
+    });
+}
+
+function runWithToxiproxy(opts: {
+  readonly ctx: ConformanceRunContext;
+  readonly proxyName: string;
+  readonly profile: ToxicProfile;
+  readonly toxiproxy: NonNullable<ConformanceRunContext["toxiproxy"]>;
+  readonly unavailable: (reason: string) => PropertyUnavailable;
+  readonly body: (
+    params: ToxicBodyParams,
+  ) => Effect.Effect<void, ToxicPropertyError, Scope.Scope>;
+}) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const proxy = yield* opts.toxiproxy
+        .proxy({
+          name: opts.proxyName,
+          upstream: hostPortFromWebSocketUrl(opts.ctx.realServer.wsUrl),
+        })
+        .pipe(Effect.mapError((e) => opts.unavailable(`proxy: ${e.body}`)));
+      const attachToxic: ToxicBodyParams["attachToxic"] = proxy
+        .withToxic(opts.profile)
+        .pipe(
+          Effect.mapError((e) => opts.unavailable(`toxic: ${e.body}`)),
+          Effect.asVoid,
+        );
+      yield* opts.body({ proxy, unavailable: opts.unavailable, attachToxic });
+    }),
+  ).pipe(
+    Effect.timeoutFail({
+      duration: `${PROPERTY_BUDGET_MS} millis`,
+      onTimeout: () =>
+        opts.unavailable(
+          `property exceeded ${PROPERTY_BUDGET_MS}ms budget under toxic`,
+        ),
+    }),
+  );
 }
 
 export function createOneOnOneConversation(
@@ -212,5 +250,5 @@ export function createOneOnOneConversation(
       );
     }
     return conversationId(id);
-  });
+  }).pipe(Effect.withSpan("createOneOnOneConversation"));
 }

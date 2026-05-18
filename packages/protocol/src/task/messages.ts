@@ -1,10 +1,13 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { DateTimeString } from "../schema-primitives.js";
+import { dateTimeStringSchema } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+import { ajv } from "../transport/wire.js";
 import { ConversationId, MessageId } from "./conversations.js";
 
-export const TextPartSchema = Type.Object(
+const DateTimeString = dateTimeStringSchema();
+
+const TextPartSchema = Type.Object(
   {
     type: Type.Literal("text"),
     text: Type.String({ minLength: 1, maxLength: 32768 }),
@@ -40,12 +43,12 @@ const PartSchema = Type.Union([
 
 export type Part = Static<typeof PartSchema>;
 
-export const MessagePartsSchema = Type.Array(PartSchema, {
+const MessagePartsSchema = Type.Array(PartSchema, {
   minItems: 1,
   maxItems: 10,
 });
 
-export const MessageSchema = Type.Object(
+const MessageSchema = Type.Object(
   {
     id: MessageId,
     conversationId: ConversationId,
@@ -60,6 +63,21 @@ export const MessageSchema = Type.Object(
 );
 
 export type Message = Static<typeof MessageSchema>;
+
+export const validateTextPart = ajv.compile(TextPartSchema) as (
+  value: unknown,
+) => value is Static<typeof TextPartSchema>;
+export const validateMessage = ajv.compile(MessageSchema) as (
+  value: unknown,
+) => value is Message;
+
+export function messagePartsSchema(): typeof MessagePartsSchema {
+  return MessagePartsSchema;
+}
+
+export function messageSchema(): typeof MessageSchema {
+  return MessageSchema;
+}
 
 // ── tm_decision (#560) ──────────────────────────────────────────────
 //
@@ -80,7 +98,7 @@ export type Message = Static<typeof MessageSchema>;
 // the field is not in their type. See #560 architect comment §3
 // + risk R8 for the alternative.
 
-export const TmDecisionSchema = Type.Union([
+const TmDecisionSchema = Type.Union([
   Type.Object(
     { tag: Type.Literal("pending") },
     { additionalProperties: false },
@@ -102,8 +120,11 @@ export const TmDecisionSchema = Type.Union([
 ]);
 
 export type TmDecision = Static<typeof TmDecisionSchema>;
+export const validateTmDecision = ajv.compile(TmDecisionSchema) as (
+  value: unknown,
+) => value is TmDecision;
 
-export const MessageWithTmDecisionSchema = Type.Composite([
+const MessageWithTmDecisionSchema = Type.Composite([
   MessageSchema,
   Type.Object(
     { tmDecision: TmDecisionSchema },
@@ -112,6 +133,14 @@ export const MessageWithTmDecisionSchema = Type.Composite([
 ]);
 
 export type MessageWithTmDecision = Static<typeof MessageWithTmDecisionSchema>;
+
+export function tmDecisionSchema(): typeof TmDecisionSchema {
+  return TmDecisionSchema;
+}
+
+export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema {
+  return MessageWithTmDecisionSchema;
+}
 
 export const MessagesSend = defineRpc({
   name: "messages/send",

@@ -1,11 +1,12 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   setupAgentPair,
+  DEFAULT_NOTIFICATION_TIMEOUT_MS,
 } from "../helpers.js";
 
 import {
@@ -14,61 +15,53 @@ import {
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+const ALIVE_AFTER_IDLE_TEXT = "Still alive after idle";
+const REPLY_AFTER_IDLE_TEXT = "Reply after idle";
 
-afterAll(async () => {
-  await stopTestServer();
-});
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-describe("Heartbeat / Idle Connection", () => {
-  it.live("connection survives idle period and still delivers messages", () =>
-    Effect.gen(function* () {
-      const { alice, bob } = yield* setupAgentPair();
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: bob.agentId }],
-      })) as { conversation: { id: string } };
-      const conversationId = conv.conversation.id;
+it("connection survives idle period and still delivers messages", () =>
+  Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
 
-      // Wait 5 seconds of idle time
-      yield* Effect.promise(
-        () => new Promise((resolve) => setTimeout(resolve, 5000)),
-      );
+    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
+      type: "dm",
+      participants: [{ type: "agent", id: bob.agentId }],
+    })) as { conversation: { id: string } };
+    const conversationId = conv.conversation.id;
 
-      // After idle period, Alice sends a message
-      yield* alice.client.sendRpc(MessagesSend, {
-        conversationId,
-        parts: [{ type: "text", text: "Still alive after idle" }],
-      });
+    // Wait 5 seconds of idle time
+    yield* Effect.sleep(DEFAULT_NOTIFICATION_TIMEOUT_MS);
 
-      const bobEvent = yield* bob.client.waitForNotification(
-        MessageReceivedNotificationDefinition,
-      );
-      const received = (
-        bobEvent.params as { message: { parts: Array<{ text: string }> } }
-      ).message;
-      expect(received.parts[0]!.text).toBe("Still alive after idle");
+    // After idle period, Alice sends a message
+    yield* alice.client.sendRpc(MessagesSend, {
+      conversationId,
+      parts: [{ type: "text", text: ALIVE_AFTER_IDLE_TEXT }],
+    });
 
-      // Verify bidirectional: Bob replies after idle
-      yield* bob.client.sendRpc(MessagesSend, {
-        conversationId,
-        parts: [{ type: "text", text: "Reply after idle" }],
-      });
+    const bobEvent = yield* bob.client.waitForNotification(
+      MessageReceivedNotificationDefinition,
+    );
+    const received = (
+      bobEvent.params as { message: { parts: Array<{ text: string }> } }
+    ).message;
+    expect(received.parts[0]!.text).toBe(ALIVE_AFTER_IDLE_TEXT);
 
-      const aliceEvent = yield* alice.client.waitForNotification(
-        MessageReceivedNotificationDefinition,
-      );
-      const aliceReceived = (
-        aliceEvent.params as { message: { parts: Array<{ text: string }> } }
-      ).message;
-      expect(aliceReceived.parts[0]!.text).toBe("Reply after idle");
-    }),
-  );
-});
+    // Verify bidirectional: Bob replies after idle
+    yield* bob.client.sendRpc(MessagesSend, {
+      conversationId,
+      parts: [{ type: "text", text: REPLY_AFTER_IDLE_TEXT }],
+    });
+
+    const aliceEvent = yield* alice.client.waitForNotification(
+      MessageReceivedNotificationDefinition,
+    );
+    const aliceReceived = (
+      aliceEvent.params as { message: { parts: Array<{ text: string }> } }
+    ).message;
+    expect(aliceReceived.parts[0]!.text).toBe(REPLY_AFTER_IDLE_TEXT);
+  }));

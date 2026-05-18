@@ -1,3 +1,6 @@
+/**
+ * @file Test helpers shared by client package unit and integration tests.
+ */
 export {
   createFakeChannelService,
   type ChannelServiceEmit,
@@ -38,6 +41,11 @@ type MessageFixtureOverrides = Omit<
   readonly taggedEntities?: ReadonlyArray<string>;
 };
 
+/**
+ * Build a protocol Message fixture with branded IDs and overridable fields.
+ * @param overrides Optional fields to override on the default message.
+ * @returns A complete Message fixture.
+ */
 export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
   const { id, conversationId, senderId, replyToId, taggedEntities, ...rest } =
     overrides;
@@ -55,15 +63,23 @@ export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
   };
 }
 
+/**
+ * Effect form of {@link flushDispatchChain} for tests already running inside
+ * an Effect runtime.
+ */
+export const flushDispatchChainEffect = Effect.gen(function* () {
+  for (let i = 0; i < FLUSH_DISPATCH_TURNS; i++) {
+    yield* Effect.tryPromise({
+      try: () => Promise.resolve(),
+      catch: (cause) => new FlushDispatchChainError({ cause }),
+    });
+  }
+}).pipe(Effect.withSpan("flushDispatchChain"));
+
+/**
+ * Let queued dispatch microtasks settle in tests.
+ * @returns A Promise that resolves after the dispatch chain is flushed.
+ */
 export function flushDispatchChain() {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      for (let i = 0; i < FLUSH_DISPATCH_TURNS; i++) {
-        yield* Effect.tryPromise({
-          try: () => Promise.resolve(),
-          catch: (cause) => new FlushDispatchChainError({ cause }),
-        });
-      }
-    }),
-  );
+  return Effect.runPromise(flushDispatchChainEffect);
 }

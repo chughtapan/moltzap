@@ -55,6 +55,6 @@ export function registerDispatchesExpiredFiresOnTtl(
         }
         yield* driver.assertLeaseState(ack.dispatchId, "EXPIRED");
       }),
-    ),
+    ).pipe(Effect.withSpan("registerDispatchesExpiredFiresOnTtl")),
   );
 }

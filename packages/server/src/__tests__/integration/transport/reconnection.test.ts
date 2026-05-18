@@ -1,10 +1,10 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   setupAgentPair,
   connectTestClient,
   type ServerTestClient,
@@ -17,89 +17,98 @@ import {
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 
+const PRE_DISCONNECT_TEXT = "Pre-disconnect";
+const OFFLINE_TEXT = "Sent while you were away";
+const BACK_ONLINE_TEXT = "I am back online";
+
 let wsUrl: string;
 
-beforeAll(async () => {
-  const urls = await startTestServer();
-  wsUrl = urls.wsUrl;
-}, 60_000);
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const urls = yield* startTestServerEffect();
+      wsUrl = urls.wsUrl;
+    }),
+  ),
+);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-describe("Reconnection", () => {
-  it.live(
-    "agent reconnects and retrieves messages sent while disconnected",
-    () =>
-      Effect.gen(function* () {
-        const { alice, bob } = yield* setupAgentPair();
-        let bobClient2: ServerTestClient | null = null;
+it("agent reconnects and retrieves messages sent while disconnected", () =>
+  Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    let bobClient2: ServerTestClient | null = null;
 
-        try {
-          const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-            type: "dm",
-            participants: [{ type: "agent", id: bob.agentId }],
-          })) as { conversation: { id: string } };
-          const conversationId = conv.conversation.id;
+    try {
+      const conversationId = yield* createDm(alice.client, bob.agentId);
+      yield* sendText(alice.client, conversationId, PRE_DISCONNECT_TEXT);
+      yield* bob.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
 
-          yield* alice.client.sendRpc(MessagesSend, {
-            conversationId,
-            parts: [{ type: "text", text: "Pre-disconnect" }],
-          });
-          yield* bob.client.waitForNotification(
-            MessageReceivedNotificationDefinition,
-          );
+      yield* bob.client.close();
+      yield* sendText(alice.client, conversationId, OFFLINE_TEXT);
 
-          // Bob disconnects
-          yield* bob.client.close();
+      // Bob reconnects with the same API key
+      bobClient2 = yield* connectTestClient({
+        wsUrl,
+        agentId: bob.agentId,
+        apiKey: bob.apiKey,
+      });
 
-          // Alice sends a message while Bob is offline
-          yield* alice.client.sendRpc(MessagesSend, {
-            conversationId,
-            parts: [{ type: "text", text: "Sent while you were away" }],
-          });
+      yield* expectReconnectedHistory(bobClient2, conversationId);
+      yield* sendText(bobClient2, conversationId, BACK_ONLINE_TEXT);
 
-          // Bob reconnects with the same API key
-          bobClient2 = yield* connectTestClient({
-            wsUrl,
-            agentId: bob.agentId,
-            apiKey: bob.apiKey,
-          });
+      const aliceEvent = yield* alice.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
+      expect(messageText(aliceEvent.params)).toBe(BACK_ONLINE_TEXT);
+    } finally {
+      if (bobClient2) yield* bobClient2.close();
+    }
+  }));
 
-          // Bob fetches messages — should see both
-          const msgs = (yield* bobClient2.sendRpc(MessagesList, {
-            conversationId,
-          })) as {
-            messages: Array<{ parts: Array<{ text: string }> }>;
-          };
+function createDm(client: ServerTestClient, participantAgentId: string) {
+  return Effect.gen(function* () {
+    const conv = (yield* client.sendRpc(ConversationsCreate, {
+      type: "dm",
+      participants: [{ type: "agent", id: participantAgentId }],
+    })) as { conversation: { id: string } };
+    return conv.conversation.id;
+  });
+}
 
-          expect(msgs.messages).toHaveLength(2);
-          expect(msgs.messages[0]!.parts[0]!.text).toBe("Pre-disconnect");
-          expect(msgs.messages[1]!.parts[0]!.text).toBe(
-            "Sent while you were away",
-          );
+function sendText(
+  client: ServerTestClient,
+  conversationId: string,
+  text: string,
+) {
+  return client.sendRpc(MessagesSend, {
+    conversationId,
+    parts: [{ type: "text", text }],
+  });
+}
 
-          // Verify real-time messaging works after reconnect
-          yield* bobClient2.sendRpc(MessagesSend, {
-            conversationId,
-            parts: [{ type: "text", text: "I am back online" }],
-          });
+function expectReconnectedHistory(
+  client: ServerTestClient,
+  conversationId: string,
+) {
+  return Effect.gen(function* () {
+    const msgs = (yield* client.sendRpc(MessagesList, {
+      conversationId,
+    })) as {
+      messages: Array<{ parts: Array<{ text: string }> }>;
+    };
 
-          const aliceEvent = yield* alice.client.waitForNotification(
-            MessageReceivedNotificationDefinition,
-          );
-          const received = (
-            aliceEvent.params as { message: { parts: Array<{ text: string }> } }
-          ).message;
-          expect(received.parts[0]!.text).toBe("I am back online");
-        } finally {
-          if (bobClient2) yield* bobClient2.close();
-        }
-      }),
-  );
-});
+    expect(msgs.messages).toHaveLength(2);
+    expect(msgs.messages[0]!.parts[0]!.text).toBe(PRE_DISCONNECT_TEXT);
+    expect(msgs.messages[1]!.parts[0]!.text).toBe(OFFLINE_TEXT);
+  });
+}
+
+function messageText(params: unknown): string {
+  return (params as { message: { parts: Array<{ text: string }> } }).message
+    .parts[0]!.text;
+}

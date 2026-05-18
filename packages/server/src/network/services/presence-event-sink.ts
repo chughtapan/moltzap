@@ -36,12 +36,14 @@ export function createConnectionFanOutPresenceEventSink(deps: {
         }),
       );
       for (const connId of input.subscriberConnIds) {
-        if (connId === input.excludeConnId) continue;
-        const conn = deps.connections.get(connId);
-        if (!conn) continue;
-        Effect.runFork(
-          conn.write(raw).pipe(Effect.catchAll(() => Effect.void)),
-        );
+        if (connId !== input.excludeConnId) {
+          const conn = deps.connections.get(connId);
+          if (conn) {
+            Effect.runFork(
+              conn.write(raw).pipe(Effect.catchAll(() => Effect.void)),
+            );
+          }
+        }
       }
     },
   };

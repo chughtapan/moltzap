@@ -1,7 +1,13 @@
-import * as http from "node:http";
-import type { AddressInfo } from "node:net";
-import { describe, it } from "vitest";
-import { Effect, Ref, Scope } from "effect";
+import { describe, expect, it } from "vitest";
+import { Effect, Either, Exit, Ref, Scope } from "effect";
+import * as fc from "fast-check";
+import {
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
+import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
 import { JSON_RPC_RESERVED_CODES } from "../../../transport/wire-errors.js";
@@ -9,18 +15,19 @@ import { responseFrame } from "../../../transport/wire.js";
 import {
   ConversationsArchive,
   ConversationsCreate,
-  ConversationsUnarchive,
-  ConversationsUpdate,
+  MessagesSend,
   TasksAddParticipant,
   TasksClose,
   TasksCreate,
   TasksCreateConversation,
+  ConversationsUnarchive,
+  ConversationsUpdate,
 } from "../../../task/methods.js";
-import { MessagesSend } from "../../../task/methods.js";
 import {
   decodeFrame,
   encodeFrame,
   isRequestFrame,
+  isResponseFrame,
 } from "../_shared/frame-mutator.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import type {
@@ -36,6 +43,7 @@ import { registerMultiSubscriberFanOut } from "../network/presence-multi-subscri
 import { registerReconnectStorm } from "../network/presence-reconnect-storm.js";
 import { registerSameStateNoDoubleFire } from "../network/presence-same-state-no-double-fire.js";
 import { registerSubscribeAfterConnect } from "../network/presence-subscribe-after-connect.js";
+import { registerSpuriousAppCallbackFrameHandling } from "../app/spurious-app-callback-frame.js";
 import {
   collectProperties,
   type PropertyFailure,
@@ -43,7 +51,6 @@ import {
 import { registerAuthorityPositive } from "../identity/authority-positive.js";
 import { registerAuthorityNegative } from "../identity/authority-negative.js";
 import { registerIdempotence } from "../app/idempotence.js";
-import { registerSpuriousAppCallbackFrameHandling } from "../app/spurious-app-callback-frame.js";
 import { registerModelEquivalence } from "../task/model-equivalence.js";
 import { registerRequestIdUniqueness } from "../transport/request-id-uniqueness.js";
 import { registerRequestWellFormedness } from "../transport/request-well-formedness.js";
@@ -51,7 +58,6 @@ import { registerRpcMapCoverage } from "../transport/rpc-map-coverage.js";
 import {
   expectAssertionFailure,
   expectInvariant,
-  expectViolationReasonIncludes,
   runExpectingFailure,
 } from "./executable-proof-helpers.js";
 
@@ -71,166 +77,240 @@ type BadServerBehavior =
   | "drift-idempotent-result"
   | "conversation-missing-created-event"
   | "archive-missing-event"
+  | "task-close-missing-event"
   | "presence-silent"
   | "presence-stale-snapshot"
-  | "silence-after-non-request"
-  | "task-close-noop";
+  | "reply-to-spurious-response";
+
+type BadServerWriter = (raw: string) => Effect.Effect<void, unknown>;
+type ProofExpectation = "assertion" | "invariant";
+
+interface ServerProofCase {
+  readonly title: string;
+  readonly register: (ctx: ConformanceRunContext) => void;
+  readonly behavior: BadServerBehavior;
+  readonly propertyName: string;
+  readonly expectation: ProofExpectation;
+  readonly timeoutMs?: number;
+}
+
+const REQUEST_WELL_FORMEDNESS_PROOF_TIMEOUT_MS = 12_000;
+const SERVER_PROOF_TIMEOUT_MS = 10_000;
+
+const SERVER_PROOF_CASES: ReadonlyArray<ServerProofCase> = [
+  {
+    title:
+      "registerAuthorityNegative fails when pre-handshake RPCs return success",
+    register: registerAuthorityNegative,
+    behavior: "allow-unauthenticated",
+    propertyName: "authority-negative",
+    expectation: "invariant",
+  },
+  {
+    title:
+      "registerModelEquivalence fails when a confident model-ok call errors",
+    register: registerModelEquivalence,
+    behavior: "reject-confident-model-call",
+    propertyName: "model-equivalence",
+    expectation: "assertion",
+  },
+  {
+    title: "registerAuthorityPositive fails when an authorized RPC is denied",
+    register: registerAuthorityPositive,
+    behavior: "reject-authorized",
+    propertyName: "authority-positive",
+    expectation: "invariant",
+  },
+  {
+    title: "registerRequestIdUniqueness fails when responses duplicate an id",
+    register: registerRequestIdUniqueness,
+    behavior: "duplicate-response-id",
+    propertyName: "request-id-uniqueness",
+    expectation: "assertion",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title: "registerIdempotence fails when list results drift across replays",
+    register: registerIdempotence,
+    behavior: "drift-idempotent-result",
+    propertyName: "idempotence",
+    expectation: "invariant",
+  },
+  {
+    title:
+      "registerRequestWellFormedness fails when sampled calls receive no reply",
+    register: registerRequestWellFormedness,
+    behavior: "drop-sampled-response",
+    propertyName: "request-well-formedness",
+    expectation: "assertion",
+    timeoutMs: REQUEST_WELL_FORMEDNESS_PROOF_TIMEOUT_MS,
+  },
+  {
+    title: "registerRpcMapCoverage fails when a sampled method never responds",
+    register: registerRpcMapCoverage,
+    behavior: "drop-contacts-list",
+    propertyName: "rpc-map-coverage",
+    expectation: "invariant",
+  },
+  {
+    title:
+      "registerArchiveLifecycle fails when archive does not broadcast lifecycle",
+    register: registerArchiveLifecycle,
+    behavior: "archive-missing-event",
+    propertyName: "archive-lifecycle",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerConversationLifecycle fails when create does not broadcast lifecycle",
+    register: registerConversationLifecycle,
+    behavior: "conversation-missing-created-event",
+    propertyName: "conversation-lifecycle",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerTaskCloseLifecycle fails when close does not broadcast lifecycle",
+    register: registerTaskCloseLifecycle,
+    behavior: "task-close-missing-event",
+    propertyName: "task-close-lifecycle",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerConnectBroadcast fails when network/connect does not broadcast presence/changed",
+    register: registerConnectBroadcast,
+    behavior: "presence-silent",
+    propertyName: "connect-broadcast",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerDisconnectBroadcast fails when ws-close does not broadcast presence/changed",
+    register: registerDisconnectBroadcast,
+    behavior: "presence-silent",
+    propertyName: "disconnect-broadcast",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerReconnectStorm fails when no presence/changed events fire on connect/disconnect",
+    register: registerReconnectStorm,
+    behavior: "presence-silent",
+    propertyName: "reconnect-storm",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerSameStateNoDoubleFire fails when no presence/changed event fires on initial connect",
+    register: registerSameStateNoDoubleFire,
+    behavior: "presence-silent",
+    propertyName: "same-state-no-double-fire",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerMultiSubscriberFanOut fails when subscribers receive no presence/changed event",
+    register: registerMultiSubscriberFanOut,
+    behavior: "presence-silent",
+    propertyName: "multi-subscriber-fan-out",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerSubscribeAfterConnect fails when subscribe snapshot reports stale offline for a connected agent",
+    register: registerSubscribeAfterConnect,
+    behavior: "presence-stale-snapshot",
+    propertyName: "subscribe-after-connect",
+    expectation: "invariant",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerSpuriousAppCallbackFrameHandling fails when the server replies to a stray response",
+    register: registerSpuriousAppCallbackFrameHandling,
+    behavior: "reply-to-spurious-response",
+    propertyName: "spurious-app-callback-frame-handling",
+    expectation: "assertion",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
+];
 
 describe("server-side conformance executable divergence proofs", () => {
-  it("registerAuthorityNegative fails when pre-handshake RPCs return success", async () => {
-    const failure = await runSingleServerProof(registerAuthorityNegative, {
-      behavior: "allow-unauthenticated",
-    });
-    expectInvariant(failure, "authority-negative");
-  });
-
-  it("registerModelEquivalence fails when a confident model-ok call errors", async () => {
-    const failure = await runSingleServerProof(registerModelEquivalence, {
-      behavior: "reject-confident-model-call",
-    });
-    expectAssertionFailure(failure, "model-equivalence");
-  });
-
-  it("registerAuthorityPositive fails when an authorized RPC is denied", async () => {
-    const failure = await runSingleServerProof(registerAuthorityPositive, {
-      behavior: "reject-authorized",
-    });
-    expectInvariant(failure, "authority-positive");
-  });
-
-  it("registerRequestIdUniqueness fails when responses duplicate an id", async () => {
-    const failure = await runSingleServerProof(registerRequestIdUniqueness, {
-      behavior: "duplicate-response-id",
-    });
-    expectAssertionFailure(failure, "request-id-uniqueness");
-  });
-
-  it("registerIdempotence fails when list results drift across replays", async () => {
-    const failure = await runSingleServerProof(registerIdempotence, {
-      behavior: "drift-idempotent-result",
-    });
-    expectInvariant(failure, "idempotence");
-  });
-
-  it("registerSpuriousAppCallbackFrameHandling fails when the server stops responding after a spurious frame", async () => {
-    const failure = await runSingleServerProof(
-      registerSpuriousAppCallbackFrameHandling,
-      { behavior: "silence-after-non-request" },
+  it("proof matrix maps every case to one property name", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...SERVER_PROOF_CASES),
+        hasUniquePropertyName,
+      ),
     );
-    expectInvariant(failure, "spurious-app-callback-frame-handling");
-  }, 10_000);
-
-  it("registerRequestWellFormedness fails when sampled calls receive no reply", async () => {
-    const failure = await runSingleServerProof(registerRequestWellFormedness, {
-      behavior: "drop-sampled-response",
-    });
-    expectAssertionFailure(failure, "request-well-formedness");
-  }, 12_000);
-
-  it("registerRpcMapCoverage fails when a sampled method never responds", async () => {
-    const failure = await runSingleServerProof(registerRpcMapCoverage, {
-      behavior: "drop-contacts-list",
-    });
-    expectInvariant(failure, "rpc-map-coverage");
+    expect(SERVER_PROOF_CASES).toHaveLength(17);
   });
 
-  it("registerArchiveLifecycle fails when archive does not broadcast lifecycle", async () => {
-    const failure = await runSingleServerProof(registerArchiveLifecycle, {
-      behavior: "archive-missing-event",
-    });
-    expectInvariant(failure, "archive-lifecycle");
-  }, 10_000);
-
-  it("registerConversationLifecycle fails when create does not broadcast lifecycle", async () => {
-    const failure = await runSingleServerProof(registerConversationLifecycle, {
-      behavior: "conversation-missing-created-event",
-    });
-    expectInvariant(failure, "conversation-lifecycle");
-  }, 10_000);
-
-  it("registerTaskCloseLifecycle fails when post-close messages/send returns success", async () => {
-    const failure = await runSingleServerProof(registerTaskCloseLifecycle, {
-      behavior: "task-close-noop",
-    });
-    expectInvariant(failure, "task-close-lifecycle");
-    // Pin the divergence to the post-close arm. A bad server that fails
-    // earlier in the fixture path (tasks/create or tasks/close decode)
-    // would also surface as an invariant violation but would not prove
-    // the property catches the close-noop divergence specifically.
-    expectViolationReasonIncludes(
-      failure,
-      "messages/send succeeded after tasks/close",
+  for (const proof of SERVER_PROOF_CASES) {
+    it(
+      proof.title,
+      () => {
+        expect.hasAssertions();
+        return Effect.runPromise(runServerProofCase(proof));
+      },
+      proof.timeoutMs,
     );
-  }, 10_000);
-
-  // Presence — all six fail under a server that answers RPCs but never
-  // broadcasts presence/changed (the pre-arena#252 shape).
-  it("registerConnectBroadcast fails when network/connect does not broadcast presence/changed", async () => {
-    const failure = await runSingleServerProof(registerConnectBroadcast, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "connect-broadcast");
-  }, 10_000);
-
-  it("registerDisconnectBroadcast fails when ws-close does not broadcast presence/changed", async () => {
-    const failure = await runSingleServerProof(registerDisconnectBroadcast, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "disconnect-broadcast");
-  }, 10_000);
-
-  it("registerReconnectStorm fails when no presence/changed events fire on connect/disconnect", async () => {
-    const failure = await runSingleServerProof(registerReconnectStorm, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "reconnect-storm");
-  }, 10_000);
-
-  it("registerSameStateNoDoubleFire fails when no presence/changed event fires on initial connect", async () => {
-    const failure = await runSingleServerProof(registerSameStateNoDoubleFire, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "same-state-no-double-fire");
-  }, 10_000);
-
-  it("registerMultiSubscriberFanOut fails when subscribers receive no presence/changed event", async () => {
-    const failure = await runSingleServerProof(registerMultiSubscriberFanOut, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "multi-subscriber-fan-out");
-  }, 10_000);
-
-  it("registerSubscribeAfterConnect fails when subscribe snapshot reports stale offline for a connected agent", async () => {
-    const failure = await runSingleServerProof(registerSubscribeAfterConnect, {
-      behavior: "presence-stale-snapshot",
-    });
-    expectInvariant(failure, "subscribe-after-connect");
-  }, 10_000);
+  }
 });
 
-async function runSingleServerProof(
+const hasUniquePropertyName = (proof: ServerProofCase): boolean =>
+  SERVER_PROOF_CASES.filter(
+    (candidate) => candidate.propertyName === proof.propertyName,
+  ).length === 1;
+
+const runServerProofCase = (proof: ServerProofCase): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const failure = yield* runSingleServerProof(proof.register, {
+      behavior: proof.behavior,
+    });
+    if (proof.expectation === "assertion") {
+      expectAssertionFailure(failure, proof.propertyName);
+      return;
+    }
+    expectInvariant(failure, proof.propertyName);
+  });
+
+function runSingleServerProof(
   register: (ctx: ConformanceRunContext) => void,
   opts: { readonly behavior: BadServerBehavior },
-): Promise<PropertyFailure> {
-  const exit = await Effect.runPromiseExit(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const ctx = yield* makeBadServerContext(opts.behavior);
-        register(ctx);
-        const properties = collectProperties(ctx);
-        if (properties.length !== 1) {
-          return yield* Effect.die(
-            new Error(`expected one property, got ${properties.length}`),
-          );
-        }
-        return yield* runExpectingFailure(properties[0]!);
-      }),
-    ),
-  );
-  if (exit._tag === "Failure") {
-    throw new Error(`proof harness defect: ${exit.cause.toString()}`);
-  }
-  return exit.value;
+): Effect.Effect<PropertyFailure> {
+  return Effect.gen(function* () {
+    const exit = yield* Effect.exit(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const ctx = yield* makeBadServerContext(opts.behavior);
+          register(ctx);
+          const properties = collectProperties(ctx);
+          if (properties.length !== 1) {
+            return yield* Effect.die(
+              new Error(`expected one property, got ${properties.length}`),
+            );
+          }
+          return yield* runExpectingFailure(properties[0]!);
+        }),
+      ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+    );
+    if (Exit.isFailure(exit)) {
+      return yield* Effect.die(
+        new Error(`proof harness defect: ${exit.cause.toString()}`),
+      );
+    }
+    return exit.value;
+  });
 }
 
 function makeBadServerContext(
@@ -261,10 +341,12 @@ function makeBadServerContext(
 
 const BAD_SERVER_AGENT_UUID_PREFIX = "00000000-0000-4000-8000-";
 const BAD_SERVER_AGENT_UUID_NODE_LEN = 12;
+const BAD_SERVER_AGENT_UUID_RADIX = 16;
+const DUPLICATE_RESPONSE_ID = "bad-server-duplicate-response-id";
 
 function badServerAgentId(counter: number): string {
   return `${BAD_SERVER_AGENT_UUID_PREFIX}${counter
-    .toString(16)
+    .toString(BAD_SERVER_AGENT_UUID_RADIX)
     .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`;
 }
 
@@ -274,60 +356,35 @@ const makeRegistrationHttpServer: Effect.Effect<
   Scope.Scope
 > = Effect.gen(function* () {
   let counter = 0;
-  const server = http.createServer((req, res) => {
-    if (req.method !== "POST" || req.url !== "/api/v1/auth/register") {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "not found" }));
-      return;
-    }
-    req.resume();
-    req.on("end", () => {
+  const registerRoute = HttpRouter.post(
+    "/api/v1/auth/register",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      yield* request.json.pipe(Effect.ignore);
       counter += 1;
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          agentId: badServerAgentId(counter),
-          apiKey: `bad-server-key-${counter}`,
-          claimUrl: `http://127.0.0.1/claim/${counter}`,
-          claimToken: `claim-${counter}`,
-        }),
-      );
-    });
-  });
-
-  const listening = yield* Effect.acquireRelease(
-    Effect.tryPromise({
-      try: () =>
-        new Promise<http.Server>((resolve, reject) => {
-          server.once("error", reject);
-          server.listen(0, "127.0.0.1", () => {
-            server.off("error", reject);
-            resolve(server);
-          });
-        }),
-      catch: (cause) => cause,
-    }).pipe(Effect.orDie),
-    (active) =>
-      Effect.promise(
-        () =>
-          new Promise<void>((resolve) => {
-            active.close(() => resolve());
-          }),
-      ).pipe(Effect.orDie),
+      return HttpServerResponse.unsafeJson({
+        agentId: badServerAgentId(counter),
+        apiKey: `bad-server-key-${counter}`,
+        claimUrl: `http://127.0.0.1/claim/${counter}`,
+        claimToken: `claim-${counter}`,
+      });
+    }),
   );
-  const address = listening.address() as AddressInfo;
+  yield* HttpServer.serveEffect(HttpRouter.empty.pipe(registerRoute));
+  const address = yield* HttpServer.addressWith((addr) => Effect.succeed(addr));
+  if (address._tag !== "TcpAddress") {
+    return yield* Effect.die(
+      new Error(`expected TcpAddress, got ${address._tag}`),
+    );
+  }
   return { baseUrl: `http://127.0.0.1:${address.port}` };
-});
+}).pipe(Effect.orDie);
 
 function makeBadWebSocketServer(
   behavior: BadServerBehavior,
 ): Effect.Effect<{ readonly wsUrl: string }, never, Scope.Scope> {
   return Effect.gen(function* () {
     const requestCounter = yield* Ref.make(0);
-    // Tracks whether `silence-after-non-request` has been triggered.
-    // Per-server state is sufficient: each divergence-proof run drives a
-    // single client.
-    const silencedRef = yield* Ref.make(false);
     const server = yield* NodeSocketServer.makeWebSocket({
       port: 0,
       host: "127.0.0.1",
@@ -338,46 +395,9 @@ function makeBadWebSocketServer(
         .run((socket) =>
           Effect.gen(function* () {
             const writer = yield* socket.writer;
-            yield* socket.runRaw((data) => {
-              const raw =
-                typeof data === "string"
-                  ? data
-                  : new TextDecoder("utf-8").decode(data);
-              return Effect.gen(function* () {
-                const decoded = yield* Effect.either(
-                  decodeFrame(raw, "inbound"),
-                );
-                if (decoded._tag === "Left") return;
-                const frame = decoded.right;
-                if (!isRequestFrame(frame)) {
-                  if (behavior === "silence-after-non-request") {
-                    yield* Ref.set(silencedRef, true);
-                  }
-                  return;
-                }
-                if (
-                  behavior === "silence-after-non-request" &&
-                  (yield* Ref.get(silencedRef))
-                ) {
-                  // Spurious frame already arrived; the bad server stops
-                  // replying so the property's liveness probe times out.
-                  return;
-                }
-                const ordinal = yield* Ref.updateAndGet(
-                  requestCounter,
-                  (n) => n + 1,
-                );
-                const response = makeBadResponse(frame, behavior, ordinal);
-                if (response === null) return;
-                yield* writer(encodeFrame(response)).pipe(Effect.orDie);
-                if (
-                  behavior === "duplicate-response-id" &&
-                  frame.method === ConversationsList.name
-                ) {
-                  yield* writer(encodeFrame(response)).pipe(Effect.orDie);
-                }
-              });
-            });
+            yield* socket.runRaw(
+              badServerRawDataHandler(writer, requestCounter, behavior),
+            );
           }),
         )
         .pipe(Effect.ignore),
@@ -393,30 +413,70 @@ function makeBadWebSocketServer(
   });
 }
 
+const badServerRawDataHandler =
+  (
+    writer: BadServerWriter,
+    requestCounter: Ref.Ref<number>,
+    behavior: BadServerBehavior,
+  ) =>
+  (data: string | Uint8Array): Effect.Effect<void> =>
+    handleBadServerRawData(data, writer, requestCounter, behavior);
+
+function rawSocketDataToString(data: string | Uint8Array): string {
+  return typeof data === "string"
+    ? data
+    : new TextDecoder("utf-8").decode(data);
+}
+
+function handleBadServerRawData(
+  data: string | Uint8Array,
+  writer: BadServerWriter,
+  requestCounter: Ref.Ref<number>,
+  behavior: BadServerBehavior,
+): Effect.Effect<void> {
+  const raw = rawSocketDataToString(data);
+  return Effect.gen(function* () {
+    const decoded = yield* Effect.either(decodeFrame(raw, "inbound"));
+    const frame = Either.getOrNull(decoded);
+    if (frame === null) return;
+    if (isResponseFrame(frame)) {
+      return yield* handleBadServerResponseFrame(frame, writer, behavior);
+    }
+    if (!isRequestFrame(frame)) return;
+    const ordinal = yield* Ref.updateAndGet(requestCounter, (n) => n + 1);
+    const response = makeBadResponse(frame, behavior, ordinal);
+    if (response === null) return;
+    yield* writer(encodeFrame(response)).pipe(Effect.orDie);
+  });
+}
+
+function handleBadServerResponseFrame(
+  response: ResponseFrame,
+  writer: BadServerWriter,
+  behavior: BadServerBehavior,
+): Effect.Effect<void> {
+  if (behavior !== "reply-to-spurious-response") return Effect.void;
+  return writer(
+    encodeFrame(
+      responseFrame(response.id, {
+        error: {
+          code: JSON_RPC_RESERVED_CODES.InvalidRequest,
+          message: "bad server replied to a stray response frame",
+        },
+      }),
+    ),
+  ).pipe(Effect.orDie);
+}
+
 function makeBadResponse(
   request: RequestFrame,
   behavior: BadServerBehavior,
   ordinal: number,
 ): ResponseFrame | null {
-  if (
-    behavior === "drop-contacts-list" &&
-    request.method === ContactsList.name
-  ) {
+  if (shouldDropBadResponse(request, behavior)) {
     return null;
   }
-  if (behavior === "drop-sampled-response" && ordinal > 1) {
-    // Auto-handshake (Connect) is ordinal 1 and stays. Everything past that
-    // is the sampled call — drop the response unconditionally so the
-    // request-well-formedness property fires regardless of which method
-    // `arbitraryAnyCall` happened to draw, including Connect itself.
-    return null;
-  }
-  if (
-    (behavior === "reject-confident-model-call" &&
-      request.method === AgentsList.name) ||
-    (behavior === "reject-authorized" &&
-      request.method === ConversationsList.name)
-  ) {
+  if (shouldRejectBadResponse(request, behavior)) {
     return responseFrame(request.id, {
       error: {
         code: JSON_RPC_RESERVED_CODES.InternalError,
@@ -424,10 +484,31 @@ function makeBadResponse(
       },
     });
   }
-  return responseFrame(request.id, {
+  const responseId =
+    behavior === "duplicate-response-id" &&
+    request.method === ConversationsList.name
+      ? DUPLICATE_RESPONSE_ID
+      : request.id;
+  return responseFrame(responseId, {
     result: makeBadResult(request, behavior, ordinal),
   });
 }
+
+const shouldDropBadResponse = (
+  request: RequestFrame,
+  behavior: BadServerBehavior,
+): boolean =>
+  (behavior === "drop-contacts-list" && request.method === ContactsList.name) ||
+  behavior === "drop-sampled-response";
+
+const shouldRejectBadResponse = (
+  request: RequestFrame,
+  behavior: BadServerBehavior,
+): boolean =>
+  (behavior === "reject-confident-model-call" &&
+    request.method === AgentsList.name) ||
+  (behavior === "reject-authorized" &&
+    request.method === ConversationsList.name);
 
 function makeBadResult(
   request: RequestFrame,
@@ -440,27 +521,12 @@ function makeBadResult(
   if (behavior === "conversation-missing-created-event") {
     return makeConversationLifecycleBadResult(request);
   }
-  if (behavior === "task-close-noop") {
+  if (behavior === "task-close-missing-event") {
     return makeTaskCloseLifecycleBadResult(request);
   }
-  if (
-    behavior === "presence-silent" ||
-    behavior === "presence-stale-snapshot"
-  ) {
-    if (request.method === PresenceSubscribe.name) {
-      // Always reports offline — fails P6's online-snapshot expectation
-      // and seeds the snapshot empty for the silent-broadcast cases.
-      const params = request.params as { agentIds?: ReadonlyArray<unknown> };
-      const ids = Array.isArray(params.agentIds) ? params.agentIds : [];
-      return {
-        statuses: ids
-          .filter((id): id is string => typeof id === "string")
-          .map((agentId) => ({ agentId, status: "offline" as const })),
-      };
-    }
-    if (request.method === PresenceUpdate.name) {
-      return {};
-    }
+  const presenceResult = makePresenceBadResult(request, behavior);
+  if (presenceResult !== undefined) {
+    return presenceResult;
   }
   switch (request.method) {
     case Connect.name:
@@ -468,20 +534,52 @@ function makeBadResult(
     case AgentsList.name:
       return { agents: {} };
     case ConversationsList.name:
-      return behavior === "drift-idempotent-result"
-        ? {
-            conversations: [
-              {
-                id: `00000000-0000-4000-8000-${ordinal.toString(16).padStart(12, "0")}`,
-                type: "group",
-                unreadCount: ordinal,
-              },
-            ],
-          }
-        : { conversations: [] };
+      return makeConversationsListBadResult(behavior, ordinal);
     default:
       return {};
   }
+}
+
+function makePresenceBadResult(
+  request: RequestFrame,
+  behavior: BadServerBehavior,
+): unknown | undefined {
+  if (
+    behavior !== "presence-silent" &&
+    behavior !== "presence-stale-snapshot"
+  ) {
+    return undefined;
+  }
+  if (request.method === PresenceSubscribe.name) {
+    const params = request.params as { agentIds?: ReadonlyArray<unknown> };
+    const ids = Array.isArray(params.agentIds) ? params.agentIds : [];
+    return {
+      statuses: ids
+        .filter((id): id is string => typeof id === "string")
+        .map((agentId) => ({ agentId, status: "offline" as const })),
+    };
+  }
+  return request.method === PresenceUpdate.name ? {} : undefined;
+}
+
+function makeConversationsListBadResult(
+  behavior: BadServerBehavior,
+  ordinal: number,
+): unknown {
+  if (behavior !== "drift-idempotent-result") {
+    return { conversations: [] };
+  }
+  return {
+    conversations: [
+      {
+        id: `00000000-0000-4000-8000-${ordinal
+          .toString(BAD_SERVER_AGENT_UUID_RADIX)
+          .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`,
+        type: "group",
+        unreadCount: ordinal,
+      },
+    ],
+  };
 }
 
 function makeConversationLifecycleBadResult(request: RequestFrame): unknown {
@@ -521,92 +619,6 @@ function makeConversationLifecycleBadResult(request: RequestFrame): unknown {
   return {};
 }
 
-/**
- * Bad-server shape for the task-close-lifecycle proof: every RPC
- * succeeds, including post-close `messages/send`. A real server fails
- * post-close `messages/send` with `TaskClosedError`; this server
- * unconditionally returns a success — the property must catch the
- * divergence on the post-close arm.
- */
-function makeTaskCloseLifecycleBadResult(request: RequestFrame): unknown {
-  const taskIdValue = "00000000-0000-4000-8000-000000000201";
-  const conversationIdValue = "00000000-0000-4000-8000-000000000202";
-  const initiatorAgentIdValue = "00000000-0000-4000-8000-000000000001";
-  const senderAgentIdValue = "00000000-0000-4000-8000-000000000002";
-  const messageIdValue = "00000000-0000-4000-8000-000000000203";
-  const timestamp = "2026-01-01T00:00:00.000Z";
-
-  if (request.method === TasksCreate.name) {
-    return {
-      task: {
-        id: taskIdValue,
-        appId: null,
-        initiatorAgentId: initiatorAgentIdValue,
-        status: "active",
-        tmEndpointAddress: `tm:agent:${initiatorAgentIdValue}`,
-        startedAt: timestamp,
-        endedAt: null,
-        createdAt: timestamp,
-      },
-    };
-  }
-  if (request.method === TasksAddParticipant.name) {
-    return {
-      participant: {
-        taskId: taskIdValue,
-        agentId: senderAgentIdValue,
-        admittedAt: timestamp,
-      },
-    };
-  }
-  if (request.method === TasksCreateConversation.name) {
-    return {
-      conversation: {
-        id: conversationIdValue,
-        type: "dm",
-        createdBy: initiatorAgentIdValue,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-    };
-  }
-  if (request.method === TasksClose.name) {
-    return {
-      task: {
-        id: taskIdValue,
-        appId: null,
-        initiatorAgentId: initiatorAgentIdValue,
-        status: "closed",
-        tmEndpointAddress: `tm:agent:${initiatorAgentIdValue}`,
-        startedAt: timestamp,
-        endedAt: timestamp,
-        createdAt: timestamp,
-      },
-    };
-  }
-  if (request.method === MessagesSend.name) {
-    const params = request.params as {
-      conversationId?: unknown;
-      parts?: unknown;
-    };
-    return {
-      message: {
-        id: messageIdValue,
-        conversationId:
-          typeof params.conversationId === "string"
-            ? params.conversationId
-            : conversationIdValue,
-        senderId: senderAgentIdValue,
-        parts: Array.isArray(params.parts)
-          ? params.parts
-          : [{ type: "text", text: "noop" }],
-        createdAt: timestamp,
-      },
-    };
-  }
-  return {};
-}
-
 function makeArchiveLifecycleBadResult(request: RequestFrame): unknown {
   if (request.method === ConversationsCreate.name) {
     return {
@@ -634,4 +646,106 @@ function makeArchiveLifecycleBadResult(request: RequestFrame): unknown {
     };
   }
   return {};
+}
+
+const BAD_SERVER_NOW = "2026-01-01T00:00:00.000Z";
+const BAD_TASK_ID = "00000000-0000-4000-8000-000000000201";
+const BAD_TASK_CONVERSATION_ID = "00000000-0000-4000-8000-000000000203";
+
+const taskCloseLifecycleBadResultHandlers = new Map<
+  string,
+  (request: RequestFrame) => unknown
+>([
+  [TasksCreate.name, badTaskCreateResult],
+  [TasksAddParticipant.name, badTaskParticipant],
+  [TasksCreateConversation.name, badTaskConversation],
+  [TasksClose.name, badTaskCloseResult],
+  [MessagesSend.name, badTaskMessageSendResult],
+]);
+
+function makeTaskCloseLifecycleBadResult(request: RequestFrame): unknown {
+  return (
+    taskCloseLifecycleBadResultHandlers.get(request.method)?.(request) ?? {}
+  );
+}
+
+function badTaskCreateResult(request: RequestFrame): unknown {
+  const params = request.params as { appId?: unknown };
+  return {
+    task: badTask({
+      id: BAD_TASK_ID,
+      appId: typeof params.appId === "string" ? params.appId : null,
+      status: "waiting",
+    }),
+  };
+}
+
+function badTaskCloseResult(): unknown {
+  return {
+    task: badTask({
+      id: BAD_TASK_ID,
+      appId: "task-close-lifecycle-app",
+      status: "closed",
+      endedAt: BAD_SERVER_NOW,
+    }),
+  };
+}
+
+function badTaskMessageSendResult(request: RequestFrame): unknown {
+  const params = request.params as { conversationId?: unknown };
+  return {
+    message: {
+      id: "00000000-0000-4000-8000-000000000204",
+      conversationId:
+        typeof params.conversationId === "string"
+          ? params.conversationId
+          : BAD_TASK_CONVERSATION_ID,
+    },
+  };
+}
+
+function badTaskParticipant(request: RequestFrame): unknown {
+  const params = request.params as { taskId?: unknown; agentId?: unknown };
+  return {
+    participant: {
+      taskId: typeof params.taskId === "string" ? params.taskId : BAD_TASK_ID,
+      agentId:
+        typeof params.agentId === "string"
+          ? params.agentId
+          : badServerAgentId(2),
+      admittedAt: BAD_SERVER_NOW,
+    },
+  };
+}
+
+function badTaskConversation(request: RequestFrame): unknown {
+  const params = request.params as { type?: unknown; name?: unknown };
+  return {
+    conversation: {
+      id: BAD_TASK_CONVERSATION_ID,
+      type: params.type === "dm" ? "dm" : "group",
+      ...(typeof params.name === "string" ? { name: params.name } : {}),
+      createdBy: badServerAgentId(1),
+      createdAt: BAD_SERVER_NOW,
+      updatedAt: BAD_SERVER_NOW,
+    },
+  };
+}
+
+function badTask(opts: {
+  readonly id: string;
+  readonly appId: string | null;
+  readonly status: "waiting" | "active" | "failed" | "closed";
+  readonly endedAt?: string;
+}) {
+  return {
+    id: opts.id,
+    appId: opts.appId,
+    initiatorAgentId: badServerAgentId(1),
+    status: opts.status,
+    tmEndpointAddress: `tm:agent:${badServerAgentId(1)}`,
+    startedAt: null,
+    endedAt: opts.endedAt ?? null,
+    createdAt: BAD_SERVER_NOW,
+  };
 }

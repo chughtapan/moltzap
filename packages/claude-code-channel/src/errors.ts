@@ -1,10 +1,5 @@
 import { Data } from "effect";
-
-export class ServiceConnectFailed extends Data.TaggedError(
-  "ServiceConnectFailed",
-)<{
-  readonly cause: string;
-}> {}
+import type { ServiceRpcError } from "@moltzap/client";
 
 export class McpTransportFailed extends Data.TaggedError("McpTransportFailed")<{
   readonly cause: string;
@@ -14,13 +9,13 @@ export class AgentKeyInvalid extends Data.TaggedError("AgentKeyInvalid")<{
   readonly cause: string;
 }> {}
 
-export class SchemaDecodeFailed extends Data.TaggedError("SchemaDecodeFailed")<{
+class SchemaDecodeFailed extends Data.TaggedError("SchemaDecodeFailed")<{
   readonly cause: string;
   readonly at: "ws" | "mcp";
 }> {}
 
 export type BootError =
-  | ServiceConnectFailed
+  | ServiceRpcError
   | McpTransportFailed
   | AgentKeyInvalid
   | SchemaDecodeFailed;
@@ -29,18 +24,18 @@ export class EmitFailed extends Data.TaggedError("EmitFailed")<{
   readonly cause: string;
 }> {}
 
-export class NotConnected extends Data.TaggedError("NotConnected")<{
+class NotConnected extends Data.TaggedError("NotConnected")<{
   readonly cause: string;
 }> {}
 
 export type PushError = EmitFailed | NotConnected;
 
-export class SenderNotAllowed extends Data.TaggedError("SenderNotAllowed")<{
+class SenderNotAllowed extends Data.TaggedError("SenderNotAllowed")<{
   readonly senderId: string;
   readonly reason: string;
 }> {}
 
-export class ConversationNotAllowed extends Data.TaggedError(
+class ConversationNotAllowed extends Data.TaggedError(
   "ConversationNotAllowed",
 )<{
   readonly conversationId: string;
@@ -49,13 +44,11 @@ export class ConversationNotAllowed extends Data.TaggedError(
 
 export type AllowlistError = SenderNotAllowed | ConversationNotAllowed;
 
-export class NoActiveConversation extends Data.TaggedError(
-  "NoActiveConversation",
-)<{
+class NoActiveConversation extends Data.TaggedError("NoActiveConversation")<{
   readonly cause: string;
 }> {}
 
-export class ReplyToUnknown extends Data.TaggedError("ReplyToUnknown")<{
+class ReplyToUnknown extends Data.TaggedError("ReplyToUnknown")<{
   readonly replyTo: string;
 }> {}
 
@@ -63,7 +56,7 @@ export class SendFailed extends Data.TaggedError("SendFailed")<{
   readonly cause: string;
 }> {}
 
-export class FilesUnsupported extends Data.TaggedError("FilesUnsupported")<{
+class FilesUnsupported extends Data.TaggedError("FilesUnsupported")<{
   readonly fileCount: number;
 }> {}
 

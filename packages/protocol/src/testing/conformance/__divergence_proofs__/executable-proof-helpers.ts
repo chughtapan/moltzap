@@ -1,4 +1,5 @@
 import { Cause, Chunk, Effect, Option } from "effect";
+import { expect } from "vitest";
 import {
   PropertyAssertionFailure,
   PropertyDeferred,
@@ -37,7 +38,7 @@ export function runExpectingFailure(
       );
     }
     return failure;
-  });
+  }).pipe(Effect.withSpan("runExpectingFailure"));
 }
 
 export function expectInvariant(
@@ -45,15 +46,12 @@ export function expectInvariant(
   propertyName: string,
 ): void {
   if (!(failure instanceof PropertyInvariantViolation)) {
+    expect(failure).toBeInstanceOf(PropertyInvariantViolation);
     throw new ProofExpectationError(
       `expected invariant failure, got ${failure._tag}: ${describeFailure(failure)}`,
     );
   }
-  if (failure.name !== propertyName) {
-    throw new ProofExpectationError(
-      `expected ${propertyName}, got ${failure.name}`,
-    );
-  }
+  expect(failure.name).toBe(propertyName);
 }
 
 /**
@@ -82,15 +80,12 @@ export function expectAssertionFailure(
   propertyName: string,
 ): void {
   if (!(failure instanceof PropertyAssertionFailure)) {
+    expect(failure).toBeInstanceOf(PropertyAssertionFailure);
     throw new ProofExpectationError(
       `expected assertion failure, got ${failure._tag}: ${describeFailure(failure)}`,
     );
   }
-  if (failure.name !== propertyName) {
-    throw new ProofExpectationError(
-      `expected ${propertyName}, got ${failure.name}`,
-    );
-  }
+  expect(failure.name).toBe(propertyName);
 }
 
 /**
@@ -112,18 +107,11 @@ export function expectDeferred(
   expectedReasonSubstring: string,
 ): void {
   if (!(failure instanceof PropertyDeferred)) {
+    expect(failure).toBeInstanceOf(PropertyDeferred);
     throw new ProofExpectationError(
       `expected deferred failure, got ${failure._tag}: ${describeFailure(failure)}`,
     );
   }
-  if (failure.name !== propertyName) {
-    throw new ProofExpectationError(
-      `expected ${propertyName}, got ${failure.name}`,
-    );
-  }
-  if (!failure.followUp.includes(expectedReasonSubstring)) {
-    throw new ProofExpectationError(
-      `expected followUp to include "${expectedReasonSubstring}", got "${failure.followUp}"`,
-    );
-  }
+  expect(failure.name).toBe(propertyName);
+  expect(failure.followUp).toContain(expectedReasonSubstring);
 }

@@ -1,3 +1,6 @@
+/**
+ * @file Root public barrel for the complete protocol package.
+ */
 export { PROTOCOL_VERSION } from "./version.js";
 
 export * from "./transport/index.js";

@@ -1,10 +1,10 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   setupAgentGroup,
 } from "../helpers.js";
 
@@ -17,82 +17,75 @@ import {
 let _baseUrl: string;
 let _wsUrl: string;
 
-beforeAll(async () => {
-  const server = await startTestServer();
-  _baseUrl = server.baseUrl;
-  _wsUrl = server.wsUrl;
-}, 60_000);
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const server = yield* startTestServerEffect();
+      _baseUrl = server.baseUrl;
+      _wsUrl = server.wsUrl;
+    }),
+  ),
+);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-describe("Concurrent Messages", () => {
-  it.live(
-    "multiple DMs receive messages simultaneously without cross-talk",
-    () =>
-      Effect.gen(function* () {
-        const { agents } = yield* setupAgentGroup(5);
+it("multiple DMs receive messages simultaneously without cross-talk", () =>
+  Effect.gen(function* () {
+    const { agents } = yield* setupAgentGroup(5);
 
-        const sender = agents[0]!;
-        const receivers = agents.slice(1);
+    const sender = agents[0]!;
+    const receivers = agents.slice(1);
 
-        // Create 4 separate DM conversations between agent-0 and each of agents 1-4
-        const conversations: Array<{ id: string; receiverIdx: number }> = [];
-        for (let i = 0; i < receivers.length; i++) {
-          const conv = (yield* sender.client.sendRpc(ConversationsCreate, {
-            type: "dm",
-            participants: [{ type: "agent", id: receivers[i]!.agentId }],
-          })) as { conversation: { id: string } };
-          conversations.push({ id: conv.conversation.id, receiverIdx: i });
-        }
+    // Create 4 separate DM conversations between agent-0 and each of agents 1-4
+    const conversations: Array<{ id: string; receiverIdx: number }> = [];
+    for (let i = 0; i < receivers.length; i++) {
+      const conv = (yield* sender.client.sendRpc(ConversationsCreate, {
+        type: "dm",
+        participants: [{ type: "agent", id: receivers[i]!.agentId }],
+      })) as { conversation: { id: string } };
+      conversations.push({ id: conv.conversation.id, receiverIdx: i });
+    }
 
-        // Set up event waiters on all receivers BEFORE sending
+    // Set up event waiters on all receivers BEFORE sending
 
-        // Send messages to all 4 conversations simultaneously
-        yield* Effect.all(
-          conversations.map((conv, i) =>
-            sender.client.sendRpc(MessagesSend, {
-              conversationId: conv.id,
-              parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
-            }),
-          ),
-          { concurrency: "unbounded" },
-        );
+    // Send messages to all 4 conversations simultaneously
+    yield* Effect.all(
+      conversations.map((conv, i) =>
+        sender.client.sendRpc(MessagesSend, {
+          conversationId: conv.id,
+          parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
+        }),
+      ),
+      { concurrency: conversations.length },
+    );
 
-        const events = yield* Effect.all(
-          receivers.map((r) =>
-            r.client.waitForNotification(MessageReceivedNotificationDefinition),
-          ),
-          { concurrency: "unbounded" },
-        );
+    const events = yield* Effect.all(
+      receivers.map((r) =>
+        r.client.waitForNotification(MessageReceivedNotificationDefinition),
+      ),
+      { concurrency: receivers.length },
+    );
 
-        for (let i = 0; i < events.length; i++) {
-          const event = events[i]!;
-          const data = event.params as {
-            message: {
-              conversationId: string;
-              parts: Array<{ text: string }>;
-            };
-          };
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i]!;
+      const data = event.params as {
+        message: {
+          conversationId: string;
+          parts: Array<{ text: string }>;
+        };
+      };
 
-          expect(data.message.conversationId).toBe(conversations[i]!.id);
-          expect(data.message.parts[0]!.text).toBe(`Hello receiver-${i + 1}`);
-        }
+      expect(data.message.conversationId).toBe(conversations[i]!.id);
+      expect(data.message.parts[0]!.text).toBe(`Hello receiver-${i + 1}`);
+    }
 
-        // Verify no extra events leaked to any receiver
-        for (const receiver of receivers) {
-          const extra = receiver.client
-            .drainNotifications()
-            .filter(
-              (e) => e.definition === MessageReceivedNotificationDefinition,
-            );
-          expect(extra).toHaveLength(0);
-        }
-      }),
-  );
-});
+    // Verify no extra events leaked to any receiver
+    for (const receiver of receivers) {
+      const extra = receiver.client
+        .drainNotifications()
+        .filter((e) => e.definition === MessageReceivedNotificationDefinition);
+      expect(extra).toHaveLength(0);
+    }
+  }));

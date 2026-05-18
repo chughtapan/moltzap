@@ -11,7 +11,6 @@ import type {
   ChatCompletionCreateParams,
   ChatCompletionContentPartText,
 } from "openai/resources/chat/completions";
-import { Config, ConfigProvider, Effect, Option } from "effect";
 
 export type EchoServer = { port: number; close: () => void };
 
@@ -19,7 +18,6 @@ export interface EchoServerOptions {
   readonly debug?: boolean;
 }
 
-const EchoDebug = Config.option(Config.string("ECHO_DEBUG"));
 const HTTP_OK = 200;
 const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
@@ -41,15 +39,6 @@ const SSE_HEADERS = {
 
 class EchoServerError extends Error {
   override readonly name = "EchoServerError";
-}
-
-function readEchoDebug(): boolean {
-  const raw = Option.getOrUndefined(
-    Effect.runSync(
-      EchoDebug.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-    ),
-  );
-  return raw !== undefined && raw !== "" && raw !== "0" && raw !== "false";
 }
 
 function writeJson(
@@ -231,45 +220,81 @@ function writeChatCompletion(
   writeJson(res, HTTP_OK, makeCompletion({ id: completionId, content }));
 }
 
+function logRequest(debug: boolean, req: http.IncomingMessage): void {
+  if (debug) {
+    console.log(`[echo-server] ${req.method} ${req.url}`);
+  }
+}
+
+function logMalformedBody(debug: boolean, cause: unknown): void {
+  if (debug) {
+    console.warn(
+      `[echo-server] malformed JSON request body: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+  }
+}
+
+type ParsedChatBody =
+  | { readonly _tag: "Body"; readonly body: ChatCompletionCreateParams }
+  | { readonly _tag: "Malformed"; readonly cause: unknown };
+
+function parseChatBody(rawBody: string): ParsedChatBody {
+  try {
+    return { _tag: "Body", body: JSON.parse(rawBody) };
+  } catch (cause) {
+    return { _tag: "Malformed", cause };
+  }
+}
+
+function hasMessages(body: ChatCompletionCreateParams): boolean {
+  return Array.isArray(body.messages) && body.messages.length > 0;
+}
+
+function handleChatCompletionRequest(
+  res: http.ServerResponse,
+  rawBody: string,
+  debug: boolean,
+): void {
+  const parsed = parseChatBody(rawBody);
+  if (parsed._tag === "Malformed") {
+    logMalformedBody(debug, parsed.cause);
+    writeJsonError(res, HTTP_BAD_REQUEST, JSON_ERROR_MALFORMED_BODY);
+    return;
+  }
+
+  if (!hasMessages(parsed.body)) {
+    writeJsonError(res, HTTP_BAD_REQUEST, JSON_ERROR_EMPTY_MESSAGES);
+    return;
+  }
+
+  writeChatCompletion(res, parsed.body, debug);
+}
+
 function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   rawBody: string,
   debug: boolean,
 ): void {
-  if (debug) {
-    console.log(`[echo-server] ${req.method} ${req.url}`);
-  }
+  logRequest(debug, req);
 
   if (isModelListRequest(req)) {
     writeModelList(res);
     return;
   }
 
-  if (!isChatCompletionRequest(req)) {
-    writeJsonError(res, HTTP_NOT_FOUND, JSON_ERROR_NOT_FOUND);
+  if (isChatCompletionRequest(req)) {
+    handleChatCompletionRequest(res, rawBody, debug);
     return;
   }
 
-  let body: ChatCompletionCreateParams;
-  try {
-    body = JSON.parse(rawBody);
-  } catch (cause) {
-    void cause;
-    writeJsonError(res, HTTP_BAD_REQUEST, JSON_ERROR_MALFORMED_BODY);
-    return;
-  }
-
-  if (!Array.isArray(body.messages) || body.messages.length === 0) {
-    writeJsonError(res, HTTP_BAD_REQUEST, JSON_ERROR_EMPTY_MESSAGES);
-    return;
-  }
-
-  writeChatCompletion(res, body, debug);
+  writeJsonError(res, HTTP_NOT_FOUND, JSON_ERROR_NOT_FOUND);
 }
 
 export function startEchoServer(options: EchoServerOptions = {}) {
-  const debug = options.debug ?? readEchoDebug();
+  const debug = options.debug ?? false;
   return new Promise<EchoServer>((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const bodyChunks: Buffer[] = [];

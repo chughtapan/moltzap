@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreWorkspaces": [
+    "packages/claude-code-channel",
+    "packages/client",
+    "packages/nanoclaw-channel",
+    "packages/openclaw-channel",
+    "packages/protocol",
+    "packages/runtimes",
+    "packages/server"
+  ],
+  "workspaces": {
+    ".": {
+      "entry": [
+        "eslint.shared.mjs",
+        "vitest.workspace-aliases.ts"
+      ],
+      "project": ["*.mjs", "*.ts"]
+    }
+  }
+}

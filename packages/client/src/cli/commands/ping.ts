@@ -4,7 +4,7 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Data, Effect } from "effect";
 import { getHttpUrl } from "../config.js";
 
-export class PingError extends Data.TaggedError("PingError")<{
+class PingError extends Data.TaggedError("PingError")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}

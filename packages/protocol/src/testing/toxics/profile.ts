@@ -71,23 +71,7 @@ export type DeliveryInvariantName =
   | "payload-opacity"
   | "task-boundary-isolation";
 
-/**
- * Selector: pick the delivery invariant a given toxic re-exercises.
- * Adversity module uses this to pair a toxic with the single delivery
- * property it must preserve under adversity.
- *
- * Historical grouping: spec #181 §5 labels these "Tier C"; the code
- * surface uses semantic names.
- *
- * | Toxic        | Exercises                      |
- * |--------------|--------------------------------|
- * | latency      | fan-out-cardinality under reorder |
- * | bandwidth    | fan-out-cardinality under throttle |
- * | slicer       | payload-opacity under partial-frame |
- * | reset_peer   | store-and-replay after reconnect |
- * | timeout      | fan-out-cardinality + eventual consistency |
- * | slow_close   | task-boundary-isolation survives slow close |
- */
+/** Selects the delivery invariant for a toxic profile. */
 export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName {
   switch (toxic) {
     case "latency":

@@ -28,50 +28,52 @@ export function registerSameStateNoDoubleFire(
     PRESENCE_CATEGORY,
     NAME,
     "redundant setOnline (network/connect on already-authenticated WS) does NOT double-fire presence/changed",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const sub = yield* acquireClient(ctx, NAME, "p4-sub");
-        const a = yield* registerAgent(ctx, NAME, "p4-a");
-        yield* subscribePresence(sub.client, a.agentId, NAME);
-        const aClient = yield* acquireCloseableClient(
-          ctx,
-          NAME,
-          a,
-          "p4-a-client",
-        );
-        yield* waitForPresenceWithStatus(
-          sub.client,
-          { agentId: a.agentId, status: "online" },
-          NAME,
-        );
-
-        yield* aClient
-          .sendRpc(Connect, {
-            agentKey: a.apiKey,
-            minProtocol: PROTOCOL_VERSION,
-            maxProtocol: PROTOCOL_VERSION,
-          })
-          .pipe(
-            Effect.mapError((e) =>
-              presenceViolation(
-                NAME,
-                `network/connect re-send failed: ${String(e)}`,
-              ),
-            ),
-          );
-
-        // Stabilization window — give a regression a chance to land.
-        yield* Effect.sleep("250 millis");
-        const count = yield* countPresenceChangedFor(sub.client, a.agentId);
-        if (count !== 1) {
-          return yield* Effect.fail(
-            presenceViolation(
-              NAME,
-              `expected 1 event for ${a.agentId}, observed ${count}`,
-            ),
-          );
-        }
-      }),
-    ),
+    sameStateNoDoubleFire(ctx, NAME),
   );
 }
+
+const sameStateNoDoubleFire = (ctx: ConformanceRunContext, name: string) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sub = yield* acquireClient(ctx, name, "p4-sub");
+      const a = yield* registerAgent(ctx, name, "p4-a");
+      yield* subscribePresence(sub.client, a.agentId, name);
+      const aClient = yield* acquireCloseableClient(
+        ctx,
+        name,
+        a,
+        "p4-a-client",
+      );
+      yield* waitForPresenceWithStatus(
+        sub.client,
+        { agentId: a.agentId, status: "online" },
+        name,
+      );
+
+      yield* aClient
+        .sendRpc(Connect, {
+          agentKey: a.apiKey,
+          minProtocol: PROTOCOL_VERSION,
+          maxProtocol: PROTOCOL_VERSION,
+        })
+        .pipe(
+          Effect.mapError((e) =>
+            presenceViolation(
+              name,
+              `network/connect re-send failed: ${String(e)}`,
+            ),
+          ),
+        );
+
+      yield* Effect.sleep("250 millis");
+      const count = yield* countPresenceChangedFor(sub.client, a.agentId);
+      if (count !== 1) {
+        return yield* Effect.fail(
+          presenceViolation(
+            name,
+            `expected 1 event for ${a.agentId}, observed ${count}`,
+          ),
+        );
+      }
+    }).pipe(Effect.withSpan("sameStateNoDoubleFire")),
+  );

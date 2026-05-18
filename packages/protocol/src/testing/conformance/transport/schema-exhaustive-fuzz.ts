@@ -11,9 +11,16 @@
  */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { allRpcMethods, arbitraryCallFor } from "../../arbitraries/rpc.js";
-import { AgentsList } from "@moltzap/protocol/identity";
-import { makeTestClient } from "../_shared/driver/test-client.js";
+import {
+  allRpcMethods,
+  arbitraryCallFor,
+  type ArbitraryRpcCall,
+} from "../../arbitraries/rpc.js";
+import { AgentsList } from "../../../identity/methods.js";
+import {
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -27,85 +34,89 @@ const PROPERTY = "schema-exhaustive-fuzz";
 const DEFAULT_TIMEOUT_MS = 3000;
 const FUZZ_CAPTURE_CAPACITY_PER_METHOD = 4;
 
+const invariant = (reason: string): PropertyInvariantViolation =>
+  new PropertyInvariantViolation({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason,
+  });
+
 export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     PROPERTY,
     "every wire method drawn → server survives & stays responsive",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const agent = yield* registerTestAgent({
-          baseUrl: ctx.realServer.baseUrl,
-          name: "fuzz",
-        }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `register agent: ${e.body}`,
-              }),
-          ),
-        );
-        const client = yield* makeTestClient({
-          serverUrl: ctx.realServer.wsUrl,
-          agentKey: agent.apiKey,
-          agentId: agent.agentId,
-          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-          captureCapacity:
-            allRpcMethods.length * FUZZ_CAPTURE_CAPACITY_PER_METHOD,
-        }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `client acquire: ${String(e)}`,
-              }),
-          ),
-        );
-        const samplesPerMethod = ctx.opts.numRuns ?? 1;
-        for (const method of allRpcMethods) {
-          const callArb = arbitraryCallFor(method);
-          const samples = fc.sample(callArb, {
-            numRuns: samplesPerMethod,
-            seed: ctx.seed,
-          });
-          if (samples.length === 0) {
-            return yield* Effect.fail(
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `failed to sample call for ${method}`,
-              }),
-            );
-          }
-          for (const sampled of samples) {
-            yield* client
-              .sendRpc(sampled.definition, sampled.params)
-              .pipe(Effect.either);
-            // Post-fuzz liveness: a follow-up RPC must return a typed
-            // response. Accepting any `Left` would let a timeout or
-            // transport-close slip through as "server alive" — which is
-            // exactly what the property must reject. Require the post
-            // call to SUCCEED; timeouts are failures here.
-            const post = yield* client
-              .sendRpc(AgentsList, {})
-              .pipe(Effect.either);
-            const postFailure = leftOrNull(post);
-            if (postFailure !== null) {
-              return yield* Effect.fail(
-                new PropertyInvariantViolation({
-                  category: CATEGORY,
-                  name: PROPERTY,
-                  reason: `server became unresponsive after ${method} (post-call ${postFailure._tag})`,
-                }),
-              );
-            }
-          }
-        }
-      }),
+    assertSchemaExhaustiveFuzz(ctx).pipe(
+      Effect.withSpan("registerSchemaExhaustiveFuzz"),
     ),
   );
+}
+
+function assertSchemaExhaustiveFuzz(ctx: ConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const client = yield* acquireFuzzClient(ctx);
+      const samplesPerMethod = ctx.opts.numRuns ?? 1;
+      for (const method of allRpcMethods) {
+        const samples = yield* sampleMethodCalls(
+          method,
+          samplesPerMethod,
+          ctx.seed,
+        );
+        for (const sampled of samples) {
+          yield* sendFuzzCallAndProbe(client, sampled);
+        }
+      }
+    }),
+  );
+}
+
+function acquireFuzzClient(ctx: ConformanceRunContext) {
+  return Effect.gen(function* () {
+    const agent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "fuzz",
+    }).pipe(Effect.mapError((e) => invariant(`register agent: ${e.body}`)));
+    return yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: agent.apiKey,
+      agentId: agent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: allRpcMethods.length * FUZZ_CAPTURE_CAPACITY_PER_METHOD,
+    }).pipe(Effect.mapError((e) => invariant(`client acquire: ${String(e)}`)));
+  });
+}
+
+type FuzzMethod = (typeof allRpcMethods)[number];
+
+function sampleMethodCalls(
+  method: FuzzMethod,
+  samplesPerMethod: number,
+  seed: number,
+) {
+  const samples = fc.sample(arbitraryCallFor(method), {
+    numRuns: samplesPerMethod,
+    seed,
+  });
+  return samples.length === 0
+    ? Effect.fail(invariant(`failed to sample call for ${method}`))
+    : Effect.succeed(samples);
+}
+
+function sendFuzzCallAndProbe(client: TestClient, sampled: ArbitraryRpcCall) {
+  return Effect.gen(function* () {
+    yield* client
+      .sendRpc(sampled.definition, sampled.params)
+      .pipe(Effect.either);
+    const post = yield* client.sendRpc(AgentsList, {}).pipe(Effect.either);
+    const postFailure = leftOrNull(post);
+    if (postFailure !== null) {
+      return yield* Effect.fail(
+        invariant(
+          `server became unresponsive after ${sampled.method} (post-call ${postFailure._tag})`,
+        ),
+      );
+    }
+  });
 }

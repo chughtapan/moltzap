@@ -2,13 +2,11 @@
  * Context tags + Layer composition for the core server services.
  *
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
- * Tag string convention: `moltzap/<ClassName>`.
+ * Tag string convention: `moltzap/&lt;ClassName>`.
  */
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
-import type { Logger } from "../logger.js";
-import { LoggerTag } from "../logger.js";
 import {
   TraceCaptureTag,
   type TraceCapture,
@@ -43,12 +41,13 @@ import type { MessageAuthorizeHook } from "./hooks.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
 /**
- * #560: default `messageAuthorize` hook used by default-DM and default-
- * group TMs. Returns Forward { participants \ sender } — preserves the
- * pre-#560 broadcast. Reads `conversation_participants` directly to
- * avoid a circular import on ConversationService.
+ * Default `messageAuthorize` hook used by default-DM and default-group TMs.
  *
- * The hook returns a Promise to match the `Hook<TContext, TResult>`
+ * Issue #560 keeps the pre-cutover broadcast behavior by returning Forward
+ * with every participant except the sender. Reads `conversation_participants`
+ * directly to avoid a circular import on ConversationService.
+ *
+ * The hook returns a Promise to match the `Hook&lt;TContext, TResult>`
  * sync-or-promise SDK ergonomic; internally builds the value via Effect
  * + `Effect.runPromise` so the project's no-async/no-then guards stay
  * honoured.
@@ -88,12 +87,8 @@ const DEFAULT_LEASE_RETENTION_MS =
 // One Context.Tag per injectable. The type parameter on the tag class is the
 // compile-time token that Effect uses to index services.
 
-/** Postgres/PGlite database handle (Kysely<Database>). */
+/** Postgres/PGlite database handle (Kysely&lt;Database>). */
 export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
-
-/** Re-exported so call sites importing tags from one file still compile.
- * Canonical definition lives in `../logger.js`. */
-export { LoggerTag };
 
 /** Optional envelope-encryption helper. null when encryption is disabled. */
 export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
@@ -104,7 +99,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 /**
  * Request-scoped connection id. Provided per WebSocket RPC dispatch by the
  * router; read by handlers via `yield* ConnIdTag`. Replaces the previous
- * `AsyncLocalStorage<string>` + `getConnId` prop threading.
+ * `AsyncLocalStorage&lt;string>` + `getConnId` prop threading.
  */
 export class ConnIdTag extends Context.Tag("moltzap/ConnId")<
   ConnIdTag,
@@ -115,23 +110,29 @@ export class ConnectionManagerTag extends Context.Tag(
   "moltzap/ConnectionManager",
 )<ConnectionManagerTag, ConnectionManager>() {}
 
-/** `AgentId → HashSet<ConnectionId>` multimap maintained by the
+/**
+ * `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
  * `network/connect` success path and the WS disconnect finalizer. Read by
- * {@link NetworkSendServiceTag} for O(1) outbound routing. */
+ * {@link NetworkSendServiceTag} for O(1) outbound routing.
+ */
 export class AgentEndpointResolverTag extends Context.Tag(
   "moltzap/AgentEndpointResolver",
 )<AgentEndpointResolverTag, AgentEndpointResolver>() {}
 
-/** In-process app-TM handler registry. `tm:app:<id>` addresses
+/**
+ * In-process app-TM handler registry. `tm:app:&lt;id>` addresses
  * dispatch through here; default DM / group TMs register at boot via
- * {@link AppTmRegistryLive}. */
+ * {@link AppTmRegistryLive}.
+ */
 export class AppTmRegistryTag extends Context.Tag("moltzap/AppTmRegistry")<
   AppTmRegistryTag,
   AppTmRegistry
 >() {}
 
-/** Single outbound surface: `send` (directed) and `broadcast`
- * (fan-out). */
+/**
+ * Single outbound surface: `send` (directed) and `broadcast`
+ * (fan-out).
+ */
 export class NetworkSendServiceTag extends Context.Tag(
   "moltzap/NetworkSendService",
 )<NetworkSendServiceTag, NetworkSendService>() {}
@@ -166,7 +167,7 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 
 /**
  * `LeaseRegistry` for the #529 reshape additive `dispatch/*` admission
- * surface. In-process state (`Ref<Map<LeaseId, LeaseEntry>>` + per-lease
+ * surface. In-process state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
  * TTL fibers); no DB. Constructed once per server lifetime via
  * {@link LeaseRegistryLive}.
  */
@@ -228,9 +229,11 @@ export const AgentEndpointResolverLive = Layer.effect(
   AgentEndpointResolver.make,
 );
 
-/** Build the app-TM registry and seed the default DM + group TMs at
+/**
+ * Build the app-TM registry and seed the default DM + group TMs at
  * boot. `tasks.tm_endpoint_address` is NOT NULL — every task needs a
- * registered TM at insert time, and non-app DMs/groups bind here. */
+ * registered TM at insert time, and non-app DMs/groups bind here.
+ */
 export const AppTmRegistryLive = Layer.effect(
   AppTmRegistryTag,
   Effect.gen(function* () {
@@ -241,7 +244,7 @@ export const AppTmRegistryLive = Layer.effect(
       makeDefaultTmHandler("group"),
     );
     return registry;
-  }),
+  }).pipe(Effect.withSpan("AppTmRegistryLive")),
 );
 
 /**
@@ -256,7 +259,7 @@ export const NetworkSendServiceLive = Layer.effect(
     const connections = yield* ConnectionManagerTag;
     const appTmRegistry = yield* AppTmRegistryTag;
     return new NetworkSendService(resolver, connections, appTmRegistry);
-  }),
+  }).pipe(Effect.withSpan("NetworkSendServiceLive")),
 );
 
 // ── Service Layers ────────────────────────────────────────────────────────
@@ -266,7 +269,7 @@ export const AuthServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     return new AuthService(db);
-  }),
+  }).pipe(Effect.withSpan("AuthServiceLive")),
 );
 
 export const ParticipantServiceLive = Layer.effect(
@@ -274,7 +277,7 @@ export const ParticipantServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     return new ParticipantService(db);
-  }),
+  }).pipe(Effect.withSpan("ParticipantServiceLive")),
 );
 
 export const ConversationServiceLive = Layer.effect(
@@ -298,7 +301,7 @@ export const ConversationServiceLive = Layer.effect(
         return (a, b) => cs.areInContact(a, b);
       },
     );
-  }),
+  }).pipe(Effect.withSpan("ConversationServiceLive")),
 );
 
 export const ContactsServiceLive = Layer.effect(
@@ -306,7 +309,7 @@ export const ContactsServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     return new ContactsService(db);
-  }),
+  }).pipe(Effect.withSpan("ContactsServiceLive")),
 );
 
 export const PresenceServiceLive = Layer.effect(
@@ -315,7 +318,7 @@ export const PresenceServiceLive = Layer.effect(
     const connections = yield* ConnectionManagerTag;
     const sink = createConnectionFanOutPresenceEventSink({ connections });
     return new PresenceService(sink);
-  }),
+  }).pipe(Effect.withSpan("PresenceServiceLive")),
 );
 
 export const LeaseRegistryLive = Layer.effect(
@@ -326,7 +329,7 @@ export const LeaseRegistryLive = Layer.effect(
       connections,
       leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
     });
-  }),
+  }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );
 
 export const AppHostLive = Layer.effect(
@@ -351,7 +354,7 @@ export const AppHostLive = Layer.effect(
       makeDefaultMessageAuthorizeHook(db),
     );
     return host;
-  }),
+  }).pipe(Effect.withSpan("AppHostLive")),
 );
 
 export const MessageServiceLive = Layer.effect(
@@ -360,7 +363,6 @@ export const MessageServiceLive = Layer.effect(
     const db = yield* DbTag;
     const conversations = yield* ConversationServiceTag;
     const networkSend = yield* NetworkSendServiceTag;
-    const resolver = yield* AgentEndpointResolverTag;
     const encryption = yield* EncryptionTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
@@ -370,14 +372,13 @@ export const MessageServiceLive = Layer.effect(
       db,
       conversations,
       networkSend,
-      resolver,
       encryption,
       deliveryWebhook,
       webhookClient,
       traceCapture,
       appHost,
     });
-  }),
+  }).pipe(Effect.withSpan("MessageServiceLive")),
 );
 
 // ── Composed top-level Layer ──────────────────────────────────────────────
@@ -393,7 +394,7 @@ export const MessageServiceLive = Layer.effect(
 // a new service Layer on top of the lower tier, with the lower tier's
 // outputs wired as the upper tier's inputs.
 
-/** Tier 1 — zero cross-layer deps beyond Db/Logger. */
+/** Tier 1 — zero cross-layer deps beyond Db. */
 const Tier1 = Layer.mergeAll(
   ConnectionManagerLive,
   AuthServiceLive,
@@ -401,10 +402,12 @@ const Tier1 = Layer.mergeAll(
   ContactsServiceLive,
 );
 
-/** Tier 2 — Presence + resolver + AppTmRegistry above Tier 1's
+/**
+ * Tier 2 — Presence + resolver + AppTmRegistry above Tier 1's
  * ConnectionManager. The resolver has no upstream deps (in-memory
  * `Ref`); it joins this tier so NetworkSendServiceLive can pick it
- * up at Tier 2.5. */
+ * up at Tier 2.5.
+ */
 const Tier2 = Layer.provideMerge(
   Layer.mergeAll(
     PresenceServiceLive,
@@ -414,14 +417,18 @@ const Tier2 = Layer.provideMerge(
   Tier1,
 );
 
-/** Tier 2.5 — NetworkSendServiceLive consumes the resolver from Tier 2
+/**
+ * Tier 2.5 — NetworkSendServiceLive consumes the resolver from Tier 2
  * and the ConnectionManager from Tier 1; the sole outbound-routing
- * surface. */
+ * surface.
+ */
 const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2);
 
-/** Tier 2.6 — LeaseRegistryLive consumes ConnectionManager from Tier 1
+/**
+ * Tier 2.6 — LeaseRegistryLive consumes ConnectionManager from Tier 1
  * (#529 reshape additive). Sits below AppHost so the registry is wired
- * into AppHost at construction. */
+ * into AppHost at construction.
+ */
 const Tier2LeaseRegistry = Layer.provideMerge(
   LeaseRegistryLive,
   Tier2NetworkSend,
@@ -443,13 +450,13 @@ export const TaskServiceLive = Layer.effect(
     const conversations = yield* ConversationServiceTag;
     const messages = yield* MessageServiceTag;
     return new TaskService(db, conversations, messages);
-  }),
+  }).pipe(Effect.withSpan("TaskServiceLive")),
 );
 const Tier6 = Layer.provideMerge(TaskServiceLive, Tier5);
 
 /**
  * All service Layers merged, with cross-layer deps resolved. Still requires
- * `DbTag | LoggerTag | EncryptionTag` from a base Layer.
+ * `DbTag | EncryptionTag` from a base Layer.
  */
 export const ServicesLive = Tier6;
 
@@ -459,7 +466,6 @@ export const ServicesLive = Tier6;
  */
 export interface ResolvedServices {
   readonly db: Db;
-  readonly logger: Logger;
   readonly connections: ConnectionManager;
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly appTmRegistry: AppTmRegistry;
@@ -484,7 +490,6 @@ export interface ResolvedServices {
  */
 export const resolveServices = Effect.all({
   db: DbTag,
-  logger: LoggerTag,
   encryption: EncryptionTag,
   connections: ConnectionManagerTag,
   agentEndpointResolver: AgentEndpointResolverTag,

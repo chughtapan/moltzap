@@ -1,116 +1,197 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import {
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
+import { NodeHttpServer } from "@effect/platform-node";
+import { it as effectIt } from "@effect/vitest";
+import { Effect, Exit, Ref } from "effect";
+import { describe, expect } from "vitest";
 import { registerAgent } from "./auth.js";
 
-/** Run an Effect to a Promise for vitest assertions. */
-const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
+const it = effectIt.scoped;
 
 interface CapturedCall {
-  url: string;
-  method?: string;
-  body: unknown;
+  readonly path: string;
+  readonly method: string;
+  readonly body: unknown;
 }
 
-/** Build a fake `fetch` that captures the request and returns a canned
- * `RegisterResponse` payload. The capture is the assertion target — we
- * verify URL and body shape without standing up the real server. The
- * fake matches `typeof globalThis.fetch` so it can replace the real
- * binding without a cast. */
-function makeFakeFetch(responder?: (url: string) => Response): {
-  fakeFetch: typeof globalThis.fetch;
-  calls: CapturedCall[];
-} {
-  const calls: CapturedCall[] = [];
-  const fakeFetch: typeof globalThis.fetch = async (input, init) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
-    const bodyText = typeof init?.body === "string" ? init.body : "";
-    calls.push({
-      url,
-      method: init?.method,
-      body: bodyText ? JSON.parse(bodyText) : undefined,
+interface StubResponse {
+  readonly status: number;
+  readonly body: string;
+  readonly contentType: string;
+}
+
+type StubResponder = (path: string) => StubResponse;
+
+const ADMIN_REGISTER_PATH = "/api/v1/admin/register-agent";
+const PUBLIC_REGISTER_PATH = "/api/v1/auth/register";
+const POST_METHOD = "POST";
+const CREATED_STATUS = 201;
+const FORBIDDEN_STATUS = 403;
+const SINGLE_CALL_COUNT = 1;
+const LOCALHOST = "127.0.0.1";
+const LOCAL_HTTP_SCHEME = "http";
+const JSON_CONTENT_TYPE = "application/json";
+const TEXT_CONTENT_TYPE = "text/plain";
+const TEST_AGENT_NAME = "test";
+const INVITE_CODE = "secret";
+const OWNER_USER_ID = "00000000-0000-4000-8000-000000000001";
+const AGENT_ID = "agent-id";
+const API_KEY = "api-key";
+const CLAIM_URL = "https://example.test/claim";
+const CLAIM_TOKEN = "claim-token";
+const INVITE_REQUIRED_BODY = "invite required";
+
+const defaultRegisterResponse = (): StubResponse => ({
+  status: CREATED_STATUS,
+  contentType: JSON_CONTENT_TYPE,
+  body: JSON.stringify({
+    agentId: AGENT_ID,
+    apiKey: API_KEY,
+    claimUrl: CLAIM_URL,
+    claimToken: CLAIM_TOKEN,
+  }),
+});
+
+const forbiddenResponse = (): StubResponse => ({
+  status: FORBIDDEN_STATUS,
+  contentType: TEXT_CONTENT_TYPE,
+  body: INVITE_REQUIRED_BODY,
+});
+
+const localBaseUrl = (port: number): string =>
+  `${LOCAL_HTTP_SCHEME}://${LOCALHOST}:${port}`;
+
+const requestBody = (request: HttpServerRequest.HttpServerRequest) =>
+  request.json.pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+const appendCapturedCall = (
+  calls: Ref.Ref<ReadonlyArray<CapturedCall>>,
+  call: CapturedCall,
+) => Ref.update(calls, (current) => [...current, call]);
+
+const responseFromStub = (response: StubResponse) =>
+  HttpServerResponse.text(response.body, {
+    status: response.status,
+    contentType: response.contentType,
+  });
+
+const routeHandler = (
+  path: string,
+  calls: Ref.Ref<ReadonlyArray<CapturedCall>>,
+  responder: StubResponder,
+) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const body = yield* requestBody(request);
+    yield* appendCapturedCall(calls, {
+      path,
+      method: request.method,
+      body,
     });
-    if (responder) return responder(url);
-    return new Response(
-      JSON.stringify({
-        agentId: "agent-id",
-        apiKey: "api-key",
-        claimUrl: "http://example/claim",
-        claimToken: "claim-token",
-      }),
-      { status: 201, headers: { "Content-Type": "application/json" } },
+    return responseFromStub(responder(path));
+  });
+
+const makeRegisterServer = (
+  responder: StubResponder = defaultRegisterResponse,
+) =>
+  Effect.gen(function* () {
+    const calls = yield* Ref.make<ReadonlyArray<CapturedCall>>([]);
+    const adminRoute = HttpRouter.post(
+      ADMIN_REGISTER_PATH,
+      routeHandler(ADMIN_REGISTER_PATH, calls, responder),
     );
-  };
-  return { fakeFetch, calls };
+    const publicRoute = HttpRouter.post(
+      PUBLIC_REGISTER_PATH,
+      routeHandler(PUBLIC_REGISTER_PATH, calls, responder),
+    );
+
+    yield* HttpServer.serveEffect(
+      HttpRouter.empty.pipe(adminRoute, publicRoute),
+    );
+    const address = yield* HttpServer.addressWith((serverAddress) =>
+      Effect.succeed(serverAddress),
+    );
+    if (address._tag !== "TcpAddress") {
+      return yield* Effect.dieMessage(`expected TCP address: ${address._tag}`);
+    }
+    return { baseUrl: localBaseUrl(address.port), calls };
+  });
+
+const expectSingleCall = (calls: ReadonlyArray<CapturedCall>): CapturedCall => {
+  expect(calls).toHaveLength(SINGLE_CALL_COUNT);
+  const [call] = calls;
+  expect(call).toBeDefined();
+  return call ?? { path: "", method: "", body: undefined };
+};
+
+function postsOwnerUserIdToAdminEndpoint() {
+  return Effect.gen(function* () {
+    const server = yield* makeRegisterServer();
+    const result = yield* registerAgent(server.baseUrl, TEST_AGENT_NAME, {
+      inviteCode: INVITE_CODE,
+      ownerUserId: OWNER_USER_ID,
+    });
+
+    const call = expectSingleCall(yield* Ref.get(server.calls));
+    expect(call.path).toBe(ADMIN_REGISTER_PATH);
+    expect(call.method).toBe(POST_METHOD);
+    expect(call.body).toEqual({
+      name: TEST_AGENT_NAME,
+      inviteCode: INVITE_CODE,
+      ownerUserId: OWNER_USER_ID,
+    });
+    expect(result.agentId).toBe(AGENT_ID);
+  }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.orDie);
+}
+
+function postsToPublicEndpointWithoutOwnerUserId() {
+  return Effect.gen(function* () {
+    const server = yield* makeRegisterServer();
+
+    yield* registerAgent(server.baseUrl, TEST_AGENT_NAME, {
+      inviteCode: INVITE_CODE,
+    });
+
+    const call = expectSingleCall(yield* Ref.get(server.calls));
+    expect(call.path).toBe(PUBLIC_REGISTER_PATH);
+    expect(call.body).toEqual({
+      name: TEST_AGENT_NAME,
+      inviteCode: INVITE_CODE,
+    });
+  }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.orDie);
+}
+
+function nonSuccessResponseFails() {
+  return Effect.gen(function* () {
+    const server = yield* makeRegisterServer(() => forbiddenResponse());
+
+    const exit = yield* Effect.exit(
+      registerAgent(server.baseUrl, TEST_AGENT_NAME, {
+        ownerUserId: OWNER_USER_ID,
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+  }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.orDie);
 }
 
 describe("registerAgent", () => {
-  const baseUrl = "http://test.local";
-  let originalFetch: typeof globalThis.fetch;
+  it(
+    "posts ownerUserId in the body to the admin endpoint",
+    postsOwnerUserIdToAdminEndpoint,
+  );
 
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
+  it(
+    "posts to the public endpoint without ownerUserId when absent",
+    postsToPublicEndpointWithoutOwnerUserId,
+  );
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it("posts ownerUserId in the body to the admin endpoint", async () => {
-    const { fakeFetch, calls } = makeFakeFetch();
-    globalThis.fetch = fakeFetch;
-
-    const result = await run(
-      registerAgent(baseUrl, "test", {
-        inviteCode: "secret",
-        ownerUserId: "00000000-0000-4000-8000-000000000001",
-      }),
-    );
-
-    expect(calls).toHaveLength(1);
-    const [call] = calls;
-    expect(call!.url).toBe(`${baseUrl}/api/v1/admin/register-agent`);
-    expect(call!.method).toBe("POST");
-    expect(call!.body).toEqual({
-      name: "test",
-      inviteCode: "secret",
-      ownerUserId: "00000000-0000-4000-8000-000000000001",
-    });
-    expect(result.agentId).toBe("agent-id");
-  });
-
-  it("posts to the public endpoint without ownerUserId when absent", async () => {
-    const { fakeFetch, calls } = makeFakeFetch();
-    globalThis.fetch = fakeFetch;
-
-    await run(registerAgent(baseUrl, "test", { inviteCode: "secret" }));
-
-    expect(calls[0]!.url).toBe(`${baseUrl}/api/v1/auth/register`);
-    // toEqual with `additionalProperties` rejects extra keys, so this also
-    // proves ownerUserId is not on the body.
-    expect(calls[0]!.body).toEqual({ name: "test", inviteCode: "secret" });
-  });
-
-  it("fails when the server returns a non-2xx response", async () => {
-    const { fakeFetch } = makeFakeFetch(
-      () =>
-        new Response("invite required", {
-          status: 403,
-          headers: { "Content-Type": "text/plain" },
-        }),
-    );
-    globalThis.fetch = fakeFetch;
-
-    const exit = await Effect.runPromiseExit(
-      registerAgent(baseUrl, "test", {
-        ownerUserId: "00000000-0000-4000-8000-000000000001",
-      }),
-    );
-
-    expect(exit._tag).toBe("Failure");
-  });
+  it(
+    "fails when the server returns a non-2xx response",
+    nonSuccessResponseFails,
+  );
 });

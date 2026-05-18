@@ -39,6 +39,6 @@ export function registerDispatchesGetNonModeratorRejected(
           );
         }
       }),
-    ),
+    ).pipe(Effect.withSpan("registerDispatchesGetNonModeratorRejected")),
   );
 }

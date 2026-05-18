@@ -15,38 +15,26 @@
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { it as effectIt } from "@effect/vitest";
+import type { AppManifest, ConversationId } from "@moltzap/protocol";
 import { Effect } from "effect";
+import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
-import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
-  registerAndConnect,
-  setupAgentPair,
-  getTestCoreApp,
-} from "../../helpers.js";
+  DISPATCH_RELEASE_TIMEOUT_MS,
+  DISPATCH_REQUEST_CONCURRENCY,
+  createModeratedDm,
+  createDispatchFlowFixture,
+  requestDispatch,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+  waitForDispatchRelease,
+} from "./fixture.js";
+import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
+const EXPECTED_HOOK_CALLS = 2;
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
@@ -54,154 +42,86 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
+beforeEach(() => Effect.runPromise(fixture.reset));
+
+function requestDispatchesInParallel(
+  alice: ConnectedAgent,
+  bob: ConnectedAgent,
+  conversationIds: readonly [ConversationId, ConversationId],
+) {
+  return Effect.all(
+    [
+      requestDispatch(bob, conversationIds[0], alice, "first"),
+      requestDispatch(bob, conversationIds[1], alice, "second"),
+    ],
+    { concurrency: DISPATCH_REQUEST_CONCURRENCY },
+  );
+}
+
+function waitForReleaseLeaseIds(recipient: ConnectedAgent) {
+  return Effect.gen(function* () {
+    const release1 = yield* waitForDispatchRelease(
+      recipient,
+      DISPATCH_RELEASE_TIMEOUT_MS,
+    );
+    const release2 = yield* waitForDispatchRelease(
+      recipient,
+      DISPATCH_RELEASE_TIMEOUT_MS,
+    );
+    return new Set([release1.leaseId, release2.leaseId]);
   });
-});
+}
 
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
+function crossConversationRequestsRunConcurrently() {
+  return Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    const conv1 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const conv2 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
+      conv1,
+      conv2,
+    ]);
+
+    expect(ack1.leaseId).not.toBe(ack2.leaseId);
+    const seen = yield* waitForReleaseLeaseIds(bob);
+    expect(seen.has(ack1.leaseId)).toBe(true);
+    expect(seen.has(ack2.leaseId)).toBe(true);
+    expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
+  });
+}
+
+function sameConversationRequestsRunConcurrently() {
+  return Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    const conv = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
+      conv,
+      conv,
+    ]);
+
+    expect(ack1.leaseId).not.toBe(ack2.leaseId);
+    expect(ack1.dispatchId).not.toBe(ack2.dispatchId);
+    yield* waitForReleaseLeaseIds(bob);
+    expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
+  });
 }
 
 describe("dispatch/* — concurrency (#529 reshape additive)", () => {
-  // ── Scenario 11 — cross-conversation concurrency (architect §8 #11) ─
-  it.live(
-    "cross-conversation concurrency: two dispatch/request in different (taskId, conversationId) → both round-trips concurrent",
-    () =>
-      Effect.gen(function* () {
-        const { alice, bob } = yield* setupAgentPair();
-        // Two distinct tasks → two distinct conversations.
-        const task1 = yield* alice.client.sendRpc(TasksCreate, {
-          appId: TEST_APP_ID,
-          tmType: "self",
-        });
-        const conv1 = yield* alice.client.sendRpc(TasksCreateConversation, {
-          taskId: task1.task.id,
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        });
-        const task2 = yield* alice.client.sendRpc(TasksCreate, {
-          appId: TEST_APP_ID,
-          tmType: "self",
-        });
-        const conv2 = yield* alice.client.sendRpc(TasksCreateConversation, {
-          taskId: task2.task.id,
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        });
-        // Fire two dispatch/request calls in parallel.
-        const [ack1, ack2] = yield* Effect.all(
-          [
-            bob.client.sendRpc(DispatchRequest, {
-              conversationId: conv1.conversation.id,
-              messageId: makeProbeMessageId(),
-              senderAgentId: protocolAgentId(alice.agentId),
-              parts: [{ type: "text", text: "first" }],
-            }),
-            bob.client.sendRpc(DispatchRequest, {
-              conversationId: conv2.conversation.id,
-              messageId: makeProbeMessageId(),
-              senderAgentId: protocolAgentId(alice.agentId),
-              parts: [{ type: "text", text: "second" }],
-            }),
-          ],
-          { concurrency: "unbounded" },
-        );
-        expect(ack1.leaseId).not.toBe(ack2.leaseId);
-        // Both moderator round-trips ran (hookCalls === 2) and both
-        // produced a release.
-        const release1 = yield* bob.client.waitForNotification(
-          DispatchRelease,
-          5000,
-        );
-        const release2 = yield* bob.client.waitForNotification(
-          DispatchRelease,
-          5000,
-        );
-        const seen = new Set([
-          (release1.params as { leaseId: string }).leaseId,
-          (release2.params as { leaseId: string }).leaseId,
-        ]);
-        expect(seen.has(ack1.leaseId)).toBe(true);
-        expect(seen.has(ack2.leaseId)).toBe(true);
-        expect(hookCalls).toBe(2);
-      }),
+  it(
+    "cross-conversation concurrency: two dispatch/request in different (taskId, conversationId) run concurrently",
+    crossConversationRequestsRunConcurrently,
     25_000,
   );
 
-  // ── Scenario 12 — same-conversation concurrency (architect §8 #12) ──
-  // Closes #358 P1: no server-side per-conversation serialization.
-  it.live(
-    "same-conversation concurrency: two dispatch/request in same (taskId, conversationId) → both round-trips concurrent (no server serialization)",
-    () =>
-      Effect.gen(function* () {
-        const { alice, bob } = yield* setupAgentPair();
-        const task = yield* alice.client.sendRpc(TasksCreate, {
-          appId: TEST_APP_ID,
-          tmType: "self",
-        });
-        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
-          taskId: task.task.id,
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        });
-        const [ack1, ack2] = yield* Effect.all(
-          [
-            bob.client.sendRpc(DispatchRequest, {
-              conversationId: conv.conversation.id,
-              messageId: makeProbeMessageId(),
-              senderAgentId: protocolAgentId(alice.agentId),
-              parts: [{ type: "text", text: "first" }],
-            }),
-            bob.client.sendRpc(DispatchRequest, {
-              conversationId: conv.conversation.id,
-              messageId: makeProbeMessageId(),
-              senderAgentId: protocolAgentId(alice.agentId),
-              parts: [{ type: "text", text: "second" }],
-            }),
-          ],
-          { concurrency: "unbounded" },
-        );
-        // Both leases minted distinct ids (no shared resource serialized them).
-        expect(ack1.leaseId).not.toBe(ack2.leaseId);
-        expect(ack1.dispatchId).not.toBe(ack2.dispatchId);
-        // Two release notifications fire.
-        yield* bob.client.waitForNotification(DispatchRelease, 5000);
-        yield* bob.client.waitForNotification(DispatchRelease, 5000);
-        expect(hookCalls).toBe(2);
-      }),
+  it(
+    "same-conversation concurrency: two dispatch/request in same (taskId, conversationId) run concurrently",
+    sameConversationRequestsRunConcurrently,
     25_000,
   );
 });

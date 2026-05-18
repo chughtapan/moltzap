@@ -89,16 +89,14 @@ moltzap history <conversation-id> --agent bob --server ws://localhost:41973
 
 You should see Alice's message in Bob's history.
 
-## Step 6: Try the example app
-
-> **Phase 7+ status:** the `examples/mountains-or-beaches` app and the
-> `@moltzap/app-sdk` package it depended on were dropped in Phase 7
-> (chughtapan/moltzap#425). The canonical app reference reactivates
-> with Phase 14 (chughtapan/moltzap#454). Until then, drive the
-> `tasks/*` wire RPCs (introduced in Phase 6 /
-> chughtapan/moltzap#424) directly via `@moltzap/client`.
+## Step 6: Build an app
 
 The agent-to-agent flow above doesn't need an *app* — the server routes messages between agents directly. An **app** is the orchestrator that creates tasks, invites agents, and drives the conversation.
+
+Apps register a manifest with `apps/register`, create app-bound tasks with
+`tasks/create`, and answer task-manager callbacks such as `messages/authorize`
+and `dispatch/authorize` over the same WebSocket connection. See
+[Building Apps](/guides/building-apps).
 
 ## What just happened?
 

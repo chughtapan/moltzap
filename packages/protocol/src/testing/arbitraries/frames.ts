@@ -8,8 +8,8 @@
 import * as fc from "fast-check";
 import {
   JSON_RPC_VERSION,
-  RequestFrameSchema,
-  ResponseFrameSchema,
+  requestFrameSchema,
+  responseFrameSchema,
   jsonRpcMethod,
   type RequestFrame,
   type ResponseFrame,
@@ -23,6 +23,8 @@ import type {
 import { arbitraryFromSchema } from "./from-typebox.js";
 
 const FRAME_SEED_MAX = 2_147_483_647;
+const RequestFrameSchema = requestFrameSchema();
+const ResponseFrameSchema = responseFrameSchema();
 
 const malformedKinds = [
   "bit-flip",

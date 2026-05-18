@@ -3,9 +3,27 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { FormatRegistry, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { stringEnum, brandedId, DateTimeString } from "./schema-primitives.js";
+import { Effect } from "effect";
+import {
+  stringEnum,
+  brandedId,
+  dateTimeStringSchema,
+} from "./schema-primitives.js";
+
+const DateTimeString = dateTimeStringSchema();
+const INVALID_ENUM_VALUE = 123;
 
 const ajv = addFormats(new Ajv({ strict: true }));
+
+const reimportSchemaPrimitives = Effect.tryPromise({
+  try: () => import("./schema-primitives.js"),
+  catch: (cause) => cause,
+});
+
+const sentinelValidator =
+  (sentinel: string) =>
+  (value: string): boolean =>
+    value === sentinel;
 
 describe("stringEnum", () => {
   const schema = stringEnum(["user", "agent"]);
@@ -20,7 +38,7 @@ describe("stringEnum", () => {
     const validate = ajv.compile(schema);
     expect(validate("other")).toBe(false);
     expect(validate("")).toBe(false);
-    expect(validate(123)).toBe(false);
+    expect(validate(INVALID_ENUM_VALUE)).toBe(false);
   });
 
   it("produces enum schema, not anyOf", () => {
@@ -60,7 +78,7 @@ describe("DateTimeString", () => {
  * Regression #370: importing `@moltzap/protocol` (or any of its helpers)
  * must register the `uuid`, `date-time`, and `uri` formats with TypeBox's
  * `FormatRegistry` as a side effect. Otherwise `Value.Decode` against any
- * schema using these formats fails with "Unknown format <name>" and every
+ * schema using these formats fails with "Unknown format &lt;name>" and every
  * frame is rejected.
  */
 describe("TypeBox FormatRegistry side-effect registration", () => {
@@ -130,29 +148,23 @@ describe("FormatRegistry Has-guard preserves consumer-registered formats", () =>
   ];
 
   for (const { format, sentinel, defaultValid } of cases) {
-    it(`does not overwrite a pre-registered ${format} validator on re-import`, async () => {
-      const original = FormatRegistry.Get(format);
-      expect(original).toBeDefined();
-      try {
-        // Pre-register a sentinel that accepts ONLY one value, so we can
-        // distinguish it from helpers.ts's default validator.
-        FormatRegistry.Set(format, (value) => value === sentinel);
+    it(`does not overwrite a pre-registered ${format} validator on re-import`, () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const original = FormatRegistry.Get(format);
+          expect(original).toBeDefined();
+          try {
+            FormatRegistry.Set(format, sentinelValidator(sentinel));
+            vi.resetModules();
+            yield* reimportSchemaPrimitives;
 
-        // Force helpers.ts to re-execute its top-level side effects.
-        vi.resetModules();
-        await import("./schema-primitives.js");
-
-        const schema = Type.String({ format });
-        // Sentinel must still be in place — Has-guard skipped re-registration.
-        expect(Value.Check(schema, sentinel)).toBe(true);
-        // A value the default validator would accept must now be rejected,
-        // proving the sentinel — not helpers.ts's validator — is active.
-        expect(Value.Check(schema, defaultValid)).toBe(false);
-      } finally {
-        // Restore the original validator so subsequent tests in this process
-        // see the helpers.ts-installed format.
-        if (original) FormatRegistry.Set(format, original);
-      }
-    });
+            const schema = Type.String({ format });
+            expect(Value.Check(schema, sentinel)).toBe(true);
+            expect(Value.Check(schema, defaultValid)).toBe(false);
+          } finally {
+            if (original) FormatRegistry.Set(format, original);
+          }
+        }),
+      ));
   }
 });
