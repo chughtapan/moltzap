@@ -57,7 +57,28 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 Subpath exports (`./transport`, `./identity`, `./network`, `./task`, `./app`,
 `./testing`) let consumers pull only the layer they need.
 
-## 3. Communication Flows
+## 3. Documentation Pipeline
+
+Protocol docs have one source-of-truth chain:
+
+```
+packages/protocol/src/**/methods.ts
+  -> packages/protocol/src/rpc-registry.ts
+  -> packages/protocol/scripts/docs/metadata.ts
+  -> packages/protocol/scripts/generate-docs.ts
+  -> docs/protocol/{methods,notifications}/
+```
+
+The generator is package-owned because it imports protocol descriptors and
+maintains protocol-specific prose. The generated MDX stays in root
+`docs/protocol/` because that is the Mintlify site tree.
+
+Cold-start rule: edit implementation docs in this package, edit generated
+reference prose in `scripts/docs/metadata.ts`, and never hand-edit generated
+method/notification pages. Run `pnpm docs:generate`; CI runs
+`pnpm docs:check:drift`.
+
+## 4. Communication Flows
 
 | Topic | Document |
 |---|---|
@@ -72,7 +93,7 @@ Subpath exports (`./transport`, `./identity`, `./network`, `./task`, `./app`,
 | Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
 | Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
 
-## 4. Dependencies
+## 5. Dependencies
 
 **Runtime**: `effect`, `@effect/platform`, `@sinclair/typebox`, `ajv`,
 `ajv-formats`.
@@ -80,14 +101,14 @@ Subpath exports (`./transport`, `./identity`, `./network`, `./task`, `./app`,
 **Consumers**: every other package in `packages/`, plus the arena repo via
 submodule + workspace link.
 
-## 5. Tests
+## 6. Tests
 
 - `src/testing/__tests__/` — direct unit tests for protocol-package code.
 - `src/testing/conformance/__divergence_proofs__/` — divergence proofs.
 - Consumed by `packages/server/src/__tests__/conformance/` (in-process)
   and `packages/client/src/__tests__/conformance/` (over the wire).
 
-## 6. Glossary
+## 7. Glossary
 
 - **TM (Task Manager)** — Authority for a task's conversation set.
   Default-TM (UUID-bound) for ordinary DMs/groups; app-bound TM for

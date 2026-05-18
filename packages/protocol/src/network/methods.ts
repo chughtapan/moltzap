@@ -1,7 +1,9 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId } from "../identity/methods.js";
-import { DateTimeString, stringEnum } from "../schema-primitives.js";
+import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+
+const DateTimeString = dateTimeStringSchema();
 
 // ── presence schemas ─────────────────────────────────────────────────
 
@@ -87,8 +89,10 @@ export const PresenceUpdate = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
-/** Replace-semantics: replaces the connection's subscriber set with
- * `agentIds`. Empty array unsubscribes from all. Idempotent. */
+/**
+ * Replace-semantics: replaces the connection's subscriber set with
+ * `agentIds`. Empty array unsubscribes from all. Idempotent.
+ */
 export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
   params: Type.Object(

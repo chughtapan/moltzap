@@ -1,3 +1,6 @@
+/**
+ * @file Public exports for runtime adapter orchestration.
+ */
 export * from "./runtime.js";
 
 export { awaitAgentReadyByPolling } from "./await-agent-ready.js";

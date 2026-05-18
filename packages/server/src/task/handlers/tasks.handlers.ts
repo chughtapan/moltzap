@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import {
+  ConversationArchivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
   TasksAddParticipant,
   TasksClose,
   TasksCloseConversation,
@@ -24,6 +26,7 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { TaskServiceTag } from "../../app/layers.js";
+import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
 /**
  * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
@@ -85,7 +88,7 @@ export const taskHandlers: RpcMethodRegistry = [
           tmEndpointAddress,
         });
         return { task };
-      }),
+      }).pipe(Effect.withSpan("tasks.create")),
   }),
 
   defineTaskMethod(TasksGet, {
@@ -93,7 +96,7 @@ export const taskHandlers: RpcMethodRegistry = [
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
         return yield* taskService.get(params.taskId, ctx.agentId);
-      }),
+      }).pipe(Effect.withSpan("tasks.get")),
   }),
 
   defineTaskMethod(TasksList, {
@@ -106,16 +109,36 @@ export const taskHandlers: RpcMethodRegistry = [
           limit: params.limit,
         });
         return { tasks: [...tasks] };
-      }),
+      }).pipe(Effect.withSpan("tasks.list")),
   }),
 
   defineTaskMethod(TasksClose, {
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const task = yield* taskService.close(params.taskId, ctx.agentId);
-        return { task };
-      }),
+        const closed = yield* taskService.closeWithLifecycle(
+          params.taskId,
+          ctx.agentId,
+        );
+        for (const conversation of closed.archivedConversations) {
+          yield* broadcastNotificationToAgents(
+            conversation.participantAgentIds,
+            ConversationArchivedNotificationDefinition,
+            {
+              conversationId: conversation.conversationId,
+              archivedAt: conversation.archivedAt,
+              by: ctx.agentId,
+            },
+            { forConversation: conversation.conversationId },
+          );
+        }
+        yield* broadcastNotificationToAgents(
+          closed.participantAgentIds,
+          TaskClosedNotificationDefinition,
+          { task: closed.task },
+        );
+        return { task: closed.task };
+      }).pipe(Effect.withSpan("tasks.close")),
   }),
 
   defineTaskMethod(TasksCreateConversation, {
@@ -134,7 +157,7 @@ export const taskHandlers: RpcMethodRegistry = [
           },
         );
         return { conversation };
-      }),
+      }).pipe(Effect.withSpan("tasks.createConversation")),
   }),
 
   defineTaskMethod(TasksCloseConversation, {
@@ -147,7 +170,7 @@ export const taskHandlers: RpcMethodRegistry = [
           params.conversationId,
         );
         return {};
-      }),
+      }).pipe(Effect.withSpan("tasks.closeConversation")),
   }),
 
   defineTaskMethod(TasksAddParticipant, {
@@ -160,7 +183,7 @@ export const taskHandlers: RpcMethodRegistry = [
           params.agentId,
         );
         return { participant };
-      }),
+      }).pipe(Effect.withSpan("tasks.addParticipant")),
   }),
 
   defineTaskMethod(TasksRemoveParticipant, {
@@ -173,7 +196,7 @@ export const taskHandlers: RpcMethodRegistry = [
           params.agentId,
         );
         return {};
-      }),
+      }).pipe(Effect.withSpan("tasks.removeParticipant")),
   }),
 
   defineTaskMethod(TasksStoreMessage, {
@@ -191,7 +214,7 @@ export const taskHandlers: RpcMethodRegistry = [
           },
         );
         return { message };
-      }),
+      }).pipe(Effect.withSpan("tasks.storeMessage")),
   }),
 
   defineTaskMethod(TasksGetMessages, {
@@ -202,7 +225,7 @@ export const taskHandlers: RpcMethodRegistry = [
           conversationId: params.conversationId,
           limit: params.limit,
         });
-      }),
+      }).pipe(Effect.withSpan("tasks.getMessages")),
   }),
 
   defineTaskMethod(TasksGetMessagesSince, {
@@ -214,6 +237,6 @@ export const taskHandlers: RpcMethodRegistry = [
           sinceSeq: params.sinceSeq,
           limit: params.limit,
         });
-      }),
+      }).pipe(Effect.withSpan("tasks.getMessagesSince")),
   }),
 ];

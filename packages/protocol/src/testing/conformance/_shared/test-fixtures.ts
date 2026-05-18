@@ -9,8 +9,13 @@
  * `{ agentId, apiKey }`. Same role, adjacent shape; one file.
  *
  * Principle 3: registration returns
- * `Effect<TestAgent, AgentRegistrationError>` — no bare throws.
+ * `Effect&lt;TestAgent, AgentRegistrationError>` — no bare throws.
  */
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+} from "@effect/platform";
 import type { Static } from "@sinclair/typebox";
 import { Data, Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
@@ -20,6 +25,15 @@ import { ConversationId, MessageId, TaskId } from "../../../task/methods.js";
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
 const UNIQUE_SUFFIX_END = 8;
+const HTTP_SUCCESS_MIN = 200;
+const HTTP_SUCCESS_MAX_EXCLUSIVE = 300;
+
+function uniqueSuffixFragment(): string {
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(UNIQUE_SUFFIX_START, UNIQUE_SUFFIX_END);
+}
 
 // --- Branded-ID constructors ---
 //
@@ -56,6 +70,21 @@ export interface TestAgent {
   readonly claimToken?: string;
 }
 
+interface RegisterTestAgentOptions {
+  readonly baseUrl: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly inviteCode?: string;
+  readonly uniqueSuffix?: string | false;
+}
+
+interface RegistrationResponse {
+  readonly agentId: string;
+  readonly apiKey: string;
+  readonly claimUrl?: string;
+  readonly claimToken?: string;
+}
+
 /** HTTP registration failed (network, non-2xx, malformed response). */
 export class AgentRegistrationError extends Data.TaggedError(
   "TestingAgentRegistrationError",
@@ -74,19 +103,19 @@ export class AgentRegistrationError extends Data.TaggedError(
  * server's "duplicate name" check; seeded replays pass a stable
  * `uniqueSuffix` to make the name deterministic.
  */
-export function registerTestAgent(opts: {
-  readonly baseUrl: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly inviteCode?: string;
-  readonly uniqueSuffix?: string | false;
-}): Effect.Effect<TestAgent, AgentRegistrationError> {
+function registrationName(opts: RegisterTestAgentOptions): string {
   const suffix =
     opts.uniqueSuffix === false
       ? ""
       : (opts.uniqueSuffix ??
-        `${Date.now().toString(UNIQUE_SUFFIX_RADIX)}-${Math.random().toString(UNIQUE_SUFFIX_RADIX).slice(UNIQUE_SUFFIX_START, UNIQUE_SUFFIX_END)}`);
-  const name = suffix === "" ? opts.name : `${opts.name}-${suffix}`;
+        `${Date.now().toString(UNIQUE_SUFFIX_RADIX)}-${uniqueSuffixFragment()}`);
+  return suffix === "" ? opts.name : `${opts.name}-${suffix}`;
+}
+
+function registrationRequestBody(
+  opts: RegisterTestAgentOptions,
+  name: string,
+): Record<string, string> {
   const requestBody: Record<string, string> = { name };
   if (opts.description !== undefined) {
     requestBody["description"] = opts.description;
@@ -94,49 +123,71 @@ export function registerTestAgent(opts: {
   if (opts.inviteCode !== undefined) {
     requestBody["inviteCode"] = opts.inviteCode;
   }
-  const toRegistrationError = (cause: unknown): AgentRegistrationError => {
+  return requestBody;
+}
+
+const registrationErrorMapper =
+  (opts: RegisterTestAgentOptions, agentName: string) =>
+  (cause: unknown): AgentRegistrationError => {
     if (cause instanceof AgentRegistrationError) return cause;
     return new AgentRegistrationError({
       baseUrl: opts.baseUrl,
-      agentName: name,
+      agentName,
       status: 0,
       body: cause instanceof Error ? cause.message : String(cause),
     });
   };
+
+function ensureRegistrationSuccess(
+  opts: RegisterTestAgentOptions,
+  agentName: string,
+  status: number,
+  body: string,
+): Effect.Effect<void, AgentRegistrationError> {
+  if (status >= HTTP_SUCCESS_MIN && status < HTTP_SUCCESS_MAX_EXCLUSIVE) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    new AgentRegistrationError({
+      baseUrl: opts.baseUrl,
+      agentName,
+      status,
+      body,
+    }),
+  );
+}
+
+const parseRegistrationResponse = (
+  body: string,
+  toRegistrationError: (cause: unknown) => AgentRegistrationError,
+): Effect.Effect<RegistrationResponse, AgentRegistrationError> =>
+  Effect.try({
+    try: () => JSON.parse(body) as RegistrationResponse,
+    catch: toRegistrationError,
+  });
+
+export function registerTestAgent(
+  opts: RegisterTestAgentOptions,
+): Effect.Effect<TestAgent, AgentRegistrationError> {
+  const name = registrationName(opts);
+  const requestBody = registrationRequestBody(opts, name);
+  const toRegistrationError = registrationErrorMapper(opts, name);
   return Effect.gen(function* () {
-    const res = yield* Effect.tryPromise({
-      try: () =>
-        fetch(`${opts.baseUrl}/api/v1/auth/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        }),
-      catch: toRegistrationError,
-    });
-    const body = yield* Effect.tryPromise({
-      try: () => res.text(),
-      catch: toRegistrationError,
-    });
-    if (!res.ok) {
-      return yield* Effect.fail(
-        new AgentRegistrationError({
-          baseUrl: opts.baseUrl,
-          agentName: name,
-          status: res.status,
-          body,
-        }),
-      );
-    }
-    const parsed = yield* Effect.try({
-      try: () =>
-        JSON.parse(body) as {
-          agentId: string;
-          apiKey: string;
-          claimUrl?: string;
-          claimToken?: string;
-        },
-      catch: toRegistrationError,
-    });
+    const client = yield* HttpClient.HttpClient;
+    const request = HttpClientRequest.post(
+      `${opts.baseUrl}/api/v1/auth/register`,
+    ).pipe(
+      HttpClientRequest.setHeader("Content-Type", "application/json"),
+      HttpClientRequest.bodyUnsafeJson(requestBody),
+    );
+    const response = yield* client
+      .execute(request)
+      .pipe(Effect.mapError(toRegistrationError));
+    const body = yield* response.text.pipe(
+      Effect.mapError(toRegistrationError),
+    );
+    yield* ensureRegistrationSuccess(opts, name, response.status, body);
+    const parsed = yield* parseRegistrationResponse(body, toRegistrationError);
     return {
       agentId: agentId(parsed.agentId),
       apiKey: parsed.apiKey,
@@ -144,5 +195,8 @@ export function registerTestAgent(opts: {
       claimToken: parsed.claimToken,
       name,
     } satisfies TestAgent;
-  });
+  }).pipe(
+    Effect.provide(FetchHttpClient.layer),
+    Effect.withSpan("registerTestAgent"),
+  );
 }

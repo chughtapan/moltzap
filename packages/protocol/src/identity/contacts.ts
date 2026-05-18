@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers --
-   per-class wire error codes (replaces the central WIRE_CODES table). */
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
 import { brandedId } from "../schema-primitives.js";

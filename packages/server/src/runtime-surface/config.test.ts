@@ -1,94 +1,88 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Effect } from "effect";
-import { loadRuntimeProcessConfig } from "./config.js";
+import { it as effectIt } from "@effect/vitest";
+import { FileSystem, Path } from "@effect/platform";
+import type { PlatformError } from "@effect/platform/Error";
+import { NodeContext } from "@effect/platform-node";
+import { Effect, type Scope } from "effect";
+import { describe, expect } from "vitest";
+import { loadRuntimeProcessConfig, runtimeConfigPath } from "./config.js";
 
-/**
- * Regression: `withPatchedProcessEnv(processEnv, …)` was called with
- * `processEnv === process.env` from `loadRuntimeProcessConfig`. The previous
- * implementation deleted every key from `process.env` and then iterated
- * `Object.entries(next)` over the now-empty same reference — leaving
- * `process.env` empty for the duration of the YAML load. Compose-style
- * `${VAR}` interpolation in moltzap.yaml then reported the var missing
- * even when it was set in the container's env.
- *
- * This test pins the fix: passing `process.env` directly must preserve every
- * key both during the load (so YAML interpolation works) and after.
- */
+const it = effectIt.scoped;
 
-let tmpDir: string;
+const CONFIG_FILE_NAME = "moltzap.yaml";
+const TEMP_DIR_PREFIX = "moltzap-runtime-config-";
 const ENV_KEY = "MOLTZAP_TEST_PATCH_KEY";
 const ENV_VALUE = "regression-352-value";
-const TOUCHED_KEYS = [ENV_KEY, "MOLTZAP_DEV_MODE"] as const;
-let savedEnv: Map<string, string | undefined>;
+const DEV_MODE_KEY = "MOLTZAP_DEV_MODE";
+const DEV_MODE_ENABLED = "true";
+const REGISTRATION_SECRET_YAML = `registration:\n  secret: \${${ENV_KEY}}\n`;
 
-function writeYaml(path: string, body: string): void {
-  writeFileSync(path, body, "utf-8");
+/**
+ * Regression: the env interpolation path used to mutate the same env object it
+ * was reading from. Passing the same env reference into runtime loading must
+ * preserve every key and still make `${VAR}` interpolation work.
+ */
+describe("loadRuntimeProcessConfig env interpolation", () => {
+  it(
+    "does not lose keys when processEnv is reused by reference",
+    sameReferenceEnv,
+  );
+
+  it("works when processEnv is a separate snapshot", separateEnvSnapshot);
+});
+
+function sameReferenceEnv() {
+  return withTempConfigFile(REGISTRATION_SECRET_YAML, (configPath) =>
+    Effect.gen(function* () {
+      const processEnv = runtimeEnv();
+      const beforeKeys = Object.keys(processEnv).length;
+
+      const result = yield* loadRuntimeProcessConfig({
+        configPath: runtimeConfigPath(configPath),
+        processEnv,
+      });
+
+      expect(result.app.registration?.secret).toBe(ENV_VALUE);
+      expect(processEnv[ENV_KEY]).toBe(ENV_VALUE);
+      expect(Object.keys(processEnv).length).toBe(beforeKeys);
+    }),
+  );
 }
 
-beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "moltzap-runtime-config-"));
-  // Save prior values so afterEach restores rather than blindly deletes —
-  // otherwise we could erase a caller-provided env value or leak across
-  // tests that share these keys.
-  savedEnv = new Map(TOUCHED_KEYS.map((k) => [k, process.env[k]]));
-  process.env[ENV_KEY] = ENV_VALUE;
-  process.env["MOLTZAP_DEV_MODE"] = "true";
-});
-
-afterEach(() => {
-  rmSync(tmpDir, { recursive: true, force: true });
-  for (const key of TOUCHED_KEYS) {
-    const prior = savedEnv.get(key);
-    if (prior === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = prior;
-    }
-  }
-});
-
-describe("loadRuntimeProcessConfig — env patching", () => {
-  it("does not lose keys when processEnv === process.env (regression #352)", async () => {
-    const configPath = join(tmpDir, "moltzap.yaml");
-    writeYaml(configPath, `registration:\n  secret: \${${ENV_KEY}}\n`);
-
-    const beforeKeys = Object.keys(process.env).length;
-
-    const result = await Effect.runPromise(
-      loadRuntimeProcessConfig({
-        configPath: configPath as Parameters<
-          typeof loadRuntimeProcessConfig
-        >[0]["configPath"],
-        // Critical: same reference as process.env reproduces the bug.
-        processEnv: process.env,
-      }),
-    );
-
-    expect(result.app.registration?.secret).toBe(ENV_VALUE);
-    // process.env survives the load (no keys lost).
-    expect(process.env[ENV_KEY]).toBe(ENV_VALUE);
-    expect(Object.keys(process.env).length).toBe(beforeKeys);
-  });
-
-  it("still works when processEnv is a separate snapshot", async () => {
-    const configPath = join(tmpDir, "moltzap.yaml");
-    writeYaml(configPath, `registration:\n  secret: \${${ENV_KEY}}\n`);
-
-    // Spread to break reference identity with process.env.
-    const snapshot = { ...process.env };
-    const result = await Effect.runPromise(
-      loadRuntimeProcessConfig({
-        configPath: configPath as Parameters<
-          typeof loadRuntimeProcessConfig
-        >[0]["configPath"],
+function separateEnvSnapshot() {
+  return withTempConfigFile(REGISTRATION_SECRET_YAML, (configPath) =>
+    Effect.gen(function* () {
+      const originalEnv = runtimeEnv();
+      const snapshot = { ...originalEnv };
+      const result = yield* loadRuntimeProcessConfig({
+        configPath: runtimeConfigPath(configPath),
         processEnv: snapshot,
-      }),
-    );
+      });
 
-    expect(result.app.registration?.secret).toBe(ENV_VALUE);
-    expect(process.env[ENV_KEY]).toBe(ENV_VALUE);
-  });
-});
+      expect(result.app.registration?.secret).toBe(ENV_VALUE);
+      expect(originalEnv[ENV_KEY]).toBe(ENV_VALUE);
+    }),
+  );
+}
+
+function runtimeEnv(): Record<string, string | undefined> {
+  return {
+    [ENV_KEY]: ENV_VALUE,
+    [DEV_MODE_KEY]: DEV_MODE_ENABLED,
+  };
+}
+
+function withTempConfigFile<A, E>(
+  body: string,
+  run: (configPath: string) => Effect.Effect<A, E>,
+): Effect.Effect<A, E | PlatformError, Scope.Scope> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const tmpDir = yield* fs.makeTempDirectoryScoped({
+      prefix: TEMP_DIR_PREFIX,
+    });
+    const configPath = path.join(tmpDir, CONFIG_FILE_NAME);
+    yield* fs.writeFileString(configPath, body);
+    return yield* run(configPath);
+  }).pipe(Effect.provide(NodeContext.layer));
+}

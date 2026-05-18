@@ -1,8 +1,10 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers --
-   per-class wire error codes (replaces the central WIRE_CODES table). */
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import { stringEnum, DateTimeString, brandedId } from "../schema-primitives.js";
+import {
+  stringEnum,
+  dateTimeStringSchema,
+  brandedId,
+} from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
@@ -12,11 +14,17 @@ import {
 import {
   ConversationId,
   ConversationTypeEnum,
-  AgentParticipantRefSchema,
-  ConversationSchema,
+  agentParticipantRefSchema,
+  conversationSchema,
   MessageId,
 } from "./conversations.js";
-import { MessagePartsSchema, MessageSchema } from "./messages.js";
+import { messagePartsSchema, messageSchema } from "./messages.js";
+
+const DateTimeString = dateTimeStringSchema();
+const AgentParticipantRefSchema = agentParticipantRefSchema();
+const ConversationSchema = conversationSchema();
+const MessagePartsSchema = messagePartsSchema();
+const MessageSchema = messageSchema();
 
 export const TaskId = brandedId("TaskId");
 export type TaskId = Static<typeof TaskId>;
@@ -37,9 +45,11 @@ export class HookBlockedError extends Data.TaggedError(
 }
 registerErrorClass(HookBlockedError);
 
-/** Logical time frontier per delivery domain (usually a conversation):
- * monotonic `epoch` + per-participant observed counts in `vector`. */
-export const LogicalClockSchema = Type.Object(
+/**
+ * Logical time frontier per delivery domain (usually a conversation):
+ * monotonic `epoch` + per-participant observed counts in `vector`.
+ */
+const LogicalClockSchema = Type.Object(
   {
     domainId: Type.String({ minLength: 1 }),
     epoch: Type.Integer({ minimum: 0 }),
@@ -49,6 +59,10 @@ export const LogicalClockSchema = Type.Object(
 );
 
 export type LogicalClock = Static<typeof LogicalClockSchema>;
+
+export function logicalClockSchema(): typeof LogicalClockSchema {
+  return LogicalClockSchema;
+}
 
 const TmTypeEnum = stringEnum(["self", "default-dm", "default-group"]);
 export type TmType = (typeof TmTypeEnum)["static"];
@@ -257,7 +271,17 @@ const TaskFailedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const TaskClosedNotificationSchema = Type.Object(
+  { task: TaskSchema },
+  { additionalProperties: false },
+);
+
 export const TaskFailedNotificationDefinition = defineNotification({
   name: "task/failed",
   params: TaskFailedNotificationSchema,
+});
+
+export const TaskClosedNotificationDefinition = defineNotification({
+  name: "task/closed",
+  params: TaskClosedNotificationSchema,
 });

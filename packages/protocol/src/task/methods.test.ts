@@ -1,55 +1,51 @@
 import { describe, expect, it } from "vitest";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { MessageSchema, TextPartSchema } from "./methods.js";
-
-const ajv = addFormats(new Ajv({ strict: true }));
+import { validateMessage, validateTextPart } from "./methods.js";
 
 describe("TextPartSchema", () => {
-  const validate = ajv.compile(TextPartSchema);
-
   it("accepts valid text part", () => {
-    expect(validate({ type: "text", text: "hello" })).toBe(true);
+    expect(validateTextPart({ type: "text", text: "hello" })).toBe(true);
   });
 
   it("rejects empty text", () => {
-    expect(validate({ type: "text", text: "" })).toBe(false);
+    expect(validateTextPart({ type: "text", text: "" })).toBe(false);
   });
 
   it("rejects extra properties", () => {
-    expect(validate({ type: "text", text: "hello", extra: true })).toBe(false);
+    expect(validateTextPart({ type: "text", text: "hello", extra: true })).toBe(
+      false,
+    );
   });
 });
 
-describe("MessageSchema", () => {
-  const validate = ajv.compile(MessageSchema);
+const VALID_MESSAGE = {
+  id: "550e8400-e29b-41d4-a716-446655440000",
+  conversationId: "660e8400-e29b-41d4-a716-446655440000",
+  senderId: "770e8400-e29b-41d4-a716-446655440000",
+  parts: [{ type: "text", text: "Hello!" }],
+  createdAt: "2026-03-14T12:00:00.000Z",
+};
 
-  const validMessage = {
-    id: "550e8400-e29b-41d4-a716-446655440000",
-    conversationId: "660e8400-e29b-41d4-a716-446655440000",
-    senderId: "770e8400-e29b-41d4-a716-446655440000",
-    parts: [{ type: "text", text: "Hello!" }],
-    createdAt: "2026-03-14T12:00:00.000Z",
-  };
-
+describe("MessageSchema acceptance", () => {
   it("accepts valid message", () => {
-    expect(validate(validMessage)).toBe(true);
-  });
-
-  it("rejects message with no parts", () => {
-    expect(validate({ ...validMessage, parts: [] })).toBe(false);
+    expect(validateMessage(VALID_MESSAGE)).toBe(true);
   });
 
   it("accepts message with replyToId", () => {
     expect(
-      validate({
-        ...validMessage,
+      validateMessage({
+        ...VALID_MESSAGE,
         replyToId: "880e8400-e29b-41d4-a716-446655440000",
       }),
     ).toBe(true);
   });
+});
+
+describe("MessageSchema rejection", () => {
+  it("rejects message with no parts", () => {
+    expect(validateMessage({ ...VALID_MESSAGE, parts: [] })).toBe(false);
+  });
 
   it("rejects message with extra properties", () => {
-    expect(validate({ ...validMessage, extra: true })).toBe(false);
+    expect(validateMessage({ ...VALID_MESSAGE, extra: true })).toBe(false);
   });
 });

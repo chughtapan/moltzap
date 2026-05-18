@@ -16,12 +16,14 @@ import type {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId, ConversationId, MessageId } from "@moltzap/protocol/task";
 import type { Db } from "../../db/client.js";
+import type { Database } from "../../db/database.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
+import type { Transaction } from "../../db/kysely-vendor.js";
 import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import type {
   ConversationService,
@@ -62,12 +64,12 @@ interface TaskRow {
 }
 
 /**
- * Stable TM-endpoint address for a registering agent: `tm:agent:<agentId>`.
+ * Stable TM-endpoint address for a registering agent: `tm:agent:&lt;agentId>`.
  * Persisted in `tasks.tm_endpoint_address` and routed through
  * `network.send` via `AgentEndpointResolver.resolveAll`. Phase 9b
  * consumer-migration (sub-issue #460 amendment) collapsed the volatile
  * per-WS-connection form into a resolver-internal `ConnectionId` lookup
- * — `tm:agent:<agentId>` is the only `EndpointAddress` shape that
+ * — `tm:agent:&lt;agentId>` is the only `EndpointAddress` shape that
  * appears on the wire today.
  */
 export function endpointAddressForAgent(agent: AgentId): EndpointAddress {
@@ -102,6 +104,7 @@ function rowToParticipant(row: {
 export interface TaskCreateInput {
   readonly appId?: string;
   readonly invitedAgentIds?: readonly AgentId[];
+
   /**
    * Phase 9b consumer-migration (sub-issue #460 round 3 R13): atomic
    * task creation. Replaces the pre-R13 two-step (`tasks/create` then
@@ -112,7 +115,7 @@ export interface TaskCreateInput {
    *   caller, matching the address `endpoints/registerTaskManager`
    *   used to derive.
    * - `conversations/create` auto-task callers pass a default
-   *   `tm:app:<defaultDmTm | defaultGroupTm>` address (R14).
+   *   `tm:app:&lt;defaultDmTm | defaultGroupTm>` address (R14).
    */
   readonly tmEndpointAddress: EndpointAddress;
 }
@@ -145,6 +148,72 @@ export interface StoreMessageInput {
   readonly senderAgentId: AgentId;
   readonly parts: readonly Part[];
   readonly replyToId?: MessageId;
+}
+
+export interface TaskCloseLifecycle {
+  readonly task: Task;
+  readonly participantAgentIds: readonly AgentId[];
+  readonly archivedConversations: readonly {
+    readonly conversationId: ConversationId;
+    readonly archivedAt: string;
+    readonly participantAgentIds: readonly AgentId[];
+  }[];
+}
+
+type TaskTransaction = Transaction<Database>;
+type ArchivedConversationRow = {
+  readonly id: ConversationId;
+  readonly archived_at: Date | null;
+};
+type ConversationParticipantRow = {
+  readonly conversation_id: ConversationId;
+  readonly agent_id: AgentId;
+};
+type AgentIdRow = {
+  readonly agent_id: AgentId;
+};
+
+function conversationIdsFromRows(
+  rows: readonly ArchivedConversationRow[],
+): ConversationId[] {
+  const ids: ConversationId[] = [];
+  for (const row of rows) ids.push(row.id);
+  return ids;
+}
+
+function participantMapFromRows(
+  rows: readonly ConversationParticipantRow[],
+): ReadonlyMap<ConversationId, readonly AgentId[]> {
+  const participantsByConversation = new Map<ConversationId, AgentId[]>();
+  for (const row of rows) {
+    const existing = participantsByConversation.get(row.conversation_id) ?? [];
+    existing.push(row.agent_id);
+    participantsByConversation.set(row.conversation_id, existing);
+  }
+  return participantsByConversation;
+}
+
+function agentIdsFromRows(rows: readonly AgentIdRow[]): AgentId[] {
+  const agentIds: AgentId[] = [];
+  for (const row of rows) agentIds.push(row.agent_id);
+  return agentIds;
+}
+
+function archivedConversationsFromRows(
+  rows: readonly ArchivedConversationRow[],
+  participantsByConversation: ReadonlyMap<ConversationId, readonly AgentId[]>,
+): TaskCloseLifecycle["archivedConversations"] {
+  const archivedConversations: Array<
+    TaskCloseLifecycle["archivedConversations"][number]
+  > = [];
+  for (const row of rows) {
+    archivedConversations.push({
+      conversationId: row.id,
+      archivedAt: row.archived_at!.toISOString(),
+      participantAgentIds: participantsByConversation.get(row.id) ?? [],
+    });
+  }
+  return archivedConversations;
 }
 
 export class TaskService {
@@ -247,30 +316,104 @@ export class TaskService {
   }
 
   close(id: TaskId, caller: AgentId): Effect.Effect<Task, TaskServiceError> {
+    return this.closeWithLifecycle(id, caller).pipe(
+      Effect.map((closed) => closed.task),
+    );
+  }
+
+  closeWithLifecycle(
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<TaskCloseLifecycle, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
-      const row = yield* catchSqlErrorAsDefect(
-        takeFirstOrFail(
-          this.db
-            .updateTable("tasks")
-            .set({ status: "closed", ended_at: new Date() })
-            .where("id", "=", id)
-            .returningAll(),
-        ),
+      return yield* catchSqlErrorAsDefect(
+        transaction(this.db, (trx) => this.closeLifecycleTransaction(trx, id)),
       );
-      return rowToTask(row as TaskRow);
     });
+  }
+
+  private closeLifecycleTransaction(trx: TaskTransaction, id: TaskId) {
+    return Effect.gen(this, function* () {
+      const closedAt = new Date();
+      const taskRow = yield* this.closeTaskRow(trx, id, closedAt);
+      const archivedRows = yield* this.archiveOpenTaskConversations(
+        trx,
+        id,
+        closedAt,
+      );
+      const conversationIds = conversationIdsFromRows(archivedRows);
+      const participantsByConversation =
+        yield* this.readConversationParticipantMap(trx, conversationIds);
+      return {
+        task: rowToTask(taskRow as TaskRow),
+        participantAgentIds: yield* this.readAdmittedTaskParticipantIds(
+          trx,
+          id,
+        ),
+        archivedConversations: archivedConversationsFromRows(
+          archivedRows,
+          participantsByConversation,
+        ),
+      };
+    });
+  }
+
+  private closeTaskRow(trx: TaskTransaction, id: TaskId, closedAt: Date) {
+    return takeFirstOrFail(
+      trx
+        .updateTable("tasks")
+        .set({ status: "closed", ended_at: closedAt })
+        .where("id", "=", id)
+        .returningAll(),
+    );
+  }
+
+  private archiveOpenTaskConversations(
+    trx: TaskTransaction,
+    id: TaskId,
+    closedAt: Date,
+  ) {
+    return trx
+      .updateTable("conversations")
+      .set({ archived_at: closedAt })
+      .where("task_id", "=", id)
+      .where("archived_at", "is", null)
+      .returning(["id", "archived_at"]);
+  }
+
+  private readConversationParticipantMap(
+    trx: TaskTransaction,
+    conversationIds: readonly ConversationId[],
+  ) {
+    if (conversationIds.length === 0) {
+      return Effect.succeed(new Map<ConversationId, readonly AgentId[]>());
+    }
+    return trx
+      .selectFrom("conversation_participants")
+      .select(["conversation_id", "agent_id"])
+      .where("conversation_id", "in", [...conversationIds])
+      .pipe(Effect.map(participantMapFromRows));
+  }
+
+  private readAdmittedTaskParticipantIds(trx: TaskTransaction, id: TaskId) {
+    return trx
+      .selectFrom("task_participants")
+      .select("agent_id")
+      .where("task_id", "=", id)
+      .where("admitted_at", "is not", null)
+      .pipe(Effect.map(agentIdsFromRows));
   }
 
   /**
    * Phase 9b consumer-migration (sub-issue #460 round 3 R14): server-
    * internal helper for the `conversations/create` auto-task path and
    * the `messages/send` auto-DM path. Creates a task whose TM is the
-   * default `tm:app:<dm | group>` endpoint, returning the row so the
+   * default `tm:app:&lt;dm | group>` endpoint, returning the row so the
    * caller can pass `task.id` to `ConversationService.create`.
    *
    * Used by `conversations/create` (server handler) and the
-   * `messages/send` agent:<name> path. Custom-TM apps (werewolf etc.)
+   * `messages/send` agent:&lt;name> path. Custom-TM apps (werewolf etc.)
    * call the public `create` directly with their own
    * `tmEndpointAddress` instead.
    */
@@ -410,14 +553,13 @@ export class TaskService {
       // The task id is fixed (this is a TM acting on its own task),
       // so wrap it in `Effect.succeed` for the lazy-`mintTask`
       // contract `ConversationService.create` expects.
-      const conversation = yield* this.conversations.create(
-        input.type,
-        input.name,
-        [...input.participantAgentIds],
-        caller,
-        Effect.succeed({ id }),
-      );
-      return conversation;
+      return yield* this.conversations.create({
+        type: input.type,
+        name: input.name,
+        agentIds: [...input.participantAgentIds],
+        creatorAgentId: caller,
+        mintTask: Effect.succeed({ id }),
+      });
     });
   }
 
@@ -440,24 +582,17 @@ export class TaskService {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       yield* this.requireConversationInTask(id, input.conversationId);
-      const message = yield* this.messages.send(
-        input.conversationId,
-        [...input.parts],
-        input.senderAgentId,
-        input.replyToId,
-        // No connection-exclude — the TM is a participant and observes
-        // the message via the broadcast path.
-        undefined,
-        // Bypass TM routing — this insert IS the TM acting on an
-        // already-admitted message; firing `network.send` back to the
-        // TM's own socket would self-loop.
-        true,
-      );
       // The post-insert UPDATE retired — `MessageService.send` stamps
       // `task_id` from `conv.task_id` at insert time, and
       // `requireConversationInTask` above already proved
       // `conv.task_id === id`.
-      return message;
+      return yield* this.messages.send({
+        conversationId: input.conversationId,
+        parts: [...input.parts],
+        senderAgentId: input.senderAgentId,
+        replyToId: input.replyToId,
+        bypassTmRouting: true,
+      });
     });
   }
 

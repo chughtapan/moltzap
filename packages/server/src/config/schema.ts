@@ -31,7 +31,7 @@ const AppRefSchema = Type.Object(
 
 // -- Top-level config schema --------------------------------------------------
 
-export const MoltZapConfigSchema = Type.Object(
+const MoltZapConfigSchema = Type.Object(
   {
     server: Type.Optional(
       Type.Object(
@@ -112,6 +112,18 @@ export interface ConfigError {
   example?: string;
 }
 
+interface AjvConfigErrorInput {
+  instancePath: string;
+  message?: string;
+  keyword: string;
+  params: Record<string, unknown>;
+}
+
+interface ConfigErrorDetail {
+  problem: string;
+  expected: string;
+}
+
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 const validate = ajv.compile(MoltZapConfigSchema);
 
@@ -127,65 +139,111 @@ const EXAMPLES: Record<string, string> = {
   "/log_level": '"info"',
 };
 
-function ajvErrorToConfigError(err: {
-  instancePath: string;
-  message?: string;
-  keyword: string;
-  params: Record<string, unknown>;
-}): ConfigError {
-  const path = err.instancePath || "/";
+const keywordDetails: Record<
+  string,
+  (err: AjvConfigErrorInput) => ConfigErrorDetail
+> = {
+  additionalProperties: additionalPropertyDetail,
+  type: typeDetail,
+  enum: enumDetail,
+  const: constDetail,
+  minimum: rangeDetail,
+  maximum: rangeDetail,
+  minLength: minLengthDetail,
+  format: formatDetail,
+};
 
-  let problem: string;
-  let expected: string;
+function ajvErrorToConfigError(err: AjvConfigErrorInput): ConfigError {
+  const path = normalizeInstancePath(err.instancePath);
+  if (err.keyword === "required") return requiredFieldError(err, path);
+  const detail = keywordDetails[err.keyword]?.(err) ?? defaultDetail(err);
+  return { path, ...detail, example: EXAMPLES[path] };
+}
 
-  switch (err.keyword) {
-    case "required": {
-      const prop = err.params["missingProperty"] as string;
-      const fullPath = path === "/" ? `/${prop}` : `${path}/${prop}`;
-      return {
-        path: fullPath,
-        problem: `Missing required field "${prop}"`,
-        expected: `Property "${prop}" must be provided`,
-        example: EXAMPLES[fullPath],
-      };
-    }
-    case "additionalProperties": {
-      const extra = err.params["additionalProperty"] as string;
-      problem = `Unknown field "${extra}"`;
-      expected = "Remove this field or check for typos";
-      break;
-    }
-    case "type":
-      problem = err.message ?? "Wrong type";
-      expected = `Must be ${err.params["type"] as string}`;
-      break;
-    case "enum":
-      problem = "Invalid value";
-      expected = `Must be one of: ${(err.params["allowedValues"] as string[]).join(", ")}`;
-      break;
-    case "const":
-      problem = "Invalid value";
-      expected = `Must be ${JSON.stringify(err.params["allowedValue"])}`;
-      break;
-    case "minimum":
-    case "maximum":
-      problem = err.message ?? "Out of range";
-      expected = err.message ?? "Value out of allowed range";
-      break;
-    case "minLength":
-      problem = "Value cannot be empty";
-      expected = "A non-empty string";
-      break;
-    case "format":
-      problem = `Invalid format (expected ${err.params["format"] as string})`;
-      expected = `A valid ${err.params["format"] as string}`;
-      break;
-    default:
-      problem = err.message ?? "Validation failed";
-      expected = "See schema for details";
-  }
+function normalizeInstancePath(path: string): string {
+  return path || "/";
+}
 
-  return { path, problem, expected, example: EXAMPLES[path] };
+function requiredFieldError(
+  err: AjvConfigErrorInput,
+  path: string,
+): ConfigError {
+  const prop = paramString(err, "missingProperty");
+  const fullPath = path === "/" ? `/${prop}` : `${path}/${prop}`;
+  return {
+    path: fullPath,
+    problem: `Missing required field "${prop}"`,
+    expected: `Property "${prop}" must be provided`,
+    example: EXAMPLES[fullPath],
+  };
+}
+
+function additionalPropertyDetail(err: AjvConfigErrorInput): ConfigErrorDetail {
+  const extra = paramString(err, "additionalProperty");
+  return {
+    problem: `Unknown field "${extra}"`,
+    expected: "Remove this field or check for typos",
+  };
+}
+
+function typeDetail(err: AjvConfigErrorInput): ConfigErrorDetail {
+  return {
+    problem: err.message ?? "Wrong type",
+    expected: `Must be ${paramString(err, "type")}`,
+  };
+}
+
+function enumDetail(err: AjvConfigErrorInput): ConfigErrorDetail {
+  return {
+    problem: "Invalid value",
+    expected: `Must be one of: ${paramStringList(err, "allowedValues")}`,
+  };
+}
+
+function constDetail(err: AjvConfigErrorInput): ConfigErrorDetail {
+  return {
+    problem: "Invalid value",
+    expected: `Must be ${JSON.stringify(err.params["allowedValue"])}`,
+  };
+}
+
+function rangeDetail(err: AjvConfigErrorInput): ConfigErrorDetail {
+  return {
+    problem: err.message ?? "Out of range",
+    expected: err.message ?? "Value out of allowed range",
+  };
+}
+
+function minLengthDetail(): ConfigErrorDetail {
+  return {
+    problem: "Value cannot be empty",
+    expected: "A non-empty string",
+  };
+}
+
+function formatDetail(err: AjvConfigErrorInput): ConfigErrorDetail {
+  const format = paramString(err, "format");
+  return {
+    problem: `Invalid format (expected ${format})`,
+    expected: `A valid ${format}`,
+  };
+}
+
+function defaultDetail(err: AjvConfigErrorInput): ConfigErrorDetail {
+  return {
+    problem: err.message ?? "Validation failed",
+    expected: "See schema for details",
+  };
+}
+
+function paramString(err: AjvConfigErrorInput, key: string): string {
+  return String(err.params[key]);
+}
+
+function paramStringList(err: AjvConfigErrorInput, key: string): string {
+  const value = err.params[key];
+  if (!Array.isArray(value)) return String(value);
+  return value.map(String).join(", ");
 }
 
 type ValidateResult =

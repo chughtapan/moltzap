@@ -1,13 +1,9 @@
 /**
- * `app/` — top protocol layer. AppHost, app registration, lease registry,
- * server boot, layer composition.
+ * @file App layer public barrel.
  *
- * Layer rules:
- *   - May import: kernels and every other protocol layer.
- *   - May NOT be imported by: any protocol layer (app is the composition root).
- *
- * Public surface: `createCoreApp`, `AppHost`, `LeaseRegistry`, every service
- * Tag/Layer from `layers.ts`, and the `appHandlers` registry.
+ * The app layer owns AppHost, app registration, lease registry, server boot,
+ * and service layer composition. It may import every lower protocol layer, but
+ * lower layers must not import it because app is the composition root.
  */
 
 // `createCoreApp` is the package's composition root — exported from the
@@ -27,7 +23,6 @@ export type {
   ConnectionHook,
   DisconnectionHook,
 } from "./types.js";
-export { AppId } from "./types.js";
 
 export { AppHost } from "./app-host.js";
 export type { ContactService } from "./app-host.js";

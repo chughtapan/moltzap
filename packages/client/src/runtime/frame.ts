@@ -1,204 +1,25 @@
 import { Effect } from "effect";
 import {
   decodeServerInbound,
-  DispatchAuthorize,
   MalformedFrameError,
-  type AnyTaskCallbackRpcDefinition,
-  type AnyNotificationDefinition,
-  type DecodedNotification,
-  type DecodedResponseSuccess,
-  type DecodedResponseError,
   type DecodedServerInbound,
-  type JsonRpcId,
-  type ParamsOf,
 } from "@moltzap/protocol";
 
-export type { DecodedNotification };
-
-/** Decoded response frame — XOR success | error, mirrors the protocol-level
- * discriminated arms. */
-export type DecodedResponse = DecodedResponseSuccess | DecodedResponseError;
-
-/**
- * Decoded server-initiated (taskCallback) request frame. The client
- * routes these to its per-method handler registry; the server is the
- * originator and awaits a matching JSON-RPC response with the same id.
- *
- * The `D extends AnyTaskCallbackRpcDefinition ? ... : never` distribution
- * is load-bearing: when the union widens (e.g. a future task-callback
- * descriptor lands alongside `DispatchAuthorize`), the per-arm pairing
- * of `{definition, params}` must stay distinct so downstream consumers
- * see a discriminated union, not a merged
- * `{Definition, params: ParamsA | ParamsB}` shape that conflates
- * incompatible param schemas.
- */
-export type DecodedServerRequest<
-  D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
-> = D extends AnyTaskCallbackRpcDefinition
-  ? {
-      readonly _tag: "ServerRequest";
-      readonly id: JsonRpcId;
-      readonly definition: D;
-      readonly params: ParamsOf<D>;
-    }
-  : never;
-
-export type DecodedFrame =
-  | DecodedResponse
-  | DecodedNotification<AnyNotificationDefinition>
-  | DecodedServerRequest;
-
-const isFramePadding = (char: string): boolean =>
-  char === "\u0000" || char === "\ufeff" || /\s/u.test(char);
-
-const liftServerInbound = (
-  decoded: DecodedServerInbound,
-  raw: string,
-): Effect.Effect<DecodedFrame, MalformedFrameError> => {
-  if (decoded._tag === "ResponseSuccess") return Effect.succeed(decoded);
-  if (decoded._tag === "ResponseError") return Effect.succeed(decoded);
-  if (decoded._tag === "Notification") return Effect.succeed(decoded);
-  return liftAppCallbackRequest(decoded, raw);
-};
-
-/**
- * Per-descriptor lift of an app-callback request to a typed
- * `DecodedServerRequest`. Each branch is guarded by the descriptor's
- * `validateParams` predicate so `decoded.definition` + `decoded.params`
- * narrow together, preserving the per-arm pairing required by the
- * distributive `DecodedServerRequest<D>` type. Adding a new
- * task-callback descriptor adds one branch here.
- */
-const liftAppCallbackRequest = (
-  decoded: Extract<DecodedServerInbound, { readonly _tag: "ServerRequest" }>,
-  raw: string,
-): Effect.Effect<DecodedFrame, MalformedFrameError> => {
-  if (
-    decoded.definition === DispatchAuthorize &&
-    DispatchAuthorize.validateParams(decoded.params)
-  ) {
-    return Effect.succeed<DecodedServerRequest<typeof DispatchAuthorize>>({
-      _tag: "ServerRequest",
-      id: decoded.id,
-      definition: DispatchAuthorize,
-      params: decoded.params,
-    });
-  }
-  return Effect.fail(
-    new MalformedFrameError({
-      raw,
-      cause: "unroutable task-callback request descriptor",
-    }),
-  );
-};
-
-export const splitRawFrames = (
-  raw: string,
-): Effect.Effect<ReadonlyArray<string>, MalformedFrameError> =>
+const parseFrame = (raw: string): Effect.Effect<unknown, MalformedFrameError> =>
   Effect.try({
-    try: () => {
-      const frames: string[] = [];
-      let start = -1;
-      let depth = 0;
-      let inString = false;
-      let escaped = false;
-
-      for (let index = 0; index < raw.length; index += 1) {
-        const char = raw[index]!;
-
-        if (start === -1) {
-          if (isFramePadding(char)) {
-            continue;
-          }
-          if (char !== "{") {
-            throw new MalformedFrameError({ raw });
-          }
-          start = index;
-          depth = 1;
-          continue;
-        }
-
-        if (inString) {
-          if (escaped) {
-            escaped = false;
-            continue;
-          }
-          if (char === "\\") {
-            escaped = true;
-            continue;
-          }
-          if (char === '"') {
-            inString = false;
-          }
-          continue;
-        }
-
-        if (char === '"') {
-          inString = true;
-          continue;
-        }
-        if (char === "{") {
-          depth += 1;
-          continue;
-        }
-        if (char !== "}") {
-          continue;
-        }
-
-        depth -= 1;
-        if (depth !== 0) {
-          continue;
-        }
-
-        frames.push(raw.slice(start, index + 1));
-        start = -1;
-      }
-
-      if (start !== -1 || frames.length === 0) {
-        throw new MalformedFrameError({ raw });
-      }
-
-      return frames;
-    },
-    catch: (cause) =>
-      cause instanceof MalformedFrameError
-        ? cause
-        : new MalformedFrameError({ raw, cause }),
+    try: () => JSON.parse(raw) as unknown,
+    catch: (cause) => new MalformedFrameError({ raw, cause }),
   });
 
 /**
- * Central typed inbound frame decoder. JSON.parse + shape validation via the
- * protocol's pre-compiled AJV validators. The raw socket chunk may contain
- * padding bytes or more than one JSON object; split and validate each object
- * before handing frames to the client runtime.
+ * Decode one WebSocket message. WebSocket message boundaries are the frame
+ * boundary here; JSON-RPC shape validation stays in `@moltzap/protocol`.
  */
 export const decodeFrames = (
   raw: string,
-): Effect.Effect<ReadonlyArray<DecodedFrame>, MalformedFrameError> =>
-  Effect.gen(function* () {
-    const frameTexts = yield* splitRawFrames(raw);
-    const decodedFrames: DecodedFrame[] = [];
-
-    for (const frameText of frameTexts) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(frameText);
-      } catch (err) {
-        return yield* Effect.fail(
-          new MalformedFrameError({ raw: frameText, cause: err }),
-        );
-      }
-
-      const decoded = yield* decodeServerInbound(parsed).pipe(
-        Effect.flatMap((d) => liftServerInbound(d, frameText)),
-        Effect.mapError((cause) =>
-          cause instanceof MalformedFrameError
-            ? cause
-            : new MalformedFrameError({ raw: frameText, cause }),
-        ),
-      );
-      decodedFrames.push(decoded);
-    }
-
-    return decodedFrames;
-  });
+): Effect.Effect<ReadonlyArray<DecodedServerInbound>, MalformedFrameError> =>
+  parseFrame(raw).pipe(
+    Effect.flatMap(decodeServerInbound),
+    Effect.map((decoded) => [decoded]),
+    Effect.withSpan("decodeFrames"),
+  );

@@ -1,15 +1,14 @@
 /** Webhook adapters for calling external services over HTTP. */
 
-import { Data, Duration, Effect, Schema } from "effect";
+import { Data, Duration, Effect, Either, Schema } from "effect";
 import { createHmac } from "node:crypto";
-import type { ContactService } from "../app/app-host.js";
-import type { Logger } from "../logger.js";
+import { postJson } from "./fetch-client.js";
 
 const DEFAULT_WEBHOOK_CONCURRENCY = 10;
 
 /**
  * HMAC-SHA256-sign a webhook payload and return the `X-MoltZap-Signature`
- * header value (`sha256=<hex>`). Receivers recompute over the exact JSON
+ * header value (`sha256=&lt;hex>`). Receivers recompute over the exact JSON
  * bytes we send, so callers must pass the same `payload` string they will
  * write to the HTTP body.
  */
@@ -101,6 +100,7 @@ export interface WebhookCallOpts<T> {
   readonly event: string;
   readonly body: unknown;
   readonly timeoutMs: number;
+
   /**
    * Decoder for the webhook response. The body is read as text, parsed
    * as JSON (or decoded as `undefined` for empty bodies), then passed
@@ -110,6 +110,7 @@ export interface WebhookCallOpts<T> {
    * network / timeout errors.
    */
   readonly schema: Schema.Schema<T, any>;
+
   /**
    * Extra headers merged on top of `Content-Type` + `X-MoltZap-Event`.
    * Used by app-hook webhooks to attach `X-MoltZap-Signature`. Caller-
@@ -118,6 +119,7 @@ export interface WebhookCallOpts<T> {
    * override those.
    */
   readonly headers?: Record<string, string>;
+
   /**
    * Pre-serialized JSON body. When provided, `body` is ignored. Used by
    * app-hook webhooks that compute an HMAC signature over the exact
@@ -132,6 +134,15 @@ type WebhookCallError =
   | WebhookNetworkError
   | WebhookDecodeError;
 
+interface WebhookRequest<T> {
+  readonly url: string;
+  readonly event: string;
+  readonly timeoutMs: number;
+  readonly schema: Schema.Schema<T, any>;
+  readonly headers: Record<string, string>;
+  readonly body: string;
+}
+
 /**
  * Best-effort read of a Response body. An unreadable body is logged
  * context, not a failure signal, so we coerce any error to an empty
@@ -142,6 +153,101 @@ function readResponseText(response: Response): Effect.Effect<string, never> {
     try: () => response.text(),
     catch: () => null,
   }).pipe(Effect.orElseSucceed(() => ""));
+}
+
+function makeWebhookRequest<T>(opts: WebhookCallOpts<T>): WebhookRequest<T> {
+  return {
+    url: opts.url,
+    event: opts.event,
+    timeoutMs: opts.timeoutMs,
+    schema: opts.schema,
+    body: opts.bodyJson ?? JSON.stringify(opts.body),
+    headers: {
+      "Content-Type": "application/json",
+      "X-MoltZap-Event": opts.event,
+      ...opts.headers,
+    },
+  };
+}
+
+function fetchWebhook<T>(
+  request: WebhookRequest<T>,
+): Effect.Effect<Response, WebhookNetworkError> {
+  return Effect.tryPromise({
+    try: (signal) =>
+      postJson(request.url, {
+        headers: request.headers,
+        body: request.body,
+        signal,
+      }),
+    catch: (err) =>
+      new WebhookNetworkError({
+        url: request.url,
+        event: request.event,
+        cause: err,
+      }),
+  });
+}
+
+function parseWebhookBody<T>(
+  request: WebhookRequest<T>,
+  text: string,
+): Effect.Effect<unknown, WebhookNetworkError> {
+  if (text.length === 0) return Effect.succeed(undefined);
+  return Effect.try({
+    try: () => JSON.parse(text) as unknown,
+    catch: (err) =>
+      new WebhookNetworkError({
+        url: request.url,
+        event: request.event,
+        cause: err,
+      }),
+  });
+}
+
+function parseWebhookResponse<T>(
+  request: WebhookRequest<T>,
+  response: Response,
+): Effect.Effect<unknown, WebhookHttpError | WebhookNetworkError> {
+  return readResponseText(response).pipe(
+    Effect.flatMap(
+      (
+        text,
+      ): Effect.Effect<unknown, WebhookHttpError | WebhookNetworkError> => {
+        if (response.ok) return parseWebhookBody(request, text);
+        return Effect.fail(
+          new WebhookHttpError({
+            url: request.url,
+            event: request.event,
+            status: response.status,
+            body: text,
+          }),
+        );
+      },
+    ),
+  );
+}
+
+function decodeWebhookResponse<T>(
+  request: WebhookRequest<T>,
+  parsed: unknown,
+): Effect.Effect<T, WebhookDecodeError> {
+  return Schema.decodeUnknown(request.schema)(parsed).pipe(
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (cause) =>
+          Effect.fail(
+            new WebhookDecodeError({
+              url: request.url,
+              event: request.event,
+              cause,
+            }),
+          ),
+        onRight: (decoded) => Effect.succeed(decoded),
+      }),
+    ),
+  );
 }
 
 /**
@@ -162,104 +268,22 @@ export class WebhookClient {
   }
 
   call<T>(opts: WebhookCallOpts<T>): Effect.Effect<T, WebhookCallError> {
-    const { url, event, timeoutMs, schema } = opts;
-    const body = opts.bodyJson ?? JSON.stringify(opts.body);
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-MoltZap-Event": event,
-      ...opts.headers,
-    };
-
-    const doFetch = Effect.tryPromise({
-      try: (signal) => fetch(url, { method: "POST", headers, body, signal }),
-      catch: (err) => new WebhookNetworkError({ url, event, cause: err }),
-    });
-
-    // Parse body → unknown. Empty body (fire-and-forget hooks) decodes as
-    // `undefined`; the caller's `schema` accepts or rejects that in the
-    // next stage, so no separate null-payload path is needed here.
-    const parseResponse = (
-      response: Response,
-    ): Effect.Effect<unknown, WebhookHttpError | WebhookNetworkError> =>
-      readResponseText(response).pipe(
-        Effect.flatMap(
-          (
-            text,
-          ): Effect.Effect<unknown, WebhookHttpError | WebhookNetworkError> => {
-            if (!response.ok) {
-              return Effect.fail(
-                new WebhookHttpError({
-                  url,
-                  event,
-                  status: response.status,
-                  body: text,
-                }),
-              );
-            }
-            if (text.length === 0) return Effect.succeed(undefined);
-            return Effect.try({
-              try: () => JSON.parse(text) as unknown,
-              catch: (err) =>
-                new WebhookNetworkError({ url, event, cause: err }),
-            });
-          },
-        ),
-      );
+    const request = makeWebhookRequest(opts);
 
     return this.permits.withPermits(1)(
-      doFetch.pipe(
-        Effect.flatMap(parseResponse),
-        Effect.flatMap((parsed) =>
-          Schema.decodeUnknown(schema)(parsed).pipe(
-            Effect.mapError(
-              (cause) => new WebhookDecodeError({ url, event, cause }),
-            ),
-          ),
-        ),
+      fetchWebhook(request).pipe(
+        Effect.flatMap((response) => parseWebhookResponse(request, response)),
+        Effect.flatMap((parsed) => decodeWebhookResponse(request, parsed)),
         Effect.timeoutFail({
-          duration: Duration.millis(timeoutMs),
-          onTimeout: () => new WebhookTimeoutError({ url, event, timeoutMs }),
+          duration: Duration.millis(request.timeoutMs),
+          onTimeout: () =>
+            new WebhookTimeoutError({
+              url: request.url,
+              event: request.event,
+              timeoutMs: request.timeoutMs,
+            }),
         }),
       ),
     );
-  }
-}
-
-// -- Sync webhook contact service ---------------------------------------------
-
-const ContactsCheckResponse = Schema.Struct({ inContact: Schema.Boolean });
-
-export class WebhookContactService implements ContactService {
-  constructor(
-    private client: WebhookClient,
-    private url: string,
-    private timeoutMs: number,
-    private webhookLogger: Logger,
-  ) {}
-
-  areInContact(
-    userIdA: string,
-    userIdB: string,
-  ): Effect.Effect<boolean, never> {
-    return this.client
-      .call({
-        url: this.url,
-        event: "contacts.check",
-        body: { userIdA, userIdB },
-        timeoutMs: this.timeoutMs,
-        schema: ContactsCheckResponse,
-      })
-      .pipe(
-        Effect.map((result) => result.inContact),
-        Effect.catchAll((err) =>
-          Effect.sync(() => {
-            this.webhookLogger.error(
-              { err, userIdA, userIdB, url: this.url },
-              "Contact check webhook failed, rejecting contact",
-            );
-            return false;
-          }),
-        ),
-      );
   }
 }

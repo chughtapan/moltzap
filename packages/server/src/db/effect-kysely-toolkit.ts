@@ -26,7 +26,7 @@ import {
   type KyselyConfig,
   type RawBuilder,
   type Transaction,
-} from "kysely";
+} from "./kysely-vendor.js";
 
 // Pulls in `declare module "kysely"` augmentations so `yield* qb` type-checks.
 // TYPE-ONLY import: the runtime module installs a Proxy wrapper that re-wraps
@@ -95,9 +95,9 @@ patchPrototype(UpdateQueryBuilder.prototype);
 patchPrototype(WheneableMergeQueryBuilder.prototype);
 
 /**
- * `EffectKysely<DB>` — a Kysely instance whose builders are also Effects.
+ * `EffectKysely&lt;DB>` — a Kysely instance whose builders are also Effects.
  *
- * Structurally identical to `Kysely<DB>`; the Effect-capability is added
+ * Structurally identical to `Kysely&lt;DB>`; the Effect-capability is added
  * on the builder prototypes. Kept as a separate type alias so call sites
  * that want to be explicit about the capability can signal it.
  */

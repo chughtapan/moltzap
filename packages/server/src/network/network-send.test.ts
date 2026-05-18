@@ -2,7 +2,7 @@
  * Unit tests for {@link NetworkSendService}.
  *
  * Each test covers exactly one branch of the send path:
- *   - durable agent address (`tm:agent:<agentId>`): resolves through
+ *   - durable agent address (`tm:agent:&lt;agentId&gt;`): resolves through
  *     the resolver's forward map and writes to one of the agent's
  *     live connections (Phase 9 + plan §1.3 in-process loopback).
  *   - {@link RecipientNotResolved}: agent has no live connection;
@@ -15,8 +15,8 @@
  * Phase 9b consumer-migration (sub-issue #460 amendment): the legacy
  * `agent-conn` `EndpointAddress` kind retired. The resolver now keys by
  * `ConnectionId` directly; the public `EndpointAddressKind` union is
- * `agent | app`. Tests that previously exercised `tm:agent-conn:<connId>`
- * routing have been folded into the durable `tm:agent:<agentId>` cases
+ * `agent | app`. Tests that previously exercised `tm:agent-conn:&lt;connId&gt;`
+ * routing have been folded into the durable `tm:agent:&lt;agentId&gt;` cases
  * (the `agent-conn` form was always internal to the resolver and never
  * appeared on the wire). Phase 9b round 3 R14: the `app` kind is now
  * implemented via {@link AppTmRegistry}; tests that previously asserted
@@ -50,7 +50,7 @@ const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const CONN_A = connectionId("00000000-0000-4000-8000-00000000c001");
 
 const APP_ADDR = endpointAddress(`tm:app:00000000-0000-4000-8000-0000000a9990`);
-// Durable agent-id form `tm:agent:<agentId>` — what task-manager
+// Durable agent-id form `tm:agent:<agentId>` - what task-manager
 // registration writes into `tasks.tm_endpoint_address`.
 const ALICE_DURABLE = makeEndpointAddress("agent", ALICE);
 
@@ -89,7 +89,7 @@ function fakeConnection(
   };
 }
 
-describe("NetworkSendService.send", () => {
+describe("NetworkSendService.send — durable delivery", () => {
   it("durable agent address (`tm:agent:<agentId>`): resolves through forward map, writes payload, returns DeliveryAck", () => {
     // Phase 9 / plan §2.4.a + §1.3: durable TM-routed sends use the
     // `tm:agent:<agentId>` form. The resolver maps the agent to its
@@ -119,7 +119,9 @@ describe("NetworkSendService.send", () => {
     }
     expect(capture.raw).toBe(payload);
   });
+});
 
+describe("NetworkSendService.send — durable failures", () => {
   it("durable agent address: agent has no live connection → RecipientNotResolved", () => {
     const resolver = makeResolver();
     const connections = new ConnectionManager();
@@ -166,7 +168,9 @@ describe("NetworkSendService.send", () => {
       }
     }
   });
+});
 
+describe("NetworkSendService.send — app dispatch", () => {
   it("app address with registered handler: handler runs in-process, DeliveryAck", () => {
     // Phase 9b consumer-migration (sub-issue #460 round 3 R14):
     // `tm:app:<id>` dispatches through the in-process AppTmRegistry.
@@ -176,13 +180,11 @@ describe("NetworkSendService.send", () => {
     const connections = new ConnectionManager();
     const registry = makeRegistry();
     const seen = { payload: null as string | null };
-    Effect.runSync(
-      registry.register(APP_ADDR, (p) =>
-        Effect.sync(() => {
-          seen.payload = p;
-        }),
-      ),
-    );
+    const rememberPayload = (p: string) =>
+      Effect.sync(() => {
+        seen.payload = p;
+      });
+    Effect.runSync(registry.register(APP_ADDR, rememberPayload));
     const service = new NetworkSendService(resolver, connections, registry);
     const payload = opaquePayload(`{"jsonrpc":"2.0","method":"x","params":{}}`);
 
@@ -217,8 +219,10 @@ describe("NetworkSendService.send", () => {
       }
     }
   });
+});
 
-  it("durable agent address: socket write rejects → WriteFailed wraps the cause", async () => {
+describe("NetworkSendService.send — write failure", () => {
+  it("durable agent address: socket write rejects → WriteFailed wraps the cause", () => {
     const resolver = makeResolver();
     const connections = new ConnectionManager();
     const capture = { raw: null as string | null };
@@ -239,9 +243,7 @@ describe("NetworkSendService.send", () => {
     );
     const payload = opaquePayload("{}");
 
-    const exit = await Effect.runPromiseExit(
-      service.send(ALICE_DURABLE, payload),
-    );
+    const exit = Effect.runSyncExit(service.send(ALICE_DURABLE, payload));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const failure = Cause.failureOption(exit.cause);

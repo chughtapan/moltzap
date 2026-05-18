@@ -1,11 +1,19 @@
-import * as net from "node:net";
-import * as fs from "node:fs";
-import { Data, Effect } from "effect";
-import { MoltZapService } from "@moltzap/client";
+import * as Socket from "@effect/platform/Socket";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import { RpcClient, RpcClientError, RpcSerialization } from "@effect/rpc";
+import { Data, Effect, Layer, ParseResult } from "effect";
 import {
+  LocalDaemonRpcs,
+  normalizeLocalDaemonParams,
+} from "../local-daemon-rpc.js";
+import { MoltZapService } from "../service.js";
+import {
+  decodeLocalServiceResult,
   LocalServiceCommands,
   type LocalServiceCommand,
-} from "@moltzap/client/runtime";
+  type LocalServiceParams,
+  type LocalServiceResults,
+} from "../runtime/local-service-commands.js";
 
 import {
   AgentsLookupByName,
@@ -26,7 +34,7 @@ export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly cause?: unknown;
 }> {}
 
-export class ParticipantResolveError extends Data.TaggedError(
+class ParticipantResolveError extends Data.TaggedError(
   "ParticipantResolveError",
 )<{
   readonly input: string;
@@ -42,165 +50,155 @@ const socketRequestError = (
   cause?: unknown,
 ): SocketRequestError => new SocketRequestError({ method, message, cause });
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const errorCode = (cause: unknown): unknown =>
+  typeof cause === "object" && cause !== null && "code" in cause
+    ? cause.code
+    : undefined;
+
+const socketErrorCause = (err: Socket.SocketError): unknown =>
+  "cause" in err ? err.cause : err;
+
+const fromSocketError = (
+  method: string,
+  err: Socket.SocketError,
+): SocketRequestError => {
+  const cause = socketErrorCause(err);
+  const code = errorCode(cause);
+  if (code === "ENOENT" || code === "ECONNREFUSED") {
+    return socketRequestError(
+      method,
+      "MoltZap service is not running. Start the OpenClaw channel plugin first.",
+      cause,
+    );
+  }
+  if ("reason" in err && err.reason === "OpenTimeout") {
+    return socketRequestError(method, "Socket request timed out", err);
+  }
+  return socketRequestError(method, err.message, err);
+};
+
+const fromRpcClientError = (
+  method: string,
+  err: RpcClientError.RpcClientError,
+): SocketRequestError => socketRequestError(method, err.message, err);
+
+const fromLocalDaemonCallError = (
+  method: string,
+  err: string | RpcClientError.RpcClientError | SocketRequestError,
+): SocketRequestError => {
+  if (err instanceof SocketRequestError) return err;
+  if (typeof err === "string") return socketRequestError(method, err);
+  return fromRpcClientError(method, err);
+};
+
+const fromParseError = (
+  method: string,
+  err: ParseResult.ParseError,
+): SocketRequestError =>
+  socketRequestError(
+    method,
+    `Malformed local service response for ${method}: ${ParseResult.TreeFormatter.formatErrorSync(err)}`,
+    err,
+  );
 
 /**
- * Send a request to the MoltZapService via Unix socket, returning the `result`
- * field as an Effect. Typed failures:
+ * Send a request to the MoltZapService via the local daemon RPC socket. Typed failures:
  *   - "service not running" when the socket path doesn't exist / ECONNREFUSED
  *   - "timeout" when the 10s deadline elapses
- *   - "remote error" when the server responds with `{error: "..."}`
- *   - "malformed" when the response isn't parseable JSON
- *
- * Uses `Effect.async` so fiber interruption cleanly destroys the socket
- * (AbortSignal callback) — no leaked fd if a parent fiber times out.
+ *   - remote validation/RPC errors from the daemon
+ *   - protocol errors from `@effect/rpc`
  */
 export const request = <D extends RpcDefinition<string, any, any>>(
   definition: D,
   params: ParamsOf<D>,
   socketPath?: string,
 ): Effect.Effect<ResultOf<D>, SocketRequestError> =>
-  sendSocketRequest(definition.name, params, socketPath).pipe(
-    Effect.flatMap((result) =>
-      definition.validateResult(result)
-        ? Effect.succeed(result as ResultOf<D>)
-        : Effect.fail(
-            socketRequestError(
-              definition.name,
-              `Malformed result for method: ${definition.name}`,
-              result,
+  Effect.suspend(() => {
+    const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
+    return sendSocketRequest(definition.name, params, resolvedSocketPath).pipe(
+      Effect.flatMap((result) =>
+        definition.validateResult(result)
+          ? Effect.succeed(result as ResultOf<D>)
+          : Effect.fail(
+              socketRequestError(
+                definition.name,
+                `Malformed result for method: ${definition.name}`,
+                result,
+              ),
             ),
-          ),
-    ),
-  );
+      ),
+    );
+  });
 
-export const requestLocalService = (
-  command: LocalServiceCommand,
-  params?: Record<string, unknown>,
+export const requestLocalService = <C extends LocalServiceCommand>(
+  command: C,
+  params?: LocalServiceParams<C>,
   socketPath?: string,
-): Effect.Effect<unknown, SocketRequestError> =>
-  sendSocketRequest(command, params, socketPath);
+): Effect.Effect<LocalServiceResults[C], SocketRequestError> =>
+  Effect.suspend(() => {
+    const resolvedParams = params ?? {};
+    const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
+    return sendSocketRequest(command, resolvedParams, resolvedSocketPath).pipe(
+      Effect.flatMap((result) =>
+        decodeLocalServiceResult(command, result).pipe(
+          Effect.mapError((err) => fromParseError(command, err)),
+        ),
+      ),
+    );
+  });
 
 export const sendSocketRequest = (
   method: string,
   params: unknown,
   socketPath?: string,
 ): Effect.Effect<unknown, SocketRequestError> =>
-  Effect.async<unknown, SocketRequestError>((resume, signal) => {
-    const sockPath = socketPath ?? MoltZapService.SOCKET_PATH;
-    const conn = net.createConnection(sockPath);
-    let buffer = "";
-    let settled = false;
-
-    const done = (outcome: Effect.Effect<unknown, SocketRequestError>) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      conn.removeAllListeners();
-      conn.destroy();
-      resume(outcome);
-    };
-
-    const timer = setTimeout(() => {
-      done(Effect.fail(socketRequestError(method, "Socket request timed out")));
-    }, SOCKET_REQUEST_TIMEOUT_MS);
-
-    signal.addEventListener("abort", () => {
-      done(Effect.fail(socketRequestError(method, "Socket request aborted")));
-    });
-
-    conn.on("connect", () => {
-      conn.write(JSON.stringify({ method, params }) + "\n");
-    });
-
-    conn.on("data", (chunk) => {
-      buffer += chunk.toString();
-      const idx = buffer.indexOf("\n");
-      if (idx !== -1) {
-        const line = buffer.slice(0, idx);
-        conn.end();
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line);
-        } catch (err) {
-          done(
-            Effect.fail(
-              socketRequestError(
-                method,
-                `Malformed response from service: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-                err,
-              ),
-            ),
-          );
-          return;
-        }
-        if (!isPlainRecord(parsed)) {
-          done(
-            Effect.fail(
-              socketRequestError(
-                method,
-                "Malformed response from service: expected object",
-                parsed,
-              ),
-            ),
-          );
-          return;
-        }
-        const error = parsed["error"];
-        if (error !== undefined) {
-          if (typeof error === "string") {
-            done(Effect.fail(socketRequestError(method, error)));
-            return;
-          }
-          done(
-            Effect.fail(
-              socketRequestError(
-                method,
-                "Malformed response from service: error must be a string",
-                parsed,
-              ),
-            ),
-          );
-          return;
-        }
-        done(Effect.succeed(parsed["result"]));
-      }
-    });
-
-    conn.on("error", (err) => {
-      const code =
-        typeof err === "object" && err !== null && "code" in err
-          ? err.code
-          : undefined;
-      if (code === "ENOENT" || code === "ECONNREFUSED") {
-        done(
-          Effect.fail(
-            socketRequestError(
-              method,
-              "MoltZap service is not running. Start the OpenClaw channel plugin first.",
-              err,
-            ),
-          ),
-        );
-      } else {
-        done(Effect.fail(socketRequestError(method, err.message, err)));
-      }
-    });
-  });
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sockPath = socketPath ?? MoltZapService.SOCKET_PATH;
+      const socket = yield* NodeSocket.makeNet({
+        path: sockPath,
+        openTimeout: `${SOCKET_REQUEST_TIMEOUT_MS} millis`,
+      }).pipe(Effect.mapError((err) => fromSocketError(method, err)));
+      const localParams = yield* normalizeLocalDaemonParams(params);
+      const protocolLayer = RpcClient.layerProtocolSocket().pipe(
+        Layer.provide(RpcSerialization.layerNdjson),
+        Layer.provide(Layer.succeed(Socket.Socket, socket)),
+      );
+      return yield* Effect.gen(function* () {
+        const client = yield* RpcClient.make(LocalDaemonRpcs);
+        return yield* client.LocalDaemonCall({
+          method,
+          params: localParams,
+        });
+      }).pipe(
+        Effect.provide(protocolLayer),
+        Effect.timeoutFail({
+          duration: `${SOCKET_REQUEST_TIMEOUT_MS} millis`,
+          onTimeout: () =>
+            socketRequestError(method, "Socket request timed out"),
+        }),
+        Effect.mapError((err) => fromLocalDaemonCallError(method, err)),
+      );
+    }),
+  ).pipe(Effect.withSpan("sendSocketRequest"));
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Resolve "agent:name" or "agent:<uuid>" to { type, id }. */
+type ResolvedAgentParticipant = {
+  readonly type: "agent";
+  readonly id: AgentId;
+};
+
+const resolvedAgentParticipant = (id: AgentId): ResolvedAgentParticipant => ({
+  type: "agent",
+  id,
+});
+
+/** Resolve "agent:name" or "agent:&lt;uuid>" to { type, id }. */
 export const resolveParticipant = (
   raw: string,
-): Effect.Effect<
-  { readonly type: "agent"; readonly id: AgentId },
-  SocketClientError
-> =>
+): Effect.Effect<ResolvedAgentParticipant, SocketClientError> =>
   Effect.gen(function* () {
     const colon = raw.indexOf(":");
     if (colon === -1) {
@@ -221,7 +219,9 @@ export const resolveParticipant = (
         }),
       );
     }
-    if (UUID_RE.test(value)) return { type: "agent", id: value as AgentId };
+    if (UUID_RE.test(value)) {
+      return resolvedAgentParticipant(value as AgentId);
+    }
     const result = yield* request(AgentsLookupByName, {
       names: [value],
     });
@@ -233,10 +233,5 @@ export const resolveParticipant = (
         }),
       );
     }
-    return { type: "agent", id: result.agents[0]!.id };
-  });
-
-/** Pure predicate: socket path exists. Wrapped in Effect so callers compose it. */
-export const isServiceRunning: Effect.Effect<boolean> = Effect.sync(() =>
-  fs.existsSync(MoltZapService.SOCKET_PATH),
-);
+    return resolvedAgentParticipant(result.agents[0]!.id);
+  }).pipe(Effect.withSpan("resolveParticipant"));

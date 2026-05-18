@@ -1,5 +1,6 @@
-import { describe, it } from "vitest";
-import { Deferred, Effect, Ref, Scope } from "effect";
+import { describe, expect, it } from "vitest";
+import { Deferred, Effect, Exit, Ref, Scope } from "effect";
+import * as fc from "fast-check";
 import type {
   NotificationFrame,
   RequestFrame,
@@ -13,7 +14,11 @@ import type {
   TestServer,
   TestServerConnection,
 } from "../_shared/driver/test-server.js";
-import { makeCaptureBuffer, recordFrame } from "../_shared/captures.js";
+import {
+  makeCaptureBuffer,
+  recordFrame,
+  type CaptureBuffer,
+} from "../_shared/captures.js";
 import { encodeFrame } from "../_shared/frame-mutator.js";
 import { requestFrame } from "../../../transport/wire.js";
 import { rpcMethods } from "../../../rpc-registry.js";
@@ -71,333 +76,574 @@ interface BadClientOptions {
   readonly rpcBehavior?: RpcBehavior;
 }
 
+interface ClientProofCase {
+  readonly title: string;
+  readonly register: (ctx: ClientConformanceRunContext) => void;
+  readonly opts: BadClientOptions;
+  readonly invariantName: string;
+  readonly timeoutMs?: number;
+}
+
+const CLIENT_PROOF_TIMEOUT_MS = 30_000;
+const MALFORMED_FRAME_PROOF_TIMEOUT_MS = 10_000;
+
+const CLIENT_PROOF_CASES: ReadonlyArray<ClientProofCase> = [
+  {
+    title:
+      "registerNotificationWellFormednessClient fails when surfaced notifications lose required fields",
+    register: registerNotificationWellFormednessClient,
+    opts: { eventBehavior: "strip-required-field" },
+    invariantName: "notification-well-formedness-client",
+    timeoutMs: CLIENT_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerFanOutCardinalityClient fails when a real client scrambles fan-out order",
+    register: registerFanOutCardinalityClient,
+    opts: { eventBehavior: "scramble-position-index" },
+    invariantName: "fan-out-cardinality-client",
+  },
+  {
+    title:
+      "registerPayloadOpacityClient fails when a real client rewrites payload bytes",
+    register: registerPayloadOpacityClient,
+    opts: { eventBehavior: "rewrite-payload" },
+    invariantName: "payload-opacity-client",
+  },
+  {
+    title:
+      "registerMalformedFrameHandlingClient fails when malformed frames poison liveness",
+    register: registerMalformedFrameHandlingClient,
+    opts: { eventBehavior: "close-on-malformed" },
+    invariantName: "malformed-frame-handling-client",
+    timeoutMs: MALFORMED_FRAME_PROOF_TIMEOUT_MS,
+  },
+  {
+    title:
+      "registerTaskBoundaryIsolationClient fails when task ids are cross-wired",
+    register: registerTaskBoundaryIsolationClient,
+    opts: { eventBehavior: "rewrite-conversation-id" },
+    invariantName: "task-boundary-isolation-client",
+  },
+  {
+    title:
+      "registerArchiveLifecycleClient fails when archive lifecycle order is wrong",
+    register: registerArchiveLifecycleClient,
+    opts: { eventBehavior: "swap-archive-lifecycle" },
+    invariantName: "archive-lifecycle-client",
+  },
+  {
+    title:
+      "registerSchemaExhaustiveFuzzClient fails when post-fuzz liveness is poisoned",
+    register: registerSchemaExhaustiveFuzzClient,
+    opts: { eventBehavior: "close-on-untagged-fuzz" },
+    invariantName: "schema-exhaustive-fuzz-client",
+  },
+  {
+    title:
+      "registerModelEquivalenceClient fails when RPC returns a non-response frame",
+    register: registerModelEquivalenceClient,
+    opts: { rpcBehavior: "non-response-type" },
+    invariantName: "model-equivalence-client",
+  },
+  {
+    title:
+      "registerRequestIdUniquenessClient fails when RPC resolves via a spurious id",
+    register: registerRequestIdUniquenessClient,
+    opts: { rpcBehavior: "spurious-id" },
+    invariantName: "request-id-uniqueness-client",
+  },
+];
+
 describe("client-side conformance executable divergence proofs", () => {
-  it("registerNotificationWellFormednessClient fails when surfaced notifications lose required fields", async () => {
-    const failure = await runSingleClientProof(
-      registerNotificationWellFormednessClient,
-      { eventBehavior: "strip-required-field" },
+  it("proof matrix maps every case to one invariant name", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...CLIENT_PROOF_CASES),
+        hasUniqueInvariantName,
+      ),
     );
-    expectInvariant(failure, "notification-well-formedness-client");
-  }, 30_000);
+    expect(CLIENT_PROOF_CASES).toHaveLength(9);
+  });
 
-  it("registerFanOutCardinalityClient fails when a real client scrambles fan-out order", async () => {
-    const failure = await runSingleClientProof(
-      registerFanOutCardinalityClient,
-      {
-        eventBehavior: "scramble-position-index",
+  for (const proof of CLIENT_PROOF_CASES) {
+    it(
+      proof.title,
+      () => {
+        expect.hasAssertions();
+        return Effect.runPromise(runClientProofCase(proof));
       },
+      proof.timeoutMs,
     );
-    expectInvariant(failure, "fan-out-cardinality-client");
-  });
-
-  it("registerPayloadOpacityClient fails when a real client rewrites payload bytes", async () => {
-    const failure = await runSingleClientProof(registerPayloadOpacityClient, {
-      eventBehavior: "rewrite-payload",
-    });
-    expectInvariant(failure, "payload-opacity-client");
-  });
-
-  it("registerMalformedFrameHandlingClient fails when malformed frames poison liveness", async () => {
-    const failure = await runSingleClientProof(
-      registerMalformedFrameHandlingClient,
-      { eventBehavior: "close-on-malformed" },
-    );
-    expectInvariant(failure, "malformed-frame-handling-client");
-  }, 10_000);
-
-  it("registerTaskBoundaryIsolationClient fails when task ids are cross-wired", async () => {
-    const failure = await runSingleClientProof(
-      registerTaskBoundaryIsolationClient,
-      { eventBehavior: "rewrite-conversation-id" },
-    );
-    expectInvariant(failure, "task-boundary-isolation-client");
-  });
-
-  it("registerArchiveLifecycleClient fails when archive lifecycle order is wrong", async () => {
-    const failure = await runSingleClientProof(registerArchiveLifecycleClient, {
-      eventBehavior: "swap-archive-lifecycle",
-    });
-    expectInvariant(failure, "archive-lifecycle-client");
-  });
-
-  it("registerSchemaExhaustiveFuzzClient fails when post-fuzz liveness is poisoned", async () => {
-    const failure = await runSingleClientProof(
-      registerSchemaExhaustiveFuzzClient,
-      { eventBehavior: "close-on-untagged-fuzz" },
-    );
-    expectInvariant(failure, "schema-exhaustive-fuzz-client");
-  });
-
-  it("registerModelEquivalenceClient fails when RPC returns a non-response frame", async () => {
-    const failure = await runSingleClientProof(registerModelEquivalenceClient, {
-      rpcBehavior: "non-response-type",
-    });
-    expectInvariant(failure, "model-equivalence-client");
-  });
-
-  it("registerRequestIdUniquenessClient fails when RPC resolves via a spurious id", async () => {
-    const failure = await runSingleClientProof(
-      registerRequestIdUniquenessClient,
-      { rpcBehavior: "spurious-id" },
-    );
-    expectInvariant(failure, "request-id-uniqueness-client");
-  });
+  }
 });
 
-async function runSingleClientProof(
+function hasUniqueInvariantName(proof: ClientProofCase): boolean {
+  return countProofsByInvariantName(proof.invariantName) === 1;
+}
+
+function countProofsByInvariantName(invariantName: string): number {
+  let count = 0;
+  for (const candidate of CLIENT_PROOF_CASES) {
+    if (candidate.invariantName === invariantName) count += 1;
+  }
+  return count;
+}
+
+const runClientProofCase = (proof: ClientProofCase): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const failure = yield* runSingleClientProof(proof.register, proof.opts);
+    expectInvariant(failure, proof.invariantName);
+  });
+
+function runSingleClientProof(
   register: (ctx: ClientConformanceRunContext) => void,
   opts: BadClientOptions,
-): Promise<PropertyFailure> {
-  const exit = await Effect.runPromiseExit(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const ctx = yield* makeBadClientContext(opts);
-        register(ctx);
-        const properties = collectProperties(ctx);
-        if (properties.length !== 1) {
-          return yield* Effect.die(
-            new Error(`expected one property, got ${properties.length}`),
-          );
-        }
-        const property = properties[0]!;
-        return yield* runExpectingFailure(property);
-      }),
-    ),
-  );
-  if (exit._tag === "Failure") {
-    throw new Error(`proof harness defect: ${exit.cause.toString()}`);
-  }
-  return exit.value;
+): Effect.Effect<PropertyFailure> {
+  return Effect.gen(function* () {
+    const exit = yield* Effect.exit(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const ctx = yield* makeBadClientContext(opts);
+          register(ctx);
+          const properties = collectProperties(ctx);
+          if (properties.length !== 1) {
+            return yield* Effect.die(
+              new Error(`expected one property, got ${properties.length}`),
+            );
+          }
+          return yield* runExpectingFailure(properties[0]!);
+        }),
+      ),
+    );
+    if (Exit.isFailure(exit)) {
+      return yield* Effect.die(
+        new Error(`proof harness defect: ${exit.cause.toString()}`),
+      );
+    }
+    return exit.value;
+  });
+}
+
+type BadClientPendingDeferred = Deferred.Deferred<
+  ResponseFrame | NotificationFrame,
+  RealClientRpcError
+>;
+
+type BadClientPendingMap = ReadonlyMap<string, BadClientPendingDeferred>;
+
+interface BadClientRuntime {
+  readonly opts: BadClientOptions;
+  readonly eventsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>;
+  readonly outboundIdsRef: Ref.Ref<ReadonlyArray<string>>;
+  readonly closeRef: Ref.Ref<RealClientCloseEvent | null>;
+  readonly connectionRef: Ref.Ref<TestServerConnection | null>;
+  readonly pendingRef: Ref.Ref<BadClientPendingMap>;
+  readonly bufferedResponseRef: Ref.Ref<ResponseFrame | null>;
+  readonly artifacts: Ref.Ref<ReadonlyArray<ConformanceArtifact>>;
+  readonly inbound: CaptureBuffer;
+  readonly requestCounterRef: Ref.Ref<number>;
+  readonly tagCounterRef: Ref.Ref<number>;
+}
+
+interface PendingRpc {
+  readonly id: string;
+  readonly deferred: BadClientPendingDeferred;
+}
+
+interface BadClientContextParts {
+  readonly runtime: BadClientRuntime;
+  readonly connection: TestServerConnection;
+  readonly handle: RealClientHandle;
+  readonly handshakeWindow: ClientHandshakeWindow;
 }
 
 function makeBadClientContext(
   opts: BadClientOptions,
 ): Effect.Effect<ClientConformanceRunContext, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const eventsRef = yield* Ref.make<ReadonlyArray<ObservedNotification>>([]);
-    const outboundIdsRef = yield* Ref.make<ReadonlyArray<string>>([]);
-    const closeRef = yield* Ref.make<RealClientCloseEvent | null>(null);
-    const connectionRef = yield* Ref.make<TestServerConnection | null>(null);
-    const pendingRef = yield* Ref.make<
-      ReadonlyMap<
-        string,
-        Deferred.Deferred<ResponseFrame | NotificationFrame, RealClientRpcError>
-      >
-    >(new Map());
-    // For spurious-id mode: buffer responses that arrive before any pending
-    // exists, so the bad client can later cross-correlate them onto a real
-    // pending call. Without this buffer the spurious response is silently
-    // dropped and the divergence proof fails to demonstrate the bug.
-    const bufferedResponseRef = yield* Ref.make<ResponseFrame | null>(null);
-    const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
-    const inbound = yield* makeCaptureBuffer({ capacity: 256 });
-
-    const publishNotification = (
-      frame: NotificationFrame,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const behavior = opts.eventBehavior ?? "normal";
-        const close = yield* Ref.get(closeRef);
-        if (close !== null && behavior === "close-on-malformed") return;
-        // Post-Phase-12 (#222) the runner records the (raw → tag) map at
-        // emit time rather than injecting `__emissionTag` into the
-        // payload (which would fail per-method validation). Read the
-        // tag back via the same registry the real adapter uses.
-        const preEncoded = new TextEncoder().encode(JSON.stringify(frame));
-        const tag = lookupTagForRawBytes(preEncoded);
-        if (behavior === "close-on-untagged-fuzz" && tag === null) {
-          yield* Ref.set(closeRef, {
-            code: 1002,
-            reason: "bad client closed during fuzz",
-            observedAtMs: Date.now(),
-          });
-        }
-        const surfaceFrame =
-          behavior === "strip-required-field"
-            ? stripNotificationName(frame)
-            : behavior === "scramble-position-index"
-              ? scrambleMessagePart(frame)
-              : behavior === "rewrite-payload"
-                ? rewriteMessagePatchedBy(frame, "rewritten")
-                : behavior === "rewrite-conversation-id"
-                  ? rewriteMessageConversationId(frame, "cross-wired-task")
-                  : behavior === "swap-archive-lifecycle"
-                    ? swapArchiveLifecycleNotification(frame)
-                    : frame;
-        const encoded = new TextEncoder().encode(JSON.stringify(surfaceFrame));
-        yield* Ref.update(eventsRef, (events) => [
-          ...events,
-          {
-            emissionTag: tag,
-            decoded: surfaceFrame,
-            rawBytes: encoded,
-            observedAtMs: Date.now(),
-          },
-        ]);
-      });
-
-    const resolveResponse = (response: ResponseFrame): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const behavior = opts.rpcBehavior ?? "normal";
-        const pending = yield* Ref.get(pendingRef);
-        if (behavior === "spurious-id") {
-          // Cross-correlation bug: route the FIRST response we see (whether
-          // its id matches or not) onto whatever the next pending call is.
-          // If no pending exists yet, buffer for later.
-          const firstPendingId = pending.keys().next().value;
-          if (typeof firstPendingId !== "string") {
-            yield* Ref.set(bufferedResponseRef, response);
-            return;
-          }
-          const deferred = pending.get(firstPendingId);
-          if (deferred === undefined) return;
-          yield* Deferred.succeed(deferred, response);
-          return;
-        }
-        if (typeof response.id !== "string") return;
-        const deferred = pending.get(response.id);
-        if (deferred === undefined) return;
-        const resolved =
-          behavior === "non-response-type"
-            ? ({
-                jsonrpc: "2.0",
-                method: jsonRpcMethod("proof/non-response"),
-                params: response,
-              } as NotificationFrame)
-            : response;
-        yield* Deferred.succeed(deferred, resolved);
-      });
-
-    const connection: TestServerConnection = {
-      connectionId: "bad-client-proof-connection",
-      remoteAddr: "in-memory",
-      inbound,
-      emitNotification: (notification) => publishNotification(notification),
-      emitResponse: (response) => resolveResponse(response),
-      emitMalformed: () =>
-        opts.eventBehavior === "close-on-malformed"
-          ? Ref.set(closeRef, {
-              code: 1002,
-              reason: "bad client closed on malformed frame",
-              observedAtMs: Date.now(),
-            })
-          : Effect.void,
-      close: (close) =>
-        Ref.set(closeRef, {
-          code: close.code,
-          reason: close.reason,
-          observedAtMs: Date.now(),
-        }),
-    };
-    yield* Ref.set(connectionRef, connection);
-
-    const notifications: RealClientNotificationSubscriber = {
-      subscribe: () =>
-        Effect.succeed({
-          id: "bad-client-proof-subscription",
-          unsubscribe: Effect.void,
-        } satisfies RealClientSubscription),
-      snapshot: Ref.get(eventsRef),
-    };
-
-    let requestCounter = 0;
-    const call: RealClientRpcCaller["call"] = (method, _params) =>
-      Effect.gen(function* () {
-        requestCounter += 1;
-        const id = `rpc-${requestCounter}`;
-        const deferred = yield* Deferred.make<
-          ResponseFrame | NotificationFrame,
-          RealClientRpcError
-        >();
-        yield* Ref.update(
-          pendingRef,
-          (pending) => new Map([...pending, [id, deferred]]),
-        );
-        yield* Ref.update(outboundIdsRef, (ids) => [...ids, id]);
-        // Spurious-id mode: if the bad client buffered an earlier response
-        // before any pending existed, cross-correlate it onto this fresh
-        // pending. This is the cross-correlation bug B4 catches.
-        if ((opts.rpcBehavior ?? "normal") === "spurious-id") {
-          const buffered = yield* Ref.get(bufferedResponseRef);
-          if (buffered !== null) {
-            yield* Ref.set(bufferedResponseRef, null);
-            yield* Deferred.succeed(deferred, buffered);
-          }
-        }
-        const conn = yield* Ref.get(connectionRef);
-        if (conn === null) {
-          return yield* Effect.die(new Error("connection not initialized"));
-        }
-        const definition = rpcMethods.find((def) => def.name === method);
-        if (definition === undefined || !definition.validateParams(_params)) {
-          return yield* Effect.die(new Error(`invalid proof RPC: ${method}`));
-        }
-        const request: RequestFrame = requestFrame(id, definition, _params);
-        yield* recordFrame(
-          conn.inbound,
-          "inbound",
-          encodeFrame(request),
-          request,
-        );
-        return yield* Deferred.await(deferred);
-      });
-
-    const handle: RealClientHandle = {
-      agentId: "00000000-0000-4000-8000-baadc11e7e57",
-      ready: Effect.void,
-      notifications,
-      call: { call, outboundIdFeed: Ref.get(outboundIdsRef) },
-      closeSignal: Effect.gen(function* () {
-        while (true) {
-          const close = yield* Ref.get(closeRef);
-          if (close !== null) return close;
-          yield* Effect.sleep("10 millis");
-        }
-      }),
-      close: Effect.void,
-    };
-
-    const testServer: TestServer = {
-      wsUrl: "ws://bad-client-proof.invalid",
-      accept: Effect.succeed(connection),
-      connections: Effect.succeed([connection]),
-      allInbound: inbound,
-      snapshot: inbound.snapshot,
-    };
-
-    let badProofTagCounter = 0;
-    const handshakeWindow: ClientHandshakeWindow = {
-      freshEmissionTag: Effect.sync(() => {
-        badProofTagCounter += 1;
-        return `bad-proof-tag-${badProofTagCounter}`;
-      }),
-      emitTaggedNotification: ({ connection, base, emissionTag }) => {
-        // Mirror `emitTaggedNotificationDefault`: register the (raw → tag)
-        // mapping on the runner's shared registry so `lookupTagForRawBytes`
-        // (used by both the real adapter and `publishNotification` below)
-        // resolves the tag from the wire bytes instead of an injected
-        // `__emissionTag` field that fails per-method validation.
-        registerEmittedFrameTag(JSON.stringify(base), emissionTag);
-        return connection.emitNotification(base).pipe(Effect.as(emissionTag));
-      },
-      emitTaggedResponse: ({ connection, base }) =>
-        connection.emitResponse(base).pipe(Effect.as(base.id)),
-      awaitHandshakeComplete: Effect.void,
-    };
-
-    return {
-      testServer,
-      realClientFactory: () => Effect.succeed(handle),
+    const runtime = yield* makeBadClientRuntime(opts);
+    const connection = makeBadServerConnection(runtime);
+    yield* Ref.set(runtime.connectionRef, connection);
+    const handle = makeBadClientHandle(runtime);
+    const handshakeWindow = makeBadHandshakeWindow(runtime);
+    return makeBadClientRunContext({
+      runtime,
+      connection,
+      handle,
       handshakeWindow,
-      toxiproxy: null,
-      opts: {
-        tiers: ["A", "B", "C", "E"],
-        realClient: () => Effect.succeed(handle),
-      },
-      seed: 42,
-      artifacts,
-    } satisfies ClientConformanceRunContext;
+    });
   });
+}
+
+function makeBadClientRuntime(
+  opts: BadClientOptions,
+): Effect.Effect<BadClientRuntime> {
+  return Effect.gen(function* () {
+    return {
+      opts,
+      eventsRef: yield* Ref.make<ReadonlyArray<ObservedNotification>>([]),
+      outboundIdsRef: yield* Ref.make<ReadonlyArray<string>>([]),
+      closeRef: yield* Ref.make<RealClientCloseEvent | null>(null),
+      connectionRef: yield* Ref.make<TestServerConnection | null>(null),
+      pendingRef: yield* Ref.make<BadClientPendingMap>(new Map()),
+      bufferedResponseRef: yield* Ref.make<ResponseFrame | null>(null),
+      artifacts: yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]),
+      inbound: yield* makeCaptureBuffer({ capacity: 256 }),
+      requestCounterRef: yield* Ref.make(0),
+      tagCounterRef: yield* Ref.make(0),
+    };
+  });
+}
+
+function makeBadServerConnection(
+  runtime: BadClientRuntime,
+): TestServerConnection {
+  return {
+    connectionId: "bad-client-proof-connection",
+    remoteAddr: "in-memory",
+    inbound: runtime.inbound,
+    emitNotification: (notification) =>
+      publishNotification(runtime, notification),
+    emitResponse: (response) => resolveResponse(runtime, response),
+    emitMalformed: () => emitMalformed(runtime),
+    close: (close) => setClose(runtime, close.code, close.reason),
+  };
+}
+
+function publishNotification(
+  runtime: BadClientRuntime,
+  frame: NotificationFrame,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const behavior = eventBehavior(runtime);
+    const close = yield* Ref.get(runtime.closeRef);
+    if (close !== null && behavior === "close-on-malformed") return;
+    const tag = lookupTagForRawBytes(encodedFrameBytes(frame));
+    yield* closeOnUntaggedFuzz(runtime, behavior, tag);
+    const surfaceFrame = surfaceNotificationFrame(behavior, frame);
+    yield* appendObservedNotification(runtime, surfaceFrame, tag);
+  });
+}
+
+function encodedFrameBytes(frame: NotificationFrame): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(frame));
+}
+
+function closeOnUntaggedFuzz(
+  runtime: BadClientRuntime,
+  behavior: EventBehavior,
+  tag: string | null,
+): Effect.Effect<void> {
+  return behavior === "close-on-untagged-fuzz" && tag === null
+    ? setClose(runtime, 1002, "bad client closed during fuzz")
+    : Effect.void;
+}
+
+function surfaceNotificationFrame(
+  behavior: EventBehavior,
+  frame: NotificationFrame,
+): unknown {
+  switch (behavior) {
+    case "strip-required-field":
+      return stripNotificationName(frame);
+    case "scramble-position-index":
+      return scrambleMessagePart(frame);
+    case "rewrite-payload":
+      return rewriteMessagePatchedBy(frame, "rewritten");
+    case "rewrite-conversation-id":
+      return rewriteMessageConversationId(frame, "cross-wired-task");
+    case "swap-archive-lifecycle":
+      return swapArchiveLifecycleNotification(frame);
+    default:
+      return frame;
+  }
+}
+
+function appendObservedNotification(
+  runtime: BadClientRuntime,
+  decoded: unknown,
+  emissionTag: string | null,
+): Effect.Effect<void> {
+  const rawBytes = new TextEncoder().encode(JSON.stringify(decoded));
+  return Ref.update(runtime.eventsRef, (events) => [
+    ...events,
+    { emissionTag, decoded, rawBytes, observedAtMs: Date.now() },
+  ]);
+}
+
+function resolveResponse(
+  runtime: BadClientRuntime,
+  response: ResponseFrame,
+): Effect.Effect<void> {
+  const behavior = rpcBehavior(runtime);
+  return behavior === "spurious-id"
+    ? resolveSpuriousResponse(runtime, response)
+    : resolveCorrelatedResponse(runtime, response, behavior);
+}
+
+function resolveSpuriousResponse(
+  runtime: BadClientRuntime,
+  response: ResponseFrame,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const pending = yield* Ref.get(runtime.pendingRef);
+    const pendingId = firstPendingId(pending);
+    if (pendingId === null) {
+      yield* Ref.set(runtime.bufferedResponseRef, response);
+      return;
+    }
+    const deferred = pending.get(pendingId);
+    if (deferred === undefined) return;
+    yield* Deferred.succeed(deferred, response);
+  });
+}
+
+function firstPendingId(pending: BadClientPendingMap): string | null {
+  const candidate = pending.keys().next().value;
+  return typeof candidate === "string" ? candidate : null;
+}
+
+function resolveCorrelatedResponse(
+  runtime: BadClientRuntime,
+  response: ResponseFrame,
+  behavior: RpcBehavior,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    if (typeof response.id !== "string") return;
+    const pending = yield* Ref.get(runtime.pendingRef);
+    const deferred = pending.get(response.id);
+    if (deferred === undefined) return;
+    yield* Deferred.succeed(deferred, responseForBehavior(response, behavior));
+  });
+}
+
+function responseForBehavior(
+  response: ResponseFrame,
+  behavior: RpcBehavior,
+): ResponseFrame | NotificationFrame {
+  return behavior === "non-response-type"
+    ? ({
+        jsonrpc: "2.0",
+        method: jsonRpcMethod("proof/non-response"),
+        params: response,
+      } as NotificationFrame)
+    : response;
+}
+
+function emitMalformed(runtime: BadClientRuntime): Effect.Effect<void> {
+  return eventBehavior(runtime) === "close-on-malformed"
+    ? setClose(runtime, 1002, "bad client closed on malformed frame")
+    : Effect.void;
+}
+
+function setClose(
+  runtime: BadClientRuntime,
+  code: number,
+  reason: string,
+): Effect.Effect<void> {
+  return Ref.set(runtime.closeRef, {
+    code,
+    reason,
+    observedAtMs: Date.now(),
+  });
+}
+
+function makeBadClientHandle(runtime: BadClientRuntime): RealClientHandle {
+  return {
+    agentId: "00000000-0000-4000-8000-baadc11e7e57",
+    ready: Effect.void,
+    notifications: makeNotificationSubscriber(runtime),
+    call: makeRpcCaller(runtime),
+    closeSignal: waitForCloseSignal(runtime),
+    close: Effect.void,
+  };
+}
+
+function makeNotificationSubscriber(
+  runtime: BadClientRuntime,
+): RealClientNotificationSubscriber {
+  return {
+    subscribe: () =>
+      Effect.succeed({
+        id: "bad-client-proof-subscription",
+        unsubscribe: Effect.void,
+      } satisfies RealClientSubscription),
+    snapshot: Ref.get(runtime.eventsRef),
+  };
+}
+
+function makeRpcCaller(runtime: BadClientRuntime): RealClientRpcCaller {
+  return {
+    call: (method, params) => callBadClientRpc(runtime, method, params),
+    outboundIdFeed: Ref.get(runtime.outboundIdsRef),
+  };
+}
+
+function callBadClientRpc(
+  runtime: BadClientRuntime,
+  method: string,
+  params: unknown,
+): ReturnType<RealClientRpcCaller["call"]> {
+  return Effect.gen(function* () {
+    const pending = yield* openPendingRpc(runtime);
+    yield* flushBufferedSpuriousResponse(runtime, pending.deferred);
+    const connection = yield* requireConnection(runtime);
+    const request = yield* makeProofRequest(pending.id, method, params);
+    yield* recordFrame(
+      connection.inbound,
+      "inbound",
+      encodeFrame(request),
+      request,
+    );
+    return yield* Deferred.await(pending.deferred);
+  });
+}
+
+function openPendingRpc(runtime: BadClientRuntime): Effect.Effect<PendingRpc> {
+  return Effect.gen(function* () {
+    const id = yield* nextRpcId(runtime);
+    const deferred = yield* Deferred.make<
+      ResponseFrame | NotificationFrame,
+      RealClientRpcError
+    >();
+    yield* Ref.update(
+      runtime.pendingRef,
+      (pending) => new Map([...pending, [id, deferred]]),
+    );
+    yield* Ref.update(runtime.outboundIdsRef, (ids) => [...ids, id]);
+    return { id, deferred };
+  });
+}
+
+function nextRpcId(runtime: BadClientRuntime): Effect.Effect<string> {
+  return Ref.modify(runtime.requestCounterRef, (count) => {
+    const next = count + 1;
+    return [`rpc-${next}`, next];
+  });
+}
+
+function flushBufferedSpuriousResponse(
+  runtime: BadClientRuntime,
+  deferred: BadClientPendingDeferred,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    if (rpcBehavior(runtime) !== "spurious-id") return;
+    const buffered = yield* Ref.get(runtime.bufferedResponseRef);
+    if (buffered === null) return;
+    yield* Ref.set(runtime.bufferedResponseRef, null);
+    yield* Deferred.succeed(deferred, buffered);
+  });
+}
+
+function requireConnection(
+  runtime: BadClientRuntime,
+): Effect.Effect<TestServerConnection> {
+  return Effect.gen(function* () {
+    const connection = yield* Ref.get(runtime.connectionRef);
+    if (connection !== null) return connection;
+    return yield* Effect.die(new Error("connection not initialized"));
+  });
+}
+
+function makeProofRequest(
+  id: string,
+  method: string,
+  params: unknown,
+): Effect.Effect<RequestFrame> {
+  return Effect.gen(function* () {
+    const definition = rpcMethods.find((def) => def.name === method);
+    if (definition === undefined || !definition.validateParams(params)) {
+      return yield* Effect.die(new Error(`invalid proof RPC: ${method}`));
+    }
+    return requestFrame(id, definition, params);
+  });
+}
+
+function waitForCloseSignal(
+  runtime: BadClientRuntime,
+): Effect.Effect<RealClientCloseEvent> {
+  return Effect.gen(function* () {
+    while (true) {
+      const close = yield* Ref.get(runtime.closeRef);
+      if (close !== null) return close;
+      yield* Effect.sleep("10 millis");
+    }
+  });
+}
+
+function makeBadHandshakeWindow(
+  runtime: BadClientRuntime,
+): ClientHandshakeWindow {
+  return {
+    freshEmissionTag: nextBadProofTag(runtime),
+    emitTaggedNotification: (input) => emitTaggedNotification(input),
+    emitTaggedResponse: (input) => emitTaggedResponse(input),
+    awaitHandshakeComplete: Effect.void,
+  };
+}
+
+function nextBadProofTag(runtime: BadClientRuntime): Effect.Effect<string> {
+  return Ref.modify(runtime.tagCounterRef, (count) => {
+    const next = count + 1;
+    return [`bad-proof-tag-${next}`, next];
+  });
+}
+
+function emitTaggedNotification(
+  input: Parameters<ClientHandshakeWindow["emitTaggedNotification"]>[0],
+): ReturnType<ClientHandshakeWindow["emitTaggedNotification"]> {
+  registerEmittedFrameTag(JSON.stringify(input.base), input.emissionTag);
+  return input.connection
+    .emitNotification(input.base)
+    .pipe(Effect.as(input.emissionTag));
+}
+
+function emitTaggedResponse(
+  input: Parameters<ClientHandshakeWindow["emitTaggedResponse"]>[0],
+): ReturnType<ClientHandshakeWindow["emitTaggedResponse"]> {
+  return input.connection
+    .emitResponse(input.base)
+    .pipe(Effect.as(input.base.id));
+}
+
+function makeBadClientRunContext(
+  parts: BadClientContextParts,
+): ClientConformanceRunContext {
+  const testServer = makeBadTestServer(parts.runtime, parts.connection);
+  return {
+    testServer,
+    realClientFactory: () => Effect.succeed(parts.handle),
+    handshakeWindow: parts.handshakeWindow,
+    toxiproxy: null,
+    opts: {
+      tiers: ["A", "B", "C", "E"],
+      realClient: () => Effect.succeed(parts.handle),
+    },
+    seed: 42,
+    artifacts: parts.runtime.artifacts,
+  };
+}
+
+function makeBadTestServer(
+  runtime: BadClientRuntime,
+  connection: TestServerConnection,
+): TestServer {
+  return {
+    wsUrl: "ws://bad-client-proof.invalid",
+    accept: Effect.succeed(connection),
+    connections: Effect.succeed([connection]),
+    allInbound: runtime.inbound,
+    snapshot: runtime.inbound.snapshot,
+  };
+}
+
+function eventBehavior(runtime: BadClientRuntime): EventBehavior {
+  return runtime.opts.eventBehavior ?? "normal";
+}
+
+function rpcBehavior(runtime: BadClientRuntime): RpcBehavior {
+  return runtime.opts.rpcBehavior ?? "normal";
 }
 
 function stripNotificationName(frame: NotificationFrame): unknown {
@@ -406,13 +652,25 @@ function stripNotificationName(frame: NotificationFrame): unknown {
   return withoutMethod;
 }
 
-/** Bug-injection: rewrite the message's `parts[0].text` so the C1
+const EMPTY_OBJECT: Readonly<Record<string, unknown>> = {};
+
+function objectOrEmpty(value: unknown): Readonly<Record<string, unknown>> {
+  return isObject(value) ? value : EMPTY_OBJECT;
+}
+
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Bug-injection: rewrite the message's `parts[0].text` so the C1
  * cardinality predicate observes a duplicate tag-position binding (the
  * test post-Phase-12 keys uniqueness on wire bytes; clobbering the part
- * text collapses two emissions onto the same wire form). */
+ * text collapses two emissions onto the same wire form).
+ */
 function scrambleMessagePart(frame: NotificationFrame): NotificationFrame {
-  const params = (frame.params ?? {}) as Record<string, unknown>;
-  const message = (params.message ?? {}) as Record<string, unknown>;
+  const params = objectOrEmpty(frame.params);
+  const message = objectOrEmpty(params.message);
   return {
     ...frame,
     params: {
@@ -422,15 +680,17 @@ function scrambleMessagePart(frame: NotificationFrame): NotificationFrame {
   } as NotificationFrame;
 }
 
-/** Bug-injection: overwrite `message.patchedBy` so the C3 payload-
+/**
+ * Bug-injection: overwrite `message.patchedBy` so the C3 payload-
  * opacity predicate cannot find its marker token in the surfaced raw
- * frame. */
+ * frame.
+ */
 function rewriteMessagePatchedBy(
   frame: NotificationFrame,
   newPatchedBy: string,
 ): NotificationFrame {
-  const params = (frame.params ?? {}) as Record<string, unknown>;
-  const message = (params.message ?? {}) as Record<string, unknown>;
+  const params = objectOrEmpty(frame.params);
+  const message = objectOrEmpty(params.message);
   return {
     ...frame,
     params: {
@@ -440,14 +700,16 @@ function rewriteMessagePatchedBy(
   } as NotificationFrame;
 }
 
-/** Bug-injection: cross-wire `params.conversationId` so the C4 task-
+/**
+ * Bug-injection: cross-wire `params.conversationId` so the C4 task-
  * boundary predicate detects the rewritten id on the surfaced
- * observation. */
+ * observation.
+ */
 function rewriteMessageConversationId(
   frame: NotificationFrame,
   newId: string,
 ): NotificationFrame {
-  const params = (frame.params ?? {}) as Record<string, unknown>;
+  const params = objectOrEmpty(frame.params);
   return {
     ...frame,
     params: { ...params, conversationId: newId },

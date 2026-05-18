@@ -16,7 +16,7 @@
  * server-core verbs.
  */
 import { describe, it, expect } from "vitest";
-import { Cause, Deferred, Effect, Exit, Ref, Scope } from "effect";
+import { Cause, Deferred, Effect, Exit, Option, Ref, Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
 import {
@@ -43,6 +43,13 @@ const CONVERSATION_ID = conversationId("550e8400-e29b-41d4-a716-446655440001");
 const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440002");
 const MESSAGE_ID = messageId("550e8400-e29b-41d4-a716-446655440003");
 const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" } as const;
+const RESPONSE_WAIT_TIMEOUT_MS = 2_000;
+const HANDLER_REJECTION_CODE = -32099;
+const JSON_RPC_METHOD_NOT_FOUND_CODE = -32601;
+const SHORT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 50;
+const GENEROUS_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 60_000;
+const DOMAIN_REJECTED_MESSAGE = "domain-rejected";
+const CALL_SITE_TIMEOUT_MESSAGE = "call-site-timeout";
 
 const authorizeDispatchParams = (taskId = TASK_ID) => ({
   taskId,
@@ -65,6 +72,7 @@ interface ScriptedServerHandle {
   readonly wsUrl: string;
   /** Push an arbitrary frame to the connected client. */
   readonly send: (frame: unknown) => Effect.Effect<void>;
+
   /**
    * Resolve once the client opens the WS. Useful so a test can sequence
    * "send task-callback" after the socket has come up but before any
@@ -74,6 +82,34 @@ interface ScriptedServerHandle {
   /** All raw frames the server has received, in order. */
   readonly received: Effect.Effect<ReadonlyArray<string>>;
 }
+
+type ScriptedServerWriter = (
+  raw: string | Uint8Array | Socket.CloseEvent,
+) => Effect.Effect<void>;
+
+const rawSocketDataToString = (data: string | Uint8Array): string =>
+  typeof data === "string" ? data : new TextDecoder("utf-8").decode(data);
+
+const appendReceivedData =
+  (data: string | Uint8Array) =>
+  (arr: ReadonlyArray<string>): ReadonlyArray<string> => [
+    ...arr,
+    rawSocketDataToString(data),
+  ];
+
+const recordReceivedData = (
+  receivedRef: Ref.Ref<ReadonlyArray<string>>,
+  data: string | Uint8Array,
+): Effect.Effect<void> => Ref.update(receivedRef, appendReceivedData(data));
+
+const ignoreWriterErrors =
+  (
+    write: (
+      raw: string | Uint8Array | Socket.CloseEvent,
+    ) => Effect.Effect<void, unknown>,
+  ): ScriptedServerWriter =>
+  (raw) =>
+    write(raw).pipe(Effect.ignore);
 
 /**
  * Bind a tiny WS server on `127.0.0.1:0` whose only job is to:
@@ -103,6 +139,8 @@ const makeScriptedServer: Effect.Effect<
     | null
   >(null);
   const receivedRef = yield* Ref.make<ReadonlyArray<string>>([]);
+  const onRawData = (data: string | Uint8Array) =>
+    recordReceivedData(receivedRef, data);
   const connectedDef = yield* Deferred.make<void>();
 
   yield* Effect.forkScoped(
@@ -110,16 +148,9 @@ const makeScriptedServer: Effect.Effect<
       .run((sock) =>
         Effect.gen(function* () {
           const write = yield* sock.writer;
-          yield* Ref.set(writerRef, (raw) => write(raw).pipe(Effect.ignore));
+          yield* Ref.set(writerRef, ignoreWriterErrors(write));
           yield* Deferred.succeed(connectedDef, undefined).pipe(Effect.ignore);
-          yield* sock.runRaw((data) =>
-            Ref.update(receivedRef, (arr) => [
-              ...arr,
-              typeof data === "string"
-                ? data
-                : new TextDecoder("utf-8").decode(data),
-            ]),
-          );
+          yield* sock.runRaw(onRawData);
         }),
       )
       .pipe(Effect.ignore),
@@ -152,31 +183,22 @@ const baseTestClientConfig = (wsUrl: string) =>
 
 const withClient = <A>(
   body: (client: TestClient, server: ScriptedServerHandle) => Effect.Effect<A>,
-): Promise<A> =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const server = yield* makeScriptedServer;
-        const client = yield* makeTestClient(
-          baseTestClientConfig(server.wsUrl),
-        );
-        yield* server.connected;
-        return yield* body(client, server);
-      }),
-    ).pipe(Effect.orDie),
-  );
+): Effect.Effect<A> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* makeScriptedServer;
+      const client = yield* makeTestClient(baseTestClientConfig(server.wsUrl));
+      yield* server.connected;
+      return yield* body(client, server);
+    }),
+  ).pipe(Effect.orDie);
 
 const findResponse = (
   raw: ReadonlyArray<string>,
   id: string,
 ): ResponseFrame | undefined => {
   for (const r of raw) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(r);
-    } catch {
-      continue;
-    }
+    const parsed: unknown = JSON.parse(r);
     if (
       validateResponseFrame(parsed) &&
       typeof parsed.id === "string" &&
@@ -213,7 +235,7 @@ function expectResponseError(reply: ResponseFrame): {
 const waitForResponse = (
   server: ScriptedServerHandle,
   id: string,
-  maxMs = 2_000,
+  maxMs = RESPONSE_WAIT_TIMEOUT_MS,
 ): Effect.Effect<ResponseFrame> =>
   Effect.gen(function* () {
     const deadline = Date.now() + maxMs;
@@ -230,222 +252,211 @@ const waitForResponse = (
     }
   });
 
-describe("TestClient — handleServerRpc", () => {
-  it("dispatches an inbound task-callback request to the registered handler and writes the response back", async () => {
-    await withClient((client, server) =>
-      Effect.gen(function* () {
-        yield* client.handleServerRpc(DispatchAuthorize, (params) =>
-          Effect.sync(() => {
-            expect(params.taskId).toBe(TASK_ID);
-            return grantResult();
+const validatingGrantHandler = (
+  params: ParamsOf<typeof DispatchAuthorize>,
+): Effect.Effect<ReturnType<typeof grantResult>> =>
+  Effect.sync(() => {
+    expect(params.taskId).toBe(TASK_ID);
+    return grantResult();
+  });
+
+const dispatchesInboundTaskCallback = withClient((client, server) =>
+  Effect.gen(function* () {
+    yield* client.handleServerRpc(DispatchAuthorize, validatingGrantHandler);
+    yield* server.send(
+      appCallbackRequest("srv-1", DispatchAuthorize, authorizeDispatchParams()),
+    );
+    const reply = yield* waitForResponse(server, "srv-1");
+    expect(expectResponseResult(reply)).toEqual(grantResult());
+  }),
+);
+
+const encodesTypedHandlerError = withClient((client, server) =>
+  Effect.gen(function* () {
+    yield* client.handleServerRpc(DispatchAuthorize, () =>
+      Effect.fail(
+        new RpcResponseError({
+          method: DispatchAuthorize.name,
+          requestId: "srv-2",
+          code: HANDLER_REJECTION_CODE,
+          message: DOMAIN_REJECTED_MESSAGE,
+          data: { reason: "x" },
+        }),
+      ),
+    );
+    yield* server.send(
+      appCallbackRequest("srv-2", DispatchAuthorize, authorizeDispatchParams()),
+    );
+    const reply = yield* waitForResponse(server, "srv-2");
+    const error = expectResponseError(reply);
+    expect(error.code).toBe(HANDLER_REJECTION_CODE);
+    expect(error.message).toBe(DOMAIN_REJECTED_MESSAGE);
+    expect(error.data).toEqual({ reason: "x" });
+  }),
+);
+
+const rejectsUnregisteredTaskCallback = withClient((_client, server) =>
+  Effect.gen(function* () {
+    yield* server.send(
+      appCallbackRequest("srv-3", DispatchAuthorize, authorizeDispatchParams()),
+    );
+    const reply = yield* waitForResponse(server, "srv-3");
+    const error = expectResponseError(reply);
+    expect(error.code).toBe(JSON_RPC_METHOD_NOT_FOUND_CODE);
+    expect(error.message).toContain(DispatchAuthorize.name);
+  }),
+);
+
+const replacesPriorTaskCallbackHandler = withClient((client, server) =>
+  Effect.gen(function* () {
+    yield* client.handleServerRpc(DispatchAuthorize, () =>
+      Effect.succeed(grantResult()),
+    );
+    yield* client.handleServerRpc(DispatchAuthorize, () =>
+      Effect.succeed(grantResult()),
+    );
+    yield* server.send(
+      appCallbackRequest("srv-4", DispatchAuthorize, authorizeDispatchParams()),
+    );
+    const reply = yield* waitForResponse(server, "srv-4");
+    expect(expectResponseResult(reply)).toEqual(grantResult());
+  }),
+);
+
+const awaitsRequestAndRunsHandler = withClient((client, server) =>
+  Effect.gen(function* () {
+    yield* client.handleServerRpc(DispatchAuthorize, validatingGrantHandler);
+    const awaitFiber = yield* Effect.fork(
+      client.awaitServerRequest(DispatchAuthorize),
+    );
+    yield* Effect.sleep("10 millis");
+    yield* server.send(
+      appCallbackRequest("srv-5", DispatchAuthorize, authorizeDispatchParams()),
+    );
+
+    const observed = yield* awaitFiber;
+    expect(observed).toEqual(authorizeDispatchParams());
+
+    const reply = yield* waitForResponse(server, "srv-5");
+    expect(expectResponseResult(reply)).toEqual(grantResult());
+  }),
+);
+
+const selectsFirstMatchingAwaitedRequest = withClient((client, server) =>
+  Effect.gen(function* () {
+    yield* client.handleServerRpc(DispatchAuthorize, () =>
+      Effect.succeed(grantResult()),
+    );
+    const wantedTaskId = makeTaskId("550e8400-e29b-41d4-a716-446655440099");
+    const awaitFiber = yield* Effect.fork(
+      client.awaitServerRequest(
+        DispatchAuthorize,
+        (p) => p.taskId === wantedTaskId,
+      ),
+    );
+    yield* Effect.sleep("10 millis");
+    yield* server.send(
+      appCallbackRequest("srv-skip", DispatchAuthorize, {
+        ...authorizeDispatchParams(
+          makeTaskId("550e8400-e29b-41d4-a716-446655440098"),
+        ),
+      }),
+    );
+    yield* server.send(
+      appCallbackRequest("srv-want", DispatchAuthorize, {
+        ...authorizeDispatchParams(wantedTaskId),
+      }),
+    );
+
+    const observed = yield* awaitFiber;
+    expect(observed.taskId).toBe(wantedTaskId);
+  }),
+);
+
+const callerSuppliedAwaitTimeout = withClient((client) =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.exit(
+      client.awaitServerRequest(
+        DispatchAuthorize,
+        undefined,
+        SHORT_AWAIT_SERVER_REQUEST_TIMEOUT_MS,
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const failure = Option.getOrNull(Cause.failureOption(exit.cause));
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toMatch(/Timeout.*dispatch\/authorize/);
+  }),
+);
+
+const callSiteTimeoutOverridesDefault = withClient((client) =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.exit(
+      client
+        .awaitServerRequest(
+          DispatchAuthorize,
+          undefined,
+          GENEROUS_AWAIT_SERVER_REQUEST_TIMEOUT_MS,
+        )
+        .pipe(
+          Effect.timeoutFail({
+            duration: "30 millis",
+            onTimeout: () => new Error(CALL_SITE_TIMEOUT_MESSAGE),
           }),
-        );
-        yield* server.send(
-          appCallbackRequest(
-            "srv-1",
-            DispatchAuthorize,
-            authorizeDispatchParams(),
-          ),
-        );
-        const reply = yield* waitForResponse(server, "srv-1");
-        expect(expectResponseResult(reply)).toEqual(grantResult());
-      }),
+        ),
     );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const failure = Option.getOrNull(Cause.failureOption(exit.cause));
+    expect((failure as Error).message).toBe(CALL_SITE_TIMEOUT_MESSAGE);
+  }),
+);
+
+describe("TestClient — handleServerRpc success", () => {
+  it("dispatches an inbound task-callback request to the registered handler and writes the response back", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(dispatchesInboundTaskCallback);
   });
 
-  it("encodes a typed RpcResponseError from the handler as a `response` frame with `error`", async () => {
-    await withClient((client, server) =>
-      Effect.gen(function* () {
-        yield* client.handleServerRpc(DispatchAuthorize, () =>
-          Effect.fail(
-            new RpcResponseError({
-              method: DispatchAuthorize.name,
-              requestId: "srv-2",
-              code: -32099,
-              message: "domain-rejected",
-              data: { reason: "x" },
-            }),
-          ),
-        );
-        yield* server.send(
-          appCallbackRequest(
-            "srv-2",
-            DispatchAuthorize,
-            authorizeDispatchParams(),
-          ),
-        );
-        const reply = yield* waitForResponse(server, "srv-2");
-        const error = expectResponseError(reply);
-        expect(error.code).toBe(-32099);
-        expect(error.message).toBe("domain-rejected");
-        expect(error.data).toEqual({ reason: "x" });
-      }),
-    );
-  });
-
-  it("rejects an unregistered method with -32601 (no handler)", async () => {
-    await withClient((_client, server) =>
-      Effect.gen(function* () {
-        yield* server.send(
-          appCallbackRequest(
-            "srv-3",
-            DispatchAuthorize,
-            authorizeDispatchParams(),
-          ),
-        );
-        const reply = yield* waitForResponse(server, "srv-3");
-        const error = expectResponseError(reply);
-        expect(error.code).toBe(-32601);
-        expect(error.message).toContain(DispatchAuthorize.name);
-      }),
-    );
-  });
-
-  it("registration ordering: a later handleServerRpc replaces the prior handler", async () => {
-    await withClient((client, server) =>
-      Effect.gen(function* () {
-        // Both registrations target the same method. The second wins —
-        // TestClient deliberately differs from the production
-        // `MoltZapWsClient.handleServerRpc`, which raises
-        // `DuplicateServerRpcHandlerError`. Tests routinely swap handler
-        // bodies mid-scenario.
-        yield* client.handleServerRpc(DispatchAuthorize, () =>
-          Effect.succeed(grantResult()),
-        );
-        yield* client.handleServerRpc(DispatchAuthorize, () =>
-          Effect.succeed(grantResult()),
-        );
-        yield* server.send(
-          appCallbackRequest(
-            "srv-4",
-            DispatchAuthorize,
-            authorizeDispatchParams(),
-          ),
-        );
-        const reply = yield* waitForResponse(server, "srv-4");
-        expect(expectResponseResult(reply)).toEqual(grantResult());
-      }),
-    );
+  it("registration ordering: a later handleServerRpc replaces the prior handler", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(replacesPriorTaskCallbackHandler);
   });
 });
 
-describe("TestClient — awaitServerRequest", () => {
-  it("resolves with the inbound request params and runs the handler in parallel", async () => {
-    await withClient((client, server) =>
-      Effect.gen(function* () {
-        yield* client.handleServerRpc(DispatchAuthorize, (params) =>
-          Effect.sync(() => {
-            expect(params.taskId).toBe(TASK_ID);
-            return grantResult();
-          }),
-        );
-        // Set up the awaiter BEFORE sending the request — the awaiter
-        // notification fires from `notifyAwaiters` during `handleInbound`,
-        // which runs synchronously per inbound frame.
-        const awaitFiber = yield* Effect.fork(
-          client.awaitServerRequest(DispatchAuthorize),
-        );
-        // Tiny yield so the awaiter has a chance to enrol.
-        yield* Effect.sleep("10 millis");
-        yield* server.send(
-          appCallbackRequest(
-            "srv-5",
-            DispatchAuthorize,
-            authorizeDispatchParams(),
-          ),
-        );
-
-        const observed = yield* awaitFiber;
-        expect(observed).toEqual(authorizeDispatchParams());
-
-        // Handler still ran — server saw the response.
-        const reply = yield* waitForResponse(server, "srv-5");
-        expect(expectResponseResult(reply)).toEqual(grantResult());
-      }),
-    );
+describe("TestClient — handleServerRpc errors", () => {
+  it("encodes a typed RpcResponseError from the handler as a `response` frame with `error`", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(encodesTypedHandlerError);
   });
 
-  it("predicate selects the FIRST matching request and skips earlier non-matches", async () => {
-    await withClient((client, server) =>
-      Effect.gen(function* () {
-        yield* client.handleServerRpc(DispatchAuthorize, () =>
-          Effect.succeed(grantResult()),
-        );
-        const wantedTaskId = makeTaskId("550e8400-e29b-41d4-a716-446655440099");
-        // Predicate matches taskId === wantedTaskId.
-        const awaitFiber = yield* Effect.fork(
-          client.awaitServerRequest(
-            DispatchAuthorize,
-            (p) => p.taskId === wantedTaskId,
-          ),
-        );
-        yield* Effect.sleep("10 millis");
-        // Send a non-matching request first.
-        yield* server.send(
-          appCallbackRequest("srv-skip", DispatchAuthorize, {
-            ...authorizeDispatchParams(
-              makeTaskId("550e8400-e29b-41d4-a716-446655440098"),
-            ),
-          }),
-        );
-        // Then the wanted one.
-        yield* server.send(
-          appCallbackRequest("srv-want", DispatchAuthorize, {
-            ...authorizeDispatchParams(wantedTaskId),
-          }),
-        );
+  it("rejects an unregistered method with -32601 (no handler)", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(rejectsUnregisteredTaskCallback);
+  });
+});
 
-        const observed = yield* awaitFiber;
-        expect(observed.taskId).toBe(wantedTaskId);
-      }),
-    );
+describe("TestClient — awaitServerRequest matching", () => {
+  it("resolves with the inbound request params and runs the handler in parallel", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(awaitsRequestAndRunsHandler);
   });
 
-  it("times out with a typed Error after caller-supplied timeoutMs", async () => {
-    const exit = await withClient((client) =>
-      Effect.gen(function* () {
-        // Caller-controlled timeout. No task-callback request is ever
-        // sent — the awaiter must terminate by the timeout, not hang.
-        return yield* Effect.exit(
-          client.awaitServerRequest(DispatchAuthorize, undefined, 50),
-        );
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const opt = Cause.failureOption(exit.cause);
-      expect(opt._tag).toBe("Some");
-      if (opt._tag === "Some") {
-        expect(opt.value).toBeInstanceOf(Error);
-        expect(opt.value.message).toMatch(/Timeout.*dispatch\/authorize/);
-      }
-    }
+  it("predicate selects the FIRST matching request and skips earlier non-matches", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(selectsFirstMatchingAwaitedRequest);
+  });
+});
+
+describe("TestClient — awaitServerRequest timeout", () => {
+  it("times out with a typed Error after caller-supplied timeoutMs", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(callerSuppliedAwaitTimeout);
   });
 
-  it("respects an outer Effect.timeout wrapped at the call site (overrides built-in default)", async () => {
-    const exit = await withClient((client) =>
-      Effect.gen(function* () {
-        // Pass a generous internal timeout, then gate at the call site
-        // with a tighter Effect.timeout. The architect plan §3.6 names
-        // this as the supported pattern: "Effect.timeout at call site,
-        // not schema cap."
-        return yield* Effect.exit(
-          client.awaitServerRequest(DispatchAuthorize, undefined, 60_000).pipe(
-            Effect.timeoutFail({
-              duration: "30 millis",
-              onTimeout: () => new Error("call-site-timeout"),
-            }),
-          ),
-        );
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const opt = Cause.failureOption(exit.cause);
-      expect(opt._tag).toBe("Some");
-      if (opt._tag === "Some") {
-        expect(opt.value.message).toBe("call-site-timeout");
-      }
-    }
+  it("respects an outer Effect.timeout wrapped at the call site", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(callSiteTimeoutOverridesDefault);
   });
 });

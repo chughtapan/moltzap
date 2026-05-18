@@ -5,20 +5,20 @@
 
 import type { ColumnType } from "kysely";
 
-export type AgentStatus = "active" | "pending_claim" | "suspended";
+type AgentStatus = "active" | "pending_claim" | "suspended";
 
-export type ContactStatus = "accepted" | "pending";
+type ContactStatus = "accepted" | "pending";
 
 export type ConversationType = "dm" | "group";
 
-export type EncryptionKeyStatus = "active" | "deprecated" | "revoked";
+type EncryptionKeyStatus = "active" | "deprecated" | "revoked";
 
-export type Generated<T> =
+type Generated<T> =
   T extends ColumnType<infer S, infer I, infer U>
     ? ColumnType<S, I | undefined, U>
     : ColumnType<T, T | undefined, T>;
 
-export type Int8 = ColumnType<
+type Int8 = ColumnType<
   string,
   bigint | number | string,
   bigint | number | string
@@ -29,11 +29,11 @@ export type Int8 = ColumnType<
  * union (e.g. `TmDecision`) at the boundary; the generated type stays
  * `unknown` so a Principle-2 schema decode happens at every read site.
  */
-export type Json = ColumnType<unknown, unknown, unknown>;
+type Json = ColumnType<unknown, unknown, unknown>;
 
-export type TaskStatus = "active" | "closed" | "failed" | "waiting";
+type TaskStatus = "active" | "closed" | "failed" | "waiting";
 
-export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface Agents {
   api_key_id: string;
@@ -108,6 +108,7 @@ export interface Messages {
   sender_id: string;
   seq: Int8;
   task_id: string | null;
+
   /**
    * #560: TM fan-out verdict, written by `MessageService.sendInsert`
    * as `{tag: "pending"}` and updated by `recordTmDecision` to
@@ -133,16 +134,4 @@ export interface Tasks {
   started_at: Timestamp | null;
   status: Generated<TaskStatus>;
   tm_endpoint_address: string;
-}
-
-export interface DB {
-  agents: Agents;
-  contacts: Contacts;
-  conversation_keys: ConversationKeys;
-  conversation_participants: ConversationParticipants;
-  conversations: Conversations;
-  encryption_keys: EncryptionKeys;
-  messages: Messages;
-  task_participants: TaskParticipants;
-  tasks: Tasks;
 }

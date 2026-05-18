@@ -4,7 +4,7 @@
  * FC seed.
  *
  * Parallel to `conformance/runner.ts` (server-side: real server + TestClient).
- * This module's input is `realClient: () => Effect<RealClientHandle, E,
+ * This module's input is `realClient: () => Effect&lt;RealClientHandle, E,
  * Scope>`; scope teardown closes the real client, drains the handshake-noise
  * guard (see `ClientHandshakeWindow` below), and releases the TestServer.
  *
@@ -49,9 +49,7 @@ import { PROTOCOL_VERSION } from "../../../version.js";
 import { Connect } from "../../../network/methods.js";
 
 const DEFAULT_ACCEPT_TIMEOUT_MS = 5_000;
-const RANDOM_TAG_RADIX = 36;
-const RANDOM_TAG_SLICE_END = 10;
-const RANDOM_TAG_SLICE_START = 2;
+const RANDOM_TAG_LENGTH = 8;
 const REPLAY_SEED_MASK = 0x7fffffff;
 
 const loadFastCheckSeed: Effect.Effect<number, never> = Config.integer(
@@ -60,6 +58,13 @@ const loadFastCheckSeed: Effect.Effect<number, never> = Config.integer(
   Effect.withConfigProvider(ConfigProvider.fromEnv()),
   Effect.orElseSucceed(() => Date.now() & REPLAY_SEED_MASK),
 );
+
+function randomTagSuffix(): string {
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, RANDOM_TAG_LENGTH);
+}
 
 /**
  * Opaque handle to a live real MoltZap client connected to `TestServer`.
@@ -77,6 +82,7 @@ export interface RealClientHandle {
    * Used to correlate TestServer-observed inbound frames to this client.
    */
   readonly agentId: string;
+
   /**
    * Fully-connected promise — resolves after the handshake completes and
    * the client is ready to receive notifications. Property bodies await this
@@ -84,6 +90,7 @@ export interface RealClientHandle {
    * window is closed (see `ClientHandshakeWindow`).
    */
   readonly ready: Effect.Effect<void, RealClientLifecycleError>;
+
   /**
    * Real client's public notification-subscriber surface. Every captured notification
    * is tagged with the property-authored `emissionId` when the property
@@ -91,17 +98,20 @@ export interface RealClientHandle {
    * that tag to exclude handshake-noise frames.
    */
   readonly notifications: RealClientNotificationSubscriber;
+
   /**
    * Real client's documented RPC caller. B1 / B4 / D5 predicates invoke
    * this and assert on the returned promise's resolution / rejection.
    */
   readonly call: RealClientRpcCaller;
+
   /**
    * Real client's documented close / disconnect lifecycle signal. D6
    * predicate awaits this on slow-close and asserts it resolves within
    * the reap deadline.
    */
   readonly closeSignal: Effect.Effect<RealClientCloseEvent>;
+
   /**
    * Scope-release hook. The runner's Scope calls this on teardown; a
    * close that throws surfaces as `RealClientLifecycleError`.
@@ -180,6 +190,10 @@ export class RealClientLifecycleError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+function newRealServerAcquireError(message: string): RealServerAcquireError {
+  return new RealServerAcquireError({ cause: new Error(message) });
+}
+
 /** Typed error surface for real-client RPC calls (D5 predicate target). */
 export class RealClientRpcError extends Data.TaggedError("RealClientRpcError")<{
   readonly cause: unknown;
@@ -243,6 +257,7 @@ export const ClientHandshakeWindow = Context.GenericTag<ClientHandshakeWindow>(
  * `ConformanceRunContext` — same `seed`, `toxiproxy`, `artifacts`
  * plumbing; different factory pair.
  */
+
 /**
  * Factory arguments the suite passes to every `realClient()` invocation.
  * The factory uses `testServerUrl` to point its WS client at the bound
@@ -274,6 +289,7 @@ export interface ClientConformanceRunOptions {
   readonly manageToxiproxy?: boolean;
   readonly toxiproxyUrl?: string;
   readonly artifactDir?: string;
+
   /**
    * If `true`, TestServer binds behind a Toxiproxy upstream matching the
    * adversity-tier `downstream` port; otherwise a direct bind. Default:
@@ -301,69 +317,68 @@ export function acquireClientRunContext(
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const effectiveOpts = {
-      ...opts,
-      numRuns: opts.numRuns ?? conformanceNumRunsFromEnv(),
-    };
+    const effectiveOpts = effectiveClientRunOptions(opts);
     const seed = effectiveOpts.replaySeed ?? (yield* loadFastCheckSeed);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
-
-    // Bind the TestServer under the ambient Scope. Server-close on teardown.
-    const testServer = yield* makeTestServer({
-      port: 0,
-      host: "127.0.0.1",
-      captureCapacity: 256,
-    }).pipe(
-      Effect.mapError(
-        (err) =>
-          new RealServerAcquireError({
-            cause: new Error(`TestServer bind failed: ${String(err)}`),
-          }),
-      ),
-    );
-
-    // Optional Toxiproxy acquisition — matches the server-side runner's
-    // contract (only allocate when tier "D" is present).
-    let toxiproxy: ToxiproxyClient | null = null;
-    if (
-      effectiveOpts.tiers.includes("D") &&
-      effectiveOpts.toxiproxyUrl !== undefined
-    ) {
-      const tp = yield* makeToxiproxyClient({
-        apiUrl: effectiveOpts.toxiproxyUrl,
-      });
-      yield* tp.ping.pipe(Effect.orElseSucceed(() => undefined));
-      toxiproxy = tp;
-    }
-
-    // Build a placeholder handshake window; property bodies overwrite it
-    // via `makeClientHandshakeWindow(handle)` once they have a handle.
-    // The context carries the initial no-op shape so type-system contracts
-    // hold; each property body still binds a per-handle window.
-    const handshakeWindow: ClientHandshakeWindow = {
-      freshEmissionTag: Effect.sync(
-        () =>
-          `tag-${Math.random()
-            .toString(RANDOM_TAG_RADIX)
-            .slice(RANDOM_TAG_SLICE_START, RANDOM_TAG_SLICE_END)}`,
-      ),
-      emitTaggedNotification: ({ connection, base, emissionTag }) =>
-        emitTaggedNotificationDefault(connection, base, emissionTag),
-      emitTaggedResponse: ({ connection, base, emissionTag }) =>
-        emitTaggedResponseDefault(connection, base, emissionTag),
-      awaitHandshakeComplete: Effect.void,
-    };
+    const testServer = yield* acquireClientTestServer;
+    const toxiproxy = yield* acquireClientToxiproxy(effectiveOpts);
 
     return {
       testServer,
       realClientFactory: effectiveOpts.realClient,
-      handshakeWindow,
+      handshakeWindow: makePlaceholderHandshakeWindow(),
       toxiproxy,
       opts: effectiveOpts,
       seed,
       artifacts,
     } satisfies ClientConformanceRunContext;
+  }).pipe(Effect.withSpan("acquireClientRunContext"));
+}
+
+function effectiveClientRunOptions(
+  opts: ClientConformanceRunOptions,
+): ClientConformanceRunOptions {
+  return {
+    ...opts,
+    numRuns: opts.numRuns ?? conformanceNumRunsFromEnv(),
+  };
+}
+
+const acquireClientTestServer = makeTestServer({
+  port: 0,
+  host: "127.0.0.1",
+  captureCapacity: 256,
+}).pipe(
+  Effect.mapError((err) =>
+    newRealServerAcquireError(`TestServer bind failed: ${String(err)}`),
+  ),
+);
+
+function acquireClientToxiproxy(
+  opts: ClientConformanceRunOptions,
+): Effect.Effect<ToxiproxyClient | null, ToxicControlError> {
+  const toxiproxyUrl = opts.toxiproxyUrl;
+  if (!opts.tiers.includes("D") || toxiproxyUrl === undefined) {
+    return Effect.succeed(null);
+  }
+  return Effect.gen(function* () {
+    const toxiproxy = yield* makeToxiproxyClient({
+      apiUrl: toxiproxyUrl,
+    });
+    yield* toxiproxy.ping.pipe(Effect.orElseSucceed(() => undefined));
+    return toxiproxy;
   });
+}
+
+function makePlaceholderHandshakeWindow(): ClientHandshakeWindow {
+  return {
+    freshEmissionTag: Effect.sync(() => `tag-${randomTagSuffix()}`),
+    emitTaggedNotification: ({ connection, base, emissionTag }) =>
+      emitTaggedNotificationDefault(connection, base, emissionTag),
+    emitTaggedResponse: ({ connection, base, emissionTag }) =>
+      emitTaggedResponseDefault(connection, base, emissionTag),
+    awaitHandshakeComplete: Effect.void,
+  };
 }
 
 /**
@@ -451,7 +466,7 @@ export function makeClientHandshakeWindow(
 ): Effect.Effect<ClientHandshakeWindow, never, Scope.Scope> {
   return Effect.gen(function* () {
     const tagCounter = yield* Ref.make(0);
-    return {
+    const handshakeWindow: ClientHandshakeWindow = {
       freshEmissionTag: Ref.updateAndGet(tagCounter, (n) => n + 1).pipe(
         Effect.map((n) => `emit-${handle.agentId}-${n}`),
       ),
@@ -461,7 +476,8 @@ export function makeClientHandshakeWindow(
         emitTaggedResponseDefault(connection, base, emissionTag),
       awaitHandshakeComplete: handle.ready,
     };
-  });
+    return handshakeWindow;
+  }).pipe(Effect.withSpan("makeClientHandshakeWindow"));
 }
 
 /**
@@ -515,7 +531,7 @@ export function runAutoHandshakeResponder(
           }
         }
       }
-    }),
+    }).pipe(Effect.withSpan("runAutoHandshakeResponder")),
   ).pipe(Effect.asVoid);
 }
 

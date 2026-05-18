@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for protocol testing utilities.
+ *
  * `@moltzap/protocol/testing` — TestClient + TestServer primitives,
  * reference model, arbitrary derivation, Toxiproxy adversity layer, and
  * the five-tier conformance runner.
@@ -31,7 +33,13 @@ export { TaskFailedNotificationDefinition } from "../task/methods.js";
 
 // Primitives.
 export {
+  NotificationWaitError,
+  ServerRequestWaitError,
   type CloseableTestClient,
+  type ServerRpcContext,
+  type ServerRpcDefinition,
+  type ServerRpcParams,
+  type ServerRpcResult,
   type TestClient,
   type TestClientConfig,
   makeCloseableTestClient,
@@ -80,6 +88,17 @@ export {
   AgentRegistrationError,
   registerTestAgent,
 } from "./conformance/_shared/test-fixtures.js";
+export {
+  type RegisterTestAppOptions,
+  type TestApp,
+  type TestAppCallbackHandler,
+  type TestAppCallbackScript,
+  type TestAppManifestOptions,
+  type TestAppRegistrationFailure,
+  TestAppRegistrationError,
+  makeTestAppManifest,
+  registerTestApp,
+} from "./conformance/_shared/test-app.js";
 
 // Arbitraries, models, toxics — namespaced to keep names scoped.
 export * as arbitraries from "./arbitraries/index.js";

@@ -1,13 +1,8 @@
 /**
- * `network/` — Connect, presence, app-TM registry, agent-endpoint resolution,
- * outbound `send`/`broadcast`.
+ * @file Network layer public barrel.
  *
- * Layer rules:
- *   - May import: kernels, transport, identity.
- *   - May NOT import: task, app.
- *
- * Public surface (post-2A.2): `AgentEndpointResolver`, `AppTmRegistry`,
- * `NetworkSendService`, `PresenceService`, presence event sink, network
- * handler registries.
+ * The network layer owns connect, presence, app task-manager registry,
+ * agent-endpoint resolution, and outbound send or broadcast routing. It may
+ * import kernels, transport, and identity, but not task or app.
  */
 export {};

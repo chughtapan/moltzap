@@ -26,7 +26,11 @@ export function sortJsonArray(
   arr: ReadonlyArray<unknown>,
 ): ReadonlyArray<unknown> {
   const keyed = arr.map((el) => ({ el, key: canonicalJson(el) }));
-  keyed.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  keyed.sort((a, b) => {
+    if (a.key < b.key) return -1;
+    if (a.key > b.key) return 1;
+    return 0;
+  });
   return keyed.map((k) => k.el);
 }
 
@@ -35,7 +39,7 @@ export function sortJsonArray(
  * Use before final `JSON.stringify` so key-order noise does not break
  * byte-compare. Safe to apply over any payload.
  */
-export function sortObjectKeysDeep(value: unknown): unknown {
+function sortObjectKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortObjectKeysDeep);
   if (value === null || typeof value !== "object") return value;
   const out: Record<string, unknown> = {};

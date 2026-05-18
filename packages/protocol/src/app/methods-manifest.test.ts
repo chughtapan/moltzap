@@ -1,25 +1,44 @@
 import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
+import { Either } from "effect";
+import * as fc from "fast-check";
 import {
-  AppManifestSchema,
+  validateAppManifest,
   DispatchAuthorize,
   DispatchRequest,
 } from "./methods.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 
-const validateManifest = ajv.compile(AppManifestSchema);
 const validateAuthorizeResult = ajv.compile(DispatchAuthorize.resultSchema);
 const validateRequestParams = ajv.compile(DispatchRequest.paramsSchema);
+const MANIFEST_PROPERTY_RUNS = 25;
 
-describe("AppManifestSchema", () => {
+const manifestIsValid = (manifest: unknown): boolean =>
+  Either.match(validateAppManifest(manifest), {
+    onLeft: () => false,
+    onRight: () => true,
+  });
+
+const manifestIsInvalid = (manifest: unknown): boolean =>
+  Either.match(validateAppManifest(manifest), {
+    onLeft: () => true,
+    onRight: () => false,
+  });
+
+const minimalManifestArbitrary = fc.record({
+  appId: fc.string(),
+  name: fc.string(),
+});
+
+describe("AppManifestSchema required shape", () => {
   it("accepts a valid manifest", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expect(manifestIsValid(manifest)).toBe(true);
   });
 
   it("accepts a full manifest with all optional fields", () => {
@@ -33,15 +52,23 @@ describe("AppManifestSchema", () => {
         { key: "den", name: "Werewolf Den", participantFilter: "none" },
       ],
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expect(manifestIsValid(manifest)).toBe(true);
+  });
+
+  it("accepts generated minimal manifests", () => {
+    const property = fc.property(minimalManifestArbitrary, manifestIsValid);
+    fc.assert(property, { numRuns: MANIFEST_PROPERTY_RUNS });
+    expect(manifestIsValid({ appId: "", name: "" })).toBe(true);
   });
 
   it("rejects manifest missing required fields", () => {
-    expect(validateManifest({ appId: "test" })).toBe(false);
-    expect(validateManifest({ name: "test" })).toBe(false);
-    expect(validateManifest({})).toBe(false);
+    expect(manifestIsInvalid({ appId: "test" })).toBe(true);
+    expect(manifestIsInvalid({ name: "test" })).toBe(true);
+    expect(manifestIsInvalid({})).toBe(true);
   });
+});
 
+describe("AppManifestSchema closed shape", () => {
   it("rejects invalid participantFilter values", () => {
     const manifest = {
       appId: "test",
@@ -50,7 +77,7 @@ describe("AppManifestSchema", () => {
         { key: "main", name: "Main", participantFilter: "invalid" },
       ],
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expect(manifestIsInvalid(manifest)).toBe(true);
   });
 
   it("rejects additional properties", () => {
@@ -59,16 +86,18 @@ describe("AppManifestSchema", () => {
       name: "Test",
       extra: "nope",
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expect(manifestIsInvalid(manifest)).toBe(true);
   });
+});
 
+describe("AppManifestSchema retired fields", () => {
   it("rejects retired permissions field", () => {
     const manifest = {
       appId: "test",
       name: "Test",
       permissions: { required: [], optional: [] },
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expect(manifestIsInvalid(manifest)).toBe(true);
   });
 
   it("rejects retired permissionTimeoutMs field", () => {
@@ -77,9 +106,11 @@ describe("AppManifestSchema", () => {
       name: "Test",
       permissionTimeoutMs: 30000,
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expect(manifestIsInvalid(manifest)).toBe(true);
   });
+});
 
+describe("AppManifestSchema hooks", () => {
   it("accepts manifest with dispatch_authorize timeout", () => {
     const manifest = {
       appId: "werewolf",
@@ -88,7 +119,7 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { timeout_ms: 3000 },
       },
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expect(manifestIsValid(manifest)).toBe(true);
   });
 
   it("accepts hook timeouts above 30s (no upper cap)", () => {
@@ -102,9 +133,11 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { timeout_ms: 900_000 },
       },
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expect(manifestIsValid(manifest)).toBe(true);
   });
+});
 
+describe("AppManifestSchema invalid hooks", () => {
   it("rejects non-positive hook timeouts", () => {
     const manifest = {
       appId: "werewolf",
@@ -113,7 +146,7 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { timeout_ms: 0 },
       },
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expect(manifestIsInvalid(manifest)).toBe(true);
   });
 
   it("rejects additional properties on hook entries", () => {
@@ -124,9 +157,11 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { unexpected: "value" },
       },
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expect(manifestIsInvalid(manifest)).toBe(true);
   });
+});
 
+describe("AppManifestSchema retired hooks", () => {
   it("rejects retired hook keys", () => {
     for (const key of [
       "before_dispatch",
@@ -140,7 +175,7 @@ describe("AppManifestSchema", () => {
         name: "Test",
         hooks: { [key]: { timeout_ms: 1000 } },
       };
-      expect(validateManifest(manifest)).toBe(false);
+      expect(manifestIsInvalid(manifest)).toBe(true);
     }
   });
 });

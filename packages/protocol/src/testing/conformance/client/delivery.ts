@@ -18,7 +18,7 @@
  * over): `observedCount === N`, not `≥ 1` and not `≤ N`. Duplicates
  * and drops fail symmetrically.
  */
-import { Effect } from "effect";
+import { Effect, type Scope } from "effect";
 import { notificationFrame } from "../../../transport/wire.js";
 import {
   ConversationArchivedNotificationDefinition,
@@ -32,11 +32,17 @@ import {
 } from "../_shared/test-fixtures.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../_shared/registry.js";
+import type {
+  PropertyFailure,
+  PropertyInvariantViolation,
+} from "../_shared/registry.js";
 import {
   acquireFixture,
   collectTagged,
   invariant,
   subscribeAll,
+  type ClientFixture,
+  type TaggedObservation,
 } from "./_fixtures.js";
 
 const CATEGORY = "delivery" as const;
@@ -46,8 +52,26 @@ const PROPERTY_PAYLOAD_OPACITY_CLIENT = "payload-opacity-client";
 const PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT =
   "task-boundary-isolation-client";
 const PAYLOAD_TOKEN_RADIX = 36;
+const FAN_OUT_EMISSION_COUNT = 5;
 const TASK_BOUNDARY_EMISSION_COUNT = 3;
 const LIFECYCLE_OBSERVATION_COUNT = 2;
+
+type ConversationId = ReturnType<typeof toConversationId>;
+type AgentId = ReturnType<typeof agentId>;
+
+interface FanOutEmissionPlan {
+  readonly tags: ReadonlyArray<string>;
+  readonly expectedSlotTexts: ReadonlyArray<string>;
+}
+
+interface TaskBoundaryCampaign {
+  readonly conversationId: ConversationId;
+  readonly tags: ReadonlyArray<string>;
+}
+
+type DeliveryPropertyEffect = Effect.Effect<void, PropertyFailure, Scope.Scope>;
+
+type DeliveryAssertion = Effect.Effect<void, PropertyInvariantViolation>;
 
 /**
  * C1 client-side — TestServer emits N fan-out `NotificationFrame`s (one
@@ -71,88 +95,119 @@ export function registerFanOutCardinalityClient(
     CATEGORY,
     PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
     "N fan-out notifications surface on real client in emission order, no drops, no dups",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
+    Effect.scoped(runFanOutCardinalityClient(ctx)),
+  );
+}
+
+function runFanOutCardinalityClient(
+  ctx: ClientConformanceRunContext,
+): DeliveryPropertyEffect {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
+    );
+    yield* subscribeAll(fx.handle);
+    const plan = yield* emitFanOutNotifications(fx);
+    const observed = yield* collectTagged(fx.handle, tagPredicate(plan.tags), {
+      expected: FAN_OUT_EMISSION_COUNT,
+      budgetMs: PROPERTY_BUDGET_MS,
+    });
+    yield* assertFanOutObservedCount(observed);
+    yield* assertFanOutOrderAndPayload(plan, observed);
+  }).pipe(Effect.withSpan("registerFanOutCardinalityClient"));
+}
+
+function emitFanOutNotifications(
+  fx: ClientFixture,
+): Effect.Effect<FanOutEmissionPlan> {
+  return Effect.gen(function* () {
+    const tags: string[] = [];
+    const expectedSlotTexts: string[] = [];
+    const senderId = agentId(fx.handle.agentId);
+    for (let i = 0; i < FAN_OUT_EMISSION_COUNT; i++) {
+      const slotText = `position-${i}`;
+      expectedSlotTexts.push(slotText);
+      const tag = yield* fx.window.freshEmissionTag;
+      tags.push(tag);
+      yield* fx.window.emitTaggedNotification({
+        connection: fx.connection,
+        base: fanOutNotification(senderId, i, slotText),
+        emissionTag: tag,
+      });
+    }
+    return { tags, expectedSlotTexts };
+  });
+}
+
+function fanOutNotification(senderId: AgentId, slot: number, text: string) {
+  return notificationFrame(MessageReceivedNotificationDefinition, {
+    message: {
+      id: messageId(`00000000-0000-4000-8000-${fanOutSlot(slot)}`),
+      conversationId: toConversationId("00000000-0000-4000-8000-fa0c0a0fa0c0"),
+      senderId,
+      parts: [{ type: "text", text }],
+      createdAt: new Date(0).toISOString(),
+    },
+  });
+}
+
+function tagPredicate(tags: ReadonlyArray<string>): (tag: string) => boolean {
+  const tagSet = new Set(tags);
+  return (tag) => tagSet.has(tag);
+}
+
+function assertFanOutObservedCount(
+  observed: ReadonlyArray<TaggedObservation>,
+): DeliveryAssertion {
+  return observed.length === FAN_OUT_EMISSION_COUNT
+    ? Effect.void
+    : Effect.fail(
+        invariant(
           CATEGORY,
           PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
-        );
-        yield* subscribeAll(fx.handle);
-        const N = 5;
-        const tags: string[] = [];
-        const expectedSlotTexts: string[] = [];
-        const senderId = agentId(fx.handle.agentId);
-        for (let i = 0; i < N; i++) {
-          // Mint a per-iteration distinct `messages/received` frame so
-          // `lookupTagForRawBytes`'s wire-bytes key is unique per
-          // emission (the C1 cardinality predicate must distinguish N
-          // frames, not collapse them via duplicate raw bytes).
-          const slotText = `position-${i}`;
-          expectedSlotTexts.push(slotText);
-          const positional = notificationFrame(
-            MessageReceivedNotificationDefinition,
-            {
-              message: {
-                id: messageId(`00000000-0000-4000-8000-${fanOutSlot(i)}`),
-                conversationId: toConversationId(
-                  "00000000-0000-4000-8000-fa0c0a0fa0c0",
-                ),
-                senderId,
-                parts: [{ type: "text", text: slotText }],
-                createdAt: new Date(0).toISOString(),
-              },
-            },
-          );
-          const tag = yield* fx.window.freshEmissionTag;
-          tags.push(tag);
-          yield* fx.window.emitTaggedNotification({
-            connection: fx.connection,
-            base: positional,
-            emissionTag: tag,
-          });
-        }
-        const tagSet = new Set(tags);
-        const observed = yield* collectTagged(fx.handle, (t) => tagSet.has(t), {
-          expected: N,
-          budgetMs: PROPERTY_BUDGET_MS,
-        });
-        if (observed.length !== N) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
-              `expected ${N} observations, got ${observed.length}`,
-            ),
-          );
-        }
-        // Strict ordering: observed tags arrive in emission order, and the
-        // surfaced wire content carries the per-slot text byte-for-byte
-        // (a re-serializing client that scrambles part bodies fails here).
-        for (let i = 0; i < N; i++) {
-          if (observed[i]!.tag !== tags[i]) {
-            return yield* Effect.fail(
-              invariant(
-                CATEGORY,
-                PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
-                `order mismatch at slot ${i}: expected ${tags[i]}, got ${observed[i]!.tag}`,
-              ),
-            );
-          }
-          const surfacedStr = new TextDecoder().decode(observed[i]!.raw);
-          if (!surfacedStr.includes(expectedSlotTexts[i]!)) {
-            return yield* Effect.fail(
-              invariant(
-                CATEGORY,
-                PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
-                `slot ${i} surfaced without per-slot marker text "${expectedSlotTexts[i]}"`,
-              ),
-            );
-          }
-        }
-      }),
-    ),
-  );
+          `expected ${FAN_OUT_EMISSION_COUNT} observations, got ${observed.length}`,
+        ),
+      );
+}
+
+function assertFanOutOrderAndPayload(
+  plan: FanOutEmissionPlan,
+  observed: ReadonlyArray<TaggedObservation>,
+): DeliveryAssertion {
+  return Effect.gen(function* () {
+    for (let i = 0; i < FAN_OUT_EMISSION_COUNT; i++) {
+      yield* assertFanOutSlot(plan, observed, i);
+    }
+  });
+}
+
+function assertFanOutSlot(
+  plan: FanOutEmissionPlan,
+  observed: ReadonlyArray<TaggedObservation>,
+  slot: number,
+): DeliveryAssertion {
+  const observation = observed[slot]!;
+  if (observation.tag !== plan.tags[slot]) {
+    return Effect.fail(
+      invariant(
+        CATEGORY,
+        PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
+        `order mismatch at slot ${slot}: expected ${plan.tags[slot]}, got ${observation.tag}`,
+      ),
+    );
+  }
+  const surfacedStr = new TextDecoder().decode(observation.raw);
+  return surfacedStr.includes(plan.expectedSlotTexts[slot]!)
+    ? Effect.void
+    : Effect.fail(
+        invariant(
+          CATEGORY,
+          PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
+          `slot ${slot} surfaced without per-slot marker text "${plan.expectedSlotTexts[slot]}"`,
+        ),
+      );
 }
 
 const FAN_OUT_SLOT_PAD = 12;
@@ -180,65 +235,86 @@ export function registerPayloadOpacityClient(
     CATEGORY,
     PROPERTY_PAYLOAD_OPACITY_CLIENT,
     "opaque payload token round-trips byte-identical through the real client",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
+    Effect.scoped(runPayloadOpacityClient(ctx)),
+  );
+}
+
+function runPayloadOpacityClient(
+  ctx: ClientConformanceRunContext,
+): DeliveryPropertyEffect {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_PAYLOAD_OPACITY_CLIENT,
+    );
+    yield* subscribeAll(fx.handle);
+    const token = payloadToken(ctx);
+    const tag = yield* emitPayloadOpacityNotification(fx, token);
+    const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
+      expected: 1,
+      budgetMs: PROPERTY_BUDGET_MS,
+    });
+    yield* assertPayloadTokenObserved(token, observed);
+  }).pipe(Effect.withSpan("registerPayloadOpacityClient"));
+}
+
+function payloadToken(ctx: ClientConformanceRunContext): string {
+  return `opq-${ctx.seed.toString(PAYLOAD_TOKEN_RADIX)}-${Date.now().toString(PAYLOAD_TOKEN_RADIX)}`;
+}
+
+function emitPayloadOpacityNotification(
+  fx: ClientFixture,
+  token: string,
+): Effect.Effect<string> {
+  return Effect.gen(function* () {
+    const tag = yield* fx.window.freshEmissionTag;
+    yield* fx.window.emitTaggedNotification({
+      connection: fx.connection,
+      base: payloadOpacityNotification(fx, token),
+      emissionTag: tag,
+    });
+    return tag;
+  });
+}
+
+function payloadOpacityNotification(fx: ClientFixture, token: string) {
+  return notificationFrame(MessageReceivedNotificationDefinition, {
+    message: {
+      id: messageId("00000000-0000-4000-8000-00000000c0de"),
+      conversationId: toConversationId("00000000-0000-4000-8000-00000000c1de"),
+      senderId: agentId(fx.handle.agentId),
+      parts: [{ type: "text", text: "x" }],
+      patchedBy: token,
+      createdAt: new Date(0).toISOString(),
+    },
+  });
+}
+
+function assertPayloadTokenObserved(
+  token: string,
+  observed: ReadonlyArray<TaggedObservation>,
+): DeliveryAssertion {
+  const surfaced = observed[0];
+  if (surfaced === undefined) {
+    return Effect.fail(
+      invariant(
+        CATEGORY,
+        PROPERTY_PAYLOAD_OPACITY_CLIENT,
+        `token ${token} emission not surfaced by real client`,
+      ),
+    );
+  }
+  const surfacedStr = new TextDecoder().decode(surfaced.raw);
+  return surfacedStr.includes(token)
+    ? Effect.void
+    : Effect.fail(
+        invariant(
           CATEGORY,
           PROPERTY_PAYLOAD_OPACITY_CLIENT,
-        );
-        yield* subscribeAll(fx.handle);
-        const token = `opq-${ctx.seed.toString(PAYLOAD_TOKEN_RADIX)}-${Date.now().toString(PAYLOAD_TOKEN_RADIX)}`;
-        // Embed the token in a schema-conformant `messages/received`
-        // payload (the `patchedBy` field is `Type.Optional(Type.String())`
-        // so any byte sequence round-trips). Post-Phase-12 #222 the typed
-        // inbound decoder validates per-method paramsSchema; opacity is
-        // tested over the body bytes that survive validation.
-        const base = notificationFrame(MessageReceivedNotificationDefinition, {
-          message: {
-            id: messageId("00000000-0000-4000-8000-00000000c0de"),
-            conversationId: toConversationId(
-              "00000000-0000-4000-8000-00000000c1de",
-            ),
-            senderId: agentId(fx.handle.agentId),
-            parts: [{ type: "text", text: "x" }],
-            patchedBy: token,
-            createdAt: new Date(0).toISOString(),
-          },
-        });
-        const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedNotification({
-          connection: fx.connection,
-          base,
-          emissionTag: tag,
-        });
-        const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
-          expected: 1,
-          budgetMs: PROPERTY_BUDGET_MS,
-        });
-        if (observed.length === 0) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_PAYLOAD_OPACITY_CLIENT,
-              `token ${token} emission not surfaced by real client`,
-            ),
-          );
-        }
-        const surfaced = observed[0]!;
-        const surfacedStr = new TextDecoder().decode(surfaced.raw);
-        if (!surfacedStr.includes(token)) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_PAYLOAD_OPACITY_CLIENT,
-              `token ${token} not present byte-for-byte in surfaced raw frame`,
-            ),
-          );
-        }
-      }),
-    ),
-  );
+          `token ${token} not present byte-for-byte in surfaced raw frame`,
+        ),
+      );
 }
 
 /**
@@ -257,91 +333,98 @@ export function registerTaskBoundaryIsolationClient(
     CATEGORY,
     PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
     "task-A subscriber does not surface task-B notifications — no leakage",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
+    Effect.scoped(runTaskBoundaryIsolationClient(ctx)),
+  );
+}
+
+function runTaskBoundaryIsolationClient(
+  ctx: ClientConformanceRunContext,
+): DeliveryPropertyEffect {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
+    );
+    yield* subscribeAll(fx.handle);
+    const taskA = toConversationId("00000000-0000-4000-8000-000000000a01");
+    const taskB = toConversationId("00000000-0000-4000-8000-000000000b02");
+    const by = agentId(fx.handle.agentId);
+    const campaignA = yield* emitTaskBoundaryCampaign(fx, taskA, by);
+    const campaignB = yield* emitTaskBoundaryCampaign(fx, taskB, by);
+    yield* drainTaskBoundaryCampaigns(fx, campaignA, campaignB);
+    yield* assertTaskBoundaryCampaign(fx, campaignA, "task-A");
+    yield* assertTaskBoundaryCampaign(fx, campaignB, "task-B");
+  }).pipe(Effect.withSpan("registerTaskBoundaryIsolationClient"));
+}
+
+function emitTaskBoundaryCampaign(
+  fx: ClientFixture,
+  conversationId: ConversationId,
+  by: AgentId,
+): Effect.Effect<TaskBoundaryCampaign> {
+  return Effect.gen(function* () {
+    const tags: string[] = [];
+    for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
+      const tag = yield* fx.window.freshEmissionTag;
+      tags.push(tag);
+      yield* fx.window.emitTaggedNotification({
+        connection: fx.connection,
+        base: archiveNotification(conversationId, by),
+        emissionTag: tag,
+      });
+    }
+    return { conversationId, tags };
+  });
+}
+
+function drainTaskBoundaryCampaigns(
+  fx: ClientFixture,
+  campaignA: TaskBoundaryCampaign,
+  campaignB: TaskBoundaryCampaign,
+): Effect.Effect<ReadonlyArray<TaggedObservation>> {
+  const tags = [...campaignA.tags, ...campaignB.tags];
+  return collectTagged(fx.handle, tagPredicate(tags), {
+    expected: tags.length,
+    budgetMs: PROPERTY_BUDGET_MS,
+  });
+}
+
+function assertTaskBoundaryCampaign(
+  fx: ClientFixture,
+  campaign: TaskBoundaryCampaign,
+  label: string,
+): DeliveryAssertion {
+  return Effect.gen(function* () {
+    const observed = yield* collectTagged(
+      fx.handle,
+      tagPredicate(campaign.tags),
+      {
+        expected: TASK_BOUNDARY_EMISSION_COUNT,
+        budgetMs: 0,
+      },
+    );
+    for (const obs of observed) {
+      yield* assertTaskBoundaryObservation(campaign, label, obs);
+    }
+  });
+}
+
+function assertTaskBoundaryObservation(
+  campaign: TaskBoundaryCampaign,
+  label: string,
+  obs: TaggedObservation,
+): DeliveryAssertion {
+  const actual = obs.params.conversationId;
+  return actual === campaign.conversationId
+    ? Effect.void
+    : Effect.fail(
+        invariant(
           CATEGORY,
           PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
-        );
-        yield* subscribeAll(fx.handle);
-        const taskA = toConversationId("00000000-0000-4000-8000-000000000a01");
-        const taskB = toConversationId("00000000-0000-4000-8000-000000000b02");
-        const by = agentId(fx.handle.agentId);
-        const archivedAt = new Date(0).toISOString();
-        const buildBase = (cid: typeof taskA) =>
-          notificationFrame(ConversationArchivedNotificationDefinition, {
-            conversationId: cid,
-            archivedAt,
-            by,
-          });
-        // Emit task-A frames (each tag distinct so wire bytes vary).
-        const tagsA: string[] = [];
-        for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
-          const tag = yield* fx.window.freshEmissionTag;
-          tagsA.push(tag);
-          yield* fx.window.emitTaggedNotification({
-            connection: fx.connection,
-            base: buildBase(taskA),
-            emissionTag: tag,
-          });
-        }
-        // Emit task-B frames that must NOT cross-wire to task-A's
-        // conversationId on the surfaced wire frame (positive-path
-        // witness — divergence proof rewrites conversationId post-emit).
-        const tagsB: string[] = [];
-        for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
-          const tag = yield* fx.window.freshEmissionTag;
-          tagsB.push(tag);
-          yield* fx.window.emitTaggedNotification({
-            connection: fx.connection,
-            base: buildBase(taskB),
-            emissionTag: tag,
-          });
-        }
-        const tagSetA = new Set(tagsA);
-        const tagSetB = new Set(tagsB);
-        // Drain window: wait for all tagged emissions to arrive.
-        yield* collectTagged(
-          fx.handle,
-          (t) => tagSetA.has(t) || tagSetB.has(t),
-          { expected: 6, budgetMs: PROPERTY_BUDGET_MS },
-        );
-        const taggedA = yield* collectTagged(fx.handle, (t) => tagSetA.has(t), {
-          expected: 3,
-          budgetMs: 0,
-        });
-        for (const obs of taggedA) {
-          const cid = obs.params.conversationId;
-          if (cid !== taskA) {
-            return yield* Effect.fail(
-              invariant(
-                CATEGORY,
-                PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
-                `task-A emission surfaced with conversationId ${String(cid)}`,
-              ),
-            );
-          }
-        }
-        const taggedB = yield* collectTagged(fx.handle, (t) => tagSetB.has(t), {
-          expected: 3,
-          budgetMs: 0,
-        });
-        for (const obs of taggedB) {
-          const cid = obs.params.conversationId;
-          if (cid !== taskB) {
-            return yield* Effect.fail(
-              invariant(
-                CATEGORY,
-                PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
-                `task-B emission surfaced with conversationId ${String(cid)} (cross-wiring)`,
-              ),
-            );
-          }
-        }
-      }),
-    ),
-  );
+          `${label} emission surfaced with conversationId ${String(actual)}`,
+        ),
+      );
 }
 
 /**
@@ -358,65 +441,97 @@ export function registerArchiveLifecycleClient(
     CATEGORY,
     name,
     "archive/unarchive lifecycle notifications surface on the real client in order",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(ctx, CATEGORY, name);
-        yield* subscribeAll(fx.handle);
+    Effect.scoped(runArchiveLifecycleClient(ctx, name)),
+  );
+}
 
-        const conversationId = toConversationId(
-          "00000000-0000-4000-8000-000000000001",
-        );
-        const by = agentId(fx.handle.agentId);
-        const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedNotification({
-          connection: fx.connection,
-          base: notificationFrame(ConversationArchivedNotificationDefinition, {
-            conversationId,
-            archivedAt: new Date(0).toISOString(),
-            by,
-          }),
-          emissionTag: tag,
-        });
-        yield* fx.window.emitTaggedNotification({
-          connection: fx.connection,
-          base: notificationFrame(
-            ConversationUnarchivedNotificationDefinition,
-            {
-              conversationId,
-              by,
-            },
-          ),
-          emissionTag: tag,
-        });
+function runArchiveLifecycleClient(
+  ctx: ClientConformanceRunContext,
+  name: string,
+): DeliveryPropertyEffect {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(ctx, CATEGORY, name);
+    yield* subscribeAll(fx.handle);
+    const conversationId = toConversationId(
+      "00000000-0000-4000-8000-000000000001",
+    );
+    const by = agentId(fx.handle.agentId);
+    const tag = yield* emitArchiveLifecycle(fx, conversationId, by);
+    const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
+      expected: LIFECYCLE_OBSERVATION_COUNT,
+      budgetMs: PROPERTY_BUDGET_MS,
+    });
+    yield* assertArchiveLifecycleObserved(name, observed);
+  }).pipe(Effect.withSpan("registerArchiveLifecycleClient"));
+}
 
-        const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
-          expected: LIFECYCLE_OBSERVATION_COUNT,
-          budgetMs: PROPERTY_BUDGET_MS,
-        });
-        if (observed.length !== LIFECYCLE_OBSERVATION_COUNT) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              name,
-              `expected ${LIFECYCLE_OBSERVATION_COUNT} lifecycle observations, got ${observed.length}`,
-            ),
-          );
-        }
-        if (
-          observed[0]?.notificationName !==
-            ConversationArchivedNotificationDefinition.name ||
-          observed[1]?.notificationName !==
-            ConversationUnarchivedNotificationDefinition.name
-        ) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              name,
-              `lifecycle order mismatch: ${observed.map((o) => o.notificationName).join(",")}`,
-            ),
-          );
-        }
-      }),
-    ),
+function emitArchiveLifecycle(
+  fx: ClientFixture,
+  conversationId: ConversationId,
+  by: AgentId,
+): Effect.Effect<string> {
+  return Effect.gen(function* () {
+    const tag = yield* fx.window.freshEmissionTag;
+    yield* fx.window.emitTaggedNotification({
+      connection: fx.connection,
+      base: archiveNotification(conversationId, by),
+      emissionTag: tag,
+    });
+    yield* fx.window.emitTaggedNotification({
+      connection: fx.connection,
+      base: unarchiveNotification(conversationId, by),
+      emissionTag: tag,
+    });
+    return tag;
+  });
+}
+
+function archiveNotification(conversationId: ConversationId, by: AgentId) {
+  return notificationFrame(ConversationArchivedNotificationDefinition, {
+    conversationId,
+    archivedAt: new Date(0).toISOString(),
+    by,
+  });
+}
+
+function unarchiveNotification(conversationId: ConversationId, by: AgentId) {
+  return notificationFrame(ConversationUnarchivedNotificationDefinition, {
+    conversationId,
+    by,
+  });
+}
+
+function assertArchiveLifecycleObserved(
+  name: string,
+  observed: ReadonlyArray<TaggedObservation>,
+): DeliveryAssertion {
+  if (observed.length !== LIFECYCLE_OBSERVATION_COUNT) {
+    return Effect.fail(
+      invariant(
+        CATEGORY,
+        name,
+        `expected ${LIFECYCLE_OBSERVATION_COUNT} lifecycle observations, got ${observed.length}`,
+      ),
+    );
+  }
+  return archiveLifecycleInOrder(observed)
+    ? Effect.void
+    : Effect.fail(
+        invariant(
+          CATEGORY,
+          name,
+          `lifecycle order mismatch: ${observed.map((o) => o.notificationName).join(",")}`,
+        ),
+      );
+}
+
+function archiveLifecycleInOrder(
+  observed: ReadonlyArray<TaggedObservation>,
+): boolean {
+  return (
+    observed[0]?.notificationName ===
+      ConversationArchivedNotificationDefinition.name &&
+    observed[1]?.notificationName ===
+      ConversationUnarchivedNotificationDefinition.name
   );
 }

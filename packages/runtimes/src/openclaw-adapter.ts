@@ -1,10 +1,8 @@
-import { Data, Effect, pipe } from "effect";
-import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
-import fs from "node:fs";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
+import type { Process, Signal } from "@effect/platform/CommandExecutor";
+import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
+import { NodeContext, NodeSocketServer } from "@effect/platform-node";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import type {
   Runtime,
@@ -15,14 +13,18 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 import {
+  processExitLoop,
+  promoteTimeoutIfProcessExited,
+} from "./adapter-readiness.js";
+import {
   installChannelPlugin as installSharedChannelPlugin,
   resolveChannelDependency,
   seedWorkspaceFiles as seedSharedWorkspaceFiles,
 } from "./channel-plugin-install.js";
+import { resolveWorkspaceOpenClawBin } from "./package-resolution.js";
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
-const PROCESS_GROUP_POLL_INTERVAL_MS = 100;
 const DEFAULT_OPENCLAW_MODEL_ID = "openai-codex/gpt-5.4";
 const TOKEN_RADIX = 36;
 const JSON_INDENT_SPACES = 2;
@@ -33,8 +35,111 @@ class WorkspaceRootNotFound extends Data.TaggedError("WorkspaceRootNotFound")<{
 
 class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
   readonly message: string;
-  readonly cause?: Error;
+  readonly cause?: unknown;
 }> {}
+
+const UTF8_DECODER = new TextDecoder("utf-8");
+
+function consumeProcessStream(
+  stream: Stream.Stream<Uint8Array, unknown>,
+  logBuffer: { value: string },
+): Effect.Effect<void, never, never> {
+  return pipe(
+    stream,
+    Stream.runForEach((chunk) =>
+      Effect.sync(() => {
+        logBuffer.value += UTF8_DECODER.decode(chunk);
+      }),
+    ),
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
+function exitPollToCode(exit: Exit.Exit<number, never>): Option.Option<number> {
+  return Exit.match(exit, {
+    onSuccess: (code) => Option.some(code),
+    onFailure: () => Option.some(-1),
+  });
+}
+
+function pollExitCode(
+  proc: SpawnedProcess,
+): Effect.Effect<Option.Option<number>, never, never> {
+  return Fiber.poll(proc.exitFiber).pipe(
+    Effect.map(
+      Option.match({
+        onNone: () => Option.none<number>(),
+        onSome: exitPollToCode,
+      }),
+    ),
+  );
+}
+
+function killAndPoll(
+  proc: SpawnedProcess,
+  signal: Signal,
+  timeoutMs: number,
+): Effect.Effect<Option.Option<number>, never, never> {
+  return proc.kill(signal).pipe(
+    Effect.timeout(`${timeoutMs} millis`),
+    Effect.catchAll(() => Effect.void),
+    Effect.zipRight(pollExitCode(proc)),
+  );
+}
+
+function waitAfterSigterm(
+  proc: SpawnedProcess,
+): Effect.Effect<number, never, never> {
+  return killAndPoll(proc, "SIGTERM", OPENCLAW_TERM_WAIT_MS).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          killAndPoll(proc, "SIGKILL", OPENCLAW_KILL_WAIT_MS).pipe(
+            Effect.map(Option.getOrElse(() => -1)),
+          ),
+        onSome: Effect.succeed,
+      }),
+    ),
+  );
+}
+
+function spawnOpenClawProcess(opts: {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly logBuffer: { value: string };
+}): Effect.Effect<SpawnedProcess, Error, never> {
+  const command = pipe(
+    Command.make(opts.command, ...opts.args),
+    Command.workingDirectory(opts.cwd),
+    Command.env(opts.env),
+  );
+
+  return Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const proc = yield* Command.start(command).pipe(Scope.extend(scope));
+    const exitFiber = yield* proc.exitCode.pipe(
+      Effect.map(Number),
+      Effect.catchAll(() => Effect.succeed(-1)),
+      Effect.forkIn(scope),
+    );
+    yield* consumeProcessStream(proc.stdout, opts.logBuffer).pipe(
+      Effect.forkIn(scope),
+    );
+    yield* consumeProcessStream(proc.stderr, opts.logBuffer).pipe(
+      Effect.forkIn(scope),
+    );
+    const kill = (signal: Signal): Effect.Effect<void, never, never> =>
+      proc.kill(signal).pipe(Effect.catchAll(() => Effect.void));
+    return { proc, exitFiber, kill, scope } satisfies SpawnedProcess;
+  }).pipe(
+    Effect.provide(NodeContext.layer),
+    Effect.mapError((cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+    ),
+  );
+}
 
 export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
@@ -51,11 +156,89 @@ export interface WorkspaceOpenClawAdapterInput {
 }
 
 interface AdapterState {
-  child: ChildProcess;
+  process: SpawnedProcess;
   stateDir: string;
-  logBuffer: string;
+  logBuffer: { value: string };
   spawnInput: SpawnInput;
   tornDown: boolean;
+}
+
+interface SpawnedProcess {
+  readonly proc: Process;
+  readonly exitFiber: Fiber.RuntimeFiber<number, never>;
+  readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
+  readonly scope: Scope.CloseableScope;
+}
+
+interface OpenClawProcessPlan {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+}
+
+function buildOpenClawProcessPlan(
+  openclawBin: string,
+  port: number,
+): OpenClawProcessPlan {
+  const openclawArgs = [
+    "gateway",
+    "run",
+    "--allow-unconfigured",
+    "--port",
+    String(port),
+  ];
+  return openclawBin.endsWith(".mjs")
+    ? { command: "node", args: [openclawBin, ...openclawArgs] }
+    : { command: openclawBin, args: openclawArgs };
+}
+
+function prepareOpenClawStateDir(
+  deps: OpenClawAdapterDeps,
+  input: SpawnInput,
+): Effect.Effect<string, unknown, FileSystem.FileSystem | Path.Path> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fileSystem.makeTempDirectory({
+        prefix: `openclaw-${input.agentName}-`,
+      }),
+    ),
+    Effect.tap((stateDir) =>
+      Effect.all([
+        writeOpenClawConfig({
+          stateDir,
+          serverUrl: input.serverUrl,
+          apiKey: input.apiKey,
+          agentName: input.agentName,
+          modelId: input.modelId,
+        }),
+        seedWorkspaceFiles(stateDir, input.workspaceFiles),
+      ]),
+    ),
+    Effect.tap((stateDir) =>
+      installChannelPlugin(stateDir, deps.channelDistDir, deps.repoRoot),
+    ),
+  );
+}
+
+function spawnConfiguredOpenClaw(
+  deps: OpenClawAdapterDeps,
+  stateDir: string,
+  port: number,
+  logBuffer: { value: string },
+): Effect.Effect<SpawnedProcess, Error, Path.Path> {
+  return Path.Path.pipe(
+    Effect.flatMap((platformPath) => {
+      const plan = buildOpenClawProcessPlan(deps.openclawBin, port);
+      return spawnOpenClawProcess({
+        ...plan,
+        cwd: stateDir,
+        env: {
+          OPENCLAW_STATE_DIR: stateDir,
+          OPENCLAW_CONFIG_PATH: platformPath.join(stateDir, "openclaw.json"),
+        },
+        logBuffer,
+      });
+    }),
+  );
 }
 
 export class OpenClawAdapter implements Runtime {
@@ -74,123 +257,51 @@ export class OpenClawAdapter implements Runtime {
     };
 
     return Effect.gen(this, function* () {
-      const port = yield* allocateFreePort().pipe(
-        Effect.mapError(toSpawnFailed),
+      const port = yield* allocateFreePort();
+      const { deps } = this;
+      const stateDir = yield* prepareOpenClawStateDir(deps, input);
+      const logBuffer = { value: "" };
+      const child = yield* spawnConfiguredOpenClaw(
+        deps,
+        stateDir,
+        port,
+        logBuffer,
       );
 
-      yield* Effect.try({
-        try: () => {
-          const { deps } = this;
-          const stateDir = fs.mkdtempSync(
-            path.join(os.tmpdir(), `openclaw-${input.agentName}-`),
-          );
+      const st: AdapterState = {
+        process: child,
+        stateDir,
+        logBuffer,
+        spawnInput: input,
+        tornDown: false,
+      };
 
-          writeOpenClawConfig({
-            stateDir,
-            serverUrl: input.serverUrl,
-            apiKey: input.apiKey,
-            agentName: input.agentName,
-            modelId: input.modelId,
-          });
-          seedWorkspaceFiles(stateDir, input.workspaceFiles);
-
-          installChannelPlugin(stateDir, deps.channelDistDir, deps.repoRoot);
-
-          const openclawArgs = [
-            "gateway",
-            "run",
-            "--allow-unconfigured",
-            "--port",
-            String(port),
-          ];
-          const [command, args] = deps.openclawBin.endsWith(".mjs")
-            ? ["node", [deps.openclawBin, ...openclawArgs]]
-            : [deps.openclawBin, openclawArgs];
-
-          const child = nodeSpawn(command, args, {
-            cwd: stateDir,
-            env: filterDefinedEnv(globalThis.process.env, {
-              OPENCLAW_STATE_DIR: stateDir,
-              OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
-            }),
-            stdio: ["ignore", "pipe", "pipe"],
-            // detached:true makes the child the leader of its own process group.
-            // This lets teardown kill the entire group via process.kill(-pid, signal).
-            detached: true,
-          });
-
-          const st: AdapterState = {
-            child,
-            stateDir,
-            logBuffer: "",
-            spawnInput: input,
-            tornDown: false,
-          };
-
-          const onChunk = (chunk: Buffer) => {
-            st.logBuffer += chunk.toString();
-          };
-          child.stdout?.on("data", onChunk);
-          child.stderr?.on("data", onChunk);
-
-          this.state = st;
-        },
-        catch: toSpawnFailed,
-      });
-    });
+      this.state = st;
+    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
     if (!this.state) {
       return Effect.succeed({ _tag: "Ready" as const });
     }
-    const { child, spawnInput } = this.state;
+    const { process: proc, spawnInput, logBuffer } = this.state;
     const agentId = spawnInput.agentId;
 
     const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
-
-    // Adapter-side `ProcessExited` detector. Polls `child.exitCode` until
-    // the process exits, then returns the outcome with stderr captured
-    // from the live log buffer.
-    const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
-      Effect.sync(() => {
-        if (child.exitCode === null) return null;
-        return {
-          _tag: "ProcessExited" as const,
-          exitCode: child.exitCode,
-          stderr: this.state?.logBuffer ?? "",
-        };
-      });
-    const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
-      Effect.iterate(null as ReadyOutcome | null, {
-        while: (s) => s === null,
-        body: () => Effect.sleep("250 millis").pipe(Effect.zipRight(exitTick)),
-      }),
-      Effect.map(
-        (s): ReadyOutcome => s ?? { _tag: "Timeout" as const, timeoutMs },
-      ),
-    );
+    const processExit = {
+      pollExitCode: () => pollExitCode(proc),
+      stderr: () => logBuffer.value,
+      timeoutMs,
+    };
 
     return pipe(
-      Effect.race(serverReady, exitLoop),
+      Effect.race(serverReady, processExitLoop(processExit)),
       // Final-check: if the race resolved `Timeout`, the child may have
       // exited within the last `exitLoop` tick window — one last sync probe
       // promotes that case to `ProcessExited` with the actual exit code so
       // the diagnostic stderr isn't lost behind an opaque `Timeout`.
-      Effect.flatMap(
-        (outcome): Effect.Effect<ReadyOutcome, never, never> =>
-          outcome._tag !== "Timeout"
-            ? Effect.succeed(outcome)
-            : Effect.sync(
-                (): ReadyOutcome =>
-                  child.exitCode !== null
-                    ? {
-                        _tag: "ProcessExited" as const,
-                        exitCode: child.exitCode,
-                        stderr: this.state?.logBuffer ?? "",
-                      }
-                    : outcome,
-              ),
+      Effect.flatMap((outcome) =>
+        promoteTimeoutIfProcessExited(outcome, processExit),
       ),
       // Failure outcomes (Timeout, ProcessExited) tear down before returning.
       Effect.tap((outcome) =>
@@ -205,8 +316,9 @@ export class OpenClawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const text = this.state.logBuffer.slice(offset);
-    return { text, nextOffset: this.state.logBuffer.length };
+    const full = this.state.logBuffer.value;
+    const text = full.slice(offset);
+    return { text, nextOffset: full.length };
   }
 
   getInboundMarker(): string {
@@ -219,80 +331,31 @@ export class OpenClawAdapter implements Runtime {
         const state = this.state;
         if (!state || state.tornDown) return null;
         state.tornDown = true;
-        return { child: state.child, stateDir: state.stateDir };
+        return { process: state.process, stateDir: state.stateDir };
       });
 
       if (teardownState === null) return;
 
-      const { child, stateDir } = teardownState;
-      const groupId = child.pid ?? null;
-
-      if (groupId !== null) {
-        this.killGroup(groupId, "SIGTERM");
-        const exitedAfterTerm = yield* this.waitForProcessGroupExit(
-          groupId,
-          OPENCLAW_TERM_WAIT_MS,
-        );
-        if (!exitedAfterTerm) {
-          this.killGroup(groupId, "SIGKILL");
-          yield* this.waitForProcessGroupExit(groupId, OPENCLAW_KILL_WAIT_MS);
-        }
+      const { process: proc, stateDir } = teardownState;
+      const exitOpt = yield* pollExitCode(proc);
+      if (Option.isNone(exitOpt)) {
+        yield* waitAfterSigterm(proc).pipe(Effect.asVoid);
       }
+      yield* Scope.close(proc.scope, Exit.succeed(undefined));
 
-      yield* Effect.sync(() => {
-        try {
-          fs.rmSync(stateDir, { recursive: true, force: true });
-        } catch (removeErr) {
-          console.warn(
+      yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fileSystem) =>
+          fileSystem.remove(stateDir, { recursive: true, force: true }),
+        ),
+        Effect.provide(NodeContext.layer),
+        Effect.catchAll((cause) =>
+          Effect.logWarning(
             "failed to remove OpenClaw adapter state dir",
-            removeErr,
-          );
-        }
-      });
+            cause,
+          ),
+        ),
+      );
     });
-  }
-
-  private waitForProcessGroupExit(
-    groupId: number,
-    timeoutMs: number,
-  ): Effect.Effect<boolean, never, never> {
-    const deadline = Date.now() + timeoutMs;
-    const poll = (): Effect.Effect<boolean, never, never> =>
-      Effect.sync(() => this.isProcessGroupAlive(groupId)).pipe(
-        Effect.flatMap((alive) => {
-          if (!alive) {
-            return Effect.succeed(true);
-          }
-          if (Date.now() >= deadline) {
-            return Effect.succeed(false);
-          }
-          return Effect.sleep(`${PROCESS_GROUP_POLL_INTERVAL_MS} millis`).pipe(
-            Effect.flatMap(() => poll()),
-          );
-        }),
-      );
-    return poll();
-  }
-
-  private isProcessGroupAlive(groupId: number): boolean {
-    try {
-      process.kill(-groupId, 0);
-      return true;
-    } catch (error) {
-      return !(
-        error instanceof Error &&
-        "code" in error &&
-        error.code === "ESRCH"
-      );
-    }
-  }
-
-  private killGroup(groupId: number, signal: NodeJS.Signals): void {
-    try {
-      process.kill(-groupId, signal);
-    } catch (killErr) {
-      console.warn("failed to signal OpenClaw process group", killErr);
-    }
   }
 }
 
@@ -300,14 +363,20 @@ export function createWorkspaceOpenClawAdapter(
   input: WorkspaceOpenClawAdapterInput,
 ): OpenClawAdapter {
   const packageRoot = resolveWorkspacePackageRoot();
-  const repoRoot = input.repoRoot ?? path.dirname(path.dirname(packageRoot));
+  const repoRoot =
+    input.repoRoot ??
+    pathSync((path) => path.dirname(path.dirname(packageRoot)));
   return new OpenClawAdapter({
     server: input.server,
     openclawBin:
-      input.openclawBin ?? resolveWorkspaceOpenClawBin(packageRoot, repoRoot),
+      input.openclawBin ??
+      resolveWorkspaceOpenClawBin({
+        repoRoot,
+        workspacePackageRoot: packageRoot,
+      }),
     channelDistDir:
       input.channelDistDir ??
-      path.join(repoRoot, "packages/openclaw-channel/dist"),
+      pathSync((path) => path.join(repoRoot, "packages/openclaw-channel/dist")),
     repoRoot,
   });
 }
@@ -315,140 +384,58 @@ export function createWorkspaceOpenClawAdapter(
 // --- Module-private helpers ---
 
 function resolveWorkspacePackageRoot(): string {
-  let current = path.dirname(fileURLToPath(import.meta.url));
-  while (current !== path.parse(current).root) {
-    if (path.basename(current) === "packages") {
-      return path.join(current, "runtimes");
-    }
-    current = path.dirname(current);
-  }
-  throw new WorkspaceRootNotFound({
-    message: "Unable to resolve packages/runtimes workspace root",
-  });
+  return pathEffectSync(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const here = yield* path.fromFileUrl(new URL(import.meta.url));
+      let current = path.dirname(here);
+      while (current !== path.parse(current).root) {
+        if (path.basename(current) === "packages") {
+          return path.join(current, "runtimes");
+        }
+        current = path.dirname(current);
+      }
+      return yield* Effect.fail(
+        new WorkspaceRootNotFound({
+          message: "Unable to resolve packages/runtimes workspace root",
+        }),
+      );
+    }),
+  );
 }
 
-function resolveWorkspaceOpenClawBin(
-  packageRoot: string,
-  repoRoot: string,
-): string {
-  const packageBin = path.join(packageRoot, "node_modules/.bin/openclaw");
-  if (fs.existsSync(packageBin)) {
-    return packageBin;
-  }
-  return path.join(repoRoot, "node_modules/.bin/openclaw");
+function pathSync<A>(f: (path: Path.Path) => A): A {
+  return Effect.runSync(
+    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
+  );
+}
+
+function pathEffectSync<A>(effect: Effect.Effect<A, unknown, Path.Path>): A {
+  return Effect.runSync(effect.pipe(Effect.provide(Path.layer), Effect.orDie));
 }
 
 function allocateFreePort(): Effect.Effect<
   number,
-  PortAllocationFailed,
+  PortAllocationFailed | SocketServer.SocketServerError,
   never
 > {
-  return Effect.async<number, PortAllocationFailed>((resume) => {
-    const server = net.createServer();
-    let settled = false;
-    const settle = (
-      effect: Effect.Effect<number, PortAllocationFailed>,
-      closeServer = true,
-    ): void => {
-      if (settled) return;
-      settled = true;
-      server.removeAllListeners();
-      if (closeServer) {
-        server.close();
-      }
-      resume(effect);
-    };
-    server.listen(0, () => {
-      const addr = server.address();
-      if (addr === null || typeof addr === "string") {
-        settle(
-          Effect.fail(
-            new PortAllocationFailed({
-              message: "Unable to allocate TCP port",
-            }),
-          ),
-        );
-        return;
-      }
-      const port = addr.port;
-      server.close((closeErr) =>
-        closeErr
-          ? settle(
-              Effect.fail(
-                new PortAllocationFailed({
-                  message: closeErr.message,
-                  cause: closeErr,
-                }),
-              ),
-              false,
-            )
-          : settle(Effect.succeed(port), false),
-      );
-    });
-    server.on("error", (err) =>
-      settle(
-        Effect.fail(
-          new PortAllocationFailed({
-            message: err.message,
-            cause: err,
-          }),
-        ),
+  return Effect.scoped(
+    NodeSocketServer.make({ host: "127.0.0.1", port: 0 }).pipe(
+      Effect.flatMap((server) =>
+        server.address._tag === "TcpAddress"
+          ? Effect.succeed(server.address.port)
+          : Effect.fail(
+              new PortAllocationFailed({
+                message: "TCP port allocation returned a non-TCP address",
+                cause: server.address,
+              }),
+            ),
       ),
-    );
-    return Effect.sync(() => {
-      if (settled) return;
-      settled = true;
-      server.removeAllListeners();
-      server.close();
-    });
-  });
-}
-
-function filterDefinedEnv(
-  source: NodeJS.ProcessEnv,
-  extras: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(source)) {
-    if (typeof value === "string") {
-      out[key] = value;
-    }
-  }
-  for (const [key, value] of Object.entries(extras)) {
-    out[key] = value;
-  }
-  return out;
+    ),
+  ).pipe(Effect.provide(NodeContext.layer));
 }
 
 // --- Config and plugin install (module-private) ---
-
-interface OpenClawConfig {
-  agents: {
-    defaults: {
-      model: { primary: string };
-      workspace: string;
-      compaction: { mode: string };
-    };
-  };
-  commands: { native: string; nativeSkills: string; restart: boolean };
-  messages: {
-    queue: { mode: string; debounceMs: number; cap: number; drop: string };
-  };
-  channels: {
-    moltzap: {
-      accounts: Array<{
-        id: string;
-        apiKey: string;
-        serverUrl: string;
-        agentName: string;
-      }>;
-    };
-  };
-  gateway: {
-    mode: string;
-    auth: { mode: string; token: string };
-  };
-}
 
 function writeOpenClawConfig(opts: {
   stateDir: string;
@@ -456,16 +443,42 @@ function writeOpenClawConfig(opts: {
   apiKey: string;
   agentName: string;
   modelId?: string;
-}): void {
-  const serverUrl = opts.serverUrl
-    .replace(/\/ws$/, "")
-    .replace(/^ws:/, "http:");
+}): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const workspaceDir = path.join(opts.stateDir, "workspace");
+    const config = buildOpenClawConfig(opts, workspaceDir);
 
-  const config: OpenClawConfig = {
+    yield* Effect.all([
+      fileSystem.makeDirectory(workspaceDir, {
+        recursive: true,
+      }),
+      fileSystem.makeDirectory(path.join(opts.stateDir, "logs"), {
+        recursive: true,
+      }),
+      fileSystem.writeFileString(
+        path.join(opts.stateDir, "openclaw.json"),
+        JSON.stringify(config, null, JSON_INDENT_SPACES),
+      ),
+    ]);
+  });
+}
+
+function buildOpenClawConfig(
+  opts: {
+    readonly serverUrl: string;
+    readonly apiKey: string;
+    readonly agentName: string;
+    readonly modelId?: string;
+  },
+  workspaceDir: string,
+): OpenClawConfig {
+  return {
     agents: {
       defaults: {
         model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
-        workspace: path.join(opts.stateDir, "workspace"),
+        workspace: workspaceDir,
         compaction: { mode: "safeguard" },
       },
     },
@@ -479,7 +492,7 @@ function writeOpenClawConfig(opts: {
           {
             id: "default",
             apiKey: opts.apiKey,
-            serverUrl,
+            serverUrl: normalizeOpenClawServerUrl(opts.serverUrl),
             agentName: opts.agentName,
           },
         ],
@@ -493,28 +506,24 @@ function writeOpenClawConfig(opts: {
       },
     },
   };
+}
 
-  fs.mkdirSync(path.join(opts.stateDir, "workspace"), { recursive: true });
-  fs.mkdirSync(path.join(opts.stateDir, "logs"), { recursive: true });
-  fs.writeFileSync(
-    path.join(opts.stateDir, "openclaw.json"),
-    JSON.stringify(config, null, JSON_INDENT_SPACES),
-  );
+function normalizeOpenClawServerUrl(serverUrl: string): string {
+  return serverUrl.replace(/\/ws$/, "").replace(/^ws:/, "http:");
 }
 
 function seedWorkspaceFiles(
   stateDir: string,
   workspaceFiles: SpawnInput["workspaceFiles"],
-): void {
-  seedSharedWorkspaceFiles(stateDir, workspaceFiles);
+): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
+  return seedSharedWorkspaceFiles(stateDir, workspaceFiles);
 }
 
 function installChannelPlugin(
   stateDir: string,
   channelDistDir: string,
   repoRoot: string,
-): void {
-  const channelPackageDir = path.dirname(channelDistDir);
+): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   // OpenClaw's plugin imports `effect` at load time. Resolve it the way
   // Node would when the channel package itself imported it (#285) — that
   // walks parent `node_modules` directories, so it handles both per-pkg
@@ -522,23 +531,30 @@ function installChannelPlugin(
   // (`<repoRoot>/node_modules/effect`). The legacy `dist/node_modules`
   // candidate is kept as a fallback for any consumer that still ships a
   // bundled artifact in that layout.
-  const effectResolved = resolveChannelDependency(channelPackageDir, "effect");
-  installSharedChannelPlugin({
-    stateDir,
-    channelDistDir,
-    repoRoot,
-    extName: "openclaw-channel",
-    // OpenClaw discovers channels via `openclaw.plugin.json` in the
-    // package root; cc-channel has no equivalent manifest.
-    extraPackageFiles: ["openclaw.plugin.json"],
-    extraSymlinks: [
-      {
-        linkPath: "effect",
-        candidates: [
-          ...(effectResolved === null ? [] : [effectResolved]),
-          path.join(channelDistDir, "node_modules", "effect"),
-        ],
-      },
-    ],
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const channelPackageDir = path.dirname(channelDistDir);
+    const effectResolved = yield* resolveChannelDependency(
+      channelPackageDir,
+      "effect",
+    );
+    yield* installSharedChannelPlugin({
+      stateDir,
+      channelDistDir,
+      repoRoot,
+      extName: "openclaw-channel",
+      // OpenClaw discovers channels via `openclaw.plugin.json` in the
+      // package root; cc-channel has no equivalent manifest.
+      extraPackageFiles: ["openclaw.plugin.json"],
+      extraSymlinks: [
+        {
+          linkPath: "effect",
+          candidates: [
+            ...(effectResolved === null ? [] : [effectResolved]),
+            path.join(channelDistDir, "node_modules", "effect"),
+          ],
+        },
+      ],
+    });
   });
 }

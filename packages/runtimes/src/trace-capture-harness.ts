@@ -1,10 +1,21 @@
-import { randomUUID } from "node:crypto";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { Path } from "@effect/platform";
 import { Data, Effect, Either } from "effect";
 import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
-import type { Runtime } from "./runtime.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
+import type { Runtime } from "./runtime.js";
+import {
+  decodePayload,
+  InvalidPayload,
+  RUNTIME_KIND_CLAUDE_CODE,
+  type HarnessPayload,
+} from "./trace-capture-payload.js";
+import {
+  buildTraceBundle,
+  type ConversationParticipant,
+  type ConversationResponse,
+  type ConversationRun,
+  type TraceCaptureEvent,
+} from "./trace-capture-bundle.js";
 
 import {
   type AnyRpcDefinition,
@@ -23,7 +34,10 @@ const MIN_EVENT_WAIT_MS = 1_000;
 const DEFAULT_GROUP_NAME = "cc-judge-group";
 const PLACEHOLDER_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
-const RUNTIME_KIND_CLAUDE_CODE = "claude-code";
+
+interface RuntimeCrypto {
+  readonly randomUUID?: () => string;
+}
 
 let activeRun = false;
 
@@ -43,6 +57,25 @@ class ExecutionFailed extends Data.TaggedError("ExecutionFailed")<{
   readonly message: string;
 }> {}
 
+class HarnessFailed extends Data.TaggedError("HarnessFailed")<{
+  readonly detail: ExecutionFailed;
+}> {}
+
+class ContainerStartFailed extends Data.TaggedError("ContainerStartFailed")<{
+  readonly message: string;
+}> {}
+
+class AgentStartFailed extends Data.TaggedError("AgentStartFailed")<{
+  readonly agentId: string;
+  readonly detail: ContainerStartFailed;
+}> {}
+
+type HarnessFailureCause = InvalidPayload | HarnessFailed | AgentStartFailed;
+
+interface HarnessFailure {
+  readonly cause: HarnessFailureCause;
+}
+
 interface HarnessLoadArgs {
   readonly sourcePath: string;
   readonly plan: {
@@ -59,20 +92,6 @@ interface HarnessLoadArgs {
 interface MessagePart {
   readonly type: string;
   readonly text?: string;
-}
-
-interface TraceCaptureEvent {
-  readonly _tag: "Message";
-  readonly channelKey: string;
-  readonly senderDisplayName: string;
-  readonly message: {
-    readonly senderId: string;
-    readonly conversationId: string;
-    readonly id: string;
-    readonly createdAt: string;
-    readonly parts: ReadonlyArray<MessagePart>;
-  };
-  readonly recipientAgentIds: ReadonlyArray<string>;
 }
 
 interface HarnessClient {
@@ -167,131 +186,89 @@ interface ServerTestModule {
   stopCoreTestServer(): unknown;
 }
 
-interface DirectConversationPayload {
-  readonly kind: "direct";
-  readonly setupMessage: string;
-  readonly followUpMessages: ReadonlyArray<string>;
-  readonly senderName?: string;
+interface ConversationExecutionState {
+  readonly sender: ConnectedActor;
+  readonly closers: Array<HarnessClient>;
+  readonly participants: Array<ConversationParticipant>;
+  readonly responses: Array<ConversationResponse>;
 }
 
-interface GroupConversationPayload {
-  readonly kind: "group";
-  readonly setupMessage: string;
-  readonly followUpMessages: ReadonlyArray<string>;
-  readonly senderName?: string;
-  readonly groupName?: string;
-  readonly bystanders: ReadonlyArray<{
-    readonly name: string;
-    readonly messages: ReadonlyArray<string>;
-  }>;
-}
-
-interface CrossConversationPayload {
-  readonly kind: "cross";
-  readonly setupMessage: string;
-  readonly followUpMessages: ReadonlyArray<string>;
-  readonly senderName?: string;
-  readonly probeSenderName?: string;
-  readonly probeMessage: string;
-}
-
-type ConversationPayload =
-  | DirectConversationPayload
-  | GroupConversationPayload
-  | CrossConversationPayload;
-
-interface HarnessPayload {
-  readonly runtime: {
-    readonly kind: RuntimeKind;
-    readonly targetAgentName?: string;
-    readonly readyTimeoutMs?: number;
-  };
-  readonly conversation: ConversationPayload;
-}
-
-interface ConversationResponse {
-  readonly conversationId: string;
-  readonly senderId: string;
-  readonly text: string;
-  readonly messageId: string;
-}
-
-function failLoad(
-  pathValue: string,
-  tag: string,
-  detail: Readonly<Record<string, unknown>>,
-): {
-  readonly cause: Readonly<Record<string, unknown>>;
-} {
-  return { cause: { _tag: tag, path: pathValue, ...detail } };
-}
-
-function failHarness(message: string): {
-  readonly cause: {
-    readonly _tag: "HarnessFailed";
-    readonly detail: ExecutionFailed;
-  };
-} {
+function failHarness(message: string): HarnessFailure {
   return {
-    cause: {
-      _tag: "HarnessFailed",
+    cause: new HarnessFailed({
       detail: new ExecutionFailed({ message }),
-    },
+    }),
   };
 }
 
-function failAgentStart(detail: {
-  readonly _tag: "ContainerStartFailed";
-  readonly message: string;
-}): {
-  readonly cause: {
-    readonly _tag: "AgentStartFailed";
-    readonly agentId: string;
-    readonly detail: {
-      readonly _tag: "ContainerStartFailed";
-      readonly message: string;
-    };
-  };
-} {
+function failAgentStart(detail: ContainerStartFailed): HarnessFailure {
   return {
-    cause: {
-      _tag: "AgentStartFailed",
+    cause: new AgentStartFailed({
       agentId: PLACEHOLDER_AGENT_ID,
       detail,
-    },
+    }),
   };
 }
 
-function asHarnessFailure(error: unknown): {
-  readonly cause: Readonly<Record<string, unknown>>;
-} {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "cause" in error &&
-    typeof error.cause === "object" &&
-    error.cause !== null
-  ) {
-    return error as { readonly cause: Readonly<Record<string, unknown>> };
+function isHarnessFailure(error: unknown): error is HarnessFailure {
+  if (typeof error !== "object" || error === null || !("cause" in error)) {
+    return false;
   }
+  return isHarnessFailureCause(error.cause);
+}
+
+function isHarnessFailureCause(cause: unknown): cause is HarnessFailureCause {
+  return (
+    cause instanceof InvalidPayload ||
+    cause instanceof HarnessFailed ||
+    cause instanceof AgentStartFailed
+  );
+}
+
+function asHarnessFailure(error: unknown): HarnessFailure {
+  if (isHarnessFailure(error)) return error;
   return failHarness(error instanceof Error ? error.message : String(error));
 }
 
 function packagesDir(): string {
-  let current = path.dirname(fileURLToPath(import.meta.url));
-  while (current !== path.parse(current).root) {
-    if (path.basename(current) === "packages") {
-      return current;
-    }
-    current = path.dirname(current);
-  }
-  throw new WorkspacePackagesDirNotFound({
-    message: "Unable to resolve workspace packages directory",
-  });
+  return Effect.runSync(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const here = yield* path.fromFileUrl(new URL(import.meta.url));
+      let current = path.dirname(here);
+      while (current !== path.parse(current).root) {
+        if (path.basename(current) === "packages") {
+          return current;
+        }
+        current = path.dirname(current);
+      }
+      return yield* Effect.fail(
+        new WorkspacePackagesDirNotFound({
+          message: "Unable to resolve workspace packages directory",
+        }),
+      );
+    }).pipe(Effect.provide(Path.layer), Effect.orDie),
+  );
 }
 
 function packageModuleUrl(...segments: ReadonlyArray<string>): string {
-  return pathToFileURL(path.join(packagesDir(), ...segments)).href;
+  return Effect.runSync(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const url = yield* path.toFileUrl(path.join(packagesDir(), ...segments));
+      return url.href;
+    }).pipe(Effect.provide(Path.layer), Effect.orDie),
+  );
+}
+
+function randomRunId(): Effect.Effect<string, HarnessFailure> {
+  const crypto = (globalThis as { readonly crypto?: RuntimeCrypto }).crypto;
+  if (crypto?.randomUUID === undefined) {
+    return Effect.fail(
+      failHarness("Runtime crypto.randomUUID is not available"),
+    );
+  }
+  return Effect.sync(() => crypto.randomUUID!());
 }
 
 function loadClientTestModule(): Effect.Effect<ClientTestModule, Error, never> {
@@ -331,288 +308,6 @@ function loadServerTestModule(): Effect.Effect<ServerTestModule, Error, never> {
   });
 }
 
-function asStringList(
-  value: unknown,
-  field: string,
-  issues: Array<string>,
-): ReadonlyArray<string> | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (
-    !Array.isArray(value) ||
-    value.some((entry) => typeof entry !== "string" || entry.length === 0)
-  ) {
-    issues.push(`${field} must be an array of non-empty strings`);
-    return undefined;
-  }
-  return value;
-}
-
-function decodePayload(
-  sourcePath: string,
-  payload: unknown,
-): Effect.Effect<
-  HarnessPayload,
-  { readonly cause: Readonly<Record<string, unknown>> },
-  never
-> {
-  const issues: Array<string> = [];
-  const candidatePayload =
-    typeof payload === "object" && payload !== null && !Array.isArray(payload)
-      ? (payload as {
-          readonly runtime?: unknown;
-          readonly conversation?: unknown;
-        })
-      : undefined;
-
-  if (candidatePayload === undefined) {
-    issues.push("payload must be an object");
-  }
-
-  const runtime =
-    typeof candidatePayload?.runtime === "object" &&
-    candidatePayload.runtime !== null &&
-    !Array.isArray(candidatePayload.runtime)
-      ? (candidatePayload.runtime as {
-          readonly kind?: unknown;
-          readonly targetAgentName?: unknown;
-          readonly readyTimeoutMs?: unknown;
-        })
-      : undefined;
-  if (runtime === undefined) {
-    issues.push("runtime must be an object");
-  }
-
-  const runtimeKind = runtime?.kind;
-  if (
-    runtimeKind !== "openclaw" &&
-    runtimeKind !== "nanoclaw" &&
-    runtimeKind !== RUNTIME_KIND_CLAUDE_CODE
-  ) {
-    issues.push(
-      "runtime.kind must be 'openclaw', 'nanoclaw', or 'claude-code'",
-    );
-  }
-  if (
-    runtime?.targetAgentName !== undefined &&
-    (typeof runtime.targetAgentName !== "string" ||
-      runtime.targetAgentName.length === 0)
-  ) {
-    issues.push("runtime.targetAgentName must be a non-empty string");
-  }
-  if (
-    runtime?.readyTimeoutMs !== undefined &&
-    (typeof runtime.readyTimeoutMs !== "number" ||
-      !Number.isInteger(runtime.readyTimeoutMs) ||
-      runtime.readyTimeoutMs <= 0)
-  ) {
-    issues.push("runtime.readyTimeoutMs must be a positive integer");
-  }
-
-  const conversation =
-    typeof candidatePayload?.conversation === "object" &&
-    candidatePayload.conversation !== null &&
-    !Array.isArray(candidatePayload.conversation)
-      ? (candidatePayload.conversation as {
-          readonly kind?: unknown;
-          readonly setupMessage?: unknown;
-          readonly followUpMessages?: unknown;
-          readonly senderName?: unknown;
-          readonly groupName?: unknown;
-          readonly bystanders?: unknown;
-          readonly probeMessage?: unknown;
-          readonly probeSenderName?: unknown;
-        })
-      : undefined;
-  if (conversation === undefined) {
-    issues.push("conversation must be an object");
-  }
-
-  const conversationKind = conversation?.kind;
-  if (
-    conversationKind !== "direct" &&
-    conversationKind !== "group" &&
-    conversationKind !== "cross"
-  ) {
-    issues.push("conversation.kind must be 'direct', 'group', or 'cross'");
-  }
-  if (
-    typeof conversation?.setupMessage !== "string" ||
-    conversation.setupMessage.length === 0
-  ) {
-    issues.push("conversation.setupMessage must be a non-empty string");
-  }
-  const followUpMessages =
-    asStringList(
-      conversation?.followUpMessages,
-      "conversation.followUpMessages",
-      issues,
-    ) ?? [];
-  if (
-    conversation?.senderName !== undefined &&
-    (typeof conversation.senderName !== "string" ||
-      conversation.senderName.length === 0)
-  ) {
-    issues.push("conversation.senderName must be a non-empty string");
-  }
-
-  let bystanders: ReadonlyArray<{
-    readonly name: string;
-    readonly messages: ReadonlyArray<string>;
-  }> = [];
-  if (conversationKind === "group") {
-    if (
-      conversation?.groupName !== undefined &&
-      (typeof conversation.groupName !== "string" ||
-        conversation.groupName.length === 0)
-    ) {
-      issues.push("conversation.groupName must be a non-empty string");
-    }
-    if (conversation?.bystanders !== undefined) {
-      if (!Array.isArray(conversation.bystanders)) {
-        issues.push("conversation.bystanders must be an array");
-      } else {
-        const parsed: Array<{
-          readonly name: string;
-          readonly messages: ReadonlyArray<string>;
-        }> = [];
-        conversation.bystanders.forEach((entry, index) => {
-          if (
-            typeof entry !== "object" ||
-            entry === null ||
-            Array.isArray(entry)
-          ) {
-            issues.push(
-              `conversation.bystanders[${String(index)}] must be an object`,
-            );
-            return;
-          }
-          const candidate = entry as {
-            readonly name?: unknown;
-            readonly messages?: unknown;
-          };
-          if (
-            typeof candidate.name !== "string" ||
-            candidate.name.length === 0
-          ) {
-            issues.push(
-              `conversation.bystanders[${String(index)}].name must be a non-empty string`,
-            );
-            return;
-          }
-          parsed.push({
-            name: candidate.name,
-            messages:
-              asStringList(
-                candidate.messages,
-                `conversation.bystanders[${String(index)}].messages`,
-                issues,
-              ) ?? [],
-          });
-        });
-        bystanders = parsed;
-      }
-    }
-  }
-
-  let probeMessage: string | undefined;
-  let probeSenderName: string | undefined;
-  if (conversationKind === "cross") {
-    if (
-      typeof conversation?.probeMessage !== "string" ||
-      conversation.probeMessage.length === 0
-    ) {
-      issues.push("conversation.probeMessage must be a non-empty string");
-    } else {
-      probeMessage = conversation.probeMessage;
-    }
-    if (
-      conversation?.probeSenderName !== undefined &&
-      (typeof conversation.probeSenderName !== "string" ||
-        conversation.probeSenderName.length === 0)
-    ) {
-      issues.push("conversation.probeSenderName must be a non-empty string");
-    } else if (typeof conversation?.probeSenderName === "string") {
-      probeSenderName = conversation.probeSenderName;
-    }
-  }
-
-  if (issues.length > 0) {
-    return Effect.fail(failLoad(sourcePath, "InvalidPayload", { issues }));
-  }
-
-  const narrowedRuntimeKind: RuntimeKind =
-    runtimeKind === "openclaw"
-      ? "openclaw"
-      : runtimeKind === RUNTIME_KIND_CLAUDE_CODE
-        ? RUNTIME_KIND_CLAUDE_CODE
-        : "nanoclaw";
-  const targetAgentName =
-    typeof runtime?.targetAgentName === "string"
-      ? runtime.targetAgentName
-      : undefined;
-  const readyTimeoutMs =
-    typeof runtime?.readyTimeoutMs === "number"
-      ? runtime.readyTimeoutMs
-      : undefined;
-  const narrowedConversationKind =
-    conversationKind === "group"
-      ? "group"
-      : conversationKind === "cross"
-        ? "cross"
-        : "direct";
-  const setupMessage =
-    typeof conversation?.setupMessage === "string"
-      ? conversation.setupMessage
-      : "";
-  const senderName =
-    typeof conversation?.senderName === "string"
-      ? conversation.senderName
-      : undefined;
-  const groupName =
-    typeof conversation?.groupName === "string"
-      ? conversation.groupName
-      : undefined;
-
-  const runtimePayload = {
-    kind: narrowedRuntimeKind,
-    ...(targetAgentName !== undefined ? { targetAgentName } : {}),
-    ...(readyTimeoutMs !== undefined ? { readyTimeoutMs } : {}),
-  } satisfies HarnessPayload["runtime"];
-
-  const conversationPayload =
-    narrowedConversationKind === "group"
-      ? ({
-          kind: "group",
-          setupMessage,
-          followUpMessages,
-          ...(senderName !== undefined ? { senderName } : {}),
-          ...(groupName !== undefined ? { groupName } : {}),
-          bystanders,
-        } satisfies GroupConversationPayload)
-      : narrowedConversationKind === "cross"
-        ? ({
-            kind: "cross",
-            setupMessage,
-            followUpMessages,
-            ...(senderName !== undefined ? { senderName } : {}),
-            ...(probeSenderName !== undefined ? { probeSenderName } : {}),
-            probeMessage: probeMessage!,
-          } satisfies CrossConversationPayload)
-        : ({
-            kind: "direct",
-            setupMessage,
-            followUpMessages,
-            ...(senderName !== undefined ? { senderName } : {}),
-          } satisfies DirectConversationPayload);
-
-  return Effect.succeed({
-    runtime: runtimePayload,
-    conversation: conversationPayload,
-  });
-}
-
 function defaultTargetAgentName(kind: RuntimeKind): string {
   switch (kind) {
     case "openclaw":
@@ -645,19 +340,7 @@ function waitForTargetResponse(input: {
   readonly targetAgentId: string;
   readonly conversationId: string;
   readonly timeoutMs: number;
-}): Effect.Effect<
-  ConversationResponse,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+}): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     const deadline = Date.now() + input.timeoutMs;
     while (Date.now() < deadline) {
@@ -701,19 +384,7 @@ function sendMessageAndWait(input: {
   readonly conversationId: string;
   readonly message: string;
   readonly timeoutMs?: number;
-}): Effect.Effect<
-  ConversationResponse,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+}): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     yield* input.sender.client
       .sendRpc(MessagesSend, {
@@ -735,19 +406,7 @@ function registerConnectedAgent(
   baseUrl: string,
   wsUrl: string,
   name: string,
-): Effect.Effect<
-  ConnectedActor,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+): Effect.Effect<ConnectedActor, HarnessFailure, never> {
   return clientModule.registerAndConnect(baseUrl, wsUrl, name).pipe(
     Effect.map((connected) => ({
       agentId: connected.agentId,
@@ -761,19 +420,7 @@ function registerConnectedAgent(
 function createDirectConversation(
   sender: ConnectedActor,
   targetAgentId: string,
-): Effect.Effect<
-  string,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+): Effect.Effect<string, HarnessFailure, never> {
   return sender.client
     .sendRpc(ConversationsCreate, {
       type: "dm",
@@ -790,19 +437,7 @@ function createGroupConversation(input: {
   readonly targetAgentId: string;
   readonly groupName: string;
   readonly participants: ReadonlyArray<ConnectedActor>;
-}): Effect.Effect<
-  string,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+}): Effect.Effect<string, HarnessFailure, never> {
   return input.sender.client
     .sendRpc(ConversationsCreate, {
       type: "group",
@@ -821,26 +456,280 @@ function createGroupConversation(input: {
     );
 }
 
+function createConversationState(
+  sender: ConnectedActor,
+): ConversationExecutionState {
+  return {
+    sender,
+    closers: [sender.client],
+    participants: [{ id: sender.agentId, name: sender.name, role: "sender" }],
+    responses: [],
+  };
+}
+
+function closeConversationClients(
+  clients: ReadonlyArray<HarnessClient>,
+): Effect.Effect<void, never, never> {
+  return Effect.forEach([...clients].reverse(), closeClient, {
+    concurrency: 1,
+    discard: true,
+  });
+}
+
+function executeConversationKind(
+  input: {
+    readonly payload: HarnessPayload;
+    readonly baseUrl: string;
+    readonly wsUrl: string;
+    readonly targetAgentId: string;
+    readonly clientModule: ClientTestModule;
+  },
+  state: ConversationExecutionState,
+): Effect.Effect<void, HarnessFailure, never> {
+  switch (input.payload.conversation.kind) {
+    case "direct":
+      return executeDirectConversation(input, state);
+    case "group":
+      return executeGroupConversation(input, state);
+    case "cross":
+      return executeCrossConversation(input, state);
+  }
+}
+
+function executeDirectConversation(
+  input: {
+    readonly payload: HarnessPayload;
+    readonly targetAgentId: string;
+  },
+  state: ConversationExecutionState,
+) {
+  return Effect.gen(function* () {
+    const conversationId = yield* createDirectConversation(
+      state.sender,
+      input.targetAgentId,
+    );
+    yield* sendSetupAndFollowUps({
+      state,
+      sender: state.sender,
+      targetAgentId: input.targetAgentId,
+      conversationId,
+      setupMessage: input.payload.conversation.setupMessage,
+      followUpMessages: input.payload.conversation.followUpMessages,
+    });
+  });
+}
+
+function executeGroupConversation(
+  input: {
+    readonly payload: HarnessPayload;
+    readonly baseUrl: string;
+    readonly wsUrl: string;
+    readonly targetAgentId: string;
+    readonly clientModule: ClientTestModule;
+  },
+  state: ConversationExecutionState,
+) {
+  return Effect.gen(function* () {
+    if (input.payload.conversation.kind !== "group") {
+      return;
+    }
+    const bystanders = yield* registerBystanders(input, state);
+    const conversationId = yield* createGroupConversation({
+      sender: state.sender,
+      targetAgentId: input.targetAgentId,
+      groupName: input.payload.conversation.groupName ?? DEFAULT_GROUP_NAME,
+      participants: bystanders.map((entry) => entry.actor),
+    });
+    yield* sendBystanderMessages(
+      bystanders,
+      input.targetAgentId,
+      conversationId,
+    );
+    yield* sendSetupAndFollowUps({
+      state,
+      sender: state.sender,
+      targetAgentId: input.targetAgentId,
+      conversationId,
+      setupMessage: input.payload.conversation.setupMessage,
+      followUpMessages: input.payload.conversation.followUpMessages,
+    });
+  });
+}
+
+function executeCrossConversation(
+  input: {
+    readonly payload: HarnessPayload;
+    readonly baseUrl: string;
+    readonly wsUrl: string;
+    readonly targetAgentId: string;
+    readonly clientModule: ClientTestModule;
+  },
+  state: ConversationExecutionState,
+) {
+  return Effect.gen(function* () {
+    if (input.payload.conversation.kind !== "cross") {
+      return;
+    }
+    const firstConversationId = yield* createDirectConversation(
+      state.sender,
+      input.targetAgentId,
+    );
+    yield* sendSetupAndFollowUps({
+      state,
+      sender: state.sender,
+      targetAgentId: input.targetAgentId,
+      conversationId: firstConversationId,
+      setupMessage: input.payload.conversation.setupMessage,
+      followUpMessages: input.payload.conversation.followUpMessages,
+    });
+    const probeSender = yield* registerProbeSender(input, state);
+    const secondConversationId = yield* createDirectConversation(
+      probeSender,
+      input.targetAgentId,
+    );
+    state.responses.push(
+      yield* sendMessageAndWait({
+        sender: probeSender,
+        targetAgentId: input.targetAgentId,
+        conversationId: secondConversationId,
+        message: input.payload.conversation.probeMessage,
+      }),
+    );
+  });
+}
+
+function registerBystanders(
+  input: {
+    readonly payload: HarnessPayload;
+    readonly baseUrl: string;
+    readonly wsUrl: string;
+    readonly clientModule: ClientTestModule;
+  },
+  state: ConversationExecutionState,
+) {
+  if (input.payload.conversation.kind !== "group") {
+    return Effect.succeed([]);
+  }
+  return Effect.forEach(
+    input.payload.conversation.bystanders,
+    (entry) =>
+      registerConnectedAgent(
+        input.clientModule,
+        input.baseUrl,
+        input.wsUrl,
+        entry.name,
+      ).pipe(
+        Effect.tap((actor) =>
+          Effect.sync(() => {
+            state.closers.push(actor.client);
+            state.participants.push({
+              id: actor.agentId,
+              name: actor.name,
+              role: "bystander",
+            });
+          }),
+        ),
+        Effect.map((actor) => ({ actor, messages: entry.messages })),
+      ),
+    { concurrency: 1 },
+  );
+}
+
+function registerProbeSender(
+  input: {
+    readonly payload: HarnessPayload;
+    readonly baseUrl: string;
+    readonly wsUrl: string;
+    readonly clientModule: ClientTestModule;
+  },
+  state: ConversationExecutionState,
+) {
+  const name =
+    input.payload.conversation.kind === "cross"
+      ? (input.payload.conversation.probeSenderName ?? "eval-probe-sender")
+      : "eval-probe-sender";
+  return registerConnectedAgent(
+    input.clientModule,
+    input.baseUrl,
+    input.wsUrl,
+    name,
+  ).pipe(
+    Effect.tap((actor) =>
+      Effect.sync(() => {
+        state.closers.push(actor.client);
+        state.participants.push({
+          id: actor.agentId,
+          name: actor.name,
+          role: "probe",
+        });
+      }),
+    ),
+  );
+}
+
+function sendSetupAndFollowUps(input: {
+  readonly state: ConversationExecutionState;
+  readonly sender: ConnectedActor;
+  readonly targetAgentId: string;
+  readonly conversationId: string;
+  readonly setupMessage: string;
+  readonly followUpMessages: ReadonlyArray<string>;
+}) {
+  return Effect.gen(function* () {
+    input.state.responses.push(
+      yield* sendMessageAndWait({
+        sender: input.sender,
+        targetAgentId: input.targetAgentId,
+        conversationId: input.conversationId,
+        message: input.setupMessage,
+      }),
+    );
+    for (const followUp of input.followUpMessages) {
+      input.state.responses.push(
+        yield* sendMessageAndWait({
+          sender: input.sender,
+          targetAgentId: input.targetAgentId,
+          conversationId: input.conversationId,
+          message: followUp,
+        }),
+      );
+    }
+  });
+}
+
+function sendBystanderMessages(
+  bystanders: ReadonlyArray<{
+    readonly actor: ConnectedActor;
+    readonly messages: ReadonlyArray<string>;
+  }>,
+  targetAgentId: string,
+  conversationId: string,
+) {
+  return Effect.forEach(
+    bystanders,
+    (bystander) =>
+      Effect.forEach(
+        bystander.messages,
+        (message) =>
+          sendMessageAndWait({
+            sender: bystander.actor,
+            targetAgentId,
+            conversationId,
+            message,
+          }),
+        { concurrency: 1, discard: true },
+      ),
+    { concurrency: 1, discard: true },
+  );
+}
+
 function executeConversationPlan(input: {
   readonly payload: HarnessPayload;
   readonly baseUrl: string;
   readonly wsUrl: string;
   readonly targetAgentId: string;
   readonly clientModule: ClientTestModule;
-}): Effect.Effect<
-  {
-    readonly participants: ReadonlyArray<{
-      readonly id: string;
-      readonly name: string;
-      readonly role: string;
-    }>;
-    readonly responses: ReadonlyArray<ConversationResponse>;
-  },
-  {
-    readonly cause: Readonly<Record<string, unknown>>;
-  },
-  never
-> {
+}): Effect.Effect<ConversationRun, HarnessFailure, never> {
   return Effect.gen(function* () {
     const sender = yield* registerConnectedAgent(
       input.clientModule,
@@ -848,225 +737,235 @@ function executeConversationPlan(input: {
       input.wsUrl,
       input.payload.conversation.senderName ?? "eval-sender",
     );
-    const closers: Array<HarnessClient> = [sender.client];
-    const participants: Array<{
-      readonly id: string;
-      readonly name: string;
-      readonly role: string;
-    }> = [{ id: sender.agentId, name: sender.name, role: "sender" }];
-    const responses: Array<ConversationResponse> = [];
+    const state = createConversationState(sender);
 
     try {
-      switch (input.payload.conversation.kind) {
-        case "direct": {
-          const conversationId = yield* createDirectConversation(
-            sender,
-            input.targetAgentId,
-          );
-          responses.push(
-            yield* sendMessageAndWait({
-              sender,
-              targetAgentId: input.targetAgentId,
-              conversationId,
-              message: input.payload.conversation.setupMessage,
-            }),
-          );
-          for (const followUp of input.payload.conversation.followUpMessages) {
-            responses.push(
-              yield* sendMessageAndWait({
-                sender,
-                targetAgentId: input.targetAgentId,
-                conversationId,
-                message: followUp,
-              }),
-            );
-          }
-          break;
-        }
-        case "group": {
-          const bystanders = yield* Effect.forEach(
-            input.payload.conversation.bystanders,
-            (entry) =>
-              registerConnectedAgent(
-                input.clientModule,
-                input.baseUrl,
-                input.wsUrl,
-                entry.name,
-              ).pipe(
-                Effect.map((actor) => ({
-                  actor,
-                  messages: entry.messages,
-                })),
-              ),
-            { concurrency: 1 },
-          );
-          for (const bystander of bystanders) {
-            closers.push(bystander.actor.client);
-            participants.push({
-              id: bystander.actor.agentId,
-              name: bystander.actor.name,
-              role: "bystander",
-            });
-          }
-          const conversationId = yield* createGroupConversation({
-            sender,
-            targetAgentId: input.targetAgentId,
-            groupName:
-              input.payload.conversation.groupName ?? DEFAULT_GROUP_NAME,
-            participants: bystanders.map((entry) => entry.actor),
-          });
-          for (const bystander of bystanders) {
-            for (const message of bystander.messages) {
-              yield* sendMessageAndWait({
-                sender: bystander.actor,
-                targetAgentId: input.targetAgentId,
-                conversationId,
-                message,
-              });
-            }
-          }
-          responses.push(
-            yield* sendMessageAndWait({
-              sender,
-              targetAgentId: input.targetAgentId,
-              conversationId,
-              message: input.payload.conversation.setupMessage,
-            }),
-          );
-          for (const followUp of input.payload.conversation.followUpMessages) {
-            responses.push(
-              yield* sendMessageAndWait({
-                sender,
-                targetAgentId: input.targetAgentId,
-                conversationId,
-                message: followUp,
-              }),
-            );
-          }
-          break;
-        }
-        case "cross": {
-          const firstConversationId = yield* createDirectConversation(
-            sender,
-            input.targetAgentId,
-          );
-          responses.push(
-            yield* sendMessageAndWait({
-              sender,
-              targetAgentId: input.targetAgentId,
-              conversationId: firstConversationId,
-              message: input.payload.conversation.setupMessage,
-            }),
-          );
-          for (const followUp of input.payload.conversation.followUpMessages) {
-            responses.push(
-              yield* sendMessageAndWait({
-                sender,
-                targetAgentId: input.targetAgentId,
-                conversationId: firstConversationId,
-                message: followUp,
-              }),
-            );
-          }
-          const probeSender = yield* registerConnectedAgent(
-            input.clientModule,
-            input.baseUrl,
-            input.wsUrl,
-            input.payload.conversation.probeSenderName ?? "eval-probe-sender",
-          );
-          closers.push(probeSender.client);
-          participants.push({
-            id: probeSender.agentId,
-            name: probeSender.name,
-            role: "probe",
-          });
-          const secondConversationId = yield* createDirectConversation(
-            probeSender,
-            input.targetAgentId,
-          );
-          responses.push(
-            yield* sendMessageAndWait({
-              sender: probeSender,
-              targetAgentId: input.targetAgentId,
-              conversationId: secondConversationId,
-              message: input.payload.conversation.probeMessage,
-            }),
-          );
-          break;
-        }
-      }
-      return { participants, responses };
+      yield* executeConversationKind(input, state);
+      return {
+        participants: state.participants,
+        responses: state.responses,
+      };
     } finally {
-      for (const client of [...closers].reverse()) {
-        yield* closeClient(client);
-      }
+      yield* closeConversationClients(state.closers);
     }
   });
 }
 
-function toBundleEvent(
-  event: TraceCaptureEvent,
-  namesById: ReadonlyMap<string, string>,
-): Readonly<Record<string, unknown>> {
-  const text = event.message.parts
-    .filter(
-      (part): part is MessagePart & { readonly text: string } =>
-        part.type === "text" && typeof part.text === "string",
-    )
-    .map((part) => part.text)
-    .join("\n");
-  return {
-    type: "message",
-    from: event.senderDisplayName,
-    ...(event.recipientAgentIds.length === 1
-      ? {
-          to:
-            namesById.get(event.recipientAgentIds[0]!) ??
-            event.recipientAgentIds[0]!,
-        }
-      : {}),
-    channel: event.channelKey,
-    text,
-    ts: Date.parse(event.message.createdAt),
-  };
-}
-
 function withExclusiveRun<A, E>(
   effect: Effect.Effect<A, E, never>,
-): Effect.Effect<
-  A,
-  | E
-  | {
-      readonly cause: {
-        readonly _tag: "HarnessFailed";
-        readonly detail: {
-          readonly _tag: "ExecutionFailed";
-          readonly message: string;
-        };
-      };
+): Effect.Effect<A, E | HarnessFailure, never> {
+  return Effect.try({
+    try: () => {
+      if (activeRun) {
+        throw new ActiveTraceCaptureRunExists({
+          message:
+            "MoltZap trace-capture harness only supports one active run at a time",
+        });
+      }
+      activeRun = true;
     },
-  never
-> {
-  return Effect.acquireUseRelease(
-    Effect.try({
-      try: () => {
-        if (activeRun) {
-          throw new ActiveTraceCaptureRunExists({
-            message:
-              "MoltZap trace-capture harness only supports one active run at a time",
-          });
-        }
-        activeRun = true;
-      },
-      catch: (error) =>
-        failHarness(error instanceof Error ? error.message : String(error)),
-    }),
-    () => effect,
-    () =>
+    catch: (error) =>
+      failHarness(error instanceof Error ? error.message : String(error)),
+  }).pipe(
+    Effect.zipRight(effect),
+    Effect.ensuring(
       Effect.sync(() => {
         activeRun = false;
       }),
+    ),
   );
+}
+
+interface TargetAgentRegistration {
+  readonly agentId: string;
+  readonly apiKey: string;
+  readonly agentName: string;
+}
+
+function startCoreTraceServer(
+  serverIndexModule: ServerIndexModule,
+  serverTestModule: ServerTestModule,
+): Effect.Effect<CoreTestServer, HarnessFailure> {
+  return Effect.tryPromise({
+    try: () =>
+      Promise.resolve(
+        serverTestModule.startCoreTestServer({
+          traceCaptureLayer: serverIndexModule.InMemoryTraceCaptureLive,
+        }),
+      ) as Promise<CoreTestServer>,
+    catch: (error) =>
+      failHarness(error instanceof Error ? error.message : String(error)),
+  });
+}
+
+function loadHarnessClientModule(): Effect.Effect<
+  ClientTestModule,
+  HarnessFailure
+> {
+  return loadClientTestModule().pipe(
+    Effect.mapError((error) =>
+      failHarness(error instanceof Error ? error.message : String(error)),
+    ),
+  );
+}
+
+function registerTargetAgent(input: {
+  readonly clientModule: ClientTestModule;
+  readonly baseUrl: string;
+  readonly targetAgentName: string;
+}): Effect.Effect<TargetAgentRegistration, HarnessFailure> {
+  return input.clientModule
+    .registerAgent(input.baseUrl, input.targetAgentName)
+    .pipe(
+      Effect.map((registered) => ({
+        agentId: registered.agentId,
+        apiKey: registered.apiKey,
+        agentName: input.targetAgentName,
+      })),
+      Effect.mapError((error) => failHarness(error.message)),
+    );
+}
+
+function mapRuntimeStartError(error: unknown): HarnessFailure {
+  if (error instanceof SpawnFailed) {
+    return failAgentStart(new ContainerStartFailed({ message: error.message }));
+  }
+  if (error instanceof RuntimeReadyTimedOut) {
+    return failAgentStart(
+      new ContainerStartFailed({
+        message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
+      }),
+    );
+  }
+  const exited = error as { readonly stderr?: unknown };
+  return failAgentStart(
+    new ContainerStartFailed({
+      message: `runtime exited before readiness: ${String(exited.stderr)}`,
+    }),
+  );
+}
+
+function startHarnessRuntime(input: {
+  readonly payload: HarnessPayload;
+  readonly server: CoreTestServer;
+  readonly targetAgent: TargetAgentRegistration;
+  readonly clientModule: ClientTestModule;
+}) {
+  return startRuntimeAgent({
+    kind: input.payload.runtime.kind,
+    server: input.server.runtimeServer,
+    readyTimeoutMs:
+      input.payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+    agent: {
+      agentName: input.targetAgent.agentName,
+      apiKey: input.targetAgent.apiKey,
+      agentId: input.targetAgent.agentId,
+      serverUrl: input.clientModule.stripWsPath(input.server.wsUrl),
+    },
+  }).pipe(Effect.mapError(mapRuntimeStartError));
+}
+
+function stopCoreTraceServer(
+  serverTestModule: ServerTestModule,
+): Effect.Effect<void> {
+  return Effect.tryPromise({
+    try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
+    catch: (error) =>
+      error instanceof Error ? error : new Error(String(error)),
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+function executeTraceRun(input: {
+  readonly sourcePath: string;
+  readonly payload: HarnessPayload;
+  readonly plan: HarnessLoadArgs["plan"];
+  readonly runId: string | undefined;
+  readonly server: CoreTestServer;
+  readonly clientModule: ClientTestModule;
+  readonly targetAgent: TargetAgentRegistration;
+  readonly runtime: Runtime;
+  readonly runtimeStartedAt: string;
+}): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
+  const teardown = input.runtime.teardown();
+  return Effect.gen(function* () {
+    const conversationRun = yield* executeConversationPlan({
+      payload: input.payload,
+      baseUrl: input.server.baseUrl,
+      wsUrl: input.server.wsUrl,
+      targetAgentId: input.targetAgent.agentId,
+      clientModule: input.clientModule,
+    });
+    const traceEvents = yield* input.server.coreApp.traceCapture.snapshot();
+    const runId = input.runId ?? (yield* randomRunId());
+    return buildTraceBundle({
+      sourcePath: input.sourcePath,
+      payload: input.payload,
+      plan: input.plan,
+      runId,
+      targetAgent: input.targetAgent,
+      runtimeStartedAt: input.runtimeStartedAt,
+      traceEvents,
+      conversationRun,
+    });
+  }).pipe(Effect.ensuring(teardown));
+}
+
+function executeCoordinatorRun(input: {
+  readonly sourcePath: string;
+  readonly payload: HarnessPayload;
+  readonly plan: HarnessLoadArgs["plan"];
+  readonly runId: string | undefined;
+}) {
+  return Effect.gen(function* () {
+    const [serverIndexModule, serverTestModule] = yield* Effect.all([
+      loadServerIndexModule(),
+      loadServerTestModule(),
+    ]);
+    const server = yield* startCoreTraceServer(
+      serverIndexModule,
+      serverTestModule,
+    );
+    return yield* executeWithCoreServer(input, server).pipe(
+      Effect.ensuring(stopCoreTraceServer(serverTestModule)),
+    );
+  });
+}
+
+function executeWithCoreServer(
+  input: {
+    readonly sourcePath: string;
+    readonly payload: HarnessPayload;
+    readonly plan: HarnessLoadArgs["plan"];
+    readonly runId: string | undefined;
+  },
+  server: CoreTestServer,
+) {
+  return Effect.gen(function* () {
+    const clientModule = yield* loadHarnessClientModule();
+    const targetAgentName =
+      input.payload.runtime.targetAgentName ??
+      defaultTargetAgentName(input.payload.runtime.kind);
+    const targetAgent = yield* registerTargetAgent({
+      clientModule,
+      baseUrl: server.baseUrl,
+      targetAgentName,
+    });
+    const runtimeStartedAt = new Date().toISOString();
+    const runtime = yield* startHarnessRuntime({
+      payload: input.payload,
+      server,
+      targetAgent,
+      clientModule,
+    });
+    return yield* executeTraceRun({
+      ...input,
+      server,
+      clientModule,
+      targetAgent,
+      runtime,
+      runtimeStartedAt,
+    });
+  });
 }
 
 function createCoordinator(sourcePath: string, payload: HarnessPayload) {
@@ -1075,167 +974,71 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
       plan: HarnessLoadArgs["plan"],
       _harness: unknown,
       opts: { readonly runId?: string } = {},
-    ): Effect.Effect<
-      Readonly<Record<string, unknown>>,
-      {
-        readonly cause: Readonly<Record<string, unknown>>;
-      },
-      never
-    > {
+    ): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
       return withExclusiveRun(
-        Effect.acquireUseRelease(
-          Effect.gen(function* () {
-            const [serverIndexModule, serverTestModule] = yield* Effect.all([
-              loadServerIndexModule(),
-              loadServerTestModule(),
-            ]);
-            const server = yield* Effect.tryPromise({
-              try: () =>
-                Promise.resolve(
-                  serverTestModule.startCoreTestServer({
-                    traceCaptureLayer:
-                      serverIndexModule.InMemoryTraceCaptureLive,
-                  }),
-                ) as Promise<CoreTestServer>,
-              catch: (error) =>
-                failHarness(
-                  error instanceof Error ? error.message : String(error),
-                ),
-            });
-            return { server, serverTestModule };
-          }),
-          ({ server }) =>
-            Effect.gen(function* () {
-              const clientModule = yield* loadClientTestModule().pipe(
-                Effect.mapError((error) =>
-                  failHarness(
-                    error instanceof Error ? error.message : String(error),
-                  ),
-                ),
-              );
-              const targetAgentName =
-                payload.runtime.targetAgentName ??
-                defaultTargetAgentName(payload.runtime.kind);
-              const targetAgent = yield* clientModule
-                .registerAgent(server.baseUrl, targetAgentName)
-                .pipe(
-                  Effect.map((registered) => ({
-                    agentId: registered.agentId,
-                    apiKey: registered.apiKey,
-                    agentName: targetAgentName,
-                  })),
-                  Effect.mapError((error) => failHarness(error.message)),
-                );
-              const runtimeStartedAt = new Date().toISOString();
-              return yield* Effect.acquireUseRelease(
-                startRuntimeAgent({
-                  kind: payload.runtime.kind,
-                  server: server.runtimeServer,
-                  readyTimeoutMs:
-                    payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-                  agent: {
-                    agentName: targetAgent.agentName,
-                    apiKey: targetAgent.apiKey,
-                    agentId: targetAgent.agentId,
-                    serverUrl: clientModule.stripWsPath(server.wsUrl),
-                  },
-                }).pipe(
-                  Effect.mapError((error) => {
-                    if (error instanceof SpawnFailed) {
-                      return failAgentStart({
-                        _tag: "ContainerStartFailed",
-                        message: error.message,
-                      });
-                    }
-                    if (error instanceof RuntimeReadyTimedOut) {
-                      return failAgentStart({
-                        _tag: "ContainerStartFailed",
-                        message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
-                      });
-                    }
-                    return failAgentStart({
-                      _tag: "ContainerStartFailed",
-                      message: `runtime exited before readiness: ${error.stderr}`,
-                    });
-                  }),
-                ),
-                (runtime: Runtime) =>
-                  Effect.gen(function* () {
-                    void runtime;
-                    const conversationRun = yield* executeConversationPlan({
-                      payload,
-                      baseUrl: server.baseUrl,
-                      wsUrl: server.wsUrl,
-                      targetAgentId: targetAgent.agentId,
-                      clientModule,
-                    });
-                    const traceEvents =
-                      yield* server.coreApp.traceCapture.snapshot();
-                    const participantNames = conversationRun.participants.map(
-                      (participant): readonly [string, string] => [
-                        participant.id,
-                        participant.name,
-                      ],
-                    );
-                    const namesById = new Map<string, string>([
-                      [targetAgent.agentId, targetAgent.agentName],
-                      ...participantNames,
-                    ]);
-                    const events = traceEvents.map((event) =>
-                      toBundleEvent(event, namesById),
-                    );
-                    return {
-                      runId: opts.runId ?? randomUUID(),
-                      project: plan.project,
-                      scenarioId: plan.scenarioId,
-                      name: plan.name,
-                      description: plan.description,
-                      requirements: plan.requirements,
-                      agents: [
-                        {
-                          id: targetAgent.agentId,
-                          name: targetAgent.agentName,
-                          role: "target",
-                        },
-                        ...conversationRun.participants,
-                      ],
-                      ...(events.length > 0 ? { events } : {}),
-                      context: {
-                        runtimeKind: payload.runtime.kind,
-                        conversationKind: payload.conversation.kind,
-                        responses: conversationRun.responses,
-                      },
-                      outcomes: [
-                        {
-                          agentId: targetAgent.agentId,
-                          status: "completed",
-                          startedAt: runtimeStartedAt,
-                          endedAt: new Date().toISOString(),
-                        },
-                        ...conversationRun.participants.map((participant) => ({
-                          agentId: participant.id,
-                          status: "completed",
-                          startedAt: runtimeStartedAt,
-                          endedAt: new Date().toISOString(),
-                        })),
-                      ],
-                      metadata: {
-                        modelName: `moltzap/${payload.runtime.kind}`,
-                        sourcePath,
-                      },
-                    };
-                  }),
-                (runtime) => runtime.teardown(),
-              );
-            }),
-          ({ serverTestModule }) =>
-            Effect.tryPromise({
-              try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
-              catch: (error) =>
-                error instanceof Error ? error : new Error(String(error)),
-            }).pipe(Effect.catchAll(() => Effect.void)),
-        ),
+        executeCoordinatorRun({
+          sourcePath,
+          payload,
+          plan,
+          runId: opts.runId,
+        }),
       ).pipe(Effect.mapError(asHarnessFailure));
+    },
+  };
+}
+
+function buildHarnessLoadResult(
+  args: HarnessLoadArgs,
+  payload: HarnessPayload,
+) {
+  return {
+    plan: buildHarnessPlan(args, payload),
+    harness: {
+      name: "moltzap-trace-capture",
+      run: () =>
+        Effect.fail(
+          new ExecutionFailed({
+            message:
+              "MoltZap trace-capture plans require the custom coordinator path",
+          }),
+        ),
+    },
+    coordinator: createCoordinator(args.sourcePath, payload),
+  };
+}
+
+function buildHarnessPlan(args: HarnessLoadArgs, payload: HarnessPayload) {
+  return {
+    project: args.plan.project,
+    scenarioId: args.plan.scenarioId,
+    name: args.plan.name,
+    description: args.plan.description,
+    agents: [targetAgentPlan(payload)],
+    requirements: args.plan.requirements,
+    metadata: {
+      ...args.plan.metadata,
+      harness: "moltzap-trace-capture",
+      conversationKind: payload.conversation.kind,
+      runtimeKind: payload.runtime.kind,
+    },
+  };
+}
+
+function targetAgentPlan(payload: HarnessPayload) {
+  return {
+    id: PLACEHOLDER_AGENT_ID,
+    name:
+      payload.runtime.targetAgentName ??
+      defaultTargetAgentName(payload.runtime.kind),
+    role: "target",
+    artifact: {
+      _tag: "DockerImageArtifact",
+      image: PLACEHOLDER_IMAGE,
+      pullPolicy: "never",
+    },
+    promptInputs: {},
+    metadata: {
+      runtimeKind: payload.runtime.kind,
     },
   };
 }
@@ -1243,53 +1046,8 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
 const traceCaptureHarness = {
   load(args: HarnessLoadArgs) {
     return decodePayload(args.sourcePath, args.payload).pipe(
-      Effect.map((payload) => {
-        const targetAgentName =
-          payload.runtime.targetAgentName ??
-          defaultTargetAgentName(payload.runtime.kind);
-        return {
-          plan: {
-            project: args.plan.project,
-            scenarioId: args.plan.scenarioId,
-            name: args.plan.name,
-            description: args.plan.description,
-            agents: [
-              {
-                id: PLACEHOLDER_AGENT_ID,
-                name: targetAgentName,
-                role: "target",
-                artifact: {
-                  _tag: "DockerImageArtifact",
-                  image: PLACEHOLDER_IMAGE,
-                  pullPolicy: "never",
-                },
-                promptInputs: {},
-                metadata: {
-                  runtimeKind: payload.runtime.kind,
-                },
-              },
-            ],
-            requirements: args.plan.requirements,
-            metadata: {
-              ...args.plan.metadata,
-              harness: "moltzap-trace-capture",
-              conversationKind: payload.conversation.kind,
-              runtimeKind: payload.runtime.kind,
-            },
-          },
-          harness: {
-            name: "moltzap-trace-capture",
-            run: () =>
-              Effect.fail(
-                new ExecutionFailed({
-                  message:
-                    "MoltZap trace-capture plans require the custom coordinator path",
-                }),
-              ),
-          },
-          coordinator: createCoordinator(args.sourcePath, payload),
-        };
-      }),
+      Effect.mapError(asHarnessFailure),
+      Effect.map((payload) => buildHarnessLoadResult(args, payload)),
     );
   },
 };

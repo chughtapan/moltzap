@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { it as effectIt } from "@effect/vitest";
+import { describe, expect } from "vitest";
 import { Effect } from "effect";
 
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
-import { agentId as makeAgentId } from "@moltzap/protocol/testing";
+import {
+  PresenceChangedNotificationDefinition,
+  type NotificationParamsOf,
+} from "@moltzap/protocol";
+import {
+  agentId as makeAgentId,
+  decodeFrame,
+  type AnyFrame,
+} from "@moltzap/protocol/testing";
 
 import {
   ConnectionManager,
@@ -14,7 +22,22 @@ import {
   type PresencePublishInput,
 } from "./presence-event-sink.js";
 
+const it = effectIt.effect;
+
 const AGENT_A_UUID = makeAgentId("00000000-0000-4000-8000-00000000a9e7");
+const CONN_A = "c-a";
+const CONN_B = "c-b";
+const CONN_SENDER = "c-sender";
+const CONN_WATCHER = "c-watcher";
+const CONN_LIVE = "c-live";
+const CONN_STALE = "c-stale";
+const STATUS_ONLINE = "online";
+const STATUS_AWAY = "away";
+const STATUS_OFFLINE = "offline";
+
+type PresenceChangedParams = NotificationParamsOf<
+  typeof PresenceChangedNotificationDefinition
+>;
 
 interface Capture {
   conn: MoltZapConnection;
@@ -40,22 +63,40 @@ function makeConn(connId: string): Capture {
 }
 
 function presenceEventsFor(
-  writes: string[],
+  writes: readonly string[],
   agentId: string,
-): Array<{ agentId: string; status: string }> {
-  return writes
-    .map((raw) => JSON.parse(raw) as Record<string, unknown>)
-    .filter(
-      (frame) => frame["method"] === PresenceChangedNotificationDefinition.name,
-    )
-    .map((frame) => frame["params"] as { agentId: string; status: string })
-    .filter((data) => data.agentId === agentId);
+): Effect.Effect<PresenceChangedParams[], unknown> {
+  return Effect.gen(function* () {
+    const events: PresenceChangedParams[] = [];
+    for (const raw of writes) {
+      const frame = yield* decodeFrame(raw, "outbound");
+      const params = presenceParamsFor(frame, agentId);
+      if (params) events.push(params);
+    }
+    return events;
+  });
 }
 
-/** Drain Effect.runFork-scheduled writes — one macrotask suffices. */
-async function flushFibers(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve));
+function presenceParamsFor(
+  frame: AnyFrame,
+  agentId: string,
+): PresenceChangedParams | null {
+  if (
+    "method" in frame &&
+    frame.method === PresenceChangedNotificationDefinition.name &&
+    PresenceChangedNotificationDefinition.validateParams(frame.params) &&
+    frame.params.agentId === agentId
+  ) {
+    return frame.params;
+  }
+  return null;
 }
+
+const flushFibers: Effect.Effect<void> = Effect.async((resume) => {
+  setImmediate(() => {
+    resume(Effect.void);
+  });
+});
 
 function publishInput(opts: {
   agentId: PresencePublishInput["agentId"];
@@ -72,10 +113,23 @@ function publishInput(opts: {
 }
 
 describe("ConnectionFanOutPresenceEventSink", () => {
-  it("writes presence/changed to every subscriber", async () => {
+  it("writes presence/changed to every subscriber", writesToEverySubscriber);
+  it("skips excludeConnId", skipsExcludedConnection);
+  it(
+    "short-circuits on empty subscriberConnIds",
+    shortCircuitsEmptySubscribers,
+  );
+  it(
+    "silently skips a subscriber connId not in ConnectionManager",
+    skipsMissingConnection,
+  );
+});
+
+function writesToEverySubscriber() {
+  return Effect.gen(function* () {
     const connections = new ConnectionManager();
-    const a = makeConn("c-a");
-    const b = makeConn("c-b");
+    const a = makeConn(CONN_A);
+    const b = makeConn(CONN_B);
     connections.add(a.conn);
     connections.add(b.conn);
 
@@ -83,21 +137,23 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     sink.publish(
       publishInput({
         agentId: AGENT_A_UUID,
-        status: "online",
-        subscriberConnIds: ["c-a", "c-b"],
+        status: STATUS_ONLINE,
+        subscriberConnIds: [CONN_A, CONN_B],
       }),
     );
-    await flushFibers();
+    yield* flushFibers;
 
-    const expected = [{ agentId: AGENT_A_UUID, status: "online" }];
-    expect(presenceEventsFor(a.writes, AGENT_A_UUID)).toEqual(expected);
-    expect(presenceEventsFor(b.writes, AGENT_A_UUID)).toEqual(expected);
+    const expected = [{ agentId: AGENT_A_UUID, status: STATUS_ONLINE }];
+    expect(yield* presenceEventsFor(a.writes, AGENT_A_UUID)).toEqual(expected);
+    expect(yield* presenceEventsFor(b.writes, AGENT_A_UUID)).toEqual(expected);
   });
+}
 
-  it("skips excludeConnId", async () => {
+function skipsExcludedConnection() {
+  return Effect.gen(function* () {
     const connections = new ConnectionManager();
-    const sender = makeConn("c-sender");
-    const watcher = makeConn("c-watcher");
+    const sender = makeConn(CONN_SENDER);
+    const watcher = makeConn(CONN_WATCHER);
     connections.add(sender.conn);
     connections.add(watcher.conn);
 
@@ -105,40 +161,48 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     sink.publish(
       publishInput({
         agentId: AGENT_A_UUID,
-        status: "away",
-        subscriberConnIds: ["c-sender", "c-watcher"],
-        excludeConnId: "c-sender",
+        status: STATUS_AWAY,
+        subscriberConnIds: [CONN_SENDER, CONN_WATCHER],
+        excludeConnId: CONN_SENDER,
       }),
     );
-    await flushFibers();
+    yield* flushFibers;
 
-    expect(presenceEventsFor(sender.writes, AGENT_A_UUID)).toHaveLength(0);
-    expect(presenceEventsFor(watcher.writes, AGENT_A_UUID)).toEqual([
-      { agentId: AGENT_A_UUID, status: "away" },
+    expect(yield* presenceEventsFor(sender.writes, AGENT_A_UUID)).toHaveLength(
+      0,
+    );
+    expect(yield* presenceEventsFor(watcher.writes, AGENT_A_UUID)).toEqual([
+      { agentId: AGENT_A_UUID, status: STATUS_AWAY },
     ]);
   });
+}
 
-  it("short-circuits on empty subscriberConnIds", async () => {
+function shortCircuitsEmptySubscribers() {
+  return Effect.gen(function* () {
     const connections = new ConnectionManager();
-    const watcher = makeConn("c-watcher");
+    const watcher = makeConn(CONN_WATCHER);
     connections.add(watcher.conn);
 
     const sink = createConnectionFanOutPresenceEventSink({ connections });
     sink.publish(
       publishInput({
         agentId: AGENT_A_UUID,
-        status: "online",
+        status: STATUS_ONLINE,
         subscriberConnIds: [],
       }),
     );
-    await flushFibers();
+    yield* flushFibers;
 
-    expect(presenceEventsFor(watcher.writes, AGENT_A_UUID)).toHaveLength(0);
+    expect(yield* presenceEventsFor(watcher.writes, AGENT_A_UUID)).toHaveLength(
+      0,
+    );
   });
+}
 
-  it("silently skips a subscriber connId not in ConnectionManager", async () => {
+function skipsMissingConnection() {
+  return Effect.gen(function* () {
     const connections = new ConnectionManager();
-    const live = makeConn("c-live");
+    const live = makeConn(CONN_LIVE);
     connections.add(live.conn);
 
     const sink = createConnectionFanOutPresenceEventSink({ connections });
@@ -146,15 +210,15 @@ describe("ConnectionFanOutPresenceEventSink", () => {
       sink.publish(
         publishInput({
           agentId: AGENT_A_UUID,
-          status: "offline",
-          subscriberConnIds: ["c-live", "c-stale"],
+          status: STATUS_OFFLINE,
+          subscriberConnIds: [CONN_LIVE, CONN_STALE],
         }),
       ),
     ).not.toThrow();
-    await flushFibers();
+    yield* flushFibers;
 
-    expect(presenceEventsFor(live.writes, AGENT_A_UUID)).toEqual([
-      { agentId: AGENT_A_UUID, status: "offline" },
+    expect(yield* presenceEventsFor(live.writes, AGENT_A_UUID)).toEqual([
+      { agentId: AGENT_A_UUID, status: STATUS_OFFLINE },
     ]);
   });
-});
+}

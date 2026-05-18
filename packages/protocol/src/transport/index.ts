@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for JSON-RPC transport descriptors and runtime helpers.
+ */
 // Wire (frame types only — request/response/notification frame builders
 // are per-def `encode*` methods on RpcDefinition / NotificationDefinition.
 // `encodeErrorResponse` is the single method-agnostic wire encoder.)
@@ -12,7 +15,12 @@ export type {
 // Wire frame schemas (TypeBox) — exported so testing/conformance can
 // validate frames against the canonical shape via @moltzap/protocol/transport
 // rather than reaching into wire.js by relative path.
-export { ResponseFrameSchema, NotificationFrameSchema } from "./wire.js";
+export {
+  responseFrameSchema,
+  responseFrameSchema as ResponseFrameSchema,
+  notificationFrameSchema,
+  notificationFrameSchema as NotificationFrameSchema,
+} from "./wire.js";
 
 // RPC + notification descriptor types. Decoders are protocol-internal;
 // consumers go through `decodeServerInbound` / `decodeClientInbound`
@@ -58,4 +66,4 @@ export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 export { makeJsonRpcClient } from "./json-rpc-client.js";
 export type { JsonRpcClient, RpcCallError } from "./json-rpc-client.js";
 export { handler, makeJsonRpcServer } from "./json-rpc-server.js";
-export type { RpcHandler, JsonRpcServer } from "./json-rpc-server.js";
+export type { JsonRpcServer, RpcHandler } from "./json-rpc-server.js";

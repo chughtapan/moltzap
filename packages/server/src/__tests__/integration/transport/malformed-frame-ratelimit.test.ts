@@ -3,39 +3,56 @@
  *
  * The server uses a per-connection counter with `MALFORMED_LOG_EVERY = 50`
  * so a hostile or buggy client sending garbage frames can't dominate the
- * log. This test doesn't try to observe logger calls directly — the
- * server's logger is a process-global pino instance with no injection
- * seam — but it does prove the more load-bearing contract:
+ * log. This test doesn't observe logger output directly, but it does prove
+ * the more load-bearing contract:
  *
  *   1. The server stays up under 100+ garbage frames on a single socket.
  *   2. Every malformed frame produces a `ParseError` response frame.
  *   3. A normal RPC still works on a fresh connection after the flood.
  */
 
-import { describe, expect, beforeAll, afterAll } from "vitest";
-import { it } from "@effect/vitest";
+import { expect, beforeAll, afterAll } from "vitest";
 import { Duration, Effect, Ref, Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import { NodeSocket } from "@effect/platform-node";
 import {
-  startTestServer,
-  stopTestServer,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
   registerAndConnect,
 } from "../helpers.js";
 import { getWsUrl } from "../../../test-utils/index.js";
 import { JSON_RPC_RESERVED_CODES } from "@moltzap/protocol";
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+const RESPONSE_FLUSH_WAIT_MS = 200;
+const GARBAGE_FRAME_COUNT = 101;
+const MIN_PARSE_ERROR_RESPONSES = 95;
 
-afterAll(async () => {
-  await stopTestServer();
-});
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
-/** Open an Effect-native WebSocket, push every frame, and collect responses.
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
+
+/**
+ * Open an Effect-native WebSocket, push every frame, and collect responses.
  * Bypasses `MoltZapTestClient` so we can send frames that don't pass the
- * protocol validator. */
+ * protocol validator.
+ */
+const parseRawFrame = (data: string | Uint8Array): unknown => {
+  const raw =
+    typeof data === "string" ? data : new TextDecoder("utf-8").decode(data);
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (cause) {
+    return { __raw: raw, __parseError: String(cause) };
+  }
+};
+
+const appendResponse = (
+  responsesRef: Ref.Ref<ReadonlyArray<unknown>>,
+  data: string | Uint8Array,
+) =>
+  Ref.update(responsesRef, (responses) => [...responses, parseRawFrame(data)]);
+
 const sendRawFrames = (wsUrl: string, frames: string[]) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -49,21 +66,7 @@ const sendRawFrames = (wsUrl: string, frames: string[]) =>
 
       const reader = Effect.fork(
         socket
-          .runRaw((data) =>
-            Effect.sync(() => {
-              const raw =
-                typeof data === "string"
-                  ? data
-                  : new TextDecoder("utf-8").decode(data);
-              let parsed: unknown;
-              try {
-                parsed = JSON.parse(raw);
-              } catch {
-                parsed = { __raw: raw };
-              }
-              Effect.runSync(Ref.update(responsesRef, (xs) => [...xs, parsed]));
-            }),
-          )
+          .runRaw((data) => appendResponse(responsesRef, data))
           .pipe(Effect.catchAll(() => Effect.void)),
       );
       yield* reader;
@@ -77,61 +80,55 @@ const sendRawFrames = (wsUrl: string, frames: string[]) =>
       }
 
       // Wait for the server to flush every response.
-      yield* Effect.sleep(Duration.millis(200));
+      yield* Effect.sleep(Duration.millis(RESPONSE_FLUSH_WAIT_MS));
       yield* Scope.close(scope, undefined as never);
       return yield* Ref.get(responsesRef);
     }),
   ).pipe(Effect.provide(NodeSocket.layerWebSocketConstructor));
 
-describe("Scenario 22: malformed-frame flood does not crash the server", () => {
-  it.live(
-    "responds with ParseError to 101 garbage frames and server survives",
-    () =>
-      Effect.gen(function* () {
-        const wsUrl = getWsUrl();
+it("responds with ParseError to 101 garbage frames and server survives", () =>
+  Effect.gen(function* () {
+    const wsUrl = getWsUrl();
 
-        // Mix of JSON-syntax errors targeting the `JSON.parse` branch —
-        // valid-JSON-but-wrong-shape frames go through `validators.requestFrame`.
-        const garbage: string[] = [];
-        for (let i = 0; i < 101; i++) {
-          garbage.push(`{not-json-${i}`);
-        }
+    // Mix of JSON-syntax errors targeting the `JSON.parse` branch —
+    // valid-JSON-but-wrong-shape frames go through `validators.requestFrame`.
+    const garbage: string[] = [];
+    for (let i = 0; i < GARBAGE_FRAME_COUNT; i++) {
+      garbage.push(`{not-json-${i}`);
+    }
 
-        const responses = yield* sendRawFrames(wsUrl, garbage);
+    const responses = yield* sendRawFrames(wsUrl, garbage);
 
-        // The server may coalesce a few frames at high load; assert "at
-        // least most came back" instead of an exact count.
-        const parseErrors = responses.filter((r) => {
-          const f = r as { error?: { code?: number } };
-          return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
-        });
-        expect(parseErrors.length).toBeGreaterThanOrEqual(95);
+    // The server may coalesce a few frames at high load; assert "at
+    // least most came back" instead of an exact count.
+    const parseErrors = responses.filter((r) => {
+      const f = r as { error?: { code?: number } };
+      return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
+    });
+    expect(parseErrors.length).toBeGreaterThanOrEqual(
+      MIN_PARSE_ERROR_RESPONSES,
+    );
 
-        // Fresh connection still works after the flood.
-        const agent = yield* registerAndConnect("post-flood-agent");
-        expect(agent.agentId).toBeDefined();
-      }),
-  );
+    // Fresh connection still works after the flood.
+    const agent = yield* registerAndConnect("post-flood-agent");
+    expect(agent.agentId).toBeDefined();
+  }));
 
-  it.live(
-    "parse-error response uses id:null for frames the server can't parse",
-    () =>
-      Effect.gen(function* () {
-        const wsUrl = getWsUrl();
+it("parse-error response uses id:null for frames the server cannot parse", () =>
+  Effect.gen(function* () {
+    const wsUrl = getWsUrl();
 
-        const responses = yield* sendRawFrames(wsUrl, ["not-json-at-all"]);
+    const responses = yield* sendRawFrames(wsUrl, ["not-json-at-all"]);
 
-        const parseErrors = responses.filter((r) => {
-          const f = r as { error?: { code?: number } };
-          return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
-        });
-        expect(parseErrors.length).toBeGreaterThanOrEqual(1);
-        const first = parseErrors[0] as {
-          id: unknown;
-          error: { code: number; message: string };
-        };
-        expect(first.id).toBeNull();
-        expect(first.error.message).toMatch(/invalid json/i);
-      }),
-  );
-});
+    const parseErrors = responses.filter((r) => {
+      const f = r as { error?: { code?: number } };
+      return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
+    });
+    expect(parseErrors.length).toBeGreaterThanOrEqual(1);
+    const first = parseErrors[0] as {
+      id: unknown;
+      error: { code: number; message: string };
+    };
+    expect(first.id).toBeNull();
+    expect(first.error.message).toMatch(/invalid json/i);
+  }));

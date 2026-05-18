@@ -12,7 +12,6 @@
  */
 import { rpcMethods } from "../../rpc-registry.js";
 import type { NotificationFrame } from "../../transport/wire.js";
-import { JSON_RPC_RESERVED_CODES } from "../../transport/wire-errors.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
 
@@ -104,6 +103,45 @@ export function isIdempotent(method: string): boolean {
   return IDEMPOTENT_METHODS.has(method);
 }
 
+type ModelMethodOutcome = "ok" | "uncertain";
+
+const MODEL_METHOD_OUTCOMES = {
+  [Connect.name]: "uncertain",
+  [Register.name]: "uncertain",
+  [InviteAgent.name]: "uncertain",
+  [AgentsList.name]: "ok",
+  [NetworkPing.name]: "ok",
+  [AgentsLookup.name]: "uncertain",
+  [AgentsLookupByName.name]: "uncertain",
+  [ConversationsList.name]: "uncertain",
+  [ConversationsCreate.name]: "uncertain",
+  [ConversationsGet.name]: "uncertain",
+  [ConversationsUpdate.name]: "uncertain",
+  [ConversationsMute.name]: "uncertain",
+  [ConversationsUnmute.name]: "uncertain",
+  [ConversationsAddParticipant.name]: "uncertain",
+  [ConversationsRemoveParticipant.name]: "uncertain",
+  [ConversationsLeave.name]: "uncertain",
+  [ConversationsArchive.name]: "uncertain",
+  [ConversationsUnarchive.name]: "uncertain",
+  [MessagesSend.name]: "uncertain",
+  [MessagesList.name]: "uncertain",
+  [ContactsList.name]: "uncertain",
+  [ContactsAdd.name]: "uncertain",
+  [ContactsAccept.name]: "uncertain",
+  [ContactsById.name]: "uncertain",
+  [InvitesCreateAgent.name]: "uncertain",
+  [PresenceUpdate.name]: "uncertain",
+  [PresenceSubscribe.name]: "uncertain",
+  [AppsRegister.name]: "uncertain",
+  [DispatchRequest.name]: "uncertain",
+  [DispatchesGet.name]: "uncertain",
+  [TasksCreate.name]: "uncertain",
+  [TasksGet.name]: "uncertain",
+  [TasksList.name]: "uncertain",
+  [TasksClose.name]: "uncertain",
+} as const satisfies Readonly<Record<MethodName, ModelMethodOutcome>>;
+
 /**
  * Authorization oracle (B2 / B3). Returns the expected typed outcome for a
  * call made by `agentId`. Property code compares the real server's error
@@ -167,134 +205,33 @@ export function applyCall(
 ): { readonly next: ReferenceState; readonly outcome: RpcModelResult } {
   const nextTick = mkTick(state.tick + 1);
   const baseNext: ReferenceState = { ...state, tick: nextTick };
+  return {
+    next: baseNext,
+    outcome: modelOutcome(modelMethodOutcome(call.method)),
+  };
+}
 
-  // Authorization check first — every method except connect/register requires identity.
-  // The model doesn't know which `agentId` is the caller here (the call is
-  // unattributed); agent-scoped B2/B3 properties call `authorizationOutcome`
-  // directly. `applyCall` assumes an already-authenticated caller for
-  // simplicity.
+function modelMethodOutcome(method: MethodName): ModelMethodOutcome {
+  return MODEL_METHOD_OUTCOMES[method] as ModelMethodOutcome;
+}
 
-  // Behaviour families the reducer groups by. Grouping keeps the
-  // exhaustive switch below small and named.
-  //
-  // Model-equivalence (rpc-semantics/model-equivalence) uses the
-  // asymmetric oracle: only the `"ok"` path is load-bearing for the
-  // server-must-agree contract. Methods that require specific
-  // params/setup return `"error"` so the model is honest about its
-  // uncertainty — the property runs through them without asserting.
-  //
-  // Criterion for returning `"ok"`: "a freshly-registered agent with
-  // empty-or-arbitrary params gets a successful response." Read-only
-  // list methods with fully-optional params are the honest `"ok"` set;
-  // every other method returns `"error"` (the model is admitting it
-  // doesn't know the state-dependent outcome).
-  const allowNoEvents = (): RpcModelResult => ({
+function modelOutcome(kind: ModelMethodOutcome): RpcModelResult {
+  return kind === "ok" ? allowNoEvents() : uncertainError();
+}
+
+function allowNoEvents(): RpcModelResult {
+  return {
     _tag: "ok",
     result: {},
     events: [],
-  });
-  const uncertainError = (): RpcModelResult => ({
+  };
+}
+
+function uncertainError(): RpcModelResult {
+  return {
     _tag: "error",
     code: -32603,
     message: "model-uncertain: requires state or specific params",
     events: [],
-  });
-
-  const m: MethodName = call.method;
-  switch (m) {
-    case Connect.name:
-    case Register.name:
-    case InviteAgent.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Agents list-shaped — honest "ok" for a fresh authenticated agent.
-    case AgentsList.name:
-      return { next: baseNext, outcome: allowNoEvents() };
-
-    // System — pure ping returns a timestamp; honest "ok" for any caller.
-    case NetworkPing.name:
-      return { next: baseNext, outcome: allowNoEvents() };
-
-    // Agents lookup-shaped — need a target; uncertain.
-    case AgentsLookup.name:
-    case AgentsLookupByName.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Conversations list — NOT oracle-confident across arbitrary
-    // params. Round-8 finding (architect-197 §2.2 literal-probe
-    // widening): `conversations/list` accepts `cursor: Type.String()`
-    // (any string) at the schema layer, but the server's cursor
-    // parser errors on pathological whitespace-only values. The
-    // model would be dishonest claiming `ok` across all draws. Move
-    // to `uncertainError`; K=1 today (agents/list only). Widening
-    // K requires either per-method param filters at the arbitrary
-    // layer OR a server-side cursor-parse fix.
-    case ConversationsList.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Conversations with required fields or state — uncertain.
-    case ConversationsCreate.name:
-    case ConversationsGet.name:
-    case ConversationsUpdate.name:
-    case ConversationsMute.name:
-    case ConversationsUnmute.name:
-    case ConversationsAddParticipant.name:
-    case ConversationsRemoveParticipant.name:
-    case ConversationsLeave.name:
-    case ConversationsArchive.name:
-    case ConversationsUnarchive.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Messages — both require a valid conversationId. Uncertain.
-    case MessagesSend.name:
-    case MessagesList.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Contacts list — requires user context for a fresh agent, so
-    // server returns an error. Uncertain.
-    case ContactsList.name:
-    case ContactsAdd.name:
-    case ContactsAccept.name:
-    case ContactsById.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Invites — requires state. Uncertain.
-    case InvitesCreateAgent.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Presence — state-dependent. Uncertain.
-    case PresenceUpdate.name:
-    case PresenceSubscribe.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Apps — admission + observability surfaces require app/user context
-    // the fresh fuzz agent doesn't have. Outcome is uncertain across
-    // draws (the registry may be unwired in some envs).
-    case AppsRegister.name:
-    case DispatchRequest.name:
-    case DispatchesGet.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Tasks — require task/participant context. Uncertain across draws.
-    case TasksCreate.name:
-    case TasksGet.name:
-    case TasksList.name:
-    case TasksClose.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    default: {
-      // Exhaustiveness check — any new wire method name breaks the build here
-      // until a branch is added.
-      const _exhaustive = m as never;
-      return {
-        next: baseNext,
-        outcome: {
-          _tag: "error",
-          code: JSON_RPC_RESERVED_CODES.InternalError,
-          message: `model: unhandled method ${String(_exhaustive)}`,
-          events: [],
-        },
-      };
-    }
-  }
+  };
 }

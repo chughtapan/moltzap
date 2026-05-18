@@ -1,17 +1,21 @@
-// App-layer manifest. File outline:
-//   1. App manifest schema (AppManifestSchema, AppManifest)
-//   2. apps/* RPCs (AppsRegister)
-//   3. dispatch/* admission descriptors
-//   4. dispatches/* moderator-observability descriptors
-//   5. Aggregator arrays
 import { Type, type Static } from "@sinclair/typebox";
-import { AgentId, AgentOwnershipSchema } from "../identity/methods.js";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import { Data, Either } from "effect";
+import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
-import { MessagePartsSchema, LogicalClockSchema } from "../task/methods.js";
-import { DateTimeString, brandedId, stringEnum } from "../schema-primitives.js";
+import { messagePartsSchema, logicalClockSchema } from "../task/methods.js";
+import {
+  dateTimeStringSchema,
+  brandedId,
+  stringEnum,
+} from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
 
-// ── App manifest schema ──────────────────────────────────────────────
+const DateTimeString = dateTimeStringSchema();
+const AgentOwnershipSchema = agentOwnershipSchema();
+const MessagePartsSchema = messagePartsSchema();
+const LogicalClockSchema = logicalClockSchema();
 
 const AppManifestConversationSchema = Type.Object(
   {
@@ -52,7 +56,7 @@ const HookEntrySchema = Type.Object(
  * `dispatch_authorize` is absent: `grant`. See #560 for the send-side
  * design and #538/#536 for the receive-side history.
  */
-export const AppManifestSchema = Type.Object(
+const AppManifestSchema = Type.Object(
   {
     appId: Type.String(),
     name: Type.String(),
@@ -80,6 +84,43 @@ export const AppManifestSchema = Type.Object(
 );
 
 export type AppManifest = Static<typeof AppManifestSchema>;
+
+const appManifestValidator = addFormats(
+  new Ajv({ strict: true, allErrors: true }),
+).compile<AppManifest>(AppManifestSchema);
+
+const formatAppManifestError = (error: {
+  readonly instancePath?: string;
+  readonly message?: string;
+}): string =>
+  `${error.instancePath || "/"} ${error.message ?? "validation failed"}`;
+
+class AppManifestInvalid extends Data.TaggedError("AppManifestInvalid")<{
+  readonly errors: readonly string[];
+}> {}
+
+export type AppManifestValidationResult = Either.Either<
+  AppManifest,
+  AppManifestInvalid
+>;
+
+const currentAppManifestErrors = (): readonly string[] => {
+  const errors = (appManifestValidator.errors ?? []).map(
+    formatAppManifestError,
+  );
+  return errors.length > 0 ? errors : ["unknown validation failure"];
+};
+
+const validateAppManifestValue = Either.liftPredicate(
+  (value: unknown): value is AppManifest => appManifestValidator(value),
+  () => new AppManifestInvalid({ errors: currentAppManifestErrors() }),
+);
+
+export function validateAppManifest(
+  value: unknown,
+): AppManifestValidationResult {
+  return validateAppManifestValue(value);
+}
 
 // ── apps/* RPCs ──────────────────────────────────────────────────────
 

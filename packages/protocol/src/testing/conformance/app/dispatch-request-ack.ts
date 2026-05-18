@@ -56,6 +56,6 @@ export function registerDispatchRequestAckMintsLease(
         }
         yield* driver.recipient.waitForRelease();
       }),
-    ),
+    ).pipe(Effect.withSpan("registerDispatchRequestAckMintsLease")),
   );
 }

@@ -12,15 +12,20 @@ import type { AuthenticatedContext } from "../transport/context.js";
 
 export interface MoltZapConnection {
   id: string;
-  /** Write a raw frame to this connection. Fails with SocketError on send
-   * failure or if the socket is already closed. */
+
+  /**
+   * Write a raw frame to this connection. Fails with SocketError on send
+   * failure or if the socket is already closed.
+   */
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+
   /** Close this connection's scope, tearing down the underlying socket. */
   shutdown: Effect.Effect<void>;
   auth: AuthenticatedContext | null;
   lastPong: number;
   conversationIds: Set<string>;
   mutedConversations: Set<string>;
+
   /**
    * Originator side of this connection's server→client appCallback channel.
    * Mints `srv-${connId}-N` request ids, tracks pending Deferreds, and
@@ -110,10 +115,10 @@ export class ConnectionManager {
     const subscribed: string[] = [];
     const agentSet = new Set(agentIds);
     for (const conn of this.connections.values()) {
-      if (!conn.auth) continue;
-      if (!agentSet.has(conn.auth.agentId)) continue;
-      conn.conversationIds.add(conversationId);
-      subscribed.push(conn.id);
+      if (conn.auth && agentSet.has(conn.auth.agentId)) {
+        conn.conversationIds.add(conversationId);
+        subscribed.push(conn.id);
+      }
     }
     return subscribed;
   }

@@ -5,7 +5,7 @@
  * `apiKey` / `agentName` fields (see cli/config.ts) remain the "default"
  * record; named profiles live under a new top-level `profiles` key.
  *
- * Spec sbd#177 rev 3 §5.2 (`--profile <name>`, `--no-persist`),
+ * Spec sbd#177 rev 3 §5.2 (`--profile &lt;name>`, `--no-persist`),
  * Invariants §4.3 (coexistence) and §4.4 (no-disk-write guarantee).
  *
  * Architect note. The existing `cli/config.ts` pre-dates this branch and is
@@ -16,10 +16,10 @@
  * named export of `config.ts`. The public interface defined below is the
  * contract impl-staff preserves regardless of layout.
  */
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { Brand, Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import { Brand, Data, Effect, Either } from "effect";
+import { getMoltZapConfigDir, getMoltZapConfigPath } from "../local-paths.js";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ import { Brand, Config, ConfigProvider, Data, Effect, Option } from "effect";
  * `commands/register.ts`: `/^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/`.
  */
 export type ProfileName = string & Brand.Brand<"ProfileName">;
-export const ProfileName = Brand.nominal<ProfileName>();
+const ProfileNameBrand = Brand.nominal<ProfileName>();
 
 /** Sentinel used when the caller addresses the legacy top-level record. */
 export type DefaultProfileId = "default";
@@ -38,20 +38,8 @@ const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 const CONFIG_FILE_MODE = 0o600;
 const JSON_INDENT_SPACES = 2;
-const ConfigHome = Config.option(Config.string("MOLTZAP_CONFIG_HOME"));
-
-const getConfigHomeSync = (): string | undefined =>
-  Option.getOrUndefined(
-    Effect.runSync(
-      ConfigHome.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-    ),
-  );
-
-const getConfigDir = (): string =>
-  getConfigHomeSync() ?? path.join(os.homedir(), ".moltzap");
-
-const getConfigFilePathSync = (): string =>
-  path.join(getConfigDir(), "config.json");
+const getConfigDir = getMoltZapConfigDir;
+const getConfigFilePathSync = getMoltZapConfigPath;
 
 // ─── Records ───────────────────────────────────────────────────────────────
 
@@ -71,7 +59,7 @@ export interface ProfileRecord {
 
 /**
  * Layered view of config.json. The legacy top-level keys populate
- * `default`; named records live under `profiles.<name>`. `serverUrl`
+ * `default`; named records live under `profiles.&lt;name>`. `serverUrl`
  * is surfaced at the top because it is shared across profiles unless
  * a profile overrides it.
  */
@@ -97,7 +85,7 @@ export class ProfileNotFoundError extends Data.TaggedError(
   readonly name: string;
 }> {}
 
-export class ProfileAlreadyExistsError extends Data.TaggedError(
+class ProfileAlreadyExistsError extends Data.TaggedError(
   "ProfileAlreadyExistsError",
 )<{
   readonly name: string;
@@ -147,7 +135,7 @@ export const parseProfileName = (
       }),
     );
   }
-  return Effect.succeed(ProfileName(raw));
+  return Effect.succeed(ProfileNameBrand(raw));
 };
 
 interface RawConfig {
@@ -165,8 +153,7 @@ const decodeProfileRecord = (
   fallbackServerUrl: string,
 ): ProfileRecord | undefined => {
   if (!isRecord(raw)) return undefined;
-  const apiKey = raw.apiKey;
-  const agentName = raw.agentName;
+  const { apiKey, agentName } = raw;
   if (typeof apiKey !== "string" || typeof agentName !== "string") {
     return undefined;
   }
@@ -179,50 +166,99 @@ const decodeProfileRecord = (
   return record;
 };
 
+const readRawConfigText = (
+  configPath: string,
+): Effect.Effect<string | null, ProfileConfigReadError> =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fileSystem
+        .exists(configPath)
+        .pipe(
+          Effect.flatMap((exists) =>
+            exists
+              ? fileSystem.readFileString(configPath, "utf-8")
+              : Effect.succeed(null),
+          ),
+        ),
+    ),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (cause) =>
+          Effect.fail(new ProfileConfigReadError({ path: configPath, cause })),
+        onRight: (value) => Effect.succeed(value),
+      }),
+    ),
+  );
+
+const parseRawConfig = (
+  configPath: string,
+  text: string,
+): Effect.Effect<unknown, ProfileConfigReadError> =>
+  Effect.try({
+    try: (): unknown => JSON.parse(text),
+    catch: (err) =>
+      new ProfileConfigReadError({ path: configPath, cause: err }),
+  });
+
+const requireRawConfigRecord = (
+  configPath: string,
+  parsed: unknown,
+): Effect.Effect<RawConfig, ProfileConfigReadError> =>
+  isRecord(parsed)
+    ? Effect.succeed(parsed as RawConfig)
+    : Effect.fail(
+        new ProfileConfigReadError({
+          path: configPath,
+          cause: "config root is not a JSON object",
+        }),
+      );
+
 const readRawConfig = (): Effect.Effect<
   { raw: RawConfig; existed: boolean },
   ProfileConfigReadError
 > =>
   Effect.gen(function* () {
     const configPath = getConfigFilePathSync();
-    const text = yield* Effect.try({
-      try: () => fs.readFileSync(configPath, "utf-8"),
-      catch: (err) => err,
-    }).pipe(
-      Effect.catchAll((err) => {
-        const code = (err as NodeJS.ErrnoException).code;
-        return code === "ENOENT"
-          ? Effect.succeed(null)
-          : Effect.fail(
-              new ProfileConfigReadError({
-                path: configPath,
-                cause: err,
-              }),
-            );
-      }),
-    );
+    const text = yield* readRawConfigText(configPath);
     if (text === null) {
       return { raw: {}, existed: false };
     }
-
-    const parsed = yield* Effect.try({
-      try: (): unknown => JSON.parse(text),
-      catch: (err) =>
-        new ProfileConfigReadError({
-          path: configPath,
-          cause: err,
-        }),
-    });
-    if (!isRecord(parsed)) {
-      return yield* Effect.fail(
-        new ProfileConfigReadError({
-          path: configPath,
-          cause: "config root is not a JSON object",
-        }),
-      );
-    }
-    return { raw: parsed as RawConfig, existed: true };
+    const parsed = yield* parseRawConfig(configPath, text);
+    const raw = yield* requireRawConfigRecord(configPath, parsed);
+    return { raw, existed: true };
   });
+
+function defaultProfileFromRaw(
+  raw: RawConfig,
+  serverUrl: string,
+): ProfileRecord | undefined {
+  if (typeof raw.apiKey !== "string" || typeof raw.agentName !== "string") {
+    return undefined;
+  }
+  return {
+    apiKey: raw.apiKey,
+    agentName: raw.agentName,
+    serverUrl,
+  };
+}
+
+function profilesFromRaw(
+  raw: RawConfig,
+  serverUrl: string,
+): Map<ProfileName, ProfileRecord> {
+  const profiles = new Map<ProfileName, ProfileRecord>();
+  if (!isRecord(raw.profiles)) return profiles;
+  for (const [name, value] of Object.entries(raw.profiles)) {
+    if (!NAME_PATTERN.test(name)) continue; // tolerate malformed entries
+    const record = decodeProfileRecord(value, serverUrl);
+    if (record !== undefined) {
+      profiles.set(ProfileNameBrand(name), record);
+    }
+  }
+  return profiles;
+}
 
 /**
  * Load the full layered config view. Missing file resolves to an empty
@@ -240,29 +276,12 @@ export const loadLayeredConfig: Effect.Effect<
   const { raw } = yield* readRawConfig();
   const serverUrl =
     typeof raw.serverUrl === "string" ? raw.serverUrl : DEFAULT_SERVER_URL;
-
-  let defaultRecord: ProfileRecord | undefined;
-  if (typeof raw.apiKey === "string" && typeof raw.agentName === "string") {
-    defaultRecord = {
-      apiKey: raw.apiKey,
-      agentName: raw.agentName,
-      serverUrl,
-    };
-  }
-
-  const profiles = new Map<ProfileName, ProfileRecord>();
-  if (isRecord(raw.profiles)) {
-    for (const [name, value] of Object.entries(raw.profiles)) {
-      if (!NAME_PATTERN.test(name)) continue; // tolerate malformed entries
-      const record = decodeProfileRecord(value, serverUrl);
-      if (record !== undefined) {
-        profiles.set(ProfileName(name), record);
-      }
-    }
-  }
-
-  return { default: defaultRecord, profiles, serverUrl };
-});
+  return {
+    default: defaultProfileFromRaw(raw, serverUrl),
+    profiles: profilesFromRaw(raw, serverUrl),
+    serverUrl,
+  };
+}).pipe(Effect.withSpan("loadLayeredConfig"));
 
 /**
  * Resolve the auth record for a given profile name.
@@ -294,10 +313,75 @@ export const resolveProfileAuth = (
       return yield* Effect.fail(new ProfileNotFoundError({ name }));
     }
     return found;
-  });
+  }).pipe(Effect.withSpan("resolveProfileAuth"));
+
+function profileBodyFromRecord(record: ProfileRecord): Record<string, unknown> {
+  return {
+    apiKey: record.apiKey,
+    agentName: record.agentName,
+    serverUrl: record.serverUrl,
+    ...(record.registeredAt !== undefined
+      ? { registeredAt: record.registeredAt }
+      : {}),
+  };
+}
+
+function nextProfileConfig(
+  raw: RawConfig,
+  name: ProfileName | DefaultProfileId,
+  record: ProfileRecord,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...raw };
+  if (name === "default") {
+    next.serverUrl = record.serverUrl;
+    next.apiKey = record.apiKey;
+    next.agentName = record.agentName;
+    return next;
+  }
+  const existingProfiles = isRecord(next.profiles) ? next.profiles : {};
+  next.profiles = {
+    ...existingProfiles,
+    [name]: profileBodyFromRecord(record),
+  };
+  if (typeof next.serverUrl !== "string") {
+    next.serverUrl = record.serverUrl;
+  }
+  return next;
+}
+
+const writeRawConfig = (
+  next: Record<string, unknown>,
+): Effect.Effect<void, ProfileConfigWriteError> => {
+  const configDir = getConfigDir();
+  const configPath = getConfigFilePathSync();
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fileSystem
+        .makeDirectory(configDir, { recursive: true })
+        .pipe(
+          Effect.zipRight(
+            fileSystem.writeFileString(
+              configPath,
+              JSON.stringify(next, null, JSON_INDENT_SPACES) + "\n",
+              { mode: CONFIG_FILE_MODE },
+            ),
+          ),
+        ),
+    ),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (cause) =>
+          Effect.fail(new ProfileConfigWriteError({ path: configPath, cause })),
+        onRight: (value) => Effect.succeed(value),
+      }),
+    ),
+  );
+};
 
 /**
- * Persist a new profile record under `profiles.<name>`, or replace the
+ * Persist a new profile record under `profiles.&lt;name>`, or replace the
  * legacy top-level record when `name` is `"default"`.
  *
  * When called with `"default"`, writes the legacy top-level `apiKey` /
@@ -310,46 +394,8 @@ export const writeProfile = (
 ): Effect.Effect<void, ProfileConfigWriteError | ProfileConfigReadError> =>
   Effect.gen(function* () {
     const { raw } = yield* readRawConfig();
-    const next: Record<string, unknown> = { ...raw };
-
-    if (name === "default") {
-      next.serverUrl = record.serverUrl;
-      next.apiKey = record.apiKey;
-      next.agentName = record.agentName;
-    } else {
-      const existingProfiles = isRecord(next.profiles) ? next.profiles : {};
-      const profileBody: Record<string, unknown> = {
-        apiKey: record.apiKey,
-        agentName: record.agentName,
-        serverUrl: record.serverUrl,
-      };
-      if (record.registeredAt !== undefined) {
-        profileBody.registeredAt = record.registeredAt;
-      }
-      next.profiles = { ...existingProfiles, [name]: profileBody };
-      // serverUrl at top level stays as-is for legacy readers.
-      if (typeof next.serverUrl !== "string") {
-        next.serverUrl = record.serverUrl;
-      }
-    }
-
-    const configDir = getConfigDir();
-    const configPath = getConfigFilePathSync();
-    yield* Effect.try({
-      try: () => {
-        fs.mkdirSync(configDir, { recursive: true });
-        fs.writeFileSync(
-          configPath,
-          JSON.stringify(next, null, JSON_INDENT_SPACES) + "\n",
-          {
-            mode: CONFIG_FILE_MODE,
-          },
-        );
-      },
-      catch: (err) =>
-        new ProfileConfigWriteError({ path: configPath, cause: err }),
-    });
-  });
+    yield* writeRawConfig(nextProfileConfig(raw, name, record));
+  }).pipe(Effect.withSpan("writeProfile"));
 
 /**
  * `--no-persist` contract for `moltzap register`. Revised Invariant §4.4
@@ -370,14 +416,3 @@ export const emitNoPersist = (
   record: ProfileRecord,
 ): Effect.Effect<{ readonly record: ProfileRecord }, never> =>
   Effect.succeed({ record });
-
-// ─── Test seam ─────────────────────────────────────────────────────────────
-
-/**
- * Absolute path to the config file. Overridable at test time via the
- * `MOLTZAP_CONFIG_HOME` env (tests set a tmp dir; production leaves unset).
- * Exported so assertions can diff the file after a command run.
- */
-export const getConfigFilePath: Effect.Effect<string, never> = Effect.sync(() =>
-  getConfigFilePathSync(),
-);

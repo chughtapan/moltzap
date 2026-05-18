@@ -23,7 +23,8 @@ export interface DispatchContext {
   readonly connId: string;
 }
 
-/** RPC binding stored in the registry. Each binding carries a method
+/**
+ * RPC binding stored in the registry. Each binding carries a method
  * definition and a `JsonRpcServer`-compatible handler that already
  * provides the layer scopes + ConnIdTag service.
  *
@@ -31,8 +32,9 @@ export interface DispatchContext {
  * `defineMethod` wrapper resolves `ConnIdTag` (provided per request
  * from `DispatchContext.connId`). The remaining tags are the service
  * Tags that the dispatcher's `FullLive` Layer provides at request
- * time. We use `Exclude<AppTags, ConnIdTag>` so the dispatcher's
- * `Effect.provide(FullLive)` resolves R structurally to `never`. */
+ * time. We use `Exclude&lt;AppTags, ConnIdTag>` so the dispatcher's
+ * `Effect.provide(FullLive)` resolves R structurally to `never`.
+ */
 export type RpcMethodBinding = RpcHandler<
   DispatchContext,
   Exclude<AppTags, ConnIdTag>
@@ -40,7 +42,8 @@ export type RpcMethodBinding = RpcHandler<
 
 export type RpcMethodRegistry = RpcMethodBinding[];
 
-/** Type-safe RPC method definition driven by a protocol manifest.
+/**
+ * Type-safe RPC method definition driven by a protocol manifest.
  * Wraps the user's handler with `requiresActive` enforcement and
  * provides `ConnIdTag` from the dispatch context.
  *
@@ -55,7 +58,8 @@ export type RpcMethodRegistry = RpcMethodBinding[];
  * `Effect.provideService(ConnIdTag, ctx.connId)` is a no-op when the
  * body doesn't pull `ConnIdTag` (the `R` channel of `Effect` excludes
  * the tag if absent), so `Reqs` widening doesn't lie about
- * requirements. */
+ * requirements.
+ */
 export function defineMethod<
   Name extends string,
   P extends TSchema,
@@ -76,11 +80,7 @@ export function defineMethod<
   // Explicit type args so TS infers R from the inner Effect's R-channel
   // rather than defaulting to `never`. `handler<D, Ctx, R>` from
   // `@moltzap/protocol` carries R through to the binding.
-  return handler<
-    RpcDefinition<Name, P, R>,
-    DispatchContext,
-    Exclude<Reqs, ConnIdTag>
-  >(definition, (params, ctx) =>
+  return handler(definition, (params: Static<P>, ctx: DispatchContext) =>
     Effect.gen(function* () {
       if (requiresActive && ctx.auth.agentStatus !== "active") {
         return yield* Effect.fail(
@@ -102,6 +102,6 @@ export function defineMethod<
         .handler(params, ctx.auth)
         .pipe(Effect.provideService(ConnIdTag, ctx.connId));
       return result as ResultOf<RpcDefinition<Name, P, R>>;
-    }),
+    }).pipe(Effect.withSpan("defineMethod")),
   );
 }

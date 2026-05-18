@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for protocol reference-model helpers.
+ */
 export {
   type ReferenceState,
   type LogicalTick,

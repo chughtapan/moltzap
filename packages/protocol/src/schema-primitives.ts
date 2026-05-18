@@ -1,6 +1,7 @@
 import {
   FormatRegistry,
   Type,
+  type Static,
   type TString,
   type TNumber,
 } from "@sinclair/typebox";
@@ -67,4 +68,10 @@ export function stringEnum<T extends string[]>(values: [...T]) {
   return Type.String({ enum: values }) as TString & { static: T[number] };
 }
 
-export const DateTimeString = Type.String({ format: "date-time" });
+const DateTimeStringSchema = Type.String({ format: "date-time" });
+
+export type DateTimeString = Static<typeof DateTimeStringSchema>;
+
+export function dateTimeStringSchema(): typeof DateTimeStringSchema {
+  return DateTimeStringSchema;
+}

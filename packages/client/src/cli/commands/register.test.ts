@@ -1,24 +1,41 @@
-import { Effect, Option } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Data, Effect, Option } from "effect";
+import { it as effectIt } from "@effect/vitest";
+import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { registerCommand } from "./register.js";
+
+const it = effectIt.effect;
+const AGENT_NAME = "my-agent";
+const INVITE_CODE = "inv_abc123";
+const BAD_INVITE_CODE = "inv_bad";
+const DESCRIPTION = "A test agent";
+const AGENT_ID = "agent-123";
+const API_KEY = "moltzap_agent_testkey";
+const CLAIM_URL = "https://moltzap.xyz/claim/tok_abc";
 
 type RegisterResult = {
   agentId: string;
   apiKey: string;
   claimUrl: string;
 };
+
+class RegisterTestFailure extends Data.TaggedError("RegisterTestFailure")<{
+  readonly message: string;
+}> {}
+
 const mockRegisterAgent =
   vi.fn<
     (
       name: string,
       inviteCode: string,
       description?: string,
-    ) => Effect.Effect<RegisterResult, Error>
+    ) => Effect.Effect<RegisterResult, RegisterTestFailure>
   >();
 
 vi.mock("../http-client.js", () => ({
-  registerAgent: (name: string, inviteCode: string, description?: string) =>
-    mockRegisterAgent(name, inviteCode, description),
+  registerAgent: (name: string, inviteCode: string, description?: string) => {
+    const resolvedDescription = description;
+    return mockRegisterAgent(name, inviteCode, resolvedDescription);
+  },
 }));
 
 vi.mock("../config.js", () => ({
@@ -36,72 +53,85 @@ vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
 }));
 
+function registerHandlerInput(description: Option.Option<string>) {
+  return {
+    name: AGENT_NAME,
+    inviteCode: INVITE_CODE,
+    description,
+    profile: Option.none<string>(),
+    noPersist: false,
+  };
+}
+
+function successfulRegistration() {
+  return Effect.succeed({
+    agentId: AGENT_ID,
+    apiKey: API_KEY,
+    claimUrl: CLAIM_URL,
+  });
+}
+
+function failedRegistration() {
+  return Effect.fail(
+    new RegisterTestFailure({ message: "Invalid invite code" }),
+  );
+}
+
+function passThroughWithoutDescription() {
+  return Effect.gen(function* () {
+    yield* registerCommand.handler(registerHandlerInput(Option.none()));
+    expect(mockRegisterAgent).toHaveBeenCalledWith(
+      AGENT_NAME,
+      INVITE_CODE,
+      undefined,
+    );
+  });
+}
+
+function forwardsDescription() {
+  return Effect.gen(function* () {
+    yield* registerCommand.handler(
+      registerHandlerInput(Option.some(DESCRIPTION)),
+    );
+    expect(mockRegisterAgent).toHaveBeenCalledWith(
+      AGENT_NAME,
+      INVITE_CODE,
+      DESCRIPTION,
+    );
+  });
+}
+
+function exitsOnRegistrationFailure() {
+  return Effect.gen(function* () {
+    mockRegisterAgent.mockImplementationOnce(failedRegistration);
+    yield* registerCommand.handler({
+      ...registerHandlerInput(Option.none()),
+      inviteCode: BAD_INVITE_CODE,
+      description: Option.none(),
+    });
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+}
+
 describe("register command handler", () => {
   const originalExit = process.exit;
 
   beforeEach(() => {
     vi.clearAllMocks();
     process.exit = vi.fn() as never;
-    mockRegisterAgent.mockImplementation(() =>
-      Effect.succeed({
-        agentId: "agent-123",
-        apiKey: "moltzap_agent_testkey",
-        claimUrl: "https://moltzap.xyz/claim/tok_abc",
-      }),
-    );
+    mockRegisterAgent.mockImplementation(successfulRegistration);
   });
 
   afterEach(() => {
     process.exit = originalExit;
   });
 
-  it("passes name, inviteCode, and description through", async () => {
-    await Effect.runPromise(
-      registerCommand.handler({
-        name: "my-agent",
-        inviteCode: "inv_abc123",
-        description: Option.none(),
-        profile: Option.none(),
-        noPersist: false,
-      }),
-    );
-    expect(mockRegisterAgent).toHaveBeenCalledWith(
-      "my-agent",
-      "inv_abc123",
-      undefined,
-    );
-  });
+  it(
+    "passes name, inviteCode, and description through",
+    passThroughWithoutDescription,
+  );
 
-  it("forwards description option when provided", async () => {
-    await Effect.runPromise(
-      registerCommand.handler({
-        name: "my-agent",
-        inviteCode: "inv_abc123",
-        description: Option.some("A test agent"),
-        profile: Option.none(),
-        noPersist: false,
-      }),
-    );
-    expect(mockRegisterAgent).toHaveBeenCalledWith(
-      "my-agent",
-      "inv_abc123",
-      "A test agent",
-    );
-  });
+  it("forwards description option when provided", forwardsDescription);
 
-  it("exits with error on registration failure", async () => {
-    mockRegisterAgent.mockImplementationOnce(() =>
-      Effect.fail(new Error("Invalid invite code")),
-    );
-    await Effect.runPromise(
-      registerCommand.handler({
-        name: "my-agent",
-        inviteCode: "inv_bad",
-        description: Option.none(),
-        profile: Option.none(),
-        noPersist: false,
-      }),
-    );
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
+  it("exits with error on registration failure", exitsOnRegistrationFailure);
 });

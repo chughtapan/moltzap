@@ -1,10 +1,12 @@
 /** Payload opacity — sent text appears byte-for-byte in delivered events. */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { MessagesSend } from "@moltzap/protocol/task";
+import { MessagesSend } from "../../../task/methods.js";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
+import type { CapturedFrame } from "../_shared/captures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
+import type { PropertyAssertionFailure } from "../_shared/registry.js";
 import {
   DELIVERY_CATEGORY,
   DELIVERY_DEFAULT_PROPERTY_NUM_RUNS,
@@ -12,52 +14,75 @@ import {
   deliveryViolation,
 } from "./_helpers.js";
 
+const PROPERTY = "payload-opacity";
+
 export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     DELIVERY_CATEGORY,
-    "payload-opacity",
+    PROPERTY,
     "sent message text appears verbatim in delivered event bytes",
-    assertProperty(DELIVERY_CATEGORY, "payload-opacity", () =>
+    assertProperty(DELIVERY_CATEGORY, PROPERTY, (onFailure) =>
+      assertPayloadOpacity(ctx, onFailure),
+    ).pipe(Effect.withSpan("registerPayloadOpacity")),
+  );
+}
+
+function assertPayloadOpacity(
+  ctx: ConformanceRunContext,
+  onFailure: (cause: unknown) => PropertyAssertionFailure,
+): Effect.Effect<void, PropertyAssertionFailure> {
+  return Effect.tryPromise({
+    try: () =>
       fc.assert(
-        fc.asyncProperty(
-          // Exclude JSON-meta chars so a simple substring match is valid.
-          fc
-            .string({ minLength: 4, maxLength: 24 })
-            .filter((s) => !/[\\" \n\r\t]/.test(s)),
-          (text) =>
-            Effect.runPromise(
-              Effect.scoped(
-                Effect.gen(function* () {
-                  const fixture = yield* acquireConversation(ctx, 1, "po").pipe(
-                    Effect.mapError((e) =>
-                      deliveryViolation("payload-opacity", `fixture: ${e}`),
-                    ),
-                  );
-                  const participant = fixture.participants[0];
-                  if (participant === undefined) return false;
-                  yield* fixture.owner.client.sendRpc(MessagesSend, {
-                    conversationId: fixture.conversationId,
-                    parts: [{ type: "text", text }],
-                  });
-                  yield* Effect.sleep("250 millis");
-                  const snap = yield* participant.client.snapshot;
-                  return snap.some(
-                    (s) =>
-                      s.kind === "inbound" &&
-                      s.frame !== null &&
-                      isNotificationFrame(s.frame) &&
-                      s.raw.includes(text),
-                  );
-                }),
-              ).pipe(Effect.catchAll(() => Effect.succeed(false))),
-            ),
+        fc.asyncProperty(payloadTextArbitrary, (text) =>
+          Effect.runPromise(checkPayloadOpacity(ctx, text)),
         ),
         {
           seed: ctx.seed,
           numRuns: ctx.opts.numRuns ?? DELIVERY_DEFAULT_PROPERTY_NUM_RUNS,
         },
       ),
-    ),
+    catch: onFailure,
+  });
+}
+
+const payloadTextArbitrary = fc
+  .string({ minLength: 4, maxLength: 24 })
+  .filter(isJsonSubstringSafe);
+
+function isJsonSubstringSafe(text: string): boolean {
+  return !/[\\" \n\r\t]/.test(text);
+}
+
+function checkPayloadOpacity(ctx: ConformanceRunContext, text: string) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* acquirePayloadFixture(ctx);
+      const participant = fixture.participants[0];
+      if (participant === undefined) return false;
+      yield* fixture.owner.client.sendRpc(MessagesSend, {
+        conversationId: fixture.conversationId,
+        parts: [{ type: "text", text }],
+      });
+      yield* Effect.sleep("250 millis");
+      const snap = yield* participant.client.snapshot;
+      return snap.some((frame) => containsDeliveredText(frame, text));
+    }),
+  ).pipe(Effect.catchAll(() => Effect.succeed(false)));
+}
+
+function acquirePayloadFixture(ctx: ConformanceRunContext) {
+  return acquireConversation(ctx, 1, "po").pipe(
+    Effect.mapError((e) => deliveryViolation(PROPERTY, `fixture: ${e}`)),
+  );
+}
+
+function containsDeliveredText(frame: CapturedFrame, text: string): boolean {
+  return (
+    frame.kind === "inbound" &&
+    frame.frame !== null &&
+    isNotificationFrame(frame.frame) &&
+    frame.raw.includes(text)
   );
 }

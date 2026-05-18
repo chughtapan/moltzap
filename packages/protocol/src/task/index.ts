@@ -1,11 +1,9 @@
-// ConversationId, TaskId exported as VALUES (not type-only) so
-// testing/conformance/<layer>/ tests using the workspace-name path can
-// reach them as TypeBox brand constants (`Static<typeof ConversationId>`,
-// `Static<typeof TaskId>`). MessageId stays type-only here — testing
-// reaches the value form through testing/_shared/test-fixtures.ts.
+/**
+ * @file Public barrel for task, conversation, message, and task-manager protocol descriptors.
+ */
+export type { ConversationId, MessageId, TaskId } from "./methods.js";
+
 export {
-  ConversationId,
-  TaskId,
   TaskClosedError,
   ConversationArchivedError,
   ConversationFullError,
@@ -41,13 +39,14 @@ export {
   ParticipantsAddedNotificationDefinition,
   ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  TmDecisionSchema,
-  MessageWithTmDecisionSchema,
+  validateTmDecision,
+  tmDecisionSchema,
+  messageWithTmDecisionSchema,
 } from "./methods.js";
 
 export type {
-  MessageId,
   LogicalClock,
   Part,
   Message,

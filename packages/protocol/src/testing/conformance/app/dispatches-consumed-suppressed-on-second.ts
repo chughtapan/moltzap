@@ -9,6 +9,7 @@ import {
   freshMessageId,
   withDriver,
 } from "./_helpers.js";
+import type { DispatchTestDriver } from "./_driver.js";
 
 export function registerDispatchesConsumedSuppressedOnSecondSend(
   ctx: ConformanceRunContext,
@@ -20,85 +21,136 @@ export function registerDispatchesConsumedSuppressedOnSecondSend(
     NAME,
     "second messages/send(dispatchLeaseId=X) with X in CONSUMED state returns typed LeaseInvalidError and does NOT emit a duplicate dispatches/consumed",
     withDriver(ctx, (driver) =>
-      Effect.gen(function* () {
-        yield* driver.moderator.handleAuthorize({
-          respondWith: { _tag: "grant" },
-        });
-        const ack = yield* driver.recipient.requestDispatch({
-          conversationId: driver.fixtures.conversationId,
-          messageId: freshMessageId(),
-          senderAgentId: driver.moderator.agentId,
-        });
-        yield* driver.recipient.waitForRelease();
-        // First send consumes the lease.
-        const first = yield* driver.recipient.sendWithLease({
-          conversationId: driver.fixtures.conversationId,
-          leaseId: ack.leaseId,
-          text: "first",
-        });
-        if (first.errorCode !== undefined) {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              NAME,
-              `first send failed: code=${first.errorCode}`,
-            ),
-          );
-        }
-        // Drain the first dispatches/consumed (positive observability).
-        yield* driver.moderator.waitForObservability("consumed", {
-          dispatchId: ack.dispatchId,
-        });
-        // Second send must surface typed LeaseInvalid error
-        // (ForbiddenError code -32001 with data.state="CONSUMED").
-        // ALSO covers the TTL-skip-on-CLAIMED rule indirectly: if TTL
-        // had fired on CLAIMED, the second send would surface EXPIRED;
-        // CONSUMED implies TTL was correctly skipped.
-        const second = yield* driver.recipient.sendWithLease({
-          conversationId: driver.fixtures.conversationId,
-          leaseId: ack.leaseId,
-          text: "second",
-        });
-        if (second.errorCode === undefined) {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              NAME,
-              "second messages/send unexpectedly succeeded; expected LeaseInvalid",
-            ),
-          );
-        }
-        if (second.errorCode !== FORBIDDEN_ERROR_CODE) {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              NAME,
-              `second send error code ${second.errorCode} != Forbidden(${FORBIDDEN_ERROR_CODE})`,
-            ),
-          );
-        }
-        if (second.errorState !== "CONSUMED") {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              NAME,
-              `second send LeaseInvalid state ${String(second.errorState)} != CONSUMED`,
-            ),
-          );
-        }
-        // Confirm no duplicate dispatches/consumed within a tight
-        // window — only the first one fired.
-        const dup = yield* Effect.exit(
-          driver.moderator.waitForObservability("consumed", {
-            dispatchId: ack.dispatchId,
-            timeoutMs: NEGATIVE_OBSERVABILITY_WINDOW_MS,
-          }),
-        );
-        if (dup._tag === "Success") {
-          return yield* Effect.fail(
-            dispatchAdmissionViolation(
-              NAME,
-              "saw a duplicate dispatches/consumed for the second send",
-            ),
-          );
-        }
-      }),
-    ),
+      runConsumedSuppressedOnSecond(NAME, driver),
+    ).pipe(Effect.withSpan("registerDispatchesConsumedSuppressedOnSecondSend")),
   );
+}
+
+function runConsumedSuppressedOnSecond(
+  propertyName: string,
+  driver: DispatchTestDriver,
+) {
+  return Effect.gen(function* () {
+    yield* driver.moderator.handleAuthorize({
+      respondWith: { _tag: "grant" },
+    });
+    const ack = yield* driver.recipient.requestDispatch({
+      conversationId: driver.fixtures.conversationId,
+      messageId: freshMessageId(),
+      senderAgentId: driver.moderator.agentId,
+    });
+    yield* driver.recipient.waitForRelease();
+    yield* assertFirstSendConsumes(propertyName, driver, ack.leaseId);
+    yield* driver.moderator.waitForObservability("consumed", {
+      dispatchId: ack.dispatchId,
+    });
+    yield* assertSecondSendRejected(propertyName, driver, ack.leaseId);
+    yield* assertNoDuplicateConsumed(propertyName, driver, ack.dispatchId);
+  });
+}
+
+function assertFirstSendConsumes(
+  propertyName: string,
+  driver: DispatchTestDriver,
+  leaseId: Parameters<
+    DispatchTestDriver["recipient"]["sendWithLease"]
+  >[0]["leaseId"],
+) {
+  return Effect.gen(function* () {
+    const first = yield* driver.recipient.sendWithLease({
+      conversationId: driver.fixtures.conversationId,
+      leaseId,
+      text: "first",
+    });
+    if (first.errorCode !== undefined) {
+      return yield* Effect.fail(
+        dispatchAdmissionViolation(
+          propertyName,
+          `first send failed: code=${first.errorCode}`,
+        ),
+      );
+    }
+  });
+}
+
+function assertSecondSendRejected(
+  propertyName: string,
+  driver: DispatchTestDriver,
+  leaseId: Parameters<
+    DispatchTestDriver["recipient"]["sendWithLease"]
+  >[0]["leaseId"],
+) {
+  return Effect.gen(function* () {
+    const second = yield* driver.recipient.sendWithLease({
+      conversationId: driver.fixtures.conversationId,
+      leaseId,
+      text: "second",
+    });
+    if (second.errorCode === undefined) {
+      return yield* Effect.fail(
+        dispatchAdmissionViolation(
+          propertyName,
+          "second messages/send unexpectedly succeeded; expected LeaseInvalid",
+        ),
+      );
+    }
+    yield* assertSecondErrorCode(propertyName, second.errorCode);
+    const errorState = second.errorState;
+    if (errorState === undefined) {
+      return yield* Effect.fail(
+        dispatchAdmissionViolation(
+          propertyName,
+          "second send LeaseInvalid state <missing> != CONSUMED",
+        ),
+      );
+    }
+    yield* assertSecondErrorState(propertyName, errorState);
+  });
+}
+
+function assertSecondErrorCode(propertyName: string, errorCode: number) {
+  return errorCode === FORBIDDEN_ERROR_CODE
+    ? Effect.void
+    : Effect.fail(
+        dispatchAdmissionViolation(
+          propertyName,
+          `second send error code ${errorCode} != Forbidden(${FORBIDDEN_ERROR_CODE})`,
+        ),
+      );
+}
+
+function assertSecondErrorState(propertyName: string, errorState: string) {
+  return errorState === "CONSUMED"
+    ? Effect.void
+    : Effect.fail(
+        dispatchAdmissionViolation(
+          propertyName,
+          `second send LeaseInvalid state ${String(errorState)} != CONSUMED`,
+        ),
+      );
+}
+
+function assertNoDuplicateConsumed(
+  propertyName: string,
+  driver: DispatchTestDriver,
+  dispatchId: Parameters<
+    DispatchTestDriver["moderator"]["waitForObservability"]
+  >[1]["dispatchId"],
+) {
+  return Effect.gen(function* () {
+    const dup = yield* Effect.exit(
+      driver.moderator.waitForObservability("consumed", {
+        dispatchId,
+        timeoutMs: NEGATIVE_OBSERVABILITY_WINDOW_MS,
+      }),
+    );
+    if (dup._tag === "Success") {
+      return yield* Effect.fail(
+        dispatchAdmissionViolation(
+          propertyName,
+          "saw a duplicate dispatches/consumed for the second send",
+        ),
+      );
+    }
+  });
 }

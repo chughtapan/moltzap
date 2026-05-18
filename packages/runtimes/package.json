@@ -16,23 +16,25 @@
   },
   "scripts": {
     "build": "rm -rf dist.build tsconfig.build.tsbuildinfo && tsc --outDir dist.build --tsBuildInfoFile tsconfig.build.tsbuildinfo && rm -rf dist && mv dist.build dist && rm -f tsconfig.build.tsbuildinfo",
+    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
-    "@effect/platform": "^0.96.0",
+    "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
     "@moltzap/claude-code-channel": "workspace:*",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.21.0",
+    "effect": "3.21.2",
     "openclaw": "2026.3.31"
   },
   "devDependencies": {
     "@anthropic-ai/claude-code": "^2.1.119",
-    "@effect/vitest": "^0.29.0",
     "@moltzap/client": "workspace:*",
     "@moltzap/server-core": "workspace:*",
     "@types/node": "^25.5.0",
+    "eslint": "^9",
+    "eslint-plugin-agent-code-guard": "0.0.14",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

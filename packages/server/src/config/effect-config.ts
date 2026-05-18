@@ -1,7 +1,7 @@
 /**
  * Effect `Config` descriptions for the MoltZap YAML config.
  *
- * Each piece is a composable `Config<A>` built from `Config.primitive` leaves.
+ * Each piece is a composable `Config&lt;A>` built from `Config.primitive` leaves.
  * The resulting `MoltZapAppConfig` below produces the same runtime shape as
  * the legacy `MoltZapConfig` type from `schema.ts` — all nested sections that
  * were optional stay optional here via `Config.option` or `Config.withDefault`.
@@ -38,18 +38,18 @@ const opt = <A>(c: Config.Config<A>) =>
 
 // ── Service discriminated union (webhook | in_process) ────────────────
 
-export interface WebhookService {
+interface WebhookService {
   type: "webhook";
   webhook_url: string;
   timeout_ms?: number;
   callback_token?: string;
 }
 
-export interface InProcessService {
+interface InProcessService {
   type: "in_process";
 }
 
-export type ServiceConfig = WebhookService | InProcessService;
+type ServiceConfig = WebhookService | InProcessService;
 
 const WebhookService: Config.Config<WebhookService> = Config.all({
   type: Config.literal("webhook")("type"),
@@ -125,6 +125,27 @@ export interface MoltZapAppConfig {
   log_level?: "debug" | "info" | "warn" | "error";
 }
 
+function setIfDefined<K extends keyof MoltZapAppConfig>(
+  out: MoltZapAppConfig,
+  key: K,
+  value: MoltZapAppConfig[K] | undefined,
+): void {
+  if (value !== undefined) out[key] = value;
+}
+
+function compactMoltZapConfig(fields: MoltZapAppConfig): MoltZapAppConfig {
+  const out: MoltZapAppConfig = {};
+  setIfDefined(out, "server", fields.server);
+  setIfDefined(out, "database", fields.database);
+  setIfDefined(out, "encryption", fields.encryption);
+  setIfDefined(out, "services", fields.services);
+  setIfDefined(out, "registration", fields.registration);
+  setIfDefined(out, "dev_mode", fields.dev_mode);
+  setIfDefined(out, "apps", fields.apps);
+  setIfDefined(out, "log_level", fields.log_level);
+  return out;
+}
+
 /**
  * The full MoltZap config as an Effect `Config`. Consume it by providing a
  * `ConfigProvider` (e.g. `ConfigProvider.fromJson(yamlObj)`) via
@@ -139,18 +160,4 @@ export const MoltZapConfig: Config.Config<MoltZapAppConfig> = Config.all({
   dev_mode: opt(DevModeSection.pipe(Config.nested("dev_mode"))),
   apps: opt(Config.array(AppRef, "apps")),
   log_level: opt(Config.literal("debug", "info", "warn", "error")("log_level")),
-}).pipe(
-  Config.map((fields): MoltZapAppConfig => {
-    const out: MoltZapAppConfig = {};
-    if (fields.server !== undefined) out.server = fields.server;
-    if (fields.database !== undefined) out.database = fields.database;
-    if (fields.encryption !== undefined) out.encryption = fields.encryption;
-    if (fields.services !== undefined) out.services = fields.services;
-    if (fields.registration !== undefined)
-      out.registration = fields.registration;
-    if (fields.dev_mode !== undefined) out.dev_mode = fields.dev_mode;
-    if (fields.apps !== undefined) out.apps = fields.apps;
-    if (fields.log_level !== undefined) out.log_level = fields.log_level;
-    return out;
-  }),
-);
+}).pipe(Config.map(compactMoltZapConfig));

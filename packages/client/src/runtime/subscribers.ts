@@ -24,10 +24,10 @@
  * unsubscribed state.
  *
  * Error channel: handlers are invoked inside a defect-catcher; a throw is
- * logged via the client's injected `WsClientLogger` and swallowed
- * (matching the prior `onNotification` contract at `ws-client.ts:650-655`
- * pre-deletion). The registry itself has no typed error surface —
- * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
+ * logged through Effect logging and swallowed (matching the prior
+ * `onNotification` contract at `ws-client.ts:650-655` pre-deletion). The
+ * registry itself has no typed error surface — `register`, `dispatch`, and
+ * `closeAll` are `Effect&lt;T, never>`.
  */
 import { Brand, Effect, Ref } from "effect";
 import type {
@@ -42,7 +42,7 @@ interface FilterableNotificationFrame {
 
 /** Branded identifier for a subscription handle. Minted by `register`. */
 export type SubscriptionId = string & Brand.Brand<"SubscriptionId">;
-export const SubscriptionId = Brand.nominal<SubscriptionId>();
+const SubscriptionIdBrand = Brand.nominal<SubscriptionId>();
 
 /**
  * Filter grammar for `subscribe`. A notification is delivered to a subscription
@@ -77,7 +77,7 @@ export interface SubscriptionFilter {
  * holds the handle for its subscription's lifetime and runs
  * `unsubscribe` to stop delivery.
  *
- * `unsubscribe` is `Effect<void, never>`: it is idempotent and total.
+ * `unsubscribe` is `Effect&lt;void, never>`: it is idempotent and total.
  * Calling `unsubscribe` a second time, or after `closeAll`, is a no-op.
  */
 export interface NotificationSubscription {
@@ -87,13 +87,13 @@ export interface NotificationSubscription {
 
 /**
  * Per-subscription handler signature. Runs inside the registry's
- * dispatch fiber. Must not throw — throws are caught by the registry,
- * logged via the injected logger, and swallowed.
+ * dispatch fiber. Must not throw — throws are caught by the registry, logged,
+ * and swallowed.
  *
  * The frame is a known-descriptor `DecodedNotification` (post-S9
  * fail-close: malformed / unknown-method frames are rejected before
  * dispatch). Handlers receive validated `params` typed as
- * `NotificationParamsOf<D>` for the matching definition.
+ * `NotificationParamsOf&lt;D>` for the matching definition.
  *
  * Returning an `Effect` (not a plain `void`) lets handlers compose with
  * Effect-native downstream code without an extra runSync shim. The
@@ -132,9 +132,9 @@ export interface SubscriberRegistry {
    * live-subscription list at the start of dispatch so
    * unsubscribe-during-dispatch observes next-frame semantics (OQ-3 A).
    *
-   * Frames are pre-validation (`DecodedNotification<AnyNotificationDefinition>` union) — the
+   * Frames are pre-validation (`DecodedNotification&lt;AnyNotificationDefinition>` union) — the
    * type-system contract that subscribers see RAW frames, not the lifted
-   * `DecodedNotification<D>` shape that typed handlers see.
+   * `DecodedNotification&lt;D>` shape that typed handlers see.
    *
    * Dispatch order: registration order, iterated sequentially; slow
    * handlers block later subscriptions for this frame but never
@@ -157,6 +157,41 @@ interface LiveSubscription {
   readonly handler: SubscriberHandler;
 }
 
+function nextSubscriptionId(
+  counterRef: Ref.Ref<number>,
+): Effect.Effect<SubscriptionId> {
+  return Ref.updateAndGet(counterRef, (count) => count + 1).pipe(
+    Effect.map((count) => SubscriptionIdBrand(`sub-${count}`)),
+  );
+}
+
+function appendSubscription(
+  subsRef: Ref.Ref<ReadonlyArray<LiveSubscription>>,
+  live: LiveSubscription,
+): Effect.Effect<void> {
+  return Ref.update(subsRef, (subscriptions) => [...subscriptions, live]);
+}
+
+function removeSubscription(
+  subsRef: Ref.Ref<ReadonlyArray<LiveSubscription>>,
+  id: SubscriptionId,
+): Effect.Effect<void> {
+  return Ref.update(subsRef, (subscriptions) =>
+    subscriptions.filter((subscription) => subscription.id !== id),
+  );
+}
+
+function dispatchToSubscriber(
+  sub: LiveSubscription,
+  frame: DecodedNotification<AnyNotificationDefinition>,
+): Effect.Effect<void> {
+  return Effect.suspend(() => sub.handler(frame)).pipe(
+    Effect.catchAllDefect((err) =>
+      Effect.logWarning("subscriber handler threw", err),
+    ),
+  );
+}
+
 function isNotificationParamsRecord(
   value: unknown,
 ): value is Record<string, unknown> {
@@ -165,11 +200,10 @@ function isNotificationParamsRecord(
 
 /**
  * Construct an empty registry. Called once from the `MoltZapWsClient`
- * constructor. Takes a logger so registry-internal error logs reach the
- * same sink as the rest of the client.
+ * constructor.
  *
  * Implementation notes:
- *   - Live subscriptions are stored in a `Ref<ReadonlyArray<…>>` keyed
+ *   - Live subscriptions are stored in a `Ref&lt;ReadonlyArray&lt;…>>` keyed
  *     by registration order. Append-on-register, filter-on-unsubscribe
  *     keeps the dispatch path O(N) with N = live subscription count.
  *     Bigger structures aren't justified at the expected sub count
@@ -182,23 +216,20 @@ function isNotificationParamsRecord(
  *     surfaces as a defect; we log + swallow to match the pre-deletion
  *     `onNotification` contract.
  */
-export function makeSubscriberRegistry(logger: {
-  readonly warn: (...args: ReadonlyArray<unknown>) => void;
-}): Effect.Effect<SubscriberRegistry, never> {
+export function makeSubscriberRegistry(): Effect.Effect<
+  SubscriberRegistry,
+  never
+> {
   return Effect.gen(function* () {
     const subsRef = yield* Ref.make<ReadonlyArray<LiveSubscription>>([]);
     const counterRef = yield* Ref.make(0);
 
     const register: SubscriberRegistry["register"] = (filter, handler) =>
       Effect.gen(function* () {
-        const n = yield* Ref.updateAndGet(counterRef, (c) => c + 1);
-        const id = SubscriptionId(`sub-${n}`);
+        const id = yield* nextSubscriptionId(counterRef);
         const live: LiveSubscription = { id, filter, handler };
-        yield* Ref.update(subsRef, (xs) => [...xs, live]);
-        const unsubscribe: Effect.Effect<void, never> = Ref.update(
-          subsRef,
-          (xs) => xs.filter((s) => s.id !== id),
-        );
+        yield* appendSubscription(subsRef, live);
+        const unsubscribe = removeSubscription(subsRef, id);
         return { id, unsubscribe };
       });
 
@@ -216,20 +247,14 @@ export function makeSubscriberRegistry(logger: {
           // Handlers must not throw; we catch defects defensively so
           // one buggy subscriber can't kill the dispatch loop or break
           // the reader fiber.
-          yield* Effect.suspend(() => sub.handler(frame)).pipe(
-            Effect.catchAllDefect((err) =>
-              Effect.sync(() => {
-                logger.warn("subscriber handler threw", err);
-              }),
-            ),
-          );
+          yield* dispatchToSubscriber(sub, frame);
         }
       });
 
     const closeAll: Effect.Effect<void, never> = Ref.set(subsRef, []);
 
     return { register, dispatch, closeAll };
-  });
+  }).pipe(Effect.withSpan("makeSubscriberRegistry"));
 }
 
 /**
@@ -247,22 +272,32 @@ export function matchesFilter(
   filter: SubscriptionFilter,
   frame: FilterableNotificationFrame,
 ): boolean {
-  if (filter.notificationNamePrefix !== undefined) {
-    if (!frame.method.startsWith(filter.notificationNamePrefix)) return false;
-  }
+  const methodPrefix = filter.notificationNamePrefix;
+  if (
+    methodPrefix !== undefined &&
+    !matchesMethodPrefix(methodPrefix, frame.method)
+  )
+    return false;
   const params: Record<string, unknown> | null = isNotificationParamsRecord(
     frame.params,
   )
     ? frame.params
     : null;
 
-  if (filter.emissionTag !== undefined) {
-    const tag = params?.["__emissionTag"];
-    if (tag !== filter.emissionTag) return false;
-  }
-  if (filter.conversationId !== undefined) {
-    const cid = params?.["conversationId"];
-    if (cid !== filter.conversationId) return false;
-  }
-  return true;
+  return (
+    matchesPayloadValue(params, "__emissionTag", filter.emissionTag) &&
+    matchesPayloadValue(params, "conversationId", filter.conversationId)
+  );
+}
+
+function matchesMethodPrefix(prefix: string, method: string): boolean {
+  return method.startsWith(prefix);
+}
+
+function matchesPayloadValue(
+  params: Record<string, unknown> | null,
+  key: string,
+  expected: string | undefined,
+): boolean {
+  return expected === undefined || params?.[key] === expected;
 }

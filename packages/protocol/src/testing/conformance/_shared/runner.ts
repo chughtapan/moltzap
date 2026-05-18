@@ -2,8 +2,8 @@
  * Conformance-suite runner.
  *
  * Orchestrates tiers A → E under one entrypoint so
- * `pnpm -F @moltzap/protocol test:conformance` is the only command a CI
- * job needs (AC11).
+ * the protocol package's `test:conformance` script is the only command a
+ * CI job needs (AC11).
  *
  * Responsibilities:
  *   - receive a real MoltZap server handle (built externally to preserve
@@ -12,7 +12,7 @@
  *   - pin fast-check seeds and export them on failure (AC10);
  *   - tear everything down in reverse order.
  */
-import { Config, ConfigProvider, Effect, Ref, Scope } from "effect";
+import { Config, ConfigProvider, Effect, Ref, type Scope } from "effect";
 import {
   makeToxiproxyClient,
   type ToxiproxyClient,
@@ -65,6 +65,7 @@ export interface ConformanceRunContext {
   readonly opts: ConformanceRunOptions;
   /** Seed to pin every property to. Exported on failure for replay. */
   readonly seed: number;
+
   /**
    * Per-property artifact sink. The tier modules call `record` to stash a
    * seed + toxic profile when a property fails; the suite post-process
@@ -101,17 +102,16 @@ export function acquireRunContext(
     const seed = effectiveOpts.replaySeed ?? (yield* loadFastCheckSeed);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
 
-    const realServer = yield* Effect.acquireRelease(opts.realServer, (handle) =>
-      handle.close.pipe(Effect.orElseSucceed(() => undefined)),
+    const realServer = yield* opts.realServer;
+    yield* Effect.addFinalizer(() =>
+      realServer.close.pipe(Effect.orElseSucceed(() => undefined)),
     );
 
     let toxiproxy: ToxiproxyClient | null = null;
     if (effectiveOpts.tiers.includes("D")) {
       const url = effectiveOpts.toxiproxyUrl ?? "http://127.0.0.1:8474";
       toxiproxy = yield* makeToxiproxyClient({ apiUrl: url });
-      yield* toxiproxy.ping.pipe(
-        Effect.retry({ times: 10, schedule: undefined }),
-      );
+      yield* toxiproxy.ping.pipe(Effect.retry({ times: 10 }));
     }
 
     return {
@@ -121,7 +121,7 @@ export function acquireRunContext(
       seed,
       artifacts,
     } satisfies ConformanceRunContext;
-  });
+  }).pipe(Effect.withSpan("acquireRunContext"));
 }
 
 /**
@@ -133,9 +133,7 @@ export function acquireRunContext(
 export function runConformance(
   ctx: ConformanceRunContext,
 ): Effect.Effect<void> {
-  return Effect.sync(() => {
-    console.log(
-      `[conformance] seed=${ctx.seed} tiers=${ctx.opts.tiers.join(",")} toxiproxy=${ctx.toxiproxy !== null}`,
-    );
-  });
+  return Effect.logInfo(
+    `[conformance] seed=${ctx.seed} tiers=${ctx.opts.tiers.join(",")} toxiproxy=${ctx.toxiproxy !== null}`,
+  );
 }

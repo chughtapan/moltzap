@@ -9,7 +9,11 @@ import type {
   CrossConvMessage,
   ServiceRpcError,
 } from "./service.js";
-import type { WsClientLogger } from "./ws-client.js";
+import {
+  DispatchAdmissionTimedOut,
+  DispatchLeaseExpired,
+} from "./channel-core-errors.js";
+import { enrichChannelMessage } from "./channel-core-enrichment.js";
 
 export interface EnrichedSender {
   id: string;
@@ -40,6 +44,7 @@ export interface EnrichedInboundMessage {
   replyToId?: string;
   conversationMeta?: EnrichedConversationMeta;
   contextBlocks: ContextBlocks;
+
   /**
    * Present when multiple queued messages from the same conversation were
    * coalesced into this single dispatch. Includes the primary message first.
@@ -85,9 +90,22 @@ export type DispatchAdmissionDecision =
   | { _tag: "deny"; reason?: string }
   | { _tag: "hold"; reason?: string };
 
+type DispatchGrantDecision = Extract<
+  DispatchAdmissionDecision,
+  { readonly _tag: "grant" }
+>;
+type DispatchDenyDecision = Extract<
+  DispatchAdmissionDecision,
+  { readonly _tag: "deny" }
+>;
+type DispatchHoldDecision = Extract<
+  DispatchAdmissionDecision,
+  { readonly _tag: "hold" }
+>;
+
 /**
  * Server → recipient `dispatch/release` notification payload (the
- * verdict). Mirrors `NotificationParamsOf<typeof DispatchRelease>` from
+ * verdict). Mirrors `NotificationParamsOf&lt;typeof DispatchRelease>` from
  * the protocol, kept structurally typed here so this module does not
  * need a direct protocol descriptor import (the channel core stays
  * descriptor-free; the wire shape is asserted by the service module).
@@ -130,7 +148,7 @@ export interface ChannelService {
   send(
     conversationId: string,
     text: string,
-    opts?: { dispatchLeaseId?: string },
+    opts?: { replyTo?: string; dispatchLeaseId?: string },
   ): Effect.Effect<void, ServiceRpcError>;
   isConversationArchived?(conversationId: string): boolean;
   getConversation(
@@ -146,12 +164,13 @@ export interface ChannelService {
     messages: CrossConvMessage[];
     commit: () => void;
   };
+
   /**
    * Issue `dispatch/request` and receive the immediate
    * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
    * via the `dispatchRelease` event.
    *
-   * The argument shape mirrors `ParamsOf<DispatchRequest>` from the
+   * The argument shape mirrors `ParamsOf&lt;DispatchRequest>` from the
    * protocol (the channel core does not depend on the protocol
    * descriptor, hence the structural shape duplicated here).
    *
@@ -176,7 +195,6 @@ export interface ChannelService {
 
 export interface ChannelCoreOptions {
   service: ChannelService;
-  logger?: WsClientLogger;
   dispatchAdmissionTimeoutMs?: number;
 }
 
@@ -190,12 +208,6 @@ export type InboundHandler<E = unknown> = (
   msg: EnrichedInboundMessage,
 ) => Effect.Effect<void, E>;
 
-const noopLogger = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-};
-
 const DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS = 30_000;
 const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000;
 const DISPATCH_RELEASE_RING_CAPACITY = 256;
@@ -205,17 +217,6 @@ interface PendingReleaseEntry {
   readonly verdict: DispatchReleaseFrame["verdict"];
   readonly leaseTimeoutMs: number | undefined;
   readonly receivedAtMs: number;
-}
-
-class DispatchLeaseExpired extends Error {
-  constructor(
-    readonly messageId: string,
-    readonly conversationId: string,
-    readonly timeoutMs: number,
-  ) {
-    super(`dispatch lease expired after ${timeoutMs}ms`);
-    this.name = "DispatchLeaseExpired";
-  }
 }
 
 function errorSummary(err: unknown): Record<string, unknown> {
@@ -231,21 +232,36 @@ function errorSummary(err: unknown): Record<string, unknown> {
   };
 }
 
+function effectLogInfo(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logInfo(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function effectLogWarning(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logWarning(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function effectLogError(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logError(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function runBackgroundLog(effect: Effect.Effect<void, never>): void {
+  Effect.runFork(effect);
+}
+
 interface InboundDispatchWork {
   message: Message;
   attempt: number;
   receivedAtMs: number;
   clock: LogicalClock;
-}
-
-function extractTextContent(parts: Message["parts"]): string {
-  return parts
-    .filter(
-      (p): p is Extract<Message["parts"][number], { type: "text" }> =>
-        p.type === "text",
-    )
-    .map((p) => p.text)
-    .join("\n");
 }
 
 /**
@@ -258,10 +274,10 @@ function extractTextContent(parts: Message["parts"]): string {
  */
 export class MoltZapChannelCore {
   private readonly service: ChannelService;
-  private readonly logger: WsClientLogger;
   private readonly dispatchAdmissionTimeoutMs: number;
   private connected = false;
   private inboundHandler: InboundHandler<unknown> | null = null;
+
   /**
    * Lease id scoped to the in-flight `dispatchInboundEffect` call
    * (set immediately around the user-handler invocation). Replaces
@@ -272,6 +288,7 @@ export class MoltZapChannelCore {
    * concurrent dispatches do not exist on this code path.
    */
   private leaseIdInFlight: string | undefined;
+
   /**
    * Per-lease parking Deferreds for dispatches awaiting their
    * `dispatchRelease` verdict. Settled by the `dispatchRelease` event
@@ -281,6 +298,7 @@ export class MoltZapChannelCore {
     string,
     Deferred.Deferred<DispatchReleaseFrame, never>
   >();
+
   /**
    * Ring buffer of `dispatchRelease` frames that arrived before the
    * recipient registered its parking Deferred (release-then-ack
@@ -301,8 +319,11 @@ export class MoltZapChannelCore {
     string,
     InboundDispatchWork[]
   >();
-  /** Inbound messages enqueue synchronously; a single forked consumer fiber
-   * serialises delivery so handlers execute one-at-a-time in arrival order. */
+
+  /**
+   * Inbound messages enqueue synchronously; a single forked consumer fiber
+   * serialises delivery so handlers execute one-at-a-time in arrival order.
+   */
   private readonly inboundQueue: Queue.Queue<InboundDispatchWork> =
     Effect.runSync(Queue.unbounded<InboundDispatchWork>());
   private readonly consumerFiber: Fiber.RuntimeFiber<void, never>;
@@ -311,18 +332,27 @@ export class MoltZapChannelCore {
 
   constructor(opts: ChannelCoreOptions) {
     this.service = opts.service;
-    this.logger = opts.logger ?? noopLogger;
     this.dispatchAdmissionTimeoutMs =
       opts.dispatchAdmissionTimeoutMs ?? DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS;
 
+    this.registerMessageListener();
+    this.consumerFiber = this.startConsumerFiber();
+    this.registerConnectionListeners();
+    this.registerConversationLifecycleListeners();
+    this.registerDispatchReleaseListener();
+  }
+
+  private registerMessageListener(): void {
     this.service.on("message", (message) => {
       if (this.closedConversationIds.has(message.conversationId)) {
-        this.logger.info(
-          {
-            messageId: message.id,
-            conversationId: message.conversationId,
-          },
-          "MoltZapChannelCore: dropping inbound message for closed conversation",
+        runBackgroundLog(
+          effectLogInfo(
+            "MoltZapChannelCore: dropping inbound message for closed conversation",
+            {
+              messageId: message.id,
+              conversationId: message.conversationId,
+            },
+          ),
         );
         return;
       }
@@ -333,34 +363,36 @@ export class MoltZapChannelCore {
         clock: this.observeMessage(message),
       });
     });
+  }
 
-    // Both typed failures (Effect.fail) and defects (sync throws inside the
-    // handler's Effect) are caught — Cause.squash collapses either into a
-    // single value for the logger so the consumer fiber survives a misbehaving
-    // handler in either mode.
+  private startConsumerFiber(): Fiber.RuntimeFiber<void, never> {
     const consumer = Effect.forever(
       Queue.take(this.inboundQueue).pipe(
         Effect.flatMap((work) =>
           this.dispatchInboundWork(work).pipe(
             Effect.catchAllCause((cause) =>
-              Effect.sync(() =>
-                this.logger.error(
-                  {
-                    messageId: work.message.id,
-                    conversationId: work.message.conversationId,
-                    causePretty: Cause.pretty(cause),
-                    ...errorSummary(Cause.squash(cause)),
-                  },
-                  "MoltZapChannelCore: inbound handler failed",
-                ),
-              ),
+              this.logInboundFailure(work, cause),
             ),
           ),
         ),
       ),
     );
-    this.consumerFiber = Effect.runFork(consumer);
+    return Effect.runFork(consumer);
+  }
 
+  private logInboundFailure(
+    work: InboundDispatchWork,
+    cause: Cause.Cause<unknown>,
+  ): Effect.Effect<void, never> {
+    return effectLogError("MoltZapChannelCore: inbound handler failed", {
+      messageId: work.message.id,
+      conversationId: work.message.conversationId,
+      causePretty: Cause.pretty(cause),
+      ...errorSummary(Cause.squash(cause)),
+    });
+  }
+
+  private registerConnectionListeners(): void {
     this.service.on("disconnect", () => {
       this.connected = false;
       this.fanout(this.disconnectHandlers, "disconnect");
@@ -370,7 +402,9 @@ export class MoltZapChannelCore {
       this.connected = true;
       this.fanout(this.reconnectHandlers, "reconnect");
     });
+  }
 
+  private registerConversationLifecycleListeners(): void {
     this.service.on("conversationArchived", ({ conversationId }) => {
       this.closeConversation(conversationId);
     });
@@ -378,7 +412,9 @@ export class MoltZapChannelCore {
     this.service.on("conversationUnarchived", ({ conversationId }) => {
       this.closedConversationIds.delete(conversationId);
     });
+  }
 
+  private registerDispatchReleaseListener(): void {
     this.service.on("dispatchRelease", (frame) => {
       this.recordDispatchRelease(frame);
     });
@@ -416,9 +452,11 @@ export class MoltZapChannelCore {
       const oldest = this.pendingReleasesByLease.keys().next().value;
       if (oldest === undefined) break;
       this.pendingReleasesByLease.delete(oldest);
-      this.logger.warn(
-        { leaseId: oldest },
-        "MoltZapChannelCore: dispatchRelease ring buffer evicted oldest entry (capacity reached)",
+      runBackgroundLog(
+        effectLogWarning(
+          "MoltZapChannelCore: dispatchRelease ring buffer evicted oldest entry (capacity reached)",
+          { leaseId: oldest },
+        ),
       );
     }
   }
@@ -431,9 +469,11 @@ export class MoltZapChannelCore {
         return;
       }
       this.pendingReleasesByLease.delete(leaseId);
-      this.logger.warn(
-        { leaseId, ageMs: nowMs - entry.receivedAtMs },
-        "MoltZapChannelCore: dispatchRelease ring buffer evicted stale entry (soft TTL)",
+      runBackgroundLog(
+        effectLogWarning(
+          "MoltZapChannelCore: dispatchRelease ring buffer evicted stale entry (soft TTL)",
+          { leaseId, ageMs: nowMs - entry.receivedAtMs },
+        ),
       );
     }
   }
@@ -465,9 +505,11 @@ export class MoltZapChannelCore {
       try {
         h();
       } catch (err) {
-        this.logger.error(
-          { err, label },
-          `MoltZapChannelCore: ${label} handler threw`,
+        runBackgroundLog(
+          effectLogError(`MoltZapChannelCore: ${label} handler threw`, {
+            err,
+            label,
+          }),
         );
       }
     }
@@ -507,11 +549,9 @@ export class MoltZapChannelCore {
       this.closedConversationIds.has(conversationId) ||
       this.service.isConversationArchived?.(conversationId)
     ) {
-      return Effect.sync(() =>
-        this.logger.info(
-          { conversationId },
-          "MoltZapChannelCore: dropping reply for closed conversation",
-        ),
+      return effectLogInfo(
+        "MoltZapChannelCore: dropping reply for closed conversation",
+        { conversationId },
       );
     }
     return this.service.send(conversationId, text, {
@@ -535,12 +575,14 @@ export class MoltZapChannelCore {
       }
     }
 
-    this.logger.info(
-      {
-        conversationId,
-        droppedQueued,
-      },
-      "MoltZapChannelCore: closed conversation dispatch work purged",
+    runBackgroundLog(
+      effectLogInfo(
+        "MoltZapChannelCore: closed conversation dispatch work purged",
+        {
+          conversationId,
+          droppedQueued,
+        },
+      ),
     );
   }
 
@@ -635,21 +677,21 @@ export class MoltZapChannelCore {
       Effect.timeoutFail({
         duration: Duration.millis(this.dispatchAdmissionTimeoutMs),
         onTimeout: () =>
-          new Error(
-            `dispatch request timed out after ${this.dispatchAdmissionTimeoutMs}ms`,
-          ),
+          new DispatchAdmissionTimedOut({
+            timeoutMs: this.dispatchAdmissionTimeoutMs,
+          }),
       }),
       Effect.flatMap(({ leaseId }) => this.awaitDispatchRelease(work, leaseId)),
       Effect.catchAll((err) =>
-        Effect.sync(() => {
-          this.logger.warn(
+        Effect.gen(function* () {
+          yield* effectLogWarning(
+            "MoltZapChannelCore: dispatch admission failed closed",
             {
               messageId: work.message.id,
               conversationId: work.message.conversationId,
               attempt: work.attempt,
               err,
             },
-            "MoltZapChannelCore: dispatch admission failed closed",
           );
           return {
             _tag: "deny" as const,
@@ -691,14 +733,14 @@ export class MoltZapChannelCore {
         ),
       );
       if (settled._tag === "None") {
-        this.logger.warn(
+        yield* effectLogWarning(
+          "MoltZapChannelCore: dispatchRelease wait timed out - fail-closed deny",
           {
             messageId: work.message.id,
             conversationId: work.message.conversationId,
             leaseId,
             timeoutMs: this.dispatchAdmissionTimeoutMs,
           },
-          "MoltZapChannelCore: dispatchRelease wait timed out — fail-closed deny",
         );
         return {
           _tag: "deny" as const,
@@ -714,39 +756,61 @@ export class MoltZapChannelCore {
     leaseId: string,
     verdict: DispatchReleaseFrame["verdict"],
   ): DispatchAdmissionDecision {
-    if (verdict.decision === "grant") {
-      this.logger.info(
-        {
-          messageId: work.message.id,
-          conversationId: work.message.conversationId,
-          attempt: work.attempt,
-          leaseId,
-          leaseTimeoutMs: verdict.leaseTimeoutMs,
-          dispatchMessageId: verdict.dispatchMessageId,
-        },
-        "MoltZapChannelCore: dispatch admission granted",
-      );
-      const grant: DispatchAdmissionDecision = {
-        _tag: "grant",
-        leaseId: verdict.leaseId ?? leaseId,
-        ...(verdict.leaseTimeoutMs !== undefined
-          ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
-          : {}),
-        ...(verdict.dispatchMessageId
-          ? { dispatchMessageId: verdict.dispatchMessageId }
-          : {}),
-      };
-      return grant;
+    switch (verdict.decision) {
+      case "grant":
+        return this.projectGrantVerdict(work, leaseId, verdict);
+      case "deny":
+        return MoltZapChannelCore.denyDecision(verdict.reason);
+      case "hold":
+        return MoltZapChannelCore.holdDecision(verdict.reason);
     }
-    if (verdict.decision === "deny") {
-      return {
-        _tag: "deny",
-        ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
-      };
-    }
+  }
+
+  private projectGrantVerdict(
+    work: InboundDispatchWork,
+    leaseId: string,
+    verdict: Extract<
+      DispatchReleaseFrame["verdict"],
+      { readonly decision: "grant" }
+    >,
+  ): DispatchGrantDecision {
+    runBackgroundLog(
+      effectLogInfo("MoltZapChannelCore: dispatch admission granted", {
+        messageId: work.message.id,
+        conversationId: work.message.conversationId,
+        attempt: work.attempt,
+        leaseId,
+        leaseTimeoutMs: verdict.leaseTimeoutMs,
+        dispatchMessageId: verdict.dispatchMessageId,
+      }),
+    );
+    return {
+      _tag: "grant",
+      leaseId: verdict.leaseId ?? leaseId,
+      ...(verdict.leaseTimeoutMs !== undefined
+        ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
+        : {}),
+      ...(verdict.dispatchMessageId
+        ? { dispatchMessageId: verdict.dispatchMessageId }
+        : {}),
+    };
+  }
+
+  private static denyDecision(
+    reason: string | undefined,
+  ): DispatchDenyDecision {
+    return {
+      _tag: "deny",
+      ...(reason !== undefined ? { reason } : {}),
+    };
+  }
+
+  private static holdDecision(
+    reason: string | undefined,
+  ): DispatchHoldDecision {
     return {
       _tag: "hold",
-      ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+      ...(reason !== undefined ? { reason } : {}),
     };
   }
 
@@ -756,147 +820,232 @@ export class MoltZapChannelCore {
     return Effect.gen(this, function* () {
       const current = this.takeDispatchCandidate(work);
       if (this.closedConversationIds.has(current.message.conversationId)) {
-        yield* Effect.sync(() =>
-          this.logger.info(
-            {
-              messageId: current.message.id,
-              conversationId: current.message.conversationId,
-              attempt: current.attempt,
-            },
-            "MoltZapChannelCore: dropping dispatch for closed conversation",
-          ),
-        );
+        yield* this.logClosedDispatchDrop(current);
         return;
       }
       const decision = yield* this.dispatchAdmission(current);
-      if (decision._tag === "grant") {
-        const messages = this.service.requestDispatch
-          ? yield* this.takeCoalescedConversationMessages(
-              current,
-              decision.dispatchMessageId,
-            )
-          : [current.message];
-        if (messages.length === 0) {
-          yield* Effect.sync(() =>
-            this.logger.warn(
-              {
-                messageId: current.message.id,
-                conversationId: current.message.conversationId,
-                attempt: current.attempt,
-                dispatchMessageId: decision.dispatchMessageId,
-              },
-              "MoltZapChannelCore: dispatch admission target unavailable",
-            ),
-          );
-          return;
-        }
-        const primaryMessage = messages[0]!;
-        yield* Effect.sync(() =>
-          this.logger.info(
-            {
-              messageId: primaryMessage.id,
-              admittedMessageId: current.message.id,
-              conversationId: current.message.conversationId,
-              attempt: current.attempt,
-              leaseId: decision.leaseId,
-              coalescedMessageCount: messages.length,
-            },
-            "MoltZapChannelCore: inbound dispatch starting",
-          ),
-        );
-        const dispatch = Effect.acquireUseRelease(
-          Effect.sync(() => {
-            const previous = this.leaseIdInFlight;
-            this.leaseIdInFlight = decision.leaseId;
-            return previous;
+      yield* this.handleDispatchDecision(current, decision);
+    });
+  }
+
+  private handleDispatchDecision(
+    current: InboundDispatchWork,
+    decision: DispatchAdmissionDecision,
+  ): Effect.Effect<void, unknown> {
+    switch (decision._tag) {
+      case "grant":
+        return this.dispatchGrantedWork(current, decision);
+      case "deny":
+        return this.logDeniedDispatch(current, decision);
+      case "hold":
+        return this.holdDispatchWork(current, decision);
+    }
+  }
+
+  private dispatchGrantedWork(
+    current: InboundDispatchWork,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<void, unknown> {
+    return Effect.gen(this, function* () {
+      const messages = yield* this.messagesForGrantedDispatch(
+        current,
+        decision,
+      );
+      if (messages.length === 0) {
+        yield* this.logDispatchTargetUnavailable(current, decision);
+        return;
+      }
+      const primaryMessage = messages[0]!;
+      yield* this.logDispatchStart(current, primaryMessage, messages, decision);
+      const timedOut = yield* this.runGrantedDispatch(
+        current,
+        primaryMessage,
+        messages,
+        decision,
+      );
+      if (!timedOut) {
+        yield* this.logDispatchCompleted(current, primaryMessage, decision);
+      }
+    });
+  }
+
+  private messagesForGrantedDispatch(
+    current: InboundDispatchWork,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<ReadonlyArray<Message>, never> {
+    return this.service.requestDispatch
+      ? this.takeCoalescedConversationMessages(
+          current,
+          decision.dispatchMessageId,
+        )
+      : Effect.succeed([current.message]);
+  }
+
+  private runGrantedDispatch(
+    current: InboundDispatchWork,
+    primaryMessage: Message,
+    messages: ReadonlyArray<Message>,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<boolean, unknown> {
+    const dispatch = this.dispatchWithLease(messages, decision.leaseId);
+    const timeoutMs = MoltZapChannelCore.leaseTimeoutMs(decision);
+    if (timeoutMs === undefined) return dispatch.pipe(Effect.as(false));
+    return dispatch.pipe(
+      Effect.timeoutFail({
+        duration: Duration.millis(timeoutMs),
+        onTimeout: () =>
+          new DispatchLeaseExpired({
+            messageId: primaryMessage.id,
+            conversationId: primaryMessage.conversationId,
+            timeoutMs,
           }),
-          () => this.dispatchInboundEffect(messages),
-          (previous) =>
+      }),
+      Effect.as(false),
+      Effect.catchAll((err) =>
+        this.handleDispatchFailure(err, current, decision),
+      ),
+    );
+  }
+
+  private dispatchWithLease(
+    messages: ReadonlyArray<Message>,
+    leaseId: string | undefined,
+  ): Effect.Effect<void, unknown> {
+    return Effect.sync(() => {
+      const previous = this.leaseIdInFlight;
+      this.leaseIdInFlight = leaseId;
+      return previous;
+    }).pipe(
+      Effect.flatMap((previous) =>
+        this.dispatchInboundEffect(messages).pipe(
+          Effect.ensuring(
             Effect.sync(() => {
               this.leaseIdInFlight = previous;
             }),
-        );
-        const timeoutMs = decision.leaseId
-          ? (decision.leaseTimeoutMs ?? DEFAULT_DISPATCH_LEASE_TIMEOUT_MS)
-          : undefined;
-        let dispatchTimedOut = false;
-        if (timeoutMs === undefined) {
-          yield* dispatch;
-        } else {
-          yield* dispatch.pipe(
-            Effect.timeoutFail({
-              duration: Duration.millis(timeoutMs),
-              onTimeout: () =>
-                new DispatchLeaseExpired(
-                  primaryMessage.id,
-                  primaryMessage.conversationId,
-                  timeoutMs,
-                ),
-            }),
-            Effect.catchAll((err) => {
-              if (err instanceof DispatchLeaseExpired) {
-                return Effect.sync(() => {
-                  dispatchTimedOut = true;
-                  this.logger.warn(
-                    {
-                      messageId: err.messageId,
-                      conversationId: err.conversationId,
-                      attempt: current.attempt,
-                      leaseId: decision.leaseId,
-                      timeoutMs: err.timeoutMs,
-                    },
-                    "MoltZapChannelCore: inbound dispatch lease expired",
-                  );
-                });
-              }
-              return Effect.fail(err);
-            }),
-          );
-        }
-        if (!dispatchTimedOut) {
-          yield* Effect.sync(() =>
-            this.logger.info(
-              {
-                messageId: primaryMessage.id,
-                admittedMessageId: current.message.id,
-                conversationId: current.message.conversationId,
-                attempt: current.attempt,
-                leaseId: decision.leaseId,
-              },
-              "MoltZapChannelCore: inbound dispatch completed",
-            ),
-          );
-        }
-        return;
-      }
-
-      if (decision._tag === "deny") {
-        yield* Effect.sync(() =>
-          this.logger.info(
-            {
-              messageId: current.message.id,
-              conversationId: current.message.conversationId,
-              attempt: current.attempt,
-              reason: decision.reason,
-            },
-            "MoltZapChannelCore: inbound dispatch denied",
           ),
-        );
-        return;
-      }
-
-      yield* Effect.sync(() =>
-        this.logger.info(
-          {
-            messageId: current.message.id,
-            conversationId: current.message.conversationId,
-            attempt: current.attempt,
-            reason: decision.reason,
-          },
-          "MoltZapChannelCore: inbound dispatch held",
         ),
-      );
+      ),
+    );
+  }
+
+  private static leaseTimeoutMs(
+    decision: DispatchGrantDecision,
+  ): number | undefined {
+    return decision.leaseId
+      ? (decision.leaseTimeoutMs ?? DEFAULT_DISPATCH_LEASE_TIMEOUT_MS)
+      : undefined;
+  }
+
+  private handleDispatchFailure(
+    err: unknown,
+    current: InboundDispatchWork,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<boolean, unknown> {
+    if (err instanceof DispatchLeaseExpired) {
+      return this.logDispatchLeaseExpired(err, current, decision);
+    }
+    return Effect.fail(err);
+  }
+
+  private holdDispatchWork(
+    current: InboundDispatchWork,
+    decision: DispatchHoldDecision,
+  ): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      yield* effectLogInfo("MoltZapChannelCore: inbound dispatch held", {
+        messageId: current.message.id,
+        conversationId: current.message.conversationId,
+        attempt: current.attempt,
+        reason: decision.reason,
+      });
       this.parkDispatchWork(current);
+    });
+  }
+
+  private logClosedDispatchDrop(
+    current: InboundDispatchWork,
+  ): Effect.Effect<void, never> {
+    return effectLogInfo(
+      "MoltZapChannelCore: dropping dispatch for closed conversation",
+      {
+        messageId: current.message.id,
+        conversationId: current.message.conversationId,
+        attempt: current.attempt,
+      },
+    );
+  }
+
+  private logDispatchTargetUnavailable(
+    current: InboundDispatchWork,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<void, never> {
+    return effectLogWarning(
+      "MoltZapChannelCore: dispatch admission target unavailable",
+      {
+        messageId: current.message.id,
+        conversationId: current.message.conversationId,
+        attempt: current.attempt,
+        dispatchMessageId: decision.dispatchMessageId,
+      },
+    );
+  }
+
+  private logDispatchStart(
+    current: InboundDispatchWork,
+    primaryMessage: Message,
+    messages: ReadonlyArray<Message>,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<void, never> {
+    return effectLogInfo("MoltZapChannelCore: inbound dispatch starting", {
+      messageId: primaryMessage.id,
+      admittedMessageId: current.message.id,
+      conversationId: current.message.conversationId,
+      attempt: current.attempt,
+      leaseId: decision.leaseId,
+      coalescedMessageCount: messages.length,
+    });
+  }
+
+  private logDispatchLeaseExpired(
+    err: DispatchLeaseExpired,
+    current: InboundDispatchWork,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<boolean, never> {
+    return effectLogWarning(
+      "MoltZapChannelCore: inbound dispatch lease expired",
+      {
+        messageId: err.messageId,
+        conversationId: err.conversationId,
+        attempt: current.attempt,
+        leaseId: decision.leaseId,
+        timeoutMs: err.timeoutMs,
+      },
+    ).pipe(Effect.as(true));
+  }
+
+  private logDispatchCompleted(
+    current: InboundDispatchWork,
+    primaryMessage: Message,
+    decision: DispatchGrantDecision,
+  ): Effect.Effect<void, never> {
+    return effectLogInfo("MoltZapChannelCore: inbound dispatch completed", {
+      messageId: primaryMessage.id,
+      admittedMessageId: current.message.id,
+      conversationId: current.message.conversationId,
+      attempt: current.attempt,
+      leaseId: decision.leaseId,
+    });
+  }
+
+  private logDeniedDispatch(
+    current: InboundDispatchWork,
+    decision: DispatchDenyDecision,
+  ): Effect.Effect<void, never> {
+    return effectLogInfo("MoltZapChannelCore: inbound dispatch denied", {
+      messageId: current.message.id,
+      conversationId: current.message.conversationId,
+      attempt: current.attempt,
+      reason: decision.reason,
     });
   }
 
@@ -973,109 +1122,7 @@ export class MoltZapChannelCore {
     },
     never
   > {
-    return Effect.gen(function* () {
-      const messages = Array.isArray(messageOrMessages)
-        ? [...messageOrMessages]
-        : [messageOrMessages];
-      const message = messages[0]!;
-      const convMeta = service.getConversation(message.conversationId);
-
-      const senderNameFor = (agentId: string) => {
-        const cachedName = service.getAgentName(agentId);
-        // `resolveAgentName` has `never` in the error channel — it catches its
-        // own transport failures and falls back to `senderId` internally, so
-        // no explicit `catchAll` is needed here.
-        return cachedName !== undefined
-          ? Effect.succeed(cachedName)
-          : service.resolveAgentName(agentId);
-      };
-
-      const senderName = yield* senderNameFor(message.senderId);
-
-      const coalesced = [];
-      for (const [index, m] of messages.entries()) {
-        const name =
-          index === 0 ? senderName : yield* senderNameFor(m.senderId);
-        coalesced.push({
-          id: m.id,
-          sender: {
-            id: m.senderId,
-            name,
-          },
-          text: extractTextContent(m.parts),
-          createdAt: m.createdAt,
-          ...(m.replyToId ? { replyToId: m.replyToId } : {}),
-        });
-      }
-
-      const text =
-        coalesced.length === 1
-          ? coalesced[0]!.text
-          : coalesced
-              .map((m, index) =>
-                index === 0
-                  ? m.text
-                  : `[queued message from ${m.sender.name} at ${m.createdAt}]\n${m.text}`,
-              )
-              .join("\n\n");
-
-      const isFromMe =
-        service.ownAgentId !== undefined &&
-        message.senderId === service.ownAgentId;
-
-      const conversationMeta: EnrichedConversationMeta | undefined = convMeta
-        ? {
-            type: convMeta.type === "group" ? "group" : "dm",
-            name: convMeta.name,
-            participants: convMeta.participants,
-          }
-        : undefined;
-
-      const contextBlocks: ContextBlocks = {};
-
-      if (conversationMeta?.type === "group") {
-        contextBlocks.groupMetadata = conversationMeta;
-      }
-
-      const { entries, commit: commitLegacy } = service.peekContextEntries(
-        message.conversationId,
-      );
-      if (entries.length > 0) {
-        contextBlocks.crossConversation = entries;
-      }
-
-      const { messages: fullMessages, commit: commitFull } =
-        service.peekFullMessages(message.conversationId);
-      if (fullMessages.length > 0) {
-        contextBlocks.crossConversationMessages = fullMessages;
-      }
-
-      const hasContext = entries.length > 0 || fullMessages.length > 0;
-
-      return {
-        enriched: {
-          id: message.id,
-          conversationId: message.conversationId,
-          sender: {
-            id: message.senderId,
-            name: senderName,
-          },
-          text,
-          isFromMe,
-          createdAt: message.createdAt,
-          replyToId: message.replyToId,
-          conversationMeta,
-          contextBlocks,
-          ...(coalesced.length > 1 ? { coalescedMessages: coalesced } : {}),
-        },
-        commitContext: hasContext
-          ? () => {
-              commitLegacy();
-              commitFull();
-            }
-          : undefined,
-      };
-    });
+    return enrichChannelMessage(service, messageOrMessages);
   }
 
   private dispatchInboundEffect(

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { InvalidParamsError } from "./errors.js";
 
 /** AJV validator shape (`Ajv.ValidateFunction`) without importing AJV. */
@@ -13,6 +13,18 @@ export const validateParams = <T>(
   validator: Validator<T>,
   input: unknown,
 ): Effect.Effect<T, InvalidParamsError> =>
-  validator(input)
-    ? Effect.succeed(input)
-    : Effect.fail(new InvalidParamsError({ message: "Invalid parameters" }));
+  Effect.try({
+    try: () => Option.liftPredicate(input, validator),
+    catch: invalidParamsError,
+  }).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.fail(invalidParamsError()),
+        onSome: Effect.succeed,
+      }),
+    ),
+  );
+
+function invalidParamsError() {
+  return new InvalidParamsError({ message: "Invalid parameters" });
+}

@@ -4,7 +4,7 @@
  *
  * Asserts that the resolver's internal `ConnectionId` brand cannot leak as
  * a wire-level `EndpointAddress`. Pre-Phase-9b the `agent-conn` kind in
- * `EndpointAddress` was the leak: callers minted `tm:agent-conn:<connId>`
+ * `EndpointAddress` was the leak: callers minted `tm:agent-conn:&lt;connId>`
  * from a `ConnectionId` and the resolver indexed by that wrapped form.
  * Phase 9b drops the wrapping; this canary closes the door so a future
  * edit cannot re-introduce the assignability.

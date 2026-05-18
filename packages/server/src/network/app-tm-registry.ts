@@ -2,7 +2,7 @@
  * In-process registry of app-TM handlers.
  *
  * Phase 9b consumer-migration (sub-issue #460 round 3 R14): the
- * `tm:app:<id>` `EndpointAddressKind` exists for default DM / group TMs
+ * `tm:app:&lt;id>` `EndpointAddressKind` exists for default DM / group TMs
  * and (in a future arena cutover) any in-process TM that does not
  * authenticate as an agent. `network.send` dispatches `app`-kind
  * addresses through this registry — the handler runs on the server's
@@ -11,7 +11,7 @@
  * The default TMs' stable addresses are minted at module load via
  * deterministic UUIDs so every server boot binds the same address. Apps
  * that want to register a custom in-process TM call {@link register}
- * with an arbitrary `tm:app:<uuid>` address.
+ * with an arbitrary `tm:app:&lt;uuid>` address.
  */
 import { Effect, HashMap, Ref } from "effect";
 import {
@@ -84,7 +84,7 @@ export type AppTmHandler = (
  * snapshots.
  */
 export class AppTmRegistry {
-  static make: Effect.Effect<AppTmRegistry> = Effect.map(
+  static readonly make: Effect.Effect<AppTmRegistry> = Effect.map(
     Ref.make<HashMap.HashMap<EndpointAddress, AppTmHandler>>(HashMap.empty()),
     (state) => new AppTmRegistry(state),
   );
@@ -106,7 +106,7 @@ export class AppTmRegistry {
    * Look up the handler for an address. Returns `undefined` when no
    * handler is registered — the caller (`NetworkSendService`) maps
    * that to `RecipientNotResolved` so the failure semantics match the
-   * `tm:agent:<id>` path's "agent has no live connection" branch.
+   * `tm:agent:&lt;id>` path's "agent has no live connection" branch.
    */
   resolve(address: EndpointAddress): Effect.Effect<AppTmHandler | undefined> {
     return Effect.map(Ref.get(this.state), (m) => {
@@ -115,35 +115,3 @@ export class AppTmRegistry {
     });
   }
 }
-
-// ── #560 default-TM messages/authorize registration scaffold ────────
-//
-// Default-DM and default-group conversations have no bound app, so
-// their `messageAuthorize` hooks register against the AppHost's
-// address-keyed map directly (NOT inside `AppTmRegistry`, which
-// holds opaque-payload `AppTmHandler` post-gate observers — see
-// architect risk R8 for the ghost-service hazard rationale).
-//
-// The default policy is `Forward { recipients: participants \ sender }`,
-// preserving today's hardcoded broadcast behaviour. The implementer
-// wires this at server boot in the layer that owns AppHost
-// construction (likely `packages/server/src/app/layers.ts` or a new
-// `default-tm-bootstrap` layer); the call shape is:
-//
-//   appHost.registerMessageAuthorize(
-//     DEFAULT_DM_TM_ADDRESS,
-//     (ctx) => Effect.gen(function*() {
-//       const participants = yield*
-//         conversations.getParticipantAgentIds(ctx.conversationId);
-//       return {
-//         decision: "Forward" as const,
-//         recipients: participants.filter(
-//           (a) => a !== ctx.message.senderAgentId,
-//         ),
-//       };
-//     }),
-//   );
-//   appHost.registerMessageAuthorize(DEFAULT_GROUP_TM_ADDRESS, ...);
-//
-// Stub: this comment IS the registration scaffold. The actual call
-// site is impl-tier scope.

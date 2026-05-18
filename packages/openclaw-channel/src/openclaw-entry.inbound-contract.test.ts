@@ -1,169 +1,253 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Effect } from "effect";
+import { afterEach, beforeEach, describe, expect, vi } from "vitest";
+import { live as it } from "@effect/vitest";
+import * as fc from "fast-check";
+import { Data, Effect } from "effect";
+import type { CrossConvMessage } from "@moltzap/client";
+import {
+  createFakeChannelService,
+  flushDispatchChainEffect,
+  testAgentId,
+  testConversationId,
+  testMessageId,
+  type FakeChannelService,
+} from "@moltzap/client/test-utils";
 import type { Message } from "@moltzap/protocol";
-import type { CrossConversationEntry, CrossConvMessage } from "@moltzap/client";
-
-// Capture handlers registered via service.on()
-let capturedOnMessage: ((msg: Message) => void) | null = null;
-let capturedOnRawEvent: ((event: unknown) => void) | null = null;
-let capturedOnReconnect: (() => void) | null = null;
-const mockSendRpc = vi.fn();
-const mockSend = vi.fn();
-const mockClose = vi.fn();
-const mockGetAgentName = vi.fn();
-const mockResolveAgentName = vi.fn();
-const mockGetConversation = vi.fn();
-const mockPeekContextEntries =
-  vi.fn<
-    (convId: string) => {
-      entries: CrossConversationEntry[];
-      commit: () => void;
-    }
-  >();
-const mockPeekFullMessages =
-  vi.fn<
-    (convId: string) => {
-      messages: CrossConvMessage[];
-      commit: () => void;
-    }
-  >();
-
-vi.mock("@moltzap/client", async () => {
-  const actual =
-    await vi.importActual<typeof import("@moltzap/client")>("@moltzap/client");
-  return {
-    ...actual,
-    MoltZapService: vi.fn().mockImplementation(() => ({
-      // The service API is Effect-native. Tests mock each method to return
-      // a pre-built Effect (Effect.succeed / Effect.fail) so MoltZapChannelCore
-      // can `yield*` them without wrappers.
-      connect: vi
-        .fn()
-        .mockReturnValue(
-          Effect.succeed({ conversations: [], unreadCounts: {} }),
-        ),
-      close: mockClose,
-      ownAgentId: "agent-self",
-      connected: true,
-      getAgentName: mockGetAgentName,
-      resolveAgentName: mockResolveAgentName,
-      getConversation: mockGetConversation,
-      peekContextEntries: mockPeekContextEntries,
-      peekFullMessages: mockPeekFullMessages,
-      sendRpc: mockSendRpc,
-      send: mockSend,
-      startSocketServer: vi.fn(),
-      stopSocketServer: vi.fn(),
-      on: vi.fn().mockImplementation((event: string, handler: Function) => {
-        if (event === "message")
-          capturedOnMessage = handler as typeof capturedOnMessage;
-        if (event === "rawNotification")
-          capturedOnRawEvent = handler as typeof capturedOnRawEvent;
-        if (event === "reconnect")
-          capturedOnReconnect = handler as typeof capturedOnReconnect;
-      }),
-    })),
-  };
-});
-
-import { moltzapChannelPlugin } from "./openclaw-entry.js";
+import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 import { CROSS_CONV_HEADER } from "./format-cross-conv.js";
 
-function makeMessage(overrides: Partial<Message> = {}): Message {
-  return {
-    id: "msg-100",
-    conversationId: "conv-200",
-    senderId: "agent-sender-1",
-    parts: [{ type: "text", text: "Hello from agent" }],
-    createdAt: "2026-03-16T00:00:00Z",
-    ...overrides,
-  } as Message;
-}
+const MESSAGE_DISPATCH_SETTLE_MS = 100;
+const DEFAULT_ACCOUNT_ID = "test-account";
+const DEFAULT_ACCOUNT_KEY = "moltzap_agent_test123";
+const DEFAULT_SERVER_URL = "ws://localhost:9999";
+const DEFAULT_AGENT_NAME = "bob";
+const CHANNEL_ID = "moltzap";
+const DEFAULT_MESSAGE_ID = testMessageId(
+  "550e8400-e29b-41d4-a716-446655440100",
+);
+const SECOND_MESSAGE_ID = testMessageId("550e8400-e29b-41d4-a716-446655440101");
+const DEFAULT_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440200",
+);
+const ORIGINATING_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440201",
+);
+const GROUP_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440202",
+);
+const OTHER_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440203",
+);
+const SENDER_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440300");
+const SELF_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440301");
+const THIRD_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440302");
+const SELLER_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440303");
+const CREATED_AT = "2026-03-16T00:00:00Z";
+const DEFAULT_BODY = "Hello from agent";
+const TEST_BODY = "Test body content";
+const PROJECT_ALPHA = "Project Alpha";
+const ATLAS_PRIME = "Atlas-Prime";
+const CACHED_NAME = "cached-name";
+const MULTILINE_BODY = "Line 1\nLine 2\nLine 3";
+const OFFER_QUESTION = "What should I offer?";
+const PLAIN_MESSAGE = "Plain message";
+const MIN_PRICE_TEXT = "Min $4000";
+const SELLER_NAME = "seller";
+const CROSS_CONV_SENDER_JSON = '"sender": "seller"';
+const CROSS_CONV_TEXT_JSON = '"text": "Min $4000"';
+const SYSTEM_REMINDER_TAG = "<system-reminder>";
+const FUNCTION_TYPE = "function";
+const NUMBER_TYPE = "number";
+const DIRECT_CHAT_TYPE = "direct";
+const GROUP_CHAT_TYPE = "group";
+const TEXT_PART_TYPE = "text";
 
-function makeAccount() {
-  return {
-    id: "test-account",
-    apiKey: "moltzap_agent_test123",
-    serverUrl: "ws://localhost:9999",
-    agentName: "bob",
+class InboundContractTestError extends Data.TaggedError(
+  "InboundContractTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+interface DispatchCall {
+  readonly ctx: Record<string, unknown>;
+  readonly cfg: unknown;
+  readonly dispatcherOptions: {
+    readonly deliver: (
+      payload: unknown,
+      info?: unknown,
+    ) => PromiseLike<boolean>;
   };
 }
 
-function makeCfg() {
+interface StartedGateway {
+  readonly fixture: FakeChannelService;
+  readonly plugin: ReturnType<typeof createMoltzapChannelPlugin>;
+}
+
+let started: StartedGateway;
+let abortControllers: AbortController[] = [];
+let mockDispatch: ReturnType<typeof vi.fn>;
+let setStatusCalls: Record<string, unknown>[];
+
+beforeEach(() => {
+  resetMocks();
+  started = startGateway({ withRuntime: true });
+});
+
+afterEach(() => {
+  for (const controller of abortControllers) {
+    controller.abort();
+  }
+  abortControllers = [];
+});
+
+describe("Flow 5: Inbound contract", () => {
+  it("calls dispatchReplyWithBufferedBlockDispatcher", dispatchIsCalled);
+  it("MsgContext has required fields", contextHasRequiredFields);
+  it("OriginatingChannel is moltzap", originatingChannelIsMoltzap);
+  it("OriginatingTo is the conversationId", originatingToIsConversationId);
+  it("group message includes group metadata", groupMessageIncludesMetadata);
+  it("DM message has direct ChatType", dmMessageHasDirectChatType);
+  it("SenderName is resolved from service", senderNameIsResolved);
+  it("caches sender name lookups across messages", cachesSenderNames);
+  it("passes cfg through to dispatch", cfgPassesThrough);
+  it("dispatch includes a deliver callback", dispatchIncludesDeliver);
+  it("updates status with lastInboundAt", updatesInboundStatus);
+  it("does not dispatch without channelRuntime", noRuntimeDoesNotDispatch);
+  it("handles multi-part text messages", joinsMultipartText);
+  it("BodyForAgent includes cross-conversation context", includesCrossConv);
+  it("BodyForAgent equals Body for empty context", emptyContextKeepsBody);
+  it(
+    "property: generated account ids round-trip in config",
+    accountIdsRoundTrip,
+  );
+});
+
+function resetMocks(): void {
+  vi.clearAllMocks();
+  mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
+  setStatusCalls = [];
+}
+
+function startGateway(params: {
+  readonly withRuntime: boolean;
+}): StartedGateway {
+  const fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
+  seedFixture(fixture);
+  const plugin = createMoltzapChannelPlugin({
+    createService: () => fixture.service,
+  });
+  const abortController = new AbortController();
+  abortControllers.push(abortController);
+  Effect.runFork(
+    Effect.tryPromise({
+      try: () =>
+        plugin.gateway.startAccount({
+          cfg: makeCfg(),
+          accountId: DEFAULT_ACCOUNT_ID,
+          account: makeAccount(DEFAULT_ACCOUNT_ID),
+          abortSignal: abortController.signal,
+          setStatus: (status) => setStatusCalls.push(status),
+          ...(params.withRuntime ? { channelRuntime: channelRuntime() } : {}),
+        }),
+      catch: (cause) =>
+        new InboundContractTestError({
+          message: "startAccount failed",
+          cause,
+        }),
+    }).pipe(Effect.ignore),
+  );
+  return { fixture, plugin };
+}
+
+function seedFixture(fixture: FakeChannelService): void {
+  fixture.state.setConversation(DEFAULT_CONVERSATION_ID, defaultConversation());
+  fixture.state.setAgentName(SENDER_AGENT_ID, `name-of-${SENDER_AGENT_ID}`);
+}
+
+function channelRuntime() {
+  return {
+    reply: {
+      dispatchReplyWithBufferedBlockDispatcher: mockDispatch,
+    },
+  };
+}
+
+function makeAccount(id: string) {
+  return {
+    id,
+    apiKey: DEFAULT_ACCOUNT_KEY,
+    serverUrl: DEFAULT_SERVER_URL,
+    agentName: DEFAULT_AGENT_NAME,
+  };
+}
+
+function makeCfg(accountId = DEFAULT_ACCOUNT_ID) {
   return {
     channels: {
       moltzap: {
-        accounts: [makeAccount()],
+        accounts: [makeAccount(accountId)],
       },
     },
   };
 }
 
-describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher", () => {
-  let abortController: AbortController;
-  let mockDispatch: ReturnType<typeof vi.fn>;
-  let setStatusCalls: Record<string, unknown>[];
+function makeMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: DEFAULT_MESSAGE_ID,
+    conversationId: DEFAULT_CONVERSATION_ID,
+    senderId: SENDER_AGENT_ID,
+    parts: [{ type: TEXT_PART_TYPE, text: DEFAULT_BODY }],
+    createdAt: CREATED_AT,
+    ...overrides,
+  };
+}
 
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    capturedOnMessage = null;
-    capturedOnRawEvent = null;
-    capturedOnReconnect = null;
-    abortController = new AbortController();
-    mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
-    setStatusCalls = [];
+function defaultConversation() {
+  return {
+    id: DEFAULT_CONVERSATION_ID,
+    type: "dm",
+    participants: [agentRef(SENDER_AGENT_ID), agentRef(SELF_AGENT_ID)],
+  };
+}
 
-    // Default mock returns
-    mockGetAgentName.mockImplementation((id: string) => `name-of-${id}`);
-    mockResolveAgentName.mockImplementation((id: string) =>
-      Effect.succeed(`name-of-${id}`),
-    );
-    mockGetConversation.mockReturnValue({
-      id: "conv-200",
-      type: "dm",
-      name: undefined,
-      participants: ["agent:agent-sender-1", "agent:agent-self"],
-    });
-    mockPeekContextEntries.mockReturnValue({ entries: [], commit: vi.fn() });
-    mockPeekFullMessages.mockReturnValue({ messages: [], commit: vi.fn() });
+function agentRef(id: string): string {
+  return `agent:${id}`;
+}
 
-    // Start the plugin's gateway
-    void moltzapChannelPlugin.gateway.startAccount({
-      cfg: makeCfg(),
-      accountId: "test-account",
-      account: makeAccount(),
-      abortSignal: abortController.signal,
-      log: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn(),
-      },
-      setStatus: (s) => setStatusCalls.push(s),
-      channelRuntime: {
-        reply: {
-          dispatchReplyWithBufferedBlockDispatcher: mockDispatch,
-        },
-      },
-    });
+function waitForDispatchTimes(count: number) {
+  return waitForExpectation(() => {
+    expect(mockDispatch).toHaveBeenCalledTimes(count);
+  }, "dispatch call");
+}
 
-    // Wait for service.on("message") to be registered
-    await vi.waitFor(() => {
-      expect(capturedOnMessage).not.toBeNull();
-    });
+function waitForExpectation(assertion: () => void, label: string) {
+  return Effect.tryPromise({
+    try: () => vi.waitFor(assertion),
+    catch: (cause) =>
+      new InboundContractTestError({ message: `wait for ${label}`, cause }),
   });
+}
 
-  afterEach(() => {
-    abortController.abort();
+function emitMessage(message: Message = makeMessage()) {
+  return Effect.gen(function* () {
+    started.fixture.emit.message(message);
+    yield* flushDispatchChainEffect;
   });
+}
 
-  it("calls dispatchReplyWithBufferedBlockDispatcher, not dispatchInboundMessage", async () => {
-    capturedOnMessage!(makeMessage());
+function firstDispatchCall(): DispatchCall {
+  return mockDispatch.mock.calls[0]?.[0] as DispatchCall;
+}
 
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
+function firstDispatchContext(): Record<string, unknown> {
+  return firstDispatchCall().ctx;
+}
 
+function dispatchIsCalled() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
     expect(mockDispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         ctx: expect.any(Object),
@@ -174,262 +258,232 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       }),
     );
   });
+}
 
-  it("MsgContext has required fields: Body, BodyForAgent, From, To, SessionKey, Provider, Surface", async () => {
-    capturedOnMessage!(
-      makeMessage({ parts: [{ type: "text", text: "Test body content" }] }),
+function contextHasRequiredFields() {
+  return Effect.gen(function* () {
+    yield* emitMessage(
+      makeMessage({ parts: [{ type: TEXT_PART_TYPE, text: TEST_BODY }] }),
     );
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.Body).toBe("Test body content");
-    expect(ctx.BodyForAgent).toBe("Test body content");
-    expect(ctx.From).toBe("agent:agent-sender-1");
-    expect(ctx.To).toBe("bob");
-    expect(ctx.SessionKey).toBe("agent:main:moltzap:dm:conv-200");
-    expect(ctx.Provider).toBe("moltzap");
-    expect(ctx.Surface).toBe("moltzap");
-    expect(ctx.AccountId).toBe("test-account");
-  });
-
-  it("OriginatingChannel is 'moltzap'", async () => {
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.OriginatingChannel).toBe("moltzap");
-  });
-
-  it("OriginatingTo is the conversationId", async () => {
-    capturedOnMessage!(makeMessage({ conversationId: "conv-xyz" }));
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.OriginatingTo).toBe("conv-xyz");
-  });
-
-  it("group message includes ChatType, GroupSubject, GroupMembers", async () => {
-    mockGetConversation.mockReturnValue({
-      id: "conv-group-1",
-      type: "group",
-      name: "Project Alpha",
-      participants: [
-        "agent:agent-sender-1",
-        "agent:agent-self",
-        "agent:agent-third",
-      ],
-    });
-
-    capturedOnMessage!(makeMessage({ conversationId: "conv-group-1" }));
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.ChatType).toBe("group");
-    expect(ctx.GroupSubject).toBe("Project Alpha");
-    expect(ctx.GroupMembers).toBe(
-      "agent:agent-sender-1,agent:agent-self,agent:agent-third",
+    yield* waitForDispatchTimes(1);
+    const ctx = firstDispatchContext();
+    expect(ctx.Body).toBe(TEST_BODY);
+    expect(ctx.BodyForAgent).toBe(TEST_BODY);
+    expect(ctx.From).toBe(agentRef(SENDER_AGENT_ID));
+    expect(ctx.To).toBe(DEFAULT_AGENT_NAME);
+    expect(ctx.SessionKey).toBe(
+      sessionKey(DIRECT_CHAT_TYPE, DEFAULT_CONVERSATION_ID),
     );
-    expect(ctx.ConversationLabel).toBe("Project Alpha");
-    expect(ctx.SessionKey).toBe("agent:main:moltzap:group:conv-group-1");
+    expect(ctx.Provider).toBe(CHANNEL_ID);
+    expect(ctx.Surface).toBe(CHANNEL_ID);
+    expect(ctx.AccountId).toBe(DEFAULT_ACCOUNT_ID);
   });
+}
 
-  it("DM message has ChatType 'direct'", async () => {
-    mockGetConversation.mockReturnValue({
-      id: "conv-200",
-      type: "dm",
-      name: undefined,
-      participants: ["agent:agent-sender-1", "agent:agent-self"],
-    });
-
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.ChatType).toBe("direct");
+function originatingChannelIsMoltzap() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    expect(firstDispatchContext().OriginatingChannel).toBe(CHANNEL_ID);
   });
+}
 
-  it("SenderName is resolved from service", async () => {
-    mockGetAgentName.mockReturnValue("Atlas-Prime");
-
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.SenderName).toBe("Atlas-Prime");
+function originatingToIsConversationId() {
+  return Effect.gen(function* () {
+    yield* emitMessage(
+      makeMessage({ conversationId: ORIGINATING_CONVERSATION_ID }),
+    );
+    yield* waitForDispatchTimes(1);
+    expect(firstDispatchContext().OriginatingTo).toBe(
+      ORIGINATING_CONVERSATION_ID,
+    );
   });
+}
 
-  it("caches sender name lookups across messages", async () => {
-    mockGetAgentName.mockReturnValue("cached-name");
-
-    capturedOnMessage!(makeMessage());
-    await vi.waitFor(() => expect(mockDispatch).toHaveBeenCalledOnce());
-
-    capturedOnMessage!(makeMessage({ id: "msg-101", seq: 2 }));
-    await vi.waitFor(() => expect(mockDispatch).toHaveBeenCalledTimes(2));
-
-    // Both calls used getAgentName (sync cache), not resolveAgentName (async RPC)
-    expect(mockResolveAgentName).not.toHaveBeenCalled();
+function groupMessageIncludesMetadata() {
+  return Effect.gen(function* () {
+    started.fixture.state.setConversation(
+      GROUP_CONVERSATION_ID,
+      groupConversation(),
+    );
+    yield* emitMessage(makeMessage({ conversationId: GROUP_CONVERSATION_ID }));
+    yield* waitForDispatchTimes(1);
+    const ctx = firstDispatchContext();
+    expect(ctx.ChatType).toBe(GROUP_CHAT_TYPE);
+    expect(ctx.GroupSubject).toBe(PROJECT_ALPHA);
+    expect(ctx.GroupMembers).toBe(groupMembers());
+    expect(ctx.ConversationLabel).toBe(PROJECT_ALPHA);
+    expect(ctx.SessionKey).toBe(
+      sessionKey(GROUP_CHAT_TYPE, GROUP_CONVERSATION_ID),
+    );
   });
+}
 
-  it("passes cfg through to dispatch", async () => {
-    capturedOnMessage!(makeMessage());
+function groupConversation() {
+  return {
+    id: GROUP_CONVERSATION_ID,
+    type: "group",
+    name: PROJECT_ALPHA,
+    participants: [
+      agentRef(SENDER_AGENT_ID),
+      agentRef(SELF_AGENT_ID),
+      agentRef(THIRD_AGENT_ID),
+    ],
+  };
+}
 
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
+function groupMembers(): string {
+  return [
+    agentRef(SENDER_AGENT_ID),
+    agentRef(SELF_AGENT_ID),
+    agentRef(THIRD_AGENT_ID),
+  ].join(",");
+}
 
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
-      cfg: Record<string, unknown>;
-    };
-    expect(dispatchArgs.cfg).toEqual(makeCfg());
+function dmMessageHasDirectChatType() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    expect(firstDispatchContext().ChatType).toBe(DIRECT_CHAT_TYPE);
   });
+}
 
-  it("dispatch includes a deliver callback in dispatcherOptions", async () => {
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
-      dispatcherOptions: { deliver: Function };
-    };
-    expect(typeof dispatchArgs.dispatcherOptions.deliver).toBe("function");
+function senderNameIsResolved() {
+  return Effect.gen(function* () {
+    started.fixture.state.setAgentName(SENDER_AGENT_ID, ATLAS_PRIME);
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    expect(firstDispatchContext().SenderName).toBe(ATLAS_PRIME);
   });
+}
 
-  it("updates status with lastInboundAt on message receipt", async () => {
-    capturedOnMessage!(makeMessage());
+function cachesSenderNames() {
+  return Effect.gen(function* () {
+    started.fixture.state.setAgentName(SENDER_AGENT_ID, CACHED_NAME);
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    yield* emitMessage(makeMessage({ id: SECOND_MESSAGE_ID }));
+    yield* waitForDispatchTimes(2);
+    expect(
+      started.fixture.state.resolveAgentNameCallCount(SENDER_AGENT_ID),
+    ).toBe(0);
+  });
+}
 
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
+function cfgPassesThrough() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    expect(firstDispatchCall().cfg).toEqual(makeCfg());
+  });
+}
 
-    const inboundStatus = setStatusCalls.find((s) => "lastInboundAt" in s);
+function dispatchIncludesDeliver() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    expect(typeof firstDispatchCall().dispatcherOptions.deliver).toBe(
+      FUNCTION_TYPE,
+    );
+  });
+}
+
+function updatesInboundStatus() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    const inboundStatus = setStatusCalls.find(
+      (status) => "lastInboundAt" in status,
+    );
     expect(inboundStatus).toBeDefined();
-    expect(inboundStatus!.accountId).toBe("test-account");
-    expect(typeof inboundStatus!.lastInboundAt).toBe("number");
+    if (inboundStatus === undefined) return;
+    expect(inboundStatus.accountId).toBe(DEFAULT_ACCOUNT_ID);
+    expect(typeof inboundStatus.lastInboundAt).toBe(NUMBER_TYPE);
   });
+}
 
-  it("does not dispatch when channelRuntime is not provided", async () => {
-    const ac2 = new AbortController();
-    const dispatch2 = vi.fn();
-
-    void moltzapChannelPlugin.gateway.startAccount({
-      cfg: makeCfg(),
-      accountId: "test-account-2",
-      account: makeAccount(),
-      abortSignal: ac2.signal,
-      setStatus: vi.fn(),
-    });
-
-    await vi.waitFor(() => {
-      expect(capturedOnMessage).not.toBeNull();
-    });
-
-    capturedOnMessage!(makeMessage());
-
-    await new Promise((r) => setTimeout(r, 100));
-    expect(dispatch2).not.toHaveBeenCalled();
-
-    ac2.abort();
+function noRuntimeDoesNotDispatch() {
+  return Effect.gen(function* () {
+    const before = mockDispatch.mock.calls.length;
+    const withoutRuntime = startGateway({ withRuntime: false });
+    withoutRuntime.fixture.emit.message(makeMessage());
+    yield* Effect.sleep(`${MESSAGE_DISPATCH_SETTLE_MS} millis`);
+    expect(mockDispatch.mock.calls.length).toBe(before);
   });
+}
 
-  it("handles multi-part text messages by joining with newlines", async () => {
-    capturedOnMessage!(
+function joinsMultipartText() {
+  return Effect.gen(function* () {
+    yield* emitMessage(
       makeMessage({
         parts: [
-          { type: "text", text: "Line 1" },
-          { type: "text", text: "Line 2" },
-          { type: "text", text: "Line 3" },
+          { type: TEXT_PART_TYPE, text: "Line 1" },
+          { type: TEXT_PART_TYPE, text: "Line 2" },
+          { type: TEXT_PART_TYPE, text: "Line 3" },
         ],
       }),
     );
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.Body).toBe("Line 1\nLine 2\nLine 3");
-    expect(ctx.BodyForAgent).toBe("Line 1\nLine 2\nLine 3");
+    yield* waitForDispatchTimes(1);
+    const ctx = firstDispatchContext();
+    expect(ctx.Body).toBe(MULTILINE_BODY);
+    expect(ctx.BodyForAgent).toBe(MULTILINE_BODY);
   });
+}
 
-  it("BodyForAgent includes cross-conversation context as OpenClaw JSON metadata", async () => {
-    mockPeekFullMessages.mockReturnValue({
-      messages: [
-        {
-          conversationId: "conv-other",
-          conversationName: undefined,
-          senderName: "seller",
-          senderId: "agent-seller",
-          text: "Min $4000",
-          timestamp: "2026-04-13T22:00:00Z",
-        },
-      ],
-      commit: vi.fn(),
-    });
-
-    capturedOnMessage!(
-      makeMessage({ parts: [{ type: "text", text: "What should I offer?" }] }),
+function includesCrossConv() {
+  return Effect.gen(function* () {
+    started.fixture.state.setFullMessages(DEFAULT_CONVERSATION_ID, [
+      crossConversationMessage(),
+    ]);
+    yield* emitMessage(
+      makeMessage({ parts: [{ type: TEXT_PART_TYPE, text: OFFER_QUESTION }] }),
     );
-
-    await vi.waitFor(() => expect(mockDispatch).toHaveBeenCalledOnce());
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.Body).toBe("What should I offer?");
+    yield* waitForDispatchTimes(1);
+    const ctx = firstDispatchContext();
+    expect(ctx.Body).toBe(OFFER_QUESTION);
     expect(ctx.BodyForAgent).toContain(CROSS_CONV_HEADER);
-    expect(ctx.BodyForAgent).toContain('"sender": "seller"');
-    expect(ctx.BodyForAgent).toContain('"text": "Min $4000"');
-    expect(ctx.BodyForAgent).toContain("What should I offer?");
-    expect(ctx.BodyForAgent).not.toContain("<system-reminder>");
+    expect(ctx.BodyForAgent).toContain(CROSS_CONV_SENDER_JSON);
+    expect(ctx.BodyForAgent).toContain(CROSS_CONV_TEXT_JSON);
+    expect(ctx.BodyForAgent).toContain(OFFER_QUESTION);
+    expect(ctx.BodyForAgent).not.toContain(SYSTEM_REMINDER_TAG);
   });
+}
 
-  it("BodyForAgent equals Body when peekContextEntries returns empty", async () => {
-    // Default mock setup in beforeEach already returns { entries: [], commit }
-    capturedOnMessage!(
-      makeMessage({ parts: [{ type: "text", text: "Plain message" }] }),
+function crossConversationMessage(): CrossConvMessage {
+  return {
+    conversationId: OTHER_CONVERSATION_ID,
+    conversationName: undefined,
+    senderName: SELLER_NAME,
+    senderId: SELLER_AGENT_ID,
+    text: MIN_PRICE_TEXT,
+    timestamp: CREATED_AT,
+  };
+}
+
+function emptyContextKeepsBody() {
+  return Effect.gen(function* () {
+    yield* emitMessage(
+      makeMessage({ parts: [{ type: TEXT_PART_TYPE, text: PLAIN_MESSAGE }] }),
     );
-
-    await vi.waitFor(() => expect(mockDispatch).toHaveBeenCalledOnce());
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.Body).toBe("Plain message");
-    expect(ctx.BodyForAgent).toBe("Plain message");
+    yield* waitForDispatchTimes(1);
+    const ctx = firstDispatchContext();
+    expect(ctx.Body).toBe(PLAIN_MESSAGE);
+    expect(ctx.BodyForAgent).toBe(PLAIN_MESSAGE);
   });
-});
+}
+
+function accountIdsRoundTrip() {
+  return Effect.sync(() => {
+    fc.assert(
+      fc.property(fc.string({ minLength: 1 }), (accountId) => {
+        expect(makeCfg(accountId).channels.moltzap.accounts[0]?.id).toBe(
+          accountId,
+        );
+      }),
+    );
+  });
+}
+
+function sessionKey(type: string, id: string): string {
+  return `agent:main:${CHANNEL_ID}:${type === GROUP_CHAT_TYPE ? "group" : "dm"}:${id}`;
+}

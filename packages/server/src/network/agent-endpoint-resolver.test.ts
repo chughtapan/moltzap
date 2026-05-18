@@ -10,8 +10,8 @@
  * now keys by `ConnectionId` directly. The legacy `agent-conn`
  * `EndpointAddress` wrapping retired alongside the deletion of the
  * `agent-conn` kind from the public `EndpointAddress` brand. Tests that
- * previously asserted `HashSet<EndpointAddress>` shape now assert
- * `HashSet<ConnectionId>` shape; tests that previously round-tripped
+ * previously asserted `HashSet&lt;EndpointAddress&gt;` shape now assert
+ * `HashSet&lt;ConnectionId&gt;` shape; tests that previously round-tripped
  * `connectionForAddress` were dropped — the resolver no longer exposes
  * that surface (callers go through `resolveAll` and pick a connection
  * id directly).
@@ -39,7 +39,7 @@ const CONN_C = connectionId("00000000-0000-4000-8000-00000000c003");
 const makeResolver = (): AgentEndpointResolver =>
   Effect.runSync(AgentEndpointResolver.make);
 
-describe("AgentEndpointResolver", () => {
+describe("AgentEndpointResolver — initial add", () => {
   it("starts empty: resolveAll returns the empty set for any agent", () => {
     const resolver = makeResolver();
     const set = Effect.runSync(resolver.resolveAll(ALICE));
@@ -67,7 +67,9 @@ describe("AgentEndpointResolver", () => {
     expect(HashSet.has(fan, CONN_A)).toBe(true);
     expect(HashSet.has(fan, CONN_B)).toBe(true);
   });
+});
 
+describe("AgentEndpointResolver — add isolation", () => {
   it("add: same connection twice is idempotent on the forward set", () => {
     const resolver = makeResolver();
 
@@ -87,7 +89,9 @@ describe("AgentEndpointResolver", () => {
     expect(HashSet.size(Effect.runSync(resolver.resolveAll(ALICE)))).toBe(1);
     expect(HashSet.size(Effect.runSync(resolver.resolveAll(BOB)))).toBe(1);
   });
+});
 
+describe("AgentEndpointResolver — remove basics", () => {
   it("remove: drops the entry from the agent's set", () => {
     const resolver = makeResolver();
 
@@ -121,7 +125,9 @@ describe("AgentEndpointResolver", () => {
     const fan = Effect.runSync(resolver.resolveAll(ALICE));
     expect(HashSet.size(fan)).toBe(0);
   });
+});
 
+describe("AgentEndpointResolver — remove edge cases", () => {
   it("remove: mis-targeted remove cannot evict a sibling's reverse entry", () => {
     // Regression guard for the resolver-tear bug: BOB owns `CONN_A`, but a
     // mis-targeted `remove(ALICE, CONN_A)` (programmer error or a re-issued
@@ -148,7 +154,9 @@ describe("AgentEndpointResolver", () => {
 
     expect(HashSet.size(Effect.runSync(resolver.resolveAll(ALICE)))).toBe(0);
   });
+});
 
+describe("AgentEndpointResolver — multi-connection", () => {
   it("multi-connection per agent: each connection is independently tracked", () => {
     const resolver = makeResolver();
 

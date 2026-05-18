@@ -19,7 +19,7 @@
  *   - R13 collapsed `tasks/create` + `endpoints/registerTaskManager`
  *     into one atomic call; the deleted `endpoints/*` wire RPCs no
  *     longer appear in the suite.
- *   - R14 added a default-DM / default-group `tm:app:<id>` TM that
+ *   - R14 added a default-DM / default-group `tm:app:&lt;id&gt;` TM that
  *     `conversations/create` auto-binds; in-process dispatch via
  *     {@link AppTmRegistry} runs on the server's Effect runtime, no
  *     WebSocket round-trip (plan §1.3 in-process loopback policy).
@@ -46,9 +46,9 @@
  * test below — it would only pass if the WS finalizer drained the
  * resolver before the next send.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import * as fc from "fast-check";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { Effect } from "effect";
 import {
   ConversationsCreate,
   HookBlockedError,
@@ -65,31 +65,38 @@ import {
 } from "@moltzap/protocol";
 import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   trackClient,
   connectTestClient,
   registerAgent,
+  expectEitherLeft,
   type ServerTestClient,
 } from "../helpers.js";
+
+const TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS = 20_000;
+const PROPERTY_RUNS = 25;
+const TASK_CLOSED_REASON = "TaskClosed";
+const CLOSED_STATUS = "closed";
 
 let baseUrl: string;
 let wsUrl: string;
 
-beforeAll(async () => {
-  const server = await startTestServer();
-  baseUrl = server.baseUrl;
-  wsUrl = server.wsUrl;
-}, 60_000);
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const server = yield* startTestServerEffect();
+      baseUrl = server.baseUrl;
+      wsUrl = server.wsUrl;
+    }),
+  ),
+);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 interface AgentPair {
   readonly tm: ServerTestClient;
@@ -169,231 +176,242 @@ function setupTaskBoundConversation(
   });
 }
 
-describe("Phase 9b — messages/send → TM routing via network.send", () => {
-  it.live(
-    "TM live: messages/send to a task-bound conversation succeeds",
-    () =>
-      Effect.gen(function* () {
-        const pair = yield* setupTmAndSender(1);
-        const { conversationId } = yield* setupTaskBoundConversation(pair);
-
-        // Sender fires `messages/send`. The server resolves
-        //   conversationId → conversations.task_id
-        //   task_id → tasks.tm_endpoint_address (`tm:agent:<TM-agentId>`)
-        //   resolver.resolveAll(TM-agentId) → ConnectionId set
-        //   pick first writable connection → write the frame to the
-        //   TM's WS (fire-and-forget per §1.3).
-        const sent = yield* pair.sender.sendRpc(MessagesSend, {
+it("property: task binding carries both task and conversation IDs", () =>
+  Effect.sync(() => {
+    expect.hasAssertions();
+    fc.assert(
+      fc.property(fc.uuid(), fc.uuid(), (taskId, conversationId) => {
+        const binding: TaskBinding = {
+          taskId: taskId as Task["id"],
           conversationId,
-          parts: [{ type: "text", text: "hi TM" }],
-        });
-        const message: Message = sent.message;
-        expect(message.parts).toEqual([{ type: "text", text: "hi TM" }]);
-
-        // The TM is also a conversation participant (DM type forces
-        // the caller of `tasks/createConversation` into the participant
-        // set), so it receives the message both via `network.send` (TM
-        // routing) and via the conversation broadcast. The contractual
-        // proof that `network.send` is the gating mechanism lives in
-        // the next two tests; here we only assert the round-trip is
-        // healthy end-to-end.
-        const received = yield* pair.tm.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        const receivedMsg = (received.params as { message: Message }).message;
-        expect(receivedMsg.id).toBe(message.id);
-        expect(receivedMsg.parts).toEqual([{ type: "text", text: "hi TM" }]);
+        };
+        expect(binding.taskId).toBe(taskId);
+        expect(binding.conversationId).toBe(conversationId);
       }),
-    20_000,
-  );
+      { numRuns: PROPERTY_RUNS },
+    );
+  }));
 
-  it.live(
-    "TM offline: messages/send surfaces RpcFailure (RecipientNotResolved → HookBlocked)",
-    () =>
-      Effect.gen(function* () {
-        const pair = yield* setupTmAndSender(2);
-        const { conversationId } = yield* setupTaskBoundConversation(pair);
+it(
+  "TM live: messages/send to a task-bound conversation succeeds",
+  () =>
+    Effect.gen(function* () {
+      const pair = yield* setupTmAndSender(1);
+      const { conversationId } = yield* setupTaskBoundConversation(pair);
 
-        // TM disconnects. The `tm:agent:<TM-agentId>` durable address
-        // persists in `tasks.tm_endpoint_address` but the resolver no
-        // longer holds any live ConnectionId for the agent. `network.send`
-        // returns `RecipientNotResolved`; the message-service maps to
-        // `RpcFailure(HookBlocked, ...)`.
-        yield* pair.tm.close();
-        // Small grace period for the WS finalizer to drain the resolver.
-        yield* Effect.sleep("100 millis");
+      // Sender fires `messages/send`. The server resolves
+      //   conversationId → conversations.task_id
+      //   task_id → tasks.tm_endpoint_address (`tm:agent:<TM-agentId>`)
+      //   resolver.resolveAll(TM-agentId) → ConnectionId set
+      //   pick first writable connection → write the frame to the
+      //   TM's WS (fire-and-forget per §1.3).
+      const sent = yield* pair.sender.sendRpc(MessagesSend, {
+        conversationId,
+        parts: [{ type: "text", text: "hi TM" }],
+      });
+      const message: Message = sent.message;
+      expect(message.parts).toEqual([{ type: "text", text: "hi TM" }]);
 
-        const outcome = yield* Effect.either(
-          pair.sender.sendRpc(MessagesSend, {
-            conversationId,
-            parts: [{ type: "text", text: "tm offline" }],
-          }),
-        );
-        expect(Either.isLeft(outcome)).toBe(true);
-        if (Either.isLeft(outcome)) {
-          const err = outcome.left as { code?: number; message?: string };
-          expect(err.code).toBe(HookBlockedError.code);
-          expect(err.message).toMatch(/Task manager/i);
-        }
-      }),
-    20_000,
-  );
+      // The TM is also a conversation participant (DM type forces
+      // the caller of `tasks/createConversation` into the participant
+      // set), so it receives the message both via `network.send` (TM
+      // routing) and via the conversation broadcast. The contractual
+      // proof that `network.send` is the gating mechanism lives in
+      // the next two tests; here we only assert the round-trip is
+      // healthy end-to-end.
+      const received = yield* pair.tm.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
+      const receivedMsg = (received.params as { message: Message }).message;
+      expect(receivedMsg.id).toBe(message.id);
+      expect(receivedMsg.parts).toEqual([{ type: "text", text: "hi TM" }]);
+    }),
+  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+);
 
-  it.live(
-    "Closed task: messages/send fails closed with TaskClosed",
-    () =>
-      // Codex HIGH-3 regression guard. `tasks.close` does not clear
-      // `tm_endpoint_address`; the Phase 9b fail-closed branch reads
-      // `task.status` and rejects on `closed | failed`.
-      Effect.gen(function* () {
-        const pair = yield* setupTmAndSender(4);
-        const { taskId, conversationId } =
-          yield* setupTaskBoundConversation(pair);
+it(
+  "TM offline: messages/send surfaces RpcFailure (RecipientNotResolved → HookBlocked)",
+  () =>
+    Effect.gen(function* () {
+      const pair = yield* setupTmAndSender(2);
+      const { conversationId } = yield* setupTaskBoundConversation(pair);
 
-        // Send once with the task open — should succeed.
-        yield* pair.sender.sendRpc(MessagesSend, {
+      // TM disconnects. The `tm:agent:<TM-agentId>` durable address
+      // persists in `tasks.tm_endpoint_address` but the resolver no
+      // longer holds any live ConnectionId for the agent. `network.send`
+      // returns `RecipientNotResolved`; the message-service maps to
+      // `RpcFailure(HookBlocked, ...)`.
+      yield* pair.tm.close();
+      // Small grace period for the WS finalizer to drain the resolver.
+      yield* Effect.sleep("100 millis");
+
+      const outcome = yield* Effect.either(
+        pair.sender.sendRpc(MessagesSend, {
           conversationId,
-          parts: [{ type: "text", text: "before close" }],
-        });
+          parts: [{ type: "text", text: "tm offline" }],
+        }),
+      );
+      const err = expectEitherLeft(outcome) as {
+        code?: number;
+        message?: string;
+      };
+      expect(err.code).toBe(HookBlockedError.code);
+      expect(err.message).toMatch(/Task manager/i);
+    }),
+  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+);
 
-        // Close the task. The `tm_endpoint_address` survives but the
-        // status becomes `closed`.
-        yield* pair.tm.sendRpc(TasksClose, { taskId });
+it(
+  "Closed task: messages/send fails closed with TaskClosed",
+  () =>
+    // Codex HIGH-3 regression guard. `tasks.close` does not clear
+    // `tm_endpoint_address`; the Phase 9b fail-closed branch reads
+    // `task.status` and rejects on `closed | failed`.
+    Effect.gen(function* () {
+      const pair = yield* setupTmAndSender(4);
+      const { taskId, conversationId } =
+        yield* setupTaskBoundConversation(pair);
 
-        const outcome = yield* Effect.either(
-          pair.sender.sendRpc(MessagesSend, {
-            conversationId,
-            parts: [{ type: "text", text: "after close" }],
-          }),
-        );
-        expect(Either.isLeft(outcome)).toBe(true);
-        if (Either.isLeft(outcome)) {
-          const err = outcome.left as {
-            code?: number;
-            message?: string;
-            data?: { reason?: string; status?: string };
-          };
-          expect(err.code).toBe(TaskClosedError.code);
-          expect(err.data?.reason).toBe("TaskClosed");
-          expect(err.data?.status).toBe("closed");
-        }
-      }),
-    20_000,
-  );
+      // Send once with the task open — should succeed.
+      yield* pair.sender.sendRpc(MessagesSend, {
+        conversationId,
+        parts: [{ type: "text", text: "before close" }],
+      });
 
-  it.live(
-    "Default-DM-TM: conversations/create auto-binds the default TM; messages/send succeeds without a custom TM",
-    () =>
-      // Phase 9b round 3 R14 lifecycle pin. Pre-R14, a non-app caller
-      // could create a DM via `conversations/create` and the
-      // conversation would land with `task_id IS NULL`. R12+R14 made
-      // every conversation task-bound; the wire handler mints a
-      // default-DM TM (a `tm:app:<deterministic-uuid>` address backed
-      // by an in-process `AppTmRegistry` no-op handler). The proof
-      // shape: send a message through that conversation and observe
-      // it round-trips. Without R14 the send would fail with
-      // `RecipientNotResolved` (no live socket holds `tm:app:`).
-      Effect.gen(function* () {
-        const pair = yield* setupTmAndSender(5);
-        const conv = yield* pair.sender.sendRpc(ConversationsCreate, {
-          type: "dm",
-          participants: [{ type: "agent", id: pair.tmAgentId }],
-        });
+      // Close the task. The `tm_endpoint_address` survives but the
+      // status becomes `closed`.
+      yield* pair.tm.sendRpc(TasksClose, { taskId });
 
-        const sent = yield* pair.sender.sendRpc(MessagesSend, {
-          conversationId: conv.conversation.id,
-          parts: [{ type: "text", text: "hello default TM" }],
-        });
-        expect(sent.message.parts).toEqual([
-          { type: "text", text: "hello default TM" },
-        ]);
-
-        // Both participants observe the message via the conversation
-        // broadcast — the app-TM in-process handler is a no-op observer,
-        // so the surviving delivery path is the conversation fan-out.
-        const received = yield* pair.tm.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        const receivedMsg = (received.params as { message: Message }).message;
-        expect(receivedMsg.id).toBe(sent.message.id);
-      }),
-    20_000,
-  );
-
-  it.live(
-    "Default-group-TM: conversations/create type=group auto-binds the default group TM",
-    () =>
-      // Companion to the DM lifecycle test. The DM/group split is
-      // preserved as separate `tm:app:<id>` addresses (`R14`) so future
-      // differentiation lands without rewiring existing rows. The
-      // surviving invariant: a group conversation created without a
-      // custom TM accepts messages.
-      Effect.gen(function* () {
-        const pair = yield* setupTmAndSender(7);
-        const conv = yield* pair.sender.sendRpc(ConversationsCreate, {
-          type: "group",
-          name: "default-group-tm",
-          participants: [{ type: "agent", id: pair.tmAgentId }],
-        });
-
-        const sent = yield* pair.sender.sendRpc(MessagesSend, {
-          conversationId: conv.conversation.id,
-          parts: [{ type: "text", text: "group with default TM" }],
-        });
-        expect(sent.message.parts).toEqual([
-          { type: "text", text: "group with default TM" },
-        ]);
-
-        const received = yield* pair.tm.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        const receivedMsg = (received.params as { message: Message }).message;
-        expect(receivedMsg.id).toBe(sent.message.id);
-      }),
-    20_000,
-  );
-
-  it.live(
-    "tasks/storeMessage does not self-loop the TM via network.send (codex HIGH-1)",
-    () =>
-      // The TM authoring a `tasks/storeMessage` call would, without
-      // the `bypassTmRouting` flag, re-emit a `messages/received`
-      // frame to its own socket via `network.send` — self-loop on
-      // every TM-authored insert. The fix passes `bypassTmRouting:
-      // true` from `TaskService.storeMessage` to
-      // `MessageService.send`. This test pins it: TM stores a
-      // message and observes EXACTLY ONE `messages/received` frame
-      // (the conversation broadcast), not two.
-      Effect.gen(function* () {
-        const pair = yield* setupTmAndSender(6);
-        const { taskId, conversationId } =
-          yield* setupTaskBoundConversation(pair);
-
-        // TM stores a message authored by the sender (typical
-        // post-admission flow: TM accepted via gate, now persists).
-        yield* pair.tm.sendRpc(TasksStoreMessage, {
-          taskId,
+      const outcome = yield* Effect.either(
+        pair.sender.sendRpc(MessagesSend, {
           conversationId,
-          senderAgentId: protocolAgentId(pair.senderAgentId),
-          parts: [{ type: "text", text: "stored by TM" }],
-        });
+          parts: [{ type: "text", text: "after close" }],
+        }),
+      );
+      const err = expectEitherLeft(outcome) as {
+        code?: number;
+        message?: string;
+        data?: { reason?: string; status?: string };
+      };
+      expect(err.code).toBe(TaskClosedError.code);
+      expect(err.data?.reason).toBe(TASK_CLOSED_REASON);
+      expect(err.data?.status).toBe(CLOSED_STATUS);
+    }),
+  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+);
 
-        // The TM (a conversation participant) should observe ONE
-        // notification via the conversation broadcast. Drain after a
-        // brief grace period and count.
-        yield* Effect.sleep("200 millis");
-        const drained = pair.tm.drainNotifications();
-        const receivedCount = drained.filter(
-          (n) =>
-            n.method === MessageReceivedNotificationDefinition.name &&
-            (n.params as { message?: { parts?: unknown[] } }).message?.parts !==
-              undefined,
-        ).length;
-        // With the bypass flag honored, exactly one notification
-        // arrives (the conversation broadcast). Without the fix, two
-        // would arrive (network.send self-loop + conversation broadcast).
-        expect(receivedCount).toBe(1);
-      }),
-    20_000,
-  );
-});
+it(
+  "Default-DM-TM: conversations/create auto-binds the default TM; messages/send succeeds without a custom TM",
+  () =>
+    // Phase 9b round 3 R14 lifecycle pin. Pre-R14, a non-app caller
+    // could create a DM via `conversations/create` and the
+    // conversation would land with `task_id IS NULL`. R12+R14 made
+    // every conversation task-bound; the wire handler mints a
+    // default-DM TM (a `tm:app:<deterministic-uuid>` address backed
+    // by an in-process `AppTmRegistry` no-op handler). The proof
+    // shape: send a message through that conversation and observe
+    // it round-trips. Without R14 the send would fail with
+    // `RecipientNotResolved` (no live socket holds `tm:app:`).
+    Effect.gen(function* () {
+      const pair = yield* setupTmAndSender(5);
+      const conv = yield* pair.sender.sendRpc(ConversationsCreate, {
+        type: "dm",
+        participants: [{ type: "agent", id: pair.tmAgentId }],
+      });
+
+      const sent = yield* pair.sender.sendRpc(MessagesSend, {
+        conversationId: conv.conversation.id,
+        parts: [{ type: "text", text: "hello default TM" }],
+      });
+      expect(sent.message.parts).toEqual([
+        { type: "text", text: "hello default TM" },
+      ]);
+
+      // Both participants observe the message via the conversation
+      // broadcast — the app-TM in-process handler is a no-op observer,
+      // so the surviving delivery path is the conversation fan-out.
+      const received = yield* pair.tm.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
+      const receivedMsg = (received.params as { message: Message }).message;
+      expect(receivedMsg.id).toBe(sent.message.id);
+    }),
+  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+);
+
+it(
+  "Default-group-TM: conversations/create type=group auto-binds the default group TM",
+  () =>
+    // Companion to the DM lifecycle test. The DM/group split is
+    // preserved as separate `tm:app:<id>` addresses (`R14`) so future
+    // differentiation lands without rewiring existing rows. The
+    // surviving invariant: a group conversation created without a
+    // custom TM accepts messages.
+    Effect.gen(function* () {
+      const pair = yield* setupTmAndSender(7);
+      const conv = yield* pair.sender.sendRpc(ConversationsCreate, {
+        type: "group",
+        name: "default-group-tm",
+        participants: [{ type: "agent", id: pair.tmAgentId }],
+      });
+
+      const sent = yield* pair.sender.sendRpc(MessagesSend, {
+        conversationId: conv.conversation.id,
+        parts: [{ type: "text", text: "group with default TM" }],
+      });
+      expect(sent.message.parts).toEqual([
+        { type: "text", text: "group with default TM" },
+      ]);
+
+      const received = yield* pair.tm.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
+      const receivedMsg = (received.params as { message: Message }).message;
+      expect(receivedMsg.id).toBe(sent.message.id);
+    }),
+  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+);
+
+it(
+  "tasks/storeMessage does not self-loop the TM via network.send (codex HIGH-1)",
+  () =>
+    // The TM authoring a `tasks/storeMessage` call would, without
+    // the `bypassTmRouting` flag, re-emit a `messages/received`
+    // frame to its own socket via `network.send` — self-loop on
+    // every TM-authored insert. The fix passes `bypassTmRouting:
+    // true` from `TaskService.storeMessage` to
+    // `MessageService.send`. This test pins it: TM stores a
+    // message and observes EXACTLY ONE `messages/received` frame
+    // (the conversation broadcast), not two.
+    Effect.gen(function* () {
+      const pair = yield* setupTmAndSender(6);
+      const { taskId, conversationId } =
+        yield* setupTaskBoundConversation(pair);
+
+      // TM stores a message authored by the sender (typical
+      // post-admission flow: TM accepted via gate, now persists).
+      yield* pair.tm.sendRpc(TasksStoreMessage, {
+        taskId,
+        conversationId,
+        senderAgentId: protocolAgentId(pair.senderAgentId),
+        parts: [{ type: "text", text: "stored by TM" }],
+      });
+
+      // The TM (a conversation participant) should observe ONE
+      // notification via the conversation broadcast. Drain after a
+      // brief grace period and count.
+      yield* Effect.sleep("200 millis");
+      const drained = pair.tm.drainNotifications();
+      const receivedCount = drained.filter(
+        (n) =>
+          n.method === MessageReceivedNotificationDefinition.name &&
+          (n.params as { message?: { parts?: unknown[] } }).message?.parts !==
+            undefined,
+      ).length;
+      // With the bypass flag honored, exactly one notification
+      // arrives (the conversation broadcast). Without the fix, two
+      // would arrive (network.send self-loop + conversation broadcast).
+      expect(receivedCount).toBe(1);
+    }),
+  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+);

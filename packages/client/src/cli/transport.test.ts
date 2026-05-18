@@ -4,7 +4,9 @@
  * the E2E fixture (`__tests__/cli-multi-agent.int.test.ts`).
  */
 import { Cause, Effect, Exit, Option } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as fc from "fast-check";
+import { it as effectIt } from "@effect/vitest";
+import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import {
   NotConnectedError,
   RpcServerError,
@@ -25,119 +27,279 @@ import {
 
 import { TasksList } from "@moltzap/protocol";
 
+const it = effectIt.effect;
+const SESSION_NOT_FOUND_CODE = -32001;
+const RPC_TIMEOUT_MS = 15_000;
+const SERVER_URL = "wss://example.test";
+const TEST_SOCKET_PATH = "/var/run/moltzap-test.sock";
+const USE_DIRECT_TAG = "UseDirect";
+const USE_DAEMON_TAG = "UseDaemon";
+const AS_FLAG_REASON = "as-flag";
+const PROFILE_REASON = "profile";
+const ENV_FALLBACK_REASON = "env-fallback";
+const TRANSPORT_RPC_ERROR_TAG = "TransportRpcError";
+const SERVICE_UNREACHABLE_ERROR_TAG = "ServiceUnreachableError";
+const TRANSPORT_DECODE_ERROR_TAG = "TransportDecodeError";
+const SESSION_NOT_FOUND_MESSAGE = "session not found";
+const ITEM_NOT_FOUND_MESSAGE = "item not found";
+const NOT_CONNECTED_MESSAGE = "not connected";
+const UNKNOWN_ERROR_MESSAGE = "some unknown error";
+const IMPERSONATE_KEY = "key-1";
+const PROFILE_KEY = "pk-1";
+const ENV_KEY = "env-key";
+const LEAKED_ENV_KEY = "leaked-key";
+const EXPLICIT_KEY = "explicit-key";
+const OVERRIDE_SERVER_URL = "wss://override.test";
+const DIRECT_TEST_KEY = "test-key";
+const DIRECT_TEST_SERVER_URL = "wss://test.example";
+
+function makeMockWsClient() {
+  return {
+    connect: () => Effect.void,
+    sendRpc: () =>
+      Effect.fail(
+        new RpcServerError({
+          code: SESSION_NOT_FOUND_CODE,
+          message: ITEM_NOT_FOUND_MESSAGE,
+        }),
+      ),
+    close: () => Effect.void,
+  };
+}
+
 /**
  * Module-level mock so transport.ts's `new MoltZapWsClient(...)` call is
  * intercepted for the composed-rpc test below. Existing tests (decideTransport,
  * tagWsError, resolveTransportInputs) do not exercise the ws-client path, so
  * the mock is a no-op for them.
  */
-vi.mock("../ws-client.js", async () => {
-  const effect = await import("effect");
-  const protocol = await import("@moltzap/protocol");
-  return {
-    MoltZapWsClient: vi.fn().mockImplementation(() => ({
-      connect: () => effect.Effect.void,
-      sendRpc: (_definition: unknown, _params: unknown) =>
-        effect.Effect.fail(
-          new protocol.RpcServerError({
-            code: -32001,
-            message: "item not found",
-          }),
-        ),
-      close: () => effect.Effect.void,
-    })),
-  };
-});
+vi.mock("../ws-client.js", () => ({
+  MoltZapWsClient: vi.fn().mockImplementation(makeMockWsClient),
+}));
 
 const makeOpts = (over: Partial<TransportOptions> = {}): TransportOptions => ({
-  serverUrl: "wss://example.test",
+  serverUrl: SERVER_URL,
   ...over,
 });
 
+const unreachableDaemon = () => Effect.succeed(false);
+const reachableDaemon = () => Effect.succeed(true);
+
+function countedProbe(counter: { count: number }) {
+  return () =>
+    Effect.sync(() => {
+      counter.count++;
+      return true;
+    });
+}
+
+function useDirectAsFlag() {
+  return Effect.gen(function* () {
+    const probe = { count: 0 };
+    const decision = yield* decideTransport(
+      makeOpts({
+        impersonateKey: IMPERSONATE_KEY,
+        probeDaemon: countedProbe(probe),
+      }),
+    );
+    expect(decision).toEqual({ _tag: USE_DIRECT_TAG, reason: AS_FLAG_REASON });
+    expect(probe.count).toBe(0);
+  });
+}
+
+function useDirectProfile() {
+  return Effect.gen(function* () {
+    const decision = yield* decideTransport(
+      makeOpts({ profileKey: PROFILE_KEY }),
+    );
+    expect(decision).toEqual({ _tag: USE_DIRECT_TAG, reason: PROFILE_REASON });
+  });
+}
+
+function useDirectEnvFallback() {
+  return Effect.gen(function* () {
+    const decision = yield* decideTransport(
+      makeOpts({ envFallbackKey: ENV_KEY, probeDaemon: unreachableDaemon }),
+    );
+    expect(decision).toEqual({
+      _tag: USE_DIRECT_TAG,
+      reason: ENV_FALLBACK_REASON,
+    });
+  });
+}
+
+function useDaemonWhenReachable() {
+  return Effect.gen(function* () {
+    const decision = yield* decideTransport(
+      makeOpts({
+        envFallbackKey: ENV_KEY,
+        socketPath: TEST_SOCKET_PATH,
+        probeDaemon: reachableDaemon,
+      }),
+    );
+    expect(decision._tag).toBe(USE_DAEMON_TAG);
+  });
+}
+
+function useDaemonByDefault() {
+  return Effect.gen(function* () {
+    const decision = yield* decideTransport(
+      makeOpts({ socketPath: TEST_SOCKET_PATH }),
+    );
+    expect(decision).toEqual({
+      _tag: USE_DAEMON_TAG,
+      socketPath: TEST_SOCKET_PATH,
+    });
+  });
+}
+
+function impersonateBypassesProbe() {
+  return Effect.gen(function* () {
+    const probe = { count: 0 };
+    yield* decideTransport(
+      makeOpts({
+        impersonateKey: IMPERSONATE_KEY,
+        probeDaemon: countedProbe(probe),
+      }),
+    );
+    expect(probe.count).toBe(0);
+  });
+}
+
+function expectBypassForKey(key: string): void {
+  const probe = { count: 0 };
+  const decision = Effect.runSync(
+    decideTransport(
+      makeOpts({
+        impersonateKey: key,
+        probeDaemon: countedProbe(probe),
+      }),
+    ),
+  );
+  expect(decision._tag).toBe(USE_DIRECT_TAG);
+  expect(probe.count).toBe(0);
+}
+
+function impersonateBypassesProbeForAnyKey() {
+  return Effect.sync(() => {
+    fc.assert(fc.property(fc.string({ minLength: 1 }), expectBypassForKey));
+  });
+}
+
 describe("decideTransport", () => {
-  const originalEnv = process.env;
   beforeEach(() => {
-    process.env = { ...originalEnv };
-    delete process.env.MOLTZAP_API_KEY;
+    vi.unstubAllEnvs();
   });
   afterEach(() => {
-    process.env = originalEnv;
+    vi.unstubAllEnvs();
   });
 
-  it("returns UseDirect{as-flag} when impersonateKey is set", async () => {
-    const probe = { invoked: 0 };
-    const decision = await Effect.runPromise(
-      decideTransport(
-        makeOpts({
-          impersonateKey: "key-1",
-          probeDaemon: () =>
-            Effect.sync(() => {
-              probe.invoked++;
-              return true;
-            }),
-        }),
-      ),
-    );
-    expect(decision).toEqual({ _tag: "UseDirect", reason: "as-flag" });
-    expect(probe.invoked).toBe(0);
-  });
+  it(
+    "impersonate key bypasses daemon probe for any non-empty key",
+    impersonateBypassesProbeForAnyKey,
+  );
 
-  it("returns UseDirect{profile} when profileKey set and no --as", async () => {
-    const decision = await Effect.runPromise(
-      decideTransport(makeOpts({ profileKey: "pk-1" })),
-    );
-    expect(decision).toEqual({ _tag: "UseDirect", reason: "profile" });
-  });
+  it("returns UseDirect{as-flag} when impersonateKey is set", useDirectAsFlag);
 
-  it("returns UseDirect{env-fallback} when envFallbackKey + daemonReachable=false", async () => {
-    const decision = await Effect.runPromise(
-      decideTransport(
-        makeOpts({
-          envFallbackKey: "env-key",
-          probeDaemon: () => Effect.succeed(false),
-        }),
-      ),
-    );
-    expect(decision).toEqual({ _tag: "UseDirect", reason: "env-fallback" });
-  });
+  it(
+    "returns UseDirect{profile} when profileKey set and no --as",
+    useDirectProfile,
+  );
 
-  it("returns UseDaemon when envFallbackKey + daemonReachable=true", async () => {
-    const decision = await Effect.runPromise(
-      decideTransport(
-        makeOpts({
-          envFallbackKey: "env-key",
-          socketPath: "/tmp/sock",
-          probeDaemon: () => Effect.succeed(true),
-        }),
-      ),
-    );
-    expect(decision._tag).toBe("UseDaemon");
-  });
+  it(
+    "returns UseDirect{env-fallback} when envFallbackKey + daemonReachable=false",
+    useDirectEnvFallback,
+  );
 
-  it("returns UseDaemon when neither as-flag nor env-fallback nor profile", async () => {
-    const decision = await Effect.runPromise(
-      decideTransport(makeOpts({ socketPath: "/tmp/sock" })),
-    );
-    expect(decision).toEqual({ _tag: "UseDaemon", socketPath: "/tmp/sock" });
-  });
+  it(
+    "returns UseDaemon when envFallbackKey + daemonReachable=true",
+    useDaemonWhenReachable,
+  );
 
-  it("never invokes probeDaemon when impersonateKey is set (Invariant §4.2)", async () => {
-    let invocations = 0;
-    await Effect.runPromise(
-      decideTransport(
-        makeOpts({
-          impersonateKey: "key-1",
-          probeDaemon: () =>
-            Effect.sync(() => {
-              invocations++;
-              return true;
-            }),
-        }),
-      ),
-    );
-    expect(invocations).toBe(0);
-  });
+  it(
+    "returns UseDaemon when neither as-flag nor env-fallback nor profile",
+    useDaemonByDefault,
+  );
+
+  it(
+    "never invokes probeDaemon when impersonateKey is set (Invariant §4.2)",
+    impersonateBypassesProbe,
+  );
 });
+
+function expectTimeoutForwarded(timeoutMs: number): void {
+  const err = tagWsError(
+    TasksList.name,
+    new RpcTimeoutError({ method: TasksList.name, timeoutMs }),
+  );
+  expect(err).toBeInstanceOf(TransportTimeoutError);
+  if (err instanceof TransportTimeoutError) {
+    expect(err.timeoutMs).toBe(timeoutMs);
+  }
+}
+
+function timeoutErrorForwardsGeneratedTimeouts() {
+  return Effect.sync(() => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 60_000 }), expectTimeoutForwarded),
+    );
+  });
+}
+
+function rpcServerErrorMapsToTransportRpcError() {
+  return Effect.sync(() => {
+    const err = tagWsError(
+      TasksList.name,
+      new RpcServerError({
+        code: SESSION_NOT_FOUND_CODE,
+        message: SESSION_NOT_FOUND_MESSAGE,
+      }),
+    );
+    expect(err).toBeInstanceOf(TransportRpcError);
+    expect(err._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
+    if (err instanceof TransportRpcError) {
+      expect(err.code).toBe(SESSION_NOT_FOUND_CODE);
+      expect(err.message).toBe(SESSION_NOT_FOUND_MESSAGE);
+    }
+  });
+}
+
+function notConnectedMapsToServiceUnreachable() {
+  return Effect.sync(() => {
+    const err = tagWsError(
+      TasksList.name,
+      new NotConnectedError({ message: NOT_CONNECTED_MESSAGE }),
+    );
+    expect(err).toBeInstanceOf(ServiceUnreachableError);
+    expect(err._tag).toBe(SERVICE_UNREACHABLE_ERROR_TAG);
+  });
+}
+
+function rpcTimeoutMapsToTransportTimeout() {
+  return Effect.sync(() => {
+    const err = tagWsError(
+      TasksList.name,
+      new RpcTimeoutError({
+        method: TasksList.name,
+        timeoutMs: RPC_TIMEOUT_MS,
+      }),
+    );
+    expect(err).toBeInstanceOf(TransportTimeoutError);
+    if (err instanceof TransportTimeoutError) {
+      expect(err.timeoutMs).toBe(RPC_TIMEOUT_MS);
+    }
+  });
+}
+
+function unknownErrorMapsToTransportDecode() {
+  return Effect.sync(() => {
+    const err = tagWsError(TasksList.name, {
+      message: UNKNOWN_ERROR_MESSAGE,
+    });
+    expect(err).toBeInstanceOf(TransportDecodeError);
+    expect(err._tag).toBe(TRANSPORT_DECODE_ERROR_TAG);
+  });
+}
 
 /**
  * Regression guard for sbd#198: the original v2 implementation at 069135d
@@ -151,92 +313,105 @@ describe("decideTransport", () => {
  * without a mock WS server.
  */
 describe("tagWsError — maps ws-client error tags to TransportError variants", () => {
-  it("RpcServerError maps to TransportRpcError (not TransportDecodeError)", () => {
-    const err = tagWsError(
-      TasksList.name,
-      new RpcServerError({
-        code: -32001,
-        message: "session not found",
-      }),
-    );
-    expect(err).toBeInstanceOf(TransportRpcError);
-    expect(err._tag).toBe("TransportRpcError");
-    if (err instanceof TransportRpcError) {
-      expect(err.code).toBe(-32001);
-      expect(err.message).toBe("session not found");
-    }
-  });
+  it(
+    "RpcTimeoutError forwards generated timeoutMs values",
+    timeoutErrorForwardsGeneratedTimeouts,
+  );
 
-  it("NotConnectedError maps to ServiceUnreachableError", () => {
-    const err = tagWsError(
-      TasksList.name,
-      new NotConnectedError({ message: "not connected" }),
-    );
-    expect(err).toBeInstanceOf(ServiceUnreachableError);
-    expect(err._tag).toBe("ServiceUnreachableError");
-  });
+  it(
+    "RpcServerError maps to TransportRpcError (not TransportDecodeError)",
+    rpcServerErrorMapsToTransportRpcError,
+  );
 
-  it("RpcTimeoutError maps to TransportTimeoutError with timeoutMs forwarded", () => {
-    const err = tagWsError(
-      TasksList.name,
-      new RpcTimeoutError({
-        method: TasksList.name,
-        timeoutMs: 15_000,
-      }),
-    );
-    expect(err).toBeInstanceOf(TransportTimeoutError);
-    if (err instanceof TransportTimeoutError) {
-      expect(err.timeoutMs).toBe(15_000);
-    }
-  });
+  it(
+    "NotConnectedError maps to ServiceUnreachableError",
+    notConnectedMapsToServiceUnreachable,
+  );
 
-  it("FiberFailureImpl-shaped error (no _tag) maps to TransportDecodeError — not to TransportRpcError", () => {
-    // Guards the regression: a future runPromise bridge would produce an object
-    // with no _tag (FiberFailureImpl shape). This pins the default branch to
-    // TransportDecodeError so the error is observable, not silently swallowed.
-    const err = tagWsError(TasksList.name, {
-      message: "some unknown error",
-    });
-    expect(err).toBeInstanceOf(TransportDecodeError);
-    expect(err._tag).toBe("TransportDecodeError");
-  });
+  it(
+    "RpcTimeoutError maps to TransportTimeoutError with timeoutMs forwarded",
+    rpcTimeoutMapsToTransportTimeout,
+  );
+
+  it(
+    "FiberFailureImpl-shaped error (no _tag) maps to TransportDecodeError — not to TransportRpcError",
+    unknownErrorMapsToTransportDecode,
+  );
 });
 
-describe("resolveTransportInputs (composition-boundary gate)", () => {
-  const originalEnv = process.env;
-  beforeEach(() => {
-    process.env = { ...originalEnv };
-    delete process.env.MOLTZAP_API_KEY;
-    delete process.env.MOLTZAP_SERVER_URL;
-  });
-  afterEach(() => {
-    process.env = originalEnv;
-  });
-
-  it("impersonateKey branch does NOT read MOLTZAP_API_KEY env", async () => {
-    process.env.MOLTZAP_API_KEY = "leaked-key";
-    const opts = await Effect.runPromise(
-      resolveTransportInputs({ impersonateKey: "explicit-key" }),
-    );
-    expect(opts.impersonateKey).toBe("explicit-key");
-    // The returned TransportOptions does NOT expose MOLTZAP_API_KEY as profileKey.
+function explicitKeyIgnoresEnvKey() {
+  return Effect.gen(function* () {
+    vi.stubEnv("MOLTZAP_API_KEY", LEAKED_ENV_KEY);
+    const opts = yield* resolveTransportInputs({
+      impersonateKey: EXPLICIT_KEY,
+    });
+    expect(opts.impersonateKey).toBe(EXPLICIT_KEY);
     expect(opts.profileKey).toBeUndefined();
   });
+}
 
-  it("impersonateKey branch uses MOLTZAP_SERVER_URL if present, else default", async () => {
-    process.env.MOLTZAP_SERVER_URL = "wss://override.test";
-    const opts = await Effect.runPromise(
-      resolveTransportInputs({ impersonateKey: "k" }),
-    );
-    expect(opts.serverUrl).toBe("wss://override.test");
+function explicitKeyUsesServerUrlEnv() {
+  return Effect.gen(function* () {
+    vi.stubEnv("MOLTZAP_SERVER_URL", OVERRIDE_SERVER_URL);
+    const opts = yield* resolveTransportInputs({ impersonateKey: "k" });
+    expect(opts.serverUrl).toBe(OVERRIDE_SERVER_URL);
   });
+}
 
-  it("empty input falls through to legacy daemon path (no impersonate, no profile)", async () => {
-    const opts = await Effect.runPromise(resolveTransportInputs({}));
+function emptyInputUsesDaemon() {
+  return Effect.gen(function* () {
+    const opts = yield* resolveTransportInputs({});
     expect(opts.impersonateKey).toBeUndefined();
     expect(opts.profileKey).toBeUndefined();
     expect(opts.socketPath).toBeDefined();
   });
+}
+
+function directRpcFailurePropagates() {
+  return Effect.gen(function* () {
+    const opts: TransportOptions = {
+      impersonateKey: DIRECT_TEST_KEY,
+      serverUrl: DIRECT_TEST_SERVER_URL,
+    };
+    const exit = yield* Transport.pipe(
+      Effect.flatMap((transport) => transport.rpc(TasksList, {})),
+      Effect.exit,
+      Effect.provide(makeTransportLayer(opts)),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(TransportRpcError);
+        expect(failure.value._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
+      }
+    }
+  });
+}
+
+describe("resolveTransportInputs (composition-boundary gate)", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it(
+    "impersonateKey branch does NOT read MOLTZAP_API_KEY env",
+    explicitKeyIgnoresEnvKey,
+  );
+
+  it(
+    "impersonateKey branch uses MOLTZAP_SERVER_URL if present, else default",
+    explicitKeyUsesServerUrlEnv,
+  );
+
+  it(
+    "empty input falls through to legacy daemon path (no impersonate, no profile)",
+    emptyInputUsesDaemon,
+  );
 });
 
 /**
@@ -251,26 +426,8 @@ describe("resolveTransportInputs (composition-boundary gate)", () => {
  * FiberFailureImpl (no _tag) and the result would be TransportDecodeError.
  */
 describe("makeDirectTransport — composed rpc() failure path", () => {
-  it("RpcServerError from sendRpc propagates as TransportRpcError through tagWsError", async () => {
-    const opts: TransportOptions = {
-      impersonateKey: "test-key",
-      serverUrl: "wss://test.example",
-    };
-    const exit = await Effect.runPromise(
-      Transport.pipe(
-        Effect.flatMap((t) => t.rpc(TasksList, {})),
-        Effect.exit,
-        Effect.provide(makeTransportLayer(opts)),
-      ),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const failure = Cause.failureOption(exit.cause);
-      expect(Option.isSome(failure)).toBe(true);
-      if (Option.isSome(failure)) {
-        expect(failure.value).toBeInstanceOf(TransportRpcError);
-        expect(failure.value._tag).toBe("TransportRpcError");
-      }
-    }
-  });
+  it(
+    "RpcServerError from sendRpc propagates as TransportRpcError through tagWsError",
+    directRpcFailurePropagates,
+  );
 });

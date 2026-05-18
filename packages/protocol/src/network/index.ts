@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for network, presence, and endpoint-address protocol descriptors.
+ */
 export {
   Connect,
   NetworkPing,

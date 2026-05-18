@@ -45,14 +45,12 @@ import {
 } from "@moltzap/protocol/task";
 import type { TaskId } from "../../../task/tasks.js";
 import {
-  AppsRegister,
   DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
   DispatchesConsumed,
   DispatchesExpired,
   DispatchesGet,
-  type AppManifest,
   type DispatchId,
   type LeaseId,
 } from "../../../app/index.js";
@@ -62,8 +60,15 @@ import {
   makeCloseableTestClient,
   makeTestClient,
   type CloseableTestClient,
+  type ServerRpcParams,
+  type ServerRpcResult,
   type TestClient,
 } from "../_shared/driver/test-client.js";
+import {
+  makeTestAppManifest,
+  registerTestApp,
+  type TestApp,
+} from "../_shared/test-app.js";
 
 // ── Verdict + state aliases (cross-impl driver re-exports) ────────────
 
@@ -337,10 +342,7 @@ const ERROR_CAUSE_TRUNCATE_LEN = 200;
 // at index 2 drops the "0." prefix. The 6-char suffix is enough
 // to disambiguate per-property instances within a single conformance
 // run.
-const RANDOM_SUFFIX_BASE = 36;
-const RANDOM_SUFFIX_PREFIX_LEN = 2;
 const RANDOM_SUFFIX_LEN = 6;
-const RANDOM_SUFFIX_END = RANDOM_SUFFIX_PREFIX_LEN + RANDOM_SUFFIX_LEN;
 
 function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
@@ -370,12 +372,9 @@ function firstRpcResponseError<A>(
   return null;
 }
 
-function verdictToWire(verdict: DispatchVerdict): {
-  readonly admission:
-    | { decision: "grant"; leaseTimeoutMs?: number }
-    | { decision: "deny"; reason?: string }
-    | { decision: "hold"; reason?: string };
-} {
+function verdictToWire(
+  verdict: DispatchVerdict,
+): ServerRpcResult<typeof DispatchAuthorize> {
   switch (verdict._tag) {
     case "grant":
       return verdict.leaseTimeoutMs !== undefined
@@ -398,41 +397,49 @@ function verdictToWire(verdict: DispatchVerdict): {
 }
 
 function verdictFromWire(raw: unknown): DispatchVerdict | null {
-  if (raw === null || raw === undefined) return null;
-  if (typeof raw !== "object") return null;
-  const obj = raw as {
-    decision?: unknown;
-    reason?: unknown;
-    leaseTimeoutMs?: unknown;
-  };
-  if (obj.decision === "grant") {
-    return typeof obj.leaseTimeoutMs === "number"
-      ? { _tag: "grant", leaseTimeoutMs: obj.leaseTimeoutMs }
-      : { _tag: "grant" };
+  const verdict = wireVerdictView(raw);
+  if (verdict === null) return null;
+  switch (verdict.decision) {
+    case "grant":
+      return grantVerdictFromWire(verdict);
+    case "deny":
+      return reasonVerdictFromWire("deny", verdict.reason);
+    case "hold":
+      return reasonVerdictFromWire("hold", verdict.reason);
+    default:
+      return null;
   }
-  if (obj.decision === "deny") {
-    return typeof obj.reason === "string"
-      ? { _tag: "deny", reason: obj.reason }
-      : { _tag: "deny" };
-  }
-  if (obj.decision === "hold") {
-    return typeof obj.reason === "string"
-      ? { _tag: "hold", reason: obj.reason }
-      : { _tag: "hold" };
-  }
-  return null;
 }
 
-function buildManifest(appId: string, moderatorTimeoutMs: number): AppManifest {
-  return {
-    appId,
-    name: "Conformance Dispatch Test App",
-    conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
-    hooks: { dispatch_authorize: { timeout_ms: moderatorTimeoutMs } },
-  };
+function wireVerdictView(raw: unknown): WireVerdictView | null {
+  return raw !== null && typeof raw === "object"
+    ? (raw as WireVerdictView)
+    : null;
+}
+
+function grantVerdictFromWire(verdict: WireVerdictView): DispatchVerdict {
+  return typeof verdict.leaseTimeoutMs === "number"
+    ? { _tag: "grant", leaseTimeoutMs: verdict.leaseTimeoutMs }
+    : { _tag: "grant" };
+}
+
+function reasonVerdictFromWire(
+  tag: "deny" | "hold",
+  reason: unknown,
+): DispatchVerdict {
+  return typeof reason === "string" ? { _tag: tag, reason } : { _tag: tag };
 }
 
 type DispatchIdParamsView = { readonly dispatchId?: Static<typeof DispatchId> };
+type WireVerdictView = {
+  readonly decision?: unknown;
+  readonly reason?: unknown;
+  readonly leaseTimeoutMs?: unknown;
+};
+type ObservabilityNotification<K extends "consumed" | "expired"> =
+  K extends "consumed"
+    ? DecodedNotification<typeof DispatchesConsumed>
+    : DecodedNotification<typeof DispatchesExpired>;
 
 interface AcquiredCloseableClient {
   readonly agent: TestAgent;
@@ -507,298 +514,344 @@ function acquireCloseableClient(
 function buildRecipientHandle(
   acquired: AcquiredCloseableClient,
 ): RecipientHandle {
-  const sendRequestDispatch = (params: {
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly messageId: Static<typeof MessageId>;
-    readonly senderAgentId: Static<typeof AgentId>;
-    readonly attempt?: number;
-  }) =>
-    acquired.client
-      .sendRpc(DispatchRequest, {
-        conversationId: params.conversationId,
-        messageId: params.messageId,
-        senderAgentId: params.senderAgentId,
-        parts: [{ type: "text", text: "conformance-dispatch-probe" }],
-        ...(params.attempt !== undefined ? { attempt: params.attempt } : {}),
-      })
-      .pipe(
-        Effect.mapError((e) =>
-          violation(
-            "recipient.requestDispatch",
-            `dispatch/request failed: ${unwrapError(e)}`,
-          ),
-        ),
-      );
-
-  const waitForRelease: RecipientHandle["waitForRelease"] = (
-    predicate,
-    timeoutMs = DEFAULT_WAIT_FOR_RELEASE_MS,
-  ) =>
-    Effect.gen(function* () {
-      const deadline = Date.now() + timeoutMs;
-      while (true) {
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) {
-          return yield* Effect.fail(
-            violation(
-              "recipient.waitForRelease",
-              `timeout after ${timeoutMs}ms`,
-            ),
-          );
-        }
-        const frame = yield* acquired.client
-          .waitForNotification(DispatchRelease, remaining)
-          .pipe(
-            Effect.mapError((e) =>
-              violation(
-                "recipient.waitForRelease",
-                `dispatch/release wait failed: ${e.message}`,
-              ),
-            ),
-          );
-        if (predicate === undefined || predicate(frame)) {
-          return frame;
-        }
-        // Mismatched frame — keep waiting.
-      }
-    });
-
-  const sendWithLease: RecipientHandle["sendWithLease"] = (params) =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        acquired.client.sendRpc(MessagesSend, {
-          conversationId: params.conversationId,
-          parts: [{ type: "text", text: params.text }],
-          dispatchLeaseId: params.leaseId,
-        }),
-      );
-      if (Exit.isSuccess(exit)) {
-        const result = exit.value as {
-          message: { id: Static<typeof MessageId> };
-        };
-        return { messageId: result.message.id };
-      }
-      // Surface the typed RpcResponseError's code + the
-      // `data.state` field the server attaches on LeaseInvalid
-      // (see `messages.handlers.ts` ForbiddenError mapping). Properties
-      // pattern-match on errorCode/errorState to assert the
-      // CONSUMED/EXPIRED transitions.
-      const rpcErr = firstRpcResponseError(exit);
-      if (rpcErr === null) {
-        return yield* Effect.fail(
-          violation(
-            "recipient.sendWithLease",
-            `messages/send failed without RpcResponseError: ${String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN)}`,
-          ),
-        );
-      }
-      const data = (rpcErr.data ?? {}) as { state?: unknown };
-      const errorState =
-        typeof data.state === "string" ? data.state : undefined;
-      return {
-        // PLACEHOLDER messageId for the error path — the property MUST
-        // pattern-match on errorCode before reading messageId. The brand
-        // wrapper is satisfied by an empty string in the failure case;
-        // if the property reads `messageId` on the error path it gets a
-        // non-UUID and the assertion fails loudly downstream.
-        messageId: "" as Static<typeof MessageId>,
-        errorCode: rpcErr.code,
-        ...(errorState !== undefined ? { errorState } : {}),
-      };
-    });
-
-  const hardClose: Effect.Effect<void, PropertyFailure> = acquired.client.close;
-
   return {
     agentId: acquired.agent.agentId,
-    requestDispatch: sendRequestDispatch,
-    waitForRelease,
-    sendWithLease,
-    hardClose,
+    requestDispatch: (params) => requestDispatch(acquired, params),
+    waitForRelease: (predicate, timeoutMs) =>
+      waitForRelease(acquired, predicate, timeoutMs),
+    sendWithLease: (params) => sendWithLease(acquired, params),
+    hardClose: acquired.client.close,
   } satisfies RecipientHandle;
 }
 
-interface HandlerEntry {
-  readonly cfg: {
-    readonly respondWith: DispatchVerdict;
-    readonly predicate?: (params: {
-      readonly taskId: Static<typeof TaskId>;
-      readonly conversationId: Static<typeof ConversationId>;
-      readonly messageId: Static<typeof MessageId>;
-    }) => boolean;
-    readonly holdResponseFor?: number;
-  };
-}
-
-function buildModeratorHandle(opts: {
-  readonly agent: TestAgent;
-  readonly client: TestClient;
-  readonly appId: string;
-  readonly handlersRef: {
-    value: ReadonlyArray<HandlerEntry>;
-    silenced: boolean;
-  };
-}): ModeratorHandle {
-  const handleAuthorize: ModeratorHandle["handleAuthorize"] = (cfg) =>
-    Effect.sync(() => {
-      // Append to the handler list. The driver's dispatcher (installed
-      // once at construction time) walks this list per inbound
-      // `dispatch/authorize` request and picks the first entry whose
-      // predicate matches; if no predicate is set, the entry catches
-      // everything. Last-registered with `predicate=undefined` wins
-      // for unfiltered cases; per-message predicates carve out specific
-      // request flows. This mirrors the architect plan §3 "request-by-
-      // request scripting via predicate" pattern.
-      opts.handlersRef.value = [...opts.handlersRef.value, { cfg }];
-      opts.handlersRef.silenced = false;
-    });
-
-  const silenceAuthorize: Effect.Effect<void, PropertyFailure> = Effect.sync(
-    () => {
-      // Mark silenced — the dispatcher's inbound matcher returns
-      // `Effect.never` (hold forever) so the server-side TTL fires and
-      // synthesizes deny.
-      opts.handlersRef.silenced = true;
-      opts.handlersRef.value = [];
-    },
-  );
-
-  const waitForObservability: ModeratorHandle["waitForObservability"] = (
-    kind,
-    opts2,
-  ) => {
-    const definition =
-      kind === "consumed" ? DispatchesConsumed : DispatchesExpired;
-    const timeoutMs = opts2.timeoutMs ?? DEFAULT_OBSERVABILITY_TIMEOUT_MS;
-    return Effect.gen(function* () {
-      const deadline = Date.now() + timeoutMs;
-      while (true) {
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) {
-          return yield* Effect.fail(
-            violation(
-              `moderator.waitForObservability(${kind})`,
-              `timeout after ${timeoutMs}ms`,
-            ),
-          );
-        }
-        const frame = yield* opts.client
-          .waitForNotification(definition, remaining)
-          .pipe(
-            Effect.mapError((e) =>
-              violation(
-                `moderator.waitForObservability(${kind})`,
-                `notification wait failed: ${e.message}`,
-              ),
-            ),
-          );
-        if (
-          opts2.dispatchId === undefined ||
-          (frame.params as DispatchIdParamsView).dispatchId === opts2.dispatchId
-        ) {
-          // The decoder constrains the param shape to the right
-          // notification per the wire schema.
-          return frame as never;
-        }
-      }
-    });
-  };
-
-  const getLease: ModeratorHandle["getLease"] = (dispatchId) =>
-    opts.client.sendRpc(DispatchesGet, { dispatchId }).pipe(
-      Effect.map((result) => {
-        const lease = (result as { lease: Record<string, unknown> }).lease;
-        return {
-          state: lease["state"] as LeaseState,
-          verdict: verdictFromWire(lease["verdict"]),
-          leaseId: lease["leaseId"] as Static<typeof LeaseId>,
-        };
-      }),
+function requestDispatch(
+  acquired: AcquiredCloseableClient,
+  params: Parameters<RecipientHandle["requestDispatch"]>[0],
+): ReturnType<RecipientHandle["requestDispatch"]> {
+  return acquired.client
+    .sendRpc(DispatchRequest, {
+      conversationId: params.conversationId,
+      messageId: params.messageId,
+      senderAgentId: params.senderAgentId,
+      parts: [{ type: "text", text: "conformance-dispatch-probe" }],
+      ...(params.attempt !== undefined ? { attempt: params.attempt } : {}),
+    })
+    .pipe(
       Effect.mapError((e) =>
         violation(
-          "moderator.getLease",
-          `dispatches/get failed: ${unwrapError(e)}`,
+          "recipient.requestDispatch",
+          `dispatch/request failed: ${unwrapError(e)}`,
         ),
       ),
     );
+}
 
+function waitForRelease(
+  acquired: AcquiredCloseableClient,
+  predicate?: Parameters<RecipientHandle["waitForRelease"]>[0],
+  timeoutMs = DEFAULT_WAIT_FOR_RELEASE_MS,
+): ReturnType<RecipientHandle["waitForRelease"]> {
+  return Effect.gen(function* () {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return yield* releaseWaitTimeout(timeoutMs);
+      }
+      const frame = yield* waitForReleaseFrame(acquired, remaining);
+      if (predicate === undefined || predicate(frame)) return frame;
+    }
+  });
+}
+
+function releaseWaitTimeout(
+  timeoutMs: number,
+): Effect.Effect<never, PropertyFailure> {
+  return Effect.fail(
+    violation("recipient.waitForRelease", `timeout after ${timeoutMs}ms`),
+  );
+}
+
+function waitForReleaseFrame(
+  acquired: AcquiredCloseableClient,
+  remainingMs: number,
+): Effect.Effect<DecodedNotification<typeof DispatchRelease>, PropertyFailure> {
+  return acquired.client
+    .waitForNotification(DispatchRelease, remainingMs)
+    .pipe(
+      Effect.mapError((e) =>
+        violation(
+          "recipient.waitForRelease",
+          `dispatch/release wait failed: ${e.message}`,
+        ),
+      ),
+    );
+}
+
+function sendWithLease(
+  acquired: AcquiredCloseableClient,
+  params: Parameters<RecipientHandle["sendWithLease"]>[0],
+): ReturnType<RecipientHandle["sendWithLease"]> {
+  return Effect.gen(function* () {
+    const exit = yield* Effect.exit(
+      acquired.client.sendRpc(MessagesSend, {
+        conversationId: params.conversationId,
+        parts: [{ type: "text", text: params.text }],
+        dispatchLeaseId: params.leaseId,
+      }),
+    );
+    return Exit.isSuccess(exit)
+      ? messageSendSuccess(exit.value)
+      : yield* messageSendFailure(exit);
+  });
+}
+
+function messageSendSuccess(result: unknown): {
+  readonly messageId: Static<typeof MessageId>;
+} {
+  return {
+    messageId: (result as { message: { id: Static<typeof MessageId> } }).message
+      .id,
+  };
+}
+
+function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
+  {
+    readonly messageId: Static<typeof MessageId>;
+    readonly errorCode: number;
+    readonly errorState?: string;
+  },
+  PropertyFailure
+> {
+  const rpcErr = firstRpcResponseError(exit);
+  if (rpcErr === null) {
+    return Effect.fail(
+      violation(
+        "recipient.sendWithLease",
+        `messages/send failed without RpcResponseError: ${exitCauseSummary(exit)}`,
+      ),
+    );
+  }
+  const errorState = rpcErrorState(rpcErr);
+  return Effect.succeed({
+    messageId: "" as Static<typeof MessageId>,
+    errorCode: rpcErr.code,
+    ...(errorState !== undefined ? { errorState } : {}),
+  });
+}
+
+function rpcErrorState(error: RpcResponseError): string | undefined {
+  const data = error.data;
+  if (data === null || typeof data !== "object") return undefined;
+  const state = (data as { readonly state?: unknown }).state;
+  return typeof state === "string" ? state : undefined;
+}
+
+type DispatchAuthorizePredicateInput = {
+  readonly taskId: Static<typeof TaskId>;
+  readonly conversationId: Static<typeof ConversationId>;
+  readonly messageId: Static<typeof MessageId>;
+};
+
+interface ModeratorHandleOptions {
+  readonly agent: TestAgent;
+  readonly client: TestClient;
+  readonly appId: string;
+  readonly app: TestApp | null;
+}
+
+interface ResolvedDriverConfig {
+  readonly moderatorTimeoutMs: number;
+  readonly appId: string | null;
+}
+
+interface DriverAgents {
+  readonly moderatorAgent: TestAgent;
+  readonly recipientAgent: TestAgent;
+}
+
+interface DriverClients {
+  readonly moderatorClient: TestClient;
+  readonly recipientAcquired: AcquiredCloseableClient;
+}
+
+interface DriverFixtures {
+  readonly taskId: Static<typeof TaskId>;
+  readonly conversationId: Static<typeof ConversationId>;
+}
+
+interface DriverBuildParts {
+  readonly ctx: ConformanceRunContext;
+  readonly clients: DriverClients;
+  readonly fixtures: DriverFixtures;
+  readonly recipient: RecipientHandle;
+  readonly moderator: ModeratorHandle;
+}
+
+interface AddRecipientInput {
+  readonly ctx: ConformanceRunContext;
+  readonly moderatorClient: TestClient;
+  readonly conversationId: Static<typeof ConversationId>;
+  readonly opts: Parameters<DispatchTestDriver["addRecipient"]>[0];
+}
+
+interface LeaseStateTimeoutInput {
+  readonly dispatchId: Static<typeof DispatchId>;
+  readonly expected: LeaseState;
+  readonly bound: number;
+  readonly last: LeaseState | null;
+  readonly lastError: string | null;
+}
+
+function buildModeratorHandle(opts: ModeratorHandleOptions): ModeratorHandle {
   return {
     agentId: opts.agent.agentId,
     appId: opts.appId,
-    handleAuthorize,
-    silenceAuthorize,
-    waitForObservability,
-    getLease,
+    handleAuthorize: (cfg) => handleAuthorize(opts.app, cfg),
+    silenceAuthorize: silenceAuthorize(opts.app),
+    waitForObservability: (kind, waitOpts) =>
+      waitForObservability(opts.client, kind, waitOpts),
+    getLease: (dispatchId) => getLease(opts.client, dispatchId),
   } satisfies ModeratorHandle;
 }
 
-/**
- * Install a single dispatcher on the moderator's TestClient that walks
- * `handlersRef` per inbound `dispatch/authorize` request. The dispatcher
- * is installed ONCE at driver construction time; subsequent
- * `handleAuthorize` calls just push entries onto the ref. This avoids
- * the race where last-wins overwrite of `handleServerRpc` could lose
- * a still-in-flight first-request hold (architect plan §7
- * `release-for-one-lease-does-not-wait-on-another` row).
- */
-function installModeratorAuthorizeDispatcher(
-  client: TestClient,
-  handlersRef: { value: ReadonlyArray<HandlerEntry>; silenced: boolean },
-): Effect.Effect<void> {
-  // Inbound `dispatch/authorize` params shape per `DispatchAuthorize`
-  // descriptor — narrowed locally so the handler can read `taskId` /
-  // `conversationId` / `message.id` via a single typed cast.
-  type AuthorizeParams = {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly message: { readonly id: Static<typeof MessageId> };
-  };
-  type AuthorizeResult = {
-    readonly admission:
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  };
-  return client.handleServerRpc(
-    DispatchAuthorize,
-    (params): Effect.Effect<AuthorizeResult, RpcResponseError> => {
-      if (handlersRef.silenced) {
-        // Hold forever — server-side TTL fires, synthesizes deny.
-        // `Effect.never` widens to `Effect<never, never, never>`,
-        // which is assignable to any (Result, Error) pair without
-        // casting.
-        return Effect.never;
-      }
-      const ctx = params as AuthorizeParams;
-      const predicateInput = {
-        taskId: ctx.taskId,
-        conversationId: ctx.conversationId,
-        messageId: ctx.message.id,
-      };
-      // Walk in registration order; first matching predicate wins. An
-      // entry without a predicate matches everything (catch-all).
-      const entry = handlersRef.value.find((e) => {
-        const pred = e.cfg.predicate;
-        return pred === undefined || pred(predicateInput);
+function handleAuthorize(
+  app: TestApp | null,
+  cfg: Parameters<ModeratorHandle["handleAuthorize"]>[0],
+): Effect.Effect<void, PropertyFailure> {
+  return app === null
+    ? missingModeratorApp("handleAuthorize")
+    : app.dispatchAuthorize.handle({
+        respondWith: verdictToWire(cfg.respondWith),
+        ...(cfg.predicate === undefined
+          ? {}
+          : {
+              predicate: (params) =>
+                cfg.predicate?.(authorizePredicateInput(params)) ?? false,
+            }),
+        ...(cfg.holdResponseFor === undefined
+          ? {}
+          : { holdResponseFor: cfg.holdResponseFor }),
       });
-      if (entry === undefined) {
-        // No registered handler for this inbound — hold forever
-        // (server synthesizes deny on its moderator-response TTL).
-        return Effect.never;
-      }
-      const wire = verdictToWire(entry.cfg.respondWith);
-      const reply = Effect.succeed(wire);
-      if (
-        entry.cfg.holdResponseFor !== undefined &&
-        entry.cfg.holdResponseFor > 0
-      ) {
-        return Effect.sleep(Duration.millis(entry.cfg.holdResponseFor)).pipe(
-          Effect.zipRight(reply),
-        );
-      }
-      return reply;
-    },
+}
+
+function silenceAuthorize(
+  app: TestApp | null,
+): Effect.Effect<void, PropertyFailure> {
+  return app === null
+    ? missingModeratorApp("silenceAuthorize")
+    : app.dispatchAuthorize.silence;
+}
+
+function missingModeratorApp(
+  method: "handleAuthorize" | "silenceAuthorize",
+): Effect.Effect<never, PropertyFailure> {
+  return Effect.fail(
+    violation(
+      `moderator.${method}`,
+      "driver was configured without an app-bound dispatch_authorize hook",
+    ),
   );
+}
+
+function authorizePredicateInput(
+  params: ServerRpcParams<typeof DispatchAuthorize>,
+): DispatchAuthorizePredicateInput {
+  return {
+    taskId: params.taskId,
+    conversationId: params.conversationId,
+    messageId: params.message.id,
+  };
+}
+
+function waitForObservability<K extends "consumed" | "expired">(
+  client: TestClient,
+  kind: K,
+  opts: Parameters<ModeratorHandle["waitForObservability"]>[1],
+): Effect.Effect<ObservabilityNotification<K>, PropertyFailure> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_OBSERVABILITY_TIMEOUT_MS;
+  return Effect.gen(function* () {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return yield* observabilityTimeout(kind, timeoutMs);
+      const frame = yield* waitForObservabilityFrame(client, kind, remaining);
+      if (matchesDispatchId(frame.params, opts.dispatchId)) {
+        return frame as ObservabilityNotification<K>;
+      }
+    }
+  });
+}
+
+function observabilityTimeout(
+  kind: "consumed" | "expired",
+  timeoutMs: number,
+): Effect.Effect<never, PropertyFailure> {
+  return Effect.fail(
+    violation(
+      `moderator.waitForObservability(${kind})`,
+      `timeout after ${timeoutMs}ms`,
+    ),
+  );
+}
+
+function waitForObservabilityFrame(
+  client: TestClient,
+  kind: "consumed" | "expired",
+  remainingMs: number,
+): Effect.Effect<
+  | DecodedNotification<typeof DispatchesConsumed>
+  | DecodedNotification<typeof DispatchesExpired>,
+  PropertyFailure
+> {
+  const definition =
+    kind === "consumed" ? DispatchesConsumed : DispatchesExpired;
+  return client
+    .waitForNotification(definition, remainingMs)
+    .pipe(
+      Effect.mapError((e) =>
+        violation(
+          `moderator.waitForObservability(${kind})`,
+          `notification wait failed: ${e.message}`,
+        ),
+      ),
+    );
+}
+
+function matchesDispatchId(
+  params: unknown,
+  dispatchId: Static<typeof DispatchId> | undefined,
+): boolean {
+  if (dispatchId === undefined) return true;
+  return (params as DispatchIdParamsView).dispatchId === dispatchId;
+}
+
+function getLease(
+  client: TestClient,
+  dispatchId: Static<typeof DispatchId>,
+): ReturnType<ModeratorHandle["getLease"]> {
+  return client.sendRpc(DispatchesGet, { dispatchId }).pipe(
+    Effect.map(leaseResultFromWire),
+    Effect.mapError((e) =>
+      violation(
+        "moderator.getLease",
+        `dispatches/get failed: ${unwrapError(e)}`,
+      ),
+    ),
+  );
+}
+
+function leaseResultFromWire(result: unknown): {
+  readonly state: LeaseState;
+  readonly verdict: DispatchVerdict | null;
+  readonly leaseId: Static<typeof LeaseId>;
+} {
+  const lease = (result as { lease: Record<string, unknown> }).lease;
+  return {
+    state: lease["state"] as LeaseState,
+    verdict: verdictFromWire(lease["verdict"]),
+    leaseId: lease["leaseId"] as Static<typeof LeaseId>,
+  };
 }
 
 /**
@@ -813,237 +866,309 @@ export function makeDispatchTestDriver(
   ctx: ConformanceRunContext,
   config?: DispatchTestDriverConfig,
 ): Effect.Effect<DispatchTestDriver, PropertyFailure, Scope.Scope> {
-  const moderatorTimeoutMs =
-    config?.moderatorTimeoutMs ?? DEFAULT_MODERATOR_TIMEOUT_MS;
-  const taskAppId = config?.taskAppId;
-  // Each driver gets a fresh appId so cross-property runs (sharing the
-  // same RealServerHandle) do not collide on the same manifest.
-  const appId =
-    taskAppId === null
-      ? null
-      : (taskAppId ?? `conformance-dispatch-app-${cryptoRandomShort()}`);
-
+  const resolved = resolveDriverConfig(config ?? {});
   return Effect.gen(function* () {
-    // 1) Register agents (HTTP). Moderator + first recipient.
-    // Names stay under the server's 32-char limit + alphanumeric end
-    // (`^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$`). The HTTP register helper
-    // appends `-${suffix}` (~7 chars), so the prefix MUST be ≤ 24
-    // chars to keep the suffixed total under 32.
-    const moderatorAgent = yield* acquireAgent(ctx, "conf-mod");
-    const recipientAgent = yield* acquireAgent(ctx, "conf-rcpt");
-
-    // 2) Open WS clients. Moderator stays open under the property scope;
-    // recipient is closeable so `hardClose` can drop it on demand.
-    const moderatorClient = yield* acquireSharedClient(ctx, moderatorAgent);
-    const recipientAcquired = yield* acquireCloseableClient(
-      ctx,
-      recipientAgent,
+    const agents = yield* acquireDriverAgents(ctx);
+    const clients = yield* acquireDriverClients(ctx, agents);
+    const app = yield* registerDriverApp(clients.moderatorClient, resolved);
+    const fixtures = yield* createDriverFixtures(
+      clients.moderatorClient,
+      resolved.appId,
+      agents.recipientAgent,
     );
-
-    // 3) For app-bound runs, register the app over the wire so the
-    // moderator's connection becomes the routing target for
-    // `dispatch/authorize`. (Server-side `apps/register` records the
-    // manifest + the calling connection id; subsequent task creation
-    // referencing this `appId` will dispatch admission via the moderator's
-    // S→C channel.)
-    if (appId !== null) {
-      const manifest = buildManifest(appId, moderatorTimeoutMs);
-      yield* moderatorClient
-        .sendRpc(AppsRegister, { manifest })
-        .pipe(
-          Effect.mapError((e) =>
-            violation(
-              SETUP_FAILURE_PROPERTY,
-              `apps/register failed: ${unwrapError(e)}`,
-            ),
-          ),
-        );
-    }
-
-    // 4) Create a task bound to the app (or no app for default-grant) and
-    // a DM conversation containing the recipient.
-    const taskParams =
-      appId !== null
-        ? { appId, tmType: "self" as const }
-        : { tmType: "self" as const };
-    const taskResult = yield* moderatorClient
-      .sendRpc(TasksCreate, taskParams)
-      .pipe(
-        Effect.mapError((e) =>
-          violation(
-            SETUP_FAILURE_PROPERTY,
-            `tasks/create failed: ${unwrapError(e)}`,
-          ),
-        ),
-      );
-    const task = (taskResult as { task: { id: Static<typeof TaskId> } }).task;
-
-    const convResult = yield* moderatorClient
-      .sendRpc(TasksCreateConversation, {
-        taskId: task.id,
-        // `group` (not `dm`) so `addRecipient` can extend the participant
-        // roster for the same-conversation-concurrency property; DM is
-        // capped at 2 participants. Single-recipient properties still
-        // exercise the same admission code path.
-        type: "group",
-        name: "conformance-dispatch-conv",
-        participants: [{ type: "agent" as const, id: recipientAgent.agentId }],
-      })
-      .pipe(
-        Effect.mapError((e) =>
-          violation(
-            SETUP_FAILURE_PROPERTY,
-            `tasks/createConversation failed: ${unwrapError(e)}`,
-          ),
-        ),
-      );
-    const conversation = (
-      convResult as {
-        conversation: { id: Static<typeof ConversationId> };
-      }
-    ).conversation;
-
-    const recipient = buildRecipientHandle(recipientAcquired);
-    // Per-driver mutable ref of authorize handler entries. The dispatcher
-    // installed on the moderator client walks this ref on every inbound
-    // `dispatch/authorize`; properties append entries via
-    // `moderator.handleAuthorize` or set `silenced` via
-    // `moderator.silenceAuthorize`.
-    const handlersRef = {
-      value: [] as ReadonlyArray<HandlerEntry>,
-      silenced: false,
-    };
-    yield* installModeratorAuthorizeDispatcher(moderatorClient, handlersRef);
+    const recipient = buildRecipientHandle(clients.recipientAcquired);
     const moderator = buildModeratorHandle({
-      agent: moderatorAgent,
-      client: moderatorClient,
-      // For default-grant runs there is no `appId`; getLease /
-      // dispatches-get scope is keyed by `moderatorConnectionId` only
-      // when an app exists. We surface the empty string so the typed
-      // surface still has a string; properties that read `appId` are
-      // app-bound.
-      appId: appId ?? "",
-      handlersRef,
+      agent: agents.moderatorAgent,
+      client: clients.moderatorClient,
+      appId: resolved.appId ?? "",
+      app,
     });
-
-    // ── addRecipient: spawn another recipient client + ensure it sits
-    // inside the same conversation. Adds a fresh agent identity, opens
-    // a TestClient, and adds the agent as a conversation participant
-    // via `tasks/addParticipant` (the conversation lives under a task,
-    // so participant edits go through the task RPC).
-    const addRecipient: DispatchTestDriver["addRecipient"] = (recipientOpts) =>
-      Effect.gen(function* () {
-        const name = recipientOpts.agentName ?? "conf-rcpt2";
-        const agent = yield* acquireAgent(ctx, name);
-        const acquired2 = yield* acquireCloseableClient(ctx, agent);
-        // Add the agent to the existing conversation by replacing the
-        // moderator's task-participant list. Use the wire RPC.
-        yield* moderatorClient
-          .sendRpc(ConversationsAddParticipant, {
-            conversationId: conversation.id,
-            participant: { type: "agent" as const, id: agent.agentId },
-          })
-          .pipe(
-            Effect.mapError((e) =>
-              violation(
-                "driver.addRecipient",
-                `conversations/addParticipant failed: ${unwrapError(e)}`,
-              ),
-            ),
-          );
-        return buildRecipientHandle(acquired2);
-      });
-
-    // ── getLeaseFromNonModerator: spawn a third-party client, issue
-    // dispatches/get, expect the typed ForbiddenError code (-32001).
-    // The third-party client closes when the parent scope closes; we
-    // attach it directly to the surrounding scope.
-    const getLeaseFromNonModerator: DispatchTestDriver["getLeaseFromNonModerator"] =
-      (dispatchId) =>
-        Effect.gen(function* () {
-          // Reuse the recipient client — it is a non-moderator on the
-          // wire (its connection is not the moderator's). The architect
-          // plan #533 §7's mapping table notes that the property uses
-          // `driver.getLeaseFromNonModerator(dispatchId)` returning the
-          // server's typed error code; the recipient-as-non-moderator
-          // is the canonical case.
-          const exit = yield* Effect.exit(
-            recipientAcquired.client.sendRpc(DispatchesGet, { dispatchId }),
-          );
-          if (Exit.isSuccess(exit)) {
-            return yield* Effect.fail(
-              violation(
-                "driver.getLeaseFromNonModerator",
-                `dispatches/get unexpectedly succeeded for non-moderator caller`,
-              ),
-            );
-          }
-          const rpcErr = firstRpcResponseError(exit);
-          if (rpcErr === null) {
-            return yield* Effect.fail(
-              violation(
-                "driver.getLeaseFromNonModerator",
-                `dispatches/get failed without RpcResponseError: ${String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN)}`,
-              ),
-            );
-          }
-          return { errorCode: rpcErr.code };
-        });
-
-    // ── assertLeaseState: poll moderator's dispatches/get every 25 ms
-    // until the state reaches `expected` or the bound elapses.
-    const assertLeaseState: DispatchTestDriver["assertLeaseState"] = (
-      dispatchId,
-      expected,
-      assertOpts,
-    ) =>
-      Effect.gen(function* () {
-        const bound =
-          assertOpts?.timeoutMs ?? DEFAULT_ASSERT_LEASE_STATE_BOUND_MS;
-        const deadline = Date.now() + bound;
-        let last: LeaseState | null = null;
-        let lastError: string | null = null;
-        while (Date.now() < deadline) {
-          const exit = yield* Effect.exit(moderator.getLease(dispatchId));
-          if (Exit.isSuccess(exit)) {
-            last = exit.value.state;
-            if (last === expected) return;
-          } else {
-            lastError = String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN);
-          }
-          yield* Effect.sleep(Duration.millis(ASSERT_LEASE_STATE_POLL_MS));
-        }
-        return yield* Effect.fail(
-          violation(
-            "driver.assertLeaseState",
-            `lease ${dispatchId} did not reach ${expected} within ${bound}ms (last=${last ?? "<unread>"}, lastError=${lastError ?? "<none>"})`,
-          ),
-        );
-      });
-
-    const advanceTime: DispatchTestDriver["advanceTime"] = (durationMs) =>
-      Effect.sleep(Duration.millis(durationMs));
-
-    return {
+    return buildDispatchDriver({
+      ctx,
+      clients,
+      fixtures,
       recipient,
       moderator,
-      fixtures: { taskId: task.id, conversationId: conversation.id },
-      addRecipient,
-      getLeaseFromNonModerator,
-      assertLeaseState,
-      advanceTime,
-    } satisfies DispatchTestDriver;
+    });
+  }).pipe(Effect.withSpan("makeDispatchTestDriver"));
+}
+
+function resolveDriverConfig(
+  config: DispatchTestDriverConfig,
+): ResolvedDriverConfig {
+  const taskAppId = config?.taskAppId;
+  return {
+    moderatorTimeoutMs:
+      config?.moderatorTimeoutMs ?? DEFAULT_MODERATOR_TIMEOUT_MS,
+    appId:
+      taskAppId === null
+        ? null
+        : (taskAppId ?? `conformance-dispatch-app-${cryptoRandomShort()}`),
+  };
+}
+
+function acquireDriverAgents(
+  ctx: ConformanceRunContext,
+): Effect.Effect<DriverAgents, PropertyFailure> {
+  return Effect.gen(function* () {
+    return {
+      moderatorAgent: yield* acquireAgent(ctx, "conf-mod"),
+      recipientAgent: yield* acquireAgent(ctx, "conf-rcpt"),
+    };
   });
+}
+
+function acquireDriverClients(
+  ctx: ConformanceRunContext,
+  agents: DriverAgents,
+): Effect.Effect<DriverClients, PropertyFailure, Scope.Scope> {
+  return Effect.gen(function* () {
+    return {
+      moderatorClient: yield* acquireSharedClient(ctx, agents.moderatorAgent),
+      recipientAcquired: yield* acquireCloseableClient(
+        ctx,
+        agents.recipientAgent,
+      ),
+    };
+  });
+}
+
+function registerDriverApp(
+  moderatorClient: TestClient,
+  config: ResolvedDriverConfig,
+): Effect.Effect<TestApp | null, PropertyFailure> {
+  if (config.appId === null) return Effect.succeed(null);
+  return registerTestApp({
+    client: moderatorClient,
+    manifest: makeTestAppManifest({
+      appId: config.appId,
+      name: "Conformance Dispatch Test App",
+      dispatchAuthorizeTimeoutMs: config.moderatorTimeoutMs,
+    }),
+  }).pipe(
+    Effect.mapError((e) =>
+      violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
+    ),
+  );
+}
+
+function createDriverFixtures(
+  moderatorClient: TestClient,
+  appId: string | null,
+  recipientAgent: TestAgent,
+): Effect.Effect<DriverFixtures, PropertyFailure> {
+  return Effect.gen(function* () {
+    const taskId = yield* createDriverTask(moderatorClient, appId);
+    const conversationId = yield* createDriverConversation(
+      moderatorClient,
+      taskId,
+      recipientAgent,
+    );
+    return { taskId, conversationId };
+  });
+}
+
+function createDriverTask(
+  moderatorClient: TestClient,
+  appId: string | null,
+): Effect.Effect<Static<typeof TaskId>, PropertyFailure> {
+  const taskParams =
+    appId !== null
+      ? { appId, tmType: "self" as const }
+      : { tmType: "self" as const };
+  return moderatorClient.sendRpc(TasksCreate, taskParams).pipe(
+    Effect.map(
+      (result) => (result as { task: { id: Static<typeof TaskId> } }).task.id,
+    ),
+    Effect.mapError((e) =>
+      violation(
+        SETUP_FAILURE_PROPERTY,
+        `tasks/create failed: ${unwrapError(e)}`,
+      ),
+    ),
+  );
+}
+
+function createDriverConversation(
+  moderatorClient: TestClient,
+  taskId: Static<typeof TaskId>,
+  recipientAgent: TestAgent,
+): Effect.Effect<Static<typeof ConversationId>, PropertyFailure> {
+  return moderatorClient
+    .sendRpc(TasksCreateConversation, {
+      taskId,
+      type: "group",
+      name: "conformance-dispatch-conv",
+      participants: [{ type: "agent" as const, id: recipientAgent.agentId }],
+    })
+    .pipe(
+      Effect.map(
+        (result) =>
+          (
+            result as {
+              conversation: { id: Static<typeof ConversationId> };
+            }
+          ).conversation.id,
+      ),
+      Effect.mapError((e) =>
+        violation(
+          SETUP_FAILURE_PROPERTY,
+          `tasks/createConversation failed: ${unwrapError(e)}`,
+        ),
+      ),
+    );
+}
+
+function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
+  return {
+    recipient: parts.recipient,
+    moderator: parts.moderator,
+    fixtures: parts.fixtures,
+    addRecipient: (opts) =>
+      addRecipient({
+        ctx: parts.ctx,
+        moderatorClient: parts.clients.moderatorClient,
+        conversationId: parts.fixtures.conversationId,
+        opts,
+      }),
+    getLeaseFromNonModerator: (dispatchId) =>
+      getLeaseFromNonModerator(
+        parts.clients.recipientAcquired.client,
+        dispatchId,
+      ),
+    assertLeaseState: (dispatchId, expected, opts) =>
+      assertLeaseState(parts.moderator, dispatchId, expected, opts),
+    advanceTime,
+  };
+}
+
+function addRecipient(
+  input: AddRecipientInput,
+): ReturnType<DispatchTestDriver["addRecipient"]> {
+  return Effect.gen(function* () {
+    const name = input.opts.agentName ?? "conf-rcpt2";
+    const agent = yield* acquireAgent(input.ctx, name);
+    const acquired = yield* acquireCloseableClient(input.ctx, agent);
+    yield* addConversationParticipant(
+      input.moderatorClient,
+      input.conversationId,
+      agent,
+    );
+    return buildRecipientHandle(acquired);
+  });
+}
+
+function addConversationParticipant(
+  moderatorClient: TestClient,
+  conversationId: Static<typeof ConversationId>,
+  agent: TestAgent,
+): Effect.Effect<void, PropertyFailure> {
+  return moderatorClient
+    .sendRpc(ConversationsAddParticipant, {
+      conversationId,
+      participant: { type: "agent" as const, id: agent.agentId },
+    })
+    .pipe(
+      Effect.mapError((e) =>
+        violation(
+          "driver.addRecipient",
+          `conversations/addParticipant failed: ${unwrapError(e)}`,
+        ),
+      ),
+    );
+}
+
+function getLeaseFromNonModerator(
+  client: CloseableTestClient,
+  dispatchId: Static<typeof DispatchId>,
+): ReturnType<DispatchTestDriver["getLeaseFromNonModerator"]> {
+  return Effect.gen(function* () {
+    const exit = yield* Effect.exit(
+      client.sendRpc(DispatchesGet, { dispatchId }),
+    );
+    if (Exit.isSuccess(exit)) {
+      return yield* Effect.fail(
+        violation(
+          "driver.getLeaseFromNonModerator",
+          "dispatches/get unexpectedly succeeded for non-moderator caller",
+        ),
+      );
+    }
+    const rpcErr = firstRpcResponseError(exit);
+    if (rpcErr === null) return yield* nonModeratorLeaseMissingRpcError(exit);
+    return { errorCode: rpcErr.code };
+  });
+}
+
+function nonModeratorLeaseMissingRpcError(
+  exit: Exit.Exit<unknown, unknown>,
+): Effect.Effect<never, PropertyFailure> {
+  return Effect.fail(
+    violation(
+      "driver.getLeaseFromNonModerator",
+      `dispatches/get failed without RpcResponseError: ${exitCauseSummary(exit)}`,
+    ),
+  );
+}
+
+function exitCauseSummary(exit: Exit.Exit<unknown, unknown>): string {
+  return Exit.isFailure(exit)
+    ? String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN)
+    : "<success>";
+}
+
+function assertLeaseState(
+  moderator: ModeratorHandle,
+  dispatchId: Static<typeof DispatchId>,
+  expected: LeaseState,
+  opts?: Parameters<DispatchTestDriver["assertLeaseState"]>[2],
+): ReturnType<DispatchTestDriver["assertLeaseState"]> {
+  return Effect.gen(function* () {
+    const bound = opts?.timeoutMs ?? DEFAULT_ASSERT_LEASE_STATE_BOUND_MS;
+    const deadline = Date.now() + bound;
+    let last: LeaseState | null = null;
+    let lastError: string | null = null;
+    while (Date.now() < deadline) {
+      const exit = yield* Effect.exit(moderator.getLease(dispatchId));
+      if (Exit.isSuccess(exit)) {
+        last = exit.value.state;
+        if (last === expected) return;
+      } else {
+        lastError = String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN);
+      }
+      yield* Effect.sleep(Duration.millis(ASSERT_LEASE_STATE_POLL_MS));
+    }
+    return yield* leaseStateTimeout({
+      dispatchId,
+      expected,
+      bound,
+      last,
+      lastError,
+    });
+  });
+}
+
+function leaseStateTimeout(
+  input: LeaseStateTimeoutInput,
+): Effect.Effect<never, PropertyFailure> {
+  return Effect.fail(
+    violation(
+      "driver.assertLeaseState",
+      `lease ${input.dispatchId} did not reach ${input.expected} within ${input.bound}ms (last=${input.last ?? "<unread>"}, lastError=${input.lastError ?? "<none>"})`,
+    ),
+  );
+}
+
+function advanceTime(durationMs: number): Effect.Effect<void> {
+  return Effect.sleep(Duration.millis(durationMs));
 }
 
 // ── Crypto helper for unique appId (avoids `crypto` import noise) ─────
 function cryptoRandomShort(): string {
-  // Avoid pulling node:crypto into the protocol's testing surface; the
-  // 6-char suffix is enough to disambiguate per-property instances
-  // within one conformance run.
-  return Math.random()
-    .toString(RANDOM_SUFFIX_BASE)
-    .slice(RANDOM_SUFFIX_PREFIX_LEN, RANDOM_SUFFIX_END);
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, RANDOM_SUFFIX_LEN);
 }
 
 // ── Re-export wire types for property authors ─────────────────────────

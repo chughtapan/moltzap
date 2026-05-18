@@ -1,11 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { validateConfig, formatConfigErrors } from "./schema.js";
 
+const DATABASE_URL = "postgres://localhost:5432/moltzap";
+const ENCRYPTION_SECRET = "test-key";
+const DATABASE_PATH = "/database";
+const MISSING_REQUIRED_FIELD_TEXT = "Missing required field";
+const EXPECTED_LABEL = "Expected:";
+const EXAMPLE_LABEL = "Example:";
+const POSTGRES_PREFIX = "postgres://";
+
 const MINIMAL_CONFIG = {
-  database: { url: "postgres://localhost:5432/moltzap" },
+  database: { url: DATABASE_URL },
 };
 
-describe("validateConfig", () => {
+describe("validateConfig accepted configs", () => {
   it("accepts empty config (PGlite default)", () => {
     const result = validateConfig({});
     expect(result.ok).toBe(true);
@@ -18,9 +26,7 @@ describe("validateConfig", () => {
     const result = validateConfig(MINIMAL_CONFIG);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.config.database?.url).toBe(
-        "postgres://localhost:5432/moltzap",
-      );
+      expect(result.config.database?.url).toBe(DATABASE_URL);
     }
   });
 
@@ -43,7 +49,9 @@ describe("validateConfig", () => {
     const result = validateConfig(full);
     expect(result.ok).toBe(true);
   });
+});
 
+describe("validateConfig field basics", () => {
   it("rejects retired `seed` block (agents are minted via /api/v1/admin/register-agent)", () => {
     const result = validateConfig({
       ...MINIMAL_CONFIG,
@@ -63,14 +71,16 @@ describe("validateConfig", () => {
   it("accepts config with encryption", () => {
     const result = validateConfig({
       database: { url: "pg://x" },
-      encryption: { master_secret: "test-key" },
+      encryption: { master_secret: ENCRYPTION_SECRET },
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.config.encryption?.master_secret).toBe("test-key");
+      expect(result.config.encryption?.master_secret).toBe(ENCRYPTION_SECRET);
     }
   });
+});
 
+describe("validateConfig unknown and type rejection", () => {
   it("rejects invalid field types", () => {
     const result = validateConfig({
       ...MINIMAL_CONFIG,
@@ -94,7 +104,9 @@ describe("validateConfig", () => {
     });
     expect(result.ok).toBe(false);
   });
+});
 
+describe("validateConfig enum and service constraints", () => {
   it("validates log_level enum", () => {
     const valid = validateConfig({ ...MINIMAL_CONFIG, log_level: "warn" });
     expect(valid.ok).toBe(true);
@@ -123,7 +135,9 @@ describe("validateConfig", () => {
     });
     expect(result.ok).toBe(false);
   });
+});
 
+describe("validateConfig range and dedupe constraints", () => {
   it("validates port range", () => {
     const tooLow = validateConfig({ ...MINIMAL_CONFIG, server: { port: 0 } });
     expect(tooLow.ok).toBe(false);
@@ -159,24 +173,24 @@ describe("formatConfigErrors", () => {
   it("produces readable multi-line output", () => {
     const output = formatConfigErrors([
       {
-        path: "/database",
+        path: DATABASE_PATH,
         problem: 'Missing required field "url"',
         expected: 'Property "url" must be provided',
         example: '"postgres://..."',
       },
     ]);
-    expect(output).toContain("/database");
-    expect(output).toContain("Missing required field");
-    expect(output).toContain("Expected:");
-    expect(output).toContain("Example:");
-    expect(output).toContain("postgres://");
+    expect(output).toContain(DATABASE_PATH);
+    expect(output).toContain(MISSING_REQUIRED_FIELD_TEXT);
+    expect(output).toContain(EXPECTED_LABEL);
+    expect(output).toContain(EXAMPLE_LABEL);
+    expect(output).toContain(POSTGRES_PREFIX);
   });
 
   it("omits example line when not provided", () => {
     const output = formatConfigErrors([
       { path: "/foo", problem: "bad", expected: "good" },
     ]);
-    expect(output).not.toContain("Example:");
+    expect(output).not.toContain(EXAMPLE_LABEL);
   });
 
   it("formats multiple errors separated by blank lines", () => {

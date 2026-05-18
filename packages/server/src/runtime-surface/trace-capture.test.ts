@@ -1,6 +1,6 @@
-import { it } from "@effect/vitest";
+import { it as effectIt } from "@effect/vitest";
 import { Context, Effect, Layer } from "effect";
-import { expect } from "vitest";
+import { describe, expect } from "vitest";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 
 import {
@@ -25,26 +25,28 @@ const sampleEvent: TraceEvent = {
   deliveredAgentIds: [agentId("00000000-0000-0000-0000-000000000004")],
 };
 
-it.effect("NoopTraceCaptureLive ignores writes and snapshots empty", () =>
-  Effect.gen(function* () {
-    const capture = Context.get(
-      yield* Effect.scoped(Layer.build(NoopTraceCaptureLive)),
-      TraceCaptureTag,
-    );
-    yield* capture.record(sampleEvent);
-    expect(yield* capture.snapshot()).toEqual([]);
-  }),
-);
+const it = effectIt.effect;
 
-it.effect("InMemoryTraceCaptureLive buffers and clears events", () =>
-  Effect.gen(function* () {
-    const capture = Context.get(
-      yield* Effect.scoped(Layer.build(InMemoryTraceCaptureLive)),
-      TraceCaptureTag,
-    );
-    yield* capture.record(sampleEvent);
-    expect(yield* capture.snapshot()).toEqual([sampleEvent]);
-    yield* capture.clear();
-    expect(yield* capture.snapshot()).toEqual([]);
-  }),
-);
+describe("TraceCapture layers", () => {
+  it("NoopTraceCaptureLive ignores writes and snapshots empty", () =>
+    Effect.gen(function* () {
+      const capture = Context.get(
+        yield* Effect.scoped(Layer.build(NoopTraceCaptureLive)),
+        TraceCaptureTag,
+      );
+      yield* capture.record(sampleEvent);
+      expect(yield* capture.snapshot()).toEqual([]);
+    }));
+
+  it("InMemoryTraceCaptureLive buffers and clears events", () =>
+    Effect.gen(function* () {
+      const capture = Context.get(
+        yield* Effect.scoped(Layer.build(InMemoryTraceCaptureLive)),
+        TraceCaptureTag,
+      );
+      yield* capture.record(sampleEvent);
+      expect(yield* capture.snapshot()).toEqual([sampleEvent]);
+      yield* capture.clear();
+      expect(yield* capture.snapshot()).toEqual([]);
+    }));
+});

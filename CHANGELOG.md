@@ -66,8 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`invites/createAgent`) are unaffected and remain exported.
 - **Tooling:** `scripts/generate-json-schema.ts` deleted (referenced
   non-existent paths). `pnpm generate-schema` script removed.
-  `scripts/generate-protocol-docs.ts` updated to reference the current
-  registry exports and rerun cleanly.
+  Protocol docs generation moved under
+  `packages/protocol/scripts/generate-docs.ts`; the package script now
+  regenerates the root Mintlify output in `docs/protocol/`.
 
 ### Added
 

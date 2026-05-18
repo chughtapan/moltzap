@@ -1,11 +1,12 @@
 /**
- * Schema conformance for the server-initiated admission verb.
+ * Schema conformance for the server-initiated task-callback verbs.
  *
  * AJV checks against the manifest's compiled `paramsSchema` /
  * `resultSchema`. The verdict-shape coverage on `DispatchAdmissionDecision`
  * itself lives in `DispatchRequest`'s schema; the cases here are smoke
  * checks that the `dispatch/authorize` manifest references the same
- * shared decision schema.
+ * shared decision schema. `messages/authorize` coverage pins the
+ * send-side fan-out gate restored by #560.
  */
 import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
@@ -20,15 +21,48 @@ const APP_ID = "werewolf";
 const CONVERSATION_ID = "550e8400-e29b-41d4-a716-446655440001";
 const AGENT_ID = "550e8400-e29b-41d4-a716-446655440002";
 const MESSAGE_ID = "550e8400-e29b-41d4-a716-446655440003";
+const RECIPIENT_ID = "550e8400-e29b-41d4-a716-446655440004";
 
 const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
+
+const validateDispatchAuthorizeParams = DispatchAuthorize.validateParams;
+const validateDispatchAuthorizeResult = ajv.compile(
+  DispatchAuthorize.resultSchema,
+);
+const DISPATCH_AUTHORIZE_PARAMS = {
+  taskId: SESSION_ID,
+  appId: APP_ID,
+  conversationId: CONVERSATION_ID,
+  recipient: HOOK_AGENT,
+  message: {
+    id: MESSAGE_ID,
+    senderAgentId: AGENT_ID,
+    parts: [{ type: "text", text: "hi" }],
+  },
+  attempt: 0,
+};
+
+const validateMessagesAuthorizeParams = MessagesAuthorize.validateParams;
+const validateMessagesAuthorizeResult = ajv.compile(
+  MessagesAuthorize.resultSchema,
+);
+const MESSAGES_AUTHORIZE_PARAMS = {
+  taskId: SESSION_ID,
+  appId: APP_ID,
+  conversationId: CONVERSATION_ID,
+  message: {
+    id: MESSAGE_ID,
+    senderAgentId: AGENT_ID,
+    parts: [{ type: "text", text: "hi" }],
+  },
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Registry membership — direction-namespaced.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("admission RPC registration", () => {
-  it("registers the task-callback descriptors (dispatch/authorize + messages/authorize)", () => {
+  it("registers every server-initiated task-callback descriptor", () => {
     const taskCallbackNames = taskCallbackMethods.map((m) => m.name);
     expect(taskCallbackNames).toEqual([
       DispatchAuthorize.name,
@@ -41,31 +75,17 @@ describe("admission RPC registration", () => {
 // dispatch/authorize — params surface; verdict union covered separately
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("DispatchAuthorize", () => {
-  const validateParams = DispatchAuthorize.validateParams;
-  const validateResult = ajv.compile(DispatchAuthorize.resultSchema);
-
-  const baseParams = {
-    taskId: SESSION_ID,
-    appId: APP_ID,
-    conversationId: CONVERSATION_ID,
-    recipient: HOOK_AGENT,
-    message: {
-      id: MESSAGE_ID,
-      senderAgentId: AGENT_ID,
-      parts: [{ type: "text", text: "hi" }],
-    },
-    attempt: 0,
-  };
-
+describe("DispatchAuthorize params acceptance", () => {
   it("accepts a minimal valid context", () => {
-    expect(validateParams(baseParams)).toBe(true);
+    expect(validateDispatchAuthorizeParams(DISPATCH_AUTHORIZE_PARAMS)).toBe(
+      true,
+    );
   });
 
   it("accepts the optional pending+clock+receivedAt envelope", () => {
     expect(
-      validateParams({
-        ...baseParams,
+      validateDispatchAuthorizeParams({
+        ...DISPATCH_AUTHORIZE_PARAMS,
         receivedAt: "2026-04-29T22:00:00.000Z",
         clock: {
           domainId: CONVERSATION_ID,
@@ -85,21 +105,101 @@ describe("DispatchAuthorize", () => {
       }),
     ).toBe(true);
   });
+});
 
+describe("DispatchAuthorize params rejection", () => {
   it("rejects missing required fields", () => {
-    const { taskId: _omit, ...withoutTask } = baseParams;
-    expect(validateParams(withoutTask)).toBe(false);
-    expect(validateParams({})).toBe(false);
+    const withoutTask = Object.fromEntries(
+      Object.entries(DISPATCH_AUTHORIZE_PARAMS).filter(
+        ([key]) => key !== "taskId",
+      ),
+    );
+    expect(validateDispatchAuthorizeParams(withoutTask)).toBe(false);
+    expect(validateDispatchAuthorizeParams({})).toBe(false);
   });
 
   it("rejects negative attempt", () => {
-    expect(validateParams({ ...baseParams, attempt: -1 })).toBe(false);
+    expect(
+      validateDispatchAuthorizeParams({
+        ...DISPATCH_AUTHORIZE_PARAMS,
+        attempt: -1,
+      }),
+    ).toBe(false);
   });
+});
 
+describe("DispatchAuthorize result", () => {
   it("references the DispatchAdmissionDecision union", () => {
     expect(
-      validateResult({ admission: { decision: "grant", leaseId: "l1" } }),
+      validateDispatchAuthorizeResult({
+        admission: { decision: "grant", leaseId: "l1" },
+      }),
     ).toBe(true);
-    expect(validateResult({ admission: { decision: "allow" } })).toBe(false);
+    expect(
+      validateDispatchAuthorizeResult({ admission: { decision: "allow" } }),
+    ).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// messages/authorize — send-side fan-out gate
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("MessagesAuthorize params acceptance", () => {
+  it("accepts a minimal valid context", () => {
+    expect(validateMessagesAuthorizeParams(MESSAGES_AUTHORIZE_PARAMS)).toBe(
+      true,
+    );
+  });
+
+  it("accepts optional receivedAt and clock", () => {
+    expect(
+      validateMessagesAuthorizeParams({
+        ...MESSAGES_AUTHORIZE_PARAMS,
+        receivedAt: "2026-05-12T00:00:00.000Z",
+        clock: {
+          domainId: CONVERSATION_ID,
+          epoch: 1,
+          vector: { [AGENT_ID]: 1 },
+        },
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("MessagesAuthorize params rejection", () => {
+  it("does not accept in-process-only signal over the wire", () => {
+    expect(
+      validateMessagesAuthorizeParams({
+        ...MESSAGES_AUTHORIZE_PARAMS,
+        signal: {},
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("MessagesAuthorize result", () => {
+  it("accepts Forward and Block verdict envelopes", () => {
+    expect(
+      validateMessagesAuthorizeResult({
+        verdict: { decision: "Forward", recipients: [RECIPIENT_ID] },
+      }),
+    ).toBe(true);
+    expect(
+      validateMessagesAuthorizeResult({
+        verdict: { decision: "Block", reason: "policy/no-send" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects malformed verdict envelopes", () => {
+    expect(
+      validateMessagesAuthorizeResult({ verdict: { decision: "Modify" } }),
+    ).toBe(false);
+    expect(
+      validateMessagesAuthorizeResult({
+        verdict: { decision: "Forward", recipients: ["not-a-uuid"] },
+      }),
+    ).toBe(false);
   });
 });
