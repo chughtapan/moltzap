@@ -1,0 +1,76 @@
+# Architecture — `@moltzap/runtimes`
+
+Process-launch and lifecycle orchestration for MoltZap "trace-capture agents":
+spawning external runtimes (OpenClaw, Nanoclaw, Claude Code) as child
+processes, waiting for ready, supervising fleets, propagating shutdown.
+
+This package is the bridge between server-side orchestration code and the
+external runtime binaries. It does not speak the wire protocol; it spawns
+processes that do.
+
+## Project Structure
+
+```
+packages/runtimes/src/
+├── runtime.ts                  # RuntimeKind, RuntimeAgentSpec base types
+├── fleet.ts                    # launchRuntimeFleet, startup interruption
+├── openclaw-adapter.ts         # OpenClawAdapter + workspace variant
+├── nanoclaw-adapter.ts         # NanoclawAdapter
+├── claude-code-adapter.ts      # ClaudeCodeAdapter + workspace variant
+├── await-agent-ready.ts        # awaitAgentReadyByPolling
+└── errors.ts                   # SpawnFailed, RuntimeExitedBeforeReady,
+                                  RuntimeReadyTimedOut, RuntimeLaunchFailed
+```
+
+Single-tier source layout — no subdirectories. Each adapter is a peer.
+
+## Public Surface
+
+| Export | Shape | Purpose |
+|---|---|---|
+| `OpenClawAdapter` / `NanoclawAdapter` / `ClaudeCodeAdapter` | Adapter | Spawn + supervise a single agent runtime |
+| `createWorkspace{OpenClaw,ClaudeCode}Adapter` | Factory | Workspace-aware variants that resolve binary paths |
+| `startRuntimeAgent` | Effect | Start one runtime + wait for ready |
+| `launchRuntimeFleet` / `launchRuntimeFleetWithProcessSignals` | Effect | Start many, propagate SIGINT/SIGTERM |
+| `awaitAgentReadyByPolling` | Effect | Generic readiness probe |
+| `RuntimeKind` / `RuntimeAgentSpec` / `RuntimeFleet` / `RuntimeStartOptions` | Type | Inputs to fleet APIs |
+| `SpawnFailed`, `RuntimeExitedBeforeReady`, `RuntimeReadyTimedOut`, `RuntimeFleetStartupInterrupted` | TaggedError | Typed failure channel |
+
+## Communication Flows
+
+Detailed subsections covering startup sequencing, fleet supervision,
+per-adapter mechanics, workspace path resolution, shutdown propagation,
+and the typed error taxonomy:
+
+| # | Topic | Detail doc |
+|---|---|---|
+| 3.1 | Single-runtime startup sequence | [01-single-runtime-startup.md](docs/architecture/01-single-runtime-startup.md) |
+| 3.2 | Fleet launch sequence | [02-fleet-launch.md](docs/architecture/02-fleet-launch.md) |
+| 3.3 | Per-adapter spawn details (OpenClaw / Nanoclaw / ClaudeCode) | [03-per-adapter-spawn.md](docs/architecture/03-per-adapter-spawn.md) |
+| 3.4 | Workspace adapter — binary path resolution | [04-workspace-path-resolution.md](docs/architecture/04-workspace-path-resolution.md) |
+| 3.5 | Shutdown propagation | [05-shutdown-propagation.md](docs/architecture/05-shutdown-propagation.md) |
+| 3.6 | Error matrix | [06-error-matrix.md](docs/architecture/06-error-matrix.md) |
+| 3.7 | Per-process state machine | [07-process-state-machine.md](docs/architecture/07-process-state-machine.md) |
+
+## Dependencies
+
+**Runtime**: `effect`, `@effect/platform[-node]`, `openclaw` (external CLI
+binary referenced for its plugin protocol).
+**Internal**: `@moltzap/protocol`, `@moltzap/claude-code-channel`.
+**Consumers**: orchestration scripts in `scripts/`, arena agent-launcher.
+
+## Tests
+
+Co-located unit tests only (single-tier `src/`). No conformance harness —
+runtime supervision is observed via integration tests in the consumers.
+
+## Glossary
+
+- **Runtime** — An external agent process (OpenClaw / Nanoclaw / Claude Code)
+  that connects back to a moltzap server via WS and presents an agent identity.
+- **Adapter** — Per-runtime wrapper that knows how to spawn its binary, parse
+  its readiness signal, and propagate signals on shutdown.
+- **Fleet** — A coordinated multi-agent launch; if any agent fails startup
+  the whole fleet aborts with `RuntimeFleetStartupInterrupted`.
+- **Workspace adapter** — Variant that resolves binary paths relative to a
+  monorepo workspace (vs. PATH-based resolution).
