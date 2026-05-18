@@ -125,6 +125,7 @@ export function connectTestClient(opts: {
     return {
       sendRpc: client.sendRpc.bind(client),
       sendMalformed: client.sendMalformed.bind(client),
+      sendResponseFrame: client.sendResponseFrame.bind(client),
       waitForNotification: client.waitForNotification.bind(client),
       handleServerRpc: client.handleServerRpc.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),

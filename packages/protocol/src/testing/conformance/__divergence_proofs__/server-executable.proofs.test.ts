@@ -27,6 +27,7 @@ import {
   decodeFrame,
   encodeFrame,
   isRequestFrame,
+  isResponseFrame,
 } from "../_shared/frame-mutator.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import type {
@@ -42,6 +43,7 @@ import { registerMultiSubscriberFanOut } from "../network/presence-multi-subscri
 import { registerReconnectStorm } from "../network/presence-reconnect-storm.js";
 import { registerSameStateNoDoubleFire } from "../network/presence-same-state-no-double-fire.js";
 import { registerSubscribeAfterConnect } from "../network/presence-subscribe-after-connect.js";
+import { registerSpuriousAppCallbackFrameHandling } from "../app/spurious-app-callback-frame.js";
 import {
   collectProperties,
   type PropertyFailure,
@@ -77,7 +79,8 @@ type BadServerBehavior =
   | "archive-missing-event"
   | "task-close-missing-event"
   | "presence-silent"
-  | "presence-stale-snapshot";
+  | "presence-stale-snapshot"
+  | "reply-to-spurious-response";
 
 type BadServerWriter = (raw: string) => Effect.Effect<void, unknown>;
 type ProofExpectation = "assertion" | "invariant";
@@ -230,6 +233,15 @@ const SERVER_PROOF_CASES: ReadonlyArray<ServerProofCase> = [
     expectation: "invariant",
     timeoutMs: SERVER_PROOF_TIMEOUT_MS,
   },
+  {
+    title:
+      "registerSpuriousAppCallbackFrameHandling fails when the server replies to a stray response",
+    register: registerSpuriousAppCallbackFrameHandling,
+    behavior: "reply-to-spurious-response",
+    propertyName: "spurious-app-callback-frame-handling",
+    expectation: "assertion",
+    timeoutMs: SERVER_PROOF_TIMEOUT_MS,
+  },
 ];
 
 describe("server-side conformance executable divergence proofs", () => {
@@ -240,7 +252,7 @@ describe("server-side conformance executable divergence proofs", () => {
         hasUniquePropertyName,
       ),
     );
-    expect(SERVER_PROOF_CASES).toHaveLength(16);
+    expect(SERVER_PROOF_CASES).toHaveLength(17);
   });
 
   for (const proof of SERVER_PROOF_CASES) {
@@ -427,12 +439,33 @@ function handleBadServerRawData(
     const decoded = yield* Effect.either(decodeFrame(raw, "inbound"));
     const frame = Either.getOrNull(decoded);
     if (frame === null) return;
+    if (isResponseFrame(frame)) {
+      return yield* handleBadServerResponseFrame(frame, writer, behavior);
+    }
     if (!isRequestFrame(frame)) return;
     const ordinal = yield* Ref.updateAndGet(requestCounter, (n) => n + 1);
     const response = makeBadResponse(frame, behavior, ordinal);
     if (response === null) return;
     yield* writer(encodeFrame(response)).pipe(Effect.orDie);
   });
+}
+
+function handleBadServerResponseFrame(
+  response: ResponseFrame,
+  writer: BadServerWriter,
+  behavior: BadServerBehavior,
+): Effect.Effect<void> {
+  if (behavior !== "reply-to-spurious-response") return Effect.void;
+  return writer(
+    encodeFrame(
+      responseFrame(response.id, {
+        error: {
+          code: JSON_RPC_RESERVED_CODES.InvalidRequest,
+          message: "bad server replied to a stray response frame",
+        },
+      }),
+    ),
+  ).pipe(Effect.orDie);
 }
 
 function makeBadResponse(
