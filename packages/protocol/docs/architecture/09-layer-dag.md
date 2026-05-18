@@ -5,12 +5,24 @@
 Source layout enforces a directed DAG. Each layer's `methods.ts` may import
 from layers below; never above:
 
-```text
-  app/        ← uses task + identity + transport
-  task/       ← uses identity + transport
-  network/    ← uses identity + transport
-  identity/   ← uses transport
-  transport/  ← uses schema-primitives only
+```mermaid
+flowchart TD
+    APP["app/"]
+    TASK["task/"]
+    NETWORK["network/"]
+    IDENTITY["identity/"]
+    TRANSPORT["transport/"]
+    PRIMITIVES["schema-primitives"]
+
+    APP --> TASK
+    APP --> IDENTITY
+    APP --> TRANSPORT
+    TASK --> IDENTITY
+    TASK --> TRANSPORT
+    NETWORK --> IDENTITY
+    NETWORK --> TRANSPORT
+    IDENTITY --> TRANSPORT
+    TRANSPORT --> PRIMITIVES
 ```
 
 A method defined in `task` may reference `identity` types (e.g. `AgentId`)

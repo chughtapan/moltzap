@@ -7,55 +7,33 @@ Effect values to satisfy nanoclaw's `Channel` interface (see `ownsJid` in
 `types.ts`). The channel does not own any WS socket directly; all transport
 is in `MoltZapChannelCore` (from `@moltzap/client`).
 
-```
-  Caller (nanoclaw router / test harness)
-       │
-       │ channel.connect()                    channels/moltzap.ts → connect()
-       ▼
-  Effect.runPromise(
-    this.core.connect()                       @moltzap/client
-      .pipe(
-        Effect.tap(() =>
-          Effect.logInfo("MoltZap connected")
-            .pipe(Effect.annotateLogs({ channel: "moltzap" }))
-        )
-      )
-  )
-       │
-       │ resolves when WS handshake complete
-       ▼
-  channel.isConnected() → true               (delegates to core.isConnected())
+```mermaid
+sequenceDiagram
+    participant Caller as Caller (nanoclaw router / test harness)
+    participant Channel as MoltZapChannel (channels/moltzap.ts)
+    participant Core as MoltZapChannelCore (@moltzap/client)
 
+    Note over Caller,Core: connect()
+    Caller->>Channel: channel.connect()
+    Channel->>Core: Effect.runPromise(core.connect())
+    Core-->>Channel: WS handshake complete
+    Channel-->>Caller: resolves
+    Note over Channel: channel.isConnected() → true (delegates to core.isConnected())
 
-  Caller
-       │
-       │ channel.disconnect()                 channels/moltzap.ts → disconnect()
-       ▼
-  Effect.runPromise(this.core.disconnect())
-       │
-       │ Effect never fails; resolves after WS close
-       ▼
-  channel.isConnected() → false
+    Note over Caller,Core: disconnect()
+    Caller->>Channel: channel.disconnect()
+    Channel->>Core: Effect.runPromise(core.disconnect())
+    Note over Core: Effect never fails; resolves after WS close
+    Core-->>Channel: resolved
+    Channel-->>Caller: resolves
+    Note over Channel: channel.isConnected() → false
+    Note over Channel: disconnect does NOT clear dispatchLeasesByJid — lease entries survive across reconnects (intentional; server owns lease state; stale local entries are harmless because a second send hits the CONSUMED server path and surfaces MoltZapChannelError, §3.4)
 
-  NOTE: disconnect does NOT clear dispatchLeasesByJid.
-        Lease entries survive across reconnects (intentional —
-        the server owns lease state; stale local entries are harmless
-        because a second send for the same lease hits the CONSUMED
-        server path and surfaces MoltZapChannelError, §3.4).
-
-  onDisconnect / onReconnect hooks (wired in constructor):
-       │ core detects drop
-       ▼
-  core fires onDisconnect callback
-       │
-       ▼  Effect.runFork(logWarning("MoltZap disconnected"))
-          (fire-and-forget; nanoclaw router sees isConnected() → false)
-
-       │ core re-establishes WS
-       ▼
-  core fires onReconnect callback
-       │
-       ▼  Effect.runFork(logInfo("MoltZap reconnected"))
+    Note over Caller,Core: onDisconnect / onReconnect hooks (wired in constructor)
+    Core->>Channel: core detects drop → fires onDisconnect callback
+    Note over Channel: Effect.runFork(logWarning("MoltZap disconnected"))<br/>(fire-and-forget; nanoclaw router sees isConnected() → false)
+    Core->>Channel: core re-establishes WS → fires onReconnect callback
+    Note over Channel: Effect.runFork(logInfo("MoltZap reconnected"))
 ```
 
 ---

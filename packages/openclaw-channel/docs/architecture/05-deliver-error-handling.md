@@ -6,64 +6,40 @@ This is load-bearing. The wrong return value here causes OpenClaw to
 retry (or not retry) the reply delivery. The code lives inside the
 per-message `deliver` closure in `openclaw-entry.ts → onInbound, deliver`.
 
+```mermaid
+flowchart TD
+    A["core.sendReply(conversationId, text)\n(calls service.send with dispatchLeaseId,\nopenclaw-entry.ts → sendReply)"]
+
+    A --> B{"Outcome"}
+
+    B -->|SUCCESS| C[".tap(() => {\n  consumedLeaseAt = Date.now()\n  log.info('outbound reply to …: text[:80]')\n})\n.map(() => true)"]
+
+    B -->|"FAILURE: RpcServerError\n.catchTag('RpcServerError')"| D{"err.code ===\nTaskClosedError.code\n(-32020)?"}
+
+    D -->|yes — TERMINAL| E["log.warn({ conversationId, code, msg },\n'send rejected — task closed, dropping')\nreturn true"]
+    E --> F["WHY true? Lease is consumed server-side.\nReturning true tells OpenClaw 'delivered'\nso it does NOT retry. Retrying would create\na new orphan send.\n(PR #587 fix: previously returned false,\ncausing infinite retry loops on closed tasks.)"]
+
+    D -->|no — RETRY-ELIGIBLE| G["log.error('failed to send reply: …')\nreturn false"]
+    G --> H["WHY false? Non-terminal server error\n(e.g. rate limit, transient server fault).\nOpenClaw may retry."]
+
+    B -->|"FAILURE: any other error\n.catchAll(err)"| I["log.error('failed to send reply: …')\nreturn false\n(network drops, Effect runtime errors, etc.)"]
+
+    C --> J["Effect.runPromise(deliverEffect)\n— Effect↔Promise boundary —"]
+    F --> J
+    H --> J
+    I --> J
+
+    J --> K["Promise&lt;boolean&gt; → OpenClaw runtime\ntrue  = delivered or terminal-consumed; do not retry\nfalse = delivery failed; retry eligible"]
+
+    style E fill:#fff3cd,stroke:#d4a
+    style G fill:#fde,stroke:#d44
+    style I fill:#fde,stroke:#d44
+    style C fill:#dfd,stroke:#4a4
 ```
-core.sendReply(conversationId, text)
-  (calls service.send with dispatchLeaseId, in `openclaw-entry.ts → sendReply`)
 
-       ┌─ SUCCESS ──────────────────────────────────────────────┐
-       │  .tap(() => {                                           │
-       │    consumedLeaseAt = Date.now()  ← lease now consumed  │
-       │    log.info("outbound reply to …: ${text[:80]}")       │
-       │  })                                                     │
-       │  .map(() => true)  ← deliver returns true (delivered)  │
-       └─────────────────────────────────────────────────────── ┘
+**Annotations:**
 
-       ┌─ FAILURE path 1: RpcServerError ──────────────────────────────┐
-       │  .catchTag("RpcServerError", (err: RpcServerError) =>          │
-       │                                                                │
-       │    if err.code === TaskClosedError.code               (-32020) │
-       │    ┌── TERMINAL: Task is closed ────────────────────────────── │
-       │    │   log.warn({ conversationId, code, msg },                 │
-       │    │             "send rejected — task closed, dropping")      │
-       │    │   return true                                              │
-       │    │   ─────────────────────────────────────────────────────── │
-       │    │   WHY true? The lease is consumed on the server side.     │
-       │    │   Returning true tells OpenClaw "delivered" so it does    │
-       │    │   NOT retry. Retrying would create a new orphan send.     │
-       │    │   This was the PR #587 fix: previously returned false,    │
-       │    │   causing infinite retry loops on closed tasks.           │
-       │    └─────────────────────────────────────────────────────────  │
-       │    else                                                         │
-       │    ┌── RETRY-ELIGIBLE: other RpcServerError ─────────────────  │
-       │    │   log.error("failed to send reply: …")                    │
-       │    │   return false                                             │
-       │    │   ─────────────────────────────────────────────────────── │
-       │    │   WHY false? Non-terminal server error (e.g. rate limit,  │
-       │    │   transient server fault). OpenClaw may retry.            │
-       │    └─────────────────────────────────────────────────────────  │
-       └────────────────────────────────────────────────────────────── ┘
-
-       ┌─ FAILURE path 2: any other error ─────────────────────────────┐
-       │  .catchAll(err =>                                              │
-       │    log.error("failed to send reply: …")                        │
-       │    return false                                                 │
-       │  )                                                             │
-       │  (network drops, Effect runtime errors, etc.)                  │
-       └────────────────────────────────────────────────────────────── ┘
-
-       ▼
-  Effect.runPromise(deliverEffect)
-  ────────────────── Promise boundary ───────────────────────────────────
-  Promise<boolean> → OpenClaw runtime
-    true  = "delivered or terminal-consumed; do not retry"
-    false = "delivery failed; retry eligible"
-
-TaskClosedError.code:
-  Defined in @moltzap/protocol/task.
-  Wire value: -32020.
-  Meaning: the server-side task context for this conversation is closed;
-  no further messages can be sent. Terminal; must not retry.
-```
+- `TaskClosedError.code`: Defined in `@moltzap/protocol/task`. Wire value: `-32020`. Meaning: the server-side task context for this conversation is closed; no further messages can be sent. Terminal; must not retry.
 
 ---
 

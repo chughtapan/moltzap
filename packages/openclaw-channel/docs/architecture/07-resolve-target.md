@@ -6,70 +6,49 @@
 
 **A. `messaging.targetResolver.resolveTarget` (directory resolver)**
 
-```
-Called by: OpenClaw's address-book pipeline
-           (wired in `openclaw-entry.ts → messaging.targetResolver`)
-Signature: resolveTarget(params) → Promise<Result | null>
+Called by: OpenClaw's address-book pipeline (wired in `openclaw-entry.ts → messaging.targetResolver`).
+Signature: `resolveTarget(params) → Promise<Result | null>`
 
-params.normalized → isMoltZapTarget(normalized)?
-  returns null     ← not our namespace; OpenClaw tries next resolver
-
-  MOLTZAP_TARGET_RE = /^(agent|conv):.+$/   (in `openclaw-entry.ts`)
-  matches: "agent:anything" or "conv:anything"
-
-  on match → Promise.resolve({
-    to:      normalized,
-    kind:    conv:* → "group" | otherwise → "user",
-    display: normalized.split(":").slice(1).join(":"),
-              e.g. "agent:alice" → display "alice"
-              e.g. "conv:abc-123" → display "abc-123"
-    source:  "normalized"
-  })
-  No server round-trip; pure string parse.
+```mermaid
+flowchart TD
+    A["resolveTarget(params)\nparams.normalized"] --> B{"isMoltZapTarget(normalized)?\nMOLTZAP_TARGET_RE = /^(agent|conv):.+$/"}
+    B -->|no match| C["return null\nnot our namespace;\nOpenClaw tries next resolver"]
+    B -->|match| D{"normalized starts with 'conv:'?"}
+    D -->|yes| E["kind = 'group'"]
+    D -->|no| F["kind = 'user'"]
+    E --> G["Promise.resolve({\n  to: normalized,\n  kind,\n  display: normalized.split(':').slice(1).join(':'),\n  source: 'normalized'\n})\nNo server round-trip; pure string parse."]
+    F --> G
 ```
 
 **B. `outbound.resolveTarget` (send-time validation)**
 
+Called by: OpenClaw before calling `outbound.sendText` (wired in `openclaw-entry.ts → outbound.resolveTarget`).
+Signature: `resolveTarget(params) → OpenClawTargetResolveResult` (synchronous — no Promise)
+
+```mermaid
+flowchart TD
+    A["resolveTarget(params)\nparams.to (after trim)"] --> B{"empty string?"}
+    B -->|yes| C["return new OpenClawTargetRejected({\n  error: new Error('MoltZap: target is required')\n})"]
+    B -->|no| D{"contains ':'\nAND fails isMoltZapTarget?\ne.g. 'slack:alice', 'http://example.com'"}
+    D -->|yes| E["return new OpenClawTargetRejected({\n  error: new Error(\n    'MoltZap: unsupported target format &lt;to&gt;'\n    + ' — use agent:&lt;name&gt; or conv:&lt;id&gt;'\n  )\n})"]
+    D -->|no| F["passes isMoltZapTarget\nOR contains no ':'\n(plain UUID — backward compat path)"]
+    F --> G["return new OpenClawTargetResolved({ to })"]
 ```
-Called by: OpenClaw before calling outbound.sendText
-           (wired in `openclaw-entry.ts → outbound.resolveTarget`)
-Signature: resolveTarget(params) → OpenClawTargetResolveResult
-           (synchronous — no Promise)
 
-params.to (after trim):
-  ┌─ empty string ────────────────────────────────────────────────────┐
-  │  return new OpenClawTargetRejected({                               │
-  │    error: new Error("MoltZap: target is required")                 │
-  │  })                                                                │
-  └──────────────────────────────────────────────────────────────────┘
+**Normalization table:**
 
-  ┌─ contains ":" but fails isMoltZapTarget ──────────────────────────┐
-  │  e.g. "slack:alice", "http://example.com"                          │
-  │  return new OpenClawTargetRejected({                               │
-  │    error: new Error(                                               │
-  │      `MoltZap: unsupported target format "${to}"                   │
-  │       — use agent:<name> or conv:<id>`)                           │
-  │  })                                                                │
-  └──────────────────────────────────────────────────────────────────┘
+| Input | resolveTarget result | sendText branch |
+|---|---|---|
+| `"agent:alice"` | resolved, kind `"user"` | `agent:` path → `sendToAgent` |
+| `"conv:abc-123"` | resolved, kind `"group"` | `conv:` → slice prefix → `send` |
+| `"abc-123"` | resolved (no colon → no rejection) | plain-id path → `send` |
 
-  ┌─ passes isMoltZapTarget OR contains no ":" ────────────────────────┐
-  │  (plain UUID without prefix — backward compat path)               │
-  │  return new OpenClawTargetResolved({ to })                         │
-  └──────────────────────────────────────────────────────────────────┘
+**Error shape:**
 
-Normalization table:
-  "agent:alice"      → resolved, kind "user"   in targetResolver
-                     → sendText branches agent: path
-  "conv:abc-123"     → resolved, kind "group"  in targetResolver
-                     → sendText branches conv: → slice prefix
-  "abc-123"          → resolved (no colon → no rejection)
-                     → sendText falls to plain-id path
+- `OpenClawTargetResolved` — `{ _tag: "OpenClawTargetResolved", ok:true, to }`
+- `OpenClawTargetRejected` — `{ _tag: "OpenClawTargetRejected", ok:false, error }`
 
-Error shape:
-  OpenClawTargetResolved  { _tag: "OpenClawTargetResolved",  ok:true,  to }
-  OpenClawTargetRejected  { _tag: "OpenClawTargetRejected",  ok:false, error }
-  Both extend Data.TaggedClass (effect Data module).
-```
+Both extend `Data.TaggedClass` (effect Data module).
 
 ---
 

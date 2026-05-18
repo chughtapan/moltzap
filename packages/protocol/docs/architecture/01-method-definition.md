@@ -6,33 +6,30 @@ Every wire method is born at module-load time by a single `defineRpc` call.
 The factory compiles AJV validators eagerly so every wire boundary uses
 identical schema semantics:
 
-```text
-            domain layer (e.g. task/methods.ts)
-                       │
-                       ▼  defineRpc({ name, params, result })       transport/method.ts → defineRpc
-                       │
-       ┌───────────────┴────────────────────────────┐
-       ▼                                            ▼
-  ajv.compile(params)                          ajv.compile(result)
-  → validateParams predicate                   → validateResult predicate
-       │                                            │
-       └────────────┬───────────────────────────────┘
-                    ▼
-            RpcDefinition<Name, P, R> {
-              name (branded)                                method.ts → RpcDefinition type
-              paramsSchema / resultSchema (TypeBox)
-              validateParams / validateResult (Ajv)
-              encodeRequest(id, params) → RequestFrame      wire.ts → encodeRequest
-              encodeResponse(id, result) → ResponseFrame    wire.ts → encodeResponse
-            }
-                    │
-                    ▼
-       pushed into per-layer `*RpcMethods` const
-                    │
-                    ▼
-       aggregated into `rpcMethods` (rpc-registry.ts → rpcMethods)
-       union typed as `AnyRpcDefinition` (rpc-registry.ts → AnyRpcDefinition)
+```mermaid
+flowchart TD
+    A["domain layer\n(e.g. task/methods.ts)"]
+    B["defineRpc({ name, params, result })"]
+    C["ajv.compile(params)\n→ validateParams predicate"]
+    D["ajv.compile(result)\n→ validateResult predicate"]
+    E["RpcDefinition&lt;Name, P, R&gt;"]
+    F["pushed into per-layer *RpcMethods const"]
+    G["aggregated into rpcMethods\nunion typed as AnyRpcDefinition"]
+
+    A --> B
+    B --> C
+    B --> D
+    C --> E
+    D --> E
+    E --> F
+    F --> G
 ```
+
+**Annotations:**
+
+- `defineRpc` — `transport/method.ts → defineRpc`
+- `RpcDefinition` type — `method.ts → RpcDefinition type`; fields: `name` (branded), `paramsSchema` / `resultSchema` (TypeBox), `validateParams` / `validateResult` (Ajv), `encodeRequest(id, params) → RequestFrame` (`wire.ts → encodeRequest`), `encodeResponse(id, result) → ResponseFrame` (`wire.ts → encodeResponse`)
+- `rpcMethods` / `AnyRpcDefinition` — `rpc-registry.ts → rpcMethods`, `rpc-registry.ts → AnyRpcDefinition`
 
 `defineNotification` is the same pipeline minus the result schema and minus
 the response encoder. Method names are branded `JsonRpcMethod<"the.name">`

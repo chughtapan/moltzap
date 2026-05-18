@@ -4,54 +4,19 @@
 
 Concrete walk-through of one method, end to end:
 
-```text
-CLIENT                                              SERVER
-──────                                              ──────
-caller
-  │  service.send({...})
-  ▼
-MoltZapWsClient.call(MessagesSend, params)
-  │
-  ▼  json-rpc-client.ts → call
-  │
-  │  next id = "wsclient-42"
-  │  frame = {jsonrpc:"2.0", id:"wsclient-42",
-  │           method:"messages/send", params:{...}}
-  │  insert pending[wsclient-42] = {Deferred}
-  │  write(JSON.stringify(frame))
-  │  await Deferred
-  │                                                 ─── WS frame ──▶
-  │                                                                 decodeClientInbound(json)
-  │                                                                   → {_tag: "ClientRequest",
-  │                                                                      definition: MessagesSend,
-  │                                                                      params}
-  │                                                                 makeJsonRpcServer.handle(frame, ctx)
-  │                                                                   ▼ json-rpc-server.ts → handle
-  │                                                                 handlerByMethod.get("messages/send")
-  │                                                                   ▼
-  │                                                                 decodeRpcParams → ParamsOf<MessagesSend>
-  │                                                                   ▼
-  │                                                                 messageHandlers["messages/send"]
-  │                                                                   .handle(params, dispatchCtx)
-  │                                                                   ▼
-  │                                                                 MessageService.send(...)
-  │                                                                   ▼
-  │                                                                 Exit.isSuccess → result
-  │                                                                   ▼
-  │                                                                 successResponse(frame, ms, result)
-  │                                                                   ▼ logInfo "RPC request completed"
-  │                                                <── WS frame ──   responseFrame(id, {result})
-  │
-  ▼  socket onmessage → decodeServerInbound → ResponseSuccess
-  │
-  ▼  client.resolve(frame)
-  │  → pendingRef.modify(take("wsclient-42"))
-  │  → Deferred.succeed(result)
-  │
-  ▼  await unblocks
-  │  decodeRpcResult(MessagesSend, result)
-  │
-  ▼  ResultOf<MessagesSend> returned to caller
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Client as "MoltZapWsClient<br/>(json-rpc-client.ts → call)"
+    participant Server as "makeJsonRpcServer<br/>(json-rpc-server.ts → handle)"
+
+    Caller->>Client: service.send({...})
+    Note over Client: next id = "wsclient-42"<br/>frame = {jsonrpc:"2.0", id:"wsclient-42",<br/>method:"messages/send", params:{...}}<br/>insert pending[wsclient-42] = {Deferred}<br/>write(JSON.stringify(frame))<br/>await Deferred
+    Client->>Server: WS frame (messages/send, id: wsclient-42)
+    Note over Server: decodeClientInbound(json)<br/>→ {_tag: "ClientRequest", definition: MessagesSend, params}<br/>handlerByMethod.get("messages/send")<br/>decodeRpcParams → ParamsOf&lt;MessagesSend&gt;<br/>messageHandlers["messages/send"].handle(params, dispatchCtx)<br/>MessageService.send(...)<br/>Exit.isSuccess → result<br/>successResponse — logInfo "RPC request completed"
+    Server-->>Client: WS frame (responseFrame id: wsclient-42, {result})
+    Note over Client: socket onmessage → decodeServerInbound → ResponseSuccess<br/>client.resolve(frame)<br/>pendingRef.modify(take("wsclient-42"))<br/>Deferred.succeed(result)<br/>await unblocks<br/>decodeRpcResult(MessagesSend, result)
+    Client-->>Caller: ResultOf&lt;MessagesSend&gt;
 ```
 
 On the error arm, the server returns `{error: {code, message, data}}`,

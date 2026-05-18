@@ -7,112 +7,87 @@ bottom-up. Each tier's outputs feed the next tier's inputs through
 `Layer.provideMerge` (which keeps lower-tier Tags visible to the rest of
 the graph, vs `Layer.provide` which would consume them):
 
-```text
-                          createCoreApp(config)                  app/server.ts → createCoreApp
-                                   │
-                                   ▼
-                   BaseLive = Layer.mergeAll(
-                     Layer.succeed(DbTag, db),
-                     Layer.succeed(EncryptionTag, envelope),
-                     Layer.succeed(SessionValidatorTag, sv),
-                     Layer.succeed(WebhookClientTag, http),
-                     Layer.succeed(DeliveryWebhookTag, cfg),
-                     config.traceCaptureLayer ?? NoopTraceCaptureLive,
-                   )                                              app/server.ts → createCoreApp (BaseLive block)
-                                   │
-   ┌───────────────────────────────┴───────────────────────────────┐
-   ▼                                                               │
-ServicesLive = Tier6 (provideMerge composition):                   │ app/layers.ts → Tier 1-6 composition
-                                                                   │
-   Tier1                                                           │
-   ├─ ConnectionManagerLive                                        │
-   ├─ AuthServiceLive          (needs Db)                          │
-   ├─ ParticipantServiceLive   (needs Db)                          │
-   └─ ContactsServiceLive      (needs Db)                          │
-       │                                                           │
-       ▼ provideMerge into                                         │
-   Tier2                                                           │
-   ├─ PresenceServiceLive          (needs ConnectionManager)       │
-   ├─ AgentEndpointResolverLive    (no deps; Ref<HashMap>)         │
-   └─ AppTmRegistryLive            (seeds default-DM/group TMs)    │
-       │                                                           │
-       ▼ provideMerge into                                         │
-   Tier2.5                                                         │
-   └─ NetworkSendServiceLive       (needs Resolver + Connections   │
-                                         + AppTmRegistry)          │
-       │                                                           │
-       ▼ provideMerge into                                         │
-   Tier2.6                                                         │
-   └─ LeaseRegistryLive            (needs ConnectionManager)       │
-       │                                                           │
-       ▼ provideMerge into                                         │
-   Tier3                                                           │
-   └─ AppHostLive                  (needs Db + Connections +       │
-                                       LeaseRegistry)              │
-                                    side-effect: registers default │
-                                    messageAuthorize hooks for     │
-                                    DEFAULT_DM/GROUP_TM_ADDRESS    │
-       │                                                           │
-       ▼ provideMerge into                                         │
-   Tier4                                                           │
-   └─ ConversationServiceLive      (needs Db + Participants +      │
-                                        Connections + AppHost)     │
-                                    (AppHost.contactService        │
-                                     captured lazily — post-       │
-                                     construction wire via         │
-                                     setContactService)            │
-       │                                                           │
-       ▼ provideMerge into                                         │
-   Tier5                                                           │
-   └─ MessageServiceLive           (needs every upstream +         │
-                                       Encryption + DeliveryWebhook│
-                                       + Webhook + TraceCapture    │
-                                       + AppHost)                  │
-       │                                                           │
-       ▼ provideMerge into                                         │
-   Tier6                                                           │
-   └─ TaskServiceLive              (needs Db + Conversation +      │
-                                       Message)                    │
-       │                                                           │
-       └────────────────────────────────────┐                      │
-                                            ▼                      │
-                       ServicesWithBase = Layer.provideMerge(  ────┘
-                         ServicesLive, BaseLive)               app/server.ts → createCoreApp (ServicesWithBase)
+```mermaid
+flowchart TD
+    createCoreApp["createCoreApp(config)<br/><i>app/server.ts</i>"]
 
-                                   │
-                                   ▼
-                   WireConvIntoAppHost = Layer.effectDiscard(...)  app/server.ts → createCoreApp (WireConvIntoAppHost)
-                   │  post-construction: appHost.setConversationService(conv)
-                   │  — required because AppHost has a backref into ConversationService
-                   │    for the dispatch-deny path (removeParticipant) but
-                   │    ConversationService is built ABOVE AppHost in the tier order.
-                   ▼
-                   FullLive = Layer.provideMerge(
-                     WireConvIntoAppHost, ServicesWithBase)        app/server.ts → createCoreApp (FullLive)
+    subgraph BaseLive["BaseLive = Layer.mergeAll(…)"]
+        B1["DbTag"]
+        B2["EncryptionTag"]
+        B3["SessionValidatorTag"]
+        B4["WebhookClientTag"]
+        B5["DeliveryWebhookTag"]
+        B6["TraceCaptureLayer"]
+    end
 
-                                   │
-                                   ▼
-                   dispatchRuntime = ManagedRuntime.make(
-                     Layer.mergeAll(NodeHttpServer.layerContext, FullLive)
-                   )                                               app/server.ts → createCoreApp (dispatchRuntime)
-                                   │
-                                   ▼
-                   services = dispatchRuntime.runSync(resolveServices)
-                               ↑                                   app/server.ts → createCoreApp (resolveServices)
-                               │  resolveServices = Effect.all({tag…})
-                               │  produces a plain-object view for non-Effect call sites
-                               │
-                   ┌───────────┴────────────────────────────────────┐
-                   │  Returned CoreApp exposes:                     │
-                   │    • port                                      │
-                   │    • registerRpcMethod  (push onto methods[])  │
-                   │    • onConnection / onDisconnection (hooks)    │
-                   │    • registerApp / registerRemoteApp           │
-                   │    • registerMessageAuthorize / onTaskAuth…    │
-                   │    • setContactService                         │
-                   │    • networkSendService, traceCapture, leases  │
-                   │    • close()                                   │
-                   └────────────────────────────────────────────────┘
+    subgraph ServicesLive["ServicesLive — Tier 1-6 (provideMerge chain) · app/layers.ts"]
+        subgraph Tier1["Tier 1"]
+            T1A["ConnectionManagerLive"]
+            T1B["AuthServiceLive<br/>(needs Db)"]
+            T1C["ParticipantServiceLive<br/>(needs Db)"]
+            T1D["ContactsServiceLive<br/>(needs Db)"]
+        end
+
+        subgraph Tier2["Tier 2"]
+            T2A["PresenceServiceLive<br/>(needs ConnectionManager)"]
+            T2B["AgentEndpointResolverLive<br/>(no deps; Ref&lt;HashMap&gt;)"]
+            T2C["AppTmRegistryLive<br/>(seeds default-DM/group TMs)"]
+        end
+
+        subgraph Tier25["Tier 2.5"]
+            T25["NetworkSendServiceLive<br/>(needs Resolver + Connections + AppTmRegistry)"]
+        end
+
+        subgraph Tier26["Tier 2.6"]
+            T26["LeaseRegistryLive<br/>(needs ConnectionManager)"]
+        end
+
+        subgraph Tier3["Tier 3"]
+            T3["AppHostLive<br/>(needs Db + Connections + LeaseRegistry)<br/>side-effect: registers default messageAuthorize hooks<br/>for DEFAULT_DM/GROUP_TM_ADDRESS"]
+        end
+
+        subgraph Tier4["Tier 4"]
+            T4["ConversationServiceLive<br/>(needs Db + Participants + Connections + AppHost)<br/>AppHost.contactService captured lazily —<br/>post-construction wire via setContactService"]
+        end
+
+        subgraph Tier5["Tier 5"]
+            T5["MessageServiceLive<br/>(needs every upstream +<br/>Encryption + DeliveryWebhook + Webhook + TraceCapture + AppHost)"]
+        end
+
+        subgraph Tier6["Tier 6"]
+            T6["TaskServiceLive<br/>(needs Db + Conversation + Message)"]
+        end
+
+        Tier1 -->|"provideMerge into"| Tier2
+        Tier2 -->|"provideMerge into"| Tier25
+        Tier25 -->|"provideMerge into"| Tier26
+        Tier26 -->|"provideMerge into"| Tier3
+        Tier3 -->|"provideMerge into"| Tier4
+        Tier4 -->|"provideMerge into"| Tier5
+        Tier5 -->|"provideMerge into"| Tier6
+    end
+
+    ServicesWithBase["ServicesWithBase =<br/>Layer.provideMerge(ServicesLive, BaseLive)<br/><i>app/server.ts</i>"]
+
+    WireConv["WireConvIntoAppHost = Layer.effectDiscard(…)<br/>post-construction: appHost.setConversationService(conv)<br/>— AppHost has a backref into ConversationService<br/>for dispatch-deny path (removeParticipant)<br/>but ConversationService is built ABOVE AppHost<br/><i>app/server.ts</i>"]
+
+    FullLive["FullLive = Layer.provideMerge(<br/>WireConvIntoAppHost, ServicesWithBase)<br/><i>app/server.ts</i>"]
+
+    dispatchRuntime["dispatchRuntime = ManagedRuntime.make(<br/>Layer.mergeAll(NodeHttpServer.layerContext, FullLive))<br/><i>app/server.ts</i>"]
+
+    resolveServices["services = dispatchRuntime.runSync(resolveServices)<br/>resolveServices = Effect.all({tag…})<br/>produces a plain-object view for non-Effect call sites<br/><i>app/server.ts</i>"]
+
+    CoreApp["Returned CoreApp exposes:<br/>port · registerRpcMethod · onConnection / onDisconnection<br/>registerApp / registerRemoteApp<br/>registerMessageAuthorize / onTaskAuth…<br/>setContactService<br/>networkSendService · traceCapture · leases<br/>close()"]
+
+    createCoreApp --> BaseLive
+    createCoreApp --> ServicesLive
+    BaseLive --> ServicesWithBase
+    ServicesLive --> ServicesWithBase
+    ServicesWithBase --> WireConv
+    WireConv --> FullLive
+    FullLive --> dispatchRuntime
+    dispatchRuntime --> resolveServices
+    resolveServices --> CoreApp
 ```
 
 The `Layer.provideMerge` discipline (vs `Layer.provide`) is load-bearing:

@@ -7,41 +7,33 @@ server, not by a local state machine in this package. The channel's job
 is to project the server's typed rejection onto a structured `ReplyError`
 before it reaches Claude's tool result.
 
-```text
-Lease lifecycle from the channel's perspective
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**MoltZap server — lease state machine:**
 
-  ┌─────────────────────────────────────────────────────────┐
-  │                   MoltZap server                         │
-  │                                                          │
-  │  PENDING ──dispatch──> GRANTED ──consume──> CONSUMED     │
-  │                                     │                    │
-  │                              only one consume            │
-  │                              allowed; second             │
-  │                              returns LeaseInvalid        │
-  └─────────────────────────────────────────────────────────┘
-            │                                │
-            │ inbound message                │ sendReply() call
-            ▼                                ▼
-  channel.onInbound()                core.sendReply(conv, text)
-  routing.recordInbound()            WS RPC → messages/send
-  serverHandle.push(notification)           │
-  (LRU map updated)                         │
-                                    success: void
-                                            │
-                                    RpcServerError { data.reason: "LeaseInvalid" }
-                                            │
-                                    projectLeaseInvalid (in entry.ts)
-                                            │
-                                    LeaseAlreadyConsumed { leaseId }
-                                            │
-                                    server.ts sendFailureResult
-                                            │
-                                    toolErrorResult(
-                                      "LeaseAlreadyConsumed: dispatch
-                                       lease <id> was already consumed
-                                       by an earlier reply in this
-                                       dispatch turn.")
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> GRANTED : dispatch
+    GRANTED --> CONSUMED : consume (first sendReply)
+    CONSUMED --> CONSUMED : second consume → LeaseInvalid
+```
+
+**Channel projection of the lease (entry.ts + server.ts):**
+
+```mermaid
+flowchart TD
+    A["inbound message"] --> B["channel.onInbound()\nrouting.recordInbound()\nserverHandle.push(notification)\nLRU map updated"]
+    C["sendReply() call"] --> D["core.sendReply(conv, text)\nWS RPC → messages/send"]
+    D --> E{result}
+    E -->|success| F["void"]
+    E -->|"RpcServerError { data.reason: 'LeaseInvalid' }"| G["projectLeaseInvalid (entry.ts)"]
+    G --> H["LeaseAlreadyConsumed { leaseId }"]
+    H --> I["server.ts sendFailureResult"]
+    I --> J["toolErrorResult('LeaseAlreadyConsumed: dispatch lease &lt;id&gt; was already consumed by an earlier reply in this dispatch turn.')"]
+```
+
+Annotations:
+- The server enforces the single-use lease constraint; this package only projects the typed rejection.
+- The channel's local `routing.ts` LRU map (`Map<MessageId, ConversationId>`, cap=256) is separate from the lease and tracks conversation targets for `reply_to` resolution.
 
 Local routing state (routing.ts) — what the channel DOES track:
   Map<MessageId, ConversationId>   bounded LRU, cap=256
@@ -59,7 +51,6 @@ Local routing state (routing.ts) — what the channel DOES track:
 Lease cleanup: the channel holds no lease tokens. When a dispatch ends
 (or the WS connection drops), no local cleanup is needed — the server
 holds and expires leases independently.
-```
 
 ---
 

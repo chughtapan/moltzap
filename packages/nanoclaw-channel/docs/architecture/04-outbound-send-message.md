@@ -6,62 +6,31 @@
 most recent dispatch lease for the JID, and calls `core.sendReply`.
 Single-use lease semantics are enforced server-side (cutover #533).
 
+```mermaid
+flowchart TD
+    A["Caller (nanoclaw router)\nchannel.sendMessage(jid, text)"]
+    A -->|"channels/moltzap.ts → sendMessage"| B["Effect.runPromise(Effect.gen(...))"]
+
+    B --> C{"ownsJid(jid)?\nchannels/moltzap.ts → ownsJid guard"}
+    C -->|"false"| D["Effect.fail(\n  MoltZapChannelError({ reason: &quot;...does not own jid: &lt;jid&gt;&quot; })\n)\n← rejects immediately; no network call"]
+    C -->|"true"| E["leaseId = dispatchLeasesByJid.get(jid)\nchannels/moltzap.ts → lease lookup"]
+
+    E -->|"present"| F["leaseOpts = { dispatchLeaseId: leaseId }"]
+    E -->|"absent"| G["leaseOpts = {}\n(unleased send; server accepts, no moderation\nobservability — valid for sends before first inbound)"]
+
+    F --> H["core.sendReply(\n  conversationIdFromJid(jid),\n  text,\n  leaseOpts\n)\nstrips &quot;mz:&quot; prefix (§3.5)"]
+    G --> H
+
+    H -->|"RpcServerError(reason=&quot;LeaseInvalid&quot;)"| I["MoltZapChannelError({ reason: &quot;lease already consumed&quot; })"]
+    H -->|"other ServiceRpcError"| J["re-raise err unchanged"]
+    H -->|"success"| K["resolves\n(dispatchLeasesByJid entry KEPT after send —\nsecond send re-uses consumed leaseId → LeaseInvalid)"]
 ```
-  Caller (nanoclaw router)
-       │
-       │ channel.sendMessage(jid, text)       channels/moltzap.ts → sendMessage
-       ▼
-  Effect.runPromise(
-    Effect.gen(this, function* () {
 
-      ── ownership guard ──────────────────────────────────────────────
-      if (!this.ownsJid(jid))                 channels/moltzap.ts → ownsJid guard
-        yield* Effect.fail(
-          new MoltZapChannelError({ reason: "...does not own jid: <jid>" })
-        )   ← rejects immediately; no network call
+**Error taxonomy:**
 
-      ── lease lookup ─────────────────────────────────────────────────
-      leaseId = dispatchLeasesByJid.get(jid)  channels/moltzap.ts → lease lookup
-        present  → { dispatchLeaseId: leaseId }
-        absent   → {}  (unleased send; server accepts, no moderation
-                        observability — valid for sends before first inbound)
-
-      ── send ─────────────────────────────────────────────────────────
-      yield* this.core.sendReply(             channels/moltzap.ts → core.sendReply
-        conversationIdFromJid(jid),           strips "mz:" prefix (§3.5)
-        text,
-        leaseOpts
-      ).pipe(
-        Effect.mapError(
-          (err: ServiceRpcError) => {
-            if err instanceof RpcServerError
-               && err.data.reason === "LeaseInvalid"
-              → new MoltZapChannelError({ reason: "lease already consumed" })
-            else
-              → re-raise err unchanged
-          }
-        )
-      )
-
-      ── NO lease eviction ────────────────────────────────────────────
-      // dispatchLeasesByJid entry is KEPT after send
-      // Second sendMessage for same jid re-sends the consumed leaseId
-      // → server returns RpcServerError(data.reason="LeaseInvalid")
-      // → mapError converts to MoltZapChannelError("lease already consumed")
-
-    })
-  )
-
-  Error taxonomy:
-  ┌────────────────────────────────────────────────────────────────────┐
-  │ MoltZapChannelError("...does not own jid...")                      │
-  │   → ownsJid() returned false (wrong channel prefix)               │
-  │ MoltZapChannelError("lease already consumed")                      │
-  │   → server returned RpcServerError(reason="LeaseInvalid")         │
-  │ ServiceRpcError (other)                                            │
-  │   → transport / auth / network errors; propagated as-is           │
-  └────────────────────────────────────────────────────────────────────┘
-```
+- `MoltZapChannelError("...does not own jid...")` — `ownsJid()` returned false (wrong channel prefix)
+- `MoltZapChannelError("lease already consumed")` — server returned `RpcServerError(reason="LeaseInvalid")`
+- `ServiceRpcError` (other) — transport / auth / network errors; propagated as-is
 
 ---
 

@@ -6,17 +6,18 @@
 must satisfy. Each property ships an **executable** (a divergence proof)
 that *intentionally fails* the property to prove the assertion has teeth.
 
-```text
-src/testing/conformance/{layer}/<property>.ts
-   │
-   ├─ property body — Effect that asserts the invariant
-   │
-   └─ __divergence_proofs__/<property>.proofs.test.ts
-        │
-        ├─ register<PropertyName>  ── server intentionally violates the
-        │                              invariant; property must fail
-        │
-        └─ vitest runs the proof; failure of failure = pass
+```mermaid
+flowchart TD
+    PROP["src/testing/conformance/{layer}/&lt;property&gt;.ts"]
+    BODY["property body\nEffect that asserts the invariant"]
+    PROOFS["__divergence_proofs__/&lt;property&gt;.proofs.test.ts"]
+    REGISTER["register&lt;PropertyName&gt;\nserver intentionally violates the invariant;\nproperty must fail"]
+    VITEST["vitest runs the proof\nfailure of failure = pass"]
+
+    PROP --> BODY
+    PROP --> PROOFS
+    PROOFS --> REGISTER
+    PROOFS --> VITEST
 ```
 
 External consumers (e.g. `moltzap-arena`) drop a ~20-line vitest wrapper

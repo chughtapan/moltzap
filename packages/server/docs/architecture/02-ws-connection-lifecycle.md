@@ -6,63 +6,31 @@ The `/ws` route upgrades the HTTP request to a Socket, then hands it to
 `handleSocket` which builds a single Scoped Effect for the connection's
 entire lifetime:
 
-```text
-GET /ws (Upgrade: websocket)
-   │
-   ▼ wsRoute: req.upgrade → socket: Socket.Socket           app/server.ts → wsRoute
-   │
-   ▼ handleSocket(socket) — Effect.scoped wrapper           app/server.ts → handleSocket
-   │
-   │  connId = crypto.randomUUID()
-   │  writer = yield* socket.writer
-   │  closeRequested = yield* Deferred.make<void>()
-   │
-   │  ┌─ acquireConnectionRpcClient(connId, write)         transport/connection.ts
-   │  │     makeJsonRpcClient({write, idPrefix})            ── server→client callbacks
-   │  │     scope-bound: finalizer fails every pending Deferred with NotConnectedError
-   │  │
-   │  ▼
-   │  connections.add({
-   │    id, write, shutdown: Deferred.succeed(closeRequested),
-   │    auth: null, lastPong: Date.now(),
-   │    conversationIds: new Set(), mutedConversations: new Set(),
-   │    jsonRpcClient,
-   │  })                                                    app/server.ts → handleSocket (connections.add)
-   │
-   ▼  reader = socket.runRaw(data => handleFrame(decode(data)))
-   │
-   ▼  Effect.raceFirst(reader, Deferred.await(closeRequested))
-   │       ↑
-   │       │ ── raceFirst (not race): an abnormal close that completes the
-   │       │     reader fiber before anyone calls shutdown still triggers
-   │       │     onExit. With plain `race`, abrupt disconnects leak.
-   │       │
-   ▼  Effect.onExit(exit => /* cleanup */)
-        │
-        ├─ if (authCtx) presenceService.setOffline(agentId)
-        │
-        ├─ for hook of disconnectionHooks:
-        │     runUserHook(hook, {agentId, ownerUserId, connId},
-        │                  "Disconnection hook", logContext)
-        │     # SEQUENTIAL (not parallel) — earlier hook's cleanup
-        │     # (e.g. last_seen_at write) completes before next hook
-        │     # observes post-close state.
-        │
-        ├─ if (authCtx)
-        │     agentEndpointResolver.remove(agentId, connId)
-        │     # Slice G1 plan §2.11 — drops the multimap entry
-        │
-        ├─ leaseRegistry.abandon(connId)                    app/server.ts → handleSocket (disconnect finalizer)
-        │     # #529 reshape: drain leases bound to this connection
-        │     #   PENDING → ABANDONED
-        │     #   GRANTED/HOLD → EXPIRED-on-disconnect
-        │     #   CLAIMED → no-op (load-bearing: in-flight messages/send
-        │     #                     owns the lease via acquireUseRelease)
-        │
-        ├─ presenceService.removeConnection(connId)
-        ├─ connections.remove(connId)
-        │
-        └─ logInfo("WebSocket disconnected", {connId})
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant WS as wsRoute<br/>(app/server.ts)
+    participant HS as handleSocket<br/>(app/server.ts)
+    participant RPC as acquireConnectionRpcClient<br/>(transport/connection.ts)
+    participant CM as connections (ConnectionManager)
+    participant Reader as socket reader fiber
+    participant Cleanup as onExit cleanup
+
+    C->>WS: GET /ws (Upgrade: websocket)
+    WS->>HS: req.upgrade → socket: Socket.Socket
+    Note over HS: connId = crypto.randomUUID()<br/>writer = yield* socket.writer<br/>closeRequested = yield* Deferred.make&lt;void&gt;()
+    HS->>RPC: acquireConnectionRpcClient(connId, write)
+    Note over RPC: makeJsonRpcClient({write, idPrefix})<br/>scope-bound: finalizer fails every<br/>pending Deferred with NotConnectedError
+    RPC-->>HS: jsonRpcClient
+    HS->>CM: connections.add({id, write, shutdown, auth: null,<br/>lastPong, conversationIds, mutedConversations, jsonRpcClient})
+    HS->>Reader: socket.runRaw(data => handleFrame(decode(data)))
+    Note over HS,Reader: Effect.raceFirst(reader, Deferred.await(closeRequested))<br/>raceFirst (not race): abrupt disconnect still triggers onExit;<br/>plain `race` would leak on abnormal close
+    Reader-->>Cleanup: connection closes (normal or abrupt)
+    Note over Cleanup: if (authCtx) presenceService.setOffline(agentId)
+    Note over Cleanup: for hook of disconnectionHooks:<br/>runUserHook(hook, {agentId, ownerUserId, connId}, …)<br/>SEQUENTIAL — earlier hook's cleanup completes<br/>before next hook observes post-close state
+    Note over Cleanup: if (authCtx)<br/>agentEndpointResolver.remove(agentId, connId)<br/>(Slice G1 plan §2.11 — drops multimap entry)
+    Note over Cleanup: leaseRegistry.abandon(connId)<br/>PENDING → ABANDONED<br/>GRANTED/HOLD → EXPIRED-on-disconnect<br/>CLAIMED → no-op (load-bearing: in-flight<br/>messages/send owns lease via acquireUseRelease)
+    Note over Cleanup: presenceService.removeConnection(connId)<br/>connections.remove(connId)<br/>logInfo("WebSocket disconnected", {connId})
 ```
 
 ## See also

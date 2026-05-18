@@ -6,82 +6,56 @@ The full bootstrap path: HTTP register → WS connect → `network/connect`
 handshake → subscribe → steady state. Reconnect and retry arms are shown
 separately.
 
-```text
-  caller                  auth.ts            MoltZapWsClient        server
-    │                       │                       │                  │
-    │──registerAgent()──▶   │                       │                  │
-    │  (auth.ts → registerAgent)                    │                  │
-    │                       │──POST /api/v1/──────▶ │                  │
-    │                       │  auth/register        │──────────────────▶
-    │                       │                       │     HTTP 200     │
-    │ ◀── {agentId,apiKey,  │ ◀────────────────────────────────────── │
-    │       claimUrl}        │                       │                  │
-    │                       │                       │                  │
-    │   new MoltZapWsClient({serverUrl, agentKey})  │                  │
-    │──────────────────────────────────────────────▶│                  │
-    │   (ws-client.ts → MoltZapWsClient constructor)│                  │
-    │                       │   Refs + ManagedRuntime initialized      │
-    │                       │   SubscriberRegistry created             │
-    │                       │                       │                  │
-    │──subscribe({}, handler)──────────────────────▶│                  │
-    │   (service.ts → MoltZapService.connect)       │                  │
-    │                       │  registry.register()  │                  │
-    │                       │  (subscribers.ts → SubscriberRegistry.register)
-    │ ◀── NotificationSubscription ────────────────ー│                  │
-    │                       │                       │                  │
-    │──connect()───────────────────────────────────▶│                  │
-    │   (ws-client.ts → MoltZapWsClient.connect)    │                  │
-    │                       │   connectEffect():    │                  │
-    │                       │   Scope.make()        │                  │
-    │                       │   Socket.makeWebSocket(url, {openTimeout:│
-    │                       │     10s}) ────────────▶ TCP open        │
-    │                       │     (ws-client.ts → openSocket)         │
-    │                       │                       │◀─── WS upgrade ─│
-    │                       │   makeJsonRpcClient() │                  │
-    │                       │   startTaskCallbackDispatcher()          │
-    │                       │     → bounded Queue(8192) + drain fiber  │
-    │                       │     (ws-client.ts → startTaskCallbackDispatcher)
-    │                       │   ║ readerFiber = runFork(readerEffect()) │
-    │                       │     (ws-client.ts → readerEffect)        │
-    │                       │                       │                  │
-    │                       │   awaitConnectAuth(): │                  │
-    │                       │   sendRpc(Connect,    │                  │
-    │                       │    {agentKey,          │                  │
-    │                       │     minProtocol,      │──JSON-RPC ──────▶│
-    │                       │     maxProtocol})      │  "network/connect"
-    │                       │   (ws-client.ts → awaitConnectAuth)     │
-    │                       │                       │ ◀── HelloOk ────│
-    │                       │   _helloOk = value    │                  │
-    │ ◀── HelloOk ──────────────────────────────────│                  │
-    │   _connected = true   │                       │                  │
-    │   _ownAgentId set     │                       │                  │
-    │   (service.ts → MoltZapService.connect, post-HelloOk)           │
-    │                       │                       │                  │
-    │   [steady state: reader fiber loops on socket.runRaw]            │
+```mermaid
+sequenceDiagram
+    participant caller
+    participant auth as auth.ts
+    participant wsClient as MoltZapWsClient
+    participant server
+
+    caller->>auth: registerAgent()<br/>(auth.ts → registerAgent)
+    auth->>server: POST /api/v1/auth/register
+    server-->>auth: HTTP 200
+    auth-->>caller: {agentId, apiKey, claimUrl}
+
+    caller->>wsClient: new MoltZapWsClient({serverUrl, agentKey})<br/>(ws-client.ts → MoltZapWsClient constructor)
+    Note over wsClient: Refs + ManagedRuntime initialized<br/>SubscriberRegistry created
+
+    caller->>wsClient: subscribe({}, handler)<br/>(service.ts → MoltZapService.connect)
+    Note over wsClient: registry.register()<br/>(subscribers.ts → SubscriberRegistry.register)
+    wsClient-->>caller: NotificationSubscription
+
+    caller->>wsClient: connect()<br/>(ws-client.ts → MoltZapWsClient.connect)
+    Note over wsClient: connectEffect():<br/>Scope.make()<br/>Socket.makeWebSocket(url, {openTimeout: 10s})<br/>(ws-client.ts → openSocket)
+    wsClient->>server: TCP open
+    server-->>wsClient: WS upgrade
+    Note over wsClient: makeJsonRpcClient()<br/>startTaskCallbackDispatcher()<br/>→ bounded Queue(8192) + drain fiber<br/>(ws-client.ts → startTaskCallbackDispatcher)<br/>readerFiber = runFork(readerEffect())<br/>(ws-client.ts → readerEffect)
+
+    Note over wsClient: awaitConnectAuth():<br/>sendRpc(Connect, {agentKey, minProtocol, maxProtocol})<br/>(ws-client.ts → awaitConnectAuth)
+    wsClient->>server: JSON-RPC "network/connect"
+    server-->>wsClient: HelloOk
+    Note over wsClient: _helloOk = value
+    wsClient-->>caller: HelloOk
+    Note over caller: _connected = true<br/>_ownAgentId set<br/>(service.ts → MoltZapService.connect, post-HelloOk)
+
+    Note over wsClient,server: steady state: reader fiber loops on socket.runRaw
 ```
 
 **Reconnect arm** (triggered on reader fiber exit when `closed == false`):
 
-```text
-  MoltZapWsClient          scheduleReconnect()     server
-    │                              │                  │
-    │ reader fiber exits ──▶       │                  │
-    │ handleReaderExit():          │                  │
-    │   failAllPending("not connected")               │
-    │   notifyDisconnect(extractCloseInfo(exit))      │
-    │   (ws-client.ts → handleReaderExit)             │
-    │   closed? ──No──▶ scheduleReconnect()           │
-    │                              │                  │
-    │   reconnectFiber = runFork(  │                  │
-    │     attempt.pipe(            │                  │
-    │       retry(exponential(1s,  │                  │
-    │         ×2, cap 30s) +       │                  │
-    │         jitter)))            │                  │
-    │   (ws-client.ts → scheduleReconnect)            │
-    │                              │──connectEffect()─▶
-    │                              │ ◀── HelloOk ─────│
-    │   onReconnect(helloOk) ◀─────│                  │
-    │   (service.ts → MoltZapService.onReconnect)     │
+```mermaid
+sequenceDiagram
+    participant wsClient as MoltZapWsClient
+    participant reconnect as scheduleReconnect()
+    participant server
+
+    Note over wsClient: reader fiber exits
+    Note over wsClient: handleReaderExit():<br/>failAllPending("not connected")<br/>notifyDisconnect(extractCloseInfo(exit))<br/>(ws-client.ts → handleReaderExit)
+    Note over wsClient: closed? → No → scheduleReconnect()
+    Note over wsClient: reconnectFiber = runFork(<br/>  attempt.pipe(<br/>    retry(exponential(1s, ×2, cap 30s) + jitter)))<br/>(ws-client.ts → scheduleReconnect)
+    reconnect->>server: connectEffect()
+    server-->>reconnect: HelloOk
+    reconnect-->>wsClient: onReconnect(helloOk)<br/>(service.ts → MoltZapService.onReconnect)
 ```
 
 **State that survives reconnect**: `SubscriberRegistry` entries (registered

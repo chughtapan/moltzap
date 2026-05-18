@@ -2,25 +2,26 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-```
-OpenClaw runtime
-      │
-      │  gateway.stopAccount(ctx)
-      │  ctx = { accountId, log? }
-      │
-      ▼
-  service = activeClients.get(ctx.accountId)   (in `openclaw-entry.ts`)
-      │
-      ├─[service found]
-      │   ctx.log?.info?.("MoltZap: stopping")
-      │   service.close()          ← MoltZapService.close()
-      │   activeClients.delete(ctx.accountId)
-      │
-      └─[service not found]
-          (no-op; idempotent)
-      │
-      ▼
-  return Promise.resolve()        ← always resolves immediately
+```mermaid
+sequenceDiagram
+    participant OC as OpenClaw runtime
+    participant Entry as openclaw-entry.ts
+    participant Clients as activeClients Map
+    participant Svc as MoltZapService
+
+    OC->>Entry: gateway.stopAccount(ctx)<br/>ctx = { accountId, log? }
+    Entry->>Clients: activeClients.get(ctx.accountId)
+
+    alt service found
+        Entry->>Entry: ctx.log?.info?.("MoltZap: stopping")
+        Entry->>Svc: service.close() — MoltZapService.close()
+        Note over Svc: closes WebSocket transport;<br/>WsClient fires "disconnect" event →<br/>core.connected = false;<br/>disconnectHandlers called (log.warn + setStatus)
+        Entry->>Clients: activeClients.delete(ctx.accountId)
+    else service not found
+        Note over Entry: no-op; idempotent
+    end
+
+    Entry-->>OC: return Promise.resolve() — always resolves immediately
 ```
 
 **What `service.close()` tears down:**
@@ -36,29 +37,23 @@ fires a "disconnect" event, which:
 The consumer fiber (`consumerFiber`) is interrupted only by
 `core.disconnect()`, which is NOT called in `stopAccount`. This means:
 
-```
-Race: stopAccount vs in-flight inbound
-───────────────────────────────────────
-  1. stopAccount calls service.close()
-  2. WS closes; no new "message" events fired
-  3. consumerFiber is still alive but inboundQueue will drain
-     to empty and then block on Queue.take forever
-  4. activeClients entry is deleted → future sendText for this
-     accountId will receive MoltZapClientNotConnectedError
-  5. Existing in-flight inbound handler (if in the middle of
-     dispatchReplyWithBufferedBlockDispatcher) continues to run
-     because service.close() doesn't interrupt the Effect fiber
+```mermaid
+flowchart TD
+    A["stopAccount calls service.close()"] --> B["WS closes — no new 'message' events fired"]
+    B --> C["consumerFiber is still alive\ninboundQueue drains to empty\nthen blocks on Queue.take forever"]
+    B --> D["activeClients entry deleted\nfuture sendText for this accountId\nreceives MoltZapClientNotConnectedError"]
+    B --> E["Existing in-flight inbound handler continues to run\nservice.close() does NOT interrupt the Effect fiber"]
 
-Idempotency:
-  Multiple stopAccount calls for the same accountId:
-  - First call: service found, close() + delete → safe
-  - Subsequent calls: service not found, no-op → safe
-  No mutex needed; JavaScript event loop is single-threaded.
+    subgraph Idempotency
+        F["First stopAccount call\nservice found → close() + delete"] --> G["Safe"]
+        H["Subsequent stopAccount calls\nservice not found → no-op"] --> I["Safe"]
+        J["No mutex needed\nJavaScript event loop is single-threaded"]
+    end
 
-Contrast with abort path (§3.1 Path B):
-  abortSignal handler calls Effect.runPromise(core.disconnect()),
-  which calls Fiber.interrupt(consumerFiber) in addition to
-  service.close(). stopAccount does NOT interrupt the fiber.
+    subgraph Contrast ["Contrast with abort path (§3.1 Path B)"]
+        K["abortSignal handler calls\nEffect.runPromise(core.disconnect())"] --> L["Fiber.interrupt(consumerFiber)\n+ service.close()"]
+        M["stopAccount does NOT\ninterrupt the fiber"]
+    end
 ```
 
 ---

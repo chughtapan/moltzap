@@ -10,67 +10,33 @@ load time (synchronously via `Effect.runSync`).
 
 ## OpenClaw (`openclaw-adapter.ts → createWorkspaceOpenClawAdapter`)
 
-```text
-createWorkspaceOpenClawAdapter(input)                  openclaw-adapter.ts → createWorkspaceOpenClawAdapter
-  │
-  ├─ resolveWorkspacePackageRoot()                     openclaw-adapter.ts → resolveWorkspacePackageRoot
-  │    Walk import.meta.url ancestors until a segment
-  │    named "packages" is found → join("packages/runtimes")
-  │    (Result: absolute path to packages/runtimes/)
-  │
-  ├─ repoRoot = input.repoRoot
-  │             ?? path.dirname(path.dirname(packageRoot))
-  │             (Result: monorepo root — two dirs up from packages/runtimes)
-  │
-  ├─ openclawBin = input.openclawBin
-  │                ?? resolveWorkspaceOpenClawBin(...)   package-resolution.ts → resolveWorkspaceOpenClawBin
-  │                     resolveWorkspaceBin({
-  │                       binName: "openclaw",
-  │                       packageName: "openclaw",
-  │                       packageRoot: resolveOpenClawPackageRoot()
-  │                     })
-  │                   Strategy (package-resolution.ts → resolveWorkspaceBin):
-  │                     1. createRequire(packages/runtimes/package.json)
-  │                        .resolve("openclaw")  → resolvedFile
-  │                     2. packageRootFromResolvedFile(resolvedFile)
-  │                        (walks resolved path backward to find
-  │                         the "openclaw" segment → package root)
-  │                     3. packageBinTarget(root, "openclaw", "openclaw")
-  │                        reads package.json "bin" → absolute path to bin
-  │                     Fallback: dependency packageRoot directly
-  │
-  ├─ channelDistDir = input.channelDistDir
-  │                   ?? path.join(repoRoot,
-  │                        "packages/openclaw-channel/dist")
-  │
-  └─ returns new OpenClawAdapter({ server, openclawBin,
-                                   channelDistDir, repoRoot })
+```mermaid
+flowchart TD
+    OCWF["createWorkspaceOpenClawAdapter(input)\nopenclaw-adapter.ts → createWorkspaceOpenClawAdapter"]
+    OCPR["resolveWorkspacePackageRoot()\nopenclaw-adapter.ts → resolveWorkspacePackageRoot\nWalk import.meta.url ancestors until &quot;packages&quot; segment found\n→ join(&quot;packages/runtimes&quot;)\nResult: absolute path to packages/runtimes/"]
+    OCRR["repoRoot =\n  input.repoRoot\n  ?? path.dirname(path.dirname(packageRoot))\nResult: monorepo root — two dirs up from packages/runtimes"]
+    OCBIN["openclawBin =\n  input.openclawBin\n  ?? resolveWorkspaceOpenClawBin(...)\n    package-resolution.ts → resolveWorkspaceOpenClawBin\n    resolveWorkspaceBin({ binName: &quot;openclaw&quot;,\n      packageName: &quot;openclaw&quot;,\n      packageRoot: resolveOpenClawPackageRoot() })"]
+    OCSTRAT["resolveWorkspaceBin strategy\npackage-resolution.ts → resolveWorkspaceBin\n1. createRequire(packages/runtimes/package.json)\n   .resolve(&quot;openclaw&quot;) → resolvedFile\n2. packageRootFromResolvedFile(resolvedFile)\n   (walk backward to &quot;openclaw&quot; segment → package root)\n3. packageBinTarget(root, &quot;openclaw&quot;, &quot;openclaw&quot;)\n   reads package.json &quot;bin&quot; → absolute path to bin\nFallback: dependency packageRoot directly"]
+    OCCH["channelDistDir =\n  input.channelDistDir\n  ?? path.join(repoRoot, &quot;packages/openclaw-channel/dist&quot;)"]
+    OCOUT["returns new OpenClawAdapter({\n  server, openclawBin, channelDistDir, repoRoot\n})"]
+
+    OCWF --> OCPR --> OCRR --> OCBIN --> OCSTRAT --> OCCH --> OCOUT
 ```
 
 ## ClaudeCode (`claude-code-adapter.ts → createWorkspaceClaudeCodeAdapter`)
 
-```text
-createWorkspaceClaudeCodeAdapter(input)                claude-code-adapter.ts → createWorkspaceClaudeCodeAdapter
-  │  (mirrors OpenClaw pattern)
-  │
-  ├─ claudeBin = input.claudeBin
-  │              ?? resolveWorkspaceClaudeBin(...)       package-resolution.ts → resolveWorkspaceClaudeBin
-  │                   resolveWorkspaceBin({
-  │                     binName: "claude",
-  │                     packageName: "@anthropic-ai/claude-code"
-  │                   })
-  │                   resolveClaudeCodePackageRoot():    package-resolution.ts → resolveClaudeCodePackageRoot
-  │                     imports package.json via static import assertion
-  │                     requireFromHere.resolve("@anthropic-ai/claude-code/package.json")
-  │                     → dirname is the package root
-  │
-  └─ channelDistDir = input.channelDistDir
-                      ?? resolveClaudeCodeChannelDistDir(repoRoot)
-                           package-resolution.ts → resolveClaudeCodeChannelDistDir
-                         Try: requireFromHere.resolve(
-                           "@moltzap/claude-code-channel") → dirname/dist
-                         Fallback: repoRoot/packages/claude-code-channel/dist
-                         (logs warning on fallback)
+```mermaid
+flowchart TD
+    CCWF["createWorkspaceClaudeCodeAdapter(input)\nclaude-code-adapter.ts → createWorkspaceClaudeCodeAdapter\n(mirrors OpenClaw pattern)"]
+    CCBIN["claudeBin =\n  input.claudeBin\n  ?? resolveWorkspaceClaudeBin(...)\n    package-resolution.ts → resolveWorkspaceClaudeBin\n    resolveWorkspaceBin({ binName: &quot;claude&quot;,\n      packageName: &quot;@anthropic-ai/claude-code&quot; })"]
+    CCROOT["resolveClaudeCodePackageRoot()\npackage-resolution.ts → resolveClaudeCodePackageRoot\nimports package.json via static import assertion\nrequireFromHere.resolve(&quot;@anthropic-ai/claude-code/package.json&quot;)\n→ dirname is the package root"]
+    CCCH["channelDistDir =\n  input.channelDistDir\n  ?? resolveClaudeCodeChannelDistDir(repoRoot)\n    package-resolution.ts → resolveClaudeCodeChannelDistDir"]
+    CCCHTRY["Try: requireFromHere.resolve(\n  &quot;@moltzap/claude-code-channel&quot;) → dirname/dist"]
+    CCCHFALL["Fallback: repoRoot/packages/claude-code-channel/dist\n(logs warning on fallback)"]
+
+    CCWF --> CCBIN --> CCROOT --> CCCH
+    CCCH --> CCCHTRY
+    CCCH --> CCCHFALL
 ```
 
 ## PATH-Based (Non-Workspace) Variant

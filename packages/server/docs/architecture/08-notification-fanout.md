@@ -7,19 +7,16 @@ Most notifications originate inside a service and reach the wire via
 `PresenceEventSink` indirection lets the service emit events without
 knowing about `ConnectionManager` directly:
 
-```text
-PresenceService.setOnline(agentId)              network/services/presence.service.ts
-       │
-       ▼  sink.emit({tag: "PresenceChanged", agentId, status: "online", ts})
-       │      ↑
-       │      │  sink = createConnectionFanOutPresenceEventSink({connections})
-       │      │       network/services/presence-event-sink.ts
-       │      ▼
-       │  for conn of connections.all():
-       │      if conn.subscribesTo(PresenceChanged):
-       │          conn.write(JSON.stringify(PresenceChanged.encode(params)))
-       │
-       ▼  fire-and-forget; sink errors logged but don't block setOnline
+```mermaid
+flowchart LR
+    PS["PresenceService.setOnline(agentId)<br/><i>network/services/presence.service.ts</i>"]
+    Sink["sink.emit({tag: 'PresenceChanged', agentId, status: 'online', ts})<br/>sink = createConnectionFanOutPresenceEventSink({connections})<br/><i>network/services/presence-event-sink.ts</i>"]
+    Fan["for conn of connections.all():<br/>if conn.subscribesTo(PresenceChanged):<br/>conn.write(JSON.stringify(PresenceChanged.encode(params)))"]
+    FF["fire-and-forget<br/>sink errors logged but don't block setOnline"]
+
+    PS -->|"emit"| Sink
+    Sink -->|"fan-out"| Fan
+    Fan --> FF
 ```
 
 This pattern (service emits typed events, sink fans out) repeats for

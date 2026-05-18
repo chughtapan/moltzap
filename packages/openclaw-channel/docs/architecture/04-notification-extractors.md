@@ -10,71 +10,65 @@ preserved below from the last source revision).
 
 Each extractor follows the same pattern:
 
-```
-extractXxx(frame: NotificationFrame): Result | null
-  decodedNotification(frame)          ← Effect.runSync, returns Option
-    decodeServerInbound(frame)
-    flatMap: tag === "Notification" ? succeed : fail(NotANotificationFrameError)
-    .option
-  Option.match:
-    onNone → null
-    onSome → isFor(notification, XxxNotificationDefinition)
-             ? notification.params.xxx : null
+```mermaid
+flowchart LR
+    A["extractXxx(frame: NotificationFrame)"] --> B["decodedNotification(frame)\nEffect.runSync → Option"]
+    B --> C["decodeServerInbound(frame)\nflatMap: tag === 'Notification'\n  ? succeed : fail(NotANotificationFrameError)\n.option"]
+    C --> D{"Option.match"}
+    D -->|onNone| E["return null"]
+    D -->|onSome| F{"isFor(notification,\nXxxNotificationDefinition)?"}
+    F -->|no| E
+    F -->|yes| G["return notification.params.xxx"]
 ```
 
 **arm 1 — conversationCreated**
 
-```
-extractConversationCreated(event)
-  ← ConversationCreatedNotificationDefinition
-  → { conversation: { id, type, name? } } | null
-  on match:
-    log.debug("conversation created ${id}")
-    setStatus({ accountId, lastEventAt: Date.now() })
+```mermaid
+flowchart LR
+    A["extractConversationCreated(event)\n← ConversationCreatedNotificationDefinition"] --> B{"match?"}
+    B -->|no| C["return null"]
+    B -->|yes| D["{ conversation: { id, type, name? } }"]
+    D --> E["log.debug('conversation created id')\nsetStatus({ accountId, lastEventAt: Date.now() })"]
 ```
 
 **arm 2 — conversationUpdated**
 
-```
-extractConversationUpdated(event)
-  ← ConversationUpdatedNotificationDefinition
-  → { conversation: { id, type, name? } } | null
-  on match:
-    log.debug("conversation updated ${id}")
-    setStatus({ accountId, lastEventAt: Date.now() })
+```mermaid
+flowchart LR
+    A["extractConversationUpdated(event)\n← ConversationUpdatedNotificationDefinition"] --> B{"match?"}
+    B -->|no| C["return null"]
+    B -->|yes| D["{ conversation: { id, type, name? } }"]
+    D --> E["log.debug('conversation updated id')\nsetStatus({ accountId, lastEventAt: Date.now() })"]
 ```
 
 **arm 3 — contactRequest**
 
-```
-extractContactRequest(event)
-  ← ContactRequestNotificationDefinition
-  → { contact: { id, contactUserId } } | null
-  on match:
-    log.debug("contact request from ${contactUserId}")
-    setStatus({ accountId, lastEventAt: Date.now() })
+```mermaid
+flowchart LR
+    A["extractContactRequest(event)\n← ContactRequestNotificationDefinition"] --> B{"match?"}
+    B -->|no| C["return null"]
+    B -->|yes| D["{ contact: { id, contactUserId } }"]
+    D --> E["log.debug('contact request from contactUserId')\nsetStatus({ accountId, lastEventAt: Date.now() })"]
 ```
 
 **arm 4 — contactAccepted**
 
-```
-extractContactAccepted(event)
-  ← ContactAcceptedNotificationDefinition
-  → { contact: { id, contactUserId } } | null
-  on match:
-    log.debug("contact accepted ${id}")
-    setStatus({ accountId, lastEventAt: Date.now() })
+```mermaid
+flowchart LR
+    A["extractContactAccepted(event)\n← ContactAcceptedNotificationDefinition"] --> B{"match?"}
+    B -->|no| C["return null"]
+    B -->|yes| D["{ contact: { id, contactUserId } }"]
+    D --> E["log.debug('contact accepted id')\nsetStatus({ accountId, lastEventAt: Date.now() })"]
 ```
 
 **arm 5 — presenceChanged**
 
-```
-extractPresenceChanged(event)
-  ← PresenceChangedNotificationDefinition
-  → { agentId: string, status: string } | null
-  on match:
-    log.debug("${agentId} is now ${status}")
-    setStatus({ accountId, lastEventAt: Date.now() })
+```mermaid
+flowchart LR
+    A["extractPresenceChanged(event)\n← PresenceChangedNotificationDefinition"] --> B{"match?"}
+    B -->|no| C["return null"]
+    B -->|yes| D["{ agentId: string, status: string }"]
+    D --> E["log.debug('agentId is now status')\nsetStatus({ accountId, lastEventAt: Date.now() })"]
 ```
 
 All five arms are tried in order for every rawNotification frame. The
