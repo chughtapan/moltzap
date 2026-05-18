@@ -11,6 +11,7 @@ import {
   AgentsLookup,
   ConversationsCreate,
   MessageReceivedNotificationDefinition,
+  MessagesList,
   MessagesSend,
 } from "@moltzap/protocol";
 
@@ -19,14 +20,13 @@ let wsUrl: string;
 
 const DISCONNECT_WAIT_MS = 3_000;
 const RECONNECT_WAIT_MS = 10_000;
-const MISSED_MESSAGE_WAIT_MS = 15_000;
 const MESSAGE_DELIVERY_WAIT_MS = 5_000;
 const WAIT_BUDGET_FACTOR_MIN = 1;
 const WAIT_BUDGET_FACTOR_MAX = 3;
 
 const RECONNECT_BOB_NAME = "recon-bob";
-const RECONNECT_ALICE_UNREAD_NAME = "recon-alice-unread";
-const RECONNECT_BOB_UNREAD_NAME = "recon-bob-unread";
+const RECONNECT_ALICE_HISTORY_NAME = "recon-alice-history";
+const RECONNECT_BOB_HISTORY_NAME = "recon-bob-history";
 const RECONNECT_ALICE_EVENT_NAME = "recon-alice-evt";
 const RECONNECT_BOB_EVENT_NAME = "recon-bob-evt";
 const RECONNECT_BOB_CLOSE_NAME = "recon-bob-close";
@@ -53,7 +53,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
     reconnectsAfterDisconnect,
   );
   it(
-    "onReconnect callback receives helloOk with unreadCounts",
+    "onReconnect receives HelloOk and missed messages are readable from history",
     onReconnectReceivesHelloOk,
   );
   it("events received after reconnect are dispatched", eventsAfterReconnect);
@@ -119,6 +119,20 @@ function sendText(
   });
 }
 
+function listMessageTexts(client: MoltZapWsClient, conversationId: string) {
+  return client
+    .sendRpc(MessagesList, { conversationId })
+    .pipe(Effect.map((result) => messageTexts(result.messages)));
+}
+
+function messageTexts(messages: readonly Message[]): readonly string[] {
+  return messages.flatMap((message) =>
+    message.parts.flatMap((part) =>
+      part.type === TEXT_PART_TYPE ? [part.text] : [],
+    ),
+  );
+}
+
 function expectFirstMessageText(messages: readonly Message[], text: string) {
   expect(messages[0]?.parts[0]).toEqual({
     type: TEXT_PART_TYPE,
@@ -152,8 +166,8 @@ function reconnectsAfterDisconnect() {
 
 function onReconnectReceivesHelloOk() {
   return Effect.gen(function* () {
-    const alice = yield* registerAgent(RECONNECT_ALICE_UNREAD_NAME);
-    const bob = yield* registerAgent(RECONNECT_BOB_UNREAD_NAME);
+    const alice = yield* registerAgent(RECONNECT_ALICE_HISTORY_NAME);
+    const bob = yield* registerAgent(RECONNECT_BOB_HISTORY_NAME);
     const aliceClient = createStrippedClient(alice.apiKey);
     yield* aliceClient.connect();
     const conversationId = yield* createDmConversation(
@@ -173,10 +187,13 @@ function onReconnectReceivesHelloOk() {
     yield* sendText(aliceClient, conversationId, MISSED_WHILE_OFFLINE_TEXT);
     yield* waitUntil(
       () => reconnectHelloOk !== null,
-      MISSED_MESSAGE_WAIT_MS,
+      RECONNECT_WAIT_MS,
       "missed-message reconnect",
     );
-    expect(reconnectHelloOk).toBeDefined();
+    expect(reconnectHelloOk).toMatchObject({ agentId: bob.agentId });
+    expect(yield* listMessageTexts(bobClient, conversationId)).toContain(
+      MISSED_WHILE_OFFLINE_TEXT,
+    );
     yield* bobClient.close();
     yield* aliceClient.close();
   });

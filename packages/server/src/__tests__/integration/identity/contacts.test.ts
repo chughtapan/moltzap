@@ -105,17 +105,18 @@ function notificationsByMethod(
   });
 }
 
-it("property: notification method matcher is exact", () => {
-  expect.hasAssertions();
-  fc.assert(
-    fc.property(fc.string(), fc.string(), (actual, expected) => {
-      expect(notificationMethodMatches(actual, expected)).toBe(
-        actual === expected,
-      );
-    }),
-    { numRuns: PROPERTY_RUNS },
-  );
-});
+it("property: notification method matcher is exact", () =>
+  Effect.sync(() => {
+    expect.hasAssertions();
+    fc.assert(
+      fc.property(fc.string(), fc.string(), (actual, expected) => {
+        expect(notificationMethodMatches(actual, expected)).toBe(
+          actual === expected,
+        );
+      }),
+      { numRuns: PROPERTY_RUNS },
+    );
+  }));
 
 it("contacts/add fans contact/request to the recipient", () =>
   Effect.gen(function* () {
