@@ -50,7 +50,7 @@
   },
   "scripts": {
     "build": "pnpm --filter @moltzap/protocol build && tsc",
-    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src --cache --max-warnings=0",
+    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src *.ts --cache --max-warnings=0",
     "typecheck:layers": "tsc -p src/network && tsc -p src/task",
     "dev": "tsx watch src/app/dev.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",

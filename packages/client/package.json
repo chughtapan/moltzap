@@ -36,7 +36,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src --cache --max-warnings=0",
+    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
@@ -55,12 +55,9 @@
   "devDependencies": {
     "@effect/vitest": "^0.29.0",
     "@moltzap/server-core": "workspace:*",
-    "@testcontainers/postgresql": "^10.18.0",
-    "@types/pg": "^8.11.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^4.6.0",
-    "pg": "^8.13.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

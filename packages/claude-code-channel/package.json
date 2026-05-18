@@ -26,7 +26,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src --cache --max-warnings=0",
+    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
@@ -38,6 +38,8 @@
     "effect": "^3.21.2"
   },
   "devDependencies": {
+    "@effect/platform": "^0.96.1",
+    "@effect/platform-node": "^0.106.0",
     "@effect/vitest": "^0.29.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",

@@ -2,7 +2,8 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import { Effect } from "effect";
+import { registerAgent, type RegisterResponse } from "@moltzap/client";
+import { Data, Effect } from "effect";
 import type { GlobalSetupContext } from "vitest/node";
 import {
   startEchoServer,
@@ -23,73 +24,107 @@ import {
   type SpawnedServer,
 } from "./src/__tests__/spawn-server.js";
 
+const POSTGRES_IMAGE = "postgres:16-alpine";
+const POSTGRES_TEMPLATE_DATABASE = "moltzap_template";
+const POSTGRES_TEST_USER = "test";
+const POSTGRES_TEST_PASSWORD = "test";
+const POSTGRES_PORT = 5432;
+const EMPTY_CONTAINER_ID = "";
+
 let pgContainer: StartedPostgreSqlContainer | null = null;
 let echoServer: EchoServer | null = null;
 let containerA: OpenClawContainer | null = null;
 let containerB: OpenClawContainer | null = null;
 let spawnedServer: SpawnedServer | null = null;
 
-export default async function ({ provide }: GlobalSetupContext) {
-  // Phase 1: Postgres + echo server in parallel
-  const [pg_, echo] = await Promise.all([
-    new PostgreSqlContainer("postgres:16-alpine")
-      .withDatabase("moltzap_template")
-      .withUsername("test")
-      .withPassword("test")
-      .start(),
-    startEchoServer(),
-  ]);
+class OpenClawIntegrationSetupError extends Data.TaggedError(
+  "OpenClawIntegrationSetupError",
+)<{
+  readonly operation: string;
+  readonly cause: unknown;
+}> {}
 
-  pgContainer = pg_;
-  echoServer = echo;
+export default function ({ provide }: GlobalSetupContext) {
+  return Effect.runPromise(setupIntegrationTests(provide));
+}
 
-  const pgHost = pgContainer.getHost();
-  const pgPort = pgContainer.getMappedPort(5432);
+function setupIntegrationTests(provide: GlobalSetupContext["provide"]) {
+  return Effect.gen(function* () {
+    const prerequisites = yield* startPrerequisites();
+    pgContainer = prerequisites.pg;
+    echoServer = prerequisites.echo;
 
-  // Phase 2: Start MoltZap server as subprocess. The server's standalone
-  // entry runs `autoMigrate` against the freshly-cloned per-test database,
-  // applying core-schema.sql AND seeding the KEK from
-  // ENCRYPTION_MASTER_SECRET. Pre-applying the schema in this setup would
-  // cause the server's autoMigrate to skip KEK seeding (it short-circuits
-  // when the `agents` table already exists), so we leave the template empty.
-  spawnedServer = await spawnTestServer(pgHost, pgPort);
-  const server = spawnedServer;
+    const server = yield* startServer(prerequisites.pg);
+    spawnedServer = server;
 
-  // Phase 3: Register container agents via HTTP
-  async function registerContainerAgent(name: string): Promise<{
-    apiKey: string;
-    agentId: string;
-    claimToken: string;
-  }> {
-    const res = await fetch(`${server.baseUrl}/api/v1/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    if (!res.ok) {
-      throw new Error(
-        `Register ${name} failed: ${res.status} ${await res.text()}`,
-      );
-    }
-    return (await res.json()) as {
-      agentId: string;
-      apiKey: string;
-      claimToken: string;
-    };
-  }
+    const [agentA, agentB] = yield* Effect.all(
+      [
+        registerAgent(server.baseUrl, "container-agent-a"),
+        registerAgent(server.baseUrl, "container-agent-b"),
+      ],
+      { concurrency: 2 },
+    );
 
-  const [agentA, agentB] = await Promise.all([
-    registerContainerAgent("container-agent-a"),
-    registerContainerAgent("container-agent-b"),
-  ]);
+    yield* startOpenClawContainers(prerequisites.echo, server, agentA, agentB);
+    provideIntegrationValues(provide, server, agentA, agentB);
 
-  // Phase 4: Start OpenClaw containers (parallel)
-  const canRunContainers = isImageAvailable();
-  if (canRunContainers) {
-    const model = echoModelConfig(echo.port);
+    return () => Effect.runPromise(teardownIntegrationTests());
+  });
+}
 
-    [containerA, containerB] = await Effect.runPromise(
-      Effect.all([
+function startPrerequisites() {
+  return Effect.all(
+    {
+      pg: startPostgres(),
+      echo: startEcho(),
+    },
+    { concurrency: 2 },
+  );
+}
+
+function startPostgres(): Effect.Effect<
+  StartedPostgreSqlContainer,
+  OpenClawIntegrationSetupError
+> {
+  return Effect.tryPromise({
+    try: () =>
+      new PostgreSqlContainer(POSTGRES_IMAGE)
+        .withDatabase(POSTGRES_TEMPLATE_DATABASE)
+        .withUsername(POSTGRES_TEST_USER)
+        .withPassword(POSTGRES_TEST_PASSWORD)
+        .start(),
+    catch: (cause) =>
+      setupError("start PostgreSQL integration container", cause),
+  });
+}
+
+function startEcho(): Effect.Effect<EchoServer, OpenClawIntegrationSetupError> {
+  return Effect.tryPromise({
+    try: () => startEchoServer(),
+    catch: (cause) => setupError("start echo model server", cause),
+  });
+}
+
+function startServer(
+  pg: StartedPostgreSqlContainer,
+): Effect.Effect<SpawnedServer, OpenClawIntegrationSetupError> {
+  return Effect.tryPromise({
+    try: () => spawnTestServer(pg.getHost(), pg.getMappedPort(POSTGRES_PORT)),
+    catch: (cause) => setupError("start MoltZap test server", cause),
+  });
+}
+
+function startOpenClawContainers(
+  echo: EchoServer,
+  server: SpawnedServer,
+  agentA: RegisterResponse,
+  agentB: RegisterResponse,
+) {
+  if (!isImageAvailable()) return Effect.void;
+  const model = echoModelConfig(echo.port);
+  return Effect.gen(function* () {
+    const [firstContainer, secondContainer] = yield* Effect.all(
+      [
         startRawContainer(
           buildOpenClawConfig({
             model,
@@ -112,34 +147,89 @@ export default async function ({ provide }: GlobalSetupContext) {
             portRange: [19500, 19999],
           },
         ),
-      ]),
+      ],
+      { concurrency: 2 },
     );
 
-    // Start sequentially — parallel container startup can overwhelm Docker on dev machines
-    await waitForReady(containerA.containerId);
-    await waitForReady(containerB.containerId);
-  }
+    containerA = firstContainer;
+    containerB = secondContainer;
 
-  // Phase 5: Provide all coordinates to test files
+    yield* waitForContainer(firstContainer);
+    yield* waitForContainer(secondContainer);
+  });
+}
+
+function waitForContainer(
+  container: OpenClawContainer,
+): Effect.Effect<void, OpenClawIntegrationSetupError> {
+  return Effect.tryPromise({
+    try: () => waitForReady(container.containerId),
+    catch: (cause) =>
+      setupError(`wait for OpenClaw container ${container.containerId}`, cause),
+  });
+}
+
+function provideIntegrationValues(
+  provide: GlobalSetupContext["provide"],
+  server: SpawnedServer,
+  agentA: RegisterResponse,
+  agentB: RegisterResponse,
+): void {
   provide("baseUrl", server.baseUrl);
   provide("wsUrl", server.wsUrl);
-  provide("containerAId", containerA?.containerId ?? "");
+  provide("containerAId", containerA?.containerId ?? EMPTY_CONTAINER_ID);
   provide("containerAAgentId", agentA.agentId);
   provide("containerAApiKey", agentA.apiKey);
-  provide("containerBId", containerB?.containerId ?? "");
+  provide("containerBId", containerB?.containerId ?? EMPTY_CONTAINER_ID);
   provide("containerBAgentId", agentB.agentId);
   provide("containerBApiKey", agentB.apiKey);
+}
 
-  return async () => {
-    if (containerA) await Effect.runPromise(stopContainer(containerA));
-    if (containerB) await Effect.runPromise(stopContainer(containerB));
+function teardownIntegrationTests() {
+  return Effect.gen(function* () {
+    const firstContainer = containerA;
     containerA = null;
+    if (firstContainer !== null) yield* stopContainer(firstContainer);
+
+    const secondContainer = containerB;
     containerB = null;
-    if (spawnedServer) await stopSpawnedServer(spawnedServer);
+    if (secondContainer !== null) yield* stopContainer(secondContainer);
+
+    const server = spawnedServer;
     spawnedServer = null;
+    if (server !== null) yield* stopServer(server);
+
     echoServer?.close();
     echoServer = null;
-    await pgContainer?.stop();
+
+    const postgres = pgContainer;
     pgContainer = null;
-  };
+    if (postgres !== null) yield* stopPostgres(postgres);
+  });
+}
+
+function stopServer(
+  server: SpawnedServer,
+): Effect.Effect<void, OpenClawIntegrationSetupError> {
+  return Effect.tryPromise({
+    try: () => stopSpawnedServer(server),
+    catch: (cause) => setupError("stop MoltZap test server", cause),
+  });
+}
+
+function stopPostgres(
+  pg: StartedPostgreSqlContainer,
+): Effect.Effect<void, OpenClawIntegrationSetupError> {
+  return Effect.tryPromise({
+    try: () => pg.stop(),
+    catch: (cause) =>
+      setupError("stop PostgreSQL integration container", cause),
+  });
+}
+
+function setupError(
+  operation: string,
+  cause: unknown,
+): OpenClawIntegrationSetupError {
+  return new OpenClawIntegrationSetupError({ operation, cause });
 }
