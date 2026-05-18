@@ -78,6 +78,7 @@ import {
   type MutableRef,
   type RequestFrame,
 } from "./ws-client-test-support.js";
+import { shouldLogMalformedFrame } from "./ws-client.js";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
@@ -459,6 +460,12 @@ effectTest(
 
         // Wait for the malformed frames to flush through the reader fiber.
         yield* Effect.sleep(Duration.millis(MALFORMED_FRAME_FLUSH_MS));
+
+        const loggedFrameNumbers = Array.from(
+          { length: 101 },
+          (_, index) => index + 1,
+        ).filter(shouldLogMalformedFrame);
+        expect(loggedFrameNumbers).toEqual([1, 50, 100]);
 
         yield* Fiber.interrupt(rpcFiber);
         yield* closeClient(client);

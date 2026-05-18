@@ -46,6 +46,7 @@ type TBNode = TSchema & {
   readonly minimum?: number;
   readonly maximum?: number;
   readonly format?: string;
+  readonly pattern?: string;
 };
 
 function isOptional(schema: TSchema): boolean {
@@ -201,10 +202,27 @@ function stringArbitrary(node: TBNode): fc.Arbitrary<string> {
   if (node.format === "uri") {
     return fc.webUrl();
   }
+  if (node.pattern !== undefined) {
+    return filterStringLength(
+      fc.stringMatching(new RegExp(node.pattern)),
+      node,
+    );
+  }
   return fc.string({
     minLength: node.minLength ?? 0,
     maxLength: node.maxLength ?? DEFAULT_STRING_MAX_LENGTH,
   });
+}
+
+function filterStringLength(
+  arb: fc.Arbitrary<string>,
+  node: TBNode,
+): fc.Arbitrary<string> {
+  const minLength = node.minLength ?? 0;
+  const maxLength = node.maxLength ?? DEFAULT_STRING_MAX_LENGTH;
+  return arb.filter(
+    (value) => value.length >= minLength && value.length <= maxLength,
+  );
 }
 
 function objectArbitrary(node: TBNode): fc.Arbitrary<Record<string, unknown>> {

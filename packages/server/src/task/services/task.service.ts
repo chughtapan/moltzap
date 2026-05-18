@@ -16,12 +16,14 @@ import type {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId, ConversationId, MessageId } from "@moltzap/protocol/task";
 import type { Db } from "../../db/client.js";
+import type { Database } from "../../db/database.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
+import type { Transaction } from "../../db/kysely-vendor.js";
 import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import type {
   ConversationService,
@@ -148,6 +150,72 @@ export interface StoreMessageInput {
   readonly replyToId?: MessageId;
 }
 
+export interface TaskCloseLifecycle {
+  readonly task: Task;
+  readonly participantAgentIds: readonly AgentId[];
+  readonly archivedConversations: readonly {
+    readonly conversationId: ConversationId;
+    readonly archivedAt: string;
+    readonly participantAgentIds: readonly AgentId[];
+  }[];
+}
+
+type TaskTransaction = Transaction<Database>;
+type ArchivedConversationRow = {
+  readonly id: ConversationId;
+  readonly archived_at: Date | null;
+};
+type ConversationParticipantRow = {
+  readonly conversation_id: ConversationId;
+  readonly agent_id: AgentId;
+};
+type AgentIdRow = {
+  readonly agent_id: AgentId;
+};
+
+function conversationIdsFromRows(
+  rows: readonly ArchivedConversationRow[],
+): ConversationId[] {
+  const ids: ConversationId[] = [];
+  for (const row of rows) ids.push(row.id);
+  return ids;
+}
+
+function participantMapFromRows(
+  rows: readonly ConversationParticipantRow[],
+): ReadonlyMap<ConversationId, readonly AgentId[]> {
+  const participantsByConversation = new Map<ConversationId, AgentId[]>();
+  for (const row of rows) {
+    const existing = participantsByConversation.get(row.conversation_id) ?? [];
+    existing.push(row.agent_id);
+    participantsByConversation.set(row.conversation_id, existing);
+  }
+  return participantsByConversation;
+}
+
+function agentIdsFromRows(rows: readonly AgentIdRow[]): AgentId[] {
+  const agentIds: AgentId[] = [];
+  for (const row of rows) agentIds.push(row.agent_id);
+  return agentIds;
+}
+
+function archivedConversationsFromRows(
+  rows: readonly ArchivedConversationRow[],
+  participantsByConversation: ReadonlyMap<ConversationId, readonly AgentId[]>,
+): TaskCloseLifecycle["archivedConversations"] {
+  const archivedConversations: Array<
+    TaskCloseLifecycle["archivedConversations"][number]
+  > = [];
+  for (const row of rows) {
+    archivedConversations.push({
+      conversationId: row.id,
+      archivedAt: row.archived_at!.toISOString(),
+      participantAgentIds: participantsByConversation.get(row.id) ?? [],
+    });
+  }
+  return archivedConversations;
+}
+
 export class TaskService {
   constructor(
     private readonly db: Db,
@@ -248,19 +316,93 @@ export class TaskService {
   }
 
   close(id: TaskId, caller: AgentId): Effect.Effect<Task, TaskServiceError> {
+    return this.closeWithLifecycle(id, caller).pipe(
+      Effect.map((closed) => closed.task),
+    );
+  }
+
+  closeWithLifecycle(
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<TaskCloseLifecycle, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
-      const row = yield* catchSqlErrorAsDefect(
-        takeFirstOrFail(
-          this.db
-            .updateTable("tasks")
-            .set({ status: "closed", ended_at: new Date() })
-            .where("id", "=", id)
-            .returningAll(),
-        ),
+      return yield* catchSqlErrorAsDefect(
+        transaction(this.db, (trx) => this.closeLifecycleTransaction(trx, id)),
       );
-      return rowToTask(row as TaskRow);
     });
+  }
+
+  private closeLifecycleTransaction(trx: TaskTransaction, id: TaskId) {
+    return Effect.gen(this, function* () {
+      const closedAt = new Date();
+      const taskRow = yield* this.closeTaskRow(trx, id, closedAt);
+      const archivedRows = yield* this.archiveOpenTaskConversations(
+        trx,
+        id,
+        closedAt,
+      );
+      const conversationIds = conversationIdsFromRows(archivedRows);
+      const participantsByConversation =
+        yield* this.readConversationParticipantMap(trx, conversationIds);
+      return {
+        task: rowToTask(taskRow as TaskRow),
+        participantAgentIds: yield* this.readAdmittedTaskParticipantIds(
+          trx,
+          id,
+        ),
+        archivedConversations: archivedConversationsFromRows(
+          archivedRows,
+          participantsByConversation,
+        ),
+      };
+    });
+  }
+
+  private closeTaskRow(trx: TaskTransaction, id: TaskId, closedAt: Date) {
+    return takeFirstOrFail(
+      trx
+        .updateTable("tasks")
+        .set({ status: "closed", ended_at: closedAt })
+        .where("id", "=", id)
+        .returningAll(),
+    );
+  }
+
+  private archiveOpenTaskConversations(
+    trx: TaskTransaction,
+    id: TaskId,
+    closedAt: Date,
+  ) {
+    return trx
+      .updateTable("conversations")
+      .set({ archived_at: closedAt })
+      .where("task_id", "=", id)
+      .where("archived_at", "is", null)
+      .returning(["id", "archived_at"]);
+  }
+
+  private readConversationParticipantMap(
+    trx: TaskTransaction,
+    conversationIds: readonly ConversationId[],
+  ) {
+    if (conversationIds.length === 0) {
+      return Effect.succeed(new Map<ConversationId, readonly AgentId[]>());
+    }
+    return trx
+      .selectFrom("conversation_participants")
+      .select(["conversation_id", "agent_id"])
+      .where("conversation_id", "in", [...conversationIds])
+      .pipe(Effect.map(participantMapFromRows));
+  }
+
+  private readAdmittedTaskParticipantIds(trx: TaskTransaction, id: TaskId) {
+    return trx
+      .selectFrom("task_participants")
+      .select("agent_id")
+      .where("task_id", "=", id)
+      .where("admitted_at", "is not", null)
+      .pipe(Effect.map(agentIdsFromRows));
   }
 
   /**

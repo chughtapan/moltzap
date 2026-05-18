@@ -166,9 +166,10 @@ function parseFrame(
   raw: string,
   session: SocketSession,
 ): Effect.Effect<unknown | null> {
-  return Effect.sync(() => JSON.parse(raw) as unknown).pipe(
-    Effect.catchAll((err) => handleParseFailure(err, session)),
-  );
+  return Effect.try({
+    try: () => JSON.parse(raw) as unknown,
+    catch: (cause) => cause,
+  }).pipe(Effect.catchAll((err) => handleParseFailure(err, session)));
 }
 
 function handleParseFailure(

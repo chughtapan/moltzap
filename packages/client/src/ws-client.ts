@@ -82,6 +82,9 @@ const MALFORMED_FRAME_PREVIEW_CHARS = 200;
  */
 const MALFORMED_LOG_EVERY = 50;
 
+export const shouldLogMalformedFrame = (count: number): boolean =>
+  count === 1 || count % MALFORMED_LOG_EVERY === 0;
+
 /**
  * Cap on the per-client notification buffer. Any frame that has no live
  * `waitForNotification` awaiter lands here until someone drains it. Excess
@@ -910,7 +913,7 @@ export class MoltZapWsClient {
   }): Effect.Effect<null> {
     return Effect.gen(this, function* () {
       const count = yield* Ref.updateAndGet(this.malformedRef, (n) => n + 1);
-      if (count === 1 || count % MALFORMED_LOG_EVERY === 0) {
+      if (shouldLogMalformedFrame(count)) {
         yield* Effect.logWarning(`Malformed frame (#${count})`).pipe(
           Effect.annotateLogs({
             rawPreview: err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
