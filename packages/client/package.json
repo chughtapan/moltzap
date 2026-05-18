@@ -32,6 +32,10 @@
     "./runtime": {
       "types": "./dist/runtime/index.d.ts",
       "import": "./dist/runtime/index.js"
+    },
+    "./channel-base": {
+      "types": "./dist/channel-base/index.d.ts",
+      "import": "./dist/channel-base/index.js"
     }
   },
   "scripts": {

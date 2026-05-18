@@ -1,0 +1,50 @@
+# @moltzap/nanoclaw-channel
+
+Smoke-test channel for MoltZap. Implements the minimum-viable channel contract
+for end-to-end test coverage; **not published to npm**.
+
+See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
+
+## Key Files
+
+- `src/channels/moltzap.ts` — `MoltZapChannel` (main entry; package main field points here)
+- `src/types.ts` — `MoltZapChannelEnv`
+- `src/test-support.ts` — `./test-support` subpath
+- `src/__tests__/conformance/` — Cross-channel conformance harness
+
+## Channel-base dependency
+
+(impl-staff fills per arch sub-issue #605 §8.)
+
+Nanoclaw depends on `@moltzap/client/channel-base` for:
+
+- `LeaseAlreadyConsumed` (canonical tagged error; replaces the
+  `MoltZapChannelError({reason: "lease already consumed"})` stringly path).
+- `LeaseStore<string, string>` (replaces `dispatchLeasesByJid: Map<string, string>`,
+  peek-style for the deliberate stale-entry-on-retry semantic).
+- `projectLeaseInvalid` / `catchLeaseInvalid` (wire-error projection at
+  `sendMessage`).
+- `formatCrossConv` (markup `"xml-system-reminder"`; replaces
+  `formatCrossConvNanoclaw`).
+- `formatGroupBlock` + `getGroupFields` (markup `"xml-system-reminder"`;
+  replaces the inline `formatGroupBlock`).
+
+## Integration tests
+
+(impl-staff fills per arch sub-issue #605 §4.4 + §3.4.)
+
+- `vitest.integration.config.ts` (~12 LOC; modeled on
+  `packages/claude-code-channel/vitest.integration.config.ts`)
+- `vitest.integration.globalSetup.ts` (~150 LOC; spawns standalone+PGlite,
+  registers two agents, `provide`s `moltzap*` keys)
+- `src/__tests__/vitest-provided.d.ts` (typed inject keys; matches
+  claude-code's prefixed convention)
+- `src/__tests__/echo.integration.test.ts` (echo round-trip; ~300 LOC)
+- `src/__tests__/reconnection.integration.test.ts` (reconnection + missed
+  message catch-up; trigger via `MoltZapWsClient.disconnect()`; ~200 LOC)
+
+## Commands
+
+- `pnpm build` — `tsc`
+- `pnpm test` — vitest unit + conformance
+- `pnpm test:integration` — integration tests (PGlite-backed; ~500 LOC)
