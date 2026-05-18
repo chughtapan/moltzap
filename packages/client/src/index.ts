@@ -41,6 +41,15 @@ export type {
   SubscriberHandler,
 } from "./runtime/subscribers.js";
 export type { CloseInfo } from "./runtime/close-info.js";
+// Spec B (#596) — tagged errors for the typed-Stream subscribe surface.
+// Impl-staff also adds re-exports for the new subscribe/subscribeAll
+// methods on `MoltZapWsClient`; those are exposed via the class itself,
+// not separate exports.
+export {
+  NotificationConsumerError,
+  TimeoutError as NotificationTimeoutError,
+  StreamClosedError as NotificationStreamClosedError,
+} from "./notification/errors.js";
 export {
   registerAgent,
   type RegisterAgentOptions,
