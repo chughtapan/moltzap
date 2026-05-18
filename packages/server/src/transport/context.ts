@@ -23,6 +23,15 @@ export interface DispatchContext {
   readonly connId: string;
 }
 
+// Spec A (#595) / architect sub-issue #603: the inbound `onRequestDecoded`
+// hook needs a pre-auth shape (`auth: AuthenticatedContext | null`)
+// distinct from `DispatchContext` (non-null `auth`). Impl-staff
+// introduces `DispatchContextPreAuth` here at cutover; deliberately
+// NOT shipped from architect tier because knip rejects unused
+// exported types in this package. The architect plan's §1.1 +
+// AC-Doc-4 row document the addition as part of impl-staff's
+// `packages/server/src/transport/context.ts` modification.
+
 /**
  * RPC binding stored in the registry. Each binding carries a method
  * definition and a `JsonRpcServer`-compatible handler that already
