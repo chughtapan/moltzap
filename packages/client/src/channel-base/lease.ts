@@ -40,6 +40,17 @@ export class LeaseAlreadyConsumed extends Data.TaggedError(
 }> {}
 
 /**
+ * Named alias for the error channel produced by `catchLeaseInvalid` over an
+ * effect with residual error `E`. Equivalent to
+ * `LeaseAlreadyConsumed | RpcServerError | E`, but referencable from external
+ * consumers (per arch sub-issue #605 §5.1 named-error-union commitment).
+ */
+export type LeaseInvalidProjectionError<E> =
+  | LeaseAlreadyConsumed
+  | RpcServerError
+  | E;
+
+/**
  * Project an `RpcServerError` to `LeaseAlreadyConsumed` if it matches the
  * lease-invalid wire shape; otherwise return the original error unchanged.
  *
@@ -87,6 +98,6 @@ export function catchLeaseInvalid<A, E2, R>(
   _ctx?: { readonly leaseId?: string },
 ): (
   eff: Effect.Effect<A, RpcServerError | E2, R>,
-) => Effect.Effect<A, LeaseAlreadyConsumed | RpcServerError | E2, R> {
+) => Effect.Effect<A, LeaseInvalidProjectionError<E2>, R> {
   throw new Error("not implemented (arch stub; impl-staff scope)");
 }
