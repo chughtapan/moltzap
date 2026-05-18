@@ -2,63 +2,44 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-```
-OpenClaw runtime
-      │
-      │  outbound.sendText(ctx)
-      │  ctx = { cfg, to, text, accountId?, replyToId? }
-      │
-      ▼
-┌──────────────────────────── Effect world ───────────────────────────────┐
-│                                                                          │
-│  Effect.gen(function* () {          (in `openclaw-entry.ts → sendText`) │
-│    accountId = ctx.accountId ?? "default"                               │
-│                                                                          │
-│    service = activeClients.get(accountId)                               │
-│    if (!service)                                                         │
-│      yield* Effect.fail(                                                 │
-│        new MoltZapClientNotConnectedError({ accountId })                │
-│      )                                                                   │
-│                                                                          │
-│    ┌── branch: ctx.to starts with "agent:" ───────────────────────────┤ │
-│    │   agentName = to.slice("agent:".length)                             │
-│    │   yield* service.sendToAgent(agentName, text,                       │
-│    │                              { replyTo: ctx.replyToId })            │
-│    └──────────────────────────────────────────────────────────────────  │
-│    ┌── branch: ctx.to starts with "conv:" (or plain id)  ─────────────┤ │
-│    │   conversationId = to starts with "conv:"                           │
-│    │                    ? to.slice("conv:".length) : to                  │
-│    │   yield* service.send(conversationId, text,                         │
-│    │                       { replyTo: ctx.replyToId })                   │
-│    └──────────────────────────────────────────────────────────────────  │
-│                                                                          │
-│    return new OpenClawSendTextSuccess()                                  │
-│                                                                          │
-│  }).pipe(                                                                │
-│    Effect.withSpan("createMoltzapChannelPlugin.sendText"),               │
-│    Effect.match({                                                        │
-│      onSuccess: ok  => ok,          ← OpenClawSendTextSuccess           │
-│      onFailure: err => new OpenClawSendTextFailure({                     │
-│                          error: err instanceof Error                     │
-│                            ? err : new Error(String(err))               │
-│                        })           ← wraps ALL failures                 │
-│    })                                                                    │
-│  )                                                                       │
-│                                                                          │
-└────────────────── Effect.runPromise(effect) ─────────────────────────── ┘
-      │
-      ▼   ◄── Promise boundary: Effect.runPromise called once
-      Promise<OpenClawSendTextSuccess | OpenClawSendTextFailure>
-      returned to OpenClaw runtime
+```mermaid
+sequenceDiagram
+    participant OC as OpenClaw runtime
+    participant Entry as openclaw-entry.ts sendText
+    participant Clients as activeClients Map
+    participant Svc as MoltZapService
 
-Key invariants:
-  • Effect.match collapses the error channel — runPromise never rejects.
-  • MoltZapClientNotConnectedError is the only typed failure; all others
-    (ServiceRpcError from service.send) propagate through Effect.match's
-    onFailure arm and become OpenClawSendTextFailure.
-  • The "conv:" strip + fallback-to-plain-id is backward compat for
-    callers that pass a raw conversation UUID.
+    OC->>Entry: outbound.sendText(ctx)<br/>ctx = { cfg, to, text, accountId?, replyToId? }
+
+    Note over Entry: Effect.gen — inside Effect world
+    Entry->>Entry: accountId = ctx.accountId ?? "default"
+    Entry->>Clients: activeClients.get(accountId)
+
+    alt service not found
+        Entry->>Entry: yield* Effect.fail(new MoltZapClientNotConnectedError({ accountId }))
+    else ctx.to starts with "agent:"
+        Entry->>Entry: agentName = to.slice("agent:".length)
+        Entry->>Svc: service.sendToAgent(agentName, text, { replyTo: ctx.replyToId })
+    else ctx.to starts with "conv:" or plain id
+        Entry->>Entry: conversationId = to.startsWith("conv:") ? to.slice("conv:".length) : to
+        Entry->>Svc: service.send(conversationId, text, { replyTo: ctx.replyToId })
+    end
+
+    Entry->>Entry: return new OpenClawSendTextSuccess()
+
+    Note over Entry: .pipe(Effect.withSpan(...), Effect.match({<br/>  onSuccess: ok => ok,<br/>  onFailure: err => new OpenClawSendTextFailure({ error })<br/>}))
+
+    Note over Entry,OC: Effect.runPromise — Effect↔Promise boundary
+    Entry-->>OC: Promise&lt;OpenClawSendTextSuccess | OpenClawSendTextFailure&gt;<br/>(never rejects — error channel collapsed by Effect.match)
 ```
+
+**Key invariants:**
+- `Effect.match` collapses the error channel — `runPromise` never rejects.
+- `MoltZapClientNotConnectedError` is the only typed failure; all others
+  (`ServiceRpcError` from `service.send`) propagate through `Effect.match`'s
+  `onFailure` arm and become `OpenClawSendTextFailure`.
+- The `"conv:"` strip + fallback-to-plain-id is backward compat for
+  callers that pass a raw conversation UUID.
 
 ---
 

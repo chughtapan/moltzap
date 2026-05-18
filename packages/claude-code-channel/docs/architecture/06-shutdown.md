@@ -5,37 +5,28 @@
 Shutdown is initiated either by `Handle.stop()` (caller-driven) or by
 the OS delivering SIGTERM to the CLI process.
 
-```text
-Caller / OS                 entry.ts                 server.ts      @moltzap/client
-     |                          |                        |                |
-     |  Handle.stop()           |                        |                |
-     |  (in entry.ts —          |                        |                |
-     |   makeHandle)            |                        |                |
-     |------------------------->|                        |                |
-     |                          |                        |                |
-     |                          | [1] core.disconnect()  |                |
-     |                          |------------------------------------->   |
-     |                          |        WS close / deregister inbound   |
-     |                          |        onInbound callback ceases        |
-     |                          |<-------------------------------------   |
-     |                          |                        |                |
-     |                          | [2] serverHandle.stop()|                |
-     |                          |----------------------->|                |
-     |                          |                   closeMcpServer(server)|
-     |                          |                   in server.ts          |
-     |                          |                   server.close()        |
-     |                          |                   MCP SDK closes stdio  |
-     |                          |                   transport             |
-     |                          |                        |                |
-     |                          |              close failure swallowed:   |
-     |                          |              logMcpCloseFailure         |
-     |                          |              in server.ts               |
-     |                          |              (spec I8: teardown logs,   |
-     |                          |               never propagates)         |
-     |                          |<-----------------------|                |
-     |                          |                        |                |
-     |<-------------------------|                        |                |
-        Effect<void> (infallible)
+```mermaid
+sequenceDiagram
+    participant Caller as Caller / OS
+    participant entry as entry.ts
+    participant server as server.ts
+    participant client as @moltzap/client
+
+    Caller->>entry: Handle.stop() — makeHandle in entry.ts
+
+    entry->>client: [1] core.disconnect()
+    note over client: WS close / deregister inbound<br/>onInbound callback ceases
+    client-->>entry: done
+
+    entry->>server: [2] serverHandle.stop()
+    note over server: closeMcpServer(server)<br/>server.close()<br/>MCP SDK closes stdio transport
+    alt close failure
+        note over server: logMcpCloseFailure (spec I8: teardown logs, never propagates)
+    end
+    server-->>entry: done
+
+    entry-->>Caller: Effect&lt;void&gt; (infallible)
+```
 
 Alternate path — boot-time connect failure (in entry.ts):
   connectCore() fails
@@ -61,7 +52,6 @@ Lease state at shutdown:
   The local LRU map (routing.ts) is garbage-collected with
   the process. No persistence. Server-side leases expire
   independently per the MoltZap server's dispatch TTL.
-```
 
 ---
 

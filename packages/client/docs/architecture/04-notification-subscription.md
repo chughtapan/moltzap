@@ -2,51 +2,32 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-```text
-  caller             MoltZapWsClient        SubscriberRegistry    server
-    │                      │                       │                 │
-    │──client.subscribe(───▶│                       │                 │
-    │   filter, handler)    │                       │                 │
-    │  (ws-client.ts → MoltZapWsClient.subscribe)  │                 │
-    │                       │ closed? → fail(NotConnectedError)       │
-    │                       │ subscribers.register(filter, handler)   │
-    │                       │──────────────────────▶│                 │
-    │                       │                       │ nextSubscriptionId()
-    │                       │                       │ Ref.update(subsRef,
-    │                       │                       │   append LiveSubscription)
-    │                       │                       │ (subscribers.ts → SubscriberRegistry.register)
-    │ ◀── NotificationSubscription {id, unsubscribe} │                 │
-    │   (handle held by caller for lifetime)         │                 │
-    │                       │                       │                 │
-    │   [notification arrives from server]           │                 │
-    │                       │ ◀─ frame (any method) ──────────────────│
-    │                       │ handleDecodedNotification():            │
-    │                       │ subscribers.dispatch(frame)             │
-    │                       │──────────────────────▶│                 │
-    │                       │                       │ snapshot = Ref.get(subsRef)
-    │                       │                       │ for sub of snapshot:
-    │                       │                       │   matchesFilter(sub.filter, frame)?
-    │                       │                       │    emissionTag exact match
-    │                       │                       │    conversationId exact match
-    │                       │                       │    notificationNamePrefix startsWith
-    │                       │                       │    (subscribers.ts → matchesFilter)
-    │                       │                       │   yes → sub.handler(frame)
-    │                       │                       │   (await Effect, catchAllDefect)
-    │                       │                       │   (subscribers.ts → SubscriberRegistry.dispatch)
-    │                       │                       │                 │
-    │                       │ takeNotificationWaiter(frame):          │
-    │                       │  waitersMap bucket pop                  │
-    │                       │  waiter present → Deferred.succeed()    │
-    │                       │  no waiter → bufferNotification()       │
-    │                       │  (ws-client.ts → takeNotificationWaiter)│
-    │                       │                       │                 │
-    │   [caller unsubscribes]│                      │                 │
-    │──handle.unsubscribe───▶│                       │                 │
-    │  (Effect<void,never>)  │                       │                 │
-    │                       │                       │ Ref.update(subsRef,
-    │                       │                       │   filter out id)
-    │                       │                       │ (subscribers.ts → SubscriberRegistry.unsubscribe)
-    │                       │                       │ next frame sees updated snapshot
+```mermaid
+sequenceDiagram
+    participant caller
+    participant wsClient as MoltZapWsClient
+    participant registry as SubscriberRegistry
+    participant server
+
+    caller->>wsClient: client.subscribe(filter, handler)<br/>(ws-client.ts → MoltZapWsClient.subscribe)
+    Note over wsClient: closed? → fail(NotConnectedError)
+    wsClient->>registry: subscribers.register(filter, handler)
+    Note over registry: nextSubscriptionId()<br/>Ref.update(subsRef, append LiveSubscription)<br/>(subscribers.ts → SubscriberRegistry.register)
+    registry-->>wsClient: NotificationSubscription {id, unsubscribe}
+    wsClient-->>caller: NotificationSubscription {id, unsubscribe}<br/>(handle held by caller for lifetime)
+
+    Note over caller,server: [notification arrives from server]
+    server->>wsClient: frame (any method)
+    Note over wsClient: handleDecodedNotification()<br/>subscribers.dispatch(frame)
+    wsClient->>registry: subscribers.dispatch(frame)
+    Note over registry: snapshot = Ref.get(subsRef)<br/>for sub of snapshot:<br/>  matchesFilter(sub.filter, frame)?<br/>    emissionTag exact match<br/>    conversationId exact match<br/>    notificationNamePrefix startsWith<br/>    (subscribers.ts → matchesFilter)<br/>  yes → sub.handler(frame)<br/>  (await Effect, catchAllDefect)<br/>  (subscribers.ts → SubscriberRegistry.dispatch)
+
+    Note over wsClient: takeNotificationWaiter(frame):<br/>waitersMap bucket pop<br/>waiter present → Deferred.succeed()<br/>no waiter → bufferNotification()<br/>(ws-client.ts → takeNotificationWaiter)
+
+    Note over caller,server: [caller unsubscribes]
+    caller->>wsClient: handle.unsubscribe (Effect&lt;void,never&gt;)
+    wsClient->>registry: unsubscribe(id)
+    Note over registry: Ref.update(subsRef, filter out id)<br/>(subscribers.ts → SubscriberRegistry.unsubscribe)<br/>next frame sees updated snapshot
 ```
 
 **Filter semantics** (in `subscribers.ts → matchesFilter`): all three fields

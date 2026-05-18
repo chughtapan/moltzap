@@ -5,89 +5,51 @@
 When the WS connection delivers a message, `MoltZapChannelCore` calls every
 registered `onInbound` callback. The channel registered one at boot step 7.
 
-```text
-MoltZap server     @moltzap/client         entry.ts                event.ts       server.ts
-     |                    |                    |                       |               |
-     | WS frame           |                    |                       |               |
-     |..........> MoltZapChannelCore           |                       |               |
-     |                    | onInbound(enriched)|                       |               |
-     |                    |------------------->|                       |               |
-     |                    |               handleInboundMessage         |               |
-     |                    |               (in entry.ts)               |               |
-     |                    |                    |                       |               |
-     |                    |               [A] opts.gateInbound?        |               |
-     |                    |                    |                       |               |
-     |                    |               YES: gateInbound(enriched)  |               |
-     |                    |               (pure, sync — in types.ts)  |               |
-     |                    |                    |                       |               |
-     |                    |               { _tag:"Failure" }          |               |
-     |                    |               logGateDropped              |               |
-     |                    |               (in entry.ts) + return      |               |
-     |                    |               AllowlistError surfaced      |               |
-     |                    |               as log only, not propagated  |               |
-     |                    |                    |                       |               |
-     |                    |               NO gate / { _tag:"Success" }|               |
-     |                    |                    |                       |               |
-     |                    |               [B] toClaudeChannelNotification(gated.value)|
-     |                    |                    |---------------------->|               |
-     |                    |                    |                       |               |
-     |                    |                    |        [B1] content check (in event.ts)
-     |                    |                    |        event.text empty              |
-     |                    |                    |        --> { _tag:"Err", ContentEmpty }
-     |                    |                    |        logTranslationFailed + return |
-     |                    |                    |                       |               |
-     |                    |                    |        [B2] decodeNotificationMeta   |
-     |                    |                    |        (in event.ts)                |
-     |                    |                    |        chat_id  = conversationId     |
-     |                    |                    |        message_id = id               |
-     |                    |                    |        user     = sender.id          |
-     |                    |                    |        ts       = createdAt (ISO)    |
-     |                    |                    |                       |               |
-     |                    |                    |        any brand fails:              |
-     |                    |                    |        MetaInvalid / ContentEmpty    |
-     |                    |                    |        logTranslationFailed + return |
-     |                    |                    |<----------------------|               |
-     |                    |                    |                       |               |
-     |                    |               [C] routing.recordInbound(message_id, chat_id)
-     |                    |               (in routing.ts) — advances lastActive,     |
-     |                    |               inserts into LRU map (cap 256)             |
-     |                    |                    |                       |               |
-     |                    |               [D] serverHandle.push(notification)        |
-     |                    |               (in entry.ts)               |               |
-     |                    |                    |-------------------------------------->|
-     |                    |                    |                       |               |
-     |                    |                    |                       | state.initialized?
-     |                    |                    |                       |               |
-     |                    |                    |                       |  NO (pre-handshake):
-     |                    |                    |                       |  state.pending.push()
-     |                    |                    |                       |  (in server.ts)
-     |                    |                    |                       |  flushed later
-     |                    |                    |                       |  at oninitialized
-     |                    |                    |                       |               |
-     |                    |                    |                       |  YES:          |
-     |                    |                    |                       |  server.notification({
-     |                    |                    |                       |   method: "notifications/claude/channel",
-     |                    |                    |                       |   params: { content, meta }
-     |                    |                    |                       |  })           |
-     |                    |                    |                       |  (in server.ts)
-     |                    |                    |                       |               |
-     |                    |                    |                       |    EmitFailed  |
-     |                    |                    |                       |    logWarning, |
-     |                    |                    |                       |    swallowed   |
-     |                    |                    |                       |    (in entry.ts)
-     |                    |                    |                       |               |
-     |                    |                    |                       | MCP stdio frame|
-     |                    |                    |                       |..............>|
-                                                                               Claude Code
-                                                                               sees:
-                                                                               <channel
-                                                                                source="moltzap"
-                                                                                chat_id="..."
-                                                                                message_id="..."
-                                                                                user="..."
-                                                                                ts="...">
-                                                                               content
-                                                                               </channel>
+```mermaid
+sequenceDiagram
+    participant WS as MoltZap server
+    participant client as @moltzap/client
+    participant entry as entry.ts
+    participant event as event.ts
+    participant server as server.ts
+    participant Claude as Claude Code
+
+    WS-->>client: WS frame → MoltZapChannelCore
+    client->>entry: onInbound(enriched) — handleInboundMessage
+
+    note over entry: [A] opts.gateInbound?
+    alt gate present
+        entry->>entry: gateInbound(enriched) — pure, sync (types.ts)
+        alt { _tag:"Failure" }
+            note over entry: logGateDropped (AllowlistError)<br/>logged only, not propagated — return
+        end
+    end
+    note over entry: NO gate / { _tag:"Success" } — continue
+
+    entry->>event: [B] toClaudeChannelNotification(gated.value)
+
+    note over event: [B1] content check<br/>event.text empty → { _tag:"Err", ContentEmpty }<br/>logTranslationFailed + return
+
+    note over event: [B2] decodeNotificationMeta<br/>chat_id = conversationId<br/>message_id = id<br/>user = sender.id<br/>ts = createdAt (ISO)<br/>any brand fails → MetaInvalid / ContentEmpty<br/>logTranslationFailed + return
+
+    event-->>entry: ClaudeChannelNotification
+
+    note over entry: [C] routing.recordInbound(message_id, chat_id)<br/>advances lastActive, inserts into LRU map (cap 256)
+
+    entry->>server: [D] serverHandle.push(notification)
+
+    alt state.initialized == false (pre-handshake)
+        note over server: state.pending.push()<br/>flushed later at oninitialized
+    else state.initialized == true
+        server->>server: server.notification({<br/>  method: "notifications/claude/channel",<br/>  params: { content, meta }<br/>})
+        alt EmitFailed
+            note over server: logWarning — swallowed (entry.ts)
+        end
+        server-->>Claude: MCP stdio frame
+    end
+
+    Note over Claude: &lt;channel source="moltzap" chat_id="..." message_id="..." user="..." ts="..."&gt;<br/>content<br/>&lt;/channel&gt;
+```
 
 Error taxonomy for this path:
   AllowlistError   — gateInbound returned Failure; logged, dropped (no push)
@@ -97,7 +59,6 @@ Error taxonomy for this path:
   PushError        — MCP emit rejected; logged, dropped (spec I5)
     EmitFailed     — server.notification() promise rejected
     NotConnected   — push called before transport attached (reserved, rare)
-```
 
 **Foreign-protocol bridge**: step D is the seam where MoltZap's wire
 `EnrichedInboundMessage` becomes an MCP `notifications/claude/channel`

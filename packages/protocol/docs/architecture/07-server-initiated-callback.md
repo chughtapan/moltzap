@@ -6,36 +6,16 @@ Same client/server runtime, reversed roles. The server holds a `JsonRpcClient`
 instance per moderator connection (lives in `@moltzap/server-core`); the
 client holds a `JsonRpcServer` wired with `taskCallbackHandlers`.
 
-```text
-SERVER (forked fiber)                               CLIENT (moderator)
-─────────────────────                               ──────────────────
-AppHost.runAuthorizeDispatch
-  │
-  ▼  perConnectionClient.call(
-       DispatchAuthorize, {dispatchId, …})
-  │  pending["server-7"] = Deferred
-  │  await
-  │                                                 ─── WS frame ──▶
-  │                                                                 decodeServerInbound(json)
-  │                                                                   → {_tag: "ServerRequest",
-  │                                                                      definition: DispatchAuthorize,
-  │                                                                      params}
-  │                                                                 client-side JsonRpcServer.handle
-  │                                                                   ▼
-  │                                                                 taskCallbackHandlers
-  │                                                                   ["dispatch/authorize"]
-  │                                                                   .handle(params, ctx)
-  │                                                                   ▼
-  │                                                                 moderator app code emits verdict
-  │                                                                 → {decision: "grant" | "deny" | "hold"}
-  │                                                                   ▼
-  │                                                <── WS frame ──   responseFrame(id, {result: verdict})
-  │
-  ▼  serverside.resolve(frame)
-  │  → Deferred.succeed(verdict)
-  │
-  ▼  back into AppHost: emit dispatch/release{verdict}
-     to the original recipient connection
+```mermaid
+sequenceDiagram
+    participant Server as "SERVER (forked fiber)<br/>AppHost.runAuthorizeDispatch"
+    participant Client as "CLIENT (moderator)<br/>client-side JsonRpcServer"
+
+    Note over Server: perConnectionClient.call(DispatchAuthorize, {dispatchId, …})<br/>pending["server-7"] = Deferred<br/>await
+    Server->>Client: WS frame (dispatch/authorize, id: server-7)
+    Note over Client: decodeServerInbound(json)<br/>→ {_tag: "ServerRequest", definition: DispatchAuthorize, params}<br/>taskCallbackHandlers["dispatch/authorize"].handle(params, ctx)<br/>moderator app code emits verdict<br/>→ {decision: "grant" | "deny" | "hold"}
+    Client-->>Server: WS frame (responseFrame id: server-7, {result: verdict})
+    Note over Server: serverside.resolve(frame)<br/>Deferred.succeed(verdict)<br/>emit dispatch/release{verdict} to original recipient connection
 ```
 
 `taskCallbackMethods` is the **strict subset** of `rpcMethods` allowed

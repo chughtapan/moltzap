@@ -8,56 +8,26 @@ conversation metadata and context blocks). The channel's callback,
 registered in the constructor via `core.onInbound`, runs the full
 inbound pipeline synchronously.
 
-```
-  MoltZapChannelCore (@moltzap/client)
-       │
-       │ WS frame arrives; core decodes + enriches message
-       │ fires onInbound callback with EnrichedInboundMessage:
-       │   { id, conversationId, sender, text, createdAt,
-       │     dispatchLeaseId?, replyToId?,
-       │     conversationMeta?: { type, name, participants },
-       │     contextBlocks: { crossConversationMessages?, groupMetadata? },
-       │     isFromMe }
-       │
-       │ channels/moltzap.ts → onInbound handler (wired via core.onInbound)
-       ▼
-  Effect.sync(() => this.handleInbound(msg))
-  └── handleInbound(enriched)               channels/moltzap.ts → handleInbound
+```mermaid
+sequenceDiagram
+    participant Core as MoltZapChannelCore (@moltzap/client)
+    participant Handler as handleInbound (channels/moltzap.ts)
+    participant Router as nanoclaw router
 
-         │
-         ├─1─▶ chatJid = jidFromConversationId(enriched.conversationId)
-         │        "mz:" + conversationId            (§3.5)
-         │
-         ├─2─▶ rememberDispatchLease(chatJid, enriched)
-         │        channels/moltzap.ts → rememberDispatchLease
-         │        if enriched.dispatchLeaseId:
-         │          dispatchLeasesByJid.set(chatJid, leaseId)
-         │        ┌────────────────────────────────────────────┐
-         │        │  dispatchLeasesByJid : Map<jid, leaseId>   │
-         │        │  keyed by chatJid (not conversationId)     │
-         │        │  value = LAST inbound lease for that jid   │
-         │        │  NOT cleared on send (post-cutover #533)   │
-         │        └────────────────────────────────────────────┘
-         │
-         ├─3─▶ maybeAutoRegister(chatJid, conversationId)
-         │        channels/moltzap.ts → maybeAutoRegister
-         │        evalMode=false → skip
-         │        evalMode=true  → ensureAutoRegistered()  (§3.6)
-         │
-         ├─4─▶ emitChatMetadata(chatJid, enriched)
-         │        channels/moltzap.ts → emitChatMetadata
-         │        opts.onChatMetadata({
-         │          chatJid, timestamp: enriched.createdAt,
-         │          name: enriched.conversationMeta?.name,
-         │          channel: "moltzap",
-         │          isGroup: conversationMeta?.type === "group"
-         │        })
-         │        ← nanoclaw router receives ChatMetadata BEFORE message
-         │          (test: "emitsMetadataBeforeMessage")
-         │
-         └─5─▶ opts.onMessage(chatJid, toNewMessage(chatJid, enriched))
-                  channels/moltzap.ts → toNewMessage call
-                  → NewMessage projection  (§3.7)
+    Core->>Handler: WS frame arrives; core decodes + enriches<br/>fires onInbound callback with EnrichedInboundMessage:<br/>{ id, conversationId, sender, text, createdAt,<br/>  dispatchLeaseId?, replyToId?,<br/>  conversationMeta?: { type, name, participants },<br/>  contextBlocks: { crossConversationMessages?, groupMetadata? },<br/>  isFromMe }
+    Note over Handler: Effect.sync(() =&gt; this.handleInbound(msg))
+
+    Note over Handler: Step 1 — jidFromConversationId(enriched.conversationId)<br/>chatJid = "mz:" + conversationId (§3.5)
+
+    Note over Handler: Step 2 — rememberDispatchLease(chatJid, enriched)<br/>if enriched.dispatchLeaseId:<br/>  dispatchLeasesByJid.set(chatJid, leaseId)
+
+    Note over Handler: dispatchLeasesByJid : Map&lt;jid, leaseId&gt;<br/>keyed by chatJid (not conversationId)<br/>value = LAST inbound lease for that jid<br/>NOT cleared on send (post-cutover #533)
+
+    Note over Handler: Step 3 — maybeAutoRegister(chatJid, conversationId)<br/>evalMode=false → skip<br/>evalMode=true  → ensureAutoRegistered() (§3.6)
+
+    Handler->>Router: Step 4 — opts.onChatMetadata({<br/>  chatJid, timestamp: enriched.createdAt,<br/>  name: enriched.conversationMeta?.name,<br/>  channel: "moltzap",<br/>  isGroup: conversationMeta?.type === "group"<br/>})<br/>nanoclaw router receives ChatMetadata BEFORE message<br/>(test: "emitsMetadataBeforeMessage")
+
+    Handler->>Router: Step 5 — opts.onMessage(chatJid, toNewMessage(chatJid, enriched))<br/>→ NewMessage projection (§3.7)
 ```
 
 ---

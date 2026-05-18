@@ -97,14 +97,15 @@ authority checks, and the dispatch admission path.
 define a TypeScript-enforced hierarchy on which service Tags a handler may
 pull at each layer:
 
-```text
-TransportTags  ⊂  IdentityTags  ⊂  NetworkTags  ⊂  TaskTags  ⊂  AppTags
-       │              │                │              │           │
-   ConnId,         + Auth,          + Presence,    + Message,  + AppHost,
-   Db,             ParticipantSvc   ResolverSvc,    Conv,       LeaseRegistry
-   Encryption,                      NetworkSend,    TaskSvc
-   WebhookClient,                   ContactsSvc
-   …
+```mermaid
+flowchart LR
+    T["TransportTags<br/>ConnId, Db,<br/>Encryption,<br/>WebhookClient, …"]
+    I["IdentityTags<br/>+ Auth,<br/>ParticipantSvc"]
+    N["NetworkTags<br/>+ Presence,<br/>ResolverSvc,<br/>NetworkSend,<br/>ContactsSvc"]
+    K["TaskTags<br/>+ Message,<br/>Conv,<br/>TaskSvc"]
+    A["AppTags<br/>+ AppHost,<br/>LeaseRegistry"]
+
+    T -->|"⊂"| I -->|"⊂"| N -->|"⊂"| K -->|"⊂"| A
 ```
 
 A handler bound at the `task` layer can pull `MessageService`, `ConversationService`,

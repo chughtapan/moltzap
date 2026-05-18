@@ -16,58 +16,25 @@ phases: import time (registry registration) and instantiation time
   tests — the factory is never invoked by nanoclaw's router in this
   package.
 
-```
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  MODULE LOAD (import "channels/moltzap.ts")                         │
-  └────────────────────────────┬────────────────────────────────────────┘
-                               │
-                               │ channels/moltzap.ts → registerChannel call
-                               ▼
-              registerChannel("moltzap", factory)
-                               │
-                               │ channels/registry.ts → registeredChannelFactories.set
-                               ▼
-       registeredChannelFactories.set("moltzap", factory)
-       ┌── idempotent: if same factory ref already stored, skip ──┐
+```mermaid
+flowchart TD
+    A["MODULE LOAD\nimport &quot;channels/moltzap.ts&quot;"]
+    A -->|"channels/moltzap.ts → registerChannel call"| B["registerChannel(&quot;moltzap&quot;, factory)"]
+    B -->|"channels/registry.ts → registeredChannelFactories.set"| C["registeredChannelFactories.set(&quot;moltzap&quot;, factory)\n(idempotent: if same factory ref already stored, skip)"]
 
+    D["INSTANTIATION\n(factory called, or test calls new MoltZapChannel)"]
+    D -->|"channels/moltzap.ts → loadMoltZapChannelEnv"| E["loadMoltZapChannelEnv()\nConfig.all({ apiKey, serverUrl, evalMode })\nConfigProvider.fromEnv()\nMOLTZAP_API_KEY → Option&lt;Redacted&gt;\nMOLTZAP_SERVER_URL → string (default: wss://api.moltzap.xyz)\nMOLTZAP_EVAL_MODE → &quot;0&quot;|&quot;1&quot; (default: &quot;0&quot;)\nEffect.runSync (blocks; env is stable at load time)"]
+    E -->|"apiKey absent"| F["return null (no channel)"]
+    E -->|"apiKey present"| G["new MoltZapService({ serverUrl, agentKey: apiKey })\nnew MoltZapChannelCore({ service })\nnew MoltZapChannel(opts, core, service.ownAgentId, evalMode)"]
 
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  INSTANTIATION (factory called, or test calls new MoltZapChannel)   │
-  └────────────────────────────┬────────────────────────────────────────┘
-                               │
-                               │ channels/moltzap.ts → loadMoltZapChannelEnv
-                               ▼
-                  loadMoltZapChannelEnv()
-                  ┌─ Config.all({ apiKey, serverUrl, evalMode })
-                  │  ConfigProvider.fromEnv()
-                  │  MOLTZAP_API_KEY  → Option<Redacted>
-                  │  MOLTZAP_SERVER_URL → string (default: wss://api.moltzap.xyz)
-                  │  MOLTZAP_EVAL_MODE → "0"|"1" (default: "0")
-                  └─ Effect.runSync (blocks; env is stable at load time)
+    G --> H["MoltZapChannel CONSTRUCTOR\n(channels/moltzap.ts → constructor)"]
+    H --> I["core.onInbound(…)\nregisters callback\nthat calls handleInbound(msg)"]
+    H --> J["core.onDisconnect(…)\nEffect.runFork(\n  logWarning + annotateLogs)"]
+    H --> K["core.onReconnect(…)\nEffect.runFork(\n  logInfo + annotateLogs)"]
 
-                               │  apiKey absent → return null (no channel)
-                               │  apiKey present ↓
-                               ▼
-              new MoltZapService({ serverUrl, agentKey: apiKey })
-              new MoltZapChannelCore({ service })
-              new MoltZapChannel(opts, core, service.ownAgentId, evalMode)
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  MoltZapChannel CONSTRUCTOR  (channels/moltzap.ts → constructor)    │
-  └────────────────────────────┬────────────────────────────────────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-              ▼                ▼                ▼
-    core.onInbound(…)   core.onDisconnect(…)  core.onReconnect(…)
-    registers callback   Effect.runFork(      Effect.runFork(
-    that calls             logWarning +         logInfo +
-    handleInbound(msg)     annotateLogs)        annotateLogs)
-
-  evalMode flag (boolean):
-    false (default) → maybeAutoRegister() is a no-op
-    true            → maybeAutoRegister() calls ensureAutoRegistered()
-                      (smoke-test eval-pipeline convenience, §3.6)
+    H --> L{"evalMode flag"}
+    L -->|"false (default)"| M["maybeAutoRegister() is a no-op"]
+    L -->|"true"| N["maybeAutoRegister() calls ensureAutoRegistered()\n(smoke-test eval-pipeline convenience, §3.6)"]
 ```
 
 ---

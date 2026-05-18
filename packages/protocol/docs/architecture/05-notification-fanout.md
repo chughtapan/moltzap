@@ -6,25 +6,18 @@ Notifications are fire-and-forget (no id, no response). The transport-side
 runtimes don't track them — clients subscribe externally via per-method
 handlers:
 
-```text
-emitter (server or client)
-   │
-   ▼  Notification.encode(params) → NotificationFrame              transport/method.ts → encode
-   │       {jsonrpc, method, params}
-   │
-   ▼  socket.write(JSON.stringify(frame))
-                            │
-                            ▼  wire
-                            │
-                            ▼
-receiver
-   │
-   ▼  decode{Server,Client}Inbound  →  {_tag: "Notification", definition, params}
-   │
-   ▼  subscriber dispatcher  (lives in consumer package, not here)
-   │       e.g. `@moltzap/client/runtime/subscribers.ts`
-   │
-   ▼  matching SubscriberHandler(params)
+```mermaid
+flowchart LR
+    EMITTER["emitter\n(server or client)"]
+    ENCODE["Notification.encode(params)\n→ NotificationFrame\n{jsonrpc, method, params}"]
+    WRITE["socket.write(JSON.stringify(frame))"]
+    WIRE["wire"]
+    RECEIVER["receiver"]
+    DECODE["decode{Server,Client}Inbound\n→ {_tag: &quot;Notification&quot;, definition, params}"]
+    DISPATCH["subscriber dispatcher\n(lives in consumer package)\ne.g. @moltzap/client/runtime/subscribers.ts"]
+    HANDLER["matching SubscriberHandler(params)"]
+
+    EMITTER --> ENCODE --> WRITE --> WIRE --> RECEIVER --> DECODE --> DISPATCH --> HANDLER
 ```
 
 The notification descriptor's role at this layer is purely encode/decode +

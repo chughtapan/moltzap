@@ -2,40 +2,30 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-```text
-module load order
-   │
-   ▼  class HookBlockedError extends Data.TaggedError("HookBlocked")<{...}> {
-   │      static readonly code = -32019
-   │      static readonly message = "Hook blocked"
-   │    }
-   │    registerErrorClass(HookBlockedError)            wire-errors.ts → registerErrorClass
-   │       │
-   │       └─→ map.set(-32019, HookBlockedError)
-   │
-   ▼  every domain layer registers its tagged-error classes at load time
-   │
-   ▼  rpc-registry.ts → RegisteredTaggedError union
-   │    type RegisteredTaggedError =
-   │      | UnauthorizedError | ForbiddenError | NotFoundError | …
-   │      | HookBlockedError | TaskClosedError | …
-   │    (must be hand-kept in sync with registry; type system can't enumerate
-   │     the static-side registry into a union)
-   │
-   ▼  client side: wireErrorToRpcCallError            json-rpc-client.ts → wireErrorToRpcCallError
-   │    errorClassFor(code) → registered class | undefined
-   │      │
-   │      ├─ class → new cls({data}) → RegisteredTaggedError instance
-   │      │           caller can Effect.catchTag("HookBlocked", …)
-   │      │
-   │      └─ undefined → new RpcServerError({code, message, data})
-   │                       caller catches by "RpcServerError" tag + branches on code
-   │
-   ▼  server side: wireErrorFromInstance              json-rpc-server.ts → wireErrorFromInstance
-        isRegisteredErrorInstance(value)?
-          ▼
-        wireErrorPayload(cls, message, data) → wire `error` sub-object
+```mermaid
+flowchart TD
+    LOAD["module load order"]
+    REGISTER["class HookBlockedError extends Data.TaggedError(...)\nstatic readonly code = -32019\nstatic readonly message = &quot;Hook blocked&quot;\nregisterErrorClass(HookBlockedError)\n→ map.set(-32019, HookBlockedError)"]
+    ALL_LAYERS["every domain layer registers its\ntagged-error classes at load time"]
+    UNION["RegisteredTaggedError union\ntype RegisteredTaggedError =\n  UnauthorizedError | ForbiddenError | NotFoundError | …\n  | HookBlockedError | TaskClosedError | …"]
+    CLIENT["client side: wireErrorToRpcCallError\nerrorClassFor(code) → registered class | undefined"]
+    CLASS_FOUND["new cls({data}) → RegisteredTaggedError instance\ncaller can Effect.catchTag(&quot;HookBlocked&quot;, …)"]
+    CLASS_NOT_FOUND["new RpcServerError({code, message, data})\ncaller catches by &quot;RpcServerError&quot; tag + branches on code"]
+    SERVER["server side: wireErrorFromInstance\nisRegisteredErrorInstance(value)?\n→ wireErrorPayload(cls, message, data)\n→ wire error sub-object"]
+
+    LOAD --> REGISTER --> ALL_LAYERS --> UNION
+    UNION --> CLIENT
+    CLIENT -->|"class found"| CLASS_FOUND
+    CLIENT -->|"undefined"| CLASS_NOT_FOUND
+    UNION --> SERVER
 ```
+
+**Annotations:**
+
+- `registerErrorClass` — `wire-errors.ts → registerErrorClass`
+- `RegisteredTaggedError` union — `rpc-registry.ts → RegisteredTaggedError`; must be hand-kept in sync with registry; type system cannot enumerate the static-side registry into a union
+- `wireErrorToRpcCallError` — `json-rpc-client.ts → wireErrorToRpcCallError`
+- `wireErrorFromInstance` — `json-rpc-server.ts → wireErrorFromInstance`
 
 `JSON_RPC_RESERVED_CODES` (in `json-rpc-server.ts`) covers only
 the JSON-RPC 2.0 spec codes (-32700 ParseError, -32600 InvalidRequest,

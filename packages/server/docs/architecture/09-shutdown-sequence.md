@@ -5,34 +5,18 @@
 `CoreApp.close()` (in `app/server.ts → close`) tears down in a specific order so
 in-flight work has a chance to finish before its dependencies vanish:
 
-```text
-close()
-   │
-   ▼  messageService.close()
-   │     # interrupt in-flight delivery-webhook retries BEFORE scope close
-   │     # so pending POSTs don't race the HTTP server teardown
-   │
-   ▼  appHost.destroy()
-   │     # clears manifests, in-process hook registries, remote registrations
-   │     # WARNING: runs BEFORE connections close, so an in-flight RPC may
-   │     # observe cleared manifests. SHUTDOWN_DRAIN_MS (500ms) sleep below
-   │     # is the only mitigation today (tracked in /review output 2026-04-16).
-   │
-   ▼  for conn of connections.all():
-   │     yield* conn.shutdown
-   │       # signals the per-connection closeRequested Deferred,
-   │       # which unblocks raceFirst → triggers onExit cleanup
-   │
-   ▼  Effect.sleep(500ms)  ── drain in-flight RPCs
-   │
-   ▼  Scope.close(appScope, Exit.void)
-   │     # tears down NodeHttpServer + upgrade wiring
-   │
-   ▼  dispatchRuntime.dispose()
-   │     # disposes the ManagedRuntime, finalizing service Layers
-   │
-   ▼  config.dbCleanup?.()
-        # optional caller-supplied hook (e.g. PGlite shutdown in tests)
+```mermaid
+flowchart LR
+    A["close()<br/><i>app/server.ts → close</i>"]
+    B["messageService.close()<br/>interrupt in-flight delivery-webhook retries<br/>BEFORE scope close — prevents pending POSTs<br/>racing the HTTP server teardown"]
+    C["appHost.destroy()<br/>clears manifests, in-process hook registries,<br/>remote registrations<br/>WARNING: runs BEFORE connections close —<br/>in-flight RPC may observe cleared manifests.<br/>SHUTDOWN_DRAIN_MS (500ms) below is the only<br/>mitigation today (tracked in /review 2026-04-16)"]
+    D["for conn of connections.all():<br/>yield* conn.shutdown<br/>signals per-connection closeRequested Deferred,<br/>unblocks raceFirst → triggers onExit cleanup"]
+    E["Effect.sleep(500ms)<br/>drain in-flight RPCs"]
+    F["Scope.close(appScope, Exit.void)<br/>tears down NodeHttpServer + upgrade wiring"]
+    G["dispatchRuntime.dispose()<br/>disposes ManagedRuntime, finalizing service Layers"]
+    H["config.dbCleanup?.()\noptional caller-supplied hook<br/>(e.g. PGlite shutdown in tests)"]
+
+    A --> B --> C --> D --> E --> F --> G --> H
 ```
 
 ## See also

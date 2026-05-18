@@ -4,63 +4,28 @@
 
 ## 3.1 OpenClaw Adapter (`openclaw-adapter.ts`)
 
-```text
-OpenClawAdapter.spawn(input)                               openclaw-adapter.ts → OpenClawAdapter.spawn
+```mermaid
+flowchart TD
+    OCS["OpenClawAdapter.spawn(input)\nopenclaw-adapter.ts → OpenClawAdapter.spawn"]
+    OC1["1. allocateFreePort()\nNodeSocketServer.make({ host: &quot;127.0.0.1&quot;, port: 0 })\nReads ephemeral port; scope closed immediately\n— port number recorded for openclaw.json config"]
+    OC2["2. prepareOpenClawStateDir(deps, input)\nmakeTempDirectory({ prefix: &quot;openclaw-&lt;agentName&gt;-&quot; })\nwriteOpenClawConfig(stateDir, ...)\nseedWorkspaceFiles(stateDir, input.workspaceFiles)\ninstallChannelPlugin(stateDir, channelDistDir, repoRoot)"]
+    OC3["3. buildOpenClawProcessPlan(openclawBin, port)\nIf openclawBin.endsWith(&quot;.mjs&quot;):\n  command=&quot;node&quot; args=[openclawBin, &quot;gateway&quot;, &quot;run&quot;, ...]\nElse:\n  command=openclawBin args=[&quot;gateway&quot;, &quot;run&quot;, ...]"]
+    OC4["4. spawnOpenClawProcess(command, args, cwd=stateDir)\nenv: OPENCLAW_STATE_DIR, OPENCLAW_CONFIG_PATH\nScope.make() → Command.start() → Scope.extend(scope)\nexitFiber = proc.exitCode.forkIn(scope)\nstdout + stderr fibers → logBuffer.value"]
+    OC5["5. this.state = { process, stateDir, logBuffer,\n   spawnInput, tornDown: false }"]
+    OCR["Readiness — OpenClawAdapter.waitUntilReady\nRace:\n  server.awaitAgentReady(agentId, timeoutMs)\n  processExitLoop({ pollExitCode: () =&gt; Fiber.poll(exitFiber),\n                    stderr: () =&gt; logBuffer.value })\nReadiness signal: server-side WS authentication event\nInbound marker: &quot;inbound from agent:&quot;"]
 
-  1. allocateFreePort()                                    openclaw-adapter.ts → allocateFreePort
-       NodeSocketServer.make({ host: "127.0.0.1", port: 0 })
-       Reads ephemeral port from server.address.port
-       Scope is immediately closed — port is released, but its
-       number is recorded for use in the openclaw.json config.
-
-  2. prepareOpenClawStateDir(deps, input)                  openclaw-adapter.ts → prepareOpenClawStateDir
-       makeTempDirectory({ prefix: "openclaw-<agentName>-" })
-       writeOpenClawConfig(stateDir, ...)                  openclaw-adapter.ts → writeOpenClawConfig
-         writes stateDir/openclaw.json  (OpenClawConfig)
-         config shape:
-           agents.defaults.model.primary = modelId ?? "openai-codex/gpt-5.4"
-           agents.defaults.workspace = stateDir/workspace
-           channels.moltzap.accounts[0] = { apiKey, serverUrl, agentName }
-           gateway.mode = "local"
-           gateway.auth.token = "runtime-<timestamp_base36>"
-       seedWorkspaceFiles(stateDir, input.workspaceFiles)  openclaw-adapter.ts → seedWorkspaceFiles
-       installChannelPlugin(stateDir, channelDistDir,       openclaw-adapter.ts → installChannelPlugin
-                            repoRoot)
-         resolves `effect` dep via resolveChannelDependency
-         installs openclaw-channel as plugin via
-           openclaw.plugin.json manifest
-
-  3. buildOpenClawProcessPlan(openclawBin, port)           openclaw-adapter.ts → buildOpenClawProcessPlan
-       If openclawBin.endsWith(".mjs"):
-         command = "node"  args = [openclawBin, "gateway",
-           "run", "--allow-unconfigured", "--port", port]
-       Else:
-         command = openclawBin  args = ["gateway", "run",
-           "--allow-unconfigured", "--port", port]
-
-  4. spawnOpenClawProcess(command, args, cwd=stateDir,     openclaw-adapter.ts → spawnOpenClawProcess
-       env = {
-         OPENCLAW_STATE_DIR: stateDir,
-         OPENCLAW_CONFIG_PATH: stateDir/openclaw.json
-       })
-       Scope.make() → Command.start() → Scope.extend(scope)
-       exitFiber = proc.exitCode.forkIn(scope)
-       stdout + stderr fibers → logBuffer.value
-
-  5. this.state = { process, stateDir, logBuffer,
-                    spawnInput, tornDown: false }
-
-Readiness (OpenClawAdapter.waitUntilReady):             openclaw-adapter.ts → OpenClawAdapter.waitUntilReady
-  Race:
-    server.awaitAgentReady(agentId, timeoutMs)
-      (openclaw's moltzap channel authenticates on WS connect)
-    processExitLoop({ pollExitCode: () => Fiber.poll(exitFiber),
-                      stderr: () => logBuffer.value })
-  Binary: "openclaw" (native) or "node <openclaw.mjs>" (mjs)
-  Readiness signal: server-side WS authentication event
-    (NOT a stdout pattern — openclaw dials moltzap on startup)
-  Inbound marker: "inbound from agent:"              openclaw-adapter.ts → inbound log marker
+    OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
 ```
+
+**Annotations:**
+- `allocateFreePort` — `openclaw-adapter.ts → allocateFreePort`
+- `prepareOpenClawStateDir` — `openclaw-adapter.ts → prepareOpenClawStateDir`
+- `writeOpenClawConfig` — `openclaw-adapter.ts → writeOpenClawConfig`; writes `stateDir/openclaw.json` with model, workspace, moltzap channel account, gateway mode/auth
+- `seedWorkspaceFiles` — `openclaw-adapter.ts → seedWorkspaceFiles`
+- `installChannelPlugin` — `openclaw-adapter.ts → installChannelPlugin`; resolves `effect` dep via `resolveChannelDependency`; installs via `openclaw.plugin.json`
+- `buildOpenClawProcessPlan` — `openclaw-adapter.ts → buildOpenClawProcessPlan`
+- `spawnOpenClawProcess` — `openclaw-adapter.ts → spawnOpenClawProcess`
+- `OpenClawAdapter.waitUntilReady` — `openclaw-adapter.ts → OpenClawAdapter.waitUntilReady`; inbound marker `openclaw-adapter.ts → inbound log marker`
 
 ## 3.2 Nanoclaw Adapter (`nanoclaw-adapter.ts` + `nanoclaw-process.ts`)
 
@@ -68,148 +33,75 @@ Nanoclaw is unique: it runs agent subprocesses **inside Docker containers**
 via the OneCLI gateway. The adapter has a two-phase startup: first ensure the
 runtime cache is installed, then launch.
 
-```text
-NanoclawAdapter.spawn(input)                           nanoclaw-adapter.ts → NanoclawAdapter.spawn
+```mermaid
+flowchart TD
+    NS["NanoclawAdapter.spawn(input)\nnanoclaw-adapter.ts → NanoclawAdapter.spawn"]
 
-  Phase 1 — ensureNanoclawRuntimeInstalledEffect()     nanoclaw-process.ts → ensureNanoclawRuntimeInstalledEffect
-    Checks ~/.cache/moltzap-runtimes/nanoclaw/<sha12>/.ready
-    If .ready exists:
-      syncChannelFileIntoCache()                        nanoclaw-process.ts → syncChannelFileIntoCache
-        diffs packages/nanoclaw-channel/src/channels/moltzap.ts
-        diffs packages/client/dist/channel-core.js
-        if either drifted: overwrite cache + npm run build
-    Else (cold install):
-      preflightDocker()                                 nanoclaw-process.ts → preflightDocker
-        execEffect("docker info", timeout=5000ms)
-      downloadTarball(NANOCLAW_URL, tmpDir)             nanoclaw-process.ts → downloadTarball
-        curl -fsSL <github tarball> -o nanoclaw.tar.gz
-        tar -xzf ... --strip-components=1
-        NANOCLAW_SHA = qwibitai/nanoclaw@934f063...     nanoclaw-process.ts → NANOCLAW_SHA
-      copyChannelFileIntoCache(tmpDir)                  nanoclaw-process.ts → copyChannelFileIntoCache
-      appendMoltzapBarrelImport(tmpDir)                 nanoclaw-process.ts → appendMoltzapBarrelImport
-      copySharedSkillIntoCache(tmpDir)                  nanoclaw-process.ts → copySharedSkillIntoCache
-      buildNanoclawRuntimeCache(tmpDir)                 nanoclaw-process.ts → buildNanoclawRuntimeCache
-        npm install @moltzap/client@latest (120s)
-        npm install (300s)
-        npm run build (120s)
-        bash container/build.sh (300s)
-      promoteRuntimeCache(tmpDir → NANOCLAW_RUNTIME_CACHE)
+    subgraph Phase1["Phase 1 — ensureNanoclawRuntimeInstalledEffect\nnanoclaw-process.ts → ensureNanoclawRuntimeInstalledEffect"]
+        P1C{"~/.cache/.../nanoclaw/&lt;sha12&gt;/.ready\nexists?"}
+        P1WARM["syncChannelFileIntoCache()\ndiff nanoclaw-channel moltzap.ts\ndiff client dist/channel-core.js\nif either drifted: overwrite + npm run build"]
+        P1COLD["preflightDocker()\nexecEffect(&quot;docker info&quot;, timeout=5000ms)"]
+        P1DL["downloadTarball(NANOCLAW_URL, tmpDir)\ncurl -fsSL &lt;github tarball&gt;\nNANOCLAW_SHA = qwibitai/nanoclaw@934f063..."]
+        P1COPY["copyChannelFileIntoCache(tmpDir)\nappendMoltzapBarrelImport(tmpDir)\ncopySharedSkillIntoCache(tmpDir)"]
+        P1BUILD["buildNanoclawRuntimeCache(tmpDir)\nnpm install @moltzap/client@latest (120s)\nnpm install (300s)\nnpm run build (120s)\nbash container/build.sh (300s)"]
+        P1PROMOTE["promoteRuntimeCache(tmpDir → NANOCLAW_RUNTIME_CACHE)"]
 
-  Phase 2 — startNanoclawRuntimeEffect(opts)           nanoclaw-process.ts → startNanoclawRuntimeEffect
-    createNanoclawDataDir()  (mktemp prefix=moltzap-nanoclaw-runtime-)
-    ensureOnecliRunning()                               nanoclaw-process.ts → ensureOnecliRunning
-      probe http://127.0.0.1:10254 (timeout=2s)
-      if unreachable: docker compose -p onecli up -d --wait
-      probe up to 20×500ms
-    writeRuntimeWorkspaceFiles(workspaceFiles)
-      → NANOCLAW_RUNTIME_CACHE/container/skills/<path>
+        P1C -->|".ready exists (warm)"| P1WARM
+        P1C -->|"cold install"| P1COLD --> P1DL --> P1COPY --> P1BUILD --> P1PROMOTE
+    end
 
-    startNanoclawProcess(opts, dataDir, capturedLogs)   nanoclaw-process.ts → startNanoclawProcess
-      command: "node dist/index.js"
-      cwd: NANOCLAW_RUNTIME_CACHE
-      env = {
-        MOLTZAP_API_KEY: apiKey,
-        MOLTZAP_SERVER_URL: <http-normalized>,
-        MOLTZAP_EVAL_MODE: "1",
-        DATA_DIR: dataDir,
-        CONTAINER_RUNTIME: "docker",
-        ONECLI_URL: "http://127.0.0.1:10254",
-        LOG_LEVEL: "info"
-      }
+    subgraph Phase2["Phase 2 — startNanoclawRuntimeEffect\nnanoclaw-process.ts → startNanoclawRuntimeEffect"]
+        P2DIR["createNanoclawDataDir()\nmktemp prefix=moltzap-nanoclaw-runtime-"]
+        P2OC["ensureOnecliRunning()\nprobe http://127.0.0.1:10254 (timeout=2s)\nif unreachable: docker compose -p onecli up -d --wait\nprobe up to 20×500ms"]
+        P2WS["writeRuntimeWorkspaceFiles(workspaceFiles)\n→ NANOCLAW_RUNTIME_CACHE/container/skills/&lt;path&gt;"]
+        P2SP["startNanoclawProcess(opts, dataDir, capturedLogs)\ncommand: &quot;node dist/index.js&quot;\ncwd: NANOCLAW_RUNTIME_CACHE\nenv: MOLTZAP_API_KEY, MOLTZAP_SERVER_URL,\n  MOLTZAP_EVAL_MODE=&quot;1&quot;, DATA_DIR,\n  CONTAINER_RUNTIME=&quot;docker&quot;,\n  ONECLI_URL=&quot;http://127.0.0.1:10254&quot;,\n  LOG_LEVEL=&quot;info&quot;"]
+        P2WAIT["waitForNanoclawConnection(exitFiber, capturedLogs)\nRace (timeout=60s):\n  waitForConnectedMarker: poll 200ms,\n    scan capturedLogs for CONNECTED_MARKER\n    /\\[info\\].*MoltZap connected|MoltZap connected/\n  failIfProcessExitsBeforeConnect: Fiber.join(exitFiber)"]
 
-    waitForNanoclawConnection(exitFiber, capturedLogs)  nanoclaw-process.ts → waitForNanoclawConnection
-      Race (timeout=60s):
-        waitForConnectedMarker: poll every 200ms,
-          scan capturedLogs for CONNECTED_MARKER regex     nanoclaw-process.ts → CONNECTED_MARKER
-          /\[info\].*MoltZap connected|MoltZap connected/
-        failIfProcessExitsBeforeConnect: Fiber.join(exitFiber)
+        P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
+    end
 
-  this.state = { handle, spawnInput, tornDown: false }
+    P2STATE["this.state = { handle, spawnInput, tornDown: false }"]
+    NCR["Readiness — NanoclawAdapter.waitUntilReady\nTWO gates:\n1. Inner: waitForNanoclawConnection (stdout marker)\n2. Outer: server.awaitAgentReady (server WS auth)\n\nOuter race:\n  server.awaitAgentReady(agentId, timeoutMs)\n  processExitLoop({ pollExitCode: () =&gt; Fiber.poll(handle.exitFiber),\n                    stderr: () =&gt; getNanoclawRuntimeLogs(handle) })\nInbound marker: &quot;New messages&quot;"]
 
-Readiness (NanoclawAdapter.waitUntilReady):             nanoclaw-adapter.ts → NanoclawAdapter.waitUntilReady
-  Note: nanoclaw has TWO readiness gates:
-    1. Inner: waitForNanoclawConnection (stdout marker,
-              inside startNanoclawRuntimeEffect)
-    2. Outer: server.awaitAgentReady (server WS auth,
-              inside waitUntilReady)
-  Outer race:
-    server.awaitAgentReady(agentId, timeoutMs)
-    processExitLoop({ pollExitCode: () =>
-      Fiber.poll(handle.exitFiber), stderr: () =>
-      getNanoclawRuntimeLogs(handle) })
-  Binary: "node dist/index.js" in NANOCLAW_RUNTIME_CACHE
-  Inbound marker: "New messages"                        nanoclaw-adapter.ts → inbound log marker
+    NS --> Phase1
+    Phase1 --> Phase2
+    Phase2 --> P2STATE --> NCR
 ```
+
+**Annotations:**
+- `ensureNanoclawRuntimeInstalledEffect` — `nanoclaw-process.ts → ensureNanoclawRuntimeInstalledEffect`
+- `syncChannelFileIntoCache` — `nanoclaw-process.ts → syncChannelFileIntoCache`
+- `preflightDocker` — `nanoclaw-process.ts → preflightDocker`
+- `downloadTarball` — `nanoclaw-process.ts → downloadTarball`; `NANOCLAW_SHA` — `nanoclaw-process.ts → NANOCLAW_SHA`
+- `copyChannelFileIntoCache`, `appendMoltzapBarrelImport`, `copySharedSkillIntoCache` — `nanoclaw-process.ts`
+- `buildNanoclawRuntimeCache` — `nanoclaw-process.ts → buildNanoclawRuntimeCache`
+- `startNanoclawRuntimeEffect` — `nanoclaw-process.ts → startNanoclawRuntimeEffect`
+- `ensureOnecliRunning` — `nanoclaw-process.ts → ensureOnecliRunning`
+- `startNanoclawProcess` — `nanoclaw-process.ts → startNanoclawProcess`
+- `waitForNanoclawConnection` — `nanoclaw-process.ts → waitForNanoclawConnection`; `CONNECTED_MARKER` — `nanoclaw-process.ts → CONNECTED_MARKER`
+- `NanoclawAdapter.waitUntilReady` — `nanoclaw-adapter.ts → NanoclawAdapter.waitUntilReady`; inbound marker — `nanoclaw-adapter.ts → inbound log marker`
 
 ## 3.3 ClaudeCode Adapter (`claude-code-adapter.ts`)
 
-```text
-ClaudeCodeAdapter.spawn(input)                         claude-code-adapter.ts → ClaudeCodeAdapter.spawn
+```mermaid
+flowchart TD
+    CCS["ClaudeCodeAdapter.spawn(input)\nclaude-code-adapter.ts → ClaudeCodeAdapter.spawn"]
+    CC1["1. prepareClaudeCodeStateDir(deps, input)\nmakeTempDirectory({ prefix: &quot;claude-code-&lt;agentName&gt;-&quot; })\nseedWorkspaceFiles(stateDir, input.workspaceFiles)\ninstallClaudeCodeChannelPlugin(deps, stateDir)\n  resolves @modelcontextprotocol/sdk + effect deps\n  via resolveChannelDependency (parent node_modules walk)\n  no openclaw.plugin.json — cc-channel has no OpenClaw manifest\n  returns extDir (channel path inside stateDir)"]
+    CC2["2. writeClaudeCodeMcpConfig(opts)\nserverUrl: strip /ws, ws→http, wss→https\nchannelServerName = &quot;@moltzap/claude-code-channel/&lt;agentName&gt;&quot;\nwrites stateDir/mcp-config.json:\n  { mcpServers: { moltzap: {\n    command: &quot;node&quot;,\n    args: [extDir/dist/cli.js],\n    env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL,\n           MOLTZAP_SERVER_NAME: channelServerName }\n  }}}"]
+    CC3["3. spawnConfiguredClaude(deps, stateDir, mcpConfigPath, logBuffer)\nbuildClaudeArgs: --strict-mcp-config\n  --mcp-config &lt;mcpConfigPath&gt;\n  --print --input-format stream-json\n  --output-format stream-json --verbose\n  --dangerously-skip-permissions\n  --add-dir &lt;stateDir/workspace&gt;\nspawnClaudeProcess(claudeBin, args,\n  cwd=stateDir, env={ CLAUDE_CODE_HOME: stateDir },\n  stdin=&quot;inherit&quot;)\nScope.make() → Command.start() → Scope.extend(scope)\nexitFiber = proc.exitCode.forkIn(scope)\nstdout + stderr fibers → logBuffer.value"]
+    CC4["4. this.state = { process, stateDir, spawnInput,\n   logBuffer, tornDown: false }"]
+    CCR["Readiness — ClaudeCodeAdapter.waitUntilReady\nRace:\n  server.awaitAgentReady(agentId, timeoutMs)\n    (cc-channel's MCP stdio server authenticates on start)\n  processExitLoop({ pollExitCode: () =&gt; pollClaudeExitCode(proc),\n                    stderr: () =&gt; logBuffer.value })\nBinary: claudeBin (&quot;claude&quot; CLI, @anthropic-ai/claude-code)\nClaude spawns cc-channel as MCP stdio child automatically\n  (SIGTERM on claude propagates to cc-channel naturally —\n   no process-group kill needed, unlike openclaw)\nReadiness signal: server-side WS authentication event\nInbound marker: &quot;notifications/claude/channel&quot;\n  (cc-channel sends MCP notifications/claude/channel\n   per inbound message; visible in --verbose output)"]
 
-  1. prepareClaudeCodeStateDir(deps, input)            claude-code-adapter.ts → prepareClaudeCodeStateDir
-       makeTempDirectory({ prefix: "claude-code-<agentName>-" })
-       seedWorkspaceFiles(stateDir, input.workspaceFiles)
-       installClaudeCodeChannelPlugin(deps, stateDir)   claude-code-adapter.ts → installClaudeCodeChannelPlugin
-         resolves @modelcontextprotocol/sdk and effect deps
-         via resolveChannelDependency (parent node_modules walk)
-         installs claude-code-channel (no openclaw.plugin.json —
-         cc-channel has no OpenClaw manifest equivalent)
-         returns extDir (path to channel inside stateDir)
-
-  2. writeClaudeCodeMcpConfig(opts)                    claude-code-process.ts → writeClaudeCodeMcpConfig
-       serverUrl normalized: strip /ws, ws→http, wss→https
-       channelServerName = "@moltzap/claude-code-channel/<agentName>"
-       writes stateDir/mcp-config.json:
-         { mcpServers: {
-             moltzap: {
-               command: "node",
-               args: [extDir/dist/cli.js],
-               env: {
-                 MOLTZAP_API_KEY: apiKey,
-                 MOLTZAP_SERVER_URL: serverUrl,
-                 MOLTZAP_SERVER_NAME: channelServerName
-               }
-             }
-           }
-         }
-       returns configPath
-
-  3. spawnConfiguredClaude(deps, stateDir, mcpConfigPath, logBuffer)
-       buildClaudeArgs(path, stateDir, mcpConfigPath):    claude-code-adapter.ts → buildClaudeArgs
-         "--strict-mcp-config"
-         "--mcp-config"  <mcpConfigPath>
-         "--print"
-         "--input-format" "stream-json"
-         "--output-format" "stream-json"
-         "--verbose"
-         "--dangerously-skip-permissions"
-         "--add-dir" <stateDir/workspace>
-       spawnClaudeProcess(claudeBin, args,                claude-code-adapter.ts → spawnClaudeProcess
-         cwd=stateDir,
-         env={ CLAUDE_CODE_HOME: stateDir },
-         stdin="inherit")
-       Scope.make() → Command.start() → Scope.extend(scope)
-       exitFiber = proc.exitCode.forkIn(scope)
-       stdout + stderr fibers → logBuffer.value
-
-  4. this.state = { process, stateDir, spawnInput,
-                    logBuffer, tornDown: false }
-
-Readiness (ClaudeCodeAdapter.waitUntilReady):          claude-code-adapter.ts → ClaudeCodeAdapter.waitUntilReady
-  Race:
-    server.awaitAgentReady(agentId, timeoutMs)
-      (cc-channel's MCP stdio server authenticates on start)
-    processExitLoop({ pollExitCode: () =>
-      pollClaudeExitCode(proc), stderr: () => logBuffer.value })
-  Binary: claudeBin ("claude" CLI, @anthropic-ai/claude-code)
-  Claude spawns cc-channel as MCP stdio child automatically
-    (SIGTERM on claude propagates to cc-channel naturally —
-     no process-group kill needed, unlike openclaw)
-  Readiness signal: server-side WS authentication event
-  Inbound marker: "notifications/claude/channel"        claude-code-adapter.ts → inbound log marker
-    (cc-channel sends MCP notifications/claude/channel
-     for each inbound message; visible in --verbose output)
+    CCS --> CC1 --> CC2 --> CC3 --> CC4 --> CCR
 ```
+
+**Annotations:**
+- `prepareClaudeCodeStateDir` — `claude-code-adapter.ts → prepareClaudeCodeStateDir`
+- `installClaudeCodeChannelPlugin` — `claude-code-adapter.ts → installClaudeCodeChannelPlugin`
+- `writeClaudeCodeMcpConfig` — `claude-code-process.ts → writeClaudeCodeMcpConfig`
+- `buildClaudeArgs` — `claude-code-adapter.ts → buildClaudeArgs`
+- `spawnClaudeProcess` — `claude-code-adapter.ts → spawnClaudeProcess`
+- `ClaudeCodeAdapter.waitUntilReady` — `claude-code-adapter.ts → ClaudeCodeAdapter.waitUntilReady`; inbound marker — `claude-code-adapter.ts → inbound log marker`
 
 ## See Also
 

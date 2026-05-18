@@ -5,72 +5,57 @@
 The `LeaseRegistry` is an in-process `Ref<Map<LeaseId, LeaseEntry>>` with
 per-lease TTL fibers; no DB row. State transitions are atomic via `Ref.modify`:
 
-```text
-              ┌──────── lease state machine ────────────┐
-              │                                          │
-              ▼                                          │
-          PENDING ───── moderator verdict ─────────────┐ │
-              │                                        │ │
-              │  conn close                            │ │
-              ▼                                        ▼ │
-          ABANDONED                              GRANTED │
-                                                     │  │
-                                      messages/send  │  │
-                                      claim ────────▶│  │
-                                                     ▼  │
-                                                 CLAIMED│
-                                                     │  │
-                                        insert ok  ──┴─▶│ CONSUMED
-                                                        │
-                                        insert fail ──▶ │ rollback → GRANTED
-                                                        │
-                                          TTL fires  ──▶│ EXPIRED
-                                                        │
-                                   moderator deny ────▶ │ DENIED
-                                                        │
-                                   conn close (G/H) ──▶ │ EXPIRED-on-disconnect
-              │
-              ▼
-          HOLD (moderator returned hold)
-              │
-              ▼ retry on next inbound message in same conversation
-          [re-park → next verdict]
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+
+    PENDING --> GRANTED : moderator verdict (grant)
+    PENDING --> DENIED : moderator deny
+    PENDING --> HOLD : moderator returned hold
+    PENDING --> ABANDONED : conn close
+
+    HOLD --> PENDING : retry on next inbound message in same conversation (re-park)
+
+    GRANTED --> CLAIMED : messages/send claim
+    GRANTED --> EXPIRED : TTL fires
+    GRANTED --> EXPIRED_ON_DISCONNECT : conn close (GRANTED/HOLD)
+
+    CLAIMED --> CONSUMED : insert ok
+    CLAIMED --> GRANTED : insert fail (rollback)
+
+    CONSUMED --> [*]
+    DENIED --> [*]
+    ABANDONED --> [*]
+    EXPIRED --> [*]
+    EXPIRED_ON_DISCONNECT --> [*]
 ```
 
-```text
-Recipient flow (with lease):
-   │
-   ▼  dispatch/request (C→S)                  app/handlers/apps.handlers.ts
-   │     ▼
-   │   LeaseRegistry.mint(ctx) → {leaseId, dispatchId}     PENDING
-   │     ▼
-   │   ack returned IMMEDIATELY (no wait on moderator)
-   │     ▼
-   │   Effect.fork: dispatchAuthorizeHook(ctx)
-   │     ↑  moderator round-trip (see §04 server-initiated callback)
-   │     │
-   │     ▼  verdict
-   │   LeaseRegistry.resolve(leaseId, verdict)
-   │     ▼  state → GRANTED | DENIED | HOLD
-   │     ▼
-   │   emit dispatch/release{verdict} to recipient connection
-   │
-   ▼ recipient parks client-side; when release arrives, runs InboundHandler
-   ▼ handler invokes messages/send with dispatchLeaseId
-   │
-   ▼  messages/send handler:
-   │     LeaseRegistry.claim(leaseId) → Claim handle      GRANTED → CLAIMED
-   │     Effect.acquireUseRelease(
-   │       acquire = claim,
-   │       use     = messageService.sendInsert(...) → carrier,
-   │       release = exit → if Exit.isSuccess
-   │                          then claim.finalize(messageId)  CLAIMED → CONSUMED
-   │                          else claim.rollback()           CLAIMED → GRANTED
-   │     )
-   │     messageService.sendCommit(carrier, ...)
-   │     // post-insert side effects: TM routing + broadcast + trace
-   │     // do NOT affect lease state. sendCommit failure leaves lease
-   │     // CONSUMED and durable row intact — caller must not retry.
+```mermaid
+sequenceDiagram
+    participant Recv as Recipient (client)
+    participant AH as apps.handlers<br/>(app/handlers/apps.handlers.ts)
+    participant LR as LeaseRegistry
+    participant Mod as Moderator (round-trip)
+    participant MS as MessageService
+
+    Recv->>AH: dispatch/request (C→S)
+    AH->>LR: LeaseRegistry.mint(ctx)
+    LR-->>AH: {leaseId, dispatchId} — state: PENDING
+    AH-->>Recv: ack returned IMMEDIATELY (no wait on moderator)
+    AH->>Mod: Effect.fork: dispatchAuthorizeHook(ctx)<br/>(moderator round-trip — see §04 server-initiated callback)
+    Mod-->>AH: verdict
+    AH->>LR: LeaseRegistry.resolve(leaseId, verdict)
+    LR-->>AH: state → GRANTED | DENIED | HOLD
+    AH->>Recv: emit dispatch/release{verdict}
+
+    Note over Recv: recipient parks client-side;<br/>when release arrives, runs InboundHandler
+
+    Recv->>MS: messages/send with dispatchLeaseId
+    MS->>LR: LeaseRegistry.claim(leaseId)
+    LR-->>MS: Claim handle — state: GRANTED → CLAIMED
+    Note over MS: Effect.acquireUseRelease(<br/>acquire = claim,<br/>use = messageService.sendInsert(…) → carrier,<br/>release = exit →<br/>  if Exit.isSuccess → claim.finalize(messageId) CLAIMED→CONSUMED<br/>  else → claim.rollback() CLAIMED→GRANTED<br/>)
+    MS->>MS: messageService.sendCommit(carrier, …)
+    Note over MS: post-insert side effects: TM routing + broadcast + trace<br/>do NOT affect lease state.<br/>sendCommit failure leaves lease CONSUMED and durable<br/>row intact — caller must not retry.
 ```
 
 Connection close cleanup (`leaseRegistry.abandon(connId)` in the disconnect
