@@ -1,10 +1,9 @@
-import type { Kysely } from "kysely";
 import type { Layer } from "effect";
 import type { RpcMethodBinding } from "../transport/context.js";
 import type { AppManifest } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
-import type { Database } from "../db/database.js";
+import type { Db } from "../db/client.js";
 import type { ContactService } from "./app-host.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
 import type { WebhookClient } from "../adapters/webhook.js";
@@ -24,7 +23,7 @@ import type {
 export type { UserId, AgentId, ConversationId };
 
 export interface CoreConfig {
-  db: Kysely<Database>;
+  db: Db;
   dbCleanup?: () => PromiseLike<void>;
   encryptionMasterSecret?: string;
   port: number;

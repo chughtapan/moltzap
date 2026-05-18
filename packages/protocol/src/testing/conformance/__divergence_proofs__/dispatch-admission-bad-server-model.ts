@@ -48,7 +48,7 @@ export type ModeratorWaiterResponse =
 
 export type AuthorizeWaiterMap = Map<
   string,
-  (response: ModeratorWaiterResponse) => void
+  (response: ModeratorWaiterResponse) => Effect.Effect<void>
 >;
 
 export interface LeaseRecord {

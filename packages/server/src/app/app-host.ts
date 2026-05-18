@@ -1,5 +1,4 @@
-import type { Kysely } from "kysely";
-import type { Database } from "../db/database.js";
+import type { Db } from "../db/client.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type {
   ConnectionManager,
@@ -17,7 +16,7 @@ import type {
 } from "@moltzap/protocol";
 import { DispatchAuthorize } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import {
   type AppHooks,
   type DispatchAdmissionResult,
@@ -32,13 +31,17 @@ import {
   endpointAddressKind,
   type EndpointAddress,
 } from "@moltzap/protocol/network";
+import type { SqlError } from "@effect/sql/SqlError";
 import { Data, Effect, Either, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../db/effect-kysely-toolkit.js";
-import { lookupAppForConversation } from "./conversation-app-lookup.js";
-import type { LeaseRegistry } from "./lease-registry.js";
+import {
+  lookupAppForConversation,
+  type ConversationAppLookup,
+} from "./conversation-app-lookup.js";
+import type { LeaseRegistry, LeaseVerdict } from "./lease-registry.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -71,6 +74,7 @@ function parseModeratorAgentIdFromTm(raw: string): AgentId | null {
 }
 
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
+const EMPTY_TASK_ID = "" as TaskId;
 
 /**
  * Derive an `appId` from an `EndpointAddress` for `remoteRegistrations`
@@ -119,6 +123,88 @@ class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
   }
 }
 
+interface RemoteRegistration {
+  readonly connectionId: string;
+}
+
+type PendingDispatchMessage = Readonly<{
+  messageId: MessageId;
+  conversationId: ConversationId;
+  senderAgentId: AgentId;
+  createdAt: string;
+  receivedAt: string;
+  clock?: LogicalClock;
+  parts?: Part[];
+}>;
+
+interface EnqueueDispatchRequestArgs {
+  readonly conversationId: ConversationId;
+  readonly recipientAgentId: AgentId;
+  readonly recipientConnectionId: string;
+  readonly messageId: MessageId;
+  readonly senderAgentId: AgentId;
+  readonly parts?: Part[];
+  readonly attempt?: number;
+  readonly receivedAt?: string;
+  readonly clock?: LogicalClock;
+  readonly pending?: ReadonlyArray<PendingDispatchMessage>;
+}
+
+interface DispatchBindingContext {
+  readonly appId: string;
+  readonly taskId: TaskId;
+  readonly tmEndpointAddress: string;
+  readonly moderatorConnectionId: string;
+}
+
+interface DispatchRoundTripParams {
+  readonly conversationId: ConversationId;
+  readonly recipientAgentId: AgentId;
+  readonly messageId: MessageId;
+  readonly senderAgentId: AgentId;
+  readonly parts?: Part[];
+  readonly attempt?: number;
+  readonly receivedAt?: string;
+  readonly clock?: LogicalClock;
+  readonly pending?: ReadonlyArray<PendingDispatchMessage>;
+  readonly tmEndpointAddress: string;
+}
+
+type AppBoundConversationLookup = Extract<
+  ConversationAppLookup,
+  { readonly _tag: "AppBound" }
+>;
+
+type NonAppBoundConversationLookup = Exclude<
+  ConversationAppLookup,
+  AppBoundConversationLookup
+>;
+
+interface MessageAuthorizeRoute {
+  readonly inProcess: MessageAuthorizeHook | undefined;
+  readonly remoteAppId: string | null;
+  readonly remote: RemoteRegistration | undefined;
+}
+
+function dispatchVerdictToLeaseVerdict(
+  verdict: DispatchAdmissionResult,
+): LeaseVerdict {
+  switch (verdict.decision) {
+    case "grant":
+      return verdict.leaseTimeoutMs === undefined
+        ? { _tag: "grant" }
+        : { _tag: "grant", leaseTimeoutMs: verdict.leaseTimeoutMs };
+    case "deny":
+      return verdict.reason === undefined
+        ? { _tag: "deny" }
+        : { _tag: "deny", reason: verdict.reason };
+    case "hold":
+      return verdict.reason === undefined
+        ? { _tag: "hold" }
+        : { _tag: "hold", reason: verdict.reason };
+  }
+}
+
 export class AppHost {
   private manifests = new Map<string, AppManifest>();
   private contactService: ContactService | null = null;
@@ -156,7 +242,7 @@ export class AppHost {
    * helpers prefer the remote entry when present — `registerRemoteApp`
    * is the explicit promotion path.
    */
-  private remoteRegistrations = new Map<string, { connectionId: string }>();
+  private remoteRegistrations = new Map<string, RemoteRegistration>();
 
   /**
    * Optional lease registry for the #529 reshape surface.
@@ -181,7 +267,7 @@ export class AppHost {
   private conversationService: ConversationServiceForRemove | null = null;
 
   constructor(
-    private db: Kysely<Database>,
+    private db: Db,
     private connections: ConnectionManager,
   ) {}
 
@@ -315,30 +401,9 @@ export class AppHost {
    * via `LeaseRegistry not wired` defect if the registry hasn't been
    * configured — caller should always wire it via {@link setLeaseRegistry}).
    */
-  enqueueDispatchRequest(args: {
-    conversationId: ConversationId;
-    recipientAgentId: AgentId;
-    recipientConnectionId: string;
-    messageId: MessageId;
-    senderAgentId: AgentId;
-    parts?: Part[];
-    attempt?: number;
-    receivedAt?: string;
-    clock?: LogicalClock;
-    pending?: ReadonlyArray<{
-      messageId: MessageId;
-      conversationId: ConversationId;
-      senderAgentId: AgentId;
-      createdAt: string;
-      receivedAt: string;
-      clock?: LogicalClock;
-      parts?: Part[];
-    }>;
-  }): Effect.Effect<
-    { leaseId: LeaseId; dispatchId: DispatchId },
-    never,
-    never
-  > {
+  enqueueDispatchRequest(
+    args: EnqueueDispatchRequestArgs,
+  ): Effect.Effect<{ leaseId: LeaseId; dispatchId: DispatchId }, never, never> {
     const registry = this.leaseRegistry;
     if (!registry) {
       return Effect.dieMessage(
@@ -346,77 +411,107 @@ export class AppHost {
       );
     }
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const lookup = yield* lookupAppForConversation(
-          this.db,
-          args.conversationId,
-        );
-
-        // Resolve appId + tmEndpointAddress from the join. For
-        // NoAppSession / NotFound we still need a tmEndpointAddress to
-        // record in the binding tuple (the moderator-connection field
-        // doubles as a "no moderator" sentinel via empty string).
-        let appId = "";
-        let taskId: import("@moltzap/protocol/task").TaskId =
-          "" as import("@moltzap/protocol/task").TaskId;
-        let tmEndpointAddress = "";
-        let moderatorConnectionId = "";
-
-        if (lookup._tag === "AppBound") {
-          appId = lookup.appId;
-          taskId = lookup.taskId;
-          // Look up tm_endpoint_address from tasks for binding-tuple audit.
-          const taskRow = yield* takeFirstOption(
-            this.db
-              .selectFrom("tasks")
-              .select(["tm_endpoint_address"])
-              .where("id", "=", lookup.taskId),
-          );
-          tmEndpointAddress = Option.match(taskRow, {
-            onNone: () => "",
-            onSome: (r) => r.tm_endpoint_address,
-          });
-          // Moderator connection = the connection that ran apps/register
-          // for this app. May be empty if the moderator is offline.
-          const remote = this.remoteRegistrations.get(lookup.appId);
-          moderatorConnectionId = remote?.connectionId ?? "";
-        }
-
-        const minted = yield* registry.mint({
-          recipientAgentId: args.recipientAgentId,
-          recipientConnectionId: args.recipientConnectionId,
-          moderatorConnectionId,
-          taskId,
-          conversationId: args.conversationId,
-          tmEndpointAddress,
-          appId,
-        });
-
-        // Fork the moderator round-trip. The forked Effect resolves the
-        // lease — the recipient observes the verdict via
-        // `dispatch/release` notification. Track the fiber in the
-        // registry so PENDING → ABANDONED on recipient disconnect can
-        // interrupt the in-flight hook call (architect §3 state-
-        // machine row "PENDING + recipient connection close").
-        const roundTripFiber = yield* Effect.forkDaemon(
-          this.runForkedDispatchRoundTrip(registry, minted.leaseId, lookup, {
-            conversationId: args.conversationId,
-            recipientAgentId: args.recipientAgentId,
-            messageId: args.messageId,
-            senderAgentId: args.senderAgentId,
-            parts: args.parts,
-            attempt: args.attempt,
-            receivedAt: args.receivedAt,
-            clock: args.clock,
-            pending: args.pending,
-            tmEndpointAddress,
-          }),
-        );
-        yield* registry.attachRoundTripFiber(minted.leaseId, roundTripFiber);
-
-        return minted;
-      }),
+      this.enqueueDispatchRequestEffect(registry, args),
     );
+  }
+
+  private enqueueDispatchRequestEffect(
+    registry: LeaseRegistry,
+    args: EnqueueDispatchRequestArgs,
+  ): Effect.Effect<{ leaseId: LeaseId; dispatchId: DispatchId }, SqlError> {
+    return Effect.gen(this, function* () {
+      const lookup = yield* lookupAppForConversation(
+        this.db,
+        args.conversationId,
+      );
+      const binding = yield* this.dispatchBindingForLookup(lookup);
+      const minted = yield* registry.mint({
+        recipientAgentId: args.recipientAgentId,
+        recipientConnectionId: args.recipientConnectionId,
+        moderatorConnectionId: binding.moderatorConnectionId,
+        taskId: binding.taskId,
+        conversationId: args.conversationId,
+        tmEndpointAddress: binding.tmEndpointAddress,
+        appId: binding.appId,
+      });
+
+      yield* this.attachDispatchRoundTripFiber(
+        registry,
+        minted.leaseId,
+        lookup,
+        {
+          conversationId: args.conversationId,
+          recipientAgentId: args.recipientAgentId,
+          messageId: args.messageId,
+          senderAgentId: args.senderAgentId,
+          parts: args.parts,
+          attempt: args.attempt,
+          receivedAt: args.receivedAt,
+          clock: args.clock,
+          pending: args.pending,
+          tmEndpointAddress: binding.tmEndpointAddress,
+        },
+      );
+      return minted;
+    });
+  }
+
+  private dispatchBindingForLookup(
+    lookup: ConversationAppLookup,
+  ): Effect.Effect<DispatchBindingContext, SqlError> {
+    if (lookup._tag !== "AppBound") {
+      return Effect.succeed({
+        appId: "",
+        taskId: EMPTY_TASK_ID,
+        tmEndpointAddress: "",
+        moderatorConnectionId: "",
+      });
+    }
+
+    return Effect.gen(this, function* () {
+      const tmEndpointAddress = yield* this.taskTmEndpointAddress(
+        lookup.taskId,
+      );
+      const remote = this.remoteRegistrations.get(lookup.appId);
+      return {
+        appId: lookup.appId,
+        taskId: lookup.taskId,
+        tmEndpointAddress,
+        moderatorConnectionId: remote?.connectionId ?? "",
+      };
+    });
+  }
+
+  private taskTmEndpointAddress(
+    taskId: TaskId,
+  ): Effect.Effect<string, SqlError> {
+    return takeFirstOption(
+      this.db
+        .selectFrom("tasks")
+        .select(["tm_endpoint_address"])
+        .where("id", "=", taskId),
+    ).pipe(
+      Effect.map((taskRow) =>
+        Option.match(taskRow, {
+          onNone: () => "",
+          onSome: (row) => row.tm_endpoint_address,
+        }),
+      ),
+    );
+  }
+
+  private attachDispatchRoundTripFiber(
+    registry: LeaseRegistry,
+    leaseId: LeaseId,
+    lookup: ConversationAppLookup,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const fiber = yield* Effect.forkDaemon(
+        this.runForkedDispatchRoundTrip(registry, leaseId, lookup, params),
+      );
+      yield* registry.attachRoundTripFiber(leaseId, fiber);
+    });
   }
 
   /**
@@ -429,171 +524,141 @@ export class AppHost {
   private runForkedDispatchRoundTrip(
     registry: LeaseRegistry,
     leaseId: LeaseId,
-    lookup: import("./conversation-app-lookup.js").ConversationAppLookup,
-    params: {
-      conversationId: ConversationId;
-      recipientAgentId: AgentId;
-      messageId: MessageId;
-      senderAgentId: AgentId;
-      parts?: Part[];
-      attempt?: number;
-      receivedAt?: string;
-      clock?: LogicalClock;
-      pending?: ReadonlyArray<{
-        messageId: MessageId;
-        conversationId: ConversationId;
-        senderAgentId: AgentId;
-        createdAt: string;
-        receivedAt: string;
-        clock?: LogicalClock;
-        parts?: Part[];
-      }>;
-
-      /**
-       * Captured at mint time from `tasks.tm_endpoint_address`. Used in
-       * the deny arm to derive the moderator's agentId for
-       * `removeParticipant` (architect §3 + epic decision #8).
-       */
-      tmEndpointAddress: string;
-    },
+    lookup: ConversationAppLookup,
+    params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, never> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        switch (lookup._tag) {
-          case "ConversationArchived":
-            yield* registry
-              .resolve(leaseId, {
-                _tag: "deny",
-                reason: "conversation_archived",
-              })
-              .pipe(Effect.catchAll(() => Effect.void));
-            return;
-          case "ConversationNotFound":
-          case "NoAppSession":
-            yield* registry
-              .resolve(leaseId, { _tag: "grant" })
-              .pipe(Effect.catchAll(() => Effect.void));
-            return;
-          case "AppBound": {
-            const isRemote = this.remoteRegistrations.has(lookup.appId);
-            const appHooks = this.hooks.get(lookup.appId);
-            if (!isRemote && !appHooks?.taskAuthorizeDispatch) {
-              // Risk #5: synthesized hold (NOT verdict-deny).
-              yield* registry
-                .resolve(leaseId, {
-                  _tag: "hold",
-                  reason: "moderator_unavailable",
-                })
-                .pipe(Effect.catchAll(() => Effect.void));
-              return;
-            }
-
-            const agentOpt = yield* takeFirstOption(
-              this.db
-                .selectFrom("agents")
-                .select("owner_user_id")
-                .where("id", "=", params.recipientAgentId),
-            );
-            const agent = Option.getOrNull(agentOpt);
-
-            const ctx: TaskAuthorizeDispatchContext = {
-              conversationId: params.conversationId,
-              recipient: {
-                agentId: params.recipientAgentId,
-                ownerId: agent?.owner_user_id ?? "",
-              },
-              message: {
-                id: params.messageId,
-                senderAgentId: params.senderAgentId,
-                parts: params.parts,
-              },
-              taskId: lookup.taskId,
-              appId: lookup.appId,
-              attempt: params.attempt ?? 0,
-              receivedAt: params.receivedAt,
-              clock: params.clock,
-              pending: params.pending,
-              signal: new AbortController().signal,
-            };
-
-            const verdict = yield* this.dispatchAuthorizeHook(
-              lookup.appId,
-              ctx,
-            );
-
-            // Map admission decision → registry verdict.
-            const registryVerdict =
-              verdict.decision === "grant"
-                ? {
-                    _tag: "grant" as const,
-                    ...(verdict.leaseTimeoutMs !== undefined
-                      ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
-                      : {}),
-                  }
-                : verdict.decision === "deny"
-                  ? {
-                      _tag: "deny" as const,
-                      ...(verdict.reason !== undefined
-                        ? { reason: verdict.reason }
-                        : {}),
-                    }
-                  : {
-                      _tag: "hold" as const,
-                      ...(verdict.reason !== undefined
-                        ? { reason: verdict.reason }
-                        : {}),
-                    };
-            yield* registry
-              .resolve(leaseId, registryVerdict)
-              .pipe(Effect.catchAll(() => Effect.void));
-            // Architect §3 + epic decision #8: verdict-deny removes the
-            // recipient from THE conversation. Synthesized timeout-deny
-            // (wrapHookEffectWithEnvelope onTimeout) is verdict-deny —
-            // architect risk #3 names it explicitly. Synthesized infra-
-            // hold (handled in the "no hook registered" branch above)
-            // does NOT call removeParticipant — that is risk #5
-            // (moderator unavailable shouldn't mass-evict).
-            //
-            // Authority: requireConversationAdminAuthority (prereq 2)
-            // for app-bound conversations gates on
-            // `task.tm_endpoint_address === endpointAddressForAgent(caller)`.
-            // For app-bound + moderator-IS-TM, the task's address is
-            // `tm:agent:<moderatorAgentId>` — we parse the agentId out
-            // and pass it as the requester. The check passes naturally.
-            if (verdict.decision === "deny") {
-              const svc = this.conversationService;
-              const moderatorAgentId = parseModeratorAgentIdFromTm(
-                params.tmEndpointAddress,
-              );
-              if (svc !== null && moderatorAgentId !== null) {
-                yield* svc
-                  .removeParticipant(
-                    params.conversationId,
-                    params.recipientAgentId,
-                    moderatorAgentId,
-                  )
-                  .pipe(
-                    Effect.catchAll((cause) =>
-                      Effect.logWarning("deny → removeParticipant failed").pipe(
-                        Effect.annotateLogs({
-                          conversationId: params.conversationId,
-                          recipientAgentId: params.recipientAgentId,
-                          cause: String(cause),
-                        }),
-                      ),
-                    ),
-                  );
-              }
-            }
-            return;
-          }
-          default: {
-            const _absurd: never = lookup;
-            return _absurd;
-          }
-        }
-      }),
+      lookup._tag === "AppBound"
+        ? this.runAppBoundDispatchRoundTrip(registry, leaseId, lookup, params)
+        : this.resolveNonAppBoundDispatch(registry, leaseId, lookup),
     );
+  }
+
+  private resolveNonAppBoundDispatch(
+    registry: LeaseRegistry,
+    leaseId: LeaseId,
+    lookup: NonAppBoundConversationLookup,
+  ): Effect.Effect<void, never> {
+    switch (lookup._tag) {
+      case "ConversationArchived":
+        return this.resolveDispatchLease(registry, leaseId, {
+          _tag: "deny",
+          reason: "conversation_archived",
+        });
+      case "ConversationNotFound":
+      case "NoAppSession":
+        return this.resolveDispatchLease(registry, leaseId, { _tag: "grant" });
+    }
+  }
+
+  private runAppBoundDispatchRoundTrip(
+    registry: LeaseRegistry,
+    leaseId: LeaseId,
+    lookup: AppBoundConversationLookup,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<void, SqlError> {
+    if (!this.hasDispatchAuthorizeHook(lookup.appId)) {
+      return this.resolveDispatchLease(registry, leaseId, {
+        _tag: "hold",
+        reason: "moderator_unavailable",
+      });
+    }
+
+    return Effect.gen(this, function* () {
+      const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
+      const verdict = yield* this.dispatchAuthorizeHook(lookup.appId, ctx);
+      yield* this.resolveDispatchLease(
+        registry,
+        leaseId,
+        dispatchVerdictToLeaseVerdict(verdict),
+      );
+      yield* this.removeDeniedParticipant(verdict, params);
+    });
+  }
+
+  private hasDispatchAuthorizeHook(appId: string): boolean {
+    return (
+      this.remoteRegistrations.has(appId) ||
+      this.hooks.get(appId)?.taskAuthorizeDispatch !== undefined
+    );
+  }
+
+  private dispatchAuthorizeContext(
+    lookup: AppBoundConversationLookup,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<TaskAuthorizeDispatchContext, SqlError> {
+    return Effect.gen(this, function* () {
+      const ownerId = yield* this.recipientOwnerId(params.recipientAgentId);
+      return {
+        conversationId: params.conversationId,
+        recipient: { agentId: params.recipientAgentId, ownerId },
+        message: {
+          id: params.messageId,
+          senderAgentId: params.senderAgentId,
+          parts: params.parts,
+        },
+        taskId: lookup.taskId,
+        appId: lookup.appId,
+        attempt: params.attempt ?? 0,
+        receivedAt: params.receivedAt,
+        clock: params.clock,
+        pending: params.pending,
+        signal: new AbortController().signal,
+      };
+    });
+  }
+
+  private recipientOwnerId(agentId: AgentId): Effect.Effect<string, SqlError> {
+    return takeFirstOption(
+      this.db
+        .selectFrom("agents")
+        .select("owner_user_id")
+        .where("id", "=", agentId),
+    ).pipe(
+      Effect.map((agentOpt) =>
+        Option.match(agentOpt, {
+          onNone: () => "",
+          onSome: (agent) => agent.owner_user_id ?? "",
+        }),
+      ),
+    );
+  }
+
+  private resolveDispatchLease(
+    registry: LeaseRegistry,
+    leaseId: LeaseId,
+    verdict: LeaseVerdict,
+  ): Effect.Effect<void, never> {
+    return registry.resolve(leaseId, verdict).pipe(Effect.ignore);
+  }
+
+  private removeDeniedParticipant(
+    verdict: DispatchAdmissionResult,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<void, never> {
+    if (verdict.decision !== "deny") return Effect.void;
+    const svc = this.conversationService;
+    const moderatorAgentId = parseModeratorAgentIdFromTm(
+      params.tmEndpointAddress,
+    );
+    if (svc === null || moderatorAgentId === null) return Effect.void;
+    return svc
+      .removeParticipant(
+        params.conversationId,
+        params.recipientAgentId,
+        moderatorAgentId,
+      )
+      .pipe(
+        Effect.catchAll((cause) =>
+          Effect.logWarning("deny removeParticipant failed").pipe(
+            Effect.annotateLogs({
+              conversationId: params.conversationId,
+              recipientAgentId: params.recipientAgentId,
+              cause: String(cause),
+            }),
+          ),
+        ),
+      );
   }
 
   /**
@@ -618,20 +683,8 @@ export class AppHost {
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
 
-    const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
-      ? this.runRemoteHookEffect({
-          appId,
-          definition: DispatchAuthorize,
-          connectionId: remote.connectionId,
-          params: this.authorizeDispatchParamsForWire(ctx),
-        }).pipe(Effect.map((envelope) => envelope.admission))
-      : this.runInProcessHookEffect<
-          TaskAuthorizeDispatchContext,
-          DispatchAdmissionResult
-        >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
-
     return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
-      raw,
+      raw: this.dispatchAuthorizeRaw(appId, ctx, remote, inProcess),
       timeoutMs,
       timeoutLogMessage: "dispatch/authorize timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
@@ -646,6 +699,26 @@ export class AppHost {
         reason: "dispatch/authorize error",
       }),
     });
+  }
+
+  private dispatchAuthorizeRaw(
+    appId: string,
+    ctx: TaskAuthorizeDispatchContext,
+    remote: RemoteRegistration | undefined,
+    inProcess: TaskAuthorizeDispatchHook | undefined,
+  ): Effect.Effect<DispatchAdmissionResult, Error> {
+    if (remote) {
+      return this.runRemoteHookEffect({
+        appId,
+        definition: DispatchAuthorize,
+        connectionId: remote.connectionId,
+        params: this.authorizeDispatchParamsForWire(ctx),
+      }).pipe(Effect.map((envelope) => envelope.admission));
+    }
+    return this.runInProcessHookEffect<
+      TaskAuthorizeDispatchContext,
+      DispatchAdmissionResult
+    >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
   }
 
   /**
@@ -664,52 +737,6 @@ export class AppHost {
   }
 
   /**
-   * Run authorization hooks through a shared fail-closed envelope.
-   * Issue #560 v4 registry encapsulates the lookup + in-process-vs-remote branch +
-   * fail-closed envelope. Specific runners (`runMessageAuthorize`,
-   * future `runAuthorizeDispatch` refactor) become thin wrappers that
-   * supply the registry and the synthetic fallback verdict.
-   *
-   *   private runHook&lt;TKey, TContext, TResult>(opts: {
-   *     registry: Map&lt;TKey, Hook&lt;TContext, TResult>>;
-   *     key: TKey;
-   *     ctx: TContext;
-   *     manifestTimeoutMs: number;
-   *     onTimeout: () => TResult;
-   *     onError: () => TResult;
-   *     defaultWhenAbsent: () => TResult;
-   *   }): Effect.Effect&lt;TResult, never>;
-   *
-   * Resolution path for `runMessageAuthorize` (C5 design pin —
-   * documents how local/remote/default split lines up with the
-   * address-keyed registry):
-   *
-   *   1. `messageAuthorizeHooks.get(tmEndpointAddress)` returns a hook
-   *      → call in-process (default-DM/group + any custom in-process
-   *      app TM register here at boot or `apps/register`).
-   *   2. Else, derive `appId` from the address (today: parse
-   *      `tm:app:&lt;appId>` shape) and check `remoteRegistrations.has
-   *      (appId)`. If present → send `messages/authorize` S→C RPC
-   *      over that connection via `runRemoteHookEffect`. The remote
-   *      path mirrors the existing dispatch/authorize remote path
-   *      (`:707@adc2e18`); the only difference is the RPC definition
-   *      passed in (`MessagesAuthorize` vs `DispatchAuthorize`).
-   *   3. Else, return the synthetic default: `Forward { recipients:
-   *      participants \ sender }` (preserves today's broadcast).
-   *
-   * The runner reuses `wrapHookEffectWithEnvelope` (`:763@adc2e18`)
-   * for the timeout + fail-closed wrapper; supplies in-process or
-   * remote dispatch via `runInProcessHookEffect` /
-   * `runRemoteHookEffect`. Refactoring the existing
-   * `dispatchAuthorizeHook` (`:550@adc2e18`) onto this shape is OUT
-   * of scope for this PR (architect §5 NOT-in-scope; tracked as a
-   * follow-up). The new `runMessageAuthorize` below is the FIRST
-   * caller of the unified shape; the existing dispatch path keeps its
-   * current implementation until the follow-up lands.
-   *
-   * Stub: `implement-*` fills in the body. Body shape: lookup, branch
-   * on `remoteRegistrations.has(...)`, run, envelope, return.
-   *
    * Resolve the per-message fan-out verdict for a `messages/send`
    * (#560). Looks up the registered handler by `tmEndpointAddress`,
    * dispatches either the in-process `MessageAuthorizeHook` or the
@@ -737,58 +764,22 @@ export class AppHost {
     tmEndpointAddress: EndpointAddress,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
-    const inProcess = this.messageAuthorizeHooks.get(tmEndpointAddress);
-    const remoteAppId = appIdFromTmEndpointAddress(tmEndpointAddress);
-    const remote =
-      remoteAppId !== null
-        ? this.remoteRegistrations.get(remoteAppId)
-        : undefined;
-
-    if (!inProcess && !remote) {
-      // C5 step 3: synthetic default. Forward to every conversation
-      // participant except the sender — preserves the pre-#560
-      // broadcast. The query reads `conversation_participants`
-      // directly because AppHost cannot circularly depend on
-      // ConversationService.
-      return catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
-          const rows = yield* this.db
-            .selectFrom("conversation_participants")
-            .select("agent_id")
-            .where("conversation_id", "=", ctx.conversationId);
-          const recipients = rows
-            .map((r) => r.agent_id as AgentId)
-            .filter((a) => a !== ctx.message.senderAgentId);
-          return {
-            decision: "Forward" as const,
-            recipients,
-          } satisfies MessageAuthorizeResult;
-        }),
-      );
+    const route = this.messageAuthorizeRoute(tmEndpointAddress);
+    if (!route.inProcess && !route.remote) {
+      return this.defaultMessageAuthorize(ctx);
     }
 
-    const manifest =
-      remoteAppId !== null ? this.manifests.get(remoteAppId) : undefined;
-    const timeoutMs =
-      manifest?.hooks?.message_authorize?.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS;
+    const timeoutMs = this.messageAuthorizeTimeoutMs(route.remoteAppId);
     const taskId = ctx.taskId;
     const appId = ctx.appId;
 
-    const raw: Effect.Effect<MessageAuthorizeResult, Error> = remote
-      ? this.runRemoteHookEffect({
-          appId: remoteAppId ?? appId,
-          definition: MessagesAuthorize,
-          connectionId: remote.connectionId,
-          params: this.messageAuthorizeParamsForWire(ctx),
-        }).pipe(Effect.map((envelope) => envelope.verdict))
-      : this.runInProcessHookEffect<
-          MessageAuthorizeContext,
-          MessageAuthorizeResult
-        >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
-
     return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
-      raw,
+      raw: this.messageAuthorizeRaw(
+        ctx,
+        route.remoteAppId ?? appId,
+        route.remote,
+        route.inProcess,
+      ),
       timeoutMs,
       timeoutLogMessage: "messages/authorize timed out",
       timeoutLogContext: {
@@ -808,6 +799,70 @@ export class AppHost {
         reason: "tm_unreachable",
       }),
     });
+  }
+
+  private messageAuthorizeRoute(
+    tmEndpointAddress: EndpointAddress,
+  ): MessageAuthorizeRoute {
+    const inProcess = this.messageAuthorizeHooks.get(tmEndpointAddress);
+    const remoteAppId = appIdFromTmEndpointAddress(tmEndpointAddress);
+    if (remoteAppId === null) {
+      return { inProcess, remoteAppId, remote: undefined };
+    }
+    return {
+      inProcess,
+      remoteAppId,
+      remote: this.remoteRegistrations.get(remoteAppId),
+    };
+  }
+
+  private messageAuthorizeTimeoutMs(appId: string | null): number {
+    if (appId === null) return DEFAULT_APP_HOOK_TIMEOUT_MS;
+    const manifest = this.manifests.get(appId);
+    return (
+      manifest?.hooks?.message_authorize?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS
+    );
+  }
+
+  private defaultMessageAuthorize(
+    ctx: MessageAuthorizeContext,
+  ): Effect.Effect<MessageAuthorizeResult, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rows = yield* this.db
+          .selectFrom("conversation_participants")
+          .select("agent_id")
+          .where("conversation_id", "=", ctx.conversationId);
+        const recipients = rows
+          .map((r) => r.agent_id as AgentId)
+          .filter((a) => a !== ctx.message.senderAgentId);
+        return {
+          decision: "Forward" as const,
+          recipients,
+        } satisfies MessageAuthorizeResult;
+      }),
+    );
+  }
+
+  private messageAuthorizeRaw(
+    ctx: MessageAuthorizeContext,
+    appId: string,
+    remote: RemoteRegistration | undefined,
+    inProcess: MessageAuthorizeHook | undefined,
+  ): Effect.Effect<MessageAuthorizeResult, Error> {
+    if (remote) {
+      return this.runRemoteHookEffect({
+        appId,
+        definition: MessagesAuthorize,
+        connectionId: remote.connectionId,
+        params: this.messageAuthorizeParamsForWire(ctx),
+      }).pipe(Effect.map((envelope) => envelope.verdict));
+    }
+    return this.runInProcessHookEffect<
+      MessageAuthorizeContext,
+      MessageAuthorizeResult
+    >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
   }
 
   /**
@@ -973,20 +1028,23 @@ export class AppHost {
           }),
         );
       }
-      const result = yield* Effect.either(
-        sendRpcToClient(conn, opts.definition, opts.params),
-      );
-      if (Either.isRight(result)) {
-        return result.right;
-      }
-      return yield* Effect.fail(
-        new RemoteHookError({
-          appId: opts.appId,
-          method,
-          connectionId: opts.connectionId,
-          reason: `task-callback RPC failed: ${errorMessage(result.left)}`,
-          cause: result.left,
-        }),
+      return yield* Either.match(
+        yield* Effect.either(
+          sendRpcToClient(conn, opts.definition, opts.params),
+        ),
+        {
+          onLeft: (cause) =>
+            Effect.fail(
+              new RemoteHookError({
+                appId: opts.appId,
+                method,
+                connectionId: opts.connectionId,
+                reason: `task-callback RPC failed: ${errorMessage(cause)}`,
+                cause,
+              }),
+            ),
+          onRight: (result) => Effect.succeed(result),
+        },
       );
     });
   }

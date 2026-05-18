@@ -117,7 +117,7 @@ export {
 } from "./db/effect-kysely-toolkit.js";
 export { ConnectionManager } from "./transport/connection.js";
 export { EnvelopeEncryption } from "./crypto/envelope.js";
-export { seedInitialKek } from "./crypto/key-rotation.js";
+export { seedInitialKek, rotateKek } from "./crypto/key-rotation.js";
 export {
   generateApiKey,
   parseApiKey,

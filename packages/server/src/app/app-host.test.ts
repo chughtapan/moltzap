@@ -1,5 +1,6 @@
+import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, unsafeCoerce } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
   endpointAddress,
@@ -11,12 +12,13 @@ import {
   messageId,
   taskId,
 } from "@moltzap/protocol/testing";
-import type { Kysely } from "kysely";
-import type { Database } from "../db/database.js";
+import type { Db } from "../db/client.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type { MessageAuthorizeContext } from "./hooks.js";
+
+const liveIt = effectIt.live;
 
 function privateField<T>(target: object, key: string): T {
   return Reflect.get(target, key) as T;
@@ -31,14 +33,28 @@ type HookRegistry = Map<
 
 type MessageAuthorizeRegistry = Map<EndpointAddress, unknown>;
 
-function makeAppHost(): { host: AppHost } {
+function makeAppHost(db: Db = makeEmptyDb()): { host: AppHost } {
   const connections = makeFakeService<ConnectionManager>(
     {} as Partial<ConnectionManager>,
   );
-  // No DB methods are exercised by pure registration tests.
-  const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
   const host = new AppHost(db, connections);
   return { host };
+}
+
+function makeEmptyDb(): Db {
+  return makeFakeService<Db>({} as Partial<Db>);
+}
+
+function makeParticipantDb(): Db {
+  const selectFrom = unsafeCoerce<() => unknown, Db["selectFrom"]>(() => ({
+    select: () => ({
+      where: () =>
+        Effect.succeed([{ agent_id: SENDER }, { agent_id: RECIPIENT }]),
+    }),
+  }));
+  return makeFakeService<Db>({
+    selectFrom,
+  });
 }
 
 const TM_APP_ID = "00000000-0000-4000-8000-000000000560";
@@ -117,30 +133,44 @@ describe("AppHost.registerMessageAuthorize", () => {
 });
 
 describe("AppHost.runMessageAuthorize", () => {
-  it("runs the in-process hook registered for the TM endpoint", async () => {
+  liveIt(
+    "runs the in-process hook registered for the TM endpoint",
+    inProcessMessageAuthorizeHook,
+  );
+
+  liveIt(
+    "defaults to participants minus sender when no hook is registered",
+    defaultMessageAuthorizeRecipients,
+  );
+});
+
+function inProcessMessageAuthorizeHook() {
+  return Effect.gen(function* () {
     const { host } = makeAppHost();
     host.registerMessageAuthorize(TM_ADDRESS, (ctx) => ({
       decision: "Forward",
       recipients: ctx.message.senderAgentId === SENDER ? [RECIPIENT] : [SENDER],
     }));
 
-    const result = await Effect.runPromise(
-      host.runMessageAuthorize(TM_ADDRESS, messageAuthorizeContext()),
+    const result = yield* host.runMessageAuthorize(
+      TM_ADDRESS,
+      messageAuthorizeContext(),
     );
-
     expect(result).toEqual({ decision: "Forward", recipients: [RECIPIENT] });
   });
+}
 
-  it("defaults to participants minus sender when no hook is registered", async () => {
-    const { host } = makeAppHost();
+function defaultMessageAuthorizeRecipients() {
+  return Effect.gen(function* () {
+    const { host } = makeAppHost(makeParticipantDb());
     host.setConversationService({
       removeParticipant: () => Effect.void,
     });
 
-    const result = await Effect.runPromise(
-      host.runMessageAuthorize(TM_ADDRESS, messageAuthorizeContext()),
+    const result = yield* host.runMessageAuthorize(
+      TM_ADDRESS,
+      messageAuthorizeContext(),
     );
-
     expect(result).toEqual({ decision: "Forward", recipients: [RECIPIENT] });
   });
-});
+}

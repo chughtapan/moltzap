@@ -41,6 +41,7 @@ export {
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
+  validateTmDecision,
   tmDecisionSchema,
   messageWithTmDecisionSchema,
 } from "./methods.js";

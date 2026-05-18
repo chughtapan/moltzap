@@ -411,13 +411,13 @@ export class TaskService {
       // The task id is fixed (this is a TM acting on its own task),
       // so wrap it in `Effect.succeed` for the lazy-`mintTask`
       // contract `ConversationService.create` expects.
-      return yield* this.conversations.create(
-        input.type,
-        input.name,
-        [...input.participantAgentIds],
-        caller,
-        Effect.succeed({ id }),
-      );
+      return yield* this.conversations.create({
+        type: input.type,
+        name: input.name,
+        agentIds: [...input.participantAgentIds],
+        creatorAgentId: caller,
+        mintTask: Effect.succeed({ id }),
+      });
     });
   }
 
@@ -444,14 +444,13 @@ export class TaskService {
       // `task_id` from `conv.task_id` at insert time, and
       // `requireConversationInTask` above already proved
       // `conv.task_id === id`.
-      return yield* this.messages.send(
-        input.conversationId,
-        [...input.parts],
-        input.senderAgentId,
-        input.replyToId,
-        undefined,
-        true,
-      );
+      return yield* this.messages.send({
+        conversationId: input.conversationId,
+        parts: [...input.parts],
+        senderAgentId: input.senderAgentId,
+        replyToId: input.replyToId,
+        bypassTmRouting: true,
+      });
     });
   }
 

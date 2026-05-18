@@ -1,85 +1,248 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Effect } from "effect";
-import type { Message } from "@moltzap/protocol";
-
-// Capture handlers registered via service.on()
-let capturedOnMessage: ((msg: Message) => void) | null = null;
-const mockSendRpc = vi.fn();
-const mockSend = vi.fn();
-const mockSendToAgent = vi.fn();
-const mockClose = vi.fn();
-
-vi.mock("@moltzap/client", async () => {
-  const actual =
-    await vi.importActual<typeof import("@moltzap/client")>("@moltzap/client");
-  return {
-    ...actual,
-    MoltZapService: vi.fn().mockImplementation(() => ({
-      // Effect-native service — each async method returns an Effect so
-      // MoltZapChannelCore can `yield*` it.
-      connect: vi
-        .fn()
-        .mockReturnValue(
-          Effect.succeed({ conversations: [], unreadCounts: {} }),
-        ),
-      close: mockClose,
-      ownAgentId: "agent-self",
-      connected: true,
-      getAgentName: vi.fn().mockReturnValue("Atlas"),
-      resolveAgentName: vi.fn().mockReturnValue(Effect.succeed("Atlas")),
-      getConversation: vi.fn().mockReturnValue({
-        id: "conv-400",
-        type: "dm",
-        name: undefined,
-        participants: ["agent:agent-sender-1", "agent:agent-self"],
-      }),
-      peekContextEntries: vi
-        .fn()
-        .mockReturnValue({ entries: [], commit: vi.fn() }),
-      peekFullMessages: vi
-        .fn()
-        .mockReturnValue({ messages: [], commit: vi.fn() }),
-      sendRpc: mockSendRpc,
-      send: mockSend,
-      sendToAgent: mockSendToAgent,
-      startSocketServer: vi.fn().mockReturnValue(Effect.void),
-      stopSocketServer: vi.fn(),
-      on: vi.fn().mockImplementation((event: string, handler: Function) => {
-        if (event === "message")
-          capturedOnMessage = handler as typeof capturedOnMessage;
-      }),
-    })),
-  };
-});
-
-import { moltzapChannelPlugin } from "./openclaw-entry.js";
-
+import { live as it } from "@effect/vitest";
+import {
+  buildMessage,
+  createFakeChannelService,
+  flushDispatchChainEffect,
+  testAgentId,
+  testConversationId,
+  testMessageId,
+  type FakeChannelService,
+} from "@moltzap/client/test-utils";
+import type { ServiceRpcError } from "@moltzap/client";
 import {
   AgentsLookup,
   ConversationsGet,
   MessagesSend,
+  type ParamsOf,
+  type ResultOf,
+  type RpcDefinition,
 } from "@moltzap/protocol";
 import { TaskClosedError } from "@moltzap/protocol/task";
 import { RpcServerError } from "@moltzap/protocol/transport";
+import { Data, Effect } from "effect";
+import * as fc from "fast-check";
+import { afterEach, beforeEach, describe, expect, vi } from "vitest";
+import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 
-function makeMessage(overrides: Partial<Message> = {}): Message {
+const ACCOUNT_ID = "delivery-test";
+const ACCOUNT_KEY = "moltzap_agent_delivery";
+const SERVER_URL = "ws://localhost:9999";
+const ACCOUNT_AGENT_NAME = "bob-delivery";
+const SELF_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440401");
+const SENDER_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440402");
+const DEFAULT_MESSAGE_ID = testMessageId(
+  "550e8400-e29b-41d4-a716-446655440403",
+);
+const DEFAULT_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440404",
+);
+const TARGET_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440405",
+);
+const OUTBOUND_CONVERSATION_ID = "conv-outbound-1";
+const REPLY_CONVERSATION_ID = "conv-reply-1";
+const NO_REPLY_CONVERSATION_ID = "conv-no-reply";
+const STOP_CONVERSATION_ID = "conv-stop-1";
+const AGENT_NOVA_TARGET = "agent:nova";
+const AGENT_NOVA_NAME = "nova";
+const TRIGGER_TEXT = "Trigger message";
+const REPLY_TEXT = "reply text";
+const FIRST_REPLY_TEXT = "first reply";
+const SECOND_REPLY_TEXT = "second reply";
+const PARTIAL_TEXT = "partial";
+const OUTBOUND_TEXT = "Hello from outbound";
+const AGENT_TEXT = "Hello nova";
+const AGENT_REPLY_TEXT = "Reply text";
+const NO_REPLY_TEXT = "No reply ref";
+const BEFORE_STOP_TEXT = "before stop";
+const AFTER_STOP_TEXT = "after stop";
+const PARENT_MESSAGE_ID = "msg-parent-1";
+const LOOKUP_FAILED_MESSAGE = "lookup failed";
+const SERVER_REJECTED_MESSAGE = "Server rejected";
+const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
+const NON_TASK_CLOSED_CODE = -32001;
+const TEXT_PART_TYPE = "text";
+const FINAL_KIND = "final";
+const TOOL_KIND = "tool";
+
+type SendTextInput = Parameters<
+  ReturnType<typeof createMoltzapChannelPlugin>["outbound"]["sendText"]
+>[0];
+type SendTextResult = Awaited<
+  ReturnType<
+    ReturnType<typeof createMoltzapChannelPlugin>["outbound"]["sendText"]
+  >
+>;
+type DeliverInput = {
+  readonly text?: string;
+  readonly body?: string;
+};
+type DeliverInfo = {
+  readonly kind?: string;
+};
+type Deliver = (
+  payload: DeliverInput,
+  info?: DeliverInfo,
+) => PromiseLike<boolean>;
+type DispatchCall = {
+  readonly dispatcherOptions: {
+    readonly deliver: Deliver;
+  };
+};
+type DispatchCallWithContext = DispatchCall & {
+  readonly ctx: {
+    readonly OriginatingTo?: unknown;
+  };
+};
+type SendFn = (
+  conversationId: string,
+  text: string,
+  opts?: { readonly replyTo?: string; readonly dispatchLeaseId?: string },
+) => Effect.Effect<void, ServiceRpcError>;
+type SendToAgentFn = (
+  agentName: string,
+  text: string,
+  opts?: { readonly replyTo?: string },
+) => Effect.Effect<void, unknown>;
+type SendRpcFn = <D extends RpcDefinition<string, any, any>>(
+  definition: D,
+  params: ParamsOf<D>,
+) => Effect.Effect<ResultOf<D>, ServiceRpcError>;
+type TestService = FakeChannelService["service"] & {
+  readonly send: SendFn;
+  readonly sendRpc: SendRpcFn;
+  readonly sendToAgent: SendToAgentFn;
+};
+
+class DeliveryTestError extends Data.TaggedError("DeliveryTestError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+class SendToAgentTestFailure extends Data.TaggedError(
+  "SendToAgentTestFailure",
+)<{
+  readonly reason: string;
+}> {
+  override get message(): string {
+    return this.reason;
+  }
+}
+
+const mockSend = vi.fn<SendFn>();
+const mockSendToAgent = vi.fn<SendToAgentFn>();
+const mockSendRpc = vi.fn<SendRpcFn>();
+
+let started: {
+  readonly fixture: FakeChannelService;
+  readonly plugin: ReturnType<typeof createMoltzapChannelPlugin>;
+};
+let abortControllers: AbortController[] = [];
+let mockDispatch: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  started = startGateway();
+});
+
+afterEach(() => {
+  for (const controller of abortControllers) {
+    controller.abort();
+  }
+  abortControllers = [];
+});
+
+describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
+  it("deliver callback returns true", deliverReturnsTrue);
+  it(
+    "deliver callback rejects duplicate final delivery",
+    rejectsDuplicateFinal,
+  );
+  it("deliver callback returns true for non-final replies", nonFinalIsIgnored);
+  it("sendText uses OriginatingTo as conversation id", usesOriginatingTo);
+  it("sendText sends to the right conversation", sendsToConversation);
+  it("sendText includes replyToId when present", includesReplyTo);
+  it("sendText omits replyToId when not provided", omitsReplyTo);
+  it("resolveTarget accepts agent targets", acceptsAgentTarget);
+  it("resolveTarget accepts conversation IDs", acceptsConversationTarget);
+  it("resolveTarget rejects empty strings", rejectsEmptyTarget);
+  it("sendText delegates agent targets", delegatesAgentTarget);
+  it("sendText forwards agent replyToId", forwardsAgentReplyTo);
+  it("sendText reports sendToAgent failures", reportsSendToAgentFailure);
+  it("sendText reports disconnected clients", reportsDisconnectedClient);
+  it("sendText reports send failures", reportsSendFailure);
+  it("deliver treats TaskClosed as terminal consumed", taskClosedIsConsumed);
+  it("deliver reports non-TaskClosed RPC failures", nonTaskClosedFails);
+  it("stopAccount removes client from active pool", stopRemovesClient);
+  it("property: resolveTarget accepts generated plain ids", plainIdsResolve);
+});
+
+function startGateway() {
+  vi.clearAllMocks();
+  mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
+  const fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
+  fixture.state.setConversation(DEFAULT_CONVERSATION_ID, defaultConversation());
+  fixture.state.setAgentName(SENDER_AGENT_ID, "Atlas");
+  const service = createTestService(fixture);
+  const plugin = createMoltzapChannelPlugin({ createService: () => service });
+  const abortController = new AbortController();
+  abortControllers.push(abortController);
+  plugin.gateway.startAccount({
+    cfg: makeCfg(),
+    accountId: ACCOUNT_ID,
+    account: makeAccount(),
+    abortSignal: abortController.signal,
+    log: testLogger(),
+    setStatus: vi.fn(),
+    channelRuntime: {
+      reply: {
+        dispatchReplyWithBufferedBlockDispatcher: mockDispatch,
+      },
+    },
+  });
+  return { fixture, plugin };
+}
+
+function createTestService(fixture: FakeChannelService): TestService {
+  mockSend.mockImplementation(fixture.service.send);
+  mockSendToAgent.mockReturnValue(Effect.void);
+  mockSendRpc.mockImplementation(sendRpcDefault);
   return {
-    id: "msg-300",
-    conversationId: "conv-400",
-    sender: { type: "agent", id: "agent-sender-1" },
-    seq: 1,
-    parts: [{ type: "text", text: "Trigger message" }],
-    createdAt: "2026-03-16T00:00:00Z",
-    ...overrides,
-  } as Message;
+    ...fixture.service,
+    send: mockSend,
+    sendRpc: mockSendRpc,
+    sendToAgent: mockSendToAgent,
+  };
+}
+
+function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
+  definition: D,
+): Effect.Effect<ResultOf<D>, ServiceRpcError> {
+  if (definition === AgentsLookup) {
+    return Effect.succeed({
+      agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
+    } as ResultOf<D>);
+  }
+  if (definition === ConversationsGet) {
+    return Effect.succeed({
+      conversation: { type: "dm" },
+      participants: [
+        { participant: { type: "agent", id: SENDER_AGENT_ID } },
+        { participant: { type: "agent", id: SELF_AGENT_ID } },
+      ],
+    } as ResultOf<D>);
+  }
+  if (definition === MessagesSend) {
+    return Effect.succeed({ message: { id: "sent-1" } } as ResultOf<D>);
+  }
+  return Effect.succeed({} as ResultOf<D>);
 }
 
 function makeAccount() {
   return {
-    id: "delivery-test",
-    apiKey: "moltzap_agent_delivery",
-    serverUrl: "ws://localhost:9999",
-    agentName: "bob-delivery",
+    id: ACCOUNT_ID,
+    apiKey: ACCOUNT_KEY,
+    serverUrl: SERVER_URL,
+    agentName: ACCOUNT_AGENT_NAME,
   };
 }
 
@@ -93,390 +256,421 @@ function makeCfg() {
   };
 }
 
-describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
-  let abortController: AbortController;
-  let mockDispatch: ReturnType<typeof vi.fn>;
+function testLogger() {
+  return {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  };
+}
 
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    capturedOnMessage = null;
-    abortController = new AbortController();
-    mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
+function defaultConversation() {
+  return {
+    id: DEFAULT_CONVERSATION_ID,
+    type: "dm",
+    participants: [agentRef(SENDER_AGENT_ID), agentRef(SELF_AGENT_ID)],
+  };
+}
 
-    // `mockSend` / `mockSendToAgent` are used by service.send / sendToAgent
-    // which now return Effects. Default them to a succeeding Effect so tests
-    // that don't override keep working.
-    mockSend.mockReturnValue(Effect.void);
-    mockSendToAgent.mockReturnValue(Effect.void);
+function agentRef(agentId: string): string {
+  return `agent:${agentId}`;
+}
 
-    mockSendRpc.mockImplementation((method: string) => {
-      if (method === AgentsLookup.name) {
-        return Effect.succeed({
-          agents: [{ id: "agent-sender-1", name: "Atlas" }],
-        });
-      }
-      if (method === ConversationsGet.name) {
-        return Effect.succeed({
-          conversation: { type: "dm" },
-          participants: [
-            { participant: { type: "agent", id: "agent-sender-1" } },
-            { participant: { type: "agent", id: "agent-self" } },
-          ],
-        });
-      }
-      if (method === MessagesSend.name) {
-        return Effect.succeed({ message: { id: "sent-1" } });
-      }
-      return Effect.succeed({});
-    });
-
-    void moltzapChannelPlugin.gateway.startAccount({
-      cfg: makeCfg(),
-      accountId: "delivery-test",
-      account: makeAccount(),
-      abortSignal: abortController.signal,
-      log: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn(),
-      },
-      setStatus: vi.fn(),
-      channelRuntime: {
-        reply: {
-          dispatchReplyWithBufferedBlockDispatcher: mockDispatch,
-        },
-      },
-    });
-
-    await vi.waitFor(() => {
-      expect(capturedOnMessage).not.toBeNull();
-    });
+function makeDeliveryMessage(
+  overrides: Parameters<typeof buildMessage>[0] = {},
+) {
+  return buildMessage({
+    id: DEFAULT_MESSAGE_ID,
+    conversationId: DEFAULT_CONVERSATION_ID,
+    senderId: SENDER_AGENT_ID,
+    parts: [{ type: TEXT_PART_TYPE, text: TRIGGER_TEXT }],
+    createdAt: "2026-03-16T00:00:00Z",
+    ...overrides,
   });
+}
 
-  afterEach(() => {
-    abortController.abort();
+function emitMessage(overrides: Parameters<typeof buildMessage>[0] = {}) {
+  return Effect.gen(function* () {
+    started.fixture.emit.message(makeDeliveryMessage(overrides));
+    yield* flushDispatchChainEffect;
   });
+}
 
-  it("deliver callback returns true (replies routed via OriginatingChannel)", async () => {
-    capturedOnMessage!(makeMessage());
+function waitForExpectation(assertion: () => void, label: string) {
+  return Effect.tryPromise({
+    try: () => vi.waitFor(assertion),
+    catch: (cause) =>
+      new DeliveryTestError({ message: `wait for ${label}`, cause }),
+  });
+}
 
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
+function waitForDispatchTimes(count: number) {
+  return waitForExpectation(() => {
+    expect(mockDispatch).toHaveBeenCalledTimes(count);
+  }, "dispatch call");
+}
 
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
-      dispatcherOptions: {
-        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
-      };
-    };
+function firstDispatchCall(): DispatchCall {
+  return mockDispatch.mock.calls[0]?.[0] as DispatchCall;
+}
 
-    const result = await dispatchArgs.dispatcherOptions.deliver(
-      { text: "reply text" },
-      { kind: "final" },
-    );
+function firstDispatchCallWithContext(): DispatchCallWithContext {
+  return mockDispatch.mock.calls[0]?.[0] as DispatchCallWithContext;
+}
 
+function deliverFinal(text: string) {
+  return deliver(firstDispatchCall().dispatcherOptions.deliver, {
+    text,
+    kind: FINAL_KIND,
+  });
+}
+
+function deliver(
+  delivery: Deliver,
+  input: DeliverInput & { readonly kind: string },
+) {
+  return Effect.tryPromise({
+    try: () =>
+      delivery({ text: input.text, body: input.body }, { kind: input.kind }),
+    catch: (cause) =>
+      new DeliveryTestError({ message: "deliver failed", cause }),
+  });
+}
+
+function sendText(input: SendTextInput) {
+  return Effect.tryPromise({
+    try: () => started.plugin.outbound.sendText(input),
+    catch: (cause) =>
+      new DeliveryTestError({ message: "sendText failed", cause }),
+  });
+}
+
+function stopAccount() {
+  return Effect.tryPromise({
+    try: () =>
+      started.plugin.gateway.stopAccount({
+        accountId: ACCOUNT_ID,
+        log: { info: vi.fn() },
+      }),
+    catch: (cause) =>
+      new DeliveryTestError({ message: "stopAccount failed", cause }),
+  });
+}
+
+function expectSuccessfulSend(result: SendTextResult): void {
+  expect(result.ok).toBe(true);
+}
+
+function expectFailureMessage(
+  result: SendTextResult,
+  expectedMessage: string | RegExp,
+): void {
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  if (typeof expectedMessage === "string") {
+    expect(result.error.message).toBe(expectedMessage);
+    return;
+  }
+  expect(result.error.message).toMatch(expectedMessage);
+}
+
+function deliverReturnsTrue() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    const result = yield* deliverFinal(REPLY_TEXT);
     expect(result).toBe(true);
   });
+}
 
-  // Cutover #533 — single-use lease semantics. The first `final`
-  // delivery consumes the lease via core.sendReply; a SECOND `final`
-  // delivery for the same dispatch is rejected at the adapter
-  // boundary (no second `core.sendReply` is issued, OpenClaw sees a
-  // delivery failure surfaced as `false`).
-  it("deliver callback rejects a second `final` delivery for the same dispatch", async () => {
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
-      dispatcherOptions: {
-        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
-      };
-    };
-
+function rejectsDuplicateFinal() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
     const sendBefore = mockSend.mock.calls.length;
-    const first = await dispatchArgs.dispatcherOptions.deliver(
-      { text: "first reply" },
-      { kind: "final" },
-    );
-    expect(first).toBe(true);
+    const first = yield* deliverFinal(FIRST_REPLY_TEXT);
     const sendAfterFirst = mockSend.mock.calls.length;
+    const second = yield* deliverFinal(SECOND_REPLY_TEXT);
+    expect(first).toBe(true);
     expect(sendAfterFirst).toBe(sendBefore + 1);
-
-    const second = await dispatchArgs.dispatcherOptions.deliver(
-      { text: "second reply" },
-      { kind: "final" },
-    );
     expect(second).toBe(false);
-    // Second delivery does NOT issue a second `service.send`.
     expect(mockSend.mock.calls.length).toBe(sendAfterFirst);
   });
+}
 
-  it("deliver callback returns true for non-final replies too", async () => {
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
-      dispatcherOptions: {
-        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
-      };
-    };
-
-    const result = await dispatchArgs.dispatcherOptions.deliver(
-      { text: "partial" },
-      { kind: "tool" },
+function nonFinalIsIgnored() {
+  return Effect.gen(function* () {
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    const result = yield* deliver(
+      firstDispatchCall().dispatcherOptions.deliver,
+      {
+        text: PARTIAL_TEXT,
+        kind: TOOL_KIND,
+      },
     );
-
     expect(result).toBe(true);
   });
+}
 
-  it("sendText uses correct conversationId from OriginatingTo", async () => {
-    capturedOnMessage!(makeMessage({ conversationId: "conv-target-999" }));
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const ctx = (
-      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
-    ).ctx;
-    expect(ctx.OriginatingTo).toBe("conv-target-999");
+function usesOriginatingTo() {
+  return Effect.gen(function* () {
+    yield* emitMessage({ conversationId: TARGET_CONVERSATION_ID });
+    yield* waitForDispatchTimes(1);
+    const ctx = firstDispatchCallWithContext().ctx;
+    expect(ctx.OriginatingTo).toBe(TARGET_CONVERSATION_ID);
   });
+}
 
-  it("sendText via outbound.sendText sends to the right conversation", async () => {
-    const result = await moltzapChannelPlugin.outbound.sendText({
+function sendsToConversation() {
+  return Effect.gen(function* () {
+    const result = yield* sendText({
       cfg: makeCfg(),
-      to: "conv-outbound-1",
-      text: "Hello from outbound",
-      accountId: "delivery-test",
+      to: OUTBOUND_CONVERSATION_ID,
+      text: OUTBOUND_TEXT,
+      accountId: ACCOUNT_ID,
     });
-
-    expect(result.ok).toBe(true);
+    expectSuccessfulSend(result);
     expect(mockSend).toHaveBeenCalledWith(
-      "conv-outbound-1",
-      "Hello from outbound",
-      { replyTo: undefined },
+      OUTBOUND_CONVERSATION_ID,
+      OUTBOUND_TEXT,
+      {
+        replyTo: undefined,
+      },
     );
   });
+}
 
-  it("sendText includes replyToId when present", async () => {
-    const result = await moltzapChannelPlugin.outbound.sendText({
+function includesReplyTo() {
+  return Effect.gen(function* () {
+    const result = yield* sendText({
       cfg: makeCfg(),
-      to: "conv-reply-1",
-      text: "Reply content",
-      accountId: "delivery-test",
-      replyToId: "msg-original-1",
+      to: REPLY_CONVERSATION_ID,
+      text: AGENT_REPLY_TEXT,
+      accountId: ACCOUNT_ID,
+      replyToId: PARENT_MESSAGE_ID,
     });
-
-    expect(result.ok).toBe(true);
-    expect(mockSend).toHaveBeenCalledWith("conv-reply-1", "Reply content", {
-      replyTo: "msg-original-1",
-    });
+    expectSuccessfulSend(result);
+    expect(mockSend).toHaveBeenCalledWith(
+      REPLY_CONVERSATION_ID,
+      AGENT_REPLY_TEXT,
+      {
+        replyTo: PARENT_MESSAGE_ID,
+      },
+    );
   });
+}
 
-  it("sendText omits replyToId when not provided", async () => {
-    await moltzapChannelPlugin.outbound.sendText({
+function omitsReplyTo() {
+  return Effect.gen(function* () {
+    yield* sendText({
       cfg: makeCfg(),
-      to: "conv-no-reply",
-      text: "No reply ref",
-      accountId: "delivery-test",
+      to: NO_REPLY_CONVERSATION_ID,
+      text: NO_REPLY_TEXT,
+      accountId: ACCOUNT_ID,
     });
-
-    expect(mockSend).toHaveBeenCalledWith("conv-no-reply", "No reply ref", {
-      replyTo: undefined,
-    });
+    expect(mockSend).toHaveBeenCalledWith(
+      NO_REPLY_CONVERSATION_ID,
+      NO_REPLY_TEXT,
+      {
+        replyTo: undefined,
+      },
+    );
   });
+}
 
-  it("resolveTarget accepts any non-empty string", () => {
-    const result = moltzapChannelPlugin.outbound.resolveTarget({
-      to: "agent:nova",
-      cfg: makeCfg(),
-    });
-    expect(result).toMatchObject({ ok: true, to: "agent:nova" });
+function acceptsAgentTarget() {
+  return Effect.sync(() => {
+    expect(
+      started.plugin.outbound.resolveTarget({
+        to: AGENT_NOVA_TARGET,
+        cfg: makeCfg(),
+      }),
+    ).toMatchObject({ ok: true, to: AGENT_NOVA_TARGET });
   });
+}
 
-  it("resolveTarget accepts conversation IDs", () => {
-    const result = moltzapChannelPlugin.outbound.resolveTarget({
-      to: "conv-123",
-      cfg: makeCfg(),
-    });
-    expect(result).toMatchObject({ ok: true, to: "conv-123" });
+function acceptsConversationTarget() {
+  return Effect.sync(() => {
+    expect(
+      started.plugin.outbound.resolveTarget({
+        to: OUTBOUND_CONVERSATION_ID,
+        cfg: makeCfg(),
+      }),
+    ).toMatchObject({ ok: true, to: OUTBOUND_CONVERSATION_ID });
   });
+}
 
-  it("resolveTarget rejects empty strings", () => {
-    const result = moltzapChannelPlugin.outbound.resolveTarget({
+function rejectsEmptyTarget() {
+  return Effect.sync(() => {
+    const result = started.plugin.outbound.resolveTarget({
       to: "  ",
       cfg: makeCfg(),
     });
     expect(result.ok).toBe(false);
   });
+}
 
-  it("sendText with agent: target delegates to service.sendToAgent", async () => {
-    mockSendToAgent.mockReturnValue(Effect.void);
-
-    const result = await moltzapChannelPlugin.outbound.sendText({
+function delegatesAgentTarget() {
+  return Effect.gen(function* () {
+    const result = yield* sendText({
       cfg: makeCfg(),
-      to: "agent:nova",
-      text: "Hello nova",
-      accountId: "delivery-test",
+      to: AGENT_NOVA_TARGET,
+      text: AGENT_TEXT,
+      accountId: ACCOUNT_ID,
     });
-
-    expect(result.ok).toBe(true);
-    expect(mockSendToAgent).toHaveBeenCalledWith("nova", "Hello nova", {
+    expectSuccessfulSend(result);
+    expect(mockSendToAgent).toHaveBeenCalledWith(AGENT_NOVA_NAME, AGENT_TEXT, {
       replyTo: undefined,
     });
     expect(mockSend).not.toHaveBeenCalled();
   });
+}
 
-  it("sendText with agent: target forwards replyToId to sendToAgent", async () => {
-    mockSendToAgent.mockReturnValue(Effect.void);
-
-    const result = await moltzapChannelPlugin.outbound.sendText({
+function forwardsAgentReplyTo() {
+  return Effect.gen(function* () {
+    const result = yield* sendText({
       cfg: makeCfg(),
-      to: "agent:nova",
-      text: "Reply text",
-      accountId: "delivery-test",
-      replyToId: "msg-parent-1",
+      to: AGENT_NOVA_TARGET,
+      text: AGENT_REPLY_TEXT,
+      accountId: ACCOUNT_ID,
+      replyToId: PARENT_MESSAGE_ID,
     });
-
-    expect(result.ok).toBe(true);
-    expect(mockSendToAgent).toHaveBeenCalledWith("nova", "Reply text", {
-      replyTo: "msg-parent-1",
-    });
+    expectSuccessfulSend(result);
+    expect(mockSendToAgent).toHaveBeenCalledWith(
+      AGENT_NOVA_NAME,
+      AGENT_REPLY_TEXT,
+      {
+        replyTo: PARENT_MESSAGE_ID,
+      },
+    );
   });
+}
 
-  it("sendText with agent: target returns error when sendToAgent throws", async () => {
-    mockSendToAgent.mockReturnValue(Effect.fail(new Error("lookup failed")));
-
-    const result = await moltzapChannelPlugin.outbound.sendText({
+function reportsSendToAgentFailure() {
+  return Effect.gen(function* () {
+    mockSendToAgent.mockReturnValue(
+      Effect.fail(
+        new SendToAgentTestFailure({ reason: LOOKUP_FAILED_MESSAGE }),
+      ),
+    );
+    const result = yield* sendText({
       cfg: makeCfg(),
-      to: "agent:nova",
-      text: "Hello nova",
-      accountId: "delivery-test",
+      to: AGENT_NOVA_TARGET,
+      text: AGENT_TEXT,
+      accountId: ACCOUNT_ID,
     });
-
-    expect(result.ok).toBe(false);
-    expect((result as { error: Error }).error.message).toBe("lookup failed");
+    expectFailureMessage(result, LOOKUP_FAILED_MESSAGE);
   });
+}
 
-  it("sendText returns error when client is not connected", async () => {
-    const result = await moltzapChannelPlugin.outbound.sendText({
+function reportsDisconnectedClient() {
+  return Effect.gen(function* () {
+    const result = yield* sendText({
       cfg: makeCfg(),
-      to: "conv-1",
+      to: STOP_CONVERSATION_ID,
       text: "hello",
       accountId: "nonexistent-account",
     });
-
-    expect(result.ok).toBe(false);
-    expect(result.error!.message).toMatch(/not connected/i);
+    expectFailureMessage(result, /not connected/i);
   });
+}
 
-  it("sendText returns error when send fails", async () => {
-    mockSend.mockReturnValueOnce(Effect.fail(new Error("Server rejected")));
-
-    const result = await moltzapChannelPlugin.outbound.sendText({
+function reportsSendFailure() {
+  return Effect.gen(function* () {
+    mockSend.mockReturnValueOnce(serverRejected());
+    const result = yield* sendText({
       cfg: makeCfg(),
-      to: "conv-1",
+      to: STOP_CONVERSATION_ID,
       text: "hello",
-      accountId: "delivery-test",
+      accountId: ACCOUNT_ID,
     });
-
-    expect(result.ok).toBe(false);
-    expect(result.error!.message).toBe("Server rejected");
+    expectFailureMessage(result, SERVER_REJECTED_MESSAGE);
   });
+}
 
-  it("deliver callback returns true when send fails with TaskClosedError (terminal-consumed, no retry)", async () => {
-    // TaskClosedError arrives as RpcServerError with code -32020.
-    // The deliver callback signals true so OpenClaw treats the message as
-    // consumed and does not retry.
-    mockSend.mockReturnValueOnce(
-      Effect.fail(
-        new RpcServerError({
-          code: TaskClosedError.code,
-          message: TaskClosedError.message,
-        }),
-      ),
-    );
+function serverRejected(): Effect.Effect<void, ServiceRpcError> {
+  return Effect.fail(
+    new RpcServerError({
+      code: NON_TASK_CLOSED_CODE,
+      message: SERVER_REJECTED_MESSAGE,
+    }),
+  );
+}
 
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
-      dispatcherOptions: {
-        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
-      };
-    };
-
-    const result = await dispatchArgs.dispatcherOptions.deliver(
-      { text: "reply text" },
-      { kind: "final" },
-    );
-
-    // Terminal-consumed: true signals no retry.
+function taskClosedIsConsumed() {
+  return Effect.gen(function* () {
+    mockSend.mockReturnValueOnce(taskClosed());
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    const result = yield* deliverFinal(REPLY_TEXT);
     expect(result).toBe(true);
   });
+}
 
-  it("deliver callback returns false when send fails with a non-TaskClosed RpcServerError (retry-eligible)", async () => {
+function taskClosed(): Effect.Effect<void, ServiceRpcError> {
+  return Effect.fail(
+    new RpcServerError({
+      code: TaskClosedError.code,
+      message: TaskClosedError.message,
+    }),
+  );
+}
+
+function nonTaskClosedFails() {
+  return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
         new RpcServerError({
-          code: -32001,
-          message: "Internal server error",
+          code: NON_TASK_CLOSED_CODE,
+          message: INTERNAL_SERVER_ERROR_MESSAGE,
         }),
       ),
     );
-
-    capturedOnMessage!(makeMessage());
-
-    await vi.waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledOnce();
-    });
-
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
-      dispatcherOptions: {
-        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
-      };
-    };
-
-    const result = await dispatchArgs.dispatcherOptions.deliver(
-      { text: "reply text" },
-      { kind: "final" },
-    );
-
-    // Retry-eligible: false signals delivery failure.
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    const result = yield* deliverFinal(REPLY_TEXT);
     expect(result).toBe(false);
   });
+}
 
-  it("stopAccount removes client from active pool", async () => {
-    const beforeResult = await moltzapChannelPlugin.outbound.sendText({
+function stopRemovesClient() {
+  return Effect.gen(function* () {
+    const beforeResult = yield* sendText({
       cfg: makeCfg(),
-      to: "conv-1",
-      text: "before stop",
-      accountId: "delivery-test",
+      to: STOP_CONVERSATION_ID,
+      text: BEFORE_STOP_TEXT,
+      accountId: ACCOUNT_ID,
     });
-    expect(beforeResult.ok).toBe(true);
-
-    await moltzapChannelPlugin.gateway.stopAccount({
-      accountId: "delivery-test",
-      log: { info: vi.fn() },
-    });
-
-    const afterResult = await moltzapChannelPlugin.outbound.sendText({
+    expectSuccessfulSend(beforeResult);
+    yield* stopAccount();
+    const afterResult = yield* sendText({
       cfg: makeCfg(),
-      to: "conv-1",
-      text: "after stop",
-      accountId: "delivery-test",
+      to: STOP_CONVERSATION_ID,
+      text: AFTER_STOP_TEXT,
+      accountId: ACCOUNT_ID,
     });
-    expect(afterResult.ok).toBe(false);
-    expect(afterResult.error!.message).toMatch(/not connected/i);
+    expectFailureMessage(afterResult, /not connected/i);
   });
-});
+}
+
+function plainIdsResolve() {
+  return Effect.sync(() => {
+    fc.assert(
+      fc.property(
+        fc
+          .string({ minLength: 1 })
+          .filter((value) => value.trim().length > 0 && !value.includes(":")),
+        (target) => {
+          const normalizedTarget = target.trim();
+          const result = started.plugin.outbound.resolveTarget({
+            to: target,
+            cfg: makeCfg(),
+          });
+          expect(result).toMatchObject({ ok: true, to: normalizedTarget });
+        },
+      ),
+    );
+  });
+}

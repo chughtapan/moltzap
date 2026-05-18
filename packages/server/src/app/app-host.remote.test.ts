@@ -9,9 +9,9 @@
  * synthesizes inbound responses by calling `conn.jsonRpcClient.resolve`
  * (the same path the server's read fiber uses).
  */
+import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, Exit, Fiber, Ref, Scope } from "effect";
-import type { Kysely } from "kysely";
+import { Data, Effect, Exit, Fiber, Ref, Scope } from "effect";
 import {
   DispatchAuthorize,
   MessagesAuthorize,
@@ -31,13 +31,15 @@ import {
   ConnectionManager,
   type MoltZapConnection,
 } from "../transport/connection.js";
-import type { Database } from "../db/database.js";
+import type { Db } from "../db/client.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type {
   MessageAuthorizeContext,
   TaskAuthorizeDispatchContext,
 } from "./hooks.js";
+
+const liveIt = effectIt.live;
 
 // ─────────────────────────────────────────────────────────────────────
 // Test fixtures
@@ -86,7 +88,7 @@ interface AppHostFixture {
 
 function makeAppHostFixture(): AppHostFixture {
   const connections = new ConnectionManager();
-  const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
+  const db = makeFakeService<Db>({} as Partial<Db>);
   const host = new AppHost(db, connections);
   return { host, connections };
 }
@@ -153,17 +155,32 @@ const baseMessageAuthorizeCtx = (
 });
 
 /** Decode the most recently captured outbound frame from a fake connection. */
+class CaptureRequestError extends Data.TaggedError("CaptureRequestError")<{
+  readonly message: string;
+  readonly reason: "empty" | "invalid";
+}> {}
+
 function captureLatestRequestId(
   outbound: Ref.Ref<ReadonlyArray<string>>,
-): Effect.Effect<JsonRpcId, Error> {
+): Effect.Effect<JsonRpcId, CaptureRequestError> {
   return Effect.gen(function* () {
     const xs = yield* Ref.get(outbound);
     if (xs.length === 0) {
-      return yield* Effect.fail(new Error("no outbound frame yet"));
+      return yield* Effect.fail(
+        new CaptureRequestError({
+          message: "no outbound frame yet",
+          reason: "empty",
+        }),
+      );
     }
     const parsed: unknown = JSON.parse(xs[xs.length - 1]!);
     if (!validateRequestFrame(parsed)) {
-      return yield* Effect.fail(new Error("expected JSON-RPC request frame"));
+      return yield* Effect.fail(
+        new CaptureRequestError({
+          message: "expected JSON-RPC request frame",
+          reason: "invalid",
+        }),
+      );
     }
     return parsed.id;
   });
@@ -177,15 +194,25 @@ interface CapturedRequest {
 
 function captureLatestRequest(
   outbound: Ref.Ref<ReadonlyArray<string>>,
-): Effect.Effect<CapturedRequest, Error> {
+): Effect.Effect<CapturedRequest, CaptureRequestError> {
   return Effect.gen(function* () {
     const xs = yield* Ref.get(outbound);
     if (xs.length === 0) {
-      return yield* Effect.fail(new Error("no outbound frame yet"));
+      return yield* Effect.fail(
+        new CaptureRequestError({
+          message: "no outbound frame yet",
+          reason: "empty",
+        }),
+      );
     }
     const parsed: unknown = JSON.parse(xs[xs.length - 1]!);
     if (!validateRequestFrame(parsed)) {
-      return yield* Effect.fail(new Error("expected JSON-RPC request frame"));
+      return yield* Effect.fail(
+        new CaptureRequestError({
+          message: "expected JSON-RPC request frame",
+          reason: "invalid",
+        }),
+      );
     }
     const frame = parsed as {
       readonly id: JsonRpcId;
@@ -194,6 +221,20 @@ function captureLatestRequest(
     };
     return { id: frame.id, method: frame.method, params: frame.params };
   });
+}
+
+function waitForLatestRequestId(outbound: Ref.Ref<ReadonlyArray<string>>) {
+  return Effect.sleep("1 millis").pipe(
+    Effect.zipRight(captureLatestRequestId(outbound)),
+    Effect.retry({ times: 50 }),
+  );
+}
+
+function waitForLatestRequest(outbound: Ref.Ref<ReadonlyArray<string>>) {
+  return Effect.sleep("1 millis").pipe(
+    Effect.zipRight(captureLatestRequest(outbound)),
+    Effect.retry({ times: 50 }),
+  );
 }
 
 function privateField<T>(target: object, key: string): T {
@@ -222,6 +263,238 @@ const remoteRegistrations = (host: AppHost): RemoteRegistrations =>
 
 const dispatchAuthorizeDispatch = (host: AppHost): AuthorizeDispatchDispatch =>
   bindPrivateMethod(host, "dispatchAuthorizeHook");
+
+function makeRemoteFixture(connectionId: string, manifest: AppManifest) {
+  return Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const fixture = makeAppHostFixture();
+    const { conn, outbound } = yield* Scope.extend(
+      makeFakeConnection(connectionId),
+      scope,
+    );
+    fixture.connections.add(conn);
+    fixture.host.registerRemoteApp(manifest, connectionId);
+    return { ...fixture, conn, outbound, scope };
+  }).pipe(Effect.withSpan("appHostTest.makeRemoteFixture"));
+}
+
+function expectMessageAuthorizeRequest(
+  request: CapturedRequest,
+  taskId: ReturnType<typeof makeTaskId>,
+) {
+  expect(request.method).toBe(String(MessagesAuthorize.name));
+  expect(request.params).toEqual({
+    taskId,
+    appId: MESSAGE_APP_ID,
+    conversationId: FIXTURE_CONVERSATION_ID,
+    message: {
+      id: FIXTURE_MESSAGE_ID,
+      senderAgentId: FIXTURE_AGENT_SENDER,
+      parts: [{ type: "text", text: "moderate me" }],
+    },
+    receivedAt: "2026-05-12T00:00:00.000Z",
+  });
+}
+
+function remoteMessageAuthorizeForwards() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeRemoteFixture(
+      "conn-rm-1",
+      messageAuthorizeManifest(MESSAGE_APP_ID),
+    );
+    const taskId = makeTaskId("00000000-0000-4000-8000-000000ce5601");
+    const fiber = yield* Effect.fork(
+      fixture.host.runMessageAuthorize(
+        MESSAGE_TM_ADDRESS,
+        baseMessageAuthorizeCtx(MESSAGE_APP_ID, taskId),
+      ),
+    );
+    const request = yield* waitForLatestRequest(fixture.outbound);
+    expectMessageAuthorizeRequest(request, taskId);
+
+    yield* fixture.conn.jsonRpcClient.resolve(
+      MessagesAuthorize.encodeResponse(request.id, {
+        verdict: {
+          decision: "Forward",
+          recipients: [FIXTURE_AGENT_RECIPIENT],
+        },
+      }),
+    );
+    const verdict = yield* Fiber.join(fiber);
+    yield* Scope.close(fixture.scope, Exit.void);
+    expect(verdict).toEqual({
+      decision: "Forward",
+      recipients: [FIXTURE_AGENT_RECIPIENT],
+    });
+  });
+}
+
+function staleRemoteMessageBlocks() {
+  return Effect.gen(function* () {
+    const fixture = makeAppHostFixture();
+    fixture.host.registerRemoteApp(
+      messageAuthorizeManifest(MESSAGE_APP_ID),
+      "no-such-conn",
+    );
+    const result = yield* fixture.host.runMessageAuthorize(
+      MESSAGE_TM_ADDRESS,
+      baseMessageAuthorizeCtx(
+        MESSAGE_APP_ID,
+        makeTaskId("00000000-0000-4000-8000-000000ce5602"),
+      ),
+    );
+    expect(result).toEqual({ decision: "Block", reason: "tm_unreachable" });
+  });
+}
+
+function malformedRemoteMessageBlocks() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeRemoteFixture(
+      "conn-rm-decode",
+      messageAuthorizeManifest(MESSAGE_APP_ID),
+    );
+    const fiber = yield* Effect.fork(
+      fixture.host.runMessageAuthorize(
+        MESSAGE_TM_ADDRESS,
+        baseMessageAuthorizeCtx(
+          MESSAGE_APP_ID,
+          makeTaskId("00000000-0000-4000-8000-000000ce5603"),
+        ),
+      ),
+    );
+    const id = yield* waitForLatestRequestId(fixture.outbound);
+    yield* fixture.conn.jsonRpcClient.resolve(
+      MessagesAuthorize.encodeResponse(id, { wrongShape: "nope" }),
+    );
+    const verdict = yield* Fiber.join(fiber);
+    yield* Scope.close(fixture.scope, Exit.void);
+    expect(verdict).toEqual({ decision: "Block", reason: "tm_unreachable" });
+  });
+}
+
+function startRemoteDispatch(
+  fixture: AppHostFixture,
+  appId: string,
+  taskId: ReturnType<typeof makeTaskId>,
+) {
+  const dispatch = dispatchAuthorizeDispatch(fixture.host);
+  return dispatch(appId, baseAuthorizeDispatchCtx(appId, taskId));
+}
+
+function remoteDispatchGrantPassesThrough() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeRemoteFixture(
+      "conn-rd-1",
+      baseManifest("app-r"),
+    );
+    const fiber = yield* Effect.fork(
+      startRemoteDispatch(
+        fixture,
+        "app-r",
+        makeTaskId("00000000-0000-4000-8000-000000ce5510"),
+      ),
+    );
+    const id = yield* waitForLatestRequestId(fixture.outbound);
+    yield* fixture.conn.jsonRpcClient.resolve(
+      DispatchAuthorize.encodeResponse(id, {
+        admission: { decision: "grant", leaseId: "lease-1" },
+      }),
+    );
+    const verdict = yield* Fiber.join(fiber);
+    yield* Scope.close(fixture.scope, Exit.void);
+    expect(verdict).toEqual({ decision: "grant", leaseId: "lease-1" });
+  });
+}
+
+function remoteDispatchDenyPassesThrough() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeRemoteFixture(
+      "conn-rd-deny",
+      baseManifest("app-r"),
+    );
+    const fiber = yield* Effect.fork(
+      startRemoteDispatch(
+        fixture,
+        "app-r",
+        makeTaskId("00000000-0000-4000-8000-000000ce55d0"),
+      ),
+    );
+    const id = yield* waitForLatestRequestId(fixture.outbound);
+    yield* fixture.conn.jsonRpcClient.resolve(
+      DispatchAuthorize.encodeResponse(id, {
+        admission: { decision: "deny", reason: "policy/x" },
+      }),
+    );
+    const verdict = yield* Fiber.join(fiber);
+    yield* Scope.close(fixture.scope, Exit.void);
+    expect(verdict).toEqual({ decision: "deny", reason: "policy/x" });
+  });
+}
+
+function staleRemoteDispatchDenies() {
+  return Effect.gen(function* () {
+    const fixture = makeAppHostFixture();
+    fixture.host.registerRemoteApp(baseManifest("app-r"), "no-such-conn");
+    const verdict = yield* startRemoteDispatch(
+      fixture,
+      "app-r",
+      makeTaskId("00000000-0000-4000-8000-000000ce5573"),
+    );
+    expect(verdict).toEqual({
+      decision: "deny",
+      reason: "dispatch/authorize error",
+    });
+  });
+}
+
+function disconnectedRemoteDispatchDenies() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeRemoteFixture(
+      "conn-rd-drop",
+      baseManifest("app-r"),
+    );
+    const fiber = yield* Effect.fork(
+      startRemoteDispatch(
+        fixture,
+        "app-r",
+        makeTaskId("00000000-0000-4000-8000-000000ce5570"),
+      ),
+    );
+    yield* waitForLatestRequestId(fixture.outbound);
+    yield* Scope.close(fixture.scope, Exit.void);
+    const verdict = yield* Fiber.join(fiber);
+    expect(verdict).toEqual({
+      decision: "deny",
+      reason: "dispatch/authorize error",
+    });
+  });
+}
+
+function malformedRemoteDispatchDenies() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeRemoteFixture(
+      "conn-rd-decode",
+      baseManifest("app-r"),
+    );
+    const fiber = yield* Effect.fork(
+      startRemoteDispatch(
+        fixture,
+        "app-r",
+        makeTaskId("00000000-0000-4000-8000-000000ce55de"),
+      ),
+    );
+    const id = yield* waitForLatestRequestId(fixture.outbound);
+    yield* fixture.conn.jsonRpcClient.resolve(
+      DispatchAuthorize.encodeResponse(id, { wrongShape: "nope" }),
+    );
+    const verdict = yield* Fiber.join(fiber);
+    yield* Scope.close(fixture.scope, Exit.void);
+    expect(verdict).toEqual({
+      decision: "deny",
+      reason: "dispatch/authorize error",
+    });
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Registration surface
@@ -258,121 +531,20 @@ describe("AppHost.registerRemoteApp", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("AppHost remote messages — messages/authorize", () => {
-  it("happy: remote replies with forward verdict; wire params omit signal", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn, outbound } = yield* Scope.extend(
-        makeFakeConnection("conn-rm-1"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(
-        messageAuthorizeManifest(MESSAGE_APP_ID),
-        "conn-rm-1",
-      );
+  liveIt(
+    "happy: remote replies with forward verdict; wire params omit signal",
+    remoteMessageAuthorizeForwards,
+  );
 
-      const taskId = makeTaskId("00000000-0000-4000-8000-000000ce5601");
-      const ctx = baseMessageAuthorizeCtx(MESSAGE_APP_ID, taskId);
-      const fiber = yield* Effect.fork(
-        fixture.host.runMessageAuthorize(MESSAGE_TM_ADDRESS, ctx),
-      );
-      const request = yield* captureLatestRequest(outbound).pipe(
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
+  liveIt(
+    "missing-connection: stale registration fails closed to Block",
+    staleRemoteMessageBlocks,
+  );
 
-      expect(request.method).toBe(String(MessagesAuthorize.name));
-      expect(request.params).toEqual({
-        taskId,
-        appId: MESSAGE_APP_ID,
-        conversationId: FIXTURE_CONVERSATION_ID,
-        message: {
-          id: FIXTURE_MESSAGE_ID,
-          senderAgentId: FIXTURE_AGENT_SENDER,
-          parts: [{ type: "text", text: "moderate me" }],
-        },
-        receivedAt: "2026-05-12T00:00:00.000Z",
-      });
-
-      yield* conn.jsonRpcClient.resolve(
-        MessagesAuthorize.encodeResponse(request.id, {
-          verdict: {
-            decision: "Forward",
-            recipients: [FIXTURE_AGENT_RECIPIENT],
-          },
-        }),
-      );
-
-      const verdict = yield* Fiber.join(fiber);
-      yield* Scope.close(scope, Exit.void);
-      return verdict;
-    });
-
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({
-      decision: "Forward",
-      recipients: [FIXTURE_AGENT_RECIPIENT],
-    });
-  });
-
-  it("missing-connection: stale registration fails closed to Block", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      fixture.host.registerRemoteApp(
-        messageAuthorizeManifest(MESSAGE_APP_ID),
-        "no-such-conn",
-      );
-
-      return yield* fixture.host.runMessageAuthorize(
-        MESSAGE_TM_ADDRESS,
-        baseMessageAuthorizeCtx(
-          MESSAGE_APP_ID,
-          makeTaskId("00000000-0000-4000-8000-000000ce5602"),
-        ),
-      );
-    });
-
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({ decision: "Block", reason: "tm_unreachable" });
-  });
-
-  it("decode failure: malformed verdict from remote fails closed to Block", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn, outbound } = yield* Scope.extend(
-        makeFakeConnection("conn-rm-decode"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(
-        messageAuthorizeManifest(MESSAGE_APP_ID),
-        "conn-rm-decode",
-      );
-
-      const fiber = yield* Effect.fork(
-        fixture.host.runMessageAuthorize(
-          MESSAGE_TM_ADDRESS,
-          baseMessageAuthorizeCtx(
-            MESSAGE_APP_ID,
-            makeTaskId("00000000-0000-4000-8000-000000ce5603"),
-          ),
-        ),
-      );
-      const id = yield* captureLatestRequestId(outbound).pipe(
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      yield* conn.jsonRpcClient.resolve(
-        MessagesAuthorize.encodeResponse(id, { wrongShape: "nope" }),
-      );
-      const verdict = yield* Fiber.join(fiber);
-      yield* Scope.close(scope, Exit.void);
-      return verdict;
-    });
-
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({ decision: "Block", reason: "tm_unreachable" });
-  });
+  liveIt(
+    "decode failure: malformed verdict from remote fails closed to Block",
+    malformedRemoteMessageBlocks,
+  );
 });
 
 describe("AppHost.unregisterRemoteApp", () => {
@@ -397,186 +569,31 @@ describe("AppHost.unregisterRemoteApp", () => {
 // dispatch/authorize — remote round-trip + fail-closed paths
 // ─────────────────────────────────────────────────────────────────────
 
-describe("AppHost remote dispatch — dispatch/authorize", () => {
-  it("happy: remote replies with grant verdict; envelope passes through", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn, outbound } = yield* Scope.extend(
-        makeFakeConnection("conn-rd-1"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-1");
+describe("AppHost remote dispatch — dispatch/authorize success", () => {
+  liveIt(
+    "happy: remote replies with grant verdict; envelope passes through",
+    remoteDispatchGrantPassesThrough,
+  );
 
-      const dispatch = dispatchAuthorizeDispatch(fixture.host);
+  liveIt(
+    "happy: remote deny verdict propagates verbatim",
+    remoteDispatchDenyPassesThrough,
+  );
+});
 
-      const fiber = yield* Effect.fork(
-        dispatch(
-          "app-r",
-          baseAuthorizeDispatchCtx(
-            "app-r",
-            makeTaskId("00000000-0000-4000-8000-000000ce5510"),
-          ),
-        ),
-      );
-      const id = yield* captureLatestRequestId(outbound).pipe(
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
+describe("AppHost remote dispatch — dispatch/authorize fail closed", () => {
+  liveIt(
+    "missing-connection: stale registration fails closed to deny",
+    staleRemoteDispatchDenies,
+  );
 
-      yield* conn.jsonRpcClient.resolve(
-        DispatchAuthorize.encodeResponse(id, {
-          admission: { decision: "grant", leaseId: "lease-1" },
-        }),
-      );
+  liveIt(
+    "disconnect mid-flight: scope close fails closed to deny",
+    disconnectedRemoteDispatchDenies,
+  );
 
-      const verdict = yield* Fiber.join(fiber);
-      yield* Scope.close(scope, Exit.void);
-      return verdict;
-    });
-
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({ decision: "grant", leaseId: "lease-1" });
-  });
-
-  it("happy: remote deny verdict propagates verbatim", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn, outbound } = yield* Scope.extend(
-        makeFakeConnection("conn-rd-deny"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-deny");
-
-      const dispatch = dispatchAuthorizeDispatch(fixture.host);
-
-      const fiber = yield* Effect.fork(
-        dispatch(
-          "app-r",
-          baseAuthorizeDispatchCtx(
-            "app-r",
-            makeTaskId("00000000-0000-4000-8000-000000ce55d0"),
-          ),
-        ),
-      );
-      const id = yield* captureLatestRequestId(outbound).pipe(
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      yield* conn.jsonRpcClient.resolve(
-        DispatchAuthorize.encodeResponse(id, {
-          admission: { decision: "deny", reason: "policy/x" },
-        }),
-      );
-      const verdict = yield* Fiber.join(fiber);
-      yield* Scope.close(scope, Exit.void);
-      return verdict;
-    });
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({ decision: "deny", reason: "policy/x" });
-  });
-
-  it("missing-connection: stale registration → fail-closed deny", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      // Register with a connection ID that was never `connections.add()`'d —
-      // the dispatch helper resolves `connections.get(connId) === undefined`
-      // and folds into the fail-closed branch.
-      fixture.host.registerRemoteApp(baseManifest("app-r"), "no-such-conn");
-
-      const dispatch = dispatchAuthorizeDispatch(fixture.host);
-
-      return yield* dispatch(
-        "app-r",
-        baseAuthorizeDispatchCtx(
-          "app-r",
-          makeTaskId("00000000-0000-4000-8000-000000ce5573"),
-        ),
-      );
-    });
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({
-      decision: "deny",
-      reason: "dispatch/authorize error",
-    });
-  });
-
-  it("disconnect mid-flight: scope close → fail-closed deny", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn } = yield* Scope.extend(
-        makeFakeConnection("conn-rd-drop"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-drop");
-
-      const dispatch = dispatchAuthorizeDispatch(fixture.host);
-
-      const fiber = yield* Effect.fork(
-        dispatch(
-          "app-r",
-          baseAuthorizeDispatchCtx(
-            "app-r",
-            makeTaskId("00000000-0000-4000-8000-000000ce5570"),
-          ),
-        ),
-      );
-      // Tear down the connection scope before any response arrives.
-      // The JsonRpcClient's Scope finalizer fails the pending Deferred
-      // with `NotConnectedError`; the dispatch envelope catches it and
-      // returns fail-closed deny.
-      yield* Effect.yieldNow();
-      yield* Scope.close(scope, Exit.void);
-      const verdict = yield* Fiber.join(fiber);
-      return verdict;
-    });
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({
-      decision: "deny",
-      reason: "dispatch/authorize error",
-    });
-  });
-
-  it("decode failure: malformed verdict from remote → fail-closed deny", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn, outbound } = yield* Scope.extend(
-        makeFakeConnection("conn-rd-decode"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-decode");
-
-      const dispatch = dispatchAuthorizeDispatch(fixture.host);
-
-      const fiber = yield* Effect.fork(
-        dispatch(
-          "app-r",
-          baseAuthorizeDispatchCtx(
-            "app-r",
-            makeTaskId("00000000-0000-4000-8000-000000ce55de"),
-          ),
-        ),
-      );
-      const id = yield* captureLatestRequestId(outbound).pipe(
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      // Reply with a payload that does not match the envelope schema.
-      yield* conn.jsonRpcClient.resolve(
-        DispatchAuthorize.encodeResponse(id, { wrongShape: "nope" }),
-      );
-      const verdict = yield* Fiber.join(fiber);
-      yield* Scope.close(scope, Exit.void);
-      return verdict;
-    });
-    const result = await Effect.runPromise(program);
-    expect(result).toEqual({
-      decision: "deny",
-      reason: "dispatch/authorize error",
-    });
-  });
+  liveIt(
+    "decode failure: malformed verdict from remote fails closed to deny",
+    malformedRemoteDispatchDenies,
+  );
 });

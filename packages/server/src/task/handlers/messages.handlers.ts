@@ -5,10 +5,14 @@ import {
   MessagesList,
   NotFoundError,
   ForbiddenError,
+  type ConversationId,
   type LeaseId,
+  type ParamsOf,
 } from "@moltzap/protocol";
 import { Effect, Exit, Option } from "effect";
 import { InvalidParamsError } from "../../runtime/index.js";
+import type { AuthenticatedContext } from "../../transport/context.js";
+import type { Db } from "../../db/client.js";
 import {
   ConnIdTag,
   ConversationServiceTag,
@@ -22,6 +26,20 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
+import type { LeaseRegistry } from "../../app/lease-registry.js";
+import type { ConversationService } from "../services/conversation.service.js";
+import type { MessageService } from "../services/message.service.js";
+import type { TaskService } from "../services/task.service.js";
+
+type MessagesSendParams = ParamsOf<typeof MessagesSend>;
+
+interface SendServices {
+  readonly conversationService: ConversationService;
+  readonly db: Db;
+  readonly leaseRegistry: LeaseRegistry;
+  readonly messageService: MessageService;
+  readonly taskService: TaskService;
+}
 
 /** Parse "agent:&lt;name>" target format, returning the agent name. */
 function parseTo(to: string): Effect.Effect<string, InvalidParamsError> {
@@ -36,167 +54,167 @@ function parseTo(to: string): Effect.Effect<string, InvalidParamsError> {
   return Effect.succeed(match[1]!);
 }
 
+function resolveConversationId(
+  params: MessagesSendParams,
+  ctx: AuthenticatedContext,
+  services: SendServices,
+) {
+  return Effect.gen(function* () {
+    if (params.conversationId !== undefined) {
+      return params.conversationId;
+    }
+    if (params.to !== undefined) {
+      const agentName = yield* parseTo(params.to);
+      const conversation =
+        yield* services.conversationService.createDmByAgentName(
+          agentName,
+          ctx.agentId,
+          services.taskService.createDefaultTaskForType("dm", ctx.agentId),
+        );
+      return conversation.id;
+    }
+    if (params.replyToId !== undefined) {
+      return yield* conversationIdFromReply(params.replyToId, services.db);
+    }
+    return yield* Effect.fail(
+      new InvalidParamsError({
+        message: "Either conversationId, to, or replyToId is required",
+      }),
+    );
+  }).pipe(Effect.withSpan("messages.resolveConversationId"));
+}
+
+function conversationIdFromReply(
+  replyToId: NonNullable<MessagesSendParams["replyToId"]>,
+  db: Db,
+) {
+  return Effect.gen(function* () {
+    const parentOpt = yield* takeFirstOption(
+      db
+        .selectFrom("messages")
+        .select(["conversation_id"])
+        .where("id", "=", replyToId),
+    );
+    if (Option.isNone(parentOpt)) {
+      return yield* Effect.fail(
+        new NotFoundError({
+          message: `Cannot resolve replyToId ${replyToId}: message not found`,
+        }),
+      );
+    }
+    return parentOpt.value.conversation_id;
+  }).pipe(Effect.withSpan("messages.conversationIdFromReply"));
+}
+
+function claimDispatchLease(leaseRegistry: LeaseRegistry, leaseId: LeaseId) {
+  return leaseRegistry.claim(leaseId).pipe(
+    Effect.catchTags({
+      LeaseInvalidError: (err: LeaseInvalidError) =>
+        Effect.fail(
+          new ForbiddenError({
+            message: `lease ${leaseId} not claimable: state=${err.state}`,
+            data: {
+              reason: "LeaseInvalid",
+              state: err.state,
+              expected: err.expected as readonly string[],
+            },
+          }),
+        ),
+      LeaseNotFoundError: () =>
+        Effect.fail(
+          new NotFoundError({ message: `lease ${leaseId} not found` }),
+        ),
+    }),
+  );
+}
+
+interface LeaseSendInput {
+  readonly connId: string;
+  readonly conversationId: ConversationId;
+  readonly ctx: AuthenticatedContext;
+  readonly params: MessagesSendParams;
+  readonly services: SendServices;
+}
+
+function sendWithDispatchLease(input: LeaseSendInput) {
+  return Effect.gen(function* () {
+    const leaseId = input.params.dispatchLeaseId as LeaseId;
+    let finalized = false;
+    const message = yield* Effect.scoped(
+      Effect.acquireUseRelease(
+        claimDispatchLease(input.services.leaseRegistry, leaseId),
+        (claim) =>
+          Effect.gen(function* () {
+            const carrier = yield* input.services.messageService.sendInsert({
+              conversationId: input.conversationId,
+              parts: input.params.parts,
+              senderAgentId: input.ctx.agentId,
+              replyToId: input.params.replyToId,
+              excludeConnectionId: input.connId,
+              bypassTmRouting: false,
+            });
+            yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
+            finalized = true;
+            return yield* input.services.messageService.sendCommit(
+              carrier,
+              input.conversationId,
+              input.ctx.agentId,
+            );
+          }).pipe(Effect.withSpan("messages.sendWithLease")),
+        (claim, exit) => {
+          if (Exit.isSuccess(exit) || finalized) return Effect.void;
+          return claim.rollback.pipe(Effect.ignore);
+        },
+      ),
+    );
+    return { message };
+  }).pipe(Effect.withSpan("messages.sendWithDispatchLease"));
+}
+
+function handleMessageSend(
+  params: MessagesSendParams,
+  ctx: AuthenticatedContext,
+) {
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const services: SendServices = {
+        conversationService: yield* ConversationServiceTag,
+        db: yield* DbTag,
+        leaseRegistry: yield* LeaseRegistryTag,
+        messageService: yield* MessageServiceTag,
+        taskService: yield* TaskServiceTag,
+      };
+      const connId = yield* ConnIdTag;
+      const conversationId = yield* resolveConversationId(
+        params,
+        ctx,
+        services,
+      );
+      if (params.dispatchLeaseId !== undefined) {
+        return yield* sendWithDispatchLease({
+          connId,
+          conversationId,
+          ctx,
+          params,
+          services,
+        });
+      }
+      const message = yield* services.messageService.send({
+        conversationId,
+        parts: params.parts,
+        senderAgentId: ctx.agentId,
+        replyToId: params.replyToId,
+        excludeConnectionId: connId,
+      });
+      return { message };
+    }).pipe(Effect.withSpan("messages.send")),
+  );
+}
+
 export const messageHandlers: RpcMethodRegistry = [
   defineTaskMethod(MessagesSend, {
     requiresActive: true,
-    handler: (params, ctx) =>
-      catchSqlErrorAsDefect(
-        Effect.gen(function* () {
-          const messageService = yield* MessageServiceTag;
-          const conversationService = yield* ConversationServiceTag;
-          const taskService = yield* TaskServiceTag;
-          const db = yield* DbTag;
-          const leaseRegistry = yield* LeaseRegistryTag;
-          let conversationId = params.conversationId;
-
-          if (!conversationId && params.to) {
-            const agentName = yield* parseTo(params.to);
-            // Issue #464: lazy `mintTask` so dedup hits don't
-            // orphan a default-DM task.
-            const conversation = yield* conversationService.createDmByAgentName(
-              agentName,
-              ctx.agentId,
-              taskService.createDefaultTaskForType("dm", ctx.agentId),
-            );
-            conversationId = conversation.id;
-          }
-
-          if (!conversationId && params.replyToId) {
-            const parentOpt = yield* takeFirstOption(
-              db
-                .selectFrom("messages")
-                .select(["conversation_id"])
-                .where("id", "=", params.replyToId),
-            );
-            if (Option.isNone(parentOpt)) {
-              return yield* Effect.fail(
-                new NotFoundError({
-                  message: `Cannot resolve replyToId ${params.replyToId}: message not found`,
-                }),
-              );
-            }
-            conversationId = parentOpt.value.conversation_id;
-          }
-
-          if (!conversationId) {
-            return yield* Effect.fail(
-              new InvalidParamsError({
-                message: "Either conversationId, to, or replyToId is required",
-              }),
-            );
-          }
-
-          const connId = yield* ConnIdTag;
-          // #529 reshape additive — when `dispatchLeaseId` is set,
-          // gate the durable insert via the lease registry.
-          //
-          // Ordering (architect §3 + epic decision #5):
-          //   claim → sendInsert → finalize → sendCommit
-          //
-          // - acquire = `claim(leaseId)` (GRANTED → CLAIMED).
-          // - use:
-          //     1. `sendInsert` runs the durable row commit (binds
-          //        the lease to the concrete `messageId`).
-          //     2. On insert success, `claim.finalize(message.id)`
-          //        fires (CLAIMED → CONSUMED, emits
-          //        `dispatches/consumed` to the moderator).
-          //     3. THEN `sendCommit` runs the post-insert side
-          //        effects (TM routing, broadcast, trace, delivery
-          //        webhook). Their failure does NOT roll back the
-          //        lease — the durable row is permanent and the
-          //        moderator's view is already consistent.
-          // - release = on failure path BEFORE finalize:
-          //     `claim.rollback` (CLAIMED → GRANTED, retry-eligible).
-          //   On success path post-finalize: no-op.
-          //
-          // Architect §3 load-bearing rule: "Post-insert side effects
-          // (TM routing, broadcast, trace capture) do NOT affect
-          // lease state — their failure is recoverable but the
-          // durable row is permanent." A `sendCommit` failure leaves
-          // the lease CONSUMED + durable row intact; retry rejects
-          // with CONSUMED typed error.
-          if (params.dispatchLeaseId !== undefined) {
-            const leaseId = params.dispatchLeaseId as LeaseId;
-            // Track whether finalize has fired so the release arm
-            // can distinguish the two failure modes:
-            //   - failure BEFORE finalize → rollback (CLAIMED → GRANTED).
-            //   - failure AFTER finalize (sendCommit fails)  → no-op
-            //     (lease stays CONSUMED + durable row stays per
-            //     architect §3 + epic decision #5).
-            let finalized = false;
-            const message = yield* Effect.scoped(
-              Effect.acquireUseRelease(
-                leaseRegistry.claim(leaseId).pipe(
-                  Effect.catchTags({
-                    LeaseInvalidError: (err: LeaseInvalidError) =>
-                      Effect.fail(
-                        new ForbiddenError({
-                          message: `lease ${leaseId} not claimable: state=${err.state}`,
-                          data: {
-                            reason: "LeaseInvalid",
-                            state: err.state,
-                            expected: err.expected as readonly string[],
-                          },
-                        }),
-                      ),
-                    LeaseNotFoundError: () =>
-                      Effect.fail(
-                        new NotFoundError({
-                          message: `lease ${leaseId} not found`,
-                        }),
-                      ),
-                  }),
-                ),
-                (claim) =>
-                  Effect.gen(function* () {
-                    const carrier = yield* messageService.sendInsert(
-                      conversationId,
-                      params.parts,
-                      ctx.agentId,
-                      params.replyToId,
-                      connId,
-                    );
-                    // Finalize BEFORE sendCommit. The durable row is
-                    // committed; the lease transitions CLAIMED →
-                    // CONSUMED and `dispatches/consumed` emits to the
-                    // moderator's connection. Post-insert side-effect
-                    // failures do not roll back the lease.
-                    yield* claim
-                      .finalize(carrier.message.id)
-                      .pipe(Effect.catchAll(() => Effect.void));
-                    finalized = true;
-                    return yield* messageService.sendCommit(
-                      carrier,
-                      conversationId,
-                      ctx.agentId,
-                    );
-                  }).pipe(Effect.withSpan("messages.sendWithLease")),
-                (claim, exit) => {
-                  if (Exit.isSuccess(exit)) return Effect.void;
-                  // sendCommit failed AFTER finalize → no rollback;
-                  // lease stays CONSUMED + durable row stays.
-                  if (finalized) return Effect.void;
-                  // sendInsert (or claim) failed BEFORE finalize →
-                  // rollback CLAIMED → GRANTED.
-                  return claim.rollback.pipe(
-                    Effect.catchAll(() => Effect.void),
-                  );
-                },
-              ),
-            );
-            return { message };
-          }
-
-          const message = yield* messageService.send(
-            conversationId,
-            params.parts,
-            ctx.agentId,
-            params.replyToId,
-            connId,
-          );
-          return { message };
-        }).pipe(Effect.withSpan("messages.send")),
-      ),
+    handler: handleMessageSend,
   }),
   defineTaskMethod(MessagesList, {
     requiresActive: true,

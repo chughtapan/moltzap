@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
-import { sql } from "kysely";
 import type { Db } from "../../db/client.js";
+import { sql } from "../../db/sql.js";
 import type { ParamsOf, Register } from "@moltzap/protocol";
 import type { AgentId, UserId } from "../../app/types.js";
 

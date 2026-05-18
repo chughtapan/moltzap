@@ -120,6 +120,9 @@ const TmDecisionSchema = Type.Union([
 ]);
 
 export type TmDecision = Static<typeof TmDecisionSchema>;
+export const validateTmDecision = ajv.compile(TmDecisionSchema) as (
+  value: unknown,
+) => value is TmDecision;
 
 const MessageWithTmDecisionSchema = Type.Composite([
   MessageSchema,

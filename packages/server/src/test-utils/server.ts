@@ -341,6 +341,13 @@ export function getCoreDb(): EffectKysely<Database> {
   return appDb;
 }
 
+export function getCoreEncryptionEnvelope(): EnvelopeEncryption {
+  if (!_masterSecret) {
+    throw new CoreTestServerError("Test server encryption not enabled.");
+  }
+  return new EnvelopeEncryption(_masterSecret);
+}
+
 export function getCoreApp(): CoreApp {
   if (!coreApp)
     throw new CoreTestServerError(
