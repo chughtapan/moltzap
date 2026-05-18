@@ -8,13 +8,13 @@ handlers:
 
 ```mermaid
 flowchart LR
-    EMITTER["emitter\n(server or client)"]
-    ENCODE["Notification.encode(params)\n→ NotificationFrame\n{jsonrpc, method, params}"]
+    EMITTER["emitter<br>(server or client)"]
+    ENCODE["Notification.encode(params)<br>→ NotificationFrame<br>{jsonrpc, method, params}"]
     WRITE["socket.write(JSON.stringify(frame))"]
     WIRE["wire"]
     RECEIVER["receiver"]
-    DECODE["decode{Server,Client}Inbound\n→ {_tag: &quot;Notification&quot;, definition, params}"]
-    DISPATCH["subscriber dispatcher\n(lives in consumer package)\ne.g. @moltzap/client/runtime/subscribers.ts"]
+    DECODE["decode{Server,Client}Inbound<br>→ {_tag: &quot;Notification&quot;, definition, params}"]
+    DISPATCH["subscriber dispatcher<br>(lives in consumer package)<br>e.g. @moltzap/client/runtime/subscribers.ts"]
     HANDLER["matching SubscriberHandler(params)"]
 
     EMITTER --> ENCODE --> WRITE --> WIRE --> RECEIVER --> DECODE --> DISPATCH --> HANDLER

@@ -11,12 +11,12 @@ Signature: `resolveTarget(params) → Promise<Result | null>`
 
 ```mermaid
 flowchart TD
-    A["resolveTarget(params)\nparams.normalized"] --> B{"isMoltZapTarget(normalized)?\nMOLTZAP_TARGET_RE = /^(agent|conv):.+$/"}
-    B -->|no match| C["return null\nnot our namespace;\nOpenClaw tries next resolver"]
+    A["resolveTarget(params)<br>params.normalized"] --> B{"isMoltZapTarget(normalized)?<br>MOLTZAP_TARGET_RE = /^(agent|conv):.+$/"}
+    B -->|no match| C["return null<br>not our namespace;<br>OpenClaw tries next resolver"]
     B -->|match| D{"normalized starts with 'conv:'?"}
     D -->|yes| E["kind = 'group'"]
     D -->|no| F["kind = 'user'"]
-    E --> G["Promise.resolve({\n  to: normalized,\n  kind,\n  display: normalized.split(':').slice(1).join(':'),\n  source: 'normalized'\n})\nNo server round-trip; pure string parse."]
+    E --> G["Promise.resolve({<br>  to: normalized,<br>  kind,<br>  display: normalized.split(':').slice(1).join(':'),<br>  source: 'normalized'<br>})<br>No server round-trip; pure string parse."]
     F --> G
 ```
 
@@ -27,11 +27,11 @@ Signature: `resolveTarget(params) → OpenClawTargetResolveResult` (synchronous 
 
 ```mermaid
 flowchart TD
-    A["resolveTarget(params)\nparams.to (after trim)"] --> B{"empty string?"}
-    B -->|yes| C["return new OpenClawTargetRejected({\n  error: new Error('MoltZap: target is required')\n})"]
-    B -->|no| D{"contains ':'\nAND fails isMoltZapTarget?\ne.g. 'slack:alice', 'http://example.com'"}
-    D -->|yes| E["return new OpenClawTargetRejected({\n  error: new Error(\n    'MoltZap: unsupported target format &lt;to&gt;'\n    + ' — use agent:&lt;name&gt; or conv:&lt;id&gt;'\n  )\n})"]
-    D -->|no| F["passes isMoltZapTarget\nOR contains no ':'\n(plain UUID — backward compat path)"]
+    A["resolveTarget(params)<br>params.to (after trim)"] --> B{"empty string?"}
+    B -->|yes| C["return new OpenClawTargetRejected({<br>  error: new Error('MoltZap: target is required')<br>})"]
+    B -->|no| D{"contains ':'<br>AND fails isMoltZapTarget?<br>e.g. 'slack:alice', 'http://example.com'"}
+    D -->|yes| E["return new OpenClawTargetRejected({<br>  error: new Error(<br>    'MoltZap: unsupported target format &lt;to&gt;'<br>    + ' — use agent:&lt;name&gt; or conv:&lt;id&gt;'<br>  )<br>})"]
+    D -->|no| F["passes isMoltZapTarget<br>OR contains no ':'<br>(plain UUID — backward compat path)"]
     F --> G["return new OpenClawTargetResolved({ to })"]
 ```
 

@@ -33,7 +33,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant Recv as Recipient (client)
-    participant AH as apps.handlers<br/>(app/handlers/apps.handlers.ts)
+    participant AH as apps.handlers
     participant LR as LeaseRegistry
     participant Mod as Moderator (round-trip)
     participant MS as MessageService
@@ -42,20 +42,20 @@ sequenceDiagram
     AH->>LR: LeaseRegistry.mint(ctx)
     LR-->>AH: {leaseId, dispatchId} — state: PENDING
     AH-->>Recv: ack returned IMMEDIATELY (no wait on moderator)
-    AH->>Mod: Effect.fork: dispatchAuthorizeHook(ctx)<br/>(moderator round-trip — see §04 server-initiated callback)
+    AH->>Mod: Effect.fork: dispatchAuthorizeHook(ctx)<br>(moderator round-trip — see §04 server-initiated callback)
     Mod-->>AH: verdict
     AH->>LR: LeaseRegistry.resolve(leaseId, verdict)
     LR-->>AH: state → GRANTED | DENIED | HOLD
     AH->>Recv: emit dispatch/release{verdict}
 
-    Note over Recv: recipient parks client-side;<br/>when release arrives, runs InboundHandler
+    Note over Recv: recipient parks client-side—<br>when release arrives, runs InboundHandler
 
     Recv->>MS: messages/send with dispatchLeaseId
     MS->>LR: LeaseRegistry.claim(leaseId)
     LR-->>MS: Claim handle — state: GRANTED → CLAIMED
-    Note over MS: Effect.acquireUseRelease(<br/>acquire = claim,<br/>use = messageService.sendInsert(…) → carrier,<br/>release = exit →<br/>  if Exit.isSuccess → claim.finalize(messageId) CLAIMED→CONSUMED<br/>  else → claim.rollback() CLAIMED→GRANTED<br/>)
+    Note over MS: Effect.acquireUseRelease(<br>acquire = claim,<br>use = messageService.sendInsert(…) → carrier,<br>release = exit →<br>  if Exit.isSuccess → claim.finalize(messageId) CLAIMED→CONSUMED<br>  else → claim.rollback() CLAIMED→GRANTED<br>)
     MS->>MS: messageService.sendCommit(carrier, …)
-    Note over MS: post-insert side effects: TM routing + broadcast + trace<br/>do NOT affect lease state.<br/>sendCommit failure leaves lease CONSUMED and durable<br/>row intact — caller must not retry.
+    Note over MS: post-insert side effects: TM routing + broadcast + trace<br>do NOT affect lease state.<br>sendCommit failure leaves lease CONSUMED and durable<br>row intact — caller must not retry.
 ```
 
 Connection close cleanup (`leaseRegistry.abandon(connId)` in the disconnect

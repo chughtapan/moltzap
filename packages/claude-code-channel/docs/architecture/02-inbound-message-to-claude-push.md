@@ -21,34 +21,34 @@ sequenceDiagram
     alt gate present
         entry->>entry: gateInbound(enriched) — pure, sync (types.ts)
         alt { _tag:"Failure" }
-            note over entry: logGateDropped (AllowlistError)<br/>logged only, not propagated — return
+            note over entry: logGateDropped (AllowlistError)<br>logged only, not propagated — return
         end
     end
     note over entry: NO gate / { _tag:"Success" } — continue
 
     entry->>event: [B] toClaudeChannelNotification(gated.value)
 
-    note over event: [B1] content check<br/>event.text empty → { _tag:"Err", ContentEmpty }<br/>logTranslationFailed + return
+    note over event: [B1] content check<br>event.text empty → { _tag:"Err", ContentEmpty }<br>logTranslationFailed + return
 
-    note over event: [B2] decodeNotificationMeta<br/>chat_id = conversationId<br/>message_id = id<br/>user = sender.id<br/>ts = createdAt (ISO)<br/>any brand fails → MetaInvalid / ContentEmpty<br/>logTranslationFailed + return
+    note over event: [B2] decodeNotificationMeta<br>chat_id = conversationId<br>message_id = id<br>user = sender.id<br>ts = createdAt (ISO)<br>any brand fails → MetaInvalid / ContentEmpty<br>logTranslationFailed + return
 
     event-->>entry: ClaudeChannelNotification
 
-    note over entry: [C] routing.recordInbound(message_id, chat_id)<br/>advances lastActive, inserts into LRU map (cap 256)
+    note over entry: [C] routing.recordInbound(message_id, chat_id)<br>advances lastActive, inserts into LRU map (cap 256)
 
     entry->>server: [D] serverHandle.push(notification)
 
     alt state.initialized == false (pre-handshake)
-        note over server: state.pending.push()<br/>flushed later at oninitialized
+        note over server: state.pending.push()<br>flushed later at oninitialized
     else state.initialized == true
-        server->>server: server.notification({<br/>  method: "notifications/claude/channel",<br/>  params: { content, meta }<br/>})
+        server->>server: server.notification({<br>  method: "notifications/claude/channel",<br>  params: { content, meta }<br>})
         alt EmitFailed
             note over server: logWarning — swallowed (entry.ts)
         end
         server-->>Claude: MCP stdio frame
     end
 
-    Note over Claude: &lt;channel source="moltzap" chat_id="..." message_id="..." user="..." ts="..."&gt;<br/>content<br/>&lt;/channel&gt;
+    Note over Claude: <channel source="moltzap" chat_id="..." message_id="..." user="..." ts="..."><br>content<br></channel>
 ```
 
 Error taxonomy for this path:

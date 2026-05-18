@@ -9,34 +9,34 @@ sequenceDiagram
     participant Svc as MoltZapService
     participant Core as MoltZapChannelCore
 
-    OC->>Entry: gateway.startAccount(ctx)<br/>ctx = { accountId, account, abortSignal,<br/>         log, setStatus, channelRuntime }
+    OC->>Entry: gateway.startAccount(ctx)<br>ctx = { accountId, account, abortSignal,<br>         log, setStatus, channelRuntime }
 
-    Entry->>Entry: Guard: account.apiKey && account.serverUrl<br/>missing? log.error + return Promise.resolve()
+    Entry->>Entry: Guard: account.apiKey && account.serverUrl<br>missing? log.error + return Promise.resolve()
 
-    Entry->>Entry: adaptOpenClawLogger(log.*)<br/>(reorders structured-log args to match OpenClaw's shape)
+    Entry->>Entry: adaptOpenClawLogger(log.*)<br>(reorders structured-log args to match OpenClaw's shape)
 
-    Entry->>Svc: new MoltZapService({ serverUrl, agentKey, logger })<br/>(WsClient + socket-server wrapper; entry into @moltzap/client)
+    Entry->>Svc: new MoltZapService({ serverUrl, agentKey, logger })<br>(WsClient + socket-server wrapper— entry into @moltzap/client)
 
-    Entry->>Core: new MoltZapChannelCore({ service, logger })<br/>(registers internal listeners; forks consumerFiber)
+    Entry->>Core: new MoltZapChannelCore({ service, logger })<br>(registers internal listeners— forks consumerFiber)
 
-    Entry->>Core: core.onInbound(handler)<br/>handler body is the Effect.gen block<br/>→ see 03-inbound-on-inbound.md
+    Entry->>Core: core.onInbound(handler)<br>handler body is the Effect.gen block<br>→ see 03-inbound-on-inbound.md
 
-    Entry->>Svc: service.on("rawNotification", …)<br/>sync dispatcher → mapping extractors<br/>→ see 04-notification-extractors.md
+    Entry->>Svc: service.on("rawNotification", …)<br>sync dispatcher → mapping extractors<br>→ see 04-notification-extractors.md
 
-    Entry->>Core: core.onDisconnect(() => { … })<br/>log.warn + setStatus({ connected:false, lastDisconnect:{at:now} })
+    Entry->>Core: core.onDisconnect(() => { … })<br>log.warn + setStatus({ connected:false, lastDisconnect:{at:now} })
 
-    Entry->>Core: core.onReconnect(() => { … })<br/>log.info + setStatus({ connected:true, lastConnectedAt:now })
+    Entry->>Core: core.onReconnect(() => { … })<br>log.info + setStatus({ connected:true, lastConnectedAt:now })
 
     Entry->>Entry: activeClients.set(accountId, service)
 
     alt aborted already?
-        Entry->>Core: Effect.runPromise(core.disconnect()<br/>  .tap(() => activeClients.delete(accountId)))
+        Entry->>Core: Effect.runPromise(core.disconnect()<br>  .tap(() => activeClients.delete(accountId)))
         Note over Entry: short-circuit — return that Promise immediately
     else not yet aborted
-        Entry->>Entry: abortSignal.addEventListener("abort", { once }, …)<br/>handler: Effect.runPromise(core.disconnect())<br/>         activeClients.delete(accountId)
+        Entry->>Entry: abortSignal.addEventListener("abort", { once }, …)<br>handler: Effect.runPromise(core.disconnect())<br>         activeClients.delete(accountId)
         Note over Entry,OC: Effect.runPromise — Effect↔Promise boundary
-        Entry->>Core: core.connect()<br/>  .tap(() => startSocketServer, log.info, setStatus)<br/>  .zipRight(waitForAbort(abortSignal))<br/>  .catchAll(err => log.error + Effect.fail(err))
-        Entry-->>OC: Promise (long-lived lifecycle promise)<br/>resolves only when AbortSignal fires
+        Entry->>Core: core.connect()<br>  .tap(() => startSocketServer, log.info, setStatus)<br>  .zipRight(waitForAbort(abortSignal))<br>  .catchAll(err => log.error + Effect.fail(err))
+        Entry-->>OC: Promise (long-lived lifecycle promise)<br>resolves only when AbortSignal fires
     end
 ```
 

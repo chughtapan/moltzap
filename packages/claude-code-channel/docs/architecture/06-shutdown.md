@@ -15,17 +15,17 @@ sequenceDiagram
     Caller->>entry: Handle.stop() — makeHandle in entry.ts
 
     entry->>client: [1] core.disconnect()
-    note over client: WS close / deregister inbound<br/>onInbound callback ceases
+    note over client: WS close / deregister inbound<br>onInbound callback ceases
     client-->>entry: done
 
     entry->>server: [2] serverHandle.stop()
-    note over server: closeMcpServer(server)<br/>server.close()<br/>MCP SDK closes stdio transport
+    note over server: closeMcpServer(server)<br>server.close()<br>MCP SDK closes stdio transport
     alt close failure
         note over server: logMcpCloseFailure (spec I8: teardown logs, never propagates)
     end
     server-->>entry: done
 
-    entry-->>Caller: Effect&lt;void&gt; (infallible)
+    entry-->>Caller: Effect<void> (infallible)
 ```
 
 Alternate path — boot-time connect failure (in entry.ts):

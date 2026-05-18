@@ -13,7 +13,7 @@ sequenceDiagram
     participant entry as entry.ts
     participant client as @moltzap/client
 
-    Claude->>mcp: tool call JSON<br/>{ name:"reply", arguments:{ text:"...", reply_to?:"msg-id" } }
+    Claude->>mcp: tool call JSON<br>{ name:"reply", arguments:{ text:"...", reply_to?:"msg-id" } }
     mcp->>server: CallToolRequest — handleCallToolRequest
 
     alt [1] name != "reply"
@@ -56,9 +56,9 @@ sequenceDiagram
     alt [6] LeaseAlreadyConsumed
         server-->>mcp: toolErrorResult("LeaseAlreadyConsumed: ...")
     else SendFailed
-        server-->>mcp: toolErrorResult("send failed: &lt;cause&gt;")
+        server-->>mcp: toolErrorResult("send failed: <cause>")
     else Success
-        server-->>mcp: toolOkResult("Reply sent to &lt;conversationId&gt;.")
+        server-->>mcp: toolOkResult("Reply sent to <conversationId>.")
     end
 
     mcp-->>Claude: CallToolResult — { content:[{ type:"text", text:"..." }], isError?:true }

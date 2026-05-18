@@ -10,18 +10,18 @@ hung Deferred (in `json-rpc-client.ts → failAllPending`).
 flowchart TD
     CALLER["caller"]
     CALL["call(definition, params)"]
-    COUNTER["counterRef.modify(n → [n+1, n+1])\ngenerates idPrefix-next JsonRpcId"]
+    COUNTER["counterRef.modify(n → [n+1, n+1])<br>generates idPrefix-next JsonRpcId"]
     FRAME["requestFrame(id, definition, params) → RequestFrame"]
     DEFERRED["Deferred.make&lt;unknown, RpcCallError&gt;()"]
-    PENDING["pendingRef.update(set(id, {method, definition, deferred}))\npending map insert BEFORE write (#310 contract)"]
+    PENDING["pendingRef.update(set(id, {method, definition, deferred}))<br>pending map insert BEFORE write (#310 contract)"]
     WRITE["config.write(JSON.stringify(frame))"]
     WRITE_OK["proceed to Deferred.await"]
-    WRITE_FAIL["Deferred.fail(NotConnectedError)\nEffect.fail bubbles, ensuring() removes from map"]
-    AWAIT["Deferred.await(deferred)\n(unblocked by resolve(frame) when matching inbound arrives)"]
+    WRITE_FAIL["Deferred.fail(NotConnectedError)<br>Effect.fail bubbles, ensuring() removes from map"]
+    AWAIT["Deferred.await(deferred)<br>(unblocked by resolve(frame) when matching inbound arrives)"]
     DECODE_RESULT["decodeRpcResult(definition, result)"]
     RESULT_OK["ResultOf&lt;D&gt;"]
-    RESULT_ERR["RpcServerError\ncode: -32603\n\"Invalid result for method: …\""]
-    ENSURE["ensuring(pendingRef.remove(id))\nruns on success, failure, OR interrupt (#310 contract)"]
+    RESULT_ERR["RpcServerError<br>code: -32603<br>\"Invalid result for method: …\""]
+    ENSURE["ensuring(pendingRef.remove(id))<br>runs on success, failure, OR interrupt (#310 contract)"]
 
     CALLER --> CALL --> COUNTER --> FRAME --> DEFERRED --> PENDING --> WRITE
     WRITE -->|"ok"| WRITE_OK --> AWAIT
@@ -41,13 +41,13 @@ flowchart TD
     ARRIVE["ResponseFrame arrives at the transport"]
     RESOLVE["client.resolve(frame)"]
     NULL_CHECK{"frame.id === null?"}
-    DROP_NULL["return false\n(drop; nothing to settle)"]
-    TAKE["pendingRef.modify(takePendingEntry(frame.id))\natomic Get-then-Remove"]
+    DROP_NULL["return false<br>(drop; nothing to settle)"]
+    TAKE["pendingRef.modify(takePendingEntry(frame.id))<br>atomic Get-then-Remove"]
     OPTION{"Option.match"}
-    NONE["return false\n(late frame, deferred already cleaned up)"]
+    NONE["return false<br>(late frame, deferred already cleaned up)"]
     COMPLETE["completePendingFrame"]
-    ERROR_ARM["frame.error\n→ Deferred.fail(wireErrorToRpcCallError)\nerrorClassFor(code) → tagged-class ctor;\nelse RpcServerError fallback"]
-    SUCCESS_ARM["frame.result\n→ Deferred.succeed(result)"]
+    ERROR_ARM["frame.error<br>→ Deferred.fail(wireErrorToRpcCallError)<br>errorClassFor(code) → tagged-class ctor;<br>else RpcServerError fallback"]
+    SUCCESS_ARM["frame.result<br>→ Deferred.succeed(result)"]
 
     ARRIVE --> RESOLVE --> NULL_CHECK
     NULL_CHECK -->|"yes"| DROP_NULL

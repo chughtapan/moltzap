@@ -5,13 +5,13 @@
 ```mermaid
 flowchart TD
     LOAD["module load order"]
-    REGISTER["class HookBlockedError extends Data.TaggedError(...)\nstatic readonly code = -32019\nstatic readonly message = &quot;Hook blocked&quot;\nregisterErrorClass(HookBlockedError)\n→ map.set(-32019, HookBlockedError)"]
-    ALL_LAYERS["every domain layer registers its\ntagged-error classes at load time"]
-    UNION["RegisteredTaggedError union\ntype RegisteredTaggedError =\n  UnauthorizedError | ForbiddenError | NotFoundError | …\n  | HookBlockedError | TaskClosedError | …"]
-    CLIENT["client side: wireErrorToRpcCallError\nerrorClassFor(code) → registered class | undefined"]
-    CLASS_FOUND["new cls({data}) → RegisteredTaggedError instance\ncaller can Effect.catchTag(&quot;HookBlocked&quot;, …)"]
-    CLASS_NOT_FOUND["new RpcServerError({code, message, data})\ncaller catches by &quot;RpcServerError&quot; tag + branches on code"]
-    SERVER["server side: wireErrorFromInstance\nisRegisteredErrorInstance(value)?\n→ wireErrorPayload(cls, message, data)\n→ wire error sub-object"]
+    REGISTER["class HookBlockedError extends Data.TaggedError(...)<br>static readonly code = -32019<br>static readonly message = &quot;Hook blocked&quot;<br>registerErrorClass(HookBlockedError)<br>→ map.set(-32019, HookBlockedError)"]
+    ALL_LAYERS["every domain layer registers its<br>tagged-error classes at load time"]
+    UNION["RegisteredTaggedError union<br>type RegisteredTaggedError =<br>  UnauthorizedError | ForbiddenError | NotFoundError | …<br>  | HookBlockedError | TaskClosedError | …"]
+    CLIENT["client side: wireErrorToRpcCallError<br>errorClassFor(code) → registered class | undefined"]
+    CLASS_FOUND["new cls({data}) → RegisteredTaggedError instance<br>caller can Effect.catchTag(&quot;HookBlocked&quot;, …)"]
+    CLASS_NOT_FOUND["new RpcServerError({code, message, data})<br>caller catches by &quot;RpcServerError&quot; tag + branches on code"]
+    SERVER["server side: wireErrorFromInstance<br>isRegisteredErrorInstance(value)?<br>→ wireErrorPayload(cls, message, data)<br>→ wire error sub-object"]
 
     LOAD --> REGISTER --> ALL_LAYERS --> UNION
     UNION --> CLIENT

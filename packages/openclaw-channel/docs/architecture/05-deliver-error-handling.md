@@ -8,28 +8,28 @@ per-message `deliver` closure in `openclaw-entry.ts → onInbound, deliver`.
 
 ```mermaid
 flowchart TD
-    A["core.sendReply(conversationId, text)\n(calls service.send with dispatchLeaseId,\nopenclaw-entry.ts → sendReply)"]
+    A["core.sendReply(conversationId, text)<br>(calls service.send with dispatchLeaseId,<br>openclaw-entry.ts → sendReply)"]
 
     A --> B{"Outcome"}
 
-    B -->|SUCCESS| C[".tap(() => {\n  consumedLeaseAt = Date.now()\n  log.info('outbound reply to …: text[:80]')\n})\n.map(() => true)"]
+    B -->|SUCCESS| C[".tap(() => {<br>  consumedLeaseAt = Date.now()<br>  log.info('outbound reply to …: text[:80]')<br>})<br>.map(() => true)"]
 
-    B -->|"FAILURE: RpcServerError\n.catchTag('RpcServerError')"| D{"err.code ===\nTaskClosedError.code\n(-32020)?"}
+    B -->|"FAILURE: RpcServerError<br>.catchTag('RpcServerError')"| D{"err.code ===<br>TaskClosedError.code<br>(-32020)?"}
 
-    D -->|yes — TERMINAL| E["log.warn({ conversationId, code, msg },\n'send rejected — task closed, dropping')\nreturn true"]
-    E --> F["WHY true? Lease is consumed server-side.\nReturning true tells OpenClaw 'delivered'\nso it does NOT retry. Retrying would create\na new orphan send.\n(PR #587 fix: previously returned false,\ncausing infinite retry loops on closed tasks.)"]
+    D -->|yes — TERMINAL| E["log.warn({ conversationId, code, msg },<br>'send rejected — task closed, dropping')<br>return true"]
+    E --> F["WHY true? Lease is consumed server-side.<br>Returning true tells OpenClaw 'delivered'<br>so it does NOT retry. Retrying would create<br>a new orphan send.<br>(PR #587 fix: previously returned false,<br>causing infinite retry loops on closed tasks.)"]
 
-    D -->|no — RETRY-ELIGIBLE| G["log.error('failed to send reply: …')\nreturn false"]
-    G --> H["WHY false? Non-terminal server error\n(e.g. rate limit, transient server fault).\nOpenClaw may retry."]
+    D -->|no — RETRY-ELIGIBLE| G["log.error('failed to send reply: …')<br>return false"]
+    G --> H["WHY false? Non-terminal server error<br>(e.g. rate limit, transient server fault).<br>OpenClaw may retry."]
 
-    B -->|"FAILURE: any other error\n.catchAll(err)"| I["log.error('failed to send reply: …')\nreturn false\n(network drops, Effect runtime errors, etc.)"]
+    B -->|"FAILURE: any other error<br>.catchAll(err)"| I["log.error('failed to send reply: …')<br>return false<br>(network drops, Effect runtime errors, etc.)"]
 
-    C --> J["Effect.runPromise(deliverEffect)\n— Effect↔Promise boundary —"]
+    C --> J["Effect.runPromise(deliverEffect)<br>— Effect↔Promise boundary —"]
     F --> J
     H --> J
     I --> J
 
-    J --> K["Promise&lt;boolean&gt; → OpenClaw runtime\ntrue  = delivered or terminal-consumed; do not retry\nfalse = delivery failed; retry eligible"]
+    J --> K["Promise&lt;boolean&gt; → OpenClaw runtime<br>true  = delivered or terminal-consumed; do not retry<br>false = delivery failed; retry eligible"]
 
     style E fill:#fff3cd,stroke:#d4a
     style G fill:#fde,stroke:#d44

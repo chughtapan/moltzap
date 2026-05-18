@@ -7,7 +7,7 @@ or validation — conversions are pure string operations.
 
 ```mermaid
 flowchart TD
-    prefix["MOLTZAP_JID_PREFIX = &quot;mz:&quot;\n(channels/moltzap.ts)"]
+    prefix["MOLTZAP_JID_PREFIX = &quot;mz:&quot;<br>(channels/moltzap.ts)"]
 
     subgraph jidFrom["jidFromConversationId(conversationId)"]
         direction LR

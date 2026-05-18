@@ -12,7 +12,7 @@ stateDiagram-v2
     [*] --> NOT_STARTED
 
     NOT_STARTED --> SPAWNED : spawn() ok
-    NOT_STARTED --> NOT_STARTED : spawn() err — SpawnFailed propagates; state remains null
+    NOT_STARTED --> NOT_STARTED : spawn() err — SpawnFailed propagates, state remains null
     SPAWNED --> READY : Ready outcome
     SPAWNED --> TORN_DOWN : Timeout outcome — teardown() called before RuntimeReadyTimedOut fail
     SPAWNED --> TORN_DOWN : ProcessExited outcome — teardown() called before RuntimeExitedBeforeReady fail

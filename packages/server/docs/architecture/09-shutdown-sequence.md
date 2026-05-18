@@ -14,7 +14,7 @@ flowchart LR
     E["Effect.sleep(500ms)<br/>drain in-flight RPCs"]
     F["Scope.close(appScope, Exit.void)<br/>tears down NodeHttpServer + upgrade wiring"]
     G["dispatchRuntime.dispose()<br/>disposes ManagedRuntime, finalizing service Layers"]
-    H["config.dbCleanup?.()\noptional caller-supplied hook<br/>(e.g. PGlite shutdown in tests)"]
+    H["config.dbCleanup?.()<br>optional caller-supplied hook<br/>(e.g. PGlite shutdown in tests)"]
 
     A --> B --> C --> D --> E --> F --> G --> H
 ```

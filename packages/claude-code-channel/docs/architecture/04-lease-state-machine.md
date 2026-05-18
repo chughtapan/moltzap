@@ -21,8 +21,8 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    A["inbound message"] --> B["channel.onInbound()\nrouting.recordInbound()\nserverHandle.push(notification)\nLRU map updated"]
-    C["sendReply() call"] --> D["core.sendReply(conv, text)\nWS RPC → messages/send"]
+    A["inbound message"] --> B["channel.onInbound()<br>routing.recordInbound()<br>serverHandle.push(notification)<br>LRU map updated"]
+    C["sendReply() call"] --> D["core.sendReply(conv, text)<br>WS RPC → messages/send"]
     D --> E{result}
     E -->|success| F["void"]
     E -->|"RpcServerError { data.reason: 'LeaseInvalid' }"| G["projectLeaseInvalid (entry.ts)"]
