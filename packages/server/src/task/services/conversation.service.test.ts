@@ -232,13 +232,13 @@ function seedTask(initiator: AgentId): Effect.Effect<TaskId, unknown> {
 function createConversation(input: CreateConversationInput) {
   return Effect.gen(function* () {
     const taskId = yield* seedTask(input.initiator);
-    return yield* input.service.create(
-      input.type,
-      input.name,
-      input.participants,
-      input.initiator,
-      Effect.succeed({ id: taskId }),
-    );
+    return yield* input.service.create({
+      type: input.type,
+      name: input.name,
+      agentIds: input.participants,
+      creatorAgentId: input.initiator,
+      mintTask: Effect.succeed({ id: taskId }),
+    });
   });
 }
 
@@ -246,13 +246,13 @@ function createConversationExit(input: CreateConversationInput) {
   return Effect.gen(function* () {
     const taskId = yield* seedTask(input.initiator);
     return yield* Effect.exit(
-      input.service.create(
-        input.type,
-        input.name,
-        input.participants,
-        input.initiator,
-        Effect.succeed({ id: taskId }),
-      ),
+      input.service.create({
+        type: input.type,
+        name: input.name,
+        agentIds: input.participants,
+        creatorAgentId: input.initiator,
+        mintTask: Effect.succeed({ id: taskId }),
+      }),
     );
   });
 }

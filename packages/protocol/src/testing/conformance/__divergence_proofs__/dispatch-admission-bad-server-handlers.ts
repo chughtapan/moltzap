@@ -1,4 +1,4 @@
-import { Duration, Effect, Either, Fiber, Ref } from "effect";
+import { Deferred, Duration, Effect, Either, Fiber, Ref } from "effect";
 import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
 import { JSON_RPC_RESERVED_CODES } from "../../../transport/wire-errors.js";
 import { Connect } from "../../../network/methods.js";
@@ -123,6 +123,35 @@ function fallbackAgentId(state: ServerState, connId: number): string {
   );
 }
 
+function isParamsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function paramField(params: unknown, key: string): unknown {
+  if (!isParamsRecord(params)) return undefined;
+  return params[key];
+}
+
+function stringParam(params: unknown, key: string): string | null {
+  const value = paramField(params, key);
+  return typeof value === "string" ? value : null;
+}
+
+function messageSendParams(raw: unknown): MessageSendParams {
+  return {
+    conversationId: paramField(raw, "conversationId"),
+    dispatchLeaseId: paramField(raw, "dispatchLeaseId"),
+  };
+}
+
+function dispatchRequestParams(raw: unknown): DispatchRequestParams {
+  return {
+    conversationId: paramField(raw, "conversationId"),
+    messageId: paramField(raw, "messageId"),
+    senderAgentId: paramField(raw, "senderAgentId"),
+  };
+}
+
 function handleTasksCreate(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
@@ -157,10 +186,11 @@ function handleAddParticipant(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {
-  const params = frame.params as { participant?: { id?: unknown } };
+  const participant = paramField(frame.params, "participant");
+  const participantId = paramField(participant, "id");
   const participantAgentId =
-    typeof params.participant?.id === "string"
-      ? params.participant.id
+    typeof participantId === "string"
+      ? participantId
       : "00000000-0000-4000-8000-000000000003";
   return writeResponse(opts.stateRef, opts.connId, frame.id, {
     result: makeAddParticipantResult(participantAgentId),
@@ -182,8 +212,7 @@ function handleConnect(args: {
   readonly stateRef: Ref.Ref<ServerState>;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const params = args.frame.params as { agentKey?: unknown };
-    const apiKey = typeof params.agentKey === "string" ? params.agentKey : null;
+    const apiKey = stringParam(args.frame.params, "agentKey");
     if (apiKey !== null) {
       // Map `apiKey → agentId` per the HTTP register's known issuance.
       // Because the bad-dispatch tests run with a single HTTP server
@@ -211,17 +240,13 @@ function handleAppsRegister(args: {
   readonly stateRef: Ref.Ref<ServerState>;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const params = args.frame.params as {
-      manifest?: {
-        appId?: unknown;
-        hooks?: { dispatch_authorize?: { timeout_ms?: unknown } };
-      };
-    };
+    const manifest = paramField(args.frame.params, "manifest");
+    const appIdParam = paramField(manifest, "appId");
     const appId =
-      typeof params.manifest?.appId === "string"
-        ? params.manifest.appId
-        : "bad-server-app";
-    const timeoutMsRaw = params.manifest?.hooks?.dispatch_authorize?.timeout_ms;
+      typeof appIdParam === "string" ? appIdParam : "bad-server-app";
+    const hooks = paramField(manifest, "hooks");
+    const dispatchAuthorize = paramField(hooks, "dispatch_authorize");
+    const timeoutMsRaw = paramField(dispatchAuthorize, "timeout_ms");
     const moderatorTimeoutMs =
       typeof timeoutMsRaw === "number" && timeoutMsRaw > 0
         ? timeoutMsRaw
@@ -303,7 +328,7 @@ function handleMessagesSend(args: {
   readonly opts: HandleInboundFrameOpts;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const params = args.frame.params as MessageSendParams;
+    const params = messageSendParams(args.frame.params);
     const leaseId = messageSendLeaseId(params);
     if (leaseId === null) {
       yield* writeUnleasedMessage(args, params);
@@ -439,9 +464,7 @@ function handleDispatchesGet(args: {
   readonly opts: HandleInboundFrameOpts;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const params = args.frame.params as { dispatchId?: unknown };
-    const dispatchId =
-      typeof params.dispatchId === "string" ? params.dispatchId : null;
+    const dispatchId = stringParam(args.frame.params, "dispatchId");
     const state = yield* Ref.get(args.opts.stateRef);
     if (args.connId !== state.moderatorConnId) {
       yield* rejectNonModeratorDispatchesGet(args);
@@ -534,7 +557,7 @@ function handleDispatchRequest(args: {
   readonly opts: HandleInboundFrameOpts;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const params = args.frame.params as DispatchRequestParams;
+    const params = dispatchRequestParams(args.frame.params);
     const lease = yield* mintPendingLease(args, params);
     yield* maybeDelaySerializedAck(args.opts);
     yield* writeDispatchRequestAck(args, lease);
@@ -772,18 +795,17 @@ function authorizeSenderAgentId(args: {
 function installAuthorizeWaiter(args: {
   readonly reqId: string;
   readonly authorizeWaiters: Ref.Ref<AuthorizeWaiterMap>;
-}): Effect.Effect<Promise<ModeratorWaiterResponse>> {
-  return Effect.sync(
-    () =>
-      new Promise<ModeratorWaiterResponse>((resolve) => {
-        Effect.runSync(
-          Ref.update(args.authorizeWaiters, (m) => {
-            m.set(args.reqId, resolve);
-            return m;
-          }),
-        );
-      }),
-  );
+}): Effect.Effect<Deferred.Deferred<ModeratorWaiterResponse>> {
+  return Effect.gen(function* () {
+    const waiter = yield* Deferred.make<ModeratorWaiterResponse>();
+    yield* Ref.update(args.authorizeWaiters, (m) => {
+      m.set(args.reqId, (response) =>
+        Deferred.succeed(waiter, response).pipe(Effect.asVoid),
+      );
+      return m;
+    });
+    return waiter;
+  });
 }
 
 function waitForAuthorizeReply(
@@ -792,12 +814,9 @@ function waitForAuthorizeReply(
     readonly authorizeWaiters: Ref.Ref<AuthorizeWaiterMap>;
     readonly timeoutMs: number;
   },
-  promise: Promise<ModeratorWaiterResponse>,
+  waiter: Deferred.Deferred<ModeratorWaiterResponse>,
 ): Effect.Effect<ModeratorWaiterResponse | { readonly _tag: "timeout" }> {
-  return Effect.tryPromise({
-    try: () => promise,
-    catch: (err) => err,
-  }).pipe(
+  return Deferred.await(waiter).pipe(
     Effect.timeoutTo({
       duration: Duration.millis(args.timeoutMs),
       onTimeout: () => ({ _tag: "timeout" }) as const,
@@ -831,42 +850,31 @@ function handleAuthorizeResponse(args: {
     const resolve = waiters.get(id);
     if (resolve === undefined) return;
     if ("error" in args.frame) {
-      resolve({ _tag: "error", reason: String(args.frame.error.code) });
+      yield* resolve({ _tag: "error", reason: String(args.frame.error.code) });
       return;
     }
-    const result = args.frame.result as {
-      admission?: {
-        decision?: unknown;
-        leaseTimeoutMs?: unknown;
-        reason?: unknown;
-      };
-    } | null;
-    const verdict = parseVerdictFromAdmission(result?.admission);
+    const verdict = parseVerdictFromAdmission(
+      paramField(args.frame.result, "admission"),
+    );
     if (verdict === null) {
-      resolve({ _tag: "error", reason: "unparseable-admission" });
+      yield* resolve({ _tag: "error", reason: "unparseable-admission" });
       return;
     }
-    resolve({ _tag: "ok", value: verdict });
+    yield* resolve({ _tag: "ok", value: verdict });
   });
 }
 
 function parseVerdictFromAdmission(
-  admission:
-    | {
-        readonly decision?: unknown;
-        readonly leaseTimeoutMs?: unknown;
-        readonly reason?: unknown;
-      }
-    | undefined,
+  admission: unknown,
 ): ModeratorVerdict | null {
   if (admission === undefined) return null;
-  switch (admission.decision) {
+  switch (paramField(admission, "decision")) {
     case "grant":
-      return grantVerdict(admission.leaseTimeoutMs);
+      return grantVerdict(paramField(admission, "leaseTimeoutMs"));
     case "deny":
-      return reasonedVerdict("deny", admission.reason);
+      return reasonedVerdict("deny", paramField(admission, "reason"));
     case "hold":
-      return reasonedVerdict("hold", admission.reason);
+      return reasonedVerdict("hold", paramField(admission, "reason"));
     default:
       return null;
   }
@@ -890,17 +898,7 @@ function reasonedVerdict(
 export function onConnectionClose(args: {
   readonly connId: number;
   readonly stateRef: Ref.Ref<ServerState>;
-  readonly authorizeWaiters: Ref.Ref<
-    Map<
-      string,
-      (
-        response:
-          | { readonly _tag: "ok"; readonly value: ModeratorVerdict }
-          | { readonly _tag: "error"; readonly reason: string }
-          | { readonly _tag: "closed" },
-      ) => void
-    >
-  >;
+  readonly authorizeWaiters: Ref.Ref<AuthorizeWaiterMap>;
   readonly behavior: BadServerBehavior;
 }): Effect.Effect<void> {
   return Effect.gen(function* () {

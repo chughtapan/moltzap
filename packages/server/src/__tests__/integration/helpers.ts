@@ -8,6 +8,7 @@ import {
   resetCoreTestDb,
   getCoreDb,
   getCoreApp,
+  getCoreEncryptionEnvelope,
 } from "../../test-utils/index.js";
 import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { TraceCaptureTag } from "../../runtime-surface/trace-capture.js";
@@ -256,6 +257,10 @@ export function getKyselyDb(): ReturnType<typeof getCoreDb> {
 
 export function getTestCoreApp() {
   return getCoreApp();
+}
+
+export function getEncryptionEnvelope() {
+  return getCoreEncryptionEnvelope();
 }
 
 export function createTestUser(displayName: string) {

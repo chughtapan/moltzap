@@ -89,6 +89,7 @@ export type MessageRow = Selectable<Messages>;
 export type ContactRow = Selectable<Contacts>;
 export type TaskRow = Selectable<Tasks>;
 export type TaskParticipantRow = Selectable<TaskParticipants>;
+export type ConversationKeyRow = Selectable<ConversationKeys>;
 
 export interface Database {
   agents: Agents;

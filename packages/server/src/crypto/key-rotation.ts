@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
-import type { Database } from "../db/database.js";
-import type { Selectable, Transaction } from "../db/kysely-vendor.js";
+import type { ConversationKeyRow, Database } from "../db/database.js";
+import type { Transaction } from "../db/kysely-vendor.js";
 import {
   EnvelopeEncryption,
   generateKeyMaterial,
@@ -9,7 +9,6 @@ import {
   type EncryptedPayload,
 } from "./envelope.js";
 import { serializePayload, deserializePayload } from "./serialization.js";
-import { sql } from "../db/sql.js";
 import { Data, Effect } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import { takeFirstOrElse, transaction } from "../db/effect-kysely-toolkit.js";
@@ -37,7 +36,7 @@ interface NextKek {
 
 interface ConversationKeyForRotation
   extends Pick<
-    Selectable<Database["conversation_keys"]>,
+    ConversationKeyRow,
     "conversation_id" | "dek_version" | "wrapped_dek"
   > {}
 
@@ -45,7 +44,7 @@ export function seedInitialKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(seedInitialKekEffect(db, envelope));
 }
 
-function rotateKek(db: Db, envelope: EnvelopeEncryption) {
+export function rotateKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(rotateKekEffect(db, envelope));
 }
 
@@ -80,7 +79,13 @@ function rotateKekEffect(
     const next = createNextKek(envelope, current.version);
     const reWrappedCount = yield* rewrapConversationKeys(db, current, next);
 
-    logKekRotation(current.version, next.version, reWrappedCount);
+    yield* Effect.logInfo("KEK rotated").pipe(
+      Effect.annotateLogs({
+        oldVersion: current.version,
+        newVersion: next.version,
+        reWrappedCount,
+      }),
+    );
     return next.version;
   });
 }
@@ -136,9 +141,10 @@ function rewrapConversationKeys(
       );
       for (const row of convKeys) {
         yield* rewrapConversationKey(trx, row, current, next);
+        yield* updateMessageKekVersion(trx, row, current, next);
       }
 
-      yield* deprecateKek(trx, current.version);
+      yield* deleteRetiredKek(trx, current.version);
       return convKeys.length;
     }),
   );
@@ -158,7 +164,7 @@ function selectConversationKeysForKek(
 ) {
   return trx
     .selectFrom("conversation_keys")
-    .select(["conversation_id", "dek_version", "wrapped_dek", "kek_version"])
+    .select(["conversation_id", "dek_version", "wrapped_dek"])
     .where("kek_version", "=", version);
 }
 
@@ -181,21 +187,20 @@ function rewrapConversationKey(
     .where("dek_version", "=", row.dek_version);
 }
 
-function deprecateKek(trx: Transaction<Database>, version: number) {
+function updateMessageKekVersion(
+  trx: Transaction<Database>,
+  row: ConversationKeyForRotation,
+  current: ActiveKek,
+  next: NextKek,
+) {
   return trx
-    .updateTable("encryption_keys")
-    .set({ status: "deprecated", rotated_at: sql`now()` })
-    .where("version", "=", version);
+    .updateTable("messages")
+    .set({ kek_version: next.version })
+    .where("conversation_id", "=", row.conversation_id)
+    .where("dek_version", "=", row.dek_version)
+    .where("kek_version", "=", current.version);
 }
 
-function logKekRotation(
-  oldVersion: number,
-  newVersion: number,
-  reWrappedCount: number,
-) {
-  Effect.runFork(
-    Effect.logInfo("KEK rotated").pipe(
-      Effect.annotateLogs({ oldVersion, newVersion, reWrappedCount }),
-    ),
-  );
+function deleteRetiredKek(trx: Transaction<Database>, version: number) {
+  return trx.deleteFrom("encryption_keys").where("version", "=", version);
 }

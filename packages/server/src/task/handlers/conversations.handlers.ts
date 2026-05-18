@@ -62,13 +62,16 @@ export const conversationHandlers: RpcMethodRegistry = [
         // Pass the task source as a lazy Effect so
         // `ConversationService.create` only mints when its DM dedup
         // misses; pre-fix every duplicate-DM call orphaned a task.
-        const conversation = yield* conversationService.create(
-          params.type,
-          params.name,
+        const conversation = yield* conversationService.create({
+          type: params.type,
+          name: params.name,
           agentIds,
-          ctx.agentId,
-          taskService.createDefaultTaskForType(params.type, ctx.agentId),
-        );
+          creatorAgentId: ctx.agentId,
+          mintTask: taskService.createDefaultTaskForType(
+            params.type,
+            ctx.agentId,
+          ),
+        });
 
         // `ConversationService.create` subscribes every participant's
         // open sockets to the new conversation; this handler fans the

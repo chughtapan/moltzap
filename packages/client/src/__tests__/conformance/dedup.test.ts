@@ -15,8 +15,10 @@
  * invariant actually binds (downstream handlers must surface ONE
  * message, not two).
  */
-import { describe, expect, it } from "vitest";
-import { Effect, Exit, Scope } from "effect";
+import { it as effectIt } from "@effect/vitest";
+import { describe, expect } from "vitest";
+import { Data, Deferred, Effect, Scope } from "effect";
+import * as Socket from "@effect/platform/Socket";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import {
   Connect,
@@ -33,6 +35,7 @@ import {
 import { MoltZapService } from "../../service.js";
 import type { Message } from "@moltzap/protocol";
 
+const it = effectIt.scoped;
 const LOCALHOST_HOST = "127.0.0.1";
 
 const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
@@ -73,17 +76,28 @@ interface ServerConn {
   readonly send: (raw: string) => Effect.Effect<void>;
 }
 
+interface DedupTestServer {
+  readonly url: string;
+  readonly firstConn: Deferred.Deferred<ServerConn>;
+}
+
+interface ConnectedService {
+  readonly service: MoltZapService;
+  readonly conn: ServerConn;
+  readonly seen: Message[];
+}
+
+class WaitForTimedOut extends Data.TaggedError("WaitForTimedOut")<{
+  readonly message: string;
+}> {}
+
 /**
  * Spin up an in-process WS server that auto-responds to `network/connect`
  * with `helloOk()`. Returns the bound URL and the most recently accepted
  * server-side connection (used by the test to script post-handshake
  * emissions).
  */
-function startServer(): Effect.Effect<
-  { url: string; firstConn: Promise<ServerConn> },
-  unknown,
-  Scope.Scope
-> {
+function startServer(): Effect.Effect<DedupTestServer, unknown, Scope.Scope> {
   return Effect.gen(function* () {
     const server = yield* NodeSocketServer.makeWebSocket({
       port: 0,
@@ -93,42 +107,10 @@ function startServer(): Effect.Effect<
     if (addr._tag !== "TcpAddress") {
       return yield* Effect.die("expected TcpAddress");
     }
-    let resolveFirst!: (conn: ServerConn) => void;
-    const firstConn = new Promise<ServerConn>((res) => {
-      resolveFirst = res;
-    });
+    const firstConn = yield* Deferred.make<ServerConn>();
     yield* Effect.forkScoped(
       server
-        .run((serverSock) =>
-          Effect.gen(function* () {
-            const write = yield* serverSock.writer;
-            const conn: ServerConn = {
-              send: (raw) => write(raw).pipe(Effect.ignore),
-            };
-            resolveFirst(conn);
-            yield* serverSock.runRaw((data) =>
-              Effect.gen(function* () {
-                const raw =
-                  typeof data === "string"
-                    ? data
-                    : new TextDecoder("utf-8").decode(data);
-                const parsed: unknown = JSON.parse(raw);
-                if (!validateRequestFrame(parsed)) {
-                  // Drop non-request frames; the service only sends typed RPCs.
-                  return;
-                }
-                const frame: RequestFrame = parsed;
-                if (frame.method === Connect.name) {
-                  yield* write(
-                    JSON.stringify(Connect.encodeResponse(frame.id, helloOk())),
-                  ).pipe(Effect.ignore);
-                }
-                // Other RPCs are not exercised; the test only needs the
-                // post-handshake notification channel.
-              }),
-            );
-          }),
-        )
+        .run((serverSock) => handleServerSocket(serverSock, firstConn))
         .pipe(Effect.ignore),
     );
     return {
@@ -138,113 +120,157 @@ function startServer(): Effect.Effect<
   });
 }
 
-async function withScope<A>(
-  effect: Effect.Effect<A, unknown, Scope.Scope>,
-): Promise<A> {
-  const scope = Effect.runSync(Scope.make());
-  try {
-    const typed = Scope.extend(effect, scope) as Effect.Effect<A, unknown>;
-    return await Effect.runPromise(typed);
-  } finally {
-    await Effect.runPromise(Scope.close(scope, Exit.void));
-  }
+function handleServerSocket(
+  serverSock: Socket.Socket,
+  firstConn: Deferred.Deferred<ServerConn>,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const write = yield* serverSock.writer;
+    const conn: ServerConn = {
+      send: (raw) => write(raw).pipe(Effect.ignore),
+    };
+    yield* Deferred.succeed(firstConn, conn);
+    yield* serverSock.runRaw((data) => handleServerData(data, write));
+  }).pipe(Effect.withSpan("dedup.handleServerSocket"));
 }
 
-async function waitFor(
+function handleServerData(
+  data: string | Uint8Array,
+  write: (raw: string) => Effect.Effect<void>,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const parsed = parseRequestFrame(decodeServerData(data));
+    if (parsed === null) return;
+    if (parsed.method !== Connect.name) return;
+    yield* write(
+      JSON.stringify(Connect.encodeResponse(parsed.id, helloOk())),
+    ).pipe(Effect.ignore);
+  });
+}
+
+function decodeServerData(data: string | Uint8Array): string {
+  return typeof data === "string"
+    ? data
+    : new TextDecoder("utf-8").decode(data);
+}
+
+function parseRequestFrame(raw: string): RequestFrame | null {
+  const parsed: unknown = JSON.parse(raw);
+  if (!validateRequestFrame(parsed)) return null;
+  return parsed;
+}
+
+function connectService(
+  server: DedupTestServer,
+): Effect.Effect<ConnectedService, unknown> {
+  return Effect.gen(function* () {
+    const service = new MoltZapService({
+      serverUrl: server.url,
+      agentKey: "test-key",
+    });
+    const seen: Message[] = [];
+    service.on("message", (message) => seen.push(message));
+    yield* service.connect();
+    const conn = yield* Deferred.await(server.firstConn);
+    return { service, conn, seen };
+  }).pipe(Effect.withSpan("dedup.connectService"));
+}
+
+function waitFor(
   pred: () => boolean,
   { maxMs = 2000 }: { maxMs?: number } = {},
-): Promise<void> {
-  const deadline = Date.now() + maxMs;
-  while (!pred()) {
-    if (Date.now() > deadline) {
-      throw new Error("waitFor: condition not satisfied in time");
+): Effect.Effect<void, WaitForTimedOut> {
+  return Effect.gen(function* () {
+    const deadline = Date.now() + maxMs;
+    while (!pred()) {
+      if (Date.now() > deadline) {
+        return yield* Effect.fail(
+          new WaitForTimedOut({
+            message: "waitFor: condition not satisfied in time",
+          }),
+        );
+      }
+      yield* Effect.sleep("5 millis");
     }
-    await new Promise((r) => setTimeout(r, 5));
-  }
+  });
+}
+
+function messageCountAtLeast(seen: readonly Message[], count: number) {
+  return () => seen.length >= count;
+}
+
+function messageIds(messages: readonly Message[]) {
+  return messages.map((message) => message.id);
+}
+
+function freshMessageFrame(): string {
+  return JSON.stringify(
+    MessageReceivedNotificationDefinition.encode({
+      message: {
+        id: messageId("55555555-5555-4555-8555-555555555555"),
+        conversationId: TEST_CONV_ID,
+        senderId: SENDER_AGENT_ID,
+        parts: [{ type: "text", text: "fresh" }],
+        createdAt: "2026-05-11T00:00:01.000Z",
+      },
+    }),
+  );
+}
+
+function expectDuplicateFrameSurfacedOnce(seen: readonly Message[]): void {
+  expect(seen.length).toBe(1);
+  expect(seen[0]!.id).toBe(TEST_MSG_ID);
+}
+
+function expectDuplicateThenFresh(seen: readonly Message[]): void {
+  expect(seen.length).toBe(2);
+  expect(messageIds(seen)).toEqual([
+    TEST_MSG_ID,
+    messageId("55555555-5555-4555-8555-555555555555"),
+  ]);
+}
+
+function dedupsDoubleEmit() {
+  return Effect.gen(function* () {
+    const { service, conn, seen } = yield* startServer().pipe(
+      Effect.flatMap(connectService),
+    );
+    const frame = JSON.stringify(messageReceivedFrame());
+    yield* conn.send(frame);
+    yield* conn.send(frame);
+    yield* waitFor(messageCountAtLeast(seen, 1), { maxMs: 2000 });
+    yield* Effect.sleep("200 millis");
+    expectDuplicateFrameSurfacedOnce(seen);
+    service.close();
+  });
+}
+
+function dedupsDuplicateThenFresh() {
+  return Effect.gen(function* () {
+    const { service, conn, seen } = yield* startServer().pipe(
+      Effect.flatMap(connectService),
+    );
+    const dupFrame = JSON.stringify(messageReceivedFrame());
+    yield* conn.send(dupFrame);
+    yield* conn.send(dupFrame);
+    yield* conn.send(freshMessageFrame());
+    yield* waitFor(messageCountAtLeast(seen, 2), { maxMs: 2000 });
+    yield* Effect.sleep("200 millis");
+    expectDuplicateThenFresh(seen);
+    service.close();
+  });
 }
 
 describe("client conformance — server double-emit dedup", () => {
-  it("surfaces the same messageId exactly once when the server emits it twice", async () => {
-    await withScope(
-      Effect.gen(function* () {
-        const server = yield* startServer();
-        const service = new MoltZapService({
-          serverUrl: server.url,
-          agentKey: "test-key",
-        });
-        const seen: Message[] = [];
-        service.on("message", (m) => seen.push(m));
+  it(
+    "surfaces the same messageId exactly once when the server emits it twice",
+    dedupsDoubleEmit,
+    30_000,
+  );
 
-        yield* service.connect();
-        const conn = yield* Effect.promise(() => server.firstConn);
-
-        const frame = JSON.stringify(messageReceivedFrame());
-        yield* conn.send(frame);
-        yield* conn.send(frame);
-
-        // Wait for the first frame to surface, then drain a quiet
-        // window. A naively-non-deduping client would record a second
-        // entry before 200ms elapses (the WS reader, the subscription
-        // registry, and the service handler all complete well under
-        // that bound on this in-process transport).
-        yield* Effect.promise(() =>
-          waitFor(() => seen.length >= 1, { maxMs: 2000 }),
-        );
-        yield* Effect.sleep("200 millis");
-
-        expect(seen.length).toBe(1);
-        expect(seen[0]!.id).toBe(TEST_MSG_ID);
-
-        service.close();
-      }),
-    );
-  }, 30_000);
-
-  it("surfaces a fresh messageId after the server emits the duplicate followed by a new id", async () => {
-    await withScope(
-      Effect.gen(function* () {
-        const server = yield* startServer();
-        const service = new MoltZapService({
-          serverUrl: server.url,
-          agentKey: "test-key",
-        });
-        const seen: Message[] = [];
-        service.on("message", (m) => seen.push(m));
-
-        yield* service.connect();
-        const conn = yield* Effect.promise(() => server.firstConn);
-
-        // The dedup window must not poison the seen-set for unrelated
-        // ids: a fresh id arriving after a duplicate id is surfaced.
-        const dupFrame = JSON.stringify(messageReceivedFrame());
-        const freshFrame = JSON.stringify(
-          MessageReceivedNotificationDefinition.encode({
-            message: {
-              id: messageId("55555555-5555-4555-8555-555555555555"),
-              conversationId: TEST_CONV_ID,
-              senderId: SENDER_AGENT_ID,
-              parts: [{ type: "text", text: "fresh" }],
-              createdAt: "2026-05-11T00:00:01.000Z",
-            },
-          }),
-        );
-        yield* conn.send(dupFrame);
-        yield* conn.send(dupFrame);
-        yield* conn.send(freshFrame);
-
-        yield* Effect.promise(() =>
-          waitFor(() => seen.length >= 2, { maxMs: 2000 }),
-        );
-        yield* Effect.sleep("200 millis");
-
-        expect(seen.length).toBe(2);
-        expect(seen.map((m) => m.id)).toEqual([
-          TEST_MSG_ID,
-          messageId("55555555-5555-4555-8555-555555555555"),
-        ]);
-
-        service.close();
-      }),
-    );
-  }, 30_000);
+  it(
+    "surfaces a fresh messageId after a duplicate then a new id",
+    dedupsDuplicateThenFresh,
+    30_000,
+  );
 });

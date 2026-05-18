@@ -1,9 +1,8 @@
-import type { Kysely } from "kysely";
 import { Effect, Option } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { ForbiddenError } from "@moltzap/protocol";
-import type { Database } from "../../db/database.js";
+import type { Db } from "../../db/client.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -42,7 +41,7 @@ import { endpointAddressForAgent } from "./task.service.js";
  * mirrored from `requireRole` and `requireParticipant`.
  */
 export function requireConversationAdminAuthority(
-  db: Kysely<Database>,
+  db: Db,
   conversationId: ConversationId,
   callerAgentId: AgentId,
 ): Effect.Effect<void, ForbiddenError, never> {
