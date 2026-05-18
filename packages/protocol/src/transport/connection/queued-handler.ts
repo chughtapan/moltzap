@@ -11,22 +11,10 @@
  * Default `register` dispatches inline (no queue). Queued dispatch
  * requires this wrapper.
  */
-import { Data } from "effect";
+import { Data, Effect } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 import type { RpcDefinition } from "../method.js";
 import type { RpcHandler } from "./handler.js";
-
-/**
- * Stub-body marker emitted by every architect-tier scaffold whose
- * runtime form impl-staff fills in. Tagged so the lint rule
- * `agent-code-guard/no-raw-throw-new-error` lets the throw through
- * (it requires tagged errors, not `Error` instances). Impl-staff
- * deletes every call site when filling bodies.
- */
-class NotImplementedError extends Data.TaggedError("NotImplementedError")<{
-  readonly symbol: string;
-  readonly spec: string;
-}> {}
 
 type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 
@@ -66,15 +54,22 @@ export interface QueuedHandlerOptions {
  * Connection's writer.
  */
 export function queuedHandler<Ctx, D extends AnyRpcDefinition>(
-  _inner: RpcHandler<Ctx, D>,
+  inner: RpcHandler<Ctx, D>,
   _options: QueuedHandlerOptions,
 ): RpcHandler<Ctx, D> {
-  // Stub: throws a tagged error so the lint rule accepts the placeholder
-  // (impl-staff replaces this body with the bounded-queue wrapper).
-  throw new NotImplementedError({
-    symbol: "queuedHandler",
-    spec: "#595 / arch sub-issue #603",
-  });
+  // Stub: returns a shape-compatible `RpcHandler` whose `handle` dies
+  // via `Effect.dieMessage` when invoked. Uniform with
+  // `makeServerConnection` / `makeClientConnection` — every Connection-
+  // facade stub dies via Effect, never via a synchronous throw (codex
+  // r1 F9 — stub convention drift). Impl-staff replaces this body with
+  // the bounded-queue wrapper.
+  return {
+    definition: inner.definition,
+    handle: () =>
+      Effect.dieMessage(
+        "queuedHandler stub — not implemented yet (Spec A #595 / arch sub-issue #603)",
+      ),
+  };
 }
 
 /**

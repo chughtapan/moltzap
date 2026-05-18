@@ -23,39 +23,37 @@
  * staged exception, with a compile-time gate on its removal.
  */
 import type {
-  // Final names (Spec A AC1 promised public surface).
+  // Surface names that are Connection-native in the stub branch and
+  // do NOT collide with legacy `json-rpc-{server,client}.ts` exports.
   Connection,
   ConnectionConfig,
   ConnectionContext,
   DecodedRequest,
   HookFailure,
   JsonValue,
-  RpcHandler,
   Subscription,
   ServerConnection,
   ClientConnection,
   ConnectionRunError,
-  RpcCallError,
   RemoteTaggedError,
 } from "./index.js";
 
-// (1) Stub-branch deviation — V2 aliases are still present until
-// impl-staff cuts over. If the cutover deletes these but forgets to
-// rename the underlying types, the next line fails to compile.
+// Connection-native names that COLLIDE with legacy exports in the
+// stub branch. The barrel re-exports the Connection-native forms
+// under the `V2` suffix until impl-staff's cutover deletes the
+// legacy exports. After cutover (per AC1's stub-only-deviation note
+// in plan #603), impl-staff renames `RpcHandlerV2 → RpcHandler` and
+// `RpcCallErrorV2 → RpcCallError` in the barrel + on this import
+// line. Codex r1 F7 fix: the canary now references the V2 names
+// explicitly so it gates the CONNECTION-NATIVE shape, not the legacy
+// shape that the unaliased names currently resolve to.
 import type { RpcHandlerV2, RpcCallErrorV2 } from "./index.js";
 
-// (2) Architect intent: after cutover, the V2 aliases delete. At that
-// point, the typeof-equality below is between two identical types
-// (RpcHandler from connection/handler.ts and RpcHandlerV2's underlying
-// type, which is the same type). When impl-staff renames V2→canonical,
-// the equality is between the renamed and the canonical — also identical.
-// If impl-staff accidentally reintroduces a V2 alias as a STRUCTURAL
-// divergence (different shape), the assignability fails here.
-type _RpcHandlerV2EqCanonical =
-  RpcHandlerV2<unknown> extends RpcHandler<unknown> ? true : never;
-type _RpcCallErrorV2EqCanonical = RpcCallErrorV2 extends RpcCallError
-  ? true
-  : never;
+// Cutover-time forcing function. After impl-staff deletes the V2
+// aliases (or renames them), the import block above must update; if
+// the rename forgets a symbol, the next two lines fail to compile.
+type _RpcHandlerV2Smoke = RpcHandlerV2<unknown>;
+type _RpcCallErrorV2Smoke = RpcCallErrorV2;
 
 // Smoke tests for the AC1 surface (each line fails compile if the type
 // disappears from the barrel).
@@ -65,30 +63,26 @@ type _ConnectionContext = ConnectionContext<{ readonly foo: number }>;
 type _DecodedRequest = DecodedRequest;
 type _HookFailure = HookFailure;
 type _JsonValue = JsonValue;
-type _RpcHandler = RpcHandler<unknown>;
 type _Subscription = Subscription;
 type _ServerConnection = ServerConnection<unknown>;
 type _ClientConnection = ClientConnection<unknown>;
 type _ConnectionRunError = ConnectionRunError;
-type _RpcCallError = RpcCallError;
 type _RemoteTaggedError = RemoteTaggedError;
 
 // Reference-only — silences unused-type warnings while preserving the
 // canary semantics. The intersection forces TS to flatten every member
 // type; any structural drift fails here.
 export type _AC1Canary =
-  | _RpcHandlerV2EqCanonical
-  | _RpcCallErrorV2EqCanonical
+  | _RpcHandlerV2Smoke
+  | _RpcCallErrorV2Smoke
   | _Connection
   | _ConnectionConfig
   | _ConnectionContext
   | _DecodedRequest
   | _HookFailure
   | _JsonValue
-  | _RpcHandler
   | _Subscription
   | _ServerConnection
   | _ClientConnection
   | _ConnectionRunError
-  | _RpcCallError
   | _RemoteTaggedError;

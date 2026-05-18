@@ -41,14 +41,20 @@ Symbol citations: cite `Connection.onRequestDecoded`, never
   and short-circuits with `Connection.sendUnauthorized`.
 - Hook composition: multiple hooks fire in registration order; the
   first failing hook short-circuits.
-- `HookFailure = RegisteredTaggedError | RpcServerError`; how the
-  serialized response derives from `wireErrorFromInstance`.
+- `HookFailure = RegisteredTaggedError` (codex R2 narrowed the union —
+  `RpcServerError` was dropped because its `data?: unknown` field
+  would re-introduce `unknown` at the public boundary; cite
+  `connection/handler.ts → HookFailure`). How the serialized response
+  derives from `wireErrorFromInstance`.
 
 ### 3. Handler registration contract
 
-- The five invariants (key = `def.method`, duplicate-key rejection,
+- The six invariants (key = `def.name`, duplicate-key rejection,
   idempotent unregister, idempotent unsubscribe, in-flight semantics,
-  decode-vs-dispatch snapshot).
+  decode-vs-dispatch snapshot — plus the architect-added hook-chain
+  order invariant; see plan #603 §7.1–7.2). The R2 correction
+  `def.method` → `def.name` matches `method.ts → RpcDefinition.name`
+  (LSP-verified).
 - Cross-link to the spec section "Handler registration contract" in
   issue #595's body for the authoritative phrasing.
 - Sequence diagram: `register` → frame arrives mid-registration →
