@@ -2,39 +2,18 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-## Part 1 — Consumer Fiber Path (channel-core.ts)
+The inbound flow has two phases: the channel-core consumer fiber (lives
+in `@moltzap/client`) drains the WS inbound queue, runs dispatch
+admission, enriches the message, then invokes the registered
+`onInbound` handler. This package is just the handler — everything
+above it belongs to `@moltzap/client`. For the full consumer-fiber +
+dispatch-admission mechanics, see
+[`client/03-inbound-dispatch.md`](../../../client/docs/architecture/03-inbound-dispatch.md).
 
-```mermaid
-sequenceDiagram
-    participant WS as MoltZap server (WebSocket)
-    participant Svc as MoltZapService
-    participant Q as inboundQueue
-    participant CF as consumerFiber (Effect.forever)
-    participant DA as dispatchAdmission
+What follows covers only the openclaw-channel handler body (the Effect
+the channel registers via `core.onInbound(handler)`).
 
-    WS->>Svc: WebSocket frame ("message" event)
-    Svc->>Q: Queue.unsafeOffer(inboundQueue, work)<br>work = { message, attempt:0, receivedAtMs, clock }
-
-    loop Effect.forever
-        CF->>Q: Queue.take
-        CF->>CF: takeDispatchCandidate(work)<br>(re-order: if parked messages for same conv,<br> take oldest parked, re-queue incoming)
-        CF->>DA: dispatchAdmission(work)<br>(dispatch/request RPC → await dispatchRelease verdict)
-
-        alt deny
-            DA-->>CF: log + return (message dropped)
-        else hold
-            DA-->>CF: parkDispatchWork(work) + return
-        else grant
-            CF->>CF: dispatchWithLease(messages, leaseId)<br>sets leaseIdInFlight = leaseId
-            CF->>CF: dispatchInboundEffect(messages)<br>enrichChannelMessage(service, msgs)<br>→ resolveAgentName, getConversation,<br>  peekFullMessages (cross-conv)<br>enriched = EnrichedInboundMessage<br>if leaseIdInFlight → attach dispatchLeaseId
-            CF->>CF: inboundHandler(enriched)
-            Note over CF: → see Part 2 (openclaw-entry.ts handler)
-            CF->>CF: .catchAllCause(cause => logInboundFailure(work, cause))
-        end
-    end
-```
-
-## Part 2 — Inbound Handler (openclaw-entry.ts)
+## Part 1 — Inbound Handler (openclaw-entry.ts)
 
 ```mermaid
 sequenceDiagram
@@ -59,7 +38,7 @@ sequenceDiagram
         H->>H: log.warn + return
     else dispatch available
         H->>H: groupSubject = enriched.conversationMeta?.name<br>groupMembers = (type==="group") ? participants.join(",") : undefined
-        H->>H: build deliver closure (see Part 3)
+        H->>H: build deliver closure (see Part 2)
         H->>H: yield* Effect.tryPromise({ try: () => dispatch({<br>  ctx: { Body, BodyForAgent, From, To,<br>    SessionKey, AccountId, Provider, Surface,<br>    OriginatingChannel, OriginatingTo,<br>    ChatType, GroupSubject?, GroupMembers?,<br>    ConversationLabel?, SenderName },<br>  cfg: ctx.cfg,<br>  dispatcherOptions: { deliver }<br>}), catch: err => err }).pipe(<br>  Effect.catchAll(err => log.error + null)<br>)
         H->>H: log.info("dispatch finished …")<br>if result &amp—&amp— !result.queuedFinal → log.debug
     end
@@ -68,7 +47,7 @@ sequenceDiagram
     H-->>CF: Effect completes → consumerFiber loops
 ```
 
-## Part 3 — Deliver Closure (per-message, single-use lease)
+## Part 2 — Deliver Closure (per-message, single-use lease)
 
 ```mermaid
 flowchart TD

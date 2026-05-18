@@ -40,7 +40,7 @@ process-level use.
 | 3.1 | Boot sequence | [docs/architecture/01-boot-sequence.md](docs/architecture/01-boot-sequence.md) |
 | 3.2 | Inbound message → Claude push | [docs/architecture/02-inbound-message-to-claude-push.md](docs/architecture/02-inbound-message-to-claude-push.md) |
 | 3.3 | Claude reply → MoltZap outbound | [docs/architecture/03-claude-reply-to-moltzap-outbound.md](docs/architecture/03-claude-reply-to-moltzap-outbound.md) |
-| 3.4 | Lease state machine | [docs/architecture/04-lease-state-machine.md](docs/architecture/04-lease-state-machine.md) |
+| 3.4 | Channel projection of the dispatch lease | [docs/architecture/04-lease-state-machine.md](docs/architecture/04-lease-state-machine.md) |
 | 3.5 | Allowlist gating | [docs/architecture/05-allowlist-gating.md](docs/architecture/05-allowlist-gating.md) |
 | 3.6 | Shutdown | [docs/architecture/06-shutdown.md](docs/architecture/06-shutdown.md) |
 
