@@ -31,31 +31,31 @@ sequenceDiagram
 
     entry->>server: [6] bootChannelMcpServer(config, deps)
 
-    note over server: [6a] makeMcpServer(config)<br/>capabilities: { tools: {}, experimental: { "claude/channel": {} } }<br/>instructions: &lt;contract default&gt;
+    note over server: [6a] makeMcpServer(config)<br>capabilities: { tools: {}, experimental: { "claude/channel": {} } }<br>instructions: <contract default>
 
-    note over server: [6b] registerServerHandlers<br/>setRequestHandler(ListTools)<br/>setRequestHandler(CallTool)
+    note over server: [6b] registerServerHandlers<br>setRequestHandler(ListTools)<br>setRequestHandler(CallTool)
     alt [6b-fail] ToolRegistrationFailed
         server-->>Caller: BootResult { _tag:"Err" } (McpTransportFailed)
     end
 
-    note over server: [6c] connectServer(server, deps)<br/>transportFactory? (test seam, in types.ts)<br/>: new StdioServerTransport()<br/>server.connect(transport)
+    note over server: [6c] connectServer(server, deps)<br>transportFactory? (test seam, in types.ts)<br>: new StdioServerTransport()<br>server.connect(transport)
     alt [6c-fail] StdioConnectFailed
         server-->>Caller: BootResult { _tag:"Err" } (McpTransportFailed)
     end
 
-    note over server: [6d] server.oninitialized = markServerInitialized<br/>(flushes pending[] buffer on MCP handshake completion)
+    note over server: [6d] server.oninitialized = markServerInitialized<br>(flushes pending[] buffer on MCP handshake completion)
 
     server-->>entry: [6e] ServerHandle { push, stop }
 
-    note over entry: [7] core.onInbound(handler)<br/>registers handleInboundMessage callback
+    note over entry: [7] core.onInbound(handler)<br>registers handleInboundMessage callback
 
-    entry->>client: [8] connectCore(core, serverHandle)<br/>core.connect() — WS auth handshake
+    entry->>client: [8] connectCore(core, serverHandle)<br>core.connect() — WS auth handshake
     alt [8-fail] ServiceRpcError / connect failure
         note over entry: serverHandle.stop() called first
         entry-->>Caller: BootResult { _tag:"Err" }
     end
 
-    note over entry: [9] makeHandle(core, serverHandle)<br/>returns Handle { push, stop }
+    note over entry: [9] makeHandle(core, serverHandle)<br>returns Handle { push, stop }
     entry-->>Caller: BootResult { _tag:"Ok", value: Handle }
 ```
 

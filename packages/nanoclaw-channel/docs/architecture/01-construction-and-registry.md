@@ -18,23 +18,23 @@ phases: import time (registry registration) and instantiation time
 
 ```mermaid
 flowchart TD
-    A["MODULE LOAD\nimport &quot;channels/moltzap.ts&quot;"]
+    A["MODULE LOAD<br>import &quot;channels/moltzap.ts&quot;"]
     A -->|"channels/moltzap.ts → registerChannel call"| B["registerChannel(&quot;moltzap&quot;, factory)"]
-    B -->|"channels/registry.ts → registeredChannelFactories.set"| C["registeredChannelFactories.set(&quot;moltzap&quot;, factory)\n(idempotent: if same factory ref already stored, skip)"]
+    B -->|"channels/registry.ts → registeredChannelFactories.set"| C["registeredChannelFactories.set(&quot;moltzap&quot;, factory)<br>(idempotent: if same factory ref already stored, skip)"]
 
-    D["INSTANTIATION\n(factory called, or test calls new MoltZapChannel)"]
-    D -->|"channels/moltzap.ts → loadMoltZapChannelEnv"| E["loadMoltZapChannelEnv()\nConfig.all({ apiKey, serverUrl, evalMode })\nConfigProvider.fromEnv()\nMOLTZAP_API_KEY → Option&lt;Redacted&gt;\nMOLTZAP_SERVER_URL → string (default: wss://api.moltzap.xyz)\nMOLTZAP_EVAL_MODE → &quot;0&quot;|&quot;1&quot; (default: &quot;0&quot;)\nEffect.runSync (blocks; env is stable at load time)"]
+    D["INSTANTIATION<br>(factory called, or test calls new MoltZapChannel)"]
+    D -->|"channels/moltzap.ts → loadMoltZapChannelEnv"| E["loadMoltZapChannelEnv()<br>Config.all({ apiKey, serverUrl, evalMode })<br>ConfigProvider.fromEnv()<br>MOLTZAP_API_KEY → Option&lt;Redacted&gt;<br>MOLTZAP_SERVER_URL → string (default: wss://api.moltzap.xyz)<br>MOLTZAP_EVAL_MODE → &quot;0&quot;|&quot;1&quot; (default: &quot;0&quot;)<br>Effect.runSync (blocks; env is stable at load time)"]
     E -->|"apiKey absent"| F["return null (no channel)"]
-    E -->|"apiKey present"| G["new MoltZapService({ serverUrl, agentKey: apiKey })\nnew MoltZapChannelCore({ service })\nnew MoltZapChannel(opts, core, service.ownAgentId, evalMode)"]
+    E -->|"apiKey present"| G["new MoltZapService({ serverUrl, agentKey: apiKey })<br>new MoltZapChannelCore({ service })<br>new MoltZapChannel(opts, core, service.ownAgentId, evalMode)"]
 
-    G --> H["MoltZapChannel CONSTRUCTOR\n(channels/moltzap.ts → constructor)"]
-    H --> I["core.onInbound(…)\nregisters callback\nthat calls handleInbound(msg)"]
-    H --> J["core.onDisconnect(…)\nEffect.runFork(\n  logWarning + annotateLogs)"]
-    H --> K["core.onReconnect(…)\nEffect.runFork(\n  logInfo + annotateLogs)"]
+    G --> H["MoltZapChannel CONSTRUCTOR<br>(channels/moltzap.ts → constructor)"]
+    H --> I["core.onInbound(…)<br>registers callback<br>that calls handleInbound(msg)"]
+    H --> J["core.onDisconnect(…)<br>Effect.runFork(<br>  logWarning + annotateLogs)"]
+    H --> K["core.onReconnect(…)<br>Effect.runFork(<br>  logInfo + annotateLogs)"]
 
     H --> L{"evalMode flag"}
     L -->|"false (default)"| M["maybeAutoRegister() is a no-op"]
-    L -->|"true"| N["maybeAutoRegister() calls ensureAutoRegistered()\n(smoke-test eval-pipeline convenience, §3.6)"]
+    L -->|"true"| N["maybeAutoRegister() calls ensureAutoRegistered()<br>(smoke-test eval-pipeline convenience, §3.6)"]
 ```
 
 ---

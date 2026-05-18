@@ -40,21 +40,21 @@ message shape, defined in `types.ts`).
 
 ```mermaid
 flowchart TD
-    A["contentFor(enriched)\nchannels/moltzap.ts → contentFor\nAssembles context blocks in order"]
+    A["contentFor(enriched)<br>channels/moltzap.ts → contentFor<br>Assembles context blocks in order"]
 
-    A --> B{"crossConversationMessages\npresent?"}
-    B -->|"yes"| C["formatCrossConvNanoclaw(msgs, { ownAgentId })\n→ &lt;messages&gt;\n    &lt;message sender=&quot;{name}&quot; conversation=&quot;{conv}&quot; time=&quot;{ts}&quot;&gt;{text}&lt;/message&gt;\n  &lt;/messages&gt;\nsender = &quot;You&quot; if senderId === ownAgentId, else senderName\nALL string fields sanitized via sanitizeForSystemReminder()"]
-    B -->|"no"| D{"conversationMeta.type\n=== &quot;group&quot;?"}
+    A --> B{"crossConversationMessages<br>present?"}
+    B -->|"yes"| C["formatCrossConvNanoclaw(msgs, { ownAgentId })<br>→ &lt;messages&gt;<br>    &lt;message sender=&quot;{name}&quot; conversation=&quot;{conv}&quot; time=&quot;{ts}&quot;&gt;{text}&lt;/message&gt;<br>  &lt;/messages&gt;<br>sender = &quot;You&quot; if senderId === ownAgentId, else senderName<br>ALL string fields sanitized via sanitizeForSystemReminder()"]
+    B -->|"no"| D{"conversationMeta.type<br>=== &quot;group&quot;?"}
 
     C --> D
 
-    D -->|"yes"| E["formatGroupBlock(meta)\n→ &lt;system-reminder&gt;\n    This is a group conversation.\n    Group name: {name}\n    Participants (N): {p1}, {p2}, ...\n  &lt;/system-reminder&gt;\nALL strings sanitized via sanitizeForSystemReminder()"]
-    D -->|"no"| F{"any context\nblocks collected?"}
+    D -->|"yes"| E["formatGroupBlock(meta)<br>→ &lt;system-reminder&gt;<br>    This is a group conversation.<br>    Group name: {name}<br>    Participants (N): {p1}, {p2}, ...<br>  &lt;/system-reminder&gt;<br>ALL strings sanitized via sanitizeForSystemReminder()"]
+    D -->|"no"| F{"any context<br>blocks collected?"}
 
     E --> F
 
     F -->|"no"| G["return enriched.text verbatim"]
-    F -->|"yes"| H["blocks.join(&quot;\n\n&quot;) + &quot;\n\n&quot; + enriched.text\norder: crossConv → groupMeta → rawText\n(test: &quot;ordersContextBlocksBeforeRawText&quot;)"]
+    F -->|"yes"| H["blocks.join(&quot;<br><br>&quot;) + &quot;<br><br>&quot; + enriched.text<br>order: crossConv → groupMeta → rawText<br>(test: &quot;ordersContextBlocksBeforeRawText&quot;)"]
 ```
 
 **Sanitization contract** (`sanitizeForSystemReminder` from `@moltzap/client`):

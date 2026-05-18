@@ -9,10 +9,10 @@ that *intentionally fails* the property to prove the assertion has teeth.
 ```mermaid
 flowchart TD
     PROP["src/testing/conformance/{layer}/&lt;property&gt;.ts"]
-    BODY["property body\nEffect that asserts the invariant"]
+    BODY["property body<br>Effect that asserts the invariant"]
     PROOFS["__divergence_proofs__/&lt;property&gt;.proofs.test.ts"]
-    REGISTER["register&lt;PropertyName&gt;\nserver intentionally violates the invariant;\nproperty must fail"]
-    VITEST["vitest runs the proof\nfailure of failure = pass"]
+    REGISTER["register&lt;PropertyName&gt;<br>server intentionally violates the invariant;<br>property must fail"]
+    VITEST["vitest runs the proof<br>failure of failure = pass"]
 
     PROP --> BODY
     PROP --> PROOFS

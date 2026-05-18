@@ -9,7 +9,7 @@ sequenceDiagram
     participant Clients as activeClients Map
     participant Svc as MoltZapService
 
-    OC->>Entry: outbound.sendText(ctx)<br/>ctx = { cfg, to, text, accountId?, replyToId? }
+    OC->>Entry: outbound.sendText(ctx)<br>ctx = { cfg, to, text, accountId?, replyToId? }
 
     Note over Entry: Effect.gen — inside Effect world
     Entry->>Entry: accountId = ctx.accountId ?? "default"
@@ -27,10 +27,10 @@ sequenceDiagram
 
     Entry->>Entry: return new OpenClawSendTextSuccess()
 
-    Note over Entry: .pipe(Effect.withSpan(...), Effect.match({<br/>  onSuccess: ok => ok,<br/>  onFailure: err => new OpenClawSendTextFailure({ error })<br/>}))
+    Note over Entry: .pipe(Effect.withSpan(...), Effect.match({<br>  onSuccess: ok => ok,<br>  onFailure: err => new OpenClawSendTextFailure({ error })<br>}))
 
     Note over Entry,OC: Effect.runPromise — Effect↔Promise boundary
-    Entry-->>OC: Promise&lt;OpenClawSendTextSuccess | OpenClawSendTextFailure&gt;<br/>(never rejects — error channel collapsed by Effect.match)
+    Entry-->>OC: Promise<OpenClawSendTextSuccess | OpenClawSendTextFailure><br>(never rejects — error channel collapsed by Effect.match)
 ```
 
 **Key invariants:**

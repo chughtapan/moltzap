@@ -23,15 +23,15 @@ sequenceDiagram
     Note over Caller,Core: disconnect()
     Caller->>Channel: channel.disconnect()
     Channel->>Core: Effect.runPromise(core.disconnect())
-    Note over Core: Effect never fails; resolves after WS close
+    Note over Core: Effect never fails— resolves after WS close
     Core-->>Channel: resolved
     Channel-->>Caller: resolves
     Note over Channel: channel.isConnected() → false
-    Note over Channel: disconnect does NOT clear dispatchLeasesByJid — lease entries survive across reconnects (intentional; server owns lease state; stale local entries are harmless because a second send hits the CONSUMED server path and surfaces MoltZapChannelError, §3.4)
+    Note over Channel: disconnect does NOT clear dispatchLeasesByJid — lease entries survive across reconnects (intentional— server owns lease state— stale local entries are harmless because a second send hits the CONSUMED server path and surfaces MoltZapChannelError, §3.4)
 
     Note over Caller,Core: onDisconnect / onReconnect hooks (wired in constructor)
     Core->>Channel: core detects drop → fires onDisconnect callback
-    Note over Channel: Effect.runFork(logWarning("MoltZap disconnected"))<br/>(fire-and-forget; nanoclaw router sees isConnected() → false)
+    Note over Channel: Effect.runFork(logWarning("MoltZap disconnected"))<br>(fire-and-forget— nanoclaw router sees isConnected() → false)
     Core->>Channel: core re-establishes WS → fires onReconnect callback
     Note over Channel: Effect.runFork(logInfo("MoltZap reconnected"))
 ```

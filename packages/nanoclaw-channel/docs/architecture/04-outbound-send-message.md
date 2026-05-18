@@ -8,22 +8,22 @@ Single-use lease semantics are enforced server-side (cutover #533).
 
 ```mermaid
 flowchart TD
-    A["Caller (nanoclaw router)\nchannel.sendMessage(jid, text)"]
+    A["Caller (nanoclaw router)<br>channel.sendMessage(jid, text)"]
     A -->|"channels/moltzap.ts → sendMessage"| B["Effect.runPromise(Effect.gen(...))"]
 
-    B --> C{"ownsJid(jid)?\nchannels/moltzap.ts → ownsJid guard"}
-    C -->|"false"| D["Effect.fail(\n  MoltZapChannelError({ reason: &quot;...does not own jid: &lt;jid&gt;&quot; })\n)\n← rejects immediately; no network call"]
-    C -->|"true"| E["leaseId = dispatchLeasesByJid.get(jid)\nchannels/moltzap.ts → lease lookup"]
+    B --> C{"ownsJid(jid)?<br>channels/moltzap.ts → ownsJid guard"}
+    C -->|"false"| D["Effect.fail(<br>  MoltZapChannelError({ reason: &quot;...does not own jid: &lt;jid&gt;&quot; })<br>)<br>← rejects immediately; no network call"]
+    C -->|"true"| E["leaseId = dispatchLeasesByJid.get(jid)<br>channels/moltzap.ts → lease lookup"]
 
     E -->|"present"| F["leaseOpts = { dispatchLeaseId: leaseId }"]
-    E -->|"absent"| G["leaseOpts = {}\n(unleased send; server accepts, no moderation\nobservability — valid for sends before first inbound)"]
+    E -->|"absent"| G["leaseOpts = {}<br>(unleased send; server accepts, no moderation<br>observability — valid for sends before first inbound)"]
 
-    F --> H["core.sendReply(\n  conversationIdFromJid(jid),\n  text,\n  leaseOpts\n)\nstrips &quot;mz:&quot; prefix (§3.5)"]
+    F --> H["core.sendReply(<br>  conversationIdFromJid(jid),<br>  text,<br>  leaseOpts<br>)<br>strips &quot;mz:&quot; prefix (§3.5)"]
     G --> H
 
     H -->|"RpcServerError(reason=&quot;LeaseInvalid&quot;)"| I["MoltZapChannelError({ reason: &quot;lease already consumed&quot; })"]
     H -->|"other ServiceRpcError"| J["re-raise err unchanged"]
-    H -->|"success"| K["resolves\n(dispatchLeasesByJid entry KEPT after send —\nsecond send re-uses consumed leaseId → LeaseInvalid)"]
+    H -->|"success"| K["resolves<br>(dispatchLeasesByJid entry KEPT after send —<br>second send re-uses consumed leaseId → LeaseInvalid)"]
 ```
 
 **Error taxonomy:**

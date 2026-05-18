@@ -9,16 +9,16 @@ is admissible on which side:
 ```mermaid
 flowchart TD
     RAW["raw socket payload"]
-    PARSE["JSON.parse\n(caller's responsibility — wire layer takes unknown)"]
+    PARSE["JSON.parse<br>(caller's responsibility — wire layer takes unknown)"]
     DECODE["decodeFrame(parsed)"]
-    VRQ["validateRequestFrame\n→ {_tag: &quot;Request&quot;}"]
-    VRS["validateResponseFrame\n→ {_tag: &quot;Response&quot;}"]
-    VNF["validateNotificationFrame\n→ {_tag: &quot;Notification&quot;}"]
-    NOTE["all three pre-validated by Ajv\nagainst generic JSON-RPC envelope schemas"]
-    DSI["decodeServerInbound\n(used by client)"]
-    DCI["decodeClientInbound\n(used by server)"]
-    OUT_S["DecodedServerInbound\n(discriminated union)"]
-    OUT_C["DecodedClientInbound\n(discriminated union)"]
+    VRQ["validateRequestFrame<br>→ {_tag: &quot;Request&quot;}"]
+    VRS["validateResponseFrame<br>→ {_tag: &quot;Response&quot;}"]
+    VNF["validateNotificationFrame<br>→ {_tag: &quot;Notification&quot;}"]
+    NOTE["all three pre-validated by Ajv<br>against generic JSON-RPC envelope schemas"]
+    DSI["decodeServerInbound<br>(used by client)"]
+    DCI["decodeClientInbound<br>(used by server)"]
+    OUT_S["DecodedServerInbound<br>(discriminated union)"]
+    OUT_C["DecodedClientInbound<br>(discriminated union)"]
 
     RAW --> PARSE --> DECODE
     DECODE --> VRQ

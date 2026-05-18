@@ -9,28 +9,28 @@ entire lifetime:
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant WS as wsRoute<br/>(app/server.ts)
-    participant HS as handleSocket<br/>(app/server.ts)
-    participant RPC as acquireConnectionRpcClient<br/>(transport/connection.ts)
+    participant WS as wsRoute
+    participant HS as handleSocket
+    participant RPC as acquireConnectionRpcClient
     participant CM as connections (ConnectionManager)
     participant Reader as socket reader fiber
     participant Cleanup as onExit cleanup
 
     C->>WS: GET /ws (Upgrade: websocket)
     WS->>HS: req.upgrade → socket: Socket.Socket
-    Note over HS: connId = crypto.randomUUID()<br/>writer = yield* socket.writer<br/>closeRequested = yield* Deferred.make&lt;void&gt;()
+    Note over HS: connId = crypto.randomUUID()<br>writer = yield* socket.writer<br>closeRequested = yield* Deferred.make<void>()
     HS->>RPC: acquireConnectionRpcClient(connId, write)
-    Note over RPC: makeJsonRpcClient({write, idPrefix})<br/>scope-bound: finalizer fails every<br/>pending Deferred with NotConnectedError
+    Note over RPC: makeJsonRpcClient({write, idPrefix})<br>scope-bound: finalizer fails every<br>pending Deferred with NotConnectedError
     RPC-->>HS: jsonRpcClient
-    HS->>CM: connections.add({id, write, shutdown, auth: null,<br/>lastPong, conversationIds, mutedConversations, jsonRpcClient})
+    HS->>CM: connections.add({id, write, shutdown, auth: null,<br>lastPong, conversationIds, mutedConversations, jsonRpcClient})
     HS->>Reader: socket.runRaw(data => handleFrame(decode(data)))
-    Note over HS,Reader: Effect.raceFirst(reader, Deferred.await(closeRequested))<br/>raceFirst (not race): abrupt disconnect still triggers onExit;<br/>plain `race` would leak on abnormal close
+    Note over HS,Reader: Effect.raceFirst(reader, Deferred.await(closeRequested))<br>raceFirst (not race): abrupt disconnect still triggers onExit—<br>plain `race` would leak on abnormal close
     Reader-->>Cleanup: connection closes (normal or abrupt)
     Note over Cleanup: if (authCtx) presenceService.setOffline(agentId)
-    Note over Cleanup: for hook of disconnectionHooks:<br/>runUserHook(hook, {agentId, ownerUserId, connId}, …)<br/>SEQUENTIAL — earlier hook's cleanup completes<br/>before next hook observes post-close state
-    Note over Cleanup: if (authCtx)<br/>agentEndpointResolver.remove(agentId, connId)<br/>(Slice G1 plan §2.11 — drops multimap entry)
-    Note over Cleanup: leaseRegistry.abandon(connId)<br/>PENDING → ABANDONED<br/>GRANTED/HOLD → EXPIRED-on-disconnect<br/>CLAIMED → no-op (load-bearing: in-flight<br/>messages/send owns lease via acquireUseRelease)
-    Note over Cleanup: presenceService.removeConnection(connId)<br/>connections.remove(connId)<br/>logInfo("WebSocket disconnected", {connId})
+    Note over Cleanup: for hook of disconnectionHooks:<br>runUserHook(hook, {agentId, ownerUserId, connId}, …)<br>SEQUENTIAL — earlier hook's cleanup completes<br>before next hook observes post-close state
+    Note over Cleanup: if (authCtx)<br>agentEndpointResolver.remove(agentId, connId)<br>(Slice G1 plan §2.11 — drops multimap entry)
+    Note over Cleanup: leaseRegistry.abandon(connId)<br>PENDING → ABANDONED<br>GRANTED/HOLD → EXPIRED-on-disconnect<br>CLAIMED → no-op (load-bearing: in-flight<br>messages/send owns lease via acquireUseRelease)
+    Note over Cleanup: presenceService.removeConnection(connId)<br>connections.remove(connId)<br>logInfo("WebSocket disconnected", {connId})
 ```
 
 ## See also

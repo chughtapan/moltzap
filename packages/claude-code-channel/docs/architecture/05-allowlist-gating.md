@@ -9,11 +9,11 @@
 flowchart TD
     A["handleInboundMessage(opts, routing, serverHandle, enriched)"]
     A --> B{opts.gateInbound present?}
-    B -->|YES| C["gated = opts.gateInbound(enriched)\n— pure, sync (types.ts)"]
+    B -->|YES| C["gated = opts.gateInbound(enriched)<br>— pure, sync (types.ts)"]
     B -->|NO| D["gated = { _tag:'Success', value: enriched }"]
     C --> E{gated._tag}
     D --> E
-    E -->|"Failure"| F["logGateDropped(gated.error)\nEffect.logInfo with AllowlistError tag\nreturn — no push, no routing update"]
+    E -->|"Failure"| F["logGateDropped(gated.error)<br>Effect.logInfo with AllowlistError tag<br>return — no push, no routing update"]
     E -->|"Success"| G["continue to toClaudeChannelNotification(gated.value)"]
 ```
 

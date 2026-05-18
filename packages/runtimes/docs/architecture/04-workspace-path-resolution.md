@@ -12,13 +12,13 @@ load time (synchronously via `Effect.runSync`).
 
 ```mermaid
 flowchart TD
-    OCWF["createWorkspaceOpenClawAdapter(input)\nopenclaw-adapter.ts → createWorkspaceOpenClawAdapter"]
-    OCPR["resolveWorkspacePackageRoot()\nopenclaw-adapter.ts → resolveWorkspacePackageRoot\nWalk import.meta.url ancestors until &quot;packages&quot; segment found\n→ join(&quot;packages/runtimes&quot;)\nResult: absolute path to packages/runtimes/"]
-    OCRR["repoRoot =\n  input.repoRoot\n  ?? path.dirname(path.dirname(packageRoot))\nResult: monorepo root — two dirs up from packages/runtimes"]
-    OCBIN["openclawBin =\n  input.openclawBin\n  ?? resolveWorkspaceOpenClawBin(...)\n    package-resolution.ts → resolveWorkspaceOpenClawBin\n    resolveWorkspaceBin({ binName: &quot;openclaw&quot;,\n      packageName: &quot;openclaw&quot;,\n      packageRoot: resolveOpenClawPackageRoot() })"]
-    OCSTRAT["resolveWorkspaceBin strategy\npackage-resolution.ts → resolveWorkspaceBin\n1. createRequire(packages/runtimes/package.json)\n   .resolve(&quot;openclaw&quot;) → resolvedFile\n2. packageRootFromResolvedFile(resolvedFile)\n   (walk backward to &quot;openclaw&quot; segment → package root)\n3. packageBinTarget(root, &quot;openclaw&quot;, &quot;openclaw&quot;)\n   reads package.json &quot;bin&quot; → absolute path to bin\nFallback: dependency packageRoot directly"]
-    OCCH["channelDistDir =\n  input.channelDistDir\n  ?? path.join(repoRoot, &quot;packages/openclaw-channel/dist&quot;)"]
-    OCOUT["returns new OpenClawAdapter({\n  server, openclawBin, channelDistDir, repoRoot\n})"]
+    OCWF["createWorkspaceOpenClawAdapter(input)<br>openclaw-adapter.ts → createWorkspaceOpenClawAdapter"]
+    OCPR["resolveWorkspacePackageRoot()<br>openclaw-adapter.ts → resolveWorkspacePackageRoot<br>Walk import.meta.url ancestors until &quot;packages&quot; segment found<br>→ join(&quot;packages/runtimes&quot;)<br>Result: absolute path to packages/runtimes/"]
+    OCRR["repoRoot =<br>  input.repoRoot<br>  ?? path.dirname(path.dirname(packageRoot))<br>Result: monorepo root — two dirs up from packages/runtimes"]
+    OCBIN["openclawBin =<br>  input.openclawBin<br>  ?? resolveWorkspaceOpenClawBin(...)<br>    package-resolution.ts → resolveWorkspaceOpenClawBin<br>    resolveWorkspaceBin({ binName: &quot;openclaw&quot;,<br>      packageName: &quot;openclaw&quot;,<br>      packageRoot: resolveOpenClawPackageRoot() })"]
+    OCSTRAT["resolveWorkspaceBin strategy<br>package-resolution.ts → resolveWorkspaceBin<br>1. createRequire(packages/runtimes/package.json)<br>   .resolve(&quot;openclaw&quot;) → resolvedFile<br>2. packageRootFromResolvedFile(resolvedFile)<br>   (walk backward to &quot;openclaw&quot; segment → package root)<br>3. packageBinTarget(root, &quot;openclaw&quot;, &quot;openclaw&quot;)<br>   reads package.json &quot;bin&quot; → absolute path to bin<br>Fallback: dependency packageRoot directly"]
+    OCCH["channelDistDir =<br>  input.channelDistDir<br>  ?? path.join(repoRoot, &quot;packages/openclaw-channel/dist&quot;)"]
+    OCOUT["returns new OpenClawAdapter({<br>  server, openclawBin, channelDistDir, repoRoot<br>})"]
 
     OCWF --> OCPR --> OCRR --> OCBIN --> OCSTRAT --> OCCH --> OCOUT
 ```
@@ -27,12 +27,12 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    CCWF["createWorkspaceClaudeCodeAdapter(input)\nclaude-code-adapter.ts → createWorkspaceClaudeCodeAdapter\n(mirrors OpenClaw pattern)"]
-    CCBIN["claudeBin =\n  input.claudeBin\n  ?? resolveWorkspaceClaudeBin(...)\n    package-resolution.ts → resolveWorkspaceClaudeBin\n    resolveWorkspaceBin({ binName: &quot;claude&quot;,\n      packageName: &quot;@anthropic-ai/claude-code&quot; })"]
-    CCROOT["resolveClaudeCodePackageRoot()\npackage-resolution.ts → resolveClaudeCodePackageRoot\nimports package.json via static import assertion\nrequireFromHere.resolve(&quot;@anthropic-ai/claude-code/package.json&quot;)\n→ dirname is the package root"]
-    CCCH["channelDistDir =\n  input.channelDistDir\n  ?? resolveClaudeCodeChannelDistDir(repoRoot)\n    package-resolution.ts → resolveClaudeCodeChannelDistDir"]
-    CCCHTRY["Try: requireFromHere.resolve(\n  &quot;@moltzap/claude-code-channel&quot;) → dirname/dist"]
-    CCCHFALL["Fallback: repoRoot/packages/claude-code-channel/dist\n(logs warning on fallback)"]
+    CCWF["createWorkspaceClaudeCodeAdapter(input)<br>claude-code-adapter.ts → createWorkspaceClaudeCodeAdapter<br>(mirrors OpenClaw pattern)"]
+    CCBIN["claudeBin =<br>  input.claudeBin<br>  ?? resolveWorkspaceClaudeBin(...)<br>    package-resolution.ts → resolveWorkspaceClaudeBin<br>    resolveWorkspaceBin({ binName: &quot;claude&quot;,<br>      packageName: &quot;@anthropic-ai/claude-code&quot; })"]
+    CCROOT["resolveClaudeCodePackageRoot()<br>package-resolution.ts → resolveClaudeCodePackageRoot<br>imports package.json via static import assertion<br>requireFromHere.resolve(&quot;@anthropic-ai/claude-code/package.json&quot;)<br>→ dirname is the package root"]
+    CCCH["channelDistDir =<br>  input.channelDistDir<br>  ?? resolveClaudeCodeChannelDistDir(repoRoot)<br>    package-resolution.ts → resolveClaudeCodeChannelDistDir"]
+    CCCHTRY["Try: requireFromHere.resolve(<br>  &quot;@moltzap/claude-code-channel&quot;) → dirname/dist"]
+    CCCHFALL["Fallback: repoRoot/packages/claude-code-channel/dist<br>(logs warning on fallback)"]
 
     CCWF --> CCBIN --> CCROOT --> CCCH
     CCCH --> CCCHTRY

@@ -9,16 +9,16 @@ sequenceDiagram
     participant Clients as activeClients Map
     participant Svc as MoltZapService
 
-    OC->>Entry: gateway.stopAccount(ctx)<br/>ctx = { accountId, log? }
+    OC->>Entry: gateway.stopAccount(ctx)<br>ctx = { accountId, log? }
     Entry->>Clients: activeClients.get(ctx.accountId)
 
     alt service found
         Entry->>Entry: ctx.log?.info?.("MoltZap: stopping")
         Entry->>Svc: service.close() — MoltZapService.close()
-        Note over Svc: closes WebSocket transport;<br/>WsClient fires "disconnect" event →<br/>core.connected = false;<br/>disconnectHandlers called (log.warn + setStatus)
+        Note over Svc: closes WebSocket transport—<br>WsClient fires "disconnect" event →<br>core.connected = false—<br>disconnectHandlers called (log.warn + setStatus)
         Entry->>Clients: activeClients.delete(ctx.accountId)
     else service not found
-        Note over Entry: no-op; idempotent
+        Note over Entry: no-op— idempotent
     end
 
     Entry-->>OC: return Promise.resolve() — always resolves immediately
@@ -40,19 +40,19 @@ The consumer fiber (`consumerFiber`) is interrupted only by
 ```mermaid
 flowchart TD
     A["stopAccount calls service.close()"] --> B["WS closes — no new 'message' events fired"]
-    B --> C["consumerFiber is still alive\ninboundQueue drains to empty\nthen blocks on Queue.take forever"]
-    B --> D["activeClients entry deleted\nfuture sendText for this accountId\nreceives MoltZapClientNotConnectedError"]
-    B --> E["Existing in-flight inbound handler continues to run\nservice.close() does NOT interrupt the Effect fiber"]
+    B --> C["consumerFiber is still alive<br>inboundQueue drains to empty<br>then blocks on Queue.take forever"]
+    B --> D["activeClients entry deleted<br>future sendText for this accountId<br>receives MoltZapClientNotConnectedError"]
+    B --> E["Existing in-flight inbound handler continues to run<br>service.close() does NOT interrupt the Effect fiber"]
 
     subgraph Idempotency
-        F["First stopAccount call\nservice found → close() + delete"] --> G["Safe"]
-        H["Subsequent stopAccount calls\nservice not found → no-op"] --> I["Safe"]
-        J["No mutex needed\nJavaScript event loop is single-threaded"]
+        F["First stopAccount call<br>service found → close() + delete"] --> G["Safe"]
+        H["Subsequent stopAccount calls<br>service not found → no-op"] --> I["Safe"]
+        J["No mutex needed<br>JavaScript event loop is single-threaded"]
     end
 
     subgraph Contrast ["Contrast with abort path (§3.1 Path B)"]
-        K["abortSignal handler calls\nEffect.runPromise(core.disconnect())"] --> L["Fiber.interrupt(consumerFiber)\n+ service.close()"]
-        M["stopAccount does NOT\ninterrupt the fiber"]
+        K["abortSignal handler calls<br>Effect.runPromise(core.disconnect())"] --> L["Fiber.interrupt(consumerFiber)<br>+ service.close()"]
+        M["stopAccount does NOT<br>interrupt the fiber"]
     end
 ```
 

@@ -9,14 +9,14 @@ serves through a single `handle(frame, ctx)` entry point:
 flowchart TD
     ENTRY["makeJsonRpcServer.handle(frame, ctx)"]
     LOOKUP["handlerByMethod.get(frame.method)"]
-    NOT_FOUND["methodNotFoundResponse\ncode: -32601"]
+    NOT_FOUND["methodNotFoundResponse<br>code: -32601"]
     DECODE_PARAMS["decodeRpcParams(handler.definition, frame.params)"]
-    INVALID_PARAMS["invalidParamsResponse\ncode: -32602"]
+    INVALID_PARAMS["invalidParamsResponse<br>code: -32602"]
     HANDLE["handler.handle(params, ctx)"]
-    SUCCESS_RSP["successResponse\nlogInfo + result"]
-    FAILURE["failureResponse(cause)\nwireErrorFromInstance(failure)"]
-    TAGGED["knownWireErrorResponse\nlogWarning + code (from registry)"]
-    INTERNAL["internalErrorResponse\nlogError + cause\ncode: -32603"]
+    SUCCESS_RSP["successResponse<br>logInfo + result"]
+    FAILURE["failureResponse(cause)<br>wireErrorFromInstance(failure)"]
+    TAGGED["knownWireErrorResponse<br>logWarning + code (from registry)"]
+    INTERNAL["internalErrorResponse<br>logError + cause<br>code: -32603"]
     OUT["ResponseFrame"]
 
     ENTRY --> LOOKUP

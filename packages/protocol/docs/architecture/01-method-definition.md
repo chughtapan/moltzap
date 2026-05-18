@@ -8,13 +8,13 @@ identical schema semantics:
 
 ```mermaid
 flowchart TD
-    A["domain layer\n(e.g. task/methods.ts)"]
+    A["domain layer<br>(e.g. task/methods.ts)"]
     B["defineRpc({ name, params, result })"]
-    C["ajv.compile(params)\n→ validateParams predicate"]
-    D["ajv.compile(result)\n→ validateResult predicate"]
+    C["ajv.compile(params)<br>→ validateParams predicate"]
+    D["ajv.compile(result)<br>→ validateResult predicate"]
     E["RpcDefinition&lt;Name, P, R&gt;"]
     F["pushed into per-layer *RpcMethods const"]
-    G["aggregated into rpcMethods\nunion typed as AnyRpcDefinition"]
+    G["aggregated into rpcMethods<br>union typed as AnyRpcDefinition"]
 
     A --> B
     B --> C
