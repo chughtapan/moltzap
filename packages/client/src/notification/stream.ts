@@ -25,7 +25,7 @@
  * `NotConnectedError` sentinel mapping inside `Stream.fromQueue` per the
  * §6 dataflow contract.
  */
-import type { Stream } from "effect";
+import { Stream } from "effect";
 import type {
   AnyNotificationDefinition,
   DecodedNotification,
@@ -35,12 +35,12 @@ import type { NotConnectedError } from "@moltzap/protocol";
 
 import type { SubscriberRegistry } from "../runtime/subscribers.js";
 
-class NotImplementedError extends Error {
-  constructor(message = "architect stub — Spec B impl-staff scope") {
-    super(message);
-    this.name = "NotImplementedError";
-  }
-}
+// Per architect-revision r1 (codex finding #5): no `NotImplementedError`
+// class — that symbol does not exist in this repo. The `subscribe` and
+// `subscribeAll` functions are pure factories returning Stream values,
+// so the stub bodies return `Stream.dieMessage(...)` — a Stream that
+// raises a defect on consumption. Impl-staff replaces with the real
+// `Stream.unwrapScoped(...)` construction per architect plan §5.5.
 
 /**
  * Typed-payload subscribe. Returns a Stream of `DecodedNotification[D]`
@@ -77,7 +77,7 @@ export function subscribe(
   NotConnectedError,
   never
 > {
-  throw new NotImplementedError();
+  return Stream.dieMessage("architect stub — Spec B impl-staff scope");
 }
 
 /**
@@ -110,7 +110,7 @@ export function subscribeAll(
   NotConnectedError,
   never
 > {
-  throw new NotImplementedError();
+  return Stream.dieMessage("architect stub — Spec B impl-staff scope");
 }
 
 // The `Stream.runHead` + `Effect.timeoutFail` migration recipe lives in
