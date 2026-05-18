@@ -18,6 +18,7 @@ packages/client/src/
 │   └── commands/       # register, send, …
 ├── test-utils/         # in-memory test driver helpers
 ├── test/               # exported test-support shape (subpath: ./test)
+├── channel-base/       # shared channel-adapter scaffolding (subpath: ./channel-base)
 └── __tests__/          # unit + integration + conformance harnesses
 ```
 
@@ -30,6 +31,7 @@ Three layered entry points; pick the lowest level that meets your need.
 | `MoltZapWsClient` | You need raw RPC + notification subscription |
 | `MoltZapChannelCore` | You need inbound dispatch + admission lease handling |
 | `MoltZapService` | You want managed conversation/context state too |
+| `@moltzap/client/channel-base` (subpath) | You are building a channel adapter and want the shared `LeaseAlreadyConsumed` / `LeaseStore` / `LeaseGuard` / `formatCrossConv` primitives |
 
 Plus `registerAgent` for auth bootstrap, `subscribe*` types for notifications,
 and the published CLI bin.
@@ -49,6 +51,7 @@ understand the lease and connection state machines that underpin all flows.
 | [05 — Error Taxonomy](docs/architecture/05-error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
 | [06 — CLI Command Flow](docs/architecture/06-cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
 | [07 — State Machines](docs/architecture/07-state-machines.md) | Dispatch lease and connection state machines |
+| [08 — Channel-base subpath](docs/architecture/08-channel-base.md) | `@moltzap/client/channel-base` — canonical `LeaseAlreadyConsumed`, `LeaseStore`/`LeaseGuard`, markup-parameterized `formatCrossConv`/`formatGroupBlock` (shared by openclaw, claude-code, nanoclaw) |
 
 ## Dependencies
 

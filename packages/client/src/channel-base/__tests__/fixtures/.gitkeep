@@ -1,0 +1,11 @@
+Pre-refactor golden fixtures captured by `capture-fixtures.ts`. Populated by
+impl-staff in the first commit after the architect stubs (see arch sub-issue
+#605 §10 sequencing — step 1: "Capture pre-refactor fixtures").
+
+Files captured here (16 total):
+  format-cross-conv-{empty,single,multi,own-agent,sender-lookup-none}.{json-header,xml-system-reminder}.md
+  format-group-block-{absent,present-name-only,present-with-members}.{json-header,xml-system-reminder}.md
+
+Each file holds the literal pre-refactor output of the corresponding
+formatter for that input case. Tests in `format-cross-conv.test.ts` and
+`format-group-block.test.ts` assert byte-equality against these files.
