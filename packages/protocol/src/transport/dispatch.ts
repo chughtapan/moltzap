@@ -380,20 +380,33 @@ const provideOne = (
   args: ProvisioningArgs,
 ): Effect.Effect<unknown, unknown, unknown> => {
   const tag = cap.tag;
-  const tagKey = readTagKey(tag);
-  const provider = tagKey === undefined ? undefined : args.providers[tagKey];
-  if (provider === undefined) return acc;
+  // Effect's `Context.Tag` keys its identifier on `tag.key` (per
+  // `node_modules/effect/dist/dts/Context.d.ts → interface Tag → readonly key: string`).
+  const tagKey = tag.key;
+  const provider = args.providers[tagKey];
+  if (provider === undefined) {
+    // The handler declared a capability with no provider in the table.
+    // The lockstep gate at the handler-table literal site
+    // (`HandlerSlot.handle.R ⊆ CapabilitiesOf<D>`) catches this at
+    // compile time when both sides are non-erased; reaching this
+    // branch means either (a) a `defineRpc` declared `capabilities`
+    // without a corresponding `CapabilityProviderTable` entry, or
+    // (b) the value-level provider table was constructed with a
+    // missing tag and the structural type check didn't fire. Fail
+    // loud rather than silently skip — silent skip would leave a
+    // downstream `Context.NoSuchElementError` deep inside the
+    // handler.
+    return Effect.die(
+      `CapabilityProviderTable missing entry for tag '${tagKey}' declared by definition; ` +
+        "every Context.Tag named in `definition.capabilities` must appear in the factory's `capabilities` provider table.",
+    );
+  }
   const providerEffect = provider(cap.argsOf(args.params, args.ctx));
   return Effect.provideServiceEffect(
     acc,
     tag,
     providerEffect as Effect.Effect<unknown, unknown, never>,
   );
-};
-
-const readTagKey = (tag: Context.Tag<unknown, unknown>): string | undefined => {
-  const candidate = (tag as { readonly _tag?: unknown })._tag;
-  return typeof candidate === "string" ? candidate : undefined;
 };
 
 /**
