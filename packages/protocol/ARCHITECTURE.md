@@ -97,8 +97,7 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 | Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
 | Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
 | Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
-| Typed dispatcher (Spec F #617) — request handling + capability auto-provision | [11 — Typed dispatcher](docs/architecture/11-typed-dispatcher.md) |
-| Client call lifecycle (originator — internalized post Spec F, doc retained until FRI cutover) | [04 — Client call lifecycle](docs/architecture/04-client-call-lifecycle.md) |
+| Typed dispatcher (Spec F #617) — request handling, originator lifecycle, capability auto-provision | [11 — Typed dispatcher](docs/architecture/11-typed-dispatcher.md) |
 
 ## 5. Dependencies
 

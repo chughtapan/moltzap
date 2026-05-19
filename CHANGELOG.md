@@ -75,12 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Context.Tag` parameters reject the broad bound; `FullLive` resolves
   Tags at runtime via the surrounding `ManagedRuntime`).
 - **DOCS:** `packages/protocol/docs/architecture/11-typed-dispatcher.md`
-  is the canonical reference for request handling.
-  `03-server-request-handling.md` DELETED (no Spec F analogue).
-  `04-client-call-lifecycle.md` RETAINED with Spec F status banner —
-  originator lifecycle survives unchanged inside the internalized
-  `makeJsonRpcClient`. Folds into `11-typed-dispatcher.md` when the
-  FRI cutover completes.
+  is the canonical reference for request handling and the internal
+  originator lifecycle. `03-server-request-handling.md` and
+  `04-client-call-lifecycle.md` DELETED — the §6 FRI cutover folds the
+  client-call-lifecycle prose (scope-bound originator, pending
+  insert-before-write, atomic insert/take, late-frame drop) into
+  `11-typed-dispatcher.md` §6.
 
 ### Phase 12 — `@moltzap/protocol` finalization
 
