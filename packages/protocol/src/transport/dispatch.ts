@@ -13,7 +13,7 @@
  *      `slotDisposition.optional` payload (per `defaults.ts`).
  *   3. If the slot is present, read `slot.definition.capabilities`
  *      (Shape B). For each `{ tag, argsOf }` in declaration order:
- *      look up `CapabilityProviderTable[tag._tag]`, call it with
+ *      look up `CapabilityProviderTable[tag.key]`, call it with
  *      `argsOf(decodedParams, ctx)`, and thread
  *      `Effect.provideServiceEffect(tag, providerEffect)` over the
  *      handler effect. Providers execute sequentially with first-failure
@@ -75,7 +75,7 @@ type WireError = {
  */
 type ErasedHandlerTable = Readonly<Record<string, AnySlot | undefined>>;
 
-/** Erased view of the provider table — `[tag._tag]` → obtain effect. */
+/** Erased view of the provider table — `[tag.key]` → obtain effect. */
 type ErasedProviderTable = Readonly<
   Record<string, (args: unknown) => Effect.Effect<unknown, unknown, unknown>>
 >;
@@ -160,6 +160,7 @@ export function buildServerDispatcher<
       handle: (frame, ctx) => dispatch(frame, ctx),
       resolve: originator.resolve,
       call: originator.call,
+      failAllPending: originator.failAllPending,
       notify: makeNotify(config.write),
     } satisfies ServerConnection<Ctx>;
   }).pipe(Effect.withSpan("buildServerDispatcher"));
@@ -186,6 +187,7 @@ export function buildAgentClientDispatcher<
       id: config.id,
       resolve: originator.resolve,
       call: originator.call,
+      failAllPending: originator.failAllPending,
       notify: () =>
         Effect.die(
           "AgentClientConnection.notify: AgentClient kind originates no notifications",
@@ -223,6 +225,7 @@ export function buildTaskMasterDispatcher<
       handle: (frame, ctx) => dispatch(frame, ctx),
       resolve: originator.resolve,
       call: originator.call,
+      failAllPending: originator.failAllPending,
       notify: () =>
         Effect.die(
           "TaskMasterConnection.notify: TM kind originates no notifications",
@@ -265,7 +268,7 @@ function makeNotify(write: (raw: string) => Effect.Effect<void, unknown>) {
  * Capability auto-provision (Spec F G6): per-definition Shape B
  * metadata (`slot.definition.capabilities`) names each tag the handler
  * `yield*`s. The dispatcher iterates this list, looks up
- * `providers[tag._tag]`, calls it with `argsOf(params, ctx)`, and
+ * `providers[tag.key]`, calls it with `argsOf(params, ctx)`, and
  * threads `Effect.provideServiceEffect` over the handler effect in
  * declaration order. Sequential execution + first-failure short-circuit
  * per Spec F §5.1 step 3.

@@ -27,6 +27,7 @@ import type {
   RpcDefinition,
 } from "./method.js";
 import type { RpcCallError } from "./json-rpc-client.js";
+import type { NotConnectedError } from "./rpc-errors.js";
 import type {
   ServerHandlers,
   AgentClientHandlers,
@@ -59,6 +60,17 @@ interface OutboundCall<
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+
+  /**
+   * Fail every in-flight outbound RPC with `error`. The originator's
+   * scope finalizer drains pending on scope close with a generic
+   * `NotConnectedError`; this method lets the surrounding transport
+   * raise pending early with a transport-specific message (e.g. when
+   * the WS reader exits before the consumer closes the scope).
+   *
+   * Idempotent: once drained, subsequent calls are no-ops.
+   */
+  readonly failAllPending: (error: NotConnectedError) => Effect.Effect<void>;
 }
 
 interface OutboundNotify<OutNotify> {
