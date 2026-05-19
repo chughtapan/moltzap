@@ -8,7 +8,7 @@
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
-import { Data, Duration, Effect, Exit, Option, Stream } from "effect";
+import { Data, Duration, Effect, Exit, Fiber, Option, Stream } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
@@ -133,8 +133,13 @@ function dmEchoReplyArrives(containerAAgentId: string) {
       type: "dm",
       participants: [{ type: "agent", id: containerAAgentId }],
     });
+    // Fork the response-listener BEFORE the trigger send (Spec B P2-5
+    // r1 fix). Stream-based subscribe has no historical buffer; the echo
+    // reply can arrive in the gap between `sendText` returning and the
+    // listener registering, so the listener must be in place first.
+    const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, convId, DM_HELLO_TEXT);
-    const reply = yield* waitForReceivedMessage(aliceClient);
+    const reply = yield* Fiber.join(replyFiber);
     expectEchoReply(reply, convId, containerAAgentId);
     yield* aliceClient.close();
   });
@@ -153,8 +158,11 @@ function groupMessageDispatches(containerAAgentId: string) {
       ],
     });
     yield* Effect.sleep(`${CONVERSATION_EVENT_SETTLE_MS} millis`);
+    // Fork-before-trigger (Spec B P2-5 r1): listener must be in place
+    // before sendText, since Stream subscribe has no historical buffer.
+    const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, convId, GROUP_HELLO_TEXT);
-    const reply = yield* waitForReceivedMessage(aliceClient);
+    const reply = yield* Fiber.join(replyFiber);
     expect(reply.parts.length).toBeGreaterThan(0);
     expect(reply.conversationId).toBe(convId);
     expect(extractText(reply)).toContain(ECHO_PREFIX);
@@ -169,13 +177,16 @@ function rapidMessagesGetReplies(containerAAgentId: string) {
       type: "dm",
       participants: [{ type: "agent", id: containerAAgentId }],
     });
+    // Fork-before-trigger (Spec B P2-5 r1): subscribe for N replies before
+    // emitting any sends, so no echo can arrive in the gap between the
+    // final send and the listener registering.
+    const repliesFiber = yield* Effect.fork(
+      waitForReceivedMessages(aliceClient, RAPID_MESSAGE_COUNT),
+    );
     for (let index = 0; index < RAPID_MESSAGE_COUNT; index++) {
       yield* sendText(aliceClient, convId, `Message ${index}`);
     }
-    const replies = yield* waitForReceivedMessages(
-      aliceClient,
-      RAPID_MESSAGE_COUNT,
-    );
+    const replies = yield* Fiber.join(repliesFiber);
     for (const reply of replies) {
       expectEchoReply(extractMessage(reply), convId, containerAAgentId);
     }
@@ -188,12 +199,14 @@ function twoAgentsReplyFromOwnContainers(harness: GatewayHarness) {
     const aliceClient = yield* connectedClaimedClient("2a-alice");
     const convAId = yield* createDm(aliceClient, harness.containerAAgentId);
     const convBId = yield* createDm(aliceClient, harness.containerBAgentId);
+    // Fork-before-trigger (Spec B P2-5 r1): wait for the 2 echo replies
+    // is registered before any send.
+    const eventsFiber = yield* Effect.fork(
+      waitForReceivedMessages(aliceClient, TWO_CONTAINER_COUNT),
+    );
     yield* sendText(aliceClient, convAId, CONTAINER_A_TEXT);
     yield* sendText(aliceClient, convBId, CONTAINER_B_TEXT);
-    const events = yield* waitForReceivedMessages(
-      aliceClient,
-      TWO_CONTAINER_COUNT,
-    );
+    const events = yield* Fiber.join(eventsFiber);
     const messages = events.map(extractMessage);
     expectConversationMessageFrom(messages, convAId, harness.containerAAgentId);
     expectConversationMessageFrom(messages, convBId, harness.containerBAgentId);
@@ -212,8 +225,12 @@ function proactiveMessageArrives(containerAAgentId: string) {
       senderClient,
       yield* lookupAgentId(senderClient, PROACTIVE_RECEIVER_NAME),
     );
+    // Fork-before-trigger (Spec B P2-5 r1).
+    const receivedFiber = yield* Effect.fork(
+      waitForReceivedMessage(receiverClient),
+    );
     yield* sendText(senderClient, convId, PROACTIVE_TEXT);
-    const received = yield* waitForReceivedMessage(receiverClient);
+    const received = yield* Fiber.join(receivedFiber);
     expect(received.senderId).toBe(containerAAgentId);
     expect(extractText(received)).toBe(PROACTIVE_TEXT);
     expect(received.conversationId).toBe(convId);
@@ -234,10 +251,17 @@ function duplicateTargetReusesConversation() {
       DUPLICATE_RECEIVER_NAME,
     );
     const convId = yield* createDm(senderClient, receiverId);
+    // Fork-before-trigger per message (Spec B P2-5 r1).
+    const msg1Fiber = yield* Effect.fork(
+      waitForReceivedMessage(receiverClient),
+    );
     yield* sendText(senderClient, convId, FIRST_TEXT);
-    const msg1 = yield* waitForReceivedMessage(receiverClient);
+    const msg1 = yield* Fiber.join(msg1Fiber);
+    const msg2Fiber = yield* Effect.fork(
+      waitForReceivedMessage(receiverClient),
+    );
     yield* sendText(senderClient, convId, SECOND_TEXT);
-    const msg2 = yield* waitForReceivedMessage(receiverClient);
+    const msg2 = yield* Fiber.join(msg2Fiber);
     expect(msg1.conversationId).toBe(convId);
     expect(msg2.conversationId).toBe(convId);
     yield* senderClient.close();
@@ -261,8 +285,10 @@ function largeMessageDelivered(containerAAgentId: string) {
     const aliceClient = yield* connectedClaimedClient("lg-alice");
     const convId = yield* createDm(aliceClient, containerAAgentId);
     const largeText = LARGE_MESSAGE_CHARACTER.repeat(LARGE_MESSAGE_CHARS);
+    // Fork-before-trigger (Spec B P2-5 r1).
+    const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, convId, largeText);
-    const reply = yield* waitForReceivedMessage(aliceClient);
+    const reply = yield* Fiber.join(replyFiber);
     expect(reply.conversationId).toBe(convId);
     expect(reply.senderId).toBe(containerAAgentId);
     const replyText = extractText(reply);
@@ -278,16 +304,19 @@ function reconnectDuringDispatchRecovers(containerAAgentId: string) {
     const aliceClient = connectedClient(alice.apiKey);
     yield* aliceClient.connect();
     const convId = yield* createDm(aliceClient, containerAAgentId);
+    // Fork-before-trigger for each leg (Spec B P2-5 r1).
+    const replyFiber1 = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, convId, BEFORE_DROP_TEXT);
-    expect(extractText(yield* waitForReceivedMessage(aliceClient))).toContain(
-      ECHO_PREFIX,
-    );
+    expect(extractText(yield* Fiber.join(replyFiber1))).toContain(ECHO_PREFIX);
     yield* aliceClient.close();
     yield* Effect.sleep(`${RECONNECT_SETTLE_MS} millis`);
     const aliceClient2 = connectedClient(alice.apiKey);
     yield* aliceClient2.connect();
+    const replyFiber2 = yield* Effect.fork(
+      waitForReceivedMessage(aliceClient2),
+    );
     yield* sendText(aliceClient2, convId, AFTER_RECONNECT_TEXT);
-    const reply2 = yield* waitForReceivedMessage(aliceClient2);
+    const reply2 = yield* Fiber.join(replyFiber2);
     expect(extractText(reply2)).toContain(ECHO_PREFIX);
     expect(reply2.conversationId).toBe(convId);
     yield* aliceClient2.close();

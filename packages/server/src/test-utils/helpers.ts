@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `ReadonlyArray<...>` use natural angle-bracket form inside backtick spans; matches filter-equivalence.test.ts precedent. */
 import {
   FetchHttpClient,
   HttpClient,
@@ -23,7 +24,7 @@ import { ConversationsCreate } from "@moltzap/protocol";
 
 /**
  * Spec B (#596): the legacy `waitForNotification(def, timeoutMs?)` /
- * `drainNotifications(): ReadonlyArray&lt;...>` synchronous wrappers were
+ * `drainNotifications(): ReadonlyArray<...>` synchronous wrappers were
  * deleted. Consumers reach typed-payload Streams via
  * `client.subscribeTo(def)` and snapshot the buffered queue via the
  * passthrough `client.drainNotifications` Effect (`yield*` it).

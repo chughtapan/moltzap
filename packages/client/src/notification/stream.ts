@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `Stream.async<DecodedNotification<D>>` use the natural angle-bracket form (TS source style) inside backtick-fenced code spans; the lint rule's pre-render check fires false positives on these multi-line spans. Matches the precedent in filter-equivalence.test.ts. */
+
 /**
  * Stream-returning constructors for `MoltZapWsClient.subscribe` and
  * `MoltZapWsClient.subscribeAll` (Spec B, #596).
@@ -8,7 +10,7 @@
  * §5.3 OQ-3 snapshot semantic is preserved by Ref atomicity without an
  * additional per-sub cancelled-flag check (architect plan §3).
  *
- * Stream construction uses `Stream.async&lt;DecodedNotification&lt;D>, NotConnectedError>`
+ * Stream construction uses `Stream.async<DecodedNotification<D>, NotConnectedError>`
  * with the registry storing typed callback references — NOT `Queue` of
  * `Take` items combined with `Stream.fromQueue`/`Stream.flattenTake`,
  * which codex empirically verified is racy under
@@ -40,7 +42,7 @@ import {
 import type { SubscriberRegistry } from "../runtime/subscribers.js";
 
 /**
- * Typed-payload subscribe. Returns a Stream of `DecodedNotification&lt;D>`
+ * Typed-payload subscribe. Returns a Stream of `DecodedNotification<D>`
  * whose error channel is `NotConnectedError` and whose requirement set is
  * `never` (the registry handle is bound at materialization time inside
  * `Stream.async`'s register callback, so neither Scope nor any other
@@ -48,8 +50,8 @@ import type { SubscriberRegistry } from "../runtime/subscribers.js";
  *
  * `refinement` is a typed predicate over the definition's params. When the
  * type-guard overload form is used, the Stream's payload narrows to
- * `DecodedNotification&lt;D, R>` via the optional `R` parameter on
- * `DecodedNotification&lt;D>`.
+ * `DecodedNotification<D, R>` via the optional `R` parameter on
+ * `DecodedNotification<D>`.
  */
 export function subscribe<D extends AnyNotificationDefinition>(
   registry: SubscriberRegistry,
@@ -111,7 +113,7 @@ export function subscribe<D extends AnyNotificationDefinition>(
  * "match all" by passing an in-band sentinel.
  *
  * Implementation: the registry has no native "match all" subscription
- * shape (intentional — `subscribe&lt;D>` is per-definition). To preserve
+ * shape (intentional — `subscribe<D>` is per-definition). To preserve
  * the registry's typed dispatch surface, `subscribeAll` constructs a
  * Stream that taps the registry via a per-arrival path: registering
  * once with a sentinel definition would require a registry-level "match

@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `NotificationParamsOf<D>` use the natural angle-bracket form (TS source style) inside backtick-fenced code spans; the lint rule's pre-render check fires false positives on these multi-line spans. Matches the precedent in filter-equivalence.test.ts. */
+
 /**
  * Per-subscription notification registry for `MoltZapWsClient`.
  *
@@ -45,7 +47,7 @@ const SubscriptionIdBrand = Brand.nominal<SubscriptionId>();
 /**
  * Erased refinement predicate type stored on `LiveSubscription`. Bounds at
  * the broad-union params shape, never `unknown` / `any`. The typed
- * `(params: NotificationParamsOf&lt;D>) => boolean` form is coerced through
+ * `(params: NotificationParamsOf<D>) => boolean` form is coerced through
  * this union inside `register` via a single named adapter — the only
  * place the typed → erased boundary crosses.
  */
@@ -56,7 +58,7 @@ type ErasedNotificationRefinement = (
 /**
  * Per-subscription callback delivered each matching frame. Implemented in
  * `notification/stream.ts` as `(frame) => Effect.sync(() => emit.single(frame))`.
- * Returning `Effect&lt;void, never>` keeps the dispatch path total — the
+ * Returning `Effect<void, never>` keeps the dispatch path total — the
  * Stream-side `emit.single` cannot fail synchronously.
  */
 type SubscriberFrameCallback = (
@@ -86,7 +88,7 @@ interface LiveSubscription {
 }
 
 /**
- * Handle returned by `register`. `unregister` is `Effect&lt;void, never>`: it
+ * Handle returned by `register`. `unregister` is `Effect<void, never>`: it
  * is idempotent and total. Calling `unregister` a second time, or after
  * `closeAll`, is a no-op.
  */
@@ -99,7 +101,7 @@ interface SubscriptionHandle {
  * Subscriber registry. One instance per `MoltZapWsClient`, created at
  * construction time and owned by the client.
  *
- * `register&lt;D>` accepts typed `onFrame` / `onClose` callbacks for the
+ * `register<D>` accepts typed `onFrame` / `onClose` callbacks for the
  * specific definition `D`; internally the registry erases them to the
  * `Subscriber{Frame,Close}Callback` union shape so a single iteration
  * can dispatch over heterogeneous subscriptions without per-`D`
@@ -121,7 +123,7 @@ export interface SubscriberRegistry {
    * `subscribeAll` surface (spec #596 Goal #2). Registers a broad-union
    * subscription that fires for every inbound frame regardless of
    * definition. The optional `refinement` predicate runs against the
-   * full `DecodedNotification&lt;AnyNotificationDefinition>` shape.
+   * full `DecodedNotification<AnyNotificationDefinition>` shape.
    *
    * Stored in a sibling `subsAllRef` list — kept off `subsRef` so the
    * per-definition dispatch loop in `dispatch` stays a simple
@@ -217,7 +219,7 @@ function closeSubscriber(
  * constructor.
  *
  * Implementation notes:
- *   - `subsRef: Ref&lt;ReadonlyArray&lt;LiveSubscription>>` keyed by registration
+ *   - `subsRef: Ref<ReadonlyArray<LiveSubscription>>` keyed by registration
  *     order. Append-on-register, filter-on-unregister keeps the dispatch
  *     path O(N) with N = live subscription count.
  *   - `dispatch` snapshots `subsRef` at iteration start. An unregister
@@ -329,15 +331,43 @@ function buildRegisterAll(
 }
 
 /**
+ * Run a user-supplied refinement predicate with throw isolation. A throw
+ * inside the predicate must NOT defect the dispatch Effect (which would
+ * starve sibling subscribers of the in-flight frame, AD1 path-(a) snapshot
+ * contract). Treat any throw as "predicate said false" — the frame is
+ * filtered out for this subscriber, the throw is logged, dispatch
+ * continues with the next subscription in the snapshot.
+ */
+function safePredicate<P>(
+  predicate: (params: P) => boolean,
+  params: P,
+  context: string,
+): boolean {
+  try {
+    return predicate(params);
+  } catch (err) {
+    Effect.runFork(
+      Effect.logWarning(`${context} refinement predicate threw`, err),
+    );
+    return false;
+  }
+}
+
+/**
  * Cognitive-complexity helper: decides whether a per-definition sub
- * accepts a given frame.
+ * accepts a given frame. Predicate throws are caught (P2-1, codex r1):
+ * a throwing refinement returns `false` rather than defecting the
+ * dispatch Effect.
  */
 function subAcceptsFrame(
   sub: LiveSubscription,
   frame: DecodedNotification<AnyNotificationDefinition>,
 ): boolean {
   if (sub.definition !== frame.definition) return false;
-  if (sub.refinement !== undefined && !sub.refinement(frame.params))
+  if (
+    sub.refinement !== undefined &&
+    !safePredicate(sub.refinement, frame.params, "subscribe")
+  )
     return false;
   return true;
 }
@@ -347,7 +377,10 @@ function broadAcceptsFrame(
   sub: LiveBroadSubscription,
   frame: DecodedNotification<AnyNotificationDefinition>,
 ): boolean {
-  return sub.refinement === undefined || sub.refinement(frame);
+  return (
+    sub.refinement === undefined ||
+    safePredicate(sub.refinement, frame, "subscribeAll")
+  );
 }
 
 function buildDispatch(

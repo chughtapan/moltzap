@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `NotificationParamsOf<D>` use natural angle-bracket form inside backtick spans; matches filter-equivalence.test.ts precedent. */
 import { Data, Effect } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 import type { NotificationFrame, RequestFrame } from "./wire.js";
@@ -31,13 +32,13 @@ export type DecodedRpcRequest<D extends AnyRpcDefinition> =
  * The optional second parameter `R` narrows the `params` field to the refined
  * type — used by `MoltZapWsClient.subscribe`'s user-defined-type-guard
  * overload (spec #596 / architect plan §5.2). The default sentinel
- * `unknown` resolves to the per-branch `NotificationParamsOf&lt;D>` shape,
+ * `unknown` resolves to the per-branch `NotificationParamsOf<D>` shape,
  * preserving the one-arg form for every existing consumer.
  *
- * The default uses an `unknown` sentinel rather than `NotificationParamsOf&lt;D>`
+ * The default uses an `unknown` sentinel rather than `NotificationParamsOf<D>`
  * because TS does not distribute type-alias defaults through the
  * `D extends AnyNotificationDefinition` distributive conditional below —
- * a `NotificationParamsOf&lt;D>` default would resolve once over the input
+ * a `NotificationParamsOf<D>` default would resolve once over the input
  * union and break per-branch params narrowing for `D` unions like
  * `DispatchesConsumed | DispatchesExpired`. Carrying `R` as a sentinel and
  * resolving inside the conditional keeps the original `params` shape per
