@@ -63,7 +63,56 @@ export type { RpcErrorClass, RpcErrorPayload } from "./wire-errors.js";
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 
 // JSON-RPC client + server runtime.
+// NOTE (Spec F #617): `makeJsonRpcServer` / `makeJsonRpcClient` are
+// retained at the public barrel during the architect stub; impl-staff
+// PR for Spec F removes them per Invariant FRI (facade replacement;
+// see `packages/protocol/docs/architecture/11-typed-dispatcher.md →
+// §5 Facade Replacement Invariant`).
 export { makeJsonRpcClient } from "./json-rpc-client.js";
 export type { JsonRpcClient, RpcCallError } from "./json-rpc-client.js";
 export { handler, makeJsonRpcServer } from "./json-rpc-server.js";
 export type { JsonRpcServer, RpcHandler } from "./json-rpc-server.js";
+
+// Spec F (#617) — typed dispatcher. Stubs only on this branch; impl-staff
+// fills bodies. Type-level invariants are exercised by
+// `typed-dispatcher.types-check.ts`.
+export type {
+  CapabilityDescriptor,
+  CapabilityProviderTable,
+  CapabilitiesOf,
+} from "./capabilities.js";
+export type {
+  FailClosedDefault,
+  SlotDisposition,
+  IsOptionalSlot,
+  FailClosedForbidden,
+} from "./defaults.js";
+export { optionalForbidden, optionalNoOp } from "./defaults.js";
+export type {
+  HandlerSlot,
+  HandlerTable,
+  ServerHandlers,
+  AgentClientHandlers,
+  TaskMasterHandlers,
+  ServerInboundRpcDefinition,
+  TaskMasterInboundRpcDefinition,
+  CapsUnionOf,
+} from "./handlers.js";
+export type {
+  ServerConnection,
+  AgentClientConnection,
+  TaskMasterConnection,
+  ServerConnectionConfig,
+  AgentClientConnectionConfig,
+  TaskMasterConnectionConfig,
+} from "./connection.js";
+export {
+  makeServerConnection,
+  makeAgentClientConnection,
+  makeTaskMasterConnection,
+} from "./connection.js";
+export {
+  buildServerDispatcher,
+  buildAgentClientDispatcher,
+  buildTaskMasterDispatcher,
+} from "./dispatch.js";
