@@ -82,6 +82,14 @@ export {
   obtainMessageSendPermission,
 } from "./message-send-permission.js";
 
+// Composite — Architect Decision C (Phase 3, r3)
+export {
+  ConversationCreateAuthorization,
+  type ConversationCreateAuthorizationValue,
+  type ObtainConversationCreateAuthorizationInput,
+  obtainConversationCreateAuthorization,
+} from "./conversation-create-authorization.js";
+
 // Runtime equality guards
 export {
   assertTmAuthorityMatchesTask,

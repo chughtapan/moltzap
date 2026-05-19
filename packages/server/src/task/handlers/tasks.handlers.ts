@@ -27,9 +27,11 @@ import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { TaskServiceTag } from "../../app/layers.js";
 import {
+  ConversationCreateAuthorization,
   ConversationInTask,
   TaskReadAccess,
   TmAuthority,
+  obtainConversationCreateAuthorization,
   obtainConversationInTask,
   obtainTaskReadAccess,
   obtainTmAuthority,
@@ -164,18 +166,25 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
+        const agentIds = params.participants.map((p) => p.id as AgentId);
         const conversation = yield* taskService
           .createConversation(params.taskId, ctx.agentId, {
             type: params.type,
             name: params.name,
-            participantAgentIds: params.participants.map(
-              (p) => p.id as AgentId,
-            ),
+            participantAgentIds: agentIds,
           })
           .pipe(
             Effect.provideServiceEffect(
               TmAuthority,
               obtainTmAuthority(params.taskId, ctx.agentId),
+            ),
+            Effect.provideServiceEffect(
+              ConversationCreateAuthorization,
+              obtainConversationCreateAuthorization({
+                type: params.type,
+                agentIds,
+                creatorAgentId: ctx.agentId,
+              }),
             ),
           );
         return { conversation };

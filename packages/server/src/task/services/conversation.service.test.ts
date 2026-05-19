@@ -30,6 +30,11 @@ import {
 } from "./conversation.service.js";
 import { ParticipantService } from "../../identity/services/participant.service.js";
 import {
+  ConversationCreateAuthorization,
+  obtainConversationCreateAuthorization,
+} from "../../app/capabilities/index.js";
+import { ConversationServiceTag } from "../../app/layers.js";
+import {
   ConnectionManager,
   type MoltZapConnection,
 } from "../../transport/connection.js";
@@ -229,16 +234,47 @@ function seedTask(initiator: AgentId): Effect.Effect<TaskId, unknown> {
   ).pipe(Effect.map((row) => row.id));
 }
 
+function provideCreateAuth(
+  service: ConversationService,
+  type: "dm" | "group",
+  agentIds: ReadonlyArray<AgentId>,
+  creatorAgentId: AgentId,
+) {
+  return <A, E, R>(
+    eff: Effect.Effect<A, E, R | ConversationCreateAuthorization>,
+  ) =>
+    eff.pipe(
+      Effect.provideServiceEffect(
+        ConversationCreateAuthorization,
+        obtainConversationCreateAuthorization({
+          type,
+          agentIds,
+          creatorAgentId,
+        }),
+      ),
+      Effect.provideService(ConversationServiceTag, service),
+    ) as Effect.Effect<A, E, Exclude<R, ConversationCreateAuthorization>>;
+}
+
 function createConversation(input: CreateConversationInput) {
   return Effect.gen(function* () {
     const taskId = yield* seedTask(input.initiator);
-    return yield* input.service.create({
-      type: input.type,
-      name: input.name,
-      agentIds: input.participants,
-      creatorAgentId: input.initiator,
-      mintTask: Effect.succeed({ id: taskId }),
-    });
+    return yield* input.service
+      .create({
+        type: input.type,
+        name: input.name,
+        agentIds: input.participants,
+        creatorAgentId: input.initiator,
+        mintTask: Effect.succeed({ id: taskId }),
+      })
+      .pipe(
+        provideCreateAuth(
+          input.service,
+          input.type,
+          input.participants,
+          input.initiator,
+        ),
+      );
   });
 }
 
@@ -246,13 +282,22 @@ function createConversationExit(input: CreateConversationInput) {
   return Effect.gen(function* () {
     const taskId = yield* seedTask(input.initiator);
     return yield* Effect.exit(
-      input.service.create({
-        type: input.type,
-        name: input.name,
-        agentIds: input.participants,
-        creatorAgentId: input.initiator,
-        mintTask: Effect.succeed({ id: taskId }),
-      }),
+      input.service
+        .create({
+          type: input.type,
+          name: input.name,
+          agentIds: input.participants,
+          creatorAgentId: input.initiator,
+          mintTask: Effect.succeed({ id: taskId }),
+        })
+        .pipe(
+          provideCreateAuth(
+            input.service,
+            input.type,
+            input.participants,
+            input.initiator,
+          ),
+        ),
     );
   });
 }

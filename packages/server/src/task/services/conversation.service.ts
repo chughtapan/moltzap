@@ -31,6 +31,11 @@ import {
 } from "../../db/effect-kysely-toolkit.js";
 import { assertConversationAdminAuthority } from "./conversation-admin-authority.js";
 import { listConversations } from "./conversation/list-pagination.js";
+import {
+  ConversationCreateAuthorization,
+  obtainConversationCreateAuthorization,
+} from "../../app/capabilities/conversation-create-authorization.js";
+import { ConversationServiceTag } from "../../app/layers.js";
 import type {
   AddParticipantOptions,
   ContactEdgeInput,
@@ -96,7 +101,11 @@ export class ConversationService {
 
   create<TaskMintError = never>(
     input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation, ConversationServiceError | TaskMintError> {
+  ): Effect.Effect<
+    Conversation,
+    ConversationServiceError | TaskMintError,
+    ConversationCreateAuthorization
+  > {
     return catchSqlErrorAsDefect(this.createConversationEffect(input));
   }
 
@@ -104,21 +113,12 @@ export class ConversationService {
     input: CreateConversationOptions<TaskMintError>,
   ): Effect.Effect<
     Conversation,
-    ConversationServiceError | TaskMintError | SqlError
+    ConversationServiceError | TaskMintError | SqlError,
+    ConversationCreateAuthorization
   > {
     return Effect.gen(this, function* () {
-      const ownerByAgentId = yield* this.loadAgentOwners(input.agentIds);
-      const existingDm = yield* this.existingDmForCreate(input);
-      if (existingDm !== null) return existingDm;
-
-      yield* this.assertContactPolicyForCreate(
-        input.creatorAgentId,
-        input.agentIds,
-        input.type,
-        ownerByAgentId,
-      );
-      yield* this.assertGroupCapacityForCreate(input.type, input.agentIds);
-
+      const auth = yield* ConversationCreateAuthorization;
+      if (auth._tag === "ExistingDm") return auth.conversation;
       const task = yield* input.mintTask;
       const created = yield* this.insertConversation(input, task.id);
       this.subscribeCreatedConversation(input, created.id);
@@ -161,9 +161,18 @@ export class ConversationService {
     });
   }
 
-  private existingDmForCreate<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<Conversation | null, ConversationServiceError> {
+  /**
+   * Package-private DM-dedup probe consumed by
+   * `obtainConversationCreateAuthorization`. Spec E (#601) Decision C +
+   * Decision B / Option A. Narrowed to the three fields the probe
+   * actually reads (type, agentIds, creatorAgentId).
+   * @internal
+   */
+  existingDmForCreate(input: {
+    readonly type: "dm" | "group";
+    readonly agentIds: ReadonlyArray<AgentId>;
+    readonly creatorAgentId: AgentId;
+  }): Effect.Effect<Conversation | null, ConversationServiceError> {
     if (input.type !== "dm") return Effect.succeed(null);
     if (input.agentIds.length !== 1) {
       return Effect.fail(
@@ -302,7 +311,21 @@ export class ConversationService {
           agentIds: [target.value.id],
           creatorAgentId,
           mintTask,
-        });
+        }).pipe(
+          Effect.provideServiceEffect(
+            ConversationCreateAuthorization,
+            obtainConversationCreateAuthorization({
+              type: "dm",
+              agentIds: [target.value.id],
+              creatorAgentId,
+            }),
+          ),
+          // `createDmByAgentName` resolves the target agentId by
+          // looking it up via name — the handler can't pre-compute
+          // the obtain helper above. We satisfy the obtain helper's
+          // `ConversationServiceTag` dependency inline with `this`.
+          Effect.provideService(ConversationServiceTag, this),
+        );
       }),
     );
   }

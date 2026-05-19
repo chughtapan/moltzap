@@ -26,6 +26,10 @@ import {
   TaskServiceTag,
 } from "../../app/layers.js";
 import {
+  ConversationCreateAuthorization,
+  obtainConversationCreateAuthorization,
+} from "../../app/capabilities/index.js";
+import {
   broadcastNotificationToAgents,
   broadcastNotificationToConversation,
 } from "./notification-broadcast.js";
@@ -40,17 +44,30 @@ export const conversationHandlers: RpcMethodRegistry = [
         const agentIds = params.participants.map((p) => p.id as AgentId);
         // Pass the task source as a lazy Effect so
         // `ConversationService.create` only mints when its DM dedup
-        // misses; pre-fix every duplicate-DM call orphaned a task.
-        const conversation = yield* conversationService.create({
-          type: params.type,
-          name: params.name,
-          agentIds,
-          creatorAgentId: ctx.agentId,
-          mintTask: taskService.createDefaultTaskForType(
-            params.type,
-            ctx.agentId,
-          ),
-        });
+        // misses; the `ConversationCreateAuthorization` composite's
+        // `ExistingDm` short-circuit reaches the service body before
+        // `input.mintTask` is yielded.
+        const conversation = yield* conversationService
+          .create({
+            type: params.type,
+            name: params.name,
+            agentIds,
+            creatorAgentId: ctx.agentId,
+            mintTask: taskService.createDefaultTaskForType(
+              params.type,
+              ctx.agentId,
+            ),
+          })
+          .pipe(
+            Effect.provideServiceEffect(
+              ConversationCreateAuthorization,
+              obtainConversationCreateAuthorization({
+                type: params.type,
+                agentIds,
+                creatorAgentId: ctx.agentId,
+              }),
+            ),
+          );
 
         // `ConversationService.create` subscribes every participant's
         // open sockets to the new conversation; this handler fans the

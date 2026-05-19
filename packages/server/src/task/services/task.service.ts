@@ -31,6 +31,7 @@ import type {
 } from "./conversation.service.js";
 import type { MessageService, MessageServiceError } from "./message.service.js";
 import {
+  ConversationCreateAuthorization,
   ConversationInTask,
   TaskReadAccess,
   TmAuthority,
@@ -569,7 +570,11 @@ export class TaskService {
     id: TaskId,
     caller: AgentId,
     input: CreateConversationInput,
-  ): Effect.Effect<Conversation, TaskServiceError, TmAuthority> {
+  ): Effect.Effect<
+    Conversation,
+    TaskServiceError,
+    TmAuthority | ConversationCreateAuthorization
+  > {
     return Effect.gen(this, function* () {
       const cap = yield* TmAuthority;
       yield* assertTmAuthorityMatchesTask(cap, id);
