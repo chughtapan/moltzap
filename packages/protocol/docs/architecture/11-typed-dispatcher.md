@@ -93,8 +93,8 @@ the slot's default IS authorization-failing.
 ## 5. Facade Replacement Invariant (FRI)
 
 Spec F removes the legacy JSON-RPC client/server factories from the
-protocol's public surface. Post-merge, every connection consumer goes
-through `makeServerConnection` / `makeAgentClientConnection` /
+protocol's public surface. Every connection consumer goes through
+`makeServerConnection` / `makeAgentClientConnection` /
 `makeTaskMasterConnection`.
 
 **Post-cutover state:**
@@ -110,7 +110,91 @@ through `makeServerConnection` / `makeAgentClientConnection` /
 - `MoltZapWsClient`'s per-frame inbound-reply construction (formerly a
   runtime-rebuild path) is replaced by the static-table dispatcher.
 
-## 6. Capability auto-provision (Shape B — per-definition metadata)
+## 6. Internal originator lifecycle
+
+The originator is the outbound half of every Connection — it owns the
+pending-request map and the request-id counter for outbound `call(...)`
+invocations. Post-Spec F it is an internal helper
+(`originator.ts → makeOriginator`) consumed by
+`dispatch.ts → buildServerDispatcher` / `buildAgentClientDispatcher` /
+`buildTaskMasterDispatcher`. The public surface is `Connection.call`;
+the lifecycle below is the internal contract that surface upholds.
+
+`makeOriginator` is **scope-bound**: closing the scope runs
+`failAllPending(NotConnectedError)` (in `originator.ts → failAllPending`)
+so no caller is ever orphaned on a hung Deferred.
+
+```text
+caller
+   │
+   ▼  call(definition, params)                                  originator.ts → call
+   │
+   ▼  counterRef.modify(n → [n+1, n+1])
+   │       generates `${idPrefix}-${next}` JsonRpcId
+   │
+   ▼  requestFrame(id, definition, params) → RequestFrame
+   │
+   ▼  Deferred.make<unknown, RpcCallError>()
+   │
+   ▼  pendingRef.update(set(id, {method, definition, deferred}))
+   │       ─── pending map insert BEFORE write (#310 contract)
+   │
+   ▼  config.write(JSON.stringify(frame))
+   │       │
+   │       ├─ ok        →  proceed to Deferred.await
+   │       │
+   │       └─ failure   →  Deferred.fail(NotConnectedError);
+   │                       Effect.fail bubbles, ensuring() removes from map
+   │
+   ▼  Deferred.await(deferred)
+   │       ↑
+   │       │  ── unblocked by `resolve(frame)` when matching inbound arrives
+   │       │
+   │       ▼  decodeRpcResult(definition, result)
+   │             │
+   │             ├─ success → ResultOf<D>
+   │             │
+   │             └─ RpcResultDecodeError → RpcServerError
+   │                                       code: -32603,
+   │                                       "Invalid result for method: …"
+   │
+   └─ ensuring(pendingRef.remove(id))  ── runs on success, failure, OR interrupt
+                                          (Issue #310 contract)
+```
+
+Inbound response routing (in `originator.ts → resolve`):
+
+```text
+ResponseFrame arrives at the transport
+   │
+   ▼  client.resolve(frame)
+   │
+   ▼  frame.id === null  →  return false (drop; nothing to settle)
+   │
+   ▼  pendingRef.modify(takePendingEntry(frame.id))
+   │       atomic Get-then-Remove
+   │
+   ▼  Option.match
+        │
+        ├─ None  →  return false   ── late frame, deferred already cleaned up
+        │
+        └─ Some(entry)  →  completePendingFrame
+                              │
+                              ├─ frame.error  →  Deferred.fail(wireErrorToRpcCallError)
+                              │                      │
+                              │                      └─ errorClassFor(code) → tagged-class
+                              │                          ctor; else RpcServerError fallback
+                              │
+                              └─ frame.result →  Deferred.succeed(result)
+```
+
+The pending-map uses atomic `Ref.modify` for both insert and take, so two
+inbound responses with the same id (server bug) at worst resolve once and
+then race-lose harmlessly (second take sees `None`). The lifecycle
+guarantees — pending insert-before-write, scope-finalizer, atomic
+insert/take, late-frame drop — are unchanged from Spec A.
+
+## 7. Capability auto-provision (Shape B — per-definition metadata)
 
 TypeScript erases R channels at compile time. The architect picks Shape B:
 each `RpcDefinition` carries an OPTIONAL `capabilities` array of
@@ -128,7 +212,7 @@ Mismatch is a tsc error at the handler-table literal site.
 Why Shape B over Shape A: capabilities are a property of the wire method,
 not the implementation. `defineRpc(...)` is the single source of truth.
 
-## 7. Sequencing with Spec E (#601)
+## 8. Sequencing with Spec E (#601)
 
 Spec F lands after Spec E. Spec F consumes Spec E's primitives unchanged:
 every capability tag (`TmAuthority`, `ConversationParticipantAccess`,
@@ -140,7 +224,7 @@ that Spec E introduces in `tasks.handlers.ts`, `messages.handlers.ts`,
 `conversations.handlers.ts` are removed by Spec F's impl-staff PR —
 auto-provision replaces them.
 
-## 8. D-chain compounding (D1 / D2 / D3)
+## 9. D-chain compounding (D1 / D2 / D3)
 
 - **D1 (#598):** new `TaskConversation*` keys added to `taskRpcMethods`;
   `ServerHandlers` enumerates them; no per-handler boilerplate.
@@ -158,7 +242,7 @@ auto-provision replaces them.
 > `taskRpcMethods`. The type system enforces that every dangling
 > reference compiles as an error.
 
-## 9. Cross-references
+## 10. Cross-references
 
 - Architect plan: [#619](https://github.com/chughtapan/moltzap/issues/619)
 - Spec body: [#617](https://github.com/chughtapan/moltzap/issues/617)
