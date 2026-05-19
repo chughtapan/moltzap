@@ -56,12 +56,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** public `makeJsonRpcClient` + `JsonRpcClient` re-exports
   DELETED from the protocol barrel. The originator helper is internal
   to `dispatch.ts`.
-- **DEPRECATED:** `makeJsonRpcServer` / `handler` / `JsonRpcServer` /
-  `RpcHandler` re-exports flagged `@deprecated`. Remaining consumer:
-  `server/src/app/server.ts → createCoreApp` (legacy
-  `RpcMethodRegistry` array-of-handlers). Cutover follow-up:
-  `createCoreApp` → `makeServerConnection` + `ServerHandlers`
-  mapped-type table.
+- **BREAKING:** `makeJsonRpcServer` / `handler` / `JsonRpcServer` /
+  `RpcHandler` DELETED entirely. `packages/protocol/src/transport/json-rpc-server.ts`
+  removed; `wireErrorFromInstance` re-exported from `transport/dispatch.ts`
+  for `@moltzap/protocol/testing` consumers.
+- **BREAKING:** `MoltZapConnection.originator` re-typed from
+  `AgentClientConnection` to `ServerConnection<DispatchContext>` —
+  every socket now carries one typed Connection that hosts BOTH inbound
+  dispatch and outbound TM-callback originator. `acquireConnectionRpcClient`
+  takes an optional `handlers: ServerHandlers<DispatchContext>` parameter
+  (defaults to empty for test fixtures).
+- **BREAKING:** `CoreApp.registerRpcMethod` DELETED. Static handler
+  table is captured at `createCoreApp` time; Spec F I1 forbids
+  post-construction mutation.
+- **BREAKING:** `server/src/transport/context.ts → defineMethod` now
+  returns a `HandlerSlot`-shaped binding (was: `RpcHandler`); the
+  `Reqs` generic loses the `AppTags` upper bound (invariant
+  `Context.Tag` parameters reject the broad bound; `FullLive` resolves
+  Tags at runtime via the surrounding `ManagedRuntime`).
 - **DOCS:** `packages/protocol/docs/architecture/11-typed-dispatcher.md`
   is the canonical reference for request handling.
   `03-server-request-handling.md` DELETED (no Spec F analogue).
