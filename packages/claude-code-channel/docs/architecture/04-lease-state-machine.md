@@ -18,7 +18,7 @@ flowchart TD
     C["sendReply() call"] --> D["core.sendReply(conv, text)<br>WS RPC → messages/send"]
     D --> E{result}
     E -->|success| F["void"]
-    E -->|"RpcServerError { data.reason: 'LeaseInvalid' }"| G["projectLeaseInvalid (entry.ts)"]
+    E -->|"RpcServerError { data.reason: 'LeaseInvalid' }"| G["catchLeaseInvalid (channel-base)"]
     G --> H["LeaseAlreadyConsumed { leaseId }"]
     H --> I["server.ts sendFailureResult"]
     I --> J["toolErrorResult('LeaseAlreadyConsumed: dispatch lease was already consumed by an earlier reply in this dispatch turn.')"]

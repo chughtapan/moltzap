@@ -2,6 +2,7 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
@@ -80,9 +81,10 @@ function notificationText(notification: { params: unknown }): string {
 }
 
 function waitForMessageText(agent: ConnectedAgent) {
-  return agent.client
-    .waitForNotification(MessageReceivedNotificationDefinition)
-    .pipe(Effect.map(notificationText));
+  return awaitOneNotification(
+    agent.client,
+    MessageReceivedNotificationDefinition,
+  ).pipe(Effect.map(notificationText));
 }
 
 function messageTextsFor(agent: ConnectedAgent, conversationId: string) {
@@ -103,7 +105,9 @@ function isMessageReceivedEvent(event: {
 }
 
 function drainMessageReceivedEvents(agent: ConnectedAgent) {
-  return agent.client.drainNotifications().filter(isMessageReceivedEvent);
+  return Effect.map(agent.client.drainNotifications, (events) =>
+    events.filter(isMessageReceivedEvent),
+  );
 }
 
 function closeAgents(agents: ReadonlyArray<ConnectedAgent>) {
@@ -161,7 +165,8 @@ function connectedParticipantReceivesWithoutReconnect() {
     const bob = yield* registerAndConnect("bob-sub");
     const conv = yield* createDm(alice, bob);
 
-    const createdEvent = yield* bob.client.waitForNotification(
+    const createdEvent = yield* awaitOneNotification(
+      bob.client,
       ConversationCreatedNotificationDefinition,
     );
     expect(createdEvent).toBeDefined();
@@ -195,11 +200,12 @@ function senderDoesNotReceiveOwnMessage() {
 
     yield* sendText(alice, conv.conversation.id, NO_ECHO_MESSAGE);
     expect(
-      yield* bob.client.waitForNotification(
+      yield* awaitOneNotification(
+        bob.client,
         MessageReceivedNotificationDefinition,
       ),
     ).toBeDefined();
-    expect(drainMessageReceivedEvents(alice)).toHaveLength(0);
+    expect(yield* drainMessageReceivedEvents(alice)).toHaveLength(0);
     yield* closeAgents([alice, bob]);
   });
 }

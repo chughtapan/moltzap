@@ -22,6 +22,42 @@ changes:
   Public Surface, §3 link table, §4 Dependencies, §5 Tests,
   §6 Glossary) plus per-flow detail docs.
 
+### Code analysis — prefer LSP over Explore for tracing
+
+When tracing how code is wired (definition, references, callers, type
+flow, signature evolution), use the LSP first. Explore-style search
+agents are read-windowed: they grep a region and stop, so they
+will miss content past the window AND miss symbol-aware relationships
+(rename targets, implementations of an interface, downstream callers
+of a generic method).
+
+LSP, by contrast, is the compiler's own view of the code: every
+`go to definition`, `find references`, and `type at cursor` answer is
+ground-truth for the current tree. Architects, implementers, and code
+reviewers should default to LSP for these questions:
+
+- *Where is `X` defined?* → LSP definition (one hop, type-aware)
+- *Who calls `X`?* → LSP references / callers (covers all variants,
+  including renamed re-exports)
+- *What does this generic `T` resolve to here?* → LSP type-at-cursor
+- *Which interfaces does `Y` implement?* → LSP implementations
+- *Why does the compiler reject this signature?* → LSP diagnostics at
+  point + inferred type
+
+Reserve Explore agents for:
+
+- *Where might this feature be?* (no symbol name yet — pure breadth search)
+- *Search for a string literal or comment pattern* (LSP can't help)
+- *Tree-wide grep for a regex* (one-shot, accept the read window)
+
+If you find yourself using Explore to answer a "who/what/where" symbol
+question, you are paying read-window cost for a question LSP would
+answer canonically. Switch.
+
+For agents dispatched via `/safer:*` modalities, this preference is a
+hard rule: architect and implement teammates use LSP to trace code
+semantics; Explore is opt-in for breadth-only questions.
+
 ### Citation style — symbol names, not line numbers
 
 Cite functions/classes/methods by name, never by line. `file.ts:123`

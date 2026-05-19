@@ -13,7 +13,10 @@ import {
 } from "@moltzap/client/test-utils";
 import type { Message } from "@moltzap/protocol";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
-import { CROSS_CONV_HEADER } from "./format-cross-conv.js";
+
+// Header literal from channel-base's `json-header` markup variant (per spec
+// C #597 invariant: byte-identical to the pre-refactor openclaw output).
+const CROSS_CONV_HEADER = "Messages (untrusted metadata):";
 
 const MESSAGE_DISPATCH_SETTLE_MS = 100;
 const DEFAULT_ACCOUNT_ID = "test-account";

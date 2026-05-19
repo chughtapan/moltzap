@@ -34,13 +34,15 @@ export {
   type ServerRpcHandler,
   type RpcCallOptions,
 } from "./ws-client.js";
-export type {
-  SubscriptionFilter,
-  SubscriptionId,
-  NotificationSubscription,
-  SubscriberHandler,
-} from "./runtime/subscribers.js";
 export type { CloseInfo } from "./runtime/close-info.js";
+// Spec B (#596) — tagged errors for the typed-Stream subscribe surface.
+// `NotificationConsumerError` is a type union (see notification/errors.ts
+// header for rationale, codex review r1 finding #8).
+export {
+  TimeoutError as NotificationTimeoutError,
+  StreamClosedError as NotificationStreamClosedError,
+  type NotificationConsumerError,
+} from "./notification/errors.js";
 export {
   registerAgent,
   type RegisterAgentOptions,
