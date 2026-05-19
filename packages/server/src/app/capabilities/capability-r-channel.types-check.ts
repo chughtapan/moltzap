@@ -144,6 +144,16 @@ void union_BOTH_provided;
 // future handlers may consume `ValidReplyTarget` / `NoReplyTarget` as
 // standalone capabilities even though MessagesSend folds them into the
 // composite.
+//
+// `Effect.provideService(NoReplyTarget, noReplyTarget())` carve-out:
+// `noReplyTarget()` is a zero-payload synchronous constructor whose
+// value type carries no Effect, so `provideService` (the non-Effect
+// provider) is the correct primitive. `provideServiceEffect` would
+// require a redundant `Effect.succeed(noReplyTarget())` wrapper with
+// no behavioral gain. Every OTHER capability provider on the stub
+// branch pipes `Effect.provideServiceEffect` (the Effect-valued
+// obtain/refine helpers); this canary intentionally exercises both
+// shapes together to document the convention.
 // ─────────────────────────────────────────────────────────────────────
 
 declare const serviceBodyReply: Effect.Effect<
