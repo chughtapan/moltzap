@@ -85,5 +85,6 @@ export {
 // Runtime equality guards
 export {
   assertTmAuthorityMatchesTask,
+  assertTaskReadAccessMatchesTask,
   assertConversationInTaskMatches,
 } from "./assert-capability-matches-task.js";

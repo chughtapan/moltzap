@@ -3,6 +3,7 @@ import { ForbiddenError } from "@moltzap/protocol";
 import type { TaskId, ConversationId } from "@moltzap/protocol/task";
 import type { ConversationInTaskValue } from "./conversation-in-task.js";
 import type { TmAuthorityValue } from "./tm-authority.js";
+import type { TaskReadAccessValue } from "./task-read-access.js";
 
 /**
  * Runtime equality check: the capability's carried `taskId` matches
@@ -23,6 +24,16 @@ import type { TmAuthorityValue } from "./tm-authority.js";
 const ERR_CAP_TASK_MISMATCH = "capability/task mismatch";
 const ERR_CAP_CONV_MISMATCH = "capability/conversation mismatch";
 
+const assertTaskIdMatches = (
+  capTaskId: TaskId,
+  expectedTaskId: TaskId,
+): Effect.Effect<void, ForbiddenError> => {
+  if (capTaskId !== expectedTaskId) {
+    return Effect.fail(new ForbiddenError({ message: ERR_CAP_TASK_MISMATCH }));
+  }
+  return Effect.void;
+};
+
 /**
  * Verifies `cap.task.id === expectedTaskId`. Fails with
  * `ForbiddenError` when the handler obtained a capability for one task
@@ -31,12 +42,19 @@ const ERR_CAP_CONV_MISMATCH = "capability/conversation mismatch";
 export const assertTmAuthorityMatchesTask = (
   cap: TmAuthorityValue,
   expectedTaskId: TaskId,
-): Effect.Effect<void, ForbiddenError> => {
-  if (cap.task.id !== expectedTaskId) {
-    return Effect.fail(new ForbiddenError({ message: ERR_CAP_TASK_MISMATCH }));
-  }
-  return Effect.void;
-};
+): Effect.Effect<void, ForbiddenError> =>
+  assertTaskIdMatches(cap.task.id, expectedTaskId);
+
+/**
+ * Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. The
+ * value shape mirrors `TmAuthorityValue`; a separate overload keeps the
+ * type narrowed at the call site.
+ */
+export const assertTaskReadAccessMatchesTask = (
+  cap: TaskReadAccessValue,
+  expectedTaskId: TaskId,
+): Effect.Effect<void, ForbiddenError> =>
+  assertTaskIdMatches(cap.task.id, expectedTaskId);
 
 /**
  * Verifies the capability's carried `(taskId, conversationId)` pair

@@ -17,6 +17,14 @@ import {
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
 } from "../../test-utils/index.js";
+import {
+  TaskReadAccess,
+  TmAuthority,
+  obtainTaskReadAccess,
+  obtainTmAuthority,
+} from "../../app/capabilities/index.js";
+import { TaskServiceTag } from "../../app/layers.js";
+import type { AgentId } from "@moltzap/protocol/identity";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
 // + message paths are covered by integration tests.
@@ -101,6 +109,28 @@ function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
   return wireErrorFromInstance(failure.value)?.code ?? null;
 }
 
+function withTmAuth(taskId: TaskId, caller: AgentId, svc: TaskService) {
+  return <A, E, R>(eff: Effect.Effect<A, E, R | TmAuthority>) =>
+    eff.pipe(
+      Effect.provideServiceEffect(
+        TmAuthority,
+        obtainTmAuthority(taskId, caller),
+      ),
+      Effect.provideService(TaskServiceTag, svc),
+    ) as Effect.Effect<A, E, Exclude<R, TmAuthority>>;
+}
+
+function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
+  return <A, E, R>(eff: Effect.Effect<A, E, R | TaskReadAccess>) =>
+    eff.pipe(
+      Effect.provideServiceEffect(
+        TaskReadAccess,
+        obtainTaskReadAccess(taskId, caller),
+      ),
+      Effect.provideService(TaskServiceTag, svc),
+    ) as Effect.Effect<A, E, Exclude<R, TaskReadAccess>>;
+}
+
 function setPersistedTmEndpoint(id: TaskId, address: string) {
   return harness.db
     .updateTable("tasks")
@@ -151,7 +181,9 @@ function createsWaitingTask() {
     expect(task.initiatorAgentId).toBe(ALICE);
     expect(task.tmEndpointAddress).toBe(endpointAddressForAgent(ALICE));
 
-    const view = yield* svc.get(task.id, ALICE);
+    const view = yield* svc
+      .get(task.id, ALICE)
+      .pipe(withReadAccess(task.id, ALICE, svc));
     expect(view.task.id).toBe(task.id);
     expect(view.participants).toHaveLength(1);
     expect(view.participants[0]?.agentId).toBe(ALICE);
@@ -166,7 +198,9 @@ function admitsInvitedParticipantAsPending() {
       ...aliceAsTm(),
       invitedAgentIds: [BOB],
     });
-    const view = yield* svc.get(task.id, ALICE);
+    const view = yield* svc
+      .get(task.id, ALICE)
+      .pipe(withReadAccess(task.id, ALICE, svc));
     const bobRow = view.participants.find((p) => p.agentId === BOB);
     expect(bobRow).toBeDefined();
     expect(bobRow?.admittedAt).toBeNull();
@@ -192,7 +226,9 @@ function rejectsGetForNonParticipant() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, aliceAsTm());
-    const exit = yield* Effect.exit(svc.get(task.id, BOB));
+    const exit = yield* Effect.exit(
+      svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
+    );
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }
@@ -200,7 +236,11 @@ function rejectsGetForNonParticipant() {
 function rejectsUnknownTaskGet() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const exit = yield* Effect.exit(svc.get(UNKNOWN_TASK_ID, ALICE));
+    const exit = yield* Effect.exit(
+      svc
+        .get(UNKNOWN_TASK_ID, ALICE)
+        .pipe(withReadAccess(UNKNOWN_TASK_ID, ALICE, svc)),
+    );
     expect(rpcFailureCode(exit)).toBe(NotFoundError.code);
   });
 }
@@ -229,7 +269,9 @@ function rejectsCloseFromNonTm() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, aliceAsTm());
-    const exit = yield* Effect.exit(svc.close(task.id, BOB));
+    const exit = yield* Effect.exit(
+      svc.close(task.id, BOB).pipe(withTmAuth(task.id, BOB, svc)),
+    );
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }
@@ -238,7 +280,9 @@ function closesTaskFromRegisteredTm() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, aliceAsTm());
-    const closed = yield* svc.close(task.id, ALICE);
+    const closed = yield* svc
+      .close(task.id, ALICE)
+      .pipe(withTmAuth(task.id, ALICE, svc));
     expect(closed.status).toBe(TASK_STATUS_CLOSED);
     expect(closed.endedAt).not.toBeNull();
   });
@@ -249,10 +293,16 @@ function restrictsAddParticipantToRegisteredTm() {
     const svc = makeService();
     const task = yield* svc.create(ALICE, aliceAsTm());
 
-    const denied = yield* Effect.exit(svc.addParticipant(task.id, BOB, CAROL));
+    const denied = yield* Effect.exit(
+      svc
+        .addParticipant(task.id, BOB, CAROL)
+        .pipe(withTmAuth(task.id, BOB, svc)),
+    );
     expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
 
-    const participant = yield* svc.addParticipant(task.id, ALICE, CAROL);
+    const participant = yield* svc
+      .addParticipant(task.id, ALICE, CAROL)
+      .pipe(withTmAuth(task.id, ALICE, svc));
     expect(participant.agentId).toBe(CAROL);
     expect(participant.admittedAt).not.toBeNull();
   });
@@ -267,12 +317,18 @@ function restrictsRemoveParticipantToRegisteredTm() {
     });
 
     const denied = yield* Effect.exit(
-      svc.removeParticipant(task.id, CAROL, BOB),
+      svc
+        .removeParticipant(task.id, CAROL, BOB)
+        .pipe(withTmAuth(task.id, CAROL, svc)),
     );
     expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
 
-    yield* svc.removeParticipant(task.id, ALICE, BOB);
-    const view = yield* svc.get(task.id, ALICE);
+    yield* svc
+      .removeParticipant(task.id, ALICE, BOB)
+      .pipe(withTmAuth(task.id, ALICE, svc));
+    const view = yield* svc
+      .get(task.id, ALICE)
+      .pipe(withReadAccess(task.id, ALICE, svc));
     expect(view.participants.find((p) => p.agentId === BOB)).toBeUndefined();
   });
 }
@@ -281,12 +337,18 @@ function rejectsMutationAfterClose() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, aliceAsTm());
-    yield* svc.close(task.id, ALICE);
+    yield* svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE, svc));
 
-    const addExit = yield* Effect.exit(svc.addParticipant(task.id, ALICE, BOB));
+    const addExit = yield* Effect.exit(
+      svc
+        .addParticipant(task.id, ALICE, BOB)
+        .pipe(withTmAuth(task.id, ALICE, svc)),
+    );
     expect(rpcFailureCode(addExit)).toBe(ForbiddenError.code);
 
-    const closeExit = yield* Effect.exit(svc.close(task.id, ALICE));
+    const closeExit = yield* Effect.exit(
+      svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE, svc)),
+    );
     expect(rpcFailureCode(closeExit)).toBe(ForbiddenError.code);
   });
 }
@@ -298,7 +360,9 @@ function deniesReadAccessToPendingInvitee() {
       ...aliceAsTm(),
       invitedAgentIds: [BOB],
     });
-    const exit = yield* Effect.exit(svc.get(task.id, BOB));
+    const exit = yield* Effect.exit(
+      svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
+    );
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }

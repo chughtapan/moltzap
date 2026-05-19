@@ -26,6 +26,14 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { TaskServiceTag } from "../../app/layers.js";
+import {
+  ConversationInTask,
+  TaskReadAccess,
+  TmAuthority,
+  obtainConversationInTask,
+  obtainTaskReadAccess,
+  obtainTmAuthority,
+} from "../../app/capabilities/index.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
 /**
@@ -95,7 +103,14 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        return yield* taskService.get(params.taskId, ctx.agentId);
+        return yield* taskService
+          .get(params.taskId, ctx.agentId)
+          .pipe(
+            Effect.provideServiceEffect(
+              TaskReadAccess,
+              obtainTaskReadAccess(params.taskId, ctx.agentId),
+            ),
+          );
       }).pipe(Effect.withSpan("tasks.get")),
   }),
 
@@ -116,10 +131,14 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const closed = yield* taskService.closeWithLifecycle(
-          params.taskId,
-          ctx.agentId,
-        );
+        const closed = yield* taskService
+          .closeWithLifecycle(params.taskId, ctx.agentId)
+          .pipe(
+            Effect.provideServiceEffect(
+              TmAuthority,
+              obtainTmAuthority(params.taskId, ctx.agentId),
+            ),
+          );
         for (const conversation of closed.archivedConversations) {
           yield* broadcastNotificationToAgents(
             conversation.participantAgentIds,
@@ -145,17 +164,20 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const conversation = yield* taskService.createConversation(
-          params.taskId,
-          ctx.agentId,
-          {
+        const conversation = yield* taskService
+          .createConversation(params.taskId, ctx.agentId, {
             type: params.type,
             name: params.name,
             participantAgentIds: params.participants.map(
               (p) => p.id as AgentId,
             ),
-          },
-        );
+          })
+          .pipe(
+            Effect.provideServiceEffect(
+              TmAuthority,
+              obtainTmAuthority(params.taskId, ctx.agentId),
+            ),
+          );
         return { conversation };
       }).pipe(Effect.withSpan("tasks.createConversation")),
   }),
@@ -164,11 +186,18 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        yield* taskService.closeConversation(
-          params.taskId,
-          ctx.agentId,
-          params.conversationId,
-        );
+        yield* taskService
+          .closeConversation(params.taskId, ctx.agentId, params.conversationId)
+          .pipe(
+            Effect.provideServiceEffect(
+              TmAuthority,
+              obtainTmAuthority(params.taskId, ctx.agentId),
+            ),
+            Effect.provideServiceEffect(
+              ConversationInTask,
+              obtainConversationInTask(params.taskId, params.conversationId),
+            ),
+          );
         return {};
       }).pipe(Effect.withSpan("tasks.closeConversation")),
   }),
@@ -177,11 +206,14 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const participant = yield* taskService.addParticipant(
-          params.taskId,
-          ctx.agentId,
-          params.agentId,
-        );
+        const participant = yield* taskService
+          .addParticipant(params.taskId, ctx.agentId, params.agentId)
+          .pipe(
+            Effect.provideServiceEffect(
+              TmAuthority,
+              obtainTmAuthority(params.taskId, ctx.agentId),
+            ),
+          );
         return { participant };
       }).pipe(Effect.withSpan("tasks.addParticipant")),
   }),
@@ -190,11 +222,14 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        yield* taskService.removeParticipant(
-          params.taskId,
-          ctx.agentId,
-          params.agentId,
-        );
+        yield* taskService
+          .removeParticipant(params.taskId, ctx.agentId, params.agentId)
+          .pipe(
+            Effect.provideServiceEffect(
+              TmAuthority,
+              obtainTmAuthority(params.taskId, ctx.agentId),
+            ),
+          );
         return {};
       }).pipe(Effect.withSpan("tasks.removeParticipant")),
   }),
@@ -203,16 +238,23 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const message = yield* taskService.storeMessage(
-          params.taskId,
-          ctx.agentId,
-          {
+        const message = yield* taskService
+          .storeMessage(params.taskId, ctx.agentId, {
             conversationId: params.conversationId,
             senderAgentId: params.senderAgentId,
             parts: params.parts,
             replyToId: params.replyToId,
-          },
-        );
+          })
+          .pipe(
+            Effect.provideServiceEffect(
+              TmAuthority,
+              obtainTmAuthority(params.taskId, ctx.agentId),
+            ),
+            Effect.provideServiceEffect(
+              ConversationInTask,
+              obtainConversationInTask(params.taskId, params.conversationId),
+            ),
+          );
         return { message };
       }).pipe(Effect.withSpan("tasks.storeMessage")),
   }),
@@ -221,10 +263,21 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        return yield* taskService.getMessages(params.taskId, ctx.agentId, {
-          conversationId: params.conversationId,
-          limit: params.limit,
-        });
+        return yield* taskService
+          .getMessages(params.taskId, ctx.agentId, {
+            conversationId: params.conversationId,
+            limit: params.limit,
+          })
+          .pipe(
+            Effect.provideServiceEffect(
+              TaskReadAccess,
+              obtainTaskReadAccess(params.taskId, ctx.agentId),
+            ),
+            Effect.provideServiceEffect(
+              ConversationInTask,
+              obtainConversationInTask(params.taskId, params.conversationId),
+            ),
+          );
       }).pipe(Effect.withSpan("tasks.getMessages")),
   }),
 
@@ -232,11 +285,22 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        return yield* taskService.getMessagesSince(params.taskId, ctx.agentId, {
-          conversationId: params.conversationId,
-          sinceSeq: params.sinceSeq,
-          limit: params.limit,
-        });
+        return yield* taskService
+          .getMessagesSince(params.taskId, ctx.agentId, {
+            conversationId: params.conversationId,
+            sinceSeq: params.sinceSeq,
+            limit: params.limit,
+          })
+          .pipe(
+            Effect.provideServiceEffect(
+              TaskReadAccess,
+              obtainTaskReadAccess(params.taskId, ctx.agentId),
+            ),
+            Effect.provideServiceEffect(
+              ConversationInTask,
+              obtainConversationInTask(params.taskId, params.conversationId),
+            ),
+          );
       }).pipe(Effect.withSpan("tasks.getMessagesSince")),
   }),
 ];
