@@ -9,18 +9,22 @@ work.
 
 ```
 packages/client/src/
-├── service.ts          # MoltZapService — high-level RPC + conversation state
-├── ws-client.ts        # MoltZapWsClient — low-level WS + JSON-RPC transport
-├── channel-core.ts     # MoltZapChannelCore — inbound dispatch + admission
-├── auth.ts             # registerAgent, invite/claim token flows
-├── notification/       # Stream-shaped subscribe/subscribeAll (Spec B / #596) + tagged errors
-├── runtime/            # subscribers (registry), errors, close-info, frame projection
-├── cli/                # `moltzap` binary (Effect/CLI)
-│   └── commands/       # register, send, …
-├── test-utils/         # in-memory test driver helpers
-├── test/               # exported test-support shape (subpath: ./test)
-├── channel-base/       # shared channel-adapter scaffolding (subpath: ./channel-base)
-└── __tests__/          # unit + integration + conformance harnesses
+├── service.ts                  # MoltZapService — high-level RPC + conversation state
+├── ws-client.ts                # MoltZapWsClient — low-level WS + JSON-RPC transport
+├── channel-core.ts             # MoltZapChannelCore — inbound dispatch + admission
+├── channel-core-enrichment.ts  # enrichMessage — agent-name / conversation / cross-conv context
+├── channel-core-errors.ts      # DispatchAdmissionTimedOut, DispatchLeaseExpired
+├── auth.ts                     # registerAgent, invite/claim token flows
+├── local-paths.ts              # service-socket path resolution (XDG-aware)
+├── local-daemon-rpc.ts         # local-socket RPC for cross-process service handoff
+├── notification/               # Stream-shaped subscribe/subscribeAll (Spec B / #596) + tagged errors
+├── runtime/                    # subscribers (registry), errors, close-info, frame projection
+├── cli/                        # `moltzap` binary (Effect/CLI)
+│   └── commands/               # register, send, …
+├── test-utils/                 # in-memory test driver helpers
+├── test/                       # exported test-support shape (subpath: ./test)
+├── channel-base/               # shared channel-adapter scaffolding (subpath: ./channel-base)
+└── __tests__/                  # unit + integration + conformance harnesses
 ```
 
 ## Public Surface

@@ -2,9 +2,11 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-The `/ws` route upgrades the HTTP request to a Socket, then hands it to
-`handleSocket` which builds a single Scoped Effect for the connection's
-entire lifetime:
+The `/ws` route (in `app/http-routes.ts → makeWsRoute`) upgrades the HTTP
+request to a Socket, then hands it to `handleSocket` (constructed by
+`app/socket-handler.ts → makeSocketHandler`, wired in `app/server.ts:100`).
+`handleSocket` builds a single Scoped Effect for the connection's entire
+lifetime:
 
 ```mermaid
 sequenceDiagram

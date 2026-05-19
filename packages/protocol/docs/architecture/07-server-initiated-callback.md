@@ -13,8 +13,8 @@ AppHost.runAuthorizeDispatch
   │
   ▼  perConnectionClient.call(
        DispatchAuthorize, {dispatchId, …})
-  │  pending["server-7"] = Deferred
-  │  await
+  │  pending["srv-${connId}-7"] = Deferred   (server idPrefix = `srv-${connectionId}`;
+  │  await                                     see server/src/transport/connection.ts:69)
   │                                                 ─── WS frame ──▶
   │                                                                 decodeServerInbound(json)
   │                                                                   → {_tag: "ServerRequest",

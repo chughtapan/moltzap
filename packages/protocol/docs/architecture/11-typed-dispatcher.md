@@ -212,17 +212,26 @@ Mismatch is a tsc error at the handler-table literal site.
 Why Shape B over Shape A: capabilities are a property of the wire method,
 not the implementation. `defineRpc(...)` is the single source of truth.
 
-## 8. Sequencing with Spec E (#601)
+## 8. Sequencing with Spec E (#601) — capability auto-provision status
 
-Spec F lands after Spec E. Spec F consumes Spec E's primitives unchanged:
-every capability tag (`TmAuthority`, `ConversationParticipantAccess`,
-`MessageSendPermission`, …), every obtain helper, every error channel,
-and `assertCapabilityMatchesTask` from #606 §5.
+Spec F lands the auto-provision *plumbing*: `defineRpc` accepts a
+`capabilities: ReadonlyArray<CapabilityDescriptor>` parameter, the
+dispatcher reads `definition.capabilities` per frame and threads
+`Effect.provideServiceEffect` for each tag, and
+`typed-dispatcher.types-check.ts` enforces that the handler's `R` channel
+is a subset of `CapabilitiesOf<D>`.
 
-The hand-piped `pipe(Effect.provideServiceEffect(TmAuthority, …))` chains
-that Spec E introduces in `tasks.handlers.ts`, `messages.handlers.ts`,
-`conversations.handlers.ts` are removed by Spec F's impl-staff PR —
-auto-provision replaces them.
+What Spec F does NOT do yet: every `defineRpc` call ships with the
+`capabilities` field absent (effective `readonly []`). No capability tag
+or provider table is actually wired up. The handler-side
+`requireTmAuthority` check in `packages/server/src/task/services/task.service.ts`
+is the current authority pattern; the per-method-descriptor `capabilities`
+metadata that would replace it is empty across the workspace.
+
+Spec E (#601) is the planned follow-up that introduces named capability
+tags (`TmAuthority` etc.) and populates `capabilities` on the
+relevant `defineRpc` calls; until then the auto-provision codepath
+threads zero capabilities and is a no-op.
 
 ## 9. D-chain compounding (D1 / D2 / D3)
 

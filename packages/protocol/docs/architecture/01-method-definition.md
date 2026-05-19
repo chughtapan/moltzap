@@ -9,7 +9,10 @@ identical schema semantics:
 ```text
             domain layer (e.g. task/methods.ts)
                        │
-                       ▼  defineRpc({ name, params, result })       transport/method.ts → defineRpc
+                       ▼  defineRpc({ name, params, result,         transport/method.ts → defineRpc
+                       │              slotDisposition?, capabilities? })
+                       │              (slotDisposition + capabilities are Spec F G4/G5;
+                       │               absent = REQUIRED slot, no capability auto-provision)
                        │
        ┌───────────────┴────────────────────────────┐
        ▼                                            ▼
@@ -22,8 +25,8 @@ identical schema semantics:
               name (branded)                                method.ts → RpcDefinition type
               paramsSchema / resultSchema (TypeBox)
               validateParams / validateResult (Ajv)
-              encodeRequest(id, params) → RequestFrame      wire.ts → encodeRequest
-              encodeResponse(id, result) → ResponseFrame    wire.ts → encodeResponse
+              encodeRequest(id, params) → RequestFrame      wire.ts → requestFrame (wrapped per-descriptor)
+              encodeResponse(id, result) → ResponseFrame    wire.ts → responseFrame (wrapped per-descriptor)
             }
                     │
                     ▼

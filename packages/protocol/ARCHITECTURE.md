@@ -22,7 +22,8 @@ packages/protocol/src/
 │   ├── capabilities.ts        # CapabilityProviderTable, CapabilityDescriptor, CapabilitiesOf (Spec F G5)
 │   ├── defaults.ts            # SlotDisposition, optionalForbidden, optionalNoOp (Spec F G4)
 │   ├── connection.ts          # ServerConnection / AgentClient / TaskMaster types + factories
-│   ├── dispatch.ts            # buildServerDispatcher (static-table dispatch + capability auto-provision)
+│   ├── dispatch.ts            # build{Server,AgentClient,TaskMaster}Dispatcher (static-table dispatch + capability auto-provision)
+│   ├── originator.ts          # makeOriginator — scope-bound outbound RPC + pending-call registry (internal helper)
 │   └── typed-dispatcher.types-check.ts  # 6 type canaries on the live typed surface
 │
 ├── identity/               # Agents, users, sessions, attestation, contact policy
@@ -49,9 +50,7 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | `PROTOCOL_VERSION` | root | Wire-format version constant |
 | `rpcMethods` | rpc-registry | All C↔S request methods (frozen array) |
 | `notificationDefinitions` | rpc-registry | All S↔C notifications |
-| `taskCallbackMethods` | rpc-registry | Subset: methods the server calls *into* the client |
 | `decodeServerInbound` / `decodeClientInbound` | rpc-registry | Tagged-union frame decoders, fail-closed |
-| `defineRpc` / `defineNotification` | transport/method | Descriptor factories used by domain layers. `defineRpc` accepts `slotDisposition` + `capabilities` (Spec F G4/G5) |
 | `makeServerConnection` / `makeAgentClientConnection` / `makeTaskMasterConnection` | transport/connection | Typed-dispatcher factories — one per connection kind (Spec F G2) |
 | `ServerHandlers` / `AgentClientHandlers` / `TaskMasterHandlers` | transport/handlers | Per-kind static handler-table type aliases (Spec F G3) |
 | `CapabilityProviderTable<Caps>` | transport/capabilities | Capability auto-provision table (Spec F G5/G6) |

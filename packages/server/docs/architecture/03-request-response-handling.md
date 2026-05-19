@@ -2,8 +2,12 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-`handleFrame(raw)` decodes once via `decodeClientInbound` (from `@moltzap/protocol`),
-then `Match.value` routes by the discriminated tag:
+`handleSocketData(raw)` (in `app/socket-handler.ts`) decodes once via
+`decodeClientInbound` (from `@moltzap/protocol`), then `Match.value`
+routes by the discriminated tag. The named flow steps below
+(`handleResponseFrame`, `handleRequestFrame`) are inline branches of
+`handleSocketData`, not standalone functions — they're labeled here to
+match the sequence the code walks.
 
 ```mermaid
 flowchart TD
@@ -12,7 +16,7 @@ flowchart TD
     B -->|"fail"| B1["handleParseFailure (rate-limited log)<br/>+ sendFrame(encodeErrorResponse(null,<br/>{code: -32700, message: 'Invalid JSON'}))"]
     B -->|"ok"| C["decodeClientInbound(parsed)<br/><i>@moltzap/protocol → rpc-registry.ts</i>"]
     C -->|"MalformedFrameError"| C1["sendInvalidRequest(null)"]
-    C -->|"ok"| D["Match.value(decoded)<br/><i>app/server.ts → handleFrame</i>"]
+    C -->|"ok"| D["Match.value(decoded)<br/><i>app/socket-handler.ts → handleSocketData</i>"]
 
     D -->|"ResponseSuccess / ResponseError"| E["handleResponseFrame(frame)"]
     D -->|"Notification"| D1["sendInvalidRequest(null)<br/>(server doesn't accept notifications)"]
@@ -27,7 +31,7 @@ flowchart TD
     F1 -->|"yes"| F2["isConnect = (frame.method === Connect.name)"]
     F2 --> F3{"!isConnect &&<br/>!conn.auth?"}
     F3 -->|"yes"| F3a["sendFrame(encodeErrorResp(id,<br/>{code: Unauthorized,<br/>message: 'Not authenticated.<br/>Send network/connect first.'})"]
-    F3 -->|"no"| F4["conn.originator.handle(frame, {auth, connId})<br/><i>@moltzap/protocol → dispatch.ts → buildServerDispatcher<br/>(per-connection ServerConnection static-table dispatch per Spec F #617 §6 FRI)</i>"]
+    F3 -->|"no"| F4["conn.originator.handle(frame, {auth, connId})<br/><i>@moltzap/protocol → dispatch.ts → buildServerDispatcher<br/>(per-connection ServerConnection static-table dispatch per Spec F #617 §6 FRI)<br/>called from app/socket-handler.ts:240</i>"]
 
     F4 --> F5["ServerHandlers[frame.method]<br/>decodeRpcParams(slot.definition, frame.params)<br/>capability auto-provision (Spec F G6) — read slot.definition.capabilities, thread provideServiceEffect from CapabilityProviderTable<br/>slot.handle(params, ctx)<br/>runs inside dispatchRuntime — R = AppTags resolved<br/>structurally; handler body can yield* XServiceTag freely"]
 
