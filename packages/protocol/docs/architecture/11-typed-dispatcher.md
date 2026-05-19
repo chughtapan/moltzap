@@ -1,0 +1,174 @@
+# Typed dispatcher — Spec F (#617)
+
+Per-kind static handler tables, three specialized factories, auto-provision
+dispatcher. Replaces the dynamic register/unregister design (Spec A #595)
+and the legacy `makeJsonRpcServer` / `makeJsonRpcClient` pair.
+
+This document is the per-flow detail for `packages/protocol`. Source-of-truth
+is `packages/protocol/src/transport/{handlers,capabilities,connection,
+dispatch,defaults,typed-dispatcher.types-check}.ts`. Spec body at
+[#617](https://github.com/chughtapan/moltzap/issues/617). Architect
+plan + reviewer prompts at [#619](https://github.com/chughtapan/moltzap/issues/619).
+
+## 1. The three connection kinds
+
+| Kind | Inbound RPC catalog | Outbound RPC surface | Outbound notifications |
+|---|---|---|---|
+| `ServerConnection` | `rpcMethods` (42 methods at `227c398`) | `taskCallbackMethods` (`DispatchAuthorize`, `MessagesAuthorize`) | full `notificationDefinitions` set |
+| `AgentClientConnection` | empty | `rpcMethods` (full) | none |
+| `TaskMasterConnection` | `taskCallbackMethods` | `rpcMethods` (full — TM is a superset of AgentClient outbound) | none |
+
+The inbound catalog is reified as a closed object type
+(`ServerHandlers&lt;Ctx, Caps&gt;`, `AgentClientHandlers&lt;Ctx, Caps&gt;`,
+`TaskMasterHandlers&lt;Ctx, Caps&gt;`) — one slot per definition. REQUIRED slots
+must be present at the factory's `handlers` literal (TS2741 if missing);
+OPTIONAL slots may be omitted, in which case the dispatcher synthesizes the
+protocol's baked-in fail-CLOSED default at runtime.
+
+## 2. Data flow — per-frame dispatch
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Socket as WebSocket frame
+  participant Decoder as decode*Inbound
+  participant Dispatch as buildServerDispatcher
+  participant Table as ServerHandlers slot lookup
+  participant Default as fail-CLOSED default
+  participant Provider as CapabilityProviderTable
+  participant Handler as Handler effect
+
+  Socket->>Decoder: raw frame
+  Decoder->>Dispatch: DecodedClientInbound
+  Dispatch->>Table: lookup by frame.method
+  alt slot present
+    Table-->>Dispatch: HandlerSlot
+    Dispatch->>Provider: per-tag obtain(argsOf(params, ctx))
+    Provider-->>Dispatch: providerEffect per tag
+    Dispatch->>Handler: provideServiceEffect chain, then handle(params, ctx)
+    Handler-->>Dispatch: success or tagged failure
+    Dispatch-->>Socket: wire ResponseFrame
+  else slot absent and OPTIONAL
+    Dispatch->>Default: synthesize FailClosedDefault
+    Default-->>Dispatch: ResponseFrame error or no-op
+    Dispatch-->>Socket: wire ResponseFrame
+  else method not in catalog
+    Dispatch-->>Socket: MethodNotFound -32601
+  end
+```
+
+## 3. Catalog enumeration — normative
+
+The handler-table aliases derive directly from `rpc-registry.ts`. LSP
+`findReferences` is the verification mechanism.
+
+- `ServerHandlers` catalog = `(typeof rpcMethods)[number]` = union of
+  `identityRpcMethods` (11), `networkRpcMethods` (4), `taskRpcMethods`
+  (24), `appRpcMethods` (3). 42 members at `227c398`.
+- `TaskMasterHandlers` catalog = `(typeof taskCallbackMethods)[number]`
+  = `DispatchAuthorize | MessagesAuthorize`. 2 members.
+- `AgentClientHandlers` catalog = `never`. 0 members.
+
+D1's `TaskConversation*` family adds members to `taskRpcMethods` →
+`ServerHandlers` propagates automatically; D3's deletions remove the
+keys from the catalog union, surfacing dangling references as tsc
+errors.
+
+## 4. Per-slot disposition table
+
+The disposition is fixed at protocol-definition time by the
+`slotDisposition` field on each `defineRpc(...)` call.
+
+| Slot | Disposition | Default | Justification |
+|---|---|---|---|
+| `MessagesAuthorize` (TM) | OPTIONAL | `Forbidden` (-32001) | Authorization hook; default-deny is the safe outcome (`project_layered_refactor_hook_collapse`). |
+| `DispatchAuthorize` (TM) | OPTIONAL | `Forbidden` (-32001) | Same. |
+| Mutating server methods (`MessagesSend`, `TasksCreate`, …) | REQUIRED | — | Server has no fallback. |
+| Read-only server methods (`AgentsLookup`, `AgentsList`, …) | REQUIRED | — | Same. |
+| Notification-receiver slots (future kinds) | OPTIONAL | `NoOpNotification` | Notifications have no response. |
+
+A caller cannot "register an empty handler" to bypass authorization —
+the slot's default IS authorization-failing.
+
+## 5. Facade Replacement Invariant (FRI)
+
+> Every `makeJsonRpcServer` / `makeJsonRpcClient` consumer migrates to a
+> `make*Connection` factory. After Spec F lands, zero in-tree call sites
+> reference the legacy factories or their public-barrel exports.
+
+LSP-verified consumer list at `origin/main` @ `227c398`:
+
+1. `packages/protocol/src/transport/index.ts` — barrel re-exports (delete).
+2. `packages/protocol/src/transport/json-rpc-server.ts → makeJsonRpcServer` —
+   internalize machinery into `dispatch.ts`; delete public symbol.
+3. `packages/protocol/src/transport/json-rpc-client.ts → makeJsonRpcClient` —
+   internalize originator into `connection.ts`; delete public symbol.
+4. `packages/protocol/src/transport/json-rpc-client.test.ts` — rewrite
+   to test originator via `makeAgentClientConnection`.
+5. `packages/server/src/app/server.ts → createCoreApp` — replace
+   `makeJsonRpcServer&lt;DispatchContext, Exclude&lt;AppTags, ConnIdTag&gt;&gt;`
+   with `makeServerConnection({ handlers })`. `RpcMethodRegistry`
+   becomes `ServerHandlers&lt;DispatchContext, AppCapabilities&gt;`.
+6. `packages/server/src/transport/connection.ts → acquireConnectionRpcClient` —
+   replace `makeJsonRpcClient` with the server's TM-callback path.
+7. `packages/client/src/ws-client.ts → MoltZapWsClient.connectEffect` —
+   replace `makeJsonRpcClient` with `makeAgentClientConnection` (or
+   `makeTaskMasterConnection`).
+8. `packages/client/src/ws-client.ts → MoltZapWsClient.buildInboundServerReply` —
+   DELETED. Static-table dispatch replaces per-frame rebuild.
+
+## 6. Capability auto-provision (Shape B — per-definition metadata)
+
+TypeScript erases R channels at compile time. The architect picks Shape B:
+each `RpcDefinition` carries an OPTIONAL `capabilities` array of
+`CapabilityDescriptor` records (a `Context.Tag` instance + an
+`argsOf(params, ctx)` resolver).
+
+The dispatcher reads `definition.capabilities` per-frame, invokes the
+provider table's entry for each tag with `argsOf(params, ctx)`, and
+threads `Effect.provideServiceEffect(tag, providerEffect)`.
+
+The type-level gate (`typed-dispatcher.types-check.ts`) enforces lockstep:
+the handler's R channel must be a subset of `CapabilitiesOf&lt;D&gt;`.
+Mismatch is a tsc error at the handler-table literal site.
+
+Why Shape B over Shape A: capabilities are a property of the wire method,
+not the implementation. `defineRpc(...)` is the single source of truth.
+
+## 7. Sequencing with Spec E (#601)
+
+Spec F lands after Spec E. Spec F consumes Spec E's primitives unchanged:
+every capability tag (`TmAuthority`, `ConversationParticipantAccess`,
+`MessageSendPermission`, …), every obtain helper, every error channel,
+and `assertCapabilityMatchesTask` from #606 §5.
+
+The hand-piped `pipe(Effect.provideServiceEffect(TmAuthority, …))` chains
+that Spec E introduces in `tasks.handlers.ts`, `messages.handlers.ts`,
+`conversations.handlers.ts` are removed by Spec F's impl-staff PR —
+auto-provision replaces them.
+
+## 8. D-chain compounding (D1 / D2 / D3)
+
+- **D1 (#598):** new `TaskConversation*` keys added to `taskRpcMethods`;
+  `ServerHandlers` enumerates them; no per-handler boilerplate.
+- **D2 (#599):** CLI uses `makeAgentClientConnection` (or `…TaskMaster…`);
+  dispatcher contract unchanged.
+- **D3 (#600):** see Invariant D3 below.
+
+> **Invariant D3 (cutover scope, contract from F to D3):** Spec D3
+> deletes both the RPC method DEFINITIONS in `@moltzap/protocol`
+> (`ConversationsCreate`, `ConversationsList`, `ConversationsGet`,
+> `ConversationsUpdate`, `ConversationsMute`, `ConversationsUnmute`,
+> `ConversationsAddParticipant`, `ConversationsRemoveParticipant`,
+> `ConversationsLeave`, `ConversationsArchive`,
+> `ConversationsUnarchive`) AND the corresponding keys in
+> `taskRpcMethods`. The type system enforces that every dangling
+> reference compiles as an error.
+
+## 9. Cross-references
+
+- Architect plan: [#619](https://github.com/chughtapan/moltzap/issues/619)
+- Spec body: [#617](https://github.com/chughtapan/moltzap/issues/617)
+- Parent epic: [#602](https://github.com/chughtapan/moltzap/issues/602)
+- Spec A (superseded): [#595](https://github.com/chughtapan/moltzap/issues/595) / architect [#603](https://github.com/chughtapan/moltzap/issues/603)
+- Spec E (consumed unchanged): [#601](https://github.com/chughtapan/moltzap/issues/601) / architect [#606](https://github.com/chughtapan/moltzap/issues/606)
