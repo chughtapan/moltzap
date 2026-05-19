@@ -12,10 +12,18 @@
  *   1. ServerHandlers requires every catalog member (TS2741 on `{}`).
  *   2. HandlerSlot's `Ctx` generic is invariant in the slot's `handle`
  *      signature (TS2322 on cross-Ctx assignment).
- *   3. ServerConnection.call rejects definitions outside the
- *      task-callback catalog (TS2345).
+ *   3. The `_assertTaskCallback` helper rejects server-inbound
+ *      definitions at the `D extends AnyTaskCallbackRpcDefinition`
+ *      constraint site (TS2345).
  *   4. AgentClientHandlers accepts `{}` (positive — empty inbound
  *      catalog).
+ *   5. `ServerConnection.call(MessagesSend, ...)` is rejected DIRECTLY
+ *      on the method signature (TS2345 on the definition argument).
+ *      Companion to Canary 3: if the call signature's `OutCall` upper
+ *      bound were ever widened to `AnyRpcDefinition`, Canary 3's
+ *      helper-form check would still fire (it tests the union directly)
+ *      but the live `.call(...)` signature would silently accept
+ *      server-inbound definitions. Canary 5 closes that gap.
  *
  * Deferred to Spec F impl-staff (the invariant exists; the canary
  * needs per-definition metadata that the stub doesn't yet populate):
@@ -36,6 +44,7 @@ import { MessagesSend } from "../task/messages.js";
 import { DispatchAuthorize, MessagesAuthorize } from "../app/methods.js";
 
 import type { AnyTaskCallbackRpcDefinition } from "../rpc-registry.js";
+import type { ParamsOf } from "./method.js";
 
 import type {
   ServerConnection as _ServerConnection,
@@ -107,6 +116,30 @@ const _agentClientEmpty: AgentClientHandlers<unknown, never> = {};
 declare const _tmHandlers: TaskMasterHandlers<unknown, never>;
 const _tmHandlersSink: TaskMasterHandlers<unknown, never> = _tmHandlers;
 
+// ───────────────────────────────────────────────────────────────────────
+// Canary 5: ServerConnection.call rejects non-task-callback definitions
+// DIRECTLY on the live `.call(...)` method signature (Spec F I5 direct).
+//
+// Companion to Canary 3. Canary 3 tests the
+// `<D extends AnyTaskCallbackRpcDefinition>` constraint via a local
+// `_assertTaskCallback` helper. If `OutboundCall<OutCall>.call`'s upper
+// bound were ever widened on `ServerConnection` (e.g. losing the
+// `AnyTaskCallbackRpcDefinition` bound on the kind-shape), Canary 3 would
+// still fire (it tests the union directly) — but real consumer code
+// calling `.call(...)` on a `ServerConnection` value would silently
+// accept any RPC. Canary 5 closes that gap by invoking `.call` on a live
+// `ServerConnection` value with a server-inbound definition; widening
+// extinguishes the error here and the `@ts-expect-error` becomes unused
+// (TS2578). Params are typed via `ParamsOf<typeof MessagesSend>` so the
+// param-arg cannot mask the constraint error on the definition arg.
+// ───────────────────────────────────────────────────────────────────────
+
+declare const _serverConnI5: _ServerConnection;
+declare const _msgsSendParams: ParamsOf<typeof MessagesSend>;
+
+// @ts-expect-error — MessagesSend isn't AnyTaskCallbackRpcDefinition (Spec F I5 direct).
+const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
+
 // Export each canary local as a discriminated union so the unused-vars
 // rule (which is otherwise satisfied by leading `_`) cannot trim them
 // in a future refactor.
@@ -119,6 +152,7 @@ export type _TypedDispatcherCanarySink =
   | typeof _serverOutboundOk2
   | typeof _agentClientEmpty
   | typeof _tmHandlersSink
+  | typeof _directReject
   | _ServerConnection
   | _AgentClientConnection
   | _TaskMasterConnection;
