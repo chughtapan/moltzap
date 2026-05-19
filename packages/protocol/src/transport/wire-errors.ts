@@ -1,6 +1,6 @@
 import { Data } from "effect";
 
-/** JSON-RPC 2.0 reserved codes. Emitted by JsonRpcServer; never raised by handlers. */
+/** JSON-RPC 2.0 reserved codes. Emitted by TypedDispatcher; never raised by handlers. */
 export const JSON_RPC_RESERVED_CODES = {
   ParseError: -32700,
   InvalidRequest: -32600,
@@ -11,8 +11,10 @@ export const JSON_RPC_RESERVED_CODES = {
 
 /**
  * A `Data.TaggedError`-derived class with static wire metadata
- * (`code` + `message`). JsonRpcServer reads `err.constructor.code` to encode;
- * JsonRpcClient looks up by code via `errorClassFor` for inbound decode.
+ * (`code` + `message`). The typed dispatcher reads
+ * `err.constructor.code` to encode outbound error responses; the
+ * originator looks up the class by code via `errorClassFor` for inbound
+ * response decode.
  */
 export type RpcErrorClass = (new (
   ...args: never[]
@@ -55,7 +57,7 @@ export function isRegisteredErrorInstance(value: object): boolean {
 /**
  * Optional per-instance overrides for tagged-error classes. The static
  * `message` on the class is the default; instances may carry a more
- * specific message and/or supplemental `data` payload that JsonRpcServer
+ * specific message and/or supplemental `data` payload that TypedDispatcher
  * forwards to the wire response.
  */
 export interface RpcErrorPayload {

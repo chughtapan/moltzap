@@ -16,7 +16,7 @@ import {
   ConnectionManager,
   type MoltZapConnection,
 } from "../../transport/connection.js";
-import { unusedJsonRpcClient } from "../../transport/connection.test-utils.js";
+import { unusedOriginator } from "../../transport/connection.test-utils.js";
 import {
   createConnectionFanOutPresenceEventSink,
   type PresencePublishInput,
@@ -57,7 +57,7 @@ function makeConn(connId: string): Capture {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    jsonRpcClient: unusedJsonRpcClient(),
+    originator: unusedOriginator(),
   };
   return { conn, writes };
 }

@@ -179,6 +179,7 @@
               "protocol/notifications/contact-request",
               "protocol/notifications/contact-accepted",
               "protocol/notifications/presence-changed",
+              "protocol/notifications/task-closed",
               "protocol/notifications/task-failed",
               "protocol/notifications/dispatch-release",
               "protocol/notifications/dispatches-consumed",

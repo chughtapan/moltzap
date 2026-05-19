@@ -1,7 +1,7 @@
 /**
  * Unit tests for the task-callback (server→client) RPC test surface on `TestClient`:
  *
- *   - `handleServerRpc(method, handler)` — registers a handler for a
+ *   - `onAppCallback(method, handler)` — registers a handler for a
  *     server-initiated request method.
  *   - `awaitServerRequest(method, predicate?, timeoutMs?)` — observes the
  *     inbound request payload (independent from handler dispatch).
@@ -262,7 +262,7 @@ const validatingGrantHandler = (
 
 const dispatchesInboundTaskCallback = withClient((client, server) =>
   Effect.gen(function* () {
-    yield* client.handleServerRpc(DispatchAuthorize, validatingGrantHandler);
+    yield* client.onAppCallback(DispatchAuthorize, validatingGrantHandler);
     yield* server.send(
       appCallbackRequest("srv-1", DispatchAuthorize, authorizeDispatchParams()),
     );
@@ -273,7 +273,7 @@ const dispatchesInboundTaskCallback = withClient((client, server) =>
 
 const encodesTypedHandlerError = withClient((client, server) =>
   Effect.gen(function* () {
-    yield* client.handleServerRpc(DispatchAuthorize, () =>
+    yield* client.onAppCallback(DispatchAuthorize, () =>
       Effect.fail(
         new RpcResponseError({
           method: DispatchAuthorize.name,
@@ -309,10 +309,10 @@ const rejectsUnregisteredTaskCallback = withClient((_client, server) =>
 
 const replacesPriorTaskCallbackHandler = withClient((client, server) =>
   Effect.gen(function* () {
-    yield* client.handleServerRpc(DispatchAuthorize, () =>
+    yield* client.onAppCallback(DispatchAuthorize, () =>
       Effect.succeed(grantResult()),
     );
-    yield* client.handleServerRpc(DispatchAuthorize, () =>
+    yield* client.onAppCallback(DispatchAuthorize, () =>
       Effect.succeed(grantResult()),
     );
     yield* server.send(
@@ -325,7 +325,7 @@ const replacesPriorTaskCallbackHandler = withClient((client, server) =>
 
 const awaitsRequestAndRunsHandler = withClient((client, server) =>
   Effect.gen(function* () {
-    yield* client.handleServerRpc(DispatchAuthorize, validatingGrantHandler);
+    yield* client.onAppCallback(DispatchAuthorize, validatingGrantHandler);
     const awaitFiber = yield* Effect.fork(
       client.awaitServerRequest(DispatchAuthorize),
     );
@@ -344,7 +344,7 @@ const awaitsRequestAndRunsHandler = withClient((client, server) =>
 
 const selectsFirstMatchingAwaitedRequest = withClient((client, server) =>
   Effect.gen(function* () {
-    yield* client.handleServerRpc(DispatchAuthorize, () =>
+    yield* client.onAppCallback(DispatchAuthorize, () =>
       Effect.succeed(grantResult()),
     );
     const wantedTaskId = makeTaskId("550e8400-e29b-41d4-a716-446655440099");
@@ -413,19 +413,19 @@ const callSiteTimeoutOverridesDefault = withClient((client) =>
   }),
 );
 
-describe("TestClient — handleServerRpc success", () => {
+describe("TestClient — onAppCallback success", () => {
   it("dispatches an inbound task-callback request to the registered handler and writes the response back", () => {
     expect.hasAssertions();
     return Effect.runPromise(dispatchesInboundTaskCallback);
   });
 
-  it("registration ordering: a later handleServerRpc replaces the prior handler", () => {
+  it("registration ordering: a later onAppCallback replaces the prior handler", () => {
     expect.hasAssertions();
     return Effect.runPromise(replacesPriorTaskCallbackHandler);
   });
 });
 
-describe("TestClient — handleServerRpc errors", () => {
+describe("TestClient — onAppCallback errors", () => {
   it("encodes a typed RpcResponseError from the handler as a `response` frame with `error`", () => {
     expect.hasAssertions();
     return Effect.runPromise(encodesTypedHandlerError);

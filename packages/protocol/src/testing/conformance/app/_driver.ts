@@ -11,7 +11,7 @@
  *
  * It does NOT subclass / wrap `TestServer` — TestServer is the byte-level
  * harness for fault-injection and stays untouched. The driver composes
- * existing `TestClient` primitives (`sendRpc`, `handleServerRpc`,
+ * existing `TestClient` primitives (`sendRpc`, `onAppCallback`,
  * `awaitServerRequest`, `waitForNotification`, scope-controlled close)
  * against an injected `RealServerHandle` (already present on every
  * conformance run via `runner.ts:35`).
@@ -200,7 +200,7 @@ export interface ModeratorHandle {
   /**
    * Park until a `dispatch/authorize` S→C request arrives that matches
    * `predicate` (default: any), then reply with `respondWith`. Internally
-   * uses `TestClient.handleServerRpc` to register the reply and
+   * uses `TestClient.onAppCallback` to register the reply and
    * `awaitServerRequest` to observe the params.
    *
    * `holdResponseFor` is for the timeout-synthesizes-deny property:
