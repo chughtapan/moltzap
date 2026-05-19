@@ -3,7 +3,6 @@ import type { ForbiddenError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
 
 /**
  * Tier 2 capability — `agentId` is in `task_participants` for `taskId`.
@@ -26,30 +25,25 @@ export class AgentInTaskParticipants extends Context.Tag(
 )<AgentInTaskParticipants, AgentInTaskParticipantsValue>() {}
 
 /**
- * Architect-stub. Body shape (Phase 1 implements directly via TaskService
- * because the today's check is inline SQL, not a `requireX` helper):
+ * Smart constructor. Delegates to
+ * `TaskService.requireAgentInTaskParticipants` (NEW in Phase 1 per
+ * Decision B / Option A) so the underlying `task_participants` query
+ * stays in the service layer.
  *
- *   const taskService = yield* TaskServiceTag;
- *   yield* taskService.requireAgentInTaskParticipants(taskId, agentId);
- *   return { taskId, agentId };
- *
- * The `requireAgentInTaskParticipants` helper is NEW in Phase 1 — added
- * to `task.service.ts` as an `@internal` exported method per Decision B
- * (Option A), wrapping the same `task_participants` query D1's handler
- * would otherwise do inline.
- */
-
-/**
- * Error channel — the NEW `TaskService.requireAgentInTaskParticipants`
- * helper fails with `ForbiddenError` when the agent is not in
+ * Error channel — fails with `ForbiddenError` when the agent is not in
  * `task_participants` for the given task. `SqlError` is caught
  * defectively at the service-helper boundary.
  */
 export const obtainAgentInTaskParticipants = (
-  _taskId: TaskId,
-  _agentId: AgentId,
+  taskId: TaskId,
+  agentId: AgentId,
 ): Effect.Effect<
   AgentInTaskParticipantsValue,
   ForbiddenError,
   TaskServiceTag
-> => notImplemented("obtainAgentInTaskParticipants") as never;
+> =>
+  Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    yield* taskService.requireAgentInTaskParticipants(taskId, agentId);
+    return { taskId, agentId };
+  }).pipe(Effect.withSpan("obtainAgentInTaskParticipants"));

@@ -1,12 +1,9 @@
 import { Context, Effect } from "effect";
-import type {
-  ForbiddenError,
-  InvalidParamsError,
-  NotFoundError,
-} from "@moltzap/protocol";
-import type { AgentId, NotInContactsError } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
+import { NotFoundError } from "@moltzap/protocol";
 import { ConversationServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
+import type { ConversationServiceError } from "../../task/services/conversation.service.js";
+import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 
 /**
  * Tier 3 capability — caller-side contact policy permits creator →
@@ -32,48 +29,96 @@ export class ContactPolicyAllowsReach extends Context.Tag(
 )<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {}
 
 /**
- * Architect-stub. Body shape:
- *   const conv = yield* ConversationServiceTag;
- *   yield* conv.requireContactPolicyForCreate(...);
- *   return { creatorAgentId, targetAgentIds };
+ * Smart constructor for `TaskCreate` / `ConversationCreate` flows.
  *
- * Phase 3 promotes `requireContactPolicyForCreate`,
- * `requireAddParticipantContactPolicy`, `requireCreatorContactsAll`,
- * `checkContactEdge` from `private` to `@internal` exported per
- * Decision B (Option A) so this obtain helper can call them through the
- * service Tag.
- */
-
-/**
- * Error channel — `ConversationService.requireContactPolicyForCreate`
- * fans out to `requireCreatorContactsAll` / `checkContactEdge` which
- * fail with:
+ * Delegates to the `@internal`-exported `requireAgentsExist` +
+ * `requireCreatorContactsAll` helpers on `ConversationService` so the
+ * runtime check is unchanged from pre-Spec-E.
+ *
+ * Error channel propagates the underlying helpers' failure modes:
  *   - `NotInContactsError` — caller's contact policy rejects a target
  *   - `NotFoundError` — a referenced `agents` row is missing
  *   - `ForbiddenError` — generic policy denial
  *   - `InvalidParamsError` — DM-arity / shape mismatch
  *
  * `SqlError` from the underlying contact-edge lookups is caught
- * defectively inside the service helper.
+ * defectively inside the service helpers.
  */
 export const obtainContactPolicyForCreate = (
-  _creatorAgentId: AgentId,
-  _targetAgentIds: readonly AgentId[],
+  creatorAgentId: AgentId,
+  targetAgentIds: readonly AgentId[],
+  type: "dm" | "group" = "group",
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
-  ForbiddenError | NotFoundError | NotInContactsError | InvalidParamsError,
+  ConversationServiceError,
   ConversationServiceTag
-> => notImplemented("obtainContactPolicyForCreate") as never;
+> =>
+  catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const conversations = yield* ConversationServiceTag;
+      const ownerByAgentId =
+        yield* conversations.requireAgentsExist(targetAgentIds);
+      const policy = conversations.resolveContactPolicyForCapabilities();
+      if (policy !== null && targetAgentIds.length !== 0) {
+        yield* conversations.requireCreatorContactsAll({
+          creatorAgentId,
+          targetAgentIds,
+          ownerByAgentId,
+          policy,
+          pathLabel: type,
+        });
+      }
+      return { creatorAgentId, targetAgentIds };
+    }),
+  ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
 
 /**
- * Variant used by `TaskConversationAddParticipant`. Error channel
- * matches `obtainContactPolicyForCreate` (same underlying fan-out).
+ * Smart constructor for `TaskConversationAddParticipant` (D1) /
+ * `ConversationAddParticipant` flows. Inlines the add-participant
+ * contact-policy fan-out by composing the `@internal`-exported
+ * `requireAgentsExist`, `participantServiceForCapabilities`, and
+ * `checkContactEdge` helpers on `ConversationService`.
+ *
+ * Error channel matches `obtainContactPolicyForCreate` (same underlying
+ * fan-out).
  */
 export const obtainContactPolicyForAdd = (
-  _creatorAgentId: AgentId,
-  _targetAgentId: AgentId,
+  creatorAgentId: AgentId,
+  targetAgentId: AgentId,
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
-  ForbiddenError | NotFoundError | NotInContactsError | InvalidParamsError,
+  ConversationServiceError,
   ConversationServiceTag
-> => notImplemented("obtainContactPolicyForAdd") as never;
+> =>
+  catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const conversations = yield* ConversationServiceTag;
+      const targetExists = yield* conversations.requireAgentsExist([
+        targetAgentId,
+      ]);
+      const policy = conversations.resolveContactPolicyForCapabilities();
+      if (policy === null) {
+        return { creatorAgentId, targetAgentIds: [targetAgentId] };
+      }
+      const requester =
+        yield* conversations.participantServiceForCapabilities.resolve(
+          creatorAgentId,
+        );
+      if (!requester.exists) {
+        return yield* Effect.fail(
+          new NotFoundError({
+            message: `Agent ${creatorAgentId} not found`,
+          }),
+        );
+      }
+      yield* conversations.checkContactEdge({
+        requesterAgentId: creatorAgentId,
+        requesterOwnerUserId: requester.ownerUserId,
+        targetAgentId,
+        targetOwnerUserId: targetExists.get(targetAgentId) ?? null,
+        policy,
+        pathLabel: "addParticipant",
+      });
+      return { creatorAgentId, targetAgentIds: [targetAgentId] };
+    }),
+  ).pipe(Effect.withSpan("obtainContactPolicyForAdd"));

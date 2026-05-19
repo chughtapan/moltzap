@@ -20,33 +20,40 @@ import type { TmAuthorityValue } from "./tm-authority.js";
  * capabilities add a sibling overload here as part of their Phase X PR.
  */
 
+const ERR_CAP_TASK_MISMATCH = "capability/task mismatch";
+const ERR_CAP_CONV_MISMATCH = "capability/conversation mismatch";
+
 /**
- * Verifies the capability's carried taskId equals the expected taskId.
- * Architect-stub; Phase 1 implement-staff (#601) supplies the body.
- * @example Body shape:
- *   if (cap.task.id !== expectedTaskId) return yield* Effect.fail(
- *     new ForbiddenError({ message: "capability/task mismatch" }));
- *   return Effect.void;
+ * Verifies `cap.task.id === expectedTaskId`. Fails with
+ * `ForbiddenError` when the handler obtained a capability for one task
+ * but passed a different `taskId` argument to the service method.
  */
 export const assertTmAuthorityMatchesTask = (
-  _cap: TmAuthorityValue,
-  _expectedTaskId: TaskId,
-): Effect.Effect<void, ForbiddenError> =>
-  Effect.dieMessage(
-    "assertTmAuthorityMatchesTask: Phase 1 implement-staff (#601) supplies the body.",
-  );
+  cap: TmAuthorityValue,
+  expectedTaskId: TaskId,
+): Effect.Effect<void, ForbiddenError> => {
+  if (cap.task.id !== expectedTaskId) {
+    return Effect.fail(new ForbiddenError({ message: ERR_CAP_TASK_MISMATCH }));
+  }
+  return Effect.void;
+};
 
 /**
  * Verifies the capability's carried `(taskId, conversationId)` pair
- * equals the expected pair. Architect-stub; Phase 1 implement-staff
- * supplies the body — same shape as `assertTmAuthorityMatchesTask`
- * but checks both ids.
+ * equals the expected pair. Fails with `ForbiddenError` on the first
+ * mismatch; runs both comparisons in one Effect for handler-side
+ * symmetry with `assertTmAuthorityMatchesTask`.
  */
 export const assertConversationInTaskMatches = (
-  _cap: ConversationInTaskValue,
-  _expectedTaskId: TaskId,
-  _expectedConversationId: ConversationId,
-): Effect.Effect<void, ForbiddenError> =>
-  Effect.dieMessage(
-    "assertConversationInTaskMatches: Phase 1 implement-staff (#601) supplies the body.",
-  );
+  cap: ConversationInTaskValue,
+  expectedTaskId: TaskId,
+  expectedConversationId: ConversationId,
+): Effect.Effect<void, ForbiddenError> => {
+  if (cap.taskId !== expectedTaskId) {
+    return Effect.fail(new ForbiddenError({ message: ERR_CAP_TASK_MISMATCH }));
+  }
+  if (cap.conversationId !== expectedConversationId) {
+    return Effect.fail(new ForbiddenError({ message: ERR_CAP_CONV_MISMATCH }));
+  }
+  return Effect.void;
+};

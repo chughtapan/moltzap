@@ -47,6 +47,21 @@ import type {
   AppHostTag,
   AppTmRegistryTag,
 } from "../app/layers.js";
+import type {
+  TmAuthority,
+  TaskReadAccess,
+  ConversationParticipantAccess,
+  ConversationInTask,
+  AgentExists,
+  AgentInTaskParticipants,
+  ContactPolicyAllowsReach,
+  TaskActive,
+  ConversationNotArchived,
+  ValidReplyTarget,
+  NoReplyTarget,
+  GroupCapacityForCreate,
+  MessageSendPermission,
+} from "../app/capabilities/index.js";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.
@@ -149,13 +164,26 @@ export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
  */
 
 /**
- * Architect-stub alias body. Starts as `never`; Phase 1 impl-staff
- * populates the union with the concrete capability Tag classes
- * enumerated in the JSDoc block above. The alias name is the
- * exported contract — the canary (`capability-r-channel.types-check.ts`)
- * imports it; downstream impl-staff and consumers depend on the
- * name, not the body. When the union flips to a non-empty type the
- * sonarjs alias-redundancy concern resolves naturally.
+ * Concrete capability-tag union (Phase 1, Spec E #601). The thirteen
+ * tags enumerated below cover every capability that
+ * `packages/server/src/app/capabilities/` exports. New capability tags
+ * MUST be added to this union AND to `app/capabilities/index.ts`;
+ * absent that, the canary (`capability-r-channel.types-check.ts`) and
+ * the `defineTaskMethod` wrapper boundary check cannot recognize the
+ * new tag as part of the capability surface, and a handler that fails
+ * to drain it would slip past the type system.
  */
-// eslint-disable-next-line sonarjs/redundant-type-aliases -- architect-stub; see JSDoc above for the populate-by-impl-staff rationale.
-export type CapabilityTags = never;
+export type CapabilityTags =
+  | TmAuthority
+  | TaskReadAccess
+  | ConversationParticipantAccess
+  | ConversationInTask
+  | AgentExists
+  | AgentInTaskParticipants
+  | ContactPolicyAllowsReach
+  | TaskActive
+  | ConversationNotArchived
+  | ValidReplyTarget
+  | NoReplyTarget
+  | GroupCapacityForCreate
+  | MessageSendPermission;

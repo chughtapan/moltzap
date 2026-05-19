@@ -1,8 +1,7 @@
 import { Context, Effect } from "effect";
-import type { ForbiddenError } from "@moltzap/protocol";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
+import type { TaskServiceError } from "../../task/services/task.service.js";
 
 /**
  * Tier 2 capability — proves `conversation.task_id === taskId`.
@@ -27,23 +26,22 @@ export class ConversationInTask extends Context.Tag(
 )<ConversationInTask, ConversationInTaskValue>() {}
 
 /**
- * Architect-stub. Phase 2 promotes `TaskService.requireConversationInTask`
- * from `private` to `@internal` exported per Decision B (Option A).
+ * Smart constructor. Phase 1 promotes
+ * `TaskService.requireConversationInTask` to `@internal` exported per
+ * Decision B (Option A); this helper consumes it through the service
+ * Tag.
  *
- * Body shape:
- *   const taskService = yield* TaskServiceTag;
- *   yield* taskService.requireConversationInTask(taskId, conversationId);
- *   return { taskId, conversationId };
- */
-
-/**
- * Error channel — `TaskService.requireConversationInTask` fails with
- * `ForbiddenError` ("Conversation does not belong to the specified
- * task"). `SqlError` from the underlying lookup is caught defectively
- * inside the service helper.
+ * Error channel — propagates the helper's `ForbiddenError`
+ * ("Conversation does not belong to the specified task") and
+ * `NotFoundError` ("Conversation not found"). `SqlError` from the
+ * underlying lookup is caught defectively inside the service helper.
  */
 export const obtainConversationInTask = (
-  _taskId: TaskId,
-  _conversationId: ConversationId,
-): Effect.Effect<ConversationInTaskValue, ForbiddenError, TaskServiceTag> =>
-  notImplemented("obtainConversationInTask") as never;
+  taskId: TaskId,
+  conversationId: ConversationId,
+): Effect.Effect<ConversationInTaskValue, TaskServiceError, TaskServiceTag> =>
+  Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    yield* taskService.requireConversationInTask(taskId, conversationId);
+    return { taskId, conversationId };
+  }).pipe(Effect.withSpan("obtainConversationInTask"));

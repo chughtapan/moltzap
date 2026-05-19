@@ -3,7 +3,6 @@ import type { ForbiddenError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { ConversationServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
 
 /**
  * Tier 1 capability — caller is a member of `conversation_participants`
@@ -28,24 +27,26 @@ export class ConversationParticipantAccess extends Context.Tag(
 )<ConversationParticipantAccess, ConversationParticipantAccessValue>() {}
 
 /**
- * Architect-stub. Body shape:
- *   const conv = yield* ConversationServiceTag;
- *   yield* conv.requireParticipant(conversationId, caller);
- *   return { conversationId, callerAgentId: caller };
- */
-
-/**
- * Error channel — propagates `ConversationService.requireParticipant`'s
+ * Smart constructor. Delegates to
+ * `ConversationService.requireParticipant` (already public on the
+ * service class pre-Spec-E).
+ *
+ * Error channel propagates `ConversationService.requireParticipant`'s
  * `ForbiddenError` ("Not a participant in this conversation"). The
  * `SqlError` from the underlying `conversation_participants` lookup is
- * caught defectively by `catchSqlErrorAsDefect` inside the service
- * helper, so it does NOT appear in E.
+ * caught defectively inside the service helper, so it does NOT appear
+ * in E.
  */
 export const obtainConversationParticipantAccess = (
-  _conversationId: ConversationId,
-  _caller: AgentId,
+  conversationId: ConversationId,
+  caller: AgentId,
 ): Effect.Effect<
   ConversationParticipantAccessValue,
   ForbiddenError,
   ConversationServiceTag
-> => notImplemented("obtainConversationParticipantAccess") as never;
+> =>
+  Effect.gen(function* () {
+    const conversations = yield* ConversationServiceTag;
+    yield* conversations.requireParticipant(conversationId, caller);
+    return { conversationId, callerAgentId: caller };
+  }).pipe(Effect.withSpan("obtainConversationParticipantAccess"));

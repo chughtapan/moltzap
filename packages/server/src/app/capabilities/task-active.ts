@@ -1,14 +1,13 @@
 import { Context, Effect } from "effect";
-import type { TaskStatus } from "@moltzap/protocol";
-import type { TaskClosedError, TaskId } from "@moltzap/protocol/task";
-import { notImplemented } from "./not-implemented.js";
+import { TaskClosedError, type TaskStatus } from "@moltzap/protocol";
+import type { TaskId } from "@moltzap/protocol/task";
 
 /**
  * Tier 4 refine-shape capability — task status accepts messages
  * (NOT `closed` / `failed`).
  *
  * Refine-shape: takes a `SendConversationRow` already fetched by
- * `MessageService.readSendConversation` and validates the task_status
+ * `MessageService.readSendConversation` and validates the `task_status`
  * column inline. No DB call. Replaces (Phase 4):
  * `MessageService.requireTaskCanReceiveMessage` for the non-bypass
  * branch.
@@ -16,6 +15,15 @@ import { notImplemented } from "./not-implemented.js";
  * The TM-bypass branch is NOT a `TaskActive` proof — it's modeled in
  * the composite `MessageSendPermission.forTmBypass` constructor instead
  * (Architect Decision A; see `message-send-permission.ts`).
+ *
+ * ## Staleness window
+ *
+ * `TaskActive` is a liveness proof — `tasks.status` can transition
+ * `active → closed` between obtain and use. The refine helper is safe
+ * to call inside the same transaction that reads the task row;
+ * cross-transaction reuse is a defect (re-obtain by re-reading the
+ * column). Spec #601 §Open question Q1 documents the convention; this
+ * file mirrors it.
  */
 export interface TaskActiveValue {
   readonly taskId: TaskId;
@@ -28,19 +36,21 @@ export class TaskActive extends Context.Tag("@moltzap/server/TaskActive")<
 >() {}
 
 /**
- * Architect-stub refine constructor. Body shape:
- *   if (status === "closed" || status === "failed") return yield*
- *     Effect.fail(new TaskClosedError(...));
- *   return { taskId, status };
- */
-
-/**
- * Error channel — fails with `TaskClosedError` when `status` is
- * `closed` or `failed`. Pure refine over the already-fetched
- * `task.status` column; no R dependency.
+ * Refine constructor. Inlines today's status check from
+ * `MessageService.requireTaskCanReceiveMessage` (non-bypass branch).
+ * Fails with `TaskClosedError` when status is `closed` / `failed`.
  */
 export const refineTaskActive = (
-  _taskId: TaskId,
-  _status: TaskStatus,
-): Effect.Effect<TaskActiveValue, TaskClosedError> =>
-  notImplemented("refineTaskActive") as never;
+  taskId: TaskId,
+  status: TaskStatus,
+): Effect.Effect<TaskActiveValue, TaskClosedError> => {
+  if (status === "closed" || status === "failed") {
+    return Effect.fail(
+      new TaskClosedError({
+        message: `Task is ${status}`,
+        data: { reason: "TaskClosed", taskId, status },
+      }),
+    );
+  }
+  return Effect.succeed({ taskId, status });
+};
