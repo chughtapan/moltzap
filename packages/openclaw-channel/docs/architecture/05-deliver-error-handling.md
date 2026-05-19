@@ -4,17 +4,30 @@
 
 This is load-bearing. The wrong return value here causes OpenClaw to
 retry (or not retry) the reply delivery. The code lives inside the
-per-message `deliver` closure in `openclaw-entry.ts → onInbound, deliver`.
+per-message `deliver` closure in `openclaw-entry.ts → createLeaseConsumingDeliver`.
+
+Channel-base (`@moltzap/client/channel-base`, see
+[../../../client/docs/architecture/08-channel-base.md](../../../client/docs/architecture/08-channel-base.md))
+hosts the lease primitives this flow consumes:
+
+- **`LeaseGuard`** replaces the pre-refactor `consumedLeaseAt: number | null`
+  closure. `guard.consume()` returns `true` on the first deliver, `false` on
+  every retry — the channel rejects duplicates client-side without an RPC.
+- **`catchLeaseInvalid({ leaseId })`** runs the wire-error projection inside
+  the deliver pipe, reading `Clock.currentTimeMillis` to stamp
+  `LeaseAlreadyConsumed.consumedAt`. The typed error then routes through
+  `handleDeliverFailure → onLeaseConsumed?` before returning `false` to honor
+  the `OpenClawDeliver: PromiseLike<boolean>` contract.
 
 ```mermaid
 flowchart TD
-    A["core.sendReply(conversationId, text)<br>(calls service.send with dispatchLeaseId,<br>openclaw-entry.ts → sendReply)"]
+    A["core.sendReply(conversationId, text, { dispatchLeaseId })<br>(calls service.send,<br>openclaw-entry.ts → sendDeliveredReply)"]
 
     A --> B{"Outcome"}
 
-    B -->|SUCCESS| C[".tap(() => {<br>  consumedLeaseAt = Date.now()<br>  log.info('outbound reply to …: text[:80]')<br>})<br>.map(() => true)"]
+    B -->|SUCCESS| C[".tap(() => log.info('outbound reply to …: text[:80]'))<br>.map(() => true)<br>(LeaseGuard already stamped consumedAt at deliver entry)"]
 
-    B -->|"FAILURE: RpcServerError<br>.catchTag('RpcServerError')"| D{"err.code ===<br>TaskClosedError.code<br>(-32020)?"}
+    B -->|"FAILURE: RpcServerError<br>via catchLeaseInvalid + .catchAll"| D{"err.code ===<br>TaskClosedError.code<br>(-32020)?"}
 
     D -->|yes — TERMINAL| E["log.warn({ conversationId, code, msg },<br>'send rejected — task closed, dropping')<br>return true"]
     E --> F["WHY true? Lease is consumed server-side.<br>Returning true tells OpenClaw 'delivered'<br>so it does NOT retry. Retrying would create<br>a new orphan send.<br>(PR #587 fix: previously returned false,<br>causing infinite retry loops on closed tasks.)"]

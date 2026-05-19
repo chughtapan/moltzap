@@ -1,5 +1,13 @@
 import { Data } from "effect";
 import type { ServiceRpcError } from "@moltzap/client";
+import { LeaseAlreadyConsumed } from "@moltzap/client/channel-base";
+
+// Re-export the canonical `LeaseAlreadyConsumed` from `@moltzap/client/channel-base`
+// so existing consumers of `claude-code-channel/errors` continue to import the
+// same name. The single definition site lives at
+// `packages/client/src/channel-base/lease.ts → LeaseAlreadyConsumed` per
+// spec C (#597) invariant: one canonical class across all three channels.
+export { LeaseAlreadyConsumed };
 
 export class McpTransportFailed extends Data.TaggedError("McpTransportFailed")<{
   readonly cause: string;
@@ -58,27 +66,6 @@ export class SendFailed extends Data.TaggedError("SendFailed")<{
 
 class FilesUnsupported extends Data.TaggedError("FilesUnsupported")<{
   readonly fileCount: number;
-}> {}
-
-/**
- * The lease attached to the in-flight dispatch was already consumed
- * (single-use semantics — cutover #533). Surfaced when a multi-turn
- * agent calls the `reply` MCP tool a second time within the same
- * dispatch context. The first call's `core.sendReply` succeeded; the
- * second sees `LeaseInvalidError(state=CONSUMED)` from the server,
- * which the entry mapper turns into this typed error before the
- * existing `mapError` collapses other failures into `SendFailed`.
- *
- * Caller surface: `server.ts` projects this onto a
- * `toolErrorResult("LeaseAlreadyConsumed: ...")`. Multi-turn
- * redesign of the tool's lease handling is a known follow-up
- * (architect plan §9 risk #3); this PR ships only the graceful
- * error path.
- */
-export class LeaseAlreadyConsumed extends Data.TaggedError(
-  "LeaseAlreadyConsumed",
-)<{
-  readonly leaseId: string;
 }> {}
 
 export type ReplyError =

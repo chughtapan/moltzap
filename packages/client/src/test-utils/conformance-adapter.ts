@@ -4,32 +4,24 @@
  * Wraps `MoltZapWsClient` into the `RealClientHandle` shape that
  * `@moltzap/protocol/testing` `runClientConformanceSuite` consumes.
  *
+ * Spec B (#596) migration: the deleted `SubscriptionFilter` grammar's
+ * three-field shape is reconstructed as a per-frame refinement predicate
+ * inside the adapter, bridging `RealClientNotificationFilter` onto the
+ * Stream-based `MoltZapWsClient.subscribeAll` surface. The conformance
+ * suite contract is unchanged.
+ *
  * Consumed by:
  *   - `packages/client/src/__tests__/conformance/suite.test.ts` directly
  *   - `packages/openclaw-channel/src/test-support.ts` (re-exported via
  *     `@moltzap/openclaw-channel/test-support`)
  *   - `packages/nanoclaw-channel/src/test-support.ts` (same)
- *
- * Every field this adapter publishes is derived from `MoltZapWsClient`'s
- * public API (`connect`, `close`, `sendRpcTracked`, `subscribe`,
- * `onDisconnect`): no private reads, no monkey-patching
- * (Invariant I9 from spec #200).
- *
- * Phase 12 encapsulation: request ids are wire metadata, not part of the
- * test-protocol surface. The adapter calls `ws.sendRpc(...)` (no id leak)
- * and synthesizes a wire-shaped `ResponseFrame` with `id: null` for the
- * conformance contract. Tests that need to verify id-correlation (B4)
- * discriminate via `result` payload content instead of reading ids back.
- *   - `closeRef` is populated from `CloseInfo.{code, reason}` passed
- *     into `onDisconnect`, not the hardcoded `{1000, "disconnect"}`
- *     (V7).
- *   - `subscribe` registers a real per-filter handle on the client; the
- *     no-op stub is gone (C4 + subscribe-stub).
  */
-import { Data, Effect, Either, Ref, Scope } from "effect";
+import { Data, Effect, Either, Ref, Scope, Stream } from "effect";
 import {
   rpcMethods,
   type AnyRpcDefinition,
+  type AnyNotificationDefinition,
+  type DecodedNotification,
   type NotificationFrame,
   type ParamsOf,
   type ResponseFrame,
@@ -47,7 +39,6 @@ import type {
   ObservedNotification,
 } from "@moltzap/protocol/testing";
 import { MoltZapWsClient, type CloseInfo } from "@moltzap/client";
-import type { SubscriptionFilter } from "@moltzap/client/runtime";
 import {
   NotConnectedError,
   RpcServerError,
@@ -83,11 +74,6 @@ class RealClientRpcFailure extends Data.TaggedError("RealClientRpcError")<{
 }> {}
 
 function lifecycleError(cause: unknown): RealClientLifecycleError {
-  // Struct-shaped value rather than a `new RealClientLifecycleError` — the
-  // protocol's `runner.ts` defines the class, but this adapter ships in
-  // `@moltzap/client` which consumes the protocol package as a leaf (can't
-  // cross-import the class without creating a cycle via typings alone). The
-  // shape matches 1:1 so callers that discriminate on `_tag` work.
   return new RealClientLifecycleFailure({ cause }) as RealClientLifecycleError;
 }
 
@@ -131,18 +117,78 @@ function rpcErrorForMethod(
 }
 
 /**
- * Project a `RealClientNotificationFilter` (protocol-side shape) onto a
- * `SubscriptionFilter` (client-side shape). One-for-one field mapping
- * — both interfaces share the same three optional fields by design.
+ * Reconstruct the deleted `SubscriptionFilter` predicate inline. Bridges
+ * `RealClientNotificationFilter` (protocol-side shape) onto the Stream
+ * refinement-predicate surface. Three-field match: `emissionTag` and
+ * `conversationId` exact-match on params; `notificationNamePrefix` is a
+ * `method.startsWith(prefix)` match.
+ *
+ * Returns `undefined` when every filter field is unset (the empty-filter
+ * case matches all frames; `subscribeAll`'s no-refinement path is more
+ * efficient than a tautological predicate).
  */
-function filterFromRealClient(
+
+/**
+ * Narrow `notification.params` to a string-keyed record without an
+ * `as` cast. Returns `null` when the params don't structurally match.
+ */
+function asNotificationParamsRecord(
+  params: unknown,
+): { readonly [key: string]: unknown } | null {
+  if (typeof params !== "object" || params === null || Array.isArray(params))
+    return null;
+  return params as { readonly [key: string]: unknown };
+}
+
+function tagMatches(
+  params: { readonly [key: string]: unknown } | null,
+  emissionTag: string | undefined,
+): boolean {
+  return emissionTag === undefined || params?.["__emissionTag"] === emissionTag;
+}
+
+function conversationMatches(
+  params: { readonly [key: string]: unknown } | null,
+  conversationId: string | undefined,
+): boolean {
+  return (
+    conversationId === undefined ||
+    params?.["conversationId"] === conversationId
+  );
+}
+
+function notificationMatchesFilter(
+  notification: DecodedNotification<AnyNotificationDefinition>,
   filter: RealClientNotificationFilter,
-): SubscriptionFilter {
-  return {
-    emissionTag: filter.emissionTag,
-    conversationId: filter.conversationId,
-    notificationNamePrefix: filter.notificationNamePrefix,
-  };
+): boolean {
+  const { emissionTag, conversationId, notificationNamePrefix } = filter;
+  if (
+    notificationNamePrefix !== undefined &&
+    !notification.method.startsWith(notificationNamePrefix)
+  ) {
+    return false;
+  }
+  const params = asNotificationParamsRecord(notification.params);
+  return (
+    tagMatches(params, emissionTag) &&
+    conversationMatches(params, conversationId)
+  );
+}
+
+function refinementFromRealClientFilter(
+  filter: RealClientNotificationFilter,
+):
+  | ((notification: DecodedNotification<AnyNotificationDefinition>) => boolean)
+  | undefined {
+  const { emissionTag, conversationId, notificationNamePrefix } = filter;
+  if (
+    emissionTag === undefined &&
+    conversationId === undefined &&
+    notificationNamePrefix === undefined
+  ) {
+    return undefined;
+  }
+  return (notification) => notificationMatchesFilter(notification, filter);
 }
 
 function logConformanceAdapterWarning(message: string, cause: unknown): void {
@@ -177,13 +223,18 @@ function recordCloseEvent(
   }
 }
 
-function observedNotificationFromFrame(
-  frame: NotificationFrame,
+function observedNotificationFromDecoded(
+  notification: DecodedNotification<AnyNotificationDefinition>,
 ): ObservedNotification {
+  // The protocol-side ObservedNotification contract carries a wire-shaped
+  // `NotificationFrame` in `decoded`. Reconstruct it from the decoded view.
   const wireFrame: NotificationFrame = {
-    jsonrpc: frame.jsonrpc,
-    method: frame.method,
-    ...(frame.params !== undefined ? { params: frame.params } : {}),
+    jsonrpc: notification.jsonrpc,
+    method: notification.method,
+    ...(notification.params !== undefined
+      ? // eslint-disable-next-line agent-code-guard/record-cast -- wire-shape rebuild for the protocol ObservedNotification contract; params provenance is the decoded notification itself
+        { params: notification.params as Record<string, unknown> }
+      : {}),
   };
   const encoded = new TextEncoder().encode(JSON.stringify(wireFrame));
   return {
@@ -196,17 +247,10 @@ function observedNotificationFromFrame(
 
 function recordObservedNotification(
   notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
-  frame: NotificationFrame,
-): void {
-  const obs = observedNotificationFromFrame(frame);
-  try {
-    Effect.runSync(Ref.update(notificationsRef, (xs) => [...xs, obs]));
-  } catch (recordErr) {
-    logConformanceAdapterWarning(
-      "failed to record conformance observation",
-      recordErr,
-    );
-  }
+  notification: DecodedNotification<AnyNotificationDefinition>,
+): Effect.Effect<void> {
+  const obs = observedNotificationFromDecoded(notification);
+  return Ref.update(notificationsRef, (xs) => [...xs, obs]);
 }
 
 function resolveRpcDefinition(
@@ -241,26 +285,37 @@ function makeConformanceClient(
   });
 }
 
-function captureAllNotifications(
+/**
+ * Fork a `subscribeAll → runForEach` consumer into the ambient `Scope` so
+ * every inbound notification gets recorded into `notificationsRef`. The
+ * fiber is cancelled when the scope ends (factory caller's
+ * `Scope.CloseableScope`); on terminal close the Stream fails with
+ * `NotConnectedError` which we log + swallow.
+ */
+function forkCaptureAllNotifications(
   ws: MoltZapWsClient,
   notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
-): Effect.Effect<RealClientSubscription, RealClientLifecycleError> {
-  return ws
-    .subscribe({}, (frame: NotificationFrame) =>
-      Effect.sync(() => {
-        recordObservedNotification(notificationsRef, frame);
-      }),
-    )
-    .pipe(Effect.mapError((cause) => lifecycleError(cause)));
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.forkScoped(
+    ws.subscribeAll().pipe(
+      Stream.runForEach((notification) =>
+        recordObservedNotification(notificationsRef, notification),
+      ),
+      Effect.catchAll((cause) =>
+        Effect.logWarning(
+          "conformance adapter capture-all Stream terminated",
+          cause,
+        ),
+      ),
+      Effect.asVoid,
+    ),
+  ).pipe(Effect.asVoid);
 }
 
 function addClientFinalizer(
   ws: MoltZapWsClient,
-  captureAll: RealClientSubscription,
 ): Effect.Effect<void, never, Scope.Scope> {
-  return Effect.addFinalizer(() =>
-    captureAll.unsubscribe.pipe(Effect.zipRight(ws.close())),
-  );
+  return Effect.addFinalizer(() => ws.close());
 }
 
 function forkReadyWatcher(
@@ -297,19 +352,45 @@ function waitForReady(
   });
 }
 
+/**
+ * Subscribe to filtered notifications through the `subscribeAll` Stream.
+ * The filter is reconstructed as an in-band refinement predicate (the
+ * three-field SubscriptionFilter grammar was deleted in Spec B).
+ *
+ * The returned `RealClientSubscription` carries an `unsubscribe` Effect
+ * that interrupts the forked consumer fiber, draining its Scope finalizer
+ * chain (which in turn invokes the registry's `unregister` from the
+ * `Stream.async` callback).
+ */
 function subscribeRealClient(
   ws: MoltZapWsClient,
   filter: RealClientNotificationFilter,
-): Effect.Effect<RealClientSubscription, RealClientLifecycleError> {
-  return ws
-    .subscribe(filterFromRealClient(filter), () => Effect.void)
-    .pipe(
-      Effect.map((handle) => ({
-        id: handle.id,
-        unsubscribe: handle.unsubscribe,
-      })),
-      Effect.mapError((cause) => lifecycleError(cause)),
+): Effect.Effect<
+  RealClientSubscription,
+  RealClientLifecycleError,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    // Spawn a scoped child scope so we can selectively unsubscribe.
+    const subScope = yield* Scope.make();
+    const refinement = refinementFromRealClientFilter(filter);
+    const consumeEffect = ws.subscribeAll(refinement).pipe(
+      Stream.runForEach(() => Effect.void),
+      Effect.catchAll(() => Effect.void),
+      Effect.asVoid,
     );
+    yield* Effect.forkIn(consumeEffect, subScope);
+    // Subscription id is for test-side bookkeeping (unsubscribe lookup);
+    // not security-sensitive. Suppress sonarjs/pseudo-random.
+    // eslint-disable-next-line sonarjs/pseudo-random -- test bookkeeping id, no security boundary
+    const id = `subscribe-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    return {
+      id,
+      unsubscribe: Scope.close(subScope, Effect.void as never).pipe(
+        Effect.asVoid,
+      ),
+    } satisfies RealClientSubscription;
+  }).pipe(Effect.mapError((cause) => lifecycleError(cause)));
 }
 
 function makeNotificationSubscriber(
@@ -317,7 +398,11 @@ function makeNotificationSubscriber(
   notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
 ): RealClientNotificationSubscriber {
   return {
-    subscribe: (filter) => subscribeRealClient(ws, filter),
+    subscribe: (filter) =>
+      subscribeRealClient(ws, filter) as Effect.Effect<
+        RealClientSubscription,
+        RealClientLifecycleError
+      >,
     snapshot: Ref.get(notificationsRef),
   };
 }
@@ -372,9 +457,9 @@ export function createMoltZapRealClientFactory(
       >([]);
       const closeRef = yield* Ref.make<RealClientCloseEvent | null>(null);
       const ws = makeConformanceClient(args, opts, closeRef);
-      const captureAll = yield* captureAllNotifications(ws, notificationsRef);
+      yield* forkCaptureAllNotifications(ws, notificationsRef);
 
-      yield* addClientFinalizer(ws, captureAll);
+      yield* addClientFinalizer(ws);
       const readyRef = yield* Ref.make<ReadyState>("pending");
       yield* forkReadyWatcher(ws, readyRef);
 

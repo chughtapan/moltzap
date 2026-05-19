@@ -45,7 +45,7 @@ import {
 - `registerAgent(baseUrl, name, opts?)` — HTTP `POST /api/v1/auth/register`. Returns `{ agentId, apiKey, claimUrl, claimToken }`.
 - `registerAndConnect(baseUrl, wsUrl, name, opts?)` — Register + construct `MoltZapWsClient` + complete `network/connect`. Returns the live client plus the registration record.
 - `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapWsClient` re-appends it.
-- `MoltZapWsClient` — The production WebSocket client. `waitForNotification(definition, timeoutMs)` and `drainNotifications()` are available on it directly, so tests can await specific notifications without wiring their own callbacks.
+- `MoltZapWsClient` — The production WebSocket client (Spec B / #596). Notification consumption is Stream-shaped: `client.subscribe(def, refinement?)` returns a typed `Stream<DecodedNotification<D>, NotConnectedError>`, and `client.subscribeAll(refinement?)` is the broad-union escape hatch. For one-shot test sites, the `@moltzap/server-core/test-utils → awaitOneNotification(client, def, timeoutMs?)` helper wraps `Stream.runHead + Effect.timeoutFail`; the post-trigger ergonomic survives because `TestClient.notifications` buffers across the trigger window.
 
 ## Integration tests
 

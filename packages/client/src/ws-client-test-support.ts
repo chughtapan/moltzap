@@ -25,6 +25,7 @@ import {
   Fiber,
   Option,
   Scope,
+  Stream,
   TestClock,
 } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
@@ -53,6 +54,8 @@ import {
   MessagesSend,
   MessageReceivedNotificationDefinition,
   PROTOCOL_VERSION,
+  type AnyNotificationDefinition,
+  type DecodedNotification,
   type NotificationFrame,
   type RequestFrame,
   type RpcDefinition,
@@ -393,9 +396,25 @@ interface MakeClientOverrides {
 const ignoreDisconnect = (_close: CloseInfo): void => undefined;
 const ignoreReconnect = (_hello: unknown): void => undefined;
 
+// Spec B (#596): notification consumption is Stream-based. The legacy
+// `(frame: NotificationFrame) => Effect<void>` callback shape is preserved
+// here as a thin convenience for tests that previously stashed an
+// `onNotification` callback. The bridge reconstructs a wire
+// `NotificationFrame` shape from the decoded view.
 const notificationHandler =
-  (cb: (evt: NotificationFrame) => void) => (frame: NotificationFrame) =>
-    Effect.sync(() => cb(frame));
+  (cb: (evt: NotificationFrame) => void) =>
+  (notification: DecodedNotification<AnyNotificationDefinition>) =>
+    Effect.sync(() => {
+      const frame: NotificationFrame = {
+        jsonrpc: notification.jsonrpc,
+        method: notification.method,
+        ...(notification.params !== undefined
+          ? // eslint-disable-next-line agent-code-guard/record-cast -- wire-shape rebuild from the decoded notification; provenance preserved
+            { params: notification.params as Record<string, unknown> } // #ignore-sloppy-code[record-cast]: wire-shape rebuild for the test-support adapter's onNotification callback; provenance preserved
+          : {}),
+      };
+      cb(frame);
+    });
 
 const connectClient = (client: MoltZapWsClient) => client.connect();
 
@@ -689,7 +708,19 @@ function makeClient(
     ...(appCallbackHandlers !== undefined ? { appCallbackHandlers } : {}),
   });
   if (onNotification !== undefined) {
-    Effect.runSync(client.subscribe({}, notificationHandler(onNotification)));
+    // Spec B (#596): the deleted `client.subscribe({}, handler)` shape is
+    // replaced by `client.subscribeAll().pipe(Stream.runForEach, …)` forked
+    // as a daemon fiber. The test-support helper is sync-runnable so we
+    // route through `Effect.runFork` — the fiber lives until the test ends
+    // and the client closes (which terminates the Stream with
+    // `NotConnectedError`, caught + logged).
+    Effect.runFork(
+      client.subscribeAll().pipe(
+        Stream.runForEach(notificationHandler(onNotification)),
+        Effect.catchAll(() => Effect.void),
+        Effect.asVoid,
+      ),
+    );
   }
   return client;
 }
