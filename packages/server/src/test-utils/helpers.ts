@@ -3,12 +3,17 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import { Data, Effect } from "effect";
-import type { NotificationFrame } from "@moltzap/protocol";
+import { Data, Duration, Effect, Option, Stream } from "effect";
+import {
+  isDecodedNotification,
+  type AnyNotificationDefinition,
+  type DecodedNotification,
+} from "@moltzap/protocol";
 import {
   agentId,
   makeCloseableTestClient,
   registerTestAgent,
+  TransportClosedError,
   type CloseableTestClient,
   type TestAgent,
 } from "@moltzap/protocol/testing";
@@ -16,10 +21,83 @@ import { getBaseUrl, getWsUrl } from "./index.js";
 
 import { ConversationsCreate } from "@moltzap/protocol";
 
+/**
+ * Spec B (#596): the legacy `waitForNotification(def, timeoutMs?)` /
+ * `drainNotifications(): ReadonlyArray&lt;...>` synchronous wrappers were
+ * deleted. Consumers reach typed-payload Streams via
+ * `client.subscribeTo(def)` and snapshot the buffered queue via the
+ * passthrough `client.drainNotifications` Effect (`yield*` it).
+ * Ergonomic one-shot test sites use the top-level `awaitOneNotification`
+ * helper below.
+ */
 export interface ServerTestClient
-  extends Omit<CloseableTestClient, "close" | "drainNotifications"> {
+  extends Omit<CloseableTestClient, "close" | "waitForNotification"> {
   close(): Effect.Effect<void, never>;
-  drainNotifications(): ReadonlyArray<NotificationFrame>;
+  subscribeTo<D extends AnyNotificationDefinition>(
+    definition: D,
+  ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+}
+
+/**
+ * Default ceiling for `awaitOneNotification`; matches the legacy
+ * `TestClient.waitForNotification` default.
+ */
+const DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS = 5_000;
+
+class AwaitNotificationTimeoutError extends Data.TaggedError(
+  "AwaitNotificationTimeoutError",
+)<{
+  readonly definition: string;
+  readonly durationMs: number;
+}> {}
+
+class AwaitNotificationClosedError extends Data.TaggedError(
+  "AwaitNotificationClosedError",
+)<{
+  readonly definition: string;
+}> {}
+
+export type AwaitNotificationError =
+  | AwaitNotificationTimeoutError
+  | AwaitNotificationClosedError;
+
+/**
+ * Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
+ * `Stream.runHead`, failing with a tagged error on timeout or stream
+ * exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
+ * at integration-test call sites; preserves the `yield* …` ergonomic but
+ * runs entirely on the new `Stream.async`-backed subscription API.
+ */
+export function awaitOneNotification<D extends AnyNotificationDefinition>(
+  client: Pick<ServerTestClient, "subscribeTo">,
+  definition: D,
+  timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
+): Effect.Effect<
+  DecodedNotification<D>,
+  AwaitNotificationError | TransportClosedError
+> {
+  return client.subscribeTo(definition).pipe(
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(timeoutMs),
+      onTimeout: () =>
+        new AwaitNotificationTimeoutError({
+          definition: definition.name,
+          durationMs: timeoutMs,
+        }),
+    }),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new AwaitNotificationClosedError({
+              definition: definition.name,
+            }),
+          ),
+        onSome: (notification) => Effect.succeed(notification),
+      }),
+    ),
+  );
 }
 
 export interface ConnectedAgent {
@@ -126,14 +204,19 @@ export function connectTestClient(opts: {
       sendRpc: client.sendRpc.bind(client),
       sendMalformed: client.sendMalformed.bind(client),
       sendResponseFrame: client.sendResponseFrame.bind(client),
-      waitForNotification: client.waitForNotification.bind(client),
+      subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
+        client.notifications.pipe(
+          Stream.filter((frame): frame is DecodedNotification<D> =>
+            isDecodedNotification(definition, frame),
+          ),
+        ),
       handleServerRpc: client.handleServerRpc.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),
       notifications: client.notifications,
       captures: client.captures,
       snapshot: client.snapshot,
       close: () => client.close,
-      drainNotifications: () => Effect.runSync(client.drainNotifications),
+      drainNotifications: client.drainNotifications,
     };
   }).pipe(Effect.withSpan("connectTestClient"));
 }

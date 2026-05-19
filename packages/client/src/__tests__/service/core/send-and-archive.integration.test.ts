@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import { Duration, Effect, Either, Option, Stream } from "effect";
 import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
@@ -20,9 +20,24 @@ it("send() delivers message to other agent", () =>
 
     yield* service.send(conv.conversation.id, H.HELLO_FROM_SERVICE);
 
-    const event = yield* regB.client.waitForNotification(
-      H.MessageReceivedNotificationDefinition,
-      H.NOTIFICATION_WAIT_MS,
+    // Spec B (#596): subscribe via Stream API; runHead + timeoutFail is
+    // the one-shot pattern for tests that previously used
+    // `client.waitForNotification(def, timeoutMs)`.
+    const eventOpt = yield* regB.client
+      .subscribe(H.MessageReceivedNotificationDefinition)
+      .pipe(
+        Stream.runHead,
+        Effect.timeoutFail({
+          duration: Duration.millis(H.NOTIFICATION_WAIT_MS),
+          onTimeout: () =>
+            new Error(
+              `timeout waiting for ${H.MessageReceivedNotificationDefinition.name}`,
+            ),
+        }),
+      );
+    const event = Option.getOrThrowWith(
+      eventOpt,
+      () => new Error("notification stream closed before delivery"),
     );
     const msg = (
       event.params as { message: { parts: Array<{ text: string }> } }

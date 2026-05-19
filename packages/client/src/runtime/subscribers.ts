@@ -1,160 +1,169 @@
 /**
  * Per-subscription notification registry for `MoltZapWsClient`.
  *
- * Responsibility: own the list of live `subscribe()` handles and fan each
- * inbound JSON-RPC notification out to every subscription whose filter matches.
- * Implements spec #222 §5.3 (C4 + the `RealClientEventSubscriber.subscribe`
- * filter stub). Lives as an internal collaborator of `MoltZapWsClient`;
- * the public types (`SubscriptionFilter`, `NotificationSubscription`,
- * `SubscriptionId`) re-export from the package barrel.
+ * Responsibility: own the list of live subscriptions and fan each inbound
+ * JSON-RPC notification out to every subscription whose definition (and
+ * optional typed refinement predicate) matches. Implements spec #596
+ * (notification consumption consolidation) via the AD1 path-(a) Stream.async
+ * design (architect plan §3, §5.5).
  *
- * Dispatch ordering (Invariant 6 — notifications delivered in arrival order):
- *   1. Inbound frames are handed to the registry in arrival order.
- *   2. Within a single frame, subscriptions are notified in registration
- *      order.
- *   3. There is no separate legacy `onNotification` fanout — spec #222 OQ-4 is
- *      resolved by DELETING `MoltZapWsClientOptions.onNotification`. Callers
- *      that want every notification register `subscribe({}, handler)` after
- *      construction and before `connect()`.
+ * Storage shape (post-Spec B):
+ *   - Subscriptions are records of typed `{onFrame, onClose}` callbacks
+ *     (NOT queues / Take items / Stream.fromQueue). `notification/stream.ts`
+ *     owns Stream construction via `Stream.async`; this module owns the
+ *     register/dispatch/closeAll lifecycle.
+ *   - The dispatch path snapshots `subsRef` at iteration start (AD1
+ *     snapshot-semantic contract from spec #222 §5.3 OQ-3 / spec #596
+ *     "Stream lifecycle contract" row).
+ *   - `closeAll` invokes each live sub's `onClose(new NotConnectedError(...))`
+ *     before clearing `subsRef` — deterministic typed-failure delivery
+ *     replaces the deleted `failAllNotificationWaiters` semantic.
  *
- * Unsubscribe semantics (OQ-3 A): `unsubscribe` takes effect on the next
- * frame. The registry snapshots its live-subscription list at the start
- * of each `dispatch` call; in-flight dispatch of frame N is not
- * interrupted by an unsubscribe during frame N. Frame N+1 observes the
- * unsubscribed state.
- *
- * Error channel: handlers are invoked inside a defect-catcher; a throw is
- * logged through Effect logging and swallowed (matching the prior
- * `onNotification` contract at `ws-client.ts:650-655` pre-deletion). The
- * registry itself has no typed error surface — `register`, `dispatch`, and
- * `closeAll` are `Effect&lt;T, never>`.
+ * Filter grammar (post-Spec B):
+ *   - Subscription matches a frame iff `sub.definition === frame.definition`.
+ *   - Optional `refinement` is a typed predicate over the frame's params
+ *     (erased to the union type `ErasedNotificationRefinement` at the
+ *     storage boundary; consumers receive the typed-narrowed shape via
+ *     `Stream.async`'s typed `emit.single` callback inside
+ *     `notification/stream.ts`).
+ *   - The three-field `SubscriptionFilter` grammar is deleted (spec #596
+ *     Goal #3 + §"Acceptance criteria" delete sweep). Multi-definition
+ *     fan-out becomes `Stream.mergeAll([subscribe(d1), subscribe(d2)])`.
  */
 import { Brand, Effect, Ref } from "effect";
-import type {
-  AnyNotificationDefinition,
-  DecodedNotification,
+import {
+  NotConnectedError,
+  type AnyNotificationDefinition,
+  type DecodedNotification,
+  type NotificationParamsOf,
 } from "@moltzap/protocol";
 
-interface FilterableNotificationFrame {
-  readonly method: string;
-  readonly params?: unknown;
-}
-
 /** Branded identifier for a subscription handle. Minted by `register`. */
-export type SubscriptionId = string & Brand.Brand<"SubscriptionId">;
+type SubscriptionId = string & Brand.Brand<"SubscriptionId">;
 const SubscriptionIdBrand = Brand.nominal<SubscriptionId>();
 
 /**
- * Filter grammar for `subscribe`. A notification is delivered to a subscription
- * iff it matches **every** field that is set on the filter. Unset fields
- * are wildcards; the empty filter `{}` matches every notification.
- *
- * OQ-2 resolution (A): exactly these three fields, no free-form
- * predicate, no schema-derived matcher. Matches the existing
- * `RealClientEventFilter` contract at
- * `packages/protocol/src/testing/conformance/client/runner.ts:104-116`
- * one-for-one.
- *
- *   - `emissionTag` — exact match against the canonical payload key
- *     `frame.params.__emissionTag`. (The adapter reads the same key at
- *     `packages/client/src/test-utils/conformance-adapter.ts:77-79`;
- *     `emitTaggedEventDefault` writes it at `runner.ts:343-357`. The
- *     `__emissionId` string in the `runner.ts:108` doc comment is a
- *     known doc-bug — architect files a follow-up issue against
- *     protocol to correct the comment; it is not the canonical name.)
- *   - `conversationId` — exact match against `frame.params.conversationId`
- *     when set on the notification payload.
- *   - `notificationNamePrefix` — `frame.method.startsWith(prefix)`.
+ * Erased refinement predicate type stored on `LiveSubscription`. Bounds at
+ * the broad-union params shape, never `unknown` / `any`. The typed
+ * `(params: NotificationParamsOf&lt;D>) => boolean` form is coerced through
+ * this union inside `register` via a single named adapter — the only
+ * place the typed → erased boundary crosses.
  */
-export interface SubscriptionFilter {
-  readonly emissionTag?: string;
-  readonly conversationId?: string;
-  readonly notificationNamePrefix?: string;
-}
+type ErasedNotificationRefinement = (
+  params: NotificationParamsOf<AnyNotificationDefinition>,
+) => boolean;
 
 /**
- * Handle returned by `register` / `MoltZapWsClient.subscribe`. Caller
- * holds the handle for its subscription's lifetime and runs
- * `unsubscribe` to stop delivery.
- *
- * `unsubscribe` is `Effect&lt;void, never>`: it is idempotent and total.
- * Calling `unsubscribe` a second time, or after `closeAll`, is a no-op.
+ * Per-subscription callback delivered each matching frame. Implemented in
+ * `notification/stream.ts` as `(frame) => Effect.sync(() => emit.single(frame))`.
+ * Returning `Effect&lt;void, never>` keeps the dispatch path total — the
+ * Stream-side `emit.single` cannot fail synchronously.
  */
-export interface NotificationSubscription {
-  readonly id: SubscriptionId;
-  readonly unsubscribe: Effect.Effect<void, never>;
-}
-
-/**
- * Per-subscription handler signature. Runs inside the registry's
- * dispatch fiber. Must not throw — throws are caught by the registry, logged,
- * and swallowed.
- *
- * The frame is a known-descriptor `DecodedNotification` (post-S9
- * fail-close: malformed / unknown-method frames are rejected before
- * dispatch). Handlers receive validated `params` typed as
- * `NotificationParamsOf&lt;D>` for the matching definition.
- *
- * Returning an `Effect` (not a plain `void`) lets handlers compose with
- * Effect-native downstream code without an extra runSync shim. The
- * registry awaits each handler's effect before moving to the next
- * subscription for this frame — fairness over throughput, so a slow
- * handler on subscription A does not reorder frames seen by
- * subscription B across frames.
- */
-export type SubscriberHandler = (
+type SubscriberFrameCallback = (
   frame: DecodedNotification<AnyNotificationDefinition>,
 ) => Effect.Effect<void, never>;
 
 /**
+ * Per-subscription callback invoked exactly once when the client transitions
+ * to its terminal closed state. Implemented in `notification/stream.ts` as
+ * `(cause) => Effect.sync(() => emit.fail(cause))`.
+ */
+type SubscriberCloseCallback = (
+  cause: NotConnectedError,
+) => Effect.Effect<void, never>;
+
+/**
+ * Live subscription record stored in `subsRef`. Heterogeneous storage: the
+ * `definition` keeps the per-`D` shape but the callbacks are erased to the
+ * union types declared above so the registry can iterate without re-narrowing.
+ */
+interface LiveSubscription {
+  readonly id: SubscriptionId;
+  readonly definition: AnyNotificationDefinition;
+  readonly refinement?: ErasedNotificationRefinement;
+  readonly onFrame: SubscriberFrameCallback;
+  readonly onClose: SubscriberCloseCallback;
+}
+
+/**
+ * Handle returned by `register`. `unregister` is `Effect&lt;void, never>`: it
+ * is idempotent and total. Calling `unregister` a second time, or after
+ * `closeAll`, is a no-op.
+ */
+interface SubscriptionHandle {
+  readonly id: SubscriptionId;
+  readonly unregister: Effect.Effect<void, never>;
+}
+
+/**
  * Subscriber registry. One instance per `MoltZapWsClient`, created at
- * construction time and owned by the client. Not exported from the
- * package barrel — consumers reach the registry only through
- * `MoltZapWsClient.subscribe`.
+ * construction time and owned by the client.
+ *
+ * `register&lt;D>` accepts typed `onFrame` / `onClose` callbacks for the
+ * specific definition `D`; internally the registry erases them to the
+ * `Subscriber{Frame,Close}Callback` union shape so a single iteration
+ * can dispatch over heterogeneous subscriptions without per-`D`
+ * dispatch tables.
  */
 export interface SubscriberRegistry {
-  /**
-   * Add a subscription. Returns the handle immediately; delivery starts
-   * with the next frame passed to `dispatch`. Does not await any
-   * connection state — subscribe is legal pre-connect (spec §5.3 +
-   * Assumption 1 deletion: post-delete of `onNotification`, subscribe is the
-   * only pre-connect notification hook).
-   */
-  readonly register: (
-    filter: SubscriptionFilter,
-    handler: SubscriberHandler,
-  ) => Effect.Effect<NotificationSubscription, never>;
+  readonly register: <D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
+    callbacks: {
+      readonly onFrame: (
+        frame: DecodedNotification<D>,
+      ) => Effect.Effect<void, never>;
+      readonly onClose: SubscriberCloseCallback;
+    },
+  ) => Effect.Effect<SubscriptionHandle, never>;
 
   /**
-   * Fan an inbound notification out to every matching subscription. Called by
-   * `MoltZapWsClient.handleIncoming` at the existing notification-dispatch
-   * point (`ws-client.ts:649-685`). Implementation snapshots the
-   * live-subscription list at the start of dispatch so
-   * unsubscribe-during-dispatch observes next-frame semantics (OQ-3 A).
+   * `subscribeAll` surface (spec #596 Goal #2). Registers a broad-union
+   * subscription that fires for every inbound frame regardless of
+   * definition. The optional `refinement` predicate runs against the
+   * full `DecodedNotification&lt;AnyNotificationDefinition>` shape.
    *
-   * Frames are pre-validation (`DecodedNotification&lt;AnyNotificationDefinition>` union) — the
-   * type-system contract that subscribers see RAW frames, not the lifted
-   * `DecodedNotification&lt;D>` shape that typed handlers see.
-   *
-   * Dispatch order: registration order, iterated sequentially; slow
-   * handlers block later subscriptions for this frame but never
-   * reorder frame N relative to frame N+1.
+   * Stored in a sibling `subsAllRef` list — kept off `subsRef` so the
+   * per-definition dispatch loop in `dispatch` stays a simple
+   * `definition ===` check without a per-sub broad-union escape branch.
+   */
+  readonly registerAll: (
+    refinement:
+      | ((
+          notification: DecodedNotification<AnyNotificationDefinition>,
+        ) => boolean)
+      | undefined,
+    callbacks: {
+      readonly onFrame: SubscriberFrameCallback;
+      readonly onClose: SubscriberCloseCallback;
+    },
+  ) => Effect.Effect<SubscriptionHandle, never>;
+
+  /**
+   * Fan an inbound notification out to every matching subscription. Called
+   * from `MoltZapWsClient.handleDecodedNotification`. Snapshot semantic:
+   * unsubscribes that commit mid-dispatch observe NEXT-frame semantics
+   * (AD1 path-(a) contract).
    */
   readonly dispatch: (
     frame: DecodedNotification<AnyNotificationDefinition>,
   ) => Effect.Effect<void, never>;
 
   /**
-   * Drop every live subscription. Called from `MoltZapWsClient.close`
-   * so handlers stop firing once the client is torn down. Idempotent.
+   * Terminal close. Invokes every live sub's `onClose` callback (which
+   * `emit.fail(cause)`s the corresponding consumer Stream), then clears
+   * both `subsRef` and `subsAllRef`. Idempotent.
    */
   readonly closeAll: Effect.Effect<void, never>;
 }
 
-interface LiveSubscription {
+interface LiveBroadSubscription {
   readonly id: SubscriptionId;
-  readonly filter: SubscriptionFilter;
-  readonly handler: SubscriberHandler;
+  readonly refinement?: (
+    notification: DecodedNotification<AnyNotificationDefinition>,
+  ) => boolean;
+  readonly onFrame: SubscriberFrameCallback;
+  readonly onClose: SubscriberCloseCallback;
 }
 
 function nextSubscriptionId(
@@ -185,17 +194,22 @@ function dispatchToSubscriber(
   sub: LiveSubscription,
   frame: DecodedNotification<AnyNotificationDefinition>,
 ): Effect.Effect<void> {
-  return Effect.suspend(() => sub.handler(frame)).pipe(
+  return Effect.suspend(() => sub.onFrame(frame)).pipe(
     Effect.catchAllDefect((err) =>
-      Effect.logWarning("subscriber handler threw", err),
+      Effect.logWarning("subscriber onFrame callback threw", err),
     ),
   );
 }
 
-function isNotificationParamsRecord(
-  value: unknown,
-): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function closeSubscriber(
+  sub: LiveSubscription,
+  cause: NotConnectedError,
+): Effect.Effect<void> {
+  return Effect.suspend(() => sub.onClose(cause)).pipe(
+    Effect.catchAllDefect((err) =>
+      Effect.logWarning("subscriber onClose callback threw", err),
+    ),
+  );
 }
 
 /**
@@ -203,101 +217,201 @@ function isNotificationParamsRecord(
  * constructor.
  *
  * Implementation notes:
- *   - Live subscriptions are stored in a `Ref&lt;ReadonlyArray&lt;…>>` keyed
- *     by registration order. Append-on-register, filter-on-unsubscribe
- *     keeps the dispatch path O(N) with N = live subscription count.
- *     Bigger structures aren't justified at the expected sub count
- *     (≤ ~10 per fixture).
- *   - `dispatch` snapshots the array at start (OQ-3 A). An
- *     `unsubscribe` mid-dispatch mutates the Ref but the in-flight
- *     iteration walks the snapshot.
- *   - Handler exceptions are caught with `Effect.catchAllDefect` after
- *     the handler Effect. Sync `throw` from a `(frame) => …` body
- *     surfaces as a defect; we log + swallow to match the pre-deletion
- *     `onNotification` contract.
+ *   - `subsRef: Ref&lt;ReadonlyArray&lt;LiveSubscription>>` keyed by registration
+ *     order. Append-on-register, filter-on-unregister keeps the dispatch
+ *     path O(N) with N = live subscription count.
+ *   - `dispatch` snapshots `subsRef` at iteration start. An unregister
+ *     mid-dispatch mutates the Ref but the in-flight iteration walks the
+ *     snapshot (AD1 path-(a) snapshot semantic).
+ *   - `closeAll` invokes each live sub's `onClose` in iteration order
+ *     before clearing the ref. `Stream.async`'s `emit.fail` is the
+ *     deterministic in-Effect mechanism that propagates the typed
+ *     failure to each consumer.
  */
+function appendBroadSubscription(
+  subsAllRef: Ref.Ref<ReadonlyArray<LiveBroadSubscription>>,
+  live: LiveBroadSubscription,
+): Effect.Effect<void> {
+  return Ref.update(subsAllRef, (subscriptions) => [...subscriptions, live]);
+}
+
+function removeBroadSubscription(
+  subsAllRef: Ref.Ref<ReadonlyArray<LiveBroadSubscription>>,
+  id: SubscriptionId,
+): Effect.Effect<void> {
+  return Ref.update(subsAllRef, (subscriptions) =>
+    subscriptions.filter((subscription) => subscription.id !== id),
+  );
+}
+
+function dispatchToBroadSubscriber(
+  sub: LiveBroadSubscription,
+  frame: DecodedNotification<AnyNotificationDefinition>,
+): Effect.Effect<void> {
+  return Effect.suspend(() => sub.onFrame(frame)).pipe(
+    Effect.catchAllDefect((err) =>
+      Effect.logWarning("subscribeAll onFrame callback threw", err),
+    ),
+  );
+}
+
+function closeBroadSubscriber(
+  sub: LiveBroadSubscription,
+  cause: NotConnectedError,
+): Effect.Effect<void> {
+  return Effect.suspend(() => sub.onClose(cause)).pipe(
+    Effect.catchAllDefect((err) =>
+      Effect.logWarning("subscribeAll onClose callback threw", err),
+    ),
+  );
+}
+
+/**
+ * Single named typed→erased adapter for the refinement predicate. The
+ * `Stream.async` callback inside `notification/stream.ts` keeps the typed
+ * shape for the consumer's typed payload; storage in `LiveSubscription`
+ * uses the broad-union erased form. This is the only place the typed →
+ * erased boundary crosses, so the cast is acknowledged with an explicit
+ * lint suppression.
+ */
+function eraseRefinement<D extends AnyNotificationDefinition>(
+  refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
+): ErasedNotificationRefinement | undefined {
+  if (refinement === undefined) return undefined;
+  // The typed→erased boundary is by construction safe: the registry's
+  // `dispatch` loop only invokes the refinement with frames whose
+  // `definition === sub.definition`, so `frame.params` always satisfies
+  // `NotificationParamsOf<D>`.
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- documented typed→erased boundary, see comment above
+  return refinement as unknown as ErasedNotificationRefinement; // #ignore-sloppy-code[as-unknown-as]: typed→erased boundary for heterogeneous registry storage; dispatch loop enforces definition identity before invocation
+}
+
+function buildRegister(
+  subsRef: Ref.Ref<ReadonlyArray<LiveSubscription>>,
+  counterRef: Ref.Ref<number>,
+): SubscriberRegistry["register"] {
+  return (definition, refinement, callbacks) =>
+    Effect.gen(function* () {
+      const id = yield* nextSubscriptionId(counterRef);
+      const erasedRefinement = eraseRefinement(refinement);
+      const live: LiveSubscription = {
+        id,
+        definition,
+        ...(erasedRefinement !== undefined
+          ? { refinement: erasedRefinement }
+          : {}),
+        onFrame: callbacks.onFrame as SubscriberFrameCallback,
+        onClose: callbacks.onClose,
+      };
+      yield* appendSubscription(subsRef, live);
+      const unregister = removeSubscription(subsRef, id);
+      return { id, unregister };
+    });
+}
+
+function buildRegisterAll(
+  subsAllRef: Ref.Ref<ReadonlyArray<LiveBroadSubscription>>,
+  counterRef: Ref.Ref<number>,
+): SubscriberRegistry["registerAll"] {
+  return (refinement, callbacks) =>
+    Effect.gen(function* () {
+      const id = yield* nextSubscriptionId(counterRef);
+      const live: LiveBroadSubscription = {
+        id,
+        ...(refinement !== undefined ? { refinement } : {}),
+        onFrame: callbacks.onFrame,
+        onClose: callbacks.onClose,
+      };
+      yield* appendBroadSubscription(subsAllRef, live);
+      const unregister = removeBroadSubscription(subsAllRef, id);
+      return { id, unregister };
+    });
+}
+
+/**
+ * Cognitive-complexity helper: decides whether a per-definition sub
+ * accepts a given frame.
+ */
+function subAcceptsFrame(
+  sub: LiveSubscription,
+  frame: DecodedNotification<AnyNotificationDefinition>,
+): boolean {
+  if (sub.definition !== frame.definition) return false;
+  if (sub.refinement !== undefined && !sub.refinement(frame.params))
+    return false;
+  return true;
+}
+
+/** Same as `subAcceptsFrame`, but for broad-union subscriptions. */
+function broadAcceptsFrame(
+  sub: LiveBroadSubscription,
+  frame: DecodedNotification<AnyNotificationDefinition>,
+): boolean {
+  return sub.refinement === undefined || sub.refinement(frame);
+}
+
+function buildDispatch(
+  subsRef: Ref.Ref<ReadonlyArray<LiveSubscription>>,
+  subsAllRef: Ref.Ref<ReadonlyArray<LiveBroadSubscription>>,
+): SubscriberRegistry["dispatch"] {
+  return (frame) =>
+    Effect.gen(function* () {
+      // Snapshot both lists at iteration start (AD1 path-(a) semantic).
+      const snapshot = yield* Ref.get(subsRef);
+      const broadSnapshot = yield* Ref.get(subsAllRef);
+      const matching = snapshot.filter((sub) => subAcceptsFrame(sub, frame));
+      for (const sub of matching) {
+        yield* dispatchToSubscriber(sub, frame);
+      }
+      const matchingBroad = broadSnapshot.filter((sub) =>
+        broadAcceptsFrame(sub, frame),
+      );
+      for (const sub of matchingBroad) {
+        yield* dispatchToBroadSubscriber(sub, frame);
+      }
+    });
+}
+
+function buildCloseAll(
+  subsRef: Ref.Ref<ReadonlyArray<LiveSubscription>>,
+  subsAllRef: Ref.Ref<ReadonlyArray<LiveBroadSubscription>>,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const snapshot = yield* Ref.getAndSet(
+      subsRef,
+      [] as ReadonlyArray<LiveSubscription>,
+    );
+    const broadSnapshot = yield* Ref.getAndSet(
+      subsAllRef,
+      [] as ReadonlyArray<LiveBroadSubscription>,
+    );
+    const cause = new NotConnectedError({
+      message: "WebSocket not connected",
+    });
+    for (const sub of snapshot) {
+      yield* closeSubscriber(sub, cause);
+    }
+    for (const sub of broadSnapshot) {
+      yield* closeBroadSubscriber(sub, cause);
+    }
+  });
+}
+
 export function makeSubscriberRegistry(): Effect.Effect<
   SubscriberRegistry,
   never
 > {
   return Effect.gen(function* () {
     const subsRef = yield* Ref.make<ReadonlyArray<LiveSubscription>>([]);
+    const subsAllRef = yield* Ref.make<ReadonlyArray<LiveBroadSubscription>>(
+      [],
+    );
     const counterRef = yield* Ref.make(0);
-
-    const register: SubscriberRegistry["register"] = (filter, handler) =>
-      Effect.gen(function* () {
-        const id = yield* nextSubscriptionId(counterRef);
-        const live: LiveSubscription = { id, filter, handler };
-        yield* appendSubscription(subsRef, live);
-        const unsubscribe = removeSubscription(subsRef, id);
-        return { id, unsubscribe };
-      });
-
-    const dispatch: SubscriberRegistry["dispatch"] = (frame) =>
-      Effect.gen(function* () {
-        // Snapshot at dispatch-start: OQ-3 A. Unsubscribes during this
-        // frame mutate `subsRef` but our iteration walks `snapshot`.
-        const snapshot = yield* Ref.get(subsRef);
-        // Short-circuit the common pre-subscribe path (every inbound
-        // frame before any `subscribe()` call) so hot-path dispatch
-        // avoids even the `for…of` allocation.
-        if (snapshot.length === 0) return;
-        for (const sub of snapshot) {
-          if (!matchesFilter(sub.filter, frame)) continue;
-          // Handlers must not throw; we catch defects defensively so
-          // one buggy subscriber can't kill the dispatch loop or break
-          // the reader fiber.
-          yield* dispatchToSubscriber(sub, frame);
-        }
-      });
-
-    const closeAll: Effect.Effect<void, never> = Ref.set(subsRef, []);
-
-    return { register, dispatch, closeAll };
+    return {
+      register: buildRegister(subsRef, counterRef),
+      registerAll: buildRegisterAll(subsAllRef, counterRef),
+      dispatch: buildDispatch(subsRef, subsAllRef),
+      closeAll: buildCloseAll(subsRef, subsAllRef),
+    };
   }).pipe(Effect.withSpan("makeSubscriberRegistry"));
-}
-
-/**
- * Pure filter-match predicate. Exposed for unit testing so executable
- * client-side divergence proofs can force known-bad subscription
- * behavior without bypassing the production dispatch path.
- *
- * Returns `true` iff `frame` matches every set field on `filter`:
- *   - `filter.emissionTag === frame.params.__emissionTag` (strict ===)
- *   - `filter.conversationId === frame.params.conversationId` (strict ===)
- *   - `frame.method.startsWith(filter.notificationNamePrefix)`
- * Unset filter fields are wildcards.
- */
-export function matchesFilter(
-  filter: SubscriptionFilter,
-  frame: FilterableNotificationFrame,
-): boolean {
-  const methodPrefix = filter.notificationNamePrefix;
-  if (
-    methodPrefix !== undefined &&
-    !matchesMethodPrefix(methodPrefix, frame.method)
-  )
-    return false;
-  const params: Record<string, unknown> | null = isNotificationParamsRecord(
-    frame.params,
-  )
-    ? frame.params
-    : null;
-
-  return (
-    matchesPayloadValue(params, "__emissionTag", filter.emissionTag) &&
-    matchesPayloadValue(params, "conversationId", filter.conversationId)
-  );
-}
-
-function matchesMethodPrefix(prefix: string, method: string): boolean {
-  return method.startsWith(prefix);
-}
-
-function matchesPayloadValue(
-  params: Record<string, unknown> | null,
-  key: string,
-  expected: string | undefined,
-): boolean {
-  return expected === undefined || params?.[key] === expected;
 }

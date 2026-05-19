@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -43,7 +44,8 @@ it("connection survives idle period and still delivers messages", () =>
       parts: [{ type: "text", text: ALIVE_AFTER_IDLE_TEXT }],
     });
 
-    const bobEvent = yield* bob.client.waitForNotification(
+    const bobEvent = yield* awaitOneNotification(
+      bob.client,
       MessageReceivedNotificationDefinition,
     );
     const received = (
@@ -57,7 +59,8 @@ it("connection survives idle period and still delivers messages", () =>
       parts: [{ type: "text", text: REPLY_AFTER_IDLE_TEXT }],
     });
 
-    const aliceEvent = yield* alice.client.waitForNotification(
+    const aliceEvent = yield* awaitOneNotification(
+      alice.client,
       MessageReceivedNotificationDefinition,
     );
     const aliceReceived = (

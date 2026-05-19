@@ -22,6 +22,7 @@ import type {
   AnyNotificationDefinition,
   DecodedNotification,
   NotConnectedError,
+  NotificationParamsOf,
 } from "@moltzap/protocol";
 import { subscribe, subscribeAll } from "../stream.js";
 
@@ -63,6 +64,31 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
   Stream.Stream<DecodedNotification<D>, NotConnectedError, never>
 >;
 
+// Canary #1b — user-defined-type-guard overload narrows the Stream's
+// payload to `DecodedNotification<D, R>` (per spec #596 AC and the
+// `DecodedNotification<D, R = unknown>` extension in
+// `packages/protocol/src/transport/rpc-groups.ts`).
+//
+// `ReturnType<typeof subscribe<D, R>>` cannot directly disambiguate
+// the type-guard overload from the boolean-refinement overload, so we
+// reconstruct the guard-overload signature via a value-level probe:
+// declare a value typed as the type-guard form, take its return type,
+// and compare against the narrowed Stream shape.
+declare function _subscribeGuardOverloadProbe<
+  D extends AnyNotificationDefinition,
+  R extends NotificationParamsOf<D>,
+>(
+  definition: D,
+  refinement: (params: NotificationParamsOf<D>) => params is R,
+): Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>;
+type Canary1b_SubscribeNarrowed<
+  D extends AnyNotificationDefinition,
+  R extends NotificationParamsOf<D>,
+> = Equal<
+  ReturnType<typeof _subscribeGuardOverloadProbe<D, R>>,
+  Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>
+>;
+
 // Canary #2 — `subscribeAll()` returns the broad-union Stream with R=never.
 type Canary2_SubscribeAllStreamShape = Equal<
   ReturnType<typeof subscribeAll>,
@@ -88,19 +114,15 @@ declare const _subStreamForCanary: ReturnType<
 declare const _handlerForCanary: (
   n: DecodedNotification<AnyNotificationDefinition>,
 ) => Effect.Effect<void, never, never>;
-type _RunForEachResult = ReturnType<
-  () => typeof _subStreamForCanary extends Stream.Stream<
-    infer _A,
-    infer E,
-    infer R
-  >
-    ? // Compose Stream.runForEach's signature manually so we get the
-      // post-call Effect type (this avoids relying on overload resolution
-      // for type-argument lists, which TS rejects for overloaded
-      // function types).
-      Effect.Effect<void, E, R>
-    : never
->;
+// P3 #612 fix: ground Canary #3 in the ACTUAL return type of a real
+// `Stream.runForEach(_subStreamForCanary, _handlerForCanary)` call,
+// not a manually-reconstructed `Effect<…, E, R>` inferred from the
+// Stream's own type parameters (which would be a tautology). Calling
+// `runForEach` and capturing the return type forces TypeScript to
+// resolve the overloads using the real Stream value's signature.
+const _ad1Canary3Helper = () =>
+  Stream.runForEach(_subStreamForCanary, _handlerForCanary);
+type _RunForEachResult = ReturnType<typeof _ad1Canary3Helper>;
 type Canary3_RunForEachHasNoLeakedRequirements = Equal<
   Effect.Effect.Context<_RunForEachResult>,
   never
@@ -118,8 +140,12 @@ type Canary4_TypedErrorChannel = Equal<
 // knip/oxlint see the file as fully reachable. tsc never invokes
 // `_ad1Canaries`; the canary alias resolutions happen at type-check
 // time inside the function body.
-function _ad1Canaries<D extends AnyNotificationDefinition>(): void {
+function _ad1Canaries<
+  D extends AnyNotificationDefinition,
+  R extends NotificationParamsOf<D>,
+>(): void {
   assertCanary<Canary1_SubscribeStreamShape<D>>();
+  assertCanary<Canary1b_SubscribeNarrowed<D, R>>();
   assertCanary<Canary2_SubscribeAllStreamShape>();
   assertCanary<Canary3_RunForEachHasNoLeakedRequirements>();
   assertCanary<Canary4_TypedErrorChannel>();
@@ -127,6 +153,7 @@ function _ad1Canaries<D extends AnyNotificationDefinition>(): void {
   // tsc warns even on `declare const`). Also exercises a real call
   // into Stream.runForEach to keep Canary #3's premise grounded.
   Stream.runForEach(_subStreamForCanary, _handlerForCanary);
+  _ad1Canary3Helper();
 }
 // Discard return so module-level `_ad1Canaries` is read; an assignment
 // to `_` satisfies the linter without invoking the function.

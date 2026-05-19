@@ -26,7 +26,16 @@
  * unions; the driver re-exports the wire types so property authors
  * never re-construct them by hand.
  */
-import { Cause, Chunk, Duration, Effect, Exit, Scope } from "effect";
+import {
+  Cause,
+  Chunk,
+  Duration,
+  Effect,
+  Exit,
+  Option,
+  Scope,
+  Stream,
+} from "effect";
 import { RpcResponseError } from "../_shared/errors.js";
 import type { Static } from "@sinclair/typebox";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -54,7 +63,10 @@ import {
   type DispatchId,
   type LeaseId,
 } from "../../../app/index.js";
-import type { DecodedNotification } from "../../../transport/rpc-groups.js";
+import {
+  isDecodedNotification,
+  type DecodedNotification,
+} from "../../../transport/rpc-groups.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
   makeCloseableTestClient,
@@ -576,16 +588,48 @@ function waitForReleaseFrame(
   acquired: AcquiredCloseableClient,
   remainingMs: number,
 ): Effect.Effect<DecodedNotification<typeof DispatchRelease>, PropertyFailure> {
-  return acquired.client
-    .waitForNotification(DispatchRelease, remainingMs)
-    .pipe(
-      Effect.mapError((e) =>
+  // Spec B (#596) alignment: consume the per-client notification Stream
+  // rather than the legacy polling `TestClient.waitForNotification` so
+  // the driver mirrors the production `subscribe`+`Stream.runHead`
+  // shape. Subscription is established BEFORE the trigger by callers
+  // (`waitForRelease` forks this helper from a state where the lease
+  // round-trip is already in flight); the Stream's internal buffer
+  // covers the small materialisation window.
+  return acquired.client.notifications.pipe(
+    Stream.filter(
+      (frame): frame is DecodedNotification<typeof DispatchRelease> =>
+        isDecodedNotification(DispatchRelease, frame),
+    ),
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(remainingMs),
+      onTimeout: () =>
         violation(
           "recipient.waitForRelease",
-          `dispatch/release wait failed: ${e.message}`,
+          `dispatch/release wait timed out after ${remainingMs}ms`,
         ),
-      ),
-    );
+    }),
+    Effect.mapError((e) =>
+      e instanceof PropertyInvariantViolation
+        ? e
+        : violation(
+            "recipient.waitForRelease",
+            `dispatch/release wait failed: ${String(e)}`,
+          ),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            violation(
+              "recipient.waitForRelease",
+              "dispatch/release Stream completed before a frame arrived",
+            ),
+          ),
+        onSome: (frame) => Effect.succeed(frame),
+      }),
+    ),
+  );
 }
 
 function sendWithLease(
@@ -795,27 +839,63 @@ function observabilityTimeout(
   );
 }
 
+type ObservabilityFrame =
+  | DecodedNotification<typeof DispatchesConsumed>
+  | DecodedNotification<typeof DispatchesExpired>;
+
+function observabilityViolation(
+  kind: "consumed" | "expired",
+  reason: string,
+): PropertyFailure {
+  return violation(`moderator.waitForObservability(${kind})`, reason);
+}
+
 function waitForObservabilityFrame(
   client: TestClient,
   kind: "consumed" | "expired",
   remainingMs: number,
-): Effect.Effect<
-  | DecodedNotification<typeof DispatchesConsumed>
-  | DecodedNotification<typeof DispatchesExpired>,
-  PropertyFailure
-> {
+): Effect.Effect<ObservabilityFrame, PropertyFailure> {
   const definition =
     kind === "consumed" ? DispatchesConsumed : DispatchesExpired;
-  return client
-    .waitForNotification(definition, remainingMs)
-    .pipe(
-      Effect.mapError((e) =>
-        violation(
-          `moderator.waitForObservability(${kind})`,
-          `notification wait failed: ${e.message}`,
+  // Spec B (#596) alignment: Stream consumption instead of the legacy
+  // polling waitForNotification. The caller wires this via
+  // `moderator.waitForObservability` which fans dispatch updates
+  // through this filter; the per-frame matchers above ensure the right
+  // observation arrives.
+  return client.notifications.pipe(
+    Stream.filter((frame): frame is ObservabilityFrame =>
+      isDecodedNotification(definition, frame),
+    ),
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(remainingMs),
+      onTimeout: () =>
+        observabilityViolation(
+          kind,
+          `notification wait timed out after ${remainingMs}ms`,
         ),
-      ),
-    );
+    }),
+    Effect.mapError((e) =>
+      e instanceof PropertyInvariantViolation
+        ? e
+        : observabilityViolation(
+            kind,
+            `notification wait failed: ${String(e)}`,
+          ),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            observabilityViolation(
+              kind,
+              `${kind} Stream completed before a frame arrived`,
+            ),
+          ),
+        onSome: (frame) => Effect.succeed(frame),
+      }),
+    ),
+  );
 }
 
 function matchesDispatchId(
