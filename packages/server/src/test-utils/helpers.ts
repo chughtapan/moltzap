@@ -321,7 +321,7 @@ export function connectTestClient(opts: {
       // and the `helperBuffer`/`makeSubscribeStream` block above deletes.
       subscribe: client.subscribe.bind(client),
       subscribeAll: client.subscribeAll.bind(client),
-      handleServerRpc: client.handleServerRpc.bind(client),
+      onAppCallback: client.onAppCallback.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),
       notifications: client.notifications,
       captures: client.captures,

@@ -33,7 +33,7 @@ import {
   ConnectionManager,
   type MoltZapConnection,
 } from "../../transport/connection.js";
-import { unusedJsonRpcClient } from "../../transport/connection.test-utils.js";
+import { unusedOriginator } from "../../transport/connection.test-utils.js";
 import type { AuthenticatedContext } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
@@ -145,7 +145,7 @@ function makeConn(connId: string, agentId: AgentId): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    jsonRpcClient: unusedJsonRpcClient(),
+    originator: unusedOriginator(),
   };
 }
 
@@ -170,7 +170,7 @@ function recordingConn(
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    jsonRpcClient: unusedJsonRpcClient(),
+    originator: unusedOriginator(),
   };
 }
 

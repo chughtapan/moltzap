@@ -7,14 +7,14 @@
  * Phase 12 S8a: server-side encapsulation. The Refs that previously
  * lived on `MoltZapConnection` (`appCallbackPending`,
  * `appCallbackRequestCounter`) are gone; their work is done inside the
- * connection's `JsonRpcClient`. Tests verify cleanup invariants through
+ * connection's `Originator`. Tests verify cleanup invariants through
  * observable behavior (exit shape, late-response `resolve` returning
  * `false`) rather than by reading the pending map's size.
  *
  * The tests run against `MoltZapConnection` directly: no testcontainers,
  * no real WebSocket. The connection's `write` is a mock that records
  * outbound frames, and inbound responses are injected by calling
- * `conn.jsonRpcClient.resolve` directly. This keeps the round-trip a
+ * `conn.originator.resolve` directly. This keeps the round-trip a
  * pure-Effect test of the protocol primitive; wire integration is
  * covered by B.9.
  */
@@ -44,9 +44,10 @@ import {
   RpcServerError,
   DispatchAuthorize,
   encodeErrorResponse,
-  type JsonRpcClient,
   type RequestFrame,
+  type ServerConnection,
 } from "@moltzap/protocol";
+import type { DispatchContext } from "./context.js";
 import {
   agentId,
   conversationId,
@@ -152,7 +153,7 @@ function happyRoundTrip() {
       expect(frame.params).toEqual(params);
       expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
 
-      const matched = yield* conn.jsonRpcClient.resolve(
+      const matched = yield* conn.originator.resolve(
         DispatchAuthorize.encodeResponse(frame.id, GRANTED_ADMISSION),
       );
       expect(matched).toBe(true);
@@ -172,7 +173,7 @@ function typedErrorResponse() {
       );
       const { id } = yield* waitForRequestFrame(outbound);
 
-      yield* conn.jsonRpcClient.resolve(
+      yield* conn.originator.resolve(
         encodeErrorResponse(id, {
           code: HANDLER_DEFECT_CODE,
           message: TASK_ALREADY_CLOSED_MESSAGE,
@@ -219,15 +220,11 @@ function writeFailureSurfacesNotConnected() {
       });
       const failingWrite: MoltZapConnection["write"] = () =>
         Effect.fail(failingSocket);
-      const jsonRpcClient = yield* acquireConnectionRpcClient(
+      const originator = yield* acquireConnectionRpcClient(
         "conn-writefail",
         failingWrite,
       );
-      const conn = makeConnection(
-        "conn-writefail",
-        failingWrite,
-        jsonRpcClient,
-      );
+      const conn = makeConnection("conn-writefail", failingWrite, originator);
 
       const exit = yield* sendRpcToClient(
         conn,
@@ -269,7 +266,7 @@ function lateResponseAfterInterrupt() {
       const { id: requestId } = yield* waitForRequestFrame(outbound);
 
       yield* Fiber.interrupt(fiber);
-      const matched = yield* conn.jsonRpcClient.resolve(
+      const matched = yield* conn.originator.resolve(
         DispatchAuthorize.encodeResponse(requestId, GRANTED_ADMISSION),
       );
 
@@ -309,7 +306,7 @@ function timeoutDropsLateResponse() {
 
       const written = yield* Ref.get(outbound);
       const { id: requestId } = parseRequestFrame(written[0]!);
-      const matched = yield* conn.jsonRpcClient.resolve(
+      const matched = yield* conn.originator.resolve(
         DispatchAuthorize.encodeResponse(requestId, GRANTED_ADMISSION),
       );
 
@@ -323,7 +320,7 @@ function timeoutDropsLateResponse() {
 function makeConnection(
   id: string,
   write: MoltZapConnection["write"],
-  jsonRpcClient: JsonRpcClient,
+  originator: ServerConnection<DispatchContext>,
 ): MoltZapConnection {
   return {
     id,
@@ -333,14 +330,14 @@ function makeConnection(
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    jsonRpcClient,
+    originator,
   };
 }
 
 /**
  * Build a `MoltZapConnection` whose `write` records outbound frames into a
  * Ref. Caller can inspect the captured frame, then synthesize the matching
- * inbound response via `conn.jsonRpcClient.resolve`.
+ * inbound response via `conn.originator.resolve`.
  */
 const makeFakeConnection = (
   connId: string,
@@ -349,8 +346,8 @@ const makeFakeConnection = (
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
     const write: MoltZapConnection["write"] = (raw) =>
       Ref.update(outbound, (xs) => [...xs, raw]);
-    const jsonRpcClient = yield* acquireConnectionRpcClient(connId, write);
-    return { conn: makeConnection(connId, write, jsonRpcClient), outbound };
+    const originator = yield* acquireConnectionRpcClient(connId, write);
+    return { conn: makeConnection(connId, write, originator), outbound };
   });
 
 function useFakeConnection<A, E>(

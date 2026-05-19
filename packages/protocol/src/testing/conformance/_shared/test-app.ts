@@ -159,7 +159,7 @@ function makeCallbackScript<D extends ServerRpcDefinition>(
       handlers: [],
       silenced: false,
     });
-    yield* client.handleServerRpc(definition, (params) =>
+    yield* client.onAppCallback(definition, (params) =>
       runScriptedCallback(state, params),
     );
     return {

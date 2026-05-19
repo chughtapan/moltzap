@@ -20,9 +20,9 @@ sequenceDiagram
     WS->>HS: req.upgrade → socket: Socket.Socket
     Note over HS: connId = crypto.randomUUID()<br>writer = yield* socket.writer<br>closeRequested = yield* Deferred.make<void>()
     HS->>RPC: acquireConnectionRpcClient(connId, write)
-    Note over RPC: makeJsonRpcClient({write, idPrefix})<br>scope-bound: finalizer fails every<br>pending Deferred with NotConnectedError
-    RPC-->>HS: jsonRpcClient
-    HS->>CM: connections.add({id, write, shutdown, auth: null,<br>lastPong, conversationIds, mutedConversations, jsonRpcClient})
+    Note over RPC: per-connection JSON-RPC originator<br>(internalized inside the typed Connection per Spec F #617 §6 FRI)<br>scope-bound: finalizer fails every<br>pending Deferred with NotConnectedError
+    RPC-->>HS: originator
+    HS->>CM: connections.add({id, write, shutdown, auth: null,<br>lastPong, conversationIds, mutedConversations, originator})
     HS->>Reader: socket.runRaw(data => handleFrame(decode(data)))
     Note over HS,Reader: Effect.raceFirst(reader, Deferred.await(closeRequested))<br>raceFirst (not race): abrupt disconnect still triggers onExit—<br>plain `race` would leak on abnormal close
     Reader-->>Cleanup: connection closes (normal or abrupt)
