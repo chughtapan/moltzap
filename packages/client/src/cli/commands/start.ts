@@ -127,8 +127,12 @@ export interface StartCommandArgs {
   /**
    * Raw participant tokens (positional `&lt;participant>...`), each
    * `agent:&lt;name>` or `agent:&lt;uuid>`. Resolution is per-token via
-   * `resolveParticipant` (socket-client.ts); failures map to
-   * `UnresolvedParticipantError` and exit 64 BEFORE `TaskCreate`.
+   * `resolveAgentToken` (local helper below) which routes through
+   * `transport.ts → rpc(AgentsLookupByName, ...)` for name-shaped
+   * tokens and short-circuits UUID-shaped tokens client-side.
+   * Failures map to `UnresolvedParticipantError` and exit 64 BEFORE
+   * `TaskCreate`. See per-flow doc 09 §"Why we don't reuse
+   * `resolveParticipant`" for the transport divergence reasoning.
    */
   readonly participants: readonly string[];
 
