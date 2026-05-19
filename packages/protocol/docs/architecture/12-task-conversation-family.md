@@ -107,8 +107,10 @@ refactor of it.
 
 The single-invitee DM case under `DEFAULT_APP_ID` is functionally
 equivalent to today's DM-dedup behavior (one extant task per agent
-pair) — the OBSERVABLE behavior generalizes; the IMPLEMENTATION
-queries are distinct tables.
+pair) at the OBSERVABLE layer. The IMPLEMENTATION queries are
+distinct tables (today's runs against `conversation_participants`;
+D1's runs against `task_participants`); the new helper is a sibling,
+not a refactor.
 
 ## TaskLeave flow
 
@@ -174,15 +176,13 @@ demands auto-archive; D1 keeps the conservative behavior.
 
 ## Capability list per new handler (impl-staff target)
 
-When Spec E (#601) primitives land (`TmAuthority` `Context.Tag` +
-`obtainTmAuthority` helper), impl-staff wires each new handler with
-the R-channel capability chain per the matrix below. D1 handlers
-SHOULD be born with these capabilities (born-Spec-E) if Spec E
-lands first; OTHERWISE D1 handlers temporarily use today's runtime
-`requireTmAuthority(taskId, ctx.agentId)` pattern and the Spec E
-migration rewires them later. Either path produces the same wire
-behavior — the difference is compile-time enforcement of the
-authority check.
+D1 impl-staff dispatch is HARD-blocked on Spec E (#601) Phase 1
+(primitives PR — `TmAuthority` `Context.Tag` + `obtainTmAuthority`
+helper) merging first. Every new handler is born with the Spec E
+R-channel capability chain per the matrix below; there is no
+runtime-only fallback path. If Spec E Phase 1 has not landed when D1
+impl-staff dispatches, the orchestrator BLOCKs with a `NEEDS_CONTEXT`
+verdict pointing at Spec E (#606). See plan §R5 + §14.
 
 | Handler | Capability list (Spec E shape) |
 |---|---|
@@ -195,12 +195,11 @@ authority check.
 | `TaskConversationAddParticipant` | `[TmAuthority, ConversationInTask, AgentInTaskParticipants]` |
 | `TaskConversationRemoveParticipant` | `[TmAuthority, ConversationInTask]` |
 
-Spec F (#617) consumes these arrays at the dispatcher; impl-staff for
-D1 may either populate the arrays now (if Spec F primitives are in
-tree) or defer to a follow-up migration once Spec F lands. The
-descriptor stubs in `tasks.ts` are Spec F-compatible (no
-`slotDisposition` or `capabilities` field added; the future Spec F
-edit just decorates each `defineRpc(...)` call).
+Spec F (#617) consumes these arrays at the dispatcher; D1 impl-staff
+populates the arrays at Spec E wiring time (the two land together at
+the handler call site). The descriptor stubs in `tasks.ts` are Spec
+F-compatible (no `slotDisposition` or `capabilities` field added; the
+future Spec F edit just decorates each `defineRpc(...)` call).
 
 ## Dual emission during D1
 
