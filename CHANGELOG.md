@@ -47,10 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   re-exports.
 - **BREAKING:** `DUPLICATE_HANDLER_ERROR_TAG` DELETED from
   `client/src/ws-client-test-support.ts`.
-- **BREAKING:** `MoltZapConnection.jsonRpcClient` renamed to
-  `MoltZapConnection.originator`; re-typed as `AgentClientConnection`.
-  `acquireConnectionRpcClient` derives the originator from
-  `makeAgentClientConnection({ handlers: {}, ... })`. Test stub
+- **BREAKING:** `MoltZapConnection.jsonRpcClient: JsonRpcClient` renamed
+  and re-typed to `MoltZapConnection.originator:
+  ServerConnection<DispatchContext>` — every socket now carries one
+  typed Connection that hosts BOTH inbound dispatch and outbound
+  TM-callback originator. `acquireConnectionRpcClient` derives it from
+  `makeServerConnection<DispatchContext, never>({ handlers, ... })` and
+  takes an optional `handlers: ServerHandlers<DispatchContext>`
+  parameter (defaults to empty for test fixtures). Test stub
   `unusedJsonRpcClient` → `unusedOriginator` in
   `server/src/transport/connection.test-utils.ts`.
 - **BREAKING:** public `makeJsonRpcClient` + `JsonRpcClient` re-exports
@@ -60,12 +64,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RpcHandler` DELETED entirely. `packages/protocol/src/transport/json-rpc-server.ts`
   removed; `wireErrorFromInstance` re-exported from `transport/dispatch.ts`
   for `@moltzap/protocol/testing` consumers.
-- **BREAKING:** `MoltZapConnection.originator` re-typed from
-  `AgentClientConnection` to `ServerConnection<DispatchContext>` —
-  every socket now carries one typed Connection that hosts BOTH inbound
-  dispatch and outbound TM-callback originator. `acquireConnectionRpcClient`
-  takes an optional `handlers: ServerHandlers<DispatchContext>` parameter
-  (defaults to empty for test fixtures).
 - **BREAKING:** `CoreApp.registerRpcMethod` DELETED. Static handler
   table is captured at `createCoreApp` time; Spec F I1 forbids
   post-construction mutation.
