@@ -128,8 +128,8 @@ export class ConversationService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private existence
-   * helper. Not part of the exported public surface.
+   * Package-private existence helper consumed by `obtainAgentExists` +
+   * `obtainContactPolicyForCreate`. Spec E (#601) Decision B / Option A.
    * @internal
    */
   loadAgentOwners(
@@ -176,12 +176,8 @@ export class ConversationService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private contact-
-   * policy gate. Consumed by `obtainContactPolicyForCreate`. Spec E
-   * narrows the input shape to the four fields the policy check
-   * actually reads; eliminates an `Effect.never as never` shim on the
-   * obtain-helper call site (pre-Spec-E overload carried an unused
-   * `mintTask` Effect).
+   * Package-private contact-policy gate consumed by
+   * `obtainContactPolicyForCreate`. Spec E (#601) Decision B / Option A.
    * @internal
    */
   assertContactPolicyForCreate(
@@ -202,10 +198,8 @@ export class ConversationService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private capacity
-   * gate. Consumed by `obtainGroupCapacityForCreate`. Narrowed to the
-   * two fields the count check reads; eliminates an
-   * `Effect.never as never` shim on the obtain-helper call site.
+   * Package-private capacity gate consumed by
+   * `obtainGroupCapacityForCreate`. Spec E (#601) Decision B / Option A.
    * @internal
    */
   assertGroupCapacityForCreate(
@@ -477,21 +471,17 @@ export class ConversationService {
           conversationId,
           requesterAgentId,
         );
-
         const convOpt = yield* takeFirstOption(
           this.db
             .selectFrom("conversations")
             .selectAll()
             .where("id", "=", conversationId),
         );
-
         if (Option.isNone(convOpt)) {
           return yield* Effect.fail(
             new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
           );
         }
-        const conv = convOpt.value;
-
         const partRows = yield* this.db
           .selectFrom("conversation_participants as cp")
           .leftJoin("agents as a", "a.id", "cp.agent_id")
@@ -505,9 +495,8 @@ export class ConversationService {
             "a.display_name as agent_display_name",
           ])
           .where("cp.conversation_id", "=", conversationId);
-
         return {
-          conversation: this.mapConversation(conv),
+          conversation: this.mapConversation(convOpt.value),
           participants: partRows.map((row) => this.mapParticipant(row)),
         };
       }),
@@ -720,11 +709,8 @@ export class ConversationService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private add-
-   * participant contact-policy gate. Consumed by
-   * `obtainContactPolicyForAdd`. Narrowed to the three fields the
-   * policy check reads; pre-Spec-E `AddParticipantOptions` overload
-   * carried `conversationId` as dead context.
+   * Package-private add-participant contact-policy gate consumed by
+   * `obtainContactPolicyForAdd`. Spec E (#601) Decision B / Option A.
    * @internal
    */
   assertAddParticipantContactPolicy(
@@ -738,9 +724,7 @@ export class ConversationService {
       const requester = yield* this.participants.resolve(requesterAgentId);
       if (!requester.exists) {
         return yield* Effect.fail(
-          new NotFoundError({
-            message: `Agent ${requesterAgentId} not found`,
-          }),
+          new NotFoundError({ message: `Agent ${requesterAgentId} not found` }),
         );
       }
       yield* this.checkContactEdge({
@@ -912,7 +896,6 @@ export class ConversationService {
           .where("conversation_id", "=", conversationId)
           .where("agent_id", "=", agentId)
           .returning("conversation_id");
-
         if (rows.length === 0) {
           return yield* Effect.fail(
             new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
@@ -934,7 +917,6 @@ export class ConversationService {
           .where("conversation_id", "=", conversationId)
           .where("agent_id", "=", agentId)
           .returning("conversation_id");
-
         if (rows.length === 0) {
           return yield* Effect.fail(
             new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
@@ -966,7 +948,6 @@ export class ConversationService {
           .selectFrom("conversation_participants")
           .select("conversation_id")
           .where("agent_id", "=", agentId);
-
         return rows.map((r) => r.conversation_id);
       }),
     );
@@ -1051,10 +1032,8 @@ export class ConversationService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private creator-
-   * contact-policy fan-out. Consumed transitively via
-   * `assertContactPolicyForCreate` and (post-Phase-1) directly by the
-   * composite contact-policy obtain helper if needed.
+   * Package-private creator-contact-policy fan-out consumed transitively
+   * via `assertContactPolicyForCreate`. Spec E (#601) Decision B / Option A.
    * @internal
    */
   assertCreatorContactsAll(
@@ -1099,9 +1078,9 @@ export class ConversationService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private single-edge
-   * contact-policy probe. Consumed by `assertCreatorContactsAll` and
-   * `assertAddParticipantContactPolicy`.
+   * Package-private single-edge contact-policy probe consumed by
+   * `assertCreatorContactsAll` and `assertAddParticipantContactPolicy`.
+   * Spec E (#601) Decision B / Option A.
    * @internal
    */
   checkContactEdge(
