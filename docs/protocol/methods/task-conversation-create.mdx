@@ -1,0 +1,28 @@
+---
+title: "task/conversation/create"
+description: "Call `task/conversation/create`."
+---
+
+# task/conversation/create
+
+Call `task/conversation/create`.
+
+## Parameters
+
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
+<ParamField path="name" type="string">
+  The name field.
+</ParamField>
+
+<ParamField path="participants" type="array" required>
+  The participants field.
+</ParamField>
+
+## Response
+
+<ResponseField name="conversation" type="object">
+  The conversation field.
+</ResponseField>
