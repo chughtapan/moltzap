@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Spec F (#617) — Typed dispatcher unification + Connection facade
 
+**Draft / carryover:** the typed-dispatcher infrastructure (factories,
+dispatch loop, capability auto-provision, catalog-aware fail-CLOSED
+runtime) is in. The §9.1 5-layer class sweep — deletion of
+`MoltZapWsClient.handleServerRpc`, `appCallbackHandlersRef`,
+`registerServerRpcHandler`, `DuplicateServerRpcHandlerError`, the
+`ServerRpcContext` / `ServerRpcHandler` / `ErasedServerRpcHandler`
+production-barrel re-exports, and consumer migrations across
+`packages/{server,client,protocol/src/testing}/` — plus the §6 FRI
+legacy-factory deletions (`makeJsonRpcServer` / `makeJsonRpcClient`
+internalization) and new conformance ACs land in subsequent commits
+on the same branch.
+
 - **NEW:** `makeServerConnection` / `makeAgentClientConnection` /
   `makeTaskMasterConnection` factories in
   `@moltzap/protocol/transport/connection` — three per-kind typed

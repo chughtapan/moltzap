@@ -83,6 +83,7 @@ export function defineRpc<
   P extends TSchema,
   R extends TSchema,
   Disp extends SlotDisposition | undefined = undefined,
+  Caps extends ReadonlyArray<CapabilityDescriptor> = readonly [],
 >(def: {
   name: Name;
   params: P;
@@ -94,8 +95,8 @@ export function defineRpc<
    *
    * Generic-parameterized so the call-site narrows the inferred type to
    * a literal `{ slotDisposition: SlotDisposition }` shape (vs. just
-   * `slotDisposition?: SlotDisposition`). `IsOptionalSlot&lt;D>` reads the
-   * narrowed shape; without the narrowing, every definition would
+   * `slotDisposition?: SlotDisposition`). `IsOptionalSlot&lt;D&gt;` reads
+   * the narrowed shape; without the narrowing, every definition would
    * appear REQUIRED to the mapped-type pass.
    */
   slotDisposition?: Disp;
@@ -104,10 +105,18 @@ export function defineRpc<
    * Spec F G5/G6: capability descriptors the dispatcher iterates to
    * thread `Effect.provideServiceEffect` from a `CapabilityProviderTable`.
    * Each descriptor names a `Context.Tag` + an `argsOf` resolver.
+   *
+   * Generic-parameterized so the return type preserves the literal
+   * tuple shape — `CapabilitiesOf&lt;D&gt;` reads
+   * `D["capabilities"][number]["tag"]` to extract the tag union. Without
+   * a captured `Caps` generic, `capabilities` widens to
+   * `ReadonlyArray&lt;CapabilityDescriptor&gt;` and the per-tag info is
+   * lost.
    */
-  capabilities?: ReadonlyArray<CapabilityDescriptor>;
+  capabilities?: Caps;
 }): RpcDefinition<Name, P, R> & {
   readonly slotDisposition: Disp;
+  readonly capabilities: Caps;
 } {
   const d: RpcDefinition<Name, P, R> = {
     name: jsonRpcMethod(def.name),
@@ -126,6 +135,7 @@ export function defineRpc<
   };
   return d as RpcDefinition<Name, P, R> & {
     readonly slotDisposition: Disp;
+    readonly capabilities: Caps;
   };
 }
 
