@@ -359,6 +359,9 @@ export const startCommand = Command.make(
       "first message in one atomic step. Spec D2 #599 — composes Spec D1 " +
       "TaskCreate + MessagesSend.\n" +
       "\n" +
+      "Zero participants creates a caller-only task (rare; usually you " +
+      "will pass one or more `agent:<name>` tokens).\n" +
+      "\n" +
       "Exit codes:\n" +
       `  ${EXIT_CODES.SUCCESS}   success (TaskCreate + optional MessagesSend resolved)\n` +
       `  ${EXIT_CODES.TASK_CREATE_FAILED}   TaskCreate failed (stdout empty)\n` +
