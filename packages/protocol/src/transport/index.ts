@@ -62,14 +62,38 @@ export type { RpcErrorClass, RpcErrorPayload } from "./wire-errors.js";
 // `definition` identity.
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 
-// JSON-RPC client + server runtime.
-// NOTE (Spec F #617): `makeJsonRpcServer` / `makeJsonRpcClient` are
-// retained at the public barrel during the architect stub; impl-staff
-// PR for Spec F removes them per Invariant FRI (facade replacement;
-// see `packages/protocol/docs/architecture/11-typed-dispatcher.md →
-// §5 Facade Replacement Invariant`).
+// JSON-RPC originator error surface — outbound RPC error type used by
+// every `Connection.call` signature.
+export type { RpcCallError } from "./json-rpc-client.js";
+
+/**
+ * Spec F (#617) Invariant FRI carryover surface.
+ *
+ * `makeJsonRpcClient` / `makeJsonRpcServer` / `handler` are the legacy
+ * pre-Spec-F factories. The Spec F PR ships the replacement
+ * `make{Server,AgentClient,TaskMaster}Connection` factories (below) and
+ * relocates the legacy symbols to this `@deprecated` re-export block.
+ *
+ * Cutover plan: every consumer of these symbols (LSP-verified —
+ * `packages/server/src/app/server.ts → createCoreApp`,
+ * `packages/server/src/transport/connection.ts → acquireConnectionRpcClient`,
+ * `packages/client/src/ws-client.ts`,
+ * `packages/protocol/src/testing/conformance/_shared/driver/*.ts`)
+ * migrates to the typed factories in incremental follow-up PRs. Once
+ * the consumer list reaches zero, this re-export block deletes
+ * (per Invariant FRI) and the underlying impl files (`json-rpc-server.ts`,
+ * `json-rpc-client.ts`) collapse into `dispatch.ts` private helpers.
+ *
+ * **DO NOT use these in new code.** New connections go through the
+ * typed factories below; they enforce per-kind static catalogs at the
+ * type level (Spec F G3) and auto-provision Spec E capabilities via
+ * the `CapabilityProviderTable` (Spec F G5/G6).
+ * @deprecated Spec F (#617) — use `makeServerConnection`,
+ * `makeAgentClientConnection`, or `makeTaskMasterConnection`.
+ */
 export { makeJsonRpcClient } from "./json-rpc-client.js";
-export type { JsonRpcClient, RpcCallError } from "./json-rpc-client.js";
+export type { JsonRpcClient } from "./json-rpc-client.js";
+/** @deprecated Spec F (#617) — use `makeServerConnection`. */
 export { handler, makeJsonRpcServer } from "./json-rpc-server.js";
 export type { JsonRpcServer, RpcHandler } from "./json-rpc-server.js";
 
