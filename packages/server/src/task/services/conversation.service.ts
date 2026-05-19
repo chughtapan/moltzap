@@ -60,6 +60,7 @@ export type ConversationServiceError =
   | NotInContactsError;
 
 const MAX_GROUP_PARTICIPANTS = 256;
+const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;
 const PREVIEW_CACHE_MAX = 2000;
 const PREVIEW_CACHE_TEXT_CHARS = 80;
 const DEFAULT_CONVERSATION_LIST_LIMIT = 50;
@@ -110,8 +111,13 @@ export class ConversationService {
       const existingDm = yield* this.existingDmForCreate(input);
       if (existingDm !== null) return existingDm;
 
-      yield* this.requireContactPolicyForCreate(input, ownerByAgentId);
-      yield* this.requireGroupCapacityForCreate(input);
+      yield* this.requireContactPolicyForCreate(
+        input.creatorAgentId,
+        input.agentIds,
+        input.type,
+        ownerByAgentId,
+      );
+      yield* this.requireGroupCapacityForCreate(input.type, input.agentIds);
 
       const task = yield* input.mintTask;
       const created = yield* this.insertConversation(input, task.id);
@@ -171,43 +177,48 @@ export class ConversationService {
 
   /**
    * Spec E (#601) Decision B / Option A — package-private contact-
-   * policy gate. Consumed by `obtainContactPolicyForCreate`.
+   * policy gate. Consumed by `obtainContactPolicyForCreate`. Spec E
+   * narrows the input shape to the four fields the policy check
+   * actually reads; eliminates an `Effect.never as never` shim on the
+   * obtain-helper call site (pre-Spec-E overload carried an unused
+   * `mintTask` Effect).
    * @internal
    */
-  requireContactPolicyForCreate<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
+  requireContactPolicyForCreate(
+    creatorAgentId: AgentId,
+    targetAgentIds: ReadonlyArray<AgentId>,
+    pathType: "dm" | "group",
     ownerByAgentId: ReadonlyMap<AgentId, string | null>,
   ): Effect.Effect<void, ConversationServiceError> {
     const policy = this.resolveContactPolicy();
-    if (policy === null || input.agentIds.length === 0) return Effect.void;
+    if (policy === null || targetAgentIds.length === 0) return Effect.void;
     return this.requireCreatorContactsAll({
-      creatorAgentId: input.creatorAgentId,
-      targetAgentIds: input.agentIds,
+      creatorAgentId,
+      targetAgentIds,
       ownerByAgentId,
       policy,
-      pathLabel: input.type,
+      pathLabel: pathType,
     });
   }
 
   /**
    * Spec E (#601) Decision B / Option A — package-private capacity
-   * gate. Consumed by `obtainGroupCapacityForCreate`.
+   * gate. Consumed by `obtainGroupCapacityForCreate`. Narrowed to the
+   * two fields the count check reads; eliminates an
+   * `Effect.never as never` shim on the obtain-helper call site.
    * @internal
    */
-  requireGroupCapacityForCreate<TaskMintError>(
-    input: CreateConversationOptions<TaskMintError>,
+  requireGroupCapacityForCreate(
+    pathType: "dm" | "group",
+    targetAgentIds: ReadonlyArray<AgentId>,
   ): Effect.Effect<void, ConversationFullError> {
-    if (
-      input.type === "group" &&
-      input.agentIds.length + 1 > MAX_GROUP_PARTICIPANTS
-    ) {
-      return Effect.fail(
-        new ConversationFullError({
-          message: `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`,
-        }),
-      );
-    }
-    return Effect.void;
+    const overflow =
+      pathType === "group" &&
+      targetAgentIds.length + 1 > MAX_GROUP_PARTICIPANTS;
+    if (!overflow) return Effect.void;
+    return Effect.fail(
+      new ConversationFullError({ message: GROUP_OVERFLOW_MSG }),
+    );
   }
 
   private insertConversation<TaskMintError>(
@@ -655,7 +666,11 @@ export class ConversationService {
       const targetOwnerUserId = yield* this.participants.requireExists(
         input.agentId,
       );
-      yield* this.requireAddParticipantContactPolicy(input, targetOwnerUserId);
+      yield* this.requireAddParticipantContactPolicy(
+        input.requesterAgentId,
+        input.agentId,
+        targetOwnerUserId,
+      );
       yield* this.requireParticipantCapacity(input.conversationId);
 
       const inserted = yield* this.insertParticipant(input);
@@ -704,30 +719,31 @@ export class ConversationService {
   /**
    * Spec E (#601) Decision B / Option A — package-private add-
    * participant contact-policy gate. Consumed by
-   * `obtainContactPolicyForAdd`.
+   * `obtainContactPolicyForAdd`. Narrowed to the three fields the
+   * policy check reads; pre-Spec-E `AddParticipantOptions` overload
+   * carried `conversationId` as dead context.
    * @internal
    */
   requireAddParticipantContactPolicy(
-    input: AddParticipantOptions,
+    requesterAgentId: AgentId,
+    targetAgentId: AgentId,
     targetOwnerUserId: string | null,
   ): Effect.Effect<void, ConversationServiceError> {
     const policy = this.resolveContactPolicy();
     if (policy === null) return Effect.void;
     return Effect.gen(this, function* () {
-      const requester = yield* this.participants.resolve(
-        input.requesterAgentId,
-      );
+      const requester = yield* this.participants.resolve(requesterAgentId);
       if (!requester.exists) {
         return yield* Effect.fail(
           new NotFoundError({
-            message: `Agent ${input.requesterAgentId} not found`,
+            message: `Agent ${requesterAgentId} not found`,
           }),
         );
       }
       yield* this.checkContactEdge({
-        requesterAgentId: input.requesterAgentId,
+        requesterAgentId,
         requesterOwnerUserId: requester.ownerUserId,
-        targetAgentId: input.agentId,
+        targetAgentId,
         targetOwnerUserId,
         policy,
         pathLabel: "addParticipant",
@@ -757,9 +773,7 @@ export class ConversationService {
       );
       if (countRow.count >= MAX_GROUP_PARTICIPANTS) {
         return yield* Effect.fail(
-          new ConversationFullError({
-            message: `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`,
-          }),
+          new ConversationFullError({ message: GROUP_OVERFLOW_MSG }),
         );
       }
     });
@@ -953,29 +967,6 @@ export class ConversationService {
         return rows.map((r) => r.conversation_id);
       }),
     );
-  }
-
-  /**
-   * Spec E (#601) Phase 1 — read-side accessor for the constructor-
-   * injected contact-policy resolver. Exposed so the `obtainContact*`
-   * capability constructors in `app/capabilities/` can invoke the
-   * underlying `@internal` policy helpers without re-resolving the
-   * policy through a synthetic `CreateConversationOptions`.
-   * @internal
-   */
-  resolveContactPolicyForCapabilities() {
-    return this.resolveContactPolicy();
-  }
-
-  /**
-   * Spec E (#601) Phase 1 — read-side accessor for the constructor-
-   * injected `ParticipantService`. Lets the `obtainContactPolicyForAdd`
-   * helper resolve the requester's owner-user-id without re-injecting
-   * the service.
-   * @internal
-   */
-  get participantServiceForCapabilities(): ParticipantService {
-    return this.participants;
   }
 
   requireParticipant(

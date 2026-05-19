@@ -1,6 +1,5 @@
 import { Context, Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { NotFoundError } from "@moltzap/protocol";
 import { ConversationServiceTag } from "../layers.js";
 import type { ConversationServiceError } from "../../task/services/conversation.service.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
@@ -31,9 +30,14 @@ export class ContactPolicyAllowsReach extends Context.Tag(
 /**
  * Smart constructor for `TaskCreate` / `ConversationCreate` flows.
  *
- * Delegates to the `@internal`-exported `requireAgentsExist` +
- * `requireCreatorContactsAll` helpers on `ConversationService` so the
- * runtime check is unchanged from pre-Spec-E.
+ * Wraps (does not re-implement) the existing named service gate
+ * `ConversationService.requireContactPolicyForCreate` — Phase 1
+ * narrows the gate's signature to `(creatorAgentId, targetAgentIds,
+ * pathType, ownerByAgentId)` so the obtain helper delegates without a
+ * `mintTask: Effect.never as never` synthesis shim. Single source of
+ * truth for the create-side contact-policy fan-out: the service caller
+ * inside `createConversationEffect` and the obtain helper both call
+ * this method.
  *
  * Error channel propagates the underlying helpers' failure modes:
  *   - `NotInContactsError` — caller's contact policy rejects a target
@@ -58,26 +62,27 @@ export const obtainContactPolicyForCreate = (
       const conversations = yield* ConversationServiceTag;
       const ownerByAgentId =
         yield* conversations.requireAgentsExist(targetAgentIds);
-      const policy = conversations.resolveContactPolicyForCapabilities();
-      if (policy !== null && targetAgentIds.length !== 0) {
-        yield* conversations.requireCreatorContactsAll({
-          creatorAgentId,
-          targetAgentIds,
-          ownerByAgentId,
-          policy,
-          pathLabel: type,
-        });
-      }
+      yield* conversations.requireContactPolicyForCreate(
+        creatorAgentId,
+        targetAgentIds,
+        type,
+        ownerByAgentId,
+      );
       return { creatorAgentId, targetAgentIds };
     }),
   ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
 
 /**
  * Smart constructor for `TaskConversationAddParticipant` (D1) /
- * `ConversationAddParticipant` flows. Inlines the add-participant
- * contact-policy fan-out by composing the `@internal`-exported
- * `requireAgentsExist`, `participantServiceForCapabilities`, and
- * `checkContactEdge` helpers on `ConversationService`.
+ * `ConversationAddParticipant` flows.
+ *
+ * Wraps the existing named service gate
+ * `ConversationService.requireAddParticipantContactPolicy` — Phase 1
+ * narrows the gate's signature to `(requesterAgentId, targetAgentId,
+ * targetOwnerUserId)` so the obtain helper delegates without
+ * synthesizing an `AddParticipantOptions` shim with a placeholder
+ * `conversationId`. Single source of truth: the service caller inside
+ * `addParticipantEffect` and the obtain helper both call this method.
  *
  * Error channel matches `obtainContactPolicyForCreate` (same underlying
  * fan-out).
@@ -93,32 +98,15 @@ export const obtainContactPolicyForAdd = (
   catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const conversations = yield* ConversationServiceTag;
-      const targetExists = yield* conversations.requireAgentsExist([
+      const ownerByAgentId = yield* conversations.requireAgentsExist([
         targetAgentId,
       ]);
-      const policy = conversations.resolveContactPolicyForCapabilities();
-      if (policy === null) {
-        return { creatorAgentId, targetAgentIds: [targetAgentId] };
-      }
-      const requester =
-        yield* conversations.participantServiceForCapabilities.resolve(
-          creatorAgentId,
-        );
-      if (!requester.exists) {
-        return yield* Effect.fail(
-          new NotFoundError({
-            message: `Agent ${creatorAgentId} not found`,
-          }),
-        );
-      }
-      yield* conversations.checkContactEdge({
-        requesterAgentId: creatorAgentId,
-        requesterOwnerUserId: requester.ownerUserId,
+      const targetOwnerUserId = ownerByAgentId.get(targetAgentId) ?? null;
+      yield* conversations.requireAddParticipantContactPolicy(
+        creatorAgentId,
         targetAgentId,
-        targetOwnerUserId: targetExists.get(targetAgentId) ?? null,
-        policy,
-        pathLabel: "addParticipant",
-      });
+        targetOwnerUserId,
+      );
       return { creatorAgentId, targetAgentIds: [targetAgentId] };
     }),
   ).pipe(Effect.withSpan("obtainContactPolicyForAdd"));
