@@ -7,6 +7,7 @@ import {
   ConversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -182,10 +183,12 @@ function archiveGroup() {
 
 function expectArchivedBroadcast(group: ArchiveGroup) {
   return Effect.gen(function* () {
-    const bobArchived = yield* group.bob.client.waitForNotification(
+    const bobArchived = yield* awaitOneNotification(
+      group.bob.client,
       ConversationArchivedNotificationDefinition,
     );
-    const eveArchived = yield* group.eve.client.waitForNotification(
+    const eveArchived = yield* awaitOneNotification(
+      group.eve.client,
       ConversationArchivedNotificationDefinition,
     );
     const bobData = bobArchived.params as {
@@ -229,7 +232,8 @@ function expectUnarchivedBroadcast(
   conversationId: string,
 ) {
   return Effect.gen(function* () {
-    const unarchived = yield* agent.client.waitForNotification(
+    const unarchived = yield* awaitOneNotification(
+      agent.client,
       ConversationUnarchivedNotificationDefinition,
     );
     expect(

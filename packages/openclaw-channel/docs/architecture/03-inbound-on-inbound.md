@@ -28,7 +28,7 @@ sequenceDiagram
 
     H->>H: chatType = enriched.conversationMeta?.type<br>fromId = "agent:${enriched.sender.id}"<br>log.info("MoltZap: inbound from …")<br>setStatus({ accountId, lastInboundAt, lastEventAt })
 
-    H->>H: crossConvBlock = formatCrossConvOpenClaw(<br>  enriched.contextBlocks.crossConversationMessages,<br>  { ownAgentId: service.ownAgentId ?? "" }<br>)<br>bodyForAgent = crossConvBlock<br>  ? crossConvBlock + "\n\n" + enriched.text<br>  : enriched.text
+    H->>H: crossConvBlock = formatCrossConv ({ markup: "json-header" })(<br>  enriched.contextBlocks.crossConversationMessages,<br>  { ownAgentId: service.ownAgentId ?? "" }<br>)<br>bodyForAgent = crossConvBlock<br>  ? crossConvBlock + "\n\n" + enriched.text<br>  : enriched.text
 
     H->>CL: yield* writeContextLogOrWarn(log, {<br>  logDir: contextLogDir (MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR),<br>  accountId, accountAgentName, ownAgentId,<br>  conversationId, conversationName, conversationType,<br>  from, to, body, bodyForAgent, crossConversationMessages<br>})
     Note over CL: errors caught → log.warn only— never fails the handler
@@ -55,11 +55,11 @@ flowchart TD
     B -->|yes| C["Promise.resolve(true) — no-op"]
     B -->|no| D{"text = payload.text ?? payload.body<br>text empty?"}
     D -->|yes| E["Promise.resolve(true)"]
-    D -->|no| F{"consumedLeaseAt !== null?"}
+    D -->|no| F{"guard already consumed?"}
     F -->|yes| G["log.warn('duplicate-reply rejected …')<br>Promise.resolve(false) — OpenclawDuplicateReply"]
     F -->|no — first final delivery| H["build deliverEffect:<br>core.sendReply(enriched.conversationId, text)"]
 
-    H --> I["tap: consumedLeaseAt = Date.now()<br>log.info('MoltZap: outbound reply to …')"]
+    H --> I["tap: guard.consume() — first call only<br>log.info('MoltZap: outbound reply to …')"]
     I --> J[".map(() => true)"]
     J --> K{".catchTag('RpcServerError')"}
     K -->|"err.code === TaskClosedError.code (-32020)"| L["log.warn('task closed, dropping without retry')<br>return true — signal consumed; do NOT retry"]
@@ -94,15 +94,11 @@ flowchart LR
     B --> K[".catchAll(err → logContextLogWriteFailure(log, err))<br>never propagates; context-log failure is warn-only"]
 ```
 
-**Cross-conv formatter** (`src/format-cross-conv.ts`):
-
-```mermaid
-flowchart LR
-    A["formatCrossConvOpenClaw(messages, { ownAgentId })"] --> B{"messages.length === 0?"}
-    B -->|yes| C["return null"]
-    B -->|no| D["items = messages.map(m => {<br>  conversation: m.conversationName ?? 'DM with @' + m.senderName<br>  sender: m.senderId === ownAgentId ? 'You' : m.senderName<br>  text: m.text<br>  timestamp: m.timestamp<br>})"]
-    D --> E["return formatted string:<br>'Messages (untrusted metadata):\<br>json block with 2-space indent'"]
-```
+**Cross-conv formatter** lives in channel-base
+(`@moltzap/client/channel-base → formatCrossConv`). Openclaw invokes it with
+`markup: "json-header"` to render the pre-refactor JSON-fenced block. The
+empty-check + own-agent disambiguation are owned by channel-base; see
+[../../client/docs/architecture/08-channel-base.md](../../client/docs/architecture/08-channel-base.md).
 
 ---
 

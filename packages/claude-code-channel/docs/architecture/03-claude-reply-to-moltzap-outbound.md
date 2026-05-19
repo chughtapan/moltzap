@@ -45,7 +45,7 @@ sequenceDiagram
     entry->>client: MoltZap WS RPC — messages/send with lease
 
     alt [5a] RpcServerError { data.reason: "LeaseInvalid" }
-        note over entry: projectLeaseInvalid → LeaseAlreadyConsumed
+        note over entry: catchLeaseInvalid → LeaseAlreadyConsumed (channel-base)
         client-->>entry: LeaseAlreadyConsumed
     else [5b] other error
         client-->>entry: SendFailed

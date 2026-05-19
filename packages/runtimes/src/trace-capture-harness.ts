@@ -1,5 +1,5 @@
 import { Path } from "@effect/platform";
-import { Data, Effect, Either } from "effect";
+import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
 import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
 import type { Runtime } from "./runtime.js";
@@ -23,6 +23,7 @@ import {
   MessagesSend,
   MessageReceivedNotificationDefinition,
   type DecodedNotification,
+  type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
 } from "@moltzap/protocol";
@@ -30,7 +31,6 @@ import { conversationId } from "@moltzap/protocol/testing";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
-const MIN_EVENT_WAIT_MS = 1_000;
 const DEFAULT_GROUP_NAME = "cc-judge-group";
 const PLACEHOLDER_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
@@ -96,14 +96,18 @@ interface MessagePart {
 
 interface HarnessClient {
   close(): Effect.Effect<void, never, never>;
-  waitForNotification(
-    definition: typeof MessageReceivedNotificationDefinition,
-    timeoutMs: number,
-  ): Effect.Effect<
-    DecodedNotification<typeof MessageReceivedNotificationDefinition>,
-    Error,
-    never
-  >;
+
+  /**
+   * Spec B (#596): typed-payload Stream subscription. The harness
+   * subscribes BEFORE issuing each `MessagesSend` (`sendMessageAndWait`'s
+   * fork → trigger → join pattern) so the response notification is never
+   * dropped between the request and the Stream materialisation. Structural
+   * shape mirrors `MoltZapWsClient.subscribe`.
+   */
+  subscribe<D extends typeof MessageReceivedNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, Error, never>;
   sendRpc<D extends AnyRpcDefinition>(
     method: D,
     payload: ParamsOf<D>,
@@ -335,47 +339,63 @@ function extractTextFromEvent(data: {
     .join("\n");
 }
 
-function waitForTargetResponse(input: {
+/**
+ * Spec B (#596) Goal #7 disposition (a): subscribe BEFORE triggering.
+ * Builds the typed Stream of `MessageReceivedNotificationDefinition`
+ * payloads filtered to the target sender/conversation pair, takes the
+ * first head, and times out with a harness-shaped failure.
+ *
+ * The reference to `MIN_EVENT_WAIT_MS` from the prior poll-loop shape is
+ * dropped — `Stream.runHead` does not poll, it suspends until either a
+ * matching frame arrives or the timeout fires.
+ */
+function waitForTargetResponseStream(input: {
   readonly client: HarnessClient;
   readonly targetAgentId: string;
   readonly conversationId: string;
   readonly timeoutMs: number;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
-  return Effect.gen(function* () {
-    const deadline = Date.now() + input.timeoutMs;
-    while (Date.now() < deadline) {
-      const remaining = Math.max(MIN_EVENT_WAIT_MS, deadline - Date.now());
-      const next = yield* Effect.either(
-        input.client.waitForNotification(
-          MessageReceivedNotificationDefinition,
-          remaining,
+  return input.client
+    .subscribe(
+      MessageReceivedNotificationDefinition,
+      (params) =>
+        params.message.senderId === input.targetAgentId &&
+        params.message.conversationId === input.conversationId,
+    )
+    .pipe(
+      Stream.runHead,
+      Effect.timeoutFail({
+        duration: Duration.millis(input.timeoutMs),
+        onTimeout: () =>
+          failHarness(
+            `timed out waiting for ${input.targetAgentId} in conversation ${input.conversationId}`,
+          ),
+      }),
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.fail(
+              failHarness(
+                `notification stream closed before ${input.targetAgentId} response arrived`,
+              ),
+            ),
+          onSome: (event) => {
+            const data = event.params;
+            return Effect.succeed({
+              conversationId: data.message.conversationId,
+              senderId: data.message.senderId,
+              text: extractTextFromEvent(data),
+              messageId: data.message.id,
+            } satisfies ConversationResponse);
+          },
+        }),
+      ),
+      Effect.catchAll((error) =>
+        Effect.fail(
+          error instanceof Error ? failHarness(error.message) : error,
         ),
-      );
-      const data = Either.match(next, {
-        onLeft: () => null,
-        onRight: (event) => event.params,
-      });
-      if (data === null) {
-        continue;
-      }
-      if (
-        data.message.senderId === input.targetAgentId &&
-        data.message.conversationId === input.conversationId
-      ) {
-        return {
-          conversationId: data.message.conversationId,
-          senderId: data.message.senderId,
-          text: extractTextFromEvent(data),
-          messageId: data.message.id,
-        };
-      }
-    }
-    return yield* Effect.fail(
-      failHarness(
-        `timed out waiting for ${input.targetAgentId} in conversation ${input.conversationId}`,
       ),
     );
-  });
 }
 
 function sendMessageAndWait(input: {
@@ -386,18 +406,29 @@ function sendMessageAndWait(input: {
   readonly timeoutMs?: number;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
+    // Spec B (#596) Goal #7 disposition (a): fork the response-listener
+    // Stream BEFORE the trigger RPC. `Stream.runHead`'s underlying
+    // subscription is established the moment `Effect.fork` materialises
+    // the Stream, so the response notification cannot arrive in the gap
+    // between `sendRpc` and the listener registering.
+    const responseFiber = yield* Effect.fork(
+      waitForTargetResponseStream({
+        client: input.sender.client,
+        targetAgentId: input.targetAgentId,
+        conversationId: input.conversationId,
+        timeoutMs: input.timeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
+      }),
+    );
     yield* input.sender.client
       .sendRpc(MessagesSend, {
         conversationId: conversationId(input.conversationId),
         parts: [{ type: "text", text: input.message }],
       })
-      .pipe(Effect.mapError((error) => failHarness(error.message)));
-    return yield* waitForTargetResponse({
-      client: input.sender.client,
-      targetAgentId: input.targetAgentId,
-      conversationId: input.conversationId,
-      timeoutMs: input.timeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
-    });
+      .pipe(
+        Effect.mapError((error) => failHarness(error.message)),
+        Effect.onError(() => Fiber.interrupt(responseFiber)),
+      );
+    return yield* Fiber.join(responseFiber);
   });
 }
 

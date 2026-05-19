@@ -207,11 +207,15 @@ function messageReceived(notification: NotificationFrame): boolean {
 }
 
 function drainMessageReceived(agent: ConnectedAgent) {
-  return agent.client.drainNotifications().filter(messageReceived);
+  return Effect.map(agent.client.drainNotifications, (events) =>
+    events.filter(messageReceived),
+  );
 }
 
-function expectNoMessageReceived(agent: ConnectedAgent): void {
-  expect(drainMessageReceived(agent).length).toBe(0);
+function expectNoMessageReceived(agent: ConnectedAgent): Effect.Effect<void> {
+  return Effect.map(drainMessageReceived(agent), (events) => {
+    expect(events.length).toBe(0);
+  });
 }
 
 function expectHookBlocked(
@@ -328,7 +332,7 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
     expect(appHookState.calls).toBe(1);
 
     yield* Effect.sleep(SHORT_SETTLE);
-    expectNoMessageReceived(bob);
+    yield* expectNoMessageReceived(bob);
 
     const ids = yield* readAllMessageIdsForConversation(conversationId);
     expect(ids.length).toBe(1);
@@ -358,7 +362,7 @@ function tmUnreachableSynthesizesBlock() {
     expectHookBlocked(outcome);
 
     yield* Effect.sleep(SHORT_SETTLE);
-    expectNoMessageReceived(bob);
+    yield* expectNoMessageReceived(bob);
   });
 }
 
@@ -384,7 +388,7 @@ function defaultDmHookBlockChangesBehavior() {
     );
 
     yield* Effect.sleep(SHORT_SETTLE);
-    expectNoMessageReceived(bob);
+    yield* expectNoMessageReceived(bob);
   });
 }
 
@@ -413,9 +417,10 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
     const messageId = sent.message.id as MessageId;
 
     yield* Effect.sleep(LONG_SETTLE);
-    expect(drainMessageReceived(carol).length).toBe(1);
-    expectNoMessageReceived(bob);
-    expectNoMessageReceived(dave);
+    const carolEvents = yield* drainMessageReceived(carol);
+    expect(carolEvents.length).toBe(1);
+    yield* expectNoMessageReceived(bob);
+    yield* expectNoMessageReceived(dave);
 
     const decision = yield* readTmDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
@@ -436,7 +441,7 @@ function forwardEmptySendsNoFanout() {
     const messageId = sent.message.id as MessageId;
 
     yield* Effect.sleep(SHORT_SETTLE);
-    expectNoMessageReceived(bob);
+    yield* expectNoMessageReceived(bob);
     const decision = yield* readTmDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
     expectDecisionRecipients(decision, []);

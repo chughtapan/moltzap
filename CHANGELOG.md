@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec B (#596) — Notification consumption consolidation
+
+- **BREAKING (`@moltzap/client`):** `MoltZapWsClient.subscribe(filter,
+  handler)` and `MoltZapWsClient.waitForNotification(def, timeoutMs?)`
+  deleted, along with the three-field `SubscriptionFilter` grammar and
+  the pre-arrival `notificationsBufferRef` buffer. Callers now consume
+  notifications via `subscribe<D>(def, refinement?)` returning a typed
+  `Stream` and `subscribeAll(refinement?)` for the broad-union escape
+  hatch. The user-defined-type-guard overload narrows the Stream's
+  payload to `DecodedNotification<D, R>`.
+- **BREAKING (`@moltzap/client`):** Public barrel drops
+  `SubscriptionFilter`, `SubscriberHandler`, `NotificationSubscription`,
+  `SubscriptionId`. Adds `TimeoutError`, `StreamClosedError`, and the
+  `NotificationConsumerError` union from `./notification/errors`.
+- **Behavior:** `MoltZapWsClient.close()` propagates `NotConnectedError`
+  to every in-flight Stream via the registry's `closeAll` →
+  per-subscription `onClose` callback → `Stream.async`'s `emit.fail`
+  (deterministic typed-error delivery, replacing the deleted
+  `failAllNotificationWaiters` semantic).
+- **Behavior (`MoltZapService`):** `connect()` opens a private
+  service-scope, forks `subscribeAll().pipe(Stream.runForEach(...))`
+  into it, and `close()` interrupts the fiber + closes the scope. The
+  public `connect()` signature is unchanged — no Scope leakage.
+- **Protocol type-level (`@moltzap/protocol`):** `DecodedNotification<D>`
+  extended to `DecodedNotification<D, R = unknown>`; the optional `R`
+  is what the type-guard overload narrows. `isDecodedNotification` is
+  now a public export — Stream-based consumers use it as a typed filter
+  guard.
+- **Test infrastructure (`@moltzap/server-core/test-utils`):** New
+  `awaitOneNotification(client, def, timeoutMs?)` helper wraps
+  `Stream.runHead + Effect.timeoutFail + Option.match` for one-shot
+  test sites. `ServerTestClient.subscribeTo(def)` returns a typed
+  Stream filtered off `TestClient.notifications`. The legacy
+  `client.waitForNotification` binding on `ServerTestClient` is
+  deleted; `client.drainNotifications` is now the passthrough Effect
+  (`yield* client.drainNotifications`).
+- **Test infrastructure (`@moltzap/protocol/testing`):**
+  `TestClient.waitForNotification` / `TestClient.notifications` /
+  `TestClient.drainNotifications` are preserved (spec #596 non-goal
+  row 2). Conformance fixtures
+  (`conformance/app/_driver.ts → waitForReleaseFrame`,
+  `waitForObservabilityFrame`) migrate to the `notifications` Stream
+  for shape-alignment with the new API.
+- **Test infrastructure (`@moltzap/runtimes`):**
+  `HarnessClient.waitForNotification` deleted; replaced with
+  `HarnessClient.subscribe(def, refinement?)`. Internal
+  `waitForTargetResponse` now uses fork-before-trigger via the Stream
+  subscription.
+- **Architecture (`@moltzap/client/runtime`):** New
+  `composeServiceTeardown(scope, client)` helper sequences
+  `Scope.close` BEFORE `client.close()` via `Effect.zipRight`. The
+  service-owned scope holds the `subscribeAll → Stream.runForEach`
+  fan-out fiber installed via `Effect.forkIn`; closing it interrupts
+  the fiber before the ws-client teardown. Replaces an earlier
+  two-`runFork` race in `MoltZapService.close()`.
+- **Architecture (subscriber registry — AD1 snapshot semantic):**
+  `SubscriberRegistry.dispatch(frame)` takes a structural snapshot of
+  both `subsRef` (per-definition subs) and `subsAllRef` (broad-union
+  subs) at iteration start. Subscribers added mid-dispatch see the
+  frame only on the NEXT dispatch — late-arrivers do not get the
+  in-flight frame, and concurrent `register/unregister` calls cannot
+  starve sibling subscribers. User-supplied refinement predicates run
+  inside a `safePredicate` try/catch so a throwing predicate filters
+  the frame out for that subscriber rather than defecting the dispatch
+  Effect.
+- **Tests (property-based on subscriber dispatch):**
+  `snapshot-semantics.test.ts` adds AD1 path-(a) properties
+  exercising mid-dispatch register/unregister, predicate throws, and
+  broad-union vs per-def fan-out invariants. Uses `Effect.yieldNow` to
+  deterministically interleave register/unregister with dispatch.
+
 ### Spec F (#617) — Typed dispatcher unification + Connection facade
 
 - **NEW:** `makeServerConnection` / `makeAgentClientConnection` /

@@ -27,8 +27,14 @@ points here directly.
 | `MoltZapChannelError` | Typed failure |
 | `loadMoltZapChannelEnv` | Effect-based env loader |
 | `conversationIdFromJid` / `jidFromConversationId` | JID ↔ ConversationId conversions |
-| `formatGroupBlock` / `formatCrossConvNanoclaw` | Render helpers |
 | `MOLTZAP_JID_PREFIX`, `DEFAULT_SERVER_URL`, `EVAL_GROUP_NAME_ID_CHARS` | Constants |
+
+Render helpers (`formatCrossConv`, `formatGroupBlock`, `getGroupFields`) and
+the lease primitives (`LeaseStore`, `LeaseGuard`, `LeaseAlreadyConsumed`,
+`catchLeaseInvalid`) live in channel-base — see
+[../client/docs/architecture/08-channel-base.md](../client/docs/architecture/08-channel-base.md).
+Nanoclaw consumes them via `markup: "xml-system-reminder"` and a
+`LeaseStore<string, string>` instance.
 
 Channel registers itself on the global `registerChannel("moltzap")` hook
 at import time (via `registerChannel` call in `channels/moltzap.ts`).
