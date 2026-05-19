@@ -1,43 +1,36 @@
 import { Config, ConfigProvider, Data, Effect, Option, Redacted } from "effect";
-import { RpcServerError } from "@moltzap/protocol";
 import {
   MoltZapChannelCore,
   MoltZapService,
-  sanitizeForSystemReminder,
-  type CrossConvMessage,
-  type EnrichedConversationMeta,
   type EnrichedInboundMessage,
   type ServiceRpcError,
 } from "@moltzap/client";
+import {
+  LeaseAlreadyConsumed,
+  LeaseStore,
+  catchLeaseInvalid,
+  formatCrossConv,
+  formatGroupBlock,
+  getGroupFields,
+} from "@moltzap/client/channel-base";
+
+// `MoltZapChannelError` covers nanoclaw's host-shape failures that are NOT
+// lease-related (un-owned jid, etc.). The pre-refactor "lease already
+// consumed" stringly reason is gone — lease errors now flow through
+// channel-base's `LeaseAlreadyConsumed`. The class retains its other use
+// cases per spec C (#597) AC.
+class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
+  readonly reason: string;
+}> {
+  override get message(): string {
+    return this.reason;
+  }
+}
 
 const EVAL_GROUP_NAME_ID_CHARS = 8;
 
 import type { Channel, NewMessage } from "../types.js";
 import { registerChannel, type ChannelOpts } from "./registry.js";
-
-/**
- * Format cross-conversation messages using nanoclaw's native XML `&lt;message>`
- * structure (matching the upstream `formatMessages()` in router.ts), wrapped
- * in `&lt;system-reminder>` for containment. Adds a `conversation` attribute
- * to identify the source conversation.
- */
-function formatCrossConvNanoclaw(
-  messages: CrossConvMessage[],
-  opts: { ownAgentId: string },
-): string {
-  const lines = messages.map((m) => {
-    const sender = sanitizeForSystemReminder(
-      m.senderId === opts.ownAgentId ? "You" : m.senderName,
-    );
-    const conv = sanitizeForSystemReminder(
-      m.conversationName ?? `DM with @${m.senderName}`,
-    );
-    const text = sanitizeForSystemReminder(m.text);
-    const time = sanitizeForSystemReminder(m.timestamp);
-    return `<message sender="${sender}" conversation="${conv}" time="${time}">${text}</message>`;
-  });
-  return ["<messages>", ...lines, "</messages>"].join("\n");
-}
 
 const MOLTZAP_JID_PREFIX = "mz:";
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
@@ -48,14 +41,6 @@ const MoltZapChannelEnv = Config.all({
   ),
   evalMode: Config.string("MOLTZAP_EVAL_MODE").pipe(Config.withDefault("0")),
 });
-
-class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
-  readonly reason: string;
-}> {
-  override get message(): string {
-    return this.reason;
-  }
-}
 
 function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
@@ -83,24 +68,13 @@ function loadMoltZapChannelEnv(): {
   };
 }
 
-// Nanoclaw's router consumes NewMessage.content verbatim into prompt XML,
-// so structured context blocks are rendered as <system-reminder> markup here.
-
-function formatGroupBlock(meta: EnrichedConversationMeta): string {
-  const safeName = sanitizeForSystemReminder(meta.name ?? "(unnamed)");
-  const safeParticipants = meta.participants.map(sanitizeForSystemReminder);
-  return [
-    "<system-reminder>",
-    "This is a group conversation.",
-    `Group name: ${safeName}`,
-    `Participants (${meta.participants.length}): ${safeParticipants.join(", ") || "(none listed)"}`,
-    "</system-reminder>",
-  ].join("\n");
-}
-
 export class MoltZapChannel implements Channel {
   readonly name = "moltzap";
-  private readonly dispatchLeasesByJid = new Map<string, string>();
+  // Stale-entry-on-retry semantic preserved via `peek` (not `consume`): when a
+  // second sendMessage races a consumed lease, the server returns the typed
+  // wire error and channel-base projects to LeaseAlreadyConsumed. See arch
+  // sub-issue #605 §3.3 + §6.3.
+  private readonly dispatchLeases = new LeaseStore<string, string>();
 
   constructor(
     private readonly opts: ChannelOpts,
@@ -145,11 +119,11 @@ export class MoltZapChannel implements Channel {
    * Outbound reply path. Cutover #533 — single-use lease semantics:
    * the FIRST send consumes the lease via `core.sendReply`. Any
    * subsequent send for the same JID within the same dispatch finds
-   * the entry STILL in the map (we no longer delete it eagerly) AND
-   * the lease in `CONSUMED` state server-side; the typed
-   * `RpcServerError(data.reason="LeaseInvalid")` propagates as
-   * `MoltZapChannelError({reason: "lease already consumed"})` to
-   * nanoclaw.
+   * the lease entry STILL in the store (peek-style, no removal) AND
+   * the lease in `CONSUMED` state server-side; the typed wire error
+   * (`RpcServerError(data.reason="LeaseInvalid")`) flows through
+   * channel-base's `catchLeaseInvalid` and surfaces to nanoclaw as the
+   * canonical `LeaseAlreadyConsumed` tagged error.
    *
    * Pre-cutover behaviour deleted the entry after the first send,
    * which on a second send would silently fall back to an unleased
@@ -158,44 +132,7 @@ export class MoltZapChannel implements Channel {
    * post-cutover surface is uniform.
    */
   sendMessage(jid: string, text: string) {
-    return Effect.runPromise(
-      Effect.gen(this, function* () {
-        if (!this.ownsJid(jid)) {
-          return yield* Effect.fail(
-            new MoltZapChannelError({
-              reason: `MoltZap channel does not own jid: ${jid}`,
-            }),
-          );
-        }
-        const leaseId = this.dispatchLeasesByJid.get(jid);
-        yield* this.core
-          .sendReply(
-            conversationIdFromJid(jid),
-            text,
-            leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
-          )
-          .pipe(
-            Effect.mapError(
-              (err: ServiceRpcError): ServiceRpcError | MoltZapChannelError => {
-                if (
-                  err instanceof RpcServerError &&
-                  typeof err.data === "object" &&
-                  err.data !== null &&
-                  (err.data as { reason?: unknown }).reason === "LeaseInvalid"
-                ) {
-                  return new MoltZapChannelError({
-                    reason: "lease already consumed",
-                  });
-                }
-                return err;
-              },
-            ),
-          );
-        // Keep the lease entry: a second sendMessage for the same
-        // JID re-uses the consumed lease and triggers the server's
-        // CONSUMED rejection (single-use semantics).
-      }),
-    );
+    return Effect.runPromise(this.sendMessageEffect(jid, text));
   }
 
   isConnected(): boolean {
@@ -211,6 +148,38 @@ export class MoltZapChannel implements Channel {
     return Effect.runPromise(this.core.disconnect());
   }
 
+  private sendMessageEffect(
+    jid: string,
+    text: string,
+  ): Effect.Effect<
+    void,
+    LeaseAlreadyConsumed | MoltZapChannelError | ServiceRpcError
+  > {
+    return Effect.gen(this, function* () {
+      if (!this.ownsJid(jid)) {
+        return yield* Effect.fail(
+          new MoltZapChannelError({
+            reason: `MoltZap channel does not own jid: ${jid}`,
+          }),
+        );
+      }
+      const leaseEntry = yield* this.dispatchLeases.peek(jid);
+      const leaseId = Option.getOrUndefined(leaseEntry);
+      yield* this.core
+        .sendReply(
+          conversationIdFromJid(jid),
+          text,
+          leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
+        )
+        .pipe(
+          catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
+        );
+      // Keep the lease entry: a second sendMessage for the same JID re-uses
+      // the consumed lease and triggers the server's CONSUMED rejection
+      // (single-use semantics).
+    });
+  }
+
   private handleInbound(enriched: EnrichedInboundMessage): void {
     const chatJid = jidFromConversationId(enriched.conversationId);
     this.rememberDispatchLease(chatJid, enriched);
@@ -224,7 +193,9 @@ export class MoltZapChannel implements Channel {
     enriched: EnrichedInboundMessage,
   ): void {
     if (enriched.dispatchLeaseId) {
-      this.dispatchLeasesByJid.set(chatJid, enriched.dispatchLeaseId);
+      Effect.runSync(
+        this.dispatchLeases.remember(chatJid, enriched.dispatchLeaseId),
+      );
     }
   }
 
@@ -249,18 +220,21 @@ export class MoltZapChannel implements Channel {
     });
   }
 
+  // Nanoclaw's router consumes NewMessage.content verbatim into prompt XML,
+  // so structured context blocks are rendered as `<system-reminder>` markup
+  // here via channel-base's `xml-system-reminder` variant.
   private contentFor(enriched: EnrichedInboundMessage): string {
     const blocks: string[] = [];
-    if (enriched.contextBlocks.crossConversationMessages?.length) {
+    const crossConv = formatCrossConv(
+      enriched.contextBlocks.crossConversationMessages ?? [],
+      { ownAgentId: this.ownAgentId, markup: "xml-system-reminder" },
+    );
+    if (crossConv !== null) blocks.push(crossConv);
+    const groupFields = getGroupFields(enriched.contextBlocks.groupMetadata);
+    if (groupFields !== null) {
       blocks.push(
-        formatCrossConvNanoclaw(
-          enriched.contextBlocks.crossConversationMessages,
-          { ownAgentId: this.ownAgentId },
-        ),
+        formatGroupBlock(groupFields, { markup: "xml-system-reminder" }),
       );
-    }
-    if (enriched.contextBlocks.groupMetadata) {
-      blocks.push(formatGroupBlock(enriched.contextBlocks.groupMetadata));
     }
     if (blocks.length === 0) return enriched.text;
     return `${blocks.join("\n\n")}\n\n${enriched.text}`;

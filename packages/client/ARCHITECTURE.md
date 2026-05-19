@@ -13,11 +13,13 @@ packages/client/src/
 ├── ws-client.ts        # MoltZapWsClient — low-level WS + JSON-RPC transport
 ├── channel-core.ts     # MoltZapChannelCore — inbound dispatch + admission
 ├── auth.ts             # registerAgent, invite/claim token flows
-├── runtime/            # subscribers, errors, close-info, frame projection
+├── notification/       # Stream-shaped subscribe/subscribeAll (Spec B / #596) + tagged errors
+├── runtime/            # subscribers (registry), errors, close-info, frame projection
 ├── cli/                # `moltzap` binary (Effect/CLI)
 │   └── commands/       # register, send, …
 ├── test-utils/         # in-memory test driver helpers
 ├── test/               # exported test-support shape (subpath: ./test)
+├── channel-base/       # shared channel-adapter scaffolding (subpath: ./channel-base)
 └── __tests__/          # unit + integration + conformance harnesses
 ```
 
@@ -30,9 +32,11 @@ Three layered entry points; pick the lowest level that meets your need.
 | `MoltZapWsClient` | You need raw RPC + notification subscription |
 | `MoltZapChannelCore` | You need inbound dispatch + admission lease handling |
 | `MoltZapService` | You want managed conversation/context state too |
+| `@moltzap/client/channel-base` (subpath) | You are building a channel adapter and want the shared `LeaseAlreadyConsumed` / `LeaseStore` / `LeaseGuard` / `formatCrossConv` primitives |
 
-Plus `registerAgent` for auth bootstrap, `subscribe*` types for notifications,
-and the published CLI bin.
+Plus `registerAgent` for auth bootstrap, the `NotificationConsumerError` /
+`TimeoutError` / `StreamClosedError` tagged errors from
+`./src/notification/errors.ts` (Spec B / #596), and the published CLI bin.
 
 ## Communication Flows
 
@@ -45,10 +49,11 @@ understand the lease and connection state machines that underpin all flows.
 | [01 — Connection Lifecycle](docs/architecture/01-connection-lifecycle.md) | HTTP register → WS connect → `network/connect` handshake → subscribe → steady state; reconnect arm |
 | [02 — Outbound `messages/send`](docs/architecture/02-outbound-messages-send.md) | Caller → `MoltZapService.send` → `MoltZapWsClient.sendRpc` → wire → server |
 | [03 — Inbound Dispatch](docs/architecture/03-inbound-dispatch.md) | Wire bytes → reader fiber → `SubscriberRegistry` → `MoltZapChannelCore` → `InboundHandler`; ack/release race |
-| [04 — Notification Subscription](docs/architecture/04-notification-subscription.md) | `subscribe` registration, filter semantics, `waitForNotification` one-shot awaiter |
+| [04 — Notification Subscription](docs/architecture/04-notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; AD1 path-(a) cancellation contract; tagged errors (Spec B / #596) |
 | [05 — Error Taxonomy](docs/architecture/05-error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
 | [06 — CLI Command Flow](docs/architecture/06-cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
 | [07 — State Machines](docs/architecture/07-state-machines.md) | Dispatch lease and connection state machines |
+| [08 — Channel-base subpath](docs/architecture/08-channel-base.md) | `@moltzap/client/channel-base` — canonical `LeaseAlreadyConsumed`, `LeaseStore`/`LeaseGuard`, markup-parameterized `formatCrossConv`/`formatGroupBlock` (shared by openclaw, claude-code, nanoclaw) |
 
 ## Dependencies
 

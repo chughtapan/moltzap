@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.511.1",
+  "version": "2026.519.1",
   "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
@@ -32,6 +32,10 @@
     "./runtime": {
       "types": "./dist/runtime/index.d.ts",
       "import": "./dist/runtime/index.js"
+    },
+    "./channel-base": {
+      "types": "./dist/channel-base/index.d.ts",
+      "import": "./dist/channel-base/index.js"
     }
   },
   "scripts": {

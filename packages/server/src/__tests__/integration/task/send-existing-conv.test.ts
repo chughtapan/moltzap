@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -37,7 +38,8 @@ it("second message to existing DM delivers correctly with same conversationId", 
       conversationId,
       parts: [{ type: "text", text: FIRST_MESSAGE_TEXT }],
     });
-    yield* bob.client.waitForNotification(
+    yield* awaitOneNotification(
+      bob.client,
       MessageReceivedNotificationDefinition,
     );
 
@@ -56,7 +58,8 @@ it("second message to existing DM delivers correctly with same conversationId", 
     expect(send2.message.conversationId).toBe(conversationId);
     expect(send2.message.senderId).toBe(alice.agentId);
 
-    const bobEvent2 = yield* bob.client.waitForNotification(
+    const bobEvent2 = yield* awaitOneNotification(
+      bob.client,
       MessageReceivedNotificationDefinition,
     );
     const received = (

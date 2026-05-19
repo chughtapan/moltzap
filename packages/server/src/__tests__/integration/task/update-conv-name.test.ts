@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -45,10 +46,12 @@ it("conversation rename broadcasts update event and persists", () =>
 
     expect(updateResult.conversation.name).toBe(NEW_CONVERSATION_NAME);
 
-    const bobUpdated = yield* bob.client.waitForNotification(
+    const bobUpdated = yield* awaitOneNotification(
+      bob.client,
       ConversationUpdatedNotificationDefinition,
     );
-    const eveUpdated = yield* eve.client.waitForNotification(
+    const eveUpdated = yield* awaitOneNotification(
+      eve.client,
       ConversationUpdatedNotificationDefinition,
     );
 
