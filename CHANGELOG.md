@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec E (#601) — R-channel capability primitives
+
+- **Internal:** New `packages/server/src/app/capabilities/` module
+  with R-channel typed capability tags
+  (`TmAuthority`, `TaskReadAccess`, `ConversationParticipantAccess`,
+  `ConversationInTask`, `AgentExists`, `AgentInTaskParticipants`,
+  `ContactPolicyAllowsReach`, `TaskActive`, `ConversationNotArchived`,
+  `ValidReplyTarget`, `NoReplyTarget`, `GroupCapacityForCreate`,
+  composite `MessageSendPermission`) and matching `obtain*` / `refine*`
+  smart constructors. Each smart constructor wraps today's
+  `TaskService.requireX` / `ConversationService.requireX` /
+  `MessageService.requireX` runtime check exactly once per request
+  and produces a typed token + carried payload row.
+- **Internal:** `assertTmAuthorityMatchesTask` /
+  `assertConversationInTaskMatches` runtime equality helpers catch the
+  "handler obtained a capability for task A but passed task B" bug
+  class with one comparison.
+- **Internal:** `transport/layer-tags.ts` populates the
+  `CapabilityTags` sibling alias with the 13 concrete tag classes.
+  Capability tags are DELIBERATELY a sibling — not folded into
+  `TaskTags` — so the `defineTaskMethod` constraint
+  `Reqs extends TaskTags` rejects handlers that yield a capability
+  without piping `Effect.provideServiceEffect` (Decision A invariant;
+  `capability-r-channel.types-check.ts` Canary 5 enforces it).
+- **Internal:** Service-class `requireX` helpers promoted from
+  `private` to `@internal` exported per Decision B / Option A. New
+  `requireAgentInTaskParticipants` method added to `TaskService` for
+  D1's `TaskConversationAddParticipant`. New
+  `resolveContactPolicyForCapabilities` /
+  `participantServiceForCapabilities` accessors on
+  `ConversationService` for `obtainContactPolicyFor*`. New
+  `TaskServiceError` export.
+- **Internal:** No wire-surface delta. Phases 2-4 (existing service-
+  method migrations in `task.service.ts`, `conversation.service.ts`,
+  `message.service.ts`) ship as separate PRs per architect plan #606
+  §10. D1's new handlers consume Phase 1 capabilities directly.
+
 ### Phase 12 — `@moltzap/protocol` finalization
 
 - **BREAKING (Phase 12 — protocol surface):** Root facade reduced to
