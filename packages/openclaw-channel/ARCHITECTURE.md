@@ -12,7 +12,6 @@ packages/openclaw-channel/src/
 ├── openclaw-entry.ts       # createMoltzapChannelPlugin — the public plugin
 ├── mapping.ts              # Notification → OpenClaw event extractors
 ├── context-log.ts          # Per-message context-log writer
-├── format-cross-conv.ts    # Cross-conv block formatter
 ├── test-utils/             # container-core (Docker harness)
 ├── test-support.ts         # Re-export for the ./test-support subpath
 └── __tests__/conformance/  # Channel conformance harness
@@ -58,8 +57,10 @@ Subpath exports: `./test-utils` (Docker-backed integration harness),
 
 - `src/__tests__/conformance/` — conformance harness
 - `src/test-utils/container-core.ts` — Docker container fixtures
-- Co-located `*.test.ts` for `context-log`, `format-cross-conv`,
-  `openclaw-entry` (multiple variants)
+- Co-located `*.test.ts` for `context-log` and `openclaw-entry` (multiple
+  variants). Cross-conv formatter tests live in
+  `packages/client/src/__tests__/channel-base/` as part of the channel-base
+  golden snapshots.
 - Vitest; integration test config at `vitest.integration.config.ts`
 
 ## 6. Glossary

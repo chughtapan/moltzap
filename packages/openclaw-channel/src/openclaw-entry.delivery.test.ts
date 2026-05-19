@@ -172,6 +172,10 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("sendText reports send failures", reportsSendFailure);
   it("deliver treats TaskClosed as terminal consumed", taskClosedIsConsumed);
   it("deliver reports non-TaskClosed RPC failures", nonTaskClosedFails);
+  it(
+    "lease guard stays unconsumed on transient send failure",
+    leaseGuardUnconsumedOnTransientFailure,
+  );
   it("stopAccount removes client from active pool", stopRemovesClient);
   it("property: resolveTarget accepts generated plain ids", plainIdsResolve);
 });
@@ -632,6 +636,46 @@ function nonTaskClosedFails() {
     yield* waitForDispatchTimes(1);
     const result = yield* deliverFinal(REPLY_TEXT);
     expect(result).toBe(false);
+  });
+}
+
+/**
+ * Regression test for the r1 lease-consume ordering fix (PR #622 codex P2):
+ * a transient `core.sendReply` failure (non-TaskClosed RPC error) MUST leave
+ * the per-message `LeaseGuard` unconsumed, so a retried `deliver(...)` call
+ * still drives the send path. Without the fix in
+ * `openclaw-entry.ts → createLeaseConsumingDeliver` + `sendDeliveredReply`
+ * (stamp guard via `Effect.tap` only on successful sendReply), the first
+ * failure permanently consumes the guard and the retry short-circuits to
+ * `false` without ever re-calling `core.sendReply`.
+ *
+ * This test exercises that invariant by failing the first send, then making
+ * the second send succeed, and asserting `mockSend` was invoked twice and
+ * the second deliver returned `true`.
+ */
+function leaseGuardUnconsumedOnTransientFailure() {
+  return Effect.gen(function* () {
+    mockSend.mockReturnValueOnce(
+      Effect.fail(
+        new RpcServerError({
+          code: NON_TASK_CLOSED_CODE,
+          message: INTERNAL_SERVER_ERROR_MESSAGE,
+        }),
+      ),
+    );
+    yield* emitMessage();
+    yield* waitForDispatchTimes(1);
+    const sendBefore = mockSend.mock.calls.length;
+    const first = yield* deliverFinal(FIRST_REPLY_TEXT);
+    expect(first).toBe(false);
+    expect(mockSend.mock.calls.length).toBe(sendBefore + 1);
+    // Second deliver: send is now configured to succeed (default
+    // `mockSend.mockImplementation(fixture.service.send)` from `startGateway`).
+    // The guard MUST NOT have been stamped by the first failure, so this
+    // retry exercises the lease and returns true.
+    const second = yield* deliverFinal(SECOND_REPLY_TEXT);
+    expect(second).toBe(true);
+    expect(mockSend.mock.calls.length).toBe(sendBefore + 2);
   });
 }
 
