@@ -61,6 +61,7 @@ import type {
   NoReplyTarget,
   GroupCapacityForCreate,
   MessageSendPermission,
+  ConversationCreateAuthorization,
 } from "../app/capabilities/index.js";
 
 /**
@@ -186,4 +187,5 @@ export type CapabilityTags =
   | ValidReplyTarget
   | NoReplyTarget
   | GroupCapacityForCreate
-  | MessageSendPermission;
+  | MessageSendPermission
+  | ConversationCreateAuthorization;
