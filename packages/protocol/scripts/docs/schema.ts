@@ -87,7 +87,6 @@ function methodSortKey(method: string): string {
     "invites",
     "presence",
     "apps",
-    "permissions",
     "system",
   ];
   const prefix = method.split("/")[0] ?? "";
