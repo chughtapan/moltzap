@@ -77,8 +77,8 @@ it("network.send delivers a real notification to a durable address", () =>
 
     // Real notification frame so the client's typed-bridge accepts it.
     // Asserts end-to-end wire delivery, not just the server-side write
-    // ack — `waitForNotification` only fires after the frame decodes
-    // through the validation pipeline at the client edge.
+    // ack — the `subscribe(def)` Stream only emits a frame after it
+    // decodes through the validation pipeline at the client edge.
     const frame = PresenceChangedNotificationDefinition.encode({
       agentId: protocolAgentId(alice.agentId),
       status: "online",

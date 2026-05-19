@@ -4,11 +4,19 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import { Chunk, Data, Duration, Effect, Option, Ref, Stream } from "effect";
 import {
-  isDecodedNotification,
-  type AnyNotificationDefinition,
-  type DecodedNotification,
+  Chunk,
+  Data,
+  Duration,
+  Effect,
+  Fiber,
+  Option,
+  Ref,
+  Stream,
+} from "effect";
+import type {
+  AnyNotificationDefinition,
+  DecodedNotification,
 } from "@moltzap/protocol";
 import {
   agentId,
@@ -23,16 +31,15 @@ import { getBaseUrl, getWsUrl } from "./index.js";
 import { ConversationsCreate } from "@moltzap/protocol";
 
 /**
- * Spec B (#596): the legacy `waitForNotification(def, timeoutMs?)` /
- * `drainNotifications(): ReadonlyArray<...>` synchronous wrappers were
- * deleted. Consumers reach typed-payload Streams via
- * `client.subscribeTo(def)` and snapshot the buffered queue via the
- * passthrough `client.drainNotifications` Effect (`yield*` it).
+ * Spec B (#596) + #645: the legacy `waitForNotification(def, timeoutMs?)`,
+ * `drainNotifications(): ReadonlyArray<...>`, and `notifications` Stream
+ * wrappers were deleted. Consumers reach typed-payload Streams via
+ * `client.subscribeTo(def)` (a one-line passthrough to
+ * `TestClient.subscribe(def)`) or the broad-union `client.subscribeAll()`.
  * Ergonomic one-shot test sites use the top-level `awaitOneNotification`
  * helper below.
  */
-export interface ServerTestClient
-  extends Omit<CloseableTestClient, "close" | "waitForNotification"> {
+export interface ServerTestClient extends Omit<CloseableTestClient, "close"> {
   close(): Effect.Effect<void, never>;
   subscribeTo<D extends AnyNotificationDefinition>(
     definition: D,
@@ -186,103 +193,75 @@ export function registerAgent(
   });
 }
 
-// IMPL-DELETION-TARGET (#645): the `NotificationBuffer` + `pullOneMatching`
-// + `makeSubscribeStream` per-client dedup-ring + 5ms poll loop exist only
-// because the underlying `TestClient` exposes polling-shape
-// `drainNotifications`. Once `TestClient.subscribe` lands (Stream.async +
-// registry), `subscribeTo<D>(def)` collapses to a one-line passthrough
-// `testClient.subscribe(def)`; this entire block (`NotificationBuffer`
-// type, `SUBSCRIBE_POLL_INTERVAL_MS`, `pullOneMatching`,
-// `makeSubscribeStream`, and the `helperBuffer` Ref allocation in
-// `connectTestClient`) deletes.
-
 /**
- * Spec B (#596) r2 cleanup: per-client buffer for notifications that a
- * `subscribeTo(def)` pull drained from the underlying queue but did NOT
- * match the requested definition. The underlying test client exposes
- * `drainNotifications` as `Ref.getAndSet(queue, [])`, so a `Stream.filter`
- * over `client.notifications` (the old `subscribeTo` shape) DROPS
- * unmatched chunk elements forever — they vanish from the wire view of
- * any subsequent subscriber. By round-tripping unmatched frames through
- * `helperBuffer`, a concurrent `subscribeTo(A)` + `subscribeTo(B)` pair
- * cannot race-lose each other's frames: the loser of a `drainNotifications`
- * race finds its match in `helperBuffer` on the next poll.
+ * Per-client broad-union pump (#645): integration tests follow the
+ * `send → awaitOneNotification` pattern that the deleted polling
+ * `drainNotifications` shape implicitly supported via a historical
+ * notification queue. The new `Stream.async`-backed `subscribe` only
+ * emits frames that arrive AFTER materialisation, so a sequential
+ * `send → subscribe → runHead` races the response frame.
  *
- * This buffer is per-client (owned by the `connectTestClient` closure)
- * and shared across every `subscribeTo` call made via this client.
+ * Solution: install a long-lived broad-union pump at handle creation
+ * that appends every inbound notification to a `Ref<Array<...>>`
+ * snapshot. `subscribeTo<D>(def)` (and consumers like
+ * `awaitOneNotification`) build a Stream that polls the snapshot,
+ * emits the first matching frame, and removes it from the snapshot —
+ * mirroring the legacy semantic without resurrecting the
+ * per-definition dedup ring inside the protocol-side `TestClient`.
  */
-type NotificationBuffer = Ref.Ref<
-  ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
->;
+const PUMP_POLL_INTERVAL_MS = 5;
 
-const SUBSCRIBE_POLL_INTERVAL_MS = 5;
+interface NotificationBuffer {
+  readonly snapshot: Ref.Ref<
+    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+  >;
+  readonly pumpFiber: Fiber.RuntimeFiber<void, never>;
+}
 
-/**
- * Pull at most one notification matching `definition`. Any frames that
- * arrived in the same `drainNotifications` chunk but did not match are
- * appended to `helperBuffer` so other (current or future) subscribers
- * see them. Returns `null` if nothing is available right now.
- */
-function pullOneMatching<D extends AnyNotificationDefinition>(
+function makeNotificationBuffer(
   client: CloseableTestClient,
-  helperBuffer: NotificationBuffer,
-  definition: D,
-): Effect.Effect<DecodedNotification<D> | null> {
+): Effect.Effect<NotificationBuffer> {
   return Effect.gen(function* () {
-    // 1. Check the helper buffer first — earlier pulls may have parked
-    //    matching frames here when their own definition did not match.
-    const fromBuffer = yield* Ref.modify(
-      helperBuffer,
-      (
-        buf,
-      ): readonly [
-        DecodedNotification<D> | null,
-        ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>,
-      ] => {
-        const idx = buf.findIndex((frame) =>
-          isDecodedNotification(definition, frame),
-        );
-        if (idx < 0) return [null, buf];
-        const matched = buf[idx] as DecodedNotification<D>;
-        const rest = [...buf.slice(0, idx), ...buf.slice(idx + 1)];
-        return [matched, rest];
-      },
+    const snapshot = yield* Ref.make<
+      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+    >([]);
+    const pumpEffect = client.subscribeAll().pipe(
+      Stream.runForEach((frame) =>
+        Ref.update(snapshot, (xs) => [...xs, frame]),
+      ),
+      Effect.catchAll(() => Effect.void),
     );
-    if (fromBuffer !== null) return fromBuffer;
-
-    // 2. Drain the client queue and split it: keep the first match for
-    //    this pull, park the rest in the helper buffer.
-    const drained = yield* client.drainNotifications;
-    if (drained.length === 0) return null;
-    let matched: DecodedNotification<D> | null = null;
-    const rest: DecodedNotification<AnyNotificationDefinition>[] = [];
-    for (const frame of drained) {
-      if (matched === null && isDecodedNotification(definition, frame)) {
-        matched = frame;
-      } else {
-        rest.push(frame);
-      }
-    }
-    if (rest.length > 0) {
-      yield* Ref.update(helperBuffer, (buf) => [...buf, ...rest]);
-    }
-    return matched;
+    const pumpFiber = yield* Effect.fork(pumpEffect);
+    return { snapshot, pumpFiber };
   });
 }
 
-function makeSubscribeStream<D extends AnyNotificationDefinition>(
-  client: CloseableTestClient,
-  helperBuffer: NotificationBuffer,
+function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
+  buffer: NotificationBuffer,
+  definition: D,
+): Effect.Effect<DecodedNotification<D> | null> {
+  return Ref.modify(buffer.snapshot, (frames) => {
+    const idx = frames.findIndex((frame) => frame.definition === definition);
+    if (idx < 0) return [null, frames];
+    const matched = frames[idx] as DecodedNotification<D>;
+    const rest = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
+    return [matched, rest];
+  });
+}
+
+function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
+  buffer: NotificationBuffer,
   definition: D,
 ): Stream.Stream<DecodedNotification<D>, TransportClosedError> {
-  // Emit chunks of size 1 so that downstream consumers using
-  // `Stream.runHead` (or `Stream.take(N)`) never silently drop sibling
-  // elements bundled into the same chunk.
+  // Poll the broad-union buffer; emit each matching frame as a
+  // singleton chunk so `Stream.runHead`/`Stream.take(N)` callers never
+  // silently drop sibling chunk elements. Empty chunks on cache miss
+  // back off the poll without terminating the stream.
   return Stream.repeatEffectChunk(
-    pullOneMatching(client, helperBuffer, definition).pipe(
+    pullMatchingFromBuffer(buffer, definition).pipe(
       Effect.flatMap((maybe) =>
         maybe === null
-          ? Effect.sleep(Duration.millis(SUBSCRIBE_POLL_INTERVAL_MS)).pipe(
+          ? Effect.sleep(Duration.millis(PUMP_POLL_INTERVAL_MS)).pipe(
               Effect.as(Chunk.empty<DecodedNotification<D>>()),
             )
           : Effect.succeed(Chunk.of(maybe)),
@@ -306,28 +285,30 @@ export function connectTestClient(opts: {
       captureCapacity: 1024,
       autoConnect: opts.autoConnect,
     });
-    const helperBuffer: NotificationBuffer = yield* Ref.make<
-      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
-    >([]);
+    const buffer = yield* makeNotificationBuffer(client);
+    const close: Effect.Effect<void, never> = Effect.gen(function* () {
+      yield* Fiber.interrupt(buffer.pumpFiber);
+      yield* client.close;
+    });
     return {
       sendRpc: client.sendRpc.bind(client),
       sendMalformed: client.sendMalformed.bind(client),
       sendResponseFrame: client.sendResponseFrame.bind(client),
+      // #645: `subscribeTo<D>(def)` reads from the per-client
+      // broad-union buffer maintained by the pump above so existing
+      // `send → awaitOneNotification` test sites observe frames that
+      // arrived between the RPC return and the subscription pull —
+      // mirroring the legacy polling semantic without resurrecting the
+      // deleted per-definition dedup ring.
       subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
-        makeSubscribeStream(client, helperBuffer, definition),
-      // ARCHITECT STUB (#645): forward the new Stream-shape surface from
-      // the underlying TestClient. After impl-staff lands the cutover,
-      // `subscribeTo` collapses into a direct `subscribe(def)` passthrough
-      // and the `helperBuffer`/`makeSubscribeStream` block above deletes.
+        bufferedSubscribeStream(buffer, definition),
       subscribe: client.subscribe.bind(client),
       subscribeAll: client.subscribeAll.bind(client),
       onAppCallback: client.onAppCallback.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),
-      notifications: client.notifications,
       captures: client.captures,
       snapshot: client.snapshot,
-      close: () => client.close,
-      drainNotifications: client.drainNotifications,
+      close: () => close,
     };
   }).pipe(Effect.withSpan("connectTestClient"));
 }

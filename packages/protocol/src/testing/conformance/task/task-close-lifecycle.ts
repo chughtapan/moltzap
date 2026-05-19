@@ -21,6 +21,7 @@ import {
   DELIVERY_DEFAULT_TIMEOUT_MS,
   acquireClient,
   assertConversationRejectsMessages,
+  awaitOneNotification,
   deliveryViolation,
   waitForArchivedEvent,
   type ConversationActor,
@@ -144,19 +145,15 @@ function waitForTaskClosedEvent(
   propertyName: string,
 ) {
   return Effect.gen(function* () {
-    const event = yield* observer.client
-      .waitForNotification(
-        TaskClosedNotificationDefinition,
-        DELIVERY_DEFAULT_TIMEOUT_MS,
-      )
-      .pipe(
-        Effect.mapError((e) =>
-          deliveryViolation(
-            propertyName,
-            `task/closed event missing: ${e.message}`,
-          ),
-        ),
-      );
+    const event = yield* awaitOneNotification(
+      observer.client,
+      TaskClosedNotificationDefinition,
+      DELIVERY_DEFAULT_TIMEOUT_MS,
+    ).pipe(
+      Effect.mapError((reason) =>
+        deliveryViolation(propertyName, `task/closed event missing: ${reason}`),
+      ),
+    );
     const data = event.params as TaskClosedEventData | undefined;
     if (data?.task?.id !== taskId || data.task.status !== "closed") {
       return yield* Effect.fail(

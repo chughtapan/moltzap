@@ -1,4 +1,4 @@
-# 11 — TestClient Stream consolidation (Spec B obsolete-code remediation, #645)
+# 12 — TestClient Stream consolidation (Spec B obsolete-code remediation, #645)
 
 Spec B (#596) consolidated the **production** notification surface onto a
 typed `Stream.async`-backed registry (`MoltZapWsClient.subscribe` /
@@ -83,6 +83,38 @@ row 1's dedup ring unnecessary (Stream.async preserves chunk siblings
 via per-definition emit) and makes row 2's filter reconstruction
 unnecessary (conformance suite's `RealClientNotificationFilter`
 collapses to a single predicate function that passes through directly).
+
+### Historical-buffer bridge for integration tests
+
+Spec B's `Stream.async`-backed subscription only emits frames that
+arrive AFTER materialisation. The integration-test pattern
+`send → awaitOneNotification` (and the dispatch-driver pattern
+`requestDispatch → waitForRelease → advanceTime →
+waitForObservability`) implicitly depended on the deleted
+polling-shape's historical-buffer semantic — frames arriving between
+the triggering RPC and the subscription pull were lost on the new
+surface, racing tests to timeout.
+
+Two bridges restore the legacy semantic on top of the Stream surface
+without resurrecting the per-definition dedup ring:
+
+- **`@moltzap/server-core/test-utils → connectTestClient`** installs a
+  per-client broad-union `subscribeAll()` pump at handle creation that
+  appends every inbound notification to a `Ref<ReadonlyArray<...>>`
+  snapshot. `subscribeTo<D>(def)` (consumed by `awaitOneNotification`)
+  polls this snapshot for the first matching frame and removes it,
+  preserving historical-buffer semantics for arbitrary
+  per-test-fixture definitions.
+- **`packages/protocol/.../app/_driver.ts`** installs per-handle
+  queue pumps for the three specific dispatch-admission definitions
+  (`DispatchRelease`, `DispatchesConsumed`, `DispatchesExpired`) at
+  `buildRecipientHandle` / `buildModeratorHandle` time;
+  `waitForRelease` / `waitForObservability` consume from these
+  per-definition Queues with the legacy match-loop predicate.
+
+Both bridges live exclusively at the integration-test layer; the
+protocol-side `TestClient` itself stays pure-Stream and matches the
+production `MoltZapWsClient` lifecycle exactly.
 
 ## 4. Lifecycle parity with production
 
