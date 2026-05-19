@@ -6,6 +6,19 @@
  * fixture files are immutable artifacts of what the pre-refactor outputs
  * WERE — see arch sub-issue #605 §3.5.
  *
+ * SCOPE NOTE — non-empty inputs are pre-refactor byte-equal; the
+ * `cross-conv-empty` case pins the post-refactor unified null-return
+ * behavior instead of the legacy nanoclaw `<messages></messages>` output.
+ * Justification: nanoclaw's pre-refactor `contentFor` already gated on
+ * `enriched.contextBlocks.crossConversationMessages?.length > 0` before
+ * invoking the formatter, so the formatter was never called with empty
+ * input at the channel boundary. Channel-base unifies the empty-check on
+ * openclaw's null-return semantic; the channel-base post-refactor
+ * `contentFor` retains the equivalent `if (crossConv !== null)` guard,
+ * preserving external behavior. Same applies to `group-absent`: the
+ * post-refactor flow gates on `getGroupFields(meta) === null` (P3 #609)
+ * so no block is emitted, and the fixture pins that decision.
+ *
  * The script does NOT import from `@moltzap/openclaw-channel` or
  * `@moltzap/nanoclaw-channel`. Instead, it inlines the pre-refactor formatter
  * logic verbatim from:
