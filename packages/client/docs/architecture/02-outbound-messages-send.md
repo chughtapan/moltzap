@@ -16,14 +16,14 @@ sequenceDiagram
     svc->>wsClient: sendRpc(def, params)<br>(service.ts → sendRpc)
     Note over wsClient: client.sendRpc(definition, params, opts)<br>(ws-client.ts → MoltZapWsClient.sendRpc)<br>timeoutMs = opts?.timeoutMs ?? 30_000
 
-    Note over wsClient: sendRpcEffect():<br>Ref.get(stateRef)<br>None → fail(NotConnectedError)<br>Some → jsonRpcClient.call(definition, params)<br>(ws-client.ts → sendRpcEffect)
+    Note over wsClient: sendRpcEffect():<br>Ref.get(stateRef)<br>None → fail(NotConnectedError)<br>Some → originator.call(definition, params)<br>(ws-client.ts → sendRpcEffect)
 
-    Note over wsClient: jsonRpcClient allocates JsonRpcId<br>encodes JSON-RPC request frame
+    Note over wsClient: originator allocates JsonRpcId<br>encodes JSON-RPC request frame
     wsClient->>server: write(JSON.stringify(frame))<br>{"jsonrpc":"2.0","method":"messages/send",<br>"id":"rpc-N","params":{conversationId,<br>parts:[{type:"text",text}],dispatchLeaseId?}}
     Note over wsClient: Deferred<ResultOf<MessagesSend>><br>raced against 30s timeout
 
     server-->>wsClient: {"jsonrpc":"2.0","id":"rpc-N",<br>"result":{message:{id}}}
-    Note over wsClient: readerFiber decodes frame:<br>handleIncoming(raw) → decodeFrames(raw) →<br>handleDecodedResponse(decoded) →<br>jsonRpcClient.resolve(frame)<br>(ws-client.ts → handleDecodedResponse)<br>settles Deferred → caller resumes
+    Note over wsClient: readerFiber decodes frame:<br>handleIncoming(raw) → decodeFrames(raw) →<br>handleDecodedResponse(decoded) →<br>originator.resolve(frame)<br>(ws-client.ts → handleDecodedResponse)<br>settles Deferred → caller resumes
     wsClient-->>svc: Effect.void
     svc-->>caller: Effect.void
 ```

@@ -45,7 +45,7 @@ The two checks fire at different boundaries (yield-site vs import-site) and toge
 Per-request handler R-channel resolution:
 
 ```
-RpcMethodBinding.handle  (call site: jsonRpcServer.handle(frame, ctx))
+RpcMethodBinding.handle  (call site: conn.originator.handle(frame, ctx) per Spec F #617 §6 FRI)
         │
         │ ConnIdTag      ── provided by defineMethod from ctx.connId
         │ NetworkLayerScope, TaskLayerScope, AppLayerScope

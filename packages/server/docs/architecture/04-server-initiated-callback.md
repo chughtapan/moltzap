@@ -25,9 +25,9 @@ sequenceDiagram
     else remote registration found
         AH->>AH: runRemoteHookEffect<br>(dispatch over WS)
         Note over AH: remote = remoteRegistrations.get(appId)<br>conn = connections.get(remote.connectionId)
-        AH->>Mod: conn.jsonRpcClient.call(DispatchAuthorize, params)<br>pending["server-N"] = Deferred → write frame<br>(per-connection client minted at acquireConnectionRpcClient time)
+        AH->>Mod: conn.originator.call(DispatchAuthorize, params)<br>pending["server-N"] = Deferred → write frame<br>(per-connection client minted at acquireConnectionRpcClient time)
         Note over Mod: decodeServerInbound → ServerRequest<br>client-side TypedDispatcher.handle<br>taskCallbackHandlers["dispatch/authorize"]<br>moderator app code → verdict
-        Mod-->>AH: response frame<br>conn.jsonRpcClient.resolve(frame) settles Deferred<br>envelope.admission unpacks {decision: grant|deny|hold}
+        Mod-->>AH: response frame<br>conn.originator.resolve(frame) settles Deferred<br>envelope.admission unpacks {decision: grant|deny|hold}
     else neither
         AH->>AH: Effect.succeed({decision: "grant"})
     end

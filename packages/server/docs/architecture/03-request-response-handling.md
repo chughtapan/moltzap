@@ -18,7 +18,7 @@ flowchart TD
     D -->|"Notification"| D1["sendInvalidRequest(null)<br/>(server doesn't accept notifications)"]
     D -->|"ClientRequest"| F["handleRequestFrame(frame)"]
 
-    E --> E1["conn.jsonRpcClient.resolve(frame)<br/>routes response to the Deferred created<br/>when calling out via dispatch/authorize<br/>or any other S→C callback"]
+    E --> E1["conn.originator.resolve(frame)<br/>routes response to the Deferred created<br/>when calling out via dispatch/authorize<br/>or any other S→C callback"]
     E1 --> E2{"pending entry<br/>matched?"}
     E2 -->|"no"| E3["log warning"]
 
@@ -27,7 +27,7 @@ flowchart TD
     F1 -->|"yes"| F2["isConnect = (frame.method === Connect.name)"]
     F2 --> F3{"!isConnect &&<br/>!conn.auth?"}
     F3 -->|"yes"| F3a["sendFrame(encodeErrorResp(id,<br/>{code: Unauthorized,<br/>message: 'Not authenticated.<br/>Send network/connect first.'})"]
-    F3 -->|"no"| F4["jsonRpcServer.handle(frame, {auth, connId})<br/><i>@moltzap/protocol → dispatch.ts → makeInboundDispatch<br/>(invoked via the per-server TypedDispatcher today; migrates to per-connection ServerConnection.handle per Spec F #617 §6 FRI)</i>"]
+    F3 -->|"no"| F4["conn.originator.handle(frame, {auth, connId})<br/><i>@moltzap/protocol → dispatch.ts → buildServerDispatcher<br/>(per-connection ServerConnection static-table dispatch per Spec F #617 §6 FRI)</i>"]
 
     F4 --> F5["ServerHandlers[frame.method]<br/>decodeRpcParams(slot.definition, frame.params)<br/>capability auto-provision (Spec F G6) — read slot.definition.capabilities, thread provideServiceEffect from CapabilityProviderTable<br/>slot.handle(params, ctx)<br/>runs inside dispatchRuntime — R = AppTags resolved<br/>structurally; handler body can yield* XServiceTag freely"]
 
