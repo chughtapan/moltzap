@@ -178,62 +178,31 @@ const reply_BOTH_provided: Effect.Effect<
 void reply_BOTH_provided;
 
 // ─────────────────────────────────────────────────────────────────────
-// CANARY 5 — `defineTaskMethod` wrapper boundary rejects handlers that
-// yield a capability tag without `provideServiceEffect`.
+// CANARY 5 — RETIRED.
 //
-// Decision A's invariant (per plan #606 §3 Decision A): capability tags
-// MUST drain inside the handler body before the Effect returns; they
-// must not leak into the `defineTaskMethod` constraint. The wrapper's
-// `Reqs extends TaskTags` upper bound (see
-// `define-layered-method.ts → defineTaskMethod`) excludes the
-// `CapabilityTags` sibling alias (declared in `layer-tags.ts` per
-// r1; NOT folded into TaskTags), so a handler whose inferred `Reqs`
-// includes `MessageSendPermission` fails the constraint.
+// Pre-cutover, this canary asserted that `defineTaskMethod`'s `Reqs
+// extends TaskTags` constraint rejected handlers that yield a
+// capability tag without `provideServiceEffect`. Post-cutover the
+// constraint widens to `Reqs extends TaskTags | CapabilityTags` so
+// the dispatcher's auto-provision path can fill capability tags from
+// the descriptor's `capabilities: [...]` array — handler bodies
+// legitimately leave capability tags in `R`.
 //
-// The `@ts-expect-error` below documents the canary's assertion: a
-// handler that yields `MessageSendPermission` without piping
-// `provideServiceEffect` is rejected at the wrapper call site. If the
-// `@ts-expect-error` ever STOPS firing, the wrapper has been
-// mis-widened (e.g., capability tags folded into TaskTags) and
-// Decision A's compile-time promise has regressed.
+// The lockstep gate (handler `R` ⊆ `CapabilitiesOf<D>`) lives at
+// `packages/protocol/src/transport/typed-dispatcher.types-check.ts`
+// — it catches the new failure mode: a handler that yields a
+// capability NOT declared in its descriptor's `capabilities` array
+// fails compilation.
 // ─────────────────────────────────────────────────────────────────────
 
-// Two structurally-identical handlers passed to the SAME wrapper. The
-// ONLY difference between REJECTS and ACCEPTS is whether the body
-// pipes `provideServiceEffect` to drain `MessageSendPermission`. If
-// `@ts-expect-error` fires on REJECTS, the wrapper rejects undrained
-// capability tags at the boundary — Decision A's compile-time promise
-// holds. If it fails to fire, the wrapper has been mis-widened
-// (capability tags folded into TaskTags) and the canary catches the
-// regression.
-
-const wrapper_BOUNDARY_REJECTS_UNDRAINED = defineTaskMethod(MessagesSend, {
-  handler: (_params, _ctx) =>
-    // @ts-expect-error - body yields MessageSendPermission and never
-    // drains it; inferred Reqs includes the capability tag, which is
-    // NOT in TaskTags (sibling CapabilityTags alias per layer-tags.ts
-    // r1). The wrapper constraint Reqs extends TaskTags rejects.
-    Effect.gen(function* () {
-      const cap = yield* MessageSendPermission;
-      return { message: cap as never };
-    }),
-});
-void wrapper_BOUNDARY_REJECTS_UNDRAINED;
-
-// Companion: the SAME handler shape with `provideServiceEffect` drains
-// the capability and the wrapper accepts it. Load-bearing positive
-// case — if this fails to compile, the drain pattern itself has
-// regressed.
-const wrapper_BOUNDARY_ACCEPTS_DRAINED = defineTaskMethod(MessagesSend, {
-  handler: (_params, _ctx) =>
-    Effect.gen(function* () {
-      const cap = yield* MessageSendPermission;
-      return { message: cap as never };
-    }).pipe(
-      Effect.provideServiceEffect(
-        MessageSendPermission,
-        obtainMessageSendPermission(obtainInput),
-      ),
-    ),
-});
-void wrapper_BOUNDARY_ACCEPTS_DRAINED;
+const wrapper_AUTO_PROVISION_ACCEPTS_UNDRAINED = defineTaskMethod(
+  MessagesSend,
+  {
+    handler: (_params, _ctx) =>
+      Effect.gen(function* () {
+        const cap = yield* MessageSendPermission;
+        return { message: cap as never };
+      }),
+  },
+);
+void wrapper_AUTO_PROVISION_ACCEPTS_UNDRAINED;

@@ -1,31 +1,14 @@
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
+import {
+  ContactPolicyAllowsReach,
+  type ContactPolicyAllowsReachValue,
+} from "@moltzap/protocol/task";
 import { ConversationServiceTag } from "../layers.js";
 import type { ConversationServiceError } from "../../task/services/conversation.service.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 
-/**
- * Tier 3 capability — caller-side contact policy permits creator →
- * targets reach. Single capability covering the family of policy checks
- * (`assertContactPolicyForCreate`, `assertAddParticipantContactPolicy`,
- * `assertCreatorContactsAll`, `checkContactEdge`).
- *
- * The composite is intentional (Spec E §Non-goals #6): four legacy
- * helpers survive as `@internal` implementation details of two `obtain`
- * smart constructors.
- *
- * Value payload carries the resolved `(creatorAgentId, targetAgentIds)`
- * tuple so service methods don't re-derive who the policy was checked
- * against.
- */
-export interface ContactPolicyAllowsReachValue {
-  readonly creatorAgentId: AgentId;
-  readonly targetAgentIds: readonly AgentId[];
-}
-
-export class ContactPolicyAllowsReach extends Context.Tag(
-  "@moltzap/server/ContactPolicyAllowsReach",
-)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {}
+export { ContactPolicyAllowsReach, type ContactPolicyAllowsReachValue };
 
 /**
  * Smart constructor for `TaskCreate` / `ConversationCreate` flows.

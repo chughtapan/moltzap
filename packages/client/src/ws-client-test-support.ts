@@ -51,6 +51,8 @@ import {
   DispatchAuthorize,
   Connect,
   ConversationsList,
+  forbidden,
+  MessagesAuthorize,
   MessagesSend,
   MessageReceivedNotificationDefinition,
   PROTOCOL_VERSION,
@@ -626,6 +628,7 @@ function grantDispatchAuthorizeHandlers(
           return { admission: { decision: GRANT_DECISION as "grant" } };
         }),
     },
+    [MessagesAuthorize.name]: forbidden,
   } as AppCallbackHandlers;
 }
 

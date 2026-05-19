@@ -21,6 +21,7 @@ import {
   PROTOCOL_VERSION,
   Connect,
   encodeErrorResponse,
+  forbidden,
   makeTaskMasterConnection,
   NotConnectedError,
   RpcTimeoutError,
@@ -294,11 +295,16 @@ export class MoltZapWsClient {
     // matches every other Ref initializer in this constructor and
     // keeps `subscribers` non-nullable inside the class.
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
-    // Spec F (#617): handler table is value-passed at construction; an
-    // empty table fails-CLOSED on inbound auth checks via the protocol's
-    // R2 default. The reference is held verbatim — no defensive clone —
-    // because the protocol's `eraseHandlerTable` only reads keys.
-    this.appCallbackHandlers = options.appCallbackHandlers ?? {};
+    // Handler table is value-passed at construction. When the caller
+    // doesn't supply implementations for the TM-callback slots, fall
+    // back to the explicit `forbidden` sentinel — the dispatcher then
+    // synthesizes `-32001 Forbidden` per JSON-RPC fail-CLOSED. The
+    // reference is held verbatim; the protocol's `eraseHandlerTable`
+    // only reads keys.
+    this.appCallbackHandlers = options.appCallbackHandlers ?? {
+      "dispatch/authorize": forbidden,
+      "messages/authorize": forbidden,
+    };
   }
 
   get helloOk(): ConnectResult | null {
