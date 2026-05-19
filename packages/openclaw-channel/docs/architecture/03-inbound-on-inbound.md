@@ -98,7 +98,7 @@ flowchart LR
 (`@moltzap/client/channel-base → formatCrossConv`). Openclaw invokes it with
 `markup: "json-header"` to render the pre-refactor JSON-fenced block. The
 empty-check + own-agent disambiguation are owned by channel-base; see
-[../../client/docs/architecture/08-channel-base.md](../../client/docs/architecture/08-channel-base.md).
+[../../../client/docs/architecture/08-channel-base.md](../../../client/docs/architecture/08-channel-base.md).
 
 ---
 
