@@ -32,9 +32,10 @@ import {
 import { assertConversationAdminAuthority } from "./conversation-admin-authority.js";
 import { listConversations } from "./conversation/list-pagination.js";
 import {
+  AddParticipantPermission,
   ConversationCreateAuthorization,
   obtainConversationCreateAuthorization,
-} from "../../app/capabilities/conversation-create-authorization.js";
+} from "../../app/capabilities/index.js";
 import { ConversationServiceTag } from "../../app/layers.js";
 import type {
   AddParticipantOptions,
@@ -531,7 +532,11 @@ export class ConversationService {
     conversationId: ConversationId,
     agentId: AgentId,
     requesterAgentId: AgentId,
-  ): Effect.Effect<ConversationParticipant, ConversationServiceError> {
+  ): Effect.Effect<
+    ConversationParticipant,
+    ConversationServiceError,
+    AddParticipantPermission
+  > {
     return catchSqlErrorAsDefect(
       this.addParticipantEffect({ conversationId, agentId, requesterAgentId }),
     );
@@ -541,20 +546,23 @@ export class ConversationService {
     input: AddParticipantOptions,
   ): Effect.Effect<
     ConversationParticipant,
-    ConversationServiceError | SqlError | Cause.NoSuchElementException
+    ConversationServiceError | SqlError | Cause.NoSuchElementException,
+    AddParticipantPermission
   > {
     return Effect.gen(this, function* () {
-      yield* this.assertAddParticipantAuthority(input);
-      const targetOwnerUserId = yield* this.participants.assertAgentExists(
-        input.agentId,
-      );
-      yield* this.assertAddParticipantContactPolicy(
-        input.requesterAgentId,
-        input.agentId,
-        targetOwnerUserId,
-      );
-      yield* this.assertParticipantCapacity(input.conversationId);
-
+      const cap = yield* AddParticipantPermission;
+      // Defensive: handler-input <-> capability identity match.
+      if (
+        cap.conversationId !== input.conversationId ||
+        cap.targetAgentId !== input.agentId ||
+        cap.requesterAgentId !== input.requesterAgentId
+      ) {
+        return yield* Effect.fail(
+          new ForbiddenError({
+            message: "capability/add-participant target mismatch",
+          }),
+        );
+      }
       const inserted = yield* this.insertParticipant(input);
       this.subscribeAddedParticipant(input);
       yield* this.publishParticipantAdded(input, inserted);
