@@ -1,15 +1,19 @@
 import { Effect, type Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
-  makeAgentClientConnection,
-  type AgentClientConnection,
+  makeServerConnection,
   type AnyTaskCallbackRpcDefinition,
   type ParamsOf,
   type ResultOf,
   type RpcCallError,
   type RpcDefinition,
+  type ServerConnection,
+  type ServerHandlers,
 } from "@moltzap/protocol";
-import type { AuthenticatedContext } from "../transport/context.js";
+import type {
+  AuthenticatedContext,
+  DispatchContext,
+} from "../transport/context.js";
 
 export interface MoltZapConnection {
   id: string;
@@ -28,35 +32,39 @@ export interface MoltZapConnection {
   mutedConversations: Set<string>;
 
   /**
-   * Originator side of this connection's server→client appCallback channel
-   * (Spec F #617 typed-dispatcher `AgentClientConnection`). Mints
-   * `srv-${connId}-N` request ids, tracks pending Deferreds, and fails
-   * every still-pending call with `NotConnectedError` when the
-   * surrounding scope closes (Scope finalizer from the internalized
-   * originator helper). The per-conversation `sendRpcToClient` wrapper
-   * narrows the outbound call to `AnyTaskCallbackRpcDefinition`.
+   * Per-socket Spec F (#617) typed-dispatcher `ServerConnection`. Carries
+   * BOTH the inbound dispatcher (`handle` over the static
+   * `ServerHandlers&lt;DispatchContext>` table) AND the outbound originator
+   * (`call` / `notify` / `resolve` / `failAllPending`) for the
+   * server→client appCallback channel. Mints `srv-${connId}-N` request
+   * ids, tracks pending Deferreds, and fails every still-pending call
+   * with `NotConnectedError` when the surrounding scope closes. The
+   * per-conversation `sendRpcToClient` wrapper narrows the outbound call
+   * to `AnyTaskCallbackRpcDefinition`.
    */
-  readonly originator: AgentClientConnection;
+  readonly originator: ServerConnection<DispatchContext>;
 }
 
 /**
- * Allocate a per-connection originator whose request ids are prefixed
- * `srv-${connectionId}` (keeps server-originated ids disjoint from client
- * ids in logs and captures). The Scope finalizer registered by the
- * internalized originator helper drains pending Deferreds with
- * `NotConnectedError` when the connection scope closes.
+ * Allocate a per-connection Spec F (#617) typed `ServerConnection` whose
+ * request ids are prefixed `srv-${connectionId}` (keeps server-originated
+ * ids disjoint from client ids in logs and captures). The Scope finalizer
+ * registered by the internalized originator helper drains pending
+ * Deferreds with `NotConnectedError` when the connection scope closes.
  *
- * The empty `handlers: {}` literal is well-typed against
- * `AgentClientHandlers&lt;...&gt;` — Spec F's AgentClient catalog is empty,
- * so the dispatcher never invokes the inbound surface.
+ * Test-only: `handlers` defaults to the empty record (no inbound
+ * dispatch). Production code passes the application's
+ * `ServerHandlers&lt;DispatchContext>` table via `socket-handler.ts → openSocketSession`.
  */
 export function acquireConnectionRpcClient(
   connectionId: string,
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
-): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
-  return makeAgentClientConnection<never, never>({
+  handlers: ServerHandlers<DispatchContext> = {} as ServerHandlers<DispatchContext>,
+): Effect.Effect<ServerConnection<DispatchContext>, never, Scope.Scope> {
+  return makeServerConnection<DispatchContext, never>({
     id: connectionId,
-    handlers: {},
+    handlers,
+    capabilities: {},
     write,
     idPrefix: `srv-${connectionId}`,
   });

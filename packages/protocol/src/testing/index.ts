@@ -28,7 +28,7 @@ export {
   JSON_RPC_VERSION,
 } from "../transport/wire.js";
 export type { JsonRpcMethod } from "../transport/wire.js";
-export { wireErrorFromInstance } from "../transport/json-rpc-server.js";
+export { wireErrorFromInstance } from "../transport/dispatch.js";
 export { TaskFailedNotificationDefinition } from "../task/methods.js";
 
 // Primitives.

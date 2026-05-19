@@ -14,9 +14,7 @@ import type {
   DispatchContext,
   RpcMethodRegistry,
 } from "../transport/context.js";
-import type { AppTags } from "../transport/layer-tags.js";
-import type { ConnIdTag } from "./layers.js";
-import { makeJsonRpcServer } from "@moltzap/protocol";
+import type { ServerHandlers } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
 // Handlers
@@ -98,13 +96,10 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
   const methods = makeCoreRpcMethods();
-  const jsonRpcServer = makeJsonRpcServer<
-    DispatchContext,
-    Exclude<AppTags, ConnIdTag>
-  >(methods);
+  const handlers = buildServerHandlers(methods);
   const handleSocket = makeSocketHandler({
     services,
-    jsonRpcServer,
+    handlers,
     connectionHooks,
     disconnectionHooks,
   });
@@ -135,7 +130,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     config,
     dispatchRuntime,
     services,
-    methods,
     connectionHooks,
     disconnectionHooks,
     appScope,
@@ -157,13 +151,36 @@ function makeCoreRpcMethods(): RpcMethodRegistry {
   ];
 }
 
+/**
+ * Convert the flat `RpcMethodRegistry` array into the Spec F (#617)
+ * typed-dispatcher `ServerHandlers&lt;DispatchContext>` record, keyed by
+ * each binding's `definition.name`. Duplicate method names collide at
+ * `Map.set` time (impossible by construction — each handler file
+ * exports a distinct method-definition slice of the catalog).
+ *
+ * The `as` cast bridges the upper-bound widening from
+ * `RpcMethodBinding`'s storage-friendly `Context.Tag&lt;unknown, unknown>`
+ * R-channel to `ServerHandlers`'s mapped-type slot shape. The dispatcher
+ * erases R via `asNeverR` at runtime; the surrounding
+ * `ManagedRuntime&lt;FullLive>` provides every Tag at request time.
+ */
+function buildServerHandlers(
+  methods: RpcMethodRegistry,
+): ServerHandlers<DispatchContext> {
+  const table: Record<string, RpcMethodRegistry[number]> = {};
+  for (const slot of methods) {
+    table[slot.definition.name] = slot;
+  }
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- catalog→record erasure: the flat array's union elements key into ServerHandlers's mapped record by definition.name; the cast bridges the type-level partition. The dispatcher's `asNeverR` post-erases the residual R channel at boundary.
+  return table as unknown as ServerHandlers<DispatchContext>; // #ignore-sloppy-code[as-unknown-as]: catalog→record erasure: the flat array's union elements key into ServerHandlers's mapped record by definition.name; the dispatcher's `asNeverR` post-erases the residual R channel at boundary.
+}
+
 type CoreRuntime = ReturnType<typeof makeCoreRuntime>;
 
 interface CoreAppApiOptions {
   readonly config: CoreConfig;
   readonly dispatchRuntime: CoreRuntime["dispatchRuntime"];
   readonly services: CoreRuntime["services"];
-  readonly methods: RpcMethodRegistry;
   readonly connectionHooks: ConnectionHook[];
   readonly disconnectionHooks: DisconnectionHook[];
   readonly appScope: Scope.CloseableScope;
@@ -176,7 +193,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     get port() {
       return options.getPort();
     },
-    registerRpcMethod: (method) => options.methods.push(method),
     onConnection: (hook) => options.connectionHooks.push(hook),
     onDisconnection: (hook) => options.disconnectionHooks.push(hook),
     networkSendService: services.networkSendService,

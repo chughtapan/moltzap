@@ -561,7 +561,7 @@ const wireErrorPayload = (
  * Returns `null` when the failure isn't a registered wire-error class
  * (caller routes to InternalError).
  */
-function wireErrorFromInstance(value: unknown): WireError | null {
+export function wireErrorFromInstance(value: unknown): WireError | null {
   if (!isRecord(value) || !isRegisteredErrorInstance(value)) {
     return null;
   }

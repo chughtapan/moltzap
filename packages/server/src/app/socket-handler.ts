@@ -2,9 +2,9 @@ import * as Socket from "@effect/platform/Socket";
 import { Cause, Deferred, Effect, Exit, Match, type Scope } from "effect";
 import type {
   JsonRpcId,
-  JsonRpcServer,
   RequestFrame,
   ResponseFrame,
+  ServerHandlers,
 } from "@moltzap/protocol";
 import {
   Connect,
@@ -12,6 +12,7 @@ import {
   UnauthorizedError,
   decodeClientInbound,
   encodeErrorResponse,
+  makeServerConnection,
 } from "@moltzap/protocol";
 
 import type {
@@ -20,7 +21,6 @@ import type {
 } from "../transport/context.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import type { AppTags } from "../transport/layer-tags.js";
-import { acquireConnectionRpcClient } from "../transport/connection.js";
 import type { ConnIdTag, ResolvedServices } from "./layers.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 import { ERROR_INVALID_JSON } from "./server-constants.js";
@@ -28,11 +28,6 @@ import { logInfo, logWarning } from "./logging.js";
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 const MALFORMED_LOG_EVERY = 50;
-
-type CoreJsonRpcServer = JsonRpcServer<
-  DispatchContext,
-  Exclude<AppTags, ConnIdTag>
->;
 
 type SocketWrite = (raw: string) => Effect.Effect<void, Socket.SocketError>;
 type SendFrame = (obj: unknown) => Effect.Effect<void>;
@@ -46,7 +41,7 @@ interface SocketHandlerOptions {
     | "presenceService"
     | "leaseRegistry"
   >;
-  readonly jsonRpcServer: CoreJsonRpcServer;
+  readonly handlers: ServerHandlers<DispatchContext>;
   readonly connectionHooks: readonly ConnectionHook[];
   readonly disconnectionHooks: readonly DisconnectionHook[];
 }
@@ -72,10 +67,18 @@ function openSocketSession(
 ) {
   return Effect.gen(function* () {
     const session = yield* makeSocketSession(socket);
-    const originator = yield* acquireConnectionRpcClient(
-      session.connId,
-      session.write,
-    );
+    // Spec F (#617) §6 FRI cutover: one `ServerConnection` per socket.
+    // Carries BOTH the inbound dispatcher (the static handler table from
+    // `createCoreApp`) AND the outbound originator (server→client
+    // appCallback path). The `id` mirrors the connId so logs trace
+    // request ids back to the originating socket.
+    const serverConn = yield* makeServerConnection<DispatchContext, never>({
+      id: session.connId,
+      handlers: options.handlers,
+      capabilities: {},
+      write: session.write,
+      idPrefix: `srv-${session.connId}`,
+    });
     options.services.connections.add({
       id: session.connId,
       write: session.write,
@@ -86,7 +89,7 @@ function openSocketSession(
       lastPong: Date.now(),
       conversationIds: new Set(),
       mutedConversations: new Set(),
-      originator,
+      originator: serverConn,
     });
     yield* logInfo("WebSocket connected", { connId: session.connId });
     const reader = socket.runRaw((data) =>
@@ -230,7 +233,11 @@ function handleRequestFrame(
       return;
     }
     const auth = conn.auth ?? ({} as AuthenticatedContext);
-    const response = yield* options.jsonRpcServer.handle(frame, {
+    // Spec F (#617) §6 FRI cutover: dispatch through the per-connection
+    // typed `ServerConnection.handle`. The dispatcher casts R to `never`
+    // via `asNeverR`; the surrounding `ManagedRuntime<FullLive>`
+    // provides every handler-body Tag at request time.
+    const response = yield* conn.originator.handle(frame, {
       auth,
       connId: session.connId,
     });

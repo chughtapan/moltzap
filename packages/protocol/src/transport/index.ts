@@ -66,34 +66,6 @@ export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 // every `Connection.call` signature.
 export type { RpcCallError } from "./json-rpc-client.js";
 
-/**
- * Spec F (#617) Invariant FRI carryover surface.
- *
- * `makeJsonRpcClient` is internalised post Spec F — its body powers the
- * originator inside `dispatch.ts → buildXDispatcher`, and no consumer
- * outside this package imports it. The public re-export deletes.
- *
- * `makeJsonRpcServer` / `handler` / `JsonRpcServer` / `RpcHandler` are
- * the legacy server-side handler-array dispatcher. The remaining
- * in-tree consumer is
- * `packages/server/src/app/server.ts → createCoreApp` (consuming the
- * legacy `RpcMethodRegistry` array shape). The follow-up sub-issue
- * "Spec F #619 §6 FRI: migrate createCoreApp to makeServerConnection +
- * ServerHandlers mapped-type table" carries the architect-plan
- * cutover; once that lands, this `@deprecated` re-export block
- * deletes and `json-rpc-server.ts` collapses into `dispatch.ts` private
- * helpers (mirroring `makeJsonRpcClient`'s post-FRI shape).
- *
- * **DO NOT use the deprecated re-exports in new code.** New
- * connections go through the typed factories below; they enforce
- * per-kind static catalogs at the type level (Spec F G3) and
- * auto-provision Spec E capabilities via the `CapabilityProviderTable`
- * (Spec F G5/G6).
- */
-/** @deprecated Spec F (#617) — use `makeServerConnection`. */
-export { handler, makeJsonRpcServer } from "./json-rpc-server.js";
-export type { JsonRpcServer, RpcHandler } from "./json-rpc-server.js";
-
 // Spec F (#617) — typed dispatcher. Stubs only on this branch; impl-staff
 // fills bodies. Type-level invariants are exercised by
 // `typed-dispatcher.types-check.ts`.
