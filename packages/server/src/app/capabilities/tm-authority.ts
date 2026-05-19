@@ -1,34 +1,14 @@
-import { Context, Effect } from "effect";
-import type { Task } from "@moltzap/protocol";
+import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { TaskId } from "@moltzap/protocol/task";
+import {
+  TmAuthority,
+  type TmAuthorityValue,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
 import type { TaskServiceError } from "../../task/services/task.service.js";
 
-/**
- * Tier 1 capability — caller is the registered task manager for `task.id`.
- *
- * Value payload carries the `task` row already fetched by today's
- * `TaskService.loadTaskAsTmAuthority` check; consumers reuse the payload
- * instead of re-querying. `callerAgentId` lets refine-shape capabilities
- * (e.g. `MessageSendPermission.forTmBypass`) verify the same agent
- * authored the bypass decision.
- *
- * Consumed by the `task.service.ts` public methods (`closeWithLifecycle`,
- * `addParticipant`, `removeParticipant`, `createConversation`,
- * `closeConversation`, `storeMessage`) via the R-channel; handlers
- * wire the value with `Effect.provideServiceEffect(TmAuthority,
- * obtainTmAuthority(...))`.
- */
-export interface TmAuthorityValue {
-  readonly task: Task;
-  readonly callerAgentId: AgentId;
-}
-
-export class TmAuthority extends Context.Tag("@moltzap/server/TmAuthority")<
-  TmAuthority,
-  TmAuthorityValue
->() {}
+export { TmAuthority, type TmAuthorityValue };
 
 /**
  * Smart constructor: wraps today's runtime check exactly once per
