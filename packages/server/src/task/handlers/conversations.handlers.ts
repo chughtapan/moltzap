@@ -38,11 +38,36 @@ import {
   broadcastNotificationToConversation,
 } from "./notification-broadcast.js";
 
+/**
+ * Spec D1 (#598) Contract decision — emit a deprecation log at every
+ * legacy `Conversations*` handler entry, before the authority check.
+ * Spec D3 (#600) deletes the legacy handlers (and these emissions)
+ * alongside the legacy descriptors inside the same orchestration. The
+ * warning carries the deprecated wire-method name and the suggested
+ * replacement call so operators correlate log lines with migration
+ * targets.
+ *
+ * Fires once per call. No throttling — the per-call shape is the spec
+ * acceptance criterion ("a unit test asserts the warning fires").
+ */
+function logLegacyDeprecation(
+  deprecated: string,
+  replaceWith: string,
+): Effect.Effect<void> {
+  return Effect.logWarning(
+    `[deprecated] ${deprecated} — replace with ${replaceWith}`,
+  ).pipe(Effect.annotateLogs({ deprecated, replaceWith }));
+}
+
 export const conversationHandlers: RpcMethodRegistry = [
   defineTaskMethod(ConversationsCreate, {
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsCreate",
+          "TaskCreate({ appId: DEFAULT_APP_ID, invitedAgentIds, initialConversation: {...} })",
+        );
         const conversationService = yield* ConversationServiceTag;
         const taskService = yield* TaskServiceTag;
         const agentIds = params.participants.map((p) => p.id as AgentId);
@@ -89,6 +114,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsList",
+          "TaskConversationList({ limit?, cursor? })",
+        );
         const conversationService = yield* ConversationServiceTag;
         return yield* conversationService.list(
           ctx.agentId,
@@ -102,6 +131,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsGet",
+          "TaskConversationList + client-side filter (no Get equivalent)",
+        );
         const conversationService = yield* ConversationServiceTag;
         return yield* conversationService
           .get(params.conversationId, ctx.agentId)
@@ -120,6 +153,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsUpdate",
+          "no replacement (conversation naming is set-at-create-time only)",
+        );
         const conversationService = yield* ConversationServiceTag;
         const conversation = yield* conversationService.update(
           params.conversationId,
@@ -140,6 +177,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsLeave",
+          "TaskLeave({ taskId })",
+        );
         const conversationService = yield* ConversationServiceTag;
         const connections = yield* ConnectionManagerTag;
         yield* conversationService.leave(params.conversationId, ctx.agentId);
@@ -155,6 +196,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsArchive",
+          "TaskConversationArchive({ taskId, conversationId })",
+        );
         const conversationService = yield* ConversationServiceTag;
         const { archivedAt } = yield* conversationService.archive(
           params.conversationId,
@@ -176,6 +221,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsUnarchive",
+          "TaskConversationUnarchive({ taskId, conversationId })",
+        );
         const conversationService = yield* ConversationServiceTag;
         yield* conversationService.unarchive(
           params.conversationId,
@@ -196,6 +245,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsMute",
+          "no replacement (mute is a client-local concern; mute retires in D3)",
+        );
         const conversationService = yield* ConversationServiceTag;
         const connections = yield* ConnectionManagerTag;
         yield* conversationService.mute(
@@ -215,6 +268,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsUnmute",
+          "no replacement (mute is a client-local concern; mute retires in D3)",
+        );
         const conversationService = yield* ConversationServiceTag;
         const connections = yield* ConnectionManagerTag;
         yield* conversationService.unmute(params.conversationId, ctx.agentId);
@@ -231,6 +288,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsAddParticipant",
+          "TaskConversationAddParticipant({ taskId, conversationId, agentId })",
+        );
         const conversationService = yield* ConversationServiceTag;
         const targetAgentId = params.participant.id as AgentId;
         const participant = yield* conversationService
@@ -257,6 +318,10 @@ export const conversationHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        yield* logLegacyDeprecation(
+          "ConversationsRemoveParticipant",
+          "TaskConversationRemoveParticipant({ taskId, conversationId, agentId })",
+        );
         const conversationService = yield* ConversationServiceTag;
         yield* conversationService.removeParticipant(
           params.conversationId,
