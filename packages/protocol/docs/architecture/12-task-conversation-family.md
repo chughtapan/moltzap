@@ -93,7 +93,7 @@ NOT normative pseudocode):
 2. **Empty invited / self-included** — `invitedAgentIds` MAY be empty (creates a self-only task; the caller is the sole `task_participant`). `invitedAgentIds` MAY include the caller; the server normalizes the participant set as `{caller} ∪ invitedAgentIds` (set semantics) so the caller is never double-counted.
 3. **Dedup hit (appId === DEFAULT_APP_ID only)** — the server queries `task_participants` for an existing task whose **set of admitted-OR-pending agent rows** (i.e. all rows under `task_participants(task_id)` regardless of `admittedAt IS NULL`) exactly equals `{caller} ∪ invitedAgentIds` AND whose `tasks.app_id = $appId`. If hit, returns the existing task (no conversation mint even when `initialConversation` is supplied — dedup is task-level, not conversation-level). Index expectation: the existing `task_participants` PRIMARY KEY `(task_id, agent_id)` covers the matching predicate; a supplementary `task_participants_agent_id` index (if present) accelerates the participant-set reverse lookup. Impl-staff confirms the index list against `core-schema.sql` before the SELECT lands.
 4. **Mint** — if no dedup hit, the server inserts a new `tasks` row + one `task_participants` row per agent in `{caller} ∪ invitedAgentIds`, all inside one transaction.
-5. **Atomic initial conversation** — if `initialConversation` is supplied, the same transaction also calls `conversationService.create({…})` to mint the first conversation. Both notifications (`task/conversation/created` AND legacy `conversations/created`) enqueue inside the same transaction and broadcast post-commit.
+5. **Atomic initial conversation** — when `initialConversation` is supplied the new task row is committed by `taskService.create` BEFORE `conversationService.create` opens its own transaction for the conversation insert. If the conversation insert fails the task row remains (the legacy `conversations/create` shape never offered cross-call atomicity either). Notifications enqueue AFTER each call returns: dual-emit fires only on the success path; failure rolls back ONLY the failing call. Implementers needing strict atomicity (one DB commit for task + first conversation) must extend `taskService.create` to nest the conversation insert inside its outer `transaction(...)` — out of scope for D1.
 6. **Return** — `{ task, conversation: Conversation | null }`. `conversation` is non-null iff `initialConversation` was supplied AND the dedup query missed.
 
 The dedup query matches via `task_participants` (the task-level
@@ -142,7 +142,7 @@ Data-flow contract (impl-staff translates to Effect+Kysely; non-normative):
 3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. Existing row admitted-or-pending (i.e. `admittedAt` may be NULL) — both are accepted; admission state is a separate gate.
 4. **Conversation-in-task verification** — verify `(conversations.id = $conversationId AND conversations.task_id = $taskId)`. Mismatch = `NotFoundError` (cross-task `conversationId` rejected).
 5. **Insert** — `INSERT INTO conversation_participants (conversation_id, agent_id) ON CONFLICT DO NOTHING` inside a transaction.
-6. **Dual-emit notifications** — `TaskConversationParticipantsAddedNotificationDefinition` AND legacy `ParticipantsAddedNotificationDefinition` enqueue in the same tx; broadcast post-commit.
+6. **Dual-emit notifications** — `TaskConversationParticipantsAddedNotificationDefinition` AND legacy `ParticipantsAddedNotificationDefinition` enqueue AFTER the participant insert returns. Broadcast is best-effort: `notification-broadcast.ts` calls `NetworkSendService.broadcast`, which forks socket writes via `Effect.runFork` and does not participate in the participant-insert transaction.
 
 The invariant is NEW in D1. Today's `ConversationsAddParticipant`
 does NOT check `task_participants` membership; D1's
@@ -205,9 +205,15 @@ future Spec F edit just decorates each `defineRpc(...)` call).
 
 For each mutating operation, the server enqueues BOTH the legacy
 `conversations/*` notification AND the new `task/conversation/*`
-notification inside the same transaction. Recipients (notification
-fan-out) is unchanged from the legacy semantics; the new payload
-shapes carry `taskId` explicitly (legacy payloads did not).
+notification AFTER the row mutation returns. Broadcast is best-effort
+post-call: `notification-broadcast.ts` forks socket writes via
+`Effect.runFork` inside `NetworkSendService`, so a rollback BEFORE the
+enqueue line emits zero notifications (the failure short-circuits the
+handler), but a rollback AFTER the enqueue would deliver to clients
+without a committed row (no such path in D1 today). Recipients
+(notification fan-out) is unchanged from the legacy semantics; the
+new payload shapes carry `taskId` explicitly (legacy payloads did
+not).
 
 | Mutating op | Legacy notif | New notif |
 |---|---|---|

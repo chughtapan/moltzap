@@ -979,6 +979,19 @@ export class TaskService {
     caller: AgentId,
   ): Effect.Effect<TaskLeaveResult, SqlError | Cause.NoSuchElementException> {
     return Effect.gen(this, function* () {
+      // Row-level lock on the task BEFORE any participant read.
+      // Without `FOR UPDATE`, two concurrent `leaveTask` callers can
+      // each see the other under read-committed isolation, each skip
+      // `maybeCloseEmptyTask`, and leave the task in a "0 participants
+      // but not closed" state (codex review finding 3). The lock
+      // serializes leaves per task; the second call sees the post-DELETE
+      // state and either no-ops (if it was already deleted) or fires
+      // the closure path correctly.
+      yield* trx
+        .selectFrom("tasks")
+        .select("id")
+        .where("id", "=", id)
+        .forUpdate();
       const taskParticipantRows = yield* trx
         .selectFrom("task_participants")
         .select("agent_id")

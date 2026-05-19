@@ -294,20 +294,22 @@ it("TaskConversationCreate (admitted participants) mints + dual-emits", () =>
     expect(err).toBeDefined();
   }));
 
-it("TaskConversationCreate rejects non-admitted participant with ParticipantNotAdmittedError", () =>
+it("TaskConversationCreate denies non-TM caller BEFORE the participant invariant fires", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     const { carol } = yield* setupThreeAgents();
-    // Alice owns the task (with herself as the TM via tmType:"self");
-    // bob is admitted; carol is NOT.
+    // Alice is NOT the TM (TM is the in-process app handler under
+    // DEFAULT_APP_ID), so the authority gate fires first. The
+    // participant-admitted invariant (would surface
+    // `ParticipantNotAdmittedError` for carol since carol is not in
+    // `task_participants`) MUST be unreachable from a non-TM caller —
+    // an info-disclosure regression (codex review finding 2) would
+    // surface `ParticipantNotAdmitted` and let alice probe task
+    // membership without authority.
     const created = yield* alice.client.sendRpc(TaskCreate, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
-    // Since Alice is the TM via `tm:app:<DEFAULT_APP_ID>` (not
-    // `tm:agent:<alice>`), alice is NOT the authorized TM. The
-    // participant-admitted invariant fires BEFORE the authority gate
-    // in the handler, so the error tag is `ParticipantNotAdmitted`.
     const outcome = yield* Effect.either(
       alice.client.sendRpc(TaskConversationCreate, {
         taskId: created.task.id,
@@ -319,7 +321,12 @@ it("TaskConversationCreate rejects non-admitted participant with ParticipantNotA
       code?: number;
       message?: string;
     };
-    expect(err.code).toBe(ParticipantNotAdmittedError.code);
+    expect(err.code).not.toBe(ParticipantNotAdmittedError.code);
+    // The actual code is `ForbiddenError` (-32001) per Spec E
+    // capability-shape. Pin the negative invariant (not Admitted)
+    // separately so renaming the error code doesn't regress the
+    // security property.
+    expect(err.code).toBeDefined();
   }));
 
 // ─── TaskConversationList ────────────────────────────────────────────
@@ -396,7 +403,7 @@ it("TaskConversationArchive (non-TM caller) is denied by authority gate", () =>
 
 // ─── TaskConversationAddParticipant / Remove ─────────────────────────
 
-it("TaskConversationAddParticipant: non-admitted target rejected", () =>
+it("TaskConversationAddParticipant: non-TM caller denied BEFORE the participant invariant", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     const { carol } = yield* setupThreeAgents();
@@ -413,7 +420,12 @@ it("TaskConversationAddParticipant: non-admitted target rejected", () =>
       }),
     );
     const err = expectEitherLeft(outcome) as { code?: number };
-    expect(err.code).toBe(ParticipantNotAdmittedError.code);
+    // Per codex review finding 2: a non-TM caller MUST NOT learn
+    // whether `carol` is in `task_participants`. Authority denial
+    // fires before the invariant runs; tag must NOT be
+    // `ParticipantNotAdmitted`.
+    expect(err.code).not.toBe(ParticipantNotAdmittedError.code);
+    expect(err.code).toBeDefined();
   }));
 
 it("TaskConversationRemoveParticipant on absent agent is idempotent", () =>
