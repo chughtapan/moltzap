@@ -11,11 +11,12 @@
  *
  * Behavioral parity is locked via the golden-snapshot fixtures captured
  * pre-refactor — see arch sub-issue #605 §3.5 and §4.6.
- *
- * Implementation is impl-staff scope.
  */
 
-import type { CrossConvMessage } from "../service.js";
+import {
+  type CrossConvMessage,
+  sanitizeForSystemReminder,
+} from "../service.js";
 
 export type { CrossConvMessage };
 
@@ -26,25 +27,84 @@ export type CrossConvFormatter = (
   opts: { readonly ownAgentId: string },
 ) => string;
 
+const CROSS_CONV_HEADER_JSON = "Messages (untrusted metadata):";
+const JSON_INDENT_SPACES = 2;
+
+interface NormalizedItem {
+  readonly conversation: string;
+  readonly sender: string;
+  readonly text: string;
+  readonly timestamp: string;
+}
+
+function normalizeMessage(
+  message: CrossConvMessage,
+  opts: { readonly ownAgentId: string },
+): NormalizedItem {
+  return {
+    conversation: message.conversationName ?? `DM with @${message.senderName}`,
+    sender: message.senderId === opts.ownAgentId ? "You" : message.senderName,
+    text: message.text,
+    timestamp: message.timestamp,
+  };
+}
+
+function formatJsonHeader(
+  messages: readonly CrossConvMessage[],
+  opts: { readonly ownAgentId: string },
+): string {
+  const items = messages.map((m) => normalizeMessage(m, opts));
+  return `${CROSS_CONV_HEADER_JSON}\n\`\`\`json\n${JSON.stringify(
+    items,
+    null,
+    JSON_INDENT_SPACES,
+  )}\n\`\`\``;
+}
+
+function formatXmlSystemReminder(
+  messages: readonly CrossConvMessage[],
+  opts: { readonly ownAgentId: string },
+): string {
+  const lines = messages.map((m) => {
+    const item = normalizeMessage(m, opts);
+    const sender = sanitizeForSystemReminder(item.sender);
+    const conv = sanitizeForSystemReminder(item.conversation);
+    const text = sanitizeForSystemReminder(item.text);
+    const time = sanitizeForSystemReminder(item.timestamp);
+    return `<message sender="${sender}" conversation="${conv}" time="${time}">${text}</message>`;
+  });
+  return ["<messages>", ...lines, "</messages>"].join("\n");
+}
+
 /**
  * Returns the formatted block, or `null` when `messages` is empty.
  *
  * Markup variants:
- * - `"json-header"`: byte-identical to today's openclaw output. Header is
- *   `"Messages (untrusted metadata):"` followed by a ` ```json ` fenced
- *   JSON array.
- * - `"xml-system-reminder"`: byte-identical to today's nanoclaw output.
- *   `<messages><message sender="X" conversation="Y" time="T">…</message>…</messages>`,
- *   sender/conv/time/text all run through `sanitizeForSystemReminder`.
+ * - `"json-header"`: byte-identical to the pre-refactor openclaw output.
+ *   Header is `"Messages (untrusted metadata):"` followed by a ` ```json `
+ *   fenced JSON array.
+ * - `"xml-system-reminder"`: byte-identical to the pre-refactor nanoclaw
+ *   output. `&lt;messages&gt;` wrapper around `&lt;message&gt;` entries with
+ *   `sender`/`conversation`/`time` attributes; sender/conv/time/text all
+ *   run through `sanitizeForSystemReminder`.
  *
  * Or pass a custom `formatter` callback — channel-base owns the empty-check
  * + ownAgentId disambiguation; the callback owns the markup.
  */
 export function formatCrossConv(
-  _messages: readonly CrossConvMessage[],
-  _opts:
+  messages: readonly CrossConvMessage[],
+  opts:
     | { readonly ownAgentId: string; readonly markup: CrossConvMarkup }
     | { readonly ownAgentId: string; readonly formatter: CrossConvFormatter },
 ): string | null {
-  throw new Error("not implemented (arch stub; impl-staff scope)");
+  if (messages.length === 0) return null;
+  if ("formatter" in opts) {
+    return opts.formatter(messages, { ownAgentId: opts.ownAgentId });
+  }
+  switch (opts.markup) {
+    case "json-header":
+      return formatJsonHeader(messages, { ownAgentId: opts.ownAgentId });
+    case "xml-system-reminder":
+      return formatXmlSystemReminder(messages, { ownAgentId: opts.ownAgentId });
+  }
 }

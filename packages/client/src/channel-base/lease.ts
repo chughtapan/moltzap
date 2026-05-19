@@ -3,20 +3,17 @@
  *
  * Public surface for spec C (#597):
  * - `LeaseAlreadyConsumed`: canonical tagged error class. One definition site
- *   across all three channels post-refactor (claude-code, openclaw, nanoclaw).
+ *   across all three channels (claude-code, openclaw, nanoclaw).
  * - `projectLeaseInvalid`: predicate that narrows a `RpcServerError` to
  *   `LeaseAlreadyConsumed` when the server's wire-error payload matches the
  *   single-use-lease shape.
  * - `catchLeaseInvalid`: Effect-pipe convenience that runs the projection
- *   inside `Effect.catchTag("RpcServerError", ...)`.
- *
- * Implementation is impl-staff scope (see arch sub-issue #605 §10
- * "Sequencing for impl-staff"). Stubs throw to keep the typechecker green
- * and to make missing wiring obvious in test runs.
+ *   inside `Effect.catchTag("RpcServerError", ...)` with
+ *   `Clock.currentTimeMillis` threaded into the projector as `consumedAt`.
  */
 
-import { Data, type Effect } from "effect";
-import type { RpcServerError } from "@moltzap/protocol";
+import { Clock, Data, Effect } from "effect";
+import { RpcServerError } from "@moltzap/protocol";
 
 /**
  * The dispatch lease was already consumed (server returned the typed
@@ -50,6 +47,18 @@ export type LeaseInvalidProjectionError<E> =
   | RpcServerError
   | E;
 
+const LEASE_ID_FALLBACK = "(unknown)";
+
+function isLeaseInvalidData(data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const reason = (data as { readonly reason?: unknown }).reason;
+  const tag = (data as { readonly _tag?: unknown })._tag;
+  // Today's wire shape: `ForbiddenError.data.reason === "LeaseInvalid"`
+  // (arch sub-issue #605 §3.2). The `_tag` arm is forward-compat for a
+  // future server that emits the canonical tag in `data` directly.
+  return reason === "LeaseInvalid" || tag === "LeaseAlreadyConsumed";
+}
+
 /**
  * Project an `RpcServerError` to `LeaseAlreadyConsumed` if it matches the
  * lease-invalid wire shape; otherwise return the original error unchanged.
@@ -64,7 +73,8 @@ export type LeaseInvalidProjectionError<E> =
  *
  * `ctx.leaseId` (optional) is the lease the caller just sent. Caller-supplied
  * because the server's `ForbiddenError.data` shape does NOT carry leaseId.
- * Falls back to `"(unknown)"` when omitted (matches current claude-code).
+ * Falls back to `"(unknown)"` when omitted (matches the pre-refactor
+ * claude-code behavior).
  *
  * `ctx.consumedAt` (required) is the epoch ms to stamp on the resulting
  * `LeaseAlreadyConsumed.consumedAt`. Required because `LeaseAlreadyConsumed`
@@ -73,17 +83,26 @@ export type LeaseInvalidProjectionError<E> =
  * `Clock.currentTimeMillis` inside the Effect.
  */
 export function projectLeaseInvalid(
-  _err: RpcServerError,
-  _ctx: { readonly leaseId?: string; readonly consumedAt: number },
+  err: RpcServerError,
+  ctx: { readonly leaseId?: string; readonly consumedAt: number },
 ): LeaseAlreadyConsumed | RpcServerError {
-  throw new Error("not implemented (arch stub; impl-staff scope)");
+  if (!isLeaseInvalidData(err.data)) return err;
+  return new LeaseAlreadyConsumed({
+    leaseId: ctx.leaseId ?? LEASE_ID_FALLBACK,
+    consumedAt: ctx.consumedAt,
+    cause: err,
+    message: err.message,
+  });
 }
 
 /**
  * Effect-pipe convenience: catches `RpcServerError` and runs
  * `projectLeaseInvalid` on each instance. Reads `Clock.currentTimeMillis`
  * inside the catch and passes the result to `projectLeaseInvalid` as
- * `consumedAt`.
+ * `consumedAt`. Matching errors are surfaced as the typed
+ * `LeaseAlreadyConsumed` on the failure channel; non-matching errors are
+ * re-raised unchanged so downstream `mapError`s see the original
+ * `RpcServerError`.
  *
  * Use at every channel's outbound `core.sendReply(...)` boundary:
  *
@@ -94,10 +113,33 @@ export function projectLeaseInvalid(
  * )
  * ```
  */
-export function catchLeaseInvalid<A, E2, R>(
-  _ctx?: { readonly leaseId?: string },
-): (
+export function catchLeaseInvalid<A, E2, R>(ctx?: {
+  readonly leaseId?: string;
+}): (
   eff: Effect.Effect<A, RpcServerError | E2, R>,
 ) => Effect.Effect<A, LeaseInvalidProjectionError<E2>, R> {
-  throw new Error("not implemented (arch stub; impl-staff scope)");
+  // `Effect.catchAll` over the union (rather than `catchTag("RpcServerError",
+  // ...)`) keeps the typechecker happy when `E2` is unconstrained — without
+  // narrowing on the runtime instance, TS conservatively infers that `E2`
+  // could itself carry `_tag: "RpcServerError"`. The `instanceof` branch
+  // partitions cleanly.
+  return (eff) =>
+    Effect.catchAll(
+      eff,
+      (err): Effect.Effect<A, LeaseInvalidProjectionError<E2>, R> => {
+        if (err instanceof RpcServerError) {
+          return Effect.flatMap(Clock.currentTimeMillis, (consumedAt) =>
+            Effect.fail(
+              projectLeaseInvalid(err, {
+                ...(ctx?.leaseId !== undefined ? { leaseId: ctx.leaseId } : {}),
+                consumedAt,
+              }),
+            ),
+          );
+        }
+        // Non-RpcServerError residual (E2). Re-raise unchanged so downstream
+        // `mapError`s see it without coupling to channel-base.
+        return Effect.fail(err as E2);
+      },
+    );
 }
