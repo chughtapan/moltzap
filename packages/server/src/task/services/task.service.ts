@@ -1,4 +1,5 @@
-import { Effect, Option } from "effect";
+import { Cause, Effect, Option } from "effect";
+import type { SqlError } from "@effect/sql/SqlError";
 import {
   endpointAddress as brandEndpointAddress,
   makeEndpointAddress,
@@ -24,7 +25,11 @@ import {
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
 import type { Transaction } from "../../db/kysely-vendor.js";
-import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
+import {
+  ForbiddenError,
+  NotFoundError,
+  ParticipantNotAdmittedError,
+} from "@moltzap/protocol";
 import type {
   ConversationService,
   ConversationServiceError,
@@ -50,6 +55,7 @@ import {
 export type TaskServiceError =
   | ForbiddenError
   | NotFoundError
+  | ParticipantNotAdmittedError
   | ConversationServiceError
   | MessageServiceError;
 
@@ -90,6 +96,19 @@ interface TaskRow {
  */
 export function endpointAddressForAgent(agent: AgentId): EndpointAddress {
   return makeEndpointAddress("agent", agent);
+}
+
+/**
+ * Spec D1 (#598) — stable TM-endpoint address derived from an `appId`.
+ * Used by `task/create` to persist
+ * `tasks.tm_endpoint_address = tm:app:&lt;appId>`. The address derives
+ * deterministically from the UUID so every server boot binds the same
+ * address per app. The default DM / group TMs from
+ * `app-tm-registry` keep their pre-D1 addresses; they retire alongside
+ * the legacy `conversations/*` family in D3 (#600).
+ */
+export function defaultAppTmEndpointAddress(appId: string): EndpointAddress {
+  return makeEndpointAddress("app", appId);
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -174,6 +193,17 @@ export interface TaskCloseLifecycle {
     readonly archivedAt: string;
     readonly participantAgentIds: readonly AgentId[];
   }[];
+}
+
+/**
+ * Spec D1 (#598) — return shape of `TaskService.leaveTask`. The
+ * handler fans out one removal notification per `leftConversationIds`
+ * (dual-emit), plus `TaskClosedNotificationDefinition` when
+ * `closedTask` is non-null.
+ */
+export interface TaskLeaveResult {
+  readonly leftConversationIds: ReadonlyArray<ConversationId>;
+  readonly closedTask: Task | null;
 }
 
 type TaskTransaction = Transaction<Database>;
@@ -776,6 +806,440 @@ export class TaskService {
       );
       if (updated.length > 0) return;
       yield* this.assertConversationInTask(id, conversationId);
+    });
+  }
+
+  /**
+   * Spec D1 (#598) — participant-admitted invariant for the new
+   * `task/conversation/*` admin handlers.
+   *
+   * The wire-level participant invariant per spec body Goal 1 is "agent
+   * has a row in `task_participants(task_id, agent_id)`"; admission
+   * state is a separate gate (a row with `admittedAt IS NULL` still
+   * passes). This complements the Spec E
+   * `obtainAgentInTaskParticipants` helper, which is the stricter
+   * "admitted only" check used by message-send authority.
+   *
+   * Fails closed with `ParticipantNotAdmittedError` on the first agent
+   * missing from `task_participants` so clients can distinguish
+   * "invalid agent id shape" (`InvalidParamsError`) from "agent exists
+   * but is not admitted to this task" (this tag) without parsing
+   * messages. `SqlError` is caught defectively.
+   * @internal
+   */
+  requireAgentsAreInTaskParticipants(
+    id: TaskId,
+    agentIds: ReadonlyArray<AgentId>,
+  ): Effect.Effect<void, ParticipantNotAdmittedError> {
+    if (agentIds.length === 0) return Effect.void;
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rows = yield* this.db
+          .selectFrom("task_participants")
+          .select("agent_id")
+          .where("task_id", "=", id)
+          .where("agent_id", "in", [...agentIds]);
+        const present = new Set<AgentId>(rows.map((row) => row.agent_id));
+        for (const agentId of agentIds) {
+          if (!present.has(agentId)) {
+            return yield* Effect.fail(
+              new ParticipantNotAdmittedError({
+                message: `Agent ${agentId} is not admitted to task ${id}`,
+              }),
+            );
+          }
+        }
+      }).pipe(
+        Effect.withSpan("taskService.requireAgentsAreInTaskParticipants"),
+      ),
+    );
+  }
+
+  /**
+   * Spec D1 (#598) — participant-set dedup for `task/create` under the
+   * server-bundled DEFAULT_APP. Returns the extant task whose
+   * `task_participants` set is exactly `{creator} ∪ invitedAgentIds`
+   * for the given `appId`, or `null` if no match exists.
+   *
+   * Sibling to `conversationService.existingDmForCreate`. NOT a
+   * generalization: the legacy DM dedup matches via
+   * `conversation_participants` (conversation-level), while this
+   * helper matches via `task_participants` (task-level). The
+   * single-invitee case is functionally equivalent at the observable
+   * layer but uses a different table — D3 retires the legacy path.
+   *
+   * Index: covered by the `task_participants` PRIMARY KEY
+   * `(task_id, agent_id)`.
+   * @internal
+   */
+  findExistingTaskByParticipants(
+    creator: AgentId,
+    invitedAgentIds: ReadonlyArray<AgentId>,
+    appId: string,
+  ): Effect.Effect<Task | null, never> {
+    const fullParticipantSet = new Set<AgentId>([creator, ...invitedAgentIds]);
+    return catchSqlErrorAsDefect(
+      this.scanExistingTaskByParticipants(creator, appId, fullParticipantSet),
+    );
+  }
+
+  private scanExistingTaskByParticipants(
+    creator: AgentId,
+    appId: string,
+    fullParticipantSet: ReadonlySet<AgentId>,
+  ): Effect.Effect<Task | null, SqlError> {
+    return Effect.gen(this, function* () {
+      const candidateIds = yield* this.candidateTaskIds(creator, appId);
+      for (const taskId of candidateIds) {
+        const match = yield* this.taskMatchesParticipantSet(
+          taskId,
+          fullParticipantSet,
+        );
+        if (match !== null) return match;
+      }
+      return null;
+    }).pipe(Effect.withSpan("taskService.findExistingTaskByParticipants"));
+  }
+
+  private candidateTaskIds(
+    creator: AgentId,
+    appId: string,
+  ): Effect.Effect<ReadonlyArray<TaskId>, SqlError> {
+    return this.db
+      .selectFrom("tasks")
+      .innerJoin("task_participants", "task_participants.task_id", "tasks.id")
+      .where("tasks.app_id", "=", appId)
+      .where("task_participants.agent_id", "=", creator)
+      .select("tasks.id")
+      .distinct()
+      .pipe(Effect.map((rows) => rows.map((row) => row.id)));
+  }
+
+  private taskMatchesParticipantSet(
+    taskId: TaskId,
+    fullParticipantSet: ReadonlySet<AgentId>,
+  ): Effect.Effect<Task | null, SqlError> {
+    return Effect.gen(this, function* () {
+      const participantRows = yield* this.db
+        .selectFrom("task_participants")
+        .select("agent_id")
+        .where("task_id", "=", taskId);
+      if (participantRows.length !== fullParticipantSet.size) return null;
+      const candidateSet = new Set<AgentId>(
+        participantRows.map((row) => row.agent_id),
+      );
+      for (const agentId of fullParticipantSet) {
+        if (!candidateSet.has(agentId)) return null;
+      }
+      const taskRow = yield* takeFirstOption(
+        this.db.selectFrom("tasks").selectAll().where("id", "=", taskId),
+      );
+      return Option.isNone(taskRow)
+        ? null
+        : rowToTask(taskRow.value as TaskRow);
+    });
+  }
+
+  /**
+   * Spec D1 (#598) — `task/leave` self-only handler body.
+   *
+   * Removes the caller from `task_participants` and from every
+   * `conversation_participants` row under the task in one transaction.
+   * Captures pre-mutation per-conversation membership so the leaver
+   * still receives their own removal notification fan-out post-commit.
+   * If removal empties `task_participants`, transitions the task to
+   * `status = 'closed'` and returns the closed task row so the handler
+   * can fan out `TaskClosedNotificationDefinition` alongside the
+   * per-conversation notifications.
+   *
+   * Idempotent: returns `{ leftConversationIds: [], closedTask: null }`
+   * when the caller is not in `task_participants` for the task.
+   * Fails with `NotFoundError` when the task does not exist.
+   * @internal
+   */
+  leaveTask(
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<TaskLeaveResult, TaskServiceError> {
+    return Effect.gen(this, function* () {
+      // Existence probe outside the transaction so `not_found` surfaces
+      // before any write attempt.
+      yield* this.fetchTask(id);
+      return yield* catchSqlErrorAsDefect(
+        transaction(this.db, (trx) =>
+          this.leaveTaskTransaction(trx, id, caller),
+        ),
+      );
+    });
+  }
+
+  private leaveTaskTransaction(
+    trx: TaskTransaction,
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<TaskLeaveResult, SqlError | Cause.NoSuchElementException> {
+    return Effect.gen(this, function* () {
+      const taskParticipantRows = yield* trx
+        .selectFrom("task_participants")
+        .select("agent_id")
+        .where("task_id", "=", id)
+        .where("agent_id", "=", caller);
+      if (taskParticipantRows.length === 0) {
+        return { leftConversationIds: [], closedTask: null };
+      }
+      const leftConversationIds = yield* this.deleteCallerFromConversations(
+        trx,
+        id,
+        caller,
+      );
+      yield* trx
+        .deleteFrom("task_participants")
+        .where("task_id", "=", id)
+        .where("agent_id", "=", caller);
+      const closedTask = yield* this.maybeCloseEmptyTask(trx, id);
+      return { leftConversationIds, closedTask };
+    });
+  }
+
+  private deleteCallerFromConversations(
+    trx: TaskTransaction,
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<ReadonlyArray<ConversationId>, SqlError> {
+    return Effect.gen(function* () {
+      const conversationRows = yield* trx
+        .selectFrom("conversation_participants as cp")
+        .innerJoin("conversations as c", "c.id", "cp.conversation_id")
+        .select("cp.conversation_id")
+        .where("c.task_id", "=", id)
+        .where("cp.agent_id", "=", caller);
+      const ids = conversationRows.map((row) => row.conversation_id);
+      if (ids.length > 0) {
+        yield* trx
+          .deleteFrom("conversation_participants")
+          .where("agent_id", "=", caller)
+          .where("conversation_id", "in", [...ids]);
+      }
+      return ids;
+    });
+  }
+
+  private maybeCloseEmptyTask(
+    trx: TaskTransaction,
+    id: TaskId,
+  ): Effect.Effect<Task | null, SqlError | Cause.NoSuchElementException> {
+    return Effect.gen(this, function* () {
+      const remaining = yield* trx
+        .selectFrom("task_participants")
+        .select("agent_id")
+        .where("task_id", "=", id)
+        .limit(1);
+      if (remaining.length > 0) return null;
+      const closedRow = yield* takeFirstOrFail(
+        trx
+          .updateTable("tasks")
+          .set({ status: "closed", ended_at: new Date() })
+          .where("id", "=", id)
+          .returningAll(),
+      );
+      return rowToTask(closedRow as TaskRow);
+    });
+  }
+
+  /**
+   * Spec D1 (#598) — `task/conversation/{archive,unarchive}` body for
+   * the new TM-only handler.
+   *
+   * Returns the updated `Conversation` (with populated `archivedAt`)
+   * so the handler can fan out the legacy `conversations/archived`
+   * payload alongside the new `task/conversation/archived` payload
+   * inside the dual-emit window. The caller's `TmAuthority` capability
+   * is asserted by the handler's `provideServiceEffect` chain, so this
+   * body assumes authority is already proven.
+   *
+   * `ConversationInTask` is required as an R-channel proof.
+   * @internal
+   */
+  archiveTaskConversation(
+    id: TaskId,
+    conversationId: ConversationId,
+  ): Effect.Effect<
+    { conversation: Conversation; archivedAt: string },
+    TaskServiceError,
+    TmAuthority | ConversationInTask
+  > {
+    return Effect.gen(this, function* () {
+      const tm = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(tm, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, conversationId);
+      return yield* catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          const archivedAt = new Date();
+          // Idempotent: if already archived, re-read to surface the
+          // existing `archivedAt` rather than overwriting.
+          const updatedOpt = yield* takeFirstOption(
+            this.db
+              .updateTable("conversations")
+              .set({ archived_at: archivedAt })
+              .where("id", "=", conversationId)
+              .where("task_id", "=", id)
+              .where("archived_at", "is", null)
+              .returningAll(),
+          );
+          if (Option.isSome(updatedOpt)) {
+            const conversation =
+              yield* this.conversations.loadById(conversationId);
+            return {
+              conversation,
+              archivedAt: archivedAt.toISOString(),
+            };
+          }
+          const conversation =
+            yield* this.conversations.loadById(conversationId);
+          if (!conversation.archivedAt) {
+            return yield* Effect.fail(
+              new NotFoundError({
+                message: "Conversation not found in task",
+              }),
+            );
+          }
+          return { conversation, archivedAt: conversation.archivedAt };
+        }),
+      );
+    });
+  }
+
+  /**
+   * Spec D1 (#598) — `task/conversation/unarchive` body. Idempotent
+   * (no-op when the conversation is not archived). Returns the
+   * updated `Conversation` (with `archivedAt` cleared).
+   * @internal
+   */
+  unarchiveTaskConversation(
+    id: TaskId,
+    conversationId: ConversationId,
+  ): Effect.Effect<
+    { conversation: Conversation },
+    TaskServiceError,
+    TmAuthority | ConversationInTask
+  > {
+    return Effect.gen(this, function* () {
+      const tm = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(tm, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, conversationId);
+      return yield* catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          yield* this.db
+            .updateTable("conversations")
+            .set({ archived_at: null })
+            .where("id", "=", conversationId)
+            .where("task_id", "=", id);
+          const conversation =
+            yield* this.conversations.loadById(conversationId);
+          return { conversation };
+        }),
+      );
+    });
+  }
+
+  /**
+   * Spec D1 (#598) — `task/conversation/participants/add` body.
+   *
+   * Inserts a new `conversation_participants` row (idempotent via
+   * `ON CONFLICT DO NOTHING`) AND captures the post-mutation membership
+   * so the handler can fan out the participants-added notifications.
+   * The participant-admitted invariant (caller is in
+   * `task_participants` for `taskId`) is enforced by
+   * `requireAgentsAreInTaskParticipants` in the handler before this
+   * call; the conversation-in-task relationship is enforced by the
+   * `ConversationInTask` capability.
+   * @internal
+   */
+  addTaskConversationParticipant(
+    id: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<
+    { postMutationParticipants: ReadonlyArray<AgentId> },
+    TaskServiceError,
+    TmAuthority | ConversationInTask
+  > {
+    return Effect.gen(this, function* () {
+      const tm = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(tm, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, conversationId);
+      return yield* catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          yield* this.db
+            .insertInto("conversation_participants")
+            .values({ conversation_id: conversationId, agent_id: agentId })
+            .onConflict((oc) => oc.doNothing());
+          const rows = yield* this.db
+            .selectFrom("conversation_participants")
+            .select("agent_id")
+            .where("conversation_id", "=", conversationId);
+          return {
+            postMutationParticipants: rows.map(
+              (row) => row.agent_id,
+            ) as ReadonlyArray<AgentId>,
+          };
+        }),
+      );
+    });
+  }
+
+  /**
+   * Spec D1 (#598) — `task/conversation/participants/remove` body.
+   *
+   * Returns the pre-mutation membership snapshot so the handler can
+   * fan out the participants-removed notification to the removed
+   * agent (who is no longer in `conversation_participants` post-DELETE).
+   * Idempotent: no-op when the agent is not currently in the
+   * conversation. The conversation is NOT auto-archived when its
+   * `conversation_participants` becomes empty (spec body Goal 2 — left
+   * in place; D3 may revisit).
+   * @internal
+   */
+  removeTaskConversationParticipant(
+    id: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<
+    {
+      preMutationParticipants: ReadonlyArray<AgentId>;
+      wasParticipant: boolean;
+    },
+    TaskServiceError,
+    TmAuthority | ConversationInTask
+  > {
+    return Effect.gen(this, function* () {
+      const tm = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(tm, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, conversationId);
+      return yield* catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          const preRows = yield* this.db
+            .selectFrom("conversation_participants")
+            .select("agent_id")
+            .where("conversation_id", "=", conversationId);
+          const preMutationParticipants = preRows.map(
+            (row) => row.agent_id,
+          ) as ReadonlyArray<AgentId>;
+          const wasParticipant = preMutationParticipants.includes(agentId);
+          if (!wasParticipant) {
+            return { preMutationParticipants, wasParticipant };
+          }
+          yield* this.db
+            .deleteFrom("conversation_participants")
+            .where("conversation_id", "=", conversationId)
+            .where("agent_id", "=", agentId);
+          return { preMutationParticipants, wasParticipant };
+        }),
+      );
     });
   }
 }
