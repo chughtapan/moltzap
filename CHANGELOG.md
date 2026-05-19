@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec D2 (#599) — `moltzap start` CLI (architect stub; impl-staff fills body)
+
+- **Added (stub):** `packages/client/src/cli/commands/start.ts` — new
+  `moltzap start <name> <participant>... [--message <text>] [--app-id <uuid>]`
+  subcommand. Composes Spec D1 (#598) atomic `TaskCreate({ appId,
+  invitedAgentIds, initialConversation })` plus optional follow-up
+  `MessagesSend`. Stub-only at this commit; impl-staff lands the
+  handler body and the `Command.make` registration in `cli/index.ts`
+  per the architect plan in
+  `packages/client/docs/architecture/09-moltzap-start-cli.md`.
+- **Exit-code contract (planned):** `0` full success, `1` `TaskCreate`
+  failed, `2` partial (`TaskCreate` OK + `MessagesSend` failed; no
+  rollback), `64` usage error (bad `--app-id` UUID or unresolvable
+  participant token). Documented at the top of `start.ts` and in the
+  per-flow doc.
+
 ### Phase 12 — `@moltzap/protocol` finalization
 
 - **BREAKING (Phase 12 — protocol surface):** Root facade reduced to
