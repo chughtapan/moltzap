@@ -18,8 +18,8 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
 
 Nanoclaw depends on `@moltzap/client/channel-base` for:
 
-- `LeaseAlreadyConsumed` (canonical tagged error; replaces the
-  `MoltZapChannelError({reason: "lease already consumed"})` stringly path).
+- `LeaseAlreadyConsumed` (canonical tagged error; replaces the pre-refactor
+  `MoltZapChannelError` stringly-reasoned lease path).
 - `LeaseStore<string, string>` (replaces `dispatchLeasesByJid: Map<string, string>`,
   peek-style for the deliberate stale-entry-on-retry semantic).
 - `projectLeaseInvalid` / `catchLeaseInvalid` (wire-error projection at

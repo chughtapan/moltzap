@@ -43,7 +43,7 @@ flowchart TD
     A["contentFor(enriched)<br>channels/moltzap.ts → contentFor<br>Assembles context blocks in order"]
 
     A --> B{"crossConversationMessages<br>present?"}
-    B -->|"yes"| C["formatCrossConvNanoclaw(msgs, { ownAgentId })<br>→ &lt;messages&gt;<br>    &lt;message sender=&quot;{name}&quot; conversation=&quot;{conv}&quot; time=&quot;{ts}&quot;&gt;{text}&lt;/message&gt;<br>  &lt;/messages&gt;<br>sender = &quot;You&quot; if senderId === ownAgentId, else senderName<br>ALL string fields sanitized via sanitizeForSystemReminder()"]
+    B -->|"yes"| C["formatCrossConv ({ markup: "xml-system-reminder" })(msgs, { ownAgentId })<br>→ &lt;messages&gt;<br>    &lt;message sender=&quot;{name}&quot; conversation=&quot;{conv}&quot; time=&quot;{ts}&quot;&gt;{text}&lt;/message&gt;<br>  &lt;/messages&gt;<br>sender = &quot;You&quot; if senderId === ownAgentId, else senderName<br>ALL string fields sanitized via sanitizeForSystemReminder()"]
     B -->|"no"| D{"conversationMeta.type<br>=== &quot;group&quot;?"}
 
     C --> D
