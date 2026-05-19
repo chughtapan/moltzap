@@ -337,6 +337,19 @@ function buildRegisterAll(
  * contract). Treat any throw as "predicate said false" — the frame is
  * filtered out for this subscriber, the throw is logged, dispatch
  * continues with the next subscription in the snapshot.
+ *
+ * The warning is emitted via `Effect.runFork(Effect.logWarning(…))`
+ * (detached from the dispatch fiber's span/annotations) so the
+ * synchronous filter returned by `subAcceptsFrame` / `broadAcceptsFrame`
+ * stays synchronous — pulling logging into the surrounding `Effect.gen`
+ * would either (a) require the predicate to become an Effect (forcing
+ * every caller to `yield*`) or (b) accumulate warnings in a Ref and
+ * re-emit post-dispatch (extra state for a non-load-bearing log). The
+ * detached log is acceptable for predicate misuse — a noisy warning
+ * that names the call site (`subscribe` vs `subscribeAll`) is sufficient
+ * signal for the application author to find the throw in their
+ * refinement. Codex r2 P3-1 documented this trade-off rather than
+ * restructuring.
  */
 function safePredicate<P>(
   predicate: (params: P) => boolean,

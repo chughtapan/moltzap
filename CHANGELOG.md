@@ -55,6 +55,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HarnessClient.subscribe(def, refinement?)`. Internal
   `waitForTargetResponse` now uses fork-before-trigger via the Stream
   subscription.
+- **Architecture (`@moltzap/client/runtime`):** New
+  `composeServiceTeardown(scope, client)` helper sequences
+  `Scope.close` BEFORE `client.close()` via `Effect.zipRight`. The
+  service-owned scope holds the `subscribeAll → Stream.runForEach`
+  fan-out fiber installed via `Effect.forkIn`; closing it interrupts
+  the fiber before the ws-client teardown. Replaces an earlier
+  two-`runFork` race in `MoltZapService.close()`.
+- **Architecture (subscriber registry — AD1 snapshot semantic):**
+  `SubscriberRegistry.dispatch(frame)` takes a structural snapshot of
+  both `subsRef` (per-definition subs) and `subsAllRef` (broad-union
+  subs) at iteration start. Subscribers added mid-dispatch see the
+  frame only on the NEXT dispatch — late-arrivers do not get the
+  in-flight frame, and concurrent `register/unregister` calls cannot
+  starve sibling subscribers. User-supplied refinement predicates run
+  inside a `safePredicate` try/catch so a throwing predicate filters
+  the frame out for that subscriber rather than defecting the dispatch
+  Effect.
+- **Tests (property-based on subscriber dispatch):**
+  `snapshot-semantics.test.ts` adds AD1 path-(a) properties
+  exercising mid-dispatch register/unregister, predicate throws, and
+  broad-union vs per-def fan-out invariants. Uses `Effect.yieldNow` to
+  deterministically interleave register/unregister with dispatch.
 
 ### Phase 12 — `@moltzap/protocol` finalization
 
