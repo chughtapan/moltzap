@@ -90,6 +90,14 @@ export {
   obtainConversationCreateAuthorization,
 } from "./conversation-create-authorization.js";
 
+// Composite — Architect Decision D (Phase 3, r3)
+export {
+  AddParticipantPermission,
+  type AddParticipantPermissionValue,
+  type ObtainAddParticipantPermissionInput,
+  obtainAddParticipantPermission,
+} from "./add-participant-permission.js";
+
 // Runtime equality guards
 export {
   assertTmAuthorityMatchesTask,

@@ -26,7 +26,9 @@ import {
   TaskServiceTag,
 } from "../../app/layers.js";
 import {
+  AddParticipantPermission,
   ConversationCreateAuthorization,
+  obtainAddParticipantPermission,
   obtainConversationCreateAuthorization,
 } from "../../app/capabilities/index.js";
 import {
@@ -222,11 +224,18 @@ export const conversationHandlers: RpcMethodRegistry = [
       Effect.gen(function* () {
         const conversationService = yield* ConversationServiceTag;
         const targetAgentId = params.participant.id as AgentId;
-        const participant = yield* conversationService.addParticipant(
-          params.conversationId,
-          targetAgentId,
-          ctx.agentId,
-        );
+        const participant = yield* conversationService
+          .addParticipant(params.conversationId, targetAgentId, ctx.agentId)
+          .pipe(
+            Effect.provideServiceEffect(
+              AddParticipantPermission,
+              obtainAddParticipantPermission({
+                conversationId: params.conversationId,
+                requesterAgentId: ctx.agentId,
+                targetAgentId,
+              }),
+            ),
+          );
         // Per architect plan §2 module 7: the redundant
         // `getByAgent(...)` subscription loop dropped — the service
         // already calls `subscribeAgentsToConversation` in

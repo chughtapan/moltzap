@@ -30,10 +30,15 @@ import {
 } from "./conversation.service.js";
 import { ParticipantService } from "../../identity/services/participant.service.js";
 import {
+  AddParticipantPermission,
   ConversationCreateAuthorization,
+  obtainAddParticipantPermission,
   obtainConversationCreateAuthorization,
 } from "../../app/capabilities/index.js";
-import { ConversationServiceTag } from "../../app/layers.js";
+import {
+  ConversationServiceTag,
+  ParticipantServiceTag,
+} from "../../app/layers.js";
 import {
   ConnectionManager,
   type MoltZapConnection,
@@ -232,6 +237,47 @@ function seedTask(initiator: AgentId): Effect.Effect<TaskId, unknown> {
       })
       .returning("id"),
   ).pipe(Effect.map((row) => row.id));
+}
+
+interface AddParticipantPermDeps {
+  readonly service: ConversationService;
+  readonly participants: ParticipantService;
+  readonly conversationId: ConversationId;
+  readonly targetAgentId: AgentId;
+  readonly requesterAgentId: AgentId;
+}
+
+function provideAddParticipantPerm(deps: AddParticipantPermDeps) {
+  return <A, E, R>(eff: Effect.Effect<A, E, R | AddParticipantPermission>) =>
+    eff.pipe(
+      Effect.provideServiceEffect(
+        AddParticipantPermission,
+        obtainAddParticipantPermission({
+          conversationId: deps.conversationId,
+          requesterAgentId: deps.requesterAgentId,
+          targetAgentId: deps.targetAgentId,
+        }),
+      ),
+      Effect.provideService(ConversationServiceTag, deps.service),
+      Effect.provideService(ParticipantServiceTag, deps.participants),
+    ) as Effect.Effect<A, E, Exclude<R, AddParticipantPermission>>;
+}
+
+function callAddParticipant(
+  fx: Fixture,
+  conversationId: ConversationId,
+  target: AgentId,
+  requester: AgentId,
+) {
+  return fx.service.addParticipant(conversationId, target, requester).pipe(
+    provideAddParticipantPerm({
+      service: fx.service,
+      participants: new ParticipantService(harness.db),
+      conversationId,
+      targetAgentId: target,
+      requesterAgentId: requester,
+    }),
+  );
 }
 
 function provideCreateAuth(
@@ -487,7 +533,7 @@ function addParticipantSubscribesNewMember() {
     fx.connections.add(carolConn);
     expect(carolConn.conversationIds.has(conv.id)).toBe(false);
 
-    yield* fx.service.addParticipant(conv.id, carol, alice);
+    yield* callAddParticipant(fx, conv.id, carol, alice);
     expect(carolConn.conversationIds.has(conv.id)).toBe(true);
   });
 }
@@ -502,7 +548,7 @@ function addParticipantIsIdempotent() {
 
     const conv = yield* createNamedGroup(fx.service, TEAM_NAME, [bob], alice);
     const bobConvCountBefore = bobConn.conversationIds.size;
-    yield* fx.service.addParticipant(conv.id, bob, alice);
+    yield* callAddParticipant(fx, conv.id, bob, alice);
     expect(bobConn.conversationIds.size).toBe(bobConvCountBefore);
     expect(bobConn.conversationIds.has(conv.id)).toBe(true);
   });
@@ -684,7 +730,7 @@ function deniesAddParticipantWhenPolicyDenies() {
 
     denying = true;
     const exit = yield* Effect.exit(
-      fx.service.addParticipant(conv.id, carol, alice),
+      callAddParticipant(fx, conv.id, carol, alice),
     );
     expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
   });
@@ -703,7 +749,7 @@ function permitsAddParticipantWhenPolicyAllows() {
     const carolConn = makeConn("c-carol", carol);
     fx.connections.add(carolConn);
 
-    const participant = yield* fx.service.addParticipant(conv.id, carol, alice);
+    const participant = yield* callAddParticipant(fx, conv.id, carol, alice);
     expect(participant.participant.id).toBe(carol);
     expect(carolConn.conversationIds.has(conv.id)).toBe(true);
   });
@@ -723,7 +769,7 @@ function deniesAddParticipantWhenOwnerMissing() {
     );
 
     const exit = yield* Effect.exit(
-      fx.service.addParticipant(conv.id, carol, alice),
+      callAddParticipant(fx, conv.id, carol, alice),
     );
     expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
   });
@@ -739,7 +785,7 @@ function permitsAddParticipantWhenNoPolicyConfigured() {
       [bob],
       alice,
     );
-    const participant = yield* fx.service.addParticipant(conv.id, carol, alice);
+    const participant = yield* callAddParticipant(fx, conv.id, carol, alice);
     expect(participant.participant.id).toBe(carol);
   });
 }
@@ -752,7 +798,7 @@ function rejectsAddParticipantOnDm() {
     expect(dm.type).toBe(CONV_TYPE_DM);
 
     const exit = yield* Effect.exit(
-      fx.service.addParticipant(dm.id, carol, alice),
+      callAddParticipant(fx, dm.id, carol, alice),
     );
     const failure = expectRpcFailure(exit);
     expect(failure.code).toBe(JSON_RPC_RESERVED_CODES.InvalidParams);
@@ -842,7 +888,7 @@ function addParticipantFansOutAddedNotification() {
     bobSink.length = 0;
     fx.connections.add(recordingConn("c-carol", carol, carolSink));
 
-    yield* fx.service.addParticipant(conv.id, carol, alice);
+    yield* callAddParticipant(fx, conv.id, carol, alice);
     yield* settleBroadcasts();
 
     expect(

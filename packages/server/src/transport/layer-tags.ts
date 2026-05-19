@@ -41,6 +41,7 @@ import type {
   ContactsServiceTag,
   MessageServiceTag,
   ConversationServiceTag,
+  ParticipantServiceTag,
   TaskServiceTag,
   LeaseRegistryTag,
   SessionValidatorTag,
@@ -62,6 +63,7 @@ import type {
   GroupCapacityForCreate,
   MessageSendPermission,
   ConversationCreateAuthorization,
+  AddParticipantPermission,
 } from "../app/capabilities/index.js";
 
 /**
@@ -111,6 +113,7 @@ export type TaskTags =
   | NetworkTags
   | MessageServiceTag
   | ConversationServiceTag
+  | ParticipantServiceTag
   | TaskServiceTag
   | ContactsServiceTag
   | LeaseRegistryTag
@@ -188,4 +191,5 @@ export type CapabilityTags =
   | NoReplyTarget
   | GroupCapacityForCreate
   | MessageSendPermission
-  | ConversationCreateAuthorization;
+  | ConversationCreateAuthorization
+  | AddParticipantPermission;
