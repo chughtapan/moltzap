@@ -1,18 +1,14 @@
 /**
- * `@moltzap/client/channel-base` — shared scaffolding for channel adapters.
+ * @file `@moltzap/client/channel-base` — shared scaffolding for channel adapters.
  *
  * Used by `@moltzap/openclaw-channel`, `@moltzap/claude-code-channel`, and
- * `@moltzap/nanoclaw-channel` to canonicalize:
- * - the `LeaseAlreadyConsumed` tagged error class (one definition site)
- * - the `projectLeaseInvalid` + `catchLeaseInvalid` wire-error projection
- * - the `LeaseStore<HostKey, T>` and `LeaseGuard` lease lifecycle primitives
- * - the `formatCrossConv` + `formatGroupBlock` + `getGroupFields` formatters
- *   (parameterized by markup variant or per-channel callback)
+ * `@moltzap/nanoclaw-channel` to canonicalize the lease-lifecycle primitives,
+ * the `LeaseAlreadyConsumed` tagged error, and the markup-parameterized
+ * cross-conv + group-block formatters. Detail doc:
+ * `packages/client/docs/architecture/08-channel-base.md`. Spec: #597.
+ * Architect plan: #605.
  *
- * Detail doc: `packages/client/docs/architecture/08-channel-base.md`.
- * Spec: #597. Architect plan: #605.
- *
- * NOTE — this subpath is opt-in. Direct `@moltzap/client` consumers
+ * Note: this subpath is opt-in. Direct `@moltzap/client` consumers
  * (server-core, runtimes, test-utils) see no API-surface change.
  */
 

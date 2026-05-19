@@ -8,16 +8,14 @@
  * wrapper); `consume()` returns true exactly once, false on every subsequent
  * call.
  *
- * Implementation is impl-staff scope. Backed by a private `number | null`
- * field that records `Clock.currentTimeMillis` on the first consume.
+ * Backed by a private `number | null` field that records
+ * `Clock.currentTimeMillis` on the first consume.
  */
 
-import type { Effect, Option } from "effect";
+import { Clock, Effect, Option } from "effect";
 
 export class LeaseGuard {
-  constructor() {
-    throw new Error("not implemented (arch stub; impl-staff scope)");
-  }
+  #consumedAt: number | null = null;
 
   /**
    * Returns `true` on first call (transitions internal state from
@@ -25,7 +23,12 @@ export class LeaseGuard {
    * call. Reads `Clock.currentTimeMillis` inside the Effect on first call.
    */
   consume(): Effect.Effect<boolean, never, never> {
-    throw new Error("not implemented (arch stub; impl-staff scope)");
+    return Effect.gen(this, function* () {
+      if (this.#consumedAt !== null) return false;
+      const ts = yield* Clock.currentTimeMillis;
+      this.#consumedAt = ts;
+      return true;
+    });
   }
 
   /**
@@ -34,6 +37,8 @@ export class LeaseGuard {
    * Idempotent on second-and-later reads.
    */
   get consumedAt(): Effect.Effect<Option.Option<number>, never, never> {
-    throw new Error("not implemented (arch stub; impl-staff scope)");
+    return Effect.sync(() =>
+      this.#consumedAt === null ? Option.none() : Option.some(this.#consumedAt),
+    );
   }
 }
