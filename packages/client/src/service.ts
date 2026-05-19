@@ -45,7 +45,6 @@ import {
   Config,
   ConfigProvider,
   Effect,
-  Exit,
   HashMap,
   Option,
   Ref,
@@ -83,6 +82,7 @@ import {
   type HistoryResponse,
   lastReadIdsForSession,
 } from "./runtime/local-history.js";
+import { composeServiceTeardown } from "./runtime/service-teardown.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
@@ -499,12 +499,7 @@ export class MoltZapService {
     const clientToClose = this.client;
     this.serviceScope = null;
     this.client = null;
-    const teardownChain = (
-      scopeToClose !== null ? Scope.close(scopeToClose, Exit.void) : Effect.void
-    ).pipe(
-      Effect.zipRight(clientToClose ? clientToClose.close() : Effect.void),
-    );
-    Effect.runFork(teardownChain);
+    Effect.runFork(composeServiceTeardown(scopeToClose, clientToClose));
     Effect.runSync(
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),

@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types use natural angle-bracket form (TS source style) inside backtick code spans; matches filter-equivalence.test.ts precedent. */
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
@@ -298,7 +299,7 @@ export class MoltZapWsClient {
   /**
    * Register a handler for a server-initiated RPC method. Survives
    * reconnects — the registry lives on the client, not the per-connection
-   * `ConnState`. Returns `Effect&lt;void>` that fails with
+   * `ConnState`. Returns `Effect<void>` that fails with
    * `DuplicateServerRpcHandlerError` if a handler for `method` is already
    * registered (shadowing the existing one would silently swap behaviour
    * mid-flight).
@@ -371,12 +372,12 @@ export class MoltZapWsClient {
 
   /**
    * Typed-payload subscribe (spec #596 Goal #1). Returns a Stream of
-   * `DecodedNotification&lt;D>` whose error channel is `NotConnectedError`
+   * `DecodedNotification<D>` whose error channel is `NotConnectedError`
    * and whose requirement set is `never`.
    *
    * `refinement` is a typed predicate over the definition's params shape.
    * The user-defined-type-guard overload (signature below) narrows the
-   * Stream's payload to `DecodedNotification&lt;D, R>`.
+   * Stream's payload to `DecodedNotification<D, R>`.
    *
    * Lifecycle (spec §"Stream lifecycle contract"):
    *   - Subscription construction is pure (no I/O, no scope). Legal
