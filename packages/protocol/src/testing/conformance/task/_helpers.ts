@@ -3,7 +3,9 @@
  * properties. Carved verbatim from `conformance/delivery.ts@961a5c8`.
  */
 import type { Static } from "@sinclair/typebox";
-import { Effect, Either, type Scope } from "effect";
+import { Duration, Effect, Either, Option, Stream, type Scope } from "effect";
+import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
+import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import {
   ConversationArchivedError,
   ConversationArchivedNotificationDefinition,
@@ -88,6 +90,45 @@ export function deliveryViolation(
   });
 }
 
+/**
+ * Stream-based one-shot waiter for protocol-side conformance helpers.
+ * Replaces the deleted `TestClient.waitForNotification(def, timeoutMs)`
+ * polling shape (#645) with the `subscribe → runHead → timeoutFail`
+ * pattern documented in
+ * `packages/protocol/docs/architecture/12-test-client-stream-consolidation.md §6`.
+ *
+ * Surfaces a single string message on either timeout or terminal close
+ * so call sites preserve the legacy `e.message`-style error mapper
+ * without re-deriving a tagged error type per definition.
+ */
+export function awaitOneNotification<D extends AnyNotificationDefinition>(
+  client: TestClient,
+  definition: D,
+  timeoutMs: number,
+): Effect.Effect<DecodedNotification<D>, string> {
+  return client.subscribe(definition).pipe(
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(timeoutMs),
+      onTimeout: () => `Timeout waiting for notification: ${definition.name}`,
+    }),
+    Effect.mapError((err) =>
+      typeof err === "string"
+        ? err
+        : `Connection closed while waiting for notification: ${definition.name}`,
+    ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            `Stream exhausted while waiting for notification: ${definition.name}`,
+          ),
+        onSome: (notification) => Effect.succeed(notification),
+      }),
+    ),
+  );
+}
+
 export function fixtureN(requested: number): number {
   return Math.min(Math.max(1, requested), MAX_N);
 }
@@ -156,19 +197,15 @@ export function waitForConversationCreatedNotification(
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
-    const event = yield* observer.client
-      .waitForNotification(
-        ConversationCreatedNotificationDefinition,
-        DELIVERY_DEFAULT_TIMEOUT_MS,
-      )
-      .pipe(
-        Effect.mapError((e) =>
-          deliveryViolation(
-            propertyName,
-            `created event missing: ${e.message}`,
-          ),
-        ),
-      );
+    const event = yield* awaitOneNotification(
+      observer.client,
+      ConversationCreatedNotificationDefinition,
+      DELIVERY_DEFAULT_TIMEOUT_MS,
+    ).pipe(
+      Effect.mapError((reason) =>
+        deliveryViolation(propertyName, `created event missing: ${reason}`),
+      ),
+    );
     const data = event.params as ConversationNotificationData | undefined;
     if (data?.conversation?.id !== conversationId) {
       return yield* Effect.fail(
@@ -188,19 +225,15 @@ export function waitForConversationUpdatedNotification(
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
-    const event = yield* observer.client
-      .waitForNotification(
-        ConversationUpdatedNotificationDefinition,
-        DELIVERY_DEFAULT_TIMEOUT_MS,
-      )
-      .pipe(
-        Effect.mapError((e) =>
-          deliveryViolation(
-            propertyName,
-            `updated event missing: ${e.message}`,
-          ),
-        ),
-      );
+    const event = yield* awaitOneNotification(
+      observer.client,
+      ConversationUpdatedNotificationDefinition,
+      DELIVERY_DEFAULT_TIMEOUT_MS,
+    ).pipe(
+      Effect.mapError((reason) =>
+        deliveryViolation(propertyName, `updated event missing: ${reason}`),
+      ),
+    );
     const data = event.params as ConversationNotificationData | undefined;
     if (
       data?.conversation?.id !== conversationId ||
@@ -222,19 +255,15 @@ export function waitForMessageReceivedNotification(
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
-    const event = yield* observer.client
-      .waitForNotification(
-        MessageReceivedNotificationDefinition,
-        DELIVERY_DEFAULT_TIMEOUT_MS,
-      )
-      .pipe(
-        Effect.mapError((e) =>
-          deliveryViolation(
-            propertyName,
-            `message event missing: ${e.message}`,
-          ),
-        ),
-      );
+    const event = yield* awaitOneNotification(
+      observer.client,
+      MessageReceivedNotificationDefinition,
+      DELIVERY_DEFAULT_TIMEOUT_MS,
+    ).pipe(
+      Effect.mapError((reason) =>
+        deliveryViolation(propertyName, `message event missing: ${reason}`),
+      ),
+    );
     const data = event.params as MessageEventData | undefined;
     if (data?.message?.conversationId !== conversationId) {
       return yield* Effect.fail(
@@ -254,19 +283,15 @@ export function waitForArchivedEvent(
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
-    const event = yield* observer.client
-      .waitForNotification(
-        ConversationArchivedNotificationDefinition,
-        DELIVERY_DEFAULT_TIMEOUT_MS,
-      )
-      .pipe(
-        Effect.mapError((e) =>
-          deliveryViolation(
-            propertyName,
-            `archive event missing: ${e.message}`,
-          ),
-        ),
-      );
+    const event = yield* awaitOneNotification(
+      observer.client,
+      ConversationArchivedNotificationDefinition,
+      DELIVERY_DEFAULT_TIMEOUT_MS,
+    ).pipe(
+      Effect.mapError((reason) =>
+        deliveryViolation(propertyName, `archive event missing: ${reason}`),
+      ),
+    );
     const data = event.params as ArchiveEventData | undefined;
     if (
       data?.conversationId !== conversationId ||
@@ -290,19 +315,15 @@ export function waitForUnarchivedEvent(
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
-    const event = yield* observer.client
-      .waitForNotification(
-        ConversationUnarchivedNotificationDefinition,
-        DELIVERY_DEFAULT_TIMEOUT_MS,
-      )
-      .pipe(
-        Effect.mapError((e) =>
-          deliveryViolation(
-            propertyName,
-            `unarchive event missing: ${e.message}`,
-          ),
-        ),
-      );
+    const event = yield* awaitOneNotification(
+      observer.client,
+      ConversationUnarchivedNotificationDefinition,
+      DELIVERY_DEFAULT_TIMEOUT_MS,
+    ).pipe(
+      Effect.mapError((reason) =>
+        deliveryViolation(propertyName, `unarchive event missing: ${reason}`),
+      ),
+    );
     const data = event.params as UnarchiveEventData | undefined;
     if (data?.conversationId !== conversationId || data.by !== byAgentId) {
       return yield* Effect.fail(

@@ -13,7 +13,6 @@
 
 export {
   type CloseableTestClient,
-  NotificationWaitError,
   ServerRequestWaitError,
   type ServerRpcContext,
   type ServerRpcDefinition,

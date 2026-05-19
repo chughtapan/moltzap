@@ -145,9 +145,13 @@ export function subscribePresence(
 }
 
 /**
- * `TestClient.waitForNotification` matches by descriptor only. We need a
- * payload predicate, so consume the notification Stream with a filter and
- * timeout it ourselves.
+ * Wait for the next `presence/changed` notification whose payload
+ * matches `expected.agentId` + `expected.status`.
+ *
+ * `TestClient.subscribe(def)` filters by descriptor only, so we
+ * consume the broad-union `subscribeAll()` Stream with a per-payload
+ * predicate and timeout it ourselves (#645: replaces the legacy
+ * polling `client.notifications` Stream).
  */
 export function waitForPresenceWithStatus(
   client: TestClient,
@@ -155,7 +159,7 @@ export function waitForPresenceWithStatus(
   propertyName: string,
   timeoutMs: number = PRESENCE_DEFAULT_TIMEOUT_MS,
 ): Effect.Effect<void, PropertyInvariantViolation> {
-  return client.notifications.pipe(
+  return client.subscribeAll().pipe(
     Stream.filter(
       (frame) => frame.definition === PresenceChangedNotificationDefinition,
     ),

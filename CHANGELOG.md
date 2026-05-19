@@ -37,9 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   semantic).
 - **Internal (`@moltzap/server-core/test-utils`):** removed the
   per-`ServerTestClient` `helperBuffer` (`NotificationBuffer` Ref +
-  `pullOneMatching` + `makeSubscribeStream` + 5ms poll loop, ~95
-  LOC); `subscribeTo<D>(def)` collapses to a one-line passthrough
-  to `client.subscribe(def)`. `ServerTestClient.notifications` and
+  `pullOneMatching` + `makeSubscribeStream`, ~95 LOC); the per-client
+  broad-union notification snapshot now lives directly on the test
+  client (`makeNotificationBuffer` forks a `subscribeAll()` pump that
+  appends arrivals to a `Ref<ReadonlyArray<...>>`).
+  `subscribeTo<D>(def)` polls this snapshot for the first matching
+  frame, preserving the legacy `send → awaitOneNotification`
+  historical-buffer semantic without resurrecting the deleted
+  per-definition dedup ring. `ServerTestClient.notifications` and
   `ServerTestClient.drainNotifications` deleted.
 - **Internal (`@moltzap/client/test-utils`):** removed the inline
   `SubscriptionFilter`-grammar reconstruction
