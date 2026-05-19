@@ -20,25 +20,21 @@ import {
   PROTOCOL_VERSION,
   Connect,
   encodeErrorResponse,
-  makeJsonRpcClient,
-  makeJsonRpcServer,
+  makeTaskMasterConnection,
   NotConnectedError,
   RpcTimeoutError,
-  type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type DecodedNotification,
   type DecodedServerInbound,
-  type JsonRpcClient,
   type JsonRpcId,
   type ParamsOf,
   type ResponseFrame,
   type ResultOf,
   type RpcCallError,
   type RpcDefinition,
-  type RpcHandler,
-  type RegisteredTaggedError,
+  type TaskMasterConnection,
+  type TaskMasterHandlers,
 } from "@moltzap/protocol";
-import { DuplicateServerRpcHandlerError } from "./runtime/errors.js";
 import { decodeFrames } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
@@ -151,7 +147,15 @@ interface ConnState {
   ) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
-  readonly jsonRpcClient: JsonRpcClient;
+
+  /**
+   * Spec F (#617) typed-dispatcher Connection. Combines the originator
+   * (outbound `call` + response `resolve`) with the inbound TM-callback
+   * `handle` driven by the immutable handler table this client was
+   * constructed with. Replaces the legacy `JsonRpcClient` +
+   * `makeJsonRpcServer` pair.
+   */
+  readonly tmConn: TaskMasterConnection<TaskCallbackContext>;
 
   /**
    * Settled when the reader fiber exits, letting `connect()` race against
@@ -190,34 +194,26 @@ interface TaskCallbackDispatcher {
 }
 
 /**
- * Handler signature for `handleServerRpc`. Success values are encoded as the
- * response `result`; protocol-registered tagged errors are encoded as the
- * response `error`. Defects (handler crashes, unregistered failures) collapse
- * to a generic InternalError reply.
- *
- * The `unknown`/`unknown` parameter and result types narrow generically
- * against `taskCallbackMethods` at each `handleServerRpc(definition,
- * handler)` call site via the `AnyTaskCallbackRpcDefinition` union. Phase
- * 9b consumer-migration retired the legacy `AppCallbackRpcMap` indirection
- * alongside the appCallback group collapse to a single member.
+ * Per-frame context the WS client threads through the Spec F typed
+ * dispatcher when invoking a TM-callback handler. The dispatcher reads
+ * the slot's definition off the static handler table — handlers only need
+ * the request id (e.g. for tracing / logging). The empty `traceparent`
+ * passthrough is intentional: when the wire frame carries an OTel
+ * traceparent header, the surrounding transport may layer it on; the
+ * typed-dispatcher does not encode tracing into the type.
  */
-export interface ServerRpcContext {
+export interface TaskCallbackContext {
   readonly requestId: JsonRpcId;
-  readonly definition: AnyTaskCallbackRpcDefinition;
-  readonly traceparent?: string;
 }
 
-export type ServerRpcHandler<
-  D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
-> = (
-  params: ParamsOf<D>,
-  ctx: ServerRpcContext & { readonly definition: D },
-) => Effect.Effect<ResultOf<D>, RegisteredTaggedError>;
-
-type ErasedServerRpcHandler = (
-  params: unknown,
-  ctx: ServerRpcContext,
-) => Effect.Effect<unknown, RegisteredTaggedError>;
+/**
+ * Public handler-table type for `MoltZapWsClientOptions.appCallbackHandlers`.
+ * Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
+ * client's per-frame context. Slots are OPTIONAL (Spec F R2 fail-CLOSED
+ * `ForbiddenError -32001` defaults), so `{}` is a well-typed table for
+ * agents that don't register TM-callback responders.
+ */
+export type AppCallbackHandlers = TaskMasterHandlers<TaskCallbackContext>;
 
 interface NotificationWaiter {
   readonly definition: AnyNotificationDefinition;
@@ -280,6 +276,18 @@ export interface MoltZapWsClientOptions {
    */
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: ConnectResult) => void;
+
+  /**
+   * Spec F (#617) typed-dispatcher TM-callback handler table — immutable
+   * at construction (Spec F I1). Keys are the catalog method names
+   * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
+   * the matching `defineRpc` descriptor and its handler effect. Slots
+   * are OPTIONAL: an omitted slot falls back to the protocol's baked-in
+   * fail-CLOSED `ForbiddenError -32001` response (Spec F R2). The
+   * default `{}` is a TM that replies `Forbidden` to every inbound auth
+   * check.
+   */
+  appCallbackHandlers?: AppCallbackHandlers;
 }
 
 /**
@@ -325,14 +333,13 @@ export class MoltZapWsClient {
   private readonly subscribers: SubscriberRegistry;
 
   /**
-   * Per-method handler registry for server-initiated RPCs. Survives
-   * reconnects so apps register once and re-attach automatically when the
-   * socket comes back. Each entry is invoked by the per-connection
-   * dispatcher fiber when an appCallback request frame arrives.
+   * Spec F (#617) immutable TM-callback handler table. Captured from
+   * `MoltZapWsClientOptions.appCallbackHandlers` at construction and
+   * threaded through every `makeTaskMasterConnection` call (including
+   * reconnects). `{}` is the default — a TM that fails-CLOSED on every
+   * inbound auth check via the protocol's R2 default.
    */
-  private readonly appCallbackHandlersRef: Ref.Ref<
-    HashMap.HashMap<AnyTaskCallbackRpcDefinition, ErasedServerRpcHandler>
-  >;
+  private readonly appCallbackHandlers: AppCallbackHandlers;
 
   private closed = false;
   private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
@@ -361,44 +368,11 @@ export class MoltZapWsClient {
     // matches every other Ref initializer in this constructor and
     // keeps `subscribers` non-nullable inside the class.
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
-    this.appCallbackHandlersRef = this.runtime.runSync(
-      Ref.make<
-        HashMap.HashMap<AnyTaskCallbackRpcDefinition, ErasedServerRpcHandler>
-      >(HashMap.empty()),
-    );
-  }
-
-  /**
-   * Register a handler for a server-initiated RPC method. Survives
-   * reconnects — the registry lives on the client, not the per-connection
-   * `ConnState`. Returns `Effect&lt;void>` that fails with
-   * `DuplicateServerRpcHandlerError` if a handler for `method` is already
-   * registered (shadowing the existing one would silently swap behaviour
-   * mid-flight).
-   *
-   * The dispatcher fiber forked at `connect()` time picks up handlers via
-   * `Ref.get` per-frame, so a registration made BEFORE `connect()` is
-   * visible to the very first inbound appCallback request, and a registration
-   * made AFTER `connect()` takes effect on the next inbound frame.
-   */
-  handleServerRpc<D extends AnyTaskCallbackRpcDefinition>(
-    definition: D,
-    handler: ServerRpcHandler<D>,
-  ): Effect.Effect<void, DuplicateServerRpcHandlerError> {
-    return Effect.gen(this, function* () {
-      const swapped = yield* Ref.modify(this.appCallbackHandlersRef, (m) => {
-        if (HashMap.has(m, definition)) return [false, m];
-        return [
-          true,
-          HashMap.set(m, definition, handler as ErasedServerRpcHandler),
-        ];
-      });
-      if (!swapped) {
-        return yield* Effect.fail(
-          new DuplicateServerRpcHandlerError({ method: definition.name }),
-        );
-      }
-    });
+    // Spec F (#617): handler table is value-passed at construction; an
+    // empty table fails-CLOSED on inbound auth checks via the protocol's
+    // R2 default. The reference is held verbatim — no defensive clone —
+    // because the protocol's `eraseHandlerTable` only reads keys.
+    this.appCallbackHandlers = options.appCallbackHandlers ?? {};
   }
 
   get helloOk(): ConnectResult | null {
@@ -660,8 +634,11 @@ export class MoltZapWsClient {
       const scope = yield* Scope.make();
       const socket = yield* this.openSocket(url, scope);
       const write = yield* Scope.extend(socket.writer, scope);
-      const jsonRpcClient = yield* Scope.extend(
-        makeJsonRpcClient({
+      const tmConn = yield* Scope.extend(
+        makeTaskMasterConnection<TaskCallbackContext, never>({
+          id: "ws-client",
+          handlers: this.appCallbackHandlers,
+          capabilities: {},
           write: (raw) => write(raw),
           idPrefix: "rpc",
         }),
@@ -671,7 +648,7 @@ export class MoltZapWsClient {
         ConnectResult,
         ConnectError
       >();
-      const dispatcher = yield* this.startTaskCallbackDispatcher(write);
+      const dispatcher = yield* this.startTaskCallbackDispatcher(write, tmConn);
       const readerFiber = this.runtime.runFork(
         this.readerEffect(socket, handshakeSettled, dispatcher.dispatcherScope),
       );
@@ -680,7 +657,7 @@ export class MoltZapWsClient {
         write,
         readerFiber,
         scope,
-        jsonRpcClient,
+        tmConn,
         handshakeSettled,
         taskCallbackQueue: dispatcher.taskCallbackQueue,
         dispatcherScope: dispatcher.dispatcherScope,
@@ -720,6 +697,7 @@ export class MoltZapWsClient {
 
   private startTaskCallbackDispatcher(
     write: ConnState["write"],
+    tmConn: TaskMasterConnection<TaskCallbackContext>,
   ): Effect.Effect<TaskCallbackDispatcher> {
     return Effect.gen(this, function* () {
       const dispatcherScope = yield* Scope.make();
@@ -729,7 +707,7 @@ export class MoltZapWsClient {
       const drainEffect = Effect.forever(
         Queue.take(taskCallbackQueue).pipe(
           Effect.flatMap((req) =>
-            this.dispatchInboundServerRequest(req, write),
+            this.dispatchInboundServerRequest(req, write, tmConn),
           ),
         ),
       );
@@ -808,7 +786,17 @@ export class MoltZapWsClient {
       if (Option.isNone(state)) {
         return yield* Effect.fail(makeNotConnectedError());
       }
-      return yield* state.value.jsonRpcClient.call(definition, params).pipe(
+      // `sendRpc` is the public surface; callers pass concrete descriptors
+      // narrowed at the call site. The typed-dispatcher's `call` is
+      // constrained to `AnyRpcDefinition` (the union of catalog members);
+      // the bound carry-through is preserved by widening to the union here.
+      const call = state.value.tmConn.call as <
+        D2 extends RpcDefinition<string, any, any>,
+      >(
+        definition: D2,
+        params: ParamsOf<D2>,
+      ) => Effect.Effect<ResultOf<D2>, ConnectError>;
+      return yield* call(definition, params).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
           onTimeout: () =>
@@ -843,58 +831,25 @@ export class MoltZapWsClient {
   }
 
   /**
-   * Dispatch one inbound appCallback request to the registered handler, encode
-   * the response, and write it back to the server. Errors are projected
-   * onto an error response so the server's `Deferred.await` always
-   * settles deterministically — never hangs on a missing or crashing
-   * handler.
-   *
-   * Cases:
-   *   - Handler registered + Effect succeeds → encode `result`.
-   *   - Handler registered + Effect fails with a registered tagged error →
-   *     encode `error` from the tag.
-   *   - Handler registered + Effect defects (untagged crash) →
-   *     encode generic InternalError, log the cause.
-   *   - No handler registered → encode MethodNotFound error response.
+   * Dispatch one inbound appCallback request through the typed Spec F
+   * dispatcher and write its wire response back to the server. The
+   * dispatcher synthesises the protocol's fail-CLOSED `ForbiddenError
+   * -32001` response for any TM-callback slot the client did not bind at
+   * construction (Spec F R2). Handler defects collapse to a generic
+   * InternalError reply so the server's `Deferred.await` always settles
+   * deterministically.
    */
   private dispatchInboundServerRequest(
     request: DecodedServerRequest,
     write: ConnState["write"],
+    tmConn: TaskMasterConnection<TaskCallbackContext>,
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
-      const reply = yield* this.buildInboundServerReply(request);
+      const reply = yield* tmConn.handle(request.frame, {
+        requestId: request.id,
+      });
       yield* this.writeInboundServerReply(write, reply);
     });
-  }
-
-  private buildInboundServerReply(
-    request: DecodedServerRequest,
-  ): Effect.Effect<ResponseFrame, never> {
-    return Effect.gen(this, function* () {
-      const handlers = yield* Ref.get(this.appCallbackHandlersRef);
-      const rpcServer = makeJsonRpcServer<ServerRpcContext>(
-        this.appCallbackRpcHandlers(handlers),
-      );
-      return yield* rpcServer.handle(request.frame, {
-        requestId: request.id,
-        definition: request.definition,
-      });
-    });
-  }
-
-  private appCallbackRpcHandlers(
-    handlers: HashMap.HashMap<
-      AnyTaskCallbackRpcDefinition,
-      ErasedServerRpcHandler
-    >,
-  ): ReadonlyArray<RpcHandler<ServerRpcContext>> {
-    return Array.from(
-      HashMap.entries(handlers),
-      ([definition, appHandler]): RpcHandler<ServerRpcContext> => ({
-        definition,
-        handle: (params, ctx) => appHandler(params, { ...ctx, definition }),
-      }),
-    );
   }
 
   private writeInboundServerReply(
@@ -930,9 +885,7 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) return;
-      yield* state.value.jsonRpcClient
-        .resolve(decoded.frame)
-        .pipe(Effect.asVoid);
+      yield* state.value.tmConn.resolve(decoded.frame).pipe(Effect.asVoid);
     });
   }
 
@@ -1048,7 +1001,7 @@ export class MoltZapWsClient {
   }
 
   private failConnectionPending(state: ConnState): Effect.Effect<void> {
-    return state.jsonRpcClient.failAllPending(
+    return state.tmConn.failAllPending(
       new NotConnectedError({ message: MSG_NOT_CONNECTED }),
     );
   }
@@ -1057,7 +1010,7 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) return;
-      yield* state.value.jsonRpcClient.failAllPending(
+      yield* state.value.tmConn.failAllPending(
         new NotConnectedError({ message }),
       );
     });
