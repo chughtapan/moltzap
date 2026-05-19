@@ -21,6 +21,10 @@ import {
   MessageServiceTag,
   TaskServiceTag,
 } from "../../app/layers.js";
+import {
+  MessageSendPermission,
+  obtainMessageSendPermission,
+} from "../../app/capabilities/index.js";
 import { LeaseInvalidError } from "../../app/lease-registry.js";
 import {
   catchSqlErrorAsDefect,
@@ -145,14 +149,25 @@ function sendWithDispatchLease(input: LeaseSendInput) {
         claimDispatchLease(input.services.leaseRegistry, leaseId),
         (claim) =>
           Effect.gen(function* () {
-            const carrier = yield* input.services.messageService.sendInsert({
-              conversationId: input.conversationId,
-              parts: input.params.parts,
-              senderAgentId: input.ctx.agentId,
-              replyToId: input.params.replyToId,
-              excludeConnectionId: input.connId,
-              bypassTmRouting: false,
-            });
+            const carrier = yield* input.services.messageService
+              .sendInsert({
+                conversationId: input.conversationId,
+                parts: input.params.parts,
+                senderAgentId: input.ctx.agentId,
+                replyToId: input.params.replyToId,
+                excludeConnectionId: input.connId,
+                bypassTmRouting: false,
+              })
+              .pipe(
+                Effect.provideServiceEffect(
+                  MessageSendPermission,
+                  obtainMessageSendPermission({
+                    conversationId: input.conversationId,
+                    senderAgentId: input.ctx.agentId,
+                    replyToId: input.params.replyToId,
+                  }),
+                ),
+              );
             yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
             finalized = true;
             return yield* input.services.messageService.sendCommit(
@@ -199,13 +214,24 @@ function handleMessageSend(
           services,
         });
       }
-      const message = yield* services.messageService.send({
-        conversationId,
-        parts: params.parts,
-        senderAgentId: ctx.agentId,
-        replyToId: params.replyToId,
-        excludeConnectionId: connId,
-      });
+      const message = yield* services.messageService
+        .send({
+          conversationId,
+          parts: params.parts,
+          senderAgentId: ctx.agentId,
+          replyToId: params.replyToId,
+          excludeConnectionId: connId,
+        })
+        .pipe(
+          Effect.provideServiceEffect(
+            MessageSendPermission,
+            obtainMessageSendPermission({
+              conversationId,
+              senderAgentId: ctx.agentId,
+              replyToId: params.replyToId,
+            }),
+          ),
+        );
       return { message };
     }).pipe(Effect.withSpan("messages.send")),
   );

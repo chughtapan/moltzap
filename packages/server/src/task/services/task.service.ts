@@ -30,8 +30,24 @@ import type {
   ConversationServiceError,
 } from "./conversation.service.js";
 import type { MessageService, MessageServiceError } from "./message.service.js";
+import {
+  ConversationCreateAuthorization,
+  ConversationInTask,
+  MessageSendPermission,
+  TaskReadAccess,
+  TmAuthority,
+  assertConversationInTaskMatches,
+  assertTaskReadAccessMatchesTask,
+  assertTmAuthorityMatchesTask,
+} from "../../app/capabilities/index.js";
 
-type TaskServiceError =
+/**
+ * Public-but-package-scoped error union. Spec E (#601) needs this
+ * exported so capability obtain helpers in `app/capabilities/` can
+ * declare matching error channels without over-narrowing.
+ * @internal
+ */
+export type TaskServiceError =
   | ForbiddenError
   | NotFoundError
   | ConversationServiceError
@@ -265,13 +281,15 @@ export class TaskService {
 
   get(
     id: TaskId,
-    caller: AgentId,
+    _caller: AgentId,
   ): Effect.Effect<
     { task: Task; participants: TaskParticipant[] },
-    TaskServiceError
+    TaskServiceError,
+    TaskReadAccess
   > {
     return Effect.gen(this, function* () {
-      const task = yield* this.requireReadAccess(id, caller);
+      const cap = yield* TaskReadAccess;
+      yield* assertTaskReadAccessMatchesTask(cap, id);
       const rows = yield* catchSqlErrorAsDefect(
         this.db
           .selectFrom("task_participants")
@@ -279,7 +297,7 @@ export class TaskService {
           .where("task_id", "=", id),
       );
       return {
-        task,
+        task: cap.task,
         participants: rows.map(rowToParticipant),
       };
     });
@@ -315,7 +333,10 @@ export class TaskService {
     );
   }
 
-  close(id: TaskId, caller: AgentId): Effect.Effect<Task, TaskServiceError> {
+  close(
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<Task, TaskServiceError, TmAuthority> {
     return this.closeWithLifecycle(id, caller).pipe(
       Effect.map((closed) => closed.task),
     );
@@ -323,10 +344,11 @@ export class TaskService {
 
   closeWithLifecycle(
     id: TaskId,
-    caller: AgentId,
-  ): Effect.Effect<TaskCloseLifecycle, TaskServiceError> {
+    _caller: AgentId,
+  ): Effect.Effect<TaskCloseLifecycle, TaskServiceError, TmAuthority> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      const cap = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(cap, id);
       return yield* catchSqlErrorAsDefect(
         transaction(this.db, (trx) => this.closeLifecycleTransaction(trx, id)),
       );
@@ -442,7 +464,7 @@ export class TaskService {
   // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
   // `task.tmEndpointAddress` is now non-null by construction. The
   // pre-R12 null branch retired alongside `endpoints/unregisterTaskManager`.
-  requireTmAuthority(
+  loadTaskAsTmAuthority(
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<Task, TaskServiceError> {
@@ -472,7 +494,7 @@ export class TaskService {
     });
   }
 
-  requireReadAccess(
+  loadTaskWithReadAccess(
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<Task, TaskServiceError> {
@@ -501,11 +523,12 @@ export class TaskService {
 
   addParticipant(
     id: TaskId,
-    caller: AgentId,
+    _caller: AgentId,
     target: AgentId,
-  ): Effect.Effect<TaskParticipant, TaskServiceError> {
+  ): Effect.Effect<TaskParticipant, TaskServiceError, TmAuthority> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      const cap = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(cap, id);
       const row = yield* catchSqlErrorAsDefect(
         takeFirstOrFail(
           this.db
@@ -529,11 +552,12 @@ export class TaskService {
 
   removeParticipant(
     id: TaskId,
-    caller: AgentId,
+    _caller: AgentId,
     target: AgentId,
-  ): Effect.Effect<void, TaskServiceError> {
+  ): Effect.Effect<void, TaskServiceError, TmAuthority> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      const cap = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(cap, id);
       yield* catchSqlErrorAsDefect(
         this.db
           .deleteFrom("task_participants")
@@ -547,9 +571,14 @@ export class TaskService {
     id: TaskId,
     caller: AgentId,
     input: CreateConversationInput,
-  ): Effect.Effect<Conversation, TaskServiceError> {
+  ): Effect.Effect<
+    Conversation,
+    TaskServiceError,
+    TmAuthority | ConversationCreateAuthorization
+  > {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      const cap = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(cap, id);
       // The task id is fixed (this is a TM acting on its own task),
       // so wrap it in `Effect.succeed` for the lazy-`mintTask`
       // contract `ConversationService.create` expects.
@@ -565,26 +594,35 @@ export class TaskService {
 
   closeConversation(
     id: TaskId,
-    caller: AgentId,
+    _caller: AgentId,
     conversationId: ConversationId,
-  ): Effect.Effect<void, TaskServiceError> {
+  ): Effect.Effect<void, TaskServiceError, TmAuthority | ConversationInTask> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      const tm = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(tm, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, conversationId);
       yield* this.archiveConversationInTask(id, conversationId);
     });
   }
 
   storeMessage(
     id: TaskId,
-    caller: AgentId,
+    _caller: AgentId,
     input: StoreMessageInput,
-  ): Effect.Effect<Message, TaskServiceError> {
+  ): Effect.Effect<
+    Message,
+    TaskServiceError,
+    TmAuthority | ConversationInTask | MessageSendPermission
+  > {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
-      yield* this.requireConversationInTask(id, input.conversationId);
+      const tm = yield* TmAuthority;
+      yield* assertTmAuthorityMatchesTask(tm, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
       // The post-insert UPDATE retired — `MessageService.send` stamps
-      // `task_id` from `conv.task_id` at insert time, and
-      // `requireConversationInTask` above already proved
+      // `task_id` from `conv.task_id` at insert time, and the
+      // `ConversationInTask` capability above already proved
       // `conv.task_id === id`.
       return yield* this.messages.send({
         conversationId: input.conversationId,
@@ -602,11 +640,14 @@ export class TaskService {
     input: TaskMessagesInput,
   ): Effect.Effect<
     { messages: Message[]; hasMore: boolean },
-    TaskServiceError
+    TaskServiceError,
+    TaskReadAccess | ConversationInTask
   > {
     return Effect.gen(this, function* () {
-      yield* this.requireReadAccess(id, caller);
-      yield* this.requireConversationInTask(id, input.conversationId);
+      const access = yield* TaskReadAccess;
+      yield* assertTaskReadAccessMatchesTask(access, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
       return yield* this.messages.list(input.conversationId, caller, {
         limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
       });
@@ -619,11 +660,14 @@ export class TaskService {
     input: TaskMessagesSinceInput,
   ): Effect.Effect<
     { messages: Message[]; hasMore: boolean },
-    TaskServiceError
+    TaskServiceError,
+    TaskReadAccess | ConversationInTask
   > {
     return Effect.gen(this, function* () {
-      yield* this.requireReadAccess(id, caller);
-      yield* this.requireConversationInTask(id, input.conversationId);
+      const access = yield* TaskReadAccess;
+      yield* assertTaskReadAccessMatchesTask(access, id);
+      const inTask = yield* ConversationInTask;
+      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
       return yield* this.messages.list(input.conversationId, caller, {
         limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
         sinceSeq: input.sinceSeq,
@@ -631,7 +675,14 @@ export class TaskService {
     });
   }
 
-  private fetchTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
+  /**
+   * Spec E (#601) Decision B / Option A — package-private fetch helper
+   * consumed by `obtainMessageSendPermission` to populate the composite
+   * `MessageSendPermission.task` payload field. Not part of the
+   * service's exported public surface; the JSDoc tag is the convention.
+   * @internal
+   */
+  fetchTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const opt = yield* takeFirstOption(
@@ -647,7 +698,13 @@ export class TaskService {
     );
   }
 
-  private requireConversationInTask(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private relationship
+   * check consumed by `obtainConversationInTask`. Not part of the
+   * service's exported public surface; the JSDoc tag is the convention.
+   * @internal
+   */
+  assertConversationInTask(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<void, TaskServiceError> {
@@ -673,6 +730,37 @@ export class TaskService {
     });
   }
 
+  /**
+   * Spec E (#601) — Phase 1 new helper consumed by
+   * `obtainAgentInTaskParticipants`. Mirrors the inline
+   * `task_participants` lookup D1's `TaskConversationAddParticipant`
+   * would otherwise duplicate. Fails closed with `ForbiddenError` when
+   * the agent is absent or pending.
+   * @internal
+   */
+  assertAgentInTaskParticipants(
+    id: TaskId,
+    agentId: AgentId,
+  ): Effect.Effect<void, ForbiddenError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("task_participants")
+            .select("agent_id")
+            .where("task_id", "=", id)
+            .where("agent_id", "=", agentId)
+            .where("admitted_at", "is not", null),
+        );
+        if (Option.isNone(rowOpt)) {
+          return yield* Effect.fail(
+            new ForbiddenError({ message: ERR_NOT_PARTICIPANT }),
+          );
+        }
+      }),
+    );
+  }
+
   private archiveConversationInTask(
     id: TaskId,
     conversationId: ConversationId,
@@ -687,7 +775,7 @@ export class TaskService {
           .returning("id"),
       );
       if (updated.length > 0) return;
-      yield* this.requireConversationInTask(id, conversationId);
+      yield* this.assertConversationInTask(id, conversationId);
     });
   }
 }
