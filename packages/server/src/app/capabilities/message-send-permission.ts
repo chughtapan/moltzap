@@ -1,10 +1,10 @@
-import { Context, Effect } from "effect";
-import type {
-  ConversationArchivedError,
+import { Cause, Context, Effect } from "effect";
+import {
   ForbiddenError,
-  NotFoundError,
-  Task,
-  TaskClosedError,
+  type ConversationArchivedError,
+  type NotFoundError,
+  type Task,
+  type TaskClosedError,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
@@ -18,6 +18,7 @@ import {
   type TaskServiceError,
 } from "../../task/services/task.service.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import type { MessageService } from "../../task/services/message.service.js";
 import { refineConversationNotArchived } from "./conversation-not-archived.js";
 import { refineTaskActive } from "./task-active.js";
 
@@ -174,6 +175,54 @@ const resolveReplyTarget = (
   });
 };
 
+type SendConversationRow = Effect.Effect.Success<
+  ReturnType<MessageService["readSendConversation"]>
+>;
+
+/**
+ * Reads the send-conversation projection AFTER the participant check
+ * has already proved the conversation exists. A `NoSuchElement` here
+ * is therefore a true defect (race with archival/deletion); convert
+ * it to a die-cause so the caller's `catchSqlErrorAsDefect` reports it
+ * as a 500 rather than a user-visible error.
+ */
+const readSendConversationStrict = (
+  conversationId: ConversationId,
+): Effect.Effect<SendConversationRow, never, MessageServiceTag> =>
+  Effect.gen(function* () {
+    const msgService = yield* MessageServiceTag;
+    return yield* catchSqlErrorAsDefect(
+      msgService
+        .readSendConversation(conversationId)
+        .pipe(
+          Effect.catchTag("NoSuchElementException", (cause) =>
+            Effect.die(new Cause.IllegalArgumentException(String(cause))),
+          ),
+        ),
+    );
+  });
+
+/**
+ * Guards the `conv.task_id === input.taskId` invariant (codex review
+ * #601 R1). Without this, the carried `task` payload (fetched by
+ * `taskService.fetchTask(input.taskId)`) could refer to a different
+ * task than the `conv.task_status` / `conv.tm_endpoint_address`
+ * columns used for the TM-bypass branch.
+ */
+const assertConvBelongsToTask = (
+  conv: SendConversationRow,
+  taskId: TaskId,
+): Effect.Effect<void, ForbiddenError> => {
+  if (conv.task_id !== taskId) {
+    return Effect.fail(
+      new ForbiddenError({
+        message: "Conversation does not belong to the specified task",
+      }),
+    );
+  }
+  return Effect.void;
+};
+
 const buildPermissionForTmBypass = (
   task: Task,
   input: ObtainMessageSendPermissionInput,
@@ -211,24 +260,23 @@ export const obtainMessageSendPermission = (
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const convService = yield* ConversationServiceTag;
-    const msgService = yield* MessageServiceTag;
-    // `readSendConversation` and `requireReplyTarget` leak `SqlError`
-    // in their narrow signatures; today's call sites in
-    // `sendInsertEffect` are wrapped by an outer
-    // `catchSqlErrorAsDefect`. Mirror that here so the obtain helper's
-    // E channel stays free of `SqlError`.
-    const conv = yield* catchSqlErrorAsDefect(
-      msgService.readSendConversation(input.conversationId),
-    );
+    // ORDER MATTERS (codex review #601 R1 finding): the participant
+    // check must run before the conversation projection — otherwise an
+    // unknown `conversationId` falls into `readSendConversation`'s
+    // `NoSuchElement` failure path and surfaces as an internal defect
+    // (500), regressing the typed `ForbiddenError` today's
+    // `sendInsertEffect` raises.
     yield* convService.requireParticipant(
       input.conversationId,
       input.senderAgentId,
     );
+    const conv = yield* readSendConversationStrict(input.conversationId);
+    // `input.taskId` MUST match `conv.task_id` — codex review #601 R1.
+    yield* assertConvBelongsToTask(conv, input.taskId);
     yield* refineConversationNotArchived(
       input.conversationId,
       conv.archived_at,
     );
-
     const isTmBypass =
       conv.tm_endpoint_address === endpointAddressForAgent(input.senderAgentId);
     const task = yield* taskService.fetchTask(input.taskId);
@@ -236,7 +284,6 @@ export const obtainMessageSendPermission = (
       input.conversationId,
       input.replyToId,
     );
-
     if (!isTmBypass) {
       yield* refineTaskActive(input.taskId, conv.task_status);
       const participantPermission: MessageSendPermissionValue = {
