@@ -9,10 +9,12 @@ import { ParticipantServiceTag } from "../layers.js";
  * Value payload carries `ownerUserId` (nullable, since unclaimed agents
  * are valid existence proofs but have no owner).
  *
- * Replaces (Phase 3): the per-agent existence checks inside
- * `ConversationService.loadAgentOwners` (which becomes an `@internal`
- * fan-out helper that the composite `ContactPolicyAllowsReach` obtain
- * still uses).
+ * Designed to replace the per-agent existence check inside
+ * `ConversationService.loadAgentOwners`. `ConversationService.create`
+ * still calls `loadAgentOwners` inline today; the obtain helper is
+ * available for D1-style new handlers and for the eventual cutover
+ * once `conversation.service.ts` is restructured to fit the
+ * `max-lines: 1050` lint cap with the added R-channel plumbing.
  */
 export interface AgentExistsValue {
   readonly agentId: AgentId;

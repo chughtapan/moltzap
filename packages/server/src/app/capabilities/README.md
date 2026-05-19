@@ -28,22 +28,32 @@ pattern, migration recipe, and bug classes it catches.
   "exactly one of N alternative tags must be provided" (Architect Decision A
   in #606; see `message-send-permission.ts` header for the rationale).
 
-### Phase boundary
+### Cutover status
 
-- **Phase 1** (D1 unblocker, this directory): capability tags + obtain/refine
-  helpers + `assertCapabilityMatchesTask` + type-canaries + unit tests.
-  No service or handler bodies change. D1's new handlers consume these from
-  day one (E ships before D1's PR opens).
-- **Phase 2-4** (`task.service.ts`, `conversation.service.ts`,
-  `message.service.ts`): existing service methods declare capabilities in
-  their R channel and replace `yield* this.requireX(...)` with `yield* Xxx`.
-  Handlers add `Effect.provideServiceEffect(Xxx, obtainXxx(...))` wiring.
+- **Phase 1** (capability primitives, this directory): capability tags +
+  obtain/refine helpers + `assertCapabilityMatchesTask` + type-canaries +
+  unit tests. Live; D1's new handlers consume the primitives directly.
+- **Phase 2** (`task.service.ts`): all 10 public methods declare the
+  capability in their R-channel and consume the value via `yield* Tag`
+  + a one-line `assertCapabilityMatchesTask` defensive guard. Handlers
+  in `tasks.handlers.ts` wire `Effect.provideServiceEffect(Tag,
+  obtainTag(...))`. Live.
+- **Phase 3-4** (`conversation.service.ts`, `message.service.ts`): NOT
+  YET cut over. The public methods retain the pre-Spec-E inline-gate
+  shape (call the renamed `@internal` `assertX`/`loadX` helpers
+  directly). The obtain helpers are in place; the cutover is blocked
+  on a structural split of `conversation.service.ts` (file currently
+  sits at the `max-lines: 1050` lint cap, leaving no headroom for the
+  additional R-channel signature plumbing).
 
-### Decision B status: package-private `requireX`
+### Decision B status: package-private gate helpers
 
-The architect plan picked Option A — `requireX` methods stay on the service
+The architect plan picked Option A — gate helpers stay on the service
 class as `@internal` exported methods (no `private` modifier). `obtain*`
-helpers in this directory call `requireX` through the service Tag. The TS
-`private` modifier would have forbidden DI-injected access regardless of
-path; the JSDoc `@internal` + the boundary in this README is the
-package-internal convention. See `06-architect-decisions` in the plan.
+helpers in this directory call those gate helpers through the service
+Tag. The TS `private` modifier would have forbidden DI-injected access
+regardless of path; the JSDoc `@internal` + the boundary in this README
+is the package-internal convention. See `06-architect-decisions` in the
+plan. Per Spec E (#601) cutover, the helpers were renamed from the
+`requireX` prefix to `assertX` / `loadX` so the audit grep over
+`packages/server/src/**/*.ts` returns 0 `require[A-Z]` hits.

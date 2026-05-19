@@ -8,9 +8,12 @@ import type { TaskId } from "@moltzap/protocol/task";
  *
  * Refine-shape: takes a `SendConversationRow` already fetched by
  * `MessageService.readSendConversation` and validates the `task_status`
- * column inline. No DB call. Replaces (Phase 4):
- * `MessageService.assertTaskCanReceiveMessage` for the non-bypass
- * branch.
+ * column inline. No DB call. The standalone inline gate
+ * `MessageService.assertTaskCanReceiveMessage` (non-bypass branch) is
+ * still called by `sendInsertEffect`; the refine helper is consumed
+ * today by the composite `MessageSendPermission.forParticipantOnActiveTask`
+ * obtain helper and is available for the full `sendInsert` cutover
+ * once `message.service.ts` is restructured.
  *
  * The TM-bypass branch is NOT a `TaskActive` proof — it's modeled in
  * the composite `MessageSendPermission.forTmBypass` constructor instead

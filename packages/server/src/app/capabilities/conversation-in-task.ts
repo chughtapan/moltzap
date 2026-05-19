@@ -6,10 +6,11 @@ import type { TaskServiceError } from "../../task/services/task.service.js";
 /**
  * Tier 2 capability — proves `conversation.task_id === taskId`.
  *
- * Replaces (Phase 2): every `yield* this.assertConversationInTask(id,
- * input.conversationId)` call site (`storeMessage`, `getMessages`,
- * `getMessagesSince`, `closeConversation` indirectly via
- * `archiveConversationInTask`).
+ * Consumed by the `task.service.ts` public methods (`storeMessage`,
+ * `getMessages`, `getMessagesSince`, `closeConversation`) via the
+ * R-channel; the `task.service.ts` private `archiveConversationInTask`
+ * helper still calls the `@internal` `assertConversationInTask` gate
+ * inline for its UPDATE-then-recheck fallback path.
  *
  * `assertCapabilityMatchesTask` (see `assert-capability-matches-task.ts`)
  * verifies the carried `taskId` matches the handler-input `taskId` at
