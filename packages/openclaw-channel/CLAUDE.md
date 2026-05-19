@@ -8,6 +8,18 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: startAcc
 - `src/openclaw-entry.ts` — Main plugin: gateway startAccount, descriptor-backed notification routing, wraps `MoltZapChannelCore` from `@moltzap/client` for inbound enrichment + dispatch-chain ordering, projects EnrichedInboundMessage into OpenClaw's DispatchContext, deliver callback sends reply via `core.sendReply`.
 - `src/mapping.ts` — Notification extractors for the non-message MoltZap notifications (delivery, conversation lifecycle, contact notifications, presence).
 
+## Channel-base dependency
+
+Openclaw depends on `@moltzap/client/channel-base` for:
+
+- `LeaseAlreadyConsumed` (canonical tagged error; replaces ad-hoc surfacing of `RpcServerError(data.reason="LeaseInvalid")`).
+- `LeaseGuard` (replaces the `consumedLeaseAt: number | null` closure in `createLeaseConsumingDeliver`).
+- `projectLeaseInvalid` / `catchLeaseInvalid` (wire-error projection inside the deliver wrapper).
+- `formatCrossConv` (markup `"json-header"`; replaces `format-cross-conv.ts → formatCrossConvOpenClaw`).
+- `getGroupFields` (consistent type-narrowed predicate for `groupSubject` / `groupMembers` derivation in `inboundRuntimeData`).
+
+Host opt-in: `MoltzapChannelPluginDeps.onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void` — invoked when the dispatch lease was already consumed. Deliver still returns `false` per `OpenClawDeliver: PromiseLike<boolean>`. The callback is the side-channel for hosts that want the typed error without violating the deliver contract.
+
 ## Commands
 - `pnpm build` — `tsc`
 - `pnpm test` — vitest unit tests (including inbound contract + delivery tests)

@@ -30,7 +30,7 @@ import {
   type BootError,
   type ReplyError,
 } from "./errors.js";
-import { RpcServerError } from "@moltzap/protocol";
+import { catchLeaseInvalid } from "@moltzap/client/channel-base";
 import { stringifyCause } from "./utils.js";
 
 export type BootResult =
@@ -63,37 +63,21 @@ function validateBootOptions(opts: BootOptions): BootError | null {
   return null;
 }
 
-function projectLeaseInvalid(
-  err: RpcServerError,
-): LeaseAlreadyConsumed | RpcServerError {
-  const data = err.data;
-  if (
-    typeof data === "object" &&
-    data !== null &&
-    (data as { reason?: unknown }).reason === "LeaseInvalid"
-  ) {
-    const dataLeaseId = (data as { leaseId?: unknown }).leaseId;
-    return new LeaseAlreadyConsumed({
-      leaseId: typeof dataLeaseId === "string" ? dataLeaseId : "(unknown)",
-    });
-  }
-  return err;
-}
-
 function makeSendReply(core: MoltZapChannelCore) {
   return (conversationId: string, text: string) =>
     core.sendReply(conversationId, text).pipe(
       // Cutover #533 single-use lease semantics: the server returns
       // a typed `RpcServerError` whose `data.reason === "LeaseInvalid"`
-      // when the recipient tries to consume an already-consumed
-      // lease (multi-turn agent calls reply twice in one dispatch).
-      // Project that path onto `LeaseAlreadyConsumed` BEFORE the
-      // generic `mapError` collapses everything else into
-      // `SendFailed`. Server.ts surfaces the typed error as
-      // `toolErrorResult("LeaseAlreadyConsumed: ...")`.
-      Effect.catchTag("RpcServerError", (err) =>
-        Effect.fail(projectLeaseInvalid(err)),
-      ),
+      // when the recipient tries to consume an already-consumed lease
+      // (multi-turn agent calls reply twice in one dispatch). The
+      // channel-base `catchLeaseInvalid` reads `Clock.currentTimeMillis`
+      // and projects onto `LeaseAlreadyConsumed` BEFORE the generic
+      // `mapError` collapses everything else into `SendFailed`. Server.ts
+      // surfaces the typed error as `toolErrorResult("LeaseAlreadyConsumed: ...")`.
+      //
+      // No `leaseId` ctx is supplied here; the wire payload does not carry
+      // one, so the projected error falls back to "(unknown)".
+      catchLeaseInvalid(),
       Effect.mapError(
         (cause): ReplyError =>
           cause instanceof LeaseAlreadyConsumed

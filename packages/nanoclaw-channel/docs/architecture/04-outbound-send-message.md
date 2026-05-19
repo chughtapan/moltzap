@@ -13,7 +13,7 @@ flowchart TD
 
     B --> C{"ownsJid(jid)?<br>channels/moltzap.ts → ownsJid guard"}
     C -->|"false"| D["Effect.fail(<br>  MoltZapChannelError({ reason: &quot;...does not own jid: &lt;jid&gt;&quot; })<br>)<br>← rejects immediately; no network call"]
-    C -->|"true"| E["leaseId = dispatchLeasesByJid.get(jid)<br>channels/moltzap.ts → lease lookup"]
+    C -->|"true"| E["leaseId = leaseStore.peek(jid)<br>channels/moltzap.ts → lease lookup"]
 
     E -->|"present"| F["leaseOpts = { dispatchLeaseId: leaseId }"]
     E -->|"absent"| G["leaseOpts = {}<br>(unleased send; server accepts, no moderation<br>observability — valid for sends before first inbound)"]
@@ -21,15 +21,15 @@ flowchart TD
     F --> H["core.sendReply(<br>  conversationIdFromJid(jid),<br>  text,<br>  leaseOpts<br>)<br>strips &quot;mz:&quot; prefix (§3.5)"]
     G --> H
 
-    H -->|"RpcServerError(reason=&quot;LeaseInvalid&quot;)"| I["MoltZapChannelError({ reason: &quot;lease already consumed&quot; })"]
+    H -->|"RpcServerError(reason=&quot;LeaseInvalid&quot;)"| I["LeaseAlreadyConsumed (channel-base)"]
     H -->|"other ServiceRpcError"| J["re-raise err unchanged"]
-    H -->|"success"| K["resolves<br>(dispatchLeasesByJid entry KEPT after send —<br>second send re-uses consumed leaseId → LeaseInvalid)"]
+    H -->|"success"| K["resolves<br>(leaseStore entry KEPT after send —<br>second send re-uses consumed leaseId → LeaseInvalid)"]
 ```
 
 **Error taxonomy:**
 
 - `MoltZapChannelError("...does not own jid...")` — `ownsJid()` returned false (wrong channel prefix)
-- `MoltZapChannelError("lease already consumed")` — server returned `RpcServerError(reason="LeaseInvalid")`
+- `LeaseAlreadyConsumed (channel-base)` — server returned `RpcServerError(reason="LeaseInvalid")`
 - `ServiceRpcError` (other) — transport / auth / network errors; propagated as-is
 
 ---

@@ -21,8 +21,15 @@ import {
   type EnrichedInboundMessage,
   type ServiceRpcError,
 } from "@moltzap/client";
+import {
+  LeaseAlreadyConsumed,
+  LeaseGuard,
+  catchLeaseInvalid,
+  formatCrossConv,
+  getGroupFields,
+  type GroupFields,
+} from "@moltzap/client/channel-base";
 import { Config, ConfigProvider, Data, Effect, Option } from "effect";
-import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
 import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
@@ -239,6 +246,18 @@ interface OpenClawClientService extends ChannelService {
 interface MoltzapChannelPluginDeps {
   readonly createService?: (account: MoltZapAccount) => OpenClawClientService;
   readonly createCore?: (service: ChannelService) => MoltZapChannelCore;
+
+  /**
+   * Invoked when the dispatch lease was already consumed (single-use
+   * semantics). Deliver still returns `false` per the
+   * `OpenClawDeliver: PromiseLike&lt;boolean&gt;` contract; this callback is
+   * the side-channel for hosts that want the typed `LeaseAlreadyConsumed`
+   * error without violating that contract. Threaded from
+   * `createMoltzapChannelPlugin` deps through `createGatewaySection` and
+   * `registerInboundHandler` into the `createLeaseConsumingDeliver`
+   * closure. See spec C (#597) AC and arch sub-issue #605 §5.6.
+   */
+  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
 }
 
 interface OpenClawDirectoryParams {
@@ -262,6 +281,7 @@ interface InboundHandlerParams {
   readonly service: OpenClawClientService;
   readonly contextLogDir: string | undefined;
   readonly enriched: EnrichedInboundMessage;
+  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
 }
 
 interface InboundRuntimeData {
@@ -355,51 +375,109 @@ function sendDeliveredReply(params: {
   readonly core: MoltZapChannelCore;
   readonly conversationId: string;
   readonly text: string;
+  readonly leaseId: string | undefined;
   readonly log: OpenClawLogger | undefined;
-  readonly markConsumed: () => void;
+  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly guard: LeaseGuard;
 }): Effect.Effect<boolean> {
-  return params.core.sendReply(params.conversationId, params.text).pipe(
-    Effect.tap(() =>
-      Effect.sync(() => {
-        params.markConsumed();
-      }),
-    ),
-    Effect.tap(() =>
-      logOutboundReply(params.log, params.conversationId, params.text),
-    ),
-    Effect.map(() => true),
-    Effect.catchAll((err) =>
-      handleReplyFailure(params.log, params.conversationId, err),
-    ),
-  );
+  return params.core
+    .sendReply(
+      params.conversationId,
+      params.text,
+      params.leaseId !== undefined
+        ? { dispatchLeaseId: params.leaseId }
+        : undefined,
+    )
+    .pipe(
+      catchLeaseInvalid(
+        params.leaseId !== undefined ? { leaseId: params.leaseId } : undefined,
+      ),
+      // Stamp the guard only on a successful `core.sendReply` (matches the
+      // pre-refactor `markConsumed` ordering). Transient send failures fall
+      // through to `Effect.catchAll` below WITHOUT stamping, so a retried
+      // deliver call still exercises the lease — see
+      // `openclaw-entry.delivery.test.ts → "lease guard stays unconsumed on
+      // transient send failure"` regression test.
+      Effect.tap(() => params.guard.consume()),
+      Effect.tap(() =>
+        logOutboundReply(params.log, params.conversationId, params.text),
+      ),
+      Effect.map(() => true),
+      Effect.catchAll((err) =>
+        handleDeliverFailure({
+          log: params.log,
+          conversationId: params.conversationId,
+          onLeaseConsumed: params.onLeaseConsumed,
+          err,
+        }),
+      ),
+    );
+}
+
+interface HandleDeliverFailureParams {
+  readonly log: OpenClawLogger | undefined;
+  readonly conversationId: string;
+  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly err: unknown;
+}
+
+function handleDeliverFailure(
+  params: HandleDeliverFailureParams,
+): Effect.Effect<boolean> {
+  const { log, conversationId, onLeaseConsumed, err } = params;
+  if (err instanceof LeaseAlreadyConsumed) {
+    return Effect.sync(() => {
+      log?.warn?.(
+        `MoltZap: lease ${err.leaseId} already consumed for ${conversationId} at ts=${err.consumedAt.toString()}; surfacing via onLeaseConsumed`,
+      );
+      onLeaseConsumed?.(err);
+      // Deliver contract: PromiseLike<boolean>. False signals "not delivered"
+      // without violating the type.
+      return false;
+    });
+  }
+  return handleReplyFailure(log, conversationId, err);
 }
 
 function createLeaseConsumingDeliver(params: {
   readonly core: MoltZapChannelCore;
   readonly enriched: EnrichedInboundMessage;
   readonly log: OpenClawLogger | undefined;
+  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
 }): OpenClawDeliver {
-  let consumedLeaseAt: number | null = null;
+  // One LeaseGuard per inbound message: stamped exactly once, on the FIRST
+  // successful `core.sendReply`. Replaces the pre-refactor
+  // `consumedLeaseAt: number | null` closure.
+  //
+  // Ordering matters: pre-check `guard.consumedAt` BEFORE sending so duplicate
+  // delivers are short-circuited; the actual stamp happens inside
+  // `sendDeliveredReply` via `Effect.tap(() => guard.consume())` AFTER
+  // `core.sendReply` succeeds. A transient send failure therefore leaves the
+  // guard unconsumed, and a retried deliver call still exercises the lease —
+  // matching pre-refactor behavior (`markConsumed` in the success tap).
+  const guard = new LeaseGuard();
   return (payload, info) => {
     if (info?.kind !== "final") return Promise.resolve(true);
     const text = payload.text ?? payload.body;
     if (!text) return Promise.resolve(true);
-    if (consumedLeaseAt !== null) {
-      params.log?.warn?.(
-        `MoltZap: duplicate-reply rejected for ${params.enriched.conversationId} (lease already consumed at ts=${consumedLeaseAt.toString()})`,
-      );
-      return Promise.resolve(false);
-    }
-
     return Effect.runPromise(
-      sendDeliveredReply({
-        core: params.core,
-        conversationId: params.enriched.conversationId,
-        text,
-        log: params.log,
-        markConsumed: () => {
-          consumedLeaseAt = Date.now();
-        },
+      Effect.gen(function* () {
+        const stamped = yield* guard.consumedAt;
+        if (Option.isSome(stamped)) {
+          params.log?.warn?.(
+            `MoltZap: duplicate-reply rejected for ${params.enriched.conversationId} (lease already consumed at ts=${stamped.value.toString()})`,
+          );
+          return false;
+        }
+        return yield* sendDeliveredReply({
+          core: params.core,
+          conversationId: params.enriched.conversationId,
+          text,
+          leaseId: params.enriched.dispatchLeaseId,
+          log: params.log,
+          onLeaseConsumed: params.onLeaseConsumed,
+          guard,
+        });
       }),
     );
   };
@@ -444,6 +522,7 @@ function dispatchInboundReply(params: {
   readonly input: InboundDispatchInput;
   readonly core: MoltZapChannelCore;
   readonly log: OpenClawLogger | undefined;
+  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
 }): Effect.Effect<{ queuedFinal: boolean } | null> {
   return Effect.tryPromise({
     try: () =>
@@ -455,6 +534,7 @@ function dispatchInboundReply(params: {
             core: params.core,
             enriched: params.input.enriched,
             log: params.log,
+            onLeaseConsumed: params.onLeaseConsumed,
           }),
         },
       }),
@@ -643,7 +723,13 @@ function startGatewayAccount(
   );
   const service = createGatewayService(account, deps);
   const core = createGatewayCore(service, deps);
-  registerInboundHandler(core, ctx, service, contextLogDir);
+  registerInboundHandler({
+    core,
+    ctx,
+    service,
+    contextLogDir,
+    onLeaseConsumed: deps.onLeaseConsumed,
+  });
   registerConnectionStatus(core, ctx);
   activeClients.set(accountId, service);
   if (abortSignal.aborted) {
@@ -692,16 +778,24 @@ function disconnectAndRemove(
     .pipe(Effect.tap(() => Effect.sync(() => activeClients.delete(accountId))));
 }
 
-function registerInboundHandler(
-  core: MoltZapChannelCore,
-  ctx: OpenClawStartAccountContext,
-  service: OpenClawClientService,
-  contextLogDir: string | undefined,
-): void {
-  core.onInbound((enriched) =>
-    handleInboundMessage({ ctx, core, service, contextLogDir, enriched }).pipe(
-      Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch"),
-    ),
+interface RegisterInboundHandlerParams {
+  readonly core: MoltZapChannelCore;
+  readonly ctx: OpenClawStartAccountContext;
+  readonly service: OpenClawClientService;
+  readonly contextLogDir: string | undefined;
+  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+}
+
+function registerInboundHandler(params: RegisterInboundHandlerParams): void {
+  params.core.onInbound((enriched) =>
+    handleInboundMessage({
+      ctx: params.ctx,
+      core: params.core,
+      service: params.service,
+      contextLogDir: params.contextLogDir,
+      enriched,
+      onLeaseConsumed: params.onLeaseConsumed,
+    }).pipe(Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch")),
   );
 }
 
@@ -724,6 +818,7 @@ function handleInboundMessage(params: InboundHandlerParams) {
       input: inboundDispatchInput(params.ctx, params.enriched, data),
       core: params.core,
       log: params.ctx.log,
+      onLeaseConsumed: params.onLeaseConsumed,
     });
     logDispatchFinished(params.ctx.log, params.enriched);
     logUnqueuedDispatch(params.ctx.log, params.enriched, result);
@@ -734,26 +829,21 @@ function inboundRuntimeData(
   enriched: EnrichedInboundMessage,
   service: OpenClawClientService,
 ): InboundRuntimeData {
-  const chatType = conversationChatType(enriched);
+  const groupFields = getGroupFields(enriched.conversationMeta);
   const crossConversationMessages = crossConversationMessagesFor(enriched);
-  const crossConvBlock = formatCrossConvOpenClaw(crossConversationMessages, {
+  const crossConvBlock = formatCrossConv(crossConversationMessages, {
     ownAgentId: service.ownAgentId ?? "",
+    markup: "json-header",
   });
   return {
-    chatType,
+    chatType: groupFields !== null ? "group" : "direct",
     fromId: `agent:${enriched.sender.id}`,
     crossConvBlock,
     crossConversationMessages,
     bodyForAgent: bodyForAgent(enriched.text, crossConvBlock),
-    groupSubject: enriched.conversationMeta?.name,
-    groupMembers: groupMembersFor(enriched),
+    groupSubject: groupFields?.name,
+    groupMembers: groupMembersFor(groupFields),
   };
-}
-
-function conversationChatType(
-  enriched: EnrichedInboundMessage,
-): "direct" | "group" {
-  return enriched.conversationMeta?.type === "group" ? "group" : "direct";
 }
 
 function crossConversationMessagesFor(
@@ -766,10 +856,13 @@ function bodyForAgent(text: string, crossConvBlock: string | null): string {
   return crossConvBlock ? `${crossConvBlock}\n\n${text}` : text;
 }
 
-function groupMembersFor(enriched: EnrichedInboundMessage): string | undefined {
-  return enriched.conversationMeta?.type === "group"
-    ? enriched.conversationMeta.participants.join(",")
-    : undefined;
+// P3 #608 resolution: `groupMembersFor` stays openclaw-local because the
+// comma-joined string format is openclaw-specific (the `GroupMembers`
+// dispatch-context field shape). Channel-base's `getGroupFields` provides
+// the narrowing; this helper does the openclaw-side join.
+function groupMembersFor(fields: GroupFields | null): string | undefined {
+  if (fields === null) return undefined;
+  return fields.participants.join(",");
 }
 
 function logInboundMessage(
