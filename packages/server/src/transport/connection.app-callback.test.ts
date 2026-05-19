@@ -44,9 +44,10 @@ import {
   RpcServerError,
   DispatchAuthorize,
   encodeErrorResponse,
-  type AgentClientConnection,
   type RequestFrame,
+  type ServerConnection,
 } from "@moltzap/protocol";
+import type { DispatchContext } from "./context.js";
 import {
   agentId,
   conversationId,
@@ -319,7 +320,7 @@ function timeoutDropsLateResponse() {
 function makeConnection(
   id: string,
   write: MoltZapConnection["write"],
-  originator: AgentClientConnection,
+  originator: ServerConnection<DispatchContext>,
 ): MoltZapConnection {
   return {
     id,
