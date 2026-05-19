@@ -269,9 +269,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `moltzap start <name> <participant>... [--message <text>] [--app-id <uuid>]`
   subcommand. Composes Spec D1 (#598) atomic `TaskCreate({ appId,
   invitedAgentIds, initialConversation })` plus optional follow-up
-  `MessagesSend`. Stub-only at this commit; impl-staff lands the
-  handler body and the `Command.make` registration in `cli/index.ts`
-  per the architect plan in
+  `MessagesSend`. `Command.make` wrapper + positional/option arg
+  declarations + the `runStartCommand` exit-code dispatcher + the
+  `resolveAgentToken` participant resolver are all wired AT THIS
+  COMMIT (including registration in `cli/index.ts`). Only the
+  function bodies of `startCommandHandler`, `runStartCommand`, and
+  `resolveAgentToken` are stub-fail-fast; impl-staff replaces those
+  three bodies and adds `start.test.ts` per the architect plan in
   `packages/client/docs/architecture/09-moltzap-start-cli.md`.
 - **Exit-code contract (planned):** `0` full success, `1` `TaskCreate`
   failed, `2` partial (`TaskCreate` OK + `MessagesSend` failed; no
