@@ -287,19 +287,27 @@ export const obtainMessageSendPermission = (
     if (input.taskId !== undefined) {
       yield* assertConvBelongsToTask(conv, input.taskId);
     }
+    // ORDER: refineTaskActive precedes refineConversationNotArchived to
+    // mirror the pre-Spec-E `sendInsertEffect` ordering
+    // (`assertTaskCanReceiveMessage` then `assertConversationOpen`).
+    // When the task is closed, the conformance contract expects
+    // `TaskClosed` (-32008), not the auto-archive's `ConversationArchived`
+    // (-32022). See conformance `delivery/task-close-lifecycle`.
+    const isTmBypass =
+      conv.tm_endpoint_address === endpointAddressForAgent(input.senderAgentId);
+    if (!isTmBypass) {
+      yield* refineTaskActive(input.taskId ?? conv.task_id, conv.task_status);
+    }
     yield* refineConversationNotArchived(
       input.conversationId,
       conv.archived_at,
     );
-    const isTmBypass =
-      conv.tm_endpoint_address === endpointAddressForAgent(input.senderAgentId);
     const task = yield* taskService.fetchTask(input.taskId ?? conv.task_id);
     const replyTarget = yield* resolveReplyTarget(
       input.conversationId,
       input.replyToId,
     );
     if (!isTmBypass) {
-      yield* refineTaskActive(input.taskId ?? conv.task_id, conv.task_status);
       const participantPermission: MessageSendPermissionValue = {
         _tag: "forParticipantOnActiveTask",
         task,
