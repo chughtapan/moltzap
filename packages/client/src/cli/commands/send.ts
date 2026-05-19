@@ -52,9 +52,8 @@ const replyToOption = Options.text("reply-to").pipe(
  * does NOT yet honor `--as`/`--profile` end-to-end — rewiring legacy
  * commands onto the v2 Transport layer is tracked as a follow-up (see the
  * PR body "Concerns" block). The flag semantics documented above describe
- * the v2 contract; new v2 subcommands (`apps/*`, `permissions/*`,
- * `messages list`, `conversations {get,archive,unarchive}`) honor them
- * today.
+ * the v2 contract; new v2 subcommands (`apps/*`, `messages list`,
+ * `conversations {get,archive,unarchive}`) honor them today.
  */
 export const sendCommand = Command.make(
   "send",
