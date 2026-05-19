@@ -22,6 +22,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -90,7 +91,8 @@ it("network.send delivers a real notification to a durable address", () =>
     expect(ack).toBeInstanceOf(DeliveryAck);
     expect(ack.to).toEqual(address);
 
-    const received = yield* alice.client.waitForNotification(
+    const received = yield* awaitOneNotification(
+      alice.client,
       PresenceChangedNotificationDefinition,
     );
     expect((received.params as { agentId: string }).agentId).toBe(
@@ -157,7 +159,8 @@ it("two connections of the same agent share durable address routing", () =>
 
     const ack2 = yield* getCoreApp().networkSendService.send(address, payload);
     expect(ack2).toBeInstanceOf(DeliveryAck);
-    const r2 = yield* c2.waitForNotification(
+    const r2 = yield* awaitOneNotification(
+      c2,
       PresenceChangedNotificationDefinition,
     );
     expect((r2.params as { agentId: string }).agentId).toBe(aId);

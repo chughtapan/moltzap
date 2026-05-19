@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -46,15 +47,17 @@ it("muted participant does not receive messages, unmuted participant does", () =
       conversationId,
       parts: [{ type: "text", text: MUTED_MESSAGE_TEXT }],
     });
-    yield* eve.client.waitForNotification(
+    yield* awaitOneNotification(
+      eve.client,
       MessageReceivedNotificationDefinition,
     );
 
     // Wait for any stray events to arrive, then verify Alice got nothing
     yield* Effect.sleep(STRAY_EVENT_SETTLE_MS);
-    const aliceMutedEvents = alice.client
-      .drainNotifications()
-      .filter((e) => e.definition === MessageReceivedNotificationDefinition);
+    const aliceDrained = yield* alice.client.drainNotifications;
+    const aliceMutedEvents = aliceDrained.filter(
+      (e) => e.definition === MessageReceivedNotificationDefinition,
+    );
     expect(aliceMutedEvents).toHaveLength(0);
 
     // Alice unmutes
@@ -67,7 +70,8 @@ it("muted participant does not receive messages, unmuted participant does", () =
       conversationId,
       parts: [{ type: "text", text: UNMUTED_MESSAGE_TEXT }],
     });
-    const aliceEvent = yield* alice.client.waitForNotification(
+    const aliceEvent = yield* awaitOneNotification(
+      alice.client,
       MessageReceivedNotificationDefinition,
     );
     expect(

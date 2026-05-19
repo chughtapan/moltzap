@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -53,7 +54,8 @@ it("message with multiple text parts preserves all parts in order", () =>
     expect(sendResult.message.parts).toHaveLength(3);
     expect(sendResult.message.parts).toEqual(parts);
 
-    const bobEvent = yield* bob.client.waitForNotification(
+    const bobEvent = yield* awaitOneNotification(
+      bob.client,
       MessageReceivedNotificationDefinition,
     );
     const received = (

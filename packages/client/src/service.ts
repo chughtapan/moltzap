@@ -49,6 +49,7 @@ import {
   Option,
   Ref,
   Scope,
+  Stream,
 } from "effect";
 import { MoltZapWsClient, type RpcCallOptions } from "./ws-client.js";
 import { AgentNotFoundError } from "./runtime/errors.js";
@@ -81,6 +82,7 @@ import {
   type HistoryResponse,
   lastReadIdsForSession,
 } from "./runtime/local-history.js";
+import { composeServiceTeardown } from "./runtime/service-teardown.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
@@ -279,6 +281,17 @@ export class MoltZapService {
   private client: MoltZapWsClient | null = null;
   private _connected = false;
 
+  /**
+   * Service-owned scope (spec #596 / Spec B §"4.2 service.ts" lifecycle
+   * reshape). Opened in `connect()`, owns the `subscribeAll → Stream.runForEach`
+   * fan-out fiber. Closed in `close()` so the fiber terminates with the
+   * service.
+   *
+   * Held off the public `connect()` signature so callers do not need to
+   * thread a `Scope` requirement.
+   */
+  private serviceScope: Scope.CloseableScope | null = null;
+
   private readonly conversationsRef: Ref.Ref<
     HashMap.HashMap<string, ConversationMeta>
   > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationMeta>()));
@@ -411,7 +424,7 @@ export class MoltZapService {
   /** Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`. */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(this, function* () {
-      this.client = new MoltZapWsClient({
+      const client = new MoltZapWsClient({
         serverUrl: this.opts.serverUrl,
         agentKey: this.opts.agentKey,
         // Spec #222 OQ-6: arg required. The body doesn't branch on
@@ -426,16 +439,36 @@ export class MoltZapService {
           fanout(this.handlers.reconnect, helloOk);
         },
       });
-      // Spec #222 OQ-4: per-notification callback is replaced by subscriptions.
-      // Replacement: register a `{}` filter subscription before
-      // `connect()` so every inbound notification still fans out to
-      // `handleNotification`. Pre-connect registration is supported by the
-      // registry.
-      yield* this.client.subscribe({}, (notification) =>
-        Effect.sync(() => this.handleNotification(notification)),
-      );
+      this.client = client;
 
-      const helloOk = yield* this.client.connect();
+      // Spec #596 / Spec B Goal #8: the legacy `subscribe({}, handler)` site
+      // is replaced by `subscribeAll().pipe(Stream.runForEach, …)` forked
+      // into a service-owned scope. The Stream is materialized BEFORE
+      // `connect()` so subscriptions are registered with the registry
+      // pre-handshake (pre-connect legality, preserved invariant).
+      //
+      // Stream errors of type `NotConnectedError` are surfaced on the
+      // fiber's failure channel only when the client transitions to
+      // terminal closed state (close() path); `Effect.catchAll` here
+      // would swallow them silently, so we route through `Effect.logError`
+      // before the fiber exits.
+      const serviceScope = yield* Scope.make();
+      this.serviceScope = serviceScope;
+      const fanoutEffect = client.subscribeAll().pipe(
+        Stream.runForEach((notification) =>
+          Effect.sync(() => this.handleNotification(notification)),
+        ),
+        Effect.catchAll((cause) =>
+          Effect.logWarning(
+            "MoltZapService notification fan-out terminated",
+            cause,
+          ),
+        ),
+        Effect.asVoid,
+      );
+      yield* Effect.forkIn(fanoutEffect, serviceScope);
+
+      const helloOk = yield* client.connect();
       this._connected = true;
       this._ownAgentId = helloOk.agentId;
       return helloOk;
@@ -451,10 +484,22 @@ export class MoltZapService {
   close(): void {
     this._connected = false;
     Effect.runFork(this.stopSocketServer());
-    if (this.client) {
-      Effect.runFork(this.client.close());
-    }
+    // Spec #596 / Spec B §"4.2 service.ts": close the service-owned scope
+    // BEFORE the client. Closing the scope interrupts the
+    // `subscribeAll().pipe(Stream.runForEach, …)` fiber; the client's
+    // `close()` then closes the registry which fires `onClose` on every
+    // live subscription's Stream — but since our consumer fiber has
+    // already been interrupted, the typed-error delivery is to a
+    // terminated consumer (no-op, idempotent).
+    // Order: close the service-scope FIRST (interrupting the
+    // `subscribeAll → runForEach` fiber), THEN close the ws-client.
+    // zipRight chains the two Effects sequentially inside a single
+    // fork so the ordering is honoured deterministically.
+    const scopeToClose = this.serviceScope;
+    const clientToClose = this.client;
+    this.serviceScope = null;
     this.client = null;
+    Effect.runFork(composeServiceTeardown(scopeToClose, clientToClose));
     Effect.runSync(
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),
