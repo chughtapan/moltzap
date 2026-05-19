@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec F (#617) — Typed dispatcher unification + Connection facade
+
+- **NEW:** `makeServerConnection` / `makeAgentClientConnection` /
+  `makeTaskMasterConnection` factories in
+  `@moltzap/protocol/transport/connection` — three per-kind typed
+  Connection factories that REPLACE the legacy
+  `makeJsonRpcServer` / `makeJsonRpcClient` pair. Each factory takes
+  an immutable handler table (REQUIRED slots enforced at construction
+  via TS2741; OPTIONAL slots carry fail-CLOSED defaults) plus a
+  `CapabilityProviderTable` and returns a `Connection` whose inbound
+  surface is reified by the table.
+- **NEW:** `RpcDefinition.slotDisposition` + `RpcDefinition.capabilities`
+  on `defineRpc(...)` — protocol-definition-time metadata the
+  dispatcher reads at runtime. `slotDisposition: optionalForbidden`
+  makes a slot OPTIONAL with `ForbiddenError` (-32001) fail-CLOSED
+  default. `capabilities` declares the Spec E `Context.Tag`s the
+  handler will `yield*`, threading
+  `Effect.provideServiceEffect` from the provider table in
+  declaration order with first-failure short-circuit.
+- **NEW:** `DispatchAuthorize` + `MessagesAuthorize` carry
+  `slotDisposition: optionalForbidden` — a TM that doesn't wire these
+  hooks implicitly declines authorization for every check.
+- **DEPRECATED:** `makeJsonRpcServer` / `makeJsonRpcClient` /
+  `handler` re-exports flagged `@deprecated` pending consumer
+  migration (Invariant FRI). Cutover deletes these in a follow-up PR.
+- **DOCS:** `packages/protocol/docs/architecture/11-typed-dispatcher.md`
+  is the new canonical reference for request handling + client call
+  lifecycle. `03-server-request-handling.md` + `04-client-call-lifecycle.md`
+  DELETED (pre-Spec-F flows with no Spec-F analogue).
+
 ### Phase 12 — `@moltzap/protocol` finalization
 
 - **BREAKING (Phase 12 — protocol surface):** Root facade reduced to
