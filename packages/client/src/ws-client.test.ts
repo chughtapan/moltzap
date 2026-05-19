@@ -13,7 +13,6 @@ import {
   ForbiddenError,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  MoltZapWsClient,
   RpcTimeoutError,
   TestClock,
   closeClient,
@@ -25,7 +24,7 @@ import {
   expectEffectFailure,
   findClosedLocalPort,
   findResponseRaw,
-  grantDispatchAuthorizeHandler,
+  grantDispatchAuthorizeHandlers,
   makeClient,
   messageReceivedFrame,
   realSleep,
@@ -51,7 +50,6 @@ import {
   CONNECT_FAILURE_MAX_MS,
   DOMAIN_REJECTED_MESSAGE,
   DOMAIN_REJECTED_REASON,
-  DUPLICATE_HANDLER_ERROR_TAG,
   GRANT_DECISION,
   HANDLER_REJECTION_CODE,
   JSON_RPC_VERSION,
@@ -682,7 +680,8 @@ effectTest(
 
 // ─────────────────────────────────────────────────────────────────────
 // Phase 1.0 (B.1) gating tests — client-side server-initiated RPC
-// (handleServerRpc + dispatcher fiber + appCallback response write-back)
+// (Spec F #617 typed-dispatcher TM-callback handler table + dispatcher
+// fiber + appCallback response write-back)
 // ─────────────────────────────────────────────────────────────────────
 
 effectTest(
@@ -699,17 +698,15 @@ effectTest(
           SERVER_TEST_REQUEST_ID,
           dispatchRequestParams(SESSION_A),
         );
-        const client = makeClient(server.url);
-        // Register a handler BEFORE connect so the dispatcher fiber sees
-        // it on the very first inbound task-callback request. The
-        // handler captures the `taskId` it was invoked with so the
-        // assertion below can verify the request reached the right
-        // descriptor's handler.
+        // Spec F: pass the TM-callback handler table at construction
+        // so the typed dispatcher sees it on the very first inbound
+        // task-callback request. The handler captures the `taskId`
+        // it was invoked with so the assertion below can verify the
+        // request reached the right descriptor's handler.
         const observedTaskId: MutableRef<string | null> = { current: null };
-        yield* client.handleServerRpc(
-          DispatchAuthorize,
-          grantDispatchAuthorizeHandler(observedTaskId),
-        );
+        const client = makeClient(server.url, {
+          appCallbackHandlers: grantDispatchAuthorizeHandlers(observedTaskId),
+        });
         yield* connectClient(client);
 
         // Wait for the response frame the dispatcher writes back. The
@@ -746,15 +743,24 @@ effectTest(
           SERVER_ERROR_REQUEST_ID,
           dispatchRequestParams(SESSION_B),
         );
-        const client = makeClient(server.url);
-        yield* client.handleServerRpc(DispatchAuthorize, () =>
-          Effect.fail(
-            new ForbiddenError({
-              message: DOMAIN_REJECTED_MESSAGE,
-              data: { reason: DOMAIN_REJECTED_REASON },
-            }),
-          ),
-        );
+        // Spec F: TM-callback handler-table fragment bound at
+        // construction. The handler unconditionally fails with a
+        // registered tagged error so the dispatcher encodes it onto
+        // the wire as an `error` reply.
+        const client = makeClient(server.url, {
+          appCallbackHandlers: {
+            [DispatchAuthorize.name]: {
+              definition: DispatchAuthorize,
+              handle: () =>
+                Effect.fail(
+                  new ForbiddenError({
+                    message: DOMAIN_REJECTED_MESSAGE,
+                    data: { reason: DOMAIN_REJECTED_REASON },
+                  }),
+                ),
+            },
+          },
+        });
         yield* connectClient(client);
 
         yield* waitForErrorResponse(server, SERVER_ERROR_REQUEST_ID);
@@ -776,40 +782,13 @@ effectTest(
     ),
 );
 
-effectTest(
-  "rejects a duplicate handleServerRpc registration with DuplicateServerRpcHandlerError",
-  () =>
-    Effect.gen(function* () {
-      const client = new MoltZapWsClient({
-        serverUrl: "http://127.0.0.1:1",
-        agentKey: "test",
-      });
-      const first = yield* Effect.exit(
-        client.handleServerRpc(DispatchAuthorize, () =>
-          Effect.succeed({
-            admission: { decision: GRANT_DECISION as "grant" },
-          }),
-        ),
-      );
-      expect(Exit.isSuccess(first)).toBe(true);
-      const second = yield* Effect.exit(
-        client.handleServerRpc(DispatchAuthorize, () =>
-          Effect.succeed({
-            admission: { decision: GRANT_DECISION as "grant" },
-          }),
-        ),
-      );
-      expect(Exit.isFailure(second)).toBe(true);
-      if (Exit.isFailure(second)) {
-        const err = Cause.failureOption(second.cause);
-        expect(Option.isSome(err)).toBe(true);
-        if (Option.isSome(err)) {
-          expect(err.value._tag).toBe(DUPLICATE_HANDLER_ERROR_TAG);
-        }
-      }
-      yield* client.close();
-    }),
-);
+// Note: Spec F (#617) makes the TM-callback handler table immutable at
+// construction. Duplicate-key binding is now a TypeScript compile-time
+// error at the object-literal site (duplicate property name on the
+// `appCallbackHandlers` literal). The previous runtime
+// duplicate-registration rejection test has been retired alongside the
+// runtime register API (D3 deletion); the type system carries the
+// invariant.
 
 // ─────────────────────────────────────────────────────────────────────
 // Regression gate (review-295): runSync(client.close()) and

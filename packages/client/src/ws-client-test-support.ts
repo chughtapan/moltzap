@@ -37,6 +37,7 @@ import * as Socket from "@effect/platform/Socket";
 import {
   MoltZapWsClient,
   RPC_TIMEOUT_MS,
+  type AppCallbackHandlers,
   type CloseInfo,
 } from "./ws-client.js";
 import {
@@ -142,7 +143,6 @@ const SERVER_ERROR_REQUEST_ID = "srv-err-1";
 const GRANT_DECISION = "grant";
 const DOMAIN_REJECTED_MESSAGE = "domain-rejected";
 const DOMAIN_REJECTED_REASON = "test";
-const DUPLICATE_HANDLER_ERROR_TAG = "DuplicateServerRpcHandlerError";
 const TEST_CONVERSATION_ID = conversationId(
   "33333333-3333-4333-8333-333333333333",
 );
@@ -390,6 +390,7 @@ interface MakeClientOverrides {
   readonly onNotification?: (evt: NotificationFrame) => void;
   readonly onDisconnect?: (close: CloseInfo) => void;
   readonly onReconnect?: (hello: unknown) => void;
+  readonly appCallbackHandlers?: AppCallbackHandlers;
 }
 
 const ignoreDisconnect = (_close: CloseInfo): void => undefined;
@@ -606,14 +607,26 @@ function connectClientForServer(
   return connectClient(client).pipe(Effect.map(() => client));
 }
 
-function grantDispatchAuthorizeHandler(
+/**
+ * Build a Spec F (#617) TM-callback handler-table fragment for the
+ * `dispatch/authorize` slot that grants admission and records the
+ * `taskId` it was invoked with into `observedTaskId`. Pass as
+ * `appCallbackHandlers` to `makeClient` so the typed dispatcher sees
+ * the binding at construction time.
+ */
+function grantDispatchAuthorizeHandlers(
   observedTaskId: MutableRef<string | null>,
-) {
-  return (params: ParamsOf<typeof DispatchAuthorize>) =>
-    Effect.sync(() => {
-      observedTaskId.current = params.taskId;
-      return { admission: { decision: GRANT_DECISION as "grant" } };
-    });
+): AppCallbackHandlers {
+  return {
+    [DispatchAuthorize.name]: {
+      definition: DispatchAuthorize,
+      handle: (params: ParamsOf<typeof DispatchAuthorize>) =>
+        Effect.sync(() => {
+          observedTaskId.current = params.taskId;
+          return { admission: { decision: GRANT_DECISION as "grant" } };
+        }),
+    },
+  } as AppCallbackHandlers;
 }
 
 /**
@@ -685,12 +698,14 @@ function makeClient(
     onNotification,
     onDisconnect = ignoreDisconnect,
     onReconnect = ignoreReconnect,
+    appCallbackHandlers,
   } = overrides;
   const client = new MoltZapWsClient({
     serverUrl: url,
     agentKey: "test-key",
     onDisconnect,
     onReconnect,
+    ...(appCallbackHandlers !== undefined ? { appCallbackHandlers } : {}),
   });
   if (onNotification !== undefined) {
     // Spec B (#596): the deleted `client.subscribe({}, handler)` shape is
@@ -719,7 +734,6 @@ export {
   ForbiddenError,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  MoltZapWsClient,
   RpcTimeoutError,
   TestClock,
   closeClient,
@@ -731,7 +745,7 @@ export {
   expectEffectFailure,
   findClosedLocalPort,
   findResponseRaw,
-  grantDispatchAuthorizeHandler,
+  grantDispatchAuthorizeHandlers,
   makeClient,
   messageReceivedFrame,
   sendMalformedFrameBurst,
@@ -778,7 +792,6 @@ export {
   GRANT_DECISION,
   DOMAIN_REJECTED_MESSAGE,
   DOMAIN_REJECTED_REASON,
-  DUPLICATE_HANDLER_ERROR_TAG,
   TEST_CONVERSATION_ID,
 };
 export type { CloseInfo, MutableRef, RequestFrame };

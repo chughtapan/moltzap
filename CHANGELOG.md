@@ -127,6 +127,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authority is threaded inside the server core; transport, protocol,
   and client surfaces are unchanged.
 
+### Spec F (#617) — Typed dispatcher unification + Connection facade
+
+- **NEW:** `makeServerConnection` / `makeAgentClientConnection` /
+  `makeTaskMasterConnection` in `@moltzap/protocol/transport/connection`.
+  Per-kind typed Connection factories. Each takes an immutable
+  handler table (REQUIRED slots enforced at construction via TS2741;
+  OPTIONAL slots carry fail-CLOSED defaults) plus a
+  `CapabilityProviderTable`. Inbound surface is the catalog's
+  mapped-type record; outbound `call` is constrained to the kind's
+  outbound RPC union.
+- **NEW:** `RpcDefinition.slotDisposition` + `RpcDefinition.capabilities`
+  on `defineRpc(...)`. `slotDisposition: optionalForbidden` marks a
+  slot OPTIONAL with `ForbiddenError` (-32001) fail-CLOSED default.
+  `capabilities` lists the `Context.Tag`s the handler `yield*`s; the
+  dispatcher threads `Effect.provideServiceEffect` from the provider
+  table in declaration order with first-failure short-circuit.
+- **NEW:** `DispatchAuthorize` + `MessagesAuthorize` carry
+  `slotDisposition: optionalForbidden`. Unbound TM-callback slots
+  reply `Forbidden`.
+- **NEW:** `MoltZapWsClientOptions.appCallbackHandlers`. Public
+  TM-callback handler-table field on the production client.
+- **NEW:** `TaskCallbackContext` + `AppCallbackHandlers` public types
+  in `@moltzap/client`. Per-frame context and handler-table shape for
+  the typed Connection's inbound dispatch.
+- **NEW:** `OutboundCall.failAllPending` on the typed Connection
+  interfaces. Lets the surrounding transport raise pending RPCs with a
+  transport-specific message (the scope finalizer's generic message
+  otherwise drops the consumer's reason string).
+- **BREAKING:** `MoltZapWsClient.handleServerRpc`,
+  `appCallbackHandlersRef`, `appCallbackRpcHandlers`,
+  `buildInboundServerReply` DELETED. Runtime register API is gone
+  (Spec F I1).
+- **BREAKING:** `DuplicateServerRpcHandlerError` DELETED.
+  Duplicate-key registration is a TS object-literal compile error.
+- **BREAKING:** `ServerRpcContext` / `ServerRpcHandler` /
+  `ErasedServerRpcHandler` type aliases DELETED from
+  `client/src/ws-client.ts` + the `client/src/index.ts` barrel
+  re-exports.
+- **BREAKING:** `DUPLICATE_HANDLER_ERROR_TAG` DELETED from
+  `client/src/ws-client-test-support.ts`.
+- **BREAKING:** `MoltZapConnection.jsonRpcClient: JsonRpcClient` renamed
+  and re-typed to `MoltZapConnection.originator:
+  ServerConnection<DispatchContext>` — every socket now carries one
+  typed Connection that hosts BOTH inbound dispatch and outbound
+  TM-callback originator. `acquireConnectionRpcClient` derives it from
+  `makeServerConnection<DispatchContext, never>({ handlers, ... })` and
+  takes an optional `handlers: ServerHandlers<DispatchContext>`
+  parameter (defaults to empty for test fixtures). Test stub
+  `unusedJsonRpcClient` → `unusedOriginator` in
+  `server/src/transport/connection.test-utils.ts`.
+- **BREAKING:** public `makeJsonRpcClient` + `JsonRpcClient` re-exports
+  DELETED from the protocol barrel. The originator helper is internal
+  to `dispatch.ts`.
+- **BREAKING:** `makeJsonRpcServer` / `handler` / `JsonRpcServer` /
+  `RpcHandler` DELETED entirely. `packages/protocol/src/transport/json-rpc-server.ts`
+  removed; `wireErrorFromInstance` re-exported from `transport/dispatch.ts`
+  for `@moltzap/protocol/testing` consumers.
+- **BREAKING:** `CoreApp.registerRpcMethod` DELETED. Static handler
+  table is captured at `createCoreApp` time; Spec F I1 forbids
+  post-construction mutation.
+- **BREAKING:** `server/src/transport/context.ts → defineMethod` now
+  returns a `HandlerSlot`-shaped binding (was: `RpcHandler`); the
+  `Reqs` generic loses the `AppTags` upper bound (invariant
+  `Context.Tag` parameters reject the broad bound; `FullLive` resolves
+  Tags at runtime via the surrounding `ManagedRuntime`).
+- **DOCS:** `packages/protocol/docs/architecture/11-typed-dispatcher.md`
+  is the canonical reference for request handling and the internal
+  originator lifecycle. `03-server-request-handling.md` and
+  `04-client-call-lifecycle.md` DELETED — the §6 FRI cutover folds the
+  client-call-lifecycle prose (scope-bound originator, pending
+  insert-before-write, atomic insert/take, late-frame drop) into
+  `11-typed-dispatcher.md` §6.
+
 ### Phase 12 — `@moltzap/protocol` finalization
 
 - **BREAKING (Phase 12 — protocol surface):** Root facade reduced to
