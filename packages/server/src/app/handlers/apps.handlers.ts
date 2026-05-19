@@ -15,11 +15,12 @@ export const appHandlers: RpcMethodRegistry = [
     // A client-originated `apps/register` call records the calling
     // connection id so AppHost dispatches future `dispatch/authorize`
     // verbs via `sendRpcToClient` against this socket. If the client
-    // hasn't installed `client.handleServerRpc(...)` handlers, the
-    // verb fails-closed (deny) — same posture as a crashed in-process
-    // handler. Server-side in-process registration continues to use
-    // `coreApp.registerApp(manifest)` directly; that path bypasses
-    // this RPC entirely.
+    // constructed its `MoltZapWsClient` without a handler-table entry
+    // for `dispatch/authorize`, the fail-CLOSED default slot replies
+    // deny (per Spec F R2 / `optionalForbidden`) — same posture as a
+    // crashed in-process handler. Server-side in-process registration
+    // continues to use `coreApp.registerApp(manifest)` directly; that
+    // path bypasses this RPC entirely.
     handler: (params) =>
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
