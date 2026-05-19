@@ -1,12 +1,13 @@
 import { Effect, type Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
-  makeJsonRpcClient,
+  makeAgentClientConnection,
+  type AgentClientConnection,
   type AnyTaskCallbackRpcDefinition,
-  type JsonRpcClient,
   type ParamsOf,
   type ResultOf,
   type RpcCallError,
+  type RpcDefinition,
 } from "@moltzap/protocol";
 import type { AuthenticatedContext } from "../transport/context.js";
 
@@ -27,27 +28,35 @@ export interface MoltZapConnection {
   mutedConversations: Set<string>;
 
   /**
-   * Originator side of this connection's server→client appCallback channel.
-   * Mints `srv-${connId}-N` request ids, tracks pending Deferreds, and
-   * fails every still-pending call with `NotConnectedError` when the
-   * surrounding scope closes (Scope finalizer registered by
-   * `makeJsonRpcClient`).
+   * Originator side of this connection's server→client appCallback channel
+   * (Spec F #617 typed-dispatcher `AgentClientConnection`). Mints
+   * `srv-${connId}-N` request ids, tracks pending Deferreds, and fails
+   * every still-pending call with `NotConnectedError` when the
+   * surrounding scope closes (Scope finalizer from the internalized
+   * originator helper). The per-conversation `sendRpcToClient` wrapper
+   * narrows the outbound call to `AnyTaskCallbackRpcDefinition`.
    */
-  readonly jsonRpcClient: JsonRpcClient;
+  readonly originator: AgentClientConnection;
 }
 
 /**
- * Allocate a per-connection `JsonRpcClient` whose request ids are prefixed
+ * Allocate a per-connection originator whose request ids are prefixed
  * `srv-${connectionId}` (keeps server-originated ids disjoint from client
- * ids in logs and captures). The Scope finalizer registered by
- * `makeJsonRpcClient` drains pending Deferreds with `NotConnectedError`
- * when the connection scope closes.
+ * ids in logs and captures). The Scope finalizer registered by the
+ * internalized originator helper drains pending Deferreds with
+ * `NotConnectedError` when the connection scope closes.
+ *
+ * The empty `handlers: {}` literal is well-typed against
+ * `AgentClientHandlers&lt;...&gt;` — Spec F's AgentClient catalog is empty,
+ * so the dispatcher never invokes the inbound surface.
  */
 export function acquireConnectionRpcClient(
   connectionId: string,
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
-): Effect.Effect<JsonRpcClient, never, Scope.Scope> {
-  return makeJsonRpcClient({
+): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
+  return makeAgentClientConnection<never, never>({
+    id: connectionId,
+    handlers: {},
     write,
     idPrefix: `srv-${connectionId}`,
   });
@@ -56,7 +65,7 @@ export function acquireConnectionRpcClient(
 /**
  * Send an awaitable RPC from server → client over `connection`'s WebSocket.
  *
- * Generic-narrowing wrapper around `connection.jsonRpcClient.call` that
+ * Generic-narrowing wrapper around `connection.originator.call` that
  * constrains `D` to the task-callback RPC union — prevents accidental
  * dispatch of a client→server method on the appCallback channel.
  *
@@ -67,7 +76,17 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError, never> {
-  return connection.jsonRpcClient.call(definition, params);
+  // `AnyTaskCallbackRpcDefinition` is a strict subset of the originator's
+  // `AnyRpcDefinition` bound; the cast widens to the originator's
+  // generic constraint shape without losing the per-definition
+  // narrowing the caller provides.
+  const call = connection.originator.call as <
+    D2 extends RpcDefinition<string, any, any>,
+  >(
+    definition: D2,
+    params: ParamsOf<D2>,
+  ) => Effect.Effect<ResultOf<D2>, RpcCallError>;
+  return call(definition, params);
 }
 
 export class ConnectionManager {

@@ -9,17 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Spec F (#617) — Typed dispatcher unification + Connection facade
 
-**Draft / carryover:** the typed-dispatcher infrastructure (factories,
-dispatch loop, capability auto-provision, catalog-aware fail-CLOSED
-runtime) is in. The §9.1 5-layer class sweep — deletion of
-`MoltZapWsClient.handleServerRpc`, `appCallbackHandlersRef`,
-`registerServerRpcHandler`, `DuplicateServerRpcHandlerError`, the
-`ServerRpcContext` / `ServerRpcHandler` / `ErasedServerRpcHandler`
-production-barrel re-exports, and consumer migrations across
-`packages/{server,client,protocol/src/testing}/` — plus the §6 FRI
-legacy-factory deletions (`makeJsonRpcServer` / `makeJsonRpcClient`
-internalization) and new conformance ACs land in subsequent commits
-on the same branch.
+The Spec F typed-dispatcher rewrite. Three per-kind factories
+(`makeServerConnection` / `makeAgentClientConnection` /
+`makeTaskMasterConnection`) replace the legacy `makeJsonRpcClient` +
+`makeJsonRpcServer` pair. Each factory takes an immutable handler
+table at construction (Spec F I1 — no runtime register API) and a
+`CapabilityProviderTable` that the dispatcher auto-threads through
+every inbound RPC via `Effect.provideServiceEffect`. The
+`MoltZapWsClient` production class loses `handleServerRpc`,
+`appCallbackHandlersRef`, `appCallbackRpcHandlers`,
+`buildInboundServerReply`, and `DuplicateServerRpcHandlerError` — the
+TM-callback handler table is now value-passed via
+`MoltZapWsClientOptions.appCallbackHandlers` (default `{}` —
+fail-CLOSED `ForbiddenError -32001` for every inbound auth check per
+Spec F R2).
 
 - **NEW:** `makeServerConnection` / `makeAgentClientConnection` /
   `makeTaskMasterConnection` factories in
@@ -41,13 +44,49 @@ on the same branch.
 - **NEW:** `DispatchAuthorize` + `MessagesAuthorize` carry
   `slotDisposition: optionalForbidden` — a TM that doesn't wire these
   hooks implicitly declines authorization for every check.
-- **DEPRECATED:** `makeJsonRpcServer` / `makeJsonRpcClient` /
-  `handler` re-exports flagged `@deprecated` pending consumer
-  migration (Invariant FRI). Cutover deletes these in a follow-up PR.
+- **NEW:** `MoltZapWsClientOptions.appCallbackHandlers` — the public
+  TM-callback handler-table field on the production client. Replaces
+  the runtime register API (`handleServerRpc`).
+- **NEW:** `TaskCallbackContext` + `AppCallbackHandlers` public types
+  in `@moltzap/client` — the per-frame context and handler-table shape
+  for the typed Connection's inbound TM-callback dispatch.
+- **NEW:** `OutboundCall.failAllPending` on the typed Connection
+  interfaces — preserves transport-specific disconnect-message
+  semantics; the scope finalizer's generic message would otherwise
+  drop the consumer's reason string.
+- **BREAKING:** `MoltZapWsClient.handleServerRpc` /
+  `appCallbackHandlersRef` / `appCallbackRpcHandlers` /
+  `buildInboundServerReply` DELETED. `DuplicateServerRpcHandlerError`
+  DELETED (duplicate-key registration is now a TS object-literal
+  compile error). `ServerRpcContext` / `ServerRpcHandler` /
+  `ErasedServerRpcHandler` type aliases DELETED from
+  `client/src/ws-client.ts` + the `client/src/index.ts` barrel
+  re-exports. `DUPLICATE_HANDLER_ERROR_TAG` DELETED from
+  `client/src/ws-client-test-support.ts`.
+- **BREAKING:** `MoltZapConnection.jsonRpcClient` renamed to
+  `MoltZapConnection.originator` and re-typed as
+  `AgentClientConnection` (the typed-dispatcher originator).
+  `acquireConnectionRpcClient` now derives the originator from
+  `makeAgentClientConnection({ handlers: {}, ... })`. Test stub
+  `unusedJsonRpcClient` → `unusedOriginator` in
+  `server/src/transport/connection.test-utils.ts`.
+- **DELETED:** public `makeJsonRpcClient` re-export from the protocol
+  barrel — its remaining call site (`dispatch.ts → buildXDispatcher`)
+  imports from `./json-rpc-client.js` directly per Invariant FRI.
+- **DEPRECATED:** `makeJsonRpcServer` / `handler` / `JsonRpcServer` /
+  `RpcHandler` re-exports flagged `@deprecated`. The remaining
+  in-tree consumer is `server/src/app/server.ts → createCoreApp`
+  (legacy `RpcMethodRegistry` array-of-handlers shape); the cutover
+  to `makeServerConnection` + `ServerHandlers` mapped-type table is
+  the follow-up sub-issue.
 - **DOCS:** `packages/protocol/docs/architecture/11-typed-dispatcher.md`
-  is the new canonical reference for request handling + client call
-  lifecycle. `03-server-request-handling.md` + `04-client-call-lifecycle.md`
-  DELETED (pre-Spec-F flows with no Spec-F analogue).
+  is the new canonical reference for request handling.
+  `03-server-request-handling.md` DELETED (pre-Spec-F flow with no
+  Spec F analogue). `04-client-call-lifecycle.md` RETAINED with a
+  Spec F status banner — the originator lifecycle survives unchanged
+  inside the internalized `makeJsonRpcClient` consumed by
+  `buildXDispatcher`, and the doc folds into `11-typed-dispatcher.md`
+  when the FRI cutover completes (review-senior-641-r1 C2 fix).
 
 ### Phase 12 — `@moltzap/protocol` finalization
 

@@ -72,7 +72,7 @@ function openSocketSession(
 ) {
   return Effect.gen(function* () {
     const session = yield* makeSocketSession(socket);
-    const jsonRpcClient = yield* acquireConnectionRpcClient(
+    const originator = yield* acquireConnectionRpcClient(
       session.connId,
       session.write,
     );
@@ -86,7 +86,7 @@ function openSocketSession(
       lastPong: Date.now(),
       conversationIds: new Set(),
       mutedConversations: new Set(),
-      jsonRpcClient,
+      originator,
     });
     yield* logInfo("WebSocket connected", { connId: session.connId });
     const reader = socket.runRaw((data) =>
@@ -205,7 +205,7 @@ function handleResponseFrame(
     if (frame.id === null) return;
     const conn = options.services.connections.get(session.connId);
     if (conn === undefined) return;
-    const matched = yield* conn.jsonRpcClient.resolve(frame);
+    const matched = yield* conn.originator.resolve(frame);
     if (!matched) {
       const responseId = frame.id;
       yield* logWarning(

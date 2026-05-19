@@ -6,7 +6,7 @@
  * Tests run against `MoltZapConnection` directly (no testcontainers, no
  * real WS) so they stay pure-Effect — `TestClock`-drivable, no real
  * sleeps. The connection's `write` records outbound frames; the test
- * synthesizes inbound responses by calling `conn.jsonRpcClient.resolve`
+ * synthesizes inbound responses by calling `conn.originator.resolve`
  * (the same path the server's read fiber uses).
  */
 import { it as effectIt } from "@effect/vitest";
@@ -56,7 +56,7 @@ interface FakeConn {
  * Build a real {@link MoltZapConnection} whose `write` records outbound
  * frames into a Ref. Caller can `JSON.parse` the captured frame to get
  * the request id, then synthesize a matching response via
- * `conn.jsonRpcClient.resolve`. The JsonRpcClient's Scope finalizer
+ * `conn.originator.resolve`. The JsonRpcClient's Scope finalizer
  * fails every still-pending call with `NotConnectedError` when the
  * surrounding scope closes — close to drive the disconnect path.
  */
@@ -67,7 +67,7 @@ const makeFakeConnection = (
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
     const write: MoltZapConnection["write"] = (raw) =>
       Ref.update(outbound, (xs) => [...xs, raw]);
-    const jsonRpcClient = yield* acquireConnectionRpcClient(connId, write);
+    const originator = yield* acquireConnectionRpcClient(connId, write);
     const conn: MoltZapConnection = {
       id: connId,
       write,
@@ -76,7 +76,7 @@ const makeFakeConnection = (
       lastPong: Date.now(),
       conversationIds: new Set<string>(),
       mutedConversations: new Set<string>(),
-      jsonRpcClient,
+      originator,
     };
     return { conn, outbound };
   });
@@ -312,7 +312,7 @@ function remoteMessageAuthorizeForwards() {
     const request = yield* waitForLatestRequest(fixture.outbound);
     expectMessageAuthorizeRequest(request, taskId);
 
-    yield* fixture.conn.jsonRpcClient.resolve(
+    yield* fixture.conn.originator.resolve(
       MessagesAuthorize.encodeResponse(request.id, {
         verdict: {
           decision: "Forward",
@@ -363,7 +363,7 @@ function malformedRemoteMessageBlocks() {
       ),
     );
     const id = yield* waitForLatestRequestId(fixture.outbound);
-    yield* fixture.conn.jsonRpcClient.resolve(
+    yield* fixture.conn.originator.resolve(
       MessagesAuthorize.encodeResponse(id, { wrongShape: "nope" }),
     );
     const verdict = yield* Fiber.join(fiber);
@@ -395,7 +395,7 @@ function remoteDispatchGrantPassesThrough() {
       ),
     );
     const id = yield* waitForLatestRequestId(fixture.outbound);
-    yield* fixture.conn.jsonRpcClient.resolve(
+    yield* fixture.conn.originator.resolve(
       DispatchAuthorize.encodeResponse(id, {
         admission: { decision: "grant", leaseId: "lease-1" },
       }),
@@ -420,7 +420,7 @@ function remoteDispatchDenyPassesThrough() {
       ),
     );
     const id = yield* waitForLatestRequestId(fixture.outbound);
-    yield* fixture.conn.jsonRpcClient.resolve(
+    yield* fixture.conn.originator.resolve(
       DispatchAuthorize.encodeResponse(id, {
         admission: { decision: "deny", reason: "policy/x" },
       }),
@@ -484,7 +484,7 @@ function malformedRemoteDispatchDenies() {
       ),
     );
     const id = yield* waitForLatestRequestId(fixture.outbound);
-    yield* fixture.conn.jsonRpcClient.resolve(
+    yield* fixture.conn.originator.resolve(
       DispatchAuthorize.encodeResponse(id, { wrongShape: "nope" }),
     );
     const verdict = yield* Fiber.join(fiber);

@@ -32,7 +32,7 @@ import {
 } from "@moltzap/protocol/network";
 import { agentId } from "@moltzap/protocol/testing";
 import { ConnectionManager } from "../transport/connection.js";
-import { unusedJsonRpcClient } from "../transport/connection.test-utils.js";
+import { unusedOriginator } from "../transport/connection.test-utils.js";
 import {
   AgentEndpointResolver,
   connectionId,
@@ -85,7 +85,7 @@ function fakeConnection(
     lastPong: 0,
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    jsonRpcClient: unusedJsonRpcClient(),
+    originator: unusedOriginator(),
   };
 }
 
