@@ -22,11 +22,19 @@ pattern, migration recipe, and bug classes it catches.
 - **Refine capabilities** validate an already-fetched row produced earlier
   in the handler/service. Naming: `refineXxx(row)` returns
   `Effect.Effect<Xxx["Type"], <ValidationError>>`.
-- **Composite capabilities** (currently `MessageSendPermission`) collapse
-  intersection-with-alternative authorization paths into a single tag whose
-  value is a discriminated union, because Effect's R channel cannot express
-  "exactly one of N alternative tags must be provided" (Architect Decision A
-  in #606; see `message-send-permission.ts` header for the rationale).
+- **Composite capabilities** collapse multi-gate authorization paths into a
+  single tag whose value is either a discriminated union (when the gates
+  have alternative arms — Architect Decisions A, C) or a flat record (when
+  the gates are unconditional — Architect Decision D). Effect's R channel
+  cannot express "exactly one of N alternative tags must be provided" AND
+  composite payloads avoid re-running gates when a short-circuit applies.
+  Composites today:
+  - `MessageSendPermission` — Decision A; three-arm discriminated union.
+  - `ConversationCreateAuthorization` — Decision C (r3); two-arm union
+    that preserves the DM-dedup short-circuit. The `ExistingDm` arm
+    bypasses policy + capacity gates; `PermittedToCreate` proceeds.
+  - `AddParticipantPermission` — Decision D (r3); single flat record
+    carrying every gate-proof payload (no short-circuit arm).
 
 ### Phase boundary
 

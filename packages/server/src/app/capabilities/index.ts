@@ -74,13 +74,25 @@ export {
   obtainGroupCapacityForCreate,
 } from "./group-capacity-for-create.js";
 
-// Composite — Architect Decision A
+// Composites — Architect Decisions A, C, D (r3 amendment for C+D)
 export {
   MessageSendPermission,
   type MessageSendPermissionValue,
   type ObtainMessageSendPermissionInput,
   obtainMessageSendPermission,
 } from "./message-send-permission.js";
+export {
+  ConversationCreateAuthorization,
+  type ConversationCreateAuthorizationValue,
+  type ObtainConversationCreateAuthorizationInput,
+  obtainConversationCreateAuthorization,
+} from "./conversation-create-authorization.js";
+export {
+  AddParticipantPermission,
+  type AddParticipantPermissionValue,
+  type ObtainAddParticipantPermissionInput,
+  obtainAddParticipantPermission,
+} from "./add-participant-permission.js";
 
 // Runtime equality guards
 export {
