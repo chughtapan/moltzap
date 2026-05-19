@@ -27,16 +27,19 @@
  * baseline (architect §7).
  */
 import { Effect, Exit, Scope } from "effect";
-import { AppsRegister, DispatchAuthorize } from "../../../app/methods.js";
 import { TasksCreate } from "../../../task/methods.js";
 import {
   makeTestClient,
   type TestClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
+import {
+  makeTestAppManifest,
+  registerTestApp,
+  type TestApp,
+} from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
-import { leftOrNull, sendUntypedRpc } from "../_shared/_helpers.js";
 
 const CATEGORY = "boundary" as const;
 const PROPERTY = "app-disconnect-fail-policy";
@@ -74,15 +77,12 @@ function runAppDisconnectFailPolicy(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
       const appSession = yield* acquireAppClientSession(ctx);
-      yield* registerDisconnectFailApp(appSession).pipe(
+      const app = yield* registerDisconnectFailApp(appSession).pipe(
         Effect.catchAll((e) =>
           closeAppSession(appSession).pipe(Effect.zipRight(Effect.fail(e))),
         ),
       );
-      yield* appSession.client.handleServerRpc(
-        DispatchAuthorize,
-        () => Effect.never,
-      );
+      yield* app.dispatchAuthorize.silence;
       yield* acquireSenderClient(ctx);
       yield* closeAppSession(appSession);
       return yield* missingTopologyUnavailable();
@@ -147,32 +147,18 @@ function acquireScopedClient(
   );
 }
 
-function registerDisconnectFailApp(session: AppClientSession) {
-  return Effect.gen(function* () {
-    const appId = `adfp-${Date.now().toString(DATE_ID_RADIX)}`;
-    const registerOutcome = yield* sendUntypedRpc(
-      session.client,
-      AppsRegister,
-      {
-        manifest: {
-          appId,
-          name: `Disconnect-fail app ${appId}`,
-          conversations: [
-            { key: "main", name: "Main", participantFilter: "all" },
-          ],
-          hooks: {
-            dispatch_authorize: { timeout_ms: 5000 },
-          },
-        },
-      },
-    ).pipe(Effect.either);
-    const registerFailure = leftOrNull(registerOutcome);
-    if (registerFailure !== null) {
-      return yield* Effect.fail(
-        unavailable(`apps/register failed: ${registerFailure._tag}`),
-      );
-    }
-  });
+function registerDisconnectFailApp(
+  session: AppClientSession,
+): Effect.Effect<TestApp, PropertyUnavailable> {
+  const appId = `adfp-${Date.now().toString(DATE_ID_RADIX)}`;
+  return registerTestApp({
+    client: session.client,
+    manifest: makeTestAppManifest({
+      appId,
+      name: `Disconnect-fail app ${appId}`,
+      dispatchAuthorizeTimeoutMs: 5_000,
+    }),
+  }).pipe(Effect.mapError((e) => unavailable(e.message)));
 }
 
 function acquireSenderClient(ctx: ConformanceRunContext) {
