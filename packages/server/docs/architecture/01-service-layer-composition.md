@@ -96,8 +96,30 @@ not just the immediately-above tier. That lets RPC handler bodies pull any
 service via `yield* XServiceTag` and have it resolved structurally by the
 shared `dispatchRuntime` — no per-frame `Effect.provide`.
 
+## Convention: package-private gate methods (Spec E Decision B / Option A)
+
+Each service class exposes a thin SQL gate per privileged operation
+— `loadTaskAsTmAuthority`, `loadTaskWithReadAccess`,
+`assertConversationInTask`, `assertConversationParticipant`, etc. These
+are **NOT** part of the service's exported public surface. They are
+`@internal` exported methods (the TS `private` modifier was dropped per
+Architect Decision B / Option A — `private` would block `obtain*`
+helpers in `app/capabilities/` from reaching the underlying check via
+the service Tag, regardless of DI path). The JSDoc `@internal` tag plus
+the directory-level boundary note in
+`packages/server/src/app/capabilities/README.md` are the
+package-internal convention; lint enforcement is not currently wired.
+
+Naming convention: gate methods use the `assert*` / `load*` prefix, not
+`require*` (Spec E #601 rename — the `require[A-Z]` prefix was reserved
+for the deleted pre-Spec-E runtime checks). The audit grep
+`packages/server/src/**/*.ts | grep require[A-Z]` returns 0 hits in
+services prod code; that gate is the structural invariant Decision B
+encodes.
+
 ## See also
 
 - [§02 WebSocket connection lifecycle](./02-ws-connection-lifecycle.md)
 - [§06 Lease lifecycle](./06-lease-lifecycle.md)
 - [§09 Shutdown sequence](./09-shutdown-sequence.md)
+- [§10 R-channel capabilities](./10-r-channel-capabilities.md) — `obtain*` smart constructors that consume the `assert*` / `load*` gates documented above

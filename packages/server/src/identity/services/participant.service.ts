@@ -35,7 +35,9 @@ export class ParticipantService {
     );
   }
 
-  requireExists(agentId: AgentId): Effect.Effect<string | null, NotFoundError> {
+  assertAgentExists(
+    agentId: AgentId,
+  ): Effect.Effect<string | null, NotFoundError> {
     return Effect.gen(this, function* () {
       const resolved = yield* this.resolve(agentId);
       if (!resolved.exists) {
@@ -48,7 +50,7 @@ export class ParticipantService {
   }
 
   /** Get owner user ID or throw Forbidden. Use in handlers that require a claimed agent. */
-  static requireOwnerId(
+  static assertOwnerId(
     ctx: AuthenticatedContext,
   ): Effect.Effect<string, ForbiddenError> {
     const userId = ctx.ownerUserId;

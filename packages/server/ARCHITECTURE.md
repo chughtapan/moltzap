@@ -71,6 +71,7 @@ typed `RpcMethodBinding<Params, Result, Error, Tags>`.
 | §3.7 HTTP route surface | [docs/architecture/07-http-routes.md](docs/architecture/07-http-routes.md) |
 | §3.8 Notification fan-out | [docs/architecture/08-notification-fanout.md](docs/architecture/08-notification-fanout.md) |
 | §3.9 Shutdown sequence | [docs/architecture/09-shutdown-sequence.md](docs/architecture/09-shutdown-sequence.md) |
+| §3.10 R-channel capabilities (typed authority tokens) | [docs/architecture/10-r-channel-capabilities.md](docs/architecture/10-r-channel-capabilities.md) |
 
 ## 4. Data Stores
 
@@ -173,3 +174,11 @@ handler-invocation time.
   `createCoreApp` time from `FullLive`. Drives all dispatch fibers
   (RPC handlers, HTTP routes, WS finalizers) so handler `yield* Tag`
   reads resolve structurally without per-frame `Effect.provide`.
+- **R-channel capability** — Nominal `Context.Tag` whose value carries
+  the runtime IDs + already-fetched payload row that today's `requireX`
+  runtime check fetches. Privileged service methods declare the
+  capability in their R channel; handlers `provideServiceEffect` it via
+  an `obtain*` smart constructor. The compiler enforces "the obtain
+  happened"; the runtime check moves to the obtain helper. Defined in
+  `src/app/capabilities/`; pattern documented in
+  [docs/architecture/10-r-channel-capabilities.md](docs/architecture/10-r-channel-capabilities.md).

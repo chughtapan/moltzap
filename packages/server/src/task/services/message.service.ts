@@ -1,5 +1,5 @@
 import type { Db } from "../../db/client.js";
-import type { Message, Part, TaskStatus } from "@moltzap/protocol";
+import type { Message, Part } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId,
@@ -68,6 +68,7 @@ import {
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
 import { endpointAddressForAgent } from "./task.service.js";
+import { MessageSendPermission } from "../../app/capabilities/index.js";
 import type {
   ActiveKekRow,
   ConversationDek,
@@ -255,7 +256,11 @@ export class MessageService {
 
   sendInsert(
     input: SendInsertInput,
-  ): Effect.Effect<SendInsertResult, MessageServiceError> {
+  ): Effect.Effect<
+    SendInsertResult,
+    MessageServiceError,
+    MessageSendPermission
+  > {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
 
@@ -263,18 +268,23 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<
     SendInsertResult,
-    MessageServiceError | SqlError | Cause.NoSuchElementException
+    MessageServiceError | SqlError | Cause.NoSuchElementException,
+    MessageSendPermission
   > {
     return Effect.gen(this, function* () {
-      yield* this.conversations.requireParticipant(
-        input.conversationId,
-        input.senderAgentId,
-      );
+      const permission = yield* MessageSendPermission;
+      // Defensive: handler-input <-> capability identity match.
+      if (
+        permission.conversationId !== input.conversationId ||
+        permission.senderAgentId !== input.senderAgentId
+      ) {
+        return yield* Effect.fail(
+          new ForbiddenError({
+            message: "capability/message-send target mismatch",
+          }),
+        );
+      }
       const conv = yield* this.readSendConversation(input.conversationId);
-      yield* this.requireTaskCanReceiveMessage(input, conv);
-      yield* this.requireConversationOpen(conv);
-      yield* this.requireReplyTarget(input);
-
       const parts = [...input.parts];
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
       const row = yield* this.insertMessageRow(input, conv, encrypted);
@@ -288,7 +298,15 @@ export class MessageService {
     });
   }
 
-  private readSendConversation(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private send-
+   * conversation projection consumed by `obtainMessageSendPermission`
+   * (Decision A composite). Joins `conversations` ⋈ `tasks` and returns
+   * the `(archived_at, task_id, tm_endpoint_address, task_status)`
+   * projection.
+   * @internal
+   */
+  readSendConversation(
     conversationId: ConversationId,
   ): Effect.Effect<
     SendConversationRow,
@@ -308,25 +326,22 @@ export class MessageService {
     );
   }
 
-  private requireConversationOpen(
-    conv: SendConversationRow,
-  ): Effect.Effect<void, ConversationArchivedError> {
-    if (conv.archived_at === null) return Effect.void;
-    return Effect.fail(new ConversationArchivedError({}));
-  }
-
-  private requireReplyTarget(
-    input: SendInsertInput,
+  /**
+   * Reply-target presence gate consumed by `obtainValidReplyTarget`
+   * (Spec E #601). Kept as a method because it needs `this.db`.
+   * @internal
+   */
+  assertReplyTarget(
+    conversationId: ConversationId,
+    replyToId: MessageId,
   ): Effect.Effect<void, NotFoundError | SqlError> {
-    const replyToId = input.replyToId;
-    if (replyToId === undefined) return Effect.void;
     return Effect.gen(this, function* () {
       const replyExistsOpt = yield* takeFirstOption(
         this.db
           .selectFrom("messages")
           .select(sql`1`.as("one"))
           .where("id", "=", replyToId)
-          .where("conversation_id", "=", input.conversationId),
+          .where("conversation_id", "=", conversationId),
       );
       if (Option.isNone(replyExistsOpt)) {
         return yield* Effect.fail(
@@ -334,25 +349,6 @@ export class MessageService {
         );
       }
     });
-  }
-
-  private requireTaskCanReceiveMessage(
-    input: SendInsertInput,
-    conv: SendConversationRow,
-  ): Effect.Effect<void, TaskClosedError> {
-    if (input.bypassTmRouting || taskStatusAcceptsMessages(conv.task_status)) {
-      return Effect.void;
-    }
-    return Effect.fail(
-      new TaskClosedError({
-        message: `Task is ${conv.task_status}`,
-        data: {
-          reason: "TaskClosed",
-          taskId: conv.task_id,
-          status: conv.task_status,
-        },
-      }),
-    );
   }
 
   private insertMessageRow(
@@ -715,7 +711,9 @@ export class MessageService {
     );
   }
 
-  send(input: SendMessageInput): Effect.Effect<Message, MessageServiceError> {
+  send(
+    input: SendMessageInput,
+  ): Effect.Effect<Message, MessageServiceError, MessageSendPermission> {
     return Effect.gen(this, function* () {
       const bypassTmRouting = input.bypassTmRouting ?? false;
       const carrier = yield* this.sendInsert({
@@ -806,7 +804,7 @@ export class MessageService {
   ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, ForbiddenError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.conversations.requireParticipant(
+        yield* this.conversations.assertConversationParticipant(
           conversationId,
           requesterAgentId,
         );
@@ -885,7 +883,7 @@ export class MessageService {
    * Visibility helper that returns true when the caller is the registered TM for
    * an app-bound task.
    *
-   * Issue #560 mirrors `requireConversationAdminAuthority`'s second branch:
+   * Issue #560 mirrors `assertConversationAdminAuthority`'s second branch:
    *
    *   task.app_id IS NOT NULL
    *   AND task.tm_endpoint_address === `tm:agent:&lt;callerAgentId>`
@@ -1151,25 +1149,6 @@ export class MessageService {
       createdAt: row.created_at.toISOString(),
     };
   }
-}
-
-/**
- * Exhaustive predicate over `tasks.status`. Returns true iff the task
- * is in a state that can still receive messages (`waiting | active`);
- * `closed | failed` fail-closed via the `TaskClosed` RPC error. The
- * The typed status map forces every future addition to `TaskStatus`
- * (Postgres + protocol) to surface here as a compile error rather than
- * silently falling through to "accept".
- */
-const TASK_STATUS_ACCEPTS_MESSAGES = {
-  waiting: true,
-  active: true,
-  closed: false,
-  failed: false,
-} satisfies Record<TaskStatus, boolean>;
-
-function taskStatusAcceptsMessages(status: TaskStatus): boolean {
-  return TASK_STATUS_ACCEPTS_MESSAGES[status];
 }
 
 /**
