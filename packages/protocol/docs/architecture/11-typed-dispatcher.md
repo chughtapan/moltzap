@@ -2,7 +2,7 @@
 
 Per-kind static handler tables, three specialized factories, auto-provision
 dispatcher. Replaces the dynamic register/unregister design (Spec A #595)
-and the legacy `makeServerConnection` / `makeOriginator` pair.
+and the legacy `makeJsonRpcServer` / `makeJsonRpcClient` pair.
 
 This document is the per-flow detail for `packages/protocol`. Source-of-truth
 is `packages/protocol/src/transport/{handlers,capabilities,connection,
