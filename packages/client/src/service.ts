@@ -491,14 +491,20 @@ export class MoltZapService {
     // live subscription's Stream — but since our consumer fiber has
     // already been interrupted, the typed-error delivery is to a
     // terminated consumer (no-op, idempotent).
-    if (this.serviceScope !== null) {
-      Effect.runFork(Scope.close(this.serviceScope, Exit.void));
-      this.serviceScope = null;
-    }
-    if (this.client) {
-      Effect.runFork(this.client.close());
-    }
+    // Order: close the service-scope FIRST (interrupting the
+    // `subscribeAll → runForEach` fiber), THEN close the ws-client.
+    // zipRight chains the two Effects sequentially inside a single
+    // fork so the ordering is honoured deterministically.
+    const scopeToClose = this.serviceScope;
+    const clientToClose = this.client;
+    this.serviceScope = null;
     this.client = null;
+    const teardownChain = (
+      scopeToClose !== null ? Scope.close(scopeToClose, Exit.void) : Effect.void
+    ).pipe(
+      Effect.zipRight(clientToClose ? clientToClose.close() : Effect.void),
+    );
+    Effect.runFork(teardownChain);
     Effect.runSync(
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),
