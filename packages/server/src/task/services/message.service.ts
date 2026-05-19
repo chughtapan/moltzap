@@ -266,15 +266,15 @@ export class MessageService {
     MessageServiceError | SqlError | Cause.NoSuchElementException
   > {
     return Effect.gen(this, function* () {
-      yield* this.conversations.requireParticipant(
+      yield* this.conversations.assertConversationParticipant(
         input.conversationId,
         input.senderAgentId,
       );
       const conv = yield* this.readSendConversation(input.conversationId);
-      yield* this.requireTaskCanReceiveMessage(input, conv);
-      yield* this.requireConversationOpen(conv);
+      yield* this.assertTaskCanReceiveMessage(input, conv);
+      yield* this.assertConversationOpen(conv);
       if (input.replyToId !== undefined) {
-        yield* this.requireReplyTarget(input.conversationId, input.replyToId);
+        yield* this.assertReplyTarget(input.conversationId, input.replyToId);
       }
 
       const parts = [...input.parts];
@@ -325,7 +325,7 @@ export class MessageService {
    * pre-composite call site inside `sendInsertEffect`.
    * @internal
    */
-  requireConversationOpen(
+  assertConversationOpen(
     conv: SendConversationRow,
   ): Effect.Effect<void, ConversationArchivedError> {
     if (conv.archived_at === null) return Effect.void;
@@ -341,7 +341,7 @@ export class MessageService {
    * it needs `this.db`.
    * @internal
    */
-  requireReplyTarget(
+  assertReplyTarget(
     conversationId: ConversationId,
     replyToId: MessageId,
   ): Effect.Effect<void, NotFoundError | SqlError> {
@@ -367,7 +367,7 @@ export class MessageService {
    * pre-composite call site inside `sendInsertEffect`.
    * @internal
    */
-  requireTaskCanReceiveMessage(
+  assertTaskCanReceiveMessage(
     input: SendInsertInput,
     conv: SendConversationRow,
   ): Effect.Effect<void, TaskClosedError> {
@@ -837,7 +837,7 @@ export class MessageService {
   ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, ForbiddenError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.conversations.requireParticipant(
+        yield* this.conversations.assertConversationParticipant(
           conversationId,
           requesterAgentId,
         );
@@ -916,7 +916,7 @@ export class MessageService {
    * Visibility helper that returns true when the caller is the registered TM for
    * an app-bound task.
    *
-   * Issue #560 mirrors `requireConversationAdminAuthority`'s second branch:
+   * Issue #560 mirrors `assertConversationAdminAuthority`'s second branch:
    *
    *   task.app_id IS NOT NULL
    *   AND task.tm_endpoint_address === `tm:agent:&lt;callerAgentId>`

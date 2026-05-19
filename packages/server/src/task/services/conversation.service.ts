@@ -29,7 +29,7 @@ import {
   takeFirstOrFail,
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
-import { requireConversationAdminAuthority } from "./conversation-admin-authority.js";
+import { assertConversationAdminAuthority } from "./conversation-admin-authority.js";
 import type {
   AddParticipantOptions,
   ContactEdgeInput,
@@ -107,17 +107,17 @@ export class ConversationService {
     ConversationServiceError | TaskMintError | SqlError
   > {
     return Effect.gen(this, function* () {
-      const ownerByAgentId = yield* this.requireAgentsExist(input.agentIds);
+      const ownerByAgentId = yield* this.loadAgentOwners(input.agentIds);
       const existingDm = yield* this.existingDmForCreate(input);
       if (existingDm !== null) return existingDm;
 
-      yield* this.requireContactPolicyForCreate(
+      yield* this.assertContactPolicyForCreate(
         input.creatorAgentId,
         input.agentIds,
         input.type,
         ownerByAgentId,
       );
-      yield* this.requireGroupCapacityForCreate(input.type, input.agentIds);
+      yield* this.assertGroupCapacityForCreate(input.type, input.agentIds);
 
       const task = yield* input.mintTask;
       const created = yield* this.insertConversation(input, task.id);
@@ -132,7 +132,7 @@ export class ConversationService {
    * helper. Not part of the exported public surface.
    * @internal
    */
-  requireAgentsExist(
+  loadAgentOwners(
     agentIds: ReadonlyArray<AgentId>,
   ): Effect.Effect<
     ReadonlyMap<AgentId, string | null>,
@@ -184,7 +184,7 @@ export class ConversationService {
    * `mintTask` Effect).
    * @internal
    */
-  requireContactPolicyForCreate(
+  assertContactPolicyForCreate(
     creatorAgentId: AgentId,
     targetAgentIds: ReadonlyArray<AgentId>,
     pathType: "dm" | "group",
@@ -192,7 +192,7 @@ export class ConversationService {
   ): Effect.Effect<void, ConversationServiceError> {
     const policy = this.resolveContactPolicy();
     if (policy === null || targetAgentIds.length === 0) return Effect.void;
-    return this.requireCreatorContactsAll({
+    return this.assertCreatorContactsAll({
       creatorAgentId,
       targetAgentIds,
       ownerByAgentId,
@@ -208,7 +208,7 @@ export class ConversationService {
    * `Effect.never as never` shim on the obtain-helper call site.
    * @internal
    */
-  requireGroupCapacityForCreate(
+  assertGroupCapacityForCreate(
     pathType: "dm" | "group",
     targetAgentIds: ReadonlyArray<AgentId>,
   ): Effect.Effect<void, ConversationFullError> {
@@ -473,7 +473,10 @@ export class ConversationService {
   > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.requireParticipant(conversationId, requesterAgentId);
+        yield* this.assertConversationParticipant(
+          conversationId,
+          requesterAgentId,
+        );
 
         const convOpt = yield* takeFirstOption(
           this.db
@@ -518,7 +521,7 @@ export class ConversationService {
   ): Effect.Effect<Conversation, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* requireConversationAdminAuthority(
+        yield* assertConversationAdminAuthority(
           this.db,
           conversationId,
           requesterAgentId,
@@ -549,7 +552,7 @@ export class ConversationService {
   ): Effect.Effect<{ archivedAt: string }, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* requireConversationAdminAuthority(
+        yield* assertConversationAdminAuthority(
           this.db,
           conversationId,
           agentId,
@@ -591,7 +594,7 @@ export class ConversationService {
   ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* requireConversationAdminAuthority(
+        yield* assertConversationAdminAuthority(
           this.db,
           conversationId,
           agentId,
@@ -662,16 +665,16 @@ export class ConversationService {
     ConversationServiceError | SqlError | Cause.NoSuchElementException
   > {
     return Effect.gen(this, function* () {
-      yield* this.requireAddParticipantAuthority(input);
-      const targetOwnerUserId = yield* this.participants.requireExists(
+      yield* this.assertAddParticipantAuthority(input);
+      const targetOwnerUserId = yield* this.participants.assertAgentExists(
         input.agentId,
       );
-      yield* this.requireAddParticipantContactPolicy(
+      yield* this.assertAddParticipantContactPolicy(
         input.requesterAgentId,
         input.agentId,
         targetOwnerUserId,
       );
-      yield* this.requireParticipantCapacity(input.conversationId);
+      yield* this.assertParticipantCapacity(input.conversationId);
 
       const inserted = yield* this.insertParticipant(input);
       this.subscribeAddedParticipant(input);
@@ -686,11 +689,11 @@ export class ConversationService {
    * handler (post-D3 routes through `TmAuthority`).
    * @internal
    */
-  requireAddParticipantAuthority(
+  assertAddParticipantAuthority(
     input: AddParticipantOptions,
   ): Effect.Effect<void, ConversationServiceError | SqlError> {
     return Effect.gen(this, function* () {
-      yield* requireConversationAdminAuthority(
+      yield* assertConversationAdminAuthority(
         this.db,
         input.conversationId,
         input.requesterAgentId,
@@ -724,7 +727,7 @@ export class ConversationService {
    * carried `conversationId` as dead context.
    * @internal
    */
-  requireAddParticipantContactPolicy(
+  assertAddParticipantContactPolicy(
     requesterAgentId: AgentId,
     targetAgentId: AgentId,
     targetOwnerUserId: string | null,
@@ -757,7 +760,7 @@ export class ConversationService {
    * `addParticipantEffect`; no direct capability binding.
    * @internal
    */
-  requireParticipantCapacity(
+  assertParticipantCapacity(
     conversationId: ConversationId,
   ): Effect.Effect<
     void,
@@ -851,7 +854,7 @@ export class ConversationService {
   ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* requireConversationAdminAuthority(
+        yield* assertConversationAdminAuthority(
           this.db,
           conversationId,
           requesterAgentId,
@@ -969,7 +972,7 @@ export class ConversationService {
     );
   }
 
-  requireParticipant(
+  assertConversationParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
   ): Effect.Effect<void, ForbiddenError> {
@@ -1050,11 +1053,11 @@ export class ConversationService {
   /**
    * Spec E (#601) Decision B / Option A — package-private creator-
    * contact-policy fan-out. Consumed transitively via
-   * `requireContactPolicyForCreate` and (post-Phase-1) directly by the
+   * `assertContactPolicyForCreate` and (post-Phase-1) directly by the
    * composite contact-policy obtain helper if needed.
    * @internal
    */
-  requireCreatorContactsAll(
+  assertCreatorContactsAll(
     input: CreatorContactPolicyInput,
   ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
@@ -1097,8 +1100,8 @@ export class ConversationService {
 
   /**
    * Spec E (#601) Decision B / Option A — package-private single-edge
-   * contact-policy probe. Consumed by `requireCreatorContactsAll` and
-   * `requireAddParticipantContactPolicy`.
+   * contact-policy probe. Consumed by `assertCreatorContactsAll` and
+   * `assertAddParticipantContactPolicy`.
    * @internal
    */
   checkContactEdge(

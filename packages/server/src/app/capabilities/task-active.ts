@@ -9,7 +9,7 @@ import type { TaskId } from "@moltzap/protocol/task";
  * Refine-shape: takes a `SendConversationRow` already fetched by
  * `MessageService.readSendConversation` and validates the `task_status`
  * column inline. No DB call. Replaces (Phase 4):
- * `MessageService.requireTaskCanReceiveMessage` for the non-bypass
+ * `MessageService.assertTaskCanReceiveMessage` for the non-bypass
  * branch.
  *
  * The TM-bypass branch is NOT a `TaskActive` proof — it's modeled in
@@ -37,7 +37,7 @@ export class TaskActive extends Context.Tag("@moltzap/server/TaskActive")<
 
 /**
  * Refine constructor. Inlines today's status check from
- * `MessageService.requireTaskCanReceiveMessage` (non-bypass branch).
+ * `MessageService.assertTaskCanReceiveMessage` (non-bypass branch).
  * Fails with `TaskClosedError` when status is `closed` / `failed`.
  */
 export const refineTaskActive = (

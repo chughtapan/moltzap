@@ -7,7 +7,7 @@ import type { ConversationId } from "@moltzap/protocol/task";
  *
  * Refine-shape: takes the `archived_at` column read inline by the
  * caller. Replaces (Phase 4):
- * `MessageService.requireConversationOpen` standalone consumers.
+ * `MessageService.assertConversationOpen` standalone consumers.
  *
  * In MessagesSend, this proof is folded into the composite
  * `MessageSendPermission` value (every constructor verifies the
@@ -23,7 +23,7 @@ export class ConversationNotArchived extends Context.Tag(
 
 /**
  * Refine constructor. Inlines today's archived-at check from
- * `MessageService.requireConversationOpen`. Fails with
+ * `MessageService.assertConversationOpen`. Fails with
  * `ConversationArchivedError` when `archivedAt` is non-null.
  */
 export const refineConversationNotArchived = (

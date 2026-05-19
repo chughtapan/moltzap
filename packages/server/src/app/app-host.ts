@@ -50,7 +50,7 @@ function errorMessage(err: unknown): string {
 /**
  * For app-bound conversations whose TM IS the moderator agent (the
  * common case per architect plan §3 + prereq 2 §3 — the
- * `requireConversationAdminAuthority` gate accepts only this shape for
+ * `assertConversationAdminAuthority` gate accepts only this shape for
  * `app_id IS NOT NULL`), `tasks.tm_endpoint_address` is the wire
  * address `tm:agent:&lt;moderatorAgentId>`. Recover the agentId so the
  * deny arm of the forked round-trip can call `removeParticipant`

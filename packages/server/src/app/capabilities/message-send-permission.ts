@@ -133,7 +133,7 @@ export interface ObtainMessageSendPermissionInput {
  *      `MessageService.readSendConversation` (joins `conversations ⋈
  *      tasks`; promoted to `@internal` in Phase 1).
  *   2. Prove caller is a conversation participant via
- *      `ConversationService.requireParticipant`.
+ *      `ConversationService.assertConversationParticipant`.
  *   3. Refine `conversation.archived_at IS NULL` via
  *      `refineConversationNotArchived` (no DB read; uses column).
  *   4. Decide TM-bypass by comparing
@@ -142,7 +142,7 @@ export interface ObtainMessageSendPermissionInput {
  *      `@internal` in Phase 1) — carried in every variant's `task`
  *      payload field.
  *   6. Resolve the reply target: when present, verify via
- *      `MessageService.requireReplyTarget`.
+ *      `MessageService.assertReplyTarget`.
  *   7. Non-bypass: refine `task.status` via `refineTaskActive` and
  *      return `forParticipantOnActiveTask`.
  *      Bypass + no reply: return `forTmBypass`.
@@ -150,8 +150,8 @@ export interface ObtainMessageSendPermissionInput {
  *
  * Error channel — union of every source-service public failure that
  * the body propagates without rewrap:
- *   - `ForbiddenError` from `requireParticipant`
- *   - `NotFoundError` from `requireReplyTarget`, `fetchTask`
+ *   - `ForbiddenError` from `assertConversationParticipant`
+ *   - `NotFoundError` from `assertReplyTarget`, `fetchTask`
  *   - `ConversationArchivedError` from `refineConversationNotArchived`
  *   - `TaskClosedError` from `refineTaskActive`
  */
@@ -169,7 +169,7 @@ const resolveReplyTarget = (
   return Effect.gen(function* () {
     const msgService = yield* MessageServiceTag;
     yield* catchSqlErrorAsDefect(
-      msgService.requireReplyTarget(conversationId, replyToId),
+      msgService.assertReplyTarget(conversationId, replyToId),
     );
     return { _tag: "ValidReply", replyToId } as const;
   });
@@ -266,7 +266,7 @@ export const obtainMessageSendPermission = (
     // `NoSuchElement` failure path and surfaces as an internal defect
     // (500), regressing the typed `ForbiddenError` today's
     // `sendInsertEffect` raises.
-    yield* convService.requireParticipant(
+    yield* convService.assertConversationParticipant(
       input.conversationId,
       input.senderAgentId,
     );

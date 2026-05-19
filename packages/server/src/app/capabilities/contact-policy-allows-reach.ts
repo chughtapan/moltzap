@@ -7,8 +7,8 @@ import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 /**
  * Tier 3 capability — caller-side contact policy permits creator →
  * targets reach. Single capability covering the family of policy checks
- * (`requireContactPolicyForCreate`, `requireAddParticipantContactPolicy`,
- * `requireCreatorContactsAll`, `checkContactEdge`).
+ * (`assertContactPolicyForCreate`, `assertAddParticipantContactPolicy`,
+ * `assertCreatorContactsAll`, `checkContactEdge`).
  *
  * The composite is intentional (Spec E §Non-goals #6): four legacy
  * helpers survive as `@internal` implementation details of two `obtain`
@@ -31,7 +31,7 @@ export class ContactPolicyAllowsReach extends Context.Tag(
  * Smart constructor for `TaskCreate` / `ConversationCreate` flows.
  *
  * Wraps (does not re-implement) the existing named service gate
- * `ConversationService.requireContactPolicyForCreate` — Phase 1
+ * `ConversationService.assertContactPolicyForCreate` — Phase 1
  * narrows the gate's signature to `(creatorAgentId, targetAgentIds,
  * pathType, ownerByAgentId)` so the obtain helper delegates without a
  * `mintTask: Effect.never as never` synthesis shim. Single source of
@@ -61,8 +61,8 @@ export const obtainContactPolicyForCreate = (
     Effect.gen(function* () {
       const conversations = yield* ConversationServiceTag;
       const ownerByAgentId =
-        yield* conversations.requireAgentsExist(targetAgentIds);
-      yield* conversations.requireContactPolicyForCreate(
+        yield* conversations.loadAgentOwners(targetAgentIds);
+      yield* conversations.assertContactPolicyForCreate(
         creatorAgentId,
         targetAgentIds,
         type,
@@ -77,7 +77,7 @@ export const obtainContactPolicyForCreate = (
  * `ConversationAddParticipant` flows.
  *
  * Wraps the existing named service gate
- * `ConversationService.requireAddParticipantContactPolicy` — Phase 1
+ * `ConversationService.assertAddParticipantContactPolicy` — Phase 1
  * narrows the gate's signature to `(requesterAgentId, targetAgentId,
  * targetOwnerUserId)` so the obtain helper delegates without
  * synthesizing an `AddParticipantOptions` shim with a placeholder
@@ -98,11 +98,11 @@ export const obtainContactPolicyForAdd = (
   catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const conversations = yield* ConversationServiceTag;
-      const ownerByAgentId = yield* conversations.requireAgentsExist([
+      const ownerByAgentId = yield* conversations.loadAgentOwners([
         targetAgentId,
       ]);
       const targetOwnerUserId = ownerByAgentId.get(targetAgentId) ?? null;
-      yield* conversations.requireAddParticipantContactPolicy(
+      yield* conversations.assertAddParticipantContactPolicy(
         creatorAgentId,
         targetAgentId,
         targetOwnerUserId,

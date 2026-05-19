@@ -10,7 +10,7 @@ import { ParticipantServiceTag } from "../layers.js";
  * are valid existence proofs but have no owner).
  *
  * Replaces (Phase 3): the per-agent existence checks inside
- * `ConversationService.requireAgentsExist` (which becomes an `@internal`
+ * `ConversationService.loadAgentOwners` (which becomes an `@internal`
  * fan-out helper that the composite `ContactPolicyAllowsReach` obtain
  * still uses).
  */
@@ -25,10 +25,10 @@ export class AgentExists extends Context.Tag("@moltzap/server/AgentExists")<
 >() {}
 
 /**
- * Smart constructor. Delegates to `ParticipantService.requireExists`
+ * Smart constructor. Delegates to `ParticipantService.assertAgentExists`
  * (already public on the service class pre-Spec-E).
  *
- * Error channel — `ParticipantService.requireExists` fails with
+ * Error channel — `ParticipantService.assertAgentExists` fails with
  * `NotFoundError` when the `agents` row is absent. `SqlError` from the
  * underlying select is caught defectively inside the service helper.
  */
@@ -37,6 +37,6 @@ export const obtainAgentExists = (
 ): Effect.Effect<AgentExistsValue, NotFoundError, ParticipantServiceTag> =>
   Effect.gen(function* () {
     const participants = yield* ParticipantServiceTag;
-    const ownerUserId = yield* participants.requireExists(agentId);
+    const ownerUserId = yield* participants.assertAgentExists(agentId);
     return { agentId, ownerUserId };
   }).pipe(Effect.withSpan("obtainAgentExists"));
