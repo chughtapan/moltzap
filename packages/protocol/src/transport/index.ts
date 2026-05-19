@@ -33,7 +33,7 @@ export type {
   NotificationParamsOf,
 } from "./method.js";
 
-// Transport-layer call errors (raised by JsonRpcClient + ws-client).
+// Transport-layer call errors (raised by Originator + ws-client).
 export {
   NotConnectedError,
   RpcTimeoutError,
@@ -64,7 +64,7 @@ export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 
 // JSON-RPC originator error surface — outbound RPC error type used by
 // every `Connection.call` signature.
-export type { RpcCallError } from "./json-rpc-client.js";
+export type { RpcCallError } from "./originator.js";
 
 // Spec F (#617) — typed dispatcher. Stubs only on this branch; impl-staff
 // fills bodies. Type-level invariants are exercised by

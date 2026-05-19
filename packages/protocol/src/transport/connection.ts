@@ -1,9 +1,8 @@
 /**
  * @file `Connection&lt;...&gt;` types + 3 specialized factories — Spec F G2.
  *
- * The factories REPLACE the legacy `makeJsonRpcServer` / `makeJsonRpcClient`
- * pair. Each factory accepts an immutable handler table (server / TM)
- * and produces a `Connection` whose inbound surface is reified by that
+ * Each factory accepts an immutable handler table (server / TM) and
+ * produces a `Connection` whose inbound surface is reified by that
  * table and whose outbound surface is constrained by the kind's
  * `OutCall` / `OutNotify` generics.
  *
@@ -26,7 +25,7 @@ import type {
   ResultOf,
   RpcDefinition,
 } from "./method.js";
-import type { RpcCallError } from "./json-rpc-client.js";
+import type { RpcCallError } from "./originator.js";
 import type { NotConnectedError } from "./rpc-errors.js";
 import type {
   ServerHandlers,
@@ -198,7 +197,7 @@ type CapsArg<T> = Extract<CapsUnionOf<T>, Context.Tag<unknown, unknown>>;
  * and TypeScript reconstructs `Caps` from the slots' definitions.
  *
  * `write` is the wire-level write effect the surrounding transport
- * supplies; `idPrefix` mirrors `makeJsonRpcClient`'s idPrefix convention
+ * supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
  * for the outbound TM-callback path.
  */
 export interface ServerConnectionConfig<
@@ -256,7 +255,7 @@ export interface TaskMasterConnectionConfig<
  *     entry for each tag with the dispatcher-derived args, and threads
  *     `Effect.provideServiceEffect` over the handler effect.
  *   - outbound: an internalized originator (formerly the body of
- *     `makeJsonRpcClient`) that mints `${idPrefix}-N` ids and tracks
+ *     `makeOriginator`) that mints `${idPrefix}-N` ids and tracks
  *     pending Deferreds. Scope finalizer drains pending Deferreds with
  *     `NotConnectedError`.
  */

@@ -56,7 +56,7 @@ interface FakeConn {
  * Build a real {@link MoltZapConnection} whose `write` records outbound
  * frames into a Ref. Caller can `JSON.parse` the captured frame to get
  * the request id, then synthesize a matching response via
- * `conn.originator.resolve`. The JsonRpcClient's Scope finalizer
+ * `conn.originator.resolve`. The Originator's Scope finalizer
  * fails every still-pending call with `NotConnectedError` when the
  * surrounding scope closes — close to drive the disconnect path.
  */

@@ -7,7 +7,7 @@
  * Phase 12 S8a: server-side encapsulation. The Refs that previously
  * lived on `MoltZapConnection` (`appCallbackPending`,
  * `appCallbackRequestCounter`) are gone; their work is done inside the
- * connection's `JsonRpcClient`. Tests verify cleanup invariants through
+ * connection's `Originator`. Tests verify cleanup invariants through
  * observable behavior (exit shape, late-response `resolve` returning
  * `false`) rather than by reading the pending map's size.
  *

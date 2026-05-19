@@ -4,7 +4,7 @@
  * match the registered tagged-error registry.
  *
  * The resolver path that constructs the failure value lives in
- * `json-rpc-client.ts` (the originator helper internalised by `dispatch.ts`
+ * `originator.ts` (the originator helper internalised by `dispatch.ts`
  * post Spec F) and was the site of issue #511: the wire frame's `data`
  * payload was dropped because the registered class was constructed with
  * no arguments.
@@ -12,7 +12,7 @@
  * Post Spec F (architect plan #619 §6 FRI), this test exercises the
  * originator through the public typed-dispatcher entry point
  * `makeAgentClientConnection({ handlers: {}, ... })` rather than the
- * legacy `makeJsonRpcClient` factory.
+ * legacy `makeOriginator` factory.
  */
 import { describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect";

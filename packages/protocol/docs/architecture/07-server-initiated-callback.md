@@ -2,9 +2,9 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-Same client/server runtime, reversed roles. The server holds a `JsonRpcClient`
+Same client/server runtime, reversed roles. The server holds a `Originator`
 instance per moderator connection (lives in `@moltzap/server-core`); the
-client holds a `JsonRpcServer` wired with `taskCallbackHandlers`.
+client holds a `TypedDispatcher` wired with `taskCallbackHandlers`.
 
 ```text
 SERVER (forked fiber)                               CLIENT (moderator)
@@ -20,7 +20,7 @@ AppHost.runAuthorizeDispatch
   │                                                                   → {_tag: "ServerRequest",
   │                                                                      definition: DispatchAuthorize,
   │                                                                      params}
-  │                                                                 client-side JsonRpcServer.handle
+  │                                                                 client-side TypedDispatcher.handle
   │                                                                   ▼
   │                                                                 taskCallbackHandlers
   │                                                                   ["dispatch/authorize"]

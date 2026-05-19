@@ -786,9 +786,9 @@ effectTest(
 // construction. Duplicate-key binding is now a TypeScript compile-time
 // error at the object-literal site (duplicate property name on the
 // `appCallbackHandlers` literal). The previous runtime
-// `DuplicateServerRpcHandlerError` registration-rejection test has
-// been retired alongside the runtime register API (D3 deletion); the
-// type system carries the invariant.
+// duplicate-registration rejection test has been retired alongside the
+// runtime register API (D3 deletion); the type system carries the
+// invariant.
 
 // ─────────────────────────────────────────────────────────────────────
 // Regression gate (review-295): runSync(client.close()) and
