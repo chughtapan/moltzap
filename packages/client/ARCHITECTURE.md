@@ -58,6 +58,7 @@ understand the lease and connection state machines that underpin all flows.
 | [06 — CLI Command Flow](docs/architecture/06-cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
 | [07 — State Machines](docs/architecture/07-state-machines.md) | Dispatch lease and connection state machines |
 | [08 — Channel-base subpath](docs/architecture/08-channel-base.md) | `@moltzap/client/channel-base` — canonical `LeaseAlreadyConsumed`, `LeaseStore`/`LeaseGuard`, markup-parameterized `formatCrossConv`/`formatGroupBlock` (shared by openclaw, claude-code, nanoclaw) |
+| [09 — `moltzap start` CLI](docs/architecture/09-moltzap-start-cli.md) | Spec D2 (#599) single-command flow over Spec D1 atomic `TaskCreate` + optional `MessagesSend`. Exit-code contract (0/1/2/64) and partial-failure semantics |
 
 ## Dependencies
 
