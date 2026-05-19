@@ -50,3 +50,4 @@ flowchart TD
 - [§02 WebSocket connection lifecycle](./02-ws-connection-lifecycle.md) — how the socket and reader fiber are set up
 - [§04 Server-initiated callback](./04-server-initiated-callback.md) — `handleResponseFrame` settles server-originated Deferreds
 - [§07 HTTP routes](./07-http-routes.md) — parallel HTTP surface
+- [§10 R-channel capabilities](./10-r-channel-capabilities.md) — typed capability tokens the handler body `yield*`s, drained at the handler boundary via `Effect.provideServiceEffect` from the slot's `CapabilityProviderTable`
