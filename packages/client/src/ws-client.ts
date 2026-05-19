@@ -149,11 +149,10 @@ interface ConnState {
   readonly scope: Scope.CloseableScope;
 
   /**
-   * Spec F (#617) typed-dispatcher Connection. Combines the originator
-   * (outbound `call` + response `resolve`) with the inbound TM-callback
-   * `handle` driven by the immutable handler table this client was
-   * constructed with. Replaces the legacy `JsonRpcClient` +
-   * `makeJsonRpcServer` pair.
+   * Spec F (#617) typed-dispatcher Connection. Carries the originator
+   * (outbound `call` + response `resolve`) and the inbound TM-callback
+   * `handle` driven by the immutable handler table the client was
+   * constructed with.
    */
   readonly tmConn: TaskMasterConnection<TaskCallbackContext>;
 
