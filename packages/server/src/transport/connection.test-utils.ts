@@ -1,15 +1,17 @@
 import { Effect } from "effect";
-import type { JsonRpcClient } from "@moltzap/protocol";
+import type { AgentClientConnection } from "@moltzap/protocol";
 
 /**
- * Defect-throwing `JsonRpcClient` stub for tests that build a fake
- * `MoltZapConnection` but never exercise the appCallback channel. If a
- * test inadvertently calls any method the defect surfaces loudly rather
- * than silently passing.
+ * Defect-throwing `AgentClientConnection` stub for tests that build a
+ * fake `MoltZapConnection` but never exercise the appCallback channel.
+ * If a test inadvertently calls any method the defect surfaces loudly
+ * rather than silently passing.
  */
-export const unusedJsonRpcClient = (): JsonRpcClient => ({
-  call: () => Effect.die("test fake JsonRpcClient.call invoked"),
-  resolve: () => Effect.die("test fake JsonRpcClient.resolve invoked"),
+export const unusedOriginator = (): AgentClientConnection => ({
+  id: "test-fake-originator",
+  call: () => Effect.die("test fake originator.call invoked"),
+  resolve: () => Effect.die("test fake originator.resolve invoked"),
   failAllPending: () =>
-    Effect.die("test fake JsonRpcClient.failAllPending invoked"),
+    Effect.die("test fake originator.failAllPending invoked"),
+  notify: (() => Effect.die("test fake originator.notify invoked")) as never,
 });
