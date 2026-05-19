@@ -16,17 +16,17 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
 
 ## Channel-base dependency
 
-(impl-staff fills per arch sub-issue #605 §8.)
-
 Claude-code depends on `@moltzap/client/channel-base` for:
 
 - `LeaseAlreadyConsumed` (canonical tagged error; replaces the local
   definition in `src/errors.ts`).
 - `projectLeaseInvalid` / `catchLeaseInvalid` (replaces the local
   `projectLeaseInvalid` in `src/entry.ts`).
-- `getGroupFields` (consistent type-narrowed predicate in
-  `event.ts → toClaudeChannelNotification`, even though claude-code does
-  not emit a group block).
+- `getGroupFields` is intentionally **not** consumed here —
+  `event.ts → toClaudeChannelNotification` drops conversation context, so a
+  consistency-only call would be dead code purely to share an import. The
+  minimal-changes principle wins over consistency-for-its-own-sake; see
+  PR #622 closing of P3 #607.
 
 Host surfacing (`server.ts → toolErrorResult(...)`) is unchanged — only the
 import site moved.
@@ -39,4 +39,9 @@ import site moved.
 
 ## Test Tiers
 
-(impl-staff fills — list unit / integration test files.)
+| File | Type | What it covers |
+|------|------|----------------|
+| `src/event.test.ts` | Unit | `toClaudeChannelNotification` event projection (text + part shape, sender identity, conversation context drop) |
+| `src/__tests__/server.test.ts` | Unit | MCP server boot, reply tool wiring, error surfacing via `toolErrorResult` |
+| `src/__tests__/conformance/suite.test.ts` | Conformance | Channel-base cross-channel invariants (shared with openclaw/nanoclaw/client conformance) |
+| `src/__tests__/echo.integration.test.ts` | Integration | PGlite-backed echo round-trip (real MoltZap server via globalSetup) |

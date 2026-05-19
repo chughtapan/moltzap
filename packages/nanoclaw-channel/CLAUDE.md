@@ -14,8 +14,6 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
 
 ## Channel-base dependency
 
-(impl-staff fills per arch sub-issue #605 §8.)
-
 Nanoclaw depends on `@moltzap/client/channel-base` for:
 
 - `LeaseAlreadyConsumed` (canonical tagged error; replaces the pre-refactor
@@ -30,8 +28,6 @@ Nanoclaw depends on `@moltzap/client/channel-base` for:
   replaces the inline `formatGroupBlock`).
 
 ## Integration tests
-
-(impl-staff fills per arch sub-issue #605 §4.4 + §3.4.)
 
 - `vitest.integration.config.ts` (~12 LOC; modeled on
   `packages/claude-code-channel/vitest.integration.config.ts`)
