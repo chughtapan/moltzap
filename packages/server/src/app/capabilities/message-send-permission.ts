@@ -13,7 +13,13 @@ import {
   MessageServiceTag,
   TaskServiceTag,
 } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
+import {
+  endpointAddressForAgent,
+  type TaskServiceError,
+} from "../../task/services/task.service.js";
+import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { refineConversationNotArchived } from "./conversation-not-archived.js";
+import { refineTaskActive } from "./task-active.js";
 
 /**
  * Composite capability for `MessageService.send` — the load-bearing
@@ -28,11 +34,12 @@ import { notImplemented } from "./not-implemented.js";
  *           & (ValidReplyTarget | NoReplyTarget)
  *
  * Effect's R channel uses union types to ENCODE the set of required
- * services — `Effect&lt;A, E, T1 | T2>` requires BOTH `T1` AND `T2` to be
- * provided before the effect is runnable (covariant `R` parameter; each
- * `Effect.provideService(Tag, val)` subtracts exactly the matching
- * `Tag`; remaining tags in the union are still required). There is no
- * native "exactly one of" semantics in `provideServiceEffect`.
+ * services — `Effect&lt;A, E, T1 | T2&gt;` requires BOTH `T1` AND `T2`
+ * to be provided before the effect is runnable (covariant `R`
+ * parameter; each `Effect.provideService(Tag, val)` subtracts exactly
+ * the matching `Tag`; remaining tags in the union are still required).
+ * There is no native "exactly one of" semantics in
+ * `provideServiceEffect`.
  *
  * Concretely:
  * - If we declared `R = TaskActive | TmAuthority` to mean "provide
@@ -117,60 +124,129 @@ export interface ObtainMessageSendPermissionInput {
 }
 
 /**
- * Architect-stub. Body shape (Phase 4 implements). Column references
- * (`tm_endpoint_address`, `task_status`, `archived_at`, `task_id`) are
- * the projection produced by
- * `MessageService.readSendConversation` — Phase 4 promotes that helper
- * to `@internal` per Decision B and consumes the same projection here.
+ * Smart constructor for `MessagesSend`. Composes the full precondition
+ * set behind ONE `Effect.provideServiceEffect` call.
  *
- *   const taskService = yield* TaskServiceTag;
- *   const convService = yield* ConversationServiceTag;
- *   const msgService = yield* MessageServiceTag;
- *
- *   const conv = yield* msgService.readSendConversation(
- *     input.conversationId);
- *   yield* convService.requireParticipant(input.conversationId,
- *     input.senderAgentId);
- *   yield* refineConversationNotArchived(input.conversationId,
- *     conv.archived_at);
- *
- *   const isTmBypass = conv.tm_endpoint_address ===
- *     endpointAddressForAgent(input.senderAgentId);
- *   const task = yield* taskService.fetchTask(input.taskId); // promote
- *     to `@internal` per Decision B
- *
- *   const replyTarget = input.replyToId === undefined
- *     ? { _tag: "NoReply" as const }
- *     : { _tag: "ValidReply" as const,
- *         replyToId: (yield* obtainValidReplyTarget(
- *           input.conversationId, input.replyToId)).replyToId };
- *
- *   if (!isTmBypass) {
- *     yield* refineTaskActive(input.taskId, conv.task_status);
- *     return { _tag: "forParticipantOnActiveTask",
- *              task, conversationId: input.conversationId,
- *              senderAgentId: input.senderAgentId, replyTarget };
- *   }
- *   if (replyTarget._tag === "NoReply") {
- *     return { _tag: "forTmBypass",
- *              task, conversationId: input.conversationId,
- *              senderAgentId: input.senderAgentId, replyTarget };
- *   }
- *   return { _tag: "forTmBypassWithReply",
- *            task, conversationId: input.conversationId,
- *            senderAgentId: input.senderAgentId, replyTarget };
+ * Flow (Phase 4 also drives the matching service-method shape):
+ *   1. Look up the send-projection row via
+ *      `MessageService.readSendConversation` (joins `conversations ⋈
+ *      tasks`; promoted to `@internal` in Phase 1).
+ *   2. Prove caller is a conversation participant via
+ *      `ConversationService.requireParticipant`.
+ *   3. Refine `conversation.archived_at IS NULL` via
+ *      `refineConversationNotArchived` (no DB read; uses column).
+ *   4. Decide TM-bypass by comparing
+ *      `conv.tm_endpoint_address === endpointAddressForAgent(sender)`.
+ *   5. Fetch the task row via `TaskService.fetchTask` (promoted to
+ *      `@internal` in Phase 1) — carried in every variant's `task`
+ *      payload field.
+ *   6. Resolve the reply target: when present, verify via
+ *      `MessageService.requireReplyTarget`.
+ *   7. Non-bypass: refine `task.status` via `refineTaskActive` and
+ *      return `forParticipantOnActiveTask`.
+ *      Bypass + no reply: return `forTmBypass`.
+ *      Bypass + reply: return `forTmBypassWithReply`.
  *
  * Error channel — union of every source-service public failure that
  * the body propagates without rewrap:
- *   - `ForbiddenError` from `requireParticipant`, `requireTmAuthority`
- *   - `NotFoundError` from `obtainValidReplyTarget`, `fetchTask`
+ *   - `ForbiddenError` from `requireParticipant`
+ *   - `NotFoundError` from `requireReplyTarget`, `fetchTask`
  *   - `ConversationArchivedError` from `refineConversationNotArchived`
  *   - `TaskClosedError` from `refineTaskActive`
  */
+type ReplyTargetValue =
+  | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
+  | { readonly _tag: "NoReply" };
+
+const resolveReplyTarget = (
+  conversationId: ConversationId,
+  replyToId: MessageId | undefined,
+): Effect.Effect<ReplyTargetValue, NotFoundError, MessageServiceTag> => {
+  if (replyToId === undefined) {
+    return Effect.succeed({ _tag: "NoReply" } as const);
+  }
+  return Effect.gen(function* () {
+    const msgService = yield* MessageServiceTag;
+    yield* catchSqlErrorAsDefect(
+      msgService.requireReplyTarget(conversationId, replyToId),
+    );
+    return { _tag: "ValidReply", replyToId } as const;
+  });
+};
+
+const buildPermissionForTmBypass = (
+  task: Task,
+  input: ObtainMessageSendPermissionInput,
+  replyTarget: ReplyTargetValue,
+): MessageSendPermissionValue => {
+  if (replyTarget._tag === "NoReply") {
+    return {
+      _tag: "forTmBypass" as const,
+      task,
+      conversationId: input.conversationId,
+      senderAgentId: input.senderAgentId,
+      replyTarget,
+    };
+  }
+  return {
+    _tag: "forTmBypassWithReply" as const,
+    task,
+    conversationId: input.conversationId,
+    senderAgentId: input.senderAgentId,
+    replyTarget,
+  };
+};
+
 export const obtainMessageSendPermission = (
-  _input: ObtainMessageSendPermissionInput,
+  input: ObtainMessageSendPermissionInput,
 ): Effect.Effect<
   MessageSendPermissionValue,
-  ForbiddenError | NotFoundError | ConversationArchivedError | TaskClosedError,
+  | ForbiddenError
+  | NotFoundError
+  | ConversationArchivedError
+  | TaskClosedError
+  | TaskServiceError,
   TaskServiceTag | ConversationServiceTag | MessageServiceTag
-> => notImplemented("obtainMessageSendPermission") as never;
+> =>
+  Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const convService = yield* ConversationServiceTag;
+    const msgService = yield* MessageServiceTag;
+    // `readSendConversation` and `requireReplyTarget` leak `SqlError`
+    // in their narrow signatures; today's call sites in
+    // `sendInsertEffect` are wrapped by an outer
+    // `catchSqlErrorAsDefect`. Mirror that here so the obtain helper's
+    // E channel stays free of `SqlError`.
+    const conv = yield* catchSqlErrorAsDefect(
+      msgService.readSendConversation(input.conversationId),
+    );
+    yield* convService.requireParticipant(
+      input.conversationId,
+      input.senderAgentId,
+    );
+    yield* refineConversationNotArchived(
+      input.conversationId,
+      conv.archived_at,
+    );
+
+    const isTmBypass =
+      conv.tm_endpoint_address === endpointAddressForAgent(input.senderAgentId);
+    const task = yield* taskService.fetchTask(input.taskId);
+    const replyTarget = yield* resolveReplyTarget(
+      input.conversationId,
+      input.replyToId,
+    );
+
+    if (!isTmBypass) {
+      yield* refineTaskActive(input.taskId, conv.task_status);
+      const participantPermission: MessageSendPermissionValue = {
+        _tag: "forParticipantOnActiveTask",
+        task,
+        conversationId: input.conversationId,
+        senderAgentId: input.senderAgentId,
+        replyTarget,
+      };
+      return participantPermission;
+    }
+    return buildPermissionForTmBypass(task, input, replyTarget);
+  }).pipe(Effect.withSpan("obtainMessageSendPermission"));

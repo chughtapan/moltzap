@@ -31,7 +31,13 @@ import type {
 } from "./conversation.service.js";
 import type { MessageService, MessageServiceError } from "./message.service.js";
 
-type TaskServiceError =
+/**
+ * Public-but-package-scoped error union. Spec E (#601) needs this
+ * exported so capability obtain helpers in `app/capabilities/` can
+ * declare matching error channels without over-narrowing.
+ * @internal
+ */
+export type TaskServiceError =
   | ForbiddenError
   | NotFoundError
   | ConversationServiceError
@@ -631,7 +637,14 @@ export class TaskService {
     });
   }
 
-  private fetchTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
+  /**
+   * Spec E (#601) Decision B / Option A — package-private fetch helper
+   * consumed by `obtainMessageSendPermission` to populate the composite
+   * `MessageSendPermission.task` payload field. Not part of the
+   * service's exported public surface; the JSDoc tag is the convention.
+   * @internal
+   */
+  fetchTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const opt = yield* takeFirstOption(
@@ -647,7 +660,13 @@ export class TaskService {
     );
   }
 
-  private requireConversationInTask(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private relationship
+   * check consumed by `obtainConversationInTask`. Not part of the
+   * service's exported public surface; the JSDoc tag is the convention.
+   * @internal
+   */
+  requireConversationInTask(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<void, TaskServiceError> {
@@ -671,6 +690,37 @@ export class TaskService {
         );
       }
     });
+  }
+
+  /**
+   * Spec E (#601) — Phase 1 new helper consumed by
+   * `obtainAgentInTaskParticipants`. Mirrors the inline
+   * `task_participants` lookup D1's `TaskConversationAddParticipant`
+   * would otherwise duplicate. Fails closed with `ForbiddenError` when
+   * the agent is absent or pending.
+   * @internal
+   */
+  requireAgentInTaskParticipants(
+    id: TaskId,
+    agentId: AgentId,
+  ): Effect.Effect<void, ForbiddenError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("task_participants")
+            .select("agent_id")
+            .where("task_id", "=", id)
+            .where("agent_id", "=", agentId)
+            .where("admitted_at", "is not", null),
+        );
+        if (Option.isNone(rowOpt)) {
+          return yield* Effect.fail(
+            new ForbiddenError({ message: ERR_NOT_PARTICIPANT }),
+          );
+        }
+      }),
+    );
   }
 
   private archiveConversationInTask(

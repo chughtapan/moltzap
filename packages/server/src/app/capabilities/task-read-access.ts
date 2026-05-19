@@ -1,9 +1,9 @@
 import { Context, Effect } from "effect";
-import type { ForbiddenError, NotFoundError, Task } from "@moltzap/protocol";
+import type { Task } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
+import type { TaskServiceError } from "../../task/services/task.service.js";
 
 /**
  * Tier 1 capability — caller has read access to `task` (initiator OR
@@ -25,21 +25,21 @@ export class TaskReadAccess extends Context.Tag(
 )<TaskReadAccess, TaskReadAccessValue>() {}
 
 /**
- * Architect-stub. Body shape:
- *   const taskService = yield* TaskServiceTag;
- *   const task = yield* taskService.requireReadAccess(taskId, caller);
- *   return { task, callerAgentId: caller };
+ * Smart constructor. Delegates to `TaskService.requireReadAccess` so the
+ * SQL lookup + initiator-or-participant branch is unchanged from
+ * pre-Spec-E.
  *
- * Error channel — propagates `TaskService.requireReadAccess`'s public
- * failure modes verbatim. `ForbiddenError` for "caller is neither
+ * Error channel propagates `TaskService.requireReadAccess`'s public
+ * failure modes verbatim: `ForbiddenError` for "caller is neither
  * initiator nor admitted participant"; `NotFoundError` for "task does
  * not exist".
  */
 export const obtainTaskReadAccess = (
-  _taskId: TaskId,
-  _caller: AgentId,
-): Effect.Effect<
-  TaskReadAccessValue,
-  ForbiddenError | NotFoundError,
-  TaskServiceTag
-> => notImplemented("obtainTaskReadAccess") as never;
+  taskId: TaskId,
+  caller: AgentId,
+): Effect.Effect<TaskReadAccessValue, TaskServiceError, TaskServiceTag> =>
+  Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const task = yield* taskService.requireReadAccess(taskId, caller);
+    return { task, callerAgentId: caller };
+  }).pipe(Effect.withSpan("obtainTaskReadAccess"));

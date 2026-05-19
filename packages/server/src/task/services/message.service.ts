@@ -273,7 +273,9 @@ export class MessageService {
       const conv = yield* this.readSendConversation(input.conversationId);
       yield* this.requireTaskCanReceiveMessage(input, conv);
       yield* this.requireConversationOpen(conv);
-      yield* this.requireReplyTarget(input);
+      if (input.replyToId !== undefined) {
+        yield* this.requireReplyTarget(input.conversationId, input.replyToId);
+      }
 
       const parts = [...input.parts];
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
@@ -288,7 +290,15 @@ export class MessageService {
     });
   }
 
-  private readSendConversation(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private send-
+   * conversation projection consumed by `obtainMessageSendPermission`
+   * (Decision A composite). Joins `conversations` ⋈ `tasks` and returns
+   * the `(archived_at, task_id, tm_endpoint_address, task_status)`
+   * projection.
+   * @internal
+   */
+  readSendConversation(
     conversationId: ConversationId,
   ): Effect.Effect<
     SendConversationRow,
@@ -308,25 +318,40 @@ export class MessageService {
     );
   }
 
-  private requireConversationOpen(
+  /**
+   * Spec E (#601) Decision B / Option A — refine-shape gate mirrored
+   * by `refineConversationNotArchived` for the
+   * `MessageSendPermission` composite path. Survives here for the
+   * pre-composite call site inside `sendInsertEffect`.
+   * @internal
+   */
+  requireConversationOpen(
     conv: SendConversationRow,
   ): Effect.Effect<void, ConversationArchivedError> {
     if (conv.archived_at === null) return Effect.void;
     return Effect.fail(new ConversationArchivedError({}));
   }
 
-  private requireReplyTarget(
-    input: SendInsertInput,
+  /**
+   * Spec E (#601) Decision B / Option A — reply-target presence gate
+   * consumed by `obtainValidReplyTarget`. Spec E narrows the input
+   * shape to the two fields the lookup actually uses; the pre-Spec-E
+   * `SendInsertInput` overload was carrying the whole insert struct as
+   * dead context. Kept as a method (not a standalone function) because
+   * it needs `this.db`.
+   * @internal
+   */
+  requireReplyTarget(
+    conversationId: ConversationId,
+    replyToId: MessageId,
   ): Effect.Effect<void, NotFoundError | SqlError> {
-    const replyToId = input.replyToId;
-    if (replyToId === undefined) return Effect.void;
     return Effect.gen(this, function* () {
       const replyExistsOpt = yield* takeFirstOption(
         this.db
           .selectFrom("messages")
           .select(sql`1`.as("one"))
           .where("id", "=", replyToId)
-          .where("conversation_id", "=", input.conversationId),
+          .where("conversation_id", "=", conversationId),
       );
       if (Option.isNone(replyExistsOpt)) {
         return yield* Effect.fail(
@@ -336,7 +361,13 @@ export class MessageService {
     });
   }
 
-  private requireTaskCanReceiveMessage(
+  /**
+   * Spec E (#601) Decision B / Option A — task-status gate mirrored by
+   * `refineTaskActive` for the composite path. Survives here for the
+   * pre-composite call site inside `sendInsertEffect`.
+   * @internal
+   */
+  requireTaskCanReceiveMessage(
     input: SendInsertInput,
     conv: SendConversationRow,
   ): Effect.Effect<void, TaskClosedError> {

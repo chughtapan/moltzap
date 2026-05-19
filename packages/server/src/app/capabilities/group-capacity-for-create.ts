@@ -2,7 +2,6 @@ import { Context, Effect } from "effect";
 import type { ConversationFullError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
 
 /**
  * Tier 4 capability — admitting the proposed `invitedAgentIds` to a new
@@ -23,27 +22,32 @@ export class GroupCapacityForCreate extends Context.Tag(
 )<GroupCapacityForCreate, GroupCapacityForCreateValue>() {}
 
 /**
- * Architect-stub. Body shape:
- *   const conv = yield* ConversationServiceTag;
- *   yield* conv.requireGroupCapacityForCreate({ creatorAgentId,
- *     invitedAgentIds });
- *   return { creatorAgentId, invitedAgentIds };
+ * Smart constructor. Phase 1 promotes
+ * `ConversationService.requireGroupCapacityForCreate` to `@internal`
+ * exported per Decision B / Option A; this helper consumes it through
+ * the service Tag.
  *
- * Phase 3 promotes `requireGroupCapacityForCreate` to `@internal`
- * exported per Decision B (Option A).
- */
-
-/**
- * Error channel — `ConversationService.requireGroupCapacityForCreate`
- * fails with `ConversationFullError` when the proposed participant
- * count exceeds the policy limit. Pure capacity check; no DB read; no
- * SqlError in E.
+ * Error channel propagates `requireGroupCapacityForCreate`'s
+ * `ConversationFullError` when the proposed participant count exceeds
+ * the policy limit. Pure capacity check; no DB read; no `SqlError` in
+ * E.
  */
 export const obtainGroupCapacityForCreate = (
-  _creatorAgentId: AgentId,
-  _invitedAgentIds: readonly AgentId[],
+  creatorAgentId: AgentId,
+  invitedAgentIds: readonly AgentId[],
 ): Effect.Effect<
   GroupCapacityForCreateValue,
   ConversationFullError,
   ConversationServiceTag
-> => notImplemented("obtainGroupCapacityForCreate") as never;
+> =>
+  Effect.gen(function* () {
+    const conversations = yield* ConversationServiceTag;
+    yield* conversations.requireGroupCapacityForCreate({
+      type: "group",
+      creatorAgentId,
+      agentIds: [...invitedAgentIds],
+      name: undefined,
+      mintTask: Effect.never as never,
+    });
+    return { creatorAgentId, invitedAgentIds };
+  }).pipe(Effect.withSpan("obtainGroupCapacityForCreate"));

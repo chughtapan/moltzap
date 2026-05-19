@@ -1,9 +1,6 @@
 import { Context, Effect } from "effect";
-import type {
-  ConversationArchivedError,
-  ConversationId,
-} from "@moltzap/protocol/task";
-import { notImplemented } from "./not-implemented.js";
+import { ConversationArchivedError } from "@moltzap/protocol";
+import type { ConversationId } from "@moltzap/protocol/task";
 
 /**
  * Tier 4 refine-shape capability — `conversation.archived_at IS NULL`.
@@ -25,18 +22,16 @@ export class ConversationNotArchived extends Context.Tag(
 )<ConversationNotArchived, ConversationNotArchivedValue>() {}
 
 /**
- * Architect-stub refine constructor. Body shape:
- *   if (archivedAt !== null) return yield* Effect.fail(new
- *     ConversationArchivedError({}));
- *   return { conversationId };
- */
-
-/**
- * Error channel — fails with `ConversationArchivedError` when
- * `archivedAt` is non-null. Pure refine; no R dependency.
+ * Refine constructor. Inlines today's archived-at check from
+ * `MessageService.requireConversationOpen`. Fails with
+ * `ConversationArchivedError` when `archivedAt` is non-null.
  */
 export const refineConversationNotArchived = (
-  _conversationId: ConversationId,
-  _archivedAt: Date | null,
-): Effect.Effect<ConversationNotArchivedValue, ConversationArchivedError> =>
-  notImplemented("refineConversationNotArchived") as never;
+  conversationId: ConversationId,
+  archivedAt: Date | null,
+): Effect.Effect<ConversationNotArchivedValue, ConversationArchivedError> => {
+  if (archivedAt !== null) {
+    return Effect.fail(new ConversationArchivedError({}));
+  }
+  return Effect.succeed({ conversationId });
+};

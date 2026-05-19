@@ -1,9 +1,9 @@
 import { Context, Effect } from "effect";
-import type { ForbiddenError, NotFoundError, Task } from "@moltzap/protocol";
+import type { Task } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
+import type { TaskServiceError } from "../../task/services/task.service.js";
 
 /**
  * Tier 1 capability — caller is the registered task manager for `task.id`.
@@ -30,28 +30,25 @@ export class TmAuthority extends Context.Tag("@moltzap/server/TmAuthority")<
 >() {}
 
 /**
- * Architect-stub. Phase 1 implement-staff (#601) supplies the body.
+ * Smart constructor: wraps today's runtime check exactly once per
+ * request. Body delegates to `TaskService.requireTmAuthority`, which
+ * still performs the same SQL lookup + status branch + endpoint
+ * equality check it did pre-Spec-E.
  *
- * Body shape (per spec #601 §Migration architecture):
- *   const taskService = yield* TaskServiceTag;
- *   const task = yield* taskService.requireTmAuthority(taskId, caller);
- *   return { task, callerAgentId: caller };
- */
-
-/**
- * Error channel — propagates `TaskService.requireTmAuthority`'s public
- * failure modes verbatim. `ForbiddenError` covers the "not the TM" and
- * "task closed/failed" branches; `NotFoundError` covers "task does not
- * exist". `SqlError` is caught defectively by the underlying service
- * helper (see `task.service.ts → fetchTask`), so it does NOT appear in
- * E. Phase 2 service-method consumers MAY widen E further when they
- * pipe additional effects through the obtain helper.
+ * Error channel propagates `TaskService.requireTmAuthority`'s full
+ * public error union (`TaskServiceError`) verbatim — practically
+ * `ForbiddenError` (not-the-TM, task-closed/failed) and `NotFoundError`
+ * (task-does-not-exist); `SqlError` is caught defectively by
+ * `fetchTask` so it does NOT appear in E. The union is carried as
+ * `TaskServiceError` so impl-staff cannot accidentally over-narrow
+ * when the underlying helper widens.
  */
 export const obtainTmAuthority = (
-  _taskId: TaskId,
-  _caller: AgentId,
-): Effect.Effect<
-  TmAuthorityValue,
-  ForbiddenError | NotFoundError,
-  TaskServiceTag
-> => notImplemented("obtainTmAuthority") as never;
+  taskId: TaskId,
+  caller: AgentId,
+): Effect.Effect<TmAuthorityValue, TaskServiceError, TaskServiceTag> =>
+  Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const task = yield* taskService.requireTmAuthority(taskId, caller);
+    return { task, callerAgentId: caller };
+  }).pipe(Effect.withSpan("obtainTmAuthority"));

@@ -121,7 +121,12 @@ export class ConversationService {
     });
   }
 
-  private requireAgentsExist(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private existence
+   * helper. Not part of the exported public surface.
+   * @internal
+   */
+  requireAgentsExist(
     agentIds: ReadonlyArray<AgentId>,
   ): Effect.Effect<
     ReadonlyMap<AgentId, string | null>,
@@ -164,7 +169,12 @@ export class ConversationService {
     return this.findExistingDm(input.creatorAgentId, input.agentIds[0]!);
   }
 
-  private requireContactPolicyForCreate<TaskMintError>(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private contact-
+   * policy gate. Consumed by `obtainContactPolicyForCreate`.
+   * @internal
+   */
+  requireContactPolicyForCreate<TaskMintError>(
     input: CreateConversationOptions<TaskMintError>,
     ownerByAgentId: ReadonlyMap<AgentId, string | null>,
   ): Effect.Effect<void, ConversationServiceError> {
@@ -179,7 +189,12 @@ export class ConversationService {
     });
   }
 
-  private requireGroupCapacityForCreate<TaskMintError>(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private capacity
+   * gate. Consumed by `obtainGroupCapacityForCreate`.
+   * @internal
+   */
+  requireGroupCapacityForCreate<TaskMintError>(
     input: CreateConversationOptions<TaskMintError>,
   ): Effect.Effect<void, ConversationFullError> {
     if (
@@ -650,7 +665,13 @@ export class ConversationService {
     });
   }
 
-  private requireAddParticipantAuthority(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private add-
+   * participant authority gate. Consumed by D1's add-participant
+   * handler (post-D3 routes through `TmAuthority`).
+   * @internal
+   */
+  requireAddParticipantAuthority(
     input: AddParticipantOptions,
   ): Effect.Effect<void, ConversationServiceError | SqlError> {
     return Effect.gen(this, function* () {
@@ -680,7 +701,13 @@ export class ConversationService {
     });
   }
 
-  private requireAddParticipantContactPolicy(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private add-
+   * participant contact-policy gate. Consumed by
+   * `obtainContactPolicyForAdd`.
+   * @internal
+   */
+  requireAddParticipantContactPolicy(
     input: AddParticipantOptions,
     targetOwnerUserId: string | null,
   ): Effect.Effect<void, ConversationServiceError> {
@@ -708,7 +735,13 @@ export class ConversationService {
     });
   }
 
-  private requireParticipantCapacity(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private participant-
+   * capacity gate. Survives as an internal collaborator of
+   * `addParticipantEffect`; no direct capability binding.
+   * @internal
+   */
+  requireParticipantCapacity(
     conversationId: ConversationId,
   ): Effect.Effect<
     void,
@@ -922,6 +955,29 @@ export class ConversationService {
     );
   }
 
+  /**
+   * Spec E (#601) Phase 1 — read-side accessor for the constructor-
+   * injected contact-policy resolver. Exposed so the `obtainContact*`
+   * capability constructors in `app/capabilities/` can invoke the
+   * underlying `@internal` policy helpers without re-resolving the
+   * policy through a synthetic `CreateConversationOptions`.
+   * @internal
+   */
+  resolveContactPolicyForCapabilities() {
+    return this.resolveContactPolicy();
+  }
+
+  /**
+   * Spec E (#601) Phase 1 — read-side accessor for the constructor-
+   * injected `ParticipantService`. Lets the `obtainContactPolicyForAdd`
+   * helper resolve the requester's owner-user-id without re-injecting
+   * the service.
+   * @internal
+   */
+  get participantServiceForCapabilities(): ParticipantService {
+    return this.participants;
+  }
+
   requireParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
@@ -1000,7 +1056,14 @@ export class ConversationService {
     }
   }
 
-  private requireCreatorContactsAll(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private creator-
+   * contact-policy fan-out. Consumed transitively via
+   * `requireContactPolicyForCreate` and (post-Phase-1) directly by the
+   * composite contact-policy obtain helper if needed.
+   * @internal
+   */
+  requireCreatorContactsAll(
     input: CreatorContactPolicyInput,
   ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
@@ -1041,7 +1104,13 @@ export class ConversationService {
     );
   }
 
-  private checkContactEdge(
+  /**
+   * Spec E (#601) Decision B / Option A — package-private single-edge
+   * contact-policy probe. Consumed by `requireCreatorContactsAll` and
+   * `requireAddParticipantContactPolicy`.
+   * @internal
+   */
+  checkContactEdge(
     input: ContactEdgeInput,
   ): Effect.Effect<void, ConversationServiceError> {
     return Effect.gen(this, function* () {

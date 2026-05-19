@@ -2,7 +2,6 @@ import { Context, Effect } from "effect";
 import type { NotFoundError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ParticipantServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
 
 /**
  * Tier 2 capability — `agentId` resolves to a real, active `agents` row.
@@ -26,18 +25,18 @@ export class AgentExists extends Context.Tag("@moltzap/server/AgentExists")<
 >() {}
 
 /**
- * Architect-stub. Body shape:
- *   const participants = yield* ParticipantServiceTag;
- *   const ownerUserId = yield* participants.requireExists(agentId);
- *   return { agentId, ownerUserId };
- */
-
-/**
+ * Smart constructor. Delegates to `ParticipantService.requireExists`
+ * (already public on the service class pre-Spec-E).
+ *
  * Error channel — `ParticipantService.requireExists` fails with
  * `NotFoundError` when the `agents` row is absent. `SqlError` from the
  * underlying select is caught defectively inside the service helper.
  */
 export const obtainAgentExists = (
-  _agentId: AgentId,
+  agentId: AgentId,
 ): Effect.Effect<AgentExistsValue, NotFoundError, ParticipantServiceTag> =>
-  notImplemented("obtainAgentExists") as never;
+  Effect.gen(function* () {
+    const participants = yield* ParticipantServiceTag;
+    const ownerUserId = yield* participants.requireExists(agentId);
+    return { agentId, ownerUserId };
+  }).pipe(Effect.withSpan("obtainAgentExists"));

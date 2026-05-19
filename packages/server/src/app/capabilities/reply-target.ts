@@ -2,7 +2,7 @@ import { Context, Effect } from "effect";
 import type { NotFoundError } from "@moltzap/protocol";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import { MessageServiceTag } from "../layers.js";
-import { notImplemented } from "./not-implemented.js";
+import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 
 /**
  * Tier 4 capabilities — reply-target presence proof.
@@ -41,32 +41,30 @@ export class NoReplyTarget extends Context.Tag("@moltzap/server/NoReplyTarget")<
 >() {}
 
 /**
- * Architect-stub. Body shape:
- *   const ok = yield* this.db.selectFrom("messages")...where(id =
- *     replyToId, conversation_id = conversationId);
- *   if (!ok) return yield* Effect.fail(new NotFoundError(...));
- *   return { conversationId, replyToId };
+ * Smart constructor. Delegates to `MessageService.requireReplyTarget`
+ * (Phase 1 promotes the helper to `@internal` exported per Decision B
+ * / Option A).
  *
- * Phase 4 promotes `MessageService.requireReplyTarget` from `private`
- * to `@internal` exported per Decision B (Option A); this obtain calls
- * through the service Tag.
- */
-
-/**
- * Error channel — `MessageService.requireReplyTarget` fails with
+ * Error channel propagates `MessageService.requireReplyTarget`'s
  * `NotFoundError` when `replyToId` does not resolve to a message in
  * `conversationId`. `SqlError` from the underlying select is caught
  * defectively inside the service helper.
  *
  * R channel includes `MessageServiceTag` because the obtain helper
- * dereferences the (Phase-4-promoted-to-`@internal`)
+ * dereferences the (Phase-1-promoted-to-`@internal`)
  * `MessageService.requireReplyTarget` method through the service Tag.
  */
 export const obtainValidReplyTarget = (
-  _conversationId: ConversationId,
-  _replyToId: MessageId,
+  conversationId: ConversationId,
+  replyToId: MessageId,
 ): Effect.Effect<ValidReplyTargetValue, NotFoundError, MessageServiceTag> =>
-  notImplemented("obtainValidReplyTarget") as never;
+  Effect.gen(function* () {
+    const messages = yield* MessageServiceTag;
+    yield* catchSqlErrorAsDefect(
+      messages.requireReplyTarget(conversationId, replyToId),
+    );
+    return { conversationId, replyToId };
+  }).pipe(Effect.withSpan("obtainValidReplyTarget"));
 
 /** Synchronous constructor — no runtime check needed. */
 export const noReplyTarget = (): NoReplyTargetValue => ({
