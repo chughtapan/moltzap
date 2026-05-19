@@ -8,10 +8,10 @@ import type { ConversationId } from "@moltzap/protocol/task";
  * Refine-shape: takes the `archived_at` column read inline by the
  * caller. Folded into the composite `MessageSendPermission` value
  * for the MessagesSend path (every constructor verifies the
- * conversation is open) — see Architect Decision A. The standalone
- * inline gate in `MessageService.assertConversationOpen` is still
- * called by `sendInsertEffect`; the obtain helper is available for
- * future cutover once `message.service.ts` is restructured.
+ * conversation is open) — see Architect Decision A. The composite
+ * obtain helper is the sole caller post-cutover; the pre-Spec-E
+ * inline `assertConversationOpen` gate on `MessageService` was
+ * deleted in Phase 3 round 3.
  */
 export interface ConversationNotArchivedValue {
   readonly conversationId: ConversationId;
@@ -22,9 +22,9 @@ export class ConversationNotArchived extends Context.Tag(
 )<ConversationNotArchived, ConversationNotArchivedValue>() {}
 
 /**
- * Refine constructor. Inlines today's archived-at check from
- * `MessageService.assertConversationOpen`. Fails with
- * `ConversationArchivedError` when `archivedAt` is non-null.
+ * Refine constructor. Fails with `ConversationArchivedError` when
+ * `archivedAt` is non-null. Consumed by `obtainMessageSendPermission`
+ * after the conversation projection lookup.
  */
 export const refineConversationNotArchived = (
   conversationId: ConversationId,

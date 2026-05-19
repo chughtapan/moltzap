@@ -8,12 +8,10 @@ import type { TaskId } from "@moltzap/protocol/task";
  *
  * Refine-shape: takes a `SendConversationRow` already fetched by
  * `MessageService.readSendConversation` and validates the `task_status`
- * column inline. No DB call. The standalone inline gate
- * `MessageService.assertTaskCanReceiveMessage` (non-bypass branch) is
- * still called by `sendInsertEffect`; the refine helper is consumed
- * today by the composite `MessageSendPermission.forParticipantOnActiveTask`
- * obtain helper and is available for the full `sendInsert` cutover
- * once `message.service.ts` is restructured.
+ * column inline. No DB call. Consumed by the composite
+ * `MessageSendPermission.forParticipantOnActiveTask` obtain helper;
+ * the pre-Spec-E inline `assertTaskCanReceiveMessage` gate on
+ * `MessageService` was deleted in Phase 3 round 3.
  *
  * The TM-bypass branch is NOT a `TaskActive` proof — it's modeled in
  * the composite `MessageSendPermission.forTmBypass` constructor instead
@@ -39,9 +37,9 @@ export class TaskActive extends Context.Tag("@moltzap/server/TaskActive")<
 >() {}
 
 /**
- * Refine constructor. Inlines today's status check from
- * `MessageService.assertTaskCanReceiveMessage` (non-bypass branch).
- * Fails with `TaskClosedError` when status is `closed` / `failed`.
+ * Refine constructor. Fails with `TaskClosedError` when status is
+ * `closed` / `failed`. Consumed by `obtainMessageSendPermission` on
+ * the non-TM-bypass branch.
  */
 export const refineTaskActive = (
   taskId: TaskId,

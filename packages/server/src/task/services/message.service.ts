@@ -1,5 +1,5 @@
 import type { Db } from "../../db/client.js";
-import type { Message, Part, TaskStatus } from "@moltzap/protocol";
+import type { Message, Part } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId,
@@ -327,26 +327,8 @@ export class MessageService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — refine-shape gate mirrored
-   * by `refineConversationNotArchived` for the
-   * `MessageSendPermission` composite path. Survives here for the
-   * pre-composite call site inside `sendInsertEffect`.
-   * @internal
-   */
-  assertConversationOpen(
-    conv: SendConversationRow,
-  ): Effect.Effect<void, ConversationArchivedError> {
-    if (conv.archived_at === null) return Effect.void;
-    return Effect.fail(new ConversationArchivedError({}));
-  }
-
-  /**
-   * Spec E (#601) Decision B / Option A — reply-target presence gate
-   * consumed by `obtainValidReplyTarget`. Spec E narrows the input
-   * shape to the two fields the lookup actually uses; the pre-Spec-E
-   * `SendInsertInput` overload was carrying the whole insert struct as
-   * dead context. Kept as a method (not a standalone function) because
-   * it needs `this.db`.
+   * Reply-target presence gate consumed by `obtainValidReplyTarget`
+   * (Spec E #601). Kept as a method because it needs `this.db`.
    * @internal
    */
   assertReplyTarget(
@@ -367,31 +349,6 @@ export class MessageService {
         );
       }
     });
-  }
-
-  /**
-   * Spec E (#601) Decision B / Option A — task-status gate mirrored by
-   * `refineTaskActive` for the composite path. Survives here for the
-   * pre-composite call site inside `sendInsertEffect`.
-   * @internal
-   */
-  assertTaskCanReceiveMessage(
-    input: SendInsertInput,
-    conv: SendConversationRow,
-  ): Effect.Effect<void, TaskClosedError> {
-    if (input.bypassTmRouting || taskStatusAcceptsMessages(conv.task_status)) {
-      return Effect.void;
-    }
-    return Effect.fail(
-      new TaskClosedError({
-        message: `Task is ${conv.task_status}`,
-        data: {
-          reason: "TaskClosed",
-          taskId: conv.task_id,
-          status: conv.task_status,
-        },
-      }),
-    );
   }
 
   private insertMessageRow(
@@ -1192,25 +1149,6 @@ export class MessageService {
       createdAt: row.created_at.toISOString(),
     };
   }
-}
-
-/**
- * Exhaustive predicate over `tasks.status`. Returns true iff the task
- * is in a state that can still receive messages (`waiting | active`);
- * `closed | failed` fail-closed via the `TaskClosed` RPC error. The
- * The typed status map forces every future addition to `TaskStatus`
- * (Postgres + protocol) to surface here as a compile error rather than
- * silently falling through to "accept".
- */
-const TASK_STATUS_ACCEPTS_MESSAGES = {
-  waiting: true,
-  active: true,
-  closed: false,
-  failed: false,
-} satisfies Record<TaskStatus, boolean>;
-
-function taskStatusAcceptsMessages(status: TaskStatus): boolean {
-  return TASK_STATUS_ACCEPTS_MESSAGES[status];
 }
 
 /**
