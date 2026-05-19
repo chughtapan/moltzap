@@ -27,7 +27,7 @@ sequenceDiagram
     Core-->>Channel: resolved
     Channel-->>Caller: resolves
     Note over Channel: channel.isConnected() → false
-    Note over Channel: disconnect does NOT clear dispatchLeasesByJid — lease entries survive across reconnects (intentional— server owns lease state— stale local entries are harmless because a second send hits the CONSUMED server path and surfaces MoltZapChannelError, §3.4)
+    Note over Channel: disconnect does NOT clear leaseStore — lease entries survive across reconnects (intentional— server owns lease state— stale local entries are harmless because a second send hits the CONSUMED server path and surfaces MoltZapChannelError, §3.4)
 
     Note over Caller,Core: onDisconnect / onReconnect hooks (wired in constructor)
     Core->>Channel: core detects drop → fires onDisconnect callback

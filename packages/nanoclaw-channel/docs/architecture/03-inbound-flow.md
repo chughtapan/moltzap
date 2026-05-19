@@ -19,9 +19,9 @@ sequenceDiagram
 
     Note over Handler: Step 1 — jidFromConversationId(enriched.conversationId)<br>chatJid = "mz:" + conversationId (§3.5)
 
-    Note over Handler: Step 2 — rememberDispatchLease(chatJid, enriched)<br>if enriched.dispatchLeaseId:<br>  dispatchLeasesByJid.set(chatJid, leaseId)
+    Note over Handler: Step 2 — rememberDispatchLease(chatJid, enriched)<br>if enriched.dispatchLeaseId:<br>  leaseStore.remember(chatJid, leaseId)
 
-    Note over Handler: dispatchLeasesByJid : Map<jid, leaseId><br>keyed by chatJid (not conversationId)<br>value = LAST inbound lease for that jid<br>NOT cleared on send (post-cutover #533)
+    Note over Handler: LeaseStore<string, string> (peek-style)<br>keyed by chatJid (not conversationId)<br>value = LAST inbound lease for that jid<br>NOT cleared on send (post-cutover #533)
 
     Note over Handler: Step 3 — maybeAutoRegister(chatJid, conversationId)<br>evalMode=false → skip<br>evalMode=true  → ensureAutoRegistered() (§3.6)
 
