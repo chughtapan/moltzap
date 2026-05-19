@@ -58,6 +58,7 @@ import {
   MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
+  obtainContactPolicyForCreate,
   obtainConversationCreateAuthorization,
   obtainConversationInTask,
   obtainMessageSendPermission,
@@ -117,18 +118,9 @@ function taskCreateBody(
 ) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    if (params.appId === DEFAULT_APP_ID) {
-      const existing = yield* taskService.findExistingTaskByParticipants(
-        ctx.agentId,
-        params.invitedAgentIds,
-        params.appId,
-      );
-      // Dedup is task-level (spec body Goal 3): no fresh conversation
-      // even when `initialConversation` is supplied.
-      if (existing !== null) {
-        return { task: existing, conversation: null as Conversation | null };
-      }
-    }
+    const existing = yield* maybeTaskCreateDedup(taskService, params, ctx);
+    if (existing !== null) return existing;
+    yield* maybeRunContactPolicyForTaskCreate(params, ctx);
     const task = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
       invitedAgentIds: params.invitedAgentIds,
@@ -145,6 +137,59 @@ function taskCreateBody(
     });
   }).pipe(Effect.withSpan("task.create"));
 }
+
+type TaskCreateParams = Parameters<typeof taskCreateBody>[0];
+type TaskCreateCtx = Parameters<typeof taskCreateBody>[1];
+
+function maybeTaskCreateDedup(
+  taskService: TaskServiceShape,
+  params: TaskCreateParams,
+  ctx: TaskCreateCtx,
+) {
+  return Effect.gen(function* () {
+    if (params.appId !== DEFAULT_APP_ID) return null;
+    const existing = yield* taskService.findExistingTaskByParticipants(
+      ctx.agentId,
+      params.invitedAgentIds,
+      params.appId,
+    );
+    // Dedup is task-level (spec body Goal 3): no fresh conversation
+    // even when `initialConversation` is supplied. The contact-policy
+    // gate is NOT applied on dedup hit — the extant task's participant
+    // set was authorized at its original create time.
+    return existing === null
+      ? null
+      : { task: existing, conversation: null as Conversation | null };
+  }).pipe(Effect.withSpan("task.create.dedup"));
+}
+
+function maybeRunContactPolicyForTaskCreate(
+  params: TaskCreateParams,
+  ctx: TaskCreateCtx,
+) {
+  if (params.invitedAgentIds.length === 0) return Effect.void;
+  // Per per-flow doc §"Capability list per new handler" — `TaskCreate`
+  // declares `[ContactPolicyAllowsReach]` only when `invitedAgentIds`
+  // is non-empty (a self-only task is exempt; there are no targets to
+  // reach). The obtain helper surfaces `NotInContactsError` /
+  // `NotFoundError` / `ForbiddenError` if any caller -> target edge
+  // fails.
+  const inferredType: "dm" | "group" =
+    params.initialConversation !== undefined &&
+    1 +
+      (params.initialConversation.participants ?? params.invitedAgentIds)
+        .length ===
+      2
+      ? "dm"
+      : "group";
+  return obtainContactPolicyForCreate(
+    ctx.agentId,
+    params.invitedAgentIds,
+    inferredType,
+  );
+}
+
+type TaskServiceShape = Effect.Effect.Success<typeof TaskServiceTag>;
 
 interface MintInitialInput {
   readonly task: Task;
@@ -222,12 +267,20 @@ function taskConversationCreateBody(
   ctx: { readonly agentId: AgentId },
 ) {
   return Effect.gen(function* () {
+    // Authority FIRST per per-flow doc §"Capability list per new
+    // handler" — proves the caller is the TM before any other gate
+    // observes task state. Per-flow doc order matters: a non-TM
+    // caller MUST get `ForbiddenError` (not `ParticipantNotAdmitted`)
+    // regardless of the participant set so they cannot probe task
+    // membership via the participant-admitted invariant.
+    yield* obtainTmAuthority(params.taskId, ctx.agentId);
     const taskService = yield* TaskServiceTag;
     const conversationService = yield* ConversationServiceTag;
     // Spec D1 invariant: every participant MUST already appear in
     // `task_participants` for `taskId`. Per-flow doc §"Participant
     // invariant" — admitted-OR-pending both pass; missing fails with
-    // `ParticipantNotAdmittedError`.
+    // `ParticipantNotAdmittedError`. Runs AFTER TM auth so the tag
+    // is only observable to authorized callers.
     yield* taskService.requireAgentsAreInTaskParticipants(
       params.taskId,
       params.participants,
@@ -259,7 +312,6 @@ function taskConversationCreateBody(
       taskId: params.taskId,
       conversation,
       participants: params.participants,
-      callerAgentId: ctx.agentId,
       name: params.name,
     });
     return { conversation };
@@ -270,7 +322,6 @@ interface TaskConversationCreateDualEmitInput {
   readonly taskId: TaskId;
   readonly conversation: Conversation;
   readonly participants: ReadonlyArray<AgentId>;
-  readonly callerAgentId: AgentId;
   readonly name?: string;
 }
 
@@ -278,10 +329,15 @@ function fanoutTaskConversationCreateDualEmit(
   input: TaskConversationCreateDualEmitInput,
 ) {
   return Effect.gen(function* () {
-    const recipientAgentIds: AgentId[] = [
-      input.callerAgentId,
-      ...input.participants,
-    ];
+    // Recipients per per-flow doc §"Notifications" → "Recipients
+    // (impl-staff target)" table: "initial `participants` list".
+    // The caller is the TM (NOT a `conversation_participants` row
+    // under D1's TM-only authority model), so the caller is NOT
+    // included in the fan-out — even though the legacy
+    // `ConversationsCreate` path auto-included the caller because
+    // the legacy creator WAS a participant. D1 removes that
+    // implicit self-include.
+    const recipientAgentIds: ReadonlyArray<AgentId> = input.participants;
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
       ConversationCreatedNotificationDefinition,
@@ -818,8 +874,13 @@ export const taskHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        // Authority FIRST per per-flow doc §"Capability list per new
+        // handler" — a non-TM caller MUST get `ForbiddenError` before
+        // the participant-admitted invariant gives them a probe
+        // signal for task membership.
+        yield* obtainTmAuthority(params.taskId, ctx.agentId);
         const taskService = yield* TaskServiceTag;
-        // Spec D1 participant-admitted invariant.
+        // Spec D1 participant-admitted invariant — runs AFTER TM auth.
         yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
           params.agentId,
         ]);
