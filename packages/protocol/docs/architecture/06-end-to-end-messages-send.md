@@ -12,7 +12,7 @@ caller
   ▼
 MoltZapWsClient.call(MessagesSend, params)
   │
-  ▼  json-rpc-client.ts → call
+  ▼  originator.ts → call
   │
   │  next id = "wsclient-42"
   │  frame = {jsonrpc:"2.0", id:"wsclient-42",

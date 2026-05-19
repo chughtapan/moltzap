@@ -2,7 +2,7 @@
 
 Per-kind static handler tables, three specialized factories, auto-provision
 dispatcher. Replaces the dynamic register/unregister design (Spec A #595)
-and the legacy `makeJsonRpcServer` / `makeJsonRpcClient` pair.
+and the legacy `makeServerConnection` / `makeOriginator` pair.
 
 This document is the per-flow detail for `packages/protocol`. Source-of-truth
 is `packages/protocol/src/transport/{handlers,capabilities,connection,
@@ -92,30 +92,23 @@ the slot's default IS authorization-failing.
 
 ## 5. Facade Replacement Invariant (FRI)
 
-> Every `makeJsonRpcServer` / `makeJsonRpcClient` consumer migrates to a
-> `make*Connection` factory. After Spec F lands, zero in-tree call sites
-> reference the legacy factories or their public-barrel exports.
+Spec F removes the legacy JSON-RPC client/server factories from the
+protocol's public surface. Post-merge, every connection consumer goes
+through `makeServerConnection` / `makeAgentClientConnection` /
+`makeTaskMasterConnection`.
 
-LSP-verified consumer list at `origin/main` @ `227c398`:
+**Post-cutover state:**
 
-1. `packages/protocol/src/transport/index.ts` — barrel re-exports (delete).
-2. `packages/protocol/src/transport/json-rpc-server.ts → makeJsonRpcServer` —
-   internalize machinery into `dispatch.ts`; delete public symbol.
-3. `packages/protocol/src/transport/json-rpc-client.ts → makeJsonRpcClient` —
-   internalize originator into `connection.ts`; delete public symbol.
-4. `packages/protocol/src/transport/json-rpc-client.test.ts` — rewrite
-   to test originator via `makeAgentClientConnection`.
-5. `packages/server/src/app/server.ts → createCoreApp` — replace
-   `makeJsonRpcServer&lt;DispatchContext, Exclude&lt;AppTags, ConnIdTag&gt;&gt;`
-   with `makeServerConnection({ handlers })`. `RpcMethodRegistry`
-   becomes `ServerHandlers&lt;DispatchContext, AppCapabilities&gt;`.
-6. `packages/server/src/transport/connection.ts → acquireConnectionRpcClient` —
-   replace `makeJsonRpcClient` with the server's TM-callback path.
-7. `packages/client/src/ws-client.ts → MoltZapWsClient.connectEffect` —
-   replace `makeJsonRpcClient` with `makeAgentClientConnection` (or
-   `makeTaskMasterConnection`).
-8. `packages/client/src/ws-client.ts → MoltZapWsClient.buildInboundServerReply` —
-   DELETED. Static-table dispatch replaces per-frame rebuild.
+- Protocol barrel (`transport/index.ts`) exports only the typed factories.
+- Legacy server-side dispatch module deleted entirely.
+- Originator helper internalized to `transport/originator.ts`; consumed
+  privately by `transport/dispatch.ts → buildXDispatcher`. No public
+  re-export.
+- Production consumers (`server/src/app/server.ts → createCoreApp`,
+  `server/src/transport/connection.ts`, `client/src/ws-client.ts →
+  MoltZapWsClient.connectEffect`) all consume `make*Connection`.
+- `MoltZapWsClient`'s per-frame inbound-reply construction (formerly a
+  runtime-rebuild path) is replaced by the static-table dispatcher.
 
 ## 6. Capability auto-provision (Shape B — per-definition metadata)
 

@@ -4,8 +4,8 @@
 
 When an inbound `messages/send` needs admission, `AppHost.runAuthorizeDispatch`
 forks a fiber that calls **out** to the moderator. The reverse direction
-uses the same `@moltzap/protocol` runtimes — `JsonRpcClient` on the server
-side, `JsonRpcServer` on the moderator's client side:
+uses the same `@moltzap/protocol` runtimes — `Originator` on the server
+side, `TypedDispatcher` on the moderator's client side:
 
 ```mermaid
 sequenceDiagram
@@ -26,7 +26,7 @@ sequenceDiagram
         AH->>AH: runRemoteHookEffect<br>(dispatch over WS)
         Note over AH: remote = remoteRegistrations.get(appId)<br>conn = connections.get(remote.connectionId)
         AH->>Mod: conn.jsonRpcClient.call(DispatchAuthorize, params)<br>pending["server-N"] = Deferred → write frame<br>(per-connection client minted at acquireConnectionRpcClient time)
-        Note over Mod: decodeServerInbound → ServerRequest<br>client-side JsonRpcServer.handle<br>taskCallbackHandlers["dispatch/authorize"]<br>moderator app code → verdict
+        Note over Mod: decodeServerInbound → ServerRequest<br>client-side TypedDispatcher.handle<br>taskCallbackHandlers["dispatch/authorize"]<br>moderator app code → verdict
         Mod-->>AH: response frame<br>conn.jsonRpcClient.resolve(frame) settles Deferred<br>envelope.admission unpacks {decision: grant|deny|hold}
     else neither
         AH->>AH: Effect.succeed({decision: "grant"})

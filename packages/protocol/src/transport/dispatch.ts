@@ -22,8 +22,8 @@
  *      `ResponseFrame` via `wireErrorFromInstance`.
  *
  * Outbound calls / notifications go through the internalized originator
- * (formerly `makeJsonRpcClient`'s body, retained as the private helper
- * `makeJsonRpcClient` consumed here).
+ * (formerly `makeOriginator`'s body, retained as the private helper
+ * `makeOriginator` consumed here).
  */
 import { Cause, Effect, Exit, type Context, type Scope } from "effect";
 import type { TSchema } from "@sinclair/typebox";
@@ -40,7 +40,7 @@ import {
   type RequestFrame,
   type ResponseFrame,
 } from "./wire.js";
-import { makeJsonRpcClient } from "./json-rpc-client.js";
+import { makeOriginator } from "./originator.js";
 import { rpcMethods } from "../rpc-registry.js";
 import { taskCallbackMethods } from "../app/methods.js";
 import type {
@@ -146,7 +146,7 @@ export function buildServerDispatcher<
   config: ServerConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const originator = yield* makeJsonRpcClient({
+    const originator = yield* makeOriginator({
       write: config.write,
       idPrefix: config.idPrefix,
     });
@@ -179,7 +179,7 @@ export function buildAgentClientDispatcher<
   config: AgentClientConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const originator = yield* makeJsonRpcClient({
+    const originator = yield* makeOriginator({
       write: config.write,
       idPrefix: config.idPrefix,
     });
@@ -211,7 +211,7 @@ export function buildTaskMasterDispatcher<
   config: TaskMasterConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const originator = yield* makeJsonRpcClient({
+    const originator = yield* makeOriginator({
       write: config.write,
       idPrefix: config.idPrefix,
     });

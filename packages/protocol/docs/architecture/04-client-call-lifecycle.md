@@ -10,20 +10,20 @@
 > apply to the originator embedded inside
 > `dispatch.ts → buildServerDispatcher` /
 > `buildAgentClientDispatcher` / `buildTaskMasterDispatcher` via the
-> internalized `makeJsonRpcClient` helper. The public surface moves
+> internalized `makeOriginator` helper. The public surface moves
 > to `Connection.call` (see
 > [11 — Typed dispatcher](./11-typed-dispatcher.md)); the internal
 > originator's contract is unchanged. This doc will be folded into
 > 11 when the §6 FRI cutover deletes the last legacy consumer.
 
-`makeJsonRpcClient` is **scope-bound**: closing the scope runs
+`makeOriginator` is **scope-bound**: closing the scope runs
 `failAllPending(NotConnectedError)` so no caller is ever orphaned on a
-hung Deferred (in `json-rpc-client.ts → failAllPending`).
+hung Deferred (in `originator.ts → failAllPending`).
 
 ```text
 caller
    │
-   ▼  call(definition, params)                                  json-rpc-client.ts → call
+   ▼  call(definition, params)                                  originator.ts → call
    │
    ▼  counterRef.modify(n → [n+1, n+1])
    │       generates `${idPrefix}-${next}` JsonRpcId
@@ -58,7 +58,7 @@ caller
                                           (Issue #310 contract)
 ```
 
-Inbound response routing (in `json-rpc-client.ts → resolve`):
+Inbound response routing (in `originator.ts → resolve`):
 
 ```text
 ResponseFrame arrives at the transport

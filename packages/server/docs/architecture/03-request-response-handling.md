@@ -27,7 +27,7 @@ flowchart TD
     F1 -->|"yes"| F2["isConnect = (frame.method === Connect.name)"]
     F2 --> F3{"!isConnect &&<br/>!conn.auth?"}
     F3 -->|"yes"| F3a["sendFrame(encodeErrorResp(id,<br/>{code: Unauthorized,<br/>message: 'Not authenticated.<br/>Send network/connect first.'})"]
-    F3 -->|"no"| F4["jsonRpcServer.handle(frame, {auth, connId})<br/><i>@moltzap/protocol → dispatch.ts → makeInboundDispatch<br/>(invoked via the per-server JsonRpcServer today; migrates to per-connection ServerConnection.handle per Spec F #617 §6 FRI)</i>"]
+    F3 -->|"no"| F4["jsonRpcServer.handle(frame, {auth, connId})<br/><i>@moltzap/protocol → dispatch.ts → makeInboundDispatch<br/>(invoked via the per-server TypedDispatcher today; migrates to per-connection ServerConnection.handle per Spec F #617 §6 FRI)</i>"]
 
     F4 --> F5["ServerHandlers[frame.method]<br/>decodeRpcParams(slot.definition, frame.params)<br/>capability auto-provision (Spec F G6) — read slot.definition.capabilities, thread provideServiceEffect from CapabilityProviderTable<br/>slot.handle(params, ctx)<br/>runs inside dispatchRuntime — R = AppTags resolved<br/>structurally; handler body can yield* XServiceTag freely"]
 
