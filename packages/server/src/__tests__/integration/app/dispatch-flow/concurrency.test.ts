@@ -17,7 +17,7 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import type { AppManifest, ConversationId } from "@moltzap/protocol";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
@@ -64,17 +64,21 @@ function requestDispatchesInParallel(
   );
 }
 
-function waitForReleaseLeaseIds(recipient: ConnectedAgent) {
+function forkTwoReleaseFibers(recipient: ConnectedAgent) {
   return Effect.gen(function* () {
-    const release1 = yield* waitForDispatchRelease(
+    // Fork-before-trigger (Spec B #596 r2 fix): each fiber subscribes to
+    // its own `dispatch/release` Stream BEFORE the parallel dispatch RPCs
+    // fire, so neither release notification can arrive in the gap before
+    // the subscription registers.
+    const fiber1 = yield* waitForDispatchRelease(
       recipient,
       DISPATCH_RELEASE_TIMEOUT_MS,
     );
-    const release2 = yield* waitForDispatchRelease(
+    const fiber2 = yield* waitForDispatchRelease(
       recipient,
       DISPATCH_RELEASE_TIMEOUT_MS,
     );
-    return new Set([release1.leaseId, release2.leaseId]);
+    return [fiber1, fiber2] as const;
   });
 }
 
@@ -83,13 +87,16 @@ function crossConversationRequestsRunConcurrently() {
     const { alice, bob } = yield* setupAgentPair();
     const conv1 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
     const conv2 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv1,
       conv2,
     ]);
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
-    const seen = yield* waitForReleaseLeaseIds(bob);
+    const release1 = yield* Fiber.join(fiber1);
+    const release2 = yield* Fiber.join(fiber2);
+    const seen = new Set([release1.leaseId, release2.leaseId]);
     expect(seen.has(ack1.leaseId)).toBe(true);
     expect(seen.has(ack2.leaseId)).toBe(true);
     expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
@@ -100,6 +107,7 @@ function sameConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     const conv = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv,
       conv,
@@ -107,7 +115,8 @@ function sameConversationRequestsRunConcurrently() {
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
     expect(ack1.dispatchId).not.toBe(ack2.dispatchId);
-    yield* waitForReleaseLeaseIds(bob);
+    yield* Fiber.join(fiber1);
+    yield* Fiber.join(fiber2);
     expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
   });
 }

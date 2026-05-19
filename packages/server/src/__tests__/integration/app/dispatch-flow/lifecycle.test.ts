@@ -3,7 +3,7 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import { type AppManifest } from "@moltzap/protocol";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_STATE_ABANDONED,
@@ -82,21 +82,29 @@ function requestUnmoderatedDispatch(
 function synthesizedInfraHoldDoesNotRemoveRecipient() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
+    // Fork-before-trigger (Spec B #596 r2 fix): subscribe before the
+    // dispatch RPC fires. The participants/removed listener is also
+    // forked up-front so a stray event would still be captured; the
+    // assertion is `expectEitherLeft` (timeout) since infra-hold must
+    // NOT remove the recipient.
+    const releaseFiber = yield* waitForDispatchRelease(bob);
+    const removedFiber = yield* waitForParticipantsRemoved(
+      bob,
+      PARTICIPANT_REMOVED_NEGATIVE_WAIT_MS,
+    );
     const { ack } = yield* requestModeratedDispatch(
       alice,
       bob,
       UNKNOWN_APP_ID,
       "probe",
     );
-    const release = yield* waitForDispatchRelease(bob);
+    const release = yield* Fiber.join(releaseFiber);
 
     expect(release.leaseId).toBe(ack.leaseId);
     expect(release.verdict.decision).toBe(DISPATCH_VERDICT_HOLD);
     expect(release.verdict.reason).toBe(MODERATOR_UNAVAILABLE_REASON);
 
-    const removed = yield* Effect.either(
-      waitForParticipantsRemoved(bob, PARTICIPANT_REMOVED_NEGATIVE_WAIT_MS),
-    );
+    const removed = yield* Effect.either(Fiber.join(removedFiber));
     expectEitherLeft(removed);
   });
 }
@@ -108,6 +116,7 @@ function grantedLeaseExpiresAfterTtl() {
       decision: "grant",
       leaseTimeoutMs: SHORT_LEASE_TIMEOUT_MS,
     });
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const { ack } = yield* requestModeratedDispatch(
       alice,
       bob,
@@ -115,7 +124,7 @@ function grantedLeaseExpiresAfterTtl() {
       "probe",
     );
 
-    yield* waitForDispatchRelease(bob);
+    yield* Fiber.join(releaseFiber);
     yield* Effect.sleep(TTL_WAIT);
 
     const record = yield* readLeaseByDispatchId(ack.dispatchId);
@@ -145,8 +154,9 @@ function pendingDisconnectAbandonsLease() {
 function grantedDisconnectExpiresLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const { ack } = yield* requestUnmoderatedDispatch(alice, bob, "probe");
-    yield* waitForDispatchRelease(bob);
+    yield* Fiber.join(releaseFiber);
 
     const granted = yield* readLeaseByLeaseId(ack.leaseId);
     expect(granted.state).toBe(DISPATCH_STATE_GRANTED);
@@ -162,12 +172,13 @@ function grantedDisconnectExpiresLease() {
 function consumedDisconnectKeepsLeaseConsumed() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const { ack, conversationId } = yield* requestUnmoderatedDispatch(
       alice,
       bob,
       "first",
     );
-    yield* waitForDispatchRelease(bob);
+    yield* Fiber.join(releaseFiber);
     const sent = yield* sendMessageWithLease(
       bob,
       conversationId,
@@ -194,13 +205,14 @@ function expiredReconnectMintsNewLease() {
       decision: "grant",
       leaseTimeoutMs: SHORT_LEASE_TIMEOUT_MS,
     });
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const first = yield* requestModeratedDispatch(
       alice,
       bob,
       TEST_APP_ID,
       "first",
     );
-    yield* waitForDispatchRelease(bob);
+    yield* Fiber.join(releaseFiber);
     yield* Effect.sleep(TTL_WAIT);
 
     const expired = yield* readLeaseByLeaseId(first.ack.leaseId);

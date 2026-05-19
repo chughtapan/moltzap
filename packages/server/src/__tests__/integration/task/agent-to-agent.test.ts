@@ -205,7 +205,7 @@ function senderDoesNotReceiveOwnMessage() {
         MessageReceivedNotificationDefinition,
       ),
     ).toBeDefined();
-    expect(drainMessageReceivedEvents(alice)).toHaveLength(0);
+    expect(yield* drainMessageReceivedEvents(alice)).toHaveLength(0);
     yield* closeAgents([alice, bob]);
   });
 }

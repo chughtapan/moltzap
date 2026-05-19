@@ -4,7 +4,7 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import { Data, Duration, Effect, Option, Stream } from "effect";
+import { Chunk, Data, Duration, Effect, Option, Ref, Stream } from "effect";
 import {
   isDecodedNotification,
   type AnyNotificationDefinition,
@@ -186,6 +186,101 @@ export function registerAgent(
   });
 }
 
+/**
+ * Spec B (#596) r2 cleanup: per-client buffer for notifications that a
+ * `subscribeTo(def)` pull drained from the underlying queue but did NOT
+ * match the requested definition. The underlying test client exposes
+ * `drainNotifications` as `Ref.getAndSet(queue, [])`, so a `Stream.filter`
+ * over `client.notifications` (the old `subscribeTo` shape) DROPS
+ * unmatched chunk elements forever — they vanish from the wire view of
+ * any subsequent subscriber. By round-tripping unmatched frames through
+ * `helperBuffer`, a concurrent `subscribeTo(A)` + `subscribeTo(B)` pair
+ * cannot race-lose each other's frames: the loser of a `drainNotifications`
+ * race finds its match in `helperBuffer` on the next poll.
+ *
+ * This buffer is per-client (owned by the `connectTestClient` closure)
+ * and shared across every `subscribeTo` call made via this client.
+ */
+type NotificationBuffer = Ref.Ref<
+  ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+>;
+
+const SUBSCRIBE_POLL_INTERVAL_MS = 5;
+
+/**
+ * Pull at most one notification matching `definition`. Any frames that
+ * arrived in the same `drainNotifications` chunk but did not match are
+ * appended to `helperBuffer` so other (current or future) subscribers
+ * see them. Returns `null` if nothing is available right now.
+ */
+function pullOneMatching<D extends AnyNotificationDefinition>(
+  client: CloseableTestClient,
+  helperBuffer: NotificationBuffer,
+  definition: D,
+): Effect.Effect<DecodedNotification<D> | null> {
+  return Effect.gen(function* () {
+    // 1. Check the helper buffer first — earlier pulls may have parked
+    //    matching frames here when their own definition did not match.
+    const fromBuffer = yield* Ref.modify(
+      helperBuffer,
+      (
+        buf,
+      ): readonly [
+        DecodedNotification<D> | null,
+        ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>,
+      ] => {
+        const idx = buf.findIndex((frame) =>
+          isDecodedNotification(definition, frame),
+        );
+        if (idx < 0) return [null, buf];
+        const matched = buf[idx] as DecodedNotification<D>;
+        const rest = [...buf.slice(0, idx), ...buf.slice(idx + 1)];
+        return [matched, rest];
+      },
+    );
+    if (fromBuffer !== null) return fromBuffer;
+
+    // 2. Drain the client queue and split it: keep the first match for
+    //    this pull, park the rest in the helper buffer.
+    const drained = yield* client.drainNotifications;
+    if (drained.length === 0) return null;
+    let matched: DecodedNotification<D> | null = null;
+    const rest: DecodedNotification<AnyNotificationDefinition>[] = [];
+    for (const frame of drained) {
+      if (matched === null && isDecodedNotification(definition, frame)) {
+        matched = frame;
+      } else {
+        rest.push(frame);
+      }
+    }
+    if (rest.length > 0) {
+      yield* Ref.update(helperBuffer, (buf) => [...buf, ...rest]);
+    }
+    return matched;
+  });
+}
+
+function makeSubscribeStream<D extends AnyNotificationDefinition>(
+  client: CloseableTestClient,
+  helperBuffer: NotificationBuffer,
+  definition: D,
+): Stream.Stream<DecodedNotification<D>, TransportClosedError> {
+  // Emit chunks of size 1 so that downstream consumers using
+  // `Stream.runHead` (or `Stream.take(N)`) never silently drop sibling
+  // elements bundled into the same chunk.
+  return Stream.repeatEffectChunk(
+    pullOneMatching(client, helperBuffer, definition).pipe(
+      Effect.flatMap((maybe) =>
+        maybe === null
+          ? Effect.sleep(Duration.millis(SUBSCRIBE_POLL_INTERVAL_MS)).pipe(
+              Effect.as(Chunk.empty<DecodedNotification<D>>()),
+            )
+          : Effect.succeed(Chunk.of(maybe)),
+      ),
+    ),
+  );
+}
+
 export function connectTestClient(opts: {
   agentId: string;
   apiKey: string;
@@ -201,16 +296,15 @@ export function connectTestClient(opts: {
       captureCapacity: 1024,
       autoConnect: opts.autoConnect,
     });
+    const helperBuffer: NotificationBuffer = yield* Ref.make<
+      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+    >([]);
     return {
       sendRpc: client.sendRpc.bind(client),
       sendMalformed: client.sendMalformed.bind(client),
       sendResponseFrame: client.sendResponseFrame.bind(client),
       subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
-        client.notifications.pipe(
-          Stream.filter((frame): frame is DecodedNotification<D> =>
-            isDecodedNotification(definition, frame),
-          ),
-        ),
+        makeSubscribeStream(client, helperBuffer, definition),
       handleServerRpc: client.handleServerRpc.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),
       notifications: client.notifications,
