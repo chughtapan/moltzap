@@ -1,5 +1,4 @@
 import type { Layer } from "effect";
-import type { RpcMethodBinding } from "../transport/context.js";
 import type { AppManifest } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
@@ -98,7 +97,6 @@ export type DisconnectionHook = (params: {
 
 export interface CoreApp {
   readonly port: number;
-  registerRpcMethod: (method: RpcMethodBinding) => void;
   onConnection: (hook: ConnectionHook) => void;
 
   /**

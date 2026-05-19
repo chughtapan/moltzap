@@ -305,7 +305,7 @@ export function connectTestClient(opts: {
       sendResponseFrame: client.sendResponseFrame.bind(client),
       subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
         makeSubscribeStream(client, helperBuffer, definition),
-      handleServerRpc: client.handleServerRpc.bind(client),
+      onAppCallback: client.onAppCallback.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),
       notifications: client.notifications,
       captures: client.captures,

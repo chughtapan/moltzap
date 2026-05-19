@@ -155,22 +155,28 @@ export interface TestClient {
   >;
 
   /**
-   * Register a handler for an app-callback RPC.
-   * When `handleInbound` sees a request frame whose method matches, the
-   * handler runs and its outcome is encoded as the JSON-RPC response:
+   * Register a handler for an app-callback RPC (test-driver-local;
+   * distinct from the production `MoltZapWsClient`'s static handler
+   * table, which is immutable per Spec F I1).
+   *
+   * When `handleInbound` sees a request frame whose method matches,
+   * the handler runs and its outcome is encoded as the JSON-RPC
+   * response:
    *   - `Effect.succeed(value)` → `{ result: value }`
    *   - `Effect.fail(err: RpcResponseError)` → `{ error: { code, message, data? } }`
    *   - defects collapse to a generic `-32603 InternalError` reply so the
    *     server's `Deferred.await` cannot hang on a crashing handler.
    *
    * Re-registration replaces the prior handler (later wins) — mirrors
-   * `HashMap.set`. The TestClient does NOT raise on duplicates the way the
-   * production client does; tests routinely swap behaviour mid-scenario.
+   * `HashMap.set`. The TestClient does NOT raise on duplicates; tests
+   * routinely swap behaviour mid-scenario. This is the deliberate
+   * driver-side relaxation that lets conformance tests exercise
+   * scenarios the static production table cannot express.
    *
    * `M` constrains to the registered app-callback method names and
    * `params`/`result` bind to the matching descriptor.
    */
-  readonly handleServerRpc: <D extends ServerRpcDefinition>(
+  readonly onAppCallback: <D extends ServerRpcDefinition>(
     definition: D,
     handler: (
       params: ServerRpcParams<D>,
@@ -180,7 +186,7 @@ export interface TestClient {
 
   /**
    * Park until the server sends an app-callback request for `method`. The handler
-   * registered via {@link handleServerRpc} (if any) still runs and replies;
+   * registered via {@link onAppCallback} (if any) still runs and replies;
    * `awaitServerRequest` is an OBSERVATION primitive — it lets a test
    * assert the request payload before the response goes back without
    * stealing the dispatch.
@@ -287,7 +293,7 @@ interface TestClientRuntime {
   readonly pending: PendingMap;
   readonly closeRef: Ref.Ref<CloseState>;
   readonly notificationQueue: Ref.Ref<NotificationQueue>;
-  readonly appCallbackHandlersRef: Ref.Ref<
+  readonly onAppCallbackHandlersRef: Ref.Ref<
     HashMap.HashMap<ServerRpcDefinition, AppCallbackHandler>
   >;
   readonly awaitersRef: Ref.Ref<AwaitersMap>;
@@ -467,14 +473,14 @@ class RuntimeTestClient implements TestClient {
     return waitForNotification(this.runtime, definition, resolvedTimeoutMs);
   }
 
-  handleServerRpc<D extends ServerRpcDefinition>(
+  onAppCallback<D extends ServerRpcDefinition>(
     definition: D,
     handler: (
       params: ServerRpcParams<D>,
       ctx: ServerRpcContext,
     ) => Effect.Effect<ServerRpcResult<D>, RpcResponseError>,
   ): Effect.Effect<void> {
-    return registerServerRpcHandler(
+    return registerAppCallbackHandler(
       this.runtime,
       definition,
       handler as AppCallbackHandler,
@@ -520,7 +526,7 @@ function acquireTestClientRuntime(
       pending: new Map(),
       closeRef,
       notificationQueue: yield* Ref.make<NotificationQueue>([]),
-      appCallbackHandlersRef: yield* Ref.make(
+      onAppCallbackHandlersRef: yield* Ref.make(
         HashMap.empty<ServerRpcDefinition, AppCallbackHandler>(),
       ),
       awaitersRef: yield* Ref.make(
@@ -730,7 +736,7 @@ function buildServerRequestReply(
   request: ServerRequestDispatch,
 ): Effect.Effect<ResponseFrame> {
   return Effect.gen(function* () {
-    const handlers = yield* Ref.get(runtime.appCallbackHandlersRef);
+    const handlers = yield* Ref.get(runtime.onAppCallbackHandlersRef);
     const handler = Option.getOrUndefined(
       HashMap.get(handlers, request.definition),
     );
@@ -1098,12 +1104,12 @@ function socketClosedError(state: CloseState): TransportClosedError {
   });
 }
 
-function registerServerRpcHandler(
+function registerAppCallbackHandler(
   runtime: TestClientRuntime,
   definition: ServerRpcDefinition,
   handler: AppCallbackHandler,
 ): Effect.Effect<void> {
-  return Ref.update(runtime.appCallbackHandlersRef, (handlers) =>
+  return Ref.update(runtime.onAppCallbackHandlersRef, (handlers) =>
     HashMap.set(handlers, definition, handler),
   );
 }

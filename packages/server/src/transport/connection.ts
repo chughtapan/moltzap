@@ -1,14 +1,19 @@
 import { Effect, type Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
-  makeJsonRpcClient,
+  makeServerConnection,
   type AnyTaskCallbackRpcDefinition,
-  type JsonRpcClient,
   type ParamsOf,
   type ResultOf,
   type RpcCallError,
+  type RpcDefinition,
+  type ServerConnection,
+  type ServerHandlers,
 } from "@moltzap/protocol";
-import type { AuthenticatedContext } from "../transport/context.js";
+import type {
+  AuthenticatedContext,
+  DispatchContext,
+} from "../transport/context.js";
 
 export interface MoltZapConnection {
   id: string;
@@ -27,27 +32,39 @@ export interface MoltZapConnection {
   mutedConversations: Set<string>;
 
   /**
-   * Originator side of this connection's server→client appCallback channel.
-   * Mints `srv-${connId}-N` request ids, tracks pending Deferreds, and
-   * fails every still-pending call with `NotConnectedError` when the
-   * surrounding scope closes (Scope finalizer registered by
-   * `makeJsonRpcClient`).
+   * Per-socket Spec F (#617) typed-dispatcher `ServerConnection`. Carries
+   * BOTH the inbound dispatcher (`handle` over the static
+   * `ServerHandlers&lt;DispatchContext>` table) AND the outbound originator
+   * (`call` / `notify` / `resolve` / `failAllPending`) for the
+   * server→client appCallback channel. Mints `srv-${connId}-N` request
+   * ids, tracks pending Deferreds, and fails every still-pending call
+   * with `NotConnectedError` when the surrounding scope closes. The
+   * per-conversation `sendRpcToClient` wrapper narrows the outbound call
+   * to `AnyTaskCallbackRpcDefinition`.
    */
-  readonly jsonRpcClient: JsonRpcClient;
+  readonly originator: ServerConnection<DispatchContext>;
 }
 
 /**
- * Allocate a per-connection `JsonRpcClient` whose request ids are prefixed
- * `srv-${connectionId}` (keeps server-originated ids disjoint from client
- * ids in logs and captures). The Scope finalizer registered by
- * `makeJsonRpcClient` drains pending Deferreds with `NotConnectedError`
- * when the connection scope closes.
+ * Allocate a per-connection Spec F (#617) typed `ServerConnection` whose
+ * request ids are prefixed `srv-${connectionId}` (keeps server-originated
+ * ids disjoint from client ids in logs and captures). The Scope finalizer
+ * registered by the internalized originator helper drains pending
+ * Deferreds with `NotConnectedError` when the connection scope closes.
+ *
+ * Test-only: `handlers` defaults to the empty record (no inbound
+ * dispatch). Production code passes the application's
+ * `ServerHandlers&lt;DispatchContext>` table via `socket-handler.ts → openSocketSession`.
  */
 export function acquireConnectionRpcClient(
   connectionId: string,
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
-): Effect.Effect<JsonRpcClient, never, Scope.Scope> {
-  return makeJsonRpcClient({
+  handlers: ServerHandlers<DispatchContext> = {} as ServerHandlers<DispatchContext>,
+): Effect.Effect<ServerConnection<DispatchContext>, never, Scope.Scope> {
+  return makeServerConnection<DispatchContext, never>({
+    id: connectionId,
+    handlers,
+    capabilities: {},
     write,
     idPrefix: `srv-${connectionId}`,
   });
@@ -56,7 +73,7 @@ export function acquireConnectionRpcClient(
 /**
  * Send an awaitable RPC from server → client over `connection`'s WebSocket.
  *
- * Generic-narrowing wrapper around `connection.jsonRpcClient.call` that
+ * Generic-narrowing wrapper around `connection.originator.call` that
  * constrains `D` to the task-callback RPC union — prevents accidental
  * dispatch of a client→server method on the appCallback channel.
  *
@@ -67,7 +84,17 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError, never> {
-  return connection.jsonRpcClient.call(definition, params);
+  // `AnyTaskCallbackRpcDefinition` is a strict subset of the originator's
+  // `AnyRpcDefinition` bound; the cast widens to the originator's
+  // generic constraint shape without losing the per-definition
+  // narrowing the caller provides.
+  const call = connection.originator.call as <
+    D2 extends RpcDefinition<string, any, any>,
+  >(
+    definition: D2,
+    params: ParamsOf<D2>,
+  ) => Effect.Effect<ResultOf<D2>, RpcCallError>;
+  return call(definition, params);
 }
 
 export class ConnectionManager {

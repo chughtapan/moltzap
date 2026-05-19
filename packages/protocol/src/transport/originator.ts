@@ -29,7 +29,7 @@ export type RpcCallError =
  * Originator side of a JSON-RPC connection. Scope-bound: closing the
  * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
  */
-export interface JsonRpcClient {
+export interface Originator {
   readonly call: <D extends AnyRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
@@ -38,12 +38,12 @@ export interface JsonRpcClient {
   readonly failAllPending: (error: NotConnectedError) => Effect.Effect<void>;
 }
 
-interface JsonRpcClientConfig {
+interface OriginatorConfig {
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }
 
-interface JsonRpcClientRefs {
+interface OriginatorRefs {
   readonly counterRef: Ref.Ref<number>;
   readonly pendingRef: Ref.Ref<HashMap.HashMap<JsonRpcId, PendingCall>>;
 }
@@ -97,7 +97,7 @@ function wireErrorToRpcCallError(error: {
 }
 
 function failAllPendingFromRef(
-  pendingRef: JsonRpcClientRefs["pendingRef"],
+  pendingRef: OriginatorRefs["pendingRef"],
   error: NotConnectedError,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
@@ -112,7 +112,7 @@ function failAllPendingFromRef(
 }
 
 function resolvePendingFrame(
-  pendingRef: JsonRpcClientRefs["pendingRef"],
+  pendingRef: OriginatorRefs["pendingRef"],
   frame: ResponseFrame,
 ): Effect.Effect<boolean> {
   return Effect.gen(function* () {
@@ -150,7 +150,7 @@ function failWrite(
   method: string,
 ): Effect.Effect<never, RpcCallError> {
   const err = new NotConnectedError({
-    message: `JsonRpcClient: write failed for ${method}`,
+    message: `Originator: write failed for ${method}`,
   });
   return Deferred.fail(deferred, err).pipe(
     Effect.ignore,
@@ -159,7 +159,7 @@ function failWrite(
 }
 
 function writeRequestFrame(
-  config: JsonRpcClientConfig,
+  config: OriginatorConfig,
   raw: string,
   method: string,
   deferred: Deferred.Deferred<unknown, RpcCallError>,
@@ -189,8 +189,8 @@ function decodeCallResult<D extends AnyRpcDefinition>(
 }
 
 function callWithRefs<D extends AnyRpcDefinition>(
-  config: JsonRpcClientConfig,
-  refs: JsonRpcClientRefs,
+  config: OriginatorConfig,
+  refs: OriginatorRefs,
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError> {
@@ -220,21 +220,21 @@ function callWithRefs<D extends AnyRpcDefinition>(
   });
 }
 
-export const makeJsonRpcClient = (config: {
+export const makeOriginator = (config: {
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
-}): Effect.Effect<JsonRpcClient, never, Scope.Scope> =>
+}): Effect.Effect<Originator, never, Scope.Scope> =>
   Effect.gen(function* () {
     const counterRef = yield* Ref.make(0);
     const pendingRef = yield* Ref.make(HashMap.empty<JsonRpcId, PendingCall>());
-    const refs: JsonRpcClientRefs = { counterRef, pendingRef };
+    const refs: OriginatorRefs = { counterRef, pendingRef };
     const failAllPending = (error: NotConnectedError): Effect.Effect<void> =>
       failAllPendingFromRef(pendingRef, error);
 
     yield* Effect.addFinalizer(() =>
       failAllPending(
         new NotConnectedError({
-          message: "JsonRpcClient scope closed with pending calls",
+          message: "Originator scope closed with pending calls",
         }),
       ),
     );
@@ -253,4 +253,4 @@ export const makeJsonRpcClient = (config: {
       callWithRefs(config, refs, definition, params);
 
     return { call, resolve, failAllPending };
-  }).pipe(Effect.withSpan("makeJsonRpcClient"));
+  }).pipe(Effect.withSpan("makeOriginator"));

@@ -12,7 +12,7 @@ caller
   ▼
 MoltZapWsClient.call(MessagesSend, params)
   │
-  ▼  json-rpc-client.ts → call
+  ▼  originator.ts → call
   │
   │  next id = "wsclient-42"
   │  frame = {jsonrpc:"2.0", id:"wsclient-42",
@@ -25,13 +25,13 @@ MoltZapWsClient.call(MessagesSend, params)
   │                                                                   → {_tag: "ClientRequest",
   │                                                                      definition: MessagesSend,
   │                                                                      params}
-  │                                                                 makeJsonRpcServer.handle(frame, ctx)
-  │                                                                   ▼ json-rpc-server.ts → handle
-  │                                                                 handlerByMethod.get("messages/send")
+  │                                                                 serverConnection.handle(frame, ctx)
+  │                                                                   ▼ dispatch.ts → makeInboundDispatch
+  │                                                                 ServerHandlers["messages/send"]
   │                                                                   ▼
   │                                                                 decodeRpcParams → ParamsOf<MessagesSend>
   │                                                                   ▼
-  │                                                                 messageHandlers["messages/send"]
+  │                                                                 ServerHandlers["messages/send"]
   │                                                                   .handle(params, dispatchCtx)
   │                                                                   ▼
   │                                                                 MessageService.send(...)

@@ -86,7 +86,7 @@ function registerWireModerator() {
     yield* moderator.client.sendRpc(AppsRegister, {
       manifest: WIRE_APP_MANIFEST,
     });
-    yield* moderator.client.handleServerRpc(
+    yield* moderator.client.onAppCallback(
       DispatchAuthorize,
       grantDispatchAuthorize,
     );

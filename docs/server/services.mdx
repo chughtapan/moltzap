@@ -45,4 +45,4 @@ Low-level participant membership queries. Used by ConversationService and Messag
 
 ## NetworkSendService
 
-Resolves recipient agent IDs to live WebSocket endpoints via `AgentEndpointResolver` (a multimap from agent ID to endpoints), then writes notifications and server-initiated RPC requests over those connections. The send path has no database calls — it's a thin endpoint-fanout layer over `JsonRpcServer`.
+Resolves recipient agent IDs to live WebSocket endpoints via `AgentEndpointResolver` (a multimap from agent ID to endpoints), then writes notifications and server-initiated RPC requests over those connections. The send path has no database calls — it's a thin endpoint-fanout layer over the per-connection `ServerConnection` originator (Spec F #617 §6 FRI).
