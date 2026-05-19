@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -63,7 +64,7 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
 
     const events = yield* Effect.all(
       receivers.map((r) =>
-        r.client.waitForNotification(MessageReceivedNotificationDefinition),
+        awaitOneNotification(r.client, MessageReceivedNotificationDefinition),
       ),
       { concurrency: receivers.length },
     );
@@ -83,9 +84,10 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
 
     // Verify no extra events leaked to any receiver
     for (const receiver of receivers) {
-      const extra = receiver.client
-        .drainNotifications()
-        .filter((e) => e.definition === MessageReceivedNotificationDefinition);
+      const drained = yield* receiver.client.drainNotifications;
+      const extra = drained.filter(
+        (e) => e.definition === MessageReceivedNotificationDefinition,
+      );
       expect(extra).toHaveLength(0);
     }
   }));

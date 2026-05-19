@@ -27,17 +27,36 @@ export type DecodedRpcRequest<D extends AnyRpcDefinition> =
  * params + the original wire `jsonrpc`. It does NOT extend `NotificationFrame`
  * — re-encoding goes through `definition.encode(params)`, not by re-serializing
  * this struct, so the strict-additionalProperties wire schema stays unstuck.
+ *
+ * The optional second parameter `R` narrows the `params` field to the refined
+ * type — used by `MoltZapWsClient.subscribe`'s user-defined-type-guard
+ * overload (spec #596 / architect plan §5.2). The default sentinel
+ * `unknown` resolves to the per-branch `NotificationParamsOf&lt;D>` shape,
+ * preserving the one-arg form for every existing consumer.
+ *
+ * The default uses an `unknown` sentinel rather than `NotificationParamsOf&lt;D>`
+ * because TS does not distribute type-alias defaults through the
+ * `D extends AnyNotificationDefinition` distributive conditional below —
+ * a `NotificationParamsOf&lt;D>` default would resolve once over the input
+ * union and break per-branch params narrowing for `D` unions like
+ * `DispatchesConsumed | DispatchesExpired`. Carrying `R` as a sentinel and
+ * resolving inside the conditional keeps the original `params` shape per
+ * distribution branch when the one-arg form is used.
  */
-export type DecodedNotification<D extends AnyNotificationDefinition> =
-  D extends AnyNotificationDefinition
-    ? {
-        readonly _tag: "Notification";
-        readonly jsonrpc: NotificationFrame["jsonrpc"];
-        readonly definition: D;
-        readonly method: D["name"];
-        readonly params: NotificationParamsOf<D>;
-      }
-    : never;
+export type DecodedNotification<
+  D extends AnyNotificationDefinition,
+  R = unknown,
+> = D extends AnyNotificationDefinition
+  ? {
+      readonly _tag: "Notification";
+      readonly jsonrpc: NotificationFrame["jsonrpc"];
+      readonly definition: D;
+      readonly method: D["name"];
+      readonly params: unknown extends R
+        ? NotificationParamsOf<D>
+        : Extract<R, NotificationParamsOf<D>>;
+    }
+  : never;
 
 class UnknownRpcMethodError extends Data.TaggedError("UnknownRpcMethodError")<{
   readonly frame: RequestFrame;

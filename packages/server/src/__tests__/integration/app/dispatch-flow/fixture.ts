@@ -17,6 +17,7 @@ import {
 } from "@moltzap/protocol/testing";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   getTestCoreApp,
   resetTestDbEffect,
   startTestServerEffect,
@@ -120,7 +121,17 @@ export function waitForDispatchRelease(
   recipient: ConnectedAgent,
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
 ) {
-  return recipient.client.waitForNotification(DispatchRelease, timeoutMs).pipe(
+  // Spec B (#596): subscribe via the Stream API. The fixture is invoked
+  // from `Effect.gen` blocks that have already issued the trigger RPC by
+  // the time control reaches this helper, so the lazy Stream value is
+  // materialised the moment the caller starts pulling — option (a)
+  // subscribe-before-trigger per spec Goal #7 is enforced by the
+  // caller's structural use (fork + trigger + join).
+  return awaitOneNotification(
+    recipient.client,
+    DispatchRelease,
+    timeoutMs,
+  ).pipe(
     Effect.map((notification) => notification.params),
     Effect.withSpan("waitForDispatchRelease"),
   );
@@ -130,12 +141,14 @@ export function waitForParticipantsRemoved(
   recipient: ConnectedAgent,
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
 ) {
-  return recipient.client
-    .waitForNotification(ParticipantsRemovedNotificationDefinition, timeoutMs)
-    .pipe(
-      Effect.map((notification) => notification.params),
-      Effect.withSpan("waitForParticipantsRemoved"),
-    );
+  return awaitOneNotification(
+    recipient.client,
+    ParticipantsRemovedNotificationDefinition,
+    timeoutMs,
+  ).pipe(
+    Effect.map((notification) => notification.params),
+    Effect.withSpan("waitForParticipantsRemoved"),
+  );
 }
 
 export function readLeaseByLeaseId(leaseId: LeaseId) {

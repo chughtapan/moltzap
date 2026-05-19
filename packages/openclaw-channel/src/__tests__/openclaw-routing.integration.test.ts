@@ -8,7 +8,7 @@
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
-import { Data, Effect, Exit } from "effect";
+import { Data, Duration, Effect, Exit, Option, Stream } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
@@ -22,6 +22,7 @@ import {
 import {
   AgentsLookupByName,
   ConversationsCreate,
+  MessageReceivedNotificationDefinition,
   MessagesSend,
   type Message,
 } from "@moltzap/protocol";
@@ -344,21 +345,49 @@ function sendText(
   });
 }
 
+/**
+ * Spec B (#596): `client.waitForNotification(name)` is deleted; the
+ * Stream-based replacement is `subscribe(def).pipe(Stream.runHead,
+ * Effect.timeoutFail)`. `extractMessage` continues to read the same
+ * notification shape.
+ */
 function waitForReceivedMessage(client: MoltZapWsClient) {
-  return client
-    .waitForNotification("messages/received", NOTIFICATION_WAIT_TIMEOUT_MS)
-    .pipe(Effect.map(extractMessage));
+  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(NOTIFICATION_WAIT_TIMEOUT_MS),
+      onTimeout: () =>
+        new RoutingIntegrationError({
+          message: "timed out waiting for messages/received notification",
+        }),
+    }),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new RoutingIntegrationError({
+              message:
+                "messages/received Stream completed before a frame arrived",
+            }),
+          ),
+        onSome: (frame) => Effect.succeed(extractMessage(frame)),
+      }),
+    ),
+  );
 }
 
 function waitForReceivedMessages(client: MoltZapWsClient, count: number) {
-  return Effect.all(
-    Array.from({ length: count }, () =>
-      client.waitForNotification(
-        "messages/received",
-        NOTIFICATION_WAIT_TIMEOUT_MS,
-      ),
-    ),
-    { concurrency: count },
+  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+    Stream.take(count),
+    Stream.runCollect,
+    Effect.timeoutFail({
+      duration: Duration.millis(NOTIFICATION_WAIT_TIMEOUT_MS),
+      onTimeout: () =>
+        new RoutingIntegrationError({
+          message: `timed out waiting for ${count} messages/received notifications`,
+        }),
+    }),
+    Effect.map((chunk) => Array.from(chunk)),
   );
 }
 

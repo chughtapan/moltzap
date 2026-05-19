@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -48,10 +49,12 @@ it("group creation notifies all participants with conversations/created event", 
     expect(conv.conversation.type).toBe(GROUP_TYPE);
     expect(conv.conversation.name).toBe(GROUP_NAME);
 
-    const bobCreated = yield* bob.client.waitForNotification(
+    const bobCreated = yield* awaitOneNotification(
+      bob.client,
       ConversationCreatedNotificationDefinition,
     );
-    const eveCreated = yield* eve.client.waitForNotification(
+    const eveCreated = yield* awaitOneNotification(
+      eve.client,
       ConversationCreatedNotificationDefinition,
     );
 

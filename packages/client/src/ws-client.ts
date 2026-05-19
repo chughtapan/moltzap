@@ -15,6 +15,7 @@ import {
   Ref,
   Schedule,
   Scope,
+  Stream,
 } from "effect";
 import {
   PROTOCOL_VERSION,
@@ -30,6 +31,7 @@ import {
   type DecodedServerInbound,
   type JsonRpcClient,
   type JsonRpcId,
+  type NotificationParamsOf,
   type ParamsOf,
   type ResponseFrame,
   type ResultOf,
@@ -42,11 +44,12 @@ import { DuplicateServerRpcHandlerError } from "./runtime/errors.js";
 import { decodeFrames } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
-  type NotificationSubscription,
-  type SubscriberHandler,
   type SubscriberRegistry,
-  type SubscriptionFilter,
 } from "./runtime/subscribers.js";
+import {
+  subscribe as subscribeStream,
+  subscribeAll as subscribeAllStream,
+} from "./notification/stream.js";
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
 
 // Re-export `CloseInfo` so consumers can import it from
@@ -72,7 +75,6 @@ const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const RECONNECT_BACKOFF_FACTOR = 2;
 const NORMAL_CLOSE_CODE = 1000;
-const EVENT_WAIT_TIMEOUT_MS = 5000;
 const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
 const MALFORMED_FRAME_PREVIEW_CHARS = 200;
 
@@ -84,13 +86,6 @@ const MALFORMED_LOG_EVERY = 50;
 
 export const shouldLogMalformedFrame = (count: number): boolean =>
   count === 1 || count % MALFORMED_LOG_EVERY === 0;
-
-/**
- * Cap on the per-client notification buffer. Any frame that has no live
- * `waitForNotification` awaiter lands here until someone drains it. Excess
- * frames are evicted FIFO so a slow consumer can't leak memory.
- */
-const MAX_EVENT_BUFFER = 1000;
 
 /**
  * Capacity of the per-connection task-callback executor queue. Sized at
@@ -142,8 +137,7 @@ class ReconnectAttemptFailedError extends Data.TaggedError(
  * pre-cutover 256×32 burst envelope). Held here alongside its own
  * `dispatcherScope` (NOT bound to the socket scope) so
  * `runSync(client.close())` can `runFork(Scope.close(…))` without
- * yielding through the runtime — the load-bearing regression gate at
- * `ws-client.test.ts:1233-1259`.
+ * yielding through the runtime — the load-bearing regression gate.
  */
 interface ConnState {
   readonly write: (
@@ -219,48 +213,6 @@ type ErasedServerRpcHandler = (
   ctx: ServerRpcContext,
 ) => Effect.Effect<unknown, RegisteredTaggedError>;
 
-interface NotificationWaiter {
-  readonly definition: AnyNotificationDefinition;
-  readonly complete: (
-    notification: DecodedNotification<AnyNotificationDefinition>,
-  ) => Effect.Effect<void>;
-  readonly fail: (error: Error) => Effect.Effect<void>;
-}
-
-/**
- * Notifications are pre-validated by the wire decoder
- * (`decodeNotification` in `@moltzap/protocol`) — fail-close on unknown
- * methods or bad params. Buffer + waiters hold the validated shape
- * directly; no separate Raw|Unknown lift remains.
- */
-
-function acceptTypedNotification<D extends AnyNotificationDefinition>(
-  definition: D,
-  notification: DecodedNotification<AnyNotificationDefinition>,
-): notification is DecodedNotification<D> {
-  return notification.definition === definition;
-}
-
-/** Drop `waiter` from its notification-definition bucket, pruning an empty bucket. */
-function removeWaiter(
-  m: HashMap.HashMap<
-    AnyNotificationDefinition,
-    ReadonlyArray<NotificationWaiter>
-  >,
-  definition: AnyNotificationDefinition,
-  waiter: NotificationWaiter,
-): HashMap.HashMap<
-  AnyNotificationDefinition,
-  ReadonlyArray<NotificationWaiter>
-> {
-  const bucket = HashMap.get(m, definition);
-  if (bucket._tag === "None") return m;
-  const filtered = bucket.value.filter((w) => w !== waiter);
-  return filtered.length === 0
-    ? HashMap.remove(m, definition)
-    : HashMap.set(m, definition, filtered);
-}
-
 export interface MoltZapWsClientOptions {
   serverUrl: string;
   agentKey: string;
@@ -268,15 +220,13 @@ export interface MoltZapWsClientOptions {
   /**
    * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
    * `close` is the typed close metadata — real WebSocket `{code, reason}`
-   * when the transport surfaces them, OQ-5 defaults otherwise. Required
-   * arg (OQ-6 rewrite): zero-arg `() => void` callers must migrate to
-   * accept (and may ignore) the arg.
+   * when the transport surfaces them, OQ-5 defaults otherwise.
    *
-   * Migration note (spec #222 OQ-4 rewrite): the previous `onNotification`
-   * callback was deleted in this rewrite. Callers that want to observe
-   * every inbound notification register `client.subscribe({}, handler)` after
-   * construction; notifications flow through the per-subscription registry,
-   * not through a top-level option.
+   * Migration note (spec #596): the previous `subscribe(filter, handler)` /
+   * `waitForNotification` / `notificationsBufferRef` surface was deleted in
+   * Spec B. Callers consume notifications via `subscribe(def, refinement?)`
+   * returning a `Stream`, or `subscribeAll(refinement?)` for the broad-union
+   * escape hatch.
    */
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: ConnectResult) => void;
@@ -293,34 +243,24 @@ export interface MoltZapWsClientOptions {
  * `@effect/platform-node/NodeSocket.layerWebSocketConstructor`. The Node
  * `WebSocketConstructor` layer is provided internally via `ManagedRuntime`
  * so callers' `connect()` / `sendRpc()` Effects have no extra requirement.
+ *
+ * Notification consumption (spec #596 / Spec B): use `subscribe(def, refinement?)`
+ * for typed payload Streams; `subscribeAll(refinement?)` for the broad-union
+ * escape hatch. Both return `Stream.Stream` of `DecodedNotification` with a `NotConnectedError` error channel.
+ * Consume via `Stream.runForEach` (long-lived) or `Stream.runHead` + `Effect.timeoutFail`
+ * (one-shot).
  */
 export class MoltZapWsClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
-  private readonly notificationsBufferRef: Ref.Ref<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
-  >;
-
-  /**
-   * Waiters keyed by notification descriptor identity. Each bucket is a FIFO
-   * stack: delivery pops the most recently registered waiter (the tail).
-   */
-  private readonly notificationWaitersRef: Ref.Ref<
-    HashMap.HashMap<
-      AnyNotificationDefinition,
-      ReadonlyArray<NotificationWaiter>
-    >
-  >;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
   >;
 
   /**
-   * Per-subscription notification registry. Spec #222 §5.3 (C4 + the
-   * `RealClientEventSubscriber.subscribe` filter stub). Constructed
-   * synchronously alongside the other Refs; `MoltZapWsClient.subscribe`
-   * delegates to it directly.
+   * Per-subscription notification registry. Spec #596 / Spec B: callback-based
+   * storage feeds `Stream.async` consumers via `notification/stream.ts`.
    */
   private readonly subscribers: SubscriberRegistry;
 
@@ -344,19 +284,6 @@ export class MoltZapWsClient {
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
-    this.notificationsBufferRef = this.runtime.runSync(
-      Ref.make<ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>>(
-        [],
-      ),
-    );
-    this.notificationWaitersRef = this.runtime.runSync(
-      Ref.make<
-        HashMap.HashMap<
-          AnyNotificationDefinition,
-          ReadonlyArray<NotificationWaiter>
-        >
-      >(HashMap.empty()),
-    );
     // Registry construction is `Effect<…, never>`; running it sync here
     // matches every other Ref initializer in this constructor and
     // keeps `subscribers` non-nullable inside the class.
@@ -443,27 +370,62 @@ export class MoltZapWsClient {
   }
 
   /**
-   * Register a per-subscription notification handler. Spec #222 §5.3 + OQ-2
-   * (A): filter grammar is the three-field `SubscriptionFilter`
-   * (`emissionTag` / `conversationId` / `notificationNamePrefix`). Returns a
-   * handle whose `unsubscribe` Effect drops delivery starting with the
-   * next inbound frame (OQ-3 A snapshot semantics).
+   * Typed-payload subscribe (spec #596 Goal #1). Returns a Stream of
+   * `DecodedNotification&lt;D>` whose error channel is `NotConnectedError`
+   * and whose requirement set is `never`.
    *
-   * Subscription is legal pre-`connect()`; the registry buffers
-   * registrations and starts dispatching once the reader fiber begins
-   * producing frames. Fails with `NotConnectedError` only if the client
-   * has been permanently torn down via `close()`.
+   * `refinement` is a typed predicate over the definition's params shape.
+   * The user-defined-type-guard overload (signature below) narrows the
+   * Stream's payload to `DecodedNotification&lt;D, R>`.
+   *
+   * Lifecycle (spec §"Stream lifecycle contract"):
+   *   - Subscription construction is pure (no I/O, no scope). Legal
+   *     pre-`connect()`.
+   *   - First-pull suspends until the first matching frame arrives or
+   *     terminal close fires `NotConnectedError`.
+   *   - Reconnect persists subscriptions (`SubscriberRegistry` survives
+   *     transient disconnects).
+   *   - Terminal close (`client.close()`) terminates every in-flight Stream
+   *     with `NotConnectedError`.
    */
-  subscribe(
-    filter: SubscriptionFilter,
-    handler: SubscriberHandler,
-  ): Effect.Effect<NotificationSubscription, NotConnectedError> {
-    return Effect.suspend(() => {
-      if (this.closed) {
-        return Effect.fail(makeNotConnectedError());
-      }
-      return this.subscribers.register(filter, handler);
-    });
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never>;
+  subscribe<
+    D extends AnyNotificationDefinition,
+    R extends NotificationParamsOf<D>,
+  >(
+    definition: D,
+    refinement: (params: NotificationParamsOf<D>) => params is R,
+  ): Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never> {
+    return subscribeStream(this.subscribers, definition, refinement);
+  }
+
+  /**
+   * Broad-union escape hatch (spec #596 Goal #2). Returns a Stream of every
+   * inbound notification regardless of definition. Payload narrowing is
+   * intentionally lost — callers wanting typed payloads use `subscribe`.
+   *
+   * The only intended in-tree consumer is `MoltZapService.connect`'s
+   * service-wide notification fanout.
+   */
+  subscribeAll(
+    // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
+    refinement?: (
+      notification: DecodedNotification<AnyNotificationDefinition>,
+    ) => boolean,
+  ): Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    NotConnectedError,
+    never
+  > {
+    return subscribeAllStream(this.subscribers, refinement);
   }
 
   /**
@@ -484,9 +446,12 @@ export class MoltZapWsClient {
         yield* Effect.forkDaemon(Fiber.interrupt(f));
       }
       yield* this.failAllPending(MSG_NOT_CONNECTED);
-      yield* this.failAllNotificationWaiters(MSG_NOT_CONNECTED);
       // Drop every live subscription so handlers stop firing once
-      // the client is permanently torn down. Idempotent.
+      // the client is permanently torn down. The registry invokes each
+      // sub's `onClose(new NotConnectedError(...))` callback, which fires
+      // `emit.fail` on the corresponding consumer Stream. Subsumes the
+      // deleted `failAllNotificationWaiters` semantic (spec #596 §3.2 +
+      // §"Stream lifecycle contract" row 5).
       yield* this.subscribers.closeAll;
       const state = yield* Ref.getAndSet(this.stateRef, Option.none());
       if (Option.isSome(state)) {
@@ -516,104 +481,6 @@ export class MoltZapWsClient {
         }),
       ),
     );
-  }
-
-  /**
-   * Wait for the next inbound notification matching `definition`.
-   * Consumes a buffered match if present; otherwise awaits the next match
-   * with a per-call timeout.
-   */
-  waitForNotification<D extends AnyNotificationDefinition>(
-    definition: D,
-    timeoutMs = EVENT_WAIT_TIMEOUT_MS,
-  ): Effect.Effect<DecodedNotification<D>, Error> {
-    return Effect.gen(this, function* () {
-      const buffered = yield* this.takeBufferedNotification(definition);
-      if (buffered !== null) return buffered;
-      return yield* this.awaitNotification(definition, timeoutMs);
-    });
-  }
-
-  private takeBufferedNotification<D extends AnyNotificationDefinition>(
-    definition: D,
-  ): Effect.Effect<DecodedNotification<D> | null> {
-    return Ref.modify(this.notificationsBufferRef, (frames) => {
-      for (const [idx, frame] of frames.entries()) {
-        if (!acceptTypedNotification(definition, frame)) continue;
-        const next = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
-        return [frame, next];
-      }
-      return [null, frames];
-    });
-  }
-
-  private awaitNotification<D extends AnyNotificationDefinition>(
-    definition: D,
-    timeoutMs: number,
-  ): Effect.Effect<DecodedNotification<D>, Error> {
-    return Effect.gen(this, function* () {
-      const deferred = yield* Deferred.make<DecodedNotification<D>, Error>();
-      const waiter = this.makeNotificationWaiter(definition, deferred);
-      yield* this.addNotificationWaiter(definition, waiter);
-      return yield* Deferred.await(deferred).pipe(
-        Effect.timeoutFail({
-          duration: `${timeoutMs} millis`,
-          onTimeout: () =>
-            new Error(`Timeout waiting for notification: ${definition.name}`),
-        }),
-        Effect.onExit((exit) =>
-          Exit.isFailure(exit)
-            ? this.removeNotificationWaiter(definition, waiter)
-            : Effect.void,
-        ),
-      );
-    });
-  }
-
-  private makeNotificationWaiter<D extends AnyNotificationDefinition>(
-    definition: D,
-    deferred: Deferred.Deferred<DecodedNotification<D>, Error>,
-  ): NotificationWaiter {
-    return {
-      definition,
-      complete: (notification) =>
-        acceptTypedNotification(definition, notification)
-          ? Deferred.succeed(deferred, notification).pipe(Effect.asVoid)
-          : Effect.void,
-      fail: (error) => Deferred.fail(deferred, error).pipe(Effect.asVoid),
-    };
-  }
-
-  private addNotificationWaiter(
-    definition: AnyNotificationDefinition,
-    waiter: NotificationWaiter,
-  ): Effect.Effect<void> {
-    return Ref.update(this.notificationWaitersRef, (m) => {
-      const existing = HashMap.get(m, definition);
-      const next =
-        existing._tag === "Some" ? [...existing.value, waiter] : [waiter];
-      return HashMap.set(m, definition, next);
-    });
-  }
-
-  private removeNotificationWaiter(
-    definition: AnyNotificationDefinition,
-    waiter: NotificationWaiter,
-  ): Effect.Effect<void> {
-    return Ref.update(this.notificationWaitersRef, (m) =>
-      removeWaiter(m, definition, waiter),
-    );
-  }
-
-  /**
-   * Return all buffered notifications and clear the buffer. Synchronous.
-   * Frames are pre-validation (`params: unknown`) — buffer holds the
-   * raw shape produced by the wire decoder.
-   */
-  drainNotifications(): DecodedNotification<AnyNotificationDefinition>[] {
-    const snapshot = this.runtime.runSync(Ref.get(this.notificationsBufferRef));
-    this.runtime.runSync(Ref.set(this.notificationsBufferRef, []));
-    return [...snapshot];
   }
 
   /** Close the socket without marking as permanently closed, triggering reconnection. */
@@ -952,48 +819,17 @@ export class MoltZapWsClient {
     });
   }
 
-  private takeNotificationWaiter(
-    decoded: DecodedIncomingNotification,
-  ): Effect.Effect<NotificationWaiter | null> {
-    return Ref.modify(this.notificationWaitersRef, (waitersMap) => {
-      const bucket = HashMap.get(waitersMap, decoded.definition);
-      if (bucket._tag === "None" || bucket.value.length === 0) {
-        return [null as NotificationWaiter | null, waitersMap];
-      }
-      const arr = bucket.value;
-      const chosen = arr[arr.length - 1]!;
-      const rest = arr.slice(0, -1);
-      const nextMap =
-        rest.length === 0
-          ? HashMap.remove(waitersMap, decoded.definition)
-          : HashMap.set(waitersMap, decoded.definition, rest);
-      return [chosen, nextMap];
-    });
-  }
-
-  private bufferNotification(
-    decoded: DecodedIncomingNotification,
-  ): Effect.Effect<void> {
-    return Ref.update(this.notificationsBufferRef, (buffer) => {
-      const appended = [...buffer, decoded];
-      return appended.length > MAX_EVENT_BUFFER
-        ? appended.slice(-MAX_EVENT_BUFFER)
-        : appended;
-    });
-  }
-
+  /**
+   * Inbound notification routing. Spec #596 / Spec B: dispatch fans out
+   * through the registry's stored `onFrame` callbacks into each
+   * subscription's `Stream.async` source. The pre-arrival buffer and
+   * waiter-pop branches were deleted in Spec B (no top-level waiter, no
+   * `notificationsBufferRef`).
+   */
   private handleDecodedNotification(
     decoded: DecodedIncomingNotification,
   ): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      yield* this.subscribers.dispatch(decoded);
-      const delivered = yield* this.takeNotificationWaiter(decoded);
-      if (delivered !== null) {
-        yield* delivered.complete(decoded);
-        return;
-      }
-      yield* this.bufferNotification(decoded);
-    });
+    return this.subscribers.dispatch(decoded);
   }
 
   private handleDecodedFrame(
@@ -1012,7 +848,7 @@ export class MoltZapWsClient {
 
   /**
    * Route an inbound frame. Malformed frames are logged + dropped; notification
-   * frames dispatch to `onNotification` after the shape check.
+   * frames fan out through the per-subscription registry (Spec B).
    */
   private handleIncoming(raw: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
@@ -1025,24 +861,6 @@ export class MoltZapWsClient {
 
       for (const decoded of decodedFrames) {
         yield* this.handleDecodedFrame(decoded);
-      }
-    });
-  }
-
-  /** Fail every outstanding notification waiter with `message` and clear the map. */
-  private failAllNotificationWaiters(message: string): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const waiters = yield* Ref.getAndSet(
-        this.notificationWaitersRef,
-        HashMap.empty<
-          AnyNotificationDefinition,
-          ReadonlyArray<NotificationWaiter>
-        >(),
-      );
-      for (const [, bucket] of HashMap.entries(waiters)) {
-        for (const w of bucket) {
-          yield* w.fail(new Error(message));
-        }
       }
     });
   }

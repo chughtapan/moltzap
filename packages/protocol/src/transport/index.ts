@@ -56,11 +56,15 @@ export {
 export type { RpcErrorClass, RpcErrorPayload } from "./wire-errors.js";
 
 // Decoded RPC + notification types. Group-level decode helpers
-// (`decodeRpcRequest`, `decodeNotification`, `isDecodedNotification`)
-// are protocol-internal — consumers reach the same surface via
-// `decodeServerInbound` / `decodeClientInbound` and discriminate on
-// `definition` identity.
+// (`decodeRpcRequest`, `decodeNotification`) remain protocol-internal —
+// consumers reach the same surface via `decodeServerInbound` /
+// `decodeClientInbound` and discriminate on `definition` identity.
+// `isDecodedNotification` is the typed-guard companion that Spec B
+// (#596) Stream-based `client.notifications`/`subscribeTo` callers use to
+// narrow filtered frames to `DecodedNotification<D>`; it is part of the
+// public surface.
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
+export { isDecodedNotification } from "./rpc-groups.js";
 
 // JSON-RPC client + server runtime.
 export { makeJsonRpcClient } from "./json-rpc-client.js";

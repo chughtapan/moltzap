@@ -65,6 +65,7 @@ import {
 } from "@moltzap/protocol";
 import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -219,7 +220,8 @@ it(
       // proof that `network.send` is the gating mechanism lives in
       // the next two tests; here we only assert the round-trip is
       // healthy end-to-end.
-      const received = yield* pair.tm.waitForNotification(
+      const received = yield* awaitOneNotification(
+        pair.tm,
         MessageReceivedNotificationDefinition,
       );
       const receivedMsg = (received.params as { message: Message }).message;
@@ -330,7 +332,8 @@ it(
       // Both participants observe the message via the conversation
       // broadcast — the app-TM in-process handler is a no-op observer,
       // so the surviving delivery path is the conversation fan-out.
-      const received = yield* pair.tm.waitForNotification(
+      const received = yield* awaitOneNotification(
+        pair.tm,
         MessageReceivedNotificationDefinition,
       );
       const receivedMsg = (received.params as { message: Message }).message;
@@ -363,7 +366,8 @@ it(
         { type: "text", text: "group with default TM" },
       ]);
 
-      const received = yield* pair.tm.waitForNotification(
+      const received = yield* awaitOneNotification(
+        pair.tm,
         MessageReceivedNotificationDefinition,
       );
       const receivedMsg = (received.params as { message: Message }).message;
@@ -401,7 +405,7 @@ it(
       // notification via the conversation broadcast. Drain after a
       // brief grace period and count.
       yield* Effect.sleep("200 millis");
-      const drained = pair.tm.drainNotifications();
+      const drained = yield* pair.tm.drainNotifications;
       const receivedCount = drained.filter(
         (n) =>
           n.method === MessageReceivedNotificationDefinition.name &&
