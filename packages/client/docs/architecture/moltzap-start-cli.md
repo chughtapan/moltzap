@@ -70,7 +70,6 @@ sequenceDiagram
     participant shell
     participant cli as @effect/cli
     participant start as start.ts → startCommandHandler
-    participant sock as socket-client.ts → resolveParticipant
     participant tx as transport.ts → rpc
 
     shell->>cli: moltzap start <name> agent:bob ... [--message <txt>] [--app-id <uuid>]
@@ -78,9 +77,9 @@ sequenceDiagram
 
     Note over start: 1. validateAppIdSyntax(args.appId)<br>invalid → InvalidAppIdError → exit 64
 
-    Note over start: 2. Effect.all(participants.map(resolveParticipant))<br>any failure → UnresolvedParticipantError → exit 64
-    start->>sock: resolveParticipant("agent:bob")
-    sock-->>start: { type: "agent", id: AgentId }
+    Note over start: 2. Effect.all(participants.map(resolveAgentToken))<br>name-shaped tokens fan out through Transport; UUID-shaped tokens<br>short-circuit client-side. Any failure → UnresolvedParticipantError → exit 64
+    start->>tx: rpc(AgentsLookupByName, { names: ["bob"] }) (per name-shaped token)
+    tx-->>start: { agents: [{ id, ... }] } or empty
 
     Note over start: 3. rpc(TaskCreate, {appId, invitedAgentIds, initialConversation:{name, participants}})
     start->>tx: TaskCreate
@@ -140,16 +139,12 @@ export const startCommandHandler = (args: StartCommandArgs) =>
         ? yield* validateAppId(args.appId)  // → InvalidAppIdError on bad UUID
         : DEFAULT_APP_ID;
 
-    // 2. Resolve participants
+    // 2. Resolve participants via the local Transport-routed helper.
+    //    resolveAgentToken returns bare AgentId (NOT a participant ref),
+    //    so no .map(p => p.id) step is needed. The helper itself maps
+    //    shape failures + lookup-empty results to UnresolvedParticipantError.
     const invitedAgentIds = yield* Effect.all(
-      args.participants.map((tok) =>
-        resolveParticipant(tok).pipe(
-          Effect.map((p) => p.id),
-          Effect.mapError(() =>
-            new UnresolvedParticipantError({ token: tok, reason: "not-found" }),
-          ),
-        ),
-      ),
+      args.participants.map(resolveAgentToken),
     );
 
     // 3. TaskCreate atomic
@@ -317,15 +312,15 @@ NOT exercised by unit tests — they use `Transport` directly.
   landing first — orchestrator should sequence D2 impl AFTER D1 impl,
   not concurrent. The architect plan + stub are unblocked (this
   branch).
-- **D1 plan §15 process-issue** flags Spec D2 acceptance criterion
-  "Participant-resolution failure exit 64 with NO RPC calls" against
-  the fact that `resolveParticipant` itself calls
-  `AgentsLookupByName` (an RPC) when the token is a name (not a UUID).
-  Strict reading of the AC fails if the lookup is counted as an RPC;
-  generous reading admits it because the lookup is read-only and does
-  not mutate. Architect interpretation (this plan): the AC means "NO
-  `TaskCreate` / `MessagesSend` calls", since only those two are
-  spec-D2's mutating calls. Re-confirm in N=2 review.
+- **Spec D2 AC interpretation: "NO RPC calls" reads as "no mutating
+  RPC calls".** `start.ts → resolveAgentToken` calls
+  `rpc(AgentsLookupByName, ...)` for name-shaped tokens (a server
+  RPC), which the strict reading of the AC would prohibit. Architect
+  interpretation: the AC means "NO `TaskCreate` / `MessagesSend`
+  calls", since only those two are spec-D2's mutating calls. The
+  read-only lookup is intentional + necessary (UUID-only tokens are
+  the only alternative and would break the `agent:&lt;name>`
+  shorthand). Re-confirmed in r2 N=2 review.
 
 ## 9. Cold-start reading order
 
