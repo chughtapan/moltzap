@@ -117,23 +117,33 @@ export function sendMessageWithLease(
   });
 }
 
+/**
+ * Spec B (#596) r2 cleanup: notification helpers return a `Fiber` that the
+ * caller MUST acquire BEFORE issuing the trigger RPC. The underlying
+ * `Stream.async` subscription has no historical buffer — if the helper
+ * subscribed after the trigger, notifications firing in the gap between
+ * trigger-return and subscription-registration are lost.
+ *
+ * Caller pattern (fork-before-trigger + Fiber.join):
+ * ```
+ * const releaseFiber = yield* waitForDispatchRelease(bob);
+ * yield* requestDispatch(bob, ...);
+ * const release = yield* Fiber.join(releaseFiber);
+ * ```
+ *
+ * Returning a `Fiber` (rather than the raw Effect) makes the contract
+ * structural — the type signature enforces fork-before-trigger because
+ * callers receive a fiber handle, not the awaited value.
+ */
 export function waitForDispatchRelease(
   recipient: ConnectedAgent,
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
 ) {
-  // Spec B (#596): subscribe via the Stream API. The fixture is invoked
-  // from `Effect.gen` blocks that have already issued the trigger RPC by
-  // the time control reaches this helper, so the lazy Stream value is
-  // materialised the moment the caller starts pulling — option (a)
-  // subscribe-before-trigger per spec Goal #7 is enforced by the
-  // caller's structural use (fork + trigger + join).
-  return awaitOneNotification(
-    recipient.client,
-    DispatchRelease,
-    timeoutMs,
-  ).pipe(
-    Effect.map((notification) => notification.params),
-    Effect.withSpan("waitForDispatchRelease"),
+  return Effect.fork(
+    awaitOneNotification(recipient.client, DispatchRelease, timeoutMs).pipe(
+      Effect.map((notification) => notification.params),
+      Effect.withSpan("waitForDispatchRelease"),
+    ),
   );
 }
 
@@ -141,13 +151,15 @@ export function waitForParticipantsRemoved(
   recipient: ConnectedAgent,
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
 ) {
-  return awaitOneNotification(
-    recipient.client,
-    ParticipantsRemovedNotificationDefinition,
-    timeoutMs,
-  ).pipe(
-    Effect.map((notification) => notification.params),
-    Effect.withSpan("waitForParticipantsRemoved"),
+  return Effect.fork(
+    awaitOneNotification(
+      recipient.client,
+      ParticipantsRemovedNotificationDefinition,
+      timeoutMs,
+    ).pipe(
+      Effect.map((notification) => notification.params),
+      Effect.withSpan("waitForParticipantsRemoved"),
+    ),
   );
 }
 
