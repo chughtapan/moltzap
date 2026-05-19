@@ -277,7 +277,7 @@ export class TaskService {
     TaskServiceError
   > {
     return Effect.gen(this, function* () {
-      const task = yield* this.requireReadAccess(id, caller);
+      const task = yield* this.loadTaskWithReadAccess(id, caller);
       const rows = yield* catchSqlErrorAsDefect(
         this.db
           .selectFrom("task_participants")
@@ -332,7 +332,7 @@ export class TaskService {
     caller: AgentId,
   ): Effect.Effect<TaskCloseLifecycle, TaskServiceError> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      yield* this.loadTaskAsTmAuthority(id, caller);
       return yield* catchSqlErrorAsDefect(
         transaction(this.db, (trx) => this.closeLifecycleTransaction(trx, id)),
       );
@@ -448,7 +448,7 @@ export class TaskService {
   // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
   // `task.tmEndpointAddress` is now non-null by construction. The
   // pre-R12 null branch retired alongside `endpoints/unregisterTaskManager`.
-  requireTmAuthority(
+  loadTaskAsTmAuthority(
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<Task, TaskServiceError> {
@@ -478,7 +478,7 @@ export class TaskService {
     });
   }
 
-  requireReadAccess(
+  loadTaskWithReadAccess(
     id: TaskId,
     caller: AgentId,
   ): Effect.Effect<Task, TaskServiceError> {
@@ -511,7 +511,7 @@ export class TaskService {
     target: AgentId,
   ): Effect.Effect<TaskParticipant, TaskServiceError> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      yield* this.loadTaskAsTmAuthority(id, caller);
       const row = yield* catchSqlErrorAsDefect(
         takeFirstOrFail(
           this.db
@@ -539,7 +539,7 @@ export class TaskService {
     target: AgentId,
   ): Effect.Effect<void, TaskServiceError> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      yield* this.loadTaskAsTmAuthority(id, caller);
       yield* catchSqlErrorAsDefect(
         this.db
           .deleteFrom("task_participants")
@@ -555,7 +555,7 @@ export class TaskService {
     input: CreateConversationInput,
   ): Effect.Effect<Conversation, TaskServiceError> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      yield* this.loadTaskAsTmAuthority(id, caller);
       // The task id is fixed (this is a TM acting on its own task),
       // so wrap it in `Effect.succeed` for the lazy-`mintTask`
       // contract `ConversationService.create` expects.
@@ -575,7 +575,7 @@ export class TaskService {
     conversationId: ConversationId,
   ): Effect.Effect<void, TaskServiceError> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
+      yield* this.loadTaskAsTmAuthority(id, caller);
       yield* this.archiveConversationInTask(id, conversationId);
     });
   }
@@ -586,11 +586,11 @@ export class TaskService {
     input: StoreMessageInput,
   ): Effect.Effect<Message, TaskServiceError> {
     return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
-      yield* this.requireConversationInTask(id, input.conversationId);
+      yield* this.loadTaskAsTmAuthority(id, caller);
+      yield* this.assertConversationInTask(id, input.conversationId);
       // The post-insert UPDATE retired — `MessageService.send` stamps
       // `task_id` from `conv.task_id` at insert time, and
-      // `requireConversationInTask` above already proved
+      // `assertConversationInTask` above already proved
       // `conv.task_id === id`.
       return yield* this.messages.send({
         conversationId: input.conversationId,
@@ -611,8 +611,8 @@ export class TaskService {
     TaskServiceError
   > {
     return Effect.gen(this, function* () {
-      yield* this.requireReadAccess(id, caller);
-      yield* this.requireConversationInTask(id, input.conversationId);
+      yield* this.loadTaskWithReadAccess(id, caller);
+      yield* this.assertConversationInTask(id, input.conversationId);
       return yield* this.messages.list(input.conversationId, caller, {
         limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
       });
@@ -628,8 +628,8 @@ export class TaskService {
     TaskServiceError
   > {
     return Effect.gen(this, function* () {
-      yield* this.requireReadAccess(id, caller);
-      yield* this.requireConversationInTask(id, input.conversationId);
+      yield* this.loadTaskWithReadAccess(id, caller);
+      yield* this.assertConversationInTask(id, input.conversationId);
       return yield* this.messages.list(input.conversationId, caller, {
         limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
         sinceSeq: input.sinceSeq,
@@ -666,7 +666,7 @@ export class TaskService {
    * service's exported public surface; the JSDoc tag is the convention.
    * @internal
    */
-  requireConversationInTask(
+  assertConversationInTask(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<void, TaskServiceError> {
@@ -700,7 +700,7 @@ export class TaskService {
    * the agent is absent or pending.
    * @internal
    */
-  requireAgentInTaskParticipants(
+  assertAgentInTaskParticipants(
     id: TaskId,
     agentId: AgentId,
   ): Effect.Effect<void, ForbiddenError> {
@@ -737,7 +737,7 @@ export class TaskService {
           .returning("id"),
       );
       if (updated.length > 0) return;
-      yield* this.requireConversationInTask(id, conversationId);
+      yield* this.assertConversationInTask(id, conversationId);
     });
   }
 }

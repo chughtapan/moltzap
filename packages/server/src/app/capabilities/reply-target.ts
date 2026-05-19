@@ -41,18 +41,18 @@ export class NoReplyTarget extends Context.Tag("@moltzap/server/NoReplyTarget")<
 >() {}
 
 /**
- * Smart constructor. Delegates to `MessageService.requireReplyTarget`
+ * Smart constructor. Delegates to `MessageService.assertReplyTarget`
  * (Phase 1 promotes the helper to `@internal` exported per Decision B
  * / Option A).
  *
- * Error channel propagates `MessageService.requireReplyTarget`'s
+ * Error channel propagates `MessageService.assertReplyTarget`'s
  * `NotFoundError` when `replyToId` does not resolve to a message in
  * `conversationId`. `SqlError` from the underlying select is caught
  * defectively inside the service helper.
  *
  * R channel includes `MessageServiceTag` because the obtain helper
  * dereferences the (Phase-1-promoted-to-`@internal`)
- * `MessageService.requireReplyTarget` method through the service Tag.
+ * `MessageService.assertReplyTarget` method through the service Tag.
  */
 export const obtainValidReplyTarget = (
   conversationId: ConversationId,
@@ -61,7 +61,7 @@ export const obtainValidReplyTarget = (
   Effect.gen(function* () {
     const messages = yield* MessageServiceTag;
     yield* catchSqlErrorAsDefect(
-      messages.requireReplyTarget(conversationId, replyToId),
+      messages.assertReplyTarget(conversationId, replyToId),
     );
     return { conversationId, replyToId };
   }).pipe(Effect.withSpan("obtainValidReplyTarget"));

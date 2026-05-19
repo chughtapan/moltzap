@@ -308,7 +308,7 @@ function rejectsForeignFormattedPersistedAddress() {
     const svc = makeService();
     const task = yield* svc.create(ALICE, aliceAsTm());
     yield* setPersistedTmEndpoint(task.id, FOREIGN_TM_ENDPOINT);
-    const exit = yield* Effect.exit(svc.requireTmAuthority(task.id, ALICE));
+    const exit = yield* Effect.exit(svc.loadTaskAsTmAuthority(task.id, ALICE));
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }
@@ -318,7 +318,7 @@ function rejectsEmptyPersistedAddress() {
     const svc = makeService();
     const task = yield* svc.create(ALICE, aliceAsTm());
     yield* setPersistedTmEndpoint(task.id, EMPTY_TM_ENDPOINT);
-    const exit = yield* Effect.exit(svc.requireTmAuthority(task.id, ALICE));
+    const exit = yield* Effect.exit(svc.loadTaskAsTmAuthority(task.id, ALICE));
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }
@@ -357,7 +357,7 @@ function registerDefaultTmTests() {
 }
 
 function registerTmAuthorityTests() {
-  describe("requireTmAuthority", () => {
+  describe("loadTaskAsTmAuthority", () => {
     it(
       "close: rejects caller that isn't the registered TM",
       rejectsCloseFromNonTm,

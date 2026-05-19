@@ -23,12 +23,12 @@ export class GroupCapacityForCreate extends Context.Tag(
 
 /**
  * Smart constructor. Phase 1 promotes
- * `ConversationService.requireGroupCapacityForCreate` to `@internal`
+ * `ConversationService.assertGroupCapacityForCreate` to `@internal`
  * exported per Decision B / Option A and narrows its signature to
  * `(pathType, targetAgentIds)` so the obtain helper consumes it
  * without a `mintTask: Effect.never as never` synthesis shim.
  *
- * Error channel propagates `requireGroupCapacityForCreate`'s
+ * Error channel propagates `assertGroupCapacityForCreate`'s
  * `ConversationFullError` when the proposed participant count exceeds
  * the policy limit. Pure capacity check; no DB read; no `SqlError` in
  * E.
@@ -43,9 +43,6 @@ export const obtainGroupCapacityForCreate = (
 > =>
   Effect.gen(function* () {
     const conversations = yield* ConversationServiceTag;
-    yield* conversations.requireGroupCapacityForCreate(
-      "group",
-      invitedAgentIds,
-    );
+    yield* conversations.assertGroupCapacityForCreate("group", invitedAgentIds);
     return { creatorAgentId, invitedAgentIds };
   }).pipe(Effect.withSpan("obtainGroupCapacityForCreate"));

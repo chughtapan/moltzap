@@ -26,7 +26,7 @@ export class AgentInTaskParticipants extends Context.Tag(
 
 /**
  * Smart constructor. Delegates to
- * `TaskService.requireAgentInTaskParticipants` (NEW in Phase 1 per
+ * `TaskService.assertAgentInTaskParticipants` (NEW in Phase 1 per
  * Decision B / Option A) so the underlying `task_participants` query
  * stays in the service layer.
  *
@@ -44,6 +44,6 @@ export const obtainAgentInTaskParticipants = (
 > =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    yield* taskService.requireAgentInTaskParticipants(taskId, agentId);
+    yield* taskService.assertAgentInTaskParticipants(taskId, agentId);
     return { taskId, agentId };
   }).pipe(Effect.withSpan("obtainAgentInTaskParticipants"));

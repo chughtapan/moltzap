@@ -153,7 +153,7 @@ function tmAuthHappy() {
   return Effect.gen(function* () {
     const task = makeTaskFixture();
     const layer = taskServiceLayer({
-      requireTmAuthority: () => Effect.succeed(task),
+      loadTaskAsTmAuthority: () => Effect.succeed(task),
     });
     const value = yield* obtainTmAuthority(TASK_ID, ALICE).pipe(
       Effect.provide(layer),
@@ -165,7 +165,7 @@ function tmAuthHappy() {
 function tmAuthForbidden() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireTmAuthority: () =>
+      loadTaskAsTmAuthority: () =>
         Effect.fail(new ForbiddenError({ message: "not the TM" })),
     });
     const exit = yield* Effect.exit(
@@ -178,7 +178,7 @@ function tmAuthForbidden() {
 function tmAuthNotFound() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireTmAuthority: () =>
+      loadTaskAsTmAuthority: () =>
         Effect.fail(new NotFoundError({ message: "task gone" })),
     });
     const exit = yield* Effect.exit(
@@ -190,7 +190,7 @@ function tmAuthNotFound() {
 
 describe("obtainTmAuthority", () => {
   it("happy path returns { task, callerAgentId }", tmAuthHappy);
-  it("propagates ForbiddenError from requireTmAuthority", tmAuthForbidden);
+  it("propagates ForbiddenError from loadTaskAsTmAuthority", tmAuthForbidden);
   it("propagates NotFoundError when task missing", tmAuthNotFound);
 });
 
@@ -200,7 +200,7 @@ function readAccessHappy() {
   return Effect.gen(function* () {
     const task = makeTaskFixture();
     const layer = taskServiceLayer({
-      requireReadAccess: () => Effect.succeed(task),
+      loadTaskWithReadAccess: () => Effect.succeed(task),
     });
     const value = yield* obtainTaskReadAccess(TASK_ID, ALICE).pipe(
       Effect.provide(layer),
@@ -212,7 +212,7 @@ function readAccessHappy() {
 function readAccessForbidden() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireReadAccess: () =>
+      loadTaskWithReadAccess: () =>
         Effect.fail(new ForbiddenError({ message: "no read" })),
     });
     const exit = yield* Effect.exit(
@@ -225,7 +225,7 @@ function readAccessForbidden() {
 function readAccessNotFound() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireReadAccess: () =>
+      loadTaskWithReadAccess: () =>
         Effect.fail(new NotFoundError({ message: "task missing" })),
     });
     const exit = yield* Effect.exit(
@@ -246,7 +246,7 @@ describe("obtainTaskReadAccess", () => {
 function partAccessHappy() {
   return Effect.gen(function* () {
     const layer = conversationServiceLayer({
-      requireParticipant: () => Effect.void,
+      assertConversationParticipant: () => Effect.void,
     });
     const value = yield* obtainConversationParticipantAccess(
       CONV_ID,
@@ -259,7 +259,7 @@ function partAccessHappy() {
 function partAccessForbidden() {
   return Effect.gen(function* () {
     const layer = conversationServiceLayer({
-      requireParticipant: () =>
+      assertConversationParticipant: () =>
         Effect.fail(new ForbiddenError({ message: "not a participant" })),
     });
     const exit = yield* Effect.exit(
@@ -284,7 +284,7 @@ describe("obtainConversationParticipantAccess", () => {
 function convInTaskHappy() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireConversationInTask: () => Effect.void,
+      assertConversationInTask: () => Effect.void,
     });
     const value = yield* obtainConversationInTask(TASK_ID, CONV_ID).pipe(
       Effect.provide(layer),
@@ -296,7 +296,7 @@ function convInTaskHappy() {
 function convInTaskForbidden() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireConversationInTask: () =>
+      assertConversationInTask: () =>
         Effect.fail(
           new ForbiddenError({ message: "Conversation does not belong" }),
         ),
@@ -311,7 +311,7 @@ function convInTaskForbidden() {
 function convInTaskNotFound() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireConversationInTask: () =>
+      assertConversationInTask: () =>
         Effect.fail(new NotFoundError({ message: "conv missing" })),
     });
     const exit = yield* Effect.exit(
@@ -335,7 +335,7 @@ describe("obtainConversationInTask", () => {
 function agentExistsHappy() {
   return Effect.gen(function* () {
     const layer = participantServiceLayer({
-      requireExists: () => Effect.succeed("owner-uuid"),
+      assertAgentExists: () => Effect.succeed("owner-uuid"),
     });
     const value = yield* obtainAgentExists(ALICE).pipe(Effect.provide(layer));
     expect(value).toEqual({ agentId: ALICE, ownerUserId: "owner-uuid" });
@@ -345,7 +345,7 @@ function agentExistsHappy() {
 function agentExistsNullOwner() {
   return Effect.gen(function* () {
     const layer = participantServiceLayer({
-      requireExists: () => Effect.succeed(null),
+      assertAgentExists: () => Effect.succeed(null),
     });
     const value = yield* obtainAgentExists(ALICE).pipe(Effect.provide(layer));
     expect(value).toEqual({ agentId: ALICE, ownerUserId: null });
@@ -355,7 +355,7 @@ function agentExistsNullOwner() {
 function agentExistsNotFound() {
   return Effect.gen(function* () {
     const layer = participantServiceLayer({
-      requireExists: () =>
+      assertAgentExists: () =>
         Effect.fail(new NotFoundError({ message: "agent missing" })),
     });
     const exit = yield* Effect.exit(
@@ -376,7 +376,7 @@ describe("obtainAgentExists", () => {
 function agentInTaskHappy() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireAgentInTaskParticipants: () => Effect.void,
+      assertAgentInTaskParticipants: () => Effect.void,
     });
     const value = yield* obtainAgentInTaskParticipants(TASK_ID, ALICE).pipe(
       Effect.provide(layer),
@@ -388,7 +388,7 @@ function agentInTaskHappy() {
 function agentInTaskForbidden() {
   return Effect.gen(function* () {
     const layer = taskServiceLayer({
-      requireAgentInTaskParticipants: () =>
+      assertAgentInTaskParticipants: () =>
         Effect.fail(new ForbiddenError({ message: "not in participants" })),
     });
     const exit = yield* Effect.exit(
@@ -413,8 +413,8 @@ function policyCreateHappy() {
     let policyCalls = 0;
     const ownerMap = new Map<AgentId, string | null>([[BOB, "owner-bob"]]);
     const layer = conversationServiceLayer({
-      requireAgentsExist: () => Effect.succeed(ownerMap),
-      requireContactPolicyForCreate: () => {
+      loadAgentOwners: () => Effect.succeed(ownerMap),
+      assertContactPolicyForCreate: () => {
         policyCalls += 1;
         return Effect.void;
       },
@@ -432,9 +432,9 @@ function policyCreateHappy() {
 function policyCreateMissingTarget() {
   return Effect.gen(function* () {
     const layer = conversationServiceLayer({
-      requireAgentsExist: () =>
+      loadAgentOwners: () =>
         Effect.fail(new NotFoundError({ message: "agent missing" })),
-      requireContactPolicyForCreate: () => Effect.void,
+      assertContactPolicyForCreate: () => Effect.void,
     });
     const exit = yield* Effect.exit(
       obtainContactPolicyForCreate(ALICE, [BOB], "group").pipe(
@@ -449,8 +449,8 @@ function policyCreateNotInContacts() {
   return Effect.gen(function* () {
     const ownerMap = new Map<AgentId, string | null>([[BOB, "owner-bob"]]);
     const layer = conversationServiceLayer({
-      requireAgentsExist: () => Effect.succeed(ownerMap),
-      requireContactPolicyForCreate: () =>
+      loadAgentOwners: () => Effect.succeed(ownerMap),
+      assertContactPolicyForCreate: () =>
         Effect.fail(new NotInContactsError({ message: "blocked" })),
     });
     const exit = yield* Effect.exit(
@@ -468,7 +468,7 @@ describe("obtainContactPolicyForCreate", () => {
     policyCreateHappy,
   );
   it(
-    "propagates NotFoundError from requireAgentsExist",
+    "propagates NotFoundError from loadAgentOwners",
     policyCreateMissingTarget,
   );
   it("propagates NotInContactsError from policy", policyCreateNotInContacts);
@@ -485,8 +485,8 @@ function policyAddHappy() {
       owner: string | null;
     }> = [];
     const layer = conversationServiceLayer({
-      requireAgentsExist: () => Effect.succeed(ownerMap),
-      requireAddParticipantContactPolicy: (
+      loadAgentOwners: () => Effect.succeed(ownerMap),
+      assertAddParticipantContactPolicy: (
         requesterAgentId,
         targetAgentId,
         targetOwnerUserId,
@@ -512,9 +512,9 @@ function policyAddHappy() {
 function policyAddMissingTarget() {
   return Effect.gen(function* () {
     const layer = conversationServiceLayer({
-      requireAgentsExist: () =>
+      loadAgentOwners: () =>
         Effect.fail(new NotFoundError({ message: "target missing" })),
-      requireAddParticipantContactPolicy: () => Effect.void,
+      assertAddParticipantContactPolicy: () => Effect.void,
     });
     const exit = yield* Effect.exit(
       obtainContactPolicyForAdd(ALICE, BOB).pipe(Effect.provide(layer)),
@@ -527,8 +527,8 @@ function policyAddNotInContacts() {
   return Effect.gen(function* () {
     const ownerMap = new Map<AgentId, string | null>([[BOB, "owner-bob"]]);
     const layer = conversationServiceLayer({
-      requireAgentsExist: () => Effect.succeed(ownerMap),
-      requireAddParticipantContactPolicy: () =>
+      loadAgentOwners: () => Effect.succeed(ownerMap),
+      assertAddParticipantContactPolicy: () =>
         Effect.fail(new NotInContactsError({ message: "blocked" })),
     });
     const exit = yield* Effect.exit(
@@ -543,10 +543,7 @@ describe("obtainContactPolicyForAdd", () => {
     "happy path returns { creatorAgentId, targetAgentIds: [target] }",
     policyAddHappy,
   );
-  it(
-    "propagates NotFoundError from requireAgentsExist",
-    policyAddMissingTarget,
-  );
+  it("propagates NotFoundError from loadAgentOwners", policyAddMissingTarget);
   it("propagates NotInContactsError from policy", policyAddNotInContacts);
 });
 
@@ -615,7 +612,7 @@ describe("refineConversationNotArchived", () => {
 function replyTargetHappy() {
   return Effect.gen(function* () {
     const layer = messageServiceLayer({
-      requireReplyTarget: () => Effect.void,
+      assertReplyTarget: () => Effect.void,
     });
     const value = yield* obtainValidReplyTarget(CONV_ID, REPLY_ID).pipe(
       Effect.provide(layer),
@@ -627,7 +624,7 @@ function replyTargetHappy() {
 function replyTargetMissing() {
   return Effect.gen(function* () {
     const layer = messageServiceLayer({
-      requireReplyTarget: () =>
+      assertReplyTarget: () =>
         Effect.fail(new NotFoundError({ message: "Reply target not found" })),
     });
     const exit = yield* Effect.exit(
@@ -655,7 +652,7 @@ function groupCapacityHappy() {
   return Effect.gen(function* () {
     const seen: Array<{ pathType: string; agentCount: number }> = [];
     const layer = conversationServiceLayer({
-      requireGroupCapacityForCreate: (pathType, agentIds) => {
+      assertGroupCapacityForCreate: (pathType, agentIds) => {
         seen.push({ pathType, agentCount: agentIds.length });
         return Effect.void;
       },
@@ -672,7 +669,7 @@ function groupCapacityHappy() {
 function groupCapacityOverflow() {
   return Effect.gen(function* () {
     const layer = conversationServiceLayer({
-      requireGroupCapacityForCreate: () =>
+      assertGroupCapacityForCreate: () =>
         Effect.fail(new ConversationFullError({ message: "too many" })),
     });
     const exit = yield* Effect.exit(
@@ -696,20 +693,21 @@ describe("obtainGroupCapacityForCreate", () => {
 // ── obtainMessageSendPermission ───────────────────────────────────────
 
 interface SendPermStubs {
-  requireParticipant?: ConversationService["requireParticipant"];
+  assertConversationParticipant?: ConversationService["assertConversationParticipant"];
   readSendConversation?: MessageService["readSendConversation"];
   fetchTask?: TaskService["fetchTask"];
-  requireReplyTarget?: MessageService["requireReplyTarget"];
+  assertReplyTarget?: MessageService["assertReplyTarget"];
 }
 
 function sendPermLayer(opts: SendPermStubs) {
   const conv = conversationServiceLayer({
-    requireParticipant: opts.requireParticipant ?? (() => Effect.void),
+    assertConversationParticipant:
+      opts.assertConversationParticipant ?? (() => Effect.void),
   });
   const msg = messageServiceLayer({
     readSendConversation:
       opts.readSendConversation ?? (() => Effect.succeed(makeSendConvRow())),
-    requireReplyTarget: opts.requireReplyTarget ?? (() => Effect.void),
+    assertReplyTarget: opts.assertReplyTarget ?? (() => Effect.void),
   });
   const task = taskServiceLayer({
     fetchTask: opts.fetchTask ?? (() => Effect.succeed(makeTaskFixture())),
@@ -799,7 +797,7 @@ function sendPermTmBypassWithReply() {
 function sendPermParticipantFirst() {
   return Effect.gen(function* () {
     const layer = sendPermLayer({
-      requireParticipant: () =>
+      assertConversationParticipant: () =>
         Effect.fail(new ForbiddenError({ message: "not a participant" })),
     });
     const exit = yield* Effect.exit(

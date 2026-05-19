@@ -13,7 +13,7 @@ import { ConversationServiceTag } from "../layers.js";
  * input without re-querying.
  *
  * Replaces (Phase 3/4): 1 site in `conversation.service.ts`
- * (`requireParticipant` in the public read flow) + 2 in
+ * (`assertConversationParticipant` in the public read flow) + 2 in
  * `message.service.ts` (`sendInsertEffect`, the visible-message read in
  * `messages.list`).
  */
@@ -28,10 +28,10 @@ export class ConversationParticipantAccess extends Context.Tag(
 
 /**
  * Smart constructor. Delegates to
- * `ConversationService.requireParticipant` (already public on the
+ * `ConversationService.assertConversationParticipant` (already public on the
  * service class pre-Spec-E).
  *
- * Error channel propagates `ConversationService.requireParticipant`'s
+ * Error channel propagates `ConversationService.assertConversationParticipant`'s
  * `ForbiddenError` ("Not a participant in this conversation"). The
  * `SqlError` from the underlying `conversation_participants` lookup is
  * caught defectively inside the service helper, so it does NOT appear
@@ -47,6 +47,6 @@ export const obtainConversationParticipantAccess = (
 > =>
   Effect.gen(function* () {
     const conversations = yield* ConversationServiceTag;
-    yield* conversations.requireParticipant(conversationId, caller);
+    yield* conversations.assertConversationParticipant(conversationId, caller);
     return { conversationId, callerAgentId: caller };
   }).pipe(Effect.withSpan("obtainConversationParticipantAccess"));

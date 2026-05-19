@@ -6,7 +6,7 @@ import type { TaskServiceError } from "../../task/services/task.service.js";
 /**
  * Tier 2 capability — proves `conversation.task_id === taskId`.
  *
- * Replaces (Phase 2): every `yield* this.requireConversationInTask(id,
+ * Replaces (Phase 2): every `yield* this.assertConversationInTask(id,
  * input.conversationId)` call site (`storeMessage`, `getMessages`,
  * `getMessagesSince`, `closeConversation` indirectly via
  * `archiveConversationInTask`).
@@ -27,7 +27,7 @@ export class ConversationInTask extends Context.Tag(
 
 /**
  * Smart constructor. Phase 1 promotes
- * `TaskService.requireConversationInTask` to `@internal` exported per
+ * `TaskService.assertConversationInTask` to `@internal` exported per
  * Decision B (Option A); this helper consumes it through the service
  * Tag.
  *
@@ -42,6 +42,6 @@ export const obtainConversationInTask = (
 ): Effect.Effect<ConversationInTaskValue, TaskServiceError, TaskServiceTag> =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    yield* taskService.requireConversationInTask(taskId, conversationId);
+    yield* taskService.assertConversationInTask(taskId, conversationId);
     return { taskId, conversationId };
   }).pipe(Effect.withSpan("obtainConversationInTask"));
