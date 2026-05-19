@@ -25,7 +25,7 @@ packages/protocol/src/
 │   ├── dispatch.ts            # buildServerDispatcher (static-table dispatch + capability auto-provision)
 │   └── typed-dispatcher.types-check.ts  # 6 type canaries on the live typed surface
 │
-├── identity/               # Agents, users, sessions, attestation, contact policy
+├── identity/               # Agents, users, sessions, contact policy
 ├── network/                # Ping, presence, connection liveness, actor-model types
 ├── task/                   # Conversations, messages, dispatch, TM authority
 ├── app/                    # AppHost RPCs (apps/register, dispatch/*, hooks)
