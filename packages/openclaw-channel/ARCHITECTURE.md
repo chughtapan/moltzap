@@ -42,9 +42,9 @@ Subpath exports: `./test-utils` (Docker-backed integration harness),
 | `startAccount` lifecycle (connect, abort, reconnect handlers) | [01-start-account-lifecycle.md](docs/architecture/01-start-account-lifecycle.md) |
 | Outbound `sendText` — Effect ↔ Promise boundary | [02-outbound-send-text.md](docs/architecture/02-outbound-send-text.md) |
 | Inbound `onInbound` callback — full Effect chain | [03-inbound-on-inbound.md](docs/architecture/03-inbound-on-inbound.md) |
-| `deliver()` error handling — RpcServerError discrimination (PR #587) | [05-deliver-error-handling.md](docs/architecture/05-deliver-error-handling.md) |
-| `stopAccount` lifecycle (teardown, race notes) | [06-stop-account-lifecycle.md](docs/architecture/06-stop-account-lifecycle.md) |
-| `resolveTarget` format and error shape (two callers) | [07-resolve-target.md](docs/architecture/07-resolve-target.md) |
+| `deliver()` error handling — RpcServerError discrimination | [04-deliver-error-handling.md](docs/architecture/04-deliver-error-handling.md) |
+| `stopAccount` lifecycle (teardown, race notes) | [05-stop-account-lifecycle.md](docs/architecture/05-stop-account-lifecycle.md) |
+| `resolveTarget` format and error shape (two callers) | [06-resolve-target.md](docs/architecture/06-resolve-target.md) |
 
 ## 4. Dependencies
 

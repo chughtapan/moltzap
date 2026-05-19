@@ -153,8 +153,8 @@ handler-invocation time.
   by `createCoreApp` for embedding in a host process. Provides the
   `onConnection` / `setContactService` / `registerMessageAuthorize` /
   `registerApp` / `registerRemoteApp` extension hooks. The static RPC
-  handler table is baked at `createCoreApp` time per Spec F #617
-  invariant I1 — post-construction method registration is not supported.
+  handler table is baked at `createCoreApp` time — post-construction
+  method registration is not supported.
 - **Layer-tag hierarchy** — TypeScript-enforced constraint on which
   Effect Tags a handler may pull (`TransportTags ⊂ IdentityTags ⊂
   NetworkTags ⊂ TaskTags ⊂ AppTags`); prevents low-layer code from
