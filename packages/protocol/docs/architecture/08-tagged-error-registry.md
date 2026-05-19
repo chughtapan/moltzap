@@ -22,7 +22,7 @@ module load order
    │    (must be hand-kept in sync with registry; type system can't enumerate
    │     the static-side registry into a union)
    │
-   ▼  client side: wireErrorToRpcCallError            json-rpc-client.ts → wireErrorToRpcCallError
+   ▼  client side: wireErrorToRpcCallError            originator.ts → wireErrorToRpcCallError
    │    errorClassFor(code) → registered class | undefined
    │      │
    │      ├─ class → new cls({data}) → RegisteredTaggedError instance

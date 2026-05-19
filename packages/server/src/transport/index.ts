@@ -32,6 +32,7 @@ export type {
   AppTags,
 } from "./layer-tags.js";
 
-// Test-only re-export. `unusedJsonRpcClient` is consumed by service tests
-// that need a placeholder for the per-connection JsonRpcClient param.
-export { unusedJsonRpcClient } from "./connection.test-utils.js";
+// Test-only re-export. `unusedOriginator` is consumed by service tests
+// that need a placeholder for the per-connection `AgentClientConnection`
+// originator.
+export { unusedOriginator } from "./connection.test-utils.js";

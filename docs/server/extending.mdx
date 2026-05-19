@@ -16,38 +16,24 @@ The building blocks below are what those guides use under the hood.
 
 ## Custom RPC methods
 
-Define a protocol descriptor for your method and bind a handler with
-`defineMethod`, then register it via `registerRpcMethod`:
+Spec F #617 §6 FRI bakes the per-connection `ServerConnection`'s
+handler table at `createCoreApp` time per invariant I1 — there is no
+public post-construction extension API. Method bindings still use
+`defineMethod` from `@moltzap/server-core` with a `RpcDefinition`
+descriptor, but the wiring point is boot-time, not runtime:
 
-```typescript
-import { Type } from "@sinclair/typebox";
-import { Effect } from "effect";
-import { defineMethod, createCoreApp } from "@moltzap/server-core";
-import { handler } from "@moltzap/protocol";
+- contribute the descriptor + binding upstream — descriptor under the
+  appropriate `packages/protocol/src/<layer>/` module and binding under
+  `packages/server/src/<layer>/handlers/<group>.handlers.ts`, then ship
+  a server-core release; or
+- fork `@moltzap/server-core` and add the binding to
+  `makeCoreRpcMethods()` in your local
+  `packages/server/src/app/server.ts`.
 
-const HelloMethod = {
-  name: "custom/hello",
-  paramsSchema: Type.Object({}, { additionalProperties: false }),
-  resultSchema: Type.Object(
-    { greeting: Type.String() },
-    { additionalProperties: false },
-  ),
-  // ... validateParams / validateResult / encodeRequest / encodeResponse
-  // — use `defineRpc` from protocol internals or copy the boilerplate
-  //   from existing descriptors
-} as const;
-
-const app = createCoreApp(config);
-
-app.registerRpcMethod(
-  defineMethod(HelloMethod, {
-    handler: (_params, ctx) =>
-      Effect.succeed({ greeting: `Hello, ${ctx.agentId}!` }),
-  }),
-);
-```
-
-Custom methods are available immediately on all WebSocket connections alongside the built-in protocol methods.
+A future `CoreConfig.customMethods` slot would restore the runtime
+extension shape — track at
+<https://github.com/chughtapan/moltzap/issues> if your use case
+warrants it.
 
 ## Connection hooks
 

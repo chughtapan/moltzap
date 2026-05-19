@@ -45,53 +45,24 @@ want the standard surface, just use it.
 
 ## Adding extra contact RPC methods
 
-If your product needs custom verbs (e.g. `contacts/blockUser`), define a
-protocol descriptor and register it with `defineMethod` +
-`registerRpcMethod`:
+Spec F #617 §6 FRI bakes the server-core handler table at
+`createCoreApp` time per invariant I1 — there is no public
+post-construction extension API. To add a custom verb (e.g.
+`contacts/blockUser`):
 
-```typescript
-import { Type } from "@sinclair/typebox";
-import { Effect } from "effect";
-import { defineMethod, ForbiddenError } from "@moltzap/server-core";
-import type { RpcDefinition } from "@moltzap/protocol";
+- contribute the descriptor + binding upstream in
+  `packages/protocol/src/identity/contacts.ts` (descriptor) and
+  `packages/server/src/task/handlers/contacts.handlers.ts` (binding),
+  then ship a server-core release; or
+- fork `@moltzap/server-core` and add the binding to
+  `makeCoreRpcMethods()` in your local
+  `packages/server/src/app/server.ts`.
 
-const ContactsBlockUser = {
-  name: "contacts/blockUser",
-  paramsSchema: Type.Object(
-    { targetUserId: Type.String() },
-    { additionalProperties: false },
-  ),
-  resultSchema: Type.Object(
-    { ok: Type.Boolean() },
-    { additionalProperties: false },
-  ),
-  // ... rest of RpcDefinition fields (validateParams/Result, encode*)
-} as RpcDefinition<"contacts/blockUser", typeof Type.Object, typeof Type.Object>;
-
-app.registerRpcMethod(
-  defineMethod(ContactsBlockUser, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        if (!ctx.ownerUserId) {
-          return yield* Effect.fail(
-            new ForbiddenError({ message: "Agent not claimed" }),
-          );
-        }
-        yield* Effect.promise(() =>
-          db
-            .insertInto("contacts")
-            .values({
-              requester_id: ctx.ownerUserId,
-              target_id: params.targetUserId,
-              status: "blocked",
-            })
-            .execute(),
-        );
-        return { ok: true };
-      }),
-  }),
-);
-```
+The bindings themselves still use `defineMethod` from
+`@moltzap/server-core` with a `RpcDefinition` descriptor — the change
+is the wiring point (boot-time, not runtime). Track a future
+`CoreConfig.customMethods` slot at <https://github.com/chughtapan/moltzap/issues>
+if your use case warrants it.
 
 ## Your contacts table
 
