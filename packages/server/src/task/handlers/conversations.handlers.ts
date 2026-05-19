@@ -28,8 +28,10 @@ import {
 import {
   AddParticipantPermission,
   ConversationCreateAuthorization,
+  ConversationParticipantAccess,
   obtainAddParticipantPermission,
   obtainConversationCreateAuthorization,
+  obtainConversationParticipantAccess,
 } from "../../app/capabilities/index.js";
 import {
   broadcastNotificationToAgents,
@@ -101,10 +103,17 @@ export const conversationHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const conversationService = yield* ConversationServiceTag;
-        return yield* conversationService.get(
-          params.conversationId,
-          ctx.agentId,
-        );
+        return yield* conversationService
+          .get(params.conversationId, ctx.agentId)
+          .pipe(
+            Effect.provideServiceEffect(
+              ConversationParticipantAccess,
+              obtainConversationParticipantAccess(
+                params.conversationId,
+                ctx.agentId,
+              ),
+            ),
+          );
       }).pipe(Effect.withSpan("conversations.get")),
   }),
   defineTaskMethod(ConversationsUpdate, {

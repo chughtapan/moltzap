@@ -34,6 +34,7 @@ import { listConversations } from "./conversation/list-pagination.js";
 import {
   AddParticipantPermission,
   ConversationCreateAuthorization,
+  ConversationParticipantAccess,
   obtainConversationCreateAuthorization,
 } from "../../app/capabilities/index.js";
 import { ConversationServiceTag } from "../../app/layers.js";
@@ -348,20 +349,23 @@ export class ConversationService {
 
   get(
     conversationId: ConversationId,
-    requesterAgentId: AgentId,
+    _requesterAgentId: AgentId,
   ): Effect.Effect<
     {
       conversation: Conversation;
       participants: ConversationParticipant[];
     },
-    ConversationServiceError
+    ConversationServiceError,
+    ConversationParticipantAccess
   > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.assertConversationParticipant(
-          conversationId,
-          requesterAgentId,
-        );
+        const access = yield* ConversationParticipantAccess;
+        if (access.conversationId !== conversationId) {
+          return yield* Effect.fail(
+            new ForbiddenError({ message: "capability/conversation mismatch" }),
+          );
+        }
         const convOpt = yield* takeFirstOption(
           this.db
             .selectFrom("conversations")
