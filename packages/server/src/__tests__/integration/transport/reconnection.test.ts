@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -44,7 +45,8 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
     try {
       const conversationId = yield* createDm(alice.client, bob.agentId);
       yield* sendText(alice.client, conversationId, PRE_DISCONNECT_TEXT);
-      yield* bob.client.waitForNotification(
+      yield* awaitOneNotification(
+        bob.client,
         MessageReceivedNotificationDefinition,
       );
 
@@ -61,7 +63,8 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
       yield* expectReconnectedHistory(bobClient2, conversationId);
       yield* sendText(bobClient2, conversationId, BACK_ONLINE_TEXT);
 
-      const aliceEvent = yield* alice.client.waitForNotification(
+      const aliceEvent = yield* awaitOneNotification(
+        alice.client,
         MessageReceivedNotificationDefinition,
       );
       expect(messageText(aliceEvent.params)).toBe(BACK_ONLINE_TEXT);

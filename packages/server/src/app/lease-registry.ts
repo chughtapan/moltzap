@@ -718,7 +718,7 @@ function getExistingLeaseEntry(
   );
 }
 
-function requireLeaseState(
+function assertLeaseState(
   leaseId: LeaseId,
   state: LeaseState,
   expected: ReadonlyArray<LeaseState>,
@@ -742,7 +742,7 @@ function getClaimedEntry(
         invalidLeaseState(leaseId, "EXPIRED", ["CLAIMED"], operation),
       );
     }
-    yield* requireLeaseState(
+    yield* assertLeaseState(
       leaseId,
       entry.record.state,
       ["CLAIMED"],
@@ -881,7 +881,7 @@ function resolveLease(
 ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never> {
   return Effect.gen(function* () {
     const entry = yield* getExistingLeaseEntry(state, leaseId);
-    yield* requireLeaseState(
+    yield* assertLeaseState(
       leaseId,
       entry.record.state,
       ["PENDING"],
@@ -920,7 +920,7 @@ function claimLease(
 ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never> {
   return Effect.gen(function* () {
     const entry = yield* getExistingLeaseEntry(state, leaseId);
-    yield* requireLeaseState(leaseId, entry.record.state, ["GRANTED"], "claim");
+    yield* assertLeaseState(leaseId, entry.record.state, ["GRANTED"], "claim");
     if (entry.ttlFiber) {
       yield* Fiber.interrupt(entry.ttlFiber);
     }

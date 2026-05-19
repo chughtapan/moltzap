@@ -15,5 +15,5 @@ from layers below; never above:
 
 A method defined in `task` may reference `identity` types (e.g. `AgentId`)
 but never the other way. The Tag-allowlist hierarchy in
-`server/src/rpc/layer-tags.ts` mirrors this, so handler bodies can only
+`server/src/transport/layer-tags.ts` mirrors this, so handler bodies can only
 pull services from layers at-or-below the method's home layer.

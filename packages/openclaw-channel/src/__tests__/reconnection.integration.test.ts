@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
-import { Data, Effect } from "effect";
+import { Data, Effect, Stream } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import type { Message } from "@moltzap/protocol";
@@ -214,7 +214,17 @@ function eventsAfterReconnect() {
         reconnected = true;
       },
     });
-    yield* bobClient.subscribe({}, captureMessages(receivedMessages));
+    // Spec B (#596): `subscribe({}, handler)` is gone; use the
+    // `subscribeAll` Stream and fork a `runForEach` consumer so the
+    // listener is live BEFORE `bobClient.connect()` opens the socket
+    // (subscribe-before-trigger). Fork the daemon — `bobClient.close()`
+    // at the end of the test terminates the Stream via the registry's
+    // `closeAll` path, which lets the daemon exit cleanly.
+    yield* Effect.forkDaemon(
+      bobClient
+        .subscribeAll()
+        .pipe(Stream.runForEach(captureMessages(receivedMessages))),
+    );
     yield* bobClient.connect();
     const aliceClient = createStrippedClient(alice.apiKey);
     yield* aliceClient.connect();
@@ -239,13 +249,11 @@ function eventsAfterReconnect() {
 }
 
 function captureMessages(receivedMessages: Message[]) {
-  return (event: {
-    readonly definition: unknown;
-    readonly params: { readonly message?: Message };
-  }) =>
+  return (event: { readonly definition: unknown; readonly params: unknown }) =>
     Effect.sync(() => {
       if (event.definition === MessageReceivedNotificationDefinition) {
-        const message = event.params.message;
+        const params = event.params as { readonly message?: Message };
+        const message = params.message;
         if (message !== undefined) receivedMessages.push(message);
       }
     });

@@ -15,6 +15,7 @@ import type { TraceCaptureTag } from "../../runtime-surface/trace-capture.js";
 import type { NotificationFrame } from "@moltzap/protocol";
 import type { JsonRpcMethod } from "@moltzap/protocol/testing";
 import {
+  awaitOneNotification,
   registerAndConnect,
   registerOnly,
   setupAgentPair,
@@ -42,6 +43,7 @@ export const it = effectIt.live;
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export {
+  awaitOneNotification,
   connectTestClient,
   postJson,
   registerAgent,

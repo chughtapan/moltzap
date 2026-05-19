@@ -33,7 +33,7 @@ export type {
   NotificationParamsOf,
 } from "./method.js";
 
-// Transport-layer call errors (raised by JsonRpcClient + ws-client).
+// Transport-layer call errors (raised by Originator + ws-client).
 export {
   NotConnectedError,
   RpcTimeoutError,
@@ -56,14 +56,60 @@ export {
 export type { RpcErrorClass, RpcErrorPayload } from "./wire-errors.js";
 
 // Decoded RPC + notification types. Group-level decode helpers
-// (`decodeRpcRequest`, `decodeNotification`, `isDecodedNotification`)
-// are protocol-internal — consumers reach the same surface via
-// `decodeServerInbound` / `decodeClientInbound` and discriminate on
-// `definition` identity.
+// (`decodeRpcRequest`, `decodeNotification`) remain protocol-internal —
+// consumers reach the same surface via `decodeServerInbound` /
+// `decodeClientInbound` and discriminate on `definition` identity.
+// `isDecodedNotification` is the typed-guard companion that Spec B
+// (#596) Stream-based `client.notifications`/`subscribeTo` callers use to
+// narrow filtered frames to `DecodedNotification<D>`; it is part of the
+// public surface.
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
+export { isDecodedNotification } from "./rpc-groups.js";
 
-// JSON-RPC client + server runtime.
-export { makeJsonRpcClient } from "./json-rpc-client.js";
-export type { JsonRpcClient, RpcCallError } from "./json-rpc-client.js";
-export { handler, makeJsonRpcServer } from "./json-rpc-server.js";
-export type { JsonRpcServer, RpcHandler } from "./json-rpc-server.js";
+// JSON-RPC originator error surface — outbound RPC error type used by
+// every `Connection.call` signature.
+export type { RpcCallError } from "./originator.js";
+
+// Spec F (#617) — typed dispatcher. Per-kind static handler tables and
+// three connection factories (`make{Server,AgentClient,TaskMaster}Connection`).
+// Type-level invariants are exercised by `typed-dispatcher.types-check.ts`.
+export type {
+  CapabilityDescriptor,
+  CapabilityProviderTable,
+  CapabilitiesOf,
+} from "./capabilities.js";
+export type {
+  FailClosedDefault,
+  SlotDisposition,
+  IsOptionalSlot,
+  FailClosedForbidden,
+} from "./defaults.js";
+export { optionalForbidden, optionalNoOp } from "./defaults.js";
+export type {
+  HandlerSlot,
+  HandlerTable,
+  ServerHandlers,
+  AgentClientHandlers,
+  TaskMasterHandlers,
+  ServerInboundRpcDefinition,
+  TaskMasterInboundRpcDefinition,
+  CapsUnionOf,
+} from "./handlers.js";
+export type {
+  ServerConnection,
+  AgentClientConnection,
+  TaskMasterConnection,
+  ServerConnectionConfig,
+  AgentClientConnectionConfig,
+  TaskMasterConnectionConfig,
+} from "./connection.js";
+export {
+  makeServerConnection,
+  makeAgentClientConnection,
+  makeTaskMasterConnection,
+} from "./connection.js";
+export {
+  buildServerDispatcher,
+  buildAgentClientDispatcher,
+  buildTaskMasterDispatcher,
+} from "./dispatch.js";

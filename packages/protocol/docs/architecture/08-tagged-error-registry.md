@@ -22,7 +22,7 @@ module load order
    │    (must be hand-kept in sync with registry; type system can't enumerate
    │     the static-side registry into a union)
    │
-   ▼  client side: wireErrorToRpcCallError            json-rpc-client.ts → wireErrorToRpcCallError
+   ▼  client side: wireErrorToRpcCallError            originator.ts → wireErrorToRpcCallError
    │    errorClassFor(code) → registered class | undefined
    │      │
    │      ├─ class → new cls({data}) → RegisteredTaggedError instance
@@ -31,13 +31,13 @@ module load order
    │      └─ undefined → new RpcServerError({code, message, data})
    │                       caller catches by "RpcServerError" tag + branches on code
    │
-   ▼  server side: wireErrorFromInstance              json-rpc-server.ts → wireErrorFromInstance
+   ▼  server side: wireErrorFromInstance              transport/dispatch.ts → wireErrorFromInstance
         isRegisteredErrorInstance(value)?
           ▼
         wireErrorPayload(cls, message, data) → wire `error` sub-object
 ```
 
-`JSON_RPC_RESERVED_CODES` (in `json-rpc-server.ts`) covers only
+`JSON_RPC_RESERVED_CODES` (in `transport/wire-errors.ts`) covers only
 the JSON-RPC 2.0 spec codes (-32700 ParseError, -32600 InvalidRequest,
 -32601 MethodNotFound, -32602 InvalidParams, -32603 InternalError). Domain
 codes are in the registry, not in a central table.

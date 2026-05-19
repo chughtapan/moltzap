@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import type { AuthenticatedContext } from "../transport/context.js";
 import type { AgentId } from "../app/types.js";
 import { ConnectionManager, type MoltZapConnection } from "./connection.js";
-import { unusedJsonRpcClient } from "./connection.test-utils.js";
+import { unusedOriginator } from "./connection.test-utils.js";
 
 /**
  * Pure-unit coverage for ConnectionManager.subscribeAgentsToConversation.
@@ -33,7 +33,7 @@ function makeConn(id: string, agentId: string | null): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    jsonRpcClient: unusedJsonRpcClient(),
+    originator: unusedOriginator(),
   };
 }
 

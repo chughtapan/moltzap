@@ -29,8 +29,7 @@ packages/server/src/
 ├── task/               # Conversations, messages, dispatch lease lifecycle
 │   ├── handlers/          # conversations, messages, presence, contacts, connect, tasks
 │   └── services/          # conversation.service, message.service, task.service, default-tm
-├── transport/          # WS connection acquisition, dispatch context, layer-tags
-├── rpc/                # Layer-tag hierarchy (used by handler R-channel)
+├── transport/          # WS connection acquisition, dispatch context, layer-tags (Tag-allowlist hierarchy used by handler R-channel)
 ├── crypto/             # Envelope encryption, key rotation
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── adapters/           # webhook client + typed errors
@@ -72,6 +71,7 @@ typed `RpcMethodBinding<Params, Result, Error, Tags>`.
 | §3.7 HTTP route surface | [docs/architecture/07-http-routes.md](docs/architecture/07-http-routes.md) |
 | §3.8 Notification fan-out | [docs/architecture/08-notification-fanout.md](docs/architecture/08-notification-fanout.md) |
 | §3.9 Shutdown sequence | [docs/architecture/09-shutdown-sequence.md](docs/architecture/09-shutdown-sequence.md) |
+| §3.10 R-channel capabilities (typed authority tokens) | [docs/architecture/10-r-channel-capabilities.md](docs/architecture/10-r-channel-capabilities.md) |
 
 ## 4. Data Stores
 
@@ -93,9 +93,8 @@ authority checks, and the dispatch admission path.
 
 ## 5. Layer-tag hierarchy
 
-`packages/server/src/rpc/layer-tags.ts` (and `transport/layer-tags.ts`)
-define a TypeScript-enforced hierarchy on which service Tags a handler may
-pull at each layer:
+`packages/server/src/transport/layer-tags.ts` defines a TypeScript-enforced
+hierarchy on which service Tags a handler may pull at each layer:
 
 ```mermaid
 flowchart LR
@@ -113,8 +112,9 @@ plus everything from network/identity/transport — but NOT `AppHost`. This
 matches the protocol layer DAG; you can't define an RPC that's notionally a
 "task" method but needs the AppHost. The `R` channel of the handler's
 `Effect` is the enforcement mechanism — `Exclude<AppTags, ConnIdTag>` on
-the dispatcher (in `app/server.ts`) leaves `ConnIdTag` unresolved until the
-per-request `Effect.provide` at handler-invocation time.
+the dispatcher (in `app/http-routes.ts` and `app/socket-handler.ts`) leaves
+`ConnIdTag` unresolved until the per-request `Effect.provide` at
+handler-invocation time.
 
 ## 6. Dependencies
 
@@ -152,8 +152,10 @@ per-request `Effect.provide` at handler-invocation time.
   `Ref.modify`. CLAIMED rollback restores GRANTED on insert failure.
 - **CoreApp** — The composed runtime: services + Kysely + Layers, returned
   by `createCoreApp` for embedding in a host process. Provides the
-  `registerRpcMethod` / `onConnection` / `setContactService` /
-  `registerMessageAuthorize` extension hooks.
+  `onConnection` / `setContactService` / `registerMessageAuthorize` /
+  `registerApp` / `registerRemoteApp` extension hooks. The static RPC
+  handler table is baked at `createCoreApp` time per Spec F #617
+  invariant I1 — post-construction method registration is not supported.
 - **Layer-tag hierarchy** — TypeScript-enforced constraint on which
   Effect Tags a handler may pull (`TransportTags ⊂ IdentityTags ⊂
   NetworkTags ⊂ TaskTags ⊂ AppTags`); prevents low-layer code from
@@ -172,3 +174,11 @@ per-request `Effect.provide` at handler-invocation time.
   `createCoreApp` time from `FullLive`. Drives all dispatch fibers
   (RPC handlers, HTTP routes, WS finalizers) so handler `yield* Tag`
   reads resolve structurally without per-frame `Effect.provide`.
+- **R-channel capability** — Nominal `Context.Tag` whose value carries
+  the runtime IDs + already-fetched payload row that today's `requireX`
+  runtime check fetches. Privileged service methods declare the
+  capability in their R channel; handlers `provideServiceEffect` it via
+  an `obtain*` smart constructor. The compiler enforces "the obtain
+  happened"; the runtime check moves to the obtain helper. Defined in
+  `src/app/capabilities/`; pattern documented in
+  [docs/architecture/10-r-channel-capabilities.md](docs/architecture/10-r-channel-capabilities.md).

@@ -1,15 +1,13 @@
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import { type Static, type TSchema } from "@sinclair/typebox";
 import {
   ForbiddenError,
-  handler,
+  type HandlerSlot,
   type ResultOf,
   type RpcDefinition,
-  type RpcHandler,
 } from "@moltzap/protocol";
 import { ConnIdTag } from "../app/layers.js";
 import type { AgentId, UserId } from "../app/types.js";
-import type { AppTags } from "./layer-tags.js";
 
 export interface AuthenticatedContext {
   agentId: AgentId;
@@ -17,7 +15,7 @@ export interface AuthenticatedContext {
   ownerUserId: UserId | null;
 }
 
-/** Per-request dispatch context handed to every RPC handler by JsonRpcServer. */
+/** Per-request dispatch context handed to every RPC handler by the typed dispatcher. */
 export interface DispatchContext {
   readonly auth: AuthenticatedContext;
   readonly connId: string;
@@ -25,19 +23,20 @@ export interface DispatchContext {
 
 /**
  * RPC binding stored in the registry. Each binding carries a method
- * definition and a `JsonRpcServer`-compatible handler that already
- * provides the layer scopes + ConnIdTag service.
+ * definition and a Spec F (#617) typed-dispatcher `HandlerSlot`-shaped
+ * handler that already provides `ConnIdTag` from the dispatch context.
  *
- * `R` is the union of handler-body Tag requirements AFTER the
- * `defineMethod` wrapper resolves `ConnIdTag` (provided per request
- * from `DispatchContext.connId`). The remaining tags are the service
- * Tags that the dispatcher's `FullLive` Layer provides at request
- * time. We use `Exclude&lt;AppTags, ConnIdTag>` so the dispatcher's
- * `Effect.provide(FullLive)` resolves R structurally to `never`.
+ * The remaining R-channel tags (the rest of `AppTags`) are provided by
+ * the dispatcher's `FullLive` Layer at request time via the surrounding
+ * `ManagedRuntime`. At the slot type the R-channel is widened to a
+ * generic `Context.Tag` union for storage; the runtime resolves R
+ * against `FullLive` post-`asNeverR` in
+ * `transport/dispatch.ts → makeInboundDispatch`.
  */
-export type RpcMethodBinding = RpcHandler<
+export type RpcMethodBinding = HandlerSlot<
+  RpcDefinition<string, TSchema, TSchema>,
   DispatchContext,
-  Exclude<AppTags, ConnIdTag>
+  Context.Tag<unknown, unknown>
 >;
 
 export type RpcMethodRegistry = RpcMethodBinding[];
@@ -65,22 +64,31 @@ export function defineMethod<
   P extends TSchema,
   R extends TSchema,
   E = never,
-  Reqs extends AppTags = ConnIdTag,
+  // `Reqs` is intentionally unconstrained: caller handlers' R-channels
+  // are unions of concrete `Context.Tag` instances (DbTag, etc.) whose
+  // invariant `Id`/`Type` parameters reject the `Context.Tag<unknown,
+  // unknown>` upper bound. The dispatcher's `asNeverR` erases R at the
+  // runtime boundary; the surrounding `ManagedRuntime` provides the
+  // tags via `FullLive`.
+  Reqs = never,
 >(
   definition: RpcDefinition<Name, P, R>,
   def: {
     handler: (
       params: Static<P>,
       ctx: AuthenticatedContext,
-    ) => Effect.Effect<Static<R>, E, Reqs>;
+    ) => Effect.Effect<Static<R>, E, Reqs | ConnIdTag>;
     requiresActive?: boolean;
   },
 ): RpcMethodBinding {
   const requiresActive = def.requiresActive ?? false;
-  // Explicit type args so TS infers R from the inner Effect's R-channel
-  // rather than defaulting to `never`. `handler<D, Ctx, R>` from
-  // `@moltzap/protocol` carries R through to the binding.
-  return handler(definition, (params: Static<P>, ctx: DispatchContext) =>
+  // Spec F (#617) typed-dispatcher binding: construct a `HandlerSlot`
+  // literal directly. The dispatcher's `makeInboundDispatch` runs each
+  // slot's `handle` inside the surrounding `ManagedRuntime` whose
+  // `FullLive` layer provides every Tag the handler `yield*`s. The
+  // erasure-to-`never` happens in `dispatch.ts → asNeverR` at the
+  // dispatcher boundary.
+  const slotHandle = (params: Static<P>, ctx: DispatchContext) =>
     Effect.gen(function* () {
       if (requiresActive && ctx.auth.agentStatus !== "active") {
         return yield* Effect.fail(
@@ -93,15 +101,20 @@ export function defineMethod<
       // reduces to that, but TypeScript doesn't auto-simplify across
       // the generic boundary, so the cast bridges the equality.
       //
-      // R-channel: `def.handler` returns `Effect<Static<R>, E, Reqs>`.
-      // `Effect.provideService(ConnIdTag, ctx.connId)` removes ConnIdTag
-      // if present. The remaining R rides through `handler()` (widened
-      // in `@moltzap/protocol` to `RpcHandler<Ctx, R>`) and is resolved
-      // by the dispatcher's `ManagedRuntime` at request time. No cast.
+      // R-channel: `def.handler` returns
+      // `Effect<Static<R>, E, Reqs | ConnIdTag>`.
+      // `Effect.provideService(ConnIdTag, ctx.connId)` removes ConnIdTag;
+      // remaining Reqs ride through into the `HandlerSlot.handle` R
+      // channel and are resolved by the dispatcher's `ManagedRuntime` at
+      // request time.
       const result = yield* def
         .handler(params, ctx.auth)
         .pipe(Effect.provideService(ConnIdTag, ctx.connId));
       return result as ResultOf<RpcDefinition<Name, P, R>>;
-    }).pipe(Effect.withSpan("defineMethod")),
-  );
+    }).pipe(Effect.withSpan("defineMethod"));
+  return {
+    definition,
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- HandlerSlot.handle's params type narrows to `ParamsOf<D>` (= `Static<P>` post-decode); the dispatcher passes the AJV-narrowed value, so the erasure-via-binding is safe (Spec F §3 carve-out).
+    handle: slotHandle as unknown as RpcMethodBinding["handle"], // #ignore-sloppy-code[as-unknown-as]: HandlerSlot.handle's params type narrows to `ParamsOf<D>` post-decode; the dispatcher's AJV-narrowed value satisfies the constraint at runtime (Spec F §3 carve-out)
+  };
 }

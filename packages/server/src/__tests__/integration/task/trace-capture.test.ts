@@ -2,6 +2,7 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect, Either } from "effect";
 
 import {
+  awaitOneNotification,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -91,7 +92,8 @@ function recordDeliveredMessageTrace(): Effect.Effect<void> {
       conversationId: conv.conversation.id,
       parts: [{ type: "text", text: "hello from trace capture test" }],
     });
-    yield* bob.client.waitForNotification(
+    yield* awaitOneNotification(
+      bob.client,
       MessageReceivedNotificationDefinition,
     );
 

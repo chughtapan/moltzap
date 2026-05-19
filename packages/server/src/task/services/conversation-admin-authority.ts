@@ -12,8 +12,7 @@ import { endpointAddressForAgent } from "./task.service.js";
 /**
  * Authority gate for conversation-level admin operations
  * (`update`, `archive`, `unarchive`, `addParticipant`, `removeParticipant`).
- * Replaces `ConversationService.requireRole(conv, agent, ["owner","admin"])`
- * — the redundant role-column gate that has exactly one writer site
+ * Replaces a redundant role-column gate that has exactly one writer site
  * (`conversationService.create` at insert time) and no promote-to-admin
  * flow, so `["owner","admin"]` collapses to "the original creator" for
  * non-app-bound rows.
@@ -30,17 +29,17 @@ import { endpointAddressForAgent } from "./task.service.js";
  * Error channel: `ForbiddenError` only.
  *
  * - Conversation row missing → `ForbiddenError` (NOT `NotFoundError`).
- *   Matches the pre-helper `requireRole` shape, so the wire-level error
- *   code observed by clients is unchanged when admin operations target
- *   a non-existent conversation.
+ *   Matches the pre-helper shape so the wire-level error code observed
+ *   by clients is unchanged when admin operations target a non-existent
+ *   conversation.
  * - Caller fails the discriminator → `ForbiddenError` with message
  *   `"Insufficient permissions"` (preserves the pre-helper wording).
  *
  * SQL execution failures surface as defects via `catchSqlErrorAsDefect`
  * — the existing convention for service-layer DB reads in this package,
- * mirrored from `requireRole` and `requireParticipant`.
+ * mirrored from the prior role and participant gates.
  */
-export function requireConversationAdminAuthority(
+export function assertConversationAdminAuthority(
   db: Db,
   conversationId: ConversationId,
   callerAgentId: AgentId,
@@ -74,6 +73,6 @@ export function requireConversationAdminAuthority(
           new ForbiddenError({ message: "Insufficient permissions" }),
         );
       }
-    }).pipe(Effect.withSpan("requireConversationAdminAuthority")),
+    }).pipe(Effect.withSpan("assertConversationAdminAuthority")),
   );
 }
