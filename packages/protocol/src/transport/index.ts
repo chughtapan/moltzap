@@ -70,9 +70,9 @@ export { isDecodedNotification } from "./rpc-groups.js";
 // every `Connection.call` signature.
 export type { RpcCallError } from "./originator.js";
 
-// Spec F (#617) — typed dispatcher. Stubs only on this branch; impl-staff
-// fills bodies. Type-level invariants are exercised by
-// `typed-dispatcher.types-check.ts`.
+// Spec F (#617) — typed dispatcher. Per-kind static handler tables and
+// three connection factories (`make{Server,AgentClient,TaskMaster}Connection`).
+// Type-level invariants are exercised by `typed-dispatcher.types-check.ts`.
 export type {
   CapabilityDescriptor,
   CapabilityProviderTable,

@@ -29,8 +29,7 @@ packages/server/src/
 ├── task/               # Conversations, messages, dispatch lease lifecycle
 │   ├── handlers/          # conversations, messages, presence, contacts, connect, tasks
 │   └── services/          # conversation.service, message.service, task.service, default-tm
-├── transport/          # WS connection acquisition, dispatch context, layer-tags
-├── rpc/                # Layer-tag hierarchy (used by handler R-channel)
+├── transport/          # WS connection acquisition, dispatch context, layer-tags (Tag-allowlist hierarchy used by handler R-channel)
 ├── crypto/             # Envelope encryption, key rotation
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── adapters/           # webhook client + typed errors
@@ -93,9 +92,8 @@ authority checks, and the dispatch admission path.
 
 ## 5. Layer-tag hierarchy
 
-`packages/server/src/rpc/layer-tags.ts` (and `transport/layer-tags.ts`)
-define a TypeScript-enforced hierarchy on which service Tags a handler may
-pull at each layer:
+`packages/server/src/transport/layer-tags.ts` defines a TypeScript-enforced
+hierarchy on which service Tags a handler may pull at each layer:
 
 ```mermaid
 flowchart LR
@@ -113,8 +111,9 @@ plus everything from network/identity/transport — but NOT `AppHost`. This
 matches the protocol layer DAG; you can't define an RPC that's notionally a
 "task" method but needs the AppHost. The `R` channel of the handler's
 `Effect` is the enforcement mechanism — `Exclude<AppTags, ConnIdTag>` on
-the dispatcher (in `app/server.ts`) leaves `ConnIdTag` unresolved until the
-per-request `Effect.provide` at handler-invocation time.
+the dispatcher (in `app/http-routes.ts` and `app/socket-handler.ts`) leaves
+`ConnIdTag` unresolved until the per-request `Effect.provide` at
+handler-invocation time.
 
 ## 6. Dependencies
 
