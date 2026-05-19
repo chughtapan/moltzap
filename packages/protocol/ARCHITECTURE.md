@@ -92,6 +92,7 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 | Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
 | Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
 | Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
+| TestClient Stream consolidation (Spec B obsolete-code remediation, #645) | [11 — TestClient Stream consolidation](docs/architecture/11-test-client-stream-consolidation.md) |
 
 ## 5. Dependencies
 

@@ -186,6 +186,16 @@ export function registerAgent(
   });
 }
 
+// IMPL-DELETION-TARGET (#645): the `NotificationBuffer` + `pullOneMatching`
+// + `makeSubscribeStream` per-client dedup-ring + 5ms poll loop exist only
+// because the underlying `TestClient` exposes polling-shape
+// `drainNotifications`. Once `TestClient.subscribe` lands (Stream.async +
+// registry), `subscribeTo<D>(def)` collapses to a one-line passthrough
+// `testClient.subscribe(def)`; this entire block (`NotificationBuffer`
+// type, `SUBSCRIBE_POLL_INTERVAL_MS`, `pullOneMatching`,
+// `makeSubscribeStream`, and the `helperBuffer` Ref allocation in
+// `connectTestClient`) deletes.
+
 /**
  * Spec B (#596) r2 cleanup: per-client buffer for notifications that a
  * `subscribeTo(def)` pull drained from the underlying queue but did NOT
@@ -305,6 +315,12 @@ export function connectTestClient(opts: {
       sendResponseFrame: client.sendResponseFrame.bind(client),
       subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
         makeSubscribeStream(client, helperBuffer, definition),
+      // ARCHITECT STUB (#645): forward the new Stream-shape surface from
+      // the underlying TestClient. After impl-staff lands the cutover,
+      // `subscribeTo` collapses into a direct `subscribe(def)` passthrough
+      // and the `helperBuffer`/`makeSubscribeStream` block above deletes.
+      subscribe: client.subscribe.bind(client),
+      subscribeAll: client.subscribeAll.bind(client),
       handleServerRpc: client.handleServerRpc.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),
       notifications: client.notifications,

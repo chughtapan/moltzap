@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- generic-type JSDoc references like `Stream.Stream<T>` use the natural angle-bracket form inside backtick code spans; the lint rule's pre-render check fires false positives on these. Matches the precedent in @moltzap/client's notification/stream.ts. */
+
 /**
  * TestClient — connects to a REAL MoltZap server URL and drives the wire.
  *
@@ -34,6 +36,7 @@ import type {
 import { taskCallbackMethods } from "../../../../rpc-registry.js";
 import {
   decodeRpcResult,
+  type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
 } from "../../../../transport/method.js";
@@ -140,6 +143,9 @@ export interface TestClient {
     frame: ResponseFrame,
   ) => Effect.Effect<void, TransportClosedError | TransportIoError>;
 
+  // IMPL-DELETION-TARGET (#645): `notifications` / `waitForNotification` /
+  // `drainNotifications` are the polling-shape surface deleted by
+  // architect #645. Impl replaces with `subscribe` / `subscribeAll` below.
   readonly notifications: Stream.Stream<
     DecodedNotification<AnyNotificationDefinition>,
     TransportClosedError
@@ -152,6 +158,45 @@ export interface TestClient {
   ) => Effect.Effect<DecodedNotification<D>, NotificationWaitError>;
   readonly drainNotifications: Effect.Effect<
     ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+  >;
+
+  /**
+   * Typed-payload subscribe (Spec B parity — #645). Returns a Stream of
+   * `DecodedNotification<D>` whose error channel is `TransportClosedError`
+   * and requirement set is `never`. Optional `refinement` is a typed
+   * predicate over the definition's params; the type-guard overload
+   * narrows the Stream's payload to `DecodedNotification<D, R>`.
+   *
+   * Lifecycle: construction is pure (no I/O, no scope); first pull
+   * suspends inside `Stream.async` until dispatch fires `emit.single`;
+   * terminal `TestClient.close` fires `emit.fail(TransportClosedError)`
+   * via the registry's `closeAll`.
+   */
+  readonly subscribe: {
+    <D extends AnyNotificationDefinition>(
+      definition: D,
+      refinement?: (params: NotificationParamsOf<D>) => boolean,
+    ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+    <D extends AnyNotificationDefinition, R extends NotificationParamsOf<D>>(
+      definition: D,
+      refinement: (params: NotificationParamsOf<D>) => params is R,
+    ): Stream.Stream<DecodedNotification<D, R>, TransportClosedError>;
+  };
+
+  /**
+   * Broad-union subscribe (Spec B parity — #645). Returns a Stream of
+   * every inbound notification regardless of definition. Used by
+   * conformance helpers that need to filter on params-shaped predicates
+   * (e.g. presence/changed by agentId+status). Payload narrowing is
+   * intentionally lost; callers wanting typed payloads use `subscribe`.
+   */
+  readonly subscribeAll: (
+    refinement?: (
+      notification: DecodedNotification<AnyNotificationDefinition>,
+    ) => boolean,
+  ) => Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    TransportClosedError
   >;
 
   /**
@@ -465,6 +510,41 @@ class RuntimeTestClient implements TestClient {
     const resolvedTimeoutMs =
       timeoutMs ?? DEFAULT_WAIT_FOR_NOTIFICATION_TIMEOUT_MS;
     return waitForNotification(this.runtime, definition, resolvedTimeoutMs);
+  }
+
+  // ARCHITECT STUB (#645): `subscribe` + `subscribeAll` are the new
+  // Stream.async-backed surface that replaces `notifications` /
+  // `waitForNotification` / `drainNotifications`. Impl wires these to
+  // `TestSubscriberRegistry` (see ./test-subscribers.ts). Bodies return
+  // `Stream.die(...)` so the defect surfaces only at pull time; no
+  // caller exercises these in the stub HEAD.
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+  subscribe<
+    D extends AnyNotificationDefinition,
+    R extends NotificationParamsOf<D>,
+  >(
+    definition: D,
+    refinement: (params: NotificationParamsOf<D>) => params is R,
+  ): Stream.Stream<DecodedNotification<D, R>, TransportClosedError>;
+  subscribe<D extends AnyNotificationDefinition>(
+    _definition: D,
+    _refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, TransportClosedError> {
+    return Stream.die("architect stub (#645)");
+  }
+
+  subscribeAll(
+    _refinement?: (
+      notification: DecodedNotification<AnyNotificationDefinition>,
+    ) => boolean,
+  ): Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    TransportClosedError
+  > {
+    return Stream.die("architect stub (#645)");
   }
 
   handleServerRpc<D extends ServerRpcDefinition>(
