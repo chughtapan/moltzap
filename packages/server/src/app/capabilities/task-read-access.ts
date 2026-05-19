@@ -12,8 +12,9 @@ import type { TaskServiceError } from "../../task/services/task.service.js";
  * Value payload carries the `task` row already fetched by today's
  * `TaskService.loadTaskWithReadAccess` check; consumers reuse the payload.
  *
- * Replaces (Phase 2): every `yield* this.loadTaskWithReadAccess(id, caller)`
- * site in `task.service.ts` (`get`, `getMessages`, `getMessagesSince`).
+ * Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
+ * `getMessagesSince`) via the R-channel; handlers wire the value with
+ * `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
  */
 export interface TaskReadAccessValue {
   readonly task: Task;

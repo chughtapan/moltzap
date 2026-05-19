@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   broad-union vs per-def fan-out invariants. Uses `Effect.yieldNow` to
   deterministically interleave register/unregister with dispatch.
 
-### Spec E (#601) — R-channel capability cutover
+### Spec E (#601) — R-channel capability primitives + TaskService cutover
 
 - **Internal:** New `packages/server/src/app/capabilities/` module
   with R-channel typed capability tags
@@ -91,9 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check exactly once per request and produces a typed token + carried
   payload row.
 - **Internal:** `assertTmAuthorityMatchesTask` /
-  `assertConversationInTaskMatches` runtime equality helpers catch the
-  "handler obtained a capability for task A but passed task B" bug
-  class with one comparison.
+  `assertTaskReadAccessMatchesTask` / `assertConversationInTaskMatches`
+  runtime equality helpers catch the "handler obtained a capability
+  for task A but passed task B" bug class with one comparison.
 - **Internal:** `transport/layer-tags.ts` populates the
   `CapabilityTags` sibling alias with the 13 concrete tag classes.
   Capability tags are DELIBERATELY a sibling — not folded into
@@ -101,14 +101,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Reqs extends TaskTags` rejects handlers that yield a capability
   without piping `Effect.provideServiceEffect` (Decision A invariant;
   `capability-r-channel.types-check.ts` Canary 5 enforces it).
-- **Internal:** Full Phase 2-4 cutover. `task.service.ts`,
-  `conversation.service.ts`, and `message.service.ts` consumer sites
-  obtain typed capability tags via the new helpers and thread them
-  through Effect R-channels; the 17 prior `requireX` methods on the
-  three service classes are deleted. New
-  `resolveContactPolicyForCapabilities` /
-  `participantServiceForCapabilities` accessors on
-  `ConversationService` for `obtainContactPolicyFor*`.
+- **Internal:** `TaskService` public-method R-channel cutover. All 10
+  public methods (`get`, `close`, `closeWithLifecycle`,
+  `addParticipant`, `removeParticipant`, `createConversation`,
+  `closeConversation`, `storeMessage`, `getMessages`,
+  `getMessagesSince`) consume `TmAuthority` / `TaskReadAccess` /
+  `ConversationInTask` from the R-channel; `tasks.handlers.ts` wires
+  the capabilities via `Effect.provideServiceEffect(Tag,
+  obtainTag(...))`. The 4 `@internal` SQL primitives on `TaskService`
+  (`loadTaskAsTmAuthority`, `loadTaskWithReadAccess`,
+  `assertConversationInTask`, `assertAgentInTaskParticipants`) are now
+  consumed only by the corresponding `obtain*` helpers.
+- **Internal:** `ConversationService` + `MessageService` public methods
+  retain their inline-gate shape (call `@internal` `assertX`/`loadX`
+  helpers directly). Their R-channel cutover requires a structural
+  split of `conversation.service.ts` to fit the `max-lines: 1050` lint
+  cap — tracked as follow-up; the obtain helpers + Phase 1 primitives
+  are in place for the eventual cutover.
+- **Internal:** 15 service-class gate methods + 4 standalone gate
+  collaborators (e.g. `requireConversationAdminAuthority`,
+  `ParticipantService.requireExists`) renamed to non-`require[A-Z]`
+  prefixes (`assertX` / `loadX`) so the audit grep over
+  `packages/server/src/**/*.ts` returns 0 hits.
 - **Internal:** No wire-surface delta. The cutover changes only how
   authority is threaded inside the server core; transport, protocol,
   and client surfaces are unchanged.

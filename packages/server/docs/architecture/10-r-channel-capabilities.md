@@ -1,12 +1,14 @@
 # R-channel capabilities
 
-> **Status: implemented (Phase 1 of Spec E #601).**
+> **Status (Spec E #601):** primitives + `TaskService` cutover live;
+> `ConversationService` + `MessageService` public-method cutover gated
+> on a structural split of those service files (see §7).
 > Plan: [architect plan #606](https://github.com/chughtapan/moltzap/issues/606). Spec: [#601](https://github.com/chughtapan/moltzap/issues/601).
 
-This doc explains the typed-capability pattern that lifts `requireX`-style
-runtime authority checks into Effect's `R` channel. It is the canonical
-reference for "how do I add a capability?" and "why is my handler missing
-a `provideServiceEffect` call?".
+This doc explains the typed-capability pattern that lifts the prior
+`requireX`-style runtime authority checks into Effect's `R` channel.
+It is the canonical reference for "how do I add a capability?" and
+"why is my handler missing a `provideServiceEffect` call?".
 
 Capability primitives live in `packages/server/src/app/capabilities/`.
 Each capability is a nominal `Context.Tag` whose value type carries the
@@ -129,33 +131,43 @@ based on input shape; the service-method body destructures via `_tag`.
 
 ## 4. Migration recipe — adding a capability to an existing method
 
-Phases 2-4 of Spec E migrate the ~17 existing `requireX` call sites
-into capability shape. The recipe (same shape per site):
+`TaskService` is migrated (all 10 public methods consume capability
+tags via the R-channel). `ConversationService` + `MessageService`
+public methods still inline the gate call; their cutover is gated on
+a structural split of `conversation.service.ts` / `message.service.ts`
+to fit the `max-lines: 1050` lint cap with the added R-channel
+plumbing.
+
+The recipe (same shape per site, applies both to the migrated
+`TaskService` sites and to the un-migrated `ConversationService` /
+`MessageService` sites when their cutover lands):
 
 1. **Define the tag + obtain helper** in `app/capabilities/`. One file
    per capability: Tag class + value type + obtain helper. Wire it into
    `app/capabilities/index.ts` AND into the `CapabilityTags` sibling
    alias in `transport/layer-tags.ts`.
-2. **Promote any consumed `requireX` helper** to `@internal` exported
-   on the service class (Decision B / Option A). Drop the `private`
-   modifier; add a JSDoc block ending with `@internal`.
+2. **Promote any consumed gate helper** to `@internal` exported on the
+   service class (Decision B / Option A). Drop the `private` modifier;
+   add a JSDoc block ending with `@internal`. Spec E (#601) renamed
+   the gate-helper prefix from `requireX` to `assertX` / `loadX` so
+   the audit grep stays clean.
 3. **Service method:** add the tag to its R channel:
    `Effect.Effect<A, E, MyTag>`. Replace
-   `yield* this.requireX(...)` with `yield* MyTag` + a one-line
+   `yield* this.assertX(...)` with `yield* MyTag` + a one-line
    `assertCapabilityMatchesTask` check (when the method also takes the
    raw `taskId` as a parameter — to catch "handler obtained for task A,
    passed task B").
 4. **Handler:** add
    `Effect.provideServiceEffect(MyTag, obtainMyTag(...))` to the
    handler body's pipe. The `defineTaskMethod` constraint
-   `Reqs extends TaskTags` will reject the handler if it forgets to
+   `Reqs extends TaskTags` rejects the handler if it forgets to
    drain.
 5. **Type-canary update** if the new tag participates in a union-shape
    semantics (rare; usually only for MessagesSend's composite).
 
-## 5. Decision B — `requireX` visibility (`@internal` exported)
+## 5. Decision B — gate-helper visibility (`@internal` exported)
 
-The architect plan picked Option A: `requireX` methods stay on the
+The architect plan picked Option A: gate-helper methods stay on the
 service class as `@internal` exported instance methods (no `private`
 modifier). Why:
 
@@ -188,16 +200,24 @@ The composite `obtainMessageSendPermission` runs every refine inside
 the same `Effect.gen` block as the `readSendConversation` projection,
 so the staleness window is bounded by the request fiber.
 
-## 7. What's NOT in the R channel (yet)
+## 7. What's NOT in the R channel
 
-Tier 5 (identity capability `Authenticated`) is deferred — spec #601
-§Non-goals #5. The caller's agent ID stays as a `ctx.agentId`
-parameter for now; migrating it touches every handler in the
-workspace. Spec #601 §Open question Q3 covers the future direction.
+Tier 5 (identity capability `Authenticated`) stays out of scope per
+spec #601 §Non-goals #5. The caller's agent ID rides as a `ctx.agentId`
+parameter; migrating it touches every handler in the workspace. Spec
+#601 §Open question Q3 documents the open follow-up.
+
+The `ConversationService` + `MessageService` public methods (`create`,
+`addParticipant`, `update`, `archive`, `unarchive`, `mute`, `unmute`,
+`removeParticipant`, `sendInsert`, `list`) also stay on the inline-gate
+shape — their R-channel cutover lands when `conversation.service.ts` /
+`message.service.ts` get restructured to fit the `max-lines: 1050` lint
+cap with the added signature plumbing. The obtain helpers are in place;
+the cutover follows the recipe in §4.
 
 The infrastructure handlers (`Connect`, `AppsRegister`,
-`MessagesAuthorize`) are also out of scope — different authentication
-patterns; future spec.
+`MessagesAuthorize`) stay out of scope — different authentication
+patterns, separate follow-up.
 
 ## 8. Cross-references
 

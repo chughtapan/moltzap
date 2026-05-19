@@ -14,10 +14,11 @@ import type { TaskServiceError } from "../../task/services/task.service.js";
  * (e.g. `MessageSendPermission.forTmBypass`) verify the same agent
  * authored the bypass decision.
  *
- * Replaces (Phase 2): every `yield* this.loadTaskAsTmAuthority(id, caller)`
- * site in `task.service.ts` (`closeWithLifecycle`, `addParticipant`,
- * `removeParticipant`, `createConversation`, `closeConversation`,
- * `storeMessage`).
+ * Consumed by the `task.service.ts` public methods (`closeWithLifecycle`,
+ * `addParticipant`, `removeParticipant`, `createConversation`,
+ * `closeConversation`, `storeMessage`) via the R-channel; handlers
+ * wire the value with `Effect.provideServiceEffect(TmAuthority,
+ * obtainTmAuthority(...))`.
  */
 export interface TmAuthorityValue {
   readonly task: Task;
