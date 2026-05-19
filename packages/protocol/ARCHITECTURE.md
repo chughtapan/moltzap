@@ -14,12 +14,16 @@ packages/protocol/src/
 │
 ├── transport/              # Wire-frame layer (no domain semantics)
 │   ├── wire.ts                # Ajv, JSON-RPC frame schemas, encoders, decodeFrame
-│   ├── method.ts              # defineRpc, defineNotification, RpcDefinition
+│   ├── method.ts              # defineRpc, defineNotification, RpcDefinition (Spec F slotDisposition / capabilities)
 │   ├── wire-errors.ts         # Tagged-error registry, JSON_RPC_RESERVED_CODES
 │   ├── rpc-errors.ts          # NotConnectedError, RpcServerError
 │   ├── rpc-groups.ts          # decodeRpcRequest, decodeNotification over a method group
-│   ├── json-rpc-server.ts     # makeJsonRpcServer, handler(), handleJsonRpcRequest
-│   └── json-rpc-client.ts     # makeJsonRpcClient, pending-call map, call/resolve
+│   ├── handlers.ts            # ServerHandlers / AgentClientHandlers / TaskMasterHandlers (typed catalogs)
+│   ├── capabilities.ts        # CapabilityProviderTable, CapabilityDescriptor, CapabilitiesOf (Spec F G5)
+│   ├── defaults.ts            # SlotDisposition, optionalForbidden, optionalNoOp (Spec F G4)
+│   ├── connection.ts          # ServerConnection / AgentClient / TaskMaster types + factories
+│   ├── dispatch.ts            # buildServerDispatcher (static-table dispatch + capability auto-provision)
+│   └── typed-dispatcher.types-check.ts  # 6 type canaries on the live typed surface
 │
 ├── identity/               # Agents, users, sessions, attestation, contact policy
 ├── network/                # Ping, presence, connection liveness, actor-model types
@@ -47,8 +51,11 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | `notificationDefinitions` | rpc-registry | All S↔C notifications |
 | `taskCallbackMethods` | rpc-registry | Subset: methods the server calls *into* the client |
 | `decodeServerInbound` / `decodeClientInbound` | rpc-registry | Tagged-union frame decoders, fail-closed |
-| `defineRpc` / `defineNotification` | transport/method | Descriptor factories used by domain layers |
-| `makeJsonRpcServer` / `makeJsonRpcClient` | transport | Runtime endpoints |
+| `defineRpc` / `defineNotification` | transport/method | Descriptor factories used by domain layers. `defineRpc` accepts `slotDisposition` + `capabilities` (Spec F G4/G5) |
+| `makeServerConnection` / `makeAgentClientConnection` / `makeTaskMasterConnection` | transport/connection | Typed-dispatcher factories — one per connection kind (Spec F G2) |
+| `ServerHandlers` / `AgentClientHandlers` / `TaskMasterHandlers` | transport/handlers | Per-kind static handler-table type aliases (Spec F G3) |
+| `CapabilityProviderTable<Caps>` | transport/capabilities | Capability auto-provision table (Spec F G5/G6) |
+| `optionalForbidden` / `optionalNoOp` | transport/defaults | Per-slot fail-CLOSED default markers (Spec F G4) |
 | `Agent*`, `User*`, `Session*` | identity | Identity primitives + auth flows |
 | `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state |
 | `Dispatch*`, `App*`, `Hook*` | app | AppHost surface |
@@ -84,15 +91,13 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 |---|---|
 | How wire methods are defined and validated | [01 — Method-definition pipeline](docs/architecture/01-method-definition.md) |
 | Decoding inbound frames (both sides) | [02 — Frame decode pipeline](docs/architecture/02-frame-decode.md) |
-| Server-side request handling | [03 — Server request handling](docs/architecture/03-server-request-handling.md) |
-| Client-side RPC call lifecycle | [04 — Client call lifecycle](docs/architecture/04-client-call-lifecycle.md) |
 | Notification fan-out | [05 — Notification fan-out](docs/architecture/05-notification-fanout.md) |
 | End-to-end `messages/send` walk-through | [06 — End-to-end messages/send](docs/architecture/06-end-to-end-messages-send.md) |
 | Server-initiated callbacks (e.g. dispatch/authorize) | [07 — Server-initiated callbacks](docs/architecture/07-server-initiated-callback.md) |
 | Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
 | Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
 | Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
-| Typed dispatcher (Spec F #617) | [11 — Typed dispatcher](docs/architecture/11-typed-dispatcher.md) |
+| Typed dispatcher — request handling + client call lifecycle (Spec F #617) | [11 — Typed dispatcher](docs/architecture/11-typed-dispatcher.md) |
 
 ## 5. Dependencies
 

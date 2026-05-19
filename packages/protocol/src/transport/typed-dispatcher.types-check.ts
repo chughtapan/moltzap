@@ -25,14 +25,17 @@
  *      but the live `.call(...)` signature would silently accept
  *      server-inbound definitions. Canary 5 closes that gap.
  *
- * Deferred to Spec F impl-staff (the invariant exists; the canary
- * needs per-definition metadata that the stub doesn't yet populate):
- *   - TM `{ handlers: {} }` resolves to the fail-CLOSED Forbidden
- *     default (needs `slotDisposition: optionalForbidden` on the TM
- *     callback definitions).
+ * Activated at impl-staff time (Spec F #617 PR):
+ *   - Canary 6: TM `{ handlers: {} }` is well-typed once both TM
+ *     callback slots carry `slotDisposition: optionalForbidden`.
+ *     Asserts `TaskMasterHandlers` resolves the empty literal as
+ *     legal (the runtime fail-CLOSED default fires per slot).
+ *
+ * Deferred (require Spec E primitives to land):
  *   - "Capability provider missing for a referenced tag" + "handler
  *     R channel ⊃ definition.capabilities" (needs
- *     `definition.capabilities` reaching the catalog).
+ *     `definition.capabilities` populated with Spec E `Context.Tag`s
+ *     in the catalog; Spec E hasn't landed at F's branch base).
  *
  * Per `feedback_canaries_focus_on_live_code`: NO canaries that prove
  * a deleted thing is unreachable. `Connection.register` does not
@@ -117,6 +120,16 @@ declare const _tmHandlers: TaskMasterHandlers<unknown, never>;
 const _tmHandlersSink: TaskMasterHandlers<unknown, never> = _tmHandlers;
 
 // ───────────────────────────────────────────────────────────────────────
+// Canary 6: TaskMasterHandlers accepts `{}` (both TM-callback slots
+// OPTIONAL with fail-CLOSED `ForbiddenError` defaults per Spec F R2).
+// If a future spec promotes either `DispatchAuthorize` /
+// `MessagesAuthorize` to REQUIRED, this canary starts erroring and
+// every TM construction site that omits handlers must be revisited.
+// ───────────────────────────────────────────────────────────────────────
+
+const _tmEmpty: TaskMasterHandlers<unknown, never> = {};
+
+// ───────────────────────────────────────────────────────────────────────
 // Canary 5: ServerConnection.call rejects non-task-callback definitions
 // DIRECTLY on the live `.call(...)` method signature (Spec F I5 direct).
 //
@@ -152,6 +165,7 @@ export type _TypedDispatcherCanarySink =
   | typeof _serverOutboundOk2
   | typeof _agentClientEmpty
   | typeof _tmHandlersSink
+  | typeof _tmEmpty
   | typeof _directReject
   | _ServerConnection
   | _AgentClientConnection
