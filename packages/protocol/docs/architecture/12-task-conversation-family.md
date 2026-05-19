@@ -86,107 +86,78 @@ existing one-app-to-one-TM contract). No new schema column required.
 
 ## TaskCreate flow
 
-```text
-client                              server
-  │
-  ▼  TaskCreate({ appId, invitedAgentIds, initialConversation? })
-                                      │
-                                      ▼  decode (schema validates `appId` is UUID)
-                                      │
-                                      ▼  if appId === DEFAULT_APP_ID:
-                                      │    SELECT t.id FROM tasks t
-                                      │    WHERE t.app_id = $appId
-                                      │      AND (caller ∪ invited) = participants(t.id)
-                                      │    → if hit, return existing task (no conv mint)
-                                      │
-                                      ▼  else mint task:
-                                      │    INSERT INTO tasks (app_id, tm_endpoint_address, …)
-                                      │    INSERT INTO task_participants (caller, invited[])
-                                      │
-                                      ▼  if initialConversation:
-                                      │    transaction:
-                                      │      conversationService.create({ … })
-                                      │      enqueue task/conversation/created notif
-                                      │      enqueue conversations/created notif (legacy)
-                                      │
-                                      ▼  return { task, conversation: conv|null }
-```
+Data-flow contract (impl-staff translates to Effect+Kysely; this is
+NOT normative pseudocode):
 
-Dedup is implicit from input shape. No `dmDedup` flag. The single-invitee
-case (the historical "DM") is just the `invitedAgentIds.length === 1`
-instance of the same exact-participant-set match — the same query
-`conversationService.existingDmForCreate` already runs for DMs today.
+1. **Decode** — schema validates `appId` is a UUID-shaped branded string; `invitedAgentIds` is `AgentId[]` (may be empty); `initialConversation` is optional.
+2. **Empty invited / self-included** — `invitedAgentIds` MAY be empty (creates a self-only task; the caller is the sole `task_participant`). `invitedAgentIds` MAY include the caller; the server normalizes the participant set as `{caller} ∪ invitedAgentIds` (set semantics) so the caller is never double-counted.
+3. **Dedup hit (appId === DEFAULT_APP_ID only)** — the server queries `task_participants` for an existing task whose **set of admitted-OR-pending agent rows** (i.e. all rows under `task_participants(task_id)` regardless of `admittedAt IS NULL`) exactly equals `{caller} ∪ invitedAgentIds` AND whose `tasks.app_id = $appId`. If hit, returns the existing task (no conversation mint even when `initialConversation` is supplied — dedup is task-level, not conversation-level). Index expectation: the existing `task_participants` PRIMARY KEY `(task_id, agent_id)` covers the matching predicate; a supplementary `task_participants_agent_id` index (if present) accelerates the participant-set reverse lookup. Impl-staff confirms the index list against `core-schema.sql` before the SELECT lands.
+4. **Mint** — if no dedup hit, the server inserts a new `tasks` row + one `task_participants` row per agent in `{caller} ∪ invitedAgentIds`, all inside one transaction.
+5. **Atomic initial conversation** — if `initialConversation` is supplied, the same transaction also calls `conversationService.create({…})` to mint the first conversation. Both notifications (`task/conversation/created` AND legacy `conversations/created`) enqueue inside the same transaction and broadcast post-commit.
+6. **Return** — `{ task, conversation: Conversation | null }`. `conversation` is non-null iff `initialConversation` was supplied AND the dedup query missed.
+
+The dedup query matches via `task_participants` (the task-level
+participant table). This is a NEW query shape; the existing
+`conversationService.existingDmForCreate` matches via
+`conversation_participants` for the legacy 2-participant DM case and
+is NOT a generalization of the new dedup. Impl-staff lands the new
+helper `conversationService.findExistingTaskByParticipants(callerId,
+invitedAgentIds, appId)` as a sibling of `existingDmForCreate`, not a
+refactor of it.
+
+The single-invitee DM case under `DEFAULT_APP_ID` is functionally
+equivalent to today's DM-dedup behavior (one extant task per agent
+pair) — the OBSERVABLE behavior generalizes; the IMPLEMENTATION
+queries are distinct tables.
 
 ## TaskLeave flow
 
-```text
-client                              server
-  │
-  ▼  TaskLeave({ taskId })
-                                      │
-                                      ▼  decode
-                                      │
-                                      ▼  transaction:
-                                      │    SELECT conversation_ids
-                                      │      WHERE task_id = $taskId
-                                      │        AND $caller ∈ conversation_participants
-                                      │    for each cid:
-                                      │      DELETE FROM conversation_participants
-                                      │        WHERE conversation_id = cid AND agent_id = $caller
-                                      │      enqueue task/conversation/participants/removed
-                                      │        { reason: "task_leave" }
-                                      │    DELETE FROM task_participants
-                                      │      WHERE task_id = $taskId AND agent_id = $caller
-                                      │    if count(task_participants WHERE task_id) == 0:
-                                      │      UPDATE tasks SET status = 'closed' WHERE id = $taskId
-                                      │      enqueue task/closed
-                                      │
-                                      ▼  commit; broadcast all enqueued notifications
-                                      │
-                                      ▼  return {}
-```
+Data-flow contract (impl-staff translates to Effect+Kysely; this is
+NOT normative pseudocode):
 
-Contract (spec body Goal 2):
+1. **Decode** — schema validates `taskId`.
+2. **Idempotency** — if the caller is not in `task_participants` for `taskId`, returns `{}` with no notifications. If `taskId` does not exist, returns `RpcServerError` with tag `not_found`.
+3. **Transaction** — single `transaction(this.db, …)` boundary covering:
+   - **Per-conversation membership snapshot** — SELECT the set of `conversation_id` values where `(conversation_id ∈ conversations WHERE task_id = $taskId) AND agent_id = $caller`. The snapshot is captured BEFORE deletion so the pre-mutation membership drives the `task/conversation/participants/removed` fan-out (so the leaver still receives their own removal notification).
+   - **Bulk participant deletion** — one DELETE: `DELETE FROM conversation_participants WHERE agent_id = $caller AND conversation_id IN (SELECT id FROM conversations WHERE task_id = $taskId)`. The bulk form avoids the per-cid loop's transaction-round-trip cost on tasks with many conversations.
+   - **Task participant deletion** — one DELETE: `DELETE FROM task_participants WHERE task_id = $taskId AND agent_id = $caller`.
+   - **Last-participant closure check** — if the remaining `task_participants` count for `taskId` is zero, transition `tasks.status = 'closed'` and enqueue `TaskClosedNotificationDefinition` with payload `{ task }` (matching the EXISTING notification shape; the spec body Goal 2 reference to `{ taskId }` is a shorthand — the wire shape is the canonical `{ task: Task }`).
+   - **Per-conversation removal notifications** — enqueue one `TaskConversationParticipantsRemovedNotificationDefinition` per `conversation_id` in the snapshot, with `{ taskId, conversationId, removedAgentId: callerAgentId, reason: "task_leave" }`. Dual-emit the legacy `participants/removed` per the dual-emission table below.
+4. **Post-commit** — broadcast all enqueued notifications via `broadcastNotificationToAgents`. Broadcast failure does NOT roll back the DB write (best-effort delivery).
 
-- **Atomicity** — all deletions + closure + notification enqueueing inside one `transaction(this.db, …)`. Rollback = zero notifications observed.
-- **Idempotency** — caller not in `task_participants` returns success (no-op).
-- **Last-participant closure** — task transitions to `closed` in the same tx.
-- **Last-participant in individual conversations** — left in place (NOT auto-archived).
+Additional contract clauses (spec body Goal 2):
+
+- **Last-participant in individual conversations** — left in place (NOT auto-archived). No `TaskConversationArchive` notification fires from `TaskLeave`.
 - **TM unaffected** — `tm_endpoint_address` does NOT change; TMs are not participants.
 - **Owner is not special** — task closure rule applies even if the owner leaves.
 
 ## Participant invariant: TaskConversationAddParticipant
 
-```ts
-// Pseudocode for impl-staff
-const addToConversation = (taskId, conversationId, agentId) =>
-  transaction(db, (trx) => Effect.gen(function* () {
-    const isAdmitted = yield* trx
-      .selectFrom("task_participants")
-      .select("agent_id")
-      .where("task_id", "=", taskId)
-      .where("agent_id", "=", agentId)
-      .executeTakeFirst();
-    if (!isAdmitted) {
-      return yield* Effect.fail(
-        new ParticipantNotAdmittedError({
-          message: `Agent ${agentId} is not admitted to task ${taskId}`,
-        }),
-      );
-    }
-    yield* trx.insertInto("conversation_participants").values({
-      conversation_id: conversationId,
-      agent_id: agentId,
-    });
-    // enqueue task/conversation/participants/added + legacy mirror
-  }));
-```
+Data-flow contract (impl-staff translates to Effect+Kysely; non-normative):
+
+1. **Decode** — schema validates `taskId`, `conversationId`, `agentId`.
+2. **Authority** — `TmAuthority` (Spec E) for `taskId`.
+3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. Existing row admitted-or-pending (i.e. `admittedAt` may be NULL) — both are accepted; admission state is a separate gate.
+4. **Conversation-in-task verification** — verify `(conversations.id = $conversationId AND conversations.task_id = $taskId)`. Mismatch = `NotFoundError` (cross-task `conversationId` rejected).
+5. **Insert** — `INSERT INTO conversation_participants (conversation_id, agent_id) ON CONFLICT DO NOTHING` inside a transaction.
+6. **Dual-emit notifications** — `TaskConversationParticipantsAddedNotificationDefinition` AND legacy `ParticipantsAddedNotificationDefinition` enqueue in the same tx; broadcast post-commit.
 
 The invariant is NEW in D1. Today's `ConversationsAddParticipant`
 does NOT check `task_participants` membership; D1's
 `TaskConversationAddParticipant` does. Legacy
 `ConversationsAddParticipant` keeps its current behavior during the
 transitional window; D3 deletes it.
+
+### TaskConversationRemoveParticipant last-removal
+
+When `TaskConversationRemoveParticipant` removes the last remaining
+agent from a conversation's `conversation_participants` (i.e. the
+post-mutation count is zero), the conversation is **left in place,
+not auto-archived** — same semantics as `TaskLeave`'s
+last-participant-in-conversation rule (spec body Goal 2). No
+`TaskConversationArchive` notification fires; the conversation row
+stays with `archivedAt IS NULL`. D3 may revisit if product input
+demands auto-archive; D1 keeps the conservative behavior.
 
 ## Authority gates per operation
 
@@ -246,10 +217,21 @@ shapes carry `taskId` explicitly (legacy payloads did not).
 | `conversations/unarchive` / `task/conversation/unarchive` | `conversations/unarchived` | `task/conversation/unarchived` |
 | `conversations/addParticipant` / `task/conversation/participants/add` | `participants/added` | `task/conversation/participants/added` |
 | `conversations/removeParticipant` / `task/conversation/participants/remove` | `participants/removed` | `task/conversation/participants/removed` |
+| `task/create` with `initialConversation` | `conversations/created` (mirrors the atomic conversation insert) | `task/conversation/created` |
+| `task/leave` (per conversation the leaver was in) | `participants/removed` (one per cid) | `task/conversation/participants/removed { reason: "task_leave" }` (one per cid) |
+| `task/leave` (last-participant-task-closure case) | (no legacy mirror — `task/closed` is a server-emitted task-level notification with no legacy alias; `TaskClosedNotificationDefinition` already exists pre-D1) | `task/closed { task }` (existing definition, unchanged) |
+
+The two new rows (`task/create` with `initialConversation`,
+`task/leave`) extend dual-emission to cover every D1 mutation that
+affects `conversation_participants` or `conversations` rows.
+`TaskCreate` without `initialConversation` does NOT emit any
+conversation notification (no conversation row created).
 
 D3 deletes the legacy column. The deprecation-log warning at legacy
 handler entry (spec body Contract decision) fires once per call
-during D1 and goes away with the legacy handler in D3.
+during D1 and goes away with the legacy handler in D3. `task/create`
+and `task/leave` are new wire methods (no legacy alias to
+deprecation-log).
 
 ## Test alignment
 

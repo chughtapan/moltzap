@@ -23,6 +23,7 @@ import type { JsonRpcMethod } from "../transport/wire.js";
 import type {
   AgentId,
   AppId,
+  Conversation,
   ConversationId,
   TaskConversationListItem,
   TaskConversationParticipantsRemovedNotification,
@@ -164,8 +165,13 @@ type _C3 = Expect<
 
 type TaskCreateResult = Static<typeof TaskCreate.resultSchema>;
 type _C4 = Expect<Equal<keyof TaskCreateResult, "task" | "conversation">>;
+// Spec body Goal 3 fixes `conversation: Conversation | null` (NOT
+// optional `conversation?`); the AC text uses shorthand `conversation?`
+// but Goal 3 is canonical. Lock the explicit nullable shape so the
+// stub matches the wire signature reviewers consume.
+type _C5 = Expect<Equal<TaskCreateResult["conversation"], Conversation | null>>;
 
-export type _D1TaskCreateShapeCanary = _C1 | _C2 | _C3 | _C4;
+export type _D1TaskCreateShapeCanary = _C1 | _C2 | _C3 | _C4 | _C5;
 
 // ── Canary 3: DEFAULT_APP_ID is branded and the spec-fixed UUID ──────
 //
@@ -181,8 +187,9 @@ export type _D1DefaultAppIdCanary = Expect<Equal<typeof DEFAULT_APP_ID, AppId>>;
 //
 // Locks the per-row item structure: `{ taskId, conversation,
 // participants: AgentId[] }`. Spec body Goal 1 explicitly fixes this
-// shape; a future edit that adds `archivedAt` or `unreadCount` to the
-// item fails here.
+// shape; a future edit that adds `unreadCount` or a top-level
+// `archivedAt` (which would duplicate `conversation.archivedAt`) fails
+// here.
 
 type _L1 = Expect<
   Equal<
@@ -192,8 +199,13 @@ type _L1 = Expect<
 >;
 type _L2 = Expect<Equal<TaskConversationListItem["taskId"], TaskId>>;
 type _L3 = Expect<Equal<TaskConversationListItem["participants"], AgentId[]>>;
+// Spec D1 adds `archivedAt?: DateTimeString` to the `Conversation` row
+// so clients can filter archived rows out of
+// `TaskConversationList` responses without a separate field on
+// `TaskConversationListItem`. Lock the additive change.
+type _L4 = Expect<Equal<Conversation["archivedAt"], string | undefined>>;
 
-export type _D1ListItemCanary = _L1 | _L2 | _L3;
+export type _D1ListItemCanary = _L1 | _L2 | _L3 | _L4;
 
 // ── Canary 5: ParticipantsRemoved reason enum ────────────────────────
 //

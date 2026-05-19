@@ -67,6 +67,13 @@ const ConversationSchema = Type.Object(
     lastMessageTimestamp: Type.Optional(DateTimeString),
     createdAt: DateTimeString,
     updatedAt: DateTimeString,
+    // Spec D1 (#598) — additive field. Present iff the conversation
+    // is archived. Clients filter `archivedAt !== undefined` to
+    // exclude archived rows from a `TaskConversationList` response
+    // (the server returns archived rows unfiltered; the visibility
+    // contract for `TaskConversationList` is "caller in
+    // `conversation_participants`", not "archived excluded").
+    archivedAt: Type.Optional(DateTimeString),
   },
   { additionalProperties: false },
 );
