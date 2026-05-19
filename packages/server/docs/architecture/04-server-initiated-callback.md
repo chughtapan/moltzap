@@ -5,7 +5,17 @@
 When an inbound `messages/send` needs admission, `AppHost.runAuthorizeDispatch`
 forks a fiber that calls **out** to the moderator. The reverse direction
 uses the same `@moltzap/protocol` runtimes — `Originator` on the server
-side, `TypedDispatcher` on the moderator's client side:
+side, the typed `Connection.handle` on the moderator's client side.
+
+Server-to-client request frames are restricted to `taskCallbackMethods`
+(the strict subset of `rpcMethods` the server is allowed to call back
+into the client — `DispatchAuthorize`, `MessagesAuthorize`). The client's
+`decodeServerInbound` rejects any other method as `MalformedFrameError`,
+so a misconfigured server can't smuggle a non-callback request through
+the client's inbound path. The originator lifecycle that backs the
+`conn.originator.call(...)` step here is the same one used by inbound
+requests — see [§03 Request → response handling](./03-request-response-handling.md)
+for the pending-map mechanics, id-prefix, and finalizer ordering.
 
 ```mermaid
 sequenceDiagram
@@ -18,7 +28,7 @@ sequenceDiagram
 
     Recv->>MH: inbound message
     MH->>MS: MessageService.send
-    MS->>AH: runAuthorizeDispatch<br>(or runMessageAuthorize for #560 path)
+    MS->>AH: runAuthorizeDispatch<br>(or runMessageAuthorize for the address-keyed authorize path)
 
     alt inProcess hook registered
         AH->>AH: runInProcessHookEffect<br>(handler runs in-process)
@@ -32,7 +42,7 @@ sequenceDiagram
         AH->>AH: Effect.succeed({decision: "grant"})
     end
 
-    Note over AH: wrapHookEffectWithEnvelope (fail-CLOSED per architect plan §3.4):<br>timeout → {decision: "deny", reason: "timeout"}<br>RPC error → {decision: "deny", reason: "dispatch/authorize error"}
+    Note over AH: wrapHookEffectWithEnvelope (fail-CLOSED):<br>timeout → {decision: "deny", reason: "timeout"}<br>RPC error → {decision: "deny", reason: "dispatch/authorize error"}
 
     AH->>LR: leaseRegistry.resolve(leaseId, verdict)
     alt deny
@@ -44,13 +54,13 @@ sequenceDiagram
     AH->>Recv: emit dispatch/release{verdict}
 ```
 
-The same shape applies to `runMessageAuthorize` (#560) — it's the second
-caller of the unified `wrapHookEffectWithEnvelope` (`app/app-host.ts → runMessageAuthorize`),
-keyed by `EndpointAddress` instead of `appId`, with verdicts in the
-Forward/Block shape instead of grant/deny/hold.
+The same shape applies to `runMessageAuthorize` — second caller of the
+unified `wrapHookEffectWithEnvelope` in `app/app-host.ts`, keyed by
+`EndpointAddress` instead of `appId`, with verdicts in the Forward/Block
+shape instead of grant/deny/hold.
 
 ## See also
 
+- [§03 Request → response handling](./03-request-response-handling.md) — wire-side wrapper, dispatcher contract, originator lifecycle
 - [§05 AppHost hook unification](./05-app-host-hook-unification.md) — `wrapHookEffectWithEnvelope` and the registry shape
 - [§06 Lease lifecycle](./06-lease-lifecycle.md) — `leaseRegistry.resolve` state transitions
-- [§03 Request → response handling](./03-request-response-handling.md) — `handleResponseFrame` that settles the Deferred

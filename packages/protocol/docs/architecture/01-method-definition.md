@@ -11,8 +11,8 @@ identical schema semantics:
                        │
                        ▼  defineRpc({ name, params, result,         transport/method.ts → defineRpc
                        │              slotDisposition?, capabilities? })
-                       │              (slotDisposition + capabilities are Spec F G4/G5;
-                       │               absent = REQUIRED slot, no capability auto-provision)
+                       │              (slotDisposition absent = REQUIRED slot;
+                       │               capabilities absent = no auto-provision)
                        │
        ┌───────────────┴────────────────────────────┐
        ▼                                            ▼
