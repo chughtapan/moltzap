@@ -88,6 +88,17 @@ export {
   AgentRegistrationError,
   registerTestAgent,
 } from "./conformance/_shared/test-fixtures.js";
+export {
+  type RegisterTestAppOptions,
+  type TestApp,
+  type TestAppCallbackHandler,
+  type TestAppCallbackScript,
+  type TestAppManifestOptions,
+  type TestAppRegistrationFailure,
+  TestAppRegistrationError,
+  makeTestAppManifest,
+  registerTestApp,
+} from "./conformance/_shared/test-app.js";
 
 // Arbitraries, models, toxics — namespaced to keep names scoped.
 export * as arbitraries from "./arbitraries/index.js";
