@@ -19,7 +19,17 @@ live in `commands/start.ts`.
 |---|---|---|
 | `TaskCreate` | Spec D1 (#635) → `packages/protocol/src/task/tasks.ts → TaskCreate` | Every invocation |
 | `MessagesSend` | Pre-D1, unchanged | Only when `--message` is set |
-| `AgentsLookupByName` | Pre-D1, unchanged | Per participant token, name → uuid |
+| `AgentsLookupByName` | Pre-D1, unchanged | Per name-shaped participant token (uuid-shaped tokens skip the lookup) |
+
+**All three RPCs go through `transport.ts → rpc(...)` (the CLI
+`Transport` service), NOT `socket-client.ts → request(...)` (the
+daemon-socket helper). D2 deliberately does not reuse
+`socket-client.ts → resolveParticipant` because that helper hard-wires
+the daemon-socket path — it would break `--as` direct-WS invocations
+and would not be mockable via `commands/test-transport.ts →
+makeFakeTransport`. Architect plan §R1 explains the divergence; the
+local resolver `start.ts → resolveAgentToken` is the new helper that
+covers D2's testability + transport-uniformity needs.**
 
 `TaskCreate` is called with `{ appId, invitedAgentIds, initialConversation:
 { name, participants } }` where `initialConversation.participants ===
@@ -189,44 +199,82 @@ export const startCommandHandler = (args: StartCommandArgs) =>
   });
 ```
 
-### Partial-failure dispatcher — why not `runHandler`?
+### Partial-failure dispatcher — canonical contract
 
 The shared `runHandler(...)` adapter in `transport.ts` maps every
-caught error to exit code 1 unconditionally. D2 needs three exit codes
-(0/1/2/64) keyed on the stage where the error arose. Impl-staff has
-two options:
+caught error to exit code 1 unconditionally. D2 needs three non-default
+exit codes (2, 64, plus 0/1) keyed on the stage where the error
+arose. Architect picks a **hybrid two-stage dispatcher**, codified in
+the stub (`start.ts → runStartCommand` + `start.ts →
+startCommandHandler`):
 
-1. **Local dispatcher** — wrap `startCommandHandler` in a
-   `start`-specific adapter (`runStartCommand` in `start.ts` or a
-   sibling) that inspects the `_tag` and dispatches:
-   - `InvalidAppIdError` / `UnresolvedParticipantError` → 64
-   - bare `TransportError` (TaskCreate stage) → 1
-   - (caught inline above) MessagesSend failure → 2
-2. **Inline `process.exit`** — call `process.exit(64)` / `process.exit(2)`
-   at the failure site (see sketch above for the partial-success branch).
+- **`runStartCommand(effect)`** is the outer adapter (replaces
+  `runHandler` in the `Command.make` wrapper). It pattern-matches the
+  caught `StartCommandError` on `_tag` and dispatches:
+  - `InvalidAppIdError` → `process.exit(EXIT_CODES.USAGE_ERROR)` + stderr `Invalid --app-id: not a UUID`
+  - `UnresolvedParticipantError` → `process.exit(EXIT_CODES.USAGE_ERROR)` + stderr `Cannot resolve "<token>": <reason>`
+  - any other `StartCommandError` (the `TransportError` union from
+    `transport.ts`, including `TransportRpcError`,
+    `TransportDecodeError`, `ServiceUnreachableError`, etc.) →
+    `process.exit(EXIT_CODES.TASK_CREATE_FAILED)` + stderr
+    `Failed: <err.message>`
+- **Inline `process.exit(EXIT_CODES.PARTIAL_SUCCESS)`** inside the
+  handler body for the post-`TaskCreate` `MessagesSend` failure. This
+  path cannot route through `runStartCommand` because the stdout
+  `Task started: ...` line has already been printed; re-throwing the
+  error and letting `runStartCommand` dispatch would discard the
+  successful task creation from the user's view. The handler uses
+  `Effect.either(rpc(MessagesSend, ...))` to catch in-band, then
+  `Effect.sync(() => { console.error(...); process.exit(2); })`.
 
-The current `register.ts` pattern uses inline `process.exit` (option
-2); the v2 subcommands (`messages list`, `conversations {get, archive,
-unarchive}`) use `runHandler` (option 1, but exit-1-only). D2 needs
-option 1 with a **two-stage `TransportError` discriminator** OR option
-2 throughout. Architect picks **option 2** for the stub-time contract
-(matches the partial-success need without a new shared adapter); the
-final implementation choice is impl-staff's call subject to
-`/simplify` review.
+This split is the architect-locked contract. Impl-staff implements
+both halves (the `Effect.catchAll` body of `runStartCommand` and the
+`Effect.either` branch of the handler); `/simplify` review may
+re-examine the partition but the exit-code-by-stage contract is fixed
+by the spec D2 ACs.
 
-### Why call `resolveParticipant` instead of a new helper
+Test-side: `process.exit = vi.fn() as never` (per `register.test.ts`
+pattern); assert `expect(process.exit).toHaveBeenCalledWith(64)` /
+`...(2)` / `...(1)` per scenario.
 
-Today `commands/conversations.ts → createConversation` calls
-`resolveParticipant(...)` (which returns `{ type: "agent", id }`) and
-passes the full ref to `ConversationsCreate.participants`
-(historically a `agentParticipantRefSchema[]` field). D2's
-`TaskCreate.initialConversation.participants` is `AgentId[]` (Spec D1
-canary `_L1`..`_L3`); the impl-staff handler maps `.id` per token
-after resolution. No new helper is needed; the spec body's optional
-"extract to `lib/agents.ts`" refactor is OUT-OF-SCOPE for the stub
-(declined; would touch `commands/conversations.ts` Non-goal 1 only if
-the helper were private, which it isn't — `resolveParticipant` is
-already public in `socket-client.ts`).
+### Why we don't reuse `resolveParticipant`
+
+`socket-client.ts → resolveParticipant` is the helper today's
+`commands/conversations.ts → createConversation` uses. It returns
+`{ type: "agent", id: AgentId }` after a server lookup via
+`socket-client.ts → request(AgentsLookupByName, ...)`. D2 does NOT
+reuse it. Reasons:
+
+1. **Transport mismatch.** `socket-client.ts → request` hard-wires
+   the daemon-socket path (`MoltZapService.SOCKET_PATH`). D2's
+   `TaskCreate` and `MessagesSend` calls go through
+   `transport.ts → rpc(...)` (the `Transport` Effect service),
+   which is selected by `cli/index.ts → moltzapBase` from `--as` /
+   `--profile` / daemon precedence. A `moltzap --as <key> start
+   ... agent:bob ...` invocation would resolve `bob` through the
+   daemon socket (potentially unreachable) but call `TaskCreate`
+   through direct-WS — a confusing split.
+2. **Testability.** `commands/test-transport.ts → makeFakeTransport`
+   intercepts `Transport.rpc` calls. It cannot intercept the
+   daemon-socket path. Spec D2 ACs require unit tests that mock
+   `AgentsLookupByName`'s response (empty vs. populated) to drive
+   the resolution-failure branch. Without a transport-routed
+   resolver, this test is not implementable cleanly.
+3. **Wire-shape match.** D2's `TaskCreate.initialConversation.participants`
+   is `Array(AgentId)` (Spec D1 canary `_L1..L3`), not
+   `agentParticipantRefSchema[]`. The local resolver returns bare
+   `AgentId` directly, eliminating a `.map(p => p.id)` step.
+
+D2 introduces `start.ts → resolveAgentToken` (transport-routed
+sibling): parses `agent:<rest>` and either short-circuits if `rest`
+is a UUID v4 or calls `rpc(AgentsLookupByName, { names: [rest] })`.
+On empty result → `UnresolvedParticipantError({ token, reason:
+"not-found" })`. On shape failure (no `agent:` prefix, etc.) →
+`UnresolvedParticipantError({ token, reason: "shape" })`.
+
+`commands/conversations.ts` keeps using `resolveParticipant`
+unchanged (Non-goal 1). D3 may consolidate when the legacy command
+deletes.
 
 ## 7. Test alignment
 
