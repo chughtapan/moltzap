@@ -1,0 +1,36 @@
+---
+title: "task/conversation/participants/added"
+description: "Pushed as the `task/conversation/participants/added` notification."
+---
+
+# task/conversation/participants/added
+
+Pushed as the `task/conversation/participants/added` notification.
+
+## Params
+
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
+</ResponseField>
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="addedAgentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="byAgentOrTm" type="tm">
+  The byAgentOrTm field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "task/conversation/participants/added",
+  "params": { ... }
+}
+```

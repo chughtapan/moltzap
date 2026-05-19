@@ -50,7 +50,9 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | `defineRpc` / `defineNotification` | transport/method | Descriptor factories used by domain layers |
 | `makeJsonRpcServer` / `makeJsonRpcClient` | transport | Runtime endpoints |
 | `Agent*`, `User*`, `Session*` | identity | Identity primitives + auth flows |
-| `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state |
+| `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state (legacy `Conversations*` + `Tasks*` families) |
+| `TaskCreate`, `TaskLeave`, `TaskConversation*` | task | Spec D1 additive surface (singular `task/*` namespace) |
+| `AppId`, `DEFAULT_APP_ID`, `ParticipantNotAdmittedError` | task | Spec D1 wire-level branding + invariant tag |
 | `Dispatch*`, `App*`, `Hook*` | app | AppHost surface |
 | Tagged errors (`HookBlockedError`, `TaskClosedError`, …) | various | Auto-registered into `RegisteredTaggedError` union |
 
@@ -92,6 +94,7 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 | Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
 | Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
 | Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
+| Task / TaskConversation family (Spec D1) | [12 — Task / TaskConversation family](docs/architecture/12-task-conversation-family.md) |
 
 ## 5. Dependencies
 

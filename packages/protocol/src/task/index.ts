@@ -8,6 +8,9 @@ export {
   ConversationArchivedError,
   ConversationFullError,
   HookBlockedError,
+  // Spec D1 (#598) — new tagged error for `task/conversation/*`
+  // participant invariant.
+  ParticipantNotAdmittedError,
   ConversationsCreate,
   ConversationsList,
   ConversationsGet,
@@ -32,6 +35,17 @@ export {
   TasksStoreMessage,
   TasksGetMessages,
   TasksGetMessagesSince,
+  // Spec D1 — additive `task/*` + `task/conversation/*` family.
+  AppId,
+  DEFAULT_APP_ID,
+  TaskCreate,
+  TaskLeave,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
   ConversationCreatedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
@@ -41,6 +55,12 @@ export {
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
+  // Spec D1 — `task/conversation/*` notifications.
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
   validateTmDecision,
   tmDecisionSchema,
   messageWithTmDecisionSchema,
@@ -66,4 +86,12 @@ export type {
   MessageReceivedNotification,
   TmDecision,
   MessageWithTmDecision,
+  // Spec D1 surface types.
+  InitialConversationInput,
+  TaskConversationListItem,
+  TaskConversationCreatedNotification,
+  TaskConversationArchivedNotification,
+  TaskConversationUnarchivedNotification,
+  TaskConversationParticipantsAddedNotification,
+  TaskConversationParticipantsRemovedNotification,
 } from "./methods.js";
