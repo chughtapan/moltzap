@@ -9,7 +9,7 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import type { AppManifest } from "@moltzap/protocol";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
@@ -85,8 +85,12 @@ function moderatorDenyReleasesDeny() {
       decision: "deny",
       reason: DENIAL_REASON,
     });
+    // Fork-before-trigger (Spec B #596 r2 fix): subscribe BEFORE the
+    // requestDispatch RPC fires so the release notification can't arrive
+    // in the gap before subscription.
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const { ack } = yield* requestModeratedDispatch(alice, bob);
-    const release = yield* waitForDispatchRelease(bob);
+    const release = yield* Fiber.join(releaseFiber);
 
     expectReleaseVerdict(release, {
       leaseId: ack.leaseId,
@@ -103,8 +107,9 @@ function moderatorHoldReleasesHold() {
       decision: "hold",
       reason: HOLD_REASON,
     });
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const { ack } = yield* requestModeratedDispatch(alice, bob);
-    const release = yield* waitForDispatchRelease(bob);
+    const release = yield* Fiber.join(releaseFiber);
 
     expectReleaseVerdict(release, {
       leaseId: ack.leaseId,
@@ -117,18 +122,28 @@ function moderatorTimeoutRemovesRecipient() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ kind: "never-reply" });
+    // Fork BOTH subscribers before trigger (Spec B #596 r2 fix). With
+    // fork-before-trigger, the participants/removed timer starts at fork
+    // time, NOT after release — so it must cover the full
+    // moderator-timeout (release fires at +10s) + the release→removed gap
+    // (the server emits removed only after the timeout-induced deny).
+    const releaseFiber = yield* waitForDispatchRelease(
+      bob,
+      MODERATOR_TIMEOUT_MS,
+    );
+    const removedFiber = yield* waitForParticipantsRemoved(
+      bob,
+      MODERATOR_TIMEOUT_MS + DISPATCH_RELEASE_TIMEOUT_MS,
+    );
     const { ack, conversationId } = yield* requestModeratedDispatch(alice, bob);
-    const release = yield* waitForDispatchRelease(bob, MODERATOR_TIMEOUT_MS);
+    const release = yield* Fiber.join(releaseFiber);
 
     expectReleaseVerdict(release, {
       leaseId: ack.leaseId,
       decision: DISPATCH_VERDICT_DENY,
       reason: MODERATOR_TIMEOUT_REASON,
     });
-    const removed = yield* waitForParticipantsRemoved(
-      bob,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
+    const removed = yield* Fiber.join(removedFiber);
     expectParticipantRemoved(removed, { conversationId, agentId: bob.agentId });
   });
 }
@@ -140,14 +155,16 @@ function explicitDenyRemovesRecipient() {
       decision: "deny",
       reason: DENIAL_REASON,
     });
+    const releaseFiber = yield* waitForDispatchRelease(bob);
+    const removedFiber = yield* waitForParticipantsRemoved(bob);
     const { ack, conversationId } = yield* requestModeratedDispatch(alice, bob);
-    const release = yield* waitForDispatchRelease(bob);
+    const release = yield* Fiber.join(releaseFiber);
 
     expectReleaseVerdict(release, {
       leaseId: ack.leaseId,
       decision: DISPATCH_VERDICT_DENY,
     });
-    const removed = yield* waitForParticipantsRemoved(bob);
+    const removed = yield* Fiber.join(removedFiber);
     expectParticipantRemoved(removed, { conversationId, agentId: bob.agentId });
   });
 }

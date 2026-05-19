@@ -18,8 +18,15 @@ packages/runtimes/src/
 ├── nanoclaw-adapter.ts         # NanoclawAdapter
 ├── claude-code-adapter.ts      # ClaudeCodeAdapter + workspace variant
 ├── await-agent-ready.ts        # awaitAgentReadyByPolling
-└── errors.ts                   # SpawnFailed, RuntimeExitedBeforeReady,
-                                  RuntimeReadyTimedOut, RuntimeLaunchFailed
+├── errors.ts                   # SpawnFailed, RuntimeExitedBeforeReady,
+│                                  RuntimeReadyTimedOut, RuntimeLaunchFailed
+├── adapter-readiness.ts        # processExitLoop, promoteTimeoutIfProcessExited (internal)
+├── channel-plugin-install.ts   # OpenClaw plugin install (workspace variant; internal)
+├── claude-code-process.ts      # ClaudeCode subprocess wiring (internal)
+├── nanoclaw-process.ts         # Nanoclaw subprocess wiring + stopNanoclawRuntimeEffect (internal)
+├── package-resolution.ts       # resolveWorkspaceBin / resolveClaudeCodeChannelDistDir (internal)
+└── trace-capture-{bundle,harness,payload}.ts   # Trace-capture harness loaded by cc-judge
+                                                  (consumed by packages/evals scenarios; internal to runtimes)
 ```
 
 Single-tier source layout — no subdirectories. Each adapter is a peer.
@@ -51,6 +58,13 @@ and the typed error taxonomy:
 | 3.5 | Shutdown propagation | [05-shutdown-propagation.md](docs/architecture/05-shutdown-propagation.md) |
 | 3.6 | Error matrix | [06-error-matrix.md](docs/architecture/06-error-matrix.md) |
 | 3.7 | Per-process state machine | [07-process-state-machine.md](docs/architecture/07-process-state-machine.md) |
+
+Trace-capture flow has no per-flow doc yet. The harness lives in
+`trace-capture-{bundle,harness,payload}.ts` and is loaded by the external
+`cc-judge` runner against scenarios in `packages/evals/scenarios/*.yaml`.
+The runtimes package compiles the harness; ownership of the wire-side
+trace capture lives in `@moltzap/server-core`'s `TraceCapture` DI (see
+`packages/evals/README.md`).
 
 ## Dependencies
 

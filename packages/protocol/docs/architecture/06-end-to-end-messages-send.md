@@ -12,12 +12,12 @@ caller
   ▼
 MoltZapWsClient.call(MessagesSend, params)
   │
-  ▼  json-rpc-client.ts → call
+  ▼  originator.ts → call
   │
-  │  next id = "wsclient-42"
-  │  frame = {jsonrpc:"2.0", id:"wsclient-42",
+  │  next id = "rpc-42"   (client idPrefix = "rpc"; see ws-client.ts → connectEffect)
+  │  frame = {jsonrpc:"2.0", id:"rpc-42",
   │           method:"messages/send", params:{...}}
-  │  insert pending[wsclient-42] = {Deferred}
+  │  insert pending[rpc-42] = {Deferred}
   │  write(JSON.stringify(frame))
   │  await Deferred
   │                                                 ─── WS frame ──▶
@@ -25,13 +25,13 @@ MoltZapWsClient.call(MessagesSend, params)
   │                                                                   → {_tag: "ClientRequest",
   │                                                                      definition: MessagesSend,
   │                                                                      params}
-  │                                                                 makeJsonRpcServer.handle(frame, ctx)
-  │                                                                   ▼ json-rpc-server.ts → handle
-  │                                                                 handlerByMethod.get("messages/send")
+  │                                                                 serverConnection.handle(frame, ctx)
+  │                                                                   ▼ dispatch.ts → makeInboundDispatch
+  │                                                                 ServerHandlers["messages/send"]
   │                                                                   ▼
   │                                                                 decodeRpcParams → ParamsOf<MessagesSend>
   │                                                                   ▼
-  │                                                                 messageHandlers["messages/send"]
+  │                                                                 ServerHandlers["messages/send"]
   │                                                                   .handle(params, dispatchCtx)
   │                                                                   ▼
   │                                                                 MessageService.send(...)
@@ -45,7 +45,7 @@ MoltZapWsClient.call(MessagesSend, params)
   ▼  socket onmessage → decodeServerInbound → ResponseSuccess
   │
   ▼  client.resolve(frame)
-  │  → pendingRef.modify(take("wsclient-42"))
+  │  → pendingRef.modify(take("rpc-42"))
   │  → Deferred.succeed(result)
   │
   ▼  await unblocks

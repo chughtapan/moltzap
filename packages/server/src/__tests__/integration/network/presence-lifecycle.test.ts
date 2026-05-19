@@ -2,6 +2,7 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
@@ -42,7 +43,8 @@ function presenceAgentId(event: { params: unknown }): string {
 }
 
 function waitPresenceChanged(agent: ConnectedAgent) {
-  return agent.client.waitForNotification(
+  return awaitOneNotification(
+    agent.client,
     PresenceChangedNotificationDefinition,
   );
 }

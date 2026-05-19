@@ -23,7 +23,7 @@ import {
   type AppManifest,
   type DispatchId,
 } from "@moltzap/protocol";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
@@ -86,7 +86,7 @@ function registerWireModerator() {
     yield* moderator.client.sendRpc(AppsRegister, {
       manifest: WIRE_APP_MANIFEST,
     });
-    yield* moderator.client.handleServerRpc(
+    yield* moderator.client.onAppCallback(
       DispatchAuthorize,
       grantDispatchAuthorize,
     );
@@ -104,16 +104,18 @@ function requestWireModeratedDispatch(
       recipient,
       WIRE_APP_ID,
     );
+    // Fork-before-trigger (Spec B #596 r2 fix).
+    const releaseFiber = yield* waitForDispatchRelease(
+      recipient,
+      DISPATCH_RELEASE_TIMEOUT_MS,
+    );
     const ack = yield* requestDispatch(
       recipient,
       conversationId,
       moderator,
       "wire",
     );
-    const release = yield* waitForDispatchRelease(
-      recipient,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
+    const release = yield* Fiber.join(releaseFiber);
     expect(release.leaseId).toBe(ack.leaseId);
     return ack;
   });
@@ -124,8 +126,12 @@ function registryDirectReadShowsGrantedLease() {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
     const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const releaseFiber = yield* waitForDispatchRelease(
+      bob,
+      DISPATCH_RELEASE_TIMEOUT_MS,
+    );
     const ack = yield* requestDispatch(bob, conversationId, alice);
-    yield* waitForDispatchRelease(bob, DISPATCH_RELEASE_TIMEOUT_MS);
+    yield* Fiber.join(releaseFiber);
 
     const record = yield* readLeaseByDispatchId(ack.dispatchId as DispatchId);
     expect(record.dispatchId).toBe(ack.dispatchId);

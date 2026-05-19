@@ -53,11 +53,12 @@ const methods: RpcMethodRegistry = [
 ];
 ```
 
-`createCoreApp` wires the method registry into the descriptor-backed
-`JsonRpcServer` from `@moltzap/protocol`. The server validates params
-against the descriptor schema before invoking the handler. Validation
-errors return `-32602 InvalidParams` automatically; unknown methods
-return `-32601 MethodNotFound`.
+`createCoreApp` wires the method registry into the per-connection
+`ServerConnection`'s typed dispatcher (Spec F #617 §6 FRI; descriptor-
+backed handler table baked at construction). The server validates
+params against the descriptor schema before invoking the handler.
+Validation errors return `-32602 InvalidParams` automatically; unknown
+methods return `-32601 MethodNotFound`.
 
 ## Handler groups
 

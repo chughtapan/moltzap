@@ -1,14 +1,20 @@
+/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `ReadonlyArray<...>` use natural angle-bracket form inside backtick spans; matches filter-equivalence.test.ts precedent. */
 import {
   FetchHttpClient,
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import { Data, Effect } from "effect";
-import type { NotificationFrame } from "@moltzap/protocol";
+import { Chunk, Data, Duration, Effect, Option, Ref, Stream } from "effect";
+import {
+  isDecodedNotification,
+  type AnyNotificationDefinition,
+  type DecodedNotification,
+} from "@moltzap/protocol";
 import {
   agentId,
   makeCloseableTestClient,
   registerTestAgent,
+  TransportClosedError,
   type CloseableTestClient,
   type TestAgent,
 } from "@moltzap/protocol/testing";
@@ -16,10 +22,83 @@ import { getBaseUrl, getWsUrl } from "./index.js";
 
 import { ConversationsCreate } from "@moltzap/protocol";
 
+/**
+ * Spec B (#596): the legacy `waitForNotification(def, timeoutMs?)` /
+ * `drainNotifications(): ReadonlyArray<...>` synchronous wrappers were
+ * deleted. Consumers reach typed-payload Streams via
+ * `client.subscribeTo(def)` and snapshot the buffered queue via the
+ * passthrough `client.drainNotifications` Effect (`yield*` it).
+ * Ergonomic one-shot test sites use the top-level `awaitOneNotification`
+ * helper below.
+ */
 export interface ServerTestClient
-  extends Omit<CloseableTestClient, "close" | "drainNotifications"> {
+  extends Omit<CloseableTestClient, "close" | "waitForNotification"> {
   close(): Effect.Effect<void, never>;
-  drainNotifications(): ReadonlyArray<NotificationFrame>;
+  subscribeTo<D extends AnyNotificationDefinition>(
+    definition: D,
+  ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+}
+
+/**
+ * Default ceiling for `awaitOneNotification`; matches the legacy
+ * `TestClient.waitForNotification` default.
+ */
+const DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS = 5_000;
+
+class AwaitNotificationTimeoutError extends Data.TaggedError(
+  "AwaitNotificationTimeoutError",
+)<{
+  readonly definition: string;
+  readonly durationMs: number;
+}> {}
+
+class AwaitNotificationClosedError extends Data.TaggedError(
+  "AwaitNotificationClosedError",
+)<{
+  readonly definition: string;
+}> {}
+
+export type AwaitNotificationError =
+  | AwaitNotificationTimeoutError
+  | AwaitNotificationClosedError;
+
+/**
+ * Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
+ * `Stream.runHead`, failing with a tagged error on timeout or stream
+ * exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
+ * at integration-test call sites; preserves the `yield* …` ergonomic but
+ * runs entirely on the new `Stream.async`-backed subscription API.
+ */
+export function awaitOneNotification<D extends AnyNotificationDefinition>(
+  client: Pick<ServerTestClient, "subscribeTo">,
+  definition: D,
+  timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
+): Effect.Effect<
+  DecodedNotification<D>,
+  AwaitNotificationError | TransportClosedError
+> {
+  return client.subscribeTo(definition).pipe(
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(timeoutMs),
+      onTimeout: () =>
+        new AwaitNotificationTimeoutError({
+          definition: definition.name,
+          durationMs: timeoutMs,
+        }),
+    }),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new AwaitNotificationClosedError({
+              definition: definition.name,
+            }),
+          ),
+        onSome: (notification) => Effect.succeed(notification),
+      }),
+    ),
+  );
 }
 
 export interface ConnectedAgent {
@@ -107,6 +186,101 @@ export function registerAgent(
   });
 }
 
+/**
+ * Spec B (#596) r2 cleanup: per-client buffer for notifications that a
+ * `subscribeTo(def)` pull drained from the underlying queue but did NOT
+ * match the requested definition. The underlying test client exposes
+ * `drainNotifications` as `Ref.getAndSet(queue, [])`, so a `Stream.filter`
+ * over `client.notifications` (the old `subscribeTo` shape) DROPS
+ * unmatched chunk elements forever — they vanish from the wire view of
+ * any subsequent subscriber. By round-tripping unmatched frames through
+ * `helperBuffer`, a concurrent `subscribeTo(A)` + `subscribeTo(B)` pair
+ * cannot race-lose each other's frames: the loser of a `drainNotifications`
+ * race finds its match in `helperBuffer` on the next poll.
+ *
+ * This buffer is per-client (owned by the `connectTestClient` closure)
+ * and shared across every `subscribeTo` call made via this client.
+ */
+type NotificationBuffer = Ref.Ref<
+  ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+>;
+
+const SUBSCRIBE_POLL_INTERVAL_MS = 5;
+
+/**
+ * Pull at most one notification matching `definition`. Any frames that
+ * arrived in the same `drainNotifications` chunk but did not match are
+ * appended to `helperBuffer` so other (current or future) subscribers
+ * see them. Returns `null` if nothing is available right now.
+ */
+function pullOneMatching<D extends AnyNotificationDefinition>(
+  client: CloseableTestClient,
+  helperBuffer: NotificationBuffer,
+  definition: D,
+): Effect.Effect<DecodedNotification<D> | null> {
+  return Effect.gen(function* () {
+    // 1. Check the helper buffer first — earlier pulls may have parked
+    //    matching frames here when their own definition did not match.
+    const fromBuffer = yield* Ref.modify(
+      helperBuffer,
+      (
+        buf,
+      ): readonly [
+        DecodedNotification<D> | null,
+        ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>,
+      ] => {
+        const idx = buf.findIndex((frame) =>
+          isDecodedNotification(definition, frame),
+        );
+        if (idx < 0) return [null, buf];
+        const matched = buf[idx] as DecodedNotification<D>;
+        const rest = [...buf.slice(0, idx), ...buf.slice(idx + 1)];
+        return [matched, rest];
+      },
+    );
+    if (fromBuffer !== null) return fromBuffer;
+
+    // 2. Drain the client queue and split it: keep the first match for
+    //    this pull, park the rest in the helper buffer.
+    const drained = yield* client.drainNotifications;
+    if (drained.length === 0) return null;
+    let matched: DecodedNotification<D> | null = null;
+    const rest: DecodedNotification<AnyNotificationDefinition>[] = [];
+    for (const frame of drained) {
+      if (matched === null && isDecodedNotification(definition, frame)) {
+        matched = frame;
+      } else {
+        rest.push(frame);
+      }
+    }
+    if (rest.length > 0) {
+      yield* Ref.update(helperBuffer, (buf) => [...buf, ...rest]);
+    }
+    return matched;
+  });
+}
+
+function makeSubscribeStream<D extends AnyNotificationDefinition>(
+  client: CloseableTestClient,
+  helperBuffer: NotificationBuffer,
+  definition: D,
+): Stream.Stream<DecodedNotification<D>, TransportClosedError> {
+  // Emit chunks of size 1 so that downstream consumers using
+  // `Stream.runHead` (or `Stream.take(N)`) never silently drop sibling
+  // elements bundled into the same chunk.
+  return Stream.repeatEffectChunk(
+    pullOneMatching(client, helperBuffer, definition).pipe(
+      Effect.flatMap((maybe) =>
+        maybe === null
+          ? Effect.sleep(Duration.millis(SUBSCRIBE_POLL_INTERVAL_MS)).pipe(
+              Effect.as(Chunk.empty<DecodedNotification<D>>()),
+            )
+          : Effect.succeed(Chunk.of(maybe)),
+      ),
+    ),
+  );
+}
+
 export function connectTestClient(opts: {
   agentId: string;
   apiKey: string;
@@ -122,18 +296,22 @@ export function connectTestClient(opts: {
       captureCapacity: 1024,
       autoConnect: opts.autoConnect,
     });
+    const helperBuffer: NotificationBuffer = yield* Ref.make<
+      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+    >([]);
     return {
       sendRpc: client.sendRpc.bind(client),
       sendMalformed: client.sendMalformed.bind(client),
       sendResponseFrame: client.sendResponseFrame.bind(client),
-      waitForNotification: client.waitForNotification.bind(client),
-      handleServerRpc: client.handleServerRpc.bind(client),
+      subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
+        makeSubscribeStream(client, helperBuffer, definition),
+      onAppCallback: client.onAppCallback.bind(client),
       awaitServerRequest: client.awaitServerRequest.bind(client),
       notifications: client.notifications,
       captures: client.captures,
       snapshot: client.snapshot,
       close: () => client.close,
-      drainNotifications: () => Effect.runSync(client.drainNotifications),
+      drainNotifications: client.drainNotifications,
     };
   }).pipe(Effect.withSpan("connectTestClient"));
 }

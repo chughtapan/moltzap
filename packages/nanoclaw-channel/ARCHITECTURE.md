@@ -9,8 +9,16 @@ regressions surface in CI before they hit real channel plugins.
 
 ```
 packages/nanoclaw-channel/src/
-├── channels/moltzap.ts     # MoltZapChannel — the channel class (main entry)
-├── types.ts                # MoltZapChannelEnv, MoltZapChannelError
+├── channels/
+│   ├── moltzap.ts          # MoltZapChannel — the channel class (main entry).
+│   │                         Also holds package-internal helpers:
+│   │                         MoltZapChannelEnv, MoltZapChannelError,
+│   │                         loadMoltZapChannelEnv,
+│   │                         conversationIdFromJid / jidFromConversationId,
+│   │                         MOLTZAP_JID_PREFIX, DEFAULT_SERVER_URL,
+│   │                         EVAL_GROUP_NAME_ID_CHARS
+│   └── registry.ts         # registerChannel factory (host hook)
+├── types.ts                # Channel/NewMessage/OnInboundMessage shapes
 ├── test-support.ts         # ./test-support subpath
 └── __tests__/conformance/  # Smoke-test conformance harness
 ```
@@ -23,11 +31,15 @@ points here directly.
 | Export | Purpose |
 |---|---|
 | `MoltZapChannel` | Channel class — `connect`, `disconnect`, `sendMessage`, `handleInbound` |
-| `MoltZapChannelEnv` | Config schema (apiKey, serverUrl, evalMode) |
-| `MoltZapChannelError` | Typed failure |
-| `loadMoltZapChannelEnv` | Effect-based env loader |
-| `conversationIdFromJid` / `jidFromConversationId` | JID ↔ ConversationId conversions |
-| `MOLTZAP_JID_PREFIX`, `DEFAULT_SERVER_URL`, `EVAL_GROUP_NAME_ID_CHARS` | Constants |
+
+The smoke-test package exports exactly one symbol (`MoltZapChannel`) from
+`channels/moltzap.ts`. Env shape (`MoltZapChannelEnv`), error class
+(`MoltZapChannelError`), env loader (`loadMoltZapChannelEnv`), JID
+conversions (`conversationIdFromJid` / `jidFromConversationId`), and the
+constants (`MOLTZAP_JID_PREFIX`, `DEFAULT_SERVER_URL`,
+`EVAL_GROUP_NAME_ID_CHARS`) are defined in `channels/moltzap.ts` but kept
+package-internal — the smoke-test channel is consumed via
+`registerChannel("moltzap")` and the surface table above.
 
 Render helpers (`formatCrossConv`, `formatGroupBlock`, `getGroupFields`) and
 the lease primitives (`LeaseStore`, `LeaseGuard`, `LeaseAlreadyConsumed`,

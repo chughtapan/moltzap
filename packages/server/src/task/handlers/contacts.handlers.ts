@@ -26,7 +26,7 @@ import {
 
 const ERR_NEED_OWNER = "Contacts require a claimed agent owner";
 
-const requireOwner = (
+const loadOwnerOrFail = (
   ctx: AuthenticatedContext,
 ): Effect.Effect<UserId, UnauthorizedError> =>
   ctx.ownerUserId === null
@@ -53,7 +53,7 @@ export const contactHandlers: RpcMethodRegistry = [
     handler: (_params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
-        const owner = yield* requireOwner(ctx);
+        const owner = yield* loadOwnerOrFail(ctx);
         const contacts = yield* contactService.list(owner);
         return { contacts: [...contacts] };
       }).pipe(Effect.withSpan("contacts.list")),
@@ -63,7 +63,7 @@ export const contactHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
-        const owner = yield* requireOwner(ctx);
+        const owner = yield* loadOwnerOrFail(ctx);
         const contact = yield* contactService.add(owner, params);
         yield* fanOut(
           params.contactUserId,
@@ -78,7 +78,7 @@ export const contactHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
-        const owner = yield* requireOwner(ctx);
+        const owner = yield* loadOwnerOrFail(ctx);
         const result = yield* contactService.accept(owner, params.contactId);
         if (result.transitioned) {
           yield* fanOut(
@@ -95,7 +95,7 @@ export const contactHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
-        const owner = yield* requireOwner(ctx);
+        const owner = yield* loadOwnerOrFail(ctx);
         const contact = yield* contactService.byId(owner, params.contactId);
         return { contact };
       }).pipe(Effect.withSpan("contacts.byId")),

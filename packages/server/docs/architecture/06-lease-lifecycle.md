@@ -17,8 +17,8 @@ stateDiagram-v2
     HOLD --> PENDING : retry on next inbound message in same conversation (re-park)
 
     GRANTED --> CLAIMED : messages/send claim
-    GRANTED --> EXPIRED : TTL fires
-    GRANTED --> EXPIRED_ON_DISCONNECT : conn close (GRANTED/HOLD)
+    GRANTED --> EXPIRED : TTL fires OR conn close (GRANTED/HOLD)
+    HOLD --> EXPIRED : conn close
 
     CLAIMED --> CONSUMED : insert ok
     CLAIMED --> GRANTED : insert fail (rollback)
@@ -27,8 +27,12 @@ stateDiagram-v2
     DENIED --> [*]
     ABANDONED --> [*]
     EXPIRED --> [*]
-    EXPIRED_ON_DISCONNECT --> [*]
 ```
+
+The eight terminal/non-terminal states (PENDING, CLAIMED, GRANTED,
+CONSUMED, DENIED, EXPIRED, ABANDONED, HOLD) match `LeaseState` in
+`app/lease-registry.ts:111-118`. Connection-close GRANTED/HOLD transitions
+go to plain EXPIRED — there is no distinct `EXPIRED_ON_DISCONNECT` state.
 
 ```mermaid
 sequenceDiagram
@@ -60,7 +64,7 @@ sequenceDiagram
 
 Connection close cleanup (`leaseRegistry.abandon(connId)` in the disconnect
 finalizer): scans all leases bound to that connection, walks the same
-table — PENDING→ABANDONED, GRANTED/HOLD→EXPIRED-on-disconnect, CLAIMED
+table — PENDING→ABANDONED, GRANTED/HOLD→EXPIRED, CLAIMED
 no-op. The CLAIMED no-op is load-bearing — without it, a recipient
 disconnect mid-insert could roll back a committed durable row, permitting
 a duplicate retry.

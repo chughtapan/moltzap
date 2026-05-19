@@ -83,13 +83,19 @@ function runSubscribe(opts: {
     Layer.succeed(DbTag, harness.db),
     Layer.succeed(PresenceServiceTag, new PresenceService(noopSink)),
   );
+  type NarrowedSubscribe = Effect.Effect<
+    unknown,
+    unknown,
+    DbTag | PresenceServiceTag
+  >;
+  const rawHandle = subscribeBinding().handle(
+    { agentIds: opts.requestedIds },
+    ctx,
+  );
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- test boundary: post-Spec-F (#617) `HandlerSlot.handle` widens R-channel to `Context.Tag<unknown, unknown>` for storage; this test re-narrows to the specific tag union it provides via `testServices`. The runtime layer (FullLive in prod, testServices here) resolves the same Tags either way.
+  const narrowed = rawHandle as unknown as NarrowedSubscribe; // #ignore-sloppy-code[as-unknown-as]: test boundary re-narrows the post-Spec-F HandlerSlot R-channel widening to the specific tag union the test provides via `testServices`.
   return Effect.exit(
-    (
-      subscribeBinding().handle(
-        { agentIds: opts.requestedIds },
-        ctx,
-      ) as Effect.Effect<unknown, unknown, DbTag | PresenceServiceTag>
-    ).pipe(
+    narrowed.pipe(
       Effect.provideService(ConnIdTag, TEST_CONNECTION_ID),
       Effect.provide(testServices),
     ),

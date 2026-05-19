@@ -17,6 +17,7 @@ import {
 } from "@moltzap/protocol/testing";
 import { Effect } from "effect";
 import {
+  awaitOneNotification,
   getTestCoreApp,
   resetTestDbEffect,
   startTestServerEffect,
@@ -116,13 +117,33 @@ export function sendMessageWithLease(
   });
 }
 
+/**
+ * Spec B (#596) r2 cleanup: notification helpers return a `Fiber` that the
+ * caller MUST acquire BEFORE issuing the trigger RPC. The underlying
+ * `Stream.async` subscription has no historical buffer — if the helper
+ * subscribed after the trigger, notifications firing in the gap between
+ * trigger-return and subscription-registration are lost.
+ *
+ * Caller pattern (fork-before-trigger + Fiber.join):
+ * ```
+ * const releaseFiber = yield* waitForDispatchRelease(bob);
+ * yield* requestDispatch(bob, ...);
+ * const release = yield* Fiber.join(releaseFiber);
+ * ```
+ *
+ * Returning a `Fiber` (rather than the raw Effect) makes the contract
+ * structural — the type signature enforces fork-before-trigger because
+ * callers receive a fiber handle, not the awaited value.
+ */
 export function waitForDispatchRelease(
   recipient: ConnectedAgent,
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
 ) {
-  return recipient.client.waitForNotification(DispatchRelease, timeoutMs).pipe(
-    Effect.map((notification) => notification.params),
-    Effect.withSpan("waitForDispatchRelease"),
+  return Effect.fork(
+    awaitOneNotification(recipient.client, DispatchRelease, timeoutMs).pipe(
+      Effect.map((notification) => notification.params),
+      Effect.withSpan("waitForDispatchRelease"),
+    ),
   );
 }
 
@@ -130,12 +151,16 @@ export function waitForParticipantsRemoved(
   recipient: ConnectedAgent,
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
 ) {
-  return recipient.client
-    .waitForNotification(ParticipantsRemovedNotificationDefinition, timeoutMs)
-    .pipe(
+  return Effect.fork(
+    awaitOneNotification(
+      recipient.client,
+      ParticipantsRemovedNotificationDefinition,
+      timeoutMs,
+    ).pipe(
       Effect.map((notification) => notification.params),
       Effect.withSpan("waitForParticipantsRemoved"),
-    );
+    ),
+  );
 }
 
 export function readLeaseByLeaseId(leaseId: LeaseId) {

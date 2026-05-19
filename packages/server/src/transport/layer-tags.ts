@@ -41,12 +41,30 @@ import type {
   ContactsServiceTag,
   MessageServiceTag,
   ConversationServiceTag,
+  ParticipantServiceTag,
   TaskServiceTag,
   LeaseRegistryTag,
   SessionValidatorTag,
   AppHostTag,
   AppTmRegistryTag,
 } from "../app/layers.js";
+import type {
+  TmAuthority,
+  TaskReadAccess,
+  ConversationParticipantAccess,
+  ConversationInTask,
+  AgentExists,
+  AgentInTaskParticipants,
+  ContactPolicyAllowsReach,
+  TaskActive,
+  ConversationNotArchived,
+  ValidReplyTarget,
+  NoReplyTarget,
+  GroupCapacityForCreate,
+  MessageSendPermission,
+  ConversationCreateAuthorization,
+  AddParticipantPermission,
+} from "../app/capabilities/index.js";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.
@@ -95,6 +113,7 @@ export type TaskTags =
   | NetworkTags
   | MessageServiceTag
   | ConversationServiceTag
+  | ParticipantServiceTag
   | TaskServiceTag
   | ContactsServiceTag
   | LeaseRegistryTag
@@ -107,3 +126,70 @@ export type TaskTags =
  * yields it directly.
  */
 export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
+
+/**
+ * Spec E (#601) R-channel capability tags — DELIBERATELY a SIBLING
+ * alias, NOT folded into `TaskTags` / `AppTags`.
+ *
+ * **Why a sibling.** Capability tags are value-carrying authority
+ * proofs (`TmAuthority`, `TaskReadAccess`, …, composite
+ * `MessageSendPermission`) that handler bodies MUST drain via
+ * `Effect.provideServiceEffect(TAG, obtainTAG(...))` before the
+ * Effect leaves the handler. Folding them into `TaskTags` would let a
+ * handler whose body `yield*`s a capability without providing it
+ * satisfy the `Reqs extends TaskTags` constraint at the
+ * `defineTaskMethod` call site, compile cleanly, and panic at runtime
+ * when `ManagedRuntime` cannot resolve the unbound capability Tag.
+ *
+ * Keeping `CapabilityTags` SEPARATE from `TaskTags` preserves
+ * Decision A's invariant (architect plan #606 §3): capability tags
+ * cannot leak past the wrapper boundary. The
+ * `capability-r-channel.types-check.ts` Canary 5 (added r1 per
+ * plan-eng-review-606 Finding 2) demonstrates this: a handler that
+ * yields `MessageSendPermission` without `provideServiceEffect` fails
+ * the `Reqs extends TaskTags` constraint via `@ts-expect-error`.
+ *
+ * The alias exists for:
+ *   - Type-level documentation of the capability surface.
+ *   - Re-use inside obtain helpers + the composite `MessageSendPermission`
+ *     variant payloads (which may declare `R = CapabilityTags & ...`
+ *     when composing layered capabilities).
+ *   - Future internal utility types (e.g., `Drain[Reqs, CapabilityTags]`)
+ *     that prove a handler's R is empty of capability tags.
+ *
+ * Phase 1 implement-staff PR adds the concrete `Context.Tag` classes
+ * (`TmAuthority`, `TaskReadAccess`, `ConversationParticipantAccess`,
+ * `ConversationInTask`, `AgentExists`, `AgentInTaskParticipants`,
+ * `ContactPolicyAllowsReach`, `TaskActive`, `ConversationNotArchived`,
+ * `ValidReplyTarget`, `NoReplyTarget`, `GroupCapacityForCreate`,
+ * `MessageSendPermission`) to this alias. The architect stub leaves
+ * the union empty (`never`) — implementations resolve the concrete
+ * union when their files land.
+ */
+
+/**
+ * Concrete capability-tag union (Phase 1, Spec E #601). The thirteen
+ * tags enumerated below cover every capability that
+ * `packages/server/src/app/capabilities/` exports. New capability tags
+ * MUST be added to this union AND to `app/capabilities/index.ts`;
+ * absent that, the canary (`capability-r-channel.types-check.ts`) and
+ * the `defineTaskMethod` wrapper boundary check cannot recognize the
+ * new tag as part of the capability surface, and a handler that fails
+ * to drain it would slip past the type system.
+ */
+export type CapabilityTags =
+  | TmAuthority
+  | TaskReadAccess
+  | ConversationParticipantAccess
+  | ConversationInTask
+  | AgentExists
+  | AgentInTaskParticipants
+  | ContactPolicyAllowsReach
+  | TaskActive
+  | ConversationNotArchived
+  | ValidReplyTarget
+  | NoReplyTarget
+  | GroupCapacityForCreate
+  | MessageSendPermission
+  | ConversationCreateAuthorization
+  | AddParticipantPermission;

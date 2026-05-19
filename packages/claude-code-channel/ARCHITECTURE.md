@@ -16,6 +16,9 @@ packages/claude-code-channel/src/
 ├── types.ts                # BootOptions, Handle, GateInbound, ID brands
 ├── errors.ts               # Typed errors for boot, push, allowlist, reply
 ├── cli.ts                  # moltzap-claude-code-channel bin (env-var driven)
+├── index.ts                # Public barrel — re-exports entry + types + errors
+├── test-support.ts         # ./test-support subpath helpers
+├── utils.ts                # Local helpers consumed by entry/server (internal)
 └── __tests__/conformance/  # Cross-channel conformance harness
 ```
 
