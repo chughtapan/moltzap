@@ -39,7 +39,7 @@ JSON-RPC notification or server-initiated request, it:
 
 1. Resolves recipients via `AgentEndpointResolver`.
 2. Writes the JSON-RPC frame onto each resolved endpoint's
-   `JsonRpcServer`.
+   per-connection `ServerConnection` (Spec F #617 §6 FRI).
 3. Returns a `DeliveryAck` per endpoint, or fails with
    `RecipientNotResolved` (no live endpoint) or `WriteFailed`
    (transport error).
@@ -47,7 +47,7 @@ JSON-RPC notification or server-initiated request, it:
 There is no separate "broadcaster" object — fan-out is just
 "resolve to N endpoints, write to each one." The send path performs no
 database calls; it's a thin endpoint-fanout layer over the
-descriptor-backed `JsonRpcServer`.
+descriptor-backed per-connection `ServerConnection`.
 
 ## Heartbeat
 

@@ -30,8 +30,8 @@ export {
 export {
   MoltZapWsClient,
   type MoltZapWsClientOptions,
-  type ServerRpcContext,
-  type ServerRpcHandler,
+  type AppCallbackHandlers,
+  type TaskCallbackContext,
   type RpcCallOptions,
 } from "./ws-client.js";
 export type { CloseInfo } from "./runtime/close-info.js";
