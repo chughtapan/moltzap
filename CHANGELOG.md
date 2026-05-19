@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec B (#596) — Notification consumption consolidation
+
+- **BREAKING (`@moltzap/client`):** `MoltZapWsClient.subscribe(filter,
+  handler)` and `MoltZapWsClient.waitForNotification(def, timeoutMs?)`
+  deleted, along with the three-field `SubscriptionFilter` grammar and
+  the pre-arrival `notificationsBufferRef` buffer. Callers now consume
+  notifications via `subscribe<D>(def, refinement?)` returning a typed
+  `Stream` and `subscribeAll(refinement?)` for the broad-union escape
+  hatch. The user-defined-type-guard overload narrows the Stream's
+  payload to `DecodedNotification<D, R>`.
+- **BREAKING (`@moltzap/client`):** Public barrel drops
+  `SubscriptionFilter`, `SubscriberHandler`, `NotificationSubscription`,
+  `SubscriptionId`. Adds `TimeoutError`, `StreamClosedError`, and the
+  `NotificationConsumerError` union from `./notification/errors`.
+- **Behavior:** `MoltZapWsClient.close()` propagates `NotConnectedError`
+  to every in-flight Stream via the registry's `closeAll` →
+  per-subscription `onClose` callback → `Stream.async`'s `emit.fail`
+  (deterministic typed-error delivery, replacing the deleted
+  `failAllNotificationWaiters` semantic).
+- **Behavior (`MoltZapService`):** `connect()` opens a private
+  service-scope, forks `subscribeAll().pipe(Stream.runForEach(...))`
+  into it, and `close()` interrupts the fiber + closes the scope. The
+  public `connect()` signature is unchanged — no Scope leakage.
+- **Protocol type-level (`@moltzap/protocol`):** `DecodedNotification<D>`
+  extended to `DecodedNotification<D, R = unknown>`; the optional `R`
+  is what the type-guard overload narrows. `isDecodedNotification` is
+  now a public export — Stream-based consumers use it as a typed filter
+  guard.
+- **Test infrastructure (`@moltzap/server-core/test-utils`):** New
+  `awaitOneNotification(client, def, timeoutMs?)` helper wraps
+  `Stream.runHead + Effect.timeoutFail + Option.match` for one-shot
+  test sites. `ServerTestClient.subscribeTo(def)` returns a typed
+  Stream filtered off `TestClient.notifications`. The legacy
+  `client.waitForNotification` binding on `ServerTestClient` is
+  deleted; `client.drainNotifications` is now the passthrough Effect
+  (`yield* client.drainNotifications`).
+- **Test infrastructure (`@moltzap/protocol/testing`):**
+  `TestClient.waitForNotification` / `TestClient.notifications` /
+  `TestClient.drainNotifications` are preserved (spec #596 non-goal
+  row 2). Conformance fixtures
+  (`conformance/app/_driver.ts → waitForReleaseFrame`,
+  `waitForObservabilityFrame`) migrate to the `notifications` Stream
+  for shape-alignment with the new API.
+- **Test infrastructure (`@moltzap/runtimes`):**
+  `HarnessClient.waitForNotification` deleted; replaced with
+  `HarnessClient.subscribe(def, refinement?)`. Internal
+  `waitForTargetResponse` now uses fork-before-trigger via the Stream
+  subscription.
+
 ### Phase 12 — `@moltzap/protocol` finalization
 
 - **BREAKING (Phase 12 — protocol surface):** Root facade reduced to
