@@ -20,6 +20,7 @@ import {
 } from "@moltzap/protocol";
 import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
 import {
+  awaitOneNotification,
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
@@ -185,7 +186,8 @@ function broadcastsWhenParticipantsAreOnline() {
     const sent = yield* sendText(agents.sender, conversationId, HAPPY_TEXT);
     expect(sent.message.parts).toEqual([{ type: "text", text: HAPPY_TEXT }]);
 
-    const received = yield* agents.recipient.waitForNotification(
+    const received = yield* awaitOneNotification(
+      agents.recipient,
       MessageReceivedNotificationDefinition,
     );
     const receivedMsg = (received.params as { message: Message }).message;

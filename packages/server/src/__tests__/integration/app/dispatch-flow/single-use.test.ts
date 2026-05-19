@@ -7,7 +7,7 @@ import {
   type AppManifest,
   type ConversationId,
 } from "@moltzap/protocol";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_STATE_CONSUMED,
@@ -67,8 +67,10 @@ function requestGrantedModeratedDispatch(
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
     const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    // Fork-before-trigger (Spec B #596 r2 fix).
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const ack = yield* requestDispatch(bob, conversationId, alice, text);
-    yield* waitForDispatchRelease(bob);
+    yield* Fiber.join(releaseFiber);
     return { ack, conversationId };
   }).pipe(Effect.withSpan("requestGrantedModeratedDispatch"));
 }
@@ -80,8 +82,10 @@ function requestGrantedUnmoderatedDispatch(
 ) {
   return Effect.gen(function* () {
     const conversationId = yield* createUnmoderatedDm(alice, bob);
+    // Fork-before-trigger (Spec B #596 r2 fix).
+    const releaseFiber = yield* waitForDispatchRelease(bob);
     const ack = yield* requestDispatch(bob, conversationId, alice, text);
-    yield* waitForDispatchRelease(bob);
+    yield* Fiber.join(releaseFiber);
     return { ack, conversationId };
   }).pipe(Effect.withSpan("requestGrantedUnmoderatedDispatch"));
 }
