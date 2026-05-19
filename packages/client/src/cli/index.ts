@@ -16,6 +16,7 @@ import { pingCommand } from "./commands/ping.js";
 import { presenceCommand } from "./commands/presence.js";
 import { registerCommand } from "./commands/register.js";
 import { sendCommand } from "./commands/send.js";
+import { startCommand } from "./commands/start.js";
 import { statusCommand } from "./commands/status.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { LoggerLive, minLogLevel } from "./runtime.js";
@@ -153,6 +154,8 @@ const moltzapBase = Command.make("moltzap", {
     agentsCommand,
     // sbd#177 v2 additions:
     messagesCommand,
+    // Spec D2 (#599) — architect stub; impl-staff fills the handler body:
+    startCommand,
   ]),
 );
 
