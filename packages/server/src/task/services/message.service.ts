@@ -68,6 +68,7 @@ import {
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
 import { endpointAddressForAgent } from "./task.service.js";
+import { MessageSendPermission } from "../../app/capabilities/index.js";
 import type {
   ActiveKekRow,
   ConversationDek,
@@ -255,7 +256,11 @@ export class MessageService {
 
   sendInsert(
     input: SendInsertInput,
-  ): Effect.Effect<SendInsertResult, MessageServiceError> {
+  ): Effect.Effect<
+    SendInsertResult,
+    MessageServiceError,
+    MessageSendPermission
+  > {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
 
@@ -263,20 +268,23 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<
     SendInsertResult,
-    MessageServiceError | SqlError | Cause.NoSuchElementException
+    MessageServiceError | SqlError | Cause.NoSuchElementException,
+    MessageSendPermission
   > {
     return Effect.gen(this, function* () {
-      yield* this.conversations.assertConversationParticipant(
-        input.conversationId,
-        input.senderAgentId,
-      );
-      const conv = yield* this.readSendConversation(input.conversationId);
-      yield* this.assertTaskCanReceiveMessage(input, conv);
-      yield* this.assertConversationOpen(conv);
-      if (input.replyToId !== undefined) {
-        yield* this.assertReplyTarget(input.conversationId, input.replyToId);
+      const permission = yield* MessageSendPermission;
+      // Defensive: handler-input <-> capability identity match.
+      if (
+        permission.conversationId !== input.conversationId ||
+        permission.senderAgentId !== input.senderAgentId
+      ) {
+        return yield* Effect.fail(
+          new ForbiddenError({
+            message: "capability/message-send target mismatch",
+          }),
+        );
       }
-
+      const conv = yield* this.readSendConversation(input.conversationId);
       const parts = [...input.parts];
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
       const row = yield* this.insertMessageRow(input, conv, encrypted);
@@ -746,7 +754,9 @@ export class MessageService {
     );
   }
 
-  send(input: SendMessageInput): Effect.Effect<Message, MessageServiceError> {
+  send(
+    input: SendMessageInput,
+  ): Effect.Effect<Message, MessageServiceError, MessageSendPermission> {
     return Effect.gen(this, function* () {
       const bypassTmRouting = input.bypassTmRouting ?? false;
       const carrier = yield* this.sendInsert({

@@ -118,7 +118,17 @@ export class MessageSendPermission extends Context.Tag(
  * have needed.
  */
 export interface ObtainMessageSendPermissionInput {
-  readonly taskId: TaskId;
+  /**
+   * Optional defensive cross-check. When supplied (e.g. by D1's
+   * `TaskConversation*` handlers whose wire shape names `taskId`
+   * independently of the conversation), `obtainMessageSendPermission`
+   * runs an `assertConvBelongsToTask` defense against the conv
+   * lookup. `MessagesSend` omits the field: the wire shape only
+   * names `conversationId`, so there is no separate-task value the
+   * assertion could compare against. When omitted the obtain helper
+   * uses `conv.task_id` directly to fetch the carried `task` payload.
+   */
+  readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
   readonly replyToId?: MessageId;
@@ -271,21 +281,25 @@ export const obtainMessageSendPermission = (
       input.senderAgentId,
     );
     const conv = yield* readSendConversationStrict(input.conversationId);
-    // `input.taskId` MUST match `conv.task_id` — codex review #601 R1.
-    yield* assertConvBelongsToTask(conv, input.taskId);
+    // Optional defense: `input.taskId` (when present) MUST match
+    // `conv.task_id` — codex review #601 R1. MessagesSend omits the
+    // input field; the assertion is a no-op there.
+    if (input.taskId !== undefined) {
+      yield* assertConvBelongsToTask(conv, input.taskId);
+    }
     yield* refineConversationNotArchived(
       input.conversationId,
       conv.archived_at,
     );
     const isTmBypass =
       conv.tm_endpoint_address === endpointAddressForAgent(input.senderAgentId);
-    const task = yield* taskService.fetchTask(input.taskId);
+    const task = yield* taskService.fetchTask(input.taskId ?? conv.task_id);
     const replyTarget = yield* resolveReplyTarget(
       input.conversationId,
       input.replyToId,
     );
     if (!isTmBypass) {
-      yield* refineTaskActive(input.taskId, conv.task_status);
+      yield* refineTaskActive(input.taskId ?? conv.task_id, conv.task_status);
       const participantPermission: MessageSendPermissionValue = {
         _tag: "forParticipantOnActiveTask",
         task,

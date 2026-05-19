@@ -33,6 +33,7 @@ import type { MessageService, MessageServiceError } from "./message.service.js";
 import {
   ConversationCreateAuthorization,
   ConversationInTask,
+  MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
   assertConversationInTaskMatches,
@@ -612,7 +613,7 @@ export class TaskService {
   ): Effect.Effect<
     Message,
     TaskServiceError,
-    TmAuthority | ConversationInTask
+    TmAuthority | ConversationInTask | MessageSendPermission
   > {
     return Effect.gen(this, function* () {
       const tm = yield* TmAuthority;
