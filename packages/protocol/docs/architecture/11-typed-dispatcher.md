@@ -19,8 +19,8 @@ plan + reviewer prompts at [#619](https://github.com/chughtapan/moltzap/issues/6
 | `TaskMasterConnection` | `taskCallbackMethods` | `rpcMethods` (full — TM is a superset of AgentClient outbound) | none |
 
 The inbound catalog is reified as a closed object type
-(`ServerHandlers&lt;Ctx, Caps&gt;`, `AgentClientHandlers&lt;Ctx, Caps&gt;`,
-`TaskMasterHandlers&lt;Ctx, Caps&gt;`) — one slot per definition. REQUIRED slots
+(`ServerHandlers<Ctx, Caps>`, `AgentClientHandlers<Ctx, Caps>`,
+`TaskMasterHandlers<Ctx, Caps>`) — one slot per definition. REQUIRED slots
 must be present at the factory's `handlers` literal (TS2741 if missing);
 OPTIONAL slots may be omitted, in which case the dispatcher synthesizes the
 protocol's baked-in fail-CLOSED default at runtime.
@@ -206,7 +206,7 @@ provider table's entry for each tag with `argsOf(params, ctx)`, and
 threads `Effect.provideServiceEffect(tag, providerEffect)`.
 
 The type-level gate (`typed-dispatcher.types-check.ts`) enforces lockstep:
-the handler's R channel must be a subset of `CapabilitiesOf&lt;D&gt;`.
+the handler's R channel must be a subset of `CapabilitiesOf<D>`.
 Mismatch is a tsc error at the handler-table literal site.
 
 Why Shape B over Shape A: capabilities are a property of the wire method,
