@@ -29,10 +29,12 @@ import { TaskServiceTag } from "../../app/layers.js";
 import {
   ConversationCreateAuthorization,
   ConversationInTask,
+  MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
   obtainConversationCreateAuthorization,
   obtainConversationInTask,
+  obtainMessageSendPermission,
   obtainTaskReadAccess,
   obtainTmAuthority,
 } from "../../app/capabilities/index.js";
@@ -262,6 +264,15 @@ export const taskHandlers: RpcMethodRegistry = [
             Effect.provideServiceEffect(
               ConversationInTask,
               obtainConversationInTask(params.taskId, params.conversationId),
+            ),
+            Effect.provideServiceEffect(
+              MessageSendPermission,
+              obtainMessageSendPermission({
+                taskId: params.taskId,
+                conversationId: params.conversationId,
+                senderAgentId: params.senderAgentId,
+                replyToId: params.replyToId,
+              }),
             ),
           );
         return { message };
