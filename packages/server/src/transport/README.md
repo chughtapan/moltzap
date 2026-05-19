@@ -65,4 +65,4 @@ Three pieces:
 
 1. **Tag hierarchy** in `layer-tags.ts`. Every Tag yielded by a post-DI-migration handler is placed at the lowest layer that yields it.
 2. **Wrapper signatures** in `context.ts` and `define-layered-method.ts` widen with `Reqs` generics. `Reqs extends NetworkTags = NetworkTags` (and parallel for Task/App) — defaulted to the upper bound so handlers without per-Tag yields still compile; constrained so a handler that yields a higher-tier Tag is rejected at the call site.
-3. **Protocol-side widening** in `@moltzap/protocol/transport/json-rpc-server.ts`: `RpcHandler<Ctx, R = never>` and `TypedDispatcher<Ctx, R = never>` carry the R-channel structurally. The dispatcher's `ManagedRuntime` resolves R at request time.
+3. **Protocol-side widening** in `@moltzap/protocol/transport/{handlers,dispatch}.ts`: `RpcHandler<Ctx, R = never>` and the per-kind `*Handlers` table types carry the R-channel structurally. The dispatcher's `ManagedRuntime` resolves R at request time.

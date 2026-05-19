@@ -10,7 +10,8 @@ Effect and only pays `Effect.runPromise` at the plugin surface.
 ```
 packages/openclaw-channel/src/
 ├── openclaw-entry.ts       # createMoltzapChannelPlugin — the public plugin
-├── mapping.ts              # Notification → OpenClaw event extractors
+│                             (also exports isMoltZapTarget, readOpenClawContextLogDir,
+│                              MoltZapClientNotConnectedError)
 ├── context-log.ts          # Per-message context-log writer
 ├── test-utils/             # container-core (Docker harness)
 ├── test-support.ts         # Re-export for the ./test-support subpath
@@ -29,7 +30,7 @@ packages/openclaw-channel/src/
 | `OpenClawDeliver`, `OpenClawLogger`, `OpenClawReplyDispatcher` | Adapter shapes for OpenClaw runtime |
 | `OpenClawStartAccountContext`, `OpenClawStopAccountContext` | Lifecycle context |
 | `MoltZapClientNotConnectedError` | Typed failure |
-| `isMoltZapTarget`, `readOpenClawContextLogDir`, `adaptOpenClawLogger` | Utilities |
+| `isMoltZapTarget`, `readOpenClawContextLogDir` | Utilities |
 
 Subpath exports: `./test-utils` (Docker-backed integration harness),
 `./test-support` (lighter test helpers).
@@ -41,7 +42,6 @@ Subpath exports: `./test-utils` (Docker-backed integration harness),
 | `startAccount` lifecycle (connect, abort, reconnect handlers) | [01-start-account-lifecycle.md](docs/architecture/01-start-account-lifecycle.md) |
 | Outbound `sendText` — Effect ↔ Promise boundary | [02-outbound-send-text.md](docs/architecture/02-outbound-send-text.md) |
 | Inbound `onInbound` callback — full Effect chain | [03-inbound-on-inbound.md](docs/architecture/03-inbound-on-inbound.md) |
-| Notification extractors (`mapping.ts`) — 5 arms | [04-notification-extractors.md](docs/architecture/04-notification-extractors.md) |
 | `deliver()` error handling — RpcServerError discrimination (PR #587) | [05-deliver-error-handling.md](docs/architecture/05-deliver-error-handling.md) |
 | `stopAccount` lifecycle (teardown, race notes) | [06-stop-account-lifecycle.md](docs/architecture/06-stop-account-lifecycle.md) |
 | `resolveTarget` format and error shape (two callers) | [07-resolve-target.md](docs/architecture/07-resolve-target.md) |
