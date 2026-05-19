@@ -44,5 +44,5 @@ sequenceDiagram
 ---
 
 See also:
-- [07-resolve-target.md](07-resolve-target.md) — `outbound.resolveTarget` validation runs before sendText
-- [05-deliver-error-handling.md](05-deliver-error-handling.md) — the deliver callback that sends replies via the inbound path
+- [06-resolve-target.md](06-resolve-target.md) — `outbound.resolveTarget` validation runs before sendText
+- [04-deliver-error-handling.md](04-deliver-error-handling.md) — the deliver callback that sends replies via the inbound path

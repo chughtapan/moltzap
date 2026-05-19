@@ -1,6 +1,10 @@
-# 09 — Layer DAG
+# 01 — Layer DAG (start here)
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
+
+This is the orientation primer. The remaining docs in this directory
+reference layers (`transport`, `identity`, `network`, `task`, `app`)
+without re-explaining the structure — they assume you've read this one.
 
 Source layout enforces a directed DAG. Each layer's `methods.ts` may import
 from layers below; never above:

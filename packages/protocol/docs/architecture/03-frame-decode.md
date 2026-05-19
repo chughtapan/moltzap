@@ -1,4 +1,4 @@
-# 02 — Frame decode pipeline
+# 03 — Frame decode pipeline
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 

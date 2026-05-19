@@ -103,5 +103,5 @@ empty-check + own-agent disambiguation are owned by channel-base; see
 ---
 
 See also:
-- [05-deliver-error-handling.md](05-deliver-error-handling.md) — detailed breakdown of the deliver closure error paths
+- [04-deliver-error-handling.md](04-deliver-error-handling.md) — detailed breakdown of the deliver closure error paths
 - [01-start-account-lifecycle.md](01-start-account-lifecycle.md) — where `core.onInbound(handler)` is registered

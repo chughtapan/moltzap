@@ -86,14 +86,17 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 
 ## 4. Communication Flows
 
+Read 01 first — every other doc references the layer names without
+re-explaining them.
+
 | Topic | Document |
 |---|---|
-| How wire methods are defined and validated | [01 — Method-definition pipeline](docs/architecture/01-method-definition.md) |
-| Decoding inbound frames (both sides) | [02 — Frame decode pipeline](docs/architecture/02-frame-decode.md) |
-| Notification fan-out | [05 — Notification fan-out](docs/architecture/05-notification-fanout.md) |
-| Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
-| Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
-| Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
+| Layer DAG (start here — orientation) | [01 — Layer DAG](docs/architecture/01-layer-dag.md) |
+| How wire methods are defined and validated | [02 — Method-definition pipeline](docs/architecture/02-method-definition.md) |
+| Decoding inbound frames (both sides) | [03 — Frame decode pipeline](docs/architecture/03-frame-decode.md) |
+| Notification fan-out | [04 — Notification fan-out](docs/architecture/04-notification-fanout.md) |
+| Tagged error registry mechanics | [05 — Tagged error registry](docs/architecture/05-tagged-error-registry.md) |
+| Conformance suite mechanics | [06 — Conformance suite](docs/architecture/06-conformance-suite.md) |
 
 The typed dispatcher, originator lifecycle, and worked end-to-end RPC
 flow (request handling + server-initiated callbacks) are documented in

@@ -1,4 +1,4 @@
-# 01 — Method-definition pipeline
+# 02 — Method-definition pipeline
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 

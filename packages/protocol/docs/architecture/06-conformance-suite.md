@@ -1,4 +1,4 @@
-# 10 — Conformance suite
+# 06 — Conformance suite
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 

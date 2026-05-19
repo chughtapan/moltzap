@@ -62,5 +62,5 @@ Effect.async<void>(resume => {
 ---
 
 See also:
-- [06-stop-account-lifecycle.md](06-stop-account-lifecycle.md) — teardown counterpart
+- [05-stop-account-lifecycle.md](05-stop-account-lifecycle.md) — teardown counterpart
 - [03-inbound-on-inbound.md](03-inbound-on-inbound.md) — the onInbound handler registered here

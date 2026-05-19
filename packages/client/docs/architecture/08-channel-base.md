@@ -241,6 +241,6 @@ Neither option carries weight; primitives are the cleaner abstraction.
 
 - Spec: chughtapan/moltzap#597
 - Architect plan: chughtapan/moltzap#605
-- `packages/openclaw-channel/docs/architecture/05-deliver-error-handling.md`
+- `packages/openclaw-channel/docs/architecture/04-deliver-error-handling.md`
 - `packages/nanoclaw-channel/docs/architecture/04-outbound-send-message.md`
 - `packages/claude-code-channel/docs/architecture/04-lease-state-machine.md`

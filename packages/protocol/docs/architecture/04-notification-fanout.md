@@ -1,4 +1,4 @@
-# 05 — Notification fan-out
+# 04 — Notification fan-out
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 

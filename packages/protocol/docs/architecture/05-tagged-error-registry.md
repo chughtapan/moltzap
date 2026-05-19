@@ -1,4 +1,4 @@
-# 08 — Tagged error registry
+# 05 — Tagged error registry
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
