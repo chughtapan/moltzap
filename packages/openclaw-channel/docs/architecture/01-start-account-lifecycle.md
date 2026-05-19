@@ -13,15 +13,11 @@ sequenceDiagram
 
     Entry->>Entry: Guard: account.apiKey && account.serverUrl<br>missing? log.error + return Promise.resolve()
 
-    Entry->>Entry: adaptOpenClawLogger(log.*)<br>(reorders structured-log args to match OpenClaw's shape)
-
     Entry->>Svc: new MoltZapService({ serverUrl, agentKey, logger })<br>(WsClient + socket-server wrapper— entry into @moltzap/client)
 
     Entry->>Core: new MoltZapChannelCore({ service, logger })<br>(registers internal listeners— forks consumerFiber)
 
     Entry->>Core: core.onInbound(handler)<br>handler body is the Effect.gen block<br>→ see 03-inbound-on-inbound.md
-
-    Entry->>Svc: service.on("rawNotification", …)<br>sync dispatcher → mapping extractors<br>→ see 04-notification-extractors.md
 
     Entry->>Core: core.onDisconnect(() => { … })<br>log.warn + setStatus({ connected:false, lastDisconnect:{at:now} })
 
@@ -68,4 +64,3 @@ Effect.async<void>(resume => {
 See also:
 - [06-stop-account-lifecycle.md](06-stop-account-lifecycle.md) — teardown counterpart
 - [03-inbound-on-inbound.md](03-inbound-on-inbound.md) — the onInbound handler registered here
-- [04-notification-extractors.md](04-notification-extractors.md) — the rawNotification dispatcher registered here
