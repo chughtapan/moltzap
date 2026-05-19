@@ -116,6 +116,15 @@ function rpcErrorForMethod(
   return (cause) => rpcError(cause, method);
 }
 
+// IMPL-DELETION-TARGET (#645): the five helpers below
+// (`asNotificationParamsRecord`, `tagMatches`, `conversationMatches`,
+// `notificationMatchesFilter`, `refinementFromRealClientFilter`) exist
+// only because `RealClientNotificationFilter` carries the deleted
+// three-field `SubscriptionFilter` grammar. Once the protocol-side
+// filter type collapses to `(notification) => boolean` (architect
+// #645), `subscribeRealClient` passes the predicate through directly
+// to `ws.subscribeAll(filter)` and this entire block deletes.
+
 /**
  * Reconstruct the deleted `SubscriptionFilter` predicate inline. Bridges
  * `RealClientNotificationFilter` (protocol-side shape) onto the Stream

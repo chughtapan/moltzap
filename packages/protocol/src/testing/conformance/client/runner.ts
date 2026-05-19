@@ -137,6 +137,13 @@ export interface RealClientSubscription {
   readonly unsubscribe: Effect.Effect<void>;
 }
 
+// IMPL-DELETION-TARGET (#645): the three-field record shape below
+// exists only so the conformance adapter can reconstruct the deleted
+// `SubscriptionFilter` grammar inline. Per architect #645 the type
+// collapses to a predicate alias
+// `type RealClientNotificationFilter = (notification: DecodedNotification<...>) => boolean;`
+// and the sole producer (`_fixtures.ts → subscribeAll` calls
+// `.subscribe({})`) updates to `.subscribe()` (no filter = match-all).
 export interface RealClientNotificationFilter {
   /**
    * Property-authored emission tag. The real client surfaces only
