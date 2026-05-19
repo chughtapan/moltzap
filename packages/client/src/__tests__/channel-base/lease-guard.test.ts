@@ -14,6 +14,11 @@ const FIXED_TS = 1_700_000_000_500;
 const LATER_TS = FIXED_TS + 999;
 const PROPERTY_ATTEMPT_MIN = 1;
 const PROPERTY_ATTEMPT_MAX = 8;
+// fast-check's default `numRuns` is 100; under parallel-suite load each
+// `Effect.runPromise(TestClock + 1-8 consumes)` invocation borders the 5000ms
+// vitest timeout. 20 runs over the 1-8 attempt range still covers the
+// boundary cases (1, 2, 8) with multiple shuffles; see #623.
+const PROPERTY_NUM_RUNS = 20;
 
 describe("LeaseGuard", () => {
   it(
@@ -57,6 +62,7 @@ function propertySingleShot() {
       fc.integer({ min: PROPERTY_ATTEMPT_MIN, max: PROPERTY_ATTEMPT_MAX }),
       runSingleShotAttempts,
     ),
+    { numRuns: PROPERTY_NUM_RUNS },
   );
 }
 

@@ -378,6 +378,7 @@ function sendDeliveredReply(params: {
   readonly leaseId: string | undefined;
   readonly log: OpenClawLogger | undefined;
   readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly guard: LeaseGuard;
 }): Effect.Effect<boolean> {
   return params.core
     .sendReply(
@@ -391,6 +392,13 @@ function sendDeliveredReply(params: {
       catchLeaseInvalid(
         params.leaseId !== undefined ? { leaseId: params.leaseId } : undefined,
       ),
+      // Stamp the guard only on a successful `core.sendReply` (matches the
+      // pre-refactor `markConsumed` ordering). Transient send failures fall
+      // through to `Effect.catchAll` below WITHOUT stamping, so a retried
+      // deliver call still exercises the lease — see
+      // `openclaw-entry.delivery.test.ts → "lease guard stays unconsumed on
+      // transient send failure"` regression test.
+      Effect.tap(() => params.guard.consume()),
       Effect.tap(() =>
         logOutboundReply(params.log, params.conversationId, params.text),
       ),
@@ -437,9 +445,16 @@ function createLeaseConsumingDeliver(params: {
   readonly log: OpenClawLogger | undefined;
   readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
 }): OpenClawDeliver {
-  // One LeaseGuard per inbound message: returns true on the first deliver,
-  // false on every subsequent deliver. Replaces the pre-refactor
+  // One LeaseGuard per inbound message: stamped exactly once, on the FIRST
+  // successful `core.sendReply`. Replaces the pre-refactor
   // `consumedLeaseAt: number | null` closure.
+  //
+  // Ordering matters: pre-check `guard.consumedAt` BEFORE sending so duplicate
+  // delivers are short-circuited; the actual stamp happens inside
+  // `sendDeliveredReply` via `Effect.tap(() => guard.consume())` AFTER
+  // `core.sendReply` succeeds. A transient send failure therefore leaves the
+  // guard unconsumed, and a retried deliver call still exercises the lease —
+  // matching pre-refactor behavior (`markConsumed` in the success tap).
   const guard = new LeaseGuard();
   return (payload, info) => {
     if (info?.kind !== "final") return Promise.resolve(true);
@@ -447,12 +462,10 @@ function createLeaseConsumingDeliver(params: {
     if (!text) return Promise.resolve(true);
     return Effect.runPromise(
       Effect.gen(function* () {
-        const claimed = yield* guard.consume();
-        if (!claimed) {
-          const stamped = yield* guard.consumedAt;
-          const stampedTs = Option.getOrElse(stamped, () => 0);
+        const stamped = yield* guard.consumedAt;
+        if (Option.isSome(stamped)) {
           params.log?.warn?.(
-            `MoltZap: duplicate-reply rejected for ${params.enriched.conversationId} (lease already consumed at ts=${stampedTs.toString()})`,
+            `MoltZap: duplicate-reply rejected for ${params.enriched.conversationId} (lease already consumed at ts=${stamped.value.toString()})`,
           );
           return false;
         }
@@ -463,6 +476,7 @@ function createLeaseConsumingDeliver(params: {
           leaseId: params.enriched.dispatchLeaseId,
           log: params.log,
           onLeaseConsumed: params.onLeaseConsumed,
+          guard,
         });
       }),
     );

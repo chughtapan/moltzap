@@ -10,8 +10,6 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: startAcc
 
 ## Channel-base dependency
 
-(impl-staff fills per arch sub-issue #605 §8.)
-
 Openclaw depends on `@moltzap/client/channel-base` for:
 
 - `LeaseAlreadyConsumed` (canonical tagged error; replaces ad-hoc surfacing of `RpcServerError(data.reason="LeaseInvalid")`).

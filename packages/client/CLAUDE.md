@@ -18,8 +18,6 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
 
 ## Channel-base subpath
 
-(impl-staff fills per arch sub-issue #605 §8.)
-
 Exports from `@moltzap/client/channel-base`:
 
 - `LeaseAlreadyConsumed` — canonical TaggedError; one definition site across
@@ -44,4 +42,17 @@ Detail doc: `docs/architecture/08-channel-base.md`.
 
 ## Test Tiers
 
-(impl-staff fills — list unit / conformance / integration test files in scope.)
+| File | Type | What it covers |
+|------|------|----------------|
+| `src/__tests__/channel-base/lease.test.ts` | Unit | `LeaseAlreadyConsumed` projection from wire errors, `catchLeaseInvalid` Effect-pipe |
+| `src/__tests__/channel-base/lease-guard.test.ts` | Unit | `LeaseGuard` single-shot consume + `consumedAt` semantics (fast-check property) |
+| `src/__tests__/channel-base/lease-store.test.ts` | Unit | `LeaseStore<HostKey, T>` peek/take per-host semantics |
+| `src/__tests__/channel-base/format-cross-conv.test.ts` | Unit | Markup-parameterized cross-conv formatter (`"json-header"` + `"xml-system-reminder"`) |
+| `src/__tests__/channel-base/format-group-block.test.ts` | Unit | Group-block formatter + `getGroupFields` predicate |
+| `src/__tests__/conformance/suite.test.ts` | Conformance | Channel-base cross-channel invariants (shared with openclaw/nanoclaw/claude-code conformance) |
+| `src/channel-core.test.ts`, `src/channel-core-context.test.ts`, `src/channel-core-dispatch.test.ts` | Unit | `MoltZapChannelCore` inbound dispatch + admission |
+| `src/service.test.ts`, `src/ws-client.test.ts`, `src/auth.test.ts` | Unit | RPC service, WS transport, agent registration |
+| `src/runtime/*.test.ts` | Unit | Runtime utilities (frame parsing, subscribers, close-info, errors) |
+| `src/cli/**/*.test.ts` | Unit | CLI binary commands (`register`, `send`, `messages`, `conversations`, config, profile, transport) |
+| `src/__tests__/service/**/*.integration.test.ts` | Integration | PGlite-backed service flows (context, core, dedup, history, socket lifecycle/rendering/validation) |
+| `src/cli/__tests__/cli-multi-agent.int.test.ts` | Integration | Multi-agent CLI scenarios |
