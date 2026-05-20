@@ -30,6 +30,8 @@ import type {
   ResponseFrame,
 } from "../../../transport/wire.js";
 import { responseFrame } from "../../../transport/wire.js";
+import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
+import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import { isRequestFrame } from "../_shared/frame-mutator.js";
 import {
   makeTestServer,
@@ -120,14 +122,20 @@ export interface RealClientHandle {
 }
 
 /**
- * Real client's public notification-subscriber surface. Property bodies `subscribe`
- * once per fixture and drain via `snapshot`. Concrete shape is per-consumer
- * (packages/client's `waitForNotification` + `onNotification`, channel packages' native
- * event pipe); the wrapper adapts it to this interface.
+ * Real client's public notification-subscriber surface. Property bodies
+ * `subscribe` once per fixture and drain via `snapshot`. Concrete shape
+ * is per-consumer (`packages/client`'s `subscribe`/`subscribeAll` Stream
+ * surface, channel packages' native event pipe); the wrapper adapts it
+ * to this interface.
+ *
+ * `filter` is a predicate over `DecodedNotification`. Pass `undefined`
+ * (or omit) for match-all (#645: replaced the three-field record
+ * grammar that previously existed only so the adapter could
+ * reconstruct it inline).
  */
 export interface RealClientNotificationSubscriber {
   readonly subscribe: (
-    filter: RealClientNotificationFilter,
+    filter?: RealClientNotificationFilter,
   ) => Effect.Effect<RealClientSubscription, RealClientLifecycleError>;
   readonly snapshot: Effect.Effect<ReadonlyArray<ObservedNotification>>;
 }
@@ -137,19 +145,14 @@ export interface RealClientSubscription {
   readonly unsubscribe: Effect.Effect<void>;
 }
 
-export interface RealClientNotificationFilter {
-  /**
-   * Property-authored emission tag. The real client surfaces only
-   * notifications whose payload carries this tag, excluding handshake-noise.
-   * Implementations match on the event payload's `__emissionId` field
-   * (set by `ClientHandshakeWindow.emitTaggedNotification`).
-   */
-  readonly emissionTag?: string;
-  /** Restrict to a specific conversation / task. */
-  readonly conversationId?: string;
-  /** Restrict to a specific notification-name family. */
-  readonly notificationNamePrefix?: string;
-}
+/**
+ * Predicate over a decoded notification frame. The conformance adapter
+ * plumbs this directly to `MoltZapWsClient.subscribeAll(refinement)` —
+ * no inline grammar reconstruction. Absent = match-all (#645).
+ */
+export type RealClientNotificationFilter = (
+  notification: DecodedNotification<AnyNotificationDefinition>,
+) => boolean;
 
 /**
  * Observed notification after the real client has surfaced it on its public

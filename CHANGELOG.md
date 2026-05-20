@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec B obsolete-code remediation (#645)
+
+- **BREAKING (`@moltzap/protocol/testing`):** `TestClient.notifications`,
+  `TestClient.waitForNotification(def, timeoutMs?)`, and
+  `TestClient.drainNotifications` deleted, along with the internal
+  `notificationQueue` Ref, the 10ms `pollNotification` loop, and the
+  `NotificationWaitError` tagged-error class. Callers consume
+  notifications via the new `subscribe<D>(def, refinement?)` returning
+  a typed `Stream<DecodedNotification<D>, TransportClosedError>` and
+  `subscribeAll(refinement?)` for the broad-union escape hatch
+  (paralleling Spec B's `MoltZapWsClient.subscribe` /
+  `subscribeAll`).
+- **BREAKING (`@moltzap/protocol/testing`):**
+  `RealClientNotificationFilter` collapses from a three-field record
+  (`emissionTag` / `conversationId` / `notificationNamePrefix`) to a
+  predicate type alias `(notification) => boolean`. The sole producer
+  (`_fixtures.ts → subscribeAll`) updates from `.subscribe({})` to
+  `.subscribe()`; channel-side test-support packages
+  (`@moltzap/openclaw-channel/test-support`,
+  `@moltzap/nanoclaw-channel/test-support`,
+  `@moltzap/claude-code-channel/test-support`) inherit the simplified
+  shape automatically via re-export.
+- **Behavior (`@moltzap/protocol/testing`):** `TestClient.close`
+  propagates `TransportClosedError` to every in-flight Stream via
+  the new `TestSubscriberRegistry.closeAll` → per-subscription
+  `onClose` callback → `Stream.async`'s `emit.fail` (deterministic
+  typed-error delivery, mirroring production's terminal-close
+  semantic).
+- **Internal (`@moltzap/server-core/test-utils`):** removed the
+  per-`ServerTestClient` `helperBuffer` (`NotificationBuffer` Ref +
+  `pullOneMatching` + `makeSubscribeStream`, ~95 LOC); the per-client
+  broad-union notification snapshot now lives directly on the test
+  client (`makeNotificationBuffer` forks a `subscribeAll()` pump that
+  appends arrivals to a `Ref<ReadonlyArray<...>>`).
+  `subscribeTo<D>(def)` polls this snapshot for the first matching
+  frame, preserving the legacy `send → awaitOneNotification`
+  historical-buffer semantic without resurrecting the deleted
+  per-definition dedup ring. `ServerTestClient.notifications` and
+  `ServerTestClient.drainNotifications` deleted.
+- **Internal (`@moltzap/client/test-utils`):** removed the inline
+  `SubscriptionFilter`-grammar reconstruction
+  (`notificationMatchesFilter`, `refinementFromRealClientFilter`,
+  `asNotificationParamsRecord`, `tagMatches`, `conversationMatches`,
+  ~74 LOC); `subscribeRealClient` passes the predicate directly to
+  `MoltZapWsClient.subscribeAll`.
+- **Migration:** `client.waitForNotification(SomeNotification, 5_000)`
+  becomes
+  `client.subscribe(SomeNotification).pipe(Stream.runHead, Effect.timeoutFail(...))`.
+  Existing `client.notifications.pipe(...)` filter chains become
+  `client.subscribeAll().pipe(...)`. Channel re-exports require no
+  caller-side update beyond passing the new predicate shape.
+- **Fix (`@moltzap/protocol/testing`):** conformance properties
+  `delivery/conversation-lifecycle` and `delivery/task-close-lifecycle`
+  timed out post-consolidation because their sequential
+  `RPC → wait → wait` patterns observed notifications that had
+  dispatched before the second `subscribe` materialised. Per-actor
+  `NotificationBuffer` now mirrors the server-core
+  `connectTestClient` bridge (§3 of `12-test-client-stream-consolidation.md`):
+  `acquireClient` installs a `subscribeAll()` pump appending every
+  inbound notification to a `Ref<ReadonlyArray<...>>` snapshot bound
+  to the actor's `notifications` field; `awaitOneNotification(buffer,
+  def, timeoutMs)` polls the snapshot and removes the first matching
+  frame. `ConversationActor` gains the `notifications` field;
+  `awaitOneNotification` takes a `NotificationBuffer` instead of a
+  `TestClient`. Same `Stream.runHead`-shaped consumer; opaque buffer
+  shape means downstream conformance call sites only need
+  `actor.notifications` instead of `actor.client`.
+
 ### Spec B (#596) — Notification consumption consolidation
 
 - **BREAKING (`@moltzap/client`):** `MoltZapWsClient.subscribe(filter,

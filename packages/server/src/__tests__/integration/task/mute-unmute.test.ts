@@ -1,5 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   awaitOneNotification,
   it,
@@ -42,6 +42,20 @@ it("muted participant does not receive messages, unmuted participant does", () =
     // Alice mutes the conversation
     yield* alice.client.sendRpc(ConversationsMute, { conversationId });
 
+    // Fork a collector on Alice's notification Stream BEFORE the muted
+    // send so the settle-window assertion observes every frame that
+    // would otherwise have been dropped (#645: drainNotifications is
+    // deleted; the new Stream.async-backed subscription is "live" from
+    // materialisation onwards). The collector runs for the settle
+    // window and surfaces whatever arrived.
+    const aliceCollector = yield* alice.client
+      .subscribe(MessageReceivedNotificationDefinition)
+      .pipe(
+        Stream.interruptAfter(Duration.millis(STRAY_EVENT_SETTLE_MS)),
+        Stream.runCollect,
+        Effect.fork,
+      );
+
     // Bob sends a message — Eve should receive, Alice should NOT
     yield* bob.client.sendRpc(MessagesSend, {
       conversationId,
@@ -52,11 +66,10 @@ it("muted participant does not receive messages, unmuted participant does", () =
       MessageReceivedNotificationDefinition,
     );
 
-    // Wait for any stray events to arrive, then verify Alice got nothing
-    yield* Effect.sleep(STRAY_EVENT_SETTLE_MS);
-    const aliceDrained = yield* alice.client.drainNotifications;
-    const aliceMutedEvents = aliceDrained.filter(
-      (e) => e.definition === MessageReceivedNotificationDefinition,
+    // Wait for the collector to finish (covers the stray-event settle
+    // window) and assert nothing landed on Alice's stream.
+    const aliceMutedEvents = Chunk.toReadonlyArray(
+      yield* Fiber.join(aliceCollector),
     );
     expect(aliceMutedEvents).toHaveLength(0);
 
