@@ -349,14 +349,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unresolvable `agent:<token>`). Exit 64 matches POSIX `EX_USAGE`
   (sysexits.h). `--app-id` validation uses an RFC 4122 UUID v4 regex
   client-side BEFORE any RPC (per architect plan §6 Invariant 7).
-- **Participant resolution:** new local `start.ts -> resolveAgentToken`
+- **Participant resolution:** new local `start.ts -> resolveAgentTokens`
   helper routes name-shaped lookups through the CLI `Transport`
   service (`transport.ts -> rpc(AgentsLookupByName, ...)`) rather than
   the daemon-only `socket-client.ts -> resolveParticipant`. This keeps
   `--as` direct-WS invocations working and makes the resolver
   intercept-able via `commands/test-transport.ts -> makeFakeTransport`.
-  See architect plan §R1 + per-flow doc §"Why we don't reuse
-  `resolveParticipant`" for the transport-uniformity reasoning.
+  Coalesces all name-shaped tokens into ONE batched
+  `AgentsLookupByName({ names: [...uniqueNames] })` RPC instead of one
+  per token (group tasks no longer pay N round-trips). UUID-shaped
+  tokens skip the wire entirely. When >100 distinct name tokens are
+  passed, the CLI rejects with exit 64 (`Too many distinct agent
+  names: <count> (max <max>)`) BEFORE the RPC — the schema's
+  `maxItems: 100` cap is surfaced as a usage error instead of an
+  opaque AJV decode failure. See architect plan §R1 + per-flow doc
+  §"Why we don't reuse `resolveParticipant`" for the transport-
+  uniformity reasoning.
 - **Dedup-hit reuse (spec D2 amendment N6):** idempotent reruns of
   `moltzap start` on `DEFAULT_APP_ID` are now first-class. When the
   server returns `{ task: existing, conversation: null }` (the D1

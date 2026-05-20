@@ -29,7 +29,7 @@ daemon-socket helper). D2 deliberately does not reuse
 the daemon-socket path — it would break `--as` direct-WS invocations
 and would not be mockable via `commands/test-transport.ts →
 makeFakeTransport`. Architect plan §R1 explains the divergence; the
-local resolver `start.ts → resolveAgentToken` is the new helper that
+local resolver `start.ts → resolveAgentTokens` is the new helper that
 covers D2's testability + transport-uniformity needs.**
 
 `TaskCreate` is called with `{ appId, invitedAgentIds, initialConversation
@@ -91,9 +91,10 @@ sequenceDiagram
 
     Note over start: 1. validateAppIdSyntax(args.appId)<br>invalid → InvalidAppIdError → exit 64
 
-    Note over start: 2. Effect.all(participants.map(resolveAgentToken))<br>name-shaped tokens fan out through Transport; UUID-shaped tokens<br>short-circuit client-side. Any failure → UnresolvedParticipantError → exit 64
-    start->>tx: rpc(AgentsLookupByName, { names: ["bob"] }) (per name-shaped token)
-    tx-->>start: { agents: [{ id, ... }] } or empty
+    Note over start: 2. resolveAgentTokens(participants)<br>Classify each token: shape-fail → UnresolvedParticipantError → exit 64;<br>UUID-shaped → short-circuit client-side; name-shaped → defer to one batched RPC.
+    start->>tx: rpc(AgentsLookupByName, { names: [...uniqueNames] }) (one call total, name-shaped tokens only)
+    tx-->>start: { agents: [{ id, name, ... }, ...] }
+    Note over start: Build name → AgentId map; resolve each token in input order.<br>First name with no matching agent → UnresolvedParticipantError → exit 64.
 
     Note over start: 3. rpc(TaskCreate, {appId, invitedAgentIds, initialConversation})<br>initialConversation omits participants when invitedAgentIds.length === 0 (P2-B)
     start->>tx: TaskCreate
@@ -132,7 +133,7 @@ sequenceDiagram
 | 0 | Full success (fresh create OR dedup hit with reusable conversation) | `Task started: …` (+ `Message sent: …` when `--message`) | empty |
 | 1 | `TaskCreate` wire failure OR dedup hit on a closed/unreachable task (P2-A) | empty | `Failed: <err.message>` OR `Task already exists but is closed: <taskId>` |
 | 2 | `TaskCreate` (or dedup reuse) OK, `MessagesSend` failed | `Task started: …` (no `Message sent`) | `Error sending message: <err.message>` |
-| 64 | Usage error (bad `--app-id` UUID OR unresolvable agent token) | empty | `Invalid --app-id: not a UUID` OR `Cannot resolve "<token>": <reason>` |
+| 64 | Usage error (bad `--app-id` UUID OR unresolvable agent token OR >100 distinct name-shaped tokens) | empty | `Invalid --app-id: not a UUID` OR `Cannot resolve "<token>": <reason>` OR `Too many distinct agent names: <count> (max <max>)` |
 
 NO rollback on exit 2: the task + empty conversation persist; user can
 retry `moltzap send conv:<id> <text>` (Non-goal 3).
@@ -152,72 +153,59 @@ server-side contact-policy gating per
 `requireContactPolicyForCreate` may reject the call with a
 `TransportRpcError` mapped to exit 1.
 
-## 6. Implementation sketch (impl-staff target)
+## 6. Implementation sketch
 
-The handler body is NOT in the stub. Impl-staff lands the following
-shape (pseudocode; final Effect form may differ):
+The handler body lives in `commands/start.ts → startCommandHandler`.
+Sketch matches the current code shape (P2-A dedup + P2-B carve-out +
+P3-2 batched lookup all landed):
 
 ```ts
 export const startCommandHandler = (args: StartCommandArgs) =>
   Effect.gen(function* () {
-    // 1. Validate --app-id syntax
-    const appId =
-      args.appId !== undefined
-        ? yield* validateAppId(args.appId)  // → InvalidAppIdError on bad UUID
-        : DEFAULT_APP_ID;
+    // 1. Validate --app-id syntax (defaults to DEFAULT_APP_ID).
+    const appId = yield* resolveAppId(args.appId);
 
     // 2. Resolve participants via the local Transport-routed helper.
-    //    resolveAgentToken returns bare AgentId (NOT a participant ref),
-    //    so no .map(p => p.id) step is needed. The helper itself maps
-    //    shape failures + lookup-empty results to UnresolvedParticipantError.
-    const invitedAgentIds = yield* Effect.all(
-      args.participants.map(resolveAgentToken),
-    );
+    //    `resolveAgentTokens` coalesces all name-shaped tokens into ONE
+    //    batched `rpc(AgentsLookupByName, { names: [...uniqueNames] })`
+    //    call (P3-2); UUID-shaped tokens short-circuit client-side. The
+    //    helper maps shape failures + lookup-empty results to
+    //    `UnresolvedParticipantError` and returns bare `AgentId[]`
+    //    matching `TaskCreate.params.invitedAgentIds` directly.
+    const invitedAgentIds = yield* resolveAgentTokens(args.participants);
 
-    // 3. TaskCreate atomic
-    const { task, conversation } = yield* rpc(TaskCreate, {
-      appId,
-      invitedAgentIds,
-      initialConversation: { name: args.name, participants: invitedAgentIds },
-    }).pipe(
-      Effect.tapError((err) =>
-        Effect.sync(() => {
-          // Exit 1: nothing printed yet, transport adapter prints stderr
-        }),
-      ),
-    );
+    // 3. TaskCreate atomic. P2-B carve-out: when `invitedAgentIds` is
+    //    empty, omit `participants` from `initialConversation` entirely
+    //    (the schema's `Type.Array(AgentId, { minItems: 1 })` rejects
+    //    `[]`; the server adds the caller to participants implicitly).
+    const outcome = yield* createTaskAtomic(appId, invitedAgentIds, args.name);
 
-    if (conversation === null) {
-      // D1 canary _C5 guarantees non-null when initialConversation sent;
-      // defend against a stale D1 build with a decode-time exit 1.
-      return yield* Effect.fail(
-        new TransportDecodeError({ method: "task/create", cause: "missing conversation" }),
-      );
+    // 4. Branch on `{ task, conversation: Conversation | null }`.
+    //    `conversation === null` is the DEDUP HIT path (P2-A) — the
+    //    server matched an existing task on `{caller} ∪ invitedAgentIds`
+    //    and returned it. Handler routes through `handleDedupOutcome`,
+    //    which uses `findReusableConversation` to locate a non-archived
+    //    conversation under the existing task (`TaskConversationList`
+    //    with cursor follow, capped at `DEDUP_LOOKUP_MAX_PAGES`). If
+    //    found → reuse stdout line; if not → closed-task diagnostic +
+    //    exit 1.
+    const messageOpt = Option.fromNullable(args.message);
+    if (outcome.kind === "dedup") {
+      yield* handleDedupOutcome(outcome.task, messageOpt);
+      return;
     }
 
-    yield* Effect.sync(() =>
-      console.log(`Task started: ${task.id} (conversation: ${conversation.id})`),
-    );
+    // 5. Fresh-create success path.
+    yield* printTaskCreated(outcome.task, outcome.conversation);
 
-    // 4. Optional MessagesSend
-    if (args.message !== undefined) {
-      const sendResult = yield* rpc(MessagesSend, {
-        conversationId: conversation.id,
-        parts: [{ type: "text", text: args.message }],
-      }).pipe(
-        Effect.either,  // capture, don't propagate, so we can dispatch exit 2
-      );
-      if (Either.isLeft(sendResult)) {
-        yield* Effect.sync(() => {
-          console.error(`Error sending message: ${sendResult.left.message}`);
-          process.exit(EXIT_CODE_PARTIAL_SUCCESS);
-        });
-        return;
-      }
-      yield* Effect.sync(() =>
-        console.log(`Message sent: ${sendResult.right.message.id}`),
-      );
-    }
+    // 6. Optional MessagesSend. Wrapped in `Effect.either` so a wire
+    //    failure surfaces as inline `process.exit(2)` (preserves the
+    //    already-printed `Task started:` stdout line) rather than
+    //    routing through `runStartCommand`'s catchAll.
+    yield* Option.match(messageOpt, {
+      onNone: () => Effect.void,
+      onSome: (m) => sendFirstMessage(outcome.conversation.id, m),
+    });
   });
 ```
 
@@ -287,11 +275,13 @@ reuse it. Reasons:
    `agentParticipantRefSchema[]`. The local resolver returns bare
    `AgentId` directly, eliminating a `.map(p => p.id)` step.
 
-D2 introduces `start.ts → resolveAgentToken` (transport-routed
-sibling): parses `agent:<rest>` and either short-circuits if `rest`
-is a UUID v4 or calls `rpc(AgentsLookupByName, { names: [rest] })`.
-On empty result → `UnresolvedParticipantError({ token, reason:
-"not-found" })`. On shape failure (no `agent:` prefix, etc.) →
+D2 introduces `start.ts → resolveAgentTokens` (transport-routed
+sibling): classifies each token (shape-fail / UUID-shaped / name-shaped)
+and coalesces all name-shaped tokens into ONE batched
+`rpc(AgentsLookupByName, { names: [...uniqueNames] })` call (P3-2);
+UUID-shaped tokens short-circuit client-side. Names with no matching
+agent in the response → `UnresolvedParticipantError({ token, reason:
+"not-found" })`. Shape failures (no `agent:` prefix, etc.) →
 `UnresolvedParticipantError({ token, reason: "shape" })`.
 
 `commands/conversations.ts` keeps using `resolveParticipant`
@@ -347,9 +337,10 @@ NOT exercised by unit tests — they use `Transport` directly.
   not concurrent. The architect plan + stub are unblocked (this
   branch).
 - **Spec D2 AC interpretation: "NO RPC calls" reads as "no mutating
-  RPC calls".** `start.ts → resolveAgentToken` calls
-  `rpc(AgentsLookupByName, ...)` for name-shaped tokens (a server
-  RPC), which the strict reading of the AC would prohibit. Architect
+  RPC calls".** `start.ts → resolveAgentTokens` calls
+  `rpc(AgentsLookupByName, ...)` (batched, one call total) for
+  name-shaped tokens (a server RPC), which the strict reading of the
+  AC would prohibit. Architect
   interpretation: the AC means "NO `TaskCreate` / `MessagesSend`
   calls", since only those two are spec-D2's mutating calls. The
   read-only lookup is intentional + necessary (UUID-only tokens are
