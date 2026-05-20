@@ -21,8 +21,19 @@ import type { Context, Effect } from "effect";
  *   storage; the per-definition typing lives on `CapabilityDescriptor&lt;D, Tag&gt;`
  *   below.
  */
+// `Context.Tag` is invariant in both type parameters, so concrete tag
+// classes (e.g. `Context.Tag<TmAuthority, TmAuthorityValue>`) are NOT
+// assignable to `Context.Tag<unknown, unknown>`. The descriptor stores
+// the tag for runtime indexing (`tag.key`) + `provideServiceEffect`
+// dispatch, both of which only need the variance-agnostic surface
+// (`{ key: string }` + `Context.Tag` brand). Widening the slot to
+// `Context.Tag<any, any>` lets descriptor literals compile without
+// per-tag `as` casts; `CapabilitiesOf<D>` recovers the per-tag union
+// downstream via the `infer Cap` pattern.
+type AnyContextTag = Context.Tag<any, any>;
+
 export interface CapabilityDescriptor {
-  readonly tag: Context.Tag<unknown, unknown>;
+  readonly tag: AnyContextTag;
   readonly argsOf: (params: unknown, ctx: unknown) => unknown;
 }
 
