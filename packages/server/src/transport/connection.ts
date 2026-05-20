@@ -60,11 +60,22 @@ export function acquireConnectionRpcClient(
   connectionId: string,
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
   handlers: ServerHandlers<DispatchContext> = {} as ServerHandlers<DispatchContext>,
+  // Providers default to empty: the test-only `originator` overload
+  // never drives a real handler whose body yields capabilities, so the
+  // dispatcher's per-tag lookup is unexercised. Production wiring at
+  // `socket-handler.ts → openSocketSession` passes the real provider
+  // table (`serverCapabilityProviders`). Decoupling avoids a runtime
+  // import cycle through `app/capabilities/* → app/layers.ts →
+  // transport/connection.ts`.
+  capabilities: Record<
+    string,
+    (args: unknown) => Effect.Effect<unknown, unknown, unknown>
+  > = {},
 ): Effect.Effect<ServerConnection<DispatchContext>, never, Scope.Scope> {
-  return makeServerConnection<DispatchContext, never>({
+  return makeServerConnection({
     id: connectionId,
     handlers,
-    capabilities: {},
+    capabilities,
     write,
     idPrefix: `srv-${connectionId}`,
   });

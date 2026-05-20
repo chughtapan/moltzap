@@ -158,6 +158,16 @@ export const MessagesSend = defineRpc({
     { message: MessageSchema },
     { additionalProperties: false },
   ),
+  // NOTE: `MessageSendPermission` is intentionally NOT auto-provisioned
+  // on this descriptor. The handler resolves `conversationId` at request
+  // time from `to:` / `replyToId:` (the latter needs a DB lookup), and
+  // the obtain helper must see the RESOLVED id to verify participant
+  // access against the right conversation. An argsOf at the descriptor
+  // level only sees the WIRE params and would miss the resolution. The
+  // handler hand-pipes `Effect.provideServiceEffect(MessageSendPermission,
+  // obtainMessageSendPermission(...))` AFTER resolution; the other 12
+  // task-layer descriptors auto-provision because their wire params
+  // already carry every input each obtain helper needs.
 });
 
 export const MessagesList = defineRpc({

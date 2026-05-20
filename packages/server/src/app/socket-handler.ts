@@ -21,6 +21,7 @@ import type {
 } from "../transport/context.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import type { AppTags } from "../transport/layer-tags.js";
+import { serverCapabilityProviders } from "./capability-providers.js";
 import type { ConnIdTag, ResolvedServices } from "./layers.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 import { ERROR_INVALID_JSON } from "./server-constants.js";
@@ -72,10 +73,10 @@ function openSocketSession(
     // `createCoreApp`) AND the outbound originator (server→client
     // appCallback path). The `id` mirrors the connId so logs trace
     // request ids back to the originating socket.
-    const serverConn = yield* makeServerConnection<DispatchContext, never>({
+    const serverConn = yield* makeServerConnection({
       id: session.connId,
       handlers: options.handlers,
-      capabilities: {},
+      capabilities: serverCapabilityProviders,
       write: session.write,
       idPrefix: `srv-${session.connId}`,
     });
