@@ -48,7 +48,7 @@
  */
 import * as fc from "fast-check";
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   ConversationsCreate,
   HookBlockedError,
@@ -392,6 +392,26 @@ it(
       const { taskId, conversationId } =
         yield* setupTaskBoundConversation(pair);
 
+      // #645: fork a settle-window collector on the TM's notification
+      // Stream BEFORE storing the message so the assertion observes
+      // every frame that arrived during the broadcast window (the
+      // deleted `drainNotifications` snapshot is gone; the new
+      // Stream.async-backed subscription is live from materialisation
+      // forward).
+      const SETTLE_MS = 200;
+      const tmCollector = yield* pair.tm
+        .subscribe(MessageReceivedNotificationDefinition)
+        .pipe(
+          Stream.filter(
+            (n) =>
+              (n.params as { message?: { parts?: unknown[] } }).message
+                ?.parts !== undefined,
+          ),
+          Stream.interruptAfter(Duration.millis(SETTLE_MS)),
+          Stream.runCollect,
+          Effect.fork,
+        );
+
       // TM stores a message authored by the sender (typical
       // post-admission flow: TM accepted via gate, now persists).
       yield* pair.tm.sendRpc(TasksStoreMessage, {
@@ -402,20 +422,12 @@ it(
       });
 
       // The TM (a conversation participant) should observe ONE
-      // notification via the conversation broadcast. Drain after a
-      // brief grace period and count.
-      yield* Effect.sleep("200 millis");
-      const drained = yield* pair.tm.drainNotifications;
-      const receivedCount = drained.filter(
-        (n) =>
-          n.method === MessageReceivedNotificationDefinition.name &&
-          (n.params as { message?: { parts?: unknown[] } }).message?.parts !==
-            undefined,
-      ).length;
-      // With the bypass flag honored, exactly one notification
-      // arrives (the conversation broadcast). Without the fix, two
-      // would arrive (network.send self-loop + conversation broadcast).
-      expect(receivedCount).toBe(1);
+      // notification via the conversation broadcast. With the bypass
+      // flag honored, exactly one notification arrives (the
+      // conversation broadcast). Without the fix, two would arrive
+      // (network.send self-loop + conversation broadcast).
+      const received = Chunk.toReadonlyArray(yield* Fiber.join(tmCollector));
+      expect(received).toHaveLength(1);
     }),
   TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
 );
