@@ -52,7 +52,7 @@ sequenceDiagram
 
     caller->>caller: stream.pipe(Stream.runForEach(...))
     Note over caller: materialization runs Stream.async's<br>register callback (synchronous)
-    caller->>stream: emit installed; register(def, refinement, {onFrame, onClose})
+    caller->>stream: emit installed, register(def, refinement, {onFrame, onClose})
     stream->>registry: register(def, refinement, callbacks)
     Note over registry: nextId<br>Ref.update(subsRef, append live)<br>return {unregister}
     registry-->>stream: {unregister}

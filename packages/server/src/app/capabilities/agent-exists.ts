@@ -10,9 +10,10 @@ export { AgentExists, type AgentExistsValue };
  * Smart constructor. Delegates to `ParticipantService.assertAgentExists`
  * (already public on the service class pre-Spec-E).
  *
- * Error channel — `ParticipantService.assertAgentExists` fails with
- * `NotFoundError` when the `agents` row is absent. `SqlError` from the
- * underlying select is caught defectively inside the service helper.
+ * `SqlError` from the underlying select is caught defectively inside
+ * the service helper.
+ *
+ * @failure NotFoundError when the `agents` row is absent
  */
 export const obtainAgentExists = (
   agentId: AgentId,

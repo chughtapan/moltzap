@@ -15,14 +15,12 @@ export {
 
 /**
  * Smart constructor. Delegates to
- * `ConversationService.assertConversationParticipant` (already public on the
- * service class pre-Spec-E).
+ * `ConversationService.assertConversationParticipant` (already public
+ * on the service class pre-Spec-E). The `SqlError` from the
+ * underlying `conversation_participants` lookup is caught defectively
+ * inside the service helper, so it does NOT appear in E.
  *
- * Error channel propagates `ConversationService.assertConversationParticipant`'s
- * `ForbiddenError` ("Not a participant in this conversation"). The
- * `SqlError` from the underlying `conversation_participants` lookup is
- * caught defectively inside the service helper, so it does NOT appear
- * in E.
+ * @failure ForbiddenError when caller is not a participant in this conversation
  */
 export const obtainConversationParticipantAccess = (
   conversationId: ConversationId,

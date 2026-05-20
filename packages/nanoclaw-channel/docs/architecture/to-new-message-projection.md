@@ -43,18 +43,18 @@ flowchart TD
     A["contentFor(enriched)<br>channels/moltzap.ts → contentFor<br>Assembles context blocks in order"]
 
     A --> B{"crossConversationMessages<br>present?"}
-    B -->|"yes"| C["formatCrossConv ({ markup: "xml-system-reminder" })(msgs, { ownAgentId })<br>→ &lt;messages&gt;<br>    &lt;message sender=&quot;{name}&quot; conversation=&quot;{conv}&quot; time=&quot;{ts}&quot;&gt;{text}&lt;/message&gt;<br>  &lt;/messages&gt;<br>sender = &quot;You&quot; if senderId === ownAgentId, else senderName<br>ALL string fields sanitized via sanitizeForSystemReminder()"]
-    B -->|"no"| D{"conversationMeta.type<br>=== &quot;group&quot;?"}
+    B -->|"yes"| C["formatCrossConv (markup xml-system-reminder)(msgs, ownAgentId)<br>→ &lt;messages&gt;<br>    &lt;message sender=NAME conversation=CONV time=TS&gt;TEXT&lt;/message&gt;<br>  &lt;/messages&gt;<br>sender = 'You' if senderId === ownAgentId, else senderName<br>ALL string fields sanitized via sanitizeForSystemReminder()"]
+    B -->|"no"| D{"conversationMeta.type === group?"}
 
     C --> D
 
-    D -->|"yes"| E["formatGroupBlock(meta)<br>→ &lt;system-reminder&gt;<br>    This is a group conversation.<br>    Group name: {name}<br>    Participants (N): {p1}, {p2}, ...<br>  &lt;/system-reminder&gt;<br>ALL strings sanitized via sanitizeForSystemReminder()"]
+    D -->|"yes"| E["formatGroupBlock(meta)<br>→ &lt;system-reminder&gt;<br>    This is a group conversation.<br>    Group name NAME<br>    Participants N — p1, p2, ...<br>  &lt;/system-reminder&gt;<br>ALL strings sanitized via sanitizeForSystemReminder()"]
     D -->|"no"| F{"any context<br>blocks collected?"}
 
     E --> F
 
     F -->|"no"| G["return enriched.text verbatim"]
-    F -->|"yes"| H["blocks.join(&quot;<br><br>&quot;) + &quot;<br><br>&quot; + enriched.text<br>order: crossConv → groupMeta → rawText<br>(test: &quot;ordersContextBlocksBeforeRawText&quot;)"]
+    F -->|"yes"| H["blocks.join(&lt;br&gt;&lt;br&gt;) + &lt;br&gt;&lt;br&gt; + enriched.text<br>order — crossConv → groupMeta → rawText<br>(test — ordersContextBlocksBeforeRawText)"]
 ```
 
 **Sanitization contract** (`sanitizeForSystemReminder` from `@moltzap/client`):

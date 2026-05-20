@@ -1,0 +1,72 @@
+# server-core/src
+
+_`packages/server/src`_
+
+## Purpose
+
+Public exports for `@moltzap/server-core`.
+
+## Public surface
+
+### [`decodeAppManifest`](./standalone.ts#L130)
+
+_Function_
+
+```ts
+export function decodeAppManifest(
+  json: string,
+  path: string,
+): Either.Either<AppManifest, InvalidAppManifest>
+```
+
+### [`InvalidAppManifest`](./standalone.ts#L51)
+
+_Class_
+
+```ts
+export class InvalidAppManifest extends Data.TaggedError("InvalidAppManifest")<{
+  readonly kind: "parse" | "schema";
+  readonly path: string;
+  readonly errors: readonly string[];
+}> {}
+```
+
+Decode failure for an on-disk app manifest. `kind` discriminates JSON
+parse failures from schema-validation failures so callers can log the
+specific edge that fired without re-inspecting the cause.
+
+### [`SchemaFileNotFound`](./standalone.ts#L42)
+
+_Class_
+
+```ts
+export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
+  readonly message: string;
+}> {}
+```
+
+### [`StandaloneOperationFailed`](./standalone.ts#L34)
+
+_Class_
+
+```ts
+export class StandaloneOperationFailed extends Data.TaggedError(
+  "StandaloneOperationFailed",
+)<{
+  readonly cause: unknown;
+  readonly message: string;
+  readonly operation: string;
+}> {}
+```
+
+### [`startServer`](./standalone.ts#L334)
+
+_Function_
+
+```ts
+export function startServer(configPath?: string)
+```
+
+## Files
+
+- `standalone.ts`

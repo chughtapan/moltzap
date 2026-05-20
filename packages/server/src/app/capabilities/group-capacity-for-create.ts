@@ -14,12 +14,10 @@ export { GroupCapacityForCreate, type GroupCapacityForCreateValue };
  * `ConversationService.assertGroupCapacityForCreate` to `@internal`
  * exported per Decision B / Option A and narrows its signature to
  * `(pathType, targetAgentIds)` so the obtain helper consumes it
- * without a `mintTask: Effect.never as never` synthesis shim.
+ * without a `mintTask: Effect.never as never` synthesis shim. Pure
+ * capacity check; no DB read; no `SqlError` in E.
  *
- * Error channel propagates `assertGroupCapacityForCreate`'s
- * `ConversationFullError` when the proposed participant count exceeds
- * the policy limit. Pure capacity check; no DB read; no `SqlError` in
- * E.
+ * @failure ConversationFullError when proposed participant count exceeds the policy limit
  */
 export const obtainGroupCapacityForCreate = (
   creatorAgentId: AgentId,

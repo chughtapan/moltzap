@@ -18,6 +18,12 @@ export {
  * Smart constructor. Runs the four gates in their pre-Spec-E order;
  * carries the resolved `targetOwnerUserId` so the service body and
  * any downstream auditing can read it without an extra round-trip.
+ *
+ * @failure ForbiddenError when the requester lacks add-participant authority on the conversation
+ * @failure NotFoundError when the target `agents` row is missing
+ * @failure NotInContactsError when contact policy rejects the requester→target reach
+ * @failure ConversationFullError when the conversation already has the maximum participants
+ * @failure InvalidParamsError when the conversation is a DM (DMs cannot grow participants)
  */
 export const obtainAddParticipantPermission = (
   input: ObtainAddParticipantPermissionInput,

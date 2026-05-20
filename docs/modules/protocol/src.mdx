@@ -1,0 +1,259 @@
+---
+title: "protocol/src"
+description: "Root public barrel for the complete protocol package."
+---
+
+# protocol/src
+
+_`packages/protocol/src`_
+
+## Purpose
+
+Root public barrel for the complete protocol package.
+
+## Public surface
+
+### [`AnyNotificationDefinition`](./rpc-registry.ts#L82)
+
+_TypeAlias_
+
+```ts
+export type AnyNotificationDefinition =
+  (typeof notificationDefinitions)[number];
+```
+
+### [`AnyRpcDefinition`](./rpc-registry.ts#L77)
+
+_TypeAlias_
+
+```ts
+export type AnyRpcDefinition = (typeof rpcMethods)[number] &
+```
+
+### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L80)
+
+_TypeAlias_
+
+```ts
+export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
+```
+
+### [`brandedId`](./schema-primitives.ts#L60)
+
+_Function_
+
+```ts
+export function brandedId<const BrandName extends string>(brand: BrandName)
+```
+
+### [`brandedNumber`](./schema-primitives.ts#L50)
+
+_Function_
+
+```ts
+export function brandedNumber<const BrandName extends string>(
+  brand: BrandName,
+  options: Parameters<typeof Type.Number>[0] =
+```
+
+### [`BrandedNumber`](./schema-primitives.ts#L37)
+
+_TypeAlias_
+
+```ts
+export type BrandedNumber<BrandName extends string> = number &
+```
+
+### [`brandedString`](./schema-primitives.ts#L40)
+
+_Function_
+
+```ts
+export function brandedString<const BrandName extends string>(
+  brand: BrandName,
+  options: Parameters<typeof Type.String>[0] =
+```
+
+### [`BrandedString`](./schema-primitives.ts#L35)
+
+_TypeAlias_
+
+```ts
+export type BrandedString<BrandName extends string> = string &
+```
+
+### [`DateTimeString`](./schema-primitives.ts#L73)
+
+_TypeAlias_
+
+```ts
+export type DateTimeString = Static<typeof DateTimeStringSchema>;
+```
+
+### [`dateTimeStringSchema`](./schema-primitives.ts#L75)
+
+_Function_
+
+```ts
+export function dateTimeStringSchema(): typeof DateTimeStringSchema
+```
+
+### [`decodeClientInbound`](./rpc-registry.ts#L197)
+
+_Function_
+
+```ts
+export function decodeClientInbound(
+  parsed: unknown,
+): Effect.Effect<DecodedClientInbound, MalformedFrameError>
+```
+
+Typed entry point for server-inbound frames. Fails closed with
+`MalformedFrameError` on any wire-level mismatch.
+
+### [`DecodedClientInbound`](./rpc-registry.ts#L125)
+
+_TypeAlias_
+
+```ts
+export type DecodedClientInbound =
+  | ({ readonly _tag: "ClientRequest" } & DecodedRpcRequest<AnyRpcDefinition>)
+```
+
+Decoded shape of a frame inbound to the server (from client):
+a client RPC request, a response (success XOR error) to a
+server-initiated callback, or a notification.
+
+### [`DecodedResponseError`](./rpc-registry.ts#L99)
+
+_Class_
+
+```ts
+export class DecodedResponseError extends Data.TaggedClass("ResponseError")<{
+  readonly frame: ResponseFrame;
+  readonly id: JsonRpcId;
+  readonly error: Extract<ResponseFrame, { error: unknown }>["error"];
+}> {}
+```
+
+Discriminated error arm of a decoded JSON-RPC response — wire-frame
+decoder discriminator, not an Effect tagged error (the wire `error`
+sub-object carries `code`/`message`/`data`, no Effect machinery).
+
+### [`DecodedResponseSuccess`](./rpc-registry.ts#L86)
+
+_Class_
+
+```ts
+export class DecodedResponseSuccess extends Data.TaggedClass(
+  "ResponseSuccess",
+)<{
+  readonly frame: ResponseFrame;
+  readonly id: JsonRpcId;
+  readonly result: unknown;
+}> {}
+```
+
+Discriminated success arm of a decoded JSON-RPC response.
+
+### [`DecodedServerInbound`](./rpc-registry.ts#L110)
+
+_TypeAlias_
+
+```ts
+export type DecodedServerInbound =
+  | DecodedResponseSuccess
+  | DecodedResponseError
+  | ({
+      readonly _tag: "ServerRequest";
+    } & DecodedRpcRequest<AnyTaskCallbackRpcDefinition>)
+```
+
+Decoded shape of a frame inbound to the client (from server):
+a response (success XOR error), a server-initiated task-callback
+request, or a notification.
+
+### [`decodeServerInbound`](./rpc-registry.ts#L168)
+
+_Function_
+
+```ts
+export function decodeServerInbound(
+  parsed: unknown,
+): Effect.Effect<DecodedServerInbound, MalformedFrameError>
+```
+
+Typed entry point for client-inbound frames. Fails closed with
+`MalformedFrameError` on any wire-level mismatch.
+
+### [`notificationDefinitions`](./rpc-registry.ts#L70)
+
+_Variable_
+
+```ts
+export const notificationDefinitions = [
+  ...networkNotifications,
+  ...identityNotifications,
+  ...taskNotifications,
+  ...appNotifications,
+] as const
+```
+
+### [`PROTOCOL_VERSION`](./version.ts#L2)
+
+_Variable_
+
+```ts
+export const PROTOCOL_VERSION = "2026.520.0"
+```
+
+### [`RegisteredTaggedError`](./rpc-registry.ts#L51)
+
+_TypeAlias_
+
+```ts
+export type RegisteredTaggedError =
+  | UnauthorizedError
+  | ForbiddenError
+  | NotFoundError
+  | ConflictError
+  | InvalidParamsError
+  | NotInContactsError
+  | TaskClosedError
+  | ConversationArchivedError
+  | ConversationFullError
+  | HookBlockedError;
+```
+
+Closed union of every wire-registered tagged-error class instance.
+Drives `RpcCallError` so consumers can `Effect.catchTag(...)` against
+concrete tags (e.g. "Forbidden", "NotInContacts"). Mirrors the static
+registry built by `registerErrorClass` — keep in sync if a new class
+lands.
+
+### [`rpcMethods`](./rpc-registry.ts#L63)
+
+_Variable_
+
+```ts
+export const rpcMethods = [
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...taskRpcMethods,
+  ...appRpcMethods,
+] as const
+```
+
+### [`stringEnum`](./schema-primitives.ts#L67)
+
+_Function_
+
+```ts
+export function stringEnum<T extends string[]>(values: [...T])
+```
+
+## Files
+
+- `rpc-registry.ts`
+- `schema-primitives.ts`
+- `version.ts`
