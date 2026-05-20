@@ -40,9 +40,6 @@ export {
   TasksCloseConversation,
   TasksAddParticipant,
   TasksRemoveParticipant,
-  TasksStoreMessage,
-  TasksGetMessages,
-  TasksGetMessagesSince,
   // Spec D1 — additive `task/*` + `task/conversation/*` family.
   AppId,
   DEFAULT_APP_ID,

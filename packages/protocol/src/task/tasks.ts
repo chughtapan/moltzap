@@ -12,10 +12,8 @@ import {
   ConversationTypeEnum,
   agentParticipantRefSchema,
   conversationSchema,
-  MessageId,
 } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
-import { messagePartsSchema, messageSchema } from "./messages.js";
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
 import {
@@ -23,10 +21,6 @@ import {
   type ObtainConversationCreateAuthorizationInput,
 } from "./capabilities/conversation-create-authorization.js";
 import { ConversationInTask } from "./capabilities/conversation-in-task.js";
-import {
-  MessageSendPermission,
-  type ObtainMessageSendPermissionInput,
-} from "./capabilities/message-send-permission.js";
 import { TaskReadAccess } from "./capabilities/task-read-access.js";
 import { TmAuthority } from "./capabilities/tm-authority.js";
 
@@ -37,8 +31,6 @@ export { AppId, DEFAULT_APP_ID, TaskId } from "./ids.js";
 const DateTimeString = dateTimeStringSchema();
 const AgentParticipantRefSchema = agentParticipantRefSchema();
 const ConversationSchema = conversationSchema();
-const MessagePartsSchema = messagePartsSchema();
-const MessageSchema = messageSchema();
 
 export class TaskClosedError extends Data.TaggedError(
   "TaskClosed",
@@ -325,149 +317,6 @@ export const TasksRemoveParticipant = defineRpc({
         const p = params as { readonly taskId: TaskId };
         const c = ctx as { readonly auth: { readonly agentId: AgentId } };
         return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksStoreMessage = defineRpc({
-  name: "tasks/storeMessage",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      senderAgentId: AgentId,
-      parts: MessagePartsSchema,
-      replyToId: Type.Optional(MessageId),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { message: MessageSchema },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-    {
-      tag: MessageSendPermission,
-      argsOf: (params: unknown): ObtainMessageSendPermissionInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-          readonly senderAgentId: AgentId;
-          readonly replyToId?: Static<typeof MessageId>;
-        };
-        return {
-          taskId: p.taskId,
-          conversationId: p.conversationId,
-          senderAgentId: p.senderAgentId,
-          replyToId: p.replyToId,
-        };
-      },
-    },
-  ] as const,
-});
-
-export const TasksGetMessages = defineRpc({
-  name: "tasks/getMessages",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      messages: Type.Array(MessageSchema),
-      hasMore: Type.Boolean(),
-    },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksGetMessagesSince = defineRpc({
-  name: "tasks/getMessagesSince",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      sinceSeq: Type.String({
-        description: "Snowflake seq cursor (string-encoded BIGINT)",
-      }),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      messages: Type.Array(MessageSchema),
-      hasMore: Type.Boolean(),
-    },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
       },
     },
   ] as const,

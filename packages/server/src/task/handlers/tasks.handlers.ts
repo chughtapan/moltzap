@@ -22,11 +22,8 @@ import {
   TasksCreate,
   TasksCreateConversation,
   TasksGet,
-  TasksGetMessages,
-  TasksGetMessagesSince,
   TasksList,
   TasksRemoveParticipant,
-  TasksStoreMessage,
   type AppId,
   type Conversation,
   type Task,
@@ -586,47 +583,6 @@ export const taskHandlers: RpcMethodRegistry = [
         );
         return {};
       }).pipe(Effect.withSpan("tasks.removeParticipant")),
-  }),
-
-  defineTaskMethod(TasksStoreMessage, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        const message = yield* taskService.storeMessage(
-          params.taskId,
-          ctx.agentId,
-          {
-            conversationId: params.conversationId,
-            senderAgentId: params.senderAgentId,
-            parts: params.parts,
-            replyToId: params.replyToId,
-          },
-        );
-        return { message };
-      }).pipe(Effect.withSpan("tasks.storeMessage")),
-  }),
-
-  defineTaskMethod(TasksGetMessages, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        return yield* taskService.getMessages(params.taskId, ctx.agentId, {
-          conversationId: params.conversationId,
-          limit: params.limit,
-        });
-      }).pipe(Effect.withSpan("tasks.getMessages")),
-  }),
-
-  defineTaskMethod(TasksGetMessagesSince, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        return yield* taskService.getMessagesSince(params.taskId, ctx.agentId, {
-          conversationId: params.conversationId,
-          sinceSeq: params.sinceSeq,
-          limit: params.limit,
-        });
-      }).pipe(Effect.withSpan("tasks.getMessagesSince")),
   }),
 
   // ───────────────────────────────────────────────────────────────────

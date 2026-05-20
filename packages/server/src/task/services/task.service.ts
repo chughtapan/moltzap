@@ -8,14 +8,12 @@ import {
 import { defaultTmAddressForType } from "../../network/app-tm-registry.js";
 import type {
   Conversation,
-  Message,
-  Part,
   Task,
   TaskParticipant,
   TaskStatus,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { TaskId, ConversationId, MessageId } from "@moltzap/protocol/task";
+import type { TaskId, ConversationId } from "@moltzap/protocol/task";
 import type { Db } from "../../db/client.js";
 import type { Database } from "../../db/database.js";
 import {
@@ -38,7 +36,6 @@ import type { MessageService, MessageServiceError } from "./message.service.js";
 import {
   ConversationCreateAuthorization,
   ConversationInTask,
-  MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
   assertConversationInTaskMatches,
@@ -71,7 +68,6 @@ function absurdTaskStatus(status: never): never {
 }
 
 const DEFAULT_TASK_LIST_LIMIT = 50;
-const DEFAULT_TASK_MESSAGES_LIMIT = 50;
 
 interface TaskRow {
   readonly id: TaskId;
@@ -161,28 +157,10 @@ export interface TaskListInput {
   readonly limit?: number;
 }
 
-export interface TaskMessagesInput {
-  readonly conversationId: ConversationId;
-  readonly limit?: number;
-}
-
-export interface TaskMessagesSinceInput {
-  readonly conversationId: ConversationId;
-  readonly sinceSeq: string;
-  readonly limit?: number;
-}
-
 export interface CreateConversationInput {
   readonly type: "dm" | "group";
   readonly name?: string;
   readonly participantAgentIds: readonly AgentId[];
-}
-
-export interface StoreMessageInput {
-  readonly conversationId: ConversationId;
-  readonly senderAgentId: AgentId;
-  readonly parts: readonly Part[];
-  readonly replyToId?: MessageId;
 }
 
 export interface TaskCloseLifecycle {
@@ -633,75 +611,6 @@ export class TaskService {
       const inTask = yield* ConversationInTask;
       yield* assertConversationInTaskMatches(inTask, id, conversationId);
       yield* this.archiveConversationInTask(id, conversationId);
-    });
-  }
-
-  storeMessage(
-    id: TaskId,
-    _caller: AgentId,
-    input: StoreMessageInput,
-  ): Effect.Effect<
-    Message,
-    TaskServiceError,
-    TmAuthority | ConversationInTask | MessageSendPermission
-  > {
-    return Effect.gen(this, function* () {
-      const tm = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(tm, id);
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
-      // The post-insert UPDATE retired — `MessageService.send` stamps
-      // `task_id` from `conv.task_id` at insert time, and the
-      // `ConversationInTask` capability above already proved
-      // `conv.task_id === id`.
-      return yield* this.messages.send({
-        conversationId: input.conversationId,
-        parts: [...input.parts],
-        senderAgentId: input.senderAgentId,
-        replyToId: input.replyToId,
-        bypassTmRouting: true,
-      });
-    });
-  }
-
-  getMessages(
-    id: TaskId,
-    caller: AgentId,
-    input: TaskMessagesInput,
-  ): Effect.Effect<
-    { messages: Message[]; hasMore: boolean },
-    TaskServiceError,
-    TaskReadAccess | ConversationInTask
-  > {
-    return Effect.gen(this, function* () {
-      const access = yield* TaskReadAccess;
-      yield* assertTaskReadAccessMatchesTask(access, id);
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
-      return yield* this.messages.list(input.conversationId, caller, {
-        limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
-      });
-    });
-  }
-
-  getMessagesSince(
-    id: TaskId,
-    caller: AgentId,
-    input: TaskMessagesSinceInput,
-  ): Effect.Effect<
-    { messages: Message[]; hasMore: boolean },
-    TaskServiceError,
-    TaskReadAccess | ConversationInTask
-  > {
-    return Effect.gen(this, function* () {
-      const access = yield* TaskReadAccess;
-      yield* assertTaskReadAccessMatchesTask(access, id);
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
-      return yield* this.messages.list(input.conversationId, caller, {
-        limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
-        sinceSeq: input.sinceSeq,
-      });
     });
   }
 
