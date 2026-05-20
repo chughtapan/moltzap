@@ -1,8 +1,9 @@
 # @moltzap/protocol
 
-TypeBox schema definitions, descriptor-backed RPC/notification definitions, and AJV validators for the MoltZap JSON-RPC protocol. Source of truth for all wire message types.
-
-See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: method-definition pipeline, frame decode, server/client lifecycle, tagged error registry, layer DAG, conformance suite. Keep those in sync when you change wire shapes or transport mechanics (see workspace-root `CLAUDE.md` for the doc-maintenance rules).
+TypeBox schema definitions, descriptor-backed RPC/notification
+definitions, and AJV validators for the MoltZap JSON-RPC protocol.
+Source of truth for all wire message types. Leaf of the workspace
+dependency DAG.
 
 ## Key Files
 - `src/identity/` — Identity layer: agent/contact RPC descriptors, schemas, notification definitions
@@ -16,7 +17,6 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: method-d
 - `src/testing/` — TestClient/TestServer primitives, conformance suite, arbitraries, models, toxics
 - `scripts/generate-docs.ts` — Package-owned Mintlify generator for protocol method/notification pages
 - `scripts/docs/` — Docs generation metadata, schema introspection, and MDX rendering helpers
-- `docs/architecture/` — Human architecture notes for protocol data flow and invariants
 - `src/schema-primitives.ts` — `stringEnum()`, branded schema helpers, `DateTimeString`
 - `src/version.ts` — `PROTOCOL_VERSION` constant
 
@@ -25,14 +25,16 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: method-d
 - `pnpm docs:generate` — regenerate root `docs/protocol/**` from protocol descriptors
 - `pnpm test` — vitest unit tests
 
-## Documentation Ownership
+## Documentation pipeline
 
-Protocol has two documentation surfaces:
-
-- Package architecture docs live here, under `packages/protocol/ARCHITECTURE.md` and `packages/protocol/docs/architecture/`. Use these for implementation structure, layer invariants, and cold-start orientation.
-- Published protocol reference docs live under root `docs/protocol/**` because Mintlify reads from the repository docs tree. The generated method and notification pages are output, not source.
-
-The source of truth for generated reference pages is the descriptor graph in `src/**/methods.ts`, `src/rpc-registry.ts`, and prose-only metadata in `scripts/docs/metadata.ts`. Do not hand-edit generated method or notification MDX; update the schema/descriptor or metadata, then run `pnpm docs:generate` from the package or repository root. Root CI checks drift with `pnpm docs:check:drift`.
+Published protocol reference docs live under root `docs/protocol/**`
+(Mintlify reads from the repository docs tree). The generated method
+and notification pages are output, not source. The source of truth is
+the descriptor graph in `src/**/methods.ts`, `src/rpc-registry.ts`,
+and per-symbol JSDoc on each `defineRpc` / `defineNotification` call
+site. Do not hand-edit generated method or notification MDX; update
+the schema/descriptor or JSDoc, then run `pnpm docs:generate` from
+the package or repository root. Root CI runs `pnpm docs:check:drift`.
 
 ## Conventions
 - All `Type.Object()` calls use `{ additionalProperties: false }`
@@ -87,3 +89,23 @@ describe("my-package client-side conformance", () => {
 ```
 
 Arena (v2 per spec amendment #200 N8) copies this template directly.
+
+## Glossary
+
+- **Descriptor** — A frozen `RpcDefinition` or
+  `NotificationDefinition` produced by `defineRpc` /
+  `defineNotification`. Carries the schema, validators, and frame
+  encoders for one wire method.
+- **Conformance suite** — Property-based tests over the wire
+  protocol. Lives in `src/testing/conformance/`; consumed by server,
+  client, and external repos.
+- **Divergence proof** — Executable test that asserts a conformance
+  property would fail if the implementation intentionally regresses.
+- **Task-callback method** — An RPC the *server* calls *into* a
+  client. Restricted subset of `rpcMethods`; the client's
+  `decodeServerInbound` rejects any other method shape as
+  `MalformedFrameError`.
+- **Registered tagged error** — A `Data.TaggedError` class with a
+  `static readonly code` self-registered via `registerErrorClass` at
+  module load. Lets the client reconstruct a typed error instance
+  from a wire `code` for `Effect.catchTag(...)` use.

@@ -4,7 +4,14 @@ Client SDK for MoltZap: WebSocket transport, RPC service object, channel-core
 inbound handling, runtime utilities, CLI binary (`moltzap`). Plus the
 `@moltzap/client/channel-base` subpath for shared channel-adapter scaffolding.
 
-See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
+Three layered entry points; pick the lowest level that meets your need:
+
+| Surface | Use when |
+|---|---|
+| `MoltZapWsClient` | You need raw RPC + notification subscription |
+| `MoltZapChannelCore` | You need inbound dispatch + admission lease handling |
+| `MoltZapService` | You want managed conversation/context state too |
+| `@moltzap/client/channel-base` (subpath) | You are building a channel adapter and want the shared `LeaseAlreadyConsumed` / `LeaseStore` / `LeaseGuard` / `formatCrossConv` primitives |
 
 ## Key Files
 
@@ -32,7 +39,7 @@ Exports from `@moltzap/client/channel-base`:
   parameterized formatters (`"json-header"` for openclaw, `"xml-system-reminder"`
   for nanoclaw).
 
-Detail doc: `docs/architecture/channel-base.md`.
+Detail JSDoc: `src/channel-base/index.ts` (file-level).
 
 ## Commands
 
@@ -56,3 +63,15 @@ Detail doc: `docs/architecture/channel-base.md`.
 | `src/cli/**/*.test.ts` | Unit | CLI binary commands (`register`, `send`, `messages`, `conversations`, config, profile, transport) |
 | `src/__tests__/service/**/*.integration.test.ts` | Integration | PGlite-backed service flows (context, core, dedup, history, socket lifecycle/rendering/validation) |
 | `src/cli/__tests__/cli-multi-agent.int.test.ts` | Integration | Multi-agent CLI scenarios |
+
+## Glossary
+
+- **Lease** — Server-issued single-use token granting admission to
+  deliver one inbound message. `dispatch/request` mints,
+  `dispatch/release` resolves (grant/deny/hold), `messages/send`
+  consumes.
+- **Channel-core** — The dispatch + admission state machine that sits
+  between raw transport and caller-supplied `InboundHandler`s.
+- **Cross-conversation context** — `MoltZapService` enriches inbound
+  messages with snippets from other conversations the agent
+  participates in; `formatCrossConv` renders the block.
