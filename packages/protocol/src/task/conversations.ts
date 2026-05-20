@@ -56,7 +56,7 @@ export class ConversationFullError extends Data.TaggedError(
 }
 registerErrorClass(ConversationFullError);
 
-export const ConversationTypeEnum = stringEnum(["dm", "group"]);
+const ConversationTypeEnum = stringEnum(["dm", "group"]);
 
 const AgentParticipantRefSchema = Type.Object(
   {
@@ -126,10 +126,6 @@ export type ConversationParticipant = Static<
   typeof ConversationParticipantSchema
 >;
 export type ConversationSummary = Static<typeof ConversationSummarySchema>;
-
-export function agentParticipantRefSchema(): typeof AgentParticipantRefSchema {
-  return AgentParticipantRefSchema;
-}
 
 export function conversationSchema(): typeof ConversationSchema {
   return ConversationSchema;

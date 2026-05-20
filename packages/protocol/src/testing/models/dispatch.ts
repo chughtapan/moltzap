@@ -33,10 +33,9 @@ import {
 } from "../../app/methods.js";
 import {
   type ConversationId,
-  TasksClose,
-  TasksCreate,
-  TasksGet,
-  TasksList,
+  TaskClose,
+  TaskCreate,
+  TaskList,
 } from "../../task/methods.js";
 import {
   ContactsAccept,
@@ -95,8 +94,7 @@ const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set<string>([
   MessagesList.name,
   ContactsList.name,
   PresenceSubscribe.name,
-  TasksList.name,
-  TasksGet.name,
+  TaskList.name,
 ]);
 
 export function isIdempotent(method: string): boolean {
@@ -136,10 +134,9 @@ const MODEL_METHOD_OUTCOMES = {
   [AppsRegister.name]: "uncertain",
   [DispatchRequest.name]: "uncertain",
   [DispatchesGet.name]: "uncertain",
-  [TasksCreate.name]: "uncertain",
-  [TasksGet.name]: "uncertain",
-  [TasksList.name]: "uncertain",
-  [TasksClose.name]: "uncertain",
+  [TaskCreate.name]: "uncertain",
+  [TaskList.name]: "uncertain",
+  [TaskClose.name]: "uncertain",
 } as const satisfies Readonly<Record<MethodName, ModelMethodOutcome>>;
 
 /**

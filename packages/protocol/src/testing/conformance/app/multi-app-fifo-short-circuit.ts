@@ -8,7 +8,7 @@
  * 1A's structural scope.
  */
 import { Effect } from "effect";
-import { TasksCreate } from "@moltzap/protocol/task";
+import { TaskCreate } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyDeferred, registerProperty } from "../_shared/registry.js";
 
@@ -29,7 +29,7 @@ export function registerMultiAppFifoShortCircuit(
           new PropertyDeferred({
             category: CATEGORY,
             name: PROPERTY,
-            followUp: `dual-app first-deny short-circuit needs TM-topology dispatch; reactivate alongside #555 (${TasksCreate.name} bootstrap)`,
+            followUp: `dual-app first-deny short-circuit needs TM-topology dispatch; reactivate alongside #555 (${TaskCreate.name} bootstrap)`,
           }),
         );
       }).pipe(Effect.withSpan("registerMultiAppFifoShortCircuit")),

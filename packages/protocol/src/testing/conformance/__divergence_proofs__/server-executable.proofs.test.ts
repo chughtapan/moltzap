@@ -16,10 +16,10 @@ import {
   ConversationsArchive,
   ConversationsCreate,
   MessagesSend,
-  TasksAddParticipant,
-  TasksClose,
-  TasksCreate,
-  TasksCreateConversation,
+  TaskAddParticipant,
+  TaskClose,
+  TaskCreate,
+  TaskConversationCreate,
   ConversationsUnarchive,
   ConversationsUpdate,
 } from "../../../task/methods.js";
@@ -656,10 +656,10 @@ const taskCloseLifecycleBadResultHandlers = new Map<
   string,
   (request: RequestFrame) => unknown
 >([
-  [TasksCreate.name, badTaskCreateResult],
-  [TasksAddParticipant.name, badTaskParticipant],
-  [TasksCreateConversation.name, badTaskConversation],
-  [TasksClose.name, badTaskCloseResult],
+  [TaskCreate.name, badTaskCreateResult],
+  [TaskAddParticipant.name, badTaskParticipant],
+  [TaskConversationCreate.name, badTaskConversation],
+  [TaskClose.name, badTaskCloseResult],
   [MessagesSend.name, badTaskMessageSendResult],
 ]);
 
