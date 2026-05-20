@@ -95,7 +95,7 @@ polling-shape's historical-buffer semantic — frames arriving between
 the triggering RPC and the subscription pull were lost on the new
 surface, racing tests to timeout.
 
-Two bridges restore the legacy semantic on top of the Stream surface
+Three bridges restore the legacy semantic on top of the Stream surface
 without resurrecting the per-definition dedup ring:
 
 - **`@moltzap/server-core/test-utils → connectTestClient`** installs a
@@ -111,8 +111,19 @@ without resurrecting the per-definition dedup ring:
   `buildRecipientHandle` / `buildModeratorHandle` time;
   `waitForRelease` / `waitForObservability` consume from these
   per-definition Queues with the legacy match-loop predicate.
+- **`packages/protocol/.../task/_helpers.ts → makeNotificationBuffer`**
+  installs a per-conformance-actor broad-union `subscribeAll()` pump at
+  `acquireClient` time that appends every inbound notification to a
+  `Ref<ReadonlyArray<...>>` snapshot bound to the actor's
+  `notifications` field. `awaitOneNotification(buffer, definition,
+  timeoutMs)` polls this snapshot for the first matching frame and
+  removes it. Mirrors the server-core bridge for conformance properties
+  that exercise the `RPC → wait-for-N-notifications` pattern (e.g.
+  `delivery/conversation-lifecycle`, `delivery/task-close-lifecycle`)
+  where one RPC fans out multiple notifications and the test waits for
+  them sequentially.
 
-Both bridges live exclusively at the integration-test layer; the
+All three bridges live exclusively at the integration-test layer; the
 protocol-side `TestClient` itself stays pure-Stream and matches the
 production `MoltZapWsClient` lifecycle exactly.
 
@@ -174,13 +185,29 @@ reconstruction. Channel re-exports
 
 The conformance helpers in
 `packages/protocol/src/testing/conformance/{task,network,app}/` use
-two polling-shape forms today; both map mechanically to Stream form.
+two polling-shape forms today. The right Stream-form replacement
+depends on whether the call site relies on historical-buffer semantics
+(see §3): notifications that may have arrived between the triggering
+RPC and the wait.
 
 ```ts
-// Before — typed-payload wait by descriptor
+// Before — typed-payload wait by descriptor; the polling shape
+// implicitly buffered notifications that arrived before the wait.
 yield* client.waitForNotification(SomeNotification, 5_000);
 
-// After
+// After — historical-buffer-preserving (RECOMMENDED for
+// `send → wait` patterns). Routes through the per-actor
+// NotificationBuffer installed by `acquireClient` in
+// `task/_helpers.ts`. The buffer feeds frames that arrived between
+// the triggering RPC and this wait, eliminating sequential races
+// like `tasks/close` → wait `archived` → wait `task/closed` where
+// the second wait would otherwise miss an already-dispatched frame.
+yield* awaitOneNotification(actor.notifications, SomeNotification, 5_000);
+
+// After — no-buffer (only when the caller pre-subscribes before
+// the triggering RPC, e.g. `subscribe → trigger → assert`). Race-
+// prone for sequential `trigger → wait` patterns; prefer the
+// historical-buffer form above for new sites.
 yield* client.subscribe(SomeNotification).pipe(
   Stream.runHead,
   Effect.timeoutFail({
@@ -252,6 +279,10 @@ NEW (added):
   - `makeTestSubscriberRegistry()` (constructor)
   - `subscribe(registry, definition, refinement?)` (Stream factory)
   - `subscribeAll(registry, refinement?)` (Stream factory)
+- `packages/protocol/src/testing/conformance/task/_helpers.ts`
+  - `NotificationBuffer` (interface) — per-actor historical buffer
+  - `makeNotificationBuffer(client)` (internal constructor with Scope finalizer)
+  - `ConversationActor.notifications` (field) — buffer attached to every actor returned by `acquireClient`
 
 DELETED:
 

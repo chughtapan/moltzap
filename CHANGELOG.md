@@ -58,6 +58,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Existing `client.notifications.pipe(...)` filter chains become
   `client.subscribeAll().pipe(...)`. Channel re-exports require no
   caller-side update beyond passing the new predicate shape.
+- **Fix (`@moltzap/protocol/testing`):** conformance properties
+  `delivery/conversation-lifecycle` and `delivery/task-close-lifecycle`
+  timed out post-consolidation because their sequential
+  `RPC → wait → wait` patterns observed notifications that had
+  dispatched before the second `subscribe` materialised. Per-actor
+  `NotificationBuffer` now mirrors the server-core
+  `connectTestClient` bridge (§3 of `12-test-client-stream-consolidation.md`):
+  `acquireClient` installs a `subscribeAll()` pump appending every
+  inbound notification to a `Ref<ReadonlyArray<...>>` snapshot bound
+  to the actor's `notifications` field; `awaitOneNotification(buffer,
+  def, timeoutMs)` polls the snapshot and removes the first matching
+  frame. `ConversationActor` gains the `notifications` field;
+  `awaitOneNotification` takes a `NotificationBuffer` instead of a
+  `TestClient`. Same `Stream.runHead`-shaped consumer; opaque buffer
+  shape means downstream conformance call sites only need
+  `actor.notifications` instead of `actor.client`.
 
 ### Spec B (#596) — Notification consumption consolidation
 

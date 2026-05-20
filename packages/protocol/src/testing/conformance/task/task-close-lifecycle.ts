@@ -146,7 +146,7 @@ function waitForTaskClosedEvent(
 ) {
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
-      observer.client,
+      observer.notifications,
       TaskClosedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
