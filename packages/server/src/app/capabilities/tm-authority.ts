@@ -14,15 +14,13 @@ export { TmAuthority, type TmAuthorityValue };
  * Smart constructor: wraps today's runtime check exactly once per
  * request. Body delegates to `TaskService.loadTaskAsTmAuthority`, which
  * still performs the same SQL lookup + status branch + endpoint
- * equality check it did pre-Spec-E.
+ * equality check it did pre-Spec-E. `SqlError` is caught defectively
+ * by `fetchTask`. The error channel is carried as the full
+ * `TaskServiceError` union so impl-staff cannot accidentally
+ * over-narrow when the underlying helper widens.
  *
- * Error channel propagates `TaskService.loadTaskAsTmAuthority`'s full
- * public error union (`TaskServiceError`) verbatim — practically
- * `ForbiddenError` (not-the-TM, task-closed/failed) and `NotFoundError`
- * (task-does-not-exist); `SqlError` is caught defectively by
- * `fetchTask` so it does NOT appear in E. The union is carried as
- * `TaskServiceError` so impl-staff cannot accidentally over-narrow
- * when the underlying helper widens.
+ * @failure ForbiddenError when the caller is not the TM, or the task is closed/failed
+ * @failure NotFoundError when the task does not exist
  */
 export const obtainTmAuthority = (
   taskId: TaskId,

@@ -15,7 +15,11 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": ["introduction", "quickstart", "architecture"]
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
           },
           {
             "group": "Concepts",
@@ -68,6 +72,9 @@
               "development/evals",
               "development/contributing"
             ]
+          },
+          {
+            "$ref": "./modules/_nav.json"
           }
         ]
       },
@@ -195,7 +202,10 @@
         "groups": [
           {
             "group": "CLI Reference",
-            "pages": ["cli/overview", "cli/configuration"]
+            "pages": [
+              "cli/overview",
+              "cli/configuration"
+            ]
           }
         ]
       }

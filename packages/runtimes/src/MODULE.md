@@ -1,0 +1,640 @@
+# runtimes/src
+
+_`packages/runtimes/src`_
+
+## Purpose
+
+Public exports for runtime adapter orchestration.
+
+## Public surface
+
+### [`AgentName`](./runtime.ts#L6)
+
+_TypeAlias_
+
+```ts
+export type AgentName = string & Brand.Brand<"AgentName">;
+```
+
+### [`AgentName`](./runtime.ts#L6)
+
+_Variable_
+
+```ts
+export type AgentName = string & Brand.Brand<"AgentName">
+```
+
+### [`ApiKey`](./runtime.ts#L7)
+
+_TypeAlias_
+
+```ts
+export type ApiKey = string & Brand.Brand<"ApiKey">;
+```
+
+### [`ApiKey`](./runtime.ts#L7)
+
+_Variable_
+
+```ts
+export type ApiKey = string & Brand.Brand<"ApiKey">
+```
+
+### [`awaitAgentReadyByPolling`](./await-agent-ready.ts#L105)
+
+_Function_
+
+```ts
+export function awaitAgentReadyByPolling(
+  connections: PollingConnections,
+  agentId: string,
+  timeoutMs: number,
+  pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
+): Effect.Effect<ReadyOutcome, never, never>
+```
+
+### [`ClaudeCodeAdapter`](./claude-code-adapter.ts#L396)
+
+_Class_
+
+```ts
+export class ClaudeCodeAdapter implements Runtime {
+  private state: AdapterState | null = null;
+
+  constructor(private readonly deps: ClaudeCodeAdapterDeps) {}
+
+  spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
+    const toSpawnFailed = (cause: unknown): SpawnFailed => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      return new SpawnFailed({
+        agentName: input.agentName,
+        cause: error,
+        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
+      });
+    };
+
+    return Effect.gen(this, function* () {
+      const { stateDir, extDir } = yield* prepareClaudeCodeStateDir(
+        this.deps,
+        input,
+      );
+
+      const mcpConfigPath = yield* writeClaudeCodeMcpConfig({
+        stateDir,
+        extDir,
+        serverUrl: input.serverUrl,
+        apiKey: input.apiKey,
+        agentName: input.agentName,
+      });
+
+      const logBuffer = { value: "" };
+      const child = yield* spawnConfiguredClaude({
+        deps: this.deps,
+        stateDir,
+        mcpConfigPath,
+        logBuffer,
+      });
+
+      this.state = {
+        process: child,
+        stateDir,
+        spawnInput: input,
+        logBuffer,
+        tornDown: false,
+      };
+    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
+  }
+```
+
+Runtime interface contract for agent subprocess management.
+
+Five methods. spawn starts the subprocess. waitUntilReady blocks until
+the server's ConnectionManager confirms authentication (or timeout/exit).
+teardown kills the process group and removes the working directory.
+getLogs returns accumulated output from a byte offset.
+getInboundMarker returns a substring that proves an inbound message
+was received by the runtime's channel plugin.
+
+### [`ClaudeCodeAdapterDeps`](./claude-code-adapter.ts#L60)
+
+_Interface_
+
+```ts
+export interface ClaudeCodeAdapterDeps {
+  readonly server: RuntimeServerHandle;
+
+  /**
+   * Absolute path to the `claude` CLI bin. Production callers pass the
+   * workspace `node_modules/.bin/claude` (resolved by
+   * `createWorkspaceClaudeCodeAdapter`).
+   */
+  readonly claudeBin: string;
+
+  /**
+   * Absolute path to `@moltzap/claude-code-channel`'s built `dist/` dir.
+   * The adapter copies this into the per-agent state dir and points the
+   * MCP config at the copied bin.
+   */
+  readonly channelDistDir: string;
+
+  /**
+   * Absolute path to the moltzap repo root — used to symlink workspace
+   * deps (`@moltzap/protocol`, `@moltzap/client`, etc.) into the plugin
+   * state dir's `node_modules`.
+   */
+  readonly repoRoot: string;
+}
+```
+
+### [`createWorkspaceClaudeCodeAdapter`](./claude-code-adapter.ts#L534)
+
+_Function_
+
+```ts
+export function createWorkspaceClaudeCodeAdapter(
+  input: WorkspaceClaudeCodeAdapterInput,
+): ClaudeCodeAdapter
+```
+
+### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L362)
+
+_Function_
+
+```ts
+export function createWorkspaceOpenClawAdapter(
+  input: WorkspaceOpenClawAdapterInput,
+): OpenClawAdapter
+```
+
+### [`launchRuntimeFleet`](./fleet.ts#L282)
+
+_Function_
+
+```ts
+export function launchRuntimeFleet(
+  options: RuntimeFleetLaunchOptions,
+): Effect.Effect<RuntimeFleet, RuntimeLaunchFailed, never>
+```
+
+### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L366)
+
+_Function_
+
+```ts
+export function launchRuntimeFleetWithProcessSignals(
+  options: RuntimeFleetProcessSignalOptions,
+): Effect.Effect<
+  RuntimeFleet,
+  RuntimeLaunchFailed | RuntimeFleetStartupInterrupted,
+  never
+>
+```
+
+### [`LogSlice`](./runtime.ts#L51)
+
+_Interface_
+
+```ts
+export interface LogSlice {
+  /** stdout+stderr bytes starting from the requested offset. */
+  readonly text: string;
+  /** Byte offset to pass on the next call to continue reading. */
+  readonly nextOffset: number;
+}
+```
+
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L48)
+
+_Class_
+
+```ts
+export class NanoclawAdapter implements Runtime {
+  private state: AdapterState | null = null;
+
+  constructor(private readonly deps: NanoclawAdapterDeps) {}
+
+  spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
+    const toSpawnFailed = (cause: unknown) => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      return new SpawnFailed({
+        agentName: input.agentName,
+        cause: error,
+        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
+      });
+    };
+
+    return Effect.gen(this, function* () {
+      yield* ensureNanoclawRuntimeInstalledEffect();
+
+      const handle = yield* startNanoclawRuntimeEffect({
+        apiKey: input.apiKey,
+        serverUrl: input.serverUrl,
+        workspaceFiles: input.workspaceFiles,
+      });
+
+      yield* Effect.sync(() => {
+        this.state = { handle, spawnInput: input, tornDown: false };
+      });
+    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
+```
+
+Runtime interface contract for agent subprocess management.
+
+Five methods. spawn starts the subprocess. waitUntilReady blocks until
+the server's ConnectionManager confirms authentication (or timeout/exit).
+teardown kills the process group and removes the working directory.
+getLogs returns accumulated output from a byte offset.
+getInboundMarker returns a substring that proves an inbound message
+was received by the runtime's channel plugin.
+
+### [`NanoclawAdapterDeps`](./nanoclaw-adapter.ts#L24)
+
+_Interface_
+
+```ts
+export interface NanoclawAdapterDeps {
+  readonly server: RuntimeServerHandle;
+  readonly nanoclawCache?: string;
+}
+```
+
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L244)
+
+_Class_
+
+```ts
+export class OpenClawAdapter implements Runtime {
+  private state: AdapterState | null = null;
+
+  constructor(private readonly deps: OpenClawAdapterDeps) {}
+
+  spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
+    const toSpawnFailed = (cause: unknown) => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      return new SpawnFailed({
+        agentName: input.agentName,
+        cause: error,
+        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
+      });
+    };
+
+    return Effect.gen(this, function* () {
+      const port = yield* allocateFreePort();
+      const { deps } = this;
+      const stateDir = yield* prepareOpenClawStateDir(deps, input);
+      const logBuffer = { value: "" };
+      const child = yield* spawnConfiguredOpenClaw(
+        deps,
+        stateDir,
+        port,
+        logBuffer,
+      );
+
+      const st: AdapterState = {
+        process: child,
+        stateDir,
+        logBuffer,
+        spawnInput: input,
+        tornDown: false,
+      };
+
+      this.state = st;
+    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
+  }
+```
+
+Runtime interface contract for agent subprocess management.
+
+Five methods. spawn starts the subprocess. waitUntilReady blocks until
+the server's ConnectionManager confirms authentication (or timeout/exit).
+teardown kills the process group and removes the working directory.
+getLogs returns accumulated output from a byte offset.
+getInboundMarker returns a substring that proves an inbound message
+was received by the runtime's channel plugin.
+
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L144)
+
+_Interface_
+
+```ts
+export interface OpenClawAdapterDeps {
+  readonly server: RuntimeServerHandle;
+  readonly openclawBin: string;
+  readonly channelDistDir: string;
+  readonly repoRoot: string;
+}
+```
+
+### [`ReadyOutcome`](./runtime.ts#L58)
+
+_TypeAlias_
+
+```ts
+export type ReadyOutcome =
+  | { readonly _tag: "Ready" }
+```
+
+### [`Runtime`](./runtime.ts#L77)
+
+_Interface_
+
+```ts
+export interface Runtime {
+  spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never>;
+
+  /**
+   * Blocks until the agent's subprocess has authenticated against the server
+   * (confirmed by ConnectionManager entry) or timeout/exit.
+   * On Timeout or ProcessExited, the adapter calls teardown internally
+   * before returning.
+   */
+  waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never>;
+
+  /** Idempotent. SIGTERM → wait 10s → SIGKILL to process group. rm -rf workdir. */
+  teardown(): Effect.Effect<void, never, never>;
+
+  /** Returns stdout+stderr from the given byte offset. */
+  getLogs(offset: number): LogSlice;
+
+  /** Substring that proves inbound message delivery when matched against post-send logs. */
+  getInboundMarker(): string;
+}
+```
+
+Runtime interface contract for agent subprocess management.
+
+Five methods. spawn starts the subprocess. waitUntilReady blocks until
+the server's ConnectionManager confirms authentication (or timeout/exit).
+teardown kills the process group and removes the working directory.
+getLogs returns accumulated output from a byte offset.
+getInboundMarker returns a substring that proves an inbound message
+was received by the runtime's channel plugin.
+
+### [`RuntimeAgentSpec`](./fleet.ts#L34)
+
+_Interface_
+
+```ts
+export interface RuntimeAgentSpec {
+  readonly agentName: string;
+  readonly apiKey: string;
+  readonly agentId: string;
+  readonly serverUrl: string;
+  readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
+  readonly modelId?: string;
+}
+```
+
+### [`RuntimeExitedBeforeReady`](./errors.ts#L17)
+
+_Class_
+
+```ts
+export class RuntimeExitedBeforeReady extends Data.TaggedError(
+  "RuntimeExitedBeforeReady",
+)<{
+  readonly agentName: string;
+  readonly exitCode: number | null;
+  readonly stderr: string;
+  readonly message: string;
+}> {}
+```
+
+### [`RuntimeFleet`](./fleet.ts#L74)
+
+_Interface_
+
+```ts
+export interface RuntimeFleet {
+  readonly agents: ReadonlyArray<RuntimeFleetAgent>;
+  stopAll(): Effect.Effect<void, never, never>;
+  getLogs(name: string): string;
+}
+```
+
+### [`RuntimeFleetAgent`](./fleet.ts#L69)
+
+_Interface_
+
+```ts
+export interface RuntimeFleetAgent {
+  readonly name: string;
+  readonly agentId: string;
+}
+```
+
+### [`RuntimeFleetLaunchOptions`](./fleet.ts#L53)
+
+_Interface_
+
+```ts
+export interface RuntimeFleetLaunchOptions {
+  readonly kind: RuntimeKind;
+  readonly server: RuntimeServerHandle;
+  readonly agents: ReadonlyArray<RuntimeAgentSpec>;
+  readonly readyTimeoutMs: number;
+  readonly concurrency?: number | "unbounded";
+  readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
+  readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
+  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
+}
+```
+
+### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L64)
+
+_Interface_
+
+```ts
+export interface RuntimeFleetProcessSignalOptions
+  extends RuntimeFleetLaunchOptions {
+  readonly signals?: ReadonlyArray<Signal>;
+}
+```
+
+### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L80)
+
+_Class_
+
+```ts
+export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
+  "RuntimeFleetStartupInterrupted",
+)<{
+  readonly signal: Signal;
+  readonly message: string;
+}> {}
+```
+
+### [`RuntimeKind`](./fleet.ts#L30)
+
+_TypeAlias_
+
+```ts
+export type RuntimeKind = "openclaw" | "nanoclaw" | "claude-code";
+```
+
+### [`RuntimeLaunchFailed`](./errors.ts#L26)
+
+_TypeAlias_
+
+```ts
+export type RuntimeLaunchFailed =
+  | SpawnFailed
+  | RuntimeReadyTimedOut
+  | RuntimeExitedBeforeReady;
+```
+
+### [`RuntimeReadyTimedOut`](./errors.ts#L9)
+
+_Class_
+
+```ts
+export class RuntimeReadyTimedOut extends Data.TaggedError(
+  "RuntimeReadyTimedOut",
+)<{
+  readonly agentName: string;
+  readonly timeoutMs: number;
+  readonly message: string;
+}> {}
+```
+
+### [`RuntimeServerHandle`](./runtime.ts#L22)
+
+_Interface_
+
+```ts
+export interface RuntimeServerHandle {
+  /**
+   * Resolves to `Ready` when the named agent has authenticated against the
+   * server. Resolves to `Timeout` after `timeoutMs` if no authenticated
+   * connection ever appears. Resolves to `ProcessExited` only if the
+   * implementation can detect that the agent's owning process exited before
+   * authenticating; otherwise `Timeout` covers that case (the runtime
+   * adapters layer their own exit-detection on top via `Effect.race`).
+   *
+   * In-process implementations wire this through `awaitAgentReadyByPolling`.
+   * Out-of-process implementations (e.g., a zapbot orchestrator talking to
+   * a standalone moltzap-server) implement it directly, typically via a
+   * presence-event subscription on the server's WebSocket API.
+   */
+  awaitAgentReady(
+    agentId: string,
+    timeoutMs: number,
+  ): Effect.Effect<ReadyOutcome, never, never>;
+}
+```
+
+### [`RuntimeStartOptions`](./fleet.ts#L43)
+
+_Interface_
+
+```ts
+export interface RuntimeStartOptions {
+  readonly kind: RuntimeKind;
+  readonly server: RuntimeServerHandle;
+  readonly agent: RuntimeAgentSpec;
+  readonly readyTimeoutMs: number;
+  readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
+  readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
+  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
+}
+```
+
+### [`ServerUrl`](./runtime.ts#L8)
+
+_TypeAlias_
+
+```ts
+export type ServerUrl = string & Brand.Brand<"ServerUrl">;
+```
+
+### [`ServerUrl`](./runtime.ts#L8)
+
+_Variable_
+
+```ts
+export type ServerUrl = string & Brand.Brand<"ServerUrl">
+```
+
+### [`SpawnFailed`](./errors.ts#L3)
+
+_Class_
+
+```ts
+export class SpawnFailed extends Data.TaggedError("SpawnFailed")<{
+  readonly agentName: string;
+  readonly message: string;
+  readonly cause: Error;
+}> {}
+```
+
+### [`SpawnInput`](./runtime.ts#L42)
+
+_Interface_
+
+```ts
+export interface SpawnInput {
+  readonly agentName: AgentName;
+  readonly apiKey: ApiKey;
+  readonly agentId: string;
+  readonly serverUrl: ServerUrl;
+  readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
+  readonly modelId?: string;
+}
+```
+
+### [`startRuntimeAgent`](./fleet.ts#L270)
+
+_Function_
+
+```ts
+export function startRuntimeAgent(
+  options: RuntimeStartOptions,
+): Effect.Effect<Runtime, RuntimeLaunchFailed, never>
+```
+
+### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L85)
+
+_Interface_
+
+```ts
+export interface WorkspaceClaudeCodeAdapterInput {
+  readonly server: RuntimeServerHandle;
+  readonly claudeBin?: string;
+  readonly channelDistDir?: string;
+  readonly repoRoot?: string;
+}
+```
+
+### [`WorkspaceFile`](./runtime.ts#L17)
+
+_Interface_
+
+```ts
+export interface WorkspaceFile {
+  readonly relativePath: string;
+  readonly content: string;
+}
+```
+
+### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L151)
+
+_Interface_
+
+```ts
+export interface WorkspaceOpenClawAdapterInput {
+  readonly server: RuntimeServerHandle;
+  readonly openclawBin?: string;
+  readonly channelDistDir?: string;
+  readonly repoRoot?: string;
+}
+```
+
+## Files
+
+- `await-agent-ready.ts`
+- `claude-code-adapter.ts`
+- `errors.ts`
+- `fleet.ts`
+- `nanoclaw-adapter.ts`
+- `openclaw-adapter.ts`
+- `runtime.ts`

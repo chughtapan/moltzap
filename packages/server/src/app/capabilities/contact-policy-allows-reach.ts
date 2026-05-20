@@ -20,16 +20,13 @@ export { ContactPolicyAllowsReach, type ContactPolicyAllowsReachValue };
  * `mintTask: Effect.never as never` synthesis shim. Single source of
  * truth for the create-side contact-policy fan-out: the service caller
  * inside `createConversationEffect` and the obtain helper both call
- * this method.
+ * this method. `SqlError` from the underlying contact-edge lookups is
+ * caught defectively inside the service helpers.
  *
- * Error channel propagates the underlying helpers' failure modes:
- *   - `NotInContactsError` — caller's contact policy rejects a target
- *   - `NotFoundError` — a referenced `agents` row is missing
- *   - `ForbiddenError` — generic policy denial
- *   - `InvalidParamsError` — DM-arity / shape mismatch
- *
- * `SqlError` from the underlying contact-edge lookups is caught
- * defectively inside the service helpers.
+ * @failure NotInContactsError when caller's contact policy rejects a target
+ * @failure NotFoundError when a referenced `agents` row is missing
+ * @failure ForbiddenError when generic policy denies the path
+ * @failure InvalidParamsError when DM-arity / shape mismatch
  */
 export const obtainContactPolicyForCreate = (
   creatorAgentId: AgentId,
@@ -67,8 +64,10 @@ export const obtainContactPolicyForCreate = (
  * `conversationId`. Single source of truth: the service caller inside
  * `addParticipantEffect` and the obtain helper both call this method.
  *
- * Error channel matches `obtainContactPolicyForCreate` (same underlying
- * fan-out).
+ * @failure NotInContactsError when caller's contact policy rejects the target
+ * @failure NotFoundError when a referenced `agents` row is missing
+ * @failure ForbiddenError when generic policy denies the path
+ * @failure InvalidParamsError when shape mismatch
  */
 export const obtainContactPolicyForAdd = (
   creatorAgentId: AgentId,

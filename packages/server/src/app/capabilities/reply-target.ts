@@ -23,16 +23,14 @@ export {
 /**
  * Smart constructor. Delegates to `MessageService.assertReplyTarget`
  * (Phase 1 promotes the helper to `@internal` exported per Decision B
- * / Option A).
- *
- * Error channel propagates `MessageService.assertReplyTarget`'s
- * `NotFoundError` when `replyToId` does not resolve to a message in
- * `conversationId`. `SqlError` from the underlying select is caught
+ * / Option A). `SqlError` from the underlying select is caught
  * defectively inside the service helper.
  *
  * R channel includes `MessageServiceTag` because the obtain helper
  * dereferences the (Phase-1-promoted-to-`@internal`)
  * `MessageService.assertReplyTarget` method through the service Tag.
+ *
+ * @failure NotFoundError when `replyToId` does not resolve to a message in `conversationId`
  */
 export const obtainValidReplyTarget = (
   conversationId: ConversationId,

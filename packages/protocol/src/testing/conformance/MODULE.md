@@ -1,0 +1,15 @@
+# protocol/testing/conformance
+
+_`packages/protocol/src/testing/conformance`_
+
+## Purpose
+
+Public barrel for the protocol conformance framework.
+
+## Public surface
+
+_No exports surfaced from this folder._
+
+## Files
+
+_No source files tracked under this folder by TypeDoc._

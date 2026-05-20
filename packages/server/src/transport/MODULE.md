@@ -1,0 +1,450 @@
+# server-core/transport
+
+_`packages/server/src/transport`_
+
+## Purpose
+
+Transport layer public barrel.
+
+The transport layer owns WebSocket connection lifecycle, JSON-RPC method
+binding, and the type-only per-layer Tag allowlist hierarchy. It may import
+kernels only; identity, network, task, and app compose on top of transport.
+
+## Public surface
+
+### [`acquireConnectionRpcClient`](./connection.ts#L59)
+
+_Function_
+
+```ts
+export function acquireConnectionRpcClient(
+  connectionId: string,
+  write: (raw: string)
+```
+
+Allocate a per-connection Spec F (#617) typed `ServerConnection` whose
+request ids are prefixed `srv-${connectionId}` (keeps server-originated
+ids disjoint from client ids in logs and captures). The Scope finalizer
+registered by the internalized originator helper drains pending
+Deferreds with `NotConnectedError` when the connection scope closes.
+
+Test-only: `handlers` defaults to the empty record (no inbound
+dispatch). Production code passes the application's
+`ServerHandlers&lt;DispatchContext>` table via `socket-handler.ts → openSocketSession`.
+
+### [`AppLayerScope`](./layer-scopes.ts#L11)
+
+_Class_
+
+```ts
+export class AppLayerScope extends Context.Tag("@moltzap/server/AppLayerScope")<
+  AppLayerScope,
+  void
+>() {}
+```
+
+### [`AppTags`](./layer-tags.ts#L128)
+
+_TypeAlias_
+
+```ts
+export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
+```
+
+App-layer allowlist: `apps.handlers.ts` (registration + dispatch
+authorize). `AppTmRegistryTag` is yielded by the app-host construction
+path; included here for completeness even though no current handler
+yields it directly.
+
+### [`AuthenticatedContext`](./context.ts#L12)
+
+_Interface_
+
+```ts
+export interface AuthenticatedContext {
+  agentId: AgentId;
+  agentStatus: string;
+  ownerUserId: UserId | null;
+}
+```
+
+### [`CapabilityTags`](./layer-tags.ts#L180)
+
+_TypeAlias_
+
+```ts
+export type CapabilityTags =
+  | TmAuthority
+  | TaskReadAccess
+  | ConversationParticipantAccess
+  | ConversationInTask
+  | AgentExists
+  | AgentInTaskParticipants
+  | ContactPolicyAllowsReach
+  | TaskActive
+  | ConversationNotArchived
+  | ValidReplyTarget
+  | NoReplyTarget
+  | GroupCapacityForCreate
+  | MessageSendPermission
+  | ConversationCreateAuthorization
+  | AddParticipantPermission;
+```
+
+Concrete capability-tag union (Phase 1, Spec E #601). The thirteen
+tags enumerated below cover every capability that
+`packages/server/src/app/capabilities/` exports. New capability tags
+MUST be added to this union AND to `app/capabilities/index.ts`;
+absent that, the canary (`capability-r-channel.types-check.ts`) and
+the `defineTaskMethod` wrapper boundary check cannot recognize the
+new tag as part of the capability surface, and a handler that fails
+to drain it would slip past the type system.
+
+### [`ConnectionManager`](./connection.ts#L111)
+
+_Class_
+
+```ts
+export class ConnectionManager {
+  private connections = new Map<string, MoltZapConnection>();
+
+  add(conn: MoltZapConnection): void {
+    this.connections.set(conn.id, conn);
+  }
+
+  remove(id: string): void {
+    this.connections.delete(id);
+  }
+
+  get(id: string): MoltZapConnection | undefined {
+    return this.connections.get(id);
+  }
+
+  all(): MoltZapConnection[] {
+    return [...this.connections.values()];
+  }
+
+  getByAgent(agentId: string): MoltZapConnection[] {
+    return Array.from(this.connections.values()).filter(
+      (conn) => conn.auth && conn.auth.agentId === agentId,
+    );
+  }
+```
+
+### [`defineAppMethod`](./define-layered-method.ts#L106)
+
+_Function_
+
+```ts
+export function defineAppMethod<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  E = never,
+  Reqs extends AppTags | CapabilityTags = AppTags,
+>(
+  definition: RpcDefinition<Name, P, R>,
+  def: MethodDef<
+    P,
+    R,
+    Reqs | NetworkLayerScope | TaskLayerScope | AppLayerScope,
+    E
+  >,
+): RpcMethodBinding
+```
+
+App-layer RPC method binding. Handler `R`-channel is
+`Reqs extends AppTags | CapabilityTags`; provides all three layer
+scopes structurally. Capability tags admit auto-provision.
+
+See `defineNetworkMethod` for the maintenance contract.
+
+### [`defineMethod`](./context.ts#L62)
+
+_Function_
+
+```ts
+export function defineMethod<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  E = never,
+  // `Reqs` is intentionally unconstrained: caller handlers' R-channels
+  // are unions of concrete `Context.Tag` instances (DbTag, etc.) whose
+  // invariant `Id`/`Type` parameters reject the `Context.Tag<unknown,
+  // unknown>` upper bound. The dispatcher's `asNeverR` erases R at the
+  // runtime boundary
+```
+
+Type-safe RPC method definition driven by a protocol manifest.
+Wraps the user's handler with `requiresActive` enforcement and
+provides `ConnIdTag` from the dispatch context.
+
+`Reqs` is the handler body's R-channel — the union of service Tags it
+`yield*`s plus `ConnIdTag` if the body reads it. Defaults to
+`ConnIdTag` so existing handlers (which yield no service Tags)
+continue to compile against this signature. Per the Phase 2A r2 plan
+§3, the `defineXMethod` variants in `define-layered-method.ts` add
+per-layer upper bounds on `Reqs` via constrained generics; this base
+`defineMethod` is unconstrained.
+
+`Effect.provideService(ConnIdTag, ctx.connId)` is a no-op when the
+body doesn't pull `ConnIdTag` (the `R` channel of `Effect` excludes
+the tag if absent), so `Reqs` widening doesn't lie about
+requirements.
+
+### [`defineNetworkMethod`](./define-layered-method.ts#L47)
+
+_Function_
+
+```ts
+export function defineNetworkMethod<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  E = never,
+  Reqs extends NetworkTags = NetworkTags,
+>(
+  definition: RpcDefinition<Name, P, R>,
+  def: MethodDef<P, R, Reqs | NetworkLayerScope, E>,
+): RpcMethodBinding
+```
+
+Network-layer RPC method binding. Handler `R`-channel is
+`Reqs extends NetworkTags`; the wrapper provides `NetworkLayerScope`
+structurally and the dispatcher's `ManagedRuntime` provides every
+service Tag at request time.
+
+`Reqs` defaults to `NetworkTags` so a handler that yields no service
+Tag (the pre-2A.0 factory shape) infers `Reqs = never` via R-channel
+covariance and compiles unchanged. A handler that yields a Tag from a
+higher layer (e.g. `MessageServiceTag`, which is `TaskTags` only)
+fails the constraint at the call site.
+
+**Type-alias hierarchy.** See `./layer-tags.ts` for the full
+allowlist. Adding a new service Tag is a TWO-step edit per the
+maintenance contract: update `layer-tags.ts` AND
+`architectureOptions.layers` in the root `eslint.config.js` so the
+structural lint and the type system agree.
+
+### [`defineTaskMethod`](./define-layered-method.ts#L77)
+
+_Function_
+
+```ts
+export function defineTaskMethod<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  E = never,
+  Reqs extends TaskTags | CapabilityTags = TaskTags,
+>(
+  definition: RpcDefinition<Name, P, R>,
+  def: MethodDef<P, R, Reqs | NetworkLayerScope | TaskLayerScope, E>,
+): RpcMethodBinding
+```
+
+Task-layer RPC method binding. Handler `R`-channel is
+`Reqs extends TaskTags | CapabilityTags`; provides `NetworkLayerScope`
+and `TaskLayerScope` structurally. Capability tags are admitted so
+the typed dispatcher's auto-provision step can fill them from the
+descriptor's `capabilities` array. The cross-package lockstep
+(handler R ⊆ `CapabilitiesOf&lt;D>`) is enforced at
+`typed-dispatcher.types-check.ts`.
+
+See `defineNetworkMethod` for the maintenance contract.
+
+### [`DispatchContext`](./context.ts#L19)
+
+_Interface_
+
+```ts
+export interface DispatchContext {
+  readonly auth: AuthenticatedContext;
+  readonly connId: string;
+}
+```
+
+Per-request dispatch context handed to every RPC handler by the typed dispatcher.
+
+### [`IdentityTags`](./layer-tags.ts#L84)
+
+_TypeAlias_
+
+```ts
+export type IdentityTags = TransportTags | AuthServiceTag;
+```
+
+Identity-layer allowlist: registration, claim, login, contacts,
+agent-visibility lookups. Yielded by `agents-lookup.handlers.ts` (the
+three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
+`AgentsList` after the auth-handlers split).
+
+### [`MoltZapConnection`](./connection.ts#L18)
+
+_Interface_
+
+```ts
+export interface MoltZapConnection {
+  id: string;
+
+  /**
+   * Write a raw frame to this connection. Fails with SocketError on send
+   * failure or if the socket is already closed.
+   */
+  write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+```
+
+### [`NetworkLayerScope`](./layer-scopes.ts#L3)
+
+_Class_
+
+```ts
+export class NetworkLayerScope extends Context.Tag(
+  "@moltzap/server/NetworkLayerScope",
+)<NetworkLayerScope, void>() {}
+```
+
+### [`NetworkTags`](./layer-tags.ts#L95)
+
+_TypeAlias_
+
+```ts
+export type NetworkTags =
+  | IdentityTags
+  | AgentEndpointResolverTag
+  | ConnectionManagerTag
+  | NetworkSendServiceTag
+  | PresenceServiceTag;
+```
+
+Network-layer allowlist: Connect, presence, app-TM dispatch surface.
+`ping.handlers.ts` lives here. The `agentEndpointResolver` is the
+`AgentId → ConnectionId` multimap (network-conceptual — endpoint
+resolution is what the network layer DOES, not who owns it). The
+presence service lives in `network/services/` post-2A.2 reshape; its
+Tag is yielded by handlers in higher layers (presence handler routes
+through the TM bus from `task/handlers/`).
+
+### [`RpcMethodBinding`](./context.ts#L36)
+
+_TypeAlias_
+
+```ts
+export type RpcMethodBinding = HandlerSlot<
+  RpcDefinition<string, TSchema, TSchema>,
+  DispatchContext,
+  Context.Tag<unknown, unknown>
+>;
+```
+
+RPC binding stored in the registry. Each binding carries a method
+definition and a Spec F (#617) typed-dispatcher `HandlerSlot`-shaped
+handler that already provides `ConnIdTag` from the dispatch context.
+
+The remaining R-channel tags (the rest of `AppTags`) are provided by
+the dispatcher's `FullLive` Layer at request time via the surrounding
+`ManagedRuntime`. At the slot type the R-channel is widened to a
+generic `Context.Tag` union for storage; the runtime resolves R
+against `FullLive` post-`asNeverR` in
+`transport/dispatch.ts → makeInboundDispatch`.
+
+### [`RpcMethodRegistry`](./context.ts#L42)
+
+_TypeAlias_
+
+```ts
+export type RpcMethodRegistry = RpcMethodBinding[];
+```
+
+### [`sendRpcToClient`](./connection.ts#L93)
+
+_Function_
+
+```ts
+export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
+  connection: MoltZapConnection,
+  definition: D,
+  params: ParamsOf<D>,
+): Effect.Effect<ResultOf<D>, RpcCallError, never>
+```
+
+Send an awaitable RPC from server → client over `connection`'s WebSocket.
+
+Generic-narrowing wrapper around `connection.originator.call` that
+constrains `D` to the task-callback RPC union — prevents accidental
+dispatch of a client→server method on the appCallback channel.
+
+Caller controls timeout via `Effect.timeout` at the call site.
+
+### [`TaskLayerScope`](./layer-scopes.ts#L7)
+
+_Class_
+
+```ts
+export class TaskLayerScope extends Context.Tag(
+  "@moltzap/server/TaskLayerScope",
+)<TaskLayerScope, void>() {}
+```
+
+### [`TaskTags`](./layer-tags.ts#L112)
+
+_TypeAlias_
+
+```ts
+export type TaskTags =
+  | NetworkTags
+  | MessageServiceTag
+  | ConversationServiceTag
+  | ParticipantServiceTag
+  | TaskServiceTag
+  | ContactsServiceTag
+  | LeaseRegistryTag
+  | SessionValidatorTag;
+```
+
+Task-layer allowlist: conversations, messages, tasks, contacts.
+Includes `LeaseRegistryTag` (admission gate for `messages/send`
+dispatch leases — yielded by `messages.handlers.ts`) and
+`SessionValidatorTag` (yielded by the Connect handler post-split,
+which lives at `task/handlers/connect.handlers.ts`). The Connect
+handler is task-tier because its body pulls cross-cutting services
+spanning network (connections, presence) AND task (conversation
+resolution for presence fan-out).
+
+### [`TransportTags`](./layer-tags.ts#L76)
+
+_TypeAlias_
+
+```ts
+export type TransportTags = ConnIdTag | DbTag;
+```
+
+Bottom kernel — per-request connection id plus the database handle.
+Both are infrastructure that every protocol layer may pull. ConnIdTag
+is provided by `defineMethod` from the dispatch context; DbTag is
+provided by the dispatcher's `ManagedRuntime` from the configured
+database `Layer.succeed(DbTag, db)`.
+
+### [`unusedOriginator`](./connection.test-utils.ts#L12)
+
+_Function_
+
+```ts
+export const unusedOriginator = (): ServerConnection<DispatchContext>
+```
+
+Defect-throwing `ServerConnection&lt;DispatchContext>` stub for tests
+that build a fake `MoltZapConnection` but never exercise the
+appCallback channel or the inbound-dispatch path. If a test
+inadvertently calls any method the defect surfaces loudly rather
+than silently passing.
+
+## Files
+
+- `connection.test-utils.ts`
+- `connection.ts`
+- `context.ts`
+- `define-layered-method.ts`
+- `layer-scopes.ts`
+- `layer-tags.ts`

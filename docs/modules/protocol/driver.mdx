@@ -1,0 +1,548 @@
+---
+title: "protocol/driver"
+description: "Wire-driver harness barrel for the `_shared/driver/` sub-folder."
+---
+
+# protocol/driver
+
+_`packages/protocol/src/testing/conformance/_shared/driver`_
+
+## Purpose
+
+Wire-driver harness barrel for the `_shared/driver/` sub-folder.
+
+The `driver/` folder contains test-time JSON-RPC wire harnesses.
+
+These harnesses act as a counterparty for property tests.
+
+The folder currently contains `test-client.ts` and `test-server.ts`.
+Future wire-driver helpers belong here. Other helpers belong elsewhere.
+
+Re-exporting keeps external consumers on the public testing entrypoint.
+
+## Public surface
+
+### [`accept`](./test-server.ts#L93)
+
+_Property_
+
+### [`agentId`](./test-client.ts#L103)
+
+_Property_
+
+### [`agentKey`](./test-client.ts#L102)
+
+_Property_
+
+### [`allInbound`](./test-server.ts#L95)
+
+_Property_
+
+### [`autoConnect`](./test-client.ts#L112)
+
+_Property_
+
+When `true`, send the `network/connect` handshake automatically after the
+WS upgrade. Defaults to `true`.
+
+### [`awaitServerRequest`](./test-client.ts#L237)
+
+_Property_
+
+Park until the server sends an app-callback request for `method`. The handler
+registered via onAppCallback (if any) still runs and replies;
+`awaitServerRequest` is an OBSERVATION primitive — it lets a test
+assert the request payload before the response goes back without
+stealing the dispatch.
+
+`predicate` narrows to the first request whose params satisfy it.
+Multiple awaiters per method form a FIFO queue (registration order).
+
+`timeoutMs` defaults to 5_000; callers wanting to drive timing
+themselves can pass a generous value here and gate the returned
+Effect with `Effect.timeout` at the call site (architect plan §3.6
+"Effect.timeout at call site, not schema cap").
+
+### [`awaitServerRequest`](./test-client.ts#L237)
+
+_Property_
+
+Park until the server sends an app-callback request for `method`. The handler
+registered via onAppCallback (if any) still runs and replies;
+`awaitServerRequest` is an OBSERVATION primitive — it lets a test
+assert the request payload before the response goes back without
+stealing the dispatch.
+
+`predicate` narrows to the first request whose params satisfy it.
+Multiple awaiters per method form a FIFO queue (registration order).
+
+`timeoutMs` defaults to 5_000; callers wanting to drive timing
+themselves can pass a generous value here and gate the returned
+Effect with `Effect.timeout` at the call site (architect plan §3.6
+"Effect.timeout at call site, not schema cap").
+
+### [`captureCapacity`](./test-client.ts#L106)
+
+_Property_
+
+Soft cap on captured frames before the ring buffer drops oldest.
+
+### [`captureCapacity`](./test-server.ts#L62)
+
+_Property_
+
+### [`captures`](./test-client.ts#L150)
+
+_Property_
+
+### [`captures`](./test-client.ts#L150)
+
+_Property_
+
+### [`close`](./test-client.ts#L273)
+
+_Property_
+
+### [`close`](./test-server.ts#L85)
+
+_Property_
+
+### [`CloseableTestClient`](./index.ts#L15)
+
+_Reference_
+
+### [`CloseableTestClient`](./test-client.ts#L272)
+
+_Interface_
+
+Handle surface. Scoped: acquiring the handle opens the WS; releasing the
+scope closes it. All methods return Effects so property code can compose
+them inside `Effect.forEach` / `fc.asyncProperty`.
+
+### [`closeAll`](./test-subscribers.ts#L143)
+
+_Property_
+
+### [`connectionId`](./test-server.ts#L71)
+
+_Property_
+
+### [`connections`](./test-server.ts#L94)
+
+_Property_
+
+### [`defaultTimeoutMs`](./test-client.ts#L104)
+
+_Property_
+
+### [`definition`](./test-client.ts#L248)
+
+_Property_
+
+### [`definition`](./test-client.ts#L269)
+
+_Property_
+
+### [`dispatch`](./test-subscribers.ts#L139)
+
+_Property_
+
+### [`emitMalformed`](./test-server.ts#L80)
+
+_Property_
+
+### [`emitNotification`](./test-server.ts#L74)
+
+_Property_
+
+### [`emitResponse`](./test-server.ts#L77)
+
+_Property_
+
+### [`host`](./test-server.ts#L61)
+
+_Property_
+
+Host string bound by the HTTP server; default `"127.0.0.1"`.
+
+### [`id`](./test-subscribers.ts#L96)
+
+_Property_
+
+### [`inbound`](./test-server.ts#L73)
+
+_Property_
+
+### [`makeCloseableTestClient`](./index.ts#L23)
+
+_Reference_
+
+### [`makeCloseableTestClient`](./test-client.ts#L1149)
+
+_Function_
+
+### [`makeTestClient`](./index.ts#L24)
+
+_Reference_
+
+### [`makeTestClient`](./test-client.ts#L1136)
+
+_Function_
+
+### [`makeTestServer`](./index.ts#L31)
+
+_Reference_
+
+### [`makeTestServer`](./test-server.ts#L186)
+
+_Function_
+
+### [`makeTestSubscriberRegistry`](./test-subscribers.ts#L354)
+
+_Function_
+
+### [`malformedQuiescenceMs`](./test-client.ts#L114)
+
+_Property_
+
+Quiescence window (ms) for `sendMalformed` to wait for a response.
+
+### [`onAppCallback`](./test-client.ts#L214)
+
+_Property_
+
+Register a handler for an app-callback RPC (test-driver-local;
+distinct from the production `MoltZapWsClient`'s static handler
+table, which is immutable per Spec F I1).
+
+When `handleInbound` sees a request frame whose method matches,
+the handler runs and its outcome is encoded as the JSON-RPC
+response:
+  - `Effect.succeed(value)` → `{ result: value }`
+  - `Effect.fail(err: RpcResponseError)` → `{ error: { code, message, data? } }`
+  - defects collapse to a generic `-32603 InternalError` reply so the
+    server's `Deferred.await` cannot hang on a crashing handler.
+
+Re-registration replaces the prior handler (later wins) — mirrors
+`HashMap.set`. The TestClient does NOT raise on duplicates; tests
+routinely swap behaviour mid-scenario. This is the deliberate
+driver-side relaxation that lets conformance tests exercise
+scenarios the static production table cannot express.
+
+`M` constrains to the registered app-callback method names and
+`params`/`result` bind to the matching descriptor.
+
+### [`onAppCallback`](./test-client.ts#L214)
+
+_Property_
+
+Register a handler for an app-callback RPC (test-driver-local;
+distinct from the production `MoltZapWsClient`'s static handler
+table, which is immutable per Spec F I1).
+
+When `handleInbound` sees a request frame whose method matches,
+the handler runs and its outcome is encoded as the JSON-RPC
+response:
+  - `Effect.succeed(value)` → `{ result: value }`
+  - `Effect.fail(err: RpcResponseError)` → `{ error: { code, message, data? } }`
+  - defects collapse to a generic `-32603 InternalError` reply so the
+    server's `Deferred.await` cannot hang on a crashing handler.
+
+Re-registration replaces the prior handler (later wins) — mirrors
+`HashMap.set`. The TestClient does NOT raise on duplicates; tests
+routinely swap behaviour mid-scenario. This is the deliberate
+driver-side relaxation that lets conformance tests exercise
+scenarios the static production table cannot express.
+
+`M` constrains to the registered app-callback method names and
+`params`/`result` bind to the matching descriptor.
+
+### [`port`](./test-server.ts#L59)
+
+_Property_
+
+If 0, bind to an ephemeral port.
+
+### [`reason`](./test-client.ts#L249)
+
+_Property_
+
+### [`register`](./test-subscribers.ts#L116)
+
+_Property_
+
+### [`registerAll`](./test-subscribers.ts#L127)
+
+_Property_
+
+### [`remoteAddr`](./test-server.ts#L72)
+
+_Property_
+
+### [`requestId`](./test-client.ts#L268)
+
+_Property_
+
+### [`sendMalformed`](./test-client.ts#L136)
+
+_Property_
+
+### [`sendMalformed`](./test-client.ts#L136)
+
+_Property_
+
+### [`sendResponseFrame`](./test-client.ts#L146)
+
+_Property_
+
+### [`sendResponseFrame`](./test-client.ts#L146)
+
+_Property_
+
+### [`sendRpc`](./test-client.ts#L123)
+
+_Property_
+
+### [`sendRpc`](./test-client.ts#L123)
+
+_Property_
+
+### [`ServerRequestWaitError`](./index.ts#L16)
+
+_Reference_
+
+### [`ServerRequestWaitError`](./test-client.ts#L244)
+
+_Class_
+
+### [`ServerRpcContext`](./index.ts#L17)
+
+_Reference_
+
+### [`ServerRpcContext`](./test-client.ts#L267)
+
+_Interface_
+
+### [`ServerRpcDefinition`](./index.ts#L18)
+
+_Reference_
+
+### [`ServerRpcDefinition`](./test-client.ts#L255)
+
+_TypeAlias_
+
+Descriptor constraint for app-callback RPC test surface.
+
+### [`ServerRpcParams`](./index.ts#L19)
+
+_Reference_
+
+### [`ServerRpcParams`](./test-client.ts#L260)
+
+_TypeAlias_
+
+Inbound params type for an app-callback method.
+
+### [`ServerRpcResult`](./index.ts#L20)
+
+_Reference_
+
+### [`ServerRpcResult`](./test-client.ts#L265)
+
+_TypeAlias_
+
+Outbound result type for an app-callback method handler.
+
+### [`serverUrl`](./test-client.ts#L101)
+
+_Property_
+
+### [`snapshot`](./test-client.ts#L151)
+
+_Property_
+
+### [`snapshot`](./test-client.ts#L151)
+
+_Property_
+
+### [`snapshot`](./test-server.ts#L96)
+
+_Property_
+
+### [`subscribe`](./test-client.ts#L165)
+
+_Property_
+
+Typed-payload subscribe (Spec B parity — #645). Returns a Stream of
+`DecodedNotification<D>` whose error channel is `TransportClosedError`
+and requirement set is `never`. Optional `refinement` is a typed
+predicate over the definition's params; the type-guard overload
+narrows the Stream's payload to `DecodedNotification<D, R>`.
+
+Lifecycle: construction is pure (no I/O, no scope); first pull
+suspends inside `Stream.async` until dispatch fires `emit.single`;
+terminal `TestClient.close` fires `emit.fail(TransportClosedError)`
+via the registry's `closeAll`.
+
+### [`subscribe`](./test-client.ts#L165)
+
+_Property_
+
+Typed-payload subscribe (Spec B parity — #645). Returns a Stream of
+`DecodedNotification<D>` whose error channel is `TransportClosedError`
+and requirement set is `never`. Optional `refinement` is a typed
+predicate over the definition's params; the type-guard overload
+narrows the Stream's payload to `DecodedNotification<D, R>`.
+
+Lifecycle: construction is pure (no I/O, no scope); first pull
+suspends inside `Stream.async` until dispatch fires `emit.single`;
+terminal `TestClient.close` fires `emit.fail(TransportClosedError)`
+via the registry's `closeAll`.
+
+### [`subscribe`](./test-subscribers.ts#L390)
+
+_Function_
+
+### [`subscribeAll`](./test-client.ts#L183)
+
+_Property_
+
+Broad-union subscribe (Spec B parity — #645). Returns a Stream of
+every inbound notification regardless of definition. Used by
+conformance helpers that need to filter on params-shaped predicates
+(e.g. presence/changed by agentId+status). Payload narrowing is
+intentionally lost; callers wanting typed payloads use `subscribe`.
+
+### [`subscribeAll`](./test-client.ts#L183)
+
+_Property_
+
+Broad-union subscribe (Spec B parity — #645). Returns a Stream of
+every inbound notification regardless of definition. Used by
+conformance helpers that need to filter on params-shaped predicates
+(e.g. presence/changed by agentId+status). Payload narrowing is
+intentionally lost; callers wanting typed payloads use `subscribe`.
+
+### [`subscribeAll`](./test-subscribers.ts#L431)
+
+_Function_
+
+### [`TestClient`](./index.ts#L21)
+
+_Reference_
+
+### [`TestClient`](./test-client.ts#L122)
+
+_Interface_
+
+Handle surface. Scoped: acquiring the handle opens the WS; releasing the
+scope closes it. All methods return Effects so property code can compose
+them inside `Effect.forEach` / `fc.asyncProperty`.
+
+### [`TestClient`](./test-client.ts#L122)
+
+_Variable_
+
+Context tag so property code can `Effect.serviceWith(TestClient, …)`.
+
+### [`TestClientConfig`](./index.ts#L22)
+
+_Reference_
+
+### [`TestClientConfig`](./test-client.ts#L100)
+
+_Interface_
+
+Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of
+the real server; `agentKey` + `agentId` are for the `connect` handshake.
+`defaultTimeoutMs` bounds each `sendRpc` unless overridden per call.
+
+### [`testing/conformance/_shared/driver`](./index.ts#L1)
+
+_Module_
+
+### [`testing/conformance/_shared/driver/test-client`](./test-client.ts#L1)
+
+_Module_
+
+### [`testing/conformance/_shared/driver/test-server`](./test-server.ts#L1)
+
+_Module_
+
+### [`testing/conformance/_shared/driver/test-subscribers`](./test-subscribers.ts#L1)
+
+_Module_
+
+### [`TestServer`](./index.ts#L28)
+
+_Reference_
+
+### [`TestServer`](./test-server.ts#L91)
+
+_Interface_
+
+### [`TestServer`](./test-server.ts#L91)
+
+_Variable_
+
+### [`TestServerConfig`](./index.ts#L29)
+
+_Reference_
+
+### [`TestServerConfig`](./test-server.ts#L57)
+
+_Interface_
+
+### [`TestServerConnection`](./index.ts#L30)
+
+_Reference_
+
+### [`TestServerConnection`](./test-server.ts#L70)
+
+_Interface_
+
+A single live client connection accepted by TestServer. Identity is by
+`connectionId` (monotonic), not by any agent-level claim — TestServer is
+below the identity layer.
+
+### [`TestSubscriberRegistry`](./test-subscribers.ts#L115)
+
+_Interface_
+
+Subscriber registry. One instance per `TestClientRuntime`.
+
+- `register<D>` accepts typed `onFrame` / `onClose` callbacks for the
+  specific definition `D`; storage erases callbacks to the union shape.
+- `registerAll` accepts callbacks against the broad-union
+  `DecodedNotification<AnyNotificationDefinition>` shape; storage
+  parks a `definition: null` sentinel record in the same list.
+- `dispatch` snapshots `subsRef` at iteration start; per-definition
+  subs match on `sub.definition === frame.definition`, broad-union
+  subs match unconditionally; optional `refinement` runs after the
+  definition gate.
+- `closeAll` invokes each live sub's onClose with a
+  `TransportClosedError` before clearing `subsRef`. Idempotent.
+
+### [`TestSubscriptionHandle`](./test-subscribers.ts#L95)
+
+_Interface_
+
+Handle returned by `register` / `registerAll`. `unregister` is
+`Effect<void, never>`: idempotent and total. The `Stream.async`
+cancellation finalizer invokes it; a duplicate call after
+`closeAll` is a no-op.
+
+### [`unregister`](./test-subscribers.ts#L97)
+
+_Property_
+
+### [`wsUrl`](./test-server.ts#L92)
+
+_Property_
+
+## Files
+
+- `index.ts`
+- `test-client.ts`
+- `test-server.ts`
+- `test-subscribers.ts`

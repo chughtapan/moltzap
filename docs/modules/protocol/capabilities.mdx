@@ -1,0 +1,1034 @@
+---
+title: "protocol/capabilities"
+description: "Public barrel for R-channel capability tag classes."
+---
+
+# protocol/capabilities
+
+_`packages/protocol/src/task/capabilities`_
+
+## Purpose
+
+Public barrel for R-channel capability tag classes.
+
+Tag classes + value types only. Obtain/refine helpers that depend on
+server-side services live in `@moltzap/server-core/app/capabilities`.
+
+## Public surface
+
+### [`_tag`](./reply-target.ts#L32)
+
+_Property_
+
+### [`AddParticipantPermission`](./add-participant-permission.ts#L20)
+
+_Reference_
+
+### [`AddParticipantPermission`](./add-participant-permission.ts#L20)
+
+_Reference_
+
+### [`AddParticipantPermission`](./add-participant-permission.ts#L20)
+
+_Reference_
+
+### [`AddParticipantPermission`](./add-participant-permission.ts#L20)
+
+_Class_
+
+### [`AddParticipantPermissionValue`](./add-participant-permission.ts#L13)
+
+_Reference_
+
+### [`AddParticipantPermissionValue`](./add-participant-permission.ts#L13)
+
+_Reference_
+
+### [`AddParticipantPermissionValue`](./add-participant-permission.ts#L13)
+
+_Reference_
+
+### [`AddParticipantPermissionValue`](./add-participant-permission.ts#L13)
+
+_Interface_
+
+Single-arm composite capability for `ConversationService.addParticipant`
+— Architect plan #606 r3 Decision D.
+
+Carries the resolved `targetOwnerUserId` so the service body skips
+the downstream re-fetch (payload reuse parallel to
+`MessageSendPermission` carrying `task` + `replyTarget`).
+
+### [`AgentExists`](./agent-exists.ts#L15)
+
+_Reference_
+
+### [`AgentExists`](./agent-exists.ts#L15)
+
+_Reference_
+
+### [`AgentExists`](./agent-exists.ts#L15)
+
+_Reference_
+
+### [`AgentExists`](./agent-exists.ts#L15)
+
+_Class_
+
+### [`AgentExistsValue`](./agent-exists.ts#L10)
+
+_Reference_
+
+### [`AgentExistsValue`](./agent-exists.ts#L10)
+
+_Reference_
+
+### [`AgentExistsValue`](./agent-exists.ts#L10)
+
+_Reference_
+
+### [`AgentExistsValue`](./agent-exists.ts#L10)
+
+_Interface_
+
+Tier 2 capability — `agentId` resolves to a real, active `agents` row.
+
+Value payload carries `ownerUserId` (nullable, since unclaimed agents
+are valid existence proofs but have no owner).
+
+### [`agentId`](./agent-exists.ts#L11)
+
+_Property_
+
+### [`agentId`](./agent-in-task-participants.ts#L14)
+
+_Property_
+
+### [`agentIds`](./conversation-create-authorization.ts#L32)
+
+_Property_
+
+### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L17)
+
+_Reference_
+
+### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L17)
+
+_Reference_
+
+### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L17)
+
+_Reference_
+
+### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L17)
+
+_Class_
+
+### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L12)
+
+_Reference_
+
+### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L12)
+
+_Reference_
+
+### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L12)
+
+_Reference_
+
+### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L12)
+
+_Interface_
+
+Tier 2 capability — `agentId` is in `task_participants` for `taskId`.
+Used by `TaskConversationAddParticipant` (D1's new handler) to prove
+the agent being added to a conversation already participates in the
+parent task — today's inline `task_participants` query becomes the
+capability obtain.
+
+### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L61)
+
+_Reference_
+
+### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L61)
+
+_Reference_
+
+### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L61)
+
+_Reference_
+
+### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L61)
+
+_Function_
+
+### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L49)
+
+_Reference_
+
+### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L49)
+
+_Reference_
+
+### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L49)
+
+_Reference_
+
+### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L49)
+
+_Function_
+
+### [`assertTmAuthorityMatchesTask`](./assert-capability-matches-task.ts#L38)
+
+_Reference_
+
+### [`assertTmAuthorityMatchesTask`](./assert-capability-matches-task.ts#L38)
+
+_Reference_
+
+### [`assertTmAuthorityMatchesTask`](./assert-capability-matches-task.ts#L38)
+
+_Reference_
+
+### [`assertTmAuthorityMatchesTask`](./assert-capability-matches-task.ts#L38)
+
+_Function_
+
+### [`callerAgentId`](./conversation-participant-access.ts#L15)
+
+_Property_
+
+### [`callerAgentId`](./task-read-access.ts#L18)
+
+_Property_
+
+### [`callerAgentId`](./tm-authority.ts#L22)
+
+_Property_
+
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L19)
+
+_Reference_
+
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L19)
+
+_Reference_
+
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L19)
+
+_Reference_
+
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L19)
+
+_Class_
+
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L14)
+
+_Reference_
+
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L14)
+
+_Reference_
+
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L14)
+
+_Reference_
+
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L14)
+
+_Interface_
+
+Tier 3 capability — caller-side contact policy permits creator →
+targets reach. Single capability covering the family of policy checks
+(`assertContactPolicyForCreate`, `assertAddParticipantContactPolicy`,
+`assertCreatorContactsAll`, `checkContactEdge`).
+
+Value payload carries the resolved `(creatorAgentId, targetAgentIds)`
+tuple so service methods don't re-derive who the policy was checked
+against.
+
+### [`ConversationCreateAuthorization`](./conversation-create-authorization.ts#L26)
+
+_Reference_
+
+### [`ConversationCreateAuthorization`](./conversation-create-authorization.ts#L26)
+
+_Reference_
+
+### [`ConversationCreateAuthorization`](./conversation-create-authorization.ts#L26)
+
+_Reference_
+
+### [`ConversationCreateAuthorization`](./conversation-create-authorization.ts#L26)
+
+_Class_
+
+### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L16)
+
+_Reference_
+
+### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L16)
+
+_Reference_
+
+### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L16)
+
+_Reference_
+
+### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L16)
+
+_TypeAlias_
+
+Composite capability for `ConversationService.create` — Architect
+plan #606 r3 Decision C.
+
+The composite restores the DM-dedup short-circuit AT THE HANDLER
+TIER: the obtain helper runs the dedup check FIRST and returns
+`ExistingDm` with the existing row; otherwise it runs the policy +
+capacity gates and returns `PermittedToCreate { ownerByAgentId }`.
+Lazy `mintTask` stays in the service body (PermittedToCreate branch),
+so it never runs on a dedup hit.
+
+### [`conversationId`](./add-participant-permission.ts#L14)
+
+_Property_
+
+### [`conversationId`](./add-participant-permission.ts#L25)
+
+_Property_
+
+### [`conversationId`](./conversation-in-task.ts#L15)
+
+_Property_
+
+### [`conversationId`](./conversation-not-archived.ts#L16)
+
+_Property_
+
+### [`conversationId`](./conversation-participant-access.ts#L14)
+
+_Property_
+
+### [`conversationId`](./message-send-permission.ts#L82)
+
+_Property_
+
+### [`conversationId`](./reply-target.ts#L22)
+
+_Property_
+
+### [`ConversationInTask`](./conversation-in-task.ts#L18)
+
+_Reference_
+
+### [`ConversationInTask`](./conversation-in-task.ts#L18)
+
+_Reference_
+
+### [`ConversationInTask`](./conversation-in-task.ts#L18)
+
+_Reference_
+
+### [`ConversationInTask`](./conversation-in-task.ts#L18)
+
+_Class_
+
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L13)
+
+_Reference_
+
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L13)
+
+_Reference_
+
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L13)
+
+_Reference_
+
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L13)
+
+_Interface_
+
+Tier 2 capability — proves `conversation.task_id === taskId`.
+
+`assertCapabilityMatchesTask` (see `assert-capability-matches-task.ts`)
+verifies the carried `taskId` matches the handler-input `taskId` at
+call time — the one-line runtime check that catches "handler passed
+a different taskId than the obtain proved".
+
+### [`ConversationNotArchived`](./conversation-not-archived.ts#L19)
+
+_Reference_
+
+### [`ConversationNotArchived`](./conversation-not-archived.ts#L19)
+
+_Reference_
+
+### [`ConversationNotArchived`](./conversation-not-archived.ts#L19)
+
+_Reference_
+
+### [`ConversationNotArchived`](./conversation-not-archived.ts#L19)
+
+_Class_
+
+### [`ConversationNotArchivedValue`](./conversation-not-archived.ts#L15)
+
+_Reference_
+
+### [`ConversationNotArchivedValue`](./conversation-not-archived.ts#L15)
+
+_Reference_
+
+### [`ConversationNotArchivedValue`](./conversation-not-archived.ts#L15)
+
+_Reference_
+
+### [`ConversationNotArchivedValue`](./conversation-not-archived.ts#L15)
+
+_Interface_
+
+Tier 4 refine-shape capability — `conversation.archived_at IS NULL`.
+
+Refine-shape: takes the `archived_at` column read inline by the
+caller. Folded into the composite `MessageSendPermission` value
+for the MessagesSend path (every constructor verifies the
+conversation is open).
+
+### [`ConversationParticipantAccess`](./conversation-participant-access.ts#L18)
+
+_Reference_
+
+### [`ConversationParticipantAccess`](./conversation-participant-access.ts#L18)
+
+_Reference_
+
+### [`ConversationParticipantAccess`](./conversation-participant-access.ts#L18)
+
+_Reference_
+
+### [`ConversationParticipantAccess`](./conversation-participant-access.ts#L18)
+
+_Class_
+
+### [`ConversationParticipantAccessValue`](./conversation-participant-access.ts#L13)
+
+_Reference_
+
+### [`ConversationParticipantAccessValue`](./conversation-participant-access.ts#L13)
+
+_Reference_
+
+### [`ConversationParticipantAccessValue`](./conversation-participant-access.ts#L13)
+
+_Reference_
+
+### [`ConversationParticipantAccessValue`](./conversation-participant-access.ts#L13)
+
+_Interface_
+
+Tier 1 capability — caller is a member of `conversation_participants`
+for `conversationId`.
+
+Value payload carries `(conversationId, callerAgentId)` so service
+methods can `assertCapabilityMatchesConversation` against handler
+input without re-querying.
+
+### [`creatorAgentId`](./contact-policy-allows-reach.ts#L15)
+
+_Property_
+
+### [`creatorAgentId`](./conversation-create-authorization.ts#L33)
+
+_Property_
+
+### [`creatorAgentId`](./group-capacity-for-create.ts#L14)
+
+_Property_
+
+### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
+
+_Reference_
+
+### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
+
+_Reference_
+
+### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
+
+_Reference_
+
+### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
+
+_Class_
+
+### [`GroupCapacityForCreateValue`](./group-capacity-for-create.ts#L13)
+
+_Reference_
+
+### [`GroupCapacityForCreateValue`](./group-capacity-for-create.ts#L13)
+
+_Reference_
+
+### [`GroupCapacityForCreateValue`](./group-capacity-for-create.ts#L13)
+
+_Reference_
+
+### [`GroupCapacityForCreateValue`](./group-capacity-for-create.ts#L13)
+
+_Interface_
+
+Tier 4 capability — admitting the proposed `invitedAgentIds` to a new
+task respects policy limits on group capacity. Required by
+`TaskCreate` ONLY when `invitedAgentIds.length > 1`.
+
+Value payload carries `(creatorAgentId, invitedAgentIds)` to match
+the obtain-time argument set; service methods consuming the capability
+verify the count matches handler input.
+
+### [`invitedAgentIds`](./group-capacity-for-create.ts#L15)
+
+_Property_
+
+### [`MessageSendPermission`](./message-send-permission.ts#L61)
+
+_Reference_
+
+### [`MessageSendPermission`](./message-send-permission.ts#L61)
+
+_Reference_
+
+### [`MessageSendPermission`](./message-send-permission.ts#L61)
+
+_Reference_
+
+### [`MessageSendPermission`](./message-send-permission.ts#L61)
+
+_Class_
+
+### [`MessageSendPermissionValue`](./message-send-permission.ts#L33)
+
+_Reference_
+
+### [`MessageSendPermissionValue`](./message-send-permission.ts#L33)
+
+_Reference_
+
+### [`MessageSendPermissionValue`](./message-send-permission.ts#L33)
+
+_Reference_
+
+### [`MessageSendPermissionValue`](./message-send-permission.ts#L33)
+
+_TypeAlias_
+
+Composite capability for `MessageService.send` — Architect Decision A
+in plan #606.
+
+## Why a composite (and not the spec's union-of-tags shape)?
+
+Effect's R channel uses union types to ENCODE the set of required
+services — `Effect&lt;A, E, T1 | T2>` requires BOTH `T1` AND `T2` to be
+provided before the effect is runnable. There is no native "exactly
+one of" semantics in `provideServiceEffect`. The composite shape —
+one tag with three constructors — preserves the "exactly one path"
+authorization while keeping a single R-channel entry.
+
+## Shape
+
+`MessageSendPermission` is a single `Context.Tag` whose value is a
+discriminated union over the three legal authorization paths. The
+handler picks the right constructor at `provideServiceEffect` time;
+the service body destructures the union via `_tag` and uses the
+carried proof rows.
+
+- `forParticipantOnActiveTask` — caller is a conversation participant
+  on an OPEN task; optional `replyToId` carried inside the variant.
+- `forTmBypass` — caller IS the TM (bypasses the "task is open" gate);
+  no reply target.
+- `forTmBypassWithReply` — TM bypass + the reply target was verified.
+
+### [`noReplyTarget`](./reply-target.ts#L40)
+
+_Reference_
+
+### [`noReplyTarget`](./reply-target.ts#L40)
+
+_Reference_
+
+### [`noReplyTarget`](./reply-target.ts#L40)
+
+_Reference_
+
+### [`noReplyTarget`](./reply-target.ts#L40)
+
+_Function_
+
+### [`NoReplyTarget`](./reply-target.ts#L35)
+
+_Reference_
+
+### [`NoReplyTarget`](./reply-target.ts#L35)
+
+_Reference_
+
+### [`NoReplyTarget`](./reply-target.ts#L35)
+
+_Reference_
+
+### [`NoReplyTarget`](./reply-target.ts#L35)
+
+_Class_
+
+### [`NoReplyTargetValue`](./reply-target.ts#L31)
+
+_Reference_
+
+### [`NoReplyTargetValue`](./reply-target.ts#L31)
+
+_Reference_
+
+### [`NoReplyTargetValue`](./reply-target.ts#L31)
+
+_Reference_
+
+### [`NoReplyTargetValue`](./reply-target.ts#L31)
+
+_Interface_
+
+Zero-payload tag: declared when the send has no reply target.
+
+### [`ObtainAddParticipantPermissionInput`](./add-participant-permission.ts#L24)
+
+_Reference_
+
+### [`ObtainAddParticipantPermissionInput`](./add-participant-permission.ts#L24)
+
+_Reference_
+
+### [`ObtainAddParticipantPermissionInput`](./add-participant-permission.ts#L24)
+
+_Reference_
+
+### [`ObtainAddParticipantPermissionInput`](./add-participant-permission.ts#L24)
+
+_Interface_
+
+### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L30)
+
+_Reference_
+
+### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L30)
+
+_Reference_
+
+### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L30)
+
+_Reference_
+
+### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L30)
+
+_Interface_
+
+### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L72)
+
+_Reference_
+
+### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L72)
+
+_Reference_
+
+### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L72)
+
+_Reference_
+
+### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L72)
+
+_Interface_
+
+Input shape consumed by the dispatch-time smart constructor. The
+handler passes the raw `MessagesSend` params + the authenticated
+`ctx.agentId`; the constructor handles the conversation lookup,
+participant check, reply-target check, TM-bypass discrimination, and
+returns the populated discriminated union.
+
+### [`ownerUserId`](./agent-exists.ts#L12)
+
+_Property_
+
+### [`refineConversationNotArchived`](./conversation-not-archived.ts#L28)
+
+_Reference_
+
+### [`refineConversationNotArchived`](./conversation-not-archived.ts#L28)
+
+_Reference_
+
+### [`refineConversationNotArchived`](./conversation-not-archived.ts#L28)
+
+_Reference_
+
+### [`refineConversationNotArchived`](./conversation-not-archived.ts#L28)
+
+_Function_
+
+### [`refineTaskActive`](./task-active.ts#L39)
+
+_Reference_
+
+### [`refineTaskActive`](./task-active.ts#L39)
+
+_Reference_
+
+### [`refineTaskActive`](./task-active.ts#L39)
+
+_Reference_
+
+### [`refineTaskActive`](./task-active.ts#L39)
+
+_Function_
+
+### [`replyToId`](./message-send-permission.ts#L84)
+
+_Property_
+
+### [`replyToId`](./reply-target.ts#L23)
+
+_Property_
+
+### [`requesterAgentId`](./add-participant-permission.ts#L15)
+
+_Property_
+
+### [`requesterAgentId`](./add-participant-permission.ts#L26)
+
+_Property_
+
+### [`senderAgentId`](./message-send-permission.ts#L83)
+
+_Property_
+
+### [`status`](./task-active.ts#L26)
+
+_Property_
+
+### [`targetAgentId`](./add-participant-permission.ts#L16)
+
+_Property_
+
+### [`targetAgentId`](./add-participant-permission.ts#L27)
+
+_Property_
+
+### [`targetAgentIds`](./contact-policy-allows-reach.ts#L16)
+
+_Property_
+
+### [`targetOwnerUserId`](./add-participant-permission.ts#L17)
+
+_Property_
+
+### [`task`](./task-read-access.ts#L17)
+
+_Property_
+
+### [`task`](./tm-authority.ts#L21)
+
+_Property_
+
+### [`task/capabilities`](./index.ts#L1)
+
+_Module_
+
+### [`task/capabilities/add-participant-permission`](./add-participant-permission.ts#L1)
+
+_Module_
+
+### [`task/capabilities/agent-exists`](./agent-exists.ts#L1)
+
+_Module_
+
+### [`task/capabilities/agent-in-task-participants`](./agent-in-task-participants.ts#L1)
+
+_Module_
+
+### [`task/capabilities/assert-capability-matches-task`](./assert-capability-matches-task.ts#L1)
+
+_Module_
+
+### [`task/capabilities/contact-policy-allows-reach`](./contact-policy-allows-reach.ts#L1)
+
+_Module_
+
+### [`task/capabilities/conversation-create-authorization`](./conversation-create-authorization.ts#L1)
+
+_Module_
+
+### [`task/capabilities/conversation-in-task`](./conversation-in-task.ts#L1)
+
+_Module_
+
+### [`task/capabilities/conversation-not-archived`](./conversation-not-archived.ts#L1)
+
+_Module_
+
+### [`task/capabilities/conversation-participant-access`](./conversation-participant-access.ts#L1)
+
+_Module_
+
+### [`task/capabilities/group-capacity-for-create`](./group-capacity-for-create.ts#L1)
+
+_Module_
+
+### [`task/capabilities/message-send-permission`](./message-send-permission.ts#L1)
+
+_Module_
+
+### [`task/capabilities/reply-target`](./reply-target.ts#L1)
+
+_Module_
+
+### [`task/capabilities/task-active`](./task-active.ts#L1)
+
+_Module_
+
+### [`task/capabilities/task-read-access`](./task-read-access.ts#L1)
+
+_Module_
+
+### [`task/capabilities/tm-authority`](./tm-authority.ts#L1)
+
+_Module_
+
+### [`TaskActive`](./task-active.ts#L29)
+
+_Reference_
+
+### [`TaskActive`](./task-active.ts#L29)
+
+_Reference_
+
+### [`TaskActive`](./task-active.ts#L29)
+
+_Reference_
+
+### [`TaskActive`](./task-active.ts#L29)
+
+_Class_
+
+### [`TaskActiveValue`](./task-active.ts#L24)
+
+_Reference_
+
+### [`TaskActiveValue`](./task-active.ts#L24)
+
+_Reference_
+
+### [`TaskActiveValue`](./task-active.ts#L24)
+
+_Reference_
+
+### [`TaskActiveValue`](./task-active.ts#L24)
+
+_Interface_
+
+Tier 4 refine-shape capability — task status accepts messages
+(NOT `closed` / `failed`).
+
+Refine-shape: takes a `SendConversationRow` already fetched by
+`MessageService.readSendConversation` and validates the `task_status`
+column inline. No DB call. Consumed by the composite
+`MessageSendPermission.forParticipantOnActiveTask` obtain helper.
+
+The TM-bypass branch is NOT a `TaskActive` proof — it's modeled in
+the composite `MessageSendPermission.forTmBypass` constructor instead.
+
+## Staleness window
+
+`TaskActive` is a liveness proof — `tasks.status` can transition
+`active → closed` between obtain and use. The refine helper is safe
+to call inside the same transaction that reads the task row;
+cross-transaction reuse is a defect (re-obtain by re-reading the
+column).
+
+### [`taskId`](./agent-in-task-participants.ts#L13)
+
+_Property_
+
+### [`taskId`](./conversation-in-task.ts#L14)
+
+_Property_
+
+### [`taskId`](./message-send-permission.ts#L81)
+
+_Property_
+
+Optional defensive cross-check. When supplied (e.g. by D1's
+`TaskConversation*` handlers whose wire shape names `taskId`
+independently of the conversation), `obtainMessageSendPermission`
+runs an `assertConvBelongsToTask` defense against the conv lookup.
+`MessagesSend` omits the field; when omitted the obtain helper
+uses `conv.task_id` directly.
+
+### [`taskId`](./task-active.ts#L25)
+
+_Property_
+
+### [`TaskReadAccess`](./task-read-access.ts#L21)
+
+_Reference_
+
+### [`TaskReadAccess`](./task-read-access.ts#L21)
+
+_Reference_
+
+### [`TaskReadAccess`](./task-read-access.ts#L21)
+
+_Reference_
+
+### [`TaskReadAccess`](./task-read-access.ts#L21)
+
+_Class_
+
+### [`TaskReadAccessValue`](./task-read-access.ts#L16)
+
+_Reference_
+
+### [`TaskReadAccessValue`](./task-read-access.ts#L16)
+
+_Reference_
+
+### [`TaskReadAccessValue`](./task-read-access.ts#L16)
+
+_Reference_
+
+### [`TaskReadAccessValue`](./task-read-access.ts#L16)
+
+_Interface_
+
+Tier 1 capability — caller has read access to `task` (initiator OR
+admitted `task_participant`).
+
+Value payload carries the `task` row already fetched by today's
+`TaskService.loadTaskWithReadAccess` check; consumers reuse the payload.
+
+Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
+`getMessagesSince`) via the R-channel; handlers wire the value with
+`Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
+
+### [`TmAuthority`](./tm-authority.ts#L25)
+
+_Reference_
+
+### [`TmAuthority`](./tm-authority.ts#L25)
+
+_Reference_
+
+### [`TmAuthority`](./tm-authority.ts#L25)
+
+_Reference_
+
+### [`TmAuthority`](./tm-authority.ts#L25)
+
+_Class_
+
+### [`TmAuthorityValue`](./tm-authority.ts#L20)
+
+_Reference_
+
+### [`TmAuthorityValue`](./tm-authority.ts#L20)
+
+_Reference_
+
+### [`TmAuthorityValue`](./tm-authority.ts#L20)
+
+_Reference_
+
+### [`TmAuthorityValue`](./tm-authority.ts#L20)
+
+_Interface_
+
+Tier 1 capability — caller is the registered task manager for `task.id`.
+
+Value payload carries the `task` row already fetched by today's
+`TaskService.loadTaskAsTmAuthority` check; consumers reuse the payload
+instead of re-querying. `callerAgentId` lets refine-shape capabilities
+(e.g. `MessageSendPermission.forTmBypass`) verify the same agent
+authored the bypass decision.
+
+Consumed by the `task.service.ts` public methods (`closeWithLifecycle`,
+`addParticipant`, `removeParticipant`, `createConversation`,
+`closeConversation`, `storeMessage`) via the R-channel; handlers
+wire the value with `Effect.provideServiceEffect(TmAuthority,
+obtainTmAuthority(...))`.
+
+### [`type`](./conversation-create-authorization.ts#L31)
+
+_Property_
+
+### [`ValidReplyTarget`](./reply-target.ts#L26)
+
+_Reference_
+
+### [`ValidReplyTarget`](./reply-target.ts#L26)
+
+_Reference_
+
+### [`ValidReplyTarget`](./reply-target.ts#L26)
+
+_Reference_
+
+### [`ValidReplyTarget`](./reply-target.ts#L26)
+
+_Class_
+
+### [`ValidReplyTargetValue`](./reply-target.ts#L21)
+
+_Reference_
+
+### [`ValidReplyTargetValue`](./reply-target.ts#L21)
+
+_Reference_
+
+### [`ValidReplyTargetValue`](./reply-target.ts#L21)
+
+_Reference_
+
+### [`ValidReplyTargetValue`](./reply-target.ts#L21)
+
+_Interface_
+
+Tier 4 capabilities — reply-target presence proof.
+
+One of `ValidReplyTarget` / `NoReplyTarget` is required by
+`MessagesSend`. The two tags model the input-shape branch:
+`input.replyToId !== undefined` obtains `ValidReplyTarget` (which
+verifies the referenced message exists in the target conversation);
+`input.replyToId === undefined` obtains the zero-payload
+`NoReplyTarget` constructor.
+
+Per Architect Decision A, these two tags are FOLDED into the
+composite `MessageSendPermission` value (every constructor variant
+carries one of the reply-target proofs) — they're not provided as
+separate R-channel tags at the MessagesSend handler. They remain
+standalone tags so D1 / future handlers can require them
+independently if/when needed.
+
+## Files
+
+- `add-participant-permission.ts`
+- `agent-exists.ts`
+- `agent-in-task-participants.ts`
+- `assert-capability-matches-task.ts`
+- `contact-policy-allows-reach.ts`
+- `conversation-create-authorization.ts`
+- `conversation-in-task.ts`
+- `conversation-not-archived.ts`
+- `conversation-participant-access.ts`
+- `group-capacity-for-create.ts`
+- `index.ts`
+- `message-send-permission.ts`
+- `reply-target.ts`
+- `task-active.ts`
+- `task-read-access.ts`
+- `tm-authority.ts`

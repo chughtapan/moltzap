@@ -16,9 +16,9 @@ export { AgentInTaskParticipants, type AgentInTaskParticipantsValue };
  * Decision B / Option A) so the underlying `task_participants` query
  * stays in the service layer.
  *
- * Error channel — fails with `ForbiddenError` when the agent is not in
- * `task_participants` for the given task. `SqlError` is caught
- * defectively at the service-helper boundary.
+ * `SqlError` is caught defectively at the service-helper boundary.
+ *
+ * @failure ForbiddenError when the agent is not in `task_participants` for the given task
  */
 export const obtainAgentInTaskParticipants = (
   taskId: TaskId,

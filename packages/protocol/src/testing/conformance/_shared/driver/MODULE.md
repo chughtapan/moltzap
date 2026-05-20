@@ -1,0 +1,364 @@
+# protocol/testing/conformance/_shared/driver
+
+_`packages/protocol/src/testing/conformance/_shared/driver`_
+
+## Purpose
+
+Wire-driver harness barrel for the `_shared/driver/` sub-folder.
+
+The `driver/` folder contains test-time JSON-RPC wire harnesses.
+
+These harnesses act as a counterparty for property tests.
+
+The folder currently contains `test-client.ts` and `test-server.ts`.
+Future wire-driver helpers belong here. Other helpers belong elsewhere.
+
+Re-exporting keeps external consumers on the public testing entrypoint.
+
+## Public surface
+
+### [`CloseableTestClient`](./test-client.ts#L272)
+
+_Interface_
+
+```ts
+export interface CloseableTestClient extends TestClient {
+  readonly close: Effect.Effect<void, never>;
+}
+```
+
+Handle surface. Scoped: acquiring the handle opens the WS; releasing the
+scope closes it. All methods return Effects so property code can compose
+them inside `Effect.forEach` / `fc.asyncProperty`.
+
+### [`makeCloseableTestClient`](./test-client.ts#L1149)
+
+_Function_
+
+```ts
+export function makeCloseableTestClient(
+  config: TestClientConfig,
+): Effect.Effect<
+  CloseableTestClient,
+  TransportIoError | TransportClosedError | RpcResponseError
+>
+```
+
+### [`makeTestClient`](./test-client.ts#L1136)
+
+_Function_
+
+```ts
+export function makeTestClient(
+  config: TestClientConfig,
+): Effect.Effect<
+  TestClient,
+  TransportIoError | TransportClosedError | RpcResponseError,
+  Scope.Scope
+>
+```
+
+Open a real WS connection to `config.serverUrl`, complete the `connect`
+handshake, and yield a `TestClient`. The surrounding `Scope` owns the
+socket; releasing it closes the WS and drains captures.
+
+### [`makeTestServer`](./test-server.ts#L186)
+
+_Function_
+
+```ts
+export function makeTestServer(
+  config: TestServerConfig,
+): Effect.Effect<TestServer, TransportIoError, Scope.Scope>
+```
+
+Bind an `@effect/platform` WebSocket server. The surrounding `Scope` owns
+the listener; releasing it closes every open connection, drains captures,
+and awaits port release.
+
+### [`makeTestSubscriberRegistry`](./test-subscribers.ts#L354)
+
+_Function_
+
+```ts
+export function makeTestSubscriberRegistry(): Effect.Effect<
+  TestSubscriberRegistry,
+  never
+>
+```
+
+Construct an empty registry. Called once from
+`acquireTestClientRuntime` after the socket is acquired so its
+`Effect.addFinalizer(closeAll)` runs LIFO BEFORE the socket reader
+finalizer — consumers see `emit.fail(TransportClosedError)` before
+the transport tears down.
+
+### [`ServerRequestWaitError`](./test-client.ts#L244)
+
+_Class_
+
+```ts
+export class ServerRequestWaitError extends Data.TaggedError(
+  "TestingServerRequestWaitError",
+)<{
+  readonly message: string;
+  readonly definition: ServerRpcDefinition;
+  readonly reason: "timeout";
+}> {}
+```
+
+### [`ServerRpcContext`](./test-client.ts#L267)
+
+_Interface_
+
+```ts
+export interface ServerRpcContext {
+  readonly requestId: JsonRpcId;
+  readonly definition: ServerRpcDefinition;
+}
+```
+
+### [`ServerRpcDefinition`](./test-client.ts#L255)
+
+_TypeAlias_
+
+```ts
+export type ServerRpcDefinition = AnyTaskCallbackRpcDefinition;
+```
+
+Descriptor constraint for app-callback RPC test surface.
+
+### [`ServerRpcParams`](./test-client.ts#L260)
+
+_TypeAlias_
+
+```ts
+export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
+```
+
+Inbound params type for an app-callback method.
+
+### [`ServerRpcResult`](./test-client.ts#L265)
+
+_TypeAlias_
+
+```ts
+export type ServerRpcResult<D extends ServerRpcDefinition> = ResultOf<D>;
+```
+
+Outbound result type for an app-callback method handler.
+
+### [`subscribe`](./test-subscribers.ts#L390)
+
+_Function_
+
+```ts
+export function subscribe<D extends AnyNotificationDefinition>(
+  registry: TestSubscriberRegistry,
+  definition: D,
+  refinement?: (params: NotificationParamsOf<D>)
+```
+
+Typed-payload subscribe. Returns a `Stream` whose error channel is
+`TransportClosedError` and requirement set is `never`. The Stream
+value is pure; materialisation installs the registry callbacks.
+
+The type-guard overload narrows the Stream's payload to
+`DecodedNotification<D, R>`.
+
+Lifecycle parity with production (`packages/client/src/notification/stream.ts`):
+  - Construction is pure (no I/O).
+  - Materialisation runs `registry.register` synchronously via
+    `Effect.runSync` (Ref-only Effect; never yields).
+  - Consumer pulls suspend inside `Stream.async`'s internal queue
+    until dispatch fires `emit.single`.
+  - Terminal close fires `emit.fail(TransportClosedError)` from the
+    registry's `closeAll`.
+  - Cancellation finalizer runs `handle.unregister` via
+    `Effect.suspend` so future yielded effects inside `unregister`
+    stay deferred (matches production P3 fix #613).
+
+### [`subscribeAll`](./test-subscribers.ts#L431)
+
+_Function_
+
+```ts
+export function subscribeAll(
+  registry: TestSubscriberRegistry,
+  refinement?: (
+    notification: DecodedNotification<AnyNotificationDefinition>,
+  )
+```
+
+Broad-union subscribe. Returns a `Stream` of every inbound
+notification regardless of definition. Used by conformance helpers
+that need to filter on params-shaped predicates not expressible at
+the definition level (e.g. presence/changed by agentId+status).
+
+### [`TestClient`](./test-client.ts#L122)
+
+_Interface_
+
+```ts
+export interface TestClient {
+  readonly sendRpc: <D extends AnyRpcDefinition>(
+    definition: D,
+    params: ParamsOf<D>,
+    opts?: { readonly timeoutMs?: number },
+  ) => Effect.Effect<
+    ResultOf<D>,
+    | RpcResponseError
+    | RpcTimeoutError
+    | TransportClosedError
+    | TransportIoError
+    | FrameSchemaError
+  >;
+```
+
+Handle surface. Scoped: acquiring the handle opens the WS; releasing the
+scope closes it. All methods return Effects so property code can compose
+them inside `Effect.forEach` / `fc.asyncProperty`.
+
+### [`TestClient`](./test-client.ts#L122)
+
+_Variable_
+
+```ts
+export interface TestClient
+```
+
+Context tag so property code can `Effect.serviceWith(TestClient, …)`.
+
+### [`TestClientConfig`](./test-client.ts#L100)
+
+_Interface_
+
+```ts
+export interface TestClientConfig {
+  readonly serverUrl: string;
+  readonly agentKey: string;
+  readonly agentId: Static<typeof AgentId>;
+  readonly defaultTimeoutMs: number;
+  /** Soft cap on captured frames before the ring buffer drops oldest. */
+  readonly captureCapacity: number;
+
+  /**
+   * When `true`, send the `network/connect` handshake automatically after the
+   * WS upgrade. Defaults to `true`.
+   */
+  readonly autoConnect?: boolean;
+  /** Quiescence window (ms) for `sendMalformed` to wait for a response. */
+  readonly malformedQuiescenceMs?: number;
+}
+```
+
+Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of
+the real server; `agentKey` + `agentId` are for the `connect` handshake.
+`defaultTimeoutMs` bounds each `sendRpc` unless overridden per call.
+
+### [`TestServer`](./test-server.ts#L91)
+
+_Interface_
+
+```ts
+export interface TestServer {
+  readonly wsUrl: string;
+  readonly accept: Effect.Effect<TestServerConnection, TransportIoError>;
+  readonly connections: Effect.Effect<ReadonlyArray<TestServerConnection>>;
+  readonly allInbound: CaptureBuffer;
+  readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
+}
+```
+
+### [`TestServer`](./test-server.ts#L91)
+
+_Variable_
+
+```ts
+export interface TestServer
+```
+
+### [`TestServerConfig`](./test-server.ts#L57)
+
+_Interface_
+
+```ts
+export interface TestServerConfig {
+  /** If 0, bind to an ephemeral port. */
+  readonly port: number;
+  /** Host string bound by the HTTP server; default `"127.0.0.1"`. */
+  readonly host: string;
+  readonly captureCapacity: number;
+}
+```
+
+### [`TestServerConnection`](./test-server.ts#L70)
+
+_Interface_
+
+```ts
+export interface TestServerConnection {
+  readonly connectionId: string;
+  readonly remoteAddr: string;
+  readonly inbound: CaptureBuffer;
+  readonly emitNotification: (
+    notification: NotificationFrame,
+  ) => Effect.Effect<void, TransportIoError | FrameSchemaError>;
+```
+
+A single live client connection accepted by TestServer. Identity is by
+`connectionId` (monotonic), not by any agent-level claim — TestServer is
+below the identity layer.
+
+### [`TestSubscriberRegistry`](./test-subscribers.ts#L115)
+
+_Interface_
+
+```ts
+export interface TestSubscriberRegistry {
+  readonly register: <D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
+    callbacks: {
+      readonly onFrame: (
+        frame: DecodedNotification<D>,
+      ) => Effect.Effect<void, never>;
+      readonly onClose: SubscriberCloseCallback;
+    },
+```
+
+Subscriber registry. One instance per `TestClientRuntime`.
+
+- `register<D>` accepts typed `onFrame` / `onClose` callbacks for the
+  specific definition `D`; storage erases callbacks to the union shape.
+- `registerAll` accepts callbacks against the broad-union
+  `DecodedNotification<AnyNotificationDefinition>` shape; storage
+  parks a `definition: null` sentinel record in the same list.
+- `dispatch` snapshots `subsRef` at iteration start; per-definition
+  subs match on `sub.definition === frame.definition`, broad-union
+  subs match unconditionally; optional `refinement` runs after the
+  definition gate.
+- `closeAll` invokes each live sub's onClose with a
+  `TransportClosedError` before clearing `subsRef`. Idempotent.
+
+### [`TestSubscriptionHandle`](./test-subscribers.ts#L95)
+
+_Interface_
+
+```ts
+export interface TestSubscriptionHandle {
+  readonly id: string;
+  readonly unregister: Effect.Effect<void, never>;
+}
+```
+
+Handle returned by `register` / `registerAll`. `unregister` is
+`Effect<void, never>`: idempotent and total. The `Stream.async`
+cancellation finalizer invokes it; a duplicate call after
+`closeAll` is a no-op.
+
+## Files
+
+- `test-client.ts`
+- `test-server.ts`
+- `test-subscribers.ts`

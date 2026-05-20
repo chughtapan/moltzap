@@ -14,12 +14,11 @@ export { ConversationInTask, type ConversationInTaskValue };
  * Smart constructor. Phase 1 promotes
  * `TaskService.assertConversationInTask` to `@internal` exported per
  * Decision B (Option A); this helper consumes it through the service
- * Tag.
+ * Tag. `SqlError` from the underlying lookup is caught defectively
+ * inside the service helper.
  *
- * Error channel — propagates the helper's `ForbiddenError`
- * ("Conversation does not belong to the specified task") and
- * `NotFoundError` ("Conversation not found"). `SqlError` from the
- * underlying lookup is caught defectively inside the service helper.
+ * @failure ForbiddenError when the conversation does not belong to the specified task
+ * @failure NotFoundError when the conversation does not exist
  */
 export const obtainConversationInTask = (
   taskId: TaskId,

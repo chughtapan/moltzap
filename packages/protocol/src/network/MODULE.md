@@ -1,0 +1,275 @@
+# protocol/network
+
+_`packages/protocol/src/network`_
+
+## Purpose
+
+Public barrel for network, presence, and endpoint-address protocol descriptors.
+
+## Public surface
+
+### [`_ActorModelBarrelCanary`](./actor-model.types-check.ts#L15)
+
+_TypeAlias_
+
+```ts
+export type _ActorModelBarrelCanary =
+  | _EndpointKind
+  | _EndpointRegistration
+  | _AuthenticatedIdentity;
+```
+
+### [`agentId`](./actor-model.ts#L194)
+
+_Property_
+
+```ts
+  readonly agentId: AgentId;
+```
+
+### [`AuthenticatedIdentity`](./actor-model.ts#L193)
+
+_TypeAlias_
+
+```ts
+export type AuthenticatedIdentity = {
+  readonly agentId: AgentId;
+  readonly userId: UserId;
+};
+```
+
+The principal behind a connected agent — the post-`network/connect` view.
+
+Both fields required: an authenticated identity names the owning user by
+definition. The wire-layer `AgentSchema.ownerUserId` is `Optional` to
+accommodate the un-claimed `pending_claim` storage state; the actor-model
+layer only sees identities that have already passed authentication, so the
+optionality is collapsed here.
+
+### [`Connect`](./methods.ts#L48)
+
+_Variable_
+
+```ts
+export const Connect = defineRpc(
+```
+
+### [`endpointAddress`](./actor-model.ts#L91)
+
+_Function_
+
+```ts
+export const endpointAddress = (value: string): EndpointAddress
+```
+
+Brand a raw string as an EndpointAddress. Throws if the value
+ fails isEndpointAddress.
+
+### [`EndpointAddress`](./actor-model.ts#L34)
+
+_TypeAlias_
+
+```ts
+export type EndpointAddress = BrandedString<"EndpointAddress">;
+```
+
+A reachable address in the actor-model network.
+
+Stable across reconnects for registered task-manager endpoints (durable in
+the `tasks.tm_endpoint_address` column).
+
+Phase 9b consumer-migration (sub-issue #460 amendment): `EndpointAddress`
+is durable-only. Per-connection routing uses `ConnectionId` directly
+inside `AgentEndpointResolver`'s reverse index — the `agent-conn` kind
+that previously wrapped `connId` as an `EndpointAddress` was internal
+leakage (never appeared on the wire, never appeared in any DB column,
+never accepted from any client) and has been removed.
+
+### [`endpointAddressKind`](./actor-model.ts#L110)
+
+_Function_
+
+```ts
+export const endpointAddressKind = (
+  address: EndpointAddress,
+): EndpointAddressKind
+```
+
+Read the `kind` segment out of a branded EndpointAddress.
+
+The brand predicate at isEndpointAddress already proves the
+shape `tm:&lt;kind>:&lt;uuid>` with `kind ∈ {@link ENDPOINT_ADDRESS_KINDS}`.
+This helper checks the kinds in declaration order and returns the
+first match. Adding a new kind to the const tuple automatically
+extends this dispatch as long as the brand predicate is updated in
+lockstep — the ENDPOINT_ADDRESS_KINDS-driven loop owns the
+exhaustiveness story.
+
+The trailing `return ENDPOINT_ADDRESS_KINDS[0]` is unreachable for any
+well-formed branded value (the brand guarantees at least one match)
+but appears for the type checker — `for...of` does not narrow to a
+non-empty result. The brand's own tests cover the malformed case.
+
+### [`EndpointAddressKind`](./actor-model.ts#L51)
+
+_TypeAlias_
+
+```ts
+export type EndpointAddressKind = (typeof ENDPOINT_ADDRESS_KINDS)[number];
+```
+
+### [`EndpointKind`](./actor-model.ts#L159)
+
+_TypeAlias_
+
+```ts
+export type EndpointKind = "agent" | "taskManager";
+```
+
+The kinds of endpoints the actor-model network resolves.
+
+Disambiguation: this is the legacy registration-tag union used by
+EndpointRegistration, NOT the address-prefix-driven
+EndpointAddressKind. `EndpointAddressKind` (`"agent"`, `"app"`)
+parses the wire-format `tm:&lt;kind>:&lt;uuid>` string; `EndpointKind` here
+labels a registration record's discriminator.
+
+- `"agent"` — a registered agent-identity endpoint. The resolver
+  multimap keys by `AgentId`; the matching wire address kind is
+  `agent` (durable per-agent). Per-connection routing is internal to
+  the resolver and uses `ConnectionId` directly.
+- `"taskManager"` — a registered TM endpoint, durable in the `tasks`
+  row. Persists across the TM's reconnect window.
+
+String-literal union: `switch` over `EndpointKind` is exhaustive at the
+type level, so adding a third kind here forces every downstream switch to
+handle it.
+
+### [`EndpointRegistration`](./actor-model.ts#L169)
+
+_TypeAlias_
+
+```ts
+export type EndpointRegistration =
+  | {
+      readonly kind: "agent";
+      readonly address: EndpointAddress;
+      readonly agentId: AgentId;
+    }
+```
+
+A registered endpoint as observed by the network layer. Discriminated by
+EndpointKind:
+- `agent` arms carry the resolved AgentId so the resolver can
+  key the multimap.
+- `taskManager` arms carry only the address; ownership of the task is
+  recorded out-of-band in the `tasks` row.
+
+### [`HelloOk`](./methods.ts#L71)
+
+_TypeAlias_
+
+```ts
+export type HelloOk = Static<typeof HelloOkSchema>;
+```
+
+### [`isEndpointAddress`](./actor-model.ts#L66)
+
+_Function_
+
+```ts
+export const isEndpointAddress = (value: unknown): value is EndpointAddress
+```
+
+Predicate that an endpoint address has the canonical wire shape
+`tm:&lt;kind&gt;:&lt;uuid&gt;`. Exported for tests and reviewers.
+
+### [`makeEndpointAddress`](./actor-model.ts#L129)
+
+_Function_
+
+```ts
+export const makeEndpointAddress = (
+  kind: EndpointAddressKind,
+  uuid: string,
+): EndpointAddress
+```
+
+Mint an `EndpointAddress` from a kind and a UUID. The single
+construction site for `tm:&lt;kind>:&lt;uuid>` strings — every other
+caller routes through here so the wire format does not fork.
+
+Throws if the resulting string fails isEndpointAddress (e.g.,
+`uuid` is not a UUID).
+
+### [`networkNotifications`](./methods.ts#L128)
+
+_Variable_
+
+```ts
+export const networkNotifications = [
+  PresenceChangedNotificationDefinition,
+] as const
+```
+
+### [`NetworkPing`](./methods.ts#L75)
+
+_Variable_
+
+```ts
+export const NetworkPing = defineRpc(
+```
+
+### [`networkRpcMethods`](./methods.ts#L121)
+
+_Variable_
+
+```ts
+export const networkRpcMethods = [
+  Connect,
+  NetworkPing,
+  PresenceUpdate,
+  PresenceSubscribe,
+] as const
+```
+
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L116)
+
+_Variable_
+
+```ts
+export const PresenceChangedNotificationDefinition = defineNotification(
+```
+
+### [`PresenceSubscribe`](./methods.ts#L96)
+
+_Variable_
+
+```ts
+export const PresenceSubscribe = defineRpc(
+```
+
+Replace-semantics: replaces the connection's subscriber set with
+`agentIds`. Empty array unsubscribes from all. Idempotent.
+
+### [`PresenceUpdate`](./methods.ts#L83)
+
+_Variable_
+
+```ts
+export const PresenceUpdate = defineRpc(
+```
+
+### [`userId`](./actor-model.ts#L195)
+
+_Property_
+
+```ts
+  readonly userId: UserId;
+```
+
+## Files
+
+- `actor-model.ts`
+- `actor-model.types-check.ts`
+- `methods.ts`

@@ -58,12 +58,10 @@ export {
  *      Bypass + no reply: return `forTmBypass`.
  *      Bypass + reply: return `forTmBypassWithReply`.
  *
- * Error channel — union of every source-service public failure that
- * the body propagates without rewrap:
- *   - `ForbiddenError` from `assertConversationParticipant`
- *   - `NotFoundError` from `assertReplyTarget`, `fetchTask`
- *   - `ConversationArchivedError` from `refineConversationNotArchived`
- *   - `TaskClosedError` from `refineTaskActive`
+ * @failure ForbiddenError when caller is not a participant in the conversation
+ * @failure NotFoundError when the task does not exist, or `replyToId` is unresolvable
+ * @failure ConversationArchivedError when the conversation has been archived
+ * @failure TaskClosedError when the task is closed / failed (non-bypass path only)
  */
 type ReplyTargetValue =
   | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
