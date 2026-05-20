@@ -1,5 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   awaitOneNotification,
   it,
@@ -7,6 +7,7 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   setupAgentGroup,
+  type ConnectedAgent,
 } from "../helpers.js";
 
 import {
@@ -17,6 +18,7 @@ import {
 
 let _baseUrl: string;
 let _wsUrl: string;
+const EXTRA_EVENT_SETTLE_MS = 250;
 
 beforeAll(() =>
   Effect.runPromise(
@@ -32,35 +34,70 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
+/**
+ * Fork a "drop the first frame, then collect any extras" collector
+ * (#645): the legacy `drainNotifications` historical queue is gone,
+ * so the no-extra-event assertion must subscribe BEFORE the
+ * triggering send.
+ */
+function forkExtraCollector(receiver: ConnectedAgent) {
+  return receiver.client
+    .subscribe(MessageReceivedNotificationDefinition)
+    .pipe(
+      Stream.drop(1),
+      Stream.interruptAfter(Duration.millis(EXTRA_EVENT_SETTLE_MS)),
+      Stream.runCollect,
+      Effect.fork,
+    );
+}
+
+function setupDmConversations(
+  sender: ConnectedAgent,
+  receivers: ReadonlyArray<ConnectedAgent>,
+) {
+  return Effect.forEach(
+    receivers,
+    (receiver, i) =>
+      Effect.map(
+        sender.client.sendRpc(ConversationsCreate, {
+          type: "dm",
+          participants: [{ type: "agent", id: receiver.agentId }],
+        }) as Effect.Effect<{ conversation: { id: string } }>,
+        (conv) => ({ id: conv.conversation.id, receiverIdx: i }),
+      ),
+    { concurrency: 1 },
+  );
+}
+
+function sendToAll(
+  sender: ConnectedAgent,
+  conversations: ReadonlyArray<{ id: string }>,
+) {
+  return Effect.all(
+    conversations.map((conv, i) =>
+      sender.client.sendRpc(MessagesSend, {
+        conversationId: conv.id,
+        parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
+      }),
+    ),
+    { concurrency: conversations.length },
+  );
+}
+
 it("multiple DMs receive messages simultaneously without cross-talk", () =>
   Effect.gen(function* () {
     const { agents } = yield* setupAgentGroup(5);
-
     const sender = agents[0]!;
     const receivers = agents.slice(1);
 
-    // Create 4 separate DM conversations between agent-0 and each of agents 1-4
-    const conversations: Array<{ id: string; receiverIdx: number }> = [];
-    for (let i = 0; i < receivers.length; i++) {
-      const conv = (yield* sender.client.sendRpc(ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: receivers[i]!.agentId }],
-      })) as { conversation: { id: string } };
-      conversations.push({ id: conv.conversation.id, receiverIdx: i });
-    }
+    const conversations = yield* setupDmConversations(sender, receivers);
 
-    // Set up event waiters on all receivers BEFORE sending
-
-    // Send messages to all 4 conversations simultaneously
-    yield* Effect.all(
-      conversations.map((conv, i) =>
-        sender.client.sendRpc(MessagesSend, {
-          conversationId: conv.id,
-          parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
-        }),
-      ),
-      { concurrency: conversations.length },
+    const extraCollectors = yield* Effect.all(
+      receivers.map((receiver) => forkExtraCollector(receiver)),
+      { concurrency: receivers.length },
     );
+
+    yield* sendToAll(sender, conversations);
 
     const events = yield* Effect.all(
       receivers.map((r) =>
@@ -82,12 +119,10 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
       expect(data.message.parts[0]!.text).toBe(`Hello receiver-${i + 1}`);
     }
 
-    // Verify no extra events leaked to any receiver
-    for (const receiver of receivers) {
-      const drained = yield* receiver.client.drainNotifications;
-      const extra = drained.filter(
-        (e) => e.definition === MessageReceivedNotificationDefinition,
-      );
+    // No extra events: settle-window collector forked before sends;
+    // expected first frame dropped via `Stream.drop(1)`.
+    for (const collector of extraCollectors) {
+      const extra = Chunk.toReadonlyArray(yield* Fiber.join(collector));
       expect(extra).toHaveLength(0);
     }
   }));

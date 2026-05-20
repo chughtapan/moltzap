@@ -116,80 +116,13 @@ function rpcErrorForMethod(
   return (cause) => rpcError(cause, method);
 }
 
-/**
- * Reconstruct the deleted `SubscriptionFilter` predicate inline. Bridges
- * `RealClientNotificationFilter` (protocol-side shape) onto the Stream
- * refinement-predicate surface. Three-field match: `emissionTag` and
- * `conversationId` exact-match on params; `notificationNamePrefix` is a
- * `method.startsWith(prefix)` match.
- *
- * Returns `undefined` when every filter field is unset (the empty-filter
- * case matches all frames; `subscribeAll`'s no-refinement path is more
- * efficient than a tautological predicate).
- */
-
-/**
- * Narrow `notification.params` to a string-keyed record without an
- * `as` cast. Returns `null` when the params don't structurally match.
- */
-function asNotificationParamsRecord(
-  params: unknown,
-): { readonly [key: string]: unknown } | null {
-  if (typeof params !== "object" || params === null || Array.isArray(params))
-    return null;
-  return params as { readonly [key: string]: unknown };
-}
-
-function tagMatches(
-  params: { readonly [key: string]: unknown } | null,
-  emissionTag: string | undefined,
-): boolean {
-  return emissionTag === undefined || params?.["__emissionTag"] === emissionTag;
-}
-
-function conversationMatches(
-  params: { readonly [key: string]: unknown } | null,
-  conversationId: string | undefined,
-): boolean {
-  return (
-    conversationId === undefined ||
-    params?.["conversationId"] === conversationId
-  );
-}
-
-function notificationMatchesFilter(
-  notification: DecodedNotification<AnyNotificationDefinition>,
-  filter: RealClientNotificationFilter,
-): boolean {
-  const { emissionTag, conversationId, notificationNamePrefix } = filter;
-  if (
-    notificationNamePrefix !== undefined &&
-    !notification.method.startsWith(notificationNamePrefix)
-  ) {
-    return false;
-  }
-  const params = asNotificationParamsRecord(notification.params);
-  return (
-    tagMatches(params, emissionTag) &&
-    conversationMatches(params, conversationId)
-  );
-}
-
-function refinementFromRealClientFilter(
-  filter: RealClientNotificationFilter,
-):
-  | ((notification: DecodedNotification<AnyNotificationDefinition>) => boolean)
-  | undefined {
-  const { emissionTag, conversationId, notificationNamePrefix } = filter;
-  if (
-    emissionTag === undefined &&
-    conversationId === undefined &&
-    notificationNamePrefix === undefined
-  ) {
-    return undefined;
-  }
-  return (notification) => notificationMatchesFilter(notification, filter);
-}
+// #645: the legacy bridge that reconstructed the deleted three-field
+// `SubscriptionFilter` grammar inline (`asNotificationParamsRecord`,
+// `tagMatches`, `conversationMatches`, `notificationMatchesFilter`,
+// `refinementFromRealClientFilter`) has been deleted. The collapsed
+// `RealClientNotificationFilter` is itself a `(notification) => boolean`
+// predicate; `subscribeRealClient` passes it through directly to
+// `ws.subscribeAll(filter)` with no inline reconstruction.
 
 function logConformanceAdapterWarning(message: string, cause: unknown): void {
   Effect.runSync(
@@ -354,8 +287,10 @@ function waitForReady(
 
 /**
  * Subscribe to filtered notifications through the `subscribeAll` Stream.
- * The filter is reconstructed as an in-band refinement predicate (the
- * three-field SubscriptionFilter grammar was deleted in Spec B).
+ * The predicate is plumbed through directly (#645: the deleted
+ * three-field `SubscriptionFilter` grammar's inline reconstruction
+ * helpers were removed; `RealClientNotificationFilter` is now itself
+ * a `(notification) => boolean` predicate).
  *
  * The returned `RealClientSubscription` carries an `unsubscribe` Effect
  * that interrupts the forked consumer fiber, draining its Scope finalizer
@@ -364,7 +299,7 @@ function waitForReady(
  */
 function subscribeRealClient(
   ws: MoltZapWsClient,
-  filter: RealClientNotificationFilter,
+  filter: RealClientNotificationFilter | undefined,
 ): Effect.Effect<
   RealClientSubscription,
   RealClientLifecycleError,
@@ -373,8 +308,7 @@ function subscribeRealClient(
   return Effect.gen(function* () {
     // Spawn a scoped child scope so we can selectively unsubscribe.
     const subScope = yield* Scope.make();
-    const refinement = refinementFromRealClientFilter(filter);
-    const consumeEffect = ws.subscribeAll(refinement).pipe(
+    const consumeEffect = ws.subscribeAll(filter).pipe(
       Stream.runForEach(() => Effect.void),
       Effect.catchAll(() => Effect.void),
       Effect.asVoid,
