@@ -688,8 +688,8 @@ export const taskHandlers: RpcMethodRegistry = [
   // the legacy handlers + dual-emission inside the same orchestration
   // (parent epic #602).
   //
-  // Per-flow walkthroughs:
-  //   packages/protocol/docs/architecture/task-conversation-family.md
+  // Family overview: header block above the descriptors in
+  // `packages/protocol/src/task/tasks.ts`.
   //
   // Capability shape (post-Spec-F #632 typed-dispatcher cutover): every
   // TM-gated descriptor in `@moltzap/protocol/task/tasks.ts` declares

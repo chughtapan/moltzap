@@ -10,7 +10,7 @@ dependency DAG.
 - `src/network/` — Network layer: connect/ping/presence RPC descriptors, endpoint actor-model types
 - `src/task/` — Task layer: conversation/message/task RPC descriptors and notification definitions
   - Legacy `Conversations*` + `Tasks*` families (`tasks/*`, `conversations/*` wire names).
-  - Spec D1 (#598) additive surface: `TaskCreate`, `TaskLeave`, six `TaskConversation*` admin methods (singular `task/*` namespace), `AppId` brand, `DEFAULT_APP_ID` constant, `ParticipantNotAdmittedError`, five `task/conversation/*` notifications. Both families coexist until Spec D3 (#600) deletes legacy. Per-flow walkthrough: `docs/architecture/task-conversation-family.md`. Type canaries: `src/task/task-conversation-family.types-check.ts`.
+  - Spec D1 (#598) additive surface: `TaskCreate`, `TaskLeave`, six `TaskConversation*` admin methods (singular `task/*` namespace), `AppId` brand, `DEFAULT_APP_ID` constant, `ParticipantNotAdmittedError`, five `task/conversation/*` notifications. Both families coexist until Spec D3 (#600) deletes legacy. Family overview: header block above the descriptors in `src/task/tasks.ts`. Type canaries: `src/task/task-conversation-family.types-check.ts`.
 - `src/app/` — App layer: app registration + task-callback RPC descriptors
 - `src/transport/` — Wire frames, JSON-RPC client/server runtime, codec, error registry, group decoders
 - `src/rpc-registry.ts` — Canonical aggregate `rpcMethods` + `notificationDefinitions` arrays and the `taskCallbackMethods` group

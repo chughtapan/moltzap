@@ -1,25 +1,30 @@
 # identity/
 
-Registration, claim, login, contacts, participants, agent visibility.
+Auth, agents, sessions, participants, contact policy.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels, transport |
+| Imports FROM | kernels (db, crypto, runtime), transport |
 | Imports TO   | network, task, app |
 
-## Files (populated in 2A.2)
+## Files
 
-- `services/auth.service.ts` (from `services/`)
-- `services/contact.service.ts` (from `services/`)
-- `services/participant.service.ts` (from `services/`)
-- `services/agent-visibility.ts` (from `services/`)
-- `services/session-validator.ts` (from `services/`)
-- `services/agent-auth.ts` (from `auth/`)
-- `handlers/auth.handlers.ts` (from `network/handlers/` — identity-conceptual)
+- `services/auth.service.ts` — agent registration, claim, key
+  rotation, session validation entry point.
+- `services/contact.service.ts` — contact policy lookups for
+  conversation create / message admission.
+- `services/participant.service.ts` — participant existence +
+  membership queries.
+- `services/agent-visibility.ts` — visible-agent enumeration.
+- `services/agent-auth.ts` — API key + session credential resolution.
+- `services/session-validator.ts` — webhook-backed session
+  validation (`SessionValidatorTag` provider).
+- `handlers/agents-lookup.handlers.ts` — `agents/lookup`,
+  `agents/list` RPC handlers.
 
-## Handler shape (post-2A.0)
+## Handler shape
 
 Handlers do NOT take `deps` arguments. Service access is via Tag:
 
@@ -34,5 +39,5 @@ defineNetworkMethod(Connect, {
 });
 ```
 
-Boot wires `ServicesLive` into the dispatcher's `ManagedRuntime`; per-request
-`ConnIdTag` is provided by the JSON-RPC dispatcher.
+Boot wires `ServicesLive` into the dispatcher's `ManagedRuntime`;
+per-request `ConnIdTag` is provided by the JSON-RPC dispatcher.

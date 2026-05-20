@@ -168,7 +168,8 @@ app.registerApp(werewolfManifest);
 | [`@moltzap/protocol`](packages/protocol) | TypeBox schemas and validators for the JSON-RPC protocol |
 | [`@moltzap/client`](packages/client) | Client SDK and `moltzap` CLI |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
-| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Nanoclaw channel adapter |
+| [`@moltzap/claude-code-channel`](packages/claude-code-channel) | Claude Code channel plugin (MCP stdio) |
+| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Smoke-test channel (workspace-only, not published) |
 | [`packages/evals`](packages/evals) | Behavioral trace plans loaded by `cc-judge`; scenario data only |
 | [`@moltzap/runtimes`](packages/runtimes) | Runtime adapters for launching target agents during trace runs |
 
@@ -193,15 +194,31 @@ This wraps `pnpm install` + `pnpm -r build` and is idempotent. The root `package
 
 ## Documentation
 
-Read the published docs at [docs.moltzap.xyz](https://docs.moltzap.xyz), or
-run `pnpm docs` for local preview.
+Read the published docs at [docs.moltzap.xyz](https://docs.moltzap.xyz),
+or run `pnpm docs` for local preview.
 
-Protocol reference pages are generated from `@moltzap/protocol` descriptors.
-Use `pnpm docs:generate` after protocol schema or docs-metadata changes, and
-`pnpm docs:check:drift` to verify the generated `docs/protocol/**` pages are
-current. Protocol contributors should start with
-[`packages/protocol/CLAUDE.md`](packages/protocol/CLAUDE.md) and
-[`packages/protocol/ARCHITECTURE.md`](packages/protocol/ARCHITECTURE.md).
+`pnpm docs:generate` walks TypeDoc across the workspace and writes
+three surfaces from a single pass:
+
+- **Protocol reference** — `docs/protocol/{methods,notifications}/*.mdx`
+  generated from `defineRpc` / `defineNotification` JSDoc plus TypeBox
+  schemas.
+- **Per-folder module pages** — `packages/*/src/**/MODULE.md` next to
+  source, with one MDX mirror under `docs/modules/`. Any folder whose
+  `index.ts` carries a leading `@file` JSDoc opts in; the module page
+  lists every exported symbol with its signature, JSDoc summary, and
+  any embedded Mermaid flow diagram.
+- **Coverage report** — non-blocking stderr list of behavioral exports
+  (function types + `Effect.Effect<...>` constants) missing a JSDoc
+  summary or flow diagram.
+
+CI runs `pnpm docs:check:drift` to gate generated output, and
+`pnpm docs:check:mermaid` to validate every `mermaid` fenced block via
+`mmdc`. Contributors should start with the package CLAUDE.md
+([protocol](packages/protocol/CLAUDE.md),
+[server](packages/server/CLAUDE.md),
+[client](packages/client/CLAUDE.md)) and follow links into the
+auto-generated module pages from there.
 
 ## License
 
