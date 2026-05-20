@@ -70,7 +70,7 @@ export type ConversationActor = {
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
    * mirrors `@moltzap/server-core/test-utils → connectTestClient` per
-   * `packages/protocol/docs/architecture/12-test-client-stream-consolidation.md
+   * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
    * → §3 "Historical-buffer bridge for integration tests"`.
    */
   readonly notifications: NotificationBuffer;
@@ -116,7 +116,7 @@ const PUMP_POLL_INTERVAL_MS = 5;
  * pre-subscribe via `client.subscribe(def)` directly before the
  * triggering RPC and consume the Stream with `Stream.runHead` — the
  * pattern documented in §6 of
- * `packages/protocol/docs/architecture/12-test-client-stream-consolidation.md`.
+ * `packages/protocol/docs/architecture/test-client-stream-consolidation.md`.
  */
 function makeNotificationBuffer(
   client: TestClient,
@@ -246,7 +246,7 @@ export function deliveryViolation(
  * polling semantic preserved without resurrecting the deleted
  * per-definition dedup ring. Mirrors
  * `@moltzap/server-core/test-utils → awaitOneNotification` per
- * `packages/protocol/docs/architecture/12-test-client-stream-consolidation.md
+ * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
  * → §3 "Historical-buffer bridge for integration tests"`.
  *
  * Surfaces a single string message on either timeout or stream

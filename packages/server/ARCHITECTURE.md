@@ -62,16 +62,16 @@ typed `RpcMethodBinding<Params, Result, Error, Tags>`.
 
 | Section | Detail doc |
 |---|---|
-| §3.1 Service Layer composition (boot graph) | [docs/architecture/01-service-layer-composition.md](docs/architecture/01-service-layer-composition.md) |
-| §3.2 WebSocket connection lifecycle | [docs/architecture/02-ws-connection-lifecycle.md](docs/architecture/02-ws-connection-lifecycle.md) |
-| §3.3 Request → response handling | [docs/architecture/03-request-response-handling.md](docs/architecture/03-request-response-handling.md) |
-| §3.4 Server-initiated callback (`dispatch/authorize`) | [docs/architecture/04-server-initiated-callback.md](docs/architecture/04-server-initiated-callback.md) |
-| §3.5 AppHost hook unification | [docs/architecture/05-app-host-hook-unification.md](docs/architecture/05-app-host-hook-unification.md) |
-| §3.6 Lease lifecycle | [docs/architecture/06-lease-lifecycle.md](docs/architecture/06-lease-lifecycle.md) |
-| §3.7 HTTP route surface | [docs/architecture/07-http-routes.md](docs/architecture/07-http-routes.md) |
-| §3.8 Notification fan-out | [docs/architecture/08-notification-fanout.md](docs/architecture/08-notification-fanout.md) |
-| §3.9 Shutdown sequence | [docs/architecture/09-shutdown-sequence.md](docs/architecture/09-shutdown-sequence.md) |
-| §3.10 R-channel capabilities (typed authority tokens) | [docs/architecture/10-r-channel-capabilities.md](docs/architecture/10-r-channel-capabilities.md) |
+| §3.1 Service Layer composition (boot graph) | [docs/architecture/service-layer-composition.md](docs/architecture/service-layer-composition.md) |
+| §3.2 WebSocket connection lifecycle | [docs/architecture/ws-connection-lifecycle.md](docs/architecture/ws-connection-lifecycle.md) |
+| §3.3 Request → response handling | [docs/architecture/request-response-handling.md](docs/architecture/request-response-handling.md) |
+| §3.4 Server-initiated callback (`dispatch/authorize`) | [docs/architecture/server-initiated-callback.md](docs/architecture/server-initiated-callback.md) |
+| §3.5 AppHost hook unification | [docs/architecture/app-host-hook-unification.md](docs/architecture/app-host-hook-unification.md) |
+| §3.6 Lease lifecycle | [docs/architecture/lease-lifecycle.md](docs/architecture/lease-lifecycle.md) |
+| §3.7 HTTP route surface | [docs/architecture/http-routes.md](docs/architecture/http-routes.md) |
+| §3.8 Notification fan-out | [docs/architecture/notification-fanout.md](docs/architecture/notification-fanout.md) |
+| §3.9 Shutdown sequence | [docs/architecture/shutdown-sequence.md](docs/architecture/shutdown-sequence.md) |
+| §3.10 R-channel capabilities (typed authority tokens) | [docs/architecture/r-channel-capabilities.md](docs/architecture/r-channel-capabilities.md) |
 
 ## 4. Data Stores
 
@@ -154,8 +154,8 @@ handler-invocation time.
   by `createCoreApp` for embedding in a host process. Provides the
   `onConnection` / `setContactService` / `registerMessageAuthorize` /
   `registerApp` / `registerRemoteApp` extension hooks. The static RPC
-  handler table is baked at `createCoreApp` time per Spec F #617
-  invariant I1 — post-construction method registration is not supported.
+  handler table is baked at `createCoreApp` time — post-construction
+  method registration is not supported.
 - **Layer-tag hierarchy** — TypeScript-enforced constraint on which
   Effect Tags a handler may pull (`TransportTags ⊂ IdentityTags ⊂
   NetworkTags ⊂ TaskTags ⊂ AppTags`); prevents low-layer code from
@@ -175,10 +175,14 @@ handler-invocation time.
   (RPC handlers, HTTP routes, WS finalizers) so handler `yield* Tag`
   reads resolve structurally without per-frame `Effect.provide`.
 - **R-channel capability** — Nominal `Context.Tag` whose value carries
-  the runtime IDs + already-fetched payload row that today's `requireX`
-  runtime check fetches. Privileged service methods declare the
-  capability in their R channel; handlers `provideServiceEffect` it via
-  an `obtain*` smart constructor. The compiler enforces "the obtain
-  happened"; the runtime check moves to the obtain helper. Defined in
-  `src/app/capabilities/`; pattern documented in
-  [docs/architecture/10-r-channel-capabilities.md](docs/architecture/10-r-channel-capabilities.md).
+  the runtime IDs + already-fetched payload row that a `require*`
+  authority check would otherwise fetch inline. Privileged service
+  methods declare the capability in their R channel; the dispatcher
+  reads the descriptor's `capabilities: [...]` array per frame and
+  auto-provisions each tag from the `serverCapabilityProviders` table
+  (`src/app/capability-providers.ts`) via
+  `Effect.provideServiceEffect`. Tag classes live in
+  `packages/protocol/src/task/capabilities/`; obtain helpers + the
+  provider table live in `packages/server/src/app/capabilities/`.
+  Pattern documented in
+  [docs/architecture/r-channel-capabilities.md](docs/architecture/r-channel-capabilities.md).

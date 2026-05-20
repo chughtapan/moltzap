@@ -19,6 +19,19 @@ import {
   MessageId,
 } from "./conversations.js";
 import { messagePartsSchema, messageSchema } from "./messages.js";
+// Direct per-file imports (NOT via the capabilities barrel) to keep the
+// runtime dep graph one-way; see conversations.ts for the rationale.
+import {
+  ConversationCreateAuthorization,
+  type ObtainConversationCreateAuthorizationInput,
+} from "./capabilities/conversation-create-authorization.js";
+import { ConversationInTask } from "./capabilities/conversation-in-task.js";
+import {
+  MessageSendPermission,
+  type ObtainMessageSendPermissionInput,
+} from "./capabilities/message-send-permission.js";
+import { TaskReadAccess } from "./capabilities/task-read-access.js";
+import { TmAuthority } from "./capabilities/tm-authority.js";
 
 const DateTimeString = dateTimeStringSchema();
 const AgentParticipantRefSchema = agentParticipantRefSchema();
@@ -127,6 +140,16 @@ export const TasksGet = defineRpc({
     },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: TaskReadAccess,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+  ] as const,
 });
 
 export const TasksList = defineRpc({
@@ -149,6 +172,16 @@ export const TasksClose = defineRpc({
   name: "tasks/close",
   params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
   result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+  ] as const,
 });
 
 export const TasksCreateConversation = defineRpc({
@@ -166,6 +199,34 @@ export const TasksCreateConversation = defineRpc({
     { conversation: ConversationSchema },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationCreateAuthorization,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainConversationCreateAuthorizationInput => {
+        const p = params as {
+          readonly type: "dm" | "group";
+          readonly participants: ReadonlyArray<{ readonly id: string }>;
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          type: p.type,
+          agentIds: p.participants.map((x) => x.id as AgentId),
+          creatorAgentId: c.auth.agentId,
+        };
+      },
+    },
+  ] as const,
 });
 
 export const TasksCloseConversation = defineRpc({
@@ -178,6 +239,26 @@ export const TasksCloseConversation = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+  ] as const,
 });
 
 export const TasksAddParticipant = defineRpc({
@@ -193,6 +274,16 @@ export const TasksAddParticipant = defineRpc({
     { participant: TaskParticipantSchema },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+  ] as const,
 });
 
 export const TasksRemoveParticipant = defineRpc({
@@ -205,6 +296,16 @@ export const TasksRemoveParticipant = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+  ] as const,
 });
 
 export const TasksStoreMessage = defineRpc({
@@ -223,6 +324,43 @@ export const TasksStoreMessage = defineRpc({
     { message: MessageSchema },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+    {
+      tag: MessageSendPermission,
+      argsOf: (params: unknown): ObtainMessageSendPermissionInput => {
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+          readonly senderAgentId: AgentId;
+          readonly replyToId?: Static<typeof MessageId>;
+        };
+        return {
+          taskId: p.taskId,
+          conversationId: p.conversationId,
+          senderAgentId: p.senderAgentId,
+          replyToId: p.replyToId,
+        };
+      },
+    },
+  ] as const,
 });
 
 export const TasksGetMessages = defineRpc({
@@ -242,6 +380,26 @@ export const TasksGetMessages = defineRpc({
     },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: TaskReadAccess,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+  ] as const,
 });
 
 export const TasksGetMessagesSince = defineRpc({
@@ -264,6 +422,26 @@ export const TasksGetMessagesSince = defineRpc({
     },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: TaskReadAccess,
+      argsOf: (params: unknown, ctx: unknown) => {
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+  ] as const,
 });
 
 const TaskFailedNotificationSchema = Type.Object(
