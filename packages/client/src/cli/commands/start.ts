@@ -252,6 +252,9 @@ const createTaskAtomic = (
   Transport
 > =>
   Effect.gen(function* () {
+    // Defensive copies: TaskCreate's params type expects mutable arrays
+    // (TypeBox's Static<Array> resolves to T[], not readonly T[]); pass
+    // shallow clones so the caller's readonly contract isn't bypassed.
     const result = yield* rpc(TaskCreate, {
       appId,
       invitedAgentIds: [...invitedAgentIds],
@@ -311,7 +314,7 @@ const startCommandHandler = (
     );
     yield* printTaskStarted(task, conversation);
     if (args.message !== undefined) {
-      yield* sendFirstMessage(conversation.id as ConversationId, args.message);
+      yield* sendFirstMessage(conversation.id, args.message);
     }
   }).pipe(Effect.withSpan("startCommandHandler"));
 
