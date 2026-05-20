@@ -79,14 +79,6 @@ export type {
   CapabilitiesOf,
 } from "./capabilities.js";
 export type {
-  FailClosedDefault,
-  Forbidden,
-  NoOpNotification,
-  IsOptionalSlot,
-  FailClosedForbidden,
-} from "./defaults.js";
-export { forbidden, noOpNotification } from "./defaults.js";
-export type {
   HandlerSlot,
   HandlerTable,
   ServerHandlers,

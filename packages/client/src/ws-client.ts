@@ -20,8 +20,10 @@ import {
 import {
   PROTOCOL_VERSION,
   Connect,
+  DispatchAuthorize,
+  ForbiddenError,
+  MessagesAuthorize,
   encodeErrorResponse,
-  forbidden,
   makeTaskMasterConnection,
   NotConnectedError,
   RpcTimeoutError,
@@ -297,13 +299,24 @@ export class MoltZapWsClient {
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
     // Handler table is value-passed at construction. When the caller
     // doesn't supply implementations for the TM-callback slots, fall
-    // back to the explicit `forbidden` sentinel — the dispatcher then
-    // synthesizes `-32001 Forbidden` per JSON-RPC fail-CLOSED. The
-    // reference is held verbatim; the protocol's `eraseHandlerTable`
-    // only reads keys.
+    // back to a vacuous-deny pair that always raises ForbiddenError
+    // (-32001). Post-D3 R14b the protocol surface has no sentinel
+    // shorthand; this default ports the behavior into explicit handlers.
     this.appCallbackHandlers = options.appCallbackHandlers ?? {
-      "dispatch/authorize": forbidden,
-      "messages/authorize": forbidden,
+      "dispatch/authorize": {
+        definition: DispatchAuthorize,
+        handle: () =>
+          Effect.fail(
+            new ForbiddenError({ message: "vacuous deny: dispatch/authorize" }),
+          ),
+      },
+      "messages/authorize": {
+        definition: MessagesAuthorize,
+        handle: () =>
+          Effect.fail(
+            new ForbiddenError({ message: "vacuous deny: messages/authorize" }),
+          ),
+      },
     };
   }
 

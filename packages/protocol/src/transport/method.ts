@@ -13,26 +13,17 @@ import {
   type ResponseFrame,
 } from "./wire.js";
 import type { CapabilityDescriptor } from "./capabilities.js";
-import type { FailClosedDefault } from "./defaults.js";
 
 /**
  * Typed manifest for one RPC method: wire name + schemas + validators.
  * Type-only payload accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>`
  * — there is no runtime `Params`/`Result` property.
  *
- * Two OPTIONAL per-definition metadata fields shape dispatcher behavior:
- *
- * - `optional`: when present, the slot is OPTIONAL — every
- *   `makeServerConnection({ handlers })` literal MUST still name the
- *   slot key, but its value may be the sentinel (`forbidden` /
- *   `noOpNotification`) and the dispatcher synthesizes the fail-CLOSED
- *   response without invoking a handler. Absent → REQUIRED slot
- *   (omission is a `tsc` error at the factory call).
- * - `capabilities`: a runtime-readable list of capability descriptors
- *   the dispatcher iterates to thread `Effect.provideServiceEffect`.
- *   Each descriptor names a `Context.Tag` plus an `argsOf` resolver
- *   that derives the obtain helper's args from `params` + `ctx`.
- *   Absent → no capabilities.
+ * `capabilities` is the only optional metadata: a runtime-readable list
+ * of capability descriptors the dispatcher iterates to thread
+ * `Effect.provideServiceEffect`. Each descriptor names a `Context.Tag`
+ * plus an `argsOf` resolver that derives the obtain helper's args from
+ * `params` + `ctx`. Absent → no capabilities.
  */
 export interface RpcDefinition<
   Name extends string,
@@ -51,13 +42,6 @@ export interface RpcDefinition<
     id: JsonRpcId | null,
     result: unknown,
   ) => ResponseFrame;
-
-  /**
-   * Slot disposition. Absent → REQUIRED. Present → OPTIONAL with the
-   * embedded fail-CLOSED default. Read by `IsOptionalSlot&lt;D>`
-   * (type-level) and the runtime dispatcher.
-   */
-  readonly optional?: FailClosedDefault;
 
   /**
    * Spec F G5/G6: per-definition capability descriptors. Each entry's
@@ -81,7 +65,6 @@ export function defineRpc<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
-  Opt extends FailClosedDefault | undefined = undefined,
   Caps extends ReadonlyArray<CapabilityDescriptor> = readonly [],
 >(def: {
   name: Name;
@@ -89,34 +72,15 @@ export function defineRpc<
   result: R;
 
   /**
-   * Present → OPTIONAL slot with the carried fail-CLOSED default.
-   * Absent → REQUIRED slot (handler-table type rejects missing key
-   * with TS2741 at the factory call). See `defaults.ts → forbiddenDefault`.
-   *
-   * Generic-parameterized so the call-site narrows the inferred type
-   * to the literal `{ optional: FailClosedDefault }` shape (vs the
-   * widened `optional?: FailClosedDefault`). `IsOptionalSlot&lt;D>`
-   * reads the narrowed shape; without the narrowing, every definition
-   * would appear REQUIRED to the mapped-type pass.
-   */
-  optional?: Opt;
-
-  /**
    * Per-definition capability descriptors. Each entry pairs a Spec E
    * `Context.Tag` (the value the handler will `yield*`) with a
    * synchronous `argsOf` resolver that derives the obtain helper's
-   * arguments from wire `params` + dispatcher `ctx`. The dispatcher
-   * reads this list at runtime (TypeScript erases R channels).
-   *
-   * Generic-parameterized so the return type preserves the literal
-   * tuple shape — `CapabilitiesOf&lt;D>` reads
-   * `D["capabilities"][number]["tag"]` to extract the tag union.
-   * Without a captured `Caps` generic, `capabilities` widens to
-   * `ReadonlyArray&lt;CapabilityDescriptor>` and the per-tag info is lost.
+   * arguments from wire `params` + dispatcher `ctx`. Generic-parameterized
+   * so the return type preserves the literal tuple shape for
+   * `CapabilitiesOf&lt;D>`.
    */
   capabilities?: Caps;
 }): RpcDefinition<Name, P, R> & {
-  readonly optional: Opt;
   readonly capabilities: Caps;
 } {
   const d: RpcDefinition<Name, P, R> = {
@@ -127,13 +91,11 @@ export function defineRpc<
     validateResult: ajv.compile(def.result),
     encodeRequest: (id, params) => requestFrame(id, d, params as Static<P>),
     encodeResponse: (id, result) => responseFrame(id, { result }),
-    ...(def.optional !== undefined ? { optional: def.optional } : {}),
     ...(def.capabilities !== undefined
       ? { capabilities: def.capabilities }
       : {}),
   };
   return d as RpcDefinition<Name, P, R> & {
-    readonly optional: Opt;
     readonly capabilities: Caps;
   };
 }

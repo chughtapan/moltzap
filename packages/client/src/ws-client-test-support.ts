@@ -51,7 +51,6 @@ import {
   DispatchAuthorize,
   Connect,
   ConversationsList,
-  forbidden,
   MessagesAuthorize,
   MessagesSend,
   MessageReceivedNotificationDefinition,
@@ -620,7 +619,7 @@ function grantDispatchAuthorizeHandlers(
   observedTaskId: MutableRef<string | null>,
 ): AppCallbackHandlers {
   return {
-    [DispatchAuthorize.name]: {
+    "dispatch/authorize": {
       definition: DispatchAuthorize,
       handle: (params: ParamsOf<typeof DispatchAuthorize>) =>
         Effect.sync(() => {
@@ -628,8 +627,14 @@ function grantDispatchAuthorizeHandlers(
           return { admission: { decision: GRANT_DECISION as "grant" } };
         }),
     },
-    [MessagesAuthorize.name]: forbidden,
-  } as AppCallbackHandlers;
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () =>
+        Effect.fail(
+          new ForbiddenError({ message: "test: messages/authorize denied" }),
+        ),
+    },
+  };
 }
 
 /**
