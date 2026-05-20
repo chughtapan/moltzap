@@ -1,9 +1,20 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { dateTimeStringSchema } from "../schema-primitives.js";
+import { brandedId, dateTimeStringSchema } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ajv } from "../transport/wire.js";
 import { ConversationId, MessageId } from "./conversations.js";
+import { TaskId } from "./ids.js";
+
+export const LeaseId = brandedId("LeaseId");
+export type LeaseId = Static<typeof LeaseId>;
+import { ConversationInTask } from "./capabilities/conversation-in-task.js";
+import {
+  MessageSendPermission,
+  type ObtainMessageSendPermissionInput,
+} from "./capabilities/message-send-permission.js";
+import { TaskReadAccess } from "./capabilities/task-read-access.js";
+import { TmAuthority } from "./capabilities/tm-authority.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -146,11 +157,12 @@ export const MessagesSend = defineRpc({
   name: "messages/send",
   params: Type.Object(
     {
-      conversationId: Type.Optional(ConversationId),
-      to: Type.Optional(Type.String()),
+      taskId: TaskId,
+      conversationId: ConversationId,
       parts: MessagePartsSchema,
       replyToId: Type.Optional(MessageId),
-      dispatchLeaseId: Type.Optional(Type.String()),
+      senderAgentId: Type.Optional(AgentId),
+      dispatchLeaseId: Type.Optional(LeaseId),
     },
     { additionalProperties: false },
   ),
@@ -158,24 +170,64 @@ export const MessagesSend = defineRpc({
     { message: MessageSchema },
     { additionalProperties: false },
   ),
-  // NOTE: `MessageSendPermission` is intentionally NOT auto-provisioned
-  // on this descriptor. The handler resolves `conversationId` at request
-  // time from `to:` / `replyToId:` (the latter needs a DB lookup), and
-  // the obtain helper must see the RESOLVED id to verify participant
-  // access against the right conversation. An argsOf at the descriptor
-  // level only sees the WIRE params and would miss the resolution. The
-  // handler hand-pipes `Effect.provideServiceEffect(MessageSendPermission,
-  // obtainMessageSendPermission(...))` AFTER resolution; the other 12
-  // task-layer descriptors auto-provision because their wire params
-  // already carry every input each obtain helper needs.
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+    {
+      tag: MessageSendPermission,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainMessageSendPermissionInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+          readonly senderAgentId?: AgentId;
+          readonly replyToId?: Static<typeof MessageId>;
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          taskId: p.taskId,
+          conversationId: p.conversationId,
+          senderAgentId: p.senderAgentId ?? c.auth.agentId,
+          replyToId: p.replyToId,
+        };
+      },
+    },
+  ] as const,
 });
 
 export const MessagesList = defineRpc({
   name: "messages/list",
   params: Type.Object(
     {
+      taskId: TaskId,
       conversationId: ConversationId,
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+      sinceSeq: Type.Optional(
+        Type.String({
+          description: "Snowflake seq cursor (string-encoded BIGINT)",
+        }),
+      ),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
     },
     { additionalProperties: false },
   ),
@@ -186,10 +238,32 @@ export const MessagesList = defineRpc({
     },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: TaskReadAccess,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+  ] as const,
 });
 
 const MessageReceivedNotificationSchema = Type.Object(
-  { message: MessageSchema },
+  { taskId: TaskId, message: MessageSchema },
   { additionalProperties: false },
 );
 

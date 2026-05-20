@@ -5,7 +5,6 @@
  * Carved from `conformance/adversity.ts@961a5c8`. Body verbatim; only
  * import paths shift to the new layer location.
  */
-import type { Static } from "@sinclair/typebox";
 import { Effect, type Scope } from "effect";
 import type { ToxiproxyProxy } from "../../toxics/client.js";
 import type { ToxicProfile } from "../../toxics/profile.js";
@@ -20,16 +19,16 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { ConversationsCreate } from "@moltzap/protocol/task";
+import { TaskCreate, DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import type { TaskId } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/task";
-import { conversationId } from "../_shared/test-fixtures.js";
+import { conversationId, taskId } from "../_shared/test-fixtures.js";
 
 export const ADVERSITY_CATEGORY = "adversity" as const;
 export const DEFAULT_CAPTURE_CAPACITY = 128;
 const RANDOM_SUFFIX_LENGTH = 6;
 const PROPERTY_BUDGET_MS = 15_000;
 
-type ConversationIdValue = Static<typeof ConversationId>;
 type ToxicPropertyError = PropertyUnavailable | PropertyInvariantViolation;
 
 export function adversityViolation(
@@ -222,33 +221,44 @@ export function createOneOnOneConversation(
   owner: { agent: TestAgent; client: TestClient },
   participant: { agent: TestAgent; client: TestClient },
   propertyName: string,
-): Effect.Effect<ConversationIdValue, PropertyInvariantViolation> {
+): Effect.Effect<
+  { taskId: TaskId; conversationId: ConversationId },
+  PropertyInvariantViolation
+> {
   return Effect.gen(function* () {
     const create = yield* owner.client
-      .sendRpc(ConversationsCreate, {
-        type: "group",
-        name: `adv-conv-${owner.agent.name}`,
-        participants: [
-          { type: "agent" as const, id: participant.agent.agentId },
-        ],
+      .sendRpc(TaskCreate, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: [participant.agent.agentId],
+        initialConversation: {
+          name: `adv-conv-${owner.agent.name}`,
+          participants: [participant.agent.agentId],
+        },
       })
       .pipe(
         Effect.mapError((error) =>
           adversityViolation(
             propertyName,
-            `conversations/create under toxic: ${error._tag}`,
+            `task/create under toxic: ${error._tag}`,
           ),
         ),
       );
-    const id = (create as { conversation?: { id?: string } }).conversation?.id;
-    if (typeof id !== "string" || id.length === 0) {
+    const typed = create as {
+      task: { id: string };
+      conversation: { id: string } | null;
+    };
+    const cid = typed.conversation?.id;
+    if (typeof cid !== "string" || cid.length === 0) {
       return yield* Effect.fail(
         adversityViolation(
           propertyName,
-          "conversations/create returned no conversation.id",
+          "task/create returned no conversation.id",
         ),
       );
     }
-    return conversationId(id);
+    return {
+      taskId: taskId(typed.task.id),
+      conversationId: conversationId(cid),
+    };
   }).pipe(Effect.withSpan("createOneOnOneConversation"));
 }

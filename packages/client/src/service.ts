@@ -4,7 +4,6 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type HelloOk,
-  ConversationsCreate,
   ConversationsGet,
   type ConversationCreatedNotification,
   type ConversationUpdatedNotification,
@@ -27,8 +26,10 @@ import {
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
   ConversationArchivedError,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
+  TaskCreate,
   NotConnectedError,
   serverRpcMethods,
   type RpcCallError,
@@ -40,7 +41,12 @@ import {
   type RpcDefinition,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId } from "@moltzap/protocol/task";
+import type {
+  ConversationId,
+  LeaseId,
+  MessageId,
+  TaskId,
+} from "@moltzap/protocol/task";
 import {
   Config,
   ConfigProvider,
@@ -83,6 +89,11 @@ import {
   lastReadIdsForSession,
 } from "./runtime/local-history.js";
 import { composeServiceTeardown } from "./runtime/service-teardown.js";
+import {
+  purgeAgentCacheEntries,
+  purgeLastNotified,
+  purgeLastRead,
+} from "./service-archive-purge.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
@@ -201,7 +212,7 @@ type NotificationDispatcher = (
 ) => void;
 
 interface ServiceHandlerPayloads {
-  readonly message: Message;
+  readonly message: { readonly taskId: TaskId; readonly message: Message };
 
   /**
    * The "raw notification" surface receives the wire decoder's
@@ -301,8 +312,18 @@ export class MoltZapService {
   private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
     Effect.runSync(Ref.make(HashMap.empty<string, string>()));
   private readonly agentConversationCacheRef: Ref.Ref<
-    HashMap.HashMap<string, string>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+    HashMap.HashMap<
+      string,
+      { readonly taskId: TaskId; readonly conversationId: ConversationId }
+    >
+  > = Effect.runSync(
+    Ref.make(
+      HashMap.empty<
+        string,
+        { readonly taskId: TaskId; readonly conversationId: ConversationId }
+      >(),
+    ),
+  );
   private readonly lastNotifiedRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, string>>
   > = Effect.runSync(
@@ -640,6 +661,7 @@ export class MoltZapService {
     return Effect.gen(this, function* () {
       const request = yield* decodeHistoryRequest(params);
       const result = yield* this.sendRpc(MessagesList, {
+        taskId: request.taskId as TaskId,
         conversationId: request.conversationId as ConversationId,
         limit: request.limit,
       });
@@ -823,11 +845,12 @@ export class MoltZapService {
   // --- Messaging ---
 
   send(
-    convId: string,
+    taskId: TaskId,
+    conversationId: ConversationId,
     text: string,
-    opts?: { replyTo?: string; dispatchLeaseId?: string },
+    opts?: { replyTo?: MessageId; dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
-    if (this.isConversationArchived(convId)) {
+    if (this.isConversationArchived(conversationId)) {
       return Effect.fail(
         new RpcServerError({
           code: ConversationArchivedError.code,
@@ -837,10 +860,11 @@ export class MoltZapService {
     }
     return Effect.asVoid(
       this.sendRpc(MessagesSend, {
-        conversationId: convId as ConversationId,
+        taskId,
+        conversationId,
         parts: [{ type: "text", text }],
-        ...(opts?.replyTo ? { replyToId: opts.replyTo as MessageId } : {}),
-        ...(opts?.dispatchLeaseId
+        ...(opts?.replyTo !== undefined ? { replyToId: opts.replyTo } : {}),
+        ...(opts?.dispatchLeaseId !== undefined
           ? { dispatchLeaseId: opts.dispatchLeaseId }
           : {}),
       }),
@@ -872,12 +896,12 @@ export class MoltZapService {
   sendToAgent(
     agentName: string,
     text: string,
-    opts?: { replyTo?: string },
+    opts?: { replyTo?: MessageId },
   ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
     return Effect.gen(this, function* () {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
-      let conversationId = Option.getOrUndefined(HashMap.get(cache, agentName));
-      if (!conversationId) {
+      let entry = Option.getOrUndefined(HashMap.get(cache, agentName));
+      if (entry === undefined) {
         const lookupResult = yield* this.sendRpc(AgentsLookupByName, {
           names: [agentName],
         });
@@ -885,17 +909,28 @@ export class MoltZapService {
         if (!agent) {
           return yield* Effect.fail(new AgentNotFoundError({ agentName }));
         }
-        const createResult = yield* this.sendRpc(ConversationsCreate, {
-          type: "dm",
-          participants: [{ type: "agent", id: agent.id as AgentId }],
+        const createResult = yield* this.sendRpc(TaskCreate, {
+          appId: DEFAULT_APP_ID,
+          invitedAgentIds: [agent.id as AgentId],
+          initialConversation: { participants: [agent.id as AgentId] },
         });
-        conversationId = createResult.conversation.id;
-        const newId = conversationId;
+        if (createResult.conversation === null) {
+          // Server contract violation: TaskCreate with initialConversation
+          // must return the minted conversation. Treat as a defect.
+          return yield* Effect.die(
+            "TaskCreate({ initialConversation }) returned conversation: null",
+          );
+        }
+        entry = {
+          taskId: createResult.task.id,
+          conversationId: createResult.conversation.id,
+        };
+        const cached = entry;
         yield* Ref.update(this.agentConversationCacheRef, (m) =>
-          HashMap.set(m, agentName, newId),
+          HashMap.set(m, agentName, cached),
         );
       }
-      yield* this.send(conversationId, text, opts);
+      yield* this.send(entry.taskId, entry.conversationId, text, opts);
     });
   }
 
@@ -1075,7 +1110,7 @@ export class MoltZapService {
       if (!this.client) {
         return Effect.fail(new NotConnectedError({ message: "Not connected" }));
       }
-      return this.client.sendRpcAny(definition, params, opts);
+      return this.client.sendRpc(definition, params, opts);
     });
   }
 
@@ -1192,7 +1227,10 @@ export class MoltZapService {
     // via resolveAgentName(), which populates agentNamesRef on first miss and
     // hits the cache on every subsequent message.
     if (msg.senderId !== this._ownAgentId) {
-      fanout(this.handlers.message, msg);
+      fanout(this.handlers.message, {
+        taskId: notification.taskId,
+        message: msg,
+      });
     }
   }
 
@@ -1256,42 +1294,15 @@ export class MoltZapService {
           HashMap.remove(m, conversationId),
         ),
         Ref.update(this.messagesRef, (m) => HashMap.remove(m, conversationId)),
-        Ref.update(this.agentConversationCacheRef, (m) => {
-          let next = HashMap.empty<string, string>();
-          for (const [agentName, convId] of HashMap.entries(m)) {
-            if (convId !== conversationId) {
-              next = HashMap.set(next, agentName, convId);
-            }
-          }
-          return next;
-        }),
-        Ref.update(this.lastNotifiedRef, (outer) => {
-          let next = HashMap.empty<string, HashMap.HashMap<string, string>>();
-          for (const [viewConvId, markers] of HashMap.entries(outer)) {
-            if (viewConvId !== conversationId) {
-              next = HashMap.set(
-                next,
-                viewConvId,
-                HashMap.remove(markers, conversationId),
-              );
-            }
-          }
-          return next;
-        }),
-        Ref.update(this.lastReadRef, (outer) => {
-          let next = HashMap.empty<
-            string,
-            HashMap.HashMap<string, ReadonlySet<string>>
-          >();
-          for (const [sessionKey, perConv] of HashMap.entries(outer)) {
-            next = HashMap.set(
-              next,
-              sessionKey,
-              HashMap.remove(perConv, conversationId),
-            );
-          }
-          return next;
-        }),
+        Ref.update(this.agentConversationCacheRef, (m) =>
+          purgeAgentCacheEntries(m, conversationId),
+        ),
+        Ref.update(this.lastNotifiedRef, (outer) =>
+          purgeLastNotified(outer, conversationId),
+        ),
+        Ref.update(this.lastReadRef, (outer) =>
+          purgeLastRead(outer, conversationId),
+        ),
       ]),
     );
   }

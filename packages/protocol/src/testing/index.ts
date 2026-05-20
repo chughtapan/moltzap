@@ -17,6 +17,7 @@ export {
   agentId,
   contactId,
   conversationId,
+  leaseId,
   messageId,
   taskId,
 } from "./conformance/_shared/test-fixtures.js";

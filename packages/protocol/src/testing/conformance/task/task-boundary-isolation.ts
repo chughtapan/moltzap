@@ -36,6 +36,7 @@ export function registerTaskBoundaryIsolation(
         );
         yield* fxA.owner.client
           .sendRpc(MessagesSend, {
+            taskId: fxA.taskId,
             conversationId: fxA.conversationId,
             parts: [{ type: "text", text: "iso-leak-canary" }],
           })

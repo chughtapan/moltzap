@@ -2,7 +2,6 @@
  * Task-layer helpers shared by delivery / lifecycle / isolation
  * properties. Carved verbatim from `conformance/delivery.ts@961a5c8`.
  */
-import type { Static } from "@sinclair/typebox";
 import {
   Chunk,
   Duration,
@@ -24,14 +23,19 @@ import {
   ConversationUpdatedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   ConversationsArchive,
-  ConversationsCreate,
   ConversationsUnarchive,
   ConversationsUpdate,
   MessagesSend,
   ConversationId,
+  TaskCreate,
+  TaskId,
+  DEFAULT_APP_ID,
 } from "../../../task/methods.js";
 import { AgentId } from "../../../identity/methods.js";
-import { conversationId as makeConversationId } from "../_shared/test-fixtures.js";
+import {
+  conversationId as makeConversationId,
+  taskId as makeTaskId,
+} from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
 import {
   makeTestClient,
@@ -48,13 +52,11 @@ export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256;
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3;
 const MAX_N = 4;
 
-export type AgentIdValue = Static<typeof AgentId>;
-export type ConversationIdValue = Static<typeof ConversationId>;
-
 export interface ConversationFixture {
   readonly owner: ConversationActor;
   readonly participants: ReadonlyArray<ConversationActor>;
-  readonly conversationId: ConversationIdValue;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
 }
 
 export type ConversationActor = {
@@ -309,10 +311,12 @@ export function firstParticipant(
 
 export function sendText(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  taskId: TaskId,
+  conversationId: ConversationId,
   text: string,
 ) {
   return actor.client.sendRpc(MessagesSend, {
+    taskId,
     conversationId,
     parts: [{ type: "text", text }],
   });
@@ -320,14 +324,14 @@ export function sendText(
 
 export function archiveConversation(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
 ) {
   return actor.client.sendRpc(ConversationsArchive, { conversationId });
 }
 
 export function updateConversationName(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
   name: string,
 ) {
   return actor.client.sendRpc(ConversationsUpdate, {
@@ -338,14 +342,14 @@ export function updateConversationName(
 
 export function unarchiveConversation(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
 ) {
   return actor.client.sendRpc(ConversationsUnarchive, { conversationId });
 }
 
 export function waitForConversationCreatedNotification(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
@@ -372,7 +376,7 @@ export function waitForConversationCreatedNotification(
 
 export function waitForConversationUpdatedNotification(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
   name: string,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
@@ -403,7 +407,7 @@ export function waitForConversationUpdatedNotification(
 
 export function waitForMessageReceivedNotification(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
@@ -430,8 +434,8 @@ export function waitForMessageReceivedNotification(
 
 export function waitForArchivedEvent(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
+  conversationId: ConversationId,
+  byAgentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
@@ -462,8 +466,8 @@ export function waitForArchivedEvent(
 
 export function waitForUnarchivedEvent(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
+  conversationId: ConversationId,
+  byAgentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
@@ -488,18 +492,26 @@ export function waitForUnarchivedEvent(
   }).pipe(Effect.withSpan("waitForUnarchivedEvent"));
 }
 
+export interface AssertConversationRejectsMessagesInput {
+  readonly actor: ConversationActor;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly propertyName: string;
+  readonly expectedError?: { readonly code: number; readonly label: string };
+}
+
 export function assertConversationRejectsMessages(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-  expectedError: { readonly code: number; readonly label: string } = {
+  input: AssertConversationRejectsMessagesInput,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  const expectedError = input.expectedError ?? {
     code: ConversationArchivedError.code,
     label: "ConversationArchived",
-  },
-): Effect.Effect<void, PropertyInvariantViolation> {
+  };
+  const { actor, taskId, conversationId, propertyName } = input;
   return Effect.gen(function* () {
     const outcome = yield* sendText(
       actor,
+      taskId,
       conversationId,
       "must-fail-while-archived",
     ).pipe(Effect.either);
@@ -566,31 +578,33 @@ export function acquireConversation(
       (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
       { concurrency: clamped },
     );
+    // Spec D3: TaskCreate is the canonical entry; returns both task
+    // (with id) and the initial conversation in one round-trip.
     const createResult = yield* owner.client
-      .sendRpc(ConversationsCreate, {
-        type: "group",
-        name: `${namePrefix}-conv`,
-        participants: participants.map((p) => ({
-          type: "agent" as const,
-          id: p.agent.agentId,
-        })),
+      .sendRpc(TaskCreate, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: participants.map((p) => p.agent.agentId),
+        initialConversation: {
+          name: `${namePrefix}-conv`,
+          participants: participants.map((p) => p.agent.agentId),
+        },
       })
       .pipe(Effect.either);
     const created = (yield* requireRight(
       createResult,
-      (error) => `conversations/create failed: ${error._tag}`,
+      (error) => `task/create failed: ${error._tag}`,
     )) as {
-      conversation?: { id?: string };
+      task: { id: string };
+      conversation: { id: string } | null;
     };
     const conversationId = created.conversation?.id;
     if (typeof conversationId !== "string" || conversationId.length === 0) {
-      return yield* Effect.fail(
-        `conversations/create returned no conversation.id`,
-      );
+      return yield* Effect.fail(`task/create returned no conversation.id`);
     }
     return {
       owner,
       participants,
+      taskId: makeTaskId(created.task.id),
       conversationId: makeConversationId(conversationId),
     };
   }).pipe(Effect.withSpan("acquireConversation"));

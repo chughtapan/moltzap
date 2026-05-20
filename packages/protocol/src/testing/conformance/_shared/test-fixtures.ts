@@ -20,7 +20,12 @@ import type { Static } from "@sinclair/typebox";
 import { Data, Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import { UserId, AgentId, ContactId } from "../../../identity/methods.js";
-import { ConversationId, MessageId, TaskId } from "../../../task/methods.js";
+import {
+  ConversationId,
+  LeaseId,
+  MessageId,
+  TaskId,
+} from "../../../task/methods.js";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
@@ -54,6 +59,8 @@ export const messageId = (value: string): Static<typeof MessageId> =>
   Value.Decode(MessageId, value);
 export const taskId = (value: string): Static<typeof TaskId> =>
   Value.Decode(TaskId, value);
+export const leaseId = (value: string): Static<typeof LeaseId> =>
+  Value.Decode(LeaseId, value);
 
 // --- Real-server agent registration ---
 //

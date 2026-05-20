@@ -1,10 +1,6 @@
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import {
-  stringEnum,
-  dateTimeStringSchema,
-  brandedId,
-} from "../schema-primitives.js";
+import { stringEnum, dateTimeStringSchema } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
@@ -18,6 +14,7 @@ import {
   conversationSchema,
   MessageId,
 } from "./conversations.js";
+import { AppId, TaskId } from "./ids.js";
 import { messagePartsSchema, messageSchema } from "./messages.js";
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
@@ -33,45 +30,15 @@ import {
 import { TaskReadAccess } from "./capabilities/task-read-access.js";
 import { TmAuthority } from "./capabilities/tm-authority.js";
 
-/**
- * Branded UUID for the per-app identifier. Introduced by Spec D1
- * (issue #598) so the reshaped `task/create` wire and downstream
- * lookups (app-tm-registry → `tm_endpoint_address`) cannot accidentally
- * accept a non-UUID string. The old `tasks/create` keeps its
- * un-branded `appId: Type.Optional(Type.String())` shape during the
- * D1 transitional window; D3 (#600) deletes that surface and brands
- * every remaining call site.
- */
-export const AppId = brandedId("AppId");
-export type AppId = Static<typeof AppId>;
-
-/**
- * The single server-bundled default app. Every DM and Group lives
- * under this app from Spec D1 forward; the per-conversation `type`
- * enum (`dm` / `group`) becomes a display-only label derived from
- * participant count and retires in D3.
- *
- * UUID v4 fixed by spec body Goal 4 (#598). The constant is the
- * source of truth — the server registers `makeDefaultMessageAuthorizeHook`
- * against the TM address derived from this UUID, and the
- * `TaskCreate` dedup query keys off it.
- *
- * Greenfield schema (per project memory
- * `project_layered_refactor_packaging.md`): no prior rows under the
- * legacy `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`
- * constants exist at cutover, so dedup operates only on rows
- * created under `DEFAULT_APP_ID` from D1 forward.
- */
-export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId;
+// `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
+// re-exported here for backward compatibility of import paths.
+export { AppId, DEFAULT_APP_ID, TaskId } from "./ids.js";
 
 const DateTimeString = dateTimeStringSchema();
 const AgentParticipantRefSchema = agentParticipantRefSchema();
 const ConversationSchema = conversationSchema();
 const MessagePartsSchema = messagePartsSchema();
 const MessageSchema = messageSchema();
-
-export const TaskId = brandedId("TaskId");
-export type TaskId = Static<typeof TaskId>;
 
 export class TaskClosedError extends Data.TaggedError(
   "TaskClosed",

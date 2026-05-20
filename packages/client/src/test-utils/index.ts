@@ -20,7 +20,13 @@ import type { Message } from "@moltzap/protocol";
 import { Data, Effect } from "effect";
 import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
-export { testAgentId, testConversationId, testMessageId } from "./ids.js";
+export {
+  testAgentId,
+  testConversationId,
+  testLeaseId,
+  testMessageId,
+  testTaskId,
+} from "./ids.js";
 
 const FLUSH_DISPATCH_TURNS = 20;
 

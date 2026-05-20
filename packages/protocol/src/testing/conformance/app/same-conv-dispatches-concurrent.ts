@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { Static } from "@sinclair/typebox";
-import type { DispatchId, LeaseId } from "../../../app/index.js";
+import type { DispatchId } from "../../../app/index.js";
+import type { LeaseId } from "../../../task/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {

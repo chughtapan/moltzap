@@ -62,6 +62,7 @@ function checkPayloadOpacity(ctx: ConformanceRunContext, text: string) {
       const participant = fixture.participants[0];
       if (participant === undefined) return false;
       yield* fixture.owner.client.sendRpc(MessagesSend, {
+        taskId: fixture.taskId,
         conversationId: fixture.conversationId,
         parts: [{ type: "text", text }],
       });

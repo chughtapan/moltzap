@@ -70,6 +70,7 @@ function consumeLease(
 ) {
   return Effect.gen(function* () {
     const sent = yield* driver.recipient.sendWithLease({
+      taskId: driver.fixtures.taskId,
       conversationId: driver.fixtures.conversationId,
       leaseId,
       text: "consume-before-ttl",

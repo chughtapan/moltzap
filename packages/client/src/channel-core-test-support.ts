@@ -1,5 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { RpcServerError, type Message } from "@moltzap/protocol";
+import type { LeaseId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 
 import {
@@ -18,7 +19,9 @@ import {
   flushDispatchChainEffect,
   testAgentId,
   testConversationId,
+  testLeaseId,
   testMessageId,
+  testTaskId,
   type FakeChannelService,
 } from "./test-utils/index.js";
 
@@ -45,11 +48,11 @@ export const MULTILINE_TEXT = "line one\nline two";
 export const CAPTION_TEXT = "caption";
 export const FIRST_TEXT = "first";
 export const SECOND_TEXT = "second";
-export const DENIED_LEASE_ID = "lease-den";
+export const DENIED_LEASE_ID = testLeaseId("lease-den");
 export const TIME_TO_VOTE_TEXT = "Time to vote";
 export const AFTER_MARKER_TEXT = "after marker";
 export const OLD_DISCUSSION_TEXT = "old discussion";
-export const MARKER_LEASE_ID = "lease-marker";
+export const MARKER_LEASE_ID = testLeaseId("lease-marker");
 export const DEVS_GROUP_NAME = "devs";
 export const FIRST_VISIT_TEXT = "first visit";
 
@@ -120,7 +123,7 @@ const releaseVerdict = (
 
 const releaseFrame = (
   decision: DispatchAdmissionDecision,
-  leaseId: string,
+  leaseId: LeaseId,
   dispatchId: string,
 ): DispatchReleaseFrame => ({
   dispatchId,
@@ -134,10 +137,10 @@ const releaseFrame = (
 const leaseIdForDecision = (
   decision: DispatchAdmissionDecision,
   counter: number,
-): string =>
+): LeaseId =>
   decision._tag === "grant" && decision.leaseId !== undefined
     ? decision.leaseId
-    : LEASE_MOCK_PREFIX + "-" + counter.toString();
+    : testLeaseId(LEASE_MOCK_PREFIX + "-" + counter.toString());
 
 const dispatchIdForCounter = (counter: number): string =>
   DISPATCH_MOCK_PREFIX + "-" + counter.toString();
@@ -168,6 +171,8 @@ export function installAdmission(
 export const agent = testAgentId;
 export const conversation = testConversationId;
 export const message = testMessageId;
+export const task = testTaskId;
+export { testLeaseId };
 export const participant = (agentLabel: string): string =>
   "agent:" + agent(agentLabel);
 

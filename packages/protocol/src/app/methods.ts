@@ -140,7 +140,7 @@ const DispatchAdmissionDecisionSchema = Type.Union([
   Type.Object(
     {
       decision: Type.Literal("grant"),
-      leaseId: Type.Optional(Type.String()),
+      leaseId: Type.Optional(LeaseId),
       leaseTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
       dispatchMessageId: Type.Optional(MessageId),
     },
@@ -213,13 +213,7 @@ const DispatchAuthorizeContextSchema = Type.Object(
 // Decisions §1-§12 (see `/home/tapanc/.claude/plans/okay-now-look-that-
 // swirling-snail.md`).
 
-/**
- * Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
- * ≥122 bits entropy; the brand keeps it from being confused with
- * `MessageId` / `DispatchId` at type sites that consume both.
- */
-export const LeaseId = brandedId("LeaseId");
-export type LeaseId = Static<typeof LeaseId>;
+import { LeaseId } from "../task/messages.js";
 
 /**
  * Branded dispatch identifier minted alongside the lease. Distinct from

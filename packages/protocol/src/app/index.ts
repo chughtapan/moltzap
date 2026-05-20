@@ -3,16 +3,13 @@
  */
 export {
   AppsRegister,
-  // dispatch/* admission descriptors
   DispatchId,
-  LeaseId,
   DispatchRequest,
   DispatchAuthorize,
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
   DispatchesGet,
-  // #560 send-side fan-out gate
   MessagesAuthorize,
   validateAppManifest,
 } from "./methods.js";

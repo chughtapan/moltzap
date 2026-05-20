@@ -75,6 +75,7 @@ function assertCreatedAndInitialSend(
     );
     const firstSend = yield* sendText(
       fixture.owner,
+      fixture.taskId,
       fixture.conversationId,
       "lifecycle-before-update",
     ).pipe(Effect.either);
@@ -134,11 +135,12 @@ function assertArchivePhase(
       fixture.owner.agent.agentId,
       PROPERTY,
     );
-    yield* assertConversationRejectsMessages(
-      participant,
-      fixture.conversationId,
-      PROPERTY,
-    );
+    yield* assertConversationRejectsMessages({
+      actor: participant,
+      taskId: fixture.taskId,
+      conversationId: fixture.conversationId,
+      propertyName: PROPERTY,
+    });
   });
 }
 
@@ -162,6 +164,7 @@ function assertUnarchivePhase(
     );
     const resumedSend = yield* sendText(
       participant,
+      fixture.taskId,
       fixture.conversationId,
       "lifecycle-after-unarchive",
     ).pipe(Effect.either);

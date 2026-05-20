@@ -12,21 +12,22 @@ const cfg = {} as Parameters<typeof resolveMessagingTarget>[0]["cfg"];
 
 const AGENT_BOB = "agent:bob";
 const AGENT_MULTI_WORD = "agent:multi-word-name";
-const CONV_ABC = "conv:abc-123";
-const CONV_UUID = "conv:a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+const TASK_ABC = "task:t1:abc-123";
+const TASK_UUID =
+  "task:e12fe562-ed1f-4d2d-bed5-68b8edfa41cb:a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const PLAIN_ID = "plain-id";
 const EMPTY_TARGET = "";
 const UNKNOWN_USER_PREFIX = "user:someone";
 const HTTP_TARGET = "http://example.com";
 const EMPTY_AGENT = "agent:";
-const EMPTY_CONV = "conv:";
+const EMPTY_TASK = "task:";
 const UNKNOWN_TEXT = "unknown";
-const OUTBOUND_CONV = "conv:abc";
+const OUTBOUND_TASK = "task:t1:abc";
 const PLAIN_CONV_ID = "plain-conv-id";
 const UNKNOWN_PREFIX_TARGET = "unknown:foo";
 const SPACED_AGENT_BOB = "  agent:bob  ";
 const BOB_DISPLAY = "bob";
-const ABC_DISPLAY = "abc-123";
+const TASK_ABC_DISPLAY = "t1:abc-123";
 const USER_KIND = "user";
 const GROUP_KIND = "group";
 const NORMALIZED_SOURCE = "normalized";
@@ -52,11 +53,11 @@ function resolvesAgentTarget() {
 
 function resolvesConversationTarget() {
   return Effect.gen(function* () {
-    const result = yield* tryResolveMessagingTarget(CONV_ABC, CONV_ABC);
+    const result = yield* tryResolveMessagingTarget(TASK_ABC, TASK_ABC);
     expect(result).toEqual({
-      to: CONV_ABC,
+      to: TASK_ABC,
       kind: GROUP_KIND,
-      display: ABC_DISPLAY,
+      display: TASK_ABC_DISPLAY,
       source: NORMALIZED_SOURCE,
     });
   });
@@ -75,9 +76,9 @@ describe("isMoltZapTarget accepted ids", () => {
     expect(looksLikeId(AGENT_MULTI_WORD)).toBe(true);
   });
 
-  vitestIt("recognizes conversation targets", () => {
-    expect(looksLikeId(CONV_ABC)).toBe(true);
-    expect(looksLikeId(CONV_UUID)).toBe(true);
+  vitestIt("recognizes task targets", () => {
+    expect(looksLikeId(TASK_ABC)).toBe(true);
+    expect(looksLikeId(TASK_UUID)).toBe(true);
   });
 });
 
@@ -94,16 +95,13 @@ describe("isMoltZapTarget rejected ids", () => {
 
   vitestIt("rejects empty identifier after prefix", () => {
     expect(looksLikeId(EMPTY_AGENT)).toBe(false);
-    expect(looksLikeId(EMPTY_CONV)).toBe(false);
+    expect(looksLikeId(EMPTY_TASK)).toBe(false);
   });
 });
 
 describe("messaging.targetResolver.resolveTarget", () => {
   it("resolves agent targets as user targets", resolvesAgentTarget);
-  it(
-    "resolves conversation targets as group targets",
-    resolvesConversationTarget,
-  );
+  it("resolves task targets as group targets", resolvesConversationTarget);
   it(
     "returns null for unrecognized formats",
     returnsNullForUnrecognizedFormats,
@@ -118,10 +116,10 @@ describe("outbound.resolveTarget accepted targets", () => {
     });
   });
 
-  vitestIt("accepts conversation targets", () => {
-    expect(resolveOutboundTarget({ to: OUTBOUND_CONV })).toMatchObject({
+  vitestIt("accepts task targets", () => {
+    expect(resolveOutboundTarget({ to: OUTBOUND_TASK })).toMatchObject({
       ok: true,
-      to: OUTBOUND_CONV,
+      to: OUTBOUND_TASK,
     });
   });
 

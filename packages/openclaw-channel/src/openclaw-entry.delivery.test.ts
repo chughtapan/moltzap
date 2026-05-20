@@ -6,6 +6,7 @@ import {
   testAgentId,
   testConversationId,
   testMessageId,
+  testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
@@ -39,10 +40,28 @@ const DEFAULT_CONVERSATION_ID = testConversationId(
 const TARGET_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440405",
 );
-const OUTBOUND_CONVERSATION_ID = "conv-outbound-1";
-const REPLY_CONVERSATION_ID = "conv-reply-1";
-const NO_REPLY_CONVERSATION_ID = "conv-no-reply";
-const STOP_CONVERSATION_ID = "conv-stop-1";
+const DEFAULT_TASK_ID = testTaskId("delivery-default");
+const TARGET_TASK_ID = testTaskId("delivery-target");
+const OUTBOUND_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440406",
+);
+const REPLY_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440407",
+);
+const NO_REPLY_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440408",
+);
+const STOP_CONVERSATION_ID = testConversationId(
+  "550e8400-e29b-41d4-a716-446655440409",
+);
+const OUTBOUND_TASK_ID = testTaskId("delivery-outbound");
+const REPLY_TASK_ID = testTaskId("delivery-reply");
+const NO_REPLY_TASK_ID = testTaskId("delivery-no-reply");
+const STOP_TASK_ID = testTaskId("delivery-stop");
+const OUTBOUND_TARGET = `task:${OUTBOUND_TASK_ID}:${OUTBOUND_CONVERSATION_ID}`;
+const REPLY_TARGET = `task:${REPLY_TASK_ID}:${REPLY_CONVERSATION_ID}`;
+const NO_REPLY_TARGET = `task:${NO_REPLY_TASK_ID}:${NO_REPLY_CONVERSATION_ID}`;
+const STOP_TARGET = `task:${STOP_TASK_ID}:${STOP_CONVERSATION_ID}`;
 const AGENT_NOVA_TARGET = "agent:nova";
 const AGENT_NOVA_NAME = "nova";
 const TRIGGER_TEXT = "Trigger message";
@@ -56,7 +75,7 @@ const AGENT_REPLY_TEXT = "Reply text";
 const NO_REPLY_TEXT = "No reply ref";
 const BEFORE_STOP_TEXT = "before stop";
 const AFTER_STOP_TEXT = "after stop";
-const PARENT_MESSAGE_ID = "msg-parent-1";
+const PARENT_MESSAGE_ID = testMessageId("550e8400-e29b-41d4-a716-446655440410");
 const LOOKUP_FAILED_MESSAGE = "lookup failed";
 const SERVER_REJECTED_MESSAGE = "Server rejected";
 const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
@@ -95,6 +114,7 @@ type DispatchCallWithContext = DispatchCall & {
   };
 };
 type SendFn = (
+  taskId: string,
   conversationId: string,
   text: string,
   opts?: { readonly replyTo?: string; readonly dispatchLeaseId?: string },
@@ -294,9 +314,12 @@ function makeDeliveryMessage(
   });
 }
 
-function emitMessage(overrides: Parameters<typeof buildMessage>[0] = {}) {
+function emitMessage(
+  overrides: Parameters<typeof buildMessage>[0] = {},
+  taskId = DEFAULT_TASK_ID,
+) {
   return Effect.gen(function* () {
-    started.fixture.emit.message(makeDeliveryMessage(overrides));
+    started.fixture.emit.message(makeDeliveryMessage(overrides), taskId);
     yield* flushDispatchChainEffect;
   });
 }
@@ -420,10 +443,15 @@ function nonFinalIsIgnored() {
 
 function usesOriginatingTo() {
   return Effect.gen(function* () {
-    yield* emitMessage({ conversationId: TARGET_CONVERSATION_ID });
+    yield* emitMessage(
+      { conversationId: TARGET_CONVERSATION_ID },
+      TARGET_TASK_ID,
+    );
     yield* waitForDispatchTimes(1);
     const ctx = firstDispatchCallWithContext().ctx;
-    expect(ctx.OriginatingTo).toBe(TARGET_CONVERSATION_ID);
+    expect(ctx.OriginatingTo).toBe(
+      `task:${TARGET_TASK_ID}:${TARGET_CONVERSATION_ID}`,
+    );
   });
 }
 
@@ -431,17 +459,16 @@ function sendsToConversation() {
   return Effect.gen(function* () {
     const result = yield* sendText({
       cfg: makeCfg(),
-      to: OUTBOUND_CONVERSATION_ID,
+      to: OUTBOUND_TARGET,
       text: OUTBOUND_TEXT,
       accountId: ACCOUNT_ID,
     });
     expectSuccessfulSend(result);
     expect(mockSend).toHaveBeenCalledWith(
+      OUTBOUND_TASK_ID,
       OUTBOUND_CONVERSATION_ID,
       OUTBOUND_TEXT,
-      {
-        replyTo: undefined,
-      },
+      {},
     );
   });
 }
@@ -450,13 +477,14 @@ function includesReplyTo() {
   return Effect.gen(function* () {
     const result = yield* sendText({
       cfg: makeCfg(),
-      to: REPLY_CONVERSATION_ID,
+      to: REPLY_TARGET,
       text: AGENT_REPLY_TEXT,
       accountId: ACCOUNT_ID,
       replyToId: PARENT_MESSAGE_ID,
     });
     expectSuccessfulSend(result);
     expect(mockSend).toHaveBeenCalledWith(
+      REPLY_TASK_ID,
       REPLY_CONVERSATION_ID,
       AGENT_REPLY_TEXT,
       {
@@ -470,16 +498,15 @@ function omitsReplyTo() {
   return Effect.gen(function* () {
     yield* sendText({
       cfg: makeCfg(),
-      to: NO_REPLY_CONVERSATION_ID,
+      to: NO_REPLY_TARGET,
       text: NO_REPLY_TEXT,
       accountId: ACCOUNT_ID,
     });
     expect(mockSend).toHaveBeenCalledWith(
+      NO_REPLY_TASK_ID,
       NO_REPLY_CONVERSATION_ID,
       NO_REPLY_TEXT,
-      {
-        replyTo: undefined,
-      },
+      {},
     );
   });
 }
@@ -499,10 +526,10 @@ function acceptsConversationTarget() {
   return Effect.sync(() => {
     expect(
       started.plugin.outbound.resolveTarget({
-        to: OUTBOUND_CONVERSATION_ID,
+        to: OUTBOUND_TARGET,
         cfg: makeCfg(),
       }),
-    ).toMatchObject({ ok: true, to: OUTBOUND_CONVERSATION_ID });
+    ).toMatchObject({ ok: true, to: OUTBOUND_TARGET });
   });
 }
 
@@ -573,7 +600,7 @@ function reportsDisconnectedClient() {
   return Effect.gen(function* () {
     const result = yield* sendText({
       cfg: makeCfg(),
-      to: STOP_CONVERSATION_ID,
+      to: STOP_TARGET,
       text: "hello",
       accountId: "nonexistent-account",
     });
@@ -586,7 +613,7 @@ function reportsSendFailure() {
     mockSend.mockReturnValueOnce(serverRejected());
     const result = yield* sendText({
       cfg: makeCfg(),
-      to: STOP_CONVERSATION_ID,
+      to: STOP_TARGET,
       text: "hello",
       accountId: ACCOUNT_ID,
     });
@@ -683,7 +710,7 @@ function stopRemovesClient() {
   return Effect.gen(function* () {
     const beforeResult = yield* sendText({
       cfg: makeCfg(),
-      to: STOP_CONVERSATION_ID,
+      to: STOP_TARGET,
       text: BEFORE_STOP_TEXT,
       accountId: ACCOUNT_ID,
     });
@@ -691,7 +718,7 @@ function stopRemovesClient() {
     yield* stopAccount();
     const afterResult = yield* sendText({
       cfg: makeCfg(),
-      to: STOP_CONVERSATION_ID,
+      to: STOP_TARGET,
       text: AFTER_STOP_TEXT,
       accountId: ACCOUNT_ID,
     });

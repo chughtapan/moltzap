@@ -343,11 +343,13 @@ const printMessageSent = (messageId: string): Effect.Effect<void> =>
   });
 
 const sendFirstMessage = (
+  taskId: TaskId,
   conversationId: ConversationId,
   text: string,
 ): Effect.Effect<void, never, Transport> =>
   Effect.either(
     rpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text }],
     }),
@@ -508,7 +510,7 @@ const onReuseFound = (
     printTaskReused(task, reuse),
     Option.match(message, {
       onNone: () => Effect.void,
-      onSome: (m) => sendFirstMessage(reuse.id, m),
+      onSome: (m) => sendFirstMessage(task.id, reuse.id, m),
     }),
   );
 
@@ -593,7 +595,8 @@ const startCommandHandler = (
     yield* printTaskCreated(outcome.task, outcome.conversation);
     yield* Option.match(messageOpt, {
       onNone: () => Effect.void,
-      onSome: (m) => sendFirstMessage(outcome.conversation.id, m),
+      onSome: (m) =>
+        sendFirstMessage(outcome.task.id, outcome.conversation.id, m),
     });
   }).pipe(Effect.withSpan("startCommandHandler"));
 

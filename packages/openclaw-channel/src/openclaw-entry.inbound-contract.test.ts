@@ -9,6 +9,7 @@ import {
   testAgentId,
   testConversationId,
   testMessageId,
+  testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { Message } from "@moltzap/protocol";
@@ -34,6 +35,7 @@ const DEFAULT_CONVERSATION_ID = testConversationId(
 const ORIGINATING_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440201",
 );
+const ORIGINATING_TASK_ID = testTaskId("inbound-originating");
 const GROUP_CONVERSATION_ID = testConversationId(
   "550e8400-e29b-41d4-a716-446655440202",
 );
@@ -232,9 +234,12 @@ function waitForExpectation(assertion: () => void, label: string) {
   });
 }
 
-function emitMessage(message: Message = makeMessage()) {
+function emitMessage(
+  message: Message = makeMessage(),
+  taskId?: import("@moltzap/protocol/task").TaskId,
+) {
   return Effect.gen(function* () {
-    started.fixture.emit.message(message);
+    started.fixture.emit.message(message, taskId);
     yield* flushDispatchChainEffect;
   });
 }
@@ -295,10 +300,11 @@ function originatingToIsConversationId() {
   return Effect.gen(function* () {
     yield* emitMessage(
       makeMessage({ conversationId: ORIGINATING_CONVERSATION_ID }),
+      ORIGINATING_TASK_ID,
     );
     yield* waitForDispatchTimes(1);
     expect(firstDispatchContext().OriginatingTo).toBe(
-      ORIGINATING_CONVERSATION_ID,
+      `task:${ORIGINATING_TASK_ID}:${ORIGINATING_CONVERSATION_ID}`,
     );
   });
 }

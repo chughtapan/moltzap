@@ -73,6 +73,7 @@ import {
   STALE_PORT_TEST_TIMEOUT_MS,
   TEST_AGENT_ID,
   TEST_CONVERSATION_ID,
+  TEST_TASK_ID,
   type CloseInfo,
   type MutableRef,
   type RequestFrame,
@@ -180,6 +181,7 @@ effectTest("rejects pending sendRpc calls when disconnect() is called", () =>
 
       const rpcFiber = yield* Effect.fork(
         sendRpcEffect(client, MessagesSend, {
+          taskId: TEST_TASK_ID,
           conversationId: TEST_CONVERSATION_ID,
           parts: [{ type: "text", text: "hi" }],
         }),
@@ -233,6 +235,7 @@ scopedEffectTest(
 
         const rpcFiber = yield* Effect.fork(
           client.sendRpc(MessagesSend, {
+            taskId: TEST_TASK_ID,
             conversationId: TEST_CONVERSATION_ID,
             parts: [{ type: "text", text: "payload" }],
           }),

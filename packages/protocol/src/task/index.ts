@@ -1,7 +1,13 @@
 /**
  * @file Public barrel for task, conversation, message, and task-manager protocol descriptors.
  */
-export type { ConversationId, MessageId, TaskId } from "./methods.js";
+export { ConversationId, LeaseId, MessageId, TaskId } from "./methods.js";
+export {
+  brandConversationId,
+  brandMessageId,
+  brandTaskId,
+  BrandedIdDecodeError,
+} from "./brand.js";
 
 export * from "./capabilities/index.js";
 

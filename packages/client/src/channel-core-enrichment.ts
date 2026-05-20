@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
+import type { TaskId } from "@moltzap/protocol/task";
 import type {
   ChannelService,
   ContextBlocks,
@@ -20,6 +21,7 @@ interface EnrichmentContext {
 interface EnrichedMessageInput {
   readonly service: ChannelService;
   readonly message: Message;
+  readonly taskId: TaskId;
   readonly senderName: string;
   readonly coalesced: ReadonlyArray<CoalescedMessage>;
   readonly context: EnrichmentContext;
@@ -158,12 +160,14 @@ function collectContextBlocks(
 function buildEnrichedInboundMessage({
   service,
   message,
+  taskId,
   senderName,
   coalesced,
   context,
 }: EnrichedMessageInput): EnrichedInboundMessage {
   return {
     id: message.id,
+    taskId,
     conversationId: message.conversationId,
     sender: {
       id: message.senderId,
@@ -183,6 +187,7 @@ function buildEnrichedInboundMessage({
 
 export function enrichChannelMessage(
   service: ChannelService,
+  taskId: TaskId,
   messageOrMessages: Message | ReadonlyArray<Message>,
 ): Effect.Effect<
   {
@@ -213,6 +218,7 @@ export function enrichChannelMessage(
       enriched: buildEnrichedInboundMessage({
         service,
         message,
+        taskId,
         senderName,
         coalesced,
         context,

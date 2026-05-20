@@ -81,12 +81,13 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
         fixture.taskId,
         PROPERTY,
       );
-      yield* assertConversationRejectsMessages(
-        fixture.participant,
-        fixture.conversationId,
-        PROPERTY,
-        { code: TaskClosedError.code, label: "TaskClosed" },
-      );
+      yield* assertConversationRejectsMessages({
+        actor: fixture.participant,
+        taskId: fixture.taskId,
+        conversationId: fixture.conversationId,
+        propertyName: PROPERTY,
+        expectedError: { code: TaskClosedError.code, label: "TaskClosed" },
+      });
     }),
   );
 }

@@ -132,7 +132,10 @@ describe("DispatchAuthorize result", () => {
   it("references the DispatchAdmissionDecision union", () => {
     expect(
       validateDispatchAuthorizeResult({
-        admission: { decision: "grant", leaseId: "l1" },
+        admission: {
+          decision: "grant",
+          leaseId: "550e8400-e29b-41d4-a716-446655440099",
+        },
       }),
     ).toBe(true);
     expect(

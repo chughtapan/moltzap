@@ -17,9 +17,13 @@ import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
 
 import { MessagesList } from "@moltzap/protocol";
+import { brandConversationId, brandTaskId } from "@moltzap/protocol/task";
 
 const it = effectIt.effect;
-const CONVERSATION_ID = "00000000-0000-4000-8000-00000000000c";
+const TASK_ID = brandTaskId("00000000-0000-4000-8000-00000000001a");
+const CONVERSATION_ID = brandConversationId(
+  "00000000-0000-4000-8000-00000000000c",
+);
 const FIRST_MESSAGE_ID = "00000000-0000-4000-8000-00000000000a";
 const SECOND_MESSAGE_ID = "00000000-0000-4000-8000-00000000000b";
 const SENDER_A = "00000000-0000-4000-8000-0000000000a1";
@@ -62,6 +66,7 @@ function runMessagesList(
   limit?: number,
 ) {
   return messagesListHandler({
+    taskId: TASK_ID,
     conversationId: CONVERSATION_ID,
     ...(limit !== undefined ? { limit } : {}),
   }).pipe(Effect.provideService(Transport, transport));
@@ -85,6 +90,7 @@ describe("messages list", () => {
       expect(calls[0]).toEqual({
         method: MessagesList.name,
         params: {
+          taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
           limit: DEFAULT_LIMIT,
         },
@@ -103,6 +109,7 @@ describe("messages list", () => {
       const { calls, transport } = makeFakeTransport(emptyMessagesList);
       yield* runMessagesList(transport);
       expect(calls[0]?.params).toEqual({
+        taskId: TASK_ID,
         conversationId: CONVERSATION_ID,
       });
     }));
