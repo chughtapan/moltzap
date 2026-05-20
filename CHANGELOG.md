@@ -330,6 +330,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   insert-before-write, atomic insert/take, late-frame drop) into
   `11-typed-dispatcher.md` §6.
 
+
+### Spec D2 (#599) — `moltzap start` CLI
+
+- **Added (`@moltzap/client`):** `moltzap start <name> <participant>...
+  [--message <text>] [--app-id <uuid>]` — single-command CLI that
+  composes Spec D1 (#598) atomic `TaskCreate({ appId, invitedAgentIds,
+  initialConversation })` with an optional follow-up `MessagesSend`.
+  Today's two-step workflow (`conversations create` -> `send conv:<id>
+  <text>`) collapses into one subcommand for the common case.
+  Per-flow walkthrough at
+  `packages/client/docs/architecture/moltzap-start-cli.md`.
+- **Exit-code contract:** `0` full success, `1` `TaskCreate` failed
+  (stdout empty), `2` partial success (`TaskCreate` OK +
+  `MessagesSend` failed — no rollback; the task + empty conversation
+  persist and the user can retry with `moltzap send conv:<id>
+  <text>`), `64` usage error (bad `--app-id` UUID v4 syntax or
+  unresolvable `agent:<token>`). Exit 64 matches POSIX `EX_USAGE`
+  (sysexits.h). `--app-id` validation uses an RFC 4122 UUID v4 regex
+  client-side BEFORE any RPC (per architect plan §6 Invariant 7).
+- **Participant resolution:** new local `start.ts -> resolveAgentTokens`
+  helper routes name-shaped lookups through the CLI `Transport`
+  service (`transport.ts -> rpc(AgentsLookupByName, ...)`) rather than
+  the daemon-only `socket-client.ts -> resolveParticipant`. This keeps
+  `--as` direct-WS invocations working and makes the resolver
+  intercept-able via `commands/test-transport.ts -> makeFakeTransport`.
+  Coalesces all name-shaped tokens into ONE batched
+  `AgentsLookupByName({ names: [...uniqueNames] })` RPC instead of one
+  per token (group tasks no longer pay N round-trips). UUID-shaped
+  tokens skip the wire entirely. When >100 distinct name tokens are
+  passed, the CLI rejects with exit 64 (`Too many distinct agent
+  names: <count> (max <max>)`) BEFORE the RPC — the schema's
+  `maxItems: 100` cap is surfaced as a usage error instead of an
+  opaque AJV decode failure. See architect plan §R1 + per-flow doc
+  §"Why we don't reuse `resolveParticipant`" for the transport-
+  uniformity reasoning.
+- **Dedup-hit reuse (spec D2 amendment N6):** idempotent reruns of
+  `moltzap start` on `DEFAULT_APP_ID` are now first-class. When the
+  server returns `{ task: existing, conversation: null }` (the D1
+  task-level dedup case), `start.ts -> findReusableConversation` calls
+  `TaskConversationList` (caller-scoped, server-sorted by activity
+  desc), filters items where `item.taskId === existingTaskId` AND
+  `item.conversation.archivedAt === undefined`, and reuses the
+  most-recently-active match. Stdout becomes
+  `Task started: <taskId> (reusing existing conversation: <convId>)`;
+  optional `--message` routes to the reused conversation. If no usable
+  conversation is found (task closed, all conversations archived, or
+  outside the dedup-lookup pagination window of
+  `DEDUP_LOOKUP_MAX_PAGES × DEDUP_LOOKUP_PAGE_SIZE = 1000` rows), the
+  CLI prints `Task already exists but is closed: <taskId>` to stderr
+  and exits 1. If `TaskConversationList` itself fails mid-lookup, the
+  CLI surfaces a dedup-specific diagnostic
+  (`Task <id> already exists but reusable-conversation lookup failed: <err>`)
+  instead of the generic `Failed:` prefix so the user is not misled
+  into retrying an already-successful `TaskCreate`. Replaces the
+  pre-fix-roll `TransportDecodeError` misclassification that broke
+  reruns on the second invocation.
+- **Zero-participant wire-shape carve-out (spec D2 amendment N7):**
+  `TaskCreate.params.initialConversation` now OMITS `participants`
+  entirely when `invitedAgentIds.length === 0`. The protocol
+  `InitialConversationSchema.participants` is
+  `Type.Optional(Type.Array(AgentId, { minItems: 1 }))`; the empty
+  array passed pre-fix-roll failed server AJV. The server adds the
+  caller to `conversation_participants` implicitly when `participants`
+  is absent.
+
 ### Phase 12 — `@moltzap/protocol` finalization
 
 - **BREAKING (Phase 12 — protocol surface):** Root facade reduced to
