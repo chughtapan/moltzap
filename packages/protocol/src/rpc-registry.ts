@@ -12,6 +12,8 @@ import {
   ConversationArchivedError,
   ConversationFullError,
   HookBlockedError,
+  nonTmAuthorityTaskRpcMethods,
+  tmOnlyTaskRpcMethods,
 } from "./task/methods.js";
 import {
   appRpcMethods,
@@ -60,7 +62,25 @@ export type RegisteredTaggedError =
   | ConversationFullError
   | HookBlockedError;
 
-export const rpcMethods = [
+// Spec D3 R11 — per-kind outbound catalogs.
+//   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.
+//   `taskMasterRpcMethods`  — superset; adds TM-only operations.
+//   `serverRpcMethods`      — server inbound; full union (still
+//     includes the legacy `Conversations*` / plural `Tasks*` that
+//     retire across Commits 6-10).
+export const agentClientRpcMethods = [
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...nonTmAuthorityTaskRpcMethods,
+  ...appRpcMethods,
+] as const;
+
+export const taskMasterRpcMethods = [
+  ...agentClientRpcMethods,
+  ...tmOnlyTaskRpcMethods,
+] as const;
+
+export const serverRpcMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
   ...taskRpcMethods,
@@ -74,7 +94,11 @@ export const notificationDefinitions = [
   ...appNotifications,
 ] as const;
 
-export type AnyRpcDefinition = (typeof rpcMethods)[number] &
+export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
+  RpcDefinition<string, any, any>;
+export type AnyAgentClientRpcDefinition =
+  (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
+export type AnyTaskMasterRpcDefinition = (typeof taskMasterRpcMethods)[number] &
   RpcDefinition<string, any, any>;
 
 export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
@@ -123,7 +147,9 @@ export type DecodedServerInbound =
  * server-initiated callback, or a notification.
  */
 export type DecodedClientInbound =
-  | ({ readonly _tag: "ClientRequest" } & DecodedRpcRequest<AnyRpcDefinition>)
+  | ({
+      readonly _tag: "ClientRequest";
+    } & DecodedRpcRequest<AnyServerRpcDefinition>)
   | DecodedResponseSuccess
   | DecodedResponseError
   | ({
@@ -206,7 +232,7 @@ export function decodeClientInbound(
         if (decoded._tag === "Response")
           return decodeResponseFrame(decoded.frame, raw);
         if (decoded._tag === "Request")
-          return decodeRpcRequest(rpcMethods, decoded.frame).pipe(
+          return decodeRpcRequest(serverRpcMethods, decoded.frame).pipe(
             Effect.mapError(wrap),
             Effect.map((req) => ({ ...req, _tag: "ClientRequest" as const })),
           );

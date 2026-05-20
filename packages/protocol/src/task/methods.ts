@@ -95,6 +95,26 @@ export const taskRpcMethods = [
   TaskConversationRemoveParticipant,
 ] as const;
 
+// Spec D3 R11 — per-kind subsets of the surviving task layer.
+// Names follow the pre-rename `Tasks*` form; Commit 9 renames `TasksList`
+// and `TasksClose` to the singular survivors.
+export const nonTmAuthorityTaskRpcMethods = [
+  TaskCreate,
+  TasksList,
+  TaskLeave,
+  MessagesSend,
+  MessagesList,
+] as const;
+
+export const tmOnlyTaskRpcMethods = [
+  TasksClose,
+  TaskConversationCreate,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+] as const;
+
 export const taskNotifications = [
   ConversationCreatedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,

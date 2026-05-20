@@ -18,7 +18,7 @@ import type { Context, Effect } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 
 import type {
-  rpcMethods,
+  serverRpcMethods,
   AnyTaskCallbackRpcDefinition,
 } from "../rpc-registry.js";
 
@@ -91,7 +91,7 @@ type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> = D extends {
  * slots widen their value type to include the matching sentinel.
  *
  * Type-parameter erasure note: `RpcDefinition` is variant across `Name`
- * — the catalog `typeof rpcMethods[number]` resolves to a union of the
+ * — the catalog `typeof serverRpcMethods[number]` resolves to a union of the
  * concrete `RpcDefinition&lt;"identity/register", ...>` etc. arms; the
  * mapped type preserves each arm's `name` literal so the resulting
  * table has named keys.
@@ -106,12 +106,12 @@ export type HandlerTable<
 
 /**
  * Server-side inbound RPC catalog — every method an agent client may
- * call into the server. LSP-anchored: the catalog is `rpcMethods` from
+ * call into the server. LSP-anchored: the catalog is `serverRpcMethods` from
  * `rpc-registry.ts`, which composes `identityRpcMethods`,
  * `networkRpcMethods`, `taskRpcMethods`, and `appRpcMethods`. 42
  * members at `227c398`.
  */
-export type ServerInboundRpcDefinition = (typeof rpcMethods)[number] &
+export type ServerInboundRpcDefinition = (typeof serverRpcMethods)[number] &
   RpcDefinition<string, TSchema, TSchema>;
 
 /**

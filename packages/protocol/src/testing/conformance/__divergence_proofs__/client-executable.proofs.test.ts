@@ -21,7 +21,7 @@ import {
 } from "../_shared/captures.js";
 import { encodeFrame } from "../_shared/frame-mutator.js";
 import { requestFrame } from "../../../transport/wire.js";
-import { rpcMethods } from "../../../rpc-registry.js";
+import { serverRpcMethods } from "../../../rpc-registry.js";
 import { jsonRpcMethod } from "../../../transport/wire.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import {
@@ -552,7 +552,7 @@ function makeProofRequest(
   params: unknown,
 ): Effect.Effect<RequestFrame> {
   return Effect.gen(function* () {
-    const definition = rpcMethods.find((def) => def.name === method);
+    const definition = serverRpcMethods.find((def) => def.name === method);
     if (definition === undefined || !definition.validateParams(params)) {
       return yield* Effect.die(new Error(`invalid proof RPC: ${method}`));
     }

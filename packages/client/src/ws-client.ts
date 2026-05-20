@@ -660,7 +660,7 @@ export class MoltZapWsClient {
       }
       // `sendRpc` is the public surface; callers pass concrete descriptors
       // narrowed at the call site. The typed-dispatcher's `call` is
-      // constrained to `AnyRpcDefinition` (the union of catalog members);
+      // constrained to `AnyServerRpcDefinition` (the union of catalog members);
       // the bound carry-through is preserved by widening to the union here.
       const call = state.value.tmConn.call as <
         D2 extends RpcDefinition<string, any, any>,

@@ -53,9 +53,9 @@ import type { HandlerSlot } from "./handlers.js";
 import type { CapabilityDescriptor } from "./capabilities.js";
 import { FailClosedDefault } from "./defaults.js";
 
-type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
+type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 type AnySlot = HandlerSlot<
-  AnyRpcDefinition,
+  AnyServerRpcDefinition,
   unknown,
   Context.Tag<unknown, unknown>
 >;
@@ -179,7 +179,7 @@ export function buildAgentClientDispatcher<
 /**
  * Build the TM dispatcher. Wires both the inbound dispatch loop
  * (against `taskCallbackMethods`) and the outbound originator (against
- * `rpcMethods`). Both TM-inbound slots are OPTIONAL with fail-CLOSED
+ * `serverRpcMethods`). Both TM-inbound slots are OPTIONAL with fail-CLOSED
  * `ForbiddenError` defaults; an empty `{ handlers: {} }` literal
  * produces a TM that responds `Forbidden -32001` to every inbound
  * auth check (Spec F R2).

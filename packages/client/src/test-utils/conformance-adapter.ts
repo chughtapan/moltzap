@@ -18,8 +18,8 @@
  */
 import { Data, Effect, Either, Ref, Scope, Stream } from "effect";
 import {
-  rpcMethods,
-  type AnyRpcDefinition,
+  serverRpcMethods,
+  type AnyServerRpcDefinition,
   type AnyNotificationDefinition,
   type DecodedNotification,
   type NotificationFrame,
@@ -189,9 +189,9 @@ function recordObservedNotification(
 function resolveRpcDefinition(
   method: string,
   params: unknown,
-): Effect.Effect<AnyRpcDefinition, RealClientRpcError> {
-  const definition = rpcMethods.find(
-    (d): d is AnyRpcDefinition => d.name === method,
+): Effect.Effect<AnyServerRpcDefinition, RealClientRpcError> {
+  const definition = serverRpcMethods.find(
+    (d): d is AnyServerRpcDefinition => d.name === method,
   );
   if (definition !== undefined && definition.validateParams(params)) {
     return Effect.succeed(definition);

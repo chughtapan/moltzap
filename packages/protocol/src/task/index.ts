@@ -67,6 +67,9 @@ export {
   validateTmDecision,
   tmDecisionSchema,
   messageWithTmDecisionSchema,
+  // Spec D3 R11 — per-kind catalog subsets.
+  nonTmAuthorityTaskRpcMethods,
+  tmOnlyTaskRpcMethods,
 } from "./methods.js";
 
 export type {

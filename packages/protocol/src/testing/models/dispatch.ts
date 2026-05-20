@@ -8,14 +8,14 @@
  *
  * Exhaustiveness: the reducer takes `ArbitraryRpcCall` (discriminated on
  * `method`) so the TS compiler flags an unhandled method name if
- * `rpcMethods` grows without the model being updated.
+ * `serverRpcMethods` grows without the model being updated.
  */
-import { rpcMethods } from "../../rpc-registry.js";
+import { serverRpcMethods } from "../../rpc-registry.js";
 import type { NotificationFrame } from "../../transport/wire.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
 
-type MethodName = (typeof rpcMethods)[number]["name"];
+type MethodName = (typeof serverRpcMethods)[number]["name"];
 
 import {
   AgentsList,
@@ -193,7 +193,7 @@ function extractConversationId(params: unknown): ConversationId | null {
  * flows through `_tag: "error"`.
  *
  * Exhaustiveness: the `switch` has a branch for every method name in
- * `rpcMethods`. A missing branch becomes a compile error at `absurd`.
+ * `serverRpcMethods`. A missing branch becomes a compile error at `absurd`.
  * Behaviour is intentionally conservative — the model predicts the
  * server's *observable* outcome (success vs typed error), not its full
  * result shape. Tier B canonicalizers downgrade server responses to the

@@ -1,4 +1,7 @@
-import { rpcMethods, taskCallbackMethods } from "../../src/rpc-registry.js";
+import {
+  serverRpcMethods,
+  taskCallbackMethods,
+} from "../../src/rpc-registry.js";
 import * as protocolSchema from "../../src/index.js";
 import {
   SORT_KEY_PAD_WIDTH,
@@ -39,7 +42,7 @@ const TYPE_NAME_READERS: Readonly<Record<string, TypeNameReader>> = {
 
 export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
-    ...rpcMethods,
+    ...serverRpcMethods,
     ...taskCallbackMethods,
     ...Object.values(protocolSchema).filter(isRpcDefinition),
   ];
