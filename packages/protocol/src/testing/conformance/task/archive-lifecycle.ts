@@ -66,11 +66,12 @@ function assertArchive(
       fixture.owner.agent.agentId,
       PROPERTY,
     );
-    yield* assertConversationRejectsMessages(
-      participant,
-      fixture.conversationId,
-      PROPERTY,
-    );
+    yield* assertConversationRejectsMessages({
+      actor: participant,
+      taskId: fixture.taskId,
+      conversationId: fixture.conversationId,
+      propertyName: PROPERTY,
+    });
   });
 }
 
@@ -94,6 +95,7 @@ function assertUnarchive(
     );
     const resumedSend = yield* sendText(
       participant,
+      fixture.taskId,
       fixture.conversationId,
       "must-succeed-after-unarchive",
     ).pipe(Effect.either);

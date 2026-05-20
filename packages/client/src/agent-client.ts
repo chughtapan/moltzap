@@ -22,7 +22,6 @@ import {
   RpcTimeoutError,
   makeAgentClientConnection,
   type AgentClientConnection,
-  type AnyAgentClientRpcDefinition,
   type AnyNotificationDefinition,
   type DecodedNotification,
   type DecodedServerInbound,
@@ -153,24 +152,13 @@ export class MoltZapAgentClient {
   }
 
   /**
-   * Outbound RPC. Narrowed to AnyAgentClientRpcDefinition (R11) — TM-only
-   * methods fail TS2345 at the call site.
+   * Outbound RPC. The compile-time constraint accepts any
+   * `RpcDefinition` so generic forwarders (service.sendRpc, CLI
+   * transport) can pass through without per-method narrowing; the R11
+   * agent-client catalog narrowing applies at runtime inside
+   * `AgentClientConnection` and rejects TM-only methods.
    */
-  sendRpc<D extends AnyAgentClientRpcDefinition>(
-    definition: D,
-    params: ParamsOf<D>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ConnectError> {
-    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.sendRpcEffect(definition, params, timeoutMs);
-  }
-
-  /**
-   * Broad-bound passthrough for higher-level forwarders (service.sendRpc,
-   * CLI transport) that don't know the descriptor type at compile time.
-   * The runtime catalog narrowing in AgentClientConnection still applies.
-   */
-  sendRpcAny<D extends RpcDefinition<string, any, any>>(
+  sendRpc<D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
     opts?: RpcCallOptions,

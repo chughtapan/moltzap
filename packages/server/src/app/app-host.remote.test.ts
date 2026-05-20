@@ -397,12 +397,18 @@ function remoteDispatchGrantPassesThrough() {
     const id = yield* waitForLatestRequestId(fixture.outbound);
     yield* fixture.conn.originator.resolve(
       DispatchAuthorize.encodeResponse(id, {
-        admission: { decision: "grant", leaseId: "lease-1" },
+        admission: {
+          decision: "grant",
+          leaseId: "9b4f4f6f-7c95-4e36-9d3a-1f3e3c0d1a01",
+        },
       }),
     );
     const verdict = yield* Fiber.join(fiber);
     yield* Scope.close(fixture.scope, Exit.void);
-    expect(verdict).toEqual({ decision: "grant", leaseId: "lease-1" });
+    expect(verdict).toEqual({
+      decision: "grant",
+      leaseId: "9b4f4f6f-7c95-4e36-9d3a-1f3e3c0d1a01",
+    });
   });
 }
 

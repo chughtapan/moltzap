@@ -1,7 +1,12 @@
-import { Args, Command, Options } from "@effect/cli";
+import { Args, Command, HelpDoc, Options } from "@effect/cli";
 import { Data, Effect, Option } from "effect";
 import { type ConversationSummary } from "@moltzap/protocol";
 import type { ConversationId } from "@moltzap/protocol/task";
+import {
+  BrandedIdDecodeError,
+  brandConversationId,
+  brandTaskId,
+} from "@moltzap/protocol/task";
 import {
   LocalServiceCommands,
   request,
@@ -138,8 +143,26 @@ const createConversation = Command.make(
     ),
 ).pipe(Command.withDescription("Create a new conversation"));
 
+const taskIdArg = Args.text({ name: "taskId" }).pipe(
+  Args.withDescription("Task ID"),
+  Args.mapTryCatch(brandTaskId, (err) =>
+    HelpDoc.p(
+      err instanceof BrandedIdDecodeError
+        ? `invalid taskId: ${err.input}`
+        : `invalid taskId: ${String(err)}`,
+    ),
+  ),
+);
+
 const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
   Args.withDescription("Conversation ID"),
+  Args.mapTryCatch(brandConversationId, (err) =>
+    HelpDoc.p(
+      err instanceof BrandedIdDecodeError
+        ? `invalid conversationId: ${err.input}`
+        : `invalid conversationId: ${String(err)}`,
+    ),
+  ),
 );
 
 const leaveConversation = Command.make(
@@ -323,19 +346,21 @@ const renderHistory = (
 };
 
 const historyHandler = ({
+  taskId,
   conversationId,
   limit,
   json,
   sessionKey,
 }: {
+  taskId: string;
   conversationId: string;
   limit: number;
   json: boolean;
   sessionKey: Option.Option<string>;
 }): Effect.Effect<void> => {
   const params: HistoryRequestInput = Option.isSome(sessionKey)
-    ? { conversationId, limit, sessionKey: sessionKey.value }
-    : { conversationId, limit };
+    ? { taskId, conversationId, limit, sessionKey: sessionKey.value }
+    : { taskId, conversationId, limit };
   return wrap(
     requestLocalService(LocalServiceCommands.History, params),
     (result) => {
@@ -347,6 +372,7 @@ const historyHandler = ({
 const historySubcommand = Command.make(
   "history",
   {
+    taskId: taskIdArg,
     conversationId: conversationIdArg,
     limit: historyLimitOption,
     json: jsonOption,
@@ -481,6 +507,7 @@ export const conversationsCommand = Command.make("conversations", {}, () =>
 export const historyCommand = Command.make(
   "history",
   {
+    taskId: taskIdArg,
     conversationId: conversationIdArg,
     limit: historyLimitOption,
     json: jsonOption,

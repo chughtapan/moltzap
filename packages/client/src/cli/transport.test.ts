@@ -56,7 +56,7 @@ const DIRECT_TEST_SERVER_URL = "wss://test.example";
 function makeMockWsClient() {
   return {
     connect: () => Effect.void,
-    sendRpcAny: () =>
+    sendRpc: () =>
       Effect.fail(
         new RpcServerError({
           code: SESSION_NOT_FOUND_CODE,

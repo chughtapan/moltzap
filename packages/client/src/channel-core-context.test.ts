@@ -17,6 +17,7 @@ import {
   forceResolveAgentNamePath,
   message,
   participant,
+  task,
   type ChannelCoreFixture,
   type CrossConversationEntry,
   type EnrichedInboundMessage,
@@ -295,9 +296,17 @@ effectTest(
 
 function delegatesToServiceSendWithConversationIdAndText() {
   return Effect.gen(function* () {
-    yield* core.sendReply(conversation("conv-42"), "hello there");
+    yield* core.sendReply(
+      task("task-42"),
+      conversation("conv-42"),
+      "hello there",
+    );
     expect(fake.state.sent).toEqual([
-      { convId: conversation("conv-42"), text: "hello there" },
+      {
+        taskId: task("task-42"),
+        convId: conversation("conv-42"),
+        text: "hello there",
+      },
     ]);
   });
 }
@@ -311,7 +320,11 @@ function dropsRepliesLocallyAfterTheConversationIsArchived() {
   return Effect.gen(function* () {
     fake.emit.conversationArchived({ conversationId: "conv-42" });
 
-    yield* core.sendReply(conversation("conv-42"), "hello there");
+    yield* core.sendReply(
+      task("task-42"),
+      conversation("conv-42"),
+      "hello there",
+    );
 
     expect(fake.state.sent).toEqual([]);
   });
@@ -327,10 +340,18 @@ function resumesRepliesAfterTheConversationIsUnarchived() {
     fake.emit.conversationArchived({ conversationId: "conv-42" });
     fake.emit.conversationUnarchived({ conversationId: "conv-42" });
 
-    yield* core.sendReply(conversation("conv-42"), "hello again");
+    yield* core.sendReply(
+      task("task-42"),
+      conversation("conv-42"),
+      "hello again",
+    );
 
     expect(fake.state.sent).toEqual([
-      { convId: conversation("conv-42"), text: "hello again" },
+      {
+        taskId: task("task-42"),
+        convId: conversation("conv-42"),
+        text: "hello again",
+      },
     ]);
   });
 }
@@ -365,7 +386,7 @@ function returnsTheSameShapeAsTheInstanceHandlerPath() {
     });
 
     const { enriched: staticResult, commitContext } =
-      yield* MoltZapChannelCore.enrichMessage(service, msg);
+      yield* MoltZapChannelCore.enrichMessage(service, task("task-1"), msg);
 
     expect(staticResult).toMatchObject({
       id: message("msg-static"),
@@ -399,6 +420,7 @@ function staticHelperToleratesResolveAgentNameThrowingDisconnectedService() {
 
     const { enriched: result } = yield* MoltZapChannelCore.enrichMessage(
       fake.service,
+      task("task-unknown"),
       buildMessage({ senderId: "agent-unknown" }),
     );
 

@@ -349,7 +349,7 @@ function callRealClientRpc(
   return Effect.gen(function* () {
     const definition = yield* resolveRpcDefinition(method, params);
     const result = yield* ws
-      .sendRpcAny(definition, params as ParamsOf<typeof definition>)
+      .sendRpc(definition, params as ParamsOf<typeof definition>)
       .pipe(Effect.mapError(rpcErrorForMethod(method)));
     return definition.encodeResponse(null, result) as ResponseFrame;
   });

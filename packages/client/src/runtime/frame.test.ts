@@ -1,7 +1,12 @@
 import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  taskId,
+} from "@moltzap/protocol/testing";
 import { decodeFrames } from "./frame.js";
 import { MalformedFrameError } from "./errors.js";
 
@@ -12,12 +17,14 @@ const TEST_MESSAGE = {
   parts: [{ type: "text" as const, text: "hello" }],
   createdAt: "2026-05-03T00:00:00.000Z",
 };
+const TEST_TASK_ID = taskId("44444444-4444-4444-8444-444444444444");
 
 it("decodes one WebSocket notification message", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const raw = JSON.stringify(
         MessageReceivedNotificationDefinition.encode({
+          taskId: TEST_TASK_ID,
           message: TEST_MESSAGE,
         }),
       );
@@ -28,7 +35,7 @@ it("decodes one WebSocket notification message", () =>
       expect(decoded[0]).toMatchObject({
         _tag: "Notification",
         method: MessageReceivedNotificationDefinition.name,
-        params: { message: TEST_MESSAGE },
+        params: { taskId: TEST_TASK_ID, message: TEST_MESSAGE },
       });
     }),
   ));

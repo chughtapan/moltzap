@@ -4,12 +4,11 @@
  * event. Latency merely slows delivery; it must not drop events.
  */
 import { Effect } from "effect";
-import type { Static } from "@sinclair/typebox";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import type { TestClient } from "../_shared/driver/test-client.js";
-import { ConversationId, MessagesSend } from "../../../task/methods.js";
+import { ConversationId, MessagesSend, TaskId } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -21,7 +20,6 @@ import {
 } from "./_helpers.js";
 
 const LATENCY_CLIENT_TIMEOUT_MS = 6_000;
-type ConversationIdValue = Static<typeof ConversationId>;
 
 export function registerLatencyResilience(ctx: ConformanceRunContext): void {
   withToxicProxy({
@@ -44,12 +42,17 @@ function runLatencyResilience(
   return Effect.gen(function* () {
     const owner = yield* acquireLatencyClient(ctx, params, "o");
     const participant = yield* acquireLatencyClient(ctx, params, "p");
-    const conversationId = yield* createOneOnOneConversation(
+    const { taskId, conversationId } = yield* createOneOnOneConversation(
       owner,
       participant,
       "latency-resilience",
     );
-    yield* sendLatencyProbe(params.attachToxic, owner.client, conversationId);
+    yield* sendLatencyProbe(
+      params.attachToxic,
+      owner.client,
+      taskId,
+      conversationId,
+    );
     const snap = yield* participant.client.snapshot;
     if (snap.filter(isMessageNotification).length === 0) {
       return yield* Effect.fail(
@@ -79,13 +82,15 @@ function acquireLatencyClient(
 function sendLatencyProbe(
   attachToxic: ToxicBodyParams["attachToxic"],
   client: TestClient,
-  conversationId: ConversationIdValue,
+  taskId: TaskId,
+  conversationId: ConversationId,
 ) {
   return Effect.scoped(
     Effect.gen(function* () {
       yield* attachToxic;
       yield* client
         .sendRpc(MessagesSend, {
+          taskId,
           conversationId,
           parts: [{ type: "text", text: "lat-ping" }],
         })

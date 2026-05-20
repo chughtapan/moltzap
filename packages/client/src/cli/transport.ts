@@ -323,7 +323,7 @@ function sendDirectRpc<D extends RpcDefinition<string, any, any>>(
   return connectOnce.pipe(
     Effect.flatMap((client) =>
       client
-        .sendRpcAny(definition, params)
+        .sendRpc(definition, params)
         .pipe(Effect.mapError(mapDirectRpcError(definition.name))),
     ),
   );

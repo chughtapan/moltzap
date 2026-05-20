@@ -198,7 +198,7 @@ describe("DispatchAuthorize verdict union", () => {
       validateAuthorizeResult({
         admission: {
           decision: "grant",
-          leaseId: "lease-1",
+          leaseId: "550e8400-e29b-41d4-a716-446655440011",
           leaseTimeoutMs: 90_000,
           dispatchMessageId: "550e8400-e29b-41d4-a716-446655440010",
         },

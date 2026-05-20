@@ -42,18 +42,26 @@ import {
   type ResultOf,
   type RpcDefinition,
 } from "@moltzap/protocol";
-import { TaskClosedError } from "@moltzap/protocol/task";
+import {
+  brandConversationId,
+  brandMessageId,
+  brandTaskId,
+  TaskClosedError,
+  type ConversationId,
+  type LeaseId,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import { RpcServerError } from "@moltzap/protocol/transport";
 
 const DEFAULT_ACCOUNT_ID = "default";
 const CHANNEL_ID = "moltzap" as const;
 const TARGET_PREFIX_AGENT = "agent:";
-const TARGET_PREFIX_CONV = "conv:";
+const TARGET_PREFIX_TASK = "task:";
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 const BODY_FOR_AGENT_LOG_PREVIEW_CHARS = 500;
 const OUTBOUND_LOG_PREVIEW_CHARS = 80;
 
-const MOLTZAP_TARGET_RE = /^(agent|conv):.+$/;
+const MOLTZAP_TARGET_RE = /^(agent:.+|task:[^:]+:.+)$/;
 const OpenClawContextLogDir = Config.option(
   Config.string("MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"),
 );
@@ -373,15 +381,17 @@ function handleReplyFailure(
 
 function sendDeliveredReply(params: {
   readonly core: MoltZapChannelCore;
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
   readonly text: string;
-  readonly leaseId: string | undefined;
+  readonly leaseId: LeaseId | undefined;
   readonly log: OpenClawLogger | undefined;
   readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
   readonly guard: LeaseGuard;
 }): Effect.Effect<boolean> {
   return params.core
     .sendReply(
+      params.taskId,
       params.conversationId,
       params.text,
       params.leaseId !== undefined
@@ -471,6 +481,7 @@ function createLeaseConsumingDeliver(params: {
         }
         return yield* sendDeliveredReply({
           core: params.core,
+          taskId: params.enriched.taskId,
           conversationId: params.enriched.conversationId,
           text,
           leaseId: params.enriched.dispatchLeaseId,
@@ -496,7 +507,7 @@ function buildInboundDispatchContext(
     Provider: CHANNEL_ID,
     Surface: CHANNEL_ID,
     OriginatingChannel: CHANNEL_ID,
-    OriginatingTo: input.enriched.conversationId,
+    OriginatingTo: `${TARGET_PREFIX_TASK}${input.enriched.taskId}:${input.enriched.conversationId}`,
     ChatType: input.chatType,
     ...(input.groupSubject ? { GroupSubject: input.groupSubject } : {}),
     ...(input.groupMembers ? { GroupMembers: input.groupMembers } : {}),
@@ -576,11 +587,11 @@ function createMessagingSection() {
       looksLikeId(raw: string): boolean {
         return isMoltZapTarget(raw);
       },
-      hint: 'Use "agent:<name>" for DMs or "conv:<id>" for existing conversations',
+      hint: 'Use "agent:<name>" for DMs or "task:<taskId>:<conversationId>" for existing conversations',
       resolveTarget(params: OpenClawResolveTargetParams) {
         const { normalized } = params;
         if (!isMoltZapTarget(normalized)) return Promise.resolve(null);
-        const kind = normalized.startsWith(TARGET_PREFIX_CONV)
+        const kind = normalized.startsWith(TARGET_PREFIX_TASK)
           ? ("group" as const)
           : ("user" as const);
         return Promise.resolve({
@@ -1065,11 +1076,72 @@ function resolveOutboundTarget(toInput: string | undefined) {
   if (to.includes(":") && !isMoltZapTarget(to)) {
     return new OpenClawTargetRejected({
       error: new Error(
-        `MoltZap: unsupported target format "${to}" — use agent:<name> or conv:<id>`,
+        `MoltZap: unsupported target format "${to}" — use agent:<name> or task:<taskId>:<conversationId>`,
       ),
     });
   }
   return new OpenClawTargetResolved({ to });
+}
+
+class MoltZapTargetMalformedError extends Data.TaggedError(
+  "MoltZapTargetMalformedError",
+)<{ readonly target: string }> {
+  override get message(): string {
+    return `MoltZap: invalid target "${this.target}" — expected task:<taskId>:<conversationId>`;
+  }
+}
+
+function parseTaskTarget(
+  to: string,
+): Effect.Effect<
+  { readonly taskId: TaskId; readonly conversationId: ConversationId },
+  MoltZapTargetMalformedError
+> {
+  const body = to.startsWith(TARGET_PREFIX_TASK)
+    ? to.slice(TARGET_PREFIX_TASK.length)
+    : to;
+  const sep = body.indexOf(":");
+  if (sep <= 0 || sep === body.length - 1) {
+    return Effect.fail(new MoltZapTargetMalformedError({ target: to }));
+  }
+  return Effect.succeed({
+    taskId: brandTaskId(body.slice(0, sep)),
+    conversationId: brandConversationId(body.slice(sep + 1)),
+  });
+}
+
+function dispatchOutbound(
+  service: OpenClawClientService,
+  accountId: string,
+  ctx: {
+    to: string;
+    text: string;
+    replyToId?: string;
+  },
+) {
+  return Effect.gen(function* () {
+    if (ctx.to.startsWith(TARGET_PREFIX_AGENT)) {
+      if (!service.sendToAgent) {
+        return yield* Effect.fail(
+          new MoltZapAgentTargetUnsupportedError({ accountId }),
+        );
+      }
+      return yield* service.sendToAgent(
+        ctx.to.slice(TARGET_PREFIX_AGENT.length),
+        ctx.text,
+        { replyTo: ctx.replyToId },
+      );
+    }
+    const parsed = yield* parseTaskTarget(ctx.to);
+    return yield* service.send(
+      parsed.taskId,
+      parsed.conversationId,
+      ctx.text,
+      ctx.replyToId !== undefined
+        ? { replyTo: brandMessageId(ctx.replyToId) }
+        : {},
+    );
+  });
 }
 
 function sendTextEffect(
@@ -1082,32 +1154,15 @@ function sendTextEffect(
     replyToId?: string;
   },
 ) {
-  const effect = Effect.gen(function* () {
-    const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
+  const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
+  return Effect.gen(function* () {
     const service = activeClients.get(accountId);
     if (!service) {
       return yield* Effect.fail(
         new MoltZapClientNotConnectedError({ accountId }),
       );
     }
-    if (ctx.to.startsWith(TARGET_PREFIX_AGENT)) {
-      if (!service.sendToAgent) {
-        return yield* Effect.fail(
-          new MoltZapAgentTargetUnsupportedError({ accountId }),
-        );
-      }
-      yield* service.sendToAgent(
-        ctx.to.slice(TARGET_PREFIX_AGENT.length),
-        ctx.text,
-        {
-          replyTo: ctx.replyToId,
-        },
-      );
-    } else {
-      yield* service.send(conversationTarget(ctx.to), ctx.text, {
-        replyTo: ctx.replyToId,
-      });
-    }
+    yield* dispatchOutbound(service, accountId, ctx);
     return new OpenClawSendTextSuccess();
   }).pipe(
     Effect.withSpan("createMoltzapChannelPlugin.sendText"),
@@ -1119,13 +1174,6 @@ function sendTextEffect(
         }),
     }),
   );
-  return effect;
-}
-
-function conversationTarget(to: string): string {
-  return to.startsWith(TARGET_PREFIX_CONV)
-    ? to.slice(TARGET_PREFIX_CONV.length)
-    : to;
 }
 
 /**

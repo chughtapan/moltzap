@@ -21,6 +21,7 @@ import {
   forceResolveAgentNamePath,
   installAdmission,
   message,
+  testLeaseId,
   type ChannelCoreFixture,
   type ChannelService,
   type EnrichedInboundMessage,
@@ -199,7 +200,7 @@ function installHoldThenGrantAdmission(
       pendingSnapshots.push(request.pending.map(pendingMessageId));
       return calls === 1
         ? { _tag: "hold" as const, reason: "not_yet" }
-        : { _tag: "grant" as const, leaseId: "lease-after-hold" };
+        : { _tag: "grant" as const, leaseId: testLeaseId("lease-after-hold") };
     }),
   );
   return () => calls;
@@ -265,7 +266,7 @@ function installDelayedGrantAdmission(
     Effect.gen(function* () {
       pendingSnapshots.push(request.pending);
       yield* waitForResumeSlot(grant);
-      return { _tag: "grant" as const, leaseId: "lease-next" };
+      return { _tag: "grant" as const, leaseId: testLeaseId("lease-next") };
     }),
   );
 }
@@ -306,7 +307,7 @@ function asksOptionalDispatchAdmissionBeforeDeliveringInboundWork() {
           messageId: request.message.id,
           attempt: request.attempt,
         });
-        return { _tag: "grant" as const, leaseId: "lease-1" };
+        return { _tag: "grant" as const, leaseId: testLeaseId("lease-1") };
       }),
     );
 
@@ -378,19 +379,25 @@ function attachesTheActiveDispatchLeaseToRepliesMadeDuringHandlerExecution() {
     fake.state.setConversation("conv-1", { type: "dm", participants: [] });
     fake.state.setAgentName("agent-alice", "Alice");
     installAdmission(fake, () =>
-      Effect.succeed({ _tag: "grant" as const, leaseId: "lease-active" }),
+      Effect.succeed({
+        _tag: "grant" as const,
+        leaseId: testLeaseId("lease-active"),
+      }),
     );
     const core = new MoltZapChannelCore({ service: fake.service });
-    core.onInbound((msg) => core.sendReply(msg.conversationId, "reply"));
+    core.onInbound((msg) =>
+      core.sendReply(msg.taskId, msg.conversationId, "reply"),
+    );
 
     fake.emit.message(buildMessage({ id: "msg-with-lease" }));
     yield* flushDispatchChainEffect;
 
     expect(fake.state.sent).toEqual([
       {
+        taskId: expect.any(String),
         convId: conversation("conv-1"),
         text: "reply",
-        dispatchLeaseId: "lease-active",
+        dispatchLeaseId: testLeaseId("lease-active"),
       },
     ]);
   });
@@ -407,7 +414,10 @@ function passesTheActiveDispatchLeaseToTheInboundHandlerForAsyncRuntimes() {
     fake.state.setConversation("conv-1", { type: "dm", participants: [] });
     fake.state.setAgentName("agent-alice", "Alice");
     installAdmission(fake, () =>
-      Effect.succeed({ _tag: "grant" as const, leaseId: "lease-visible" }),
+      Effect.succeed({
+        _tag: "grant" as const,
+        leaseId: testLeaseId("lease-visible"),
+      }),
     );
     const core = new MoltZapChannelCore({ service: fake.service });
     const leases: Array<string | undefined> = [];
@@ -420,7 +430,7 @@ function passesTheActiveDispatchLeaseToTheInboundHandlerForAsyncRuntimes() {
     fake.emit.message(buildMessage({ id: "msg-with-visible-lease" }));
     yield* flushDispatchChainEffect;
 
-    expect(leases).toEqual(["lease-visible"]);
+    expect(leases).toEqual([testLeaseId("lease-visible")]);
   });
 }
 
@@ -721,7 +731,7 @@ it("continues draining inbound work after a dispatch lease expires", () =>
       installAdmission(fake, (request) =>
         Effect.succeed({
           _tag: "grant" as const,
-          leaseId: `lease-${request.message.id}`,
+          leaseId: testLeaseId(`lease-${request.message.id}`),
           leaseTimeoutMs:
             request.message.id === message("msg-stuck")
               ? 1

@@ -61,8 +61,8 @@ import {
   DispatchesExpired,
   DispatchesGet,
   type DispatchId,
-  type LeaseId,
 } from "../../../app/index.js";
+import type { LeaseId } from "../../../task/index.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
@@ -160,6 +160,7 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
+    readonly taskId: Static<typeof TaskId>;
     readonly conversationId: Static<typeof ConversationId>;
     readonly leaseId: Static<typeof LeaseId>;
     readonly text: string;
@@ -640,6 +641,7 @@ function sendWithLease(
   return Effect.gen(function* () {
     const exit = yield* Effect.exit(
       acquired.client.sendRpc(MessagesSend, {
+        taskId: params.taskId,
         conversationId: params.conversationId,
         parts: [{ type: "text", text: params.text }],
         dispatchLeaseId: params.leaseId,

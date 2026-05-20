@@ -14,7 +14,7 @@
  * backing in the current protocol; ESCALATED to spec rev 4. The flag is
  * deliberately absent from this interface until resolved.
  */
-import { Command, Options } from "@effect/cli";
+import { Command, HelpDoc, Options } from "@effect/cli";
 import { Data, Effect, Option } from "effect";
 import {
   rpc,
@@ -24,7 +24,18 @@ import {
 } from "../transport.js";
 
 import { MessagesList } from "@moltzap/protocol";
-import type { ConversationId } from "@moltzap/protocol/task";
+import {
+  BrandedIdDecodeError,
+  brandConversationId,
+  brandTaskId,
+  type ConversationId,
+  type TaskId,
+} from "@moltzap/protocol/task";
+
+const brandDecodeError = (label: string) => (err: unknown) =>
+  err instanceof BrandedIdDecodeError
+    ? HelpDoc.p(`invalid ${label}: ${err.input}`)
+    : HelpDoc.p(`invalid ${label}: ${String(err)}`);
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -43,7 +54,8 @@ class MessagesInputError extends Data.TaggedError("MessagesInputError")<{
  * question is resolved.
  */
 export interface MessagesListArgs {
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
   readonly limit?: number;
 }
 
@@ -64,9 +76,10 @@ export const messagesListHandler = (
   Effect.gen(function* () {
     const params =
       args.limit === undefined
-        ? { conversationId: args.conversationId as ConversationId }
+        ? { taskId: args.taskId, conversationId: args.conversationId }
         : {
-            conversationId: args.conversationId as ConversationId,
+            taskId: args.taskId,
+            conversationId: args.conversationId,
             limit: args.limit,
           };
     const result = yield* rpc(MessagesList, params);
@@ -87,16 +100,22 @@ export const messagesListHandler = (
 
 // ─── CLI commands ──────────────────────────────────────────────────────────
 
+const taskOption = Options.text("task").pipe(
+  Options.withDescription("Task id"),
+  Options.mapTryCatch(brandTaskId, brandDecodeError("--task")),
+);
 const conversationOption = Options.text("conversation").pipe(
   Options.withDescription("Conversation id"),
+  Options.mapTryCatch(brandConversationId, brandDecodeError("--conversation")),
 );
 const msgLimitOption = Options.integer("limit").pipe(Options.optional);
 
 const messagesListCommand = Command.make(
   "list",
-  { conversation: conversationOption, limit: msgLimitOption },
-  ({ conversation, limit }) => {
+  { task: taskOption, conversation: conversationOption, limit: msgLimitOption },
+  ({ task, conversation, limit }) => {
     const args: MessagesListArgs = {
+      taskId: task,
       conversationId: conversation,
       ...(Option.isSome(limit) ? { limit: limit.value } : {}),
     };
@@ -107,7 +126,9 @@ const messagesListCommand = Command.make(
 /** `moltzap messages [list]` subcommand group. */
 export const messagesCommand = Command.make("messages", {}, () =>
   Effect.sync(() => {
-    console.log("Usage: moltzap messages list --conversation <id> [--limit N]");
+    console.log(
+      "Usage: moltzap messages list --task <id> --conversation <id> [--limit N]",
+    );
   }),
 ).pipe(
   Command.withDescription(

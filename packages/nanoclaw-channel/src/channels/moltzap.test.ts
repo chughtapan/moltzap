@@ -9,7 +9,9 @@ import {
   flushDispatchChain,
   testAgentId,
   testConversationId,
+  testLeaseId,
   testMessageId,
+  testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 
@@ -215,9 +217,10 @@ function setGroupConversation(harness: Harness): void {
 
 function configureDispatchGrant(
   harness: Harness,
-  leaseId: string,
+  leaseIdLabel: string,
   dispatchId: string,
 ): void {
+  const leaseId = testLeaseId(leaseIdLabel);
   harness.fake.service.requestDispatch = (_params) =>
     Effect.sync(() => {
       queueMicrotask(() => {
@@ -282,30 +285,44 @@ function rejectsOtherChannelJids() {
 
 function stripsPrefixAndForwardsSend() {
   const harness = createHarness();
+  const taskId = testTaskId("strips-prefix");
   return Effect.gen(function* () {
+    setDmConversation(harness, CONV_42);
+    harness.fake.emit.message(
+      buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
+      taskId,
+    );
+    yield* flushDispatch();
     yield* sendMessage(harness.channel, asJid(CONV_42), HELLO_THERE);
     expect(harness.fake.state.sent).toEqual([
-      { convId: testConversationId(CONV_42), text: HELLO_THERE },
+      {
+        taskId,
+        convId: testConversationId(CONV_42),
+        text: HELLO_THERE,
+      },
     ]);
   });
 }
 
 function usesDispatchLeaseForNextReply() {
   const harness = createHarness();
+  const taskId = testTaskId("uses-dispatch-lease");
   return Effect.gen(function* () {
     setDmConversation(harness, CONV_42);
     configureDispatchGrant(harness, DISPATCH_LEASE, DISPATCH_ID);
     harness.fake.emit.message(
       buildMessage({ id: MSG_LEASE, conversationId: CONV_42 }),
+      taskId,
     );
     yield* flushDispatch();
     yield* sendMessage(harness.channel, asJid(CONV_42), HELLO_WITH_LEASE);
 
     expect(harness.fake.state.sent).toEqual([
       {
+        taskId,
         convId: testConversationId(CONV_42),
         text: HELLO_WITH_LEASE,
-        dispatchLeaseId: DISPATCH_LEASE,
+        dispatchLeaseId: testLeaseId(DISPATCH_LEASE),
       },
     ]);
   });
@@ -325,7 +342,7 @@ function rejectsSecondSendForSameDispatch() {
   return Effect.gen(function* () {
     setDmConversation(harness, CONV_43);
     configureDispatchGrant(harness, DISPATCH_LEASE_2, DISPATCH_ID_2);
-    harness.fake.service.send = (_convId, _text, opts) =>
+    harness.fake.service.send = (_taskId, _convId, _text, opts) =>
       Effect.suspend(() => {
         sendCount += 1;
         if (sendCount <= 1) return Effect.void;

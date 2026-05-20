@@ -65,6 +65,7 @@ import {
   agentId,
   conversationId,
   messageId,
+  taskId,
   JSON_RPC_VERSION,
   validateRequestFrame,
   validateResponseFrame,
@@ -147,6 +148,7 @@ const DOMAIN_REJECTED_REASON = "test";
 const TEST_CONVERSATION_ID = conversationId(
   "33333333-3333-4333-8333-333333333333",
 );
+const TEST_TASK_ID = taskId("44444444-4444-4444-8444-444444444444");
 const TEST_POLICY = {
   maxMessageBytes: 1_000_000,
   maxPartsPerMessage: 10,
@@ -173,6 +175,7 @@ const TEST_MESSAGE = {
 };
 const messageReceivedFrame = () =>
   MessageReceivedNotificationDefinition.encode({
+    taskId: TEST_TASK_ID,
     message: TEST_MESSAGE,
   });
 
@@ -817,5 +820,6 @@ export {
   DOMAIN_REJECTED_MESSAGE,
   DOMAIN_REJECTED_REASON,
   TEST_CONVERSATION_ID,
+  TEST_TASK_ID,
 };
 export type { CloseInfo, MutableRef, RequestFrame };
