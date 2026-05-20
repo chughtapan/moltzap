@@ -470,6 +470,43 @@ function fanoutArchiveDualEmit(input: ArchiveDualEmitInput) {
   }).pipe(Effect.withSpan("task.conversation.archive.fanout"));
 }
 
+interface UnarchiveDualEmitInput {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly by: AgentId;
+}
+
+function fanoutUnarchiveDualEmit(input: UnarchiveDualEmitInput) {
+  return Effect.gen(function* () {
+    const conversationService = yield* ConversationServiceTag;
+    const recipientAgentIds = yield* conversationService
+      .getParticipantAgentIds(input.conversationId)
+      .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
+    // Dual-emit: legacy `conversations/unarchived` AND new
+    // `task/conversation/unarchived`. D3 deletes the legacy line.
+    // Mirror of `fanoutArchiveDualEmit`; the unarchive payload has no
+    // `archivedAt` (the row's `archivedAt` is being cleared, not set).
+    yield* broadcastNotificationToAgents(
+      recipientAgentIds,
+      ConversationUnarchivedNotificationDefinition,
+      {
+        conversationId: input.conversationId,
+        by: input.by,
+      },
+      { forConversation: input.conversationId },
+    );
+    yield* broadcastNotificationToAgents(
+      recipientAgentIds,
+      TaskConversationUnarchivedNotificationDefinition,
+      {
+        taskId: input.taskId,
+        conversationId: input.conversationId,
+      },
+      { forConversation: input.conversationId },
+    );
+  }).pipe(Effect.withSpan("task.conversation.unarchive.fanout"));
+}
+
 export const taskHandlers: RpcMethodRegistry = [
   defineTaskMethod(TasksCreate, {
     handler: (params, ctx) =>
@@ -773,29 +810,11 @@ export const taskHandlers: RpcMethodRegistry = [
           params.taskId,
           params.conversationId,
         );
-        const conversationService = yield* ConversationServiceTag;
-        const recipientAgentIds = yield* conversationService
-          .getParticipantAgentIds(params.conversationId)
-          .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-        // Dual-emit.
-        yield* broadcastNotificationToAgents(
-          recipientAgentIds,
-          ConversationUnarchivedNotificationDefinition,
-          {
-            conversationId: params.conversationId,
-            by: ctx.agentId,
-          },
-          { forConversation: params.conversationId },
-        );
-        yield* broadcastNotificationToAgents(
-          recipientAgentIds,
-          TaskConversationUnarchivedNotificationDefinition,
-          {
-            taskId: params.taskId,
-            conversationId: params.conversationId,
-          },
-          { forConversation: params.conversationId },
-        );
+        yield* fanoutUnarchiveDualEmit({
+          taskId: params.taskId,
+          conversationId: params.conversationId,
+          by: ctx.agentId,
+        });
         return {};
       }).pipe(Effect.withSpan("task.conversation.unarchive")),
   }),
@@ -804,17 +823,11 @@ export const taskHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
-        // Authority FIRST per per-flow doc §"Capability list per new
-        // handler" — a non-TM caller MUST get `ForbiddenError` before
-        // the participant-admitted invariant gives them a probe
-        // signal for task membership. The descriptor declares
-        // `[TmAuthority, ConversationInTask]`, but the dispatcher
-        // provisions tags via lazy `provideServiceEffect`. The
-        // explicit `yield* TmAuthority` forces the obtain helper to
-        // execute up-front so it lands before
-        // `requireAgentsAreInTaskParticipants` rather than only when
-        // `addTaskConversationParticipant`'s service body yields the
-        // tag.
+        // Auth-first invariant — same rationale as
+        // `taskConversationCreateBody` (the explicit yield forces the
+        // dispatcher's lazy `provideServiceEffect` to run the obtain
+        // helper before `requireAgentsAreInTaskParticipants` can leak
+        // task-state to a non-TM caller).
         yield* TmAuthority;
         const taskService = yield* TaskServiceTag;
         // Spec D1 participant-admitted invariant — runs AFTER TM auth.
