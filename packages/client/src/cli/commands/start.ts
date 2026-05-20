@@ -4,77 +4,59 @@
  * Spec D2 (#599) — single-command CLI composition over Spec D1's atomic
  * `TaskCreate({ appId, invitedAgentIds, initialConversation })` plus an
  * optional `MessagesSend`. Today's two-step workflow
- * (`conversations create` → `send conv:&lt;id> &lt;text>`) collapses into one
- * subcommand for the common case.
- *
- * Architect stub (sub-issue #643). The `Command.make` registration is
- * already wired in `cli/index.ts` AT THIS COMMIT. The function body of
- * `startCommandHandler` (and the exit-code dispatcher `runStartCommand`)
- * are intentionally fail-fast `Effect.fail` stubs; impl-staff replaces
- * those two bodies per the plan in
- * `packages/client/docs/architecture/09-moltzap-start-cli.md` and adds
- * the test file `start.test.ts`. No other files change in impl-staff.
+ * (`conversations create` -> `send conv:&lt;id> &lt;text>`) collapses into
+ * one subcommand for the common case.
  *
  * See also:
- *   - Spec D1 architect plan (#635) for `TaskCreate` / `DEFAULT_APP_ID` /
- *     `AppId` / `ParticipantNotAdmittedError` definitions on branch
- *     `architect/598-task-conversation`.
+ *   - `packages/protocol/src/task/tasks.ts -> TaskCreate` / `DEFAULT_APP_ID` /
+ *     `AppId` — D1 (#598) wire surface this command composes.
  *   - `packages/client/docs/architecture/09-moltzap-start-cli.md` for the
  *     command flow diagram, exit-code contract, and test alignment.
- *   - `packages/client/src/cli/commands/conversations.ts → createConversation`
- *     for the legacy two-step DM/Group create path D2 replaces.
- *   - `packages/client/src/cli/socket-client.ts → resolveParticipant` —
+ *   - `packages/client/src/cli/commands/conversations.ts -> createConversation`
+ *     for the legacy two-step DM/Group create path D2 replaces. Untouched
+ *     in D2; D3 (#600) deletes it.
+ *   - `packages/client/src/cli/socket-client.ts -> resolveParticipant` —
  *     NOT reused by D2 because that helper goes via the daemon
- *     socket (`socket-client.ts → request`), bypassing the CLI
+ *     socket (`socket-client.ts -> request`), bypassing the CLI
  *     `Transport` service that `start.ts` uses for `TaskCreate` /
  *     `MessagesSend`. Mixing the two would make `--as`-mode name lookups
  *     hit the daemon (potentially absent) and would not be testable
- *     via `makeFakeTransport`. D2 introduces a `resolveAgentToken`
- *     local helper that goes through `transport.ts → rpc` instead
+ *     via `makeFakeTransport`. D2 introduces a local `resolveAgentToken`
+ *     helper that goes through `transport.ts -> rpc` instead
  *     (see per-flow doc §6 + §"Why we don't reuse `resolveParticipant`").
  */
 import { Args, Command, Options } from "@effect/cli";
-import { Data, Effect, Option } from "effect";
-import type { Transport, TransportError } from "../transport.js";
+import { Data, Effect, Either, Option } from "effect";
+import {
+  AgentsLookupByName,
+  DEFAULT_APP_ID,
+  MessagesSend,
+  TaskCreate,
+  type AgentId,
+  type AppId,
+  type Conversation,
+  type Task,
+} from "@moltzap/protocol";
+import type { ConversationId } from "@moltzap/protocol/task";
+import {
+  rpc,
+  TransportDecodeError,
+  type Transport,
+  type TransportError,
+} from "../transport.js";
 
 // ─── Exit-code contract (spec D2 Goal 5 + Goal 7) ─────────────────────────
 
 /**
- * Exit-code table for the `moltzap start` command. Impl-staff re-
- * exports individual constants only as tests need them (knip flags
- * unused exports). At stub time these are documented here and used in
- * the help-text composition below.
+ * Exit-code table for the `moltzap start` command. Values are documented
+ * in `Command.withDescription` help text below; the handler branches on
+ * these via `runStartCommand` and inline `process.exit` in the
+ * partial-success path.
  */
 const EXIT_CODES = {
-  /**
-   * Full success: `TaskCreate` resolved AND, if `--message` was
-   * supplied, `MessagesSend` resolved too. Stdout printed both lines.
-   */
   SUCCESS: 0,
-
-  /**
-   * `TaskCreate` failed (transport or server-rejected). Stdout printed
-   * nothing; stderr has the error. `--message` was never attempted.
-   */
   TASK_CREATE_FAILED: 1,
-
-  /**
-   * Partial success: `TaskCreate` succeeded but the follow-up
-   * `MessagesSend` failed. Stdout printed `Task started: ...` (the
-   * task + conversation exist); stderr has `Error sending message:
-   * ...`. The empty conversation is intentionally left in place
-   * (Non-goal 3 — no rollback). User retries via
-   * `moltzap send conv:&lt;id> &lt;text>`.
-   */
   PARTIAL_SUCCESS: 2,
-
-  /**
-   * Client-side usage error: invalid `--app-id` UUID syntax OR an
-   * unresolvable `agent:&lt;token>` participant. NO mutating RPCs were
-   * made (Goal 7; note `AgentsLookupByName` is read-only — see
-   * `UnresolvedParticipantError` docstring). Matches POSIX `EX_USAGE`
-   * (sysexits.h).
-   */
   USAGE_ERROR: 64,
 } as const;
 
@@ -82,11 +64,10 @@ const EXIT_CODES = {
 
 /**
  * `--app-id &lt;value>` failed syntactic UUID v4 validation before any RPC.
- * Maps to `EXIT_CODES.USAGE_ERROR`; stderr prints `Invalid --app-id:
- * not a UUID`.
- *
- * Internal at stub time; impl-staff re-exports if tests need the class
- * for `expect().toBeInstanceOf(...)`-style assertions.
+ * Maps to `EXIT_CODES.USAGE_ERROR`; stderr prints
+ * `Invalid --app-id: not a UUID`. Local to this module — tests assert
+ * by exit code + stderr text rather than `expect().toBeInstanceOf(...)`,
+ * so the class stays unexported per the architect plan.
  */
 class InvalidAppIdError extends Data.TaggedError("InvalidAppIdError")<{
   readonly value: string;
@@ -95,14 +76,13 @@ class InvalidAppIdError extends Data.TaggedError("InvalidAppIdError")<{
 /**
  * An `agent:&lt;name>` or `agent:&lt;uuid>` participant token could not be
  * resolved (name not in the agent roster, or token mis-shaped). Maps
- * to `EXIT_CODES.USAGE_ERROR`; stderr names the unresolved token. The
- * resolver does call `AgentsLookupByName` (a server RPC) — which is
- * read-only and does not mutate server state, so the partial-failure
- * invariant is unaffected. The spec D2 AC clause "NO RPC calls" reads
- * as "NO mutating (TaskCreate/MessagesSend) calls" in this plan; see
- * §15 process-issues + per-flow doc §8.
+ * to `EXIT_CODES.USAGE_ERROR`; stderr names the unresolved token.
  *
- * Internal at stub time; impl-staff re-exports if tests need the class.
+ * Resolver calls `AgentsLookupByName` (a server RPC) for name-shaped
+ * tokens. That RPC is read-only and does not mutate server state, so
+ * the partial-failure invariant is unaffected. The spec D2 AC clause
+ * "NO RPC calls" reads as "NO mutating (TaskCreate / MessagesSend)
+ * calls" in this plan; see per-flow doc §8 + plan §R5.
  */
 class UnresolvedParticipantError extends Data.TaggedError(
   "UnresolvedParticipantError",
@@ -118,185 +98,269 @@ class UnresolvedParticipantError extends Data.TaggedError(
  * `Args.repeated` admits zero participants — caller-only tasks are
  * permitted at the wire (Spec D1 per-flow doc 12) but not exercised by
  * spec D2 ACs (which cover `length === 1` DM and `length >= 2` group
- * shapes). Impl-staff handler must NOT reject empty `participants`.
+ * shapes). Handler MUST NOT reject empty `participants`.
  */
 export interface StartCommandArgs {
-  /** Conversation name (positional `&lt;name>`). */
   readonly name: string;
-
-  /**
-   * Raw participant tokens (positional `&lt;participant>...`), each
-   * `agent:&lt;name>` or `agent:&lt;uuid>`. Resolution is per-token via
-   * `resolveAgentToken` (local helper below) which routes through
-   * `transport.ts → rpc(AgentsLookupByName, ...)` for name-shaped
-   * tokens and short-circuits UUID-shaped tokens client-side.
-   * Failures map to `UnresolvedParticipantError` and exit 64 BEFORE
-   * `TaskCreate`. See per-flow doc 09 §"Why we don't reuse
-   * `resolveParticipant`" for the transport divergence reasoning.
-   */
   readonly participants: readonly string[];
-
-  /**
-   * `--message &lt;text>`. When undefined, only `TaskCreate` runs and the
-   * partial-success path (exit code 2) cannot trigger.
-   */
   readonly message: string | undefined;
-
-  /**
-   * `--app-id &lt;uuid>`. When undefined, the handler substitutes
-   * `DEFAULT_APP_ID` from `@moltzap/protocol` (D1 surface). When set,
-   * client validates UUID v4 syntax before any RPC; syntactic failure
-   * maps to `InvalidAppIdError` and exit 64.
-   */
   readonly appId: string | undefined;
 }
 
 /**
  * Exhaustive error union for the start-command handler. The wrapping
- * `Command.make` adapter converts each tag to an exit code via the
- * table documented at the top of this file:
+ * `runStartCommand` adapter converts each tag to an exit code:
  *
- *   `InvalidAppIdError`           → 64 (usage)
- *   `UnresolvedParticipantError`  → 64 (usage)
- *   `TransportError` from `TaskCreate`   → 1  (rpc)
- *   `TransportError` from `MessagesSend` → 2  (partial)
+ *   `InvalidAppIdError`           -> 64 (usage)
+ *   `UnresolvedParticipantError`  -> 64 (usage)
+ *   any other `TransportError`    -> 1  (rpc; from `TaskCreate`)
  *
- * The handler distinguishes the two `TransportError` cases by which
- * stage they arose in (TaskCreate vs MessagesSend) — see per-flow doc
- * §"Partial-failure dispatcher" for the impl-staff sketch.
+ * The post-`TaskCreate` `MessagesSend` failure path exits 2 via inline
+ * `process.exit` inside the handler body, NOT through `runStartCommand`
+ * (see per-flow doc §"Partial-failure dispatcher").
+ *
+ * `TransportError` here is the union from `transport.ts -> TransportError`
+ * which includes `TransportDecodeError`, `TransportRpcError`,
+ * `ServiceUnreachableError`, `TransportTimeoutError`, and
+ * `TransportConfigError`.
  */
-export type StartCommandError =
+type StartCommandError =
   | TransportError
   | InvalidAppIdError
   | UnresolvedParticipantError;
 
-// ─── Handler signature ────────────────────────────────────────────────────
+// ─── UUID validation ──────────────────────────────────────────────────────
 
 /**
- * `moltzap start &lt;name> &lt;participant>... [--message &lt;text>] [--app-id &lt;uuid>]`
+ * RFC 4122 UUID v4 regex per plan Invariant 7. The `4` in the third
+ * group pins the version; the `[89ab]` in the fourth group pins the
+ * variant. Pre-existing `socket-client.ts -> UUID_RE` accepts any UUID
+ * version, which would let v3/v5/v7 tokens through; spec D2 Goal 7
+ * requires v4-specific rejection at exit 64.
+ */
+const UUID_V4_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const validateAppId = (
+  value: string,
+): Effect.Effect<AppId, InvalidAppIdError> =>
+  UUID_V4_RE.test(value)
+    ? Effect.succeed(value as AppId)
+    : Effect.fail(new InvalidAppIdError({ value }));
+
+// ─── Participant token resolver ───────────────────────────────────────────
+
+const AGENT_TOKEN_PREFIX = "agent:";
+
+/**
+ * Parse `agent:&lt;uuid>` (short-circuits client-side) or `agent:&lt;name>`
+ * (routes through `transport.ts -> rpc(AgentsLookupByName, ...)`).
+ * Returns bare `AgentId` matching `TaskCreate.params.invitedAgentIds:
+ * Array(AgentId)` directly (no `.map(p => p.id)` step needed).
  *
- * Flow (impl-staff fills the body — see per-flow doc 09 §"Implementation
- * sketch"):
+ * Failure modes:
+ *   - Token does not start with `agent:` -> `UnresolvedParticipantError({
+ *     reason: "shape" })`.
+ *   - Token is `agent:&lt;name>` and lookup returns zero agents ->
+ *     `UnresolvedParticipantError({ reason: "not-found" })`.
+ *
+ * Architect plan §R1 explains why this is a local helper rather than
+ * reusing `socket-client.ts -> resolveParticipant` (transport mismatch,
+ * testability, wire-shape match).
+ */
+const resolveAgentToken = (
+  token: string,
+): Effect.Effect<
+  AgentId,
+  UnresolvedParticipantError | TransportError,
+  Transport
+> =>
+  Effect.gen(function* () {
+    if (!token.startsWith(AGENT_TOKEN_PREFIX)) {
+      return yield* Effect.fail(
+        new UnresolvedParticipantError({ token, reason: "shape" }),
+      );
+    }
+    const rest = token.slice(AGENT_TOKEN_PREFIX.length);
+    if (rest.length === 0) {
+      return yield* Effect.fail(
+        new UnresolvedParticipantError({ token, reason: "shape" }),
+      );
+    }
+    if (UUID_V4_RE.test(rest)) {
+      return rest as AgentId;
+    }
+    const result = yield* rpc(AgentsLookupByName, { names: [rest] });
+    const firstAgent = result.agents[0];
+    if (firstAgent === undefined) {
+      return yield* Effect.fail(
+        new UnresolvedParticipantError({ token, reason: "not-found" }),
+      );
+    }
+    return firstAgent.id;
+  });
+
+// ─── Handler stages ───────────────────────────────────────────────────────
+
+const resolveAppId = (
+  raw: string | undefined,
+): Effect.Effect<AppId, InvalidAppIdError> =>
+  raw === undefined ? Effect.succeed(DEFAULT_APP_ID) : validateAppId(raw);
+
+const printTaskStarted = (
+  task: Task,
+  conversation: Conversation,
+): Effect.Effect<void> =>
+  Effect.sync(() => {
+    console.log(`Task started: ${task.id} (conversation: ${conversation.id})`);
+  });
+
+const printMessageSent = (messageId: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    console.log(`Message sent: ${messageId}`);
+  });
+
+const sendFirstMessage = (
+  conversationId: ConversationId,
+  text: string,
+): Effect.Effect<void, never, Transport> =>
+  Effect.either(
+    rpc(MessagesSend, {
+      conversationId,
+      parts: [{ type: "text", text }],
+    }),
+  ).pipe(
+    Effect.flatMap(
+      Either.match({
+        onLeft: (err) =>
+          Effect.sync(() => {
+            console.error(`Error sending message: ${err.message}`);
+            process.exit(EXIT_CODES.PARTIAL_SUCCESS);
+          }),
+        onRight: (ok) => printMessageSent(ok.message.id),
+      }),
+    ),
+  );
+
+const createTaskAtomic = (
+  appId: AppId,
+  invitedAgentIds: readonly AgentId[],
+  name: string,
+): Effect.Effect<
+  { readonly task: Task; readonly conversation: Conversation },
+  TransportError,
+  Transport
+> =>
+  Effect.gen(function* () {
+    const result = yield* rpc(TaskCreate, {
+      appId,
+      invitedAgentIds: [...invitedAgentIds],
+      initialConversation: {
+        name,
+        participants: [...invitedAgentIds],
+      },
+    });
+    // D1 canary _C5: when initialConversation is sent, conversation is
+    // non-null. A null here means a stale D1 build; surface as a typed
+    // decode error -> exit 1.
+    if (result.conversation === null) {
+      return yield* Effect.fail(
+        new TransportDecodeError({
+          method: TaskCreate.name,
+          cause:
+            "TaskCreate returned conversation: null despite initialConversation",
+        }),
+      );
+    }
+    return { task: result.task, conversation: result.conversation };
+  });
+
+// ─── Handler body ─────────────────────────────────────────────────────────
+
+/**
+ * `moltzap start` handler. Four stages (see per-flow doc 09 §6):
  *
  *   1. Validate `args.appId` UUID v4 if set; else use `DEFAULT_APP_ID`.
- *      Failure → `InvalidAppIdError`; `runStartCommand` maps to exit 64,
- *      no RPCs.
- *   2. Resolve every `args.participants[i]` via the local
- *      `resolveAgentToken(token)` helper below (which goes through
- *      `transport.ts → rpc(AgentsLookupByName, ...)` so `--as` direct-WS
- *      mode works and tests can mock via `makeFakeTransport`). Any token
- *      failing resolution → `UnresolvedParticipantError` → exit 64.
- *   3. Call `rpc(TaskCreate, { appId, invitedAgentIds, initialConversation:
- *      { name: args.name, participants: invitedAgentIds } })`. Failure →
- *      `TransportError` → exit 1 (handler `Effect.fail`s; `runStartCommand`
- *      catches and dispatches), no stdout. On success, read
- *      `{ task, conversation }` directly from the response object (NO
- *      follow-up fetch) and print `Task started: ${task.id} (conversation:
- *      ${conversation.id})` to stdout. `conversation` is non-null here
- *      because `initialConversation` was supplied (D1 plan §R8 / canary _C5).
- *   4. If `args.message` is set, call `rpc(MessagesSend, { conversationId:
- *      conversation.id, parts: [{ type: "text", text: args.message }] })`.
- *      Success → print `Message sent: ${message.id}`, exit 0. Failure →
- *      use `Effect.either` to catch in-band, print
- *      `Error sending message: ${err.message}` to stderr, then exit 2
- *      via inline `process.exit` (the partial-success branch needs to
- *      preserve the already-printed stdout line and cannot just `Effect.fail`).
- *      NO rollback.
- *
- * NB: D1 plan §R8 / Canary _C5 locks the wire result shape as `conversation:
- * Conversation | null`. The impl-staff handler asserts non-null when
- * `initialConversation` was sent — at runtime the field is always present
- * because D2 always sends `initialConversation`. The assertion narrows
- * TypeScript's union; a stale D1 build that returns `null` despite
- * `initialConversation` is treated as a `TransportDecodeError` (exit 1).
- *
- * NB-2: `StartCommandError`'s `TransportError` arm is the union from
- * `transport.ts → TransportError` which includes `TransportDecodeError` +
- * `TransportRpcError` + `ServiceUnreachableError` + `TransportTimeoutError`
- * + `TransportConfigError`. The exit-code dispatcher `runStartCommand`
- * collapses all of them to exit 1 unless they arose from the post-
- * `TaskCreate` `MessagesSend` (which exits 2 via inline `process.exit`
- * inside the handler body itself).
+ *      Failure -> `InvalidAppIdError` -> exit 64 via `runStartCommand`.
+ *   2. Resolve `args.participants` via `resolveAgentToken` (per-token,
+ *      sequential via `Effect.all`). Any token failure ->
+ *      `UnresolvedParticipantError` -> exit 64.
+ *   3. `rpc(TaskCreate, { appId, invitedAgentIds, initialConversation:
+ *      { name, participants: invitedAgentIds } })`. Failure ->
+ *      `TransportError` -> exit 1 via `runStartCommand`, no stdout. On
+ *      success print `Task started: &lt;taskId> (conversation: &lt;convId>)`.
+ *   4. If `args.message` is set, call `rpc(MessagesSend, { conversationId,
+ *      parts: [{ type: "text", text }] })` wrapped in `Effect.either`.
+ *      Success -> print `Message sent: &lt;msgId>`, exit 0. Failure -> print
+ *      `Error sending message: &lt;err>` to stderr, exit 2 via inline
+ *      `process.exit` (preserves the already-printed stdout line; cannot
+ *      route through `runStartCommand`).
  */
 const startCommandHandler = (
   args: StartCommandArgs,
 ): Effect.Effect<void, StartCommandError, Transport> =>
-  // Architect stub: chain through `resolveAgentToken` so both symbols
-  // are referenced and the unused-declaration check stays clean.
-  // Impl-staff replaces this entire body with the four-step flow
-  // documented in the JSDoc above (and in per-flow doc 09 §6).
-  resolveAgentToken(args.participants[0] ?? "stub").pipe(
-    Effect.flatMap(() =>
-      Effect.fail(
-        new InvalidAppIdError({
-          value: "architect stub — body lands in impl-staff PR (spec D2 #599)",
-        }),
-      ),
-    ),
-  );
+  Effect.gen(function* () {
+    const appId = yield* resolveAppId(args.appId);
+    const invitedAgentIds = yield* Effect.all(
+      args.participants.map(resolveAgentToken),
+    );
+    const { task, conversation } = yield* createTaskAtomic(
+      appId,
+      invitedAgentIds,
+      args.name,
+    );
+    yield* printTaskStarted(task, conversation);
+    if (args.message !== undefined) {
+      yield* sendFirstMessage(conversation.id as ConversationId, args.message);
+    }
+  }).pipe(Effect.withSpan("startCommandHandler"));
+
+// ─── Exit-code dispatcher ─────────────────────────────────────────────────
 
 /**
- * Local participant-token resolver: parses `agent:&lt;uuid>` /
- * `agent:&lt;name>` tokens. UUID-shaped tokens skip the server lookup;
- * name-shaped tokens go through `transport.ts → rpc(AgentsLookupByName, ...)`
- * — NOT `socket-client.ts → request(AgentsLookupByName, ...)`. This is
- * the deliberate divergence from `socket-client.ts → resolveParticipant`:
+ * Outer adapter that replaces the shared `transport.ts -> runHandler`
+ * (which collapses every error to exit 1) with a `_tag`-aware mapping
+ * per the spec D2 exit-code contract:
  *
- *   - In `--as`-mode (direct WS), the daemon socket may not even be
- *     reachable; routing name lookups through the daemon-only
- *     `socket-client.ts → request` would break that flow.
- *   - Tests using `commands/test-transport.ts → makeFakeTransport`
- *     intercept `Transport` calls, not the daemon socket. A test that
- *     mocks `AgentsLookupByName` via `makeFakeTransport` would fail
- *     to intercept the existing `resolveParticipant` lookup.
+ *   `InvalidAppIdError`           -> 64 + stderr `Invalid --app-id: not a UUID`
+ *   `UnresolvedParticipantError`  -> 64 + stderr `Cannot resolve "&lt;token>": &lt;reason>`
+ *   any other `StartCommandError` -> 1  + stderr `Failed: &lt;err.message>`
  *
- * Impl-staff fills the body with: parse `agent:&lt;rest>`; if `rest`
- * matches UUID v4, return as `AgentId`; else `rpc(AgentsLookupByName,
- * { names: [rest] })` and return the first hit, or
- * `UnresolvedParticipantError({ token, reason: "not-found" })` on empty
- * result. Token shape errors (no `agent:` prefix, etc.) map to
- * `UnresolvedParticipantError({ token, reason: "shape" })`.
- *
- * Stub body: fail-fast.
- */
-const resolveAgentToken = (
-  _token: string,
-): Effect.Effect<
-  unknown, // AgentId at impl-staff time; opaque here to avoid an unused-import
-  UnresolvedParticipantError,
-  Transport
-> =>
-  Effect.fail(
-    new UnresolvedParticipantError({
-      token: "architect stub — body lands in impl-staff PR",
-      reason: "shape",
-    }),
-  );
-
-/**
- * Exit-code dispatcher for `moltzap start`. Replaces the generic
- * `transport.ts → runHandler` (which collapses every error to exit 1)
- * with a `_tag`-aware mapper:
- *
- *   `InvalidAppIdError`           → 64 (usage)  + stderr `Invalid --app-id: not a UUID`
- *   `UnresolvedParticipantError`  → 64 (usage)  + stderr `Cannot resolve "&lt;token>": &lt;reason>`
- *   any other `StartCommandError` → 1  (rpc)    + stderr `Failed: &lt;err.message>`
- *
- * The exit-2 partial-success path is NOT dispatched here — that branch
- * runs inline inside the handler body (after `Task started:` has been
- * printed to stdout, the partial-failure stage cannot be re-thrown
- * because doing so would discard the stdout line; the handler instead
- * calls `process.exit(EXIT_CODES.PARTIAL_SUCCESS)` directly from inside
- * `Effect.sync` after `console.error`).
- *
- * Stub body: pass-through that runs the handler unchanged. Impl-staff
- * fills the `_tag`-aware `Effect.catchAll` block.
+ * The exit-2 partial-success branch runs inline inside
+ * `startCommandHandler` (after `Task started:` has been printed to
+ * stdout) and never reaches this adapter — re-throwing the post-
+ * `TaskCreate` error here would discard the already-printed stdout
+ * line.
  */
 const runStartCommand = (
   effect: Effect.Effect<void, StartCommandError, Transport>,
-): Effect.Effect<void, StartCommandError, Transport> => effect;
+): Effect.Effect<void, never, Transport> =>
+  effect.pipe(
+    Effect.catchTag("InvalidAppIdError", () =>
+      Effect.sync(() => {
+        console.error("Invalid --app-id: not a UUID");
+        process.exit(EXIT_CODES.USAGE_ERROR);
+      }),
+    ),
+    Effect.catchTag("UnresolvedParticipantError", (err) =>
+      Effect.sync(() => {
+        console.error(`Cannot resolve "${err.token}": ${err.reason}`);
+        process.exit(EXIT_CODES.USAGE_ERROR);
+      }),
+    ),
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        const msg =
+          err.message !== undefined && err.message !== ""
+            ? err.message
+            : err._tag;
+        console.error(`Failed: ${msg}`);
+        process.exit(EXIT_CODES.TASK_CREATE_FAILED);
+      }),
+    ),
+  );
 
-// ─── @effect/cli wiring (architect stub — handler delegates to impl-staff) ─
+// ─── @effect/cli wiring ───────────────────────────────────────────────────
 
 const nameArg = Args.text({ name: "name" }).pipe(
   Args.withDescription("Conversation name"),
@@ -327,15 +391,17 @@ const appIdOption = Options.text("app-id").pipe(
 );
 
 /**
- * `moltzap start &lt;name> &lt;participant>... [--message &lt;text>] [--app-id &lt;uuid>]`
- *
- * Architect stub: the underlying `startCommandHandler` is a body that
- * fails fast; impl-staff lands the real body per
- * `packages/client/docs/architecture/09-moltzap-start-cli.md`. The
- * `Command.make` wrapper here exists so impl-staff inherits a complete
- * CLI shape (positional `&lt;name>`, repeated `&lt;participant>...`,
- * `--message`, `--app-id`) with the exact descriptions that will ship.
+ * Test seam: invoke the handler directly with parsed args, bypassing
+ * `@effect/cli`'s parser. Returns the same `Effect` the `Command.make`
+ * wrapper would produce, including the `runStartCommand` exit-code
+ * dispatcher. Tests `Effect.provideService(Transport, fake)` and assert
+ * `process.exit` was called with the expected code.
  */
+export const runStartHandler = (
+  args: StartCommandArgs,
+): Effect.Effect<void, never, Transport> =>
+  runStartCommand(startCommandHandler(args));
+
 export const startCommand = Command.make(
   "start",
   {
@@ -345,14 +411,12 @@ export const startCommand = Command.make(
     appId: appIdOption,
   },
   ({ name, participants, message, appId }) =>
-    runStartCommand(
-      startCommandHandler({
-        name,
-        participants,
-        message: Option.getOrUndefined(message),
-        appId: Option.getOrUndefined(appId),
-      }),
-    ),
+    runStartHandler({
+      name,
+      participants,
+      message: Option.getOrUndefined(message),
+      appId: Option.getOrUndefined(appId),
+    }),
 ).pipe(
   Command.withDescription(
     "Start a task with named participants and (optionally) send the " +
