@@ -8,7 +8,7 @@
  * the defaults to synthesize when it does not.
  *
  * Pure module: no I/O, no Refs, no fibers. Called exactly once per socket
- * lifetime from `MoltZapWsClient`'s reader-fiber `Effect.onExit` hook
+ * lifetime from `MoltZapAgentClient`'s reader-fiber `Effect.onExit` hook
  * (`ws-client.ts:386-411` today — post-impl the extraction happens at that
  * same point before calling `onDisconnect(close)`).
  *
@@ -20,7 +20,7 @@ import { Cause, Data, Exit } from "effect";
 import * as Socket from "@effect/platform/Socket";
 
 /**
- * WebSocket close metadata surfaced to `MoltZapWsClientOptions.onDisconnect`
+ * WebSocket close metadata surfaced to `AgentClientOptions.onDisconnect`
  * (required arg post-migration — see design doc §Deletions, OQ-6) and to
  * the conformance-adapter's `RealClientCloseEvent`. Mirrors the WHATWG
  * WebSocket `CloseEvent` fields restricted to `{code, reason}` — `wasClean`

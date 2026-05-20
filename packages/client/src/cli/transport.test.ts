@@ -56,7 +56,7 @@ const DIRECT_TEST_SERVER_URL = "wss://test.example";
 function makeMockWsClient() {
   return {
     connect: () => Effect.void,
-    sendRpc: () =>
+    sendRpcAny: () =>
       Effect.fail(
         new RpcServerError({
           code: SESSION_NOT_FOUND_CODE,
@@ -68,13 +68,13 @@ function makeMockWsClient() {
 }
 
 /**
- * Module-level mock so transport.ts's `new MoltZapWsClient(...)` call is
+ * Module-level mock so transport.ts's `new MoltZapAgentClient(...)` call is
  * intercepted for the composed-rpc test below. Existing tests (decideTransport,
  * tagWsError, resolveTransportInputs) do not exercise the ws-client path, so
  * the mock is a no-op for them.
  */
-vi.mock("../ws-client.js", () => ({
-  MoltZapWsClient: vi.fn().mockImplementation(makeMockWsClient),
+vi.mock("../agent-client.js", () => ({
+  MoltZapAgentClient: vi.fn().mockImplementation(makeMockWsClient),
 }));
 
 const makeOpts = (over: Partial<TransportOptions> = {}): TransportOptions => ({
@@ -419,7 +419,7 @@ describe("resolveTransportInputs (composition-boundary gate)", () => {
  * regression to `Effect.runPromise(sendRpc)` inside `Effect.tryPromise`
  * is caught here, not just in the isolated `tagWsError` suite above.
  *
- * The ws-client mock (module-level `vi.mock("../ws-client.js")`) makes
+ * The ws-client mock (module-level `vi.mock("../agent-client.js")`) makes
  * `sendRpc` return `Effect.fail(new RpcServerError(...))` so the test
  * exercises: connect (success) → sendRpc (RpcServerError) → tagWsError
  * → TransportRpcError. A runPromise bridge would wrap RpcServerError in

@@ -5,7 +5,7 @@
  *
  * Exercises the full live-broadcast stack:
  *   - in-process `@effect/platform` WS server
- *   - `MoltZapService` connected through `MoltZapWsClient` (no fake)
+ *   - `MoltZapService` connected through `MoltZapAgentClient` (no fake)
  *   - the service-level `on("message", ...)` handler is the
  *     observation surface, downstream of the per-conversation
  *     `seenMessageIds` window
@@ -34,7 +34,7 @@ import {
 } from "@moltzap/protocol/testing";
 import { MoltZapService } from "../../../service.js";
 import type { Message } from "@moltzap/protocol";
-import { realSleep, waitFor } from "../../../ws-client-test-support.js";
+import { realSleep, waitFor } from "../../../tm-client-test-support.js";
 
 const it = effectIt.scoped;
 const LOCALHOST_HOST = "127.0.0.1";

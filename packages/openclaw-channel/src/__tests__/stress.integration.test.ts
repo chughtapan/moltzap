@@ -6,7 +6,7 @@
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
@@ -27,9 +27,9 @@ interface StressAgent {
 }
 
 interface StressClients {
-  readonly clientA: MoltZapWsClient;
-  readonly clientB: MoltZapWsClient;
-  readonly clientC: MoltZapWsClient;
+  readonly clientA: MoltZapAgentClient;
+  readonly clientB: MoltZapAgentClient;
+  readonly clientC: MoltZapAgentClient;
 }
 
 interface StressConversationIds {
@@ -144,7 +144,7 @@ function stressClients(
 }
 
 function stressClient(agentKey: string) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
   });
@@ -175,7 +175,10 @@ function createStressConversations(
   ).pipe(Effect.map(([convA, convB, convC]) => ({ convA, convB, convC })));
 }
 
-function createConversation(client: MoltZapWsClient, receiverAgentId: string) {
+function createConversation(
+  client: MoltZapAgentClient,
+  receiverAgentId: string,
+) {
   return client
     .sendRpc(ConversationsCreate, {
       type: "dm",
@@ -199,7 +202,7 @@ function sendStressMessages(
 }
 
 function sendBatch(
-  client: MoltZapWsClient,
+  client: MoltZapAgentClient,
   conversationId: string,
   prefix: string,
   count: number,
@@ -252,7 +255,7 @@ function waitForStressReplies(
 }
 
 function waitForRepliesByList(params: {
-  readonly client: MoltZapWsClient;
+  readonly client: MoltZapAgentClient;
   readonly conversationId: string;
   readonly receiverAgentId: string;
   readonly expectedCount: number;
@@ -276,7 +279,7 @@ function waitForRepliesByList(params: {
 }
 
 function listMatchingReplies(params: {
-  readonly client: MoltZapWsClient;
+  readonly client: MoltZapAgentClient;
   readonly conversationId: string;
   readonly receiverAgentId: string;
 }) {

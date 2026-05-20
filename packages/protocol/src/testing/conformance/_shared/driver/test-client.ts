@@ -191,7 +191,7 @@ export interface TestClient {
 
   /**
    * Register a handler for an app-callback RPC (test-driver-local;
-   * distinct from the production `MoltZapWsClient`'s static handler
+   * distinct from the production `MoltZapAgentClient`'s static handler
    * table, which is immutable per Spec F I1).
    *
    * When `handleInbound` sees a request frame whose method matches,
@@ -316,7 +316,7 @@ interface TestClientRuntime {
   readonly pending: PendingMap;
   readonly closeRef: Ref.Ref<CloseState>;
   readonly subscribers: TestSubscriberRegistry;
-  readonly onAppCallbackHandlersRef: Ref.Ref<
+  readonly onTMHandlersRef: Ref.Ref<
     HashMap.HashMap<ServerRpcDefinition, AppCallbackHandler>
   >;
   readonly awaitersRef: Ref.Ref<AwaitersMap>;
@@ -554,7 +554,7 @@ function acquireTestClientRuntime(
       pending: new Map(),
       closeRef,
       subscribers: yield* makeTestSubscriberRegistry(),
-      onAppCallbackHandlersRef: yield* Ref.make(
+      onTMHandlersRef: yield* Ref.make(
         HashMap.empty<ServerRpcDefinition, AppCallbackHandler>(),
       ),
       awaitersRef: yield* Ref.make(
@@ -578,7 +578,7 @@ function openTestClientRuntime(
     // in-flight `Stream.async` consumer sees a typed
     // `TransportClosedError` via `emit.fail` before the transport tears
     // down. Mirrors production's `composeServiceTeardown` ordering
-    // between `MoltZapService.scope` and `MoltZapWsClient.close()`.
+    // between `MoltZapService.scope` and `MoltZapAgentClient.close()`.
     yield* Effect.addFinalizer(() => runtime.subscribers.closeAll);
     if (config.autoConnect !== false) {
       yield* autoConnect(runtime);
@@ -762,7 +762,7 @@ function buildServerRequestReply(
   request: ServerRequestDispatch,
 ): Effect.Effect<ResponseFrame> {
   return Effect.gen(function* () {
-    const handlers = yield* Ref.get(runtime.onAppCallbackHandlersRef);
+    const handlers = yield* Ref.get(runtime.onTMHandlersRef);
     const handler = Option.getOrUndefined(
       HashMap.get(handlers, request.definition),
     );
@@ -1034,7 +1034,7 @@ function registerAppCallbackHandler(
   definition: ServerRpcDefinition,
   handler: AppCallbackHandler,
 ): Effect.Effect<void> {
-  return Ref.update(runtime.onAppCallbackHandlersRef, (handlers) =>
+  return Ref.update(runtime.onTMHandlersRef, (handlers) =>
     HashMap.set(handlers, definition, handler),
   );
 }

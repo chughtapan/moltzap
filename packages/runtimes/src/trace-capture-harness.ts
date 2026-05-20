@@ -102,7 +102,7 @@ interface HarnessClient {
    * subscribes BEFORE issuing each `MessagesSend` (`sendMessageAndWait`'s
    * fork → trigger → join pattern) so the response notification is never
    * dropped between the request and the Stream materialisation. Structural
-   * shape mirrors `MoltZapWsClient.subscribe`.
+   * shape mirrors `MoltZapAgentClient.subscribe`.
    */
   subscribe<D extends typeof MessageReceivedNotificationDefinition>(
     definition: D,

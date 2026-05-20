@@ -1,5 +1,5 @@
 /**
- * Tests for `ws-client.ts` against a real in-process `@effect/platform` WebSocket server.
+ * Tests for `tm-client.ts` against a real in-process `@effect/platform` WebSocket server.
  */
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
@@ -76,8 +76,8 @@ import {
   type CloseInfo,
   type MutableRef,
   type RequestFrame,
-} from "./ws-client-test-support.js";
-import { shouldLogMalformedFrame } from "./ws-client.js";
+} from "./tm-client-test-support.js";
+import { shouldLogMalformedFrame } from "./tm-client.js";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
@@ -706,7 +706,7 @@ effectTest(
         // request reached the right descriptor's handler.
         const observedTaskId: MutableRef<string | null> = { current: null };
         const client = makeClient(server.url, {
-          appCallbackHandlers: grantDispatchAuthorizeHandlers(observedTaskId),
+          handlers: grantDispatchAuthorizeHandlers(observedTaskId),
         });
         yield* connectClient(client);
 
@@ -749,7 +749,7 @@ effectTest(
         // registered tagged error so the dispatcher encodes it onto
         // the wire as an `error` reply.
         const client = makeClient(server.url, {
-          appCallbackHandlers: {
+          handlers: {
             "dispatch/authorize": {
               definition: DispatchAuthorize,
               handle: () =>
@@ -791,7 +791,7 @@ effectTest(
 // Note: Spec F (#617) makes the TM-callback handler table immutable at
 // construction. Duplicate-key binding is now a TypeScript compile-time
 // error at the object-literal site (duplicate property name on the
-// `appCallbackHandlers` literal). The previous runtime
+// `handlers` literal). The previous runtime
 // duplicate-registration rejection test has been retired alongside the
 // runtime register API (D3 deletion); the type system carries the
 // invariant.

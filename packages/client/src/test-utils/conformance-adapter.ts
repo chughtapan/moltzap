@@ -1,13 +1,13 @@
 /**
  * Real-client conformance adapter.
  *
- * Wraps `MoltZapWsClient` into the `RealClientHandle` shape that
+ * Wraps `MoltZapAgentClient` into the `RealClientHandle` shape that
  * `@moltzap/protocol/testing` `runClientConformanceSuite` consumes.
  *
  * Spec B (#596) migration: the deleted `SubscriptionFilter` grammar's
  * three-field shape is reconstructed as a per-frame refinement predicate
  * inside the adapter, bridging `RealClientNotificationFilter` onto the
- * Stream-based `MoltZapWsClient.subscribeAll` surface. The conformance
+ * Stream-based `MoltZapAgentClient.subscribeAll` surface. The conformance
  * suite contract is unchanged.
  *
  * Consumed by:
@@ -38,7 +38,7 @@ import type {
   RealClientSubscription,
   ObservedNotification,
 } from "@moltzap/protocol/testing";
-import { MoltZapWsClient, type CloseInfo } from "@moltzap/client";
+import { MoltZapAgentClient, type CloseInfo } from "@moltzap/client";
 import {
   NotConnectedError,
   RpcServerError,
@@ -210,8 +210,8 @@ function makeConformanceClient(
   args: { readonly testServerUrl: string },
   opts: RealClientFactoryOptions,
   closeRef: Ref.Ref<RealClientCloseEvent | null>,
-): MoltZapWsClient {
-  return new MoltZapWsClient({
+): MoltZapAgentClient {
+  return new MoltZapAgentClient({
     serverUrl: args.testServerUrl,
     agentKey: opts.agentKey,
     onDisconnect: (close: CloseInfo) => recordCloseEvent(closeRef, close),
@@ -226,7 +226,7 @@ function makeConformanceClient(
  * `NotConnectedError` which we log + swallow.
  */
 function forkCaptureAllNotifications(
-  ws: MoltZapWsClient,
+  ws: MoltZapAgentClient,
   notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.forkScoped(
@@ -246,13 +246,13 @@ function forkCaptureAllNotifications(
 }
 
 function addClientFinalizer(
-  ws: MoltZapWsClient,
+  ws: MoltZapAgentClient,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.addFinalizer(() => ws.close());
 }
 
 function forkReadyWatcher(
-  ws: MoltZapWsClient,
+  ws: MoltZapAgentClient,
   readyRef: Ref.Ref<ReadyState>,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.forkScoped(
@@ -298,7 +298,7 @@ function waitForReady(
  * `Stream.async` callback).
  */
 function subscribeRealClient(
-  ws: MoltZapWsClient,
+  ws: MoltZapAgentClient,
   filter: RealClientNotificationFilter | undefined,
 ): Effect.Effect<
   RealClientSubscription,
@@ -328,7 +328,7 @@ function subscribeRealClient(
 }
 
 function makeNotificationSubscriber(
-  ws: MoltZapWsClient,
+  ws: MoltZapAgentClient,
   notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
 ): RealClientNotificationSubscriber {
   return {
@@ -342,20 +342,20 @@ function makeNotificationSubscriber(
 }
 
 function callRealClientRpc(
-  ws: MoltZapWsClient,
+  ws: MoltZapAgentClient,
   method: string,
   params: unknown,
 ): Effect.Effect<ResponseFrame, RealClientRpcError> {
   return Effect.gen(function* () {
     const definition = yield* resolveRpcDefinition(method, params);
     const result = yield* ws
-      .sendRpc(definition, params as ParamsOf<typeof definition>)
+      .sendRpcAny(definition, params as ParamsOf<typeof definition>)
       .pipe(Effect.mapError(rpcErrorForMethod(method)));
     return definition.encodeResponse(null, result) as ResponseFrame;
   });
 }
 
-function makeRpcCaller(ws: MoltZapWsClient): RealClientRpcCaller {
+function makeRpcCaller(ws: MoltZapAgentClient): RealClientRpcCaller {
   return {
     call: (method, params) => callRealClientRpc(ws, method, params),
   };
@@ -375,7 +375,7 @@ function closeSignalEffect(
 
 /**
  * Build a `RealClientHandle` factory that the protocol conformance suite
- * can invoke. The returned factory creates a fresh `MoltZapWsClient`,
+ * can invoke. The returned factory creates a fresh `MoltZapAgentClient`,
  * opens its WebSocket, and exposes the client's public surface through
  * the `RealClientHandle` interface.
  */

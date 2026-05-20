@@ -3,7 +3,7 @@
  */
 
 import { Effect } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { registerAgent, type RegisterAgentOptions } from "@moltzap/client";
 import type { RegisterAgentError } from "../auth.js";
 import type { ServiceRpcError } from "../service.js";
@@ -23,7 +23,7 @@ export {
 /**
  * Strip the `/ws` suffix that test harnesses tack onto the WebSocket URL.
  * @param wsUrl WebSocket URL supplied by a test harness.
- * @returns Base URL suitable for `MoltZapWsClient`.
+ * @returns Base URL suitable for `MoltZapAgentClient`.
  */
 export const stripWsPath = (wsUrl: string): string =>
   wsUrl.replace(/\/ws\/?$/, "");
@@ -32,7 +32,7 @@ export const stripWsPath = (wsUrl: string): string =>
  * Registered and connected test agent credentials.
  */
 export interface ConnectedTestAgent {
-  client: MoltZapWsClient;
+  client: MoltZapAgentClient;
   agentId: string;
   apiKey: string;
   claimUrl: string;
@@ -45,7 +45,7 @@ export interface ConnectedTestAgent {
 export type RegisterAndConnectError = RegisterAgentError | ServiceRpcError;
 
 /**
- * Register a fresh agent, build a `MoltZapWsClient` with its apiKey, and
+ * Register a fresh agent, build a `MoltZapAgentClient` with its apiKey, and
  * complete the `network/connect` handshake. Returns the live client ready for
  * RPCs and event waits. Caller is responsible for `yield* client.close()`.
  * @param baseUrl HTTP base URL for the server.
@@ -62,7 +62,7 @@ export const registerAndConnect = (
 ): Effect.Effect<ConnectedTestAgent, RegisterAndConnectError> =>
   Effect.gen(function* () {
     const reg = yield* registerAgent(baseUrl, name, opts);
-    const client = new MoltZapWsClient({
+    const client = new MoltZapAgentClient({
       serverUrl: stripWsPath(wsUrl),
       agentKey: reg.apiKey,
     });
