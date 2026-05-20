@@ -3,27 +3,18 @@
  *
  * Drives one inbound `RequestFrame` through the kind's static handler
  * table. For each frame:
- *   1. Look up the slot by `frame.method`. If the catalog member exists
- *      and the slot is REQUIRED but unbound at construction, the
- *      type system has already rejected the factory call (Spec F I2 —
- *      TS2741) so runtime cannot reach a "required missing" state.
- *      Method not in the kind's catalog → wire `MethodNotFound` -32601.
- *   2. If the slot value is one of the fail-CLOSED sentinels
- *      (`forbidden` / `noOpNotification`), synthesize the wire response
- *      directly from the sentinel's `_tag` (per `defaults.ts`).
- *   3. If the slot is present, read `slot.definition.capabilities`
- *      (Shape B). For each `{ tag, argsOf }` in declaration order:
- *      look up `CapabilityProviderTable[tag.key]`, call it with
- *      `argsOf(decodedParams, ctx)`, and thread
- *      `Effect.provideServiceEffect(tag, providerEffect)` over the
- *      handler effect. Providers execute sequentially with first-failure
- *      short-circuit (Spec F §5.1 step 3).
- *   4. Run the composed handler effect, map outcome to wire
- *      `ResponseFrame` via `wireErrorFromInstance`.
+ *   1. Look up the slot by `frame.method`. Catalog membership is type-
+ *      level enforced (Spec F I2 — TS2741). Method not in the catalog →
+ *      wire `MethodNotFound` -32601.
+ *   2. Read `slot.definition.capabilities`. For each `{ tag, argsOf }` in
+ *      declaration order: look up `CapabilityProviderTable[tag.key]`,
+ *      call it with `argsOf(decodedParams, ctx)`, and thread
+ *      `Effect.provideServiceEffect(tag, providerEffect)`. First-failure
+ *      short-circuit per Effect's standard error semantics.
+ *   3. Run the composed handler effect, map outcome via
+ *      `wireErrorFromInstance`.
  *
- * Outbound calls / notifications go through the internalized originator
- * (formerly `makeOriginator`'s body, retained as the private helper
- * `makeOriginator` consumed here).
+ * Outbound calls / notifications go through the internalized originator.
  */
 import { Cause, Effect, Exit, type Context, type Scope } from "effect";
 import type { TSchema } from "@sinclair/typebox";
@@ -51,7 +42,6 @@ import type {
 } from "./connection.js";
 import type { HandlerSlot } from "./handlers.js";
 import type { CapabilityDescriptor } from "./capabilities.js";
-import { FailClosedDefault } from "./defaults.js";
 
 type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 type AnySlot = HandlerSlot<
@@ -67,35 +57,17 @@ type WireError = {
 
 /**
  * Erased view of the static handler table: maps wire method names to
- * either a `HandlerSlot` (real implementation) or a `FailClosedDefault`
- * sentinel (`forbidden` / `noOpNotification` — the caller explicitly
- * declined to implement this optional slot). The mapped-type machinery
- * in `handlers.ts` enforces structural shape at the factory call; at
- * runtime the slot lookup is a property access on this record.
- *
- * `undefined` is unreachable for a well-typed literal — every catalog
- * member MUST appear as a key — but the runtime stays defensive so
- * malformed wire frames pointing at unknown methods get `MethodNotFound`.
+ * `HandlerSlot`. R14b removed the sentinel arm; every slot is a real
+ * handler. The mapped-type machinery in `handlers.ts` enforces structural
+ * shape at the factory call; the runtime stays defensive against frames
+ * whose method isn't in the kind's catalog.
  */
-type ErasedHandlerTable = Readonly<
-  Record<string, AnySlot | FailClosedDefault | undefined>
->;
+type ErasedHandlerTable = Readonly<Record<string, AnySlot | undefined>>;
 
 /** Erased view of the provider table — `[tag.key]` → obtain effect. */
 type ErasedProviderTable = Readonly<
   Record<string, (args: unknown) => Effect.Effect<unknown, unknown, unknown>>
 >;
-
-/**
- * Slot-value sentinel discriminator. Uses the `FailClosedDefault`
- * `Data.taggedEnum`'s built-in `$is` guard so we never hand-parse the
- * `_tag` field; Effect owns the predicate.
- */
-const isSlotSentinel = (
-  slot: AnySlot | FailClosedDefault,
-): slot is FailClosedDefault =>
-  FailClosedDefault.$is("Forbidden")(slot) ||
-  FailClosedDefault.$is("NoOpNotification")(slot);
 
 /**
  * Type-erase the per-kind handler table at the dispatcher boundary.
@@ -272,12 +244,6 @@ function makeInboundDispatch<Ctx>(
         // catalog.
         return methodNotFoundResponse(frame);
       }
-      if (isSlotSentinel(slot)) {
-        // Caller passed an explicit sentinel (`forbidden` /
-        // `noOpNotification`) for this optional slot. Synthesize the
-        // matching fail-CLOSED response without invoking a handler.
-        return synthesizeFailClosedResponse(frame, slot);
-      }
 
       const paramsResult = yield* Effect.exit(
         decodeRpcParams(slot.definition, frame.params),
@@ -395,35 +361,6 @@ const provideOne = (
     providerEffect as Effect.Effect<unknown, unknown, never>,
   );
 };
-
-/**
- * Synthesize the wire response when the caller passed a sentinel
- * (`forbidden` / `noOpNotification`) for an optional slot.
- *
- * `Forbidden` produces a `ForbiddenError` (-32001) wire response with
- * "Forbidden: &lt;method>" — used for the TM-callback hooks
- * (`DispatchAuthorize`, `MessagesAuthorize`); declining authorization
- * fails-CLOSED, responding "deny" to every inbound auth check.
- *
- * `NoOpNotification` is unreachable on this path: `RequestFrame`s
- * always require a response per JSON-RPC 2.0, so the dispatcher emits
- * `MethodNotFound` to keep the wire contract honest. The branch
- * exists for exhaustiveness over the `FailClosedDefault` enum.
- */
-const synthesizeFailClosedResponse = (
-  frame: RequestFrame,
-  fail: FailClosedDefault,
-): ResponseFrame =>
-  FailClosedDefault.$match(fail, {
-    Forbidden: () =>
-      responseFrame(frame.id, {
-        error: {
-          code: -32001,
-          message: `Forbidden: ${frame.method}`,
-        },
-      }),
-    NoOpNotification: () => methodNotFoundResponse(frame),
-  });
 
 // ── Response shape helpers (mirrored from json-rpc-server.ts) ───────
 

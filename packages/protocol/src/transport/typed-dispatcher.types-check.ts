@@ -63,7 +63,6 @@ import type {
   TaskMasterHandlers,
   HandlerSlot,
 } from "./handlers.js";
-import { forbidden } from "./defaults.js";
 
 // ───────────────────────────────────────────────────────────────────────
 // Canary 1: ServerHandlers requires every catalog member.
@@ -124,19 +123,13 @@ declare const _tmHandlers: TaskMasterHandlers<unknown, never>;
 const _tmHandlersSink: TaskMasterHandlers<unknown, never> = _tmHandlers;
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 6: TaskMasterHandlers REJECTS `{}` — optional slots no longer
-// permit omission. Both TM-callback keys MUST appear in the literal,
-// either as a real `HandlerSlot` or as the `forbidden` sentinel.
+// Canary 6 (Spec D3 R14b): TaskMasterHandlers REJECTS `{}` — both keys
+// are REQUIRED real handlers. Vacuous-deny moderators must write the
+// handler explicitly.
 // ───────────────────────────────────────────────────────────────────────
 
-// @ts-expect-error — explicit-sentinel design: every catalog key must appear.
+// @ts-expect-error — both keys required; omitting fails TS2741.
 const _tmEmpty: TaskMasterHandlers<unknown, never> = {};
-
-// Positive control: explicit sentinels make the literal well-typed.
-const _tmAllDeclined: TaskMasterHandlers<unknown, never> = {
-  "dispatch/authorize": forbidden,
-  "messages/authorize": forbidden,
-};
 
 // ───────────────────────────────────────────────────────────────────────
 // Canary 5: ServerConnection.call rejects non-task-callback definitions
@@ -220,7 +213,6 @@ export type _TypedDispatcherCanarySink =
   | typeof _agentClientEmpty
   | typeof _tmHandlersSink
   | typeof _tmEmpty
-  | typeof _tmAllDeclined
   | typeof _directReject
   | typeof _tasksGetSlotWithExtraCap
   | typeof _capLockstepReject

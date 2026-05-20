@@ -11,7 +11,6 @@ import {
   stringEnum,
 } from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
-import { forbidden } from "../transport/defaults.js";
 
 const DateTimeString = dateTimeStringSchema();
 const AgentOwnershipSchema = agentOwnershipSchema();
@@ -269,6 +268,8 @@ export const DispatchRequest = defineRpc({
  * `LeaseRegistry.resolve`. Manifests opt in by declaring
  * `hooks.dispatch_authorize`.
  */
+// Spec D3 R14b — REQUIRED slot. `MoltZapTMClient` constructor demands a
+// handler at type level; vacuous-deny moderators must wire it explicitly.
 export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
@@ -276,11 +277,6 @@ export const DispatchAuthorize = defineRpc({
     { admission: DispatchAdmissionDecisionSchema },
     { additionalProperties: false },
   ),
-  // Spec F G4 / R2 — OPTIONAL slot with fail-CLOSED `ForbiddenError`
-  // (-32001) default. A TM that doesn't wire this handler implicitly
-  // declines authorization for every dispatch; the dispatcher synthesizes
-  // the wire response without invoking a handler.
-  optional: forbidden,
 });
 
 /**
@@ -475,6 +471,7 @@ const MessagesAuthorizeVerdictSchema = Type.Union([
  * `Forward { recipients: [] }` is legal — message lands in the
  * sender's transcript but is delivered to no one else.
  */
+// Spec D3 R14b — REQUIRED slot. Symmetric with DispatchAuthorize.
 export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
@@ -482,10 +479,6 @@ export const MessagesAuthorize = defineRpc({
     { verdict: MessagesAuthorizeVerdictSchema },
     { additionalProperties: false },
   ),
-  // Spec F G4 / R2 — OPTIONAL slot with fail-CLOSED `ForbiddenError`
-  // (-32001) default. Symmetric with `DispatchAuthorize`: both
-  // TM-callback auth hooks fail-CLOSED when the TM omits the slot.
-  optional: forbidden,
 });
 
 // ── Aggregators ─────────────────────────────────────────────────────

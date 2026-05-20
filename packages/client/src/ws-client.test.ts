@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 
-import { forbidden } from "@moltzap/protocol";
+import { MessagesAuthorize } from "@moltzap/protocol";
 import {
   AgentsLookupByName,
   ConversationsList,
@@ -760,7 +760,11 @@ effectTest(
                   }),
                 ),
             },
-            "messages/authorize": forbidden,
+            "messages/authorize": {
+              definition: MessagesAuthorize,
+              handle: () =>
+                Effect.fail(new ForbiddenError({ message: "vacuous deny" })),
+            },
           },
         });
         yield* connectClient(client);
