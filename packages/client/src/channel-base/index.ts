@@ -5,7 +5,7 @@
  * `@moltzap/nanoclaw-channel` to canonicalize the lease-lifecycle primitives,
  * the `LeaseAlreadyConsumed` tagged error, and the markup-parameterized
  * cross-conv + group-block formatters. Detail doc:
- * `packages/client/docs/architecture/08-channel-base.md`. Spec: #597.
+ * `packages/client/docs/architecture/channel-base.md`. Spec: #597.
  * Architect plan: #605.
  *
  * Note: this subpath is opt-in. Direct `@moltzap/client` consumers

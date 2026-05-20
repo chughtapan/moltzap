@@ -34,7 +34,7 @@
  * from `@moltzap/client`. Parameterising the production registry by
  * error type to host it in protocol-side would carry roughly the same
  * cost as a leaner test-side copy; see
- * `packages/protocol/docs/architecture/12-test-client-stream-consolidation.md
+ * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
  * → §2 "Why the registry can't be shared"`.
  */
 import { Brand, Effect, Ref, Stream } from "effect";

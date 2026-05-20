@@ -165,7 +165,7 @@ const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
 // ───────────────────────────────────────────────────────────────────────
 // Canary 7 — handler R-channel must be a subset of CapabilitiesOf<D>.
 //
-// Post-cutover invariant (`docs/architecture/03-request-response-handling.md`
+// Post-cutover invariant (`docs/architecture/request-response-handling.md`
 // server-side notes): handler bodies may yield capability tags only if
 // the descriptor's `capabilities: [...]` array declares them. The
 // dispatcher's auto-provision iterates the descriptor's list at runtime;
