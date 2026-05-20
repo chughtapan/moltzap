@@ -76,18 +76,20 @@ const documentationRules = {
   rules: guard.configs.documentation.rules,
 };
 
+// `@failure` is the project-wide convention for Effect error-channel
+// documentation (see workspace CLAUDE.md). Every package gets it for
+// free; pass `customJsDocTags` to extend the list per package.
+const DEFAULT_CUSTOM_JSDOC_TAGS = ["failure"];
+
 export function packageEslintConfig(options = {}) {
   const strictRules = makeStrictRules(options);
-  const customTags = options.customJsDocTags ?? [];
-  const tagRules =
-    customTags.length === 0
-      ? {}
-      : {
-          "jsdoc/check-tag-names": [
-            "error",
-            { definedTags: customTags },
-          ],
-        };
+  const customTags = [
+    ...DEFAULT_CUSTOM_JSDOC_TAGS,
+    ...(options.customJsDocTags ?? []),
+  ];
+  const tagRules = {
+    "jsdoc/check-tag-names": ["error", { definedTags: customTags }],
+  };
   return [
     packageIgnores,
     {
