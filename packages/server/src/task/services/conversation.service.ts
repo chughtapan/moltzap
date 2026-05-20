@@ -843,6 +843,63 @@ export class ConversationService {
     );
   }
 
+  /**
+   * Spec D1 (#598) — parent task lookup for `task/conversation/list`
+   * row projection. Fails with `NotFoundError` when the conversation
+   * row is missing. `task_id` is `NOT NULL` per Phase 9b R12 so the
+   * column is non-nullable; the only failure mode is "row missing".
+   * @internal
+   */
+  taskIdForConversation(
+    conversationId: ConversationId,
+  ): Effect.Effect<TaskId, NotFoundError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("conversations")
+            .select("task_id")
+            .where("id", "=", conversationId),
+        );
+        if (Option.isNone(rowOpt)) {
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+          );
+        }
+        return rowOpt.value.task_id;
+      }),
+    );
+  }
+
+  /**
+   * Spec D1 (#598) — by-id projection used by `task/conversation/*`
+   * archive/unarchive handlers to surface the post-mutation
+   * `Conversation` row (with populated `archivedAt`) for the
+   * dual-emit `conversations/*` legacy notification fan-out. Fails
+   * with `NotFoundError` when the row is missing.
+   * @internal
+   */
+  loadById(
+    conversationId: ConversationId,
+  ): Effect.Effect<Conversation, NotFoundError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("conversations")
+            .selectAll()
+            .where("id", "=", conversationId),
+        );
+        if (Option.isNone(rowOpt)) {
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+          );
+        }
+        return this.mapConversation(rowOpt.value);
+      }),
+    );
+  }
+
   getConversationIds(agentId: AgentId): Effect.Effect<ConversationId[]> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -1059,6 +1116,7 @@ export class ConversationService {
       createdBy: row.created_by_id,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
+      archivedAt: row.archived_at ? row.archived_at.toISOString() : undefined,
     };
   }
 

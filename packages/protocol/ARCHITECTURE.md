@@ -56,7 +56,9 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | `CapabilityProviderTable<Caps>` | transport/capabilities | Capability auto-provision table (plumbing-ships-empty until a defineRpc populates `capabilities`) |
 | `FailClosedDefault` / `forbidden` / `noOpNotification` | transport/defaults | Per-slot fail-CLOSED default tagged-enum + sentinel values; the same values are both descriptor metadata (`optional: forbidden`) and handler-table sentinels |
 | `Agent*`, `User*`, `Session*` | identity | Identity primitives + auth flows |
-| `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state |
+| `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state (legacy `Conversations*` + `Tasks*` families) |
+| `TaskCreate`, `TaskLeave`, `TaskConversation*` | task | Spec D1 additive surface (singular `task/*` namespace) |
+| `AppId`, `DEFAULT_APP_ID`, `ParticipantNotAdmittedError` | task | Spec D1 wire-level branding + invariant tag |
 | `Dispatch*`, `App*`, `Hook*` | app | AppHost surface |
 | Tagged errors (`HookBlockedError`, `TaskClosedError`, …) | various | Auto-registered into `RegisteredTaggedError` union |
 
@@ -95,6 +97,7 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 | Layer DAG enforcement | [Layer DAG](docs/architecture/layer-dag.md) |
 | Conformance suite mechanics | [Conformance suite](docs/architecture/conformance-suite.md) |
 | TestClient Stream consolidation | [TestClient Stream consolidation](docs/architecture/test-client-stream-consolidation.md) |
+| Task / TaskConversation family (Spec D1) | [Task / TaskConversation family](docs/architecture/task-conversation-family.md) |
 
 The typed dispatcher, originator lifecycle, and worked end-to-end RPC
 flow (request handling + server-initiated callbacks) are documented in

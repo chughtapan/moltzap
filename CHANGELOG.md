@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec D1 (#598) — Additive `task/*` + `task/conversation/*` family
+
+- **Additive (`@moltzap/protocol`):** New singular `task/*` namespace
+  alongside the legacy plural `tasks/*` family. Eight new RPC
+  descriptors (`TaskCreate`, `TaskLeave`,
+  `TaskConversationCreate`/`List`/`Archive`/`Unarchive`/`AddParticipant`/`RemoveParticipant`)
+  and five new notifications (`task/conversation/created`/`archived`/
+  `unarchived`/`participants/added`/`participants/removed`) coexist
+  with the legacy `Conversations*` family during the D1 transitional
+  window. Spec D3 (#600) deletes the legacy surface inside the same
+  orchestration (parent epic #602).
+- **Additive (`@moltzap/protocol`):** New `AppId` branded id and
+  `DEFAULT_APP_ID =
+  "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb"` constant. `TaskCreate`
+  takes `appId: AppId` (required, branded); `tmType` eliminated from
+  the wire. Optional `initialConversation` field for atomic task +
+  first-conversation creation. Result shape
+  `{ task, conversation: Conversation | null }`.
+- **Additive (`@moltzap/protocol`):** New `ParticipantNotAdmittedError`
+  (`-32023`) — fired by `TaskConversationCreate` /
+  `TaskConversationAddParticipant` when a target agent is not in
+  `task_participants` for the task. Distinct from the existing
+  `ForbiddenError` so clients can distinguish "wrong agent id shape"
+  from "agent exists but is not admitted to this task" without
+  parsing messages.
+- **Additive (`@moltzap/protocol`):** New `archivedAt?: DateTimeString`
+  field on `Conversation`; populated for archived rows so clients
+  filter `archivedAt !== undefined` locally on
+  `TaskConversationList` responses.
+- **Behavior (`@moltzap/server-core`):** Every legacy `Conversations*`
+  handler emits one structured `Effect.logWarning` at entry
+  (`{ deprecated, replaceWith }` annotations) per spec body Contract
+  decision. D3 deletes the emission alongside the legacy handlers.
+  Pinned by `src/task/handlers/conversations.deprecation.test.ts`.
+- **Behavior (`@moltzap/server-core`):** Every mutating
+  `task/conversation/*` handler dual-emits BOTH the legacy
+  `conversations/*` notification AND the new `task/conversation/*`
+  notification inside the same transaction. Recipient fan-out matches
+  the legacy semantics; the new payload shapes carry `taskId`
+  explicitly. Per-flow walkthrough at
+  `packages/protocol/docs/architecture/task-conversation-family.md`.
+- **Service surface (`@moltzap/server-core`):** New `TaskService`
+  package-private helpers: `findExistingTaskByParticipants`
+  (DEFAULT_APP dedup, sibling to legacy
+  `existingDmForCreate`), `requireAgentsAreInTaskParticipants`
+  (D1 participant-admitted invariant — admitted-OR-pending both
+  pass), `leaveTask` (bulk per-cid delete + last-participant task
+  closure), `archiveTaskConversation` / `unarchiveTaskConversation` /
+  `addTaskConversationParticipant` /
+  `removeTaskConversationParticipant`. New `ConversationService`
+  helpers: `loadById`, `taskIdForConversation`.
+- **Test infrastructure (`@moltzap/protocol/testing`):** Seven new
+  conformance properties under
+  `packages/protocol/src/testing/conformance/task/task-conversation-family.ts`,
+  one per new wire method, registered in `TASK_PROPERTIES`.
+- **Test infrastructure (`@moltzap/server-core/__tests__`):** New
+  integration suite
+  `packages/server/src/__tests__/integration/task/task-conversation-family.test.ts`
+  exercises real-Postgres happy-path, dedup, atomic init-conversation,
+  participant-admitted invariant, and dual-emit notification fan-out
+  end-to-end.
+
 ### Spec B obsolete-code remediation (#645)
 
 - **BREAKING (`@moltzap/protocol/testing`):** `TestClient.notifications`,
@@ -64,7 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RPC → wait → wait` patterns observed notifications that had
   dispatched before the second `subscribe` materialised. Per-actor
   `NotificationBuffer` now mirrors the server-core
-  `connectTestClient` bridge (§3 of `12-test-client-stream-consolidation.md`):
+  `connectTestClient` bridge (§3 of `test-client-stream-consolidation.md`):
   `acquireClient` installs a `subscribeAll()` pump appending every
   inbound notification to a `Ref<ReadonlyArray<...>>` snapshot bound
   to the actor's `notifications` field; `awaitOneNotification(buffer,

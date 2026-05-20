@@ -83,6 +83,13 @@ const ConversationSchema = Type.Object(
     lastMessageTimestamp: Type.Optional(DateTimeString),
     createdAt: DateTimeString,
     updatedAt: DateTimeString,
+    // Spec D1 (#598) — additive field. Present iff the conversation
+    // is archived. Clients filter `archivedAt !== undefined` to
+    // exclude archived rows from a `TaskConversationList` response
+    // (the server returns archived rows unfiltered; the visibility
+    // contract for `TaskConversationList` is "caller in
+    // `conversation_participants`", not "archived excluded").
+    archivedAt: Type.Optional(DateTimeString),
   },
   { additionalProperties: false },
 );
@@ -149,6 +156,7 @@ export const ConversationsCreate = defineRpc({
         params: unknown,
         ctx: unknown,
       ): ObtainConversationCreateAuthorizationInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly type: "dm" | "group";
           readonly participants: ReadonlyArray<{ readonly id: string }>;
@@ -200,6 +208,7 @@ export const ConversationsGet = defineRpc({
     {
       tag: ConversationParticipantAccess,
       argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly conversationId: ConversationId };
         const c = ctx as { readonly auth: { readonly agentId: AgentId } };
         return {
@@ -267,6 +276,7 @@ export const ConversationsAddParticipant = defineRpc({
         params: unknown,
         ctx: unknown,
       ): ObtainAddParticipantPermissionInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly conversationId: ConversationId;
           readonly participant: { readonly id: string };
