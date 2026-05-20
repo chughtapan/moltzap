@@ -7,6 +7,8 @@ import { Effect } from "effect";
 import {
   stringEnum,
   brandedId,
+  brandedString,
+  brandedNumber,
   dateTimeStringSchema,
 } from "./schema-primitives.js";
 
@@ -44,6 +46,43 @@ describe("stringEnum", () => {
   it("produces enum schema, not anyOf", () => {
     expect(schema).toHaveProperty("enum", ["user", "agent"]);
     expect(schema).not.toHaveProperty("anyOf");
+  });
+});
+
+describe("brandedString", () => {
+  it("passes through TypeBox String options", () => {
+    const schema = brandedString("Tag", { minLength: 3, maxLength: 12 });
+    const validate = ajv.compile(schema);
+    expect(validate("ok")).toBe(false);
+    expect(validate("good")).toBe(true);
+    expect(validate("waaaaaaaaaaaaaaay-too-long")).toBe(false);
+  });
+
+  it("defaults description with brand name embedded when caller omits it", () => {
+    const schema = brandedString("Color");
+    expect(schema.description).toMatch(/Color/);
+  });
+
+  it("respects caller-supplied description override", () => {
+    const custom = "the color value";
+    const schema = brandedString("Color", { description: custom });
+    expect(schema.description).toBe(custom);
+  });
+});
+
+describe("brandedNumber", () => {
+  it("validates numbers and honors min/max bounds", () => {
+    const schema = brandedNumber("Year", { minimum: 1900, maximum: 2100 });
+    const validate = ajv.compile(schema);
+    expect(validate(2026)).toBe(true);
+    expect(validate(1899)).toBe(false);
+    expect(validate(2101)).toBe(false);
+    expect(validate("2026")).toBe(false);
+  });
+
+  it("defaults description with brand name embedded when caller omits it", () => {
+    const schema = brandedNumber("Year");
+    expect(schema.description).toMatch(/Year/);
   });
 });
 
