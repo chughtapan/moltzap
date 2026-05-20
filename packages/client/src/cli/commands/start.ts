@@ -10,7 +10,7 @@
  * See also:
  *   - `packages/protocol/src/task/tasks.ts -> TaskCreate` / `DEFAULT_APP_ID` /
  *     `AppId` — D1 (#598) wire surface this command composes.
- *   - `packages/client/docs/architecture/09-moltzap-start-cli.md` for the
+ *   - `packages/client/docs/architecture/moltzap-start-cli.md` for the
  *     command flow diagram, exit-code contract, and test alignment.
  *   - `packages/client/src/cli/commands/conversations.ts -> createConversation`
  *     for the legacy two-step DM/Group create path D2 replaces. Untouched
