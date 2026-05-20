@@ -40,6 +40,7 @@ export {
   // Spec D1 — additive `task/*` + `task/conversation/*` family.
   AppId,
   DEFAULT_APP_ID,
+  inferConversationType,
   TaskCreate,
   TaskLeave,
   TaskConversationCreate,

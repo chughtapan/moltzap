@@ -20,6 +20,7 @@ import {
   TaskConversationUnarchivedNotificationDefinition,
   TaskCreate,
   TaskLeave,
+  inferConversationType,
   TasksAddParticipant,
   TasksClose,
   TasksCloseConversation,
@@ -258,16 +259,6 @@ function mintInitialConversation(input: MintInitialInput) {
     );
     return { task: input.task, conversation };
   }).pipe(Effect.withSpan("task.create.mintInitialConversation"));
-}
-
-// `ConversationTypeEnum` (`dm` | `group`) lives on the legacy
-// `conversations` table column; Spec D1 keeps the column for legacy
-// consumers (D3 retires it entirely). The label is derived from
-// participant count: 2 -> `dm`, otherwise `group`.
-function inferConversationType(
-  participantAgentIds: ReadonlyArray<AgentId>,
-): "dm" | "group" {
-  return 1 + participantAgentIds.length === 2 ? "dm" : "group";
 }
 
 function taskConversationCreateBody(
