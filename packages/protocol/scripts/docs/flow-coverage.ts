@@ -43,6 +43,29 @@ export function isBehavioralExport(ex: TypeDocExport): boolean {
 }
 
 /**
+ * Return true when `ex` is internal scaffolding the user-facing flow
+ * report should ignore. Three signals, any of which suffices:
+ *
+ * - Source path contains a `__dunder__/` folder segment. Convention
+ *   for "internal-only across-file scaffolding" — sibling tests
+ *   import the symbols but no consumer outside the folder does
+ *   (e.g., `testing/conformance/__divergence_proofs__/`).
+ * - Source path contains a single-leading-underscore folder segment
+ *   (e.g., `_shared/`). The JavaScript convention for "private to
+ *   this subtree". Cross-file imports inside the subtree require
+ *   `export` for the type system; the leading underscore signals
+ *   the export is structural, not part of the public surface.
+ * - JSDoc carries an `@internal` tag. Per-export opt-out for cases
+ *   where the folder convention doesn't apply.
+ */
+function isInternalExport(ex: TypeDocExport): boolean {
+  const src = ex.sources[0];
+  if (src && /\/(__[^/]+__|_[^/]+)\//.test(src.fileName)) return true;
+  if (!ex.comment) return false;
+  return ex.comment.tags.some((tag) => tag.tag === "@internal");
+}
+
+/**
  * Return the list of behavioral exports lacking either a JSDoc summary
  * or a fenced ```mermaid block in their JSDoc body. Sorted by file
  * path then line.
@@ -53,6 +76,7 @@ export function computeFlowCoverage(
   const out: FlowCoverageGap[] = [];
   for (const ex of cache.all) {
     if (!isBehavioralExport(ex)) continue;
+    if (isInternalExport(ex)) continue;
     const src = ex.sources[0];
     if (!src) continue;
     const hasSummary = (ex.comment?.summary ?? "").trim().length > 0;
