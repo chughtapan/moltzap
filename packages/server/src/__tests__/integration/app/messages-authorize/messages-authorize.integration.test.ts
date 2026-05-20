@@ -6,8 +6,7 @@
  */
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
-import { Data, Effect, Either } from "effect";
-import type { NotificationFrame } from "@moltzap/protocol";
+import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import {
   ConversationsCreate,
   HookBlockedError,
@@ -202,19 +201,44 @@ function textPart(text: string) {
   return { type: PART_TYPE_TEXT, text };
 }
 
-function messageReceived(notification: NotificationFrame): boolean {
-  return notification.method === MessageReceivedNotificationDefinition.name;
+/**
+ * Settle-window collector for `messages/received` notifications.
+ *
+ * Post-#645 the legacy `drainNotifications` snapshot is deleted; the
+ * new Stream.async-backed subscription only observes frames emitted
+ * from materialisation forward. Each call site that previously
+ * asserted "no message received" via a settle-then-drain pattern now
+ * forks one of these collectors BEFORE the triggering send and joins
+ * it after — the `Stream.interruptAfter` window bounds collection so
+ * the assert doesn't block when no event is expected.
+ */
+function forkMessageReceivedCollector(
+  agent: ConnectedAgent,
+  settle: Duration.DurationInput,
+) {
+  return agent.client
+    .subscribe(MessageReceivedNotificationDefinition)
+    .pipe(
+      Stream.interruptAfter(Duration.decode(settle)),
+      Stream.runCollect,
+      Effect.fork,
+    );
 }
 
-function drainMessageReceived(agent: ConnectedAgent) {
-  return Effect.map(agent.client.drainNotifications, (events) =>
-    events.filter(messageReceived),
-  );
+function assertNoMessageReceived<E>(
+  collector: Fiber.RuntimeFiber<Chunk.Chunk<unknown>, E>,
+): Effect.Effect<void, E> {
+  return Effect.map(Fiber.join(collector), (chunk) => {
+    expect(Chunk.toReadonlyArray(chunk)).toHaveLength(0);
+  });
 }
 
-function expectNoMessageReceived(agent: ConnectedAgent): Effect.Effect<void> {
-  return Effect.map(drainMessageReceived(agent), (events) => {
-    expect(events.length).toBe(0);
+function assertExactMessageReceived<E>(
+  collector: Fiber.RuntimeFiber<Chunk.Chunk<unknown>, E>,
+  count: number,
+): Effect.Effect<void, E> {
+  return Effect.map(Fiber.join(collector), (chunk) => {
+    expect(Chunk.toReadonlyArray(chunk)).toHaveLength(count);
   });
 }
 
@@ -325,14 +349,14 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
       [bob],
     );
     const conversationId = conv.conversation.id as ConversationId;
+    const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
     const outcome = yield* Effect.either(
       sendText(alice, conversationId, TEXT_BLOCKED),
     );
     expectHookBlocked(outcome, BLOCK_MESSAGE_PATTERN);
     expect(appHookState.calls).toBe(1);
 
-    yield* Effect.sleep(SHORT_SETTLE);
-    yield* expectNoMessageReceived(bob);
+    yield* assertNoMessageReceived(bobCollector);
 
     const ids = yield* readAllMessageIdsForConversation(conversationId);
     expect(ids.length).toBe(1);
@@ -351,6 +375,7 @@ function tmUnreachableSynthesizesBlock() {
     const task = yield* createSelfTask(alice);
     const conv = yield* createManagedDm(alice, task.task.id, bob);
     const conversationId = conv.conversation.id as ConversationId;
+    const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
     const outcome = yield* Effect.either(
       sendTextWithTimeout(
         alice,
@@ -361,8 +386,7 @@ function tmUnreachableSynthesizesBlock() {
     );
     expectHookBlocked(outcome);
 
-    yield* Effect.sleep(SHORT_SETTLE);
-    yield* expectNoMessageReceived(bob);
+    yield* assertNoMessageReceived(bobCollector);
   });
 }
 
@@ -379,6 +403,7 @@ function defaultDmHookBlockChangesBehavior() {
       participants: [agentParticipant(bob)],
     });
     const conversationId = conv.conversation.id as ConversationId;
+    const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
     const outcome = yield* Effect.either(
       sendText(alice, conversationId, TEXT_DM_BLOCKED),
     );
@@ -387,8 +412,7 @@ function defaultDmHookBlockChangesBehavior() {
       MIN_DEFAULT_DM_HOOK_CALLS,
     );
 
-    yield* Effect.sleep(SHORT_SETTLE);
-    yield* expectNoMessageReceived(bob);
+    yield* assertNoMessageReceived(bobCollector);
   });
 }
 
@@ -413,14 +437,21 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
       recipients: [carol.agentId as AgentId],
     };
 
+    const carolCollector = yield* forkMessageReceivedCollector(
+      carol,
+      LONG_SETTLE,
+    );
+    const bobCollector = yield* forkMessageReceivedCollector(bob, LONG_SETTLE);
+    const daveCollector = yield* forkMessageReceivedCollector(
+      dave,
+      LONG_SETTLE,
+    );
     const sent = yield* sendText(alice, conversationId, TEXT_SUBSET);
     const messageId = sent.message.id as MessageId;
 
-    yield* Effect.sleep(LONG_SETTLE);
-    const carolEvents = yield* drainMessageReceived(carol);
-    expect(carolEvents.length).toBe(1);
-    yield* expectNoMessageReceived(bob);
-    yield* expectNoMessageReceived(dave);
+    yield* assertExactMessageReceived(carolCollector, 1);
+    yield* assertNoMessageReceived(bobCollector);
+    yield* assertNoMessageReceived(daveCollector);
 
     const decision = yield* readTmDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
@@ -437,11 +468,11 @@ function forwardEmptySendsNoFanout() {
     const task = yield* createSelfTask(alice);
     const conv = yield* createManagedDm(alice, task.task.id, bob);
     const conversationId = conv.conversation.id as ConversationId;
+    const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
     const sent = yield* sendText(alice, conversationId, TEXT_EMPTY_FORWARD);
     const messageId = sent.message.id as MessageId;
 
-    yield* Effect.sleep(SHORT_SETTLE);
-    yield* expectNoMessageReceived(bob);
+    yield* assertNoMessageReceived(bobCollector);
     const decision = yield* readTmDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
     expectDecisionRecipients(decision, []);

@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 
+import { forbidden } from "@moltzap/protocol";
 import {
   AgentsLookupByName,
   ConversationsList,
@@ -749,7 +750,7 @@ effectTest(
         // the wire as an `error` reply.
         const client = makeClient(server.url, {
           appCallbackHandlers: {
-            [DispatchAuthorize.name]: {
+            "dispatch/authorize": {
               definition: DispatchAuthorize,
               handle: () =>
                 Effect.fail(
@@ -759,6 +760,7 @@ effectTest(
                   }),
                 ),
             },
+            "messages/authorize": forbidden,
           },
         });
         yield* connectClient(client);

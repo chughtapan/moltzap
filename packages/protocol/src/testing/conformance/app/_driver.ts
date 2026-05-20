@@ -32,7 +32,7 @@ import {
   Duration,
   Effect,
   Exit,
-  Option,
+  Queue,
   Scope,
   Stream,
 } from "effect";
@@ -63,10 +63,7 @@ import {
   type DispatchId,
   type LeaseId,
 } from "../../../app/index.js";
-import {
-  isDecodedNotification,
-  type DecodedNotification,
-} from "../../../transport/rpc-groups.js";
+import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
   makeCloseableTestClient,
@@ -523,17 +520,42 @@ function acquireCloseableClient(
   });
 }
 
+/**
+ * #645: Spec B's `Stream.async` surface only emits frames that arrive
+ * AFTER materialisation. Conformance properties rely on a polling-shape
+ * "subscribe AFTER trigger" pattern; bridge by installing a long-lived
+ * pump at handle-construction time that buffers each per-definition
+ * frame into an unbounded Queue. `waitFor*` consumes from the Queue,
+ * which preserves historical buffering semantics without leaking back
+ * into the deleted polling shape.
+ */
+// #ignore-sloppy-code[async-keyword]: JSDoc reference to `Stream.async` Effect primitive, not a JS `async` modifier
+interface ReleaseBuffer {
+  readonly queue: Queue.Queue<DecodedNotification<typeof DispatchRelease>>;
+}
+
 function buildRecipientHandle(
   acquired: AcquiredCloseableClient,
-): RecipientHandle {
-  return {
-    agentId: acquired.agent.agentId,
-    requestDispatch: (params) => requestDispatch(acquired, params),
-    waitForRelease: (predicate, timeoutMs) =>
-      waitForRelease(acquired, predicate, timeoutMs),
-    sendWithLease: (params) => sendWithLease(acquired, params),
-    hardClose: acquired.client.close,
-  } satisfies RecipientHandle;
+): Effect.Effect<RecipientHandle, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const queue =
+      yield* Queue.unbounded<DecodedNotification<typeof DispatchRelease>>();
+    yield* Effect.forkScoped(
+      acquired.client.subscribe(DispatchRelease).pipe(
+        Stream.runForEach((frame) => Queue.offer(queue, frame)),
+        Effect.catchAll(() => Effect.void),
+      ),
+    );
+    const buffer: ReleaseBuffer = { queue };
+    return {
+      agentId: acquired.agent.agentId,
+      requestDispatch: (params) => requestDispatch(acquired, params),
+      waitForRelease: (predicate, timeoutMs) =>
+        waitForRelease(buffer, predicate, timeoutMs),
+      sendWithLease: (params) => sendWithLease(acquired, params),
+      hardClose: acquired.client.close,
+    } satisfies RecipientHandle;
+  });
 }
 
 function requestDispatch(
@@ -559,77 +581,56 @@ function requestDispatch(
 }
 
 function waitForRelease(
-  acquired: AcquiredCloseableClient,
+  buffer: ReleaseBuffer,
+  // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional predicate is a value-level passthrough to `takeMatchingFromQueue`'s match loop; not a refinement-of-discriminant decision
   predicate?: Parameters<RecipientHandle["waitForRelease"]>[0],
   timeoutMs = DEFAULT_WAIT_FOR_RELEASE_MS,
 ): ReturnType<RecipientHandle["waitForRelease"]> {
-  return Effect.gen(function* () {
-    const deadline = Date.now() + timeoutMs;
-    while (true) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        return yield* releaseWaitTimeout(timeoutMs);
-      }
-      const frame = yield* waitForReleaseFrame(acquired, remaining);
-      if (predicate === undefined || predicate(frame)) return frame;
-    }
-  });
-}
-
-function releaseWaitTimeout(
-  timeoutMs: number,
-): Effect.Effect<never, PropertyFailure> {
-  return Effect.fail(
-    violation("recipient.waitForRelease", `timeout after ${timeoutMs}ms`),
-  );
-}
-
-function waitForReleaseFrame(
-  acquired: AcquiredCloseableClient,
-  remainingMs: number,
-): Effect.Effect<DecodedNotification<typeof DispatchRelease>, PropertyFailure> {
-  // Spec B (#596) alignment: consume the per-client notification Stream
-  // rather than the legacy polling `TestClient.waitForNotification` so
-  // the driver mirrors the production `subscribe`+`Stream.runHead`
-  // shape. Subscription is established BEFORE the trigger by callers
-  // (`waitForRelease` forks this helper from a state where the lease
-  // round-trip is already in flight); the Stream's internal buffer
-  // covers the small materialisation window.
-  return acquired.client.notifications.pipe(
-    Stream.filter(
-      (frame): frame is DecodedNotification<typeof DispatchRelease> =>
-        isDecodedNotification(DispatchRelease, frame),
-    ),
-    Stream.runHead,
-    Effect.timeoutFail({
-      duration: Duration.millis(remainingMs),
-      onTimeout: () =>
-        violation(
-          "recipient.waitForRelease",
-          `dispatch/release wait timed out after ${remainingMs}ms`,
-        ),
-    }),
-    Effect.mapError((e) =>
-      e instanceof PropertyInvariantViolation
-        ? e
+  // #645: pull from the per-handle Queue populated by the long-lived
+  // `subscribe(DispatchRelease)` pump installed in `buildRecipientHandle`.
+  // The pump preserves historical buffering semantics that the legacy
+  // polling shape provided implicitly; properties continue to call
+  // `waitForRelease` AFTER the triggering RPC without races.
+  return takeMatchingFromQueue(buffer.queue, predicate, timeoutMs).pipe(
+    Effect.mapError((reason) =>
+      reason === "timeout"
+        ? releaseWaitTimeoutFailure(timeoutMs)
         : violation(
             "recipient.waitForRelease",
-            `dispatch/release wait failed: ${String(e)}`,
+            `dispatch/release wait failed: ${reason}`,
           ),
-    ),
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          Effect.fail(
-            violation(
-              "recipient.waitForRelease",
-              "dispatch/release Stream completed before a frame arrived",
-            ),
-          ),
-        onSome: (frame) => Effect.succeed(frame),
-      }),
     ),
   );
+}
+
+/**
+ * Helper: pull frames off a Queue until `predicate` matches, or fail
+ * with `"timeout"` after `timeoutMs`. Used by both `waitForRelease`
+ * and `waitForObservability` to share the polling-style match loop.
+ */
+function takeMatchingFromQueue<A>(
+  queue: Queue.Queue<A>,
+  predicate: ((frame: A) => boolean) | undefined,
+  timeoutMs: number,
+): Effect.Effect<A, "timeout"> {
+  const deadline = Date.now() + timeoutMs;
+  const loop: Effect.Effect<A, "timeout"> = Effect.gen(function* () {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return yield* Effect.fail("timeout" as const);
+    const frame = yield* Queue.take(queue).pipe(
+      Effect.timeoutFail({
+        duration: Duration.millis(remaining),
+        onTimeout: () => "timeout" as const,
+      }),
+    );
+    if (predicate === undefined || predicate(frame)) return frame;
+    return yield* loop;
+  });
+  return loop;
+}
+
+function releaseWaitTimeoutFailure(timeoutMs: number): PropertyFailure {
+  return violation("recipient.waitForRelease", `timeout after ${timeoutMs}ms`);
 }
 
 function sendWithLease(
@@ -747,16 +748,50 @@ interface LeaseStateTimeoutInput {
   readonly lastError: string | null;
 }
 
-function buildModeratorHandle(opts: ModeratorHandleOptions): ModeratorHandle {
-  return {
-    agentId: opts.agent.agentId,
-    appId: opts.appId,
-    handleAuthorize: (cfg) => handleAuthorize(opts.app, cfg),
-    silenceAuthorize: silenceAuthorize(opts.app),
-    waitForObservability: (kind, waitOpts) =>
-      waitForObservability(opts.client, kind, waitOpts),
-    getLease: (dispatchId) => getLease(opts.client, dispatchId),
-  } satisfies ModeratorHandle;
+/**
+ * Per-`ModeratorHandle` Queue buffers for the two observability
+ * notification kinds (#645). Long-lived pumps subscribe to each
+ * definition at handle-construction time and offer arrivals; the
+ * `waitForObservability` API consumes the matching queue.
+ */
+interface ObservabilityBuffers {
+  readonly consumed: Queue.Queue<
+    DecodedNotification<typeof DispatchesConsumed>
+  >;
+  readonly expired: Queue.Queue<DecodedNotification<typeof DispatchesExpired>>;
+}
+
+function buildModeratorHandle(
+  opts: ModeratorHandleOptions,
+): Effect.Effect<ModeratorHandle, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const consumed =
+      yield* Queue.unbounded<DecodedNotification<typeof DispatchesConsumed>>();
+    const expired =
+      yield* Queue.unbounded<DecodedNotification<typeof DispatchesExpired>>();
+    yield* Effect.forkScoped(
+      opts.client.subscribe(DispatchesConsumed).pipe(
+        Stream.runForEach((frame) => Queue.offer(consumed, frame)),
+        Effect.catchAll(() => Effect.void),
+      ),
+    );
+    yield* Effect.forkScoped(
+      opts.client.subscribe(DispatchesExpired).pipe(
+        Stream.runForEach((frame) => Queue.offer(expired, frame)),
+        Effect.catchAll(() => Effect.void),
+      ),
+    );
+    const buffers: ObservabilityBuffers = { consumed, expired };
+    return {
+      agentId: opts.agent.agentId,
+      appId: opts.appId,
+      handleAuthorize: (cfg) => handleAuthorize(opts.app, cfg),
+      silenceAuthorize: silenceAuthorize(opts.app),
+      waitForObservability: (kind, waitOpts) =>
+        waitForObservability(buffers, kind, waitOpts),
+      getLease: (dispatchId) => getLease(opts.client, dispatchId),
+    } satisfies ModeratorHandle;
+  });
 }
 
 function handleAuthorize(
@@ -809,33 +844,41 @@ function authorizePredicateInput(
 }
 
 function waitForObservability<K extends "consumed" | "expired">(
-  client: TestClient,
+  buffers: ObservabilityBuffers,
   kind: K,
   opts: Parameters<ModeratorHandle["waitForObservability"]>[1],
 ): Effect.Effect<ObservabilityNotification<K>, PropertyFailure> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_OBSERVABILITY_TIMEOUT_MS;
-  return Effect.gen(function* () {
-    const deadline = Date.now() + timeoutMs;
-    while (true) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) return yield* observabilityTimeout(kind, timeoutMs);
-      const frame = yield* waitForObservabilityFrame(client, kind, remaining);
-      if (matchesDispatchId(frame.params, opts.dispatchId)) {
-        return frame as ObservabilityNotification<K>;
-      }
-    }
-  });
+  // #645: pull from the per-handle Queue populated by the long-lived
+  // `subscribe(DispatchesConsumed|Expired)` pumps installed in
+  // `buildModeratorHandle`. The pump preserves historical-buffer
+  // semantics so properties can call `waitForObservability` after the
+  // triggering action (e.g. `advanceTime`) without races.
+  const queue =
+    kind === "consumed"
+      ? (buffers.consumed as Queue.Queue<ObservabilityFrame>)
+      : (buffers.expired as Queue.Queue<ObservabilityFrame>);
+  return takeMatchingFromQueue(
+    queue,
+    (frame) => matchesDispatchId(frame.params, opts.dispatchId),
+    timeoutMs,
+  ).pipe(
+    Effect.map((frame) => frame as ObservabilityNotification<K>),
+    Effect.mapError((reason) =>
+      reason === "timeout"
+        ? observabilityTimeoutFailure(kind, timeoutMs)
+        : observabilityViolation(kind, `notification wait failed: ${reason}`),
+    ),
+  );
 }
 
-function observabilityTimeout(
+function observabilityTimeoutFailure(
   kind: "consumed" | "expired",
   timeoutMs: number,
-): Effect.Effect<never, PropertyFailure> {
-  return Effect.fail(
-    violation(
-      `moderator.waitForObservability(${kind})`,
-      `timeout after ${timeoutMs}ms`,
-    ),
+): PropertyFailure {
+  return violation(
+    `moderator.waitForObservability(${kind})`,
+    `timeout after ${timeoutMs}ms`,
   );
 }
 
@@ -848,54 +891,6 @@ function observabilityViolation(
   reason: string,
 ): PropertyFailure {
   return violation(`moderator.waitForObservability(${kind})`, reason);
-}
-
-function waitForObservabilityFrame(
-  client: TestClient,
-  kind: "consumed" | "expired",
-  remainingMs: number,
-): Effect.Effect<ObservabilityFrame, PropertyFailure> {
-  const definition =
-    kind === "consumed" ? DispatchesConsumed : DispatchesExpired;
-  // Spec B (#596) alignment: Stream consumption instead of the legacy
-  // polling waitForNotification. The caller wires this via
-  // `moderator.waitForObservability` which fans dispatch updates
-  // through this filter; the per-frame matchers above ensure the right
-  // observation arrives.
-  return client.notifications.pipe(
-    Stream.filter((frame): frame is ObservabilityFrame =>
-      isDecodedNotification(definition, frame),
-    ),
-    Stream.runHead,
-    Effect.timeoutFail({
-      duration: Duration.millis(remainingMs),
-      onTimeout: () =>
-        observabilityViolation(
-          kind,
-          `notification wait timed out after ${remainingMs}ms`,
-        ),
-    }),
-    Effect.mapError((e) =>
-      e instanceof PropertyInvariantViolation
-        ? e
-        : observabilityViolation(
-            kind,
-            `notification wait failed: ${String(e)}`,
-          ),
-    ),
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          Effect.fail(
-            observabilityViolation(
-              kind,
-              `${kind} Stream completed before a frame arrived`,
-            ),
-          ),
-        onSome: (frame) => Effect.succeed(frame),
-      }),
-    ),
-  );
 }
 
 function matchesDispatchId(
@@ -956,8 +951,8 @@ export function makeDispatchTestDriver(
       resolved.appId,
       agents.recipientAgent,
     );
-    const recipient = buildRecipientHandle(clients.recipientAcquired);
-    const moderator = buildModeratorHandle({
+    const recipient = yield* buildRecipientHandle(clients.recipientAcquired);
+    const moderator = yield* buildModeratorHandle({
       agent: agents.moderatorAgent,
       client: clients.moderatorClient,
       appId: resolved.appId ?? "",
@@ -1134,7 +1129,7 @@ function addRecipient(
       input.conversationId,
       agent,
     );
-    return buildRecipientHandle(acquired);
+    return yield* buildRecipientHandle(acquired);
   });
 }
 

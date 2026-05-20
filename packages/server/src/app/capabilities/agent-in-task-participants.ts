@@ -1,28 +1,14 @@
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
 import type { ForbiddenError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { TaskId } from "@moltzap/protocol/task";
+import {
+  AgentInTaskParticipants,
+  type AgentInTaskParticipantsValue,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
 
-/**
- * Tier 2 capability — `agentId` is in `task_participants` for `taskId`.
- * Used by `TaskConversationAddParticipant` (D1's new handler) to prove
- * the agent being added to a conversation already participates in the
- * parent task — today's inline `task_participants` query becomes the
- * capability obtain.
- *
- * Phase 1 ships the tag + obtain helper; D1's
- * `TaskConversationAddParticipant` handler consumes it from day one
- * (E ships before D1 lands).
- */
-export interface AgentInTaskParticipantsValue {
-  readonly taskId: TaskId;
-  readonly agentId: AgentId;
-}
-
-export class AgentInTaskParticipants extends Context.Tag(
-  "@moltzap/server/AgentInTaskParticipants",
-)<AgentInTaskParticipants, AgentInTaskParticipantsValue>() {}
+export { AgentInTaskParticipants, type AgentInTaskParticipantsValue };
 
 /**
  * Smart constructor. Delegates to

@@ -21,10 +21,6 @@ import {
   MessageServiceTag,
   TaskServiceTag,
 } from "../../app/layers.js";
-import {
-  MessageSendPermission,
-  obtainMessageSendPermission,
-} from "../../app/capabilities/index.js";
 import { LeaseInvalidError } from "../../app/lease-registry.js";
 import {
   catchSqlErrorAsDefect,
@@ -34,6 +30,10 @@ import type { LeaseRegistry } from "../../app/lease-registry.js";
 import type { ConversationService } from "../services/conversation.service.js";
 import type { MessageService } from "../services/message.service.js";
 import type { TaskService } from "../services/task.service.js";
+import {
+  MessageSendPermission,
+  obtainMessageSendPermission,
+} from "../../app/capabilities/index.js";
 
 type MessagesSendParams = ParamsOf<typeof MessagesSend>;
 
@@ -149,6 +149,10 @@ function sendWithDispatchLease(input: LeaseSendInput) {
         claimDispatchLease(input.services.leaseRegistry, leaseId),
         (claim) =>
           Effect.gen(function* () {
+            // Hand-piped MessageSendPermission — see `messages.ts → MessagesSend`
+            // for the descriptor-level note explaining why this slot
+            // doesn't auto-provision (the obtain helper needs the
+            // resolved conversationId, post-resolution).
             const carrier = yield* input.services.messageService
               .sendInsert({
                 conversationId: input.conversationId,
@@ -214,6 +218,12 @@ function handleMessageSend(
           services,
         });
       }
+      // `MessagesSend` is the lone descriptor whose `MessageSendPermission`
+      // is hand-piped (not auto-provisioned by the dispatcher): the obtain
+      // helper needs the RESOLVED `conversationId` (from to: / replyToId:
+      // lookup above), which the dispatcher's argsOf can't see — only the
+      // raw wire params. See packages/protocol/src/task/messages.ts →
+      // MessagesSend for the design rationale.
       const message = yield* services.messageService
         .send({
           conversationId,

@@ -33,7 +33,6 @@ export { TaskFailedNotificationDefinition } from "../task/methods.js";
 
 // Primitives.
 export {
-  NotificationWaitError,
   ServerRequestWaitError,
   type CloseableTestClient,
   type ServerRpcContext,

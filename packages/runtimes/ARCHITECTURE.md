@@ -51,13 +51,13 @@ and the typed error taxonomy:
 
 | # | Topic | Detail doc |
 |---|---|---|
-| 3.1 | Single-runtime startup sequence | [01-single-runtime-startup.md](docs/architecture/01-single-runtime-startup.md) |
-| 3.2 | Fleet launch sequence | [02-fleet-launch.md](docs/architecture/02-fleet-launch.md) |
-| 3.3 | Per-adapter spawn details (OpenClaw / Nanoclaw / ClaudeCode) | [03-per-adapter-spawn.md](docs/architecture/03-per-adapter-spawn.md) |
-| 3.4 | Workspace adapter — binary path resolution | [04-workspace-path-resolution.md](docs/architecture/04-workspace-path-resolution.md) |
-| 3.5 | Shutdown propagation | [05-shutdown-propagation.md](docs/architecture/05-shutdown-propagation.md) |
-| 3.6 | Error matrix | [06-error-matrix.md](docs/architecture/06-error-matrix.md) |
-| 3.7 | Per-process state machine | [07-process-state-machine.md](docs/architecture/07-process-state-machine.md) |
+| 3.1 | Single-runtime startup sequence | [01-single-runtime-startup.md](docs/architecture/single-runtime-startup.md) |
+| 3.2 | Fleet launch sequence | [02-fleet-launch.md](docs/architecture/fleet-launch.md) |
+| 3.3 | Per-adapter spawn details (OpenClaw / Nanoclaw / ClaudeCode) | [03-per-adapter-spawn.md](docs/architecture/per-adapter-spawn.md) |
+| 3.4 | Workspace adapter — binary path resolution | [04-workspace-path-resolution.md](docs/architecture/workspace-path-resolution.md) |
+| 3.5 | Shutdown propagation | [05-shutdown-propagation.md](docs/architecture/shutdown-propagation.md) |
+| 3.6 | Error matrix | [06-error-matrix.md](docs/architecture/error-matrix.md) |
+| 3.7 | Per-process state machine | [07-process-state-machine.md](docs/architecture/process-state-machine.md) |
 
 Trace-capture flow has no per-flow doc yet. The harness lives in
 `trace-capture-{bundle,harness,payload}.ts` and is loaded by the external

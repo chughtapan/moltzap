@@ -26,14 +26,6 @@ import {
   TaskServiceTag,
 } from "../../app/layers.js";
 import {
-  AddParticipantPermission,
-  ConversationCreateAuthorization,
-  ConversationParticipantAccess,
-  obtainAddParticipantPermission,
-  obtainConversationCreateAuthorization,
-  obtainConversationParticipantAccess,
-} from "../../app/capabilities/index.js";
-import {
   broadcastNotificationToAgents,
   broadcastNotificationToConversation,
 } from "./notification-broadcast.js";
@@ -76,27 +68,16 @@ export const conversationHandlers: RpcMethodRegistry = [
         // misses; the `ConversationCreateAuthorization` composite's
         // `ExistingDm` short-circuit reaches the service body before
         // `input.mintTask` is yielded.
-        const conversation = yield* conversationService
-          .create({
-            type: params.type,
-            name: params.name,
-            agentIds,
-            creatorAgentId: ctx.agentId,
-            mintTask: taskService.createDefaultTaskForType(
-              params.type,
-              ctx.agentId,
-            ),
-          })
-          .pipe(
-            Effect.provideServiceEffect(
-              ConversationCreateAuthorization,
-              obtainConversationCreateAuthorization({
-                type: params.type,
-                agentIds,
-                creatorAgentId: ctx.agentId,
-              }),
-            ),
-          );
+        const conversation = yield* conversationService.create({
+          type: params.type,
+          name: params.name,
+          agentIds,
+          creatorAgentId: ctx.agentId,
+          mintTask: taskService.createDefaultTaskForType(
+            params.type,
+            ctx.agentId,
+          ),
+        });
 
         // `ConversationService.create` subscribes every participant's
         // open sockets to the new conversation; this handler fans the
@@ -136,17 +117,10 @@ export const conversationHandlers: RpcMethodRegistry = [
           "TaskConversationList + client-side filter (no Get equivalent)",
         );
         const conversationService = yield* ConversationServiceTag;
-        return yield* conversationService
-          .get(params.conversationId, ctx.agentId)
-          .pipe(
-            Effect.provideServiceEffect(
-              ConversationParticipantAccess,
-              obtainConversationParticipantAccess(
-                params.conversationId,
-                ctx.agentId,
-              ),
-            ),
-          );
+        return yield* conversationService.get(
+          params.conversationId,
+          ctx.agentId,
+        );
       }).pipe(Effect.withSpan("conversations.get")),
   }),
   defineTaskMethod(ConversationsUpdate, {
@@ -294,18 +268,11 @@ export const conversationHandlers: RpcMethodRegistry = [
         );
         const conversationService = yield* ConversationServiceTag;
         const targetAgentId = params.participant.id as AgentId;
-        const participant = yield* conversationService
-          .addParticipant(params.conversationId, targetAgentId, ctx.agentId)
-          .pipe(
-            Effect.provideServiceEffect(
-              AddParticipantPermission,
-              obtainAddParticipantPermission({
-                conversationId: params.conversationId,
-                requesterAgentId: ctx.agentId,
-                targetAgentId,
-              }),
-            ),
-          );
+        const participant = yield* conversationService.addParticipant(
+          params.conversationId,
+          targetAgentId,
+          ctx.agentId,
+        );
         // Per architect plan §2 module 7: the redundant
         // `getByAgent(...)` subscription loop dropped — the service
         // already calls `subscribeAgentsToConversation` in

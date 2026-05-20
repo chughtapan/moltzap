@@ -1,29 +1,14 @@
-import { Context, Effect } from "effect";
-import type { Task } from "@moltzap/protocol";
+import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { TaskId } from "@moltzap/protocol/task";
+import {
+  TaskReadAccess,
+  type TaskReadAccessValue,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
 import type { TaskServiceError } from "../../task/services/task.service.js";
 
-/**
- * Tier 1 capability — caller has read access to `task` (initiator OR
- * admitted `task_participant`).
- *
- * Value payload carries the `task` row already fetched by today's
- * `TaskService.loadTaskWithReadAccess` check; consumers reuse the payload.
- *
- * Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
- * `getMessagesSince`) via the R-channel; handlers wire the value with
- * `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
- */
-export interface TaskReadAccessValue {
-  readonly task: Task;
-  readonly callerAgentId: AgentId;
-}
-
-export class TaskReadAccess extends Context.Tag(
-  "@moltzap/server/TaskReadAccess",
-)<TaskReadAccess, TaskReadAccessValue>() {}
+export { TaskReadAccess, type TaskReadAccessValue };
 
 /**
  * Smart constructor. Delegates to `TaskService.loadTaskWithReadAccess` so the

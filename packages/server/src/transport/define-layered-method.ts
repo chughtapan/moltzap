@@ -11,7 +11,12 @@ import {
   NetworkLayerScope,
   TaskLayerScope,
 } from "./layer-scopes.js";
-import type { AppTags, NetworkTags, TaskTags } from "./layer-tags.js";
+import type {
+  AppTags,
+  CapabilityTags,
+  NetworkTags,
+  TaskTags,
+} from "./layer-tags.js";
 
 interface MethodDef<P extends TSchema, R extends TSchema, Required, E> {
   readonly handler: (
@@ -60,8 +65,12 @@ export function defineNetworkMethod<
 
 /**
  * Task-layer RPC method binding. Handler `R`-channel is
- * `Reqs extends TaskTags`; provides `NetworkLayerScope` and
- * `TaskLayerScope` structurally.
+ * `Reqs extends TaskTags | CapabilityTags`; provides `NetworkLayerScope`
+ * and `TaskLayerScope` structurally. Capability tags are admitted so
+ * the typed dispatcher's auto-provision step can fill them from the
+ * descriptor's `capabilities` array. The cross-package lockstep
+ * (handler R ⊆ `CapabilitiesOf&lt;D>`) is enforced at
+ * `typed-dispatcher.types-check.ts`.
  *
  * See `defineNetworkMethod` for the maintenance contract.
  */
@@ -70,7 +79,7 @@ export function defineTaskMethod<
   P extends TSchema,
   R extends TSchema,
   E = never,
-  Reqs extends TaskTags = TaskTags,
+  Reqs extends TaskTags | CapabilityTags = TaskTags,
 >(
   definition: RpcDefinition<Name, P, R>,
   def: MethodDef<P, R, Reqs | NetworkLayerScope | TaskLayerScope, E>,
@@ -89,8 +98,8 @@ export function defineTaskMethod<
 
 /**
  * App-layer RPC method binding. Handler `R`-channel is
- * `Reqs extends AppTags`; provides all three layer scopes
- * structurally.
+ * `Reqs extends AppTags | CapabilityTags`; provides all three layer
+ * scopes structurally. Capability tags admit auto-provision.
  *
  * See `defineNetworkMethod` for the maintenance contract.
  */
@@ -99,7 +108,7 @@ export function defineAppMethod<
   P extends TSchema,
   R extends TSchema,
   E = never,
-  Reqs extends AppTags = AppTags,
+  Reqs extends AppTags | CapabilityTags = AppTags,
 >(
   definition: RpcDefinition<Name, P, R>,
   def: MethodDef<

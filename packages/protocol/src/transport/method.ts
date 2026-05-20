@@ -13,27 +13,26 @@ import {
   type ResponseFrame,
 } from "./wire.js";
 import type { CapabilityDescriptor } from "./capabilities.js";
-import type { SlotDisposition } from "./defaults.js";
+import type { FailClosedDefault } from "./defaults.js";
 
 /**
  * Typed manifest for one RPC method: wire name + schemas + validators.
  * Type-only payload accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>`
  * — there is no runtime `Params`/`Result` property.
  *
- * Spec F (#617) introduces three OPTIONAL per-definition metadata fields:
+ * Two OPTIONAL per-definition metadata fields shape dispatcher behavior:
  *
- * - `slotDisposition` (Spec F G4): when present, the slot is OPTIONAL in
- *   the handler-table type and the dispatcher synthesizes the
- *   fail-CLOSED default response when the slot is absent at construction.
- *   Absent → REQUIRED slot (omission is a `tsc` error at the factory call).
- * - `capabilities` (Spec F G5/G6): a runtime-readable list of capability
- *   descriptors the dispatcher iterates to thread
- *   `Effect.provideServiceEffect`. Each descriptor names a
- *   `Context.Tag` plus an `argsOf` resolver that derives the obtain
- *   helper's arguments from `params` + `ctx`. Absent → no capabilities.
- *
- * All three are optional + read-only so the addition is non-breaking for
- * legacy `defineRpc` callers that don't yet declare them.
+ * - `optional`: when present, the slot is OPTIONAL — every
+ *   `makeServerConnection({ handlers })` literal MUST still name the
+ *   slot key, but its value may be the sentinel (`forbidden` /
+ *   `noOpNotification`) and the dispatcher synthesizes the fail-CLOSED
+ *   response without invoking a handler. Absent → REQUIRED slot
+ *   (omission is a `tsc` error at the factory call).
+ * - `capabilities`: a runtime-readable list of capability descriptors
+ *   the dispatcher iterates to thread `Effect.provideServiceEffect`.
+ *   Each descriptor names a `Context.Tag` plus an `argsOf` resolver
+ *   that derives the obtain helper's args from `params` + `ctx`.
+ *   Absent → no capabilities.
  */
 export interface RpcDefinition<
   Name extends string,
@@ -54,11 +53,11 @@ export interface RpcDefinition<
   ) => ResponseFrame;
 
   /**
-   * Spec F G4: slot disposition. Absent → REQUIRED. Present → OPTIONAL
-   * with the embedded fail-CLOSED default. Read by `IsOptionalSlot&lt;D>`
+   * Slot disposition. Absent → REQUIRED. Present → OPTIONAL with the
+   * embedded fail-CLOSED default. Read by `IsOptionalSlot&lt;D>`
    * (type-level) and the runtime dispatcher.
    */
-  readonly slotDisposition?: SlotDisposition;
+  readonly optional?: FailClosedDefault;
 
   /**
    * Spec F G5/G6: per-definition capability descriptors. Each entry's
@@ -82,7 +81,7 @@ export function defineRpc<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
-  Disp extends SlotDisposition | undefined = undefined,
+  Opt extends FailClosedDefault | undefined = undefined,
   Caps extends ReadonlyArray<CapabilityDescriptor> = readonly [],
 >(def: {
   name: Name;
@@ -90,32 +89,34 @@ export function defineRpc<
   result: R;
 
   /**
-   * Spec F G4: present → OPTIONAL slot with embedded fail-CLOSED default.
-   * Absent → REQUIRED slot. See `defaults.ts → optionalForbidden`.
+   * Present → OPTIONAL slot with the carried fail-CLOSED default.
+   * Absent → REQUIRED slot (handler-table type rejects missing key
+   * with TS2741 at the factory call). See `defaults.ts → forbiddenDefault`.
    *
-   * Generic-parameterized so the call-site narrows the inferred type to
-   * a literal `{ slotDisposition: SlotDisposition }` shape (vs. just
-   * `slotDisposition?: SlotDisposition`). `IsOptionalSlot&lt;D&gt;` reads
-   * the narrowed shape; without the narrowing, every definition would
-   * appear REQUIRED to the mapped-type pass.
+   * Generic-parameterized so the call-site narrows the inferred type
+   * to the literal `{ optional: FailClosedDefault }` shape (vs the
+   * widened `optional?: FailClosedDefault`). `IsOptionalSlot&lt;D>`
+   * reads the narrowed shape; without the narrowing, every definition
+   * would appear REQUIRED to the mapped-type pass.
    */
-  slotDisposition?: Disp;
+  optional?: Opt;
 
   /**
-   * Spec F G5/G6: capability descriptors the dispatcher iterates to
-   * thread `Effect.provideServiceEffect` from a `CapabilityProviderTable`.
-   * Each descriptor names a `Context.Tag` + an `argsOf` resolver.
+   * Per-definition capability descriptors. Each entry pairs a Spec E
+   * `Context.Tag` (the value the handler will `yield*`) with a
+   * synchronous `argsOf` resolver that derives the obtain helper's
+   * arguments from wire `params` + dispatcher `ctx`. The dispatcher
+   * reads this list at runtime (TypeScript erases R channels).
    *
    * Generic-parameterized so the return type preserves the literal
-   * tuple shape — `CapabilitiesOf&lt;D&gt;` reads
-   * `D["capabilities"][number]["tag"]` to extract the tag union. Without
-   * a captured `Caps` generic, `capabilities` widens to
-   * `ReadonlyArray&lt;CapabilityDescriptor&gt;` and the per-tag info is
-   * lost.
+   * tuple shape — `CapabilitiesOf&lt;D>` reads
+   * `D["capabilities"][number]["tag"]` to extract the tag union.
+   * Without a captured `Caps` generic, `capabilities` widens to
+   * `ReadonlyArray&lt;CapabilityDescriptor>` and the per-tag info is lost.
    */
   capabilities?: Caps;
 }): RpcDefinition<Name, P, R> & {
-  readonly slotDisposition: Disp;
+  readonly optional: Opt;
   readonly capabilities: Caps;
 } {
   const d: RpcDefinition<Name, P, R> = {
@@ -126,15 +127,13 @@ export function defineRpc<
     validateResult: ajv.compile(def.result),
     encodeRequest: (id, params) => requestFrame(id, d, params as Static<P>),
     encodeResponse: (id, result) => responseFrame(id, { result }),
-    ...(def.slotDisposition !== undefined
-      ? { slotDisposition: def.slotDisposition }
-      : {}),
+    ...(def.optional !== undefined ? { optional: def.optional } : {}),
     ...(def.capabilities !== undefined
       ? { capabilities: def.capabilities }
       : {}),
   };
   return d as RpcDefinition<Name, P, R> & {
-    readonly slotDisposition: Disp;
+    readonly optional: Opt;
     readonly capabilities: Caps;
   };
 }
