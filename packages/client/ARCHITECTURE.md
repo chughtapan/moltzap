@@ -56,7 +56,7 @@ understand the lease and connection state machines that underpin all flows.
 | [Notification Subscription](docs/architecture/notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; lazy-materialization cancellation contract; tagged errors |
 | [Error Taxonomy](docs/architecture/error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
 | [CLI Command Flow](docs/architecture/cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
-| [`moltzap start` CLI](docs/architecture/moltzap-start-cli.md) | Spec D2 (#599) single-command flow over Spec D1 atomic `TaskCreate` + optional `MessagesSend`. Exit-code contract (0/1/2/64) and partial-failure semantics |
+| [`moltzap start` CLI](docs/architecture/moltzap-start-cli.md) | Spec D2 (#599) single-command flow over Spec D1 atomic `TaskCreate` + optional `MessagesSend`. Exit-code contract (0/1/2/64), partial-failure semantics, dedup-hit conversation reuse via `TaskConversationList` (N6), and zero-participant wire-shape carve-out (N7) |
 | [State Machines](docs/architecture/state-machines.md) | Dispatch lease and connection state machines |
 | [Channel-base subpath](docs/architecture/channel-base.md) | `@moltzap/client/channel-base` — canonical `LeaseAlreadyConsumed`, `LeaseStore`/`LeaseGuard`, markup-parameterized `formatCrossConv`/`formatGroupBlock` (shared by openclaw, claude-code, nanoclaw) |
 

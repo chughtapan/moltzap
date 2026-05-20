@@ -20,6 +20,7 @@ live in `commands/start.ts`.
 | `TaskCreate` | Spec D1 (#635) → `packages/protocol/src/task/tasks.ts → TaskCreate` | Every invocation |
 | `MessagesSend` | Pre-D1, unchanged | Only when `--message` is set |
 | `AgentsLookupByName` | Pre-D1, unchanged | Per name-shaped participant token (uuid-shaped tokens skip the lookup) |
+| `TaskConversationList` | Spec D1 (#598) → `packages/protocol/src/task/tasks.ts → TaskConversationList` | Only on `TaskCreate` dedup hit (P2-A); used by `findReusableConversation` to locate a reusable conversation under the existing task |
 
 **All three RPCs go through `transport.ts → rpc(...)` (the CLI
 `Transport` service), NOT `socket-client.ts → request(...)` (the
@@ -31,13 +32,26 @@ makeFakeTransport`. Architect plan §R1 explains the divergence; the
 local resolver `start.ts → resolveAgentToken` is the new helper that
 covers D2's testability + transport-uniformity needs.**
 
-`TaskCreate` is called with `{ appId, invitedAgentIds, initialConversation:
-{ name, participants } }` where `initialConversation.participants ===
-invitedAgentIds` (the caller is implicit per D1 spec body Goal 5;
-server adds the caller to both `task_participants` and
-`conversation_participants`). Per D1 plan §R8 / Canary `_C5` the
-response shape is `{ task, conversation: Conversation | null }`; when
-`initialConversation` is sent, `conversation` is non-null.
+`TaskCreate` is called with `{ appId, invitedAgentIds, initialConversation
+}` where `initialConversation` carries `participants: invitedAgentIds`
+ONLY when `invitedAgentIds.length > 0` — the caller-only path
+(`invitedAgentIds === []`) MUST omit the `participants` field entirely
+because `InitialConversationSchema.participants` is
+`Type.Optional(Type.Array(AgentId, { minItems: 1 }))` (P2-B carve-out
+named in spec D2 amendment N7; pinned by `start.test.ts →
+zeroParticipants`). The server adds the caller to both
+`task_participants` and `conversation_participants` implicitly.
+
+Per D1 plan §R8 / Canary `_C5` the response shape is
+`{ task, conversation: Conversation | null }`. The `conversation === null`
+branch fires on the **dedup hit** path: when `appId === DEFAULT_APP_ID`
+AND the caller already owns a task with the exact same
+`{caller} ∪ invitedAgentIds` participant set, the server returns the
+existing task with no new conversation (D1 Goal 3 — dedup is task-level,
+not conversation-level). The CLI MUST NOT treat this as a decode error
+(P2-A); instead it auto-fetches a reusable conversation under the
+existing task via `findReusableConversation` and reprints the standard
+`Task started:` line with a `reusing existing conversation:` label.
 
 ## 2. Command shape
 
@@ -81,13 +95,26 @@ sequenceDiagram
     start->>tx: rpc(AgentsLookupByName, { names: ["bob"] }) (per name-shaped token)
     tx-->>start: { agents: [{ id, ... }] } or empty
 
-    Note over start: 3. rpc(TaskCreate, {appId, invitedAgentIds, initialConversation:{name, participants}})
+    Note over start: 3. rpc(TaskCreate, {appId, invitedAgentIds, initialConversation})<br>initialConversation omits participants when invitedAgentIds.length === 0 (P2-B)
     start->>tx: TaskCreate
-    tx-->>start: { task, conversation }
+    tx-->>start: { task, conversation: Conversation | null }
     Note over start: failure → TransportError → exit 1<br>stdout: nothing
-    Note over start: success → stdout: Task started: <taskId> (conversation: <convId>)
 
-    alt --message supplied
+    alt conversation !== null (fresh create)
+        Note over start: stdout: Task started: <taskId> (conversation: <convId>)
+    else conversation === null (dedup hit — P2-A)
+        Note over start: 3b. rpc(TaskConversationList, {limit, cursor?}) — follow nextCursor until match
+        start->>tx: TaskConversationList
+        tx-->>start: { items, nextCursor? }
+        Note over start: findReusableConversation(taskId): pick first item where<br>item.taskId === existingTaskId AND item.conversation.archivedAt === undefined
+        alt reusable conversation found
+            Note over start: stdout: Task started: <taskId> (reusing existing conversation: <convId>)
+        else no usable conversation (closed task, all archived, out of lookup window)
+            Note over start: stderr: Task already exists but is closed: <taskId> → exit 1
+        end
+    end
+
+    alt --message supplied AND a conversation is in hand
         Note over start: 4. rpc(MessagesSend, {conversationId: conv.id, parts:[{type:text,text}]})
         start->>tx: MessagesSend
         tx-->>start: { message }
@@ -102,9 +129,9 @@ sequenceDiagram
 
 | Code | Meaning | Stdout state | Stderr state |
 |---|---|---|---|
-| 0 | Full success | `Task started: …` (+ `Message sent: …` when `--message`) | empty |
-| 1 | `TaskCreate` failed | empty | `Failed: <err.message>` |
-| 2 | `TaskCreate` OK, `MessagesSend` failed | `Task started: …` (no `Message sent`) | `Error sending message: <err.message>` |
+| 0 | Full success (fresh create OR dedup hit with reusable conversation) | `Task started: …` (+ `Message sent: …` when `--message`) | empty |
+| 1 | `TaskCreate` wire failure OR dedup hit on a closed/unreachable task (P2-A) | empty | `Failed: <err.message>` OR `Task already exists but is closed: <taskId>` |
+| 2 | `TaskCreate` (or dedup reuse) OK, `MessagesSend` failed | `Task started: …` (no `Message sent`) | `Error sending message: <err.message>` |
 | 64 | Usage error (bad `--app-id` UUID OR unresolvable agent token) | empty | `Invalid --app-id: not a UUID` OR `Cannot resolve "<token>": <reason>` |
 
 NO rollback on exit 2: the task + empty conversation persist; user can
@@ -288,6 +315,13 @@ Spec D2 acceptance criteria → test files:
 | Partial failure | `start.test.ts > partial-success` | `TaskCreate` success + `MessagesSend` fail → assert stdout has `Task started:` line, stderr `Error sending message:`, exit 2 |
 | Unresolved participant | `start.test.ts > unresolved-participant` | `AgentsLookupByName` returns empty agents; assert exit 64, stderr names the token, ZERO `TaskCreate` / `MessagesSend` calls |
 | Help text | `start.test.ts > help` | snapshot `moltzap start --help`; assert presence of synopsis, `--message`, `--app-id`, and the four exit codes |
+| **Dedup hit, single conversation** (P2-A) | `start.test.ts > dedupHitSingleConversation` | `TaskCreate` returns `{ task: existing, conversation: null }`; `TaskConversationList` returns one matching item; assert stdout `Task started: <id> (reusing existing conversation: <id>)` |
+| **Dedup hit, multiple conversations** (P2-A tie-break) | `start.test.ts > dedupHitMultipleConversations` | server-order first match wins (most-recently-active) |
+| **Dedup hit + `--message`** (P2-A reuse-conv MessagesSend route) | `start.test.ts > dedupHitWithMessage` | `MessagesSend.params.conversationId === existing.conversation.id` |
+| **Dedup hit, filtering** (P2-A taskId + archivedAt filter) | `start.test.ts > dedupHitFiltersOtherTaskAndArchived` | items from other tasks AND `archivedAt !== undefined` items are skipped |
+| **Dedup hit, closed task** (P2-A no-usable-conv branch) | `start.test.ts > dedupHitTaskClosedNoUsableConversation` | `findReusableConversation` returns null → stderr `Task already exists but is closed: <taskId>` + exit 1 |
+| **Dedup hit, pagination** (P2-A cursor follow) | `start.test.ts > dedupHitPaginatesUntilFound` | first page has no match → follow `nextCursor` until found |
+| **Zero-participant wire shape** (P2-B carve-out) | `start.test.ts > zeroParticipants` | `TaskCreate.params.initialConversation` deep-equals `{ name }` (no `participants` key) |
 | CHANGELOG | (manual review at PR time) | grep root `CHANGELOG.md` `[Unreleased]` for the new-command entry |
 
 Test infra reuses `makeFakeTransport(...)` from
