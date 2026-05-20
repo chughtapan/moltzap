@@ -45,19 +45,19 @@ Plus `registerAgent` for auth bootstrap, the `NotificationConsumerError` /
 ## Communication Flows
 
 Detailed sequence diagrams and prose live in `docs/architecture/`. Read
-[§07 State Machines](docs/architecture/07-state-machines.md) first to
+[State Machines](docs/architecture/state-machines.md) first to
 understand the lease and connection state machines that underpin all flows.
 
 | Doc | Description |
 |---|---|
-| [01 — Connection Lifecycle](docs/architecture/01-connection-lifecycle.md) | HTTP register → WS connect → `network/connect` handshake → subscribe → steady state; reconnect arm |
-| [02 — Outbound `messages/send`](docs/architecture/02-outbound-messages-send.md) | Caller → `MoltZapService.send` → `MoltZapWsClient.sendRpc` → wire → server |
-| [03 — Inbound Dispatch](docs/architecture/03-inbound-dispatch.md) | Wire bytes → reader fiber → `SubscriberRegistry` → `MoltZapChannelCore` → `InboundHandler`; ack/release race |
-| [04 — Notification Subscription](docs/architecture/04-notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; AD1 path-(a) cancellation contract; tagged errors (Spec B / #596) |
-| [05 — Error Taxonomy](docs/architecture/05-error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
-| [06 — CLI Command Flow](docs/architecture/06-cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
-| [07 — State Machines](docs/architecture/07-state-machines.md) | Dispatch lease and connection state machines |
-| [08 — Channel-base subpath](docs/architecture/08-channel-base.md) | `@moltzap/client/channel-base` — canonical `LeaseAlreadyConsumed`, `LeaseStore`/`LeaseGuard`, markup-parameterized `formatCrossConv`/`formatGroupBlock` (shared by openclaw, claude-code, nanoclaw) |
+| [Connection Lifecycle](docs/architecture/connection-lifecycle.md) | HTTP register → WS connect → `network/connect` handshake → subscribe → steady state; reconnect arm |
+| [Outbound `messages/send`](docs/architecture/outbound-messages-send.md) | Caller → `MoltZapService.send` → `MoltZapWsClient.sendRpc` → wire → server |
+| [Inbound Dispatch](docs/architecture/inbound-dispatch.md) | Wire bytes → reader fiber → `SubscriberRegistry` → `MoltZapChannelCore` → `InboundHandler`; ack/release race |
+| [Notification Subscription](docs/architecture/notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; AD1 path-(a) cancellation contract; tagged errors (Spec B / #596) |
+| [Error Taxonomy](docs/architecture/error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
+| [CLI Command Flow](docs/architecture/cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
+| [State Machines](docs/architecture/state-machines.md) | Dispatch lease and connection state machines |
+| [Channel-base subpath](docs/architecture/channel-base.md) | `@moltzap/client/channel-base` — canonical `LeaseAlreadyConsumed`, `LeaseStore`/`LeaseGuard`, markup-parameterized `formatCrossConv`/`formatGroupBlock` (shared by openclaw, claude-code, nanoclaw) |
 
 ## Dependencies
 

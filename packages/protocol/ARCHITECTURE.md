@@ -88,19 +88,19 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 
 | Topic | Document |
 |---|---|
-| How wire methods are defined and validated | [01 — Method-definition pipeline](docs/architecture/01-method-definition.md) |
-| Decoding inbound frames (both sides) | [02 — Frame decode pipeline](docs/architecture/02-frame-decode.md) |
-| Notification fan-out | [05 — Notification fan-out](docs/architecture/05-notification-fanout.md) |
-| Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
-| Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
-| Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
-| TestClient Stream consolidation | [12 — TestClient Stream consolidation](docs/architecture/12-test-client-stream-consolidation.md) |
+| How wire methods are defined and validated | [Method-definition pipeline](docs/architecture/method-definition.md) |
+| Decoding inbound frames (both sides) | [Frame decode pipeline](docs/architecture/frame-decode.md) |
+| Notification fan-out | [Notification fan-out](docs/architecture/notification-fanout.md) |
+| Tagged error registry mechanics | [Tagged error registry](docs/architecture/tagged-error-registry.md) |
+| Layer DAG enforcement | [Layer DAG](docs/architecture/layer-dag.md) |
+| Conformance suite mechanics | [Conformance suite](docs/architecture/conformance-suite.md) |
+| TestClient Stream consolidation | [TestClient Stream consolidation](docs/architecture/test-client-stream-consolidation.md) |
 
 The typed dispatcher, originator lifecycle, and worked end-to-end RPC
 flow (request handling + server-initiated callbacks) are documented in
 the server package, where the only real consumers live. See
-`packages/server/docs/architecture/03-request-response-handling.md` and
-`packages/server/docs/architecture/04-server-initiated-callback.md`. The
+`packages/server/docs/architecture/request-response-handling.md` and
+`packages/server/docs/architecture/server-initiated-callback.md`. The
 protocol-side type-system invariants are exercised by the canaries in
 `src/transport/typed-dispatcher.types-check.ts` — the source file is the
 contract.
