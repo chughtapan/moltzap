@@ -10,6 +10,8 @@
  * capabilities, TaskMasterHandlers REQUIRED slots) follow in their
  * respective commits.
  */
+import type { JsonValue } from "../schema-primitives.js";
+import type { RpcErrorPayload } from "../transport/wire-errors.js";
 import {
   agentClientRpcMethods,
   taskMasterRpcMethods,
@@ -107,6 +109,12 @@ type _ServerSupersetOfTm = AssertExtends<
   AnyServerRpcDefinition
 >;
 
+// ── JsonValue narrowing — RpcErrorPayload.data shape ────────────────
+type _RpcErrorPayloadDataIsJsonValue = AssertEquals<
+  RpcErrorPayload["data"],
+  JsonValue | undefined
+>;
+
 // ── Closed union — references every predicate so tsc sees them used ─
 export type _D3CanaryHolds =
   | _CardinalityHolds
@@ -123,7 +131,8 @@ export type _D3CanaryHolds =
   | _AgentHasMessagesList
   | _TasksCloseNotInAgentSet
   | _ConvCreateNotInAgentSet
-  | _ServerSupersetOfTm;
+  | _ServerSupersetOfTm
+  | _RpcErrorPayloadDataIsJsonValue;
 
 // Reference nonTmAuthorityTaskRpcMethods so knip sees it as consumed
 // (otherwise it's flagged as exported-but-unused until Commit 4).
