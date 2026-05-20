@@ -40,6 +40,22 @@ import {
   TasksGetMessagesSince,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
+  // Spec D1 (#598) — additive `task/*` + `task/conversation/*` surface.
+  // Both old and new families coexist until D3 (#600) deletes the legacy
+  // `Tasks*` / `Conversations*` entries above.
+  TaskCreate,
+  TaskLeave,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
 } from "./tasks.js";
 
 export const taskRpcMethods = [
@@ -67,6 +83,16 @@ export const taskRpcMethods = [
   TasksStoreMessage,
   TasksGetMessages,
   TasksGetMessagesSince,
+  // Spec D1 additions. Order: TaskCreate / TaskLeave first (task-level
+  // operations), then the `task/conversation/*` admin set.
+  TaskCreate,
+  TaskLeave,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
 ] as const;
 
 export const taskNotifications = [
@@ -79,4 +105,11 @@ export const taskNotifications = [
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
+  // Spec D1: dual-emit alongside the legacy `conversations/*` set.
+  // D3 deletes the legacy entries; this block becomes canonical.
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
 ] as const;

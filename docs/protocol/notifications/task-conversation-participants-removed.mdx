@@ -1,0 +1,36 @@
+---
+title: "task/conversation/participants/removed"
+description: "Pushed as the `task/conversation/participants/removed` notification."
+---
+
+# task/conversation/participants/removed
+
+Pushed as the `task/conversation/participants/removed` notification.
+
+## Params
+
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
+</ResponseField>
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="removedAgentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="reason" type="tm_remove | task_leave">
+  The reason field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "task/conversation/participants/removed",
+  "params": { ... }
+}
+```

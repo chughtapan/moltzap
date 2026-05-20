@@ -28,6 +28,7 @@ export interface ConversationColumns {
   readonly created_by_id: AgentId;
   readonly created_at: Date;
   readonly updated_at: Date;
+  readonly archived_at: Date | null;
 }
 
 export interface ParticipantRow {
