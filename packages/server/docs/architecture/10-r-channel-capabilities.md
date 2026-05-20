@@ -1,21 +1,29 @@
 # R-channel capabilities
 
-> **Status (Spec E #601):** primitives + `TaskService` cutover live;
-> `ConversationService` + `MessageService` public-method cutover gated
-> on a structural split of those service files (see §7).
-> Plan: [architect plan #606](https://github.com/chughtapan/moltzap/issues/606). Spec: [#601](https://github.com/chughtapan/moltzap/issues/601).
+> **Status:** capability primitives are live AND the Spec F handler
+> refactor is shipped. Twelve task-layer descriptors declare their
+> capabilities on `RpcDefinition.capabilities` and the dispatcher
+> auto-provisions them at request time. `MessagesSend` is the one
+> structural exception — its `conversationId` needs resolution
+> (`to:` / `replyToId:` → DB lookup) before the obtain helper runs,
+> so its handler hand-pipes `MessageSendPermission`. See
+> `packages/protocol/src/task/messages.ts → MessagesSend` for the
+> design rationale.
 
 This doc explains the typed-capability pattern that lifts the prior
 `requireX`-style runtime authority checks into Effect's `R` channel.
-It is the canonical reference for "how do I add a capability?" and
-"why is my handler missing a `provideServiceEffect` call?".
 
-Capability primitives live in `packages/server/src/app/capabilities/`.
-Each capability is a nominal `Context.Tag` whose value type carries the
-runtime IDs + already-fetched payload row produced by today's `requireX`
-runtime check. The obtain helper queues the check; the handler pipes the
-helper into the service method via `Effect.provideServiceEffect`; the
-compiler enforces that the obtain call site exists at all.
+Capability **tag classes** + value types live in
+`packages/protocol/src/task/capabilities/`. **Obtain helpers** (which
+yield `TaskServiceTag` / `ConversationServiceTag` / `MessageServiceTag`)
+live in `packages/server/src/app/capabilities/`. The dispatcher reads
+each descriptor's `capabilities: [...]` array and threads
+`Effect.provideServiceEffect` from a shared provider table at
+`packages/server/src/app/capability-providers.ts`. Handler bodies
+yield the tag value without piping anything; the compile-time gate
+(`packages/protocol/src/transport/typed-dispatcher.types-check.ts →
+Canary 7`) catches a handler that yields a tag NOT declared on its
+descriptor.
 
 ## 1. The bug class this catches
 
@@ -41,12 +49,15 @@ storeMessage(
 ): Effect.Effect<Message, TaskServiceError, TmAuthority>;
 ```
 
-A handler that calls `storeMessage` MUST drain `TmAuthority` via
-`Effect.provideServiceEffect(TmAuthority, obtainTmAuthority(...))`
-before the effect leaves the wrapper, or the `defineTaskMethod`
-constraint `Reqs extends TaskTags` rejects the body at compile time.
-The `capability-r-channel.types-check.ts` Canary 5 enforces this
-wrapper-boundary invariant.
+Today the descriptor `TasksStoreMessage.capabilities` declares
+`[TmAuthority, ConversationInTask, MessageSendPermission]`. The
+dispatcher reads that array per inbound frame, calls the matching
+provider entry from `app/capability-providers.ts`, and threads
+`Effect.provideServiceEffect` over the handler effect before
+invoking. Handlers yield the capability values directly. The
+compile-time lockstep gate (`typed-dispatcher.types-check.ts →
+Canary 7`) rejects handler bodies that yield a tag not declared on
+the descriptor.
 
 ## 2. Two capability shapes
 
@@ -129,41 +140,35 @@ legal authorization paths:
 The handler picks the right constructor at `provideServiceEffect` time
 based on input shape; the service-method body destructures via `_tag`.
 
-## 4. Migration recipe — adding a capability to an existing method
+## 4. Migration recipe — adding a NEW capability to an existing method
 
-`TaskService` is migrated (all 10 public methods consume capability
-tags via the R-channel). `ConversationService` + `MessageService`
-public methods still inline the gate call; their cutover is gated on
-a structural split of `conversation.service.ts` / `message.service.ts`
-to fit the `max-lines: 1050` lint cap with the added R-channel
-plumbing.
-
-The recipe (same shape per site, applies both to the migrated
-`TaskService` sites and to the un-migrated `ConversationService` /
-`MessageService` sites when their cutover lands):
-
-1. **Define the tag + obtain helper** in `app/capabilities/`. One file
-   per capability: Tag class + value type + obtain helper. Wire it into
-   `app/capabilities/index.ts` AND into the `CapabilityTags` sibling
-   alias in `transport/layer-tags.ts`.
-2. **Promote any consumed gate helper** to `@internal` exported on the
-   service class (Decision B / Option A). Drop the `private` modifier;
-   add a JSDoc block ending with `@internal`. Spec E (#601) renamed
-   the gate-helper prefix from `requireX` to `assertX` / `loadX` so
-   the audit grep stays clean.
+1. **Define the tag + value type** in
+   `packages/protocol/src/task/capabilities/<name>.ts`. Tag class +
+   value-type interface only — pure protocol types, no server deps.
+   Re-export from the `capabilities/index.ts` barrel.
+2. **Add the obtain helper** in
+   `packages/server/src/app/capabilities/<name>.ts`. Importing the tag
+   from `@moltzap/protocol/task`. Wire into the
+   `CapabilityTags` sibling alias in `transport/layer-tags.ts`.
 3. **Service method:** add the tag to its R channel:
-   `Effect.Effect<A, E, MyTag>`. Replace
-   `yield* this.assertX(...)` with `yield* MyTag` + a one-line
-   `assertCapabilityMatchesTask` check (when the method also takes the
-   raw `taskId` as a parameter — to catch "handler obtained for task A,
-   passed task B").
-4. **Handler:** add
-   `Effect.provideServiceEffect(MyTag, obtainMyTag(...))` to the
-   handler body's pipe. The `defineTaskMethod` constraint
-   `Reqs extends TaskTags` rejects the handler if it forgets to
-   drain.
-5. **Type-canary update** if the new tag participates in a union-shape
-   semantics (rare; usually only for MessagesSend's composite).
+   `Effect.Effect<A, E, MyTag>`. Body destructures the tag's value
+   via `yield* MyTag` and uses the carried proof rows.
+4. **Descriptor:** add `{ tag: MyTag, argsOf: (params, ctx) => ... }`
+   to the descriptor's `capabilities: [...]` array. `argsOf` returns
+   the shape the provider entry takes (typically `{ taskId,
+   callerAgentId }` or similar; cast `params`/`ctx` internally since
+   they're typed `unknown` at the descriptor boundary).
+5. **Provider table:** add `[MyTag.key]: (args) => obtainMyTag(...)` to
+   `packages/server/src/app/capability-providers.ts`.
+6. **Type-canary:** Canary 7 in
+   `packages/protocol/src/transport/typed-dispatcher.types-check.ts`
+   already catches handler R-channel drift; no per-tag canary needed.
+
+When the descriptor's `argsOf` cannot derive the obtain helper's
+input from raw wire params alone (e.g. `MessagesSend.conversationId`
+requires `to:` / `replyToId:` resolution via DB lookup), skip step 4
++ 5 and keep the hand-piped `Effect.provideServiceEffect` in the
+handler instead — like `messages.handlers.ts → handleMessageSend`.
 
 ## 5. Decision B — gate-helper visibility (`@internal` exported)
 
