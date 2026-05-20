@@ -33,7 +33,7 @@ flowchart TD
     F3 -->|"yes"| F3a["sendFrame(encodeErrorResp(id,<br/>{code: Unauthorized,<br/>message: 'Not authenticated.<br/>Send network/connect first.'})"]
     F3 -->|"no"| F4["conn.originator.handle(frame, {auth, connId})<br/><i>@moltzap/protocol → dispatch.ts → buildServerDispatcher<br/>(per-connection ServerConnection static-table dispatch per Spec F #617 §6 FRI)<br/>called from app/socket-handler.ts:240</i>"]
 
-    F4 --> F5["ServerHandlers[frame.method]<br/>decodeRpcParams(slot.definition, frame.params)<br/>capability auto-provision (Spec F G6) — read slot.definition.capabilities, thread provideServiceEffect from CapabilityProviderTable<br/>slot.handle(params, ctx)<br/>runs inside dispatchRuntime — R = AppTags resolved<br/>structurally; handler body can yield* XServiceTag freely"]
+    F4 --> F5["ServerHandlers[frame.method]<br/>decodeRpcParams(slot.definition, frame.params)<br/>capability auto-provision — read slot.definition.capabilities array, call serverCapabilityProviders[tag.key] for each tag, thread Effect.provideServiceEffect over the handler effect<br/>slot.handle(params, ctx)<br/>runs inside dispatchRuntime — R = AppTags | CapabilityTags resolved structurally; handler body yield* TagName drains the auto-provisioned capability"]
 
     F5 --> F6{"Exit?"}
     F6 -->|"isSuccess"| F6a["successResponse(frame, ms, value)"]
@@ -54,4 +54,4 @@ flowchart TD
 - [§02 WebSocket connection lifecycle](./02-ws-connection-lifecycle.md) — how the socket and reader fiber are set up
 - [§04 Server-initiated callback](./04-server-initiated-callback.md) — `handleResponseFrame` settles server-originated Deferreds
 - [§07 HTTP routes](./07-http-routes.md) — parallel HTTP surface
-- [§10 R-channel capabilities](./10-r-channel-capabilities.md) — typed capability tokens the handler body `yield*`s, drained at the handler boundary via `Effect.provideServiceEffect` from the slot's `CapabilityProviderTable`
+- [§10 R-channel capabilities](./10-r-channel-capabilities.md) — typed capability tokens the handler body `yield*`s, auto-provisioned at frame dispatch from the shared `serverCapabilityProviders` table (`packages/server/src/app/capability-providers.ts`). MessagesSend is the lone hand-piped exception (conversationId resolution must precede the obtain helper)

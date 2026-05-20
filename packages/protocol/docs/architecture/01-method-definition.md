@@ -10,9 +10,11 @@ identical schema semantics:
             domain layer (e.g. task/methods.ts)
                        │
                        ▼  defineRpc({ name, params, result,         transport/method.ts → defineRpc
-                       │              slotDisposition?, capabilities? })
-                       │              (slotDisposition + capabilities are Spec F G4/G5;
-                       │               absent = REQUIRED slot, no capability auto-provision)
+                       │              optional?, capabilities? })
+                       │              (optional absent → REQUIRED slot;
+                       │               optional present → OPTIONAL slot with carried fail-CLOSED default.
+                       │               capabilities absent → no auto-provision; the dispatcher
+                       │               threads `provideServiceEffect` for each entry at request time.)
                        │
        ┌───────────────┴────────────────────────────┐
        ▼                                            ▼
