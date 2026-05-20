@@ -42,6 +42,21 @@ const MoltZapChannelEnv = Config.all({
   evalMode: Config.string("MOLTZAP_EVAL_MODE").pipe(Config.withDefault("0")),
 });
 
+/**
+ * Bidirectional MoltZap conversationId ↔ nanoclaw JID conversion.
+ *
+ * The nanoclaw router speaks JIDs (`mz:<conversationId>`). MoltZap
+ * speaks conversationIds. The prefix is canonical; no provider
+ * disambiguation needed because the moltzap channel is the only
+ * `mz:` consumer.
+ *
+ * - `jidFromConversationId` runs on the inbound path
+ *   (`MoltZapChannel.handleInbound`) and feeds the JID to the router
+ *   via `opts.onChatMetadata` and `opts.onMessage`.
+ * - `conversationIdFromJid` runs on the outbound path
+ *   (`MoltZapChannel.sendMessage`) and strips the prefix back to a
+ *   conversationId before the `messages/send` RPC.
+ */
 function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
 }
@@ -68,6 +83,40 @@ function loadMoltZapChannelEnv(): {
   };
 }
 
+/**
+ * Nanoclaw channel for MoltZap. Wraps `MoltZapChannelCore` from
+ * `@moltzap/client` and presents the nanoclaw `Channel` contract.
+ * Bridges MoltZap's `EnrichedInboundMessage` shape onto nanoclaw's
+ * `NewMessage` projection.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant Core as MoltZapChannelCore (@moltzap/client)
+ *   participant Handler as handleInbound (this class)
+ *   participant Router as nanoclaw router
+ *   Core->>Handler: onInbound(enriched)<br>WS frame decoded + enriched
+ *   note over Handler: Step 1 — jidFromConversationId<br>chatJid = "mz:" + conversationId
+ *   note over Handler: Step 2 — rememberDispatchLease<br>leaseStore.remember(chatJid, leaseId) if present
+ *   note over Handler: Step 3 — maybeAutoRegister (eval mode only)
+ *   Handler->>Router: Step 4 — opts.onChatMetadata({ chatJid, name, ... })<br>nanoclaw receives ChatMetadata BEFORE message
+ *   Handler->>Router: Step 5 — opts.onMessage(chatJid, toNewMessage(enriched))
+ * ```
+ *
+ * Lease-store stale-entry semantic: uses `peek` (not `consume`) so
+ * a second `sendMessage` on the same JID after a consumed lease
+ * receives the typed `LeaseAlreadyConsumed` from the server instead
+ * of silently sending without a lease (delivery is server-enforced
+ * single-use; the local entry is intentionally stale-after-consume).
+ *
+ * Connect / sendMessage / disconnect bridge:
+ * - `connect()` runs `core.connect()` (Effect → Promise boundary
+ *   here so the nanoclaw Channel interface stays Promise-shaped).
+ * - `sendMessage(jid, text)` strips the `mz:` prefix back to a
+ *   conversationId and calls `core.sendReply` with
+ *   `catchLeaseInvalid` projecting `LeaseInvalid` wire errors into
+ *   `LeaseAlreadyConsumed`.
+ * - `disconnect()` runs `core.disconnect()` (never fails).
+ */
 export class MoltZapChannel implements Channel {
   readonly name = "moltzap";
   // Stale-entry-on-retry semantic preserved via `peek` (not `consume`): when a

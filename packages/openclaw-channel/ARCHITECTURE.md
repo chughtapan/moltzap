@@ -37,14 +37,18 @@ Subpath exports: `./test-utils` (Docker-backed integration harness),
 
 ## 3. Communication Flows
 
-| Section | Detail doc |
-|---|---|
-| `startAccount` lifecycle (connect, abort, reconnect handlers) | [start-account-lifecycle.md](docs/architecture/start-account-lifecycle.md) |
-| Outbound `sendText` — Effect ↔ Promise boundary | [outbound-send-text.md](docs/architecture/outbound-send-text.md) |
-| Inbound `onInbound` callback — full Effect chain | [inbound-on-inbound.md](docs/architecture/inbound-on-inbound.md) |
-| `deliver()` error handling — RpcServerError discrimination | [deliver-error-handling.md](docs/architecture/deliver-error-handling.md) |
-| `stopAccount` lifecycle (teardown, race notes) | [stop-account-lifecycle.md](docs/architecture/stop-account-lifecycle.md) |
-| `resolveTarget` format and error shape (two callers) | [resolve-target.md](docs/architecture/resolve-target.md) |
+Per-symbol diagrams live in JSDoc and surface on the generated
+`packages/openclaw-channel/src/MODULE.md`. The dominant entry point
+is `createMoltzapChannelPlugin` (openclaw-entry.ts), whose JSDoc
+covers the full lifecycle:
+
+- `startAccount` connect + onInbound registration + reconnect handlers
+- `sendText` Effect ↔ Promise boundary on the outbound path
+- `deliver` callback + `createLeaseConsumingDeliver` lease-guard +
+  `RpcServerError(LeaseInvalid)` → `LeaseAlreadyConsumed` projection
+  + `onLeaseConsumed` host callback
+- `stopAccount` teardown
+- `resolveTarget` accepting `agent:<name>` / `conv:<id>` formats
 
 ## 4. Dependencies
 

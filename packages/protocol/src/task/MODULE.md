@@ -8,7 +8,74 @@ Public barrel for task, conversation, message, and task-manager protocol descrip
 
 ## Public surface
 
-### [`agentParticipantRefSchema`](./conversations.ts#L123)
+### [`_D1DefaultAppIdCanary`](./task-conversation-family.types-check.ts#L184)
+
+_TypeAlias_
+
+```ts
+export type _D1DefaultAppIdCanary = Expect<Equal<typeof DEFAULT_APP_ID, AppId>>;
+```
+
+### [`_D1ListItemCanary`](./task-conversation-family.types-check.ts#L208)
+
+_TypeAlias_
+
+```ts
+export type _D1ListItemCanary = _L1 | _L2 | _L3 | _L4;
+```
+
+### [`_D1NegativeCanary`](./task-conversation-family.types-check.ts#L257)
+
+_TypeAlias_
+
+```ts
+export type _D1NegativeCanary =
+  | _NoUpdate
+  | _NoGet
+  | _NoMute
+  | _NoUnmute
+  | _NoConvLeave
+  | _NoUpdatedNotif;
+```
+
+### [`_D1RemovedReasonCanary`](./task-conversation-family.types-check.ts#L235)
+
+_TypeAlias_
+
+```ts
+export type _D1RemovedReasonCanary = _R1 | _R2 | _R3;
+```
+
+### [`_D1TaskCreateShapeCanary`](./task-conversation-family.types-check.ts#L174)
+
+_TypeAlias_
+
+```ts
+export type _D1TaskCreateShapeCanary = _C1 | _C2 | _C3 | _C4 | _C5;
+```
+
+### [`_D1WireNameCanary`](./task-conversation-family.types-check.ts#L134)
+
+_TypeAlias_
+
+```ts
+export type _D1WireNameCanary =
+  | _N1
+  | _N2
+  | _N3
+  | _N4
+  | _N5
+  | _N6
+  | _N7
+  | _N8
+  | _N9
+  | _N10
+  | _N11
+  | _N12
+  | _N13;
+```
+
+### [`agentParticipantRefSchema`](./conversations.ts#L130)
 
 _Function_
 
@@ -16,7 +83,39 @@ _Function_
 export function agentParticipantRefSchema(): typeof AgentParticipantRefSchema
 ```
 
-### [`Conversation`](./conversations.ts#L117)
+### [`AppId`](./tasks.ts#L45)
+
+_TypeAlias_
+
+```ts
+export const AppId = brandedId("AppId");
+```
+
+Branded UUID for the per-app identifier. Introduced by Spec D1
+(issue #598) so the reshaped `task/create` wire and downstream
+lookups (app-tm-registry → `tm_endpoint_address`) cannot accidentally
+accept a non-UUID string. The old `tasks/create` keeps its
+un-branded `appId: Type.Optional(Type.String())` shape during the
+D1 transitional window; D3 (#600) deletes that surface and brands
+every remaining call site.
+
+### [`AppId`](./tasks.ts#L45)
+
+_Variable_
+
+```ts
+export const AppId = brandedId("AppId")
+```
+
+Branded UUID for the per-app identifier. Introduced by Spec D1
+(issue #598) so the reshaped `task/create` wire and downstream
+lookups (app-tm-registry → `tm_endpoint_address`) cannot accidentally
+accept a non-UUID string. The old `tasks/create` keeps its
+un-branded `appId: Type.Optional(Type.String())` shape during the
+D1 transitional window; D3 (#600) deletes that surface and brands
+every remaining call site.
+
+### [`Conversation`](./conversations.ts#L124)
 
 _TypeAlias_
 
@@ -37,7 +136,7 @@ export class ConversationArchivedError extends Data.TaggedError(
 }
 ```
 
-### [`ConversationArchivedNotification`](./conversations.ts#L389)
+### [`ConversationArchivedNotification`](./conversations.ts#L441)
 
 _TypeAlias_
 
@@ -47,7 +146,7 @@ export type ConversationArchivedNotification = Static<
 >;
 ```
 
-### [`ConversationArchivedNotificationDefinition`](./conversations.ts#L412)
+### [`ConversationArchivedNotificationDefinition`](./conversations.ts#L479)
 
 _Variable_
 
@@ -55,7 +154,9 @@ _Variable_
 export const ConversationArchivedNotificationDefinition = defineNotification(
 ```
 
-### [`ConversationCreatedNotification`](./conversations.ts#L383)
+Pushed when a conversation is archived (explicit archive call or app-session close).
+
+### [`ConversationCreatedNotification`](./conversations.ts#L435)
 
 _TypeAlias_
 
@@ -65,13 +166,15 @@ export type ConversationCreatedNotification = Static<
 >;
 ```
 
-### [`ConversationCreatedNotificationDefinition`](./conversations.ts#L402)
+### [`ConversationCreatedNotificationDefinition`](./conversations.ts#L459)
 
 _Variable_
 
 ```ts
 export const ConversationCreatedNotificationDefinition = defineNotification(
 ```
+
+Pushed when you are added to a new conversation.
 
 ### [`ConversationFullError`](./conversations.ts#L51)
 
@@ -102,7 +205,7 @@ _Variable_
 export const ConversationId = brandedId("ConversationId")
 ```
 
-### [`ConversationParticipant`](./conversations.ts#L118)
+### [`ConversationParticipant`](./conversations.ts#L125)
 
 _TypeAlias_
 
@@ -112,7 +215,7 @@ export type ConversationParticipant = Static<
 >;
 ```
 
-### [`ConversationsAddParticipant`](./conversations.ts#L250)
+### [`ConversationsAddParticipant`](./conversations.ts#L284)
 
 _Variable_
 
@@ -120,7 +223,9 @@ _Variable_
 export const ConversationsAddParticipant = defineRpc(
 ```
 
-### [`ConversationsArchive`](./conversations.ts#L306)
+Add a participant to a group conversation. Requires admin or owner role.
+
+### [`ConversationsArchive`](./conversations.ts#L353)
 
 _Variable_
 
@@ -128,7 +233,9 @@ _Variable_
 export const ConversationsArchive = defineRpc(
 ```
 
-### [`conversationSchema`](./conversations.ts#L127)
+Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.
+
+### [`conversationSchema`](./conversations.ts#L134)
 
 _Function_
 
@@ -136,7 +243,7 @@ _Function_
 export function conversationSchema(): typeof ConversationSchema
 ```
 
-### [`ConversationsCreate`](./conversations.ts#L131)
+### [`ConversationsCreate`](./conversations.ts#L142)
 
 _Variable_
 
@@ -144,7 +251,9 @@ _Variable_
 export const ConversationsCreate = defineRpc(
 ```
 
-### [`ConversationsGet`](./conversations.ts#L186)
+Create a new group conversation with participants.
+
+### [`ConversationsGet`](./conversations.ts#L204)
 
 _Variable_
 
@@ -152,7 +261,9 @@ _Variable_
 export const ConversationsGet = defineRpc(
 ```
 
-### [`ConversationsLeave`](./conversations.ts#L297)
+Get conversation details including the full participant list.
+
+### [`ConversationsLeave`](./conversations.ts#L338)
 
 _Variable_
 
@@ -160,7 +271,9 @@ _Variable_
 export const ConversationsLeave = defineRpc(
 ```
 
-### [`ConversationsList`](./conversations.ts#L167)
+Leave a group conversation.
+
+### [`ConversationsList`](./conversations.ts#L182)
 
 _Variable_
 
@@ -168,7 +281,9 @@ _Variable_
 export const ConversationsList = defineRpc(
 ```
 
-### [`ConversationsMute`](./conversations.ts#L229)
+List your conversations with message previews and unread counts.
+
+### [`ConversationsMute`](./conversations.ts#L255)
 
 _Variable_
 
@@ -176,7 +291,9 @@ _Variable_
 export const ConversationsMute = defineRpc(
 ```
 
-### [`ConversationsRemoveParticipant`](./conversations.ts#L285)
+Mute notifications for a conversation, optionally until a specific time.
+
+### [`ConversationsRemoveParticipant`](./conversations.ts#L323)
 
 _Variable_
 
@@ -184,7 +301,9 @@ _Variable_
 export const ConversationsRemoveParticipant = defineRpc(
 ```
 
-### [`ConversationSummary`](./conversations.ts#L121)
+Remove a participant from a group conversation.
+
+### [`ConversationSummary`](./conversations.ts#L128)
 
 _TypeAlias_
 
@@ -192,7 +311,7 @@ _TypeAlias_
 export type ConversationSummary = Static<typeof ConversationSummarySchema>;
 ```
 
-### [`ConversationsUnarchive`](./conversations.ts#L315)
+### [`ConversationsUnarchive`](./conversations.ts#L367)
 
 _Variable_
 
@@ -200,7 +319,9 @@ _Variable_
 export const ConversationsUnarchive = defineRpc(
 ```
 
-### [`ConversationsUnmute`](./conversations.ts#L241)
+Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.
+
+### [`ConversationsUnmute`](./conversations.ts#L270)
 
 _Variable_
 
@@ -208,13 +329,17 @@ _Variable_
 export const ConversationsUnmute = defineRpc(
 ```
 
-### [`ConversationsUpdate`](./conversations.ts#L214)
+Unmute notifications for a conversation.
+
+### [`ConversationsUpdate`](./conversations.ts#L237)
 
 _Variable_
 
 ```ts
 export const ConversationsUpdate = defineRpc(
 ```
+
+Update conversation metadata (name).
 
 ### [`ConversationTypeEnum`](./conversations.ts#L59)
 
@@ -224,7 +349,7 @@ _Variable_
 export const ConversationTypeEnum = stringEnum(["dm", "group"])
 ```
 
-### [`ConversationUnarchivedNotification`](./conversations.ts#L392)
+### [`ConversationUnarchivedNotification`](./conversations.ts#L444)
 
 _TypeAlias_
 
@@ -234,7 +359,7 @@ export type ConversationUnarchivedNotification = Static<
 >;
 ```
 
-### [`ConversationUnarchivedNotificationDefinition`](./conversations.ts#L417)
+### [`ConversationUnarchivedNotificationDefinition`](./conversations.ts#L488)
 
 _Variable_
 
@@ -242,7 +367,9 @@ _Variable_
 export const ConversationUnarchivedNotificationDefinition = defineNotification(
 ```
 
-### [`ConversationUpdatedNotification`](./conversations.ts#L386)
+Pushed when a conversation is unarchived.
+
+### [`ConversationUpdatedNotification`](./conversations.ts#L438)
 
 _TypeAlias_
 
@@ -252,7 +379,7 @@ export type ConversationUpdatedNotification = Static<
 >;
 ```
 
-### [`ConversationUpdatedNotificationDefinition`](./conversations.ts#L407)
+### [`ConversationUpdatedNotificationDefinition`](./conversations.ts#L470)
 
 _Variable_
 
@@ -260,7 +387,33 @@ _Variable_
 export const ConversationUpdatedNotificationDefinition = defineNotification(
 ```
 
-### [`HookBlockedError`](./tasks.ts#L53)
+Pushed when a conversation's metadata changes (name, participants).
+
+### [`DEFAULT_APP_ID`](./tasks.ts#L65)
+
+_Variable_
+
+```ts
+export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
+```
+
+The single server-bundled default app. Every DM and Group lives
+under this app from Spec D1 forward; the per-conversation `type`
+enum (`dm` / `group`) becomes a display-only label derived from
+participant count and retires in D3.
+
+UUID v4 fixed by spec body Goal 4 (#598). The constant is the
+source of truth — the server registers `makeDefaultMessageAuthorizeHook`
+against the TM address derived from this UUID, and the
+`TaskCreate` dedup query keys off it.
+
+Greenfield schema (per project memory
+`project_layered_refactor_packaging.md`): no prior rows under the
+legacy `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`
+constants exist at cutover, so dedup operates only on rows
+created under `DEFAULT_APP_ID` from D1 forward.
+
+### [`HookBlockedError`](./tasks.ts#L84)
 
 _Class_
 
@@ -273,7 +426,44 @@ export class HookBlockedError extends Data.TaggedError(
 }
 ```
 
-### [`LogicalClock`](./tasks.ts#L74)
+### [`inferConversationType`](./tasks.ts#L593)
+
+_Function_
+
+```ts
+export function inferConversationType(
+  participantAgentIds: ReadonlyArray<AgentId>,
+): "dm" | "group"
+```
+
+Spec D1 (#598) cardinality → label mapping for the legacy
+`conversations.type` enum column. D1 retires the wire-level
+`type: "dm" | "group"` field; the label is now derived from
+participant cardinality (caller + targets totals 2 ⇒ `"dm"`,
+otherwise `"group"`).
+
+Single source of truth so descriptor `argsOf` resolvers (which
+build `ConversationCreateAuthorization` capability input
+unconditionally per frame) cannot drift from the server-side
+handler that calls `conversationService.create({ type, ... })`.
+Both must agree because the type label is what the
+`ConversationCreateAuthorization` obtain helper uses for
+DM-existence dedup, contact-policy fan-out, and group-capacity
+checks; a descriptor-vs-handler split would silently authorize
+one path's type while persisting the other.
+
+Spec D3 (#600) deletes the `conversations.type` column entirely;
+at that point this helper retires alongside.
+
+### [`InitialConversationInput`](./tasks.ts#L571)
+
+_TypeAlias_
+
+```ts
+export type InitialConversationInput = Static<typeof InitialConversationSchema>;
+```
+
+### [`LogicalClock`](./tasks.ts#L121)
 
 _TypeAlias_
 
@@ -281,7 +471,7 @@ _TypeAlias_
 export type LogicalClock = Static<typeof LogicalClockSchema>;
 ```
 
-### [`logicalClockSchema`](./tasks.ts#L76)
+### [`logicalClockSchema`](./tasks.ts#L123)
 
 _Function_
 
@@ -321,7 +511,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L196)
+### [`MessageReceivedNotification`](./messages.ts#L209)
 
 _TypeAlias_
 
@@ -331,13 +521,15 @@ export type MessageReceivedNotification = Static<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L200)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L217)
 
 _Variable_
 
 ```ts
 export const MessageReceivedNotificationDefinition = defineNotification(
 ```
+
+Pushed when a new message is delivered to your WebSocket connection.
 
 ### [`messageSchema`](./messages.ts#L78)
 
@@ -347,7 +539,7 @@ _Function_
 export function messageSchema(): typeof MessageSchema
 ```
 
-### [`MessagesList`](./messages.ts#L173)
+### [`MessagesList`](./messages.ts#L186)
 
 _Variable_
 
@@ -355,13 +547,19 @@ _Variable_
 export const MessagesList = defineRpc(
 ```
 
-### [`MessagesSend`](./messages.ts#L145)
+List messages in a conversation with cursor-based pagination using sequence numbers.
+
+### [`MessagesSend`](./messages.ts#L153)
 
 _Variable_
 
 ```ts
 export const MessagesSend = defineRpc(
 ```
+
+Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:&lt;name>"`.
+
+**Returns:** The created message with ID, sequence number, and timestamp.
 
 ### [`MessageWithTmDecision`](./messages.ts#L135)
 
@@ -387,7 +585,27 @@ _TypeAlias_
 export type Part = Static<typeof PartSchema>;
 ```
 
-### [`ParticipantsAddedNotification`](./conversations.ts#L395)
+### [`ParticipantNotAdmittedError`](./tasks.ts#L100)
+
+_Class_
+
+```ts
+export class ParticipantNotAdmittedError extends Data.TaggedError(
+  "ParticipantNotAdmitted",
+)<RpcErrorPayload> {
+  static readonly code = -32023;
+  static readonly message = "Agent is not admitted to the task";
+}
+```
+
+Spec D1 (#598) NEW invariant: `task/conversation/create` and
+`task/conversation/participants/add` reject agents who are not
+already in `task_participants`. The error tag lets clients
+distinguish "wrong agentId shape" (InvalidParams) from "agent
+exists but is not admitted to this task" (this tag) without
+parsing message strings.
+
+### [`ParticipantsAddedNotification`](./conversations.ts#L447)
 
 _TypeAlias_
 
@@ -397,7 +615,7 @@ export type ParticipantsAddedNotification = Static<
 >;
 ```
 
-### [`ParticipantsAddedNotificationDefinition`](./conversations.ts#L422)
+### [`ParticipantsAddedNotificationDefinition`](./conversations.ts#L493)
 
 _Variable_
 
@@ -405,7 +623,7 @@ _Variable_
 export const ParticipantsAddedNotificationDefinition = defineNotification(
 ```
 
-### [`ParticipantsRemovedNotification`](./conversations.ts#L398)
+### [`ParticipantsRemovedNotification`](./conversations.ts#L450)
 
 _TypeAlias_
 
@@ -415,7 +633,7 @@ export type ParticipantsRemovedNotification = Static<
 >;
 ```
 
-### [`ParticipantsRemovedNotificationDefinition`](./conversations.ts#L427)
+### [`ParticipantsRemovedNotificationDefinition`](./conversations.ts#L498)
 
 _Variable_
 
@@ -423,7 +641,7 @@ _Variable_
 export const ParticipantsRemovedNotificationDefinition = defineNotification(
 ```
 
-### [`Task`](./tasks.ts#L106)
+### [`Task`](./tasks.ts#L153)
 
 _TypeAlias_
 
@@ -431,7 +649,7 @@ _TypeAlias_
 export type Task = Static<typeof TaskSchema>;
 ```
 
-### [`TaskClosedError`](./tasks.ts#L45)
+### [`TaskClosedError`](./tasks.ts#L76)
 
 _Class_
 
@@ -444,7 +662,7 @@ export class TaskClosedError extends Data.TaggedError(
 }
 ```
 
-### [`TaskClosedNotificationDefinition`](./tasks.ts#L462)
+### [`TaskClosedNotificationDefinition`](./tasks.ts#L532)
 
 _Variable_
 
@@ -452,7 +670,213 @@ _Variable_
 export const TaskClosedNotificationDefinition = defineNotification(
 ```
 
-### [`TaskFailedNotificationDefinition`](./tasks.ts#L457)
+Pushed when a task closes.
+
+### [`TaskConversationAddParticipant`](./tasks.ts#L813)
+
+_Variable_
+
+```ts
+export const TaskConversationAddParticipant = defineRpc(
+```
+
+TM-only: add an agent to one conversation. The agent MUST already
+appear in `task_participants` for `taskId`; otherwise
+`ParticipantNotAdmittedError`. Spec body Goal 1.
+
+### [`TaskConversationArchive`](./tasks.ts#L781)
+
+_Variable_
+
+```ts
+export const TaskConversationArchive = defineRpc(
+```
+
+TM-only: archive one conversation. Task stays open.
+
+### [`TaskConversationArchivedNotification`](./tasks.ts#L920)
+
+_TypeAlias_
+
+```ts
+export type TaskConversationArchivedNotification = Static<
+  typeof TaskConversationArchivedNotificationSchema
+>;
+```
+
+### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L940)
+
+_Variable_
+
+```ts
+export const TaskConversationArchivedNotificationDefinition =
+  defineNotification(
+```
+
+### [`TaskConversationCreate`](./tasks.ts#L679)
+
+_Variable_
+
+```ts
+export const TaskConversationCreate = defineRpc(
+```
+
+TM-only: mint a new conversation under an existing task.
+Renamed/reshaped from legacy `tasks/createConversation`. NEW
+invariant: every entry in `participants` MUST already appear in
+`task_participants` for `taskId`; violations return
+`ParticipantNotAdmittedError`. Spec body Goal 1.
+
+Schema diff vs. legacy `TasksCreateConversation`:
+  - removes `type: ConversationTypeEnum` (DM/Group collapse — D3
+    retires the `conversation_type` enum column entirely)
+  - participants typed as `AgentId[]` (was `agentParticipantRefSchema`)
+    reflecting "agents only" — `tm:agent:*` shape is internal-only
+    per spec body Non-goal 6
+
+### [`TaskConversationCreatedNotification`](./tasks.ts#L917)
+
+_TypeAlias_
+
+```ts
+export type TaskConversationCreatedNotification = Static<
+  typeof TaskConversationCreatedNotificationSchema
+>;
+```
+
+### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L933)
+
+_Variable_
+
+```ts
+export const TaskConversationCreatedNotificationDefinition = defineNotification(
+```
+
+### [`TaskConversationList`](./tasks.ts#L742)
+
+_Variable_
+
+```ts
+export const TaskConversationList = defineRpc(
+```
+
+Self-only listing of every conversation the caller participates
+in (across all tasks). No filter params; archived rows are
+included; callers filter `archivedAt` locally. See spec body
+Goal 1 for the full pagination + visibility contract.
+
+### [`TaskConversationListItem`](./tasks.ts#L608)
+
+_TypeAlias_
+
+```ts
+export type TaskConversationListItem = Static<
+  typeof TaskConversationListItemSchema
+>;
+```
+
+### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L926)
+
+_TypeAlias_
+
+```ts
+export type TaskConversationParticipantsAddedNotification = Static<
+  typeof TaskConversationParticipantsAddedNotificationSchema
+>;
+```
+
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L952)
+
+_Variable_
+
+```ts
+export const TaskConversationParticipantsAddedNotificationDefinition =
+  defineNotification(
+```
+
+### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L929)
+
+_TypeAlias_
+
+```ts
+export type TaskConversationParticipantsRemovedNotification = Static<
+  typeof TaskConversationParticipantsRemovedNotificationSchema
+>;
+```
+
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L958)
+
+_Variable_
+
+```ts
+export const TaskConversationParticipantsRemovedNotificationDefinition =
+  defineNotification(
+```
+
+### [`TaskConversationRemoveParticipant`](./tasks.ts#L840)
+
+_Variable_
+
+```ts
+export const TaskConversationRemoveParticipant = defineRpc(
+```
+
+TM-only: remove an agent from one conversation. The agent stays
+in `task_participants` (so they may still receive messages on
+other conversations within the task).
+
+### [`TaskConversationUnarchive`](./tasks.ts#L795)
+
+_Variable_
+
+```ts
+export const TaskConversationUnarchive = defineRpc(
+```
+
+TM-only: reverse of `task/conversation/archive`.
+
+### [`TaskConversationUnarchivedNotification`](./tasks.ts#L923)
+
+_TypeAlias_
+
+```ts
+export type TaskConversationUnarchivedNotification = Static<
+  typeof TaskConversationUnarchivedNotificationSchema
+>;
+```
+
+### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L946)
+
+_Variable_
+
+```ts
+export const TaskConversationUnarchivedNotificationDefinition =
+  defineNotification(
+```
+
+### [`TaskCreate`](./tasks.ts#L627)
+
+_Variable_
+
+```ts
+export const TaskCreate = defineRpc(
+```
+
+Reshaped task-create: `appId` REQUIRED (branded), `tmType`
+ELIMINATED at the wire, optional `initialConversation` for atomic
+task + first-conversation creation.
+
+Dedup: when `appId === DEFAULT_APP_ID`, the server returns any
+existing task whose `task_participants` set is exactly
+`{callerAgentId} ∪ invitedAgentIds`. Single-invitee dedup
+generalizes today's `conversationService.existingDmForCreate` (the
+DM case is the `invitedAgentIds.length === 1` instance of the
+same exact-participant-set match query).
+
+Returns `{ task, conversation }` where `conversation` is `null`
+when `initialConversation` is omitted.
+
+### [`TaskFailedNotificationDefinition`](./tasks.ts#L523)
 
 _Variable_
 
@@ -460,7 +884,9 @@ _Variable_
 export const TaskFailedNotificationDefinition = defineNotification(
 ```
 
-### [`TaskId`](./tasks.ts#L42)
+Pushed when a task fails before becoming ready.
+
+### [`TaskId`](./tasks.ts#L73)
 
 _TypeAlias_
 
@@ -468,7 +894,7 @@ _TypeAlias_
 export const TaskId = brandedId("TaskId");
 ```
 
-### [`TaskId`](./tasks.ts#L42)
+### [`TaskId`](./tasks.ts#L73)
 
 _Variable_
 
@@ -476,7 +902,27 @@ _Variable_
 export const TaskId = brandedId("TaskId")
 ```
 
-### [`taskNotifications`](./methods.ts#L72)
+### [`TaskLeave`](./tasks.ts#L659)
+
+_Variable_
+
+```ts
+export const TaskLeave = defineRpc(
+```
+
+Self-only: caller removes themselves from `task_participants` AND
+every `conversation_participants` row under the task. See spec
+body Goal 2 for the atomicity, idempotency, and
+last-participant-task-closure contract.
+
+Notification emission for each conversation the caller leaves uses
+`TaskConversationParticipantsRemovedNotificationDefinition` with
+`reason: "task_leave"`. If removal empties `task_participants`
+the task transitions to `status = 'closed'` and
+`TaskClosedNotificationDefinition` fires alongside in the same
+transaction.
+
+### [`taskNotifications`](./methods.ts#L98)
 
 _Variable_
 
@@ -491,10 +937,11 @@ export const taskNotifications = [
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
-] as const
+  // Spec D1: dual-emit alongside the legacy `conversations/*` set.
+  // D3 deletes the legacy entries
 ```
 
-### [`TaskParticipant`](./tasks.ts#L118)
+### [`TaskParticipant`](./tasks.ts#L165)
 
 _TypeAlias_
 
@@ -502,7 +949,7 @@ _TypeAlias_
 export type TaskParticipant = Static<typeof TaskParticipantSchema>;
 ```
 
-### [`taskRpcMethods`](./methods.ts#L45)
+### [`taskRpcMethods`](./methods.ts#L61)
 
 _Variable_
 
@@ -532,10 +979,20 @@ export const taskRpcMethods = [
   TasksStoreMessage,
   TasksGetMessages,
   TasksGetMessagesSince,
+  // Spec D1 additions. Order: TaskCreate / TaskLeave first (task-level
+  // operations), then the `task/conversation/*` admin set.
+  TaskCreate,
+  TaskLeave,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
 ] as const
 ```
 
-### [`TasksAddParticipant`](./tasks.ts#L264)
+### [`TasksAddParticipant`](./tasks.ts#L317)
 
 _Variable_
 
@@ -543,7 +1000,7 @@ _Variable_
 export const TasksAddParticipant = defineRpc(
 ```
 
-### [`TasksClose`](./tasks.ts#L171)
+### [`TasksClose`](./tasks.ts#L219)
 
 _Variable_
 
@@ -551,7 +1008,7 @@ _Variable_
 export const TasksClose = defineRpc(
 ```
 
-### [`TasksCloseConversation`](./tasks.ts#L232)
+### [`TasksCloseConversation`](./tasks.ts#L283)
 
 _Variable_
 
@@ -559,7 +1016,7 @@ _Variable_
 export const TasksCloseConversation = defineRpc(
 ```
 
-### [`TasksCreate`](./tasks.ts#L120)
+### [`TasksCreate`](./tasks.ts#L167)
 
 _Variable_
 
@@ -567,7 +1024,7 @@ _Variable_
 export const TasksCreate = defineRpc(
 ```
 
-### [`TasksCreateConversation`](./tasks.ts#L187)
+### [`TasksCreateConversation`](./tasks.ts#L236)
 
 _Variable_
 
@@ -575,7 +1032,7 @@ _Variable_
 export const TasksCreateConversation = defineRpc(
 ```
 
-### [`TasksGet`](./tasks.ts#L133)
+### [`TasksGet`](./tasks.ts#L180)
 
 _Variable_
 
@@ -583,7 +1040,7 @@ _Variable_
 export const TasksGet = defineRpc(
 ```
 
-### [`TasksGetMessages`](./tasks.ts#L366)
+### [`TasksGetMessages`](./tasks.ts#L424)
 
 _Variable_
 
@@ -591,7 +1048,7 @@ _Variable_
 export const TasksGetMessages = defineRpc(
 ```
 
-### [`TasksGetMessagesSince`](./tasks.ts#L405)
+### [`TasksGetMessagesSince`](./tasks.ts#L465)
 
 _Variable_
 
@@ -599,7 +1056,7 @@ _Variable_
 export const TasksGetMessagesSince = defineRpc(
 ```
 
-### [`TasksList`](./tasks.ts#L155)
+### [`TasksList`](./tasks.ts#L203)
 
 _Variable_
 
@@ -607,7 +1064,7 @@ _Variable_
 export const TasksList = defineRpc(
 ```
 
-### [`TasksRemoveParticipant`](./tasks.ts#L289)
+### [`TasksRemoveParticipant`](./tasks.ts#L343)
 
 _Variable_
 
@@ -615,7 +1072,7 @@ _Variable_
 export const TasksRemoveParticipant = defineRpc(
 ```
 
-### [`TasksStoreMessage`](./tasks.ts#L311)
+### [`TasksStoreMessage`](./tasks.ts#L366)
 
 _Variable_
 
@@ -623,7 +1080,7 @@ _Variable_
 export const TasksStoreMessage = defineRpc(
 ```
 
-### [`TaskStatus`](./tasks.ts#L86)
+### [`TaskStatus`](./tasks.ts#L133)
 
 _TypeAlias_
 
@@ -647,7 +1104,7 @@ _Function_
 export function tmDecisionSchema(): typeof TmDecisionSchema
 ```
 
-### [`TmType`](./tasks.ts#L81)
+### [`TmType`](./tasks.ts#L128)
 
 _TypeAlias_
 
@@ -690,4 +1147,5 @@ export const validateTmDecision = ajv.compile(TmDecisionSchema) as (
 - `conversations.ts`
 - `messages.ts`
 - `methods.ts`
+- `task-conversation-family.types-check.ts`
 - `tasks.ts`

@@ -46,13 +46,17 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so the
 optionality is collapsed here.
 
-### [`Connect`](./methods.ts#L48)
+### [`Connect`](./methods.ts#L54)
 
 _Variable_
 
 ```ts
 export const Connect = defineRpc(
 ```
+
+Authenticate a WebSocket connection. Must be the first message on a new connection.
+
+**Returns:** Connection metadata including agent ID, protocol version, conversations, and server policy.
 
 ### [`endpointAddress`](./actor-model.ts#L91)
 
@@ -165,7 +169,7 @@ EndpointKind:
 - `taskManager` arms carry only the address; ownership of the task is
   recorded out-of-band in the `tasks` row.
 
-### [`HelloOk`](./methods.ts#L71)
+### [`HelloOk`](./methods.ts#L77)
 
 _TypeAlias_
 
@@ -202,7 +206,7 @@ caller routes through here so the wire format does not fork.
 Throws if the resulting string fails isEndpointAddress (e.g.,
 `uuid` is not a UUID).
 
-### [`networkNotifications`](./methods.ts#L128)
+### [`networkNotifications`](./methods.ts#L145)
 
 _Variable_
 
@@ -212,7 +216,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L75)
+### [`NetworkPing`](./methods.ts#L84)
 
 _Variable_
 
@@ -220,7 +224,9 @@ _Variable_
 export const NetworkPing = defineRpc(
 ```
 
-### [`networkRpcMethods`](./methods.ts#L121)
+Liveness probe. Returns server timestamp.
+
+### [`networkRpcMethods`](./methods.ts#L138)
 
 _Variable_
 
@@ -233,7 +239,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L116)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L133)
 
 _Variable_
 
@@ -241,7 +247,9 @@ _Variable_
 export const PresenceChangedNotificationDefinition = defineNotification(
 ```
 
-### [`PresenceSubscribe`](./methods.ts#L96)
+Pushed when a subscribed participant's presence status changes.
+
+### [`PresenceSubscribe`](./methods.ts#L109)
 
 _Variable_
 
@@ -252,13 +260,15 @@ export const PresenceSubscribe = defineRpc(
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`PresenceUpdate`](./methods.ts#L83)
+### [`PresenceUpdate`](./methods.ts#L96)
 
 _Variable_
 
 ```ts
 export const PresenceUpdate = defineRpc(
 ```
+
+Update your presence status (online, offline, away).
 
 ### [`userId`](./actor-model.ts#L195)
 

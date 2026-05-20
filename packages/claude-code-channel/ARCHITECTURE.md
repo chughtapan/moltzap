@@ -38,14 +38,15 @@ process-level use.
 
 ## 3. Communication Flows
 
-| # | Flow | Detail doc |
-|---|---|---|
-| 3.1 | Boot sequence | [docs/architecture/boot-sequence.md](docs/architecture/boot-sequence.md) |
-| 3.2 | Inbound message → Claude push | [docs/architecture/inbound-message-to-claude-push.md](docs/architecture/inbound-message-to-claude-push.md) |
-| 3.3 | Claude reply → MoltZap outbound | [docs/architecture/claude-reply-to-moltzap-outbound.md](docs/architecture/claude-reply-to-moltzap-outbound.md) |
-| 3.4 | Channel projection of the dispatch lease | [docs/architecture/lease-state-machine.md](docs/architecture/lease-state-machine.md) |
-| 3.5 | Allowlist gating | [docs/architecture/allowlist-gating.md](docs/architecture/allowlist-gating.md) |
-| 3.6 | Shutdown | [docs/architecture/shutdown.md](docs/architecture/shutdown.md) |
+Per-symbol diagrams live in JSDoc and surface on the generated
+`packages/claude-code-channel/src/MODULE.md`. Key entry points:
+
+- `bootClaudeCodeChannel` (entry.ts) — boot sequence, BootError union
+- `handleInboundMessage` (entry.ts) — inbound MoltZap message → Claude MCP push
+- `handleCallToolRequest` (server.ts) — Claude reply tool → outbound `messages/send`
+- `createRoutingState` (routing.ts) — bounded LRU + reply-target resolution, channel projection of server dispatch lease
+- `GateInbound` (types.ts) — allowlist gating contract
+- `makeHandle` (entry.ts) — graceful shutdown semantics
 
 ## 4. Dependencies
 

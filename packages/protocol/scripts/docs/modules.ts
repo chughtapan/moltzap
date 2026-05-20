@@ -308,7 +308,7 @@ function renderFilesSection(
  * the comment body as plain text (asterisks stripped, leading
  * whitespace normalized) or null if the source has no leading JSDoc.
  *
- * If the block starts with the &#64;file tag, the prose after that tag
+ * If the block starts with the &amp;#64;file tag, the prose after that tag
  * becomes the summary. Otherwise the whole block (minus the asterisk
  * markup) becomes the summary.
  */
@@ -330,7 +330,7 @@ export function readLeadingJsDoc(source: string): string | null {
 }
 
 /**
- * Parse a `&#64;failure ErrName when prose` tag content into
+ * Parse a `&amp;#64;failure ErrName when prose` tag content into
  * structured form. The convention is documented in workspace
  * CLAUDE.md; this is the single source of truth for the parse rule.
  */
@@ -412,10 +412,31 @@ export function extractSignatureText(
   if (source.length === 0) return null;
   const lines = source.split("\n");
   if (oneBasedLine < 1 || oneBasedLine > lines.length) return null;
-  const startIx = oneBasedLine - 1;
+  const startIx = skipLeadingJsDoc(lines, oneBasedLine - 1);
   if (KEEP_BODY_KINDS.has(kind)) return extractBalancedBody(lines, startIx);
   if (FUNCTION_KINDS.has(kind)) return extractFunctionSignature(lines, startIx);
   return extractBalancedBody(lines, startIx);
+}
+
+/**
+ * TypeDoc reports the source line of the leading JSDoc block as the
+ * declaration's source. Skip past the closing `*​/` so signature
+ * extraction starts at the actual code.
+ */
+function skipLeadingJsDoc(
+  lines: ReadonlyArray<string>,
+  startIx: number,
+): number {
+  const first = lines[startIx]?.trimStart() ?? "";
+  if (!first.startsWith("/**")) return startIx;
+  for (let i = startIx; i < lines.length && i < startIx + 200; i++) {
+    if ((lines[i] ?? "").includes("*/")) {
+      let j = i + 1;
+      while (j < lines.length && (lines[j] ?? "").trim().length === 0) j++;
+      return j;
+    }
+  }
+  return startIx;
 }
 
 function extractFunctionSignature(

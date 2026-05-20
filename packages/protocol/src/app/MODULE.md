@@ -27,7 +27,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L504)
+### [`appNotifications`](./methods.ts#L507)
 
 _Variable_
 
@@ -39,7 +39,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](./methods.ts#L493)
+### [`appRpcMethods`](./methods.ts#L496)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const appRpcMethods = [
 ] as const
 ```
 
-### [`AppsRegister`](./methods.ts#L128)
+### [`AppsRegister`](./methods.ts#L131)
 
 _Variable_
 
@@ -59,7 +59,9 @@ _Variable_
 export const AppsRegister = defineRpc(
 ```
 
-### [`DispatchAuthorize`](./methods.ts#L272)
+Register an app manifest for the current connection.
+
+### [`DispatchAuthorize`](./methods.ts#L275)
 
 _Variable_
 
@@ -73,7 +75,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 `LeaseRegistry.resolve`. Manifests opt in by declaring
 `hooks.dispatch_authorize`.
 
-### [`DispatchesConsumed`](./methods.ts#L320)
+### [`DispatchesConsumed`](./methods.ts#L323)
 
 _Variable_
 
@@ -87,7 +89,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./methods.ts#L340)
+### [`DispatchesExpired`](./methods.ts#L343)
 
 _Variable_
 
@@ -100,7 +102,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./methods.ts#L401)
+### [`DispatchesGet`](./methods.ts#L404)
 
 _Variable_
 
@@ -113,7 +115,7 @@ the handler: the calling connection must match the lease's
 `moderatorConnectionId` (the binding tuple recorded at mint time);
 non-moderator callers fail with `ForbiddenError`.
 
-### [`DispatchId`](./methods.ts#L232)
+### [`DispatchId`](./methods.ts#L235)
 
 _TypeAlias_
 
@@ -127,7 +129,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./methods.ts#L232)
+### [`DispatchId`](./methods.ts#L235)
 
 _Variable_
 
@@ -141,7 +143,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchRelease`](./methods.ts#L298)
+### [`DispatchRelease`](./methods.ts#L301)
 
 _Variable_
 
@@ -160,7 +162,7 @@ out via the standard EXPIRED path; no `leaseTimeoutMs` field needed
 on the hold arm because the grant TTL has not started yet (lease
 never reached GRANTED).
 
-### [`DispatchRequest`](./methods.ts#L244)
+### [`DispatchRequest`](./methods.ts#L247)
 
 _Variable_
 
@@ -176,7 +178,7 @@ Wire ordering: the ack and `dispatch/release` may race — the
 recipient absorbs the race via a client-side ring buffer + per-
 lease `Deferred` (see `packages/client/src/channel-core.ts`).
 
-### [`LeaseId`](./methods.ts#L222)
+### [`LeaseId`](./methods.ts#L225)
 
 _TypeAlias_
 
@@ -188,7 +190,7 @@ Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
 ≥122 bits entropy; the brand keeps it from being confused with
 `MessageId` / `DispatchId` at type sites that consume both.
 
-### [`LeaseId`](./methods.ts#L222)
+### [`LeaseId`](./methods.ts#L225)
 
 _Variable_
 
@@ -200,7 +202,7 @@ Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
 ≥122 bits entropy; the brand keeps it from being confused with
 `MessageId` / `DispatchId` at type sites that consume both.
 
-### [`MessagesAuthorize`](./methods.ts#L478)
+### [`MessagesAuthorize`](./methods.ts#L481)
 
 _Variable_
 
@@ -221,7 +223,7 @@ participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`taskCallbackMethods`](./methods.ts#L499)
+### [`taskCallbackMethods`](./methods.ts#L502)
 
 _Variable_
 

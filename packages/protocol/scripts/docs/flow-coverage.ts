@@ -92,7 +92,7 @@ function hasMermaidBlock(ex: TypeDocExport): boolean {
 
 /**
  * Print the gap list to stderr in the form
- * `<file>:<line> <symbol> — <reason>`. Returns the count.
+ * `&lt;file>:&lt;line> &lt;symbol> — &lt;reason>`. Returns the count.
  */
 export const printFlowCoverage = (
   gaps: ReadonlyArray<FlowCoverageGap>,

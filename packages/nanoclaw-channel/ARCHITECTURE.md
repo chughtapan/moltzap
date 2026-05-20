@@ -53,17 +53,16 @@ at import time (via `registerChannel` call in `channels/moltzap.ts`).
 
 ## Communication Flows
 
-Detailed sequence diagrams for each flow live in `docs/architecture/`:
+Per-symbol diagrams live in JSDoc and surface on the generated
+`packages/nanoclaw-channel/src/MODULE.md`. Key entry points:
 
-| # | Section | Detail doc |
-|---|---------|------------|
-| 3.1 | Channel Construction + registerChannel Hook | [01-construction-and-registry.md](docs/architecture/construction-and-registry.md) |
-| 3.2 | connect / disconnect Lifecycle | [02-connect-disconnect-lifecycle.md](docs/architecture/connect-disconnect-lifecycle.md) |
-| 3.3 | Inbound Flow | [03-inbound-flow.md](docs/architecture/inbound-flow.md) |
-| 3.4 | Outbound sendMessage Flow | [04-outbound-send-message.md](docs/architecture/outbound-send-message.md) |
-| 3.5 | JID ↔ ConversationId Conversions | [05-jid-conversions.md](docs/architecture/jid-conversions.md) |
-| 3.6 | emitChatMetadata + ensureAutoRegistered | [06-chat-metadata-auto-register.md](docs/architecture/chat-metadata-auto-register.md) |
-| 3.7 | toNewMessage Projection | [07-to-new-message-projection.md](docs/architecture/to-new-message-projection.md) |
+- `MoltZapChannel` (channels/moltzap.ts) — inbound flow + connect /
+  disconnect lifecycle + sendMessage outbound bridge + lease-store
+  stale-entry semantic
+- `registerChannel` (channels/registry.ts) — registry hook +
+  idempotency
+- `jidFromConversationId` / `conversationIdFromJid`
+  (channels/moltzap.ts) — JID prefix convention
 
 ## Dependencies
 

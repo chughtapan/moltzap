@@ -235,12 +235,7 @@ signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
 _Class_
 
 ```ts
-export class ConflictError extends Data.TaggedError(
-  "Conflict",
-)<RpcErrorPayload> {
-  static readonly code = -32003;
-  static readonly message = "Conflict";
-}
+  static readonly message = "Not authenticated. Send network/connect first.";
 ```
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
@@ -324,14 +319,9 @@ export function decodeNotification<
 _Function_
 
 ```ts
-export function decodeRpcParams<
-  Name extends string,
-  P extends TSchema,
-  R extends TSchema,
->(
-  definition: RpcDefinition<Name, P, R>,
-  data: unknown,
-): Effect.Effect<Static<P>, RpcParamsDecodeError>
+ *   participant Client
+ *   Server->>Server: NotificationDefinition.encode(params)
+ *   Server->>Wire:
 ```
 
 ### [`decodeRpcRequest`](./rpc-groups.ts#L92)
@@ -355,14 +345,9 @@ export function decodeRpcRequest<
 _Function_
 
 ```ts
-export function decodeRpcResult<
   Name extends string,
   P extends TSchema,
-  R extends TSchema,
->(
-  definition: RpcDefinition<Name, P, R>,
-  data: unknown,
-): Effect.Effect<Static<R>, RpcResultDecodeError>
+>
 ```
 
 ### [`defineNotification`](./method.ts#L156)
@@ -370,10 +355,7 @@ export function decodeRpcResult<
 _Function_
 
 ```ts
-export function defineNotification<
-  Name extends string,
-  P extends TSchema,
->(def:
+  const d: RpcDefinition<Name, P, R> =
 ```
 
 ### [`defineRpc`](./method.ts#L80)
@@ -410,7 +392,22 @@ responses go through `RpcDefinition.encodeResponse`.
 _Function_
 
 ```ts
-export function errorClassFor(code: number): RpcErrorClass | undefined
+ *   C --> D["caller: Effect.catchTag('Foo', ...)"]
+ *   B --> E["server side: wireErrorFromInstance<br>→ wire 'error' sub-object"]
+ * ```
+ *
+ * `JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec
+ * codes (-32700, -32600, -32601, -32602, -32603). Every other code
+ * lives in the runtime registry, not in a central table. The
+ * `RegisteredTaggedError` union in `rpc-registry.ts` mirrors the
+ * registered classes and must be hand-kept in sync — the TS type
+ * system cannot enumerate the static-side registry into a union.
+ */
+export function registerErrorClass(cls: RpcErrorClass): void {
+  const existing = codeToClass.get(cls.code);
+  if (existing !== undefined && existing !== cls) {
+    throw new DuplicateErrorCodeError(
+      `Duplicate wire error code $
 ```
 
 Returns the registered class for a wire code, or `undefined`.
@@ -488,11 +485,9 @@ export type Forbidden = Extract<
 _Class_
 
 ```ts
-export class ForbiddenError extends Data.TaggedError(
-  "Forbidden",
-)<RpcErrorPayload> {
-  static readonly code = -32001;
-  static readonly message = "Forbidden";
+export interface RpcErrorPayload {
+  readonly message?: string;
+  readonly data?: unknown;
 }
 ```
 
@@ -565,11 +560,11 @@ table has named keys.
 _Class_
 
 ```ts
-export class InvalidParamsError extends Data.TaggedError("InvalidParamsError")<{
-  readonly message: string;
-}> {
-  static readonly code = JSON_RPC_RESERVED_CODES.InvalidParams;
-  static readonly message = "Invalid params";
+export class NotFoundError extends Data.TaggedError(
+  "NotFound",
+)<RpcErrorPayload> {
+  static readonly code = -32002;
+  static readonly message = "Not found";
 }
 ```
 
@@ -609,7 +604,13 @@ plain `HandlerSlot` for the slot's value type.
 _Function_
 
 ```ts
-export function isRegisteredErrorInstance(value: object): boolean
+ * codes (-32700, -32600, -32601, -32602, -32603). Every other code
+ * lives in the runtime registry, not in a central table. The
+ * `RegisteredTaggedError` union in `rpc-registry.ts` mirrors the
+ * registered classes and must be hand-kept in sync — the TS type
+ * system cannot enumerate the static-side registry into a union.
+ */
+export function registerErrorClass(cls: RpcErrorClass): void
 ```
 
 Returns true iff `value`'s constructor is in the registered class set.
@@ -735,12 +736,12 @@ check with `Forbidden`.
 _Class_
 
 ```ts
-export class MalformedFrameError extends Data.TaggedError(
-  "MalformedFrameError",
-)<{
-  readonly raw: string;
-  readonly cause?: unknown;
-}> {}
+export class ConflictError extends Data.TaggedError(
+  "Conflict",
+)<RpcErrorPayload> {
+  static readonly code = -32003;
+  static readonly message = "Conflict";
+}
 ```
 
 Inbound frame failed to parse as JSON or did not match the expected shape.
@@ -782,12 +783,12 @@ The socket is not in the OPEN state when an RPC was attempted.
 _Class_
 
 ```ts
-export class NotFoundError extends Data.TaggedError(
-  "NotFound",
-)<RpcErrorPayload> {
-  static readonly code = -32002;
-  static readonly message = "Not found";
 }
+
+// Transport-layer cross-cutting tagged errors. Domain errors live in their
+// owning layer's `errors.ts`.
+
+export class UnauthorizedError extends Data.TaggedError(
 ```
 
 Resource not found (cross-cutting variant; domain-specific NotFound errors live with their domain).
@@ -807,13 +808,9 @@ export type NotificationDecodeError =
 _Interface_
 
 ```ts
-export interface NotificationDefinition<
-  Name extends string,
-  P extends TSchema,
-> {
-  readonly name: JsonRpcMethod<Name>;
-  readonly paramsSchema: P;
-  readonly validateParams: (data: unknown) => data is Static<P>;
+   * synchronous `argsOf` resolver that derives the obtain helper's
+   * arguments from wire `params` + dispatcher `ctx`. The dispatcher
+   * reads this list at runtime (TypeScript erases R channels).
 ```
 
 ### [`notificationFrame`](./wire.ts#L233)
@@ -848,9 +845,7 @@ export function notificationFrameSchema(): typeof NotificationFrameSchema
 _TypeAlias_
 
 ```ts
-export type NotificationParamsOf<
-  D extends NotificationDefinition<string, TSchema>,
-> = D extends NotificationDefinition<string, infer P> ? Static<P> : never;
+}): RpcDefinition<Name, P, R> & {
 ```
 
 Type-only accessor for a notification's params payload.
@@ -885,7 +880,10 @@ Type-only accessor for a definition's params payload.
 _Function_
 
 ```ts
-export function registerErrorClass(cls: RpcErrorClass): void
+ * Register a tagged-error class so the originator can resurrect it
+ * from a wire `error` payload by code. Each registered class carries
+ * `static readonly code: number` and `static readonly message:
+ * string`
 ```
 
 Throws at module-load time on duplicate code registration.
@@ -1036,10 +1034,7 @@ response decode.
 _Interface_
 
 ```ts
-export interface RpcErrorPayload {
-  readonly message?: string;
-  readonly data?: unknown;
-}
+      `Duplicate wire error code ${cls.code}: ${cls.name} conflicts with ${existing.name}`,
 ```
 
 Optional per-instance overrides for tagged-error classes. The static
@@ -1052,12 +1047,7 @@ forwards to the wire response.
 _Class_
 
 ```ts
-export class RpcParamsDecodeError extends Data.TaggedError(
-  "RpcParamsDecodeError",
-)<{
-  readonly definition: RpcDefinition<string, TSchema, TSchema>;
-  readonly data: unknown;
-}> {}
+    readonly capabilities: Caps;
 ```
 
 ### [`RpcRequestDecodeError`](./rpc-groups.ts#L71)
@@ -1075,12 +1065,15 @@ export type RpcRequestDecodeError =
 _Class_
 
 ```ts
-export class RpcResultDecodeError extends Data.TaggedError(
-  "RpcResultDecodeError",
-)<{
-  readonly definition: RpcDefinition<string, TSchema, TSchema>;
-  readonly data: unknown;
-}> {}
+ * pending-call registry. The transport-side runtimes don't track
+ * them; consumers subscribe externally via per-method handlers.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant Server
+ *   participant Wire as WebSocket
+ *   participant Client
+ *   Server->>Server: NotificationDefinition.encode(params)
 ```
 
 ### [`RpcServerError`](./rpc-errors.ts#L28)
@@ -1248,11 +1241,8 @@ but may supply the `forbidden` sentinel; the dispatcher synthesizes
 _Class_
 
 ```ts
-export class UnauthorizedError extends Data.TaggedError(
-  "Unauthorized",
-)<RpcErrorPayload> {
-  static readonly code = -32000;
-  static readonly message = "Not authenticated. Send network/connect first.";
+export function errorClassFor(code: number): RpcErrorClass | undefined {
+  return codeToClass.get(code);
 }
 ```
 

@@ -162,8 +162,31 @@ function decodeResponseFrame(
 }
 
 /**
- * Typed entry point for client-inbound frames. Fails closed with
+ * Typed entry point for client-inbound frames (used by the client to
+ * decode what the server sends). Fails closed with
  * `MalformedFrameError` on any wire-level mismatch.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A["raw socket payload&lt;br>(JSON.parse happens before this call)"]
+ *   A --> B["decodeFrame(parsed)"]
+ *   B --> C{tag?}
+ *   C -->|Request| D["decodeRpcRequest(taskCallbackMethods)&lt;br>→ ServerRequest"]
+ *   C -->|Response| E["decodeResponseFrame&lt;br>→ ResponseSuccess | ResponseError"]
+ *   C -->|Notification| F["decodeNotification(notificationDefs)&lt;br>→ Notification"]
+ *   D --> G[DecodedServerInbound]
+ *   E --> G
+ *   F --> G
+ * ```
+ *
+ * Client-inbound `Request` frames are restricted to
+ * `taskCallbackMethods` (the subset the server is allowed to call
+ * back into the client — `dispatch/authorize`, etc.). Response
+ * frames with `id === null` fail closed since a null id has no
+ * pending call to resolve.
+ *
+ * Sibling: {@link decodeClientInbound} — same pipeline, but admits
+ * the full `rpcMethods` set on the request arm (server-side use).
  */
 export function decodeServerInbound(
   parsed: unknown,
@@ -191,8 +214,13 @@ export function decodeServerInbound(
 }
 
 /**
- * Typed entry point for server-inbound frames. Fails closed with
- * `MalformedFrameError` on any wire-level mismatch.
+ * Typed entry point for server-inbound frames (used by the server to
+ * decode what a client sends). Same shape as
+ * {@link decodeServerInbound} but admits the FULL `rpcMethods` set
+ * on the request arm.
+ *
+ * Fails closed with `MalformedFrameError` on any mismatch, including
+ * a response frame whose `id` is `null` (no pending call to settle).
  */
 export function decodeClientInbound(
   parsed: unknown,

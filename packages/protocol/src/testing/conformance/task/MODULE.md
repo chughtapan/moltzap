@@ -350,6 +350,72 @@ _Function_
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
 ```
 
+### [`registerTaskConversationAddParticipant`](./task-conversation-family.ts#L391)
+
+_Function_
+
+```ts
+export function registerTaskConversationAddParticipant(
+  ctx: ConformanceRunContext,
+): void
+```
+
+### [`registerTaskConversationArchiveDenied`](./task-conversation-family.ts#L375)
+
+_Function_
+
+```ts
+export function registerTaskConversationArchiveDenied(
+  ctx: ConformanceRunContext,
+): void
+```
+
+### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L275)
+
+_Function_
+
+```ts
+export function registerTaskConversationCreateAndList(
+  ctx: ConformanceRunContext,
+): void
+```
+
+### [`registerTaskConversationCreateDenied`](./task-conversation-family.ts#L474)
+
+_Function_
+
+```ts
+export function registerTaskConversationCreateDenied(
+  ctx: ConformanceRunContext,
+): void
+```
+
+### [`registerTaskConversationRemoveParticipant`](./task-conversation-family.ts#L434)
+
+_Function_
+
+```ts
+export function registerTaskConversationRemoveParticipant(
+  ctx: ConformanceRunContext,
+): void
+```
+
+### [`registerTaskCreate`](./task-conversation-family.ts#L124)
+
+_Function_
+
+```ts
+export function registerTaskCreate(ctx: ConformanceRunContext): void
+```
+
+### [`registerTaskLeave`](./task-conversation-family.ts#L183)
+
+_Function_
+
+```ts
+export function registerTaskLeave(ctx: ConformanceRunContext): void
+```
+
 ### [`sendText`](./_helpers.ts#L310)
 
 _Function_
@@ -362,7 +428,16 @@ export function sendText(
 )
 ```
 
-### [`TASK_PROPERTIES`](./index.ts#L41)
+### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L522)
+
+_Variable_
+
+```ts
+export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
+  (ctx: ConformanceRunContext)
+```
+
+### [`TASK_PROPERTIES`](./index.ts#L63)
 
 _Variable_
 
@@ -373,6 +448,7 @@ export const TASK_PROPERTIES: ReadonlyArray<
 
 All task-layer property registrars, ordered per architect plan §2
 (delivery subset first, then `model-equivalence` from rpc-semantics).
+Spec D1 additions append to the delivery subset.
 
 ### [`unarchiveConversation`](./_helpers.ts#L339)
 
@@ -472,3 +548,4 @@ export function waitForUnarchivedEvent(
 - `store-and-replay.ts`
 - `task-boundary-isolation.ts`
 - `task-close-lifecycle.ts`
+- `task-conversation-family.ts`
