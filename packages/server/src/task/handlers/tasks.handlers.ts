@@ -16,31 +16,17 @@ import {
   TaskCreate,
   TaskLeave,
   inferConversationType,
-  TasksAddParticipant,
-  TasksClose,
-  TasksCloseConversation,
-  TasksCreate,
-  TasksCreateConversation,
-  TasksGet,
-  TasksList,
-  TasksRemoveParticipant,
+  TaskAddParticipant,
+  TaskClose,
+  TaskList,
+  TaskRemoveParticipant,
   type AppId,
   type Conversation,
   type Task,
   type TaskConversationListItem,
-  type TmType,
 } from "@moltzap/protocol";
-import { InvalidParamsError } from "../../runtime/index.js";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
-import { type EndpointAddress } from "@moltzap/protocol/network";
-import {
-  DEFAULT_DM_TM_ADDRESS,
-  DEFAULT_GROUP_TM_ADDRESS,
-} from "../../network/app-tm-registry.js";
-import {
-  defaultAppTmEndpointAddress,
-  endpointAddressForAgent,
-} from "../../task/services/task.service.js";
+import { defaultAppTmEndpointAddress } from "../../task/services/task.service.js";
 import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
@@ -71,35 +57,6 @@ import {
   obtainConversationCreateAuthorization,
 } from "../../app/capabilities/index.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
-
-/**
- * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
- * HIGH-A): server-derived TM endpoint address. Pre-R16 the wire body
- * accepted a caller-supplied `tmEndpointAddress: string`, letting an
- * authenticated agent A bind a fresh task to a stranger B's TM and
- * dispatch messages to B's WS without B's consent. R16 replaces the
- * caller-supplied field with a `tmType` kind marker; the server
- * resolves the address from the kind + the authenticated caller, so
- * "self" always means the caller and the default kinds resolve to the
- * in-process default-TM constants.
- */
-function deriveTmEndpointAddress(
-  tmType: TmType,
-  callerAgentId: AgentId,
-): EndpointAddress {
-  switch (tmType) {
-    case "self":
-      return endpointAddressForAgent(callerAgentId);
-    case "default-dm":
-      return DEFAULT_DM_TM_ADDRESS;
-    case "default-group":
-      return DEFAULT_GROUP_TM_ADDRESS;
-    default: {
-      const _absurd: never = tmType;
-      return _absurd;
-    }
-  }
-}
 
 /**
  * Spec D1 (#598) `task/create` body — extracted out of the
@@ -445,61 +402,18 @@ function fanoutUnarchiveDualEmit(input: UnarchiveDualEmitInput) {
 }
 
 export const taskHandlers: RpcMethodRegistry = [
-  defineTaskMethod(TasksCreate, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        // Prereq 2 (#525 §4d): app-bound tasks always carry their
-        // own moderator (the TM IS the app), so pairing an `appId`
-        // with a `default-*` TM kind is a nonsense shape. Reject at
-        // the wire boundary with `InvalidParamsError` instead of
-        // letting it through and silently routing dispatch to one
-        // of the in-process default-TM constants.
-        if (
-          params.appId !== undefined &&
-          (params.tmType === "default-dm" || params.tmType === "default-group")
-        ) {
-          return yield* Effect.fail(
-            new InvalidParamsError({
-              message: "app-bound tasks cannot use a default TM",
-            }),
-          );
-        }
-        const tmEndpointAddress = deriveTmEndpointAddress(
-          params.tmType,
-          ctx.agentId,
-        );
-        const task = yield* taskService.create(ctx.agentId, {
-          appId: params.appId,
-          invitedAgentIds: params.invitedAgentIds,
-          tmEndpointAddress,
-        });
-        return { task };
-      }).pipe(Effect.withSpan("tasks.create")),
-  }),
-
-  defineTaskMethod(TasksGet, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        return yield* taskService.get(params.taskId, ctx.agentId);
-      }).pipe(Effect.withSpan("tasks.get")),
-  }),
-
-  defineTaskMethod(TasksList, {
+  defineTaskMethod(TaskList, {
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
         const tasks = yield* taskService.list(ctx.agentId, {
-          appId: params.appId,
-          status: params.status,
           limit: params.limit,
         });
         return { tasks: [...tasks] };
-      }).pipe(Effect.withSpan("tasks.list")),
+      }).pipe(Effect.withSpan("task.list")),
   }),
 
-  defineTaskMethod(TasksClose, {
+  defineTaskMethod(TaskClose, {
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
@@ -525,41 +439,10 @@ export const taskHandlers: RpcMethodRegistry = [
           { task: closed.task },
         );
         return { task: closed.task };
-      }).pipe(Effect.withSpan("tasks.close")),
+      }).pipe(Effect.withSpan("task.close")),
   }),
 
-  defineTaskMethod(TasksCreateConversation, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        const agentIds = params.participants.map((p) => p.id as AgentId);
-        const conversation = yield* taskService.createConversation(
-          params.taskId,
-          ctx.agentId,
-          {
-            type: params.type,
-            name: params.name,
-            participantAgentIds: agentIds,
-          },
-        );
-        return { conversation };
-      }).pipe(Effect.withSpan("tasks.createConversation")),
-  }),
-
-  defineTaskMethod(TasksCloseConversation, {
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        yield* taskService.closeConversation(
-          params.taskId,
-          ctx.agentId,
-          params.conversationId,
-        );
-        return {};
-      }).pipe(Effect.withSpan("tasks.closeConversation")),
-  }),
-
-  defineTaskMethod(TasksAddParticipant, {
+  defineTaskMethod(TaskAddParticipant, {
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
@@ -569,10 +452,10 @@ export const taskHandlers: RpcMethodRegistry = [
           params.agentId,
         );
         return { participant };
-      }).pipe(Effect.withSpan("tasks.addParticipant")),
+      }).pipe(Effect.withSpan("task.addParticipant")),
   }),
 
-  defineTaskMethod(TasksRemoveParticipant, {
+  defineTaskMethod(TaskRemoveParticipant, {
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
@@ -582,7 +465,7 @@ export const taskHandlers: RpcMethodRegistry = [
           params.agentId,
         );
         return {};
-      }).pipe(Effect.withSpan("tasks.removeParticipant")),
+      }).pipe(Effect.withSpan("task.removeParticipant")),
   }),
 
   // ───────────────────────────────────────────────────────────────────

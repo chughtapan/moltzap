@@ -27,19 +27,13 @@ import {
   MessageReceivedNotificationDefinition,
 } from "./messages.js";
 import {
-  TasksCreate,
-  TasksGet,
-  TasksList,
-  TasksClose,
-  TasksCreateConversation,
-  TasksCloseConversation,
-  TasksAddParticipant,
-  TasksRemoveParticipant,
+  TaskList,
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Spec D1 (#598) — additive `task/*` + `task/conversation/*` surface.
-  // Both old and new families coexist until D3 (#600) deletes the legacy
-  // `Tasks*` / `Conversations*` entries above.
+  // Spec D1 (#598) `task/*` + `task/conversation/*` surface (singular).
   TaskCreate,
   TaskLeave,
   TaskConversationCreate,
@@ -69,18 +63,12 @@ export const taskRpcMethods = [
   ConversationsUnarchive,
   MessagesSend,
   MessagesList,
-  TasksCreate,
-  TasksGet,
-  TasksList,
-  TasksClose,
-  TasksCreateConversation,
-  TasksCloseConversation,
-  TasksAddParticipant,
-  TasksRemoveParticipant,
-  // Spec D1 additions. Order: TaskCreate / TaskLeave first (task-level
-  // operations), then the `task/conversation/*` admin set.
   TaskCreate,
   TaskLeave,
+  TaskList,
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
   TaskConversationCreate,
   TaskConversationList,
   TaskConversationArchive,
@@ -90,18 +78,18 @@ export const taskRpcMethods = [
 ] as const;
 
 // Spec D3 R11 — per-kind subsets of the surviving task layer.
-// Names follow the pre-rename `Tasks*` form; Commit 9 renames `TasksList`
-// and `TasksClose` to the singular survivors.
 export const nonTmAuthorityTaskRpcMethods = [
   TaskCreate,
-  TasksList,
+  TaskList,
   TaskLeave,
   MessagesSend,
   MessagesList,
 ] as const;
 
 export const tmOnlyTaskRpcMethods = [
-  TasksClose,
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
   TaskConversationCreate,
   TaskConversationArchive,
   TaskConversationUnarchive,

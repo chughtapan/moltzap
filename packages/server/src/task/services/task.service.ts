@@ -152,8 +152,6 @@ export interface TaskCreateInput {
 }
 
 export interface TaskListInput {
-  readonly appId?: string;
-  readonly status?: TaskStatus;
   readonly limit?: number;
 }
 
@@ -318,7 +316,7 @@ export class TaskService {
     const limit = input.limit ?? DEFAULT_TASK_LIST_LIMIT;
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        let qb = this.db
+        const rows = yield* this.db
           .selectFrom("tasks")
           .innerJoin(
             "task_participants",
@@ -329,13 +327,6 @@ export class TaskService {
           .selectAll("tasks")
           .orderBy("tasks.created_at", "desc")
           .limit(limit);
-        if (input.appId !== undefined) {
-          qb = qb.where("tasks.app_id", "=", input.appId);
-        }
-        if (input.status !== undefined) {
-          qb = qb.where("tasks.status", "=", input.status);
-        }
-        const rows = yield* qb;
         return rows.map((row) => rowToTask(row as TaskRow));
       }),
     );

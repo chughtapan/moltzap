@@ -47,9 +47,11 @@ import type { AgentId } from "../../../identity/agents.js";
 import {
   type ConversationId,
   type MessageId,
-  TasksCreate,
-  TasksCreateConversation,
-  ConversationsAddParticipant,
+  DEFAULT_APP_ID,
+  TaskAddParticipant,
+  TaskConversationAddParticipant,
+  TaskConversationCreate,
+  TaskCreate,
   MessagesSend,
 } from "@moltzap/protocol/task";
 import type { TaskId } from "../../../task/tasks.js";
@@ -738,6 +740,7 @@ interface DriverBuildParts {
 interface AddRecipientInput {
   readonly ctx: ConformanceRunContext;
   readonly moderatorClient: TestClient;
+  readonly taskId: Static<typeof TaskId>;
   readonly conversationId: Static<typeof ConversationId>;
   readonly opts: Parameters<DispatchTestDriver["addRecipient"]>[0];
 }
@@ -1035,7 +1038,11 @@ function createDriverFixtures(
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
   return Effect.gen(function* () {
-    const taskId = yield* createDriverTask(moderatorClient, appId);
+    const taskId = yield* createDriverTask(
+      moderatorClient,
+      appId,
+      recipientAgent,
+    );
     const conversationId = yield* createDriverConversation(
       moderatorClient,
       taskId,
@@ -1047,23 +1054,25 @@ function createDriverFixtures(
 
 function createDriverTask(
   moderatorClient: TestClient,
-  appId: string | null,
+  _appId: string | null,
+  recipientAgent: TestAgent,
 ): Effect.Effect<Static<typeof TaskId>, PropertyFailure> {
-  const taskParams =
-    appId !== null
-      ? { appId, tmType: "self" as const }
-      : { tmType: "self" as const };
-  return moderatorClient.sendRpc(TasksCreate, taskParams).pipe(
-    Effect.map(
-      (result) => (result as { task: { id: Static<typeof TaskId> } }).task.id,
-    ),
-    Effect.mapError((e) =>
-      violation(
-        SETUP_FAILURE_PROPERTY,
-        `tasks/create failed: ${unwrapError(e)}`,
+  return moderatorClient
+    .sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [recipientAgent.agentId],
+    })
+    .pipe(
+      Effect.map(
+        (result) => (result as { task: { id: Static<typeof TaskId> } }).task.id,
       ),
-    ),
-  );
+      Effect.mapError((e) =>
+        violation(
+          SETUP_FAILURE_PROPERTY,
+          `task/create failed: ${unwrapError(e)}`,
+        ),
+      ),
+    );
 }
 
 function createDriverConversation(
@@ -1072,11 +1081,10 @@ function createDriverConversation(
   recipientAgent: TestAgent,
 ): Effect.Effect<Static<typeof ConversationId>, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TasksCreateConversation, {
+    .sendRpc(TaskConversationCreate, {
       taskId,
-      type: "group",
       name: "conformance-dispatch-conv",
-      participants: [{ type: "agent" as const, id: recipientAgent.agentId }],
+      participants: [recipientAgent.agentId],
     })
     .pipe(
       Effect.map(
@@ -1090,7 +1098,7 @@ function createDriverConversation(
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `tasks/createConversation failed: ${unwrapError(e)}`,
+          `task/conversation/create failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1105,6 +1113,7 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
       addRecipient({
         ctx: parts.ctx,
         moderatorClient: parts.clients.moderatorClient,
+        taskId: parts.fixtures.taskId,
         conversationId: parts.fixtures.conversationId,
         opts,
       }),
@@ -1126,8 +1135,10 @@ function addRecipient(
     const name = input.opts.agentName ?? "conf-rcpt2";
     const agent = yield* acquireAgent(input.ctx, name);
     const acquired = yield* acquireCloseableClient(input.ctx, agent);
+    yield* addTaskParticipant(input.moderatorClient, input.taskId, agent);
     yield* addConversationParticipant(
       input.moderatorClient,
+      input.taskId,
       input.conversationId,
       agent,
     );
@@ -1135,21 +1146,43 @@ function addRecipient(
   });
 }
 
-function addConversationParticipant(
+function addTaskParticipant(
   moderatorClient: TestClient,
-  conversationId: Static<typeof ConversationId>,
+  taskId: Static<typeof TaskId>,
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
-    .sendRpc(ConversationsAddParticipant, {
-      conversationId,
-      participant: { type: "agent" as const, id: agent.agentId },
+    .sendRpc(TaskAddParticipant, {
+      taskId,
+      agentId: agent.agentId,
     })
     .pipe(
       Effect.mapError((e) =>
         violation(
           "driver.addRecipient",
-          `conversations/addParticipant failed: ${unwrapError(e)}`,
+          `task/addParticipant failed: ${unwrapError(e)}`,
+        ),
+      ),
+    );
+}
+
+function addConversationParticipant(
+  moderatorClient: TestClient,
+  taskId: Static<typeof TaskId>,
+  conversationId: Static<typeof ConversationId>,
+  agent: TestAgent,
+): Effect.Effect<void, PropertyFailure> {
+  return moderatorClient
+    .sendRpc(TaskConversationAddParticipant, {
+      taskId,
+      conversationId,
+      agentId: agent.agentId,
+    })
+    .pipe(
+      Effect.mapError((e) =>
+        violation(
+          "driver.addRecipient",
+          `task/conversation/participants/add failed: ${unwrapError(e)}`,
         ),
       ),
     );

@@ -86,15 +86,19 @@ function handleDomainRequestFrame(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     switch (frame.method) {
-      case "tasks/create": {
-        yield* handleTasksCreate(frame, opts);
+      case "task/create": {
+        yield* handleTaskCreate(frame, opts);
         return;
       }
-      case "tasks/createConversation": {
+      case "task/conversation/create": {
         yield* handleTasksCreateConversation(frame, opts);
         return;
       }
-      case "conversations/addParticipant": {
+      case "task/addParticipant": {
+        yield* handleTaskAddParticipant(frame, opts);
+        return;
+      }
+      case "task/conversation/participants/add": {
         yield* handleAddParticipant(frame, opts);
         return;
       }
@@ -152,7 +156,7 @@ function dispatchRequestParams(raw: unknown): DispatchRequestParams {
   };
 }
 
-function handleTasksCreate(
+function handleTaskCreate(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {
@@ -182,15 +186,38 @@ function handleTasksCreateConversation(
   });
 }
 
+function handleTaskAddParticipant(
+  frame: RequestFrame,
+  opts: HandleInboundFrameOpts,
+): Effect.Effect<void> {
+  const state = Ref.get(opts.stateRef);
+  const agentIdParam = paramField(frame.params, "agentId");
+  const participantAgentId =
+    typeof agentIdParam === "string"
+      ? agentIdParam
+      : "00000000-0000-4000-8000-000000000004";
+  return Effect.gen(function* () {
+    const s = yield* state;
+    yield* writeResponse(opts.stateRef, opts.connId, frame.id, {
+      result: {
+        participant: {
+          taskId: s.fixedTaskId,
+          agentId: participantAgentId,
+          admittedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+  });
+}
+
 function handleAddParticipant(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {
-  const participant = paramField(frame.params, "participant");
-  const participantId = paramField(participant, "id");
+  const agentIdParam = paramField(frame.params, "agentId");
   const participantAgentId =
-    typeof participantId === "string"
-      ? participantId
+    typeof agentIdParam === "string"
+      ? agentIdParam
       : "00000000-0000-4000-8000-000000000003";
   return writeResponse(opts.stateRef, opts.connId, frame.id, {
     result: makeAddParticipantResult(participantAgentId),
@@ -286,6 +313,7 @@ function makeTaskResult(
         endedAt: null,
         createdAt: "2026-01-01T00:00:00.000Z",
       },
+      conversation: null,
     };
   });
 }
@@ -309,17 +337,8 @@ function makeConversationResult(
   });
 }
 
-function makeAddParticipantResult(participantAgentId: string): unknown {
-  return {
-    participant: {
-      conversationId: "00000000-0000-4000-8000-000000000c01",
-      participant: {
-        type: "agent",
-        id: participantAgentId,
-      },
-      joinedAt: "2026-01-01T00:00:00.000Z",
-    },
-  };
+function makeAddParticipantResult(_participantAgentId: string): unknown {
+  return {};
 }
 
 function handleMessagesSend(args: {

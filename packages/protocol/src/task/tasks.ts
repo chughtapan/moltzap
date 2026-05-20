@@ -7,12 +7,7 @@ import {
   registerErrorClass,
   type RpcErrorPayload,
 } from "../transport/wire-errors.js";
-import {
-  ConversationId,
-  ConversationTypeEnum,
-  agentParticipantRefSchema,
-  conversationSchema,
-} from "./conversations.js";
+import { ConversationId, conversationSchema } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
@@ -21,7 +16,6 @@ import {
   type ObtainConversationCreateAuthorizationInput,
 } from "./capabilities/conversation-create-authorization.js";
 import { ConversationInTask } from "./capabilities/conversation-in-task.js";
-import { TaskReadAccess } from "./capabilities/task-read-access.js";
 import { TmAuthority } from "./capabilities/tm-authority.js";
 
 // `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
@@ -29,7 +23,6 @@ import { TmAuthority } from "./capabilities/tm-authority.js";
 export { AppId, DEFAULT_APP_ID, TaskId } from "./ids.js";
 
 const DateTimeString = dateTimeStringSchema();
-const AgentParticipantRefSchema = agentParticipantRefSchema();
 const ConversationSchema = conversationSchema();
 
 export class TaskClosedError extends Data.TaggedError(
@@ -123,49 +116,12 @@ const TaskParticipantSchema = Type.Object(
 
 export type TaskParticipant = Static<typeof TaskParticipantSchema>;
 
-export const TasksCreate = defineRpc({
-  name: "tasks/create",
+export const TaskList = defineRpc({
+  name: "task/list",
   params: Type.Object(
     {
-      appId: Type.Optional(Type.String()),
-      invitedAgentIds: Type.Optional(Type.Array(AgentId)),
-      tmType: TmTypeEnum,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
-});
-
-export const TasksGet = defineRpc({
-  name: "tasks/get",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object(
-    {
-      task: TaskSchema,
-      participants: Type.Array(TaskParticipantSchema),
-    },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksList = defineRpc({
-  name: "tasks/list",
-  params: Type.Object(
-    {
-      appId: Type.Optional(Type.String()),
-      status: Type.Optional(TaskStatusEnum),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      cursor: Type.Optional(Type.String()),
     },
     { additionalProperties: false },
   ),
@@ -175,8 +131,8 @@ export const TasksList = defineRpc({
   ),
 });
 
-export const TasksClose = defineRpc({
-  name: "tasks/close",
+export const TaskClose = defineRpc({
+  name: "task/close",
   params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
   result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
   capabilities: [
@@ -192,89 +148,8 @@ export const TasksClose = defineRpc({
   ] as const,
 });
 
-export const TasksCreateConversation = defineRpc({
-  name: "tasks/createConversation",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      type: ConversationTypeEnum,
-      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      participants: Type.Array(AgentParticipantRefSchema, { minItems: 1 }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { conversation: ConversationSchema },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationCreateAuthorization,
-      argsOf: (
-        params: unknown,
-        ctx: unknown,
-      ): ObtainConversationCreateAuthorizationInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly type: "dm" | "group";
-          readonly participants: ReadonlyArray<{ readonly id: string }>;
-        };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return {
-          type: p.type,
-          agentIds: p.participants.map((x) => x.id as AgentId),
-          creatorAgentId: c.auth.agentId,
-        };
-      },
-    },
-  ] as const,
-});
-
-export const TasksCloseConversation = defineRpc({
-  name: "tasks/closeConversation",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksAddParticipant = defineRpc({
-  name: "tasks/addParticipant",
+export const TaskAddParticipant = defineRpc({
+  name: "task/addParticipant",
   params: Type.Object(
     {
       taskId: TaskId,
@@ -299,8 +174,8 @@ export const TasksAddParticipant = defineRpc({
   ] as const,
 });
 
-export const TasksRemoveParticipant = defineRpc({
-  name: "tasks/removeParticipant",
+export const TaskRemoveParticipant = defineRpc({
+  name: "task/removeParticipant",
   params: Type.Object(
     {
       taskId: TaskId,
@@ -477,7 +352,7 @@ export const TaskLeave = defineRpc({
  * `task_participants` for `taskId`; violations return
  * `ParticipantNotAdmittedError`. Spec body Goal 1.
  *
- * Schema diff vs. legacy `TasksCreateConversation`:
+ * Schema diff vs. legacy `tasks/createConversation`:
  *   - removes `type: ConversationTypeEnum` (DM/Group collapse — D3
  *     retires the `conversation_type` enum column entirely)
  *   - participants typed as `AgentId[]` (was `agentParticipantRefSchema`)

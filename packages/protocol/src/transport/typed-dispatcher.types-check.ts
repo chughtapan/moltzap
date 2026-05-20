@@ -43,8 +43,7 @@
  * assertion of "`.register` is missing" would be tautological.
  */
 
-import { MessagesSend } from "../task/messages.js";
-import { TasksGet } from "../task/tasks.js";
+import { MessagesList, MessagesSend } from "../task/messages.js";
 import { DispatchAuthorize, MessagesAuthorize } from "../app/methods.js";
 import { TmAuthority } from "../task/capabilities/tm-authority.js";
 
@@ -167,38 +166,37 @@ const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
 // compile time means a server author cannot ship a handler whose
 // authorization needs aren't reflected in the wire-protocol descriptor.
 //
-// The check below uses `TasksGet` which declares `[TaskReadAccess]`. A
-// handler that yields `TmAuthority` (a different capability NOT in
-// TasksGet's catalog) should fail the `Handler<D, Ctx, Caps>`
-// constraint where `Caps = CapabilitiesOf<typeof TasksGet>` =
-// `TaskReadAccess`. Yielding `TmAuthority` widens R beyond `Caps` and
-// the slot literal fails to assign.
+// The check below uses `MessagesList` whose `capabilities` array does NOT
+// include `TmAuthority`. A handler that yields `TmAuthority` should fail
+// the `Handler<D, Ctx, Caps>` constraint where
+// `Caps = CapabilitiesOf<typeof MessagesList>`. Yielding `TmAuthority`
+// widens R beyond `Caps` and the slot literal fails to assign.
 // ───────────────────────────────────────────────────────────────────────
 
-declare const _tasksGetSlotWithExtraCap: HandlerSlot<
-  typeof TasksGet,
+declare const _messagesListSlotWithExtraCap: HandlerSlot<
+  typeof MessagesList,
   unknown,
   typeof TmAuthority
 >;
-// @ts-expect-error — handler R (TmAuthority) is NOT in CapabilitiesOf<TasksGet> ([TaskReadAccess]).
+// @ts-expect-error — handler R (TmAuthority) is NOT in CapabilitiesOf<MessagesList>.
 const _capLockstepReject: HandlerSlot<
-  typeof TasksGet,
+  typeof MessagesList,
   unknown,
-  CapabilitiesOf<typeof TasksGet>
-> = _tasksGetSlotWithExtraCap;
+  CapabilitiesOf<typeof MessagesList>
+> = _messagesListSlotWithExtraCap;
 
 // Positive control: a handler whose Caps exactly matches the descriptor's
 // `capabilities` declaration assigns cleanly.
-declare const _tasksGetSlotProper: HandlerSlot<
-  typeof TasksGet,
+declare const _messagesListSlotProper: HandlerSlot<
+  typeof MessagesList,
   unknown,
-  CapabilitiesOf<typeof TasksGet>
+  CapabilitiesOf<typeof MessagesList>
 >;
 const _capLockstepAccept: HandlerSlot<
-  typeof TasksGet,
+  typeof MessagesList,
   unknown,
-  CapabilitiesOf<typeof TasksGet>
-> = _tasksGetSlotProper;
+  CapabilitiesOf<typeof MessagesList>
+> = _messagesListSlotProper;
 
 // Export each canary local as a discriminated union so the unused-vars
 // rule (which is otherwise satisfied by leading `_`) cannot trim them
@@ -214,9 +212,9 @@ export type _TypedDispatcherCanarySink =
   | typeof _tmHandlersSink
   | typeof _tmEmpty
   | typeof _directReject
-  | typeof _tasksGetSlotWithExtraCap
+  | typeof _messagesListSlotWithExtraCap
   | typeof _capLockstepReject
-  | typeof _tasksGetSlotProper
+  | typeof _messagesListSlotProper
   | typeof _capLockstepAccept
   | _ServerConnection
   | _AgentClientConnection

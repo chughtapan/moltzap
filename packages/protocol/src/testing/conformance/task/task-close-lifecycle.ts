@@ -8,10 +8,11 @@ import { Effect } from "effect";
 import {
   TaskClosedNotificationDefinition,
   TaskClosedError,
-  TasksAddParticipant,
-  TasksClose,
-  TasksCreate,
-  TasksCreateConversation,
+  TaskAddParticipant,
+  TaskClose,
+  TaskConversationCreate,
+  TaskCreate,
+  DEFAULT_APP_ID,
 } from "../../../task/methods.js";
 import type { TaskId } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -57,7 +58,7 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
     Effect.gen(function* () {
       const fixture = yield* acquireTaskCloseFixture(ctx);
       const close = yield* fixture.owner.client
-        .sendRpc(TasksClose, { taskId: fixture.taskId })
+        .sendRpc(TaskClose, { taskId: fixture.taskId })
         .pipe(Effect.either);
       const closed = yield* requireRight(close, (error) =>
         deliveryViolation(PROPERTY, `tasks/close failed: ${error._tag}`),
@@ -101,34 +102,33 @@ function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
       Effect.mapError((e) => deliveryViolation(PROPERTY, `participant: ${e}`)),
     );
     const taskResult = yield* owner.client
-      .sendRpc(TasksCreate, {
-        appId: "task-close-lifecycle-app",
-        tmType: "self",
+      .sendRpc(TaskCreate, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: [participant.agent.agentId],
       })
       .pipe(Effect.either);
     const task = yield* requireRight(taskResult, (error) =>
-      deliveryViolation(PROPERTY, `tasks/create failed: ${error._tag}`),
+      deliveryViolation(PROPERTY, `task/create failed: ${error._tag}`),
     );
     const addResult = yield* owner.client
-      .sendRpc(TasksAddParticipant, {
+      .sendRpc(TaskAddParticipant, {
         taskId: task.task.id,
         agentId: participant.agent.agentId,
       })
       .pipe(Effect.either);
     yield* requireRight(addResult, (error) =>
-      deliveryViolation(PROPERTY, `tasks/addParticipant failed: ${error._tag}`),
+      deliveryViolation(PROPERTY, `task/addParticipant failed: ${error._tag}`),
     );
     const conversationResult = yield* owner.client
-      .sendRpc(TasksCreateConversation, {
+      .sendRpc(TaskConversationCreate, {
         taskId: task.task.id,
-        type: "dm",
-        participants: [{ type: "agent", id: participant.agent.agentId }],
+        participants: [participant.agent.agentId],
       })
       .pipe(Effect.either);
     const conversation = yield* requireRight(conversationResult, (error) =>
       deliveryViolation(
         PROPERTY,
-        `tasks/createConversation failed: ${error._tag}`,
+        `task/conversation/create failed: ${error._tag}`,
       ),
     );
     return {

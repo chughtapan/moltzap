@@ -24,8 +24,8 @@ import {
   TaskLeave,
   MessagesSend,
   MessagesList,
-  TasksList,
-  TasksClose,
+  TaskList,
+  TaskClose,
   TaskConversationCreate,
   TaskConversationArchive,
   TaskConversationUnarchive,
@@ -45,7 +45,7 @@ type _CardinalityHolds = AssertEquals<
 
 // ── Membership: TM-only side carries the admin operations ───────────
 type _TmOnlyHasClose = AssertExtends<
-  typeof TasksClose,
+  typeof TaskClose,
   AnyTaskMasterRpcDefinition
 >;
 type _TmOnlyHasConvCreate = AssertExtends<
@@ -79,7 +79,7 @@ type _AgentHasLeave = AssertExtends<
   AnyAgentClientRpcDefinition
 >;
 type _AgentHasList = AssertExtends<
-  typeof TasksList,
+  typeof TaskList,
   AnyAgentClientRpcDefinition
 >;
 type _AgentHasMessagesSend = AssertExtends<
@@ -92,10 +92,10 @@ type _AgentHasMessagesList = AssertExtends<
 >;
 
 // ── Disjointness: a tm-only method must NOT satisfy the agent union ──
-// If TasksClose were accidentally added to agentClientRpcMethods, the
+// If TaskClose were accidentally added to agentClientRpcMethods, the
 // `Exclude<>` below would resolve to never and break the assertion.
-type _TasksCloseNotInAgentSet = AssertEquals<
-  Extract<typeof TasksClose, AnyAgentClientRpcDefinition>,
+type _TaskCloseNotInAgentSet = AssertEquals<
+  Extract<typeof TaskClose, AnyAgentClientRpcDefinition>,
   never
 >;
 type _ConvCreateNotInAgentSet = AssertEquals<
@@ -129,7 +129,7 @@ export type _D3CanaryHolds =
   | _AgentHasList
   | _AgentHasMessagesSend
   | _AgentHasMessagesList
-  | _TasksCloseNotInAgentSet
+  | _TaskCloseNotInAgentSet
   | _ConvCreateNotInAgentSet
   | _ServerSupersetOfTm
   | _RpcErrorPayloadDataIsJsonValue;

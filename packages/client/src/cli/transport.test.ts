@@ -25,7 +25,7 @@ import {
   type TransportOptions,
 } from "./transport.js";
 
-import { TasksList } from "@moltzap/protocol";
+import { TaskList } from "@moltzap/protocol";
 
 const it = effectIt.effect;
 const SESSION_NOT_FOUND_CODE = -32001;
@@ -229,8 +229,8 @@ describe("decideTransport", () => {
 
 function expectTimeoutForwarded(timeoutMs: number): void {
   const err = tagWsError(
-    TasksList.name,
-    new RpcTimeoutError({ method: TasksList.name, timeoutMs }),
+    TaskList.name,
+    new RpcTimeoutError({ method: TaskList.name, timeoutMs }),
   );
   expect(err).toBeInstanceOf(TransportTimeoutError);
   if (err instanceof TransportTimeoutError) {
@@ -249,7 +249,7 @@ function timeoutErrorForwardsGeneratedTimeouts() {
 function rpcServerErrorMapsToTransportRpcError() {
   return Effect.sync(() => {
     const err = tagWsError(
-      TasksList.name,
+      TaskList.name,
       new RpcServerError({
         code: SESSION_NOT_FOUND_CODE,
         message: SESSION_NOT_FOUND_MESSAGE,
@@ -267,7 +267,7 @@ function rpcServerErrorMapsToTransportRpcError() {
 function notConnectedMapsToServiceUnreachable() {
   return Effect.sync(() => {
     const err = tagWsError(
-      TasksList.name,
+      TaskList.name,
       new NotConnectedError({ message: NOT_CONNECTED_MESSAGE }),
     );
     expect(err).toBeInstanceOf(ServiceUnreachableError);
@@ -278,9 +278,9 @@ function notConnectedMapsToServiceUnreachable() {
 function rpcTimeoutMapsToTransportTimeout() {
   return Effect.sync(() => {
     const err = tagWsError(
-      TasksList.name,
+      TaskList.name,
       new RpcTimeoutError({
-        method: TasksList.name,
+        method: TaskList.name,
         timeoutMs: RPC_TIMEOUT_MS,
       }),
     );
@@ -293,7 +293,7 @@ function rpcTimeoutMapsToTransportTimeout() {
 
 function unknownErrorMapsToTransportDecode() {
   return Effect.sync(() => {
-    const err = tagWsError(TasksList.name, {
+    const err = tagWsError(TaskList.name, {
       message: UNKNOWN_ERROR_MESSAGE,
     });
     expect(err).toBeInstanceOf(TransportDecodeError);
@@ -374,7 +374,7 @@ function directRpcFailurePropagates() {
       serverUrl: DIRECT_TEST_SERVER_URL,
     };
     const exit = yield* Transport.pipe(
-      Effect.flatMap((transport) => transport.rpc(TasksList, {})),
+      Effect.flatMap((transport) => transport.rpc(TaskList, {})),
       Effect.exit,
       Effect.provide(makeTransportLayer(opts)),
     );
