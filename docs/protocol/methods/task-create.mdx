@@ -1,11 +1,23 @@
 ---
 title: "task/create"
-description: "Call `task/create`."
+description: "Reshaped task-create: `appId` REQUIRED (branded), `tmType` ELIMINATED at the wire, optional `initialConversation` for atomic task + first-conversation creation."
 ---
 
 # task/create
 
-Call `task/create`.
+Reshaped task-create: `appId` REQUIRED (branded), `tmType`
+ELIMINATED at the wire, optional `initialConversation` for atomic
+task + first-conversation creation.
+
+Dedup: when `appId === DEFAULT_APP_ID`, the server returns any
+existing task whose `task_participants` set is exactly
+`{callerAgentId} ∪ invitedAgentIds`. Single-invitee dedup
+generalizes today's `conversationService.existingDmForCreate` (the
+DM case is the `invitedAgentIds.length === 1` instance of the
+same exact-participant-set match query).
+
+Returns `{ task, conversation }` where `conversation` is `null`
+when `initialConversation` is omitted.
 
 ## Parameters
 

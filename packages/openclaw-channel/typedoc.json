@@ -1,4 +1,7 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/openclaw-entry.ts"]
+  "entryPoints": ["src/openclaw-entry.ts"],
+  "outputs": [
+    { "name": "json", "path": "../../node_modules/.cache/typedoc-pkg.json" }
+  ]
 }

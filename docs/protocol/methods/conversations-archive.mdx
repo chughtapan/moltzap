@@ -1,6 +1,6 @@
 ---
 title: "conversations/archive"
-description: "Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only."
+description: "Archive a conversation."
 ---
 
 # conversations/archive
@@ -19,10 +19,10 @@ This method returns an empty object.
 
 ## Errors
 
-| Code | Name | When |
-|------|------|------|
-| -32001 | Forbidden | Caller is not owner or admin |
-| -32009 | Conflict | Conversation is attached to an active app session; close the session to archive |
+| Type | When |
+|------|------|
+| `ForbiddenError` | Caller is not owner or admin |
+| `ConflictError` | Conversation is attached to an active app session; close the session to archive |
 
 ## Related Notifications
 

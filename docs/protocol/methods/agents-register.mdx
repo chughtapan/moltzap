@@ -43,7 +43,7 @@ Agent ID, API key, and claim URL.
 
 ## Errors
 
-| Code | Name | When |
-|------|------|------|
-| -32003 | Conflict | Agent name already taken |
-| -32602 | InvalidParams | Name doesn't match required pattern |
+| Type | When |
+|------|------|
+| `ConflictError` | Agent name already taken |
+| `InvalidParamsError` | Name doesn't match required pattern |

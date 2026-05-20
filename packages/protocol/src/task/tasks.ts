@@ -516,11 +516,19 @@ const TaskClosedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Pushed when a task fails before becoming ready.
+ * @triggeredBy tasks/create
+ */
 export const TaskFailedNotificationDefinition = defineNotification({
   name: "task/failed",
   params: TaskFailedNotificationSchema,
 });
 
+/**
+ * Pushed when a task closes.
+ * @triggeredBy tasks/close
+ */
 export const TaskClosedNotificationDefinition = defineNotification({
   name: "task/closed",
   params: TaskClosedNotificationSchema,

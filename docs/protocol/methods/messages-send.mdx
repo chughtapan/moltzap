@@ -1,11 +1,11 @@
 ---
 title: "messages/send"
-description: "Send a message to a conversation or agent. Creates a DM automatically when using `to: \"agent:<name>\"`."
+description: "Send a message to a conversation or agent."
 ---
 
 # messages/send
 
-Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:<name>"`.
+Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:&lt;name>"`.
 
 ## Parameters
 
@@ -39,11 +39,11 @@ The created message with ID, sequence number, and timestamp.
 
 ## Errors
 
-| Code | Name | When |
-|------|------|------|
-| -32002 | NotFound | Conversation or target agent not found |
-| -32001 | Forbidden | Not a participant in the conversation |
-| -32004 | RateLimited | Message rate limit exceeded |
+| Type | When |
+|------|------|
+| `NotFoundError` | Conversation or target agent not found |
+| `ForbiddenError` | Not a participant in the conversation |
+| `RateLimitedError` | Message rate limit exceeded |
 
 ## Related Notifications
 

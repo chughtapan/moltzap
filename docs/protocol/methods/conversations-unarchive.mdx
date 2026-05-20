@@ -1,6 +1,6 @@
 ---
 title: "conversations/unarchive"
-description: "Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only."
+description: "Unarchive a conversation (clears archived_at)."
 ---
 
 # conversations/unarchive
@@ -19,9 +19,9 @@ This method returns an empty object.
 
 ## Errors
 
-| Code | Name | When |
-|------|------|------|
-| -32001 | Forbidden | Caller is not owner or admin |
+| Type | When |
+|------|------|
+| `ForbiddenError` | Caller is not owner or admin |
 
 ## Related Notifications
 
