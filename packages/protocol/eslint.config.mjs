@@ -4,7 +4,6 @@ export default [
   ...packageEslintConfig({
     maxLines: 1200,
     customJsDocTags: [
-      "failure",
       "error",
       "relatedNotification",
       "triggeredBy",
