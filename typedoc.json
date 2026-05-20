@@ -1,0 +1,40 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/protocol",
+    "packages/server",
+    "packages/client",
+    "packages/runtimes",
+    "packages/claude-code-channel",
+    "packages/nanoclaw-channel",
+    "packages/openclaw-channel"
+  ],
+  "packageOptions": {
+    "entryPoints": ["src/index.ts"],
+    "excludeInternal": true,
+    "excludePrivate": true,
+    "readme": "none",
+    "skipErrorChecking": true,
+    "blockTags": [
+      "@file",
+      "@failure",
+      "@error",
+      "@param",
+      "@returns",
+      "@throws",
+      "@example",
+      "@deprecated",
+      "@see",
+      "@remarks",
+      "@internal",
+      "@since",
+      "@module"
+    ]
+  },
+  "json": "node_modules/.cache/typedoc.json",
+  "emit": "none",
+  "readme": "none",
+  "skipErrorChecking": true,
+  "logLevel": "Warn"
+}

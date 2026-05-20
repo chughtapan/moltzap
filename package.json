@@ -17,11 +17,13 @@
     "docs": "cd docs && mint dev",
     "docs:generate": "pnpm --filter @moltzap/protocol docs:generate",
     "docs:check": "cd docs && mint broken-links",
-    "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/protocol/",
+    "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/protocol/ docs/modules/ 'packages/**/MODULE.md'",
+    "docs:check:mermaid": "pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
     "prepare": "husky"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
+    "@mermaid-js/mermaid-cli": "^11.15.0",
     "@typescript-eslint/parser": "^8.58.2",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
@@ -29,6 +31,7 @@
     "mint": "^4.0.0",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.0",
+    "typedoc": "^0.28.19",
     "typescript": "^5"
   },
   "pnpm": {

@@ -4,6 +4,8 @@
     "src/**/*.test.ts",
     "src/**/*.types-check.ts",
     "src/testing/conformance/**/*.ts",
+    "scripts/check-mermaid.ts",
+    "scripts/**/*.test.ts",
     "vitest*.config.ts"
   ],
   "project": ["scripts/**/*.ts", "src/**/*.ts", "vitest*.config.ts"]
