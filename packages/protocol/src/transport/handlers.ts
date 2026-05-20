@@ -42,7 +42,7 @@ import type { Forbidden, NoOpNotification } from "./defaults.js";
 export interface HandlerSlot<
   D extends RpcDefinition<string, TSchema, TSchema>,
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 > {
   readonly definition: D;
   readonly handle: (
@@ -71,7 +71,7 @@ type NameOf<D> = D extends RpcDefinition<infer N, TSchema, TSchema> ? N : never;
  * forbidden, ... } })`). The dispatcher reads the value at runtime;
  * sentinel ⇒ synthesize fail-CLOSED, handler ⇒ invoke.
  */
-type SlotValue<D, Ctx, Caps extends Context.Tag<unknown, unknown>> = D extends {
+type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> = D extends {
   readonly optional: { readonly _tag: "Forbidden" };
 }
   ? D extends RpcDefinition<string, TSchema, TSchema>
@@ -99,7 +99,7 @@ type SlotValue<D, Ctx, Caps extends Context.Tag<unknown, unknown>> = D extends {
 export type HandlerTable<
   Defs extends RpcDefinition<string, TSchema, TSchema>,
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 > = {
   readonly [D in Defs as NameOf<D>]: SlotValue<D, Ctx, Caps>;
 };
@@ -123,7 +123,7 @@ export type ServerInboundRpcDefinition = (typeof rpcMethods)[number] &
  */
 export type ServerHandlers<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown> = never,
+  Caps extends Context.Tag<any, any> = never,
 > = HandlerTable<ServerInboundRpcDefinition, Ctx, Caps>;
 
 /**
@@ -141,7 +141,7 @@ export type ServerHandlers<
  */
 export type AgentClientHandlers<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown> = never,
+  Caps extends Context.Tag<any, any> = never,
 > = HandlerTable<never, Ctx, Caps>;
 
 /**
@@ -156,7 +156,7 @@ export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
 
 export type TaskMasterHandlers<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown> = never,
+  Caps extends Context.Tag<any, any> = never,
 > = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 
 /**

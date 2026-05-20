@@ -54,7 +54,7 @@ export interface CapabilityDescriptor {
  * provider table missing any tag in `Caps`.
  */
 export type CapabilityProviderTable<
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 > = {
   readonly [Cap in Caps as Cap extends Context.Tag<infer Id, infer _Svc>
     ? Id extends string
@@ -79,7 +79,7 @@ export type CapabilitiesOf<D> = D extends {
   readonly capabilities: ReadonlyArray<infer Cap>;
 }
   ? Cap extends { readonly tag: infer Tag }
-    ? Tag extends Context.Tag<unknown, unknown>
+    ? Tag extends Context.Tag<any, any>
       ? Tag
       : never
     : never

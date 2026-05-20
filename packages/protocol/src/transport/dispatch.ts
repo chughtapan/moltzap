@@ -8,9 +8,9 @@
  *      type system has already rejected the factory call (Spec F I2 —
  *      TS2741) so runtime cannot reach a "required missing" state.
  *      Method not in the kind's catalog → wire `MethodNotFound` -32601.
- *   2. If the slot is OPTIONAL and the handler-table value is absent,
- *      synthesize the fail-CLOSED default response from the
- *      `slotDisposition.optional` payload (per `defaults.ts`).
+ *   2. If the slot value is one of the fail-CLOSED sentinels
+ *      (`forbidden` / `noOpNotification`), synthesize the wire response
+ *      directly from the sentinel's `_tag` (per `defaults.ts`).
  *   3. If the slot is present, read `slot.definition.capabilities`
  *      (Shape B). For each `{ tag, argsOf }` in declaration order:
  *      look up `CapabilityProviderTable[tag.key]`, call it with
@@ -125,7 +125,7 @@ const eraseProviderTable = (table: object): ErasedProviderTable =>
  */
 export function buildServerDispatcher<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: ServerConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
@@ -157,7 +157,7 @@ export function buildServerDispatcher<
  */
 export function buildAgentClientDispatcher<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: AgentClientConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
@@ -189,7 +189,7 @@ export function buildAgentClientDispatcher<
  */
 export function buildTaskMasterDispatcher<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: TaskMasterConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope> {

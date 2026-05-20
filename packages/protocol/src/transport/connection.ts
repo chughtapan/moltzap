@@ -202,7 +202,7 @@ type CapsArg<T> = Extract<CapsUnionOf<T>, Context.Tag<unknown, unknown>>;
  */
 export interface ServerConnectionConfig<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 > {
   readonly id: string;
   readonly handlers: ServerHandlers<Ctx, Caps>;
@@ -221,7 +221,7 @@ export interface ServerConnectionConfig<
  */
 export interface AgentClientConnectionConfig<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 > {
   readonly id: string;
   readonly handlers: AgentClientHandlers<Ctx, Caps>;
@@ -235,7 +235,7 @@ export interface AgentClientConnectionConfig<
  */
 export interface TaskMasterConnectionConfig<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 > {
   readonly id: string;
   readonly handlers: TaskMasterHandlers<Ctx, Caps>;
@@ -261,7 +261,7 @@ export interface TaskMasterConnectionConfig<
  */
 export function makeServerConnection<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: ServerConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
@@ -275,7 +275,7 @@ export function makeServerConnection<
  */
 export function makeAgentClientConnection<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: AgentClientConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
@@ -293,7 +293,7 @@ export function makeAgentClientConnection<
  */
 export function makeTaskMasterConnection<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: TaskMasterConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope> {
