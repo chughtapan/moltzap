@@ -21,7 +21,7 @@
  *     `Transport` service that `start.ts` uses for `TaskCreate` /
  *     `MessagesSend`. Mixing the two would make `--as`-mode name lookups
  *     hit the daemon (potentially absent) and would not be testable
- *     via `makeFakeTransport`. D2 introduces a local `resolveAgentToken`
+ *     via `makeFakeTransport`. D2 introduces a local `resolveAgentTokens`
  *     helper that goes through `transport.ts -> rpc` instead
  *     (see per-flow doc §6 + §"Why we don't reuse `resolveParticipant`").
  */
@@ -89,6 +89,30 @@ class UnresolvedParticipantError extends Data.TaggedError(
   readonly reason: "shape" | "not-found";
 }> {}
 
+/**
+ * Too many DISTINCT name-shaped tokens to batch into one
+ * `AgentsLookupByName` RPC (schema caps `names` at `maxItems: 100`).
+ * Maps to `EXIT_CODES.USAGE_ERROR`; stderr names the offending count.
+ *
+ * Distinct from `UnresolvedParticipantError` — fires BEFORE any RPC, on
+ * a count check. Without this carve-out, 101+ unique names would
+ * trigger an opaque AJV decode failure mapped to exit 1 ("Failed:
+ * params decode error"); this surfaces it as a usage error instead.
+ */
+class TooManyParticipantNamesError extends Data.TaggedError(
+  "TooManyParticipantNamesError",
+)<{
+  readonly count: number;
+  readonly max: number;
+}> {}
+
+/**
+ * Cap pinned to `AgentsLookupByName.params.names: Type.Array(...,
+ * { maxItems: 100 })`. Drift here vs. the schema causes a confusing
+ * exit-1 AJV rejection instead of the exit-64 usage error.
+ */
+const MAX_NAME_LOOKUP_BATCH = 100;
+
 // ─── Public types ─────────────────────────────────────────────────────────
 
 /**
@@ -109,9 +133,10 @@ export interface StartCommandArgs {
  * Exhaustive error union for the start-command handler. The wrapping
  * `runStartCommand` adapter converts each tag to an exit code:
  *
- *   `InvalidAppIdError`           -> 64 (usage)
- *   `UnresolvedParticipantError`  -> 64 (usage)
- *   any other `TransportError`    -> 1  (rpc; from `TaskCreate`)
+ *   `InvalidAppIdError`             -> 64 (usage)
+ *   `UnresolvedParticipantError`    -> 64 (usage)
+ *   `TooManyParticipantNamesError`  -> 64 (usage; >100 distinct names)
+ *   any other `TransportError`      -> 1  (rpc; from `TaskCreate`)
  *
  * The post-`TaskCreate` `MessagesSend` failure path exits 2 via inline
  * `process.exit` inside the handler body, NOT through `runStartCommand`
@@ -125,7 +150,8 @@ export interface StartCommandArgs {
 type StartCommandError =
   | TransportError
   | InvalidAppIdError
-  | UnresolvedParticipantError;
+  | UnresolvedParticipantError
+  | TooManyParticipantNamesError;
 
 // ─── UUID validation ──────────────────────────────────────────────────────
 
@@ -151,51 +177,126 @@ const validateAppId = (
 const AGENT_TOKEN_PREFIX = "agent:";
 
 /**
- * Parse `agent:&lt;uuid>` (short-circuits client-side) or `agent:&lt;name>`
- * (routes through `transport.ts -> rpc(AgentsLookupByName, ...)`).
- * Returns bare `AgentId` matching `TaskCreate.params.invitedAgentIds:
- * Array(AgentId)` directly (no `.map(p => p.id)` step needed).
+ * Per-token classification result. Shape failures fail-fast at classify
+ * time; UUID-shaped tokens short-circuit client-side; name-shaped tokens
+ * are deferred to a SINGLE batched `AgentsLookupByName` RPC.
+ */
+type Classified =
+  | { readonly kind: "uuid"; readonly id: AgentId }
+  | { readonly kind: "name"; readonly token: string; readonly name: string };
+
+const classifyToken = (
+  token: string,
+): Effect.Effect<Classified, UnresolvedParticipantError> => {
+  const failShape = Effect.fail(
+    new UnresolvedParticipantError({ token, reason: "shape" }),
+  );
+  if (!token.startsWith(AGENT_TOKEN_PREFIX)) return failShape;
+  const rest = token.slice(AGENT_TOKEN_PREFIX.length);
+  if (rest.length === 0) return failShape;
+  if (UUID_V4_RE.test(rest)) {
+    return Effect.succeed({ kind: "uuid", id: rest as AgentId } as const);
+  }
+  return Effect.succeed({ kind: "name", token, name: rest } as const);
+};
+
+/**
+ * Resolve all participant tokens to bare `AgentId`s matching
+ * `TaskCreate.params.invitedAgentIds: Array(AgentId)` directly (no
+ * `.map(p => p.id)` step needed).
  *
- * Failure modes:
- *   - Token does not start with `agent:` -> `UnresolvedParticipantError({
- *     reason: "shape" })`.
- *   - Token is `agent:&lt;name>` and lookup returns zero agents ->
- *     `UnresolvedParticipantError({ reason: "not-found" })`.
+ * Failure modes (first in input order wins):
+ *   - Token does not start with `agent:` (or is `agent:` with empty
+ *     name) -> `UnresolvedParticipantError({ reason: "shape" })`.
+ *   - Token is `agent:&lt;name>` and the batched lookup returns no agent
+ *     matching `name` -> `UnresolvedParticipantError({ reason:
+ *     "not-found" })`.
+ *
+ * WHY one batched RPC instead of one-per-token: `AgentsLookupByName`
+ * accepts `names: Array(..., { minItems: 1, maxItems: 100 })`. Coalesce
+ * unique name-shaped tokens into a single RPC; UUID-shaped tokens skip
+ * the wire entirely. Resolution map keys on agent name so duplicate
+ * tokens (`agent:bob agent:bob`) resolve to the same id without
+ * re-asking the server.
  *
  * Architect plan §R1 explains why this is a local helper rather than
  * reusing `socket-client.ts -> resolveParticipant` (transport mismatch,
  * testability, wire-shape match).
  */
-const resolveAgentToken = (
-  token: string,
+const uniqueNamesOf = (classified: readonly Classified[]): readonly string[] =>
+  Array.from(
+    new Set(classified.flatMap((c) => (c.kind === "name" ? [c.name] : []))),
+  );
+
+/**
+ * Look up `names` in one batched RPC (no-op when empty) and return a
+ * name→AgentId map keyed by FIRST agent per name. The server's response
+ * is a flat agents array; mapping by name preserves the pre-P3-2
+ * tie-break ("first agent wins"). Caps at `MAX_NAME_LOOKUP_BATCH`
+ * BEFORE the RPC to keep the >100 case as a usage error rather than a
+ * decode failure.
+ */
+const lookupAgentIdsByName = (
+  names: readonly string[],
 ): Effect.Effect<
-  AgentId,
-  UnresolvedParticipantError | TransportError,
+  ReadonlyMap<string, AgentId>,
+  TransportError | TooManyParticipantNamesError,
   Transport
 > =>
   Effect.gen(function* () {
-    if (!token.startsWith(AGENT_TOKEN_PREFIX)) {
+    const byName = new Map<string, AgentId>();
+    if (names.length === 0) return byName;
+    if (names.length > MAX_NAME_LOOKUP_BATCH) {
       return yield* Effect.fail(
-        new UnresolvedParticipantError({ token, reason: "shape" }),
+        new TooManyParticipantNamesError({
+          count: names.length,
+          max: MAX_NAME_LOOKUP_BATCH,
+        }),
       );
     }
-    const rest = token.slice(AGENT_TOKEN_PREFIX.length);
-    if (rest.length === 0) {
-      return yield* Effect.fail(
-        new UnresolvedParticipantError({ token, reason: "shape" }),
-      );
+    // Defensive copy: AgentsLookupByName.params.names resolves to
+    // mutable `string[]` (TypeBox's `Static<Array>`); pass a shallow
+    // clone so the caller's readonly contract isn't bypassed.
+    const result = yield* rpc(AgentsLookupByName, { names: [...names] });
+    for (const agent of result.agents) {
+      if (!byName.has(agent.name)) byName.set(agent.name, agent.id);
     }
-    if (UUID_V4_RE.test(rest)) {
-      return rest as AgentId;
+    return byName;
+  });
+
+const resolveAgentTokens = (
+  tokens: readonly string[],
+): Effect.Effect<
+  readonly AgentId[],
+  UnresolvedParticipantError | TooManyParticipantNamesError | TransportError,
+  Transport
+> =>
+  Effect.gen(function* () {
+    const classified = yield* Effect.all(tokens.map(classifyToken));
+    const agentIdByName = yield* lookupAgentIdsByName(
+      uniqueNamesOf(classified),
+    );
+    // Single for-loop avoids a second `Effect.all` over pure post-batch
+    // resolution (N extra Effect cells); fail-fast on first miss preserves
+    // input-order error semantics.
+    const resolved: AgentId[] = [];
+    for (const entry of classified) {
+      if (entry.kind === "uuid") {
+        resolved.push(entry.id);
+        continue;
+      }
+      const id = agentIdByName.get(entry.name);
+      if (id === undefined) {
+        return yield* Effect.fail(
+          new UnresolvedParticipantError({
+            token: entry.token,
+            reason: "not-found",
+          }),
+        );
+      }
+      resolved.push(id);
     }
-    const result = yield* rpc(AgentsLookupByName, { names: [rest] });
-    const firstAgent = result.agents[0];
-    if (firstAgent === undefined) {
-      return yield* Effect.fail(
-        new UnresolvedParticipantError({ token, reason: "not-found" }),
-      );
-    }
-    return firstAgent.id;
+    return resolved;
   });
 
 // ─── Handler stages ───────────────────────────────────────────────────────
@@ -448,8 +549,9 @@ const handleDedupOutcome = (
  *
  *   1. Validate `args.appId` UUID v4 if set; else use `DEFAULT_APP_ID`.
  *      Failure -> `InvalidAppIdError` -> exit 64 via `runStartCommand`.
- *   2. Resolve `args.participants` via `resolveAgentToken` (per-token,
- *      sequential via `Effect.all`). Any token failure ->
+ *   2. Resolve `args.participants` via `resolveAgentTokens` (single
+ *      batched `AgentsLookupByName` RPC for name-shaped tokens;
+ *      UUID-shaped tokens short-circuit). Any token failure ->
  *      `UnresolvedParticipantError` -> exit 64.
  *   3. `rpc(TaskCreate, { appId, invitedAgentIds, initialConversation })`
  *      where `initialConversation` carries `participants` ONLY when
@@ -481,9 +583,7 @@ const startCommandHandler = (
 ): Effect.Effect<void, StartCommandError, Transport> =>
   Effect.gen(function* () {
     const appId = yield* resolveAppId(args.appId);
-    const invitedAgentIds = yield* Effect.all(
-      args.participants.map(resolveAgentToken),
-    );
+    const invitedAgentIds = yield* resolveAgentTokens(args.participants);
     const outcome = yield* createTaskAtomic(appId, invitedAgentIds, args.name);
     const messageOpt = Option.fromNullable(args.message);
     if (outcome.kind === "dedup") {
@@ -504,9 +604,10 @@ const startCommandHandler = (
  * (which collapses every error to exit 1) with a `_tag`-aware mapping
  * per the spec D2 exit-code contract:
  *
- *   `InvalidAppIdError`           -> 64 + stderr `Invalid --app-id: not a UUID`
- *   `UnresolvedParticipantError`  -> 64 + stderr `Cannot resolve "&lt;token>": &lt;reason>`
- *   any other `StartCommandError` -> 1  + stderr `Failed: &lt;err.message>`
+ *   `InvalidAppIdError`             -> 64 + stderr `Invalid --app-id: not a UUID`
+ *   `UnresolvedParticipantError`    -> 64 + stderr `Cannot resolve "&lt;token>": &lt;reason>`
+ *   `TooManyParticipantNamesError`  -> 64 + stderr `Too many distinct agent names: &lt;count> (max &lt;max>)`
+ *   any other `StartCommandError`   -> 1  + stderr `Failed: &lt;err.message>`
  *
  * The exit-2 partial-success branch runs inline inside
  * `startCommandHandler` (after `Task started:` has been printed to
@@ -530,12 +631,20 @@ const runStartCommand = (
         process.exit(EXIT_CODES.USAGE_ERROR);
       }),
     ),
+    Effect.catchTag("TooManyParticipantNamesError", (err) =>
+      Effect.sync(() => {
+        console.error(
+          `Too many distinct agent names: ${err.count} (max ${err.max})`,
+        );
+        process.exit(EXIT_CODES.USAGE_ERROR);
+      }),
+    ),
     Effect.catchAll((err) =>
       Effect.sync(() => {
-        const msg =
-          err.message !== undefined && err.message !== ""
-            ? err.message
-            : err._tag;
+        // `Data.TaggedError` populates `message` for every tagged-error
+        // subclass; `|| err._tag` is a belt-and-suspenders fallback for
+        // the (impossible-per-Data-contract) empty-message case.
+        const msg = err.message || err._tag;
         console.error(`Failed: ${msg}`);
         process.exit(EXIT_CODES.TASK_CREATE_FAILED);
       }),
@@ -612,6 +721,6 @@ export const startCommand = Command.make(
       `  ${EXIT_CODES.SUCCESS}   success (TaskCreate + optional MessagesSend resolved)\n` +
       `  ${EXIT_CODES.TASK_CREATE_FAILED}   TaskCreate failed (stdout empty)\n` +
       `  ${EXIT_CODES.PARTIAL_SUCCESS}   TaskCreate OK, MessagesSend failed (no rollback)\n` +
-      `  ${EXIT_CODES.USAGE_ERROR}  usage error (bad --app-id UUID or unresolvable agent token)`,
+      `  ${EXIT_CODES.USAGE_ERROR}  usage error (bad --app-id UUID, unresolvable agent token, or >${MAX_NAME_LOOKUP_BATCH} distinct name-shaped tokens)`,
   ),
 );

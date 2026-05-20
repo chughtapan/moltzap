@@ -102,10 +102,13 @@ interface RespondConfig {
 }
 
 const respondLookup = (call: TestTransportCall, config: RespondConfig) => {
+  // Batched lookup (P3-2): coalesce all requested-name agent cards from
+  // the mock's `lookupResults` map. Names with no entry return nothing
+  // — the handler maps that to `UnresolvedParticipantError` per token.
   const params = call.params as { names: readonly string[] };
-  const requestedName = params.names[0] ?? "";
   const lookupResults = config.lookupResults ?? {};
-  return { agents: lookupResults[requestedName] ?? [] };
+  const agents = params.names.flatMap((name) => lookupResults[name] ?? []);
+  return { agents };
 };
 
 const respondFromConfig =
@@ -201,6 +204,23 @@ const restoreHarness = () => {
   stderrSpy.mockRestore();
 };
 
+/**
+ * Single-source the install/restore lifecycle for one `body` execution.
+ * Used by property-test iterators (`expectNonV4Rejected`,
+ * `expectNonAgentTokenRejected`) so each `fc.assert` iteration gets a
+ * fresh, isolated harness without inline `installHarness()` / explicit
+ * `restoreHarness()` calls that drift out of sync over time. `finally`
+ * guarantees restore even on `expect` throw.
+ */
+const withInstalledHarness = (body: () => void): void => {
+  installHarness();
+  try {
+    body();
+  } finally {
+    restoreHarness();
+  }
+};
+
 const stderrLines = () => stderrSpy.mock.calls.map((c) => String(c[0] ?? ""));
 
 // ─── Test bodies: participant model ───────────────────────────────────────
@@ -222,6 +242,34 @@ const groupShape = () =>
     yield* runWith(transport, standardArgs(["agent:bob", "agent:carol"]));
     const params = taskCreateParams(calls);
     expect(params.invitedAgentIds).toEqual([BOB_AGENT_ID, CAROL_AGENT_ID]);
+    // Pins the P3-2 batched-lookup optimization: N name-shaped tokens
+    // coalesce into ONE `AgentsLookupByName` RPC, not N. Drift here
+    // re-introduces a fan-out per token (visible cost on group tasks).
+    const lookups = calls.filter((c) => c.method === AgentsLookupByName.name);
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0]!.params).toEqual({ names: ["bob", "carol"] });
+  });
+
+const duplicateNameDedupesLookup = () =>
+  Effect.gen(function* () {
+    // P3-2 secondary invariant: duplicate name tokens dedupe in the
+    // batched lookup payload (one wire-name per unique value) but
+    // resolve to the agent id at every input position. UUID-shaped
+    // siblings still skip the wire.
+    const { calls, transport } = makeTransportWith(onlyBobLookup());
+    yield* runWith(
+      transport,
+      standardArgs(["agent:bob", `agent:${DAVE_AGENT_ID_UUID}`, "agent:bob"]),
+    );
+    const params = taskCreateParams(calls);
+    expect(params.invitedAgentIds).toEqual([
+      BOB_AGENT_ID,
+      DAVE_AGENT_ID_UUID,
+      BOB_AGENT_ID,
+    ]);
+    const lookups = calls.filter((c) => c.method === AgentsLookupByName.name);
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0]!.params).toEqual({ names: ["bob"] });
   });
 
 const callerExcluded = () =>
@@ -268,6 +316,10 @@ describe("moltzap start — participant model", () => {
   it("caller-excluded", callerExcluded);
   it("uuid-shorthand", uuidShorthand);
   it("zero-participants admitted (plan §R4)", zeroParticipants);
+  it(
+    "duplicate name tokens dedupe in batched lookup (P3-2)",
+    duplicateNameDedupesLookup,
+  );
 });
 
 // ─── Test bodies: output format ───────────────────────────────────────────
@@ -339,20 +391,20 @@ const nonV4HexDigit = fc
  * Runs synchronously via `Effect.runSync` because the test transport
  * never suspends.
  */
-const expectNonV4Rejected = (digit: string) => {
-  const uuid = `11111111-2222-${digit}333-8444-555555555555`;
-  const { calls, transport } = makeTransportWith({});
-  installHarness();
-  Effect.runSync(runWith(transport, standardArgs([], { appId: uuid })));
-  expect(exitSpy).toHaveBeenCalledWith(64);
-  expect(calls).toEqual([]);
-  restoreHarness();
-};
+const expectNonV4Rejected = (digit: string) =>
+  withInstalledHarness(() => {
+    const uuid = `11111111-2222-${digit}333-8444-555555555555`;
+    const { calls, transport } = makeTransportWith({});
+    Effect.runSync(runWith(transport, standardArgs([], { appId: uuid })));
+    expect(exitSpy).toHaveBeenCalledWith(64);
+    expect(calls).toEqual([]);
+  });
 
 const invariantNonV4Rejection = () => {
   fc.assert(fc.property(nonV4HexDigit, expectNonV4Rejected), { numRuns: 30 });
-  // Re-install for afterEach symmetry; the property body restored
-  // its own harness on each iteration.
+  // Re-install for afterEach symmetry; each property iteration tore
+  // down its harness via `withInstalledHarness`, leaving none for the
+  // outer afterEach to restore.
   installHarness();
 };
 
@@ -423,19 +475,42 @@ const unresolvedShape = () =>
     expect(calls).toEqual([]);
   });
 
+const tooManyDistinctNames = () =>
+  Effect.gen(function* () {
+    // P3-2 carve-out: `AgentsLookupByName.params.names` is capped at
+    // `maxItems: 100`. With 101 DISTINCT name tokens, the batched RPC
+    // would otherwise fail server-side AJV → opaque exit 1. The
+    // pre-RPC cap check surfaces it as exit 64 with a clear message.
+    const tokens = Array.from(
+      { length: 101 },
+      (_, i) => `agent:user${i.toString().padStart(3, "0")}`,
+    );
+    const { calls, transport } = makeTransportWith({});
+    yield* runWith(transport, standardArgs(tokens));
+    expect(exitSpy).toHaveBeenCalledWith(64);
+    // Cap fires BEFORE the RPC — zero wire calls.
+    expect(calls).toEqual([]);
+    // Structural assertion: diagnostic mentions BOTH the offending
+    // count and the schema cap so the user can reduce input directly.
+    expect(
+      stderrLines().some(
+        (s) => s.includes("Too many") && s.includes("101") && s.includes("100"),
+      ),
+    ).toBe(true);
+  });
+
 /**
  * Property body: any token without the `agent:` prefix fails at the
  * shape check before any RPC. The handler must always exit 64 with
  * zero RPC calls — the resolver short-circuits at the prefix test.
  */
-const expectNonAgentTokenRejected = (token: string) => {
-  installHarness();
-  const { calls, transport } = makeTransportWith({});
-  Effect.runSync(runWith(transport, standardArgs([token])));
-  expect(exitSpy).toHaveBeenCalledWith(64);
-  expect(calls).toEqual([]);
-  restoreHarness();
-};
+const expectNonAgentTokenRejected = (token: string) =>
+  withInstalledHarness(() => {
+    const { calls, transport } = makeTransportWith({});
+    Effect.runSync(runWith(transport, standardArgs([token])));
+    expect(exitSpy).toHaveBeenCalledWith(64);
+    expect(calls).toEqual([]);
+  });
 
 const nonAgentToken = fc
   .string({ minLength: 1, maxLength: 30 })
@@ -462,6 +537,10 @@ describe("moltzap start — failure paths", () => {
     unresolvedLookupEmpty,
   );
   it("unresolved (shape) -> exit 64, ZERO RPC calls", unresolvedShape);
+  it(
+    ">100 distinct names -> exit 64 with TooManyParticipantNamesError diagnostic",
+    tooManyDistinctNames,
+  );
   plainIt(
     "invariant: non-agent: prefix tokens exit 64 with ZERO RPC calls",
     invariantNonAgentRejection,
