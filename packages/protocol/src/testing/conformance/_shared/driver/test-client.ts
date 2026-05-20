@@ -30,7 +30,7 @@ import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type {
   AnyTaskCallbackRpcDefinition,
-  AnyRpcDefinition,
+  AnyServerRpcDefinition,
 } from "../../../../rpc-registry.js";
 import { taskCallbackMethods } from "../../../../rpc-registry.js";
 import {
@@ -120,7 +120,7 @@ export interface TestClientConfig {
  * them inside `Effect.forEach` / `fc.asyncProperty`.
  */
 export interface TestClient {
-  readonly sendRpc: <D extends AnyRpcDefinition>(
+  readonly sendRpc: <D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
@@ -133,7 +133,7 @@ export interface TestClient {
     | FrameSchemaError
   >;
 
-  readonly sendMalformed: <D extends AnyRpcDefinition>(opts: {
+  readonly sendMalformed: <D extends AnyServerRpcDefinition>(opts: {
     readonly baseDefinition: D;
     readonly baseParams: ParamsOf<D>;
     readonly kind: MalformedFrameKind;
@@ -410,7 +410,7 @@ interface PendingRpcRequest {
   readonly timeoutMs: number;
 }
 
-interface SendRpcInput<D extends AnyRpcDefinition> {
+interface SendRpcInput<D extends AnyServerRpcDefinition> {
   readonly definition: D;
   readonly params: ParamsOf<D>;
   readonly opts?: { readonly timeoutMs?: number };
@@ -443,7 +443,7 @@ class RuntimeTestClient implements TestClient {
     this.snapshot = runtime.captures.snapshot;
   }
 
-  sendRpc<D extends AnyRpcDefinition>(
+  sendRpc<D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
@@ -455,7 +455,7 @@ class RuntimeTestClient implements TestClient {
     return sendClientRpc(this.runtime, input);
   }
 
-  sendMalformed<D extends AnyRpcDefinition>(
+  sendMalformed<D extends AnyServerRpcDefinition>(
     opts: Parameters<TestClient["sendMalformed"]>[0] & {
       readonly baseDefinition: D;
       readonly baseParams: ParamsOf<D>;
@@ -873,7 +873,7 @@ function handleSocketReaderFailure(
   });
 }
 
-function sendClientRpc<D extends AnyRpcDefinition>(
+function sendClientRpc<D extends AnyServerRpcDefinition>(
   runtime: TestClientRuntime,
   input: SendRpcInput<D>,
 ): Effect.Effect<
@@ -936,7 +936,7 @@ function awaitPendingRpcResponse(
   );
 }
 
-function decodeRpcSuccessResult<D extends AnyRpcDefinition>(
+function decodeRpcSuccessResult<D extends AnyServerRpcDefinition>(
   definition: D,
   response: ResponseFrame,
 ): Effect.Effect<ResultOf<D>, FrameSchemaError> {
@@ -960,7 +960,7 @@ function decodeRpcSuccessResult<D extends AnyRpcDefinition>(
   );
 }
 
-function sendMalformedFrame<D extends AnyRpcDefinition>(
+function sendMalformedFrame<D extends AnyServerRpcDefinition>(
   runtime: TestClientRuntime,
   opts: Parameters<TestClient["sendMalformed"]>[0] & {
     readonly baseDefinition: D;

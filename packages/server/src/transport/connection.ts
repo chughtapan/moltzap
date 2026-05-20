@@ -96,7 +96,7 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError, never> {
   // `AnyTaskCallbackRpcDefinition` is a strict subset of the originator's
-  // `AnyRpcDefinition` bound; the cast widens to the originator's
+  // `AnyServerRpcDefinition` bound; the cast widens to the originator's
   // generic constraint shape without losing the per-definition
   // narrowing the caller provides.
   const call = connection.originator.call as <

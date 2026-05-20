@@ -12,11 +12,11 @@ import type { JsonRpcId } from "./wire.js";
 import { requestFrame, type ResponseFrame } from "./wire.js";
 import type { RegisteredTaggedError } from "../rpc-registry.js";
 
-type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
+type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 
 interface PendingCall {
   readonly method: string;
-  readonly definition: AnyRpcDefinition;
+  readonly definition: AnyServerRpcDefinition;
   readonly deferred: Deferred.Deferred<unknown, RpcCallError>;
 }
 
@@ -30,7 +30,7 @@ export type RpcCallError =
  * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
  */
 export interface Originator {
-  readonly call: <D extends AnyRpcDefinition>(
+  readonly call: <D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, RpcCallError>;
@@ -169,7 +169,7 @@ function writeRequestFrame(
     .pipe(Effect.catchAll(() => failWrite(deferred, method)));
 }
 
-function decodeCallResult<D extends AnyRpcDefinition>(
+function decodeCallResult<D extends AnyServerRpcDefinition>(
   definition: D,
   method: string,
   result: unknown,
@@ -188,7 +188,7 @@ function decodeCallResult<D extends AnyRpcDefinition>(
   );
 }
 
-function callWithRefs<D extends AnyRpcDefinition>(
+function callWithRefs<D extends AnyServerRpcDefinition>(
   config: OriginatorConfig,
   refs: OriginatorRefs,
   definition: D,
@@ -242,7 +242,7 @@ export const makeOriginator = (config: {
     const resolve = (frame: ResponseFrame): Effect.Effect<boolean> =>
       resolvePendingFrame(pendingRef, frame);
 
-    const call = <D extends AnyRpcDefinition>(
+    const call = <D extends AnyServerRpcDefinition>(
       definition: D,
       params: ParamsOf<D>,
     ): Effect.Effect<ResultOf<D>, RpcCallError> =>

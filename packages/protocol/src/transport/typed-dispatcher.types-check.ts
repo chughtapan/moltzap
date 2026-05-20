@@ -20,7 +20,7 @@
  *   5. `ServerConnection.call(MessagesSend, ...)` is rejected DIRECTLY
  *      on the method signature (TS2345 on the definition argument).
  *      Companion to Canary 3: if the call signature's `OutCall` upper
- *      bound were ever widened to `AnyRpcDefinition`, Canary 3's
+ *      bound were ever widened to `AnyServerRpcDefinition`, Canary 3's
  *      helper-form check would still fire (it tests the union directly)
  *      but the live `.call(...)` signature would silently accept
  *      server-inbound definitions. Canary 5 closes that gap.

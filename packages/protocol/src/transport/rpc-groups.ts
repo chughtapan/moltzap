@@ -10,11 +10,11 @@ import type {
   NotificationParamsOf,
 } from "./method.js";
 
-type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
+type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 type AnyNotificationDefinition = NotificationDefinition<string, TSchema>;
 
-export type DecodedRpcRequest<D extends AnyRpcDefinition> =
-  D extends AnyRpcDefinition
+export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
+  D extends AnyServerRpcDefinition
     ? {
         readonly frame: RequestFrame;
         readonly id: JsonRpcId;
@@ -65,7 +65,7 @@ class UnknownRpcMethodError extends Data.TaggedError("UnknownRpcMethodError")<{
 
 class InvalidRpcParamsError extends Data.TaggedError("InvalidRpcParamsError")<{
   readonly frame: RequestFrame;
-  readonly definition: AnyRpcDefinition;
+  readonly definition: AnyServerRpcDefinition;
 }> {}
 
 export type RpcRequestDecodeError =
@@ -90,7 +90,7 @@ export type NotificationDecodeError =
   | InvalidNotificationParamsError;
 
 export function decodeRpcRequest<
-  const Definitions extends readonly AnyRpcDefinition[],
+  const Definitions extends readonly AnyServerRpcDefinition[],
 >(
   definitions: Definitions,
   frame: RequestFrame,

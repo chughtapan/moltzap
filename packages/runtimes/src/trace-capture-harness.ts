@@ -18,7 +18,7 @@ import {
 } from "./trace-capture-bundle.js";
 
 import {
-  type AnyRpcDefinition,
+  type AnyServerRpcDefinition,
   ConversationsCreate,
   MessagesSend,
   MessageReceivedNotificationDefinition,
@@ -108,7 +108,7 @@ interface HarnessClient {
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
   ): Stream.Stream<DecodedNotification<D>, Error, never>;
-  sendRpc<D extends AnyRpcDefinition>(
+  sendRpc<D extends AnyServerRpcDefinition>(
     method: D,
     payload: ParamsOf<D>,
   ): Effect.Effect<ResultOf<D>, Error, never>;

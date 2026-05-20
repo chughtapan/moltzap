@@ -9,7 +9,7 @@ import {
   type ConversationCreatedNotification,
   type ConversationUpdatedNotification,
   type AnyNotificationDefinition,
-  type AnyRpcDefinition,
+  type AnyServerRpcDefinition,
   type DecodedNotification,
   DispatchRequest,
   DispatchRelease,
@@ -30,7 +30,7 @@ import {
   MessagesList,
   MessagesSend,
   NotConnectedError,
-  rpcMethods,
+  serverRpcMethods,
   type RpcCallError,
   RpcServerError,
   RpcTimeoutError,
@@ -608,8 +608,8 @@ export class MoltZapService {
             return this.handleHistoryRequest(params);
 
           default: {
-            const definition = rpcMethods.find(
-              (d): d is AnyRpcDefinition => d.name === method,
+            const definition = serverRpcMethods.find(
+              (d): d is AnyServerRpcDefinition => d.name === method,
             );
             if (
               definition === undefined ||
