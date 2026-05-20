@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Effect, Stream } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import type { Message } from "@moltzap/protocol";
 import { registerAndClaim, waitFor } from "./test-helpers.js";
@@ -85,7 +85,7 @@ function waitUntil(predicate: () => boolean, timeoutMs: number, label: string) {
 }
 
 function createClient(agentKey: string, options = {}) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: baseUrl,
     agentKey,
     ...options,
@@ -93,13 +93,13 @@ function createClient(agentKey: string, options = {}) {
 }
 
 function createStrippedClient(agentKey: string) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
   });
 }
 
-function createDmConversation(client: MoltZapWsClient, agentId: string) {
+function createDmConversation(client: MoltZapAgentClient, agentId: string) {
   return client
     .sendRpc(ConversationsCreate, {
       type: "dm",
@@ -109,7 +109,7 @@ function createDmConversation(client: MoltZapWsClient, agentId: string) {
 }
 
 function sendText(
-  client: MoltZapWsClient,
+  client: MoltZapAgentClient,
   conversationId: string,
   text: string,
 ) {
@@ -119,7 +119,7 @@ function sendText(
   });
 }
 
-function listMessageTexts(client: MoltZapWsClient, conversationId: string) {
+function listMessageTexts(client: MoltZapAgentClient, conversationId: string) {
   return client
     .sendRpc(MessagesList, { conversationId })
     .pipe(Effect.map((result) => messageTexts(result.messages)));

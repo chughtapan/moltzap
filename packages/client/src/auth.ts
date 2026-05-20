@@ -46,7 +46,7 @@ const registerAgentError = (
 
 /**
  * Register a new agent via HTTP. Thin wrapper around the agent-registration
- * endpoints — the WebSocket dance is `MoltZapWsClient`'s job; this just
+ * endpoints — the WebSocket dance is `MoltZapAgentClient`'s job; this just
  * returns the credentials the caller feeds it as `agentKey` at construction.
  *
  * Routes to `/api/v1/admin/register-agent` when `ownerUserId` is provided

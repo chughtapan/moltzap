@@ -1,5 +1,5 @@
 /**
- * Tests for `ws-client.ts` — now running against a real in-process
+ * Tests for `tm-client.ts` — now running against a real in-process
  * `@effect/platform` WebSocket server instead of a `vi.mock("ws")` fake.
  *
  * Setup: each test spins up a fresh `NodeSocketServer.makeWebSocket` bound to
@@ -35,11 +35,11 @@ import * as Command from "@effect/platform/Command";
 import * as Socket from "@effect/platform/Socket";
 
 import {
-  MoltZapWsClient,
+  MoltZapTMClient,
   RPC_TIMEOUT_MS,
-  type AppCallbackHandlers,
+  type TMHandlers,
   type CloseInfo,
-} from "./ws-client.js";
+} from "./tm-client.js";
 import {
   ForbiddenError,
   RpcTimeoutError,
@@ -391,8 +391,24 @@ interface MakeClientOverrides {
   readonly onNotification?: (evt: NotificationFrame) => void;
   readonly onDisconnect?: (close: CloseInfo) => void;
   readonly onReconnect?: (hello: unknown) => void;
-  readonly appCallbackHandlers?: AppCallbackHandlers;
+  readonly handlers?: TMHandlers;
 }
+
+// Post-D3 R14b vacuous-deny default: handlers REQUIRED on MoltZapTMClient
+// constructor; helpers default to deny-everything for tests that don't
+// care about TM-callback inbound.
+const denyEverythingHandlers = (): TMHandlers => ({
+  "dispatch/authorize": {
+    definition: DispatchAuthorize,
+    handle: () =>
+      Effect.fail(new ForbiddenError({ message: "test: deny-default" })),
+  },
+  "messages/authorize": {
+    definition: MessagesAuthorize,
+    handle: () =>
+      Effect.fail(new ForbiddenError({ message: "test: deny-default" })),
+  },
+});
 
 const ignoreDisconnect = (_close: CloseInfo): void => undefined;
 const ignoreReconnect = (_hello: unknown): void => undefined;
@@ -417,10 +433,10 @@ const notificationHandler =
       cb(frame);
     });
 
-const connectClient = (client: MoltZapWsClient) => client.connect();
+const connectClient = (client: MoltZapTMClient) => client.connect();
 
 const sendRpcEffect = <D extends RpcDefinition<string, any, any>>(
-  client: MoltZapWsClient,
+  client: MoltZapTMClient,
   definition: D,
   params: ParamsOf<D>,
 ) => client.sendRpc(definition, params);
@@ -442,7 +458,7 @@ function expectEffectFailure<A, E, R>(
   });
 }
 
-const closeClient = (client: MoltZapWsClient): Effect.Effect<void, never> =>
+const closeClient = (client: MoltZapTMClient): Effect.Effect<void, never> =>
   client.close();
 
 /**
@@ -601,7 +617,7 @@ function startAgentsLookupByNameServer(
 function connectClientForServer(
   url: string,
 ): Effect.Effect<
-  MoltZapWsClient,
+  MoltZapTMClient,
   Effect.Effect.Error<ReturnType<typeof connectClient>>
 > {
   const client = makeClient(url);
@@ -617,7 +633,7 @@ function connectClientForServer(
  */
 function grantDispatchAuthorizeHandlers(
   observedTaskId: MutableRef<string | null>,
-): AppCallbackHandlers {
+): TMHandlers {
   return {
     "dispatch/authorize": {
       definition: DispatchAuthorize,
@@ -691,7 +707,7 @@ const closeWaitSocketOutput = Command.make(
 );
 
 /**
- * Build a `MoltZapWsClient`. Spec #222 OQ-4 deletion: `onNotification` is no
+ * Build a `MoltZapTMClient`. Spec #222 OQ-4 deletion: `onNotification` is no
  * longer a constructor option; tests that previously stashed an
  * `onNotification` callback now register a `subscribe({}, …)` subscription
  * post-construction. The helper accepts the same `onNotification` callback as
@@ -701,19 +717,19 @@ const closeWaitSocketOutput = Command.make(
 function makeClient(
   url: string,
   overrides: MakeClientOverrides = {},
-): MoltZapWsClient {
+): MoltZapTMClient {
   const {
     onNotification,
     onDisconnect = ignoreDisconnect,
     onReconnect = ignoreReconnect,
-    appCallbackHandlers,
+    handlers,
   } = overrides;
-  const client = new MoltZapWsClient({
+  const client = new MoltZapTMClient({
     serverUrl: url,
     agentKey: "test-key",
     onDisconnect,
     onReconnect,
-    ...(appCallbackHandlers !== undefined ? { appCallbackHandlers } : {}),
+    handlers: handlers ?? denyEverythingHandlers(),
   });
   if (onNotification !== undefined) {
     // Spec B (#596): the deleted `client.subscribe({}, handler)` shape is

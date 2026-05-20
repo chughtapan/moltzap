@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import {
   registerAgent as registerAgentHttp,
   stripWsPath,
@@ -12,7 +12,7 @@ import { coreBaseUrl, coreWsUrl } from "./server.js";
 export function registerAgent(name: string) {
   return Effect.gen(function* () {
     const reg = yield* registerAgentHttp(coreBaseUrl(), name);
-    const client = new MoltZapWsClient({
+    const client = new MoltZapAgentClient({
       serverUrl: stripWsPath(coreWsUrl()),
       agentKey: reg.apiKey,
     });
@@ -34,7 +34,7 @@ export function connectService(
 }
 
 export function sendAndSettle(
-  client: MoltZapWsClient,
+  client: MoltZapAgentClient,
   conversationId: string,
   text: string,
 ) {

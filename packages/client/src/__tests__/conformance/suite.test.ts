@@ -3,12 +3,12 @@
  *
  * Thin driver around `@moltzap/protocol/testing`'s
  * `clientConformance.runClientConformanceSuite`. Supplies a
- * `MoltZapWsClient`-backed real-client factory and asserts the typed
+ * `MoltZapAgentClient`-backed real-client factory and asserts the typed
  * suite result in a single `it(...)`.
  *
  * The protocol suite binds its own TestServer on an ephemeral port and
  * passes the bound URL to each `realClient(args)` invocation via
- * `args.testServerUrl`. The factory below points its `MoltZapWsClient`
+ * `args.testServerUrl`. The factory below points its `MoltZapAgentClient`
  * at that URL.
  */
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ class ClientConformanceFailed extends Data.TaggedError(
 
 describe("@moltzap/client client-side conformance", () => {
   it(
-    "client-side properties pass against MoltZapWsClient",
+    "client-side properties pass against MoltZapAgentClient",
     () => Effect.runPromise(clientConformancePasses()),
     CLIENT_CONFORMANCE_TIMEOUT_MS,
   );

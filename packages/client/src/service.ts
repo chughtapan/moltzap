@@ -51,7 +51,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { MoltZapWsClient, type RpcCallOptions } from "./ws-client.js";
+import { MoltZapAgentClient, type RpcCallOptions } from "./agent-client.js";
 import { AgentNotFoundError } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
 import { LocalServiceCommands } from "./runtime/local-service-commands.js";
@@ -132,7 +132,7 @@ function appendClientEventTrace(
 
 /**
  * Errors that can surface from the Effect-based service API. Matches the
- * failure channel of `MoltZapWsClient.sendRpc` / `connect`.
+ * failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
  */
 export type ServiceRpcError = RpcCallError | RpcTimeoutError;
 
@@ -278,7 +278,7 @@ function fanout<T>(
  * to arena; consumers wanting Promise wrappers maintain their own.)
  */
 export class MoltZapService {
-  private client: MoltZapWsClient | null = null;
+  private client: MoltZapAgentClient | null = null;
   private _connected = false;
 
   /**
@@ -424,7 +424,7 @@ export class MoltZapService {
   /** Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`. */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(this, function* () {
-      const client = new MoltZapWsClient({
+      const client = new MoltZapAgentClient({
         serverUrl: this.opts.serverUrl,
         agentKey: this.opts.agentKey,
         // Spec #222 OQ-6: arg required. The body doesn't branch on
@@ -1075,7 +1075,7 @@ export class MoltZapService {
       if (!this.client) {
         return Effect.fail(new NotConnectedError({ message: "Not connected" }));
       }
-      return this.client.sendRpc(definition, params, opts);
+      return this.client.sendRpcAny(definition, params, opts);
     });
   }
 

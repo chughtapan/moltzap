@@ -30,7 +30,7 @@ export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
  * this struct, so the strict-additionalProperties wire schema stays unstuck.
  *
  * The optional second parameter `R` narrows the `params` field to the refined
- * type — used by `MoltZapWsClient.subscribe`'s user-defined-type-guard
+ * type — used by `MoltZapAgentClient.subscribe`'s user-defined-type-guard
  * overload (spec #596 / architect plan §5.2). The default sentinel
  * `unknown` resolves to the per-branch `NotificationParamsOf<D>` shape,
  * preserving the one-arg form for every existing consumer.

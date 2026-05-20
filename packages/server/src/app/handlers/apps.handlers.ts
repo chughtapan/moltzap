@@ -15,7 +15,7 @@ export const appHandlers: RpcMethodRegistry = [
     // A client-originated `apps/register` call records the calling
     // connection id so AppHost dispatches future `dispatch/authorize`
     // verbs via `sendRpcToClient` against this socket. If the client
-    // constructed its `MoltZapWsClient` without a handler-table entry
+    // constructed its `MoltZapAgentClient` without a handler-table entry
     // for `dispatch/authorize`, the fail-CLOSED default slot replies
     // deny (the descriptor's `optional: forbidden` default) — same posture as a
     // crashed in-process handler. Server-side in-process registration

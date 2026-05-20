@@ -3,15 +3,15 @@
 /**
  * Reconnection integration test for `@moltzap/nanoclaw-channel`.
  *
- * Deterministic trigger via `MoltZapWsClient.disconnect()` (per arch sub-issue
+ * Deterministic trigger via `MoltZapAgentClient.disconnect()` (per arch sub-issue
  * #605 §3.4 — picked over toxiproxy reset_peer because the spec's stated
  * model already uses `client.disconnect()` and toxiproxy would invert
  * nanoclaw's minimum-viable smoke-test framing).
  *
  * Coverage (spec C #597 AC reconnection bullets a–g):
- *   (a) spawn `MoltZapWsClient` against the testcontainers-spawned server
+ *   (a) spawn `MoltZapAgentClient` against the testcontainers-spawned server
  *   (b) establish session — first inbound round-trip succeeds
- *   (c) force-close via `MoltZapWsClient.disconnect()`
+ *   (c) force-close via `MoltZapAgentClient.disconnect()`
  *   (d) drive a missed message from a peer while disconnected
  *   (e) reconnection completes within 30s
  *   (f) the missed message is readable from history after reconnect
@@ -19,14 +19,14 @@
  *
  * `MoltZapChannel` relies on this WS client behavior — the channel's
  * `MoltZapChannelCore` delegates connect/disconnect/inbound dispatch to
- * the service's underlying `MoltZapWsClient`. Modeled on
+ * the service's underlying `MoltZapAgentClient`. Modeled on
  * `packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts`.
  */
 
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import {
   ConversationsCreate,
   MessagesList,
@@ -75,8 +75,8 @@ beforeAll(() => {
 function createClient(
   agentKey: string,
   hooks: { onDisconnect?: () => void; onReconnect?: () => void },
-): MoltZapWsClient {
-  return new MoltZapWsClient({
+): MoltZapAgentClient {
+  return new MoltZapAgentClient({
     serverUrl: config.wsUrl,
     agentKey,
     ...hooks,
@@ -121,7 +121,7 @@ function waitForPromise(
 }
 
 function listMessageTexts(
-  client: MoltZapWsClient,
+  client: MoltZapAgentClient,
   conversationId: ConversationId,
 ): Effect.Effect<readonly string[], ReconnectionIntegrationError> {
   return client.sendRpc(MessagesList, { conversationId }).pipe(
@@ -147,7 +147,7 @@ function messageTextParts(message: Message): readonly string[] {
 }
 
 function peerSendText(
-  peerClient: MoltZapWsClient,
+  peerClient: MoltZapAgentClient,
   conversationId: ConversationId,
   text: string,
 ): Effect.Effect<void, ReconnectionIntegrationError> {
@@ -178,11 +178,11 @@ function makeCounters(): Counters {
 }
 
 function createDm(
-  peerClient: MoltZapWsClient,
+  peerClient: MoltZapAgentClient,
   channelAgentId: string,
 ): Effect.Effect<ConversationId, ReconnectionIntegrationError> {
   return peerClient
-    .sendRpc(ConversationsCreate, {
+    .sendRpcAny(ConversationsCreate, {
       type: "dm",
       participants: [{ type: "agent", id: channelAgentId }],
     })
@@ -240,8 +240,8 @@ function reconnectsAndRecoversRpc() {
 }
 
 function connectBoth(
-  channelClient: MoltZapWsClient,
-  peerClient: MoltZapWsClient,
+  channelClient: MoltZapAgentClient,
+  peerClient: MoltZapAgentClient,
 ): Effect.Effect<void, ReconnectionIntegrationError> {
   return Effect.gen(function* () {
     yield* channelClient.connect().pipe(
@@ -266,7 +266,7 @@ function connectBoth(
 }
 
 function assertMissedMessageReadable(
-  channelClient: MoltZapWsClient,
+  channelClient: MoltZapAgentClient,
   conversationId: ConversationId,
 ): Effect.Effect<void, ReconnectionIntegrationError> {
   return Effect.gen(function* () {

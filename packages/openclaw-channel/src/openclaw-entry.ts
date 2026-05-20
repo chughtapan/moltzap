@@ -1,7 +1,7 @@
 /**
  * OpenClaw plugin entry point for MoltZap.
  *
- * Wraps the existing MoltZapWsClient + mapping modules into the
+ * Wraps the existing MoltZapAgentClient + mapping modules into the
  * ChannelPlugin shape expected by OpenClaw's api.registerChannel().
  *
  * Installed via: openclaw plugin install `@moltzap/openclaw-channel`

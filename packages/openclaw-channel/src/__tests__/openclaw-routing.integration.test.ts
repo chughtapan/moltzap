@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Duration, Effect, Exit, Fiber, Option, Stream } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
@@ -341,13 +341,13 @@ function connectedClaimedClient(name: string) {
 }
 
 function connectedClient(agentKey: string) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
   });
 }
 
-function createDm(client: MoltZapWsClient, agentId: string) {
+function createDm(client: MoltZapAgentClient, agentId: string) {
   return createConversation(client, {
     type: "dm",
     participants: [{ type: "agent", id: agentId }],
@@ -355,7 +355,7 @@ function createDm(client: MoltZapWsClient, agentId: string) {
 }
 
 function createConversation(
-  client: MoltZapWsClient,
+  client: MoltZapAgentClient,
   params: Parameters<typeof ConversationsCreate.validateParams>[0],
 ) {
   return client
@@ -364,7 +364,7 @@ function createConversation(
 }
 
 function sendText(
-  client: MoltZapWsClient,
+  client: MoltZapAgentClient,
   conversationId: string,
   text: string,
 ) {
@@ -380,7 +380,7 @@ function sendText(
  * Effect.timeoutFail)`. `extractMessage` continues to read the same
  * notification shape.
  */
-function waitForReceivedMessage(client: MoltZapWsClient) {
+function waitForReceivedMessage(client: MoltZapAgentClient) {
   return client.subscribe(MessageReceivedNotificationDefinition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
@@ -405,7 +405,7 @@ function waitForReceivedMessage(client: MoltZapWsClient) {
   );
 }
 
-function waitForReceivedMessages(client: MoltZapWsClient, count: number) {
+function waitForReceivedMessages(client: MoltZapAgentClient, count: number) {
   return client.subscribe(MessageReceivedNotificationDefinition).pipe(
     Stream.take(count),
     Stream.runCollect,
@@ -449,7 +449,7 @@ function expectConversationMessageFrom(
   expectEchoReply(message, conversationId, senderId);
 }
 
-function lookupAgentId(client: MoltZapWsClient, name: string) {
+function lookupAgentId(client: MoltZapAgentClient, name: string) {
   return client
     .sendRpc(AgentsLookupByName, { names: [name] })
     .pipe(Effect.map((result) => result.agents[0]?.id ?? ""));
