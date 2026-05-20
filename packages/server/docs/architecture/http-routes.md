@@ -18,8 +18,8 @@ shared JSON-decode + Ajv validation. Invite-gate checks use `safeEqual`
 
 The `/api/v1/auth/claim` success path (`CLAIM_SUCCESS` arm in `app/http-routes.ts`) refreshes
 `conn.auth.ownerUserId` on every live connection of the just-claimed
-agent so subsequent owner-gated RPCs see fresh state
-without needing the client to reconnect (#495).
+agent so subsequent owner-gated RPCs see fresh state without needing
+the client to reconnect.
 
 ## See also
 

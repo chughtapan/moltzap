@@ -1,4 +1,4 @@
-# Lease Lifecycle (`#529` reshape)
+# Lease Lifecycle
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 

@@ -6,8 +6,6 @@ the three channel adapters (`openclaw-channel`, `claude-code-channel`,
 error, the `LeaseStore` / `LeaseGuard` lease lifecycle primitives, and the
 markup-parameterized cross-conv + group-block formatters.
 
-Spec: #597. Architect plan: #605. Parent epic: #602.
-
 ## 1. Goals
 
 Before this layer existed, the three channels each carried a near-duplicate
@@ -68,7 +66,10 @@ on-retry semantic), `consume(key)` (read-and-delete), `clear(key?)`,
 
 Nanoclaw stores `(jid, dispatchLeaseId)` and uses `peek` deliberately so
 that retries after a consumed lease trigger the server's CONSUMED rejection
-rather than silently falling back to an unleased send (cutover #533).
+rather than silently falling back to an unleased send (single-use lease
+enforcement is server-side; the channel must thread the lease id even on
+retries so the server can return CONSUMED rather than accepting a
+duplicate send).
 
 ### `LeaseGuard`
 
@@ -93,8 +94,9 @@ ownership lives in the variant table or the callback.
 `{ name, participants }`. Openclaw consumes the narrowed fields to derive its
 `groupSubject` / `groupMembers` dispatch-context fields; nanoclaw routes them
 into `formatGroupBlock(fields, { markup: "xml-system-reminder" })`;
-claude-code does not consume group metadata at all (P3 #607 resolution —
-adding a no-op consistency call would be dead code).
+claude-code does not consume group metadata at all (adding a no-op
+consistency call to share the import would be dead code; the
+minimal-changes principle won over consistency-for-its-own-sake).
 
 `formatGroupBlock(fields, { markup })` renders the formatted block.
 `"xml-system-reminder"` emits the nanoclaw output verbatim;
@@ -239,8 +241,6 @@ Neither option carries weight; primitives are the cleaner abstraction.
 
 ## 6. See also
 
-- Spec: chughtapan/moltzap#597
-- Architect plan: chughtapan/moltzap#605
 - `packages/openclaw-channel/docs/architecture/deliver-error-handling.md`
 - `packages/nanoclaw-channel/docs/architecture/outbound-send-message.md`
 - `packages/claude-code-channel/docs/architecture/lease-state-machine.md`

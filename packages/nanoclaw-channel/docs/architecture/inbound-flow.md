@@ -21,7 +21,7 @@ sequenceDiagram
 
     Note over Handler: Step 2 — rememberDispatchLease(chatJid, enriched)<br>if enriched.dispatchLeaseId:<br>  leaseStore.remember(chatJid, leaseId)
 
-    Note over Handler: LeaseStore<string, string> (peek-style)<br>keyed by chatJid (not conversationId)<br>value = LAST inbound lease for that jid<br>NOT cleared on send (post-cutover #533)
+    Note over Handler: LeaseStore<string, string> (peek-style)<br>keyed by chatJid (not conversationId)<br>value = LAST inbound lease for that jid<br>NOT cleared on send (server enforces single-use; deliberate stale-entry-on-retry)
 
     Note over Handler: Step 3 — maybeAutoRegister(chatJid, conversationId)<br>evalMode=false → skip<br>evalMode=true  → ensureAutoRegistered() (§3.6)
 

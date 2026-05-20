@@ -4,7 +4,9 @@
 
 `sendMessage` is the reply path. It enforces JID ownership, looks up the
 most recent dispatch lease for the JID, and calls `core.sendReply`.
-Single-use lease semantics are enforced server-side (cutover #533).
+Single-use lease semantics are enforced server-side — the lease is
+consumed on first successful `messages/send`; subsequent attempts with
+the same lease id return CONSUMED.
 
 ```mermaid
 flowchart TD

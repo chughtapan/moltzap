@@ -39,12 +39,12 @@ Subpath exports: `./test-utils` (Docker-backed integration harness),
 
 | Section | Detail doc |
 |---|---|
-| `startAccount` lifecycle (connect, abort, reconnect handlers) | [01-start-account-lifecycle.md](docs/architecture/start-account-lifecycle.md) |
-| Outbound `sendText` — Effect ↔ Promise boundary | [02-outbound-send-text.md](docs/architecture/outbound-send-text.md) |
-| Inbound `onInbound` callback — full Effect chain | [03-inbound-on-inbound.md](docs/architecture/inbound-on-inbound.md) |
-| `deliver()` error handling — RpcServerError discrimination (PR #587) | [05-deliver-error-handling.md](docs/architecture/deliver-error-handling.md) |
-| `stopAccount` lifecycle (teardown, race notes) | [06-stop-account-lifecycle.md](docs/architecture/stop-account-lifecycle.md) |
-| `resolveTarget` format and error shape (two callers) | [07-resolve-target.md](docs/architecture/resolve-target.md) |
+| `startAccount` lifecycle (connect, abort, reconnect handlers) | [start-account-lifecycle.md](docs/architecture/start-account-lifecycle.md) |
+| Outbound `sendText` — Effect ↔ Promise boundary | [outbound-send-text.md](docs/architecture/outbound-send-text.md) |
+| Inbound `onInbound` callback — full Effect chain | [inbound-on-inbound.md](docs/architecture/inbound-on-inbound.md) |
+| `deliver()` error handling — RpcServerError discrimination | [deliver-error-handling.md](docs/architecture/deliver-error-handling.md) |
+| `stopAccount` lifecycle (teardown, race notes) | [stop-account-lifecycle.md](docs/architecture/stop-account-lifecycle.md) |
+| `resolveTarget` format and error shape (two callers) | [resolve-target.md](docs/architecture/resolve-target.md) |
 
 ## 4. Dependencies
 

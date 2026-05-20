@@ -77,7 +77,7 @@ flowchart TD
 
     resolveServices["services = dispatchRuntime.runSync(resolveServices)<br/>resolveServices = Effect.all({tag…})<br/>produces a plain-object view for non-Effect call sites<br/><i>app/server.ts</i>"]
 
-    CoreApp["Returned CoreApp exposes:<br/>port · onConnection / onDisconnection<br/>registerApp / registerRemoteApp<br/>registerMessageAuthorize / onTaskAuth…<br/>setContactService<br/>networkSendService · traceCapture · leases<br/>close()<br/>(Spec F #617 I1: RPC handler table baked at<br/>construction; no post-construction method registration)"]
+    CoreApp["Returned CoreApp exposes:<br/>port · onConnection / onDisconnection<br/>registerApp / registerRemoteApp<br/>registerMessageAuthorize / onTaskAuth…<br/>setContactService<br/>networkSendService · traceCapture · leases<br/>close()<br/>(RPC handler table baked at construction;<br/>no post-construction method registration)"]
 
     createCoreApp --> BaseLive
     createCoreApp --> ServicesLive
