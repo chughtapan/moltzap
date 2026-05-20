@@ -62,7 +62,7 @@ export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
 _Function_
 
 ```ts
-export function brandedId<const BrandName extends string>(brand: BrandName)
+  }) as TString &
 ```
 
 ### [`brandedNumber`](./schema-primitives.ts#L50)
@@ -70,9 +70,12 @@ export function brandedId<const BrandName extends string>(brand: BrandName)
 _Function_
 
 ```ts
-export function brandedNumber<const BrandName extends string>(
+ * `options` through to `Type.String` so callers can add `format`,
+ * `minLength`, `maxLength`, `pattern`, etc.
+ */
+export function brandedString<const BrandName extends string>(
   brand: BrandName,
-  options: Parameters<typeof Type.Number>[0] =
+  options: Parameters<typeof Type.String>[0] =
 ```
 
 ### [`BrandedNumber`](./schema-primitives.ts#L37)
@@ -80,7 +83,9 @@ export function brandedNumber<const BrandName extends string>(
 _TypeAlias_
 
 ```ts
-export type BrandedNumber<BrandName extends string> = number &
+ * a `string` from accidentally type-fitting a slot expecting the brand.
+ */
+export type BrandedString<BrandName extends string> = string &
 ```
 
 ### [`brandedString`](./schema-primitives.ts#L40)
@@ -88,9 +93,7 @@ export type BrandedNumber<BrandName extends string> = number &
 _Function_
 
 ```ts
-export function brandedString<const BrandName extends string>(
-  brand: BrandName,
-  options: Parameters<typeof Type.String>[0] =
+  Brand.Brand<BrandName>
 ```
 
 ### [`BrandedString`](./schema-primitives.ts#L35)
@@ -106,7 +109,8 @@ export type BrandedString<BrandName extends string> = string &
 _TypeAlias_
 
 ```ts
-export type DateTimeString = Static<typeof DateTimeStringSchema>;
+    ...options,
+    description: options.description ?? `Branded ${brand}`,
 ```
 
 ### [`dateTimeStringSchema`](./schema-primitives.ts#L75)
@@ -114,7 +118,7 @@ export type DateTimeString = Static<typeof DateTimeStringSchema>;
 _Function_
 
 ```ts
-export function dateTimeStringSchema(): typeof DateTimeStringSchema
+  }) as TNumber &
 ```
 
 ### [`decodeClientInbound`](./rpc-registry.ts#L197)
@@ -286,7 +290,10 @@ export const rpcMethods = [
 _Function_
 
 ```ts
-export function stringEnum<T extends string[]>(values: [...T])
+ */
+export function brandedNumber<const BrandName extends string>(
+  brand: BrandName,
+  options: Parameters<typeof Type.Number>[0] =
 ```
 
 ## Files
