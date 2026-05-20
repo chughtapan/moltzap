@@ -1,6 +1,6 @@
 ---
 title: "protocol/src"
-description: "Root public barrel for the complete protocol package."
+description: "Public barrel — protocol layer DAG."
 ---
 
 # protocol/src
@@ -9,7 +9,31 @@ _`packages/protocol/src`_
 
 ## Purpose
 
-Root public barrel for the complete protocol package.
+Public barrel — protocol layer DAG.
+
+The protocol package is the leaf in the workspace dependency
+graph, and internally it is split into five layers with their own
+one-way dependency order. Re-exports below are arranged in DAG
+order so the file itself is the manifest.
+
+```mermaid
+flowchart TD
+  app[app/] --> task[task/]
+  app --> identity[identity/]
+  app --> transport[transport/]
+  task --> identity
+  task --> transport
+  network[network/] --> identity
+  network --> transport
+  identity --> transport
+  transport --> schema[schema-primitives]
+```
+
+A `task/*` method may reference `identity/*` types (e.g.
+`AgentId`); the reverse import is forbidden. The server's
+Tag-allowlist hierarchy in `@moltzap/server-core` mirrors this
+DAG: a handler may pull services only from layers at-or-below its
+own home layer.
 
 ## Public surface
 
@@ -181,12 +205,12 @@ _Function_
  *
  * ```mermaid
  * flowchart TD
- *   A["raw socket payload<br>(JSON.parse happens before this call)"]
+ *   A["raw socket payload&lt;br>(JSON.parse happens before this call)"]
  *   A --> B["decodeFrame(parsed)"]
  *   B --> C{tag?}
- *   C -->|Request| D["decodeRpcRequest(taskCallbackMethods)<br>→ ServerRequest"]
- *   C -->|Response| E["decodeResponseFrame<br>→ ResponseSuccess | ResponseError"]
- *   C -->|Notification| F["decodeNotification(notificationDefs)<br>→ Notification"]
+ *   C -->|Request| D["decodeRpcRequest(taskCallbackMethods)&lt;br>→ ServerRequest"]
+ *   C -->|Response| E["decodeResponseFrame&lt;br>→ ResponseSuccess | ResponseError"]
+ *   C -->|Notification| F["decodeNotification(notificationDefs)&lt;br>→ Notification"]
  *   D --> G[DecodedServerInbound]
  *   E --> G
  *   F --> G

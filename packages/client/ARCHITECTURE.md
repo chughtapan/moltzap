@@ -44,20 +44,24 @@ Plus `registerAgent` for auth bootstrap, the `NotificationConsumerError` /
 
 ## Communication Flows
 
-Detailed sequence diagrams and prose live in `docs/architecture/`. Read
-[State Machines](docs/architecture/state-machines.md) first to
-understand the lease and connection state machines that underpin all flows.
+Flow diagrams live in JSDoc next to the relevant symbol and surface
+on the generated module pages (`src/**/MODULE.md`):
 
-| Doc | Description |
-|---|---|
-| [Connection Lifecycle](docs/architecture/connection-lifecycle.md) | HTTP register → WS connect → `network/connect` handshake → subscribe → steady state; reconnect arm |
-| [Outbound `messages/send`](docs/architecture/outbound-messages-send.md) | Caller → `MoltZapService.send` → `MoltZapWsClient.sendRpc` → wire → server |
-| [Inbound Dispatch](docs/architecture/inbound-dispatch.md) | Wire bytes → reader fiber → `SubscriberRegistry` → `MoltZapChannelCore` → `InboundHandler`; ack/release race |
-| [Notification Subscription](docs/architecture/notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; lazy-materialization cancellation contract; tagged errors |
-| [Error Taxonomy](docs/architecture/error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
-| [CLI Command Flow](docs/architecture/cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
-| [State Machines](docs/architecture/state-machines.md) | Dispatch lease and connection state machines |
-| [Channel-base subpath](docs/architecture/channel-base.md) | `@moltzap/client/channel-base` — canonical `LeaseAlreadyConsumed`, `LeaseStore`/`LeaseGuard`, markup-parameterized `formatCrossConv`/`formatGroupBlock` (shared by openclaw, claude-code, nanoclaw) |
+- Connection lifecycle + reconnect + connection state machine →
+  `src/ws-client.ts → MoltZapWsClient` (class) and `connect()`.
+- Outbound `messages/send` → `src/service.ts → MoltZapService.send`.
+- Inbound dispatch + lease state machine →
+  `src/channel-core.ts → MoltZapChannelCore` (class) and
+  `dispatchAdmission()`.
+- Notification subscription lifecycle + AD1 snapshot semantic →
+  `src/runtime/subscribers.ts → SubscriberRegistry`.
+- Error taxonomy + propagation invariants →
+  `src/runtime/errors.ts` (file-level JSDoc).
+- CLI commands → `src/cli/commands/register.ts` and
+  `src/cli/commands/send.ts`.
+- `@moltzap/client/channel-base` subpath overview (lease
+  projection + per-host surfacing) →
+  `src/channel-base/index.ts` (file-level JSDoc).
 
 ## Dependencies
 

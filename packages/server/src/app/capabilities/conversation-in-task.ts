@@ -16,7 +16,6 @@ export { ConversationInTask, type ConversationInTaskValue };
  * Decision B (Option A); this helper consumes it through the service
  * Tag. `SqlError` from the underlying lookup is caught defectively
  * inside the service helper.
- *
  * @failure ForbiddenError when the conversation does not belong to the specified task
  * @failure NotFoundError when the conversation does not exist
  */

@@ -57,7 +57,6 @@ export {
  *      return `forParticipantOnActiveTask`.
  *      Bypass + no reply: return `forTmBypass`.
  *      Bypass + reply: return `forTmBypassWithReply`.
- *
  * @failure ForbiddenError when caller is not a participant in the conversation
  * @failure NotFoundError when the task does not exist, or `replyToId` is unresolvable
  * @failure ConversationArchivedError when the conversation has been archived

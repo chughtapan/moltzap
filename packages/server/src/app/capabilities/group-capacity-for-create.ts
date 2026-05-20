@@ -16,7 +16,6 @@ export { GroupCapacityForCreate, type GroupCapacityForCreateValue };
  * `(pathType, targetAgentIds)` so the obtain helper consumes it
  * without a `mintTask: Effect.never as never` synthesis shim. Pure
  * capacity check; no DB read; no `SqlError` in E.
- *
  * @failure ConversationFullError when proposed participant count exceeds the policy limit
  */
 export const obtainGroupCapacityForCreate = (

@@ -22,7 +22,6 @@ export { ContactPolicyAllowsReach, type ContactPolicyAllowsReachValue };
  * inside `createConversationEffect` and the obtain helper both call
  * this method. `SqlError` from the underlying contact-edge lookups is
  * caught defectively inside the service helpers.
- *
  * @failure NotInContactsError when caller's contact policy rejects a target
  * @failure NotFoundError when a referenced `agents` row is missing
  * @failure ForbiddenError when generic policy denies the path
@@ -63,7 +62,6 @@ export const obtainContactPolicyForCreate = (
  * synthesizing an `AddParticipantOptions` shim with a placeholder
  * `conversationId`. Single source of truth: the service caller inside
  * `addParticipantEffect` and the obtain helper both call this method.
- *
  * @failure NotInContactsError when caller's contact policy rejects the target
  * @failure NotFoundError when a referenced `agents` row is missing
  * @failure ForbiddenError when generic policy denies the path

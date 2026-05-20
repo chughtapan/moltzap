@@ -431,9 +431,8 @@ export class HookBlockedError extends Data.TaggedError(
 _Function_
 
 ```ts
-export function inferConversationType(
-  participantAgentIds: ReadonlyArray<AgentId>,
-): "dm" | "group"
+
+const InitialConversationSchema = Type.Object(
 ```
 
 Spec D1 (#598) cardinality → label mapping for the legacy
@@ -460,7 +459,10 @@ at that point this helper retires alongside.
 _TypeAlias_
 
 ```ts
-export type InitialConversationInput = Static<typeof InitialConversationSchema>;
+// check ahead of any participant probe. A non-TM caller sees
+// `ForbiddenError` rather than leaking task-membership existence
+// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
+// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
 ```
 
 ### [`LogicalClock`](./tasks.ts#L121)
@@ -677,7 +679,8 @@ Pushed when a task closes.
 _Variable_
 
 ```ts
-export const TaskConversationAddParticipant = defineRpc(
+  name: "task/conversation/archive",
+  params: Type.Object(
 ```
 
 TM-only: add an agent to one conversation. The agent MUST already
@@ -689,7 +692,8 @@ appear in `task_participants` for `taskId`; otherwise
 _Variable_
 
 ```ts
-export const TaskConversationArchive = defineRpc(
+  ),
+  result: Type.Object(
 ```
 
 TM-only: archive one conversation. Task stays open.
@@ -699,9 +703,11 @@ TM-only: archive one conversation. Task stays open.
 _TypeAlias_
 
 ```ts
-export type TaskConversationArchivedNotification = Static<
-  typeof TaskConversationArchivedNotificationSchema
->;
+
+const TaskConversationUnarchivedNotificationSchema = Type.Object(
+  { taskId: TaskId, conversationId: ConversationId },
+  { additionalProperties: false },
+);
 ```
 
 ### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L940)
@@ -709,8 +715,11 @@ export type TaskConversationArchivedNotification = Static<
 _Variable_
 
 ```ts
-export const TaskConversationArchivedNotificationDefinition =
-  defineNotification(
+    taskId: TaskId,
+    conversationId: ConversationId,
+    removedAgentId: AgentId,
+    reason: stringEnum(["tm_remove", "task_leave"]),
+  },
 ```
 
 ### [`TaskConversationCreate`](./tasks.ts#L679)
@@ -718,7 +727,18 @@ export const TaskConversationArchivedNotificationDefinition =
 _Variable_
 
 ```ts
-export const TaskConversationCreate = defineRpc(
+ * every `conversation_participants` row under the task. See spec
+ * body Goal 2 for the atomicity, idempotency, and
+ * last-participant-task-closure contract.
+ *
+ * Notification emission for each conversation the caller leaves uses
+ * `TaskConversationParticipantsRemovedNotificationDefinition` with
+ * `reason: "task_leave"`. If removal empties `task_participants`
+ * the task transitions to `status = 'closed'` and
+ * `TaskClosedNotificationDefinition` fires alongside in the same
+ * transaction.
+ */
+export const TaskLeave = defineRpc(
 ```
 
 TM-only: mint a new conversation under an existing task.
@@ -739,9 +759,8 @@ Schema diff vs. legacy `TasksCreateConversation`:
 _TypeAlias_
 
 ```ts
-export type TaskConversationCreatedNotification = Static<
-  typeof TaskConversationCreatedNotificationSchema
->;
+  },
+  { additionalProperties: false },
 ```
 
 ### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L933)
@@ -749,7 +768,8 @@ export type TaskConversationCreatedNotification = Static<
 _Variable_
 
 ```ts
-export const TaskConversationCreatedNotificationDefinition = defineNotification(
+    byAgentOrTm: stringEnum(["tm"]),
+  },
 ```
 
 ### [`TaskConversationList`](./tasks.ts#L742)
@@ -757,7 +777,11 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 _Variable_
 
 ```ts
-export const TaskConversationList = defineRpc(
+      tag: ConversationCreateAuthorization,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainConversationCreateAuthorizationInput
 ```
 
 Self-only listing of every conversation the caller participates
@@ -770,9 +794,8 @@ Goal 1 for the full pagination + visibility contract.
 _TypeAlias_
 
 ```ts
-export type TaskConversationListItem = Static<
-  typeof TaskConversationListItemSchema
->;
+ * participant cardinality (caller + targets totals 2 ⇒ `"dm"`,
+ * otherwise `"group"`).
 ```
 
 ### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L926)
@@ -780,9 +803,17 @@ export type TaskConversationListItem = Static<
 _TypeAlias_
 
 ```ts
-export type TaskConversationParticipantsAddedNotification = Static<
-  typeof TaskConversationParticipantsAddedNotificationSchema
->;
+const TaskConversationParticipantsAddedNotificationSchema = Type.Object(
+  {
+    taskId: TaskId,
+    conversationId: ConversationId,
+    addedAgentId: AgentId,
+    // Spec body Goal 5 declares this enum literal. Only `"tm"` for
+    // now (D1 narrows authority to TM-only); D3 may widen.
+    byAgentOrTm: stringEnum(["tm"]),
+  },
+  { additionalProperties: false },
+);
 ```
 
 ### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L952)
@@ -790,8 +821,8 @@ export type TaskConversationParticipantsAddedNotification = Static<
 _Variable_
 
 ```ts
-export const TaskConversationParticipantsAddedNotificationDefinition =
-  defineNotification(
+  typeof TaskConversationArchivedNotificationSchema
+>
 ```
 
 ### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L929)
@@ -799,9 +830,10 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
 _TypeAlias_
 
 ```ts
-export type TaskConversationParticipantsRemovedNotification = Static<
-  typeof TaskConversationParticipantsRemovedNotificationSchema
->;
+    conversationId: ConversationId,
+    addedAgentId: AgentId,
+    // Spec body Goal 5 declares this enum literal. Only `"tm"` for
+    // now (D1 narrows authority to TM-only); D3 may widen.
 ```
 
 ### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L958)
@@ -809,8 +841,8 @@ export type TaskConversationParticipantsRemovedNotification = Static<
 _Variable_
 
 ```ts
-export const TaskConversationParticipantsRemovedNotificationDefinition =
-  defineNotification(
+  typeof TaskConversationParticipantsAddedNotificationSchema
+>
 ```
 
 ### [`TaskConversationRemoveParticipant`](./tasks.ts#L840)
@@ -818,7 +850,8 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
 _Variable_
 
 ```ts
-export const TaskConversationRemoveParticipant = defineRpc(
+ * TM-only: add an agent to one conversation. The agent MUST already
+ * appear in `task_participants` for `taskId`
 ```
 
 TM-only: remove an agent from one conversation. The agent stays
@@ -830,7 +863,8 @@ other conversations within the task).
 _Variable_
 
 ```ts
-export const TaskConversationUnarchive = defineRpc(
+// drift between siblings.
+const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown)
 ```
 
 TM-only: reverse of `task/conversation/archive`.
@@ -840,9 +874,7 @@ TM-only: reverse of `task/conversation/archive`.
 _TypeAlias_
 
 ```ts
-export type TaskConversationUnarchivedNotification = Static<
-  typeof TaskConversationUnarchivedNotificationSchema
->;
+  { additionalProperties: false },
 ```
 
 ### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L946)
@@ -850,8 +882,7 @@ export type TaskConversationUnarchivedNotification = Static<
 _Variable_
 
 ```ts
-export const TaskConversationUnarchivedNotificationDefinition =
-  defineNotification(
+)
 ```
 
 ### [`TaskCreate`](./tasks.ts#L627)
@@ -859,7 +890,7 @@ export const TaskConversationUnarchivedNotificationDefinition =
 _Variable_
 
 ```ts
-export const TaskCreate = defineRpc(
+  return 1 + participantAgentIds.length === 2 ? "dm" : "group"
 ```
 
 Reshaped task-create: `appId` REQUIRED (branded), `tmType`
@@ -907,7 +938,8 @@ export const TaskId = brandedId("TaskId")
 _Variable_
 
 ```ts
-export const TaskLeave = defineRpc(
+  name: "task/create",
+  params: Type.Object(
 ```
 
 Self-only: caller removes themselves from `task_participants` AND

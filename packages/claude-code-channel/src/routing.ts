@@ -69,7 +69,7 @@ const DEFAULT_CAPACITY = 256;
  * `catchLeaseInvalid` in the channel-base library).
  *
  * ```text
- * Map<MessageId, ConversationId>  bounded LRU, cap=256
+ * Map&lt;MessageId, ConversationId>  bounded LRU, cap=256
  * lastActive: ConversationId | undefined
  *
  * recordInbound(messageId, conversationId):
@@ -90,7 +90,6 @@ const DEFAULT_CAPACITY = 256;
  * "LeaseInvalid" }`) projects into a `LeaseAlreadyConsumed` typed
  * error via `channel-base.catchLeaseInvalid`, which the reply tool
  * surfaces to Claude as `toolErrorResult`.
- *
  * @param capacity bounded LRU size (default 256). Exceeding the cap
  * evicts the oldest. Must be a positive finite number.
  */

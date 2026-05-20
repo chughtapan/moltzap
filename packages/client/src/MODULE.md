@@ -265,62 +265,16 @@ rejection would.
 _Class_
 
 ```ts
-export class MoltZapChannelCore {
-  private readonly service: ChannelService;
-  private readonly dispatchAdmissionTimeoutMs: number;
-  private connected = false;
-  private inboundHandler: InboundHandler<unknown> | null = null;
-
-  /**
-   * Lease id scoped to the in-flight `dispatchInboundEffect` call
-   * (set immediately around the user-handler invocation). Replaces
-   * the legacy `activeDispatchLeaseId` field whose semantics were
-   * unchanged but whose name leaked an admission-flow detail. The
-   * field remains a single mutable cell because the consumer fiber
-   * processes inbound work strictly serially (one queue, one fiber);
-   * concurrent dispatches do not exist on this code path.
-   */
-  private leaseIdInFlight: string | undefined;
-
-  /**
-   * Per-lease parking Deferreds for dispatches awaiting their
-   * `dispatchRelease` verdict. Settled by the `dispatchRelease` event
-   * handler when a matching frame arrives.
-   */
-  private readonly pendingDispatchesByLease = new Map<
-    string,
-    Deferred.Deferred<DispatchReleaseFrame, never>
-  >();
-
-  /**
-   * Ring buffer of `dispatchRelease` frames that arrived before the
-   * recipient registered its parking Deferred (release-then-ack
-   * race). Bounded LRU via Map insertion-order iteration; soft-TTL
-   * eviction at `DISPATCH_RELEASE_RING_SOFT_TTL_MS` so a release
-   * without a matching ack does not leak memory.
-   */
-  private readonly pendingReleasesByLease = new Map<
-    string,
-    PendingReleaseEntry
-  >();
-  private readonly closedConversationIds = new Set<string>();
-  private readonly logicalClocks = new Map<
-    string,
-    { epoch: number; vector: Record<string, number> }
-  >();
-  private readonly parkedByConversation = new Map<
-    string,
-    InboundDispatchWork[]
-  >();
-
-  /**
-   * Inbound messages enqueue synchronously; a single forked consumer fiber
-   * serialises delivery so handlers execute one-at-a-time in arrival order.
-   */
-  private readonly inboundQueue: Queue.Queue<InboundDispatchWork> =
-    Effect.runSync(Queue.unbounded<InboundDispatchWork>());
-  private readonly consumerFiber: Fiber.RuntimeFiber<void, never>;
-  private disconnectHandlers: Array<() => void> = [];
+ * ```mermaid
+ * sequenceDiagram
+ *   participant server
+ *   participant ws as MoltZapWsClient
+ *   participant svc as MoltZapService
+ *   participant core as MoltZapChannelCore
+ *   participant handler as InboundHandler
+ *
+ *   server->>ws: messages/received notification
+ *   ws->>svc: subscribers.dispatch — fanout(message)
 ```
 
 Wraps a MoltZapService with message enrichment, dispatch-chain ordering,
@@ -442,76 +396,7 @@ to arena; consumers wanting Promise wrappers maintain their own.)
 _Class_
 
 ```ts
-export class MoltZapWsClient {
-  private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
-  private readonly malformedRef: Ref.Ref<number>;
-  private readonly runtime: ManagedRuntime.ManagedRuntime<
-    Socket.WebSocketConstructor,
-    never
-  >;
-
-  /**
-   * Per-subscription notification registry. Spec #596 / Spec B: callback-based
-   * storage feeds `Stream.async` consumers via `notification/stream.ts`.
-   */
-  private readonly subscribers: SubscriberRegistry;
-
-  /**
-   * Spec F (#617) immutable TM-callback handler table. Captured from
-   * `MoltZapWsClientOptions.appCallbackHandlers` at construction and
-   * threaded through every `makeTaskMasterConnection` call (including
-   * reconnects). `{}` is the default — a TM that fails-CLOSED on every
-   * inbound auth check via the protocol's R2 default.
-   */
-  private readonly appCallbackHandlers: AppCallbackHandlers;
-
-  private closed = false;
-  private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
-  private _helloOk: ConnectResult | null = null;
-
-  constructor(private readonly options: MoltZapWsClientOptions) {
-    this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
-    this.stateRef = this.runtime.runSync(
-      Ref.make<Option.Option<ConnState>>(Option.none()),
-    );
-    this.malformedRef = this.runtime.runSync(Ref.make(0));
-    // Registry construction is `Effect<…, never>`; running it sync here
-    // matches every other Ref initializer in this constructor and
-    // keeps `subscribers` non-nullable inside the class.
-    this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
-    // Handler table is value-passed at construction. When the caller
-    // doesn't supply implementations for the TM-callback slots, fall
-    // back to the explicit `forbidden` sentinel — the dispatcher then
-    // synthesizes `-32001 Forbidden` per JSON-RPC fail-CLOSED. The
-    // reference is held verbatim; the protocol's `eraseHandlerTable`
-    // only reads keys.
-    this.appCallbackHandlers = options.appCallbackHandlers ?? {
-      "dispatch/authorize": forbidden,
-      "messages/authorize": forbidden,
-    };
-  }
-
-  get helloOk(): ConnectResult | null {
-    return this._helloOk;
-  }
-
-  /**
-   * Open the socket, perform network/connect, resolve with HelloOk. Fails
-   * immediately on pre-open close or error.
-   */
-  connect(): Effect.Effect<ConnectResult, ConnectError> {
-    return Effect.suspend(() => {
-      if (this.closed) {
-        return Effect.fail(makeNotConnectedError());
-      }
-      return this.connectEffect().pipe(
-        // `makeWebSocket` requires `Socket.WebSocketConstructor`; our
-        // internal Node layer provides it so callers' Effects stay
-        // requirement-free (same public shape the legacy client had).
-        Effect.provide(NodeSocket.layerWebSocketConstructor),
-      );
-    });
-  }
+ *   CONNECTED --> DISCONNECTED : reader fiber exit<br>failAllPending, stateRef = None<br>onDisconnect(closeInfo)
 ```
 
 WebSocket lifecycle: open → network/connect → active. On disconnect,

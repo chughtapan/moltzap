@@ -64,6 +64,30 @@ interface RegisterAgentSuccess {
   readonly claimToken: string;
 }
 
+/**
+ * Build the core HTTP app. Composes the three always-on routes
+ * (`/health`, `/ws`, conditional admin) with the auth surface
+ * (`/api/v1/auth/register`, `/api/v1/auth/claim`) and wraps the
+ * router in CORS.
+ *
+ * | Route                              | Mounted unless         | Method | Body                          | Status                                                       |
+ * |------------------------------------|------------------------|--------|-------------------------------|--------------------------------------------------------------|
+ * | `/health`                          | always                 | GET    | —                             | 200 `{status, connections}`                                  |
+ * | `/ws`                              | always                 | GET    | WS Upgrade                    | 101                                                          |
+ * | `/api/v1/auth/register`            | `skipDefaultRegisterRoute` | POST | `Register.params`           | 201 `{agentId, apiKey, claimToken, claimUrl}`; 400/403/500   |
+ * | `/api/v1/auth/claim`               | `skipDefaultRegisterRoute` | POST | `Claim.params`              | 200 (idempotent) / 201 (first); 401/403/500                  |
+ * | `/api/v1/admin/register-agent`     | only when `skipDefaultRegisterRoute=false` AND `registrationSecret` set | POST | superset of `Register.params` + `ownerUserId` | 200 (rotated) / 201 (new); 400/403/409/500 |
+ *
+ * All bodied routes funnel through `readValidatedBody` for JSON
+ * decode + Ajv validation. Invite-gate checks use `safeEqual`
+ * (constant-time) to compare `inviteCode` against
+ * `registrationSecret`.
+ *
+ * The `/api/v1/auth/claim` success path refreshes
+ * `conn.auth.ownerUserId` on every live connection of the
+ * just-claimed agent so subsequent owner-gated RPCs see fresh state
+ * without forcing a reconnect.
+ */
 export function makeCoreHttpApp(options: CoreHttpAppOptions) {
   const healthRoute = makeHealthRoute(options.connections);
   const registerRoute = makeRegisterRoute(options);

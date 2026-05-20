@@ -17,13 +17,7 @@ notification consumption surface is now Stream-based via
 _Class_
 
 ```ts
-export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
-  readonly agentName: string;
-}> {
-  override get message(): string {
-    return `Agent not found: ${this.agentName}`;
-  }
-}
+ *    `RpcServerError` (from `@moltzap/protocol`). Raised by
 ```
 
 A name→agent lookup returned no results.

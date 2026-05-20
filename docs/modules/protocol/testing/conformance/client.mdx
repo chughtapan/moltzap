@@ -777,9 +777,9 @@ _Function_
  *
  * ```mermaid
  * flowchart TD
- *   A["src/testing/conformance/{layer}/<property>.ts"]
+ *   A["src/testing/conformance/{layer}/&lt;property>.ts"]
  *   A --> B["property body — Effect that asserts the invariant"]
- *   A --> C["__divergence_proofs__/<property>.proofs.test.ts<br>(server intentionally violates invariant)"]
+ *   A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts&lt;br>(server intentionally violates invariant)"]
  *   C --> D[vitest runs the proof: failure-of-failure = pass]
  * ```
  *

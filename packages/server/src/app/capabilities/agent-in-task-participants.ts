@@ -17,7 +17,6 @@ export { AgentInTaskParticipants, type AgentInTaskParticipantsValue };
  * stays in the service layer.
  *
  * `SqlError` is caught defectively at the service-helper boundary.
- *
  * @failure ForbiddenError when the agent is not in `task_participants` for the given task
  */
 export const obtainAgentInTaskParticipants = (

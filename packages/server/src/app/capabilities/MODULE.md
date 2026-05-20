@@ -18,7 +18,6 @@ for the migration recipe + bug-class explainer.
 _Function_
 
 ```ts
-export const obtainAddParticipantPermission = (
   input: ObtainAddParticipantPermissionInput,
 ): Effect.Effect<
   AddParticipantPermissionValue,
@@ -44,7 +43,6 @@ any downstream auditing can read it without an extra round-trip.
 _Function_
 
 ```ts
-export const obtainAgentExists = (
   agentId: AgentId,
 ): Effect.Effect<AgentExistsValue, NotFoundError, ParticipantServiceTag>
 ```
@@ -64,7 +62,6 @@ the service helper.
 _Function_
 
 ```ts
-export const obtainAgentInTaskParticipants = (
   taskId: TaskId,
   agentId: AgentId,
 ): Effect.Effect<
@@ -90,8 +87,6 @@ stays in the service layer.
 _Function_
 
 ```ts
-export const obtainContactPolicyForAdd = (
-  creatorAgentId: AgentId,
   targetAgentId: AgentId,
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
@@ -123,7 +118,6 @@ synthesizing an `AddParticipantOptions` shim with a placeholder
 _Function_
 
 ```ts
-export const obtainContactPolicyForCreate = (
   creatorAgentId: AgentId,
   targetAgentIds: readonly AgentId[],
   type: "dm" | "group" = "group",
@@ -158,7 +152,6 @@ caught defectively inside the service helpers.
 _Function_
 
 ```ts
-export const obtainConversationCreateAuthorization = (
   input: ObtainConversationCreateAuthorizationInput,
 ): Effect.Effect<
   ConversationCreateAuthorizationValue,
@@ -190,7 +183,6 @@ Smart constructor for `ConversationsCreate`. Reaches into
 _Function_
 
 ```ts
-export const obtainConversationInTask = (
   taskId: TaskId,
   conversationId: ConversationId,
 ): Effect.Effect<ConversationInTaskValue, TaskServiceError, TaskServiceTag>
@@ -212,7 +204,6 @@ inside the service helper.
 _Function_
 
 ```ts
-export const obtainConversationParticipantAccess = (
   conversationId: ConversationId,
   caller: AgentId,
 ): Effect.Effect<
@@ -237,7 +228,6 @@ inside the service helper, so it does NOT appear in E.
 _Function_
 
 ```ts
-export const obtainGroupCapacityForCreate = (
   creatorAgentId: AgentId,
   invitedAgentIds: readonly AgentId[],
 ): Effect.Effect<
@@ -263,7 +253,6 @@ capacity check; no DB read; no `SqlError` in E.
 _Function_
 
 ```ts
-export const obtainMessageSendPermission = (
   input: ObtainMessageSendPermissionInput,
 ): Effect.Effect<
   MessageSendPermissionValue,
@@ -281,7 +270,6 @@ export const obtainMessageSendPermission = (
 _Function_
 
 ```ts
-export const obtainTaskReadAccess = (
   taskId: TaskId,
   caller: AgentId,
 ): Effect.Effect<TaskReadAccessValue, TaskServiceError, TaskServiceTag>
@@ -301,7 +289,6 @@ from pre-Spec-E.
 _Function_
 
 ```ts
-export const obtainTmAuthority = (
   taskId: TaskId,
   caller: AgentId,
 ): Effect.Effect<TmAuthorityValue, TaskServiceError, TaskServiceTag>
@@ -325,7 +312,6 @@ over-narrow when the underlying helper widens.
 _Function_
 
 ```ts
-export const obtainValidReplyTarget = (
   conversationId: ConversationId,
   replyToId: MessageId,
 ): Effect.Effect<ValidReplyTargetValue, NotFoundError, MessageServiceTag>

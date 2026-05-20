@@ -400,11 +400,11 @@ function pollClaudeExitCode(
  * ```mermaid
  * flowchart TD
  *   CCS["ClaudeCodeAdapter.spawn(input)"]
- *   CC1["1. prepareClaudeCodeStateDir<br>makeTempDirectory, seedWorkspaceFiles,<br>installClaudeCodeChannelPlugin<br>(resolves @modelcontextprotocol/sdk + effect)"]
- *   CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
- *   CC3["3. spawnConfiguredClaude<br>buildClaudeArgs:<br>--strict-mcp-config --mcp-config<br>--print --input-format stream-json<br>--output-format stream-json --verbose<br>--dangerously-skip-permissions<br>--add-dir stateDir/workspace<br>env: CLAUDE_CODE_HOME=stateDir"]
+ *   CC1["1. prepareClaudeCodeStateDir&lt;br>makeTempDirectory, seedWorkspaceFiles,&lt;br>installClaudeCodeChannelPlugin&lt;br>(resolves modelcontextprotocol/sdk + effect)"]
+ *   CC2["2. writeClaudeCodeMcpConfig&lt;br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
+ *   CC3["3. spawnConfiguredClaude&lt;br>buildClaudeArgs:&lt;br>--strict-mcp-config --mcp-config&lt;br>--print --input-format stream-json&lt;br>--output-format stream-json --verbose&lt;br>--dangerously-skip-permissions&lt;br>--add-dir stateDir/workspace&lt;br>env: CLAUDE_CODE_HOME=stateDir"]
  *   CC4["4. state = { process, stateDir, logBuffer, ... }"]
- *   CCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>(cc-channel MCP stdio server authenticates on start)"]
+ *   CCR["waitUntilReady&lt;br>race(server.awaitAgentReady, processExitLoop)&lt;br>(cc-channel MCP stdio server authenticates on start)"]
  *   CCS --> CC1 --> CC2 --> CC3 --> CC4 --> CCR
  * ```
  *
@@ -560,9 +560,9 @@ export class ClaudeCodeAdapter implements Runtime {
  * ```mermaid
  * flowchart TD
  *   CCWF["createWorkspaceClaudeCodeAdapter(input)"]
- *   CCBIN["claudeBin = input.claudeBin ??<br>resolveWorkspaceClaudeBin<br>(resolveWorkspaceBin binName='claude', packageName='@anthropic-ai/claude-code')"]
- *   CCROOT["resolveClaudeCodePackageRoot<br>(requireFromHere.resolve('@anthropic-ai/claude-code/package.json'))"]
- *   CCCH["channelDistDir = input.channelDistDir ??<br>resolveClaudeCodeChannelDistDir"]
+ *   CCBIN["claudeBin = input.claudeBin ??&lt;br>resolveWorkspaceClaudeBin&lt;br>(resolveWorkspaceBin binName='claude', packageName='@anthropic-ai/claude-code')"]
+ *   CCROOT["resolveClaudeCodePackageRoot&lt;br>(requireFromHere.resolve('@anthropic-ai/claude-code/package.json'))"]
+ *   CCCH["channelDistDir = input.channelDistDir ??&lt;br>resolveClaudeCodeChannelDistDir"]
  *   CCCHTRY["Try: requireFromHere.resolve('@moltzap/claude-code-channel') → dirname/dist"]
  *   CCCHFALL["Fallback: repoRoot/packages/claude-code-channel/dist (logs warning)"]
  *   CCWF --> CCBIN --> CCROOT --> CCCH

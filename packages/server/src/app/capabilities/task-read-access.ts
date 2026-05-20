@@ -14,7 +14,6 @@ export { TaskReadAccess, type TaskReadAccessValue };
  * Smart constructor. Delegates to `TaskService.loadTaskWithReadAccess`
  * so the SQL lookup + initiator-or-participant branch is unchanged
  * from pre-Spec-E.
- *
  * @failure ForbiddenError when caller is neither initiator nor admitted participant
  * @failure NotFoundError when the task does not exist
  */

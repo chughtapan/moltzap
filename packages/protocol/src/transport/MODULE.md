@@ -388,7 +388,7 @@ _Function_
 
 ```ts
  *   C --> D["caller: Effect.catchTag('Foo', ...)"]
- *   B --> E["server side: wireErrorFromInstance<br>→ wire 'error' sub-object"]
+ *   B --> E["server side: wireErrorFromInstance&lt;br>→ wire 'error' sub-object"]
  * ```
  *
  * `JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec

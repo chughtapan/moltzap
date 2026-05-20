@@ -48,12 +48,38 @@ const replyToOption = Options.text("reply-to").pipe(
  *   moltzap --profile alice send agent:bob "hello"         # send as alice
  *   moltzap --as $BOB_API_KEY send conv:$CID "ack"         # send as bob
  *
- * NOTE: `moltzap send` today routes through the local channel daemon and
- * does NOT yet honor `--as`/`--profile` end-to-end — rewiring legacy
- * commands onto the v2 Transport layer is tracked as a follow-up (see the
- * PR body "Concerns" block). The flag semantics documented above describe
- * the v2 contract; new v2 subcommands (`apps/*`, `messages list`,
- * `conversations {get,archive,unarchive}`) honor them today.
+ * Default path delegates to the local channel daemon via a Unix-socket
+ * RPC; it does NOT mint its own `MoltZapWsClient`.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant shell
+ *   participant cli as effect-cli
+ *   participant send as sendCommand
+ *   participant sock as socket-client
+ *   participant daemon
+ *
+ *   shell->>cli: moltzap send &lt;target> &lt;msg>
+ *   cli->>send: handler({target, message, replyTo})
+ *   alt target starts with conv:
+ *     send->>sock: request(MessagesSend, {conversationId, parts})
+ *   else
+ *     send->>sock: request(MessagesSend, {to: target, parts})
+ *   end
+ *   Note over sock: NodeSocket.makeNet(~/.moltzap/service.sock, 10s)&lt;br>ENOENT/ECONNREFUSED → SocketRequestError "not running"
+ *   sock->>daemon: NDJSON RPC — LocalDaemonCall&lt;br>method messages/send, params
+ *   Note over daemon: handleSocketRequest → sendRpc(MessagesSend) → ws-client → server
+ *   daemon-->>sock: {message: {id}}
+ *   Note over sock: definition.validateResult
+ *   sock-->>send: {message: {id}}
+ *   send-->>shell: stdout — Message sent (id: &lt;id>)
+ * ```
+ *
+ * `--as` and `--profile` bypass the daemon socket and dial the server
+ * directly. New v2 subcommands (`apps/*`, `messages list`,
+ * `conversations {get,archive,unarchive}`) honor those flags today;
+ * `moltzap send` itself is still on the daemon socket pending the v2
+ * transport rewire.
  */
 export const sendCommand = Command.make(
   "send",

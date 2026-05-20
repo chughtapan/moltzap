@@ -249,12 +249,12 @@ function spawnConfiguredOpenClaw(
  * ```mermaid
  * flowchart TD
  *   OCS["OpenClawAdapter.spawn(input)"]
- *   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
- *   OC2["2. prepareOpenClawStateDir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
- *   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
- *   OC4["4. spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>scope-bound; exitFiber + log buffer"]
+ *   OC1["1. allocateFreePort()&lt;br>NodeSocketServer.make({ port: 0 })"]
+ *   OC2["2. prepareOpenClawStateDir&lt;br>makeTempDirectory, writeOpenClawConfig,&lt;br>seedWorkspaceFiles, installChannelPlugin"]
+ *   OC3["3. buildOpenClawProcessPlan(openclawBin, port)&lt;br>(handles .mjs vs binary entry)"]
+ *   OC4["4. spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,&lt;br>OPENCLAW_CONFIG_PATH)&lt;br>scope-bound; exitFiber + log buffer"]
  *   OC5["5. state = { process, stateDir, logBuffer, ... }"]
- *   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
+ *   OCR["waitUntilReady&lt;br>race(server.awaitAgentReady, processExitLoop)&lt;br>inbound marker: 'inbound from agent:'"]
  *   OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
  * ```
  *
@@ -391,10 +391,10 @@ export class OpenClawAdapter implements Runtime {
  * ```mermaid
  * flowchart TD
  *   OCWF["createWorkspaceOpenClawAdapter(input)"]
- *   OCPR["resolveWorkspacePackageRoot<br>(walk import.meta.url ancestors to 'packages' segment)"]
+ *   OCPR["resolveWorkspacePackageRoot&lt;br>(walk import.meta.url ancestors to 'packages' segment)"]
  *   OCRR["repoRoot = input.repoRoot ?? two-dirs-up-from-packageRoot"]
- *   OCBIN["openclawBin = input.openclawBin ??<br>resolveWorkspaceOpenClawBin<br>(createRequire(packages/runtimes/package.json).resolve('openclaw') → walk back to package root → read package.json bin)"]
- *   OCCH["channelDistDir = input.channelDistDir ??<br>repoRoot/packages/openclaw-channel/dist"]
+ *   OCBIN["openclawBin = input.openclawBin ??&lt;br>resolveWorkspaceOpenClawBin&lt;br>(createRequire(packages/runtimes/package.json).resolve('openclaw') → walk back to package root → read package.json bin)"]
+ *   OCCH["channelDistDir = input.channelDistDir ??&lt;br>repoRoot/packages/openclaw-channel/dist"]
  *   OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir, repoRoot })"]
  *   OCWF --> OCPR --> OCRR --> OCBIN --> OCCH --> OCOUT
  * ```

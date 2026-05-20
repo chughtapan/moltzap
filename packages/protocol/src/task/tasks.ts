@@ -535,29 +535,60 @@ export const TaskClosedNotificationDefinition = defineNotification({
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Spec D1 (#598) — additive `task/*` + `task/conversation/*` surface.
+// `task/*` + `task/conversation/*` — the task-scoped admin surface.
 //
-// These descriptors coexist with the legacy `tasks/*` and `conversations/*`
-// families for the D1 transitional window. Spec D3 (#600) deletes the
-// legacy descriptors and the parallel notification emission; this block
-// becomes the only task-layer surface.
+// A task is the unit of admission: every conversation under a task
+// draws its participant pool from `task_participants`, and the task's
+// owning app's TM (task manager) is the gatekeeper for membership
+// changes.
 //
-// Naming convention chosen by architect (resolves spec ambiguity):
-//   - New methods use the singular `task/*` namespace to avoid wire
-//     collisions with legacy `tasks/*` during dual-emit (`task/create`
-//     vs. `tasks/create` are distinct wire names).
-//   - Nested admin methods live under `task/conversation/*`.
-//   - Participant operations sit under `task/conversation/participants/*`.
+// Layout:
+//   - `task/create` / `task/leave` — task-level lifecycle.
+//   - `task/conversation/*` — conversation lifecycle under a task.
+//   - `task/conversation/participants/*` — membership inside a
+//     specific conversation.
 //
-// Authority routing (impl-staff): all `Task*Authority`-gated admin
-// methods (`task/conversation/{create,archive,unarchive,participants/*}`)
-// MUST resolve via Spec E's `obtainTmAuthority(taskId, ctx.agentId)`
-// once Spec E (#601) primitives land. `task/conversation/list` and
-// `task/leave` resolve via self-auth (caller participation check).
-// `task/create` is open to any authenticated agent subject to
-// `requireContactPolicyForCreate` per `conversation.service.ts`
-// (`/safer:architect` per-flow doc §"Capability list per new
-// handler" — see `packages/protocol/docs/architecture/task-conversation-family.md`).
+// Authority gates:
+//
+// | Method                                  | Authority                                |
+// |-----------------------------------------|------------------------------------------|
+// | TaskCreate                              | any authenticated agent + contact-policy |
+// | TaskLeave                               | self only                                |
+// | TaskConversationCreate                  | TM + participant-admitted invariant      |
+// | TaskConversationList                    | self only (caller in conversation)       |
+// | TaskConversationArchive / Unarchive     | TM only                                  |
+// | TaskConversationAddParticipant          | TM + participant-admitted invariant      |
+// | TaskConversationRemoveParticipant       | TM only                                  |
+//
+// Participant-admitted invariant (`TaskConversationCreate`,
+// `TaskConversationAddParticipant`): every agent listed in
+// `participants` MUST already appear in `task_participants` for
+// `taskId`. Conversations are scoped strictly within their task's
+// admission set; missing rows fail with `ParticipantNotAdmittedError`.
+//
+// Capability tags on the four TM-gated admin methods declare
+// `TmAuthority` first so the lazy `provideServiceEffect` runs the TM
+// check ahead of any participant probe. A non-TM caller sees
+// `ForbiddenError` rather than leaking task-membership existence
+// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
+// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
+// four descriptors' capability shapes from drifting.
+//
+// Atomicity: `task/create` with `initialConversation` commits the
+// task row, then opens a separate transaction for the conversation
+// insert. A conversation failure leaves the task row in place. Strict
+// cross-call atomicity (single commit covering both rows) is not
+// guaranteed.
+//
+// Notification emission: each mutating op enqueues notifications
+// AFTER the row mutation returns. `task/create` with
+// `initialConversation` emits one `task/conversation/created`.
+// `task/leave` emits one
+// `task/conversation/participants/removed { reason: "task_leave" }`
+// per conversation the leaver was in, plus `task/closed` if the leave
+// empties `task_participants`. Broadcast is best-effort: socket
+// writes fork via `Effect.runFork` and do not roll back the DB write
+// on delivery failure.
 // ─────────────────────────────────────────────────────────────────────
 
 const InitialConversationSchema = Type.Object(
