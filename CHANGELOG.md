@@ -331,25 +331,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `11-typed-dispatcher.md` §6.
 
 
-### Spec D2 (#599) — `moltzap start` CLI (architect stub; impl-staff fills body)
+### Spec D2 (#599) — `moltzap start` CLI
 
-- **Added (stub):** `packages/client/src/cli/commands/start.ts` — new
-  `moltzap start <name> <participant>... [--message <text>] [--app-id <uuid>]`
-  subcommand. Composes Spec D1 (#598) atomic `TaskCreate({ appId,
-  invitedAgentIds, initialConversation })` plus optional follow-up
-  `MessagesSend`. `Command.make` wrapper + positional/option arg
-  declarations + the `runStartCommand` exit-code dispatcher + the
-  `resolveAgentToken` participant resolver are all wired AT THIS
-  COMMIT (including registration in `cli/index.ts`). Only the
-  function bodies of `startCommandHandler`, `runStartCommand`, and
-  `resolveAgentToken` are stub-fail-fast; impl-staff replaces those
-  three bodies and adds `start.test.ts` per the architect plan in
+- **Added (`@moltzap/client`):** `moltzap start <name> <participant>...
+  [--message <text>] [--app-id <uuid>]` — single-command CLI that
+  composes Spec D1 (#598) atomic `TaskCreate({ appId, invitedAgentIds,
+  initialConversation })` with an optional follow-up `MessagesSend`.
+  Today's two-step workflow (`conversations create` -> `send conv:<id>
+  <text>`) collapses into one subcommand for the common case.
+  Per-flow walkthrough at
   `packages/client/docs/architecture/09-moltzap-start-cli.md`.
-- **Exit-code contract (planned):** `0` full success, `1` `TaskCreate`
-  failed, `2` partial (`TaskCreate` OK + `MessagesSend` failed; no
-  rollback), `64` usage error (bad `--app-id` UUID or unresolvable
-  participant token). Documented at the top of `start.ts` and in the
-  per-flow doc.
+- **Exit-code contract:** `0` full success, `1` `TaskCreate` failed
+  (stdout empty), `2` partial success (`TaskCreate` OK +
+  `MessagesSend` failed — no rollback; the task + empty conversation
+  persist and the user can retry with `moltzap send conv:<id>
+  <text>`), `64` usage error (bad `--app-id` UUID v4 syntax or
+  unresolvable `agent:<token>`). Exit 64 matches POSIX `EX_USAGE`
+  (sysexits.h). `--app-id` validation uses an RFC 4122 UUID v4 regex
+  client-side BEFORE any RPC (per architect plan §6 Invariant 7).
+- **Participant resolution:** new local `start.ts -> resolveAgentToken`
+  helper routes name-shaped lookups through the CLI `Transport`
+  service (`transport.ts -> rpc(AgentsLookupByName, ...)`) rather than
+  the daemon-only `socket-client.ts -> resolveParticipant`. This keeps
+  `--as` direct-WS invocations working and makes the resolver
+  intercept-able via `commands/test-transport.ts -> makeFakeTransport`.
+  See architect plan §R1 + per-flow doc §"Why we don't reuse
+  `resolveParticipant`" for the transport-uniformity reasoning.
 
 ### Phase 12 — `@moltzap/protocol` finalization
 
