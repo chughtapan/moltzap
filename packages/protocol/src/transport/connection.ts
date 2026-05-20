@@ -259,10 +259,7 @@ export interface TaskMasterConnectionConfig<
  *     pending Deferreds. Scope finalizer drains pending Deferreds with
  *     `NotConnectedError`.
  */
-export function makeServerConnection<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
+export function makeServerConnection<Ctx, Caps extends Context.Tag<any, any>>(
   config: ServerConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
   return buildServerDispatcher(config);

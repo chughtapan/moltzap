@@ -83,4 +83,3 @@ export const serverCapabilityProviders = {
   [MessageSendPermission.key]: (args: unknown) =>
     obtainMessageSendPermission(args as ObtainMessageSendPermissionInput),
 } as const;
-

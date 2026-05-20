@@ -123,10 +123,7 @@ const eraseProviderTable = (table: object): ErasedProviderTable =>
  * dispatch loop + the outbound originator (TM-callback path) into a
  * single `ServerConnection` value.
  */
-export function buildServerDispatcher<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
+export function buildServerDispatcher<Ctx, Caps extends Context.Tag<any, any>>(
   config: ServerConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
   return Effect.gen(function* () {

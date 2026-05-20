@@ -53,9 +53,7 @@ export interface CapabilityDescriptor {
  * across all slots in the handler table; the factory rejects (TS2741) a
  * provider table missing any tag in `Caps`.
  */
-export type CapabilityProviderTable<
-  Caps extends Context.Tag<any, any>,
-> = {
+export type CapabilityProviderTable<Caps extends Context.Tag<any, any>> = {
   readonly [Cap in Caps as Cap extends Context.Tag<infer Id, infer _Svc>
     ? Id extends string
       ? Id
