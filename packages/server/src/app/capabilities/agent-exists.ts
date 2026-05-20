@@ -12,7 +12,6 @@ export { AgentExists, type AgentExistsValue };
  *
  * `SqlError` from the underlying select is caught defectively inside
  * the service helper.
- *
  * @failure NotFoundError when the `agents` row is absent
  */
 export const obtainAgentExists = (

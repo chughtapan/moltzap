@@ -258,13 +258,36 @@ function persistRegistration({
  * both `~/.moltzap/config.json` and the OpenClaw channel config so the
  * channel picks it up on its next file-watcher cycle.
  *
- * Spec §5.2 extensions:
- *   --profile &lt;name>  write under `profiles.&lt;name>` instead of legacy top-level
- *   --no-persist      print result to stdout only; NO writes to either tree
+ * ```mermaid
+ * sequenceDiagram
+ *   participant shell
+ *   participant cli as effect-cli
+ *   participant reg as registerCommand
+ *   participant http as registerAgent
+ *   participant server
+ *   participant fs
  *
- * `--no-persist` gates BOTH the `~/.moltzap/config.json` write AND the
- * `~/.openclaw/openclaw.json` write (Invariant §4.4 as revised in architect
- * design doc rev 4 finding 2).
+ *   shell->>cli: moltzap register &lt;name> &lt;code>
+ *   Note over cli: parse args + NAME_PATTERN test&lt;br>fail → console.error + process.exit(1)
+ *   cli->>reg: handler({name, inviteCode, ...})
+ *   reg->>http: registerAgent(name, inviteCode, desc)
+ *   http->>server: POST /api/v1/auth/register
+ *   server-->>http: 200 {agentId, apiKey, claimUrl}
+ *   http-->>reg: RegisterResponse
+ *   alt --no-persist
+ *     reg-->>shell: stdout — print response
+ *   else default
+ *     reg->>fs: persistRegistration&lt;br>profile? writeProfile : updateConfig&lt;br>+ writeOpenClawChannelConfig
+ *     reg-->>shell: stdout — Agent registered
+ *   end
+ * ```
+ *
+ * Options:
+ *   --profile &lt;name>  write under `profiles.&lt;name>` instead of the
+ *                     legacy top-level keys.
+ *   --no-persist      print to stdout only; no writes to either
+ *                     `~/.moltzap/config.json` or
+ *                     `~/.openclaw/openclaw.json`.
  */
 export const registerCommand = Command.make(
   "register",

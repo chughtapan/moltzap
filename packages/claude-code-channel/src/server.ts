@@ -303,7 +303,7 @@ function handleDecodedReplyCall(
  *   participant mcp as MCP SDK (stdio)
  *   participant srv as server.ts
  *   participant ent as entry.ts
- *   participant cli as @moltzap/client
+ *   participant cli as moltzap-client
  *   CC->>mcp: tool call reply { text, reply_to? }
  *   mcp->>srv: CallToolRequest
  *   srv-->>mcp: name != reply → toolErrorResult

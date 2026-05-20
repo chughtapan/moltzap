@@ -60,18 +60,30 @@ typed `RpcMethodBinding<Params, Result, Error, Tags>`.
 
 ## 3. Communication Flows
 
-| Section | Detail doc |
-|---|---|
-| §3.1 Service Layer composition (boot graph) | [docs/architecture/service-layer-composition.md](docs/architecture/service-layer-composition.md) |
-| §3.2 WebSocket connection lifecycle | [docs/architecture/ws-connection-lifecycle.md](docs/architecture/ws-connection-lifecycle.md) |
-| §3.3 Request → response handling | [docs/architecture/request-response-handling.md](docs/architecture/request-response-handling.md) |
-| §3.4 Server-initiated callback (`dispatch/authorize`) | [docs/architecture/server-initiated-callback.md](docs/architecture/server-initiated-callback.md) |
-| §3.5 AppHost hook unification | [docs/architecture/app-host-hook-unification.md](docs/architecture/app-host-hook-unification.md) |
-| §3.6 Lease lifecycle | [docs/architecture/lease-lifecycle.md](docs/architecture/lease-lifecycle.md) |
-| §3.7 HTTP route surface | [docs/architecture/http-routes.md](docs/architecture/http-routes.md) |
-| §3.8 Notification fan-out | [docs/architecture/notification-fanout.md](docs/architecture/notification-fanout.md) |
-| §3.9 Shutdown sequence | [docs/architecture/shutdown-sequence.md](docs/architecture/shutdown-sequence.md) |
-| §3.10 R-channel capabilities (typed authority tokens) | [docs/architecture/r-channel-capabilities.md](docs/architecture/r-channel-capabilities.md) |
+Flow diagrams live in JSDoc next to the relevant symbol and surface
+on the generated module pages (`src/**/MODULE.md`):
+
+- Service layer composition (boot graph) →
+  `src/app/layers.ts` (header comment above the tier composition).
+- WebSocket connection lifecycle →
+  `src/app/socket-handler.ts → makeSocketHandler`.
+- Request → response handling →
+  `src/app/socket-handler.ts → handleFrame`.
+- Server-initiated callback (`dispatch/authorize`) →
+  `src/app/app-host.ts → dispatchAuthorizeHook`.
+- AppHost hook unification (envelope + 3-step resolution) →
+  `src/app/app-host.ts → AppHost` class.
+- Lease lifecycle (eight states; mint + claim + finalize) →
+  `src/app/lease-registry.ts → LeaseRegistry`.
+- HTTP route surface →
+  `src/app/http-routes.ts → makeCoreHttpApp`.
+- Notification fan-out (canonical pattern) →
+  `src/network/services/presence-event-sink.ts → createConnectionFanOutPresenceEventSink`.
+- Shutdown sequence →
+  `src/app/server.ts → closeCoreAppEffect`.
+- R-channel capabilities (typed authority tokens, two shapes,
+  composite path, migration recipe) →
+  `src/app/capability-providers.ts` (file-level JSDoc).
 
 ## 4. Data Stores
 
@@ -184,5 +196,5 @@ handler-invocation time.
   `Effect.provideServiceEffect`. Tag classes live in
   `packages/protocol/src/task/capabilities/`; obtain helpers + the
   provider table live in `packages/server/src/app/capabilities/`.
-  Pattern documented in
-  [docs/architecture/r-channel-capabilities.md](docs/architecture/r-channel-capabilities.md).
+  Pattern documented in `src/app/capability-providers.ts`
+  (file-level JSDoc).

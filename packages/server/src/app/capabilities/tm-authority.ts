@@ -18,7 +18,6 @@ export { TmAuthority, type TmAuthorityValue };
  * by `fetchTask`. The error channel is carried as the full
  * `TaskServiceError` union so impl-staff cannot accidentally
  * over-narrow when the underlying helper widens.
- *
  * @failure ForbiddenError when the caller is not the TM, or the task is closed/failed
  * @failure NotFoundError when the task does not exist
  */

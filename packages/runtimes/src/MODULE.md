@@ -176,7 +176,7 @@ _Function_
 _Function_
 
 ```ts
-    const handler = (): void
+      if (state.value !== null)
 ```
 
 ### [`LogSlice`](./runtime.ts#L51)

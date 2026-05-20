@@ -88,29 +88,27 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 
 ## 4. Communication Flows
 
-Most per-symbol flow diagrams now live in JSDoc next to the
-relevant export and surface on the auto-generated module pages
-(`packages/*/src/**/MODULE.md`). The standalone arch docs below
-remain for flows that span multiple symbols or packages:
+Per-symbol flow diagrams live in JSDoc next to the relevant export
+and surface on the auto-generated module pages
+(`packages/*/src/**/MODULE.md`). Cross-cutting overviews are
+embedded in the source itself:
 
-| Topic | Document |
-|---|---|
-| Layer DAG enforcement | [Layer DAG](docs/architecture/layer-dag.md) |
-| TestClient Stream consolidation | [TestClient Stream consolidation](docs/architecture/test-client-stream-consolidation.md) |
-| Task / TaskConversation family (Spec D1) | [Task / TaskConversation family](docs/architecture/task-conversation-family.md) |
+- Layer DAG → `src/index.ts` file-level JSDoc (also drives re-export
+  order in this file).
+- `task/*` + `task/conversation/*` family overview → header block
+  above the descriptors in `src/task/tasks.ts`.
+- TestClient subscriber registry + historical-buffer bridge →
+  JSDoc on `TestSubscriberRegistry`
+  (`src/testing/conformance/_shared/driver/test-subscribers.ts`) and
+  `makeNotificationBuffer`
+  (`src/testing/conformance/task/_helpers.ts`).
 
-For per-symbol detail (defineRpc, decodeServerInbound,
-registerErrorClass, NotificationDefinition, runClientConformanceSuite,
-etc.), see the generated MODULE.md next to the source.
-
-The typed dispatcher, originator lifecycle, and worked end-to-end RPC
-flow (request handling + server-initiated callbacks) are documented in
-the server package, where the only real consumers live. See
-`packages/server/docs/architecture/request-response-handling.md` and
-`packages/server/docs/architecture/server-initiated-callback.md`. The
-protocol-side type-system invariants are exercised by the canaries in
-`src/transport/typed-dispatcher.types-check.ts` — the source file is the
-contract.
+The typed dispatcher, originator lifecycle, and worked end-to-end
+RPC flow (request handling + server-initiated callbacks) live with
+the only real consumers in `@moltzap/server-core`. Protocol-side
+type-system invariants are exercised by the canaries in
+`src/transport/typed-dispatcher.types-check.ts` — the source file
+is the contract.
 
 ## 5. Dependencies
 

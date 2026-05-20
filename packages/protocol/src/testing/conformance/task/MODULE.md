@@ -24,10 +24,8 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 _Function_
 
 ```ts
-export function acquireClient(
-  ctx: ConformanceRunContext,
-  name: string,
-): Effect.Effect<ConversationActor, string, Scope.Scope>
+    }
+  }).pipe(Effect.withSpan("assertConversationRejectsMessages"))
 ```
 
 ### [`acquireConversation`](./_helpers.ts#L556)
@@ -35,11 +33,7 @@ export function acquireClient(
 _Function_
 
 ```ts
-export function acquireConversation(
-  ctx: ConformanceRunContext,
-  n: number,
-  namePrefix: string,
-): Effect.Effect<ConversationFixture, string, Scope.Scope>
+    return
 ```
 
 ### [`acquirePropertyConversation`](./_helpers.ts#L288)
@@ -47,11 +41,7 @@ export function acquireConversation(
 _Function_
 
 ```ts
-export function acquirePropertyConversation(
-  ctx: ConformanceRunContext,
-  propertyName: string,
-  namePrefix: string,
-): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
+export function fixtureN(requested: number): number
 ```
 
 ### [`agent`](./_helpers.ts#L61)
@@ -75,10 +65,7 @@ export type AgentIdValue = Static<typeof AgentId>;
 _Function_
 
 ```ts
-export function archiveConversation(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-)
+    parts: [
 ```
 
 ### [`assertConversationRejectsMessages`](./_helpers.ts#L491)
@@ -86,11 +73,8 @@ export function archiveConversation(
 _Function_
 
 ```ts
-export function assertConversationRejectsMessages(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-  expectedError:
+    }
+  }).pipe(Effect.withSpan("waitForUnarchivedEvent"))
 ```
 
 ### [`awaitOneNotification`](./_helpers.ts#L256)
@@ -98,6 +82,10 @@ export function assertConversationRejectsMessages(
 _Function_
 
 ```ts
+ * Surfaces a single string message on either timeout or stream
+ * exhaustion so call sites preserve the legacy `e.message`-style error
+ * mapper without re-deriving a tagged error type per definition.
+ */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
@@ -213,10 +201,7 @@ export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 _Function_
 
 ```ts
-export function deliveryViolation(
-  name: string,
-  reason: string,
-): PropertyInvariantViolation
+  readonly conversationId?: unknown
 ```
 
 ### [`firstParticipant`](./_helpers.ts#L298)
@@ -224,10 +209,7 @@ export function deliveryViolation(
 _Function_
 
 ```ts
-export function firstParticipant(
-  fixture: ConversationFixture,
-  propertyName: string,
-): Effect.Effect<ConversationActor, PropertyInvariantViolation>
+    Effect.mapError((e)
 ```
 
 ### [`fixtureN`](./_helpers.ts#L284)
@@ -235,7 +217,8 @@ export function firstParticipant(
 _Function_
 
 ```ts
-export function fixtureN(requested: number): number
+    ),
+  )
 ```
 
 ### [`NotificationBuffer`](./_helpers.ts#L92)
@@ -421,11 +404,8 @@ export function registerTaskLeave(ctx: ConformanceRunContext): void
 _Function_
 
 ```ts
-export function sendText(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  text: string,
-)
+      )
+    : Effect.succeed(participant)
 ```
 
 ### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L522)
@@ -455,10 +435,8 @@ Spec D1 additions append to the delivery subset.
 _Function_
 
 ```ts
-export function unarchiveConversation(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-)
+    name,
+  })
 ```
 
 ### [`updateConversationName`](./_helpers.ts#L328)
@@ -466,10 +444,6 @@ export function unarchiveConversation(
 _Function_
 
 ```ts
-export function updateConversationName(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  name: string,
 )
 ```
 
@@ -478,12 +452,8 @@ export function updateConversationName(
 _Function_
 
 ```ts
-export function waitForArchivedEvent(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+    }
+  }).pipe(Effect.withSpan("waitForMessageReceivedNotification"))
 ```
 
 ### [`waitForConversationCreatedNotification`](./_helpers.ts#L346)
@@ -491,11 +461,7 @@ export function waitForArchivedEvent(
 _Function_
 
 ```ts
-export function waitForConversationCreatedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+)
 ```
 
 ### [`waitForConversationUpdatedNotification`](./_helpers.ts#L373)
@@ -503,12 +469,8 @@ export function waitForConversationCreatedNotification(
 _Function_
 
 ```ts
-export function waitForConversationUpdatedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  name: string,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+    }
+  }).pipe(Effect.withSpan("waitForConversationCreatedNotification"))
 ```
 
 ### [`waitForMessageReceivedNotification`](./_helpers.ts#L404)
@@ -516,11 +478,8 @@ export function waitForConversationUpdatedNotification(
 _Function_
 
 ```ts
-export function waitForMessageReceivedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+    }
+  }).pipe(Effect.withSpan("waitForConversationUpdatedNotification"))
 ```
 
 ### [`waitForUnarchivedEvent`](./_helpers.ts#L463)
@@ -528,12 +487,8 @@ export function waitForMessageReceivedNotification(
 _Function_
 
 ```ts
-export function waitForUnarchivedEvent(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+    }
+  }).pipe(Effect.withSpan("waitForArchivedEvent"))
 ```
 
 ## Files

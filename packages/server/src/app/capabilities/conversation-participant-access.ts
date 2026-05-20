@@ -19,7 +19,6 @@ export {
  * on the service class pre-Spec-E). The `SqlError` from the
  * underlying `conversation_participants` lookup is caught defectively
  * inside the service helper, so it does NOT appear in E.
- *
  * @failure ForbiddenError when caller is not a participant in this conversation
  */
 export const obtainConversationParticipantAccess = (

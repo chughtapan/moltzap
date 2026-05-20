@@ -24,7 +24,6 @@ export {
  *     when found; this is the short-circuit branch.
  *  3. Otherwise: run the contact-policy and group-capacity gates and
  *     return `PermittedToCreate { ownerByAgentId }`.
- *
  * @failure NotFoundError when a referenced `agents` row is missing
  * @failure InvalidParamsError when DM-arity invariants are violated
  * @failure NotInContactsError when caller's contact policy rejects a target

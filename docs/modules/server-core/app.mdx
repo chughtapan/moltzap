@@ -614,7 +614,11 @@ cross-boundary stability.
 _Function_
 
 ```ts
-export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire
+ * Internal entry — wraps the public `LeaseRecord` plus the recipient-
+ * connection binding needed for `dispatch/release` fan-out and the
+ * scheduled fiber for the post-grant TTL.
+ */
+interface LeaseEntry
 ```
 
 Translation point between the in-process nested `LeaseRecord`
@@ -631,9 +635,7 @@ Advisory carry-over from review-senior-arch529 #2.
 _Interface_
 
 ```ts
-export interface LeaseRegistry {
-  /**
-   * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
+ *   [*] --> PENDING
 ```
 
 Public contract of the lease registry. Constructed once per server
@@ -651,10 +653,13 @@ timeout_ms` (moderator response) and the verdict's `leaseTimeoutMs`
 _Interface_
 
 ```ts
-export interface LeaseRegistryDeps {
-  readonly connections: ConnectionManager;
-  readonly leaseRetentionMs: number;
-}
+   *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
+   *   Disconnecting mid-insert MUST NOT roll back the lease — the
+   *   release-arm of the acquireUseRelease is responsible. Otherwise a
+   *   committed durable row could be retried into a duplicate.
+   *
+   * - **HOLD / DENIED / EXPIRED / ABANDONED / CONSUMED**: no-op (already
+   *   terminal-or-near-terminal; no recipient-binding work to do).
 ```
 
 Constructor dependencies for the lease registry.
@@ -847,9 +852,11 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions)
 _Function_
 
 ```ts
-export function makeLeaseRegistry(
-  deps: LeaseRegistryDeps,
-): Effect.Effect<LeaseRegistry, never, never>
+
+function abandonLeaseForConnection(
+  state: LeaseRegistryState,
+  target: LeaseConnectionTarget,
+): Effect.Effect<void, never, never>
 ```
 
 Construct the registry. The constructor is the only public factory
@@ -1034,24 +1041,7 @@ export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
 _Interface_
 
 ```ts
-export interface ResolvedServices {
-  readonly db: Db;
-  readonly connections: ConnectionManager;
-  readonly agentEndpointResolver: AgentEndpointResolver;
-  readonly appTmRegistry: AppTmRegistry;
-  readonly networkSendService: NetworkSendService;
-  readonly authService: AuthService;
-  readonly participantService: ParticipantService;
-  readonly conversationService: ConversationService;
-  readonly contactService: ContactsService;
-  readonly presenceService: PresenceService;
-  readonly appHost: AppHost;
-  readonly leaseRegistry: LeaseRegistry;
-  readonly messageService: MessageService;
-  readonly taskService: TaskService;
-  readonly encryption: EnvelopeEncryption | null;
-  readonly traceCapture: TraceCapture;
-}
+const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
 ```
 
 Shape of the fully-resolved services. Handler factories consume this
@@ -1062,7 +1052,9 @@ plain-object view rather than reading each tag individually.
 _Variable_
 
 ```ts
-export const resolveServices = Effect.all(
+ * plain-object view rather than reading each tag individually.
+ */
+export interface ResolvedServices
 ```
 
 Resolves every service via Context into a plain-object view (matches the
@@ -1074,7 +1066,16 @@ from the tag record.
 _Variable_
 
 ```ts
-export const serverCapabilityProviders =
+ * capability declaration: its wire schema accepts
+ * `(conversationId | to | replyToId)` and the handler must resolve
+ * `conversationId` via DB lookup before `MessageSendPermission` can
+ * be obtained. Its capability stays hand-piped at the handler call
+ * site — see `messages.ts → MessagesSend`.
+ *
+ * Gate-helper visibility (`@internal` exported, not `private`): TS
+ * `private` blocks obtain helpers from reaching service checks via
+ * the service Tag regardless of DI path. Gates stay on the service
+ * class as `@internal` exported instance methods
 ```
 
 Provider table keyed by `Context.Tag.key`. Each entry receives the
@@ -1105,7 +1106,7 @@ sync entrypoint (`loadCoreConfig`) bridges via `Effect.runSync`.
 _Variable_
 
 ```ts
-export const ServicesLive = Tier6
+)
 ```
 
 All service Layers merged, with cross-layer deps resolved. Still requires
@@ -1173,9 +1174,7 @@ export type TaskAuthorizeDispatchHook = Hook<
 _Variable_
 
 ```ts
-export const TaskServiceLive = Layer.effect(
-  TaskServiceTag,
-  Effect.gen(function* ()
+const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2)
 ```
 
 ### [`TaskServiceTag`](./layers.ts#L184)

@@ -85,7 +85,7 @@ export interface ClaudeChannelNotification {
  *   B -->|NO| D["gated = Success(enriched)"]
  *   C --> E{gated._tag}
  *   D --> E
- *   E -->|Failure| F["logGateDropped(error)<br>return — no push, no routing update"]
+ *   E -->|Failure| F["logGateDropped(error)&lt;br>return — no push, no routing update"]
  *   E -->|Success| G["continue to toClaudeChannelNotification(gated.value)"]
  * ```
  *

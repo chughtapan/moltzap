@@ -29,7 +29,6 @@ export {
  * R channel includes `MessageServiceTag` because the obtain helper
  * dereferences the (Phase-1-promoted-to-`@internal`)
  * `MessageService.assertReplyTarget` method through the service Tag.
- *
  * @failure NotFoundError when `replyToId` does not resolve to a message in `conversationId`
  */
 export const obtainValidReplyTarget = (

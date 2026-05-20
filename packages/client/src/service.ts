@@ -822,6 +822,36 @@ export class MoltZapService {
 
   // --- Messaging ---
 
+  /**
+   * Send a text message into a conversation.
+   *
+   * ```mermaid
+   * sequenceDiagram
+   *   participant caller
+   *   participant svc as MoltZapService
+   *   participant ws as MoltZapWsClient
+   *   participant server
+   *
+   *   caller->>svc: send(convId, text, opts?)
+   *   alt conversation is archived
+   *     svc-->>caller: fail(RpcServerError ConversationArchived)
+   *   else
+   *     svc->>ws: sendRpc(MessagesSend, params)
+   *     Note over ws: stateRef None → fail NotConnectedError&lt;br>otherwise allocate JsonRpcId, encode frame
+   *     ws->>server: {jsonrpc, method messages/send, id, params}
+   *     Note over ws: Deferred raced against 30s timeout
+   *     server-->>ws: {result, id} or {error, id}
+   *     Note over ws: reader fiber decodes, resolves the Deferred
+   *     ws-->>svc: result or RpcServerError or RpcTimeoutError
+   *     svc-->>caller: Effect.void
+   *   end
+   * ```
+   *
+   * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
+   * params frame. The server marks the lease consumed, blocking the
+   * TM's timeout sweep. `MoltZapChannelCore.sendReply` forwards
+   * `leaseIdInFlight` automatically when the caller omits it.
+   */
   send(
     convId: string,
     text: string,

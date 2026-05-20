@@ -176,16 +176,16 @@ function bootMcpServerHandle(
  * ```mermaid
  * sequenceDiagram
  *   participant WS as MoltZap server
- *   participant client as @moltzap/client
+ *   participant client as moltzap-client
  *   participant H as handleInboundMessage
  *   participant ev as event.ts
  *   participant srv as server.ts
  *   participant CC as Claude Code
  *   WS-->>client: WS frame → MoltZapChannelCore
  *   client->>H: onInbound(enriched)
- *   H->>H: [A] opts.gateInbound (if present)<br>Failure → logGateDropped, return
+ *   H->>H: [A] opts.gateInbound (if present)&lt;br>Failure → logGateDropped, return
  *   H->>ev: [B] toClaudeChannelNotification
- *   ev-->>H: Err ContentEmpty | MetaInvalid → log, return<br>Ok notification
+ *   ev-->>H: Err ContentEmpty | MetaInvalid → log, return&lt;br>Ok notification
  *   H->>H: [C] routing.recordInbound(message_id, chat_id)
  *   H->>srv: [D] serverHandle.push(notification)
  *   alt initialized
@@ -242,14 +242,14 @@ function connectCore(
  * sequenceDiagram
  *   participant Caller as Caller / OS
  *   participant H as Handle
- *   participant cli as @moltzap/client
+ *   participant cli as moltzap-client
  *   participant srv as server.ts
  *   Caller->>H: Handle.stop()
- *   H->>cli: [1] core.disconnect()<br>WS close, deregister onInbound
+ *   H->>cli: [1] core.disconnect()&lt;br>WS close, deregister onInbound
  *   cli-->>H: done
- *   H->>srv: [2] serverHandle.stop()<br>closeMcpServer → server.close()<br>MCP SDK closes stdio transport
+ *   H->>srv: [2] serverHandle.stop()&lt;br>closeMcpServer → server.close()&lt;br>MCP SDK closes stdio transport
  *   srv-->>H: done (close failure → log, never propagate)
- *   H-->>Caller: Effect<void> (infallible)
+ *   H-->>Caller: Effect&lt;void> (infallible)
  * ```
  *
  * Boot-time connect failure path: `connectCore()` fails →
@@ -283,6 +283,7 @@ function makeHandle(
  * Error channel is tagged (Principle 3). Internals run on Effect; the
  * `Promise` wrapper lives only at this boundary.
  */
+
 /**
  * Single public entry point. In production the CLI binary
  * (`cli.ts`) calls this; tests call it directly with an injected
@@ -293,7 +294,7 @@ function makeHandle(
  *   participant Caller
  *   participant entry
  *   participant server as server.ts
- *   participant client as @moltzap/client
+ *   participant client as moltzap-client
  *   Caller->>entry: bootClaudeCodeChannel(opts)
  *   note over entry: [1] validateBootOptions (agentKey, serverUrl)
  *   entry->>client: [2] new MoltZapService
@@ -301,9 +302,9 @@ function makeHandle(
  *   note over entry: [4] createRoutingState
  *   note over entry: [5] makeSendReply(core)
  *   entry->>server: [6] bootChannelMcpServer
- *   note over server: [6a] makeMcpServer<br>capabilities: tools + experimental claude/channel
- *   note over server: [6b] registerServerHandlers<br>(ListTools, CallTool)
- *   note over server: [6c] connectServer<br>StdioServerTransport.connect
+ *   note over server: [6a] makeMcpServer&lt;br>capabilities: tools + experimental claude/channel
+ *   note over server: [6b] registerServerHandlers&lt;br>(ListTools, CallTool)
+ *   note over server: [6c] connectServer&lt;br>StdioServerTransport.connect
  *   note over server: [6d] server.oninitialized → flush pending buffer
  *   server-->>entry: [6e] ServerHandle { push, stop }
  *   note over entry: [7] core.onInbound(handleInboundMessage)
@@ -316,7 +317,6 @@ function makeHandle(
  * channels — MCP stdio (outbound to Claude) and MoltZap WS (inbound
  * from server). They meet inside the inbound handler and the reply
  * tool.
- *
  * @failure AgentKeyInvalid when opts.agentKey or opts.serverUrl is blank
  * @failure McpTransportFailed when MCP server init or stdio connect rejects (step 6)
  * @failure ServiceRpcError when WS connect / auth rejects (step 8)

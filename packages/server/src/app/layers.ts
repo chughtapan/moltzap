@@ -390,6 +390,32 @@ export const MessageServiceLive = Layer.effect(
 // feeds `provider`'s outputs into `consumer`'s inputs AND keeps both sets of
 // outputs visible to downstream layers.
 //
+// Service tier graph:
+//
+//   Tier 1 — ConnectionManager, AuthService, ParticipantService,
+//            ContactsService.
+//   Tier 2 — Presence, AgentEndpointResolver, AppTmRegistry (provideMerge over T1).
+//   Tier 2.5 — NetworkSendService.
+//   Tier 2.6 — LeaseRegistry.
+//   Tier 3 — AppHost (db + connections + leases; seeds default
+//            messageAuthorize hooks for the DM/Group TM addresses).
+//   Tier 4 — ConversationService (db + participants + connections + AppHost).
+//   Tier 5 — MessageService (every upstream + Encryption + DeliveryWebhook +
+//            Webhook + TraceCapture + AppHost).
+//   Tier 6 — TaskService (db + Conversation + Message).
+//
+// `Layer.provideMerge` (not `Layer.provide`) is load-bearing: every
+// downstream tier sees ALL upstream Tags in its R-channel resolution,
+// not just the immediately-above tier. RPC handler bodies can `yield*
+// XServiceTag` for any service and have it resolved by the shared
+// `dispatchRuntime` without a per-frame `Effect.provide`.
+//
+// `ConversationService` is built ABOVE `AppHost` but `AppHost` carries
+// a backref into it (for the dispatch-deny path's removeParticipant
+// call). The cycle is broken with a post-construction
+// `appHost.setConversationService(conv)` wire-up — see
+// `WireConvIntoAppHost` in `server.ts`.
+//
 // The composition below is bottom-up by dependency order. Each stage merges
 // a new service Layer on top of the lower tier, with the lower tier's
 // outputs wired as the upper tier's inputs.

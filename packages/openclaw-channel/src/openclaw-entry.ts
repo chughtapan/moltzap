@@ -1155,22 +1155,22 @@ function conversationTarget(to: string): string {
  *   Plugin->>Server: core.sendReply(conversationId, text)
  *   alt LeaseInvalid wire error
  *     Server-->>Plugin: RpcServerError reason=LeaseInvalid
- *     Plugin->>Plugin: catchLeaseInvalid → LeaseAlreadyConsumed<br>onLeaseConsumed callback, return false
+ *     Plugin->>Plugin: catchLeaseInvalid → LeaseAlreadyConsumed&lt;br>onLeaseConsumed callback, return false
  *   end
  *   OC->>Plugin: stopAccount(ctx)
  *   Plugin->>Core: core.disconnect()
  *   Plugin->>Plugin: activeClients.delete(account)
  * ```
  *
- * `deliver` returns `PromiseLike<boolean>` per openclaw contract;
+ * `deliver` returns `PromiseLike&lt;boolean>` per openclaw contract;
  * false signals "not delivered" without throwing. The lease-guard
  * is single-shot per inbound message: a retried `deliver` exercises
  * the lease again, surfacing `LeaseAlreadyConsumed` as a typed
  * callback (`MoltzapChannelPluginDeps.onLeaseConsumed`) rather than
  * a throw.
  *
- * `resolveTarget` accepts `agent:<name>` (DM with named agent) and
- * `conv:<id>` (existing conversation). Plain conversation IDs are
+ * `resolveTarget` accepts `agent:&lt;name>` (DM with named agent) and
+ * `conv:&lt;id>` (existing conversation). Plain conversation IDs are
  * accepted for backward compatibility.
  */
 export function createMoltzapChannelPlugin(

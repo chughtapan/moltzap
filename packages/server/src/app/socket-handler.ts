@@ -55,6 +55,42 @@ interface SocketSession {
   readonly malformedFrames: { count: number };
 }
 
+/**
+ * Build the handler that the `/ws` route hands the upgraded socket
+ * to. Each connection runs as one scoped Effect: the connection
+ * scope owns the per-connection RPC originator, the
+ * `ConnectionManager` entry, and every cleanup hook.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant C as Client
+ *   participant WS as /ws route
+ *   participant HS as handleSocket (this)
+ *   participant RPC as acquireConnectionRpcClient
+ *   participant CM as ConnectionManager
+ *   participant R as socket reader fiber
+ *   participant Cleanup as onExit
+ *
+ *   C->>WS: GET /ws Upgrade
+ *   WS->>HS: socket
+ *   Note over HS: connId = randomUUID&lt;br>writer + closeRequested Deferred
+ *   HS->>RPC: acquireConnectionRpcClient(connId, write)
+ *   Note over RPC: per-connection originator&lt;br>scope-bound finalizer fails pending Deferreds with NotConnectedError
+ *   RPC-->>HS: originator
+ *   HS->>CM: connections.add{id, write, shutdown, auth null, originator, ...}
+ *   HS->>R: socket.runRaw — handleFrame
+ *   Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))&lt;br>raceFirst, not race — abrupt close still runs onExit
+ *   R-->>Cleanup: socket closes
+ *   Note over Cleanup: if authCtx → presenceService.setOffline&lt;br>for hook of disconnectionHooks — runUserHook sequentially&lt;br>agentEndpointResolver.remove(agentId, connId)&lt;br>leaseRegistry.abandon(connId)&lt;br>presenceService.removeConnection&lt;br>connections.remove(connId)
+ * ```
+ *
+ * `Effect.raceFirst` (vs plain `race`) is load-bearing: an abrupt
+ * disconnect still propagates as an interruption that triggers
+ * `onExit`. Plain `race` would leak resources on abnormal close.
+ *
+ * Disconnection hooks run SEQUENTIALLY so each hook's cleanup
+ * completes before the next observes post-close state.
+ */
 export function makeSocketHandler(options: SocketHandlerOptions) {
   return (
     socket: Socket.Socket,
@@ -136,6 +172,59 @@ function handleSocketData(
   return handleFrame(raw, session, options);
 }
 
+/**
+ * Per-frame server-side flow: parse, decode, route by tag, hand off
+ * to the typed dispatcher, project the `Exit` into a wire response,
+ * and fire connection hooks after a successful Connect.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A[raw string from socket] -->|JSON.parse| B{parse ok?}
+ *   B -- fail --> Bx[handleParseFailure rate-limited log&lt;br>+ sendFrame ParseError -32700]
+ *   B -- ok --> C[decodeClientInbound]
+ *   C -- MalformedFrameError --> Cx[sendInvalidRequest null]
+ *   C -- ok --> D[Match.value decoded]
+ *   D -- ResponseSuccess or ResponseError --> E[conn.originator.resolve frame&lt;br>matches pending Deferred from prior call out]
+ *   D -- Notification --> Dx[sendInvalidRequest null — server rejects notifications]
+ *   D -- ClientRequest --> F{conn found?}
+ *   F -- no --> Fx[return]
+ *   F -- yes --> Fa{isConnect or conn.auth?}
+ *   Fa -- not authenticated --> FaX[sendFrame Unauthorized -32001]
+ *   Fa -- ok --> G[conn.originator.handle frame {auth, connId}&lt;br>delegates to buildServerDispatcher]
+ *   G --> H{Exit?}
+ *   H -- success --> Hs[successResponse → sendFrame]
+ *   H -- tagged failure --> Ht[knownWireErrorResponse → sendFrame]
+ *   H -- untagged --> Hu[internalErrorResponse -32603 → sendFrame]
+ *   Hs --> I{isConnect?}
+ *   Ht --> I
+ *   Hu --> I
+ *   I -- yes --> J[fireConnectionHooks — agentName lookup&lt;br>USER_HOOK_TIMEOUT_MS 2_000 per hook]
+ *   I -- no --> Done[done]
+ * ```
+ *
+ * Wrapper-owned concerns (not the dispatcher's):
+ *
+ * - Parse failure with rate-limited logging + `-32700` reply.
+ * - `MalformedFrameError → sendInvalidRequest(null)`.
+ * - "Must be authenticated before non-Connect RPC" gate.
+ * - `Exit → wire frame` projection (success / tagged-error /
+ *   internal).
+ * - `fireConnectionHooks` after a successful Connect.
+ *
+ * The dispatcher itself (`buildServerDispatcher` in
+ * `@moltzap/protocol`) reads `ServerHandlers["method"]`, runs the
+ * descriptor's `capabilities` array through
+ * `serverCapabilityProviders` to thread `provideServiceEffect`, then
+ * invokes the handler. Missing OPTIONAL slots fall through to their
+ * `FailClosedDefault` (e.g. `forbidden` for `messages/authorize` and
+ * `dispatch/authorize`); REQUIRED slots that are absent at the type
+ * level fail compilation at handler-table construction.
+ *
+ * The originator's pending-map is keyed by frame id. `ResponseFrame`
+ * routing is `pendingRef.modify(takePendingEntry(id))` — atomic
+ * Get-then-Remove. Late frames (deferred already cleaned up) return
+ * `None` and drop harmlessly.
+ */
 function handleFrame(
   raw: string,
   session: SocketSession,
