@@ -17,7 +17,7 @@ packages/client/src/
 ├── auth.ts                     # registerAgent, invite/claim token flows
 ├── local-paths.ts              # service-socket path resolution (XDG-aware)
 ├── local-daemon-rpc.ts         # local-socket RPC for cross-process service handoff
-├── notification/               # Stream-shaped subscribe/subscribeAll (Spec B / #596) + tagged errors
+├── notification/               # Stream-shaped subscribe/subscribeAll + tagged errors
 ├── runtime/                    # subscribers (registry), errors, close-info, frame projection
 ├── cli/                        # `moltzap` binary (Effect/CLI)
 │   └── commands/               # register, send, …
@@ -40,7 +40,7 @@ Three layered entry points; pick the lowest level that meets your need.
 
 Plus `registerAgent` for auth bootstrap, the `NotificationConsumerError` /
 `TimeoutError` / `StreamClosedError` tagged errors from
-`./src/notification/errors.ts` (Spec B / #596), and the published CLI bin.
+`./src/notification/errors.ts`, and the published CLI bin.
 
 ## Communication Flows
 
@@ -53,7 +53,7 @@ understand the lease and connection state machines that underpin all flows.
 | [Connection Lifecycle](docs/architecture/connection-lifecycle.md) | HTTP register → WS connect → `network/connect` handshake → subscribe → steady state; reconnect arm |
 | [Outbound `messages/send`](docs/architecture/outbound-messages-send.md) | Caller → `MoltZapService.send` → `MoltZapWsClient.sendRpc` → wire → server |
 | [Inbound Dispatch](docs/architecture/inbound-dispatch.md) | Wire bytes → reader fiber → `SubscriberRegistry` → `MoltZapChannelCore` → `InboundHandler`; ack/release race |
-| [Notification Subscription](docs/architecture/notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; AD1 path-(a) cancellation contract; tagged errors (Spec B / #596) |
+| [Notification Subscription](docs/architecture/notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; lazy-materialization cancellation contract; tagged errors |
 | [Error Taxonomy](docs/architecture/error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
 | [CLI Command Flow](docs/architecture/cli-command-flow.md) | `moltzap register` and `moltzap send` command flows, daemon socket delegation |
 | [State Machines](docs/architecture/state-machines.md) | Dispatch lease and connection state machines |

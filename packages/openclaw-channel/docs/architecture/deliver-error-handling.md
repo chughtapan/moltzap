@@ -30,7 +30,7 @@ flowchart TD
     B -->|"FAILURE: RpcServerError<br>via catchLeaseInvalid + .catchAll"| D{"err.code ===<br>TaskClosedError.code<br>(-32020)?"}
 
     D -->|yes — TERMINAL| E["log.warn({ conversationId, code, msg },<br>'send rejected — task closed, dropping')<br>return true"]
-    E --> F["WHY true? Lease is consumed server-side.<br>Returning true tells OpenClaw 'delivered'<br>so it does NOT retry. Retrying would create<br>a new orphan send.<br>(PR #587 fix: previously returned false,<br>causing infinite retry loops on closed tasks.)"]
+    E --> F["WHY true? Lease is consumed server-side.<br>Returning true tells OpenClaw 'delivered'<br>so it does NOT retry. Retrying would create<br>a new orphan send and the prior bug<br>(false → infinite retry loop on closed tasks)<br>must not regress."]
 
     D -->|no — RETRY-ELIGIBLE| G["log.error('failed to send reply: …')<br>return false"]
     G --> H["WHY false? Non-terminal server error<br>(e.g. rate limit, transient server fault).<br>OpenClaw may retry."]

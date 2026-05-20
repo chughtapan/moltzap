@@ -29,7 +29,7 @@ sequenceDiagram
     Note over wsClient: connectEffect():<br>Scope.make()<br>Socket.makeWebSocket(url, {openTimeout: 10s})<br>(ws-client.ts → openSocket)
     wsClient->>server: TCP open
     server-->>wsClient: WS upgrade
-    Note over wsClient: per-frame originator (internalized — Spec F #617)<br>startTaskCallbackDispatcher()<br>→ bounded Queue(8192) + drain fiber<br>(ws-client.ts → startTaskCallbackDispatcher)<br>readerFiber = runFork(readerEffect())<br>(ws-client.ts → readerEffect)
+    Note over wsClient: per-frame originator is internal to the typed Connection<br>startTaskCallbackDispatcher()<br>→ bounded Queue(8192) + drain fiber<br>(ws-client.ts → startTaskCallbackDispatcher)<br>readerFiber = runFork(readerEffect())<br>(ws-client.ts → readerEffect)
 
     Note over wsClient: awaitConnectAuth():<br>sendRpc(Connect, {agentKey, minProtocol, maxProtocol})<br>(ws-client.ts → awaitConnectAuth)
     wsClient->>server: JSON-RPC "network/connect"
@@ -60,11 +60,11 @@ sequenceDiagram
 
 **State that survives reconnect**: `SubscriberRegistry` entries (registered
 before `connect()`), `ManagedRuntime`. The handler set for inbound
-server-initiated RPCs survives by construction (Spec F #617 — handlers
-are passed at `MoltZapWsClient` construction time and are intrinsic to
-the instance; reconnect rebuilds the underlying connection with the
-same handler set). Per-connection `ConnState` (scope, reader fiber,
-queue, dispatcher scope) is rebuilt fresh on each `connectEffect()`
+server-initiated RPCs survives by construction — handlers are passed
+at `MoltZapWsClient` construction time (static handler table) and are
+intrinsic to the instance; reconnect rebuilds the underlying connection
+with the same handler set. Per-connection `ConnState` (scope, reader
+fiber, queue, dispatcher scope) is rebuilt fresh on each `connectEffect()`
 call.
 
 **State that does NOT survive reconnect**: in-flight RPC Deferreds (all

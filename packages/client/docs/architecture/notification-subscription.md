@@ -17,9 +17,10 @@ returning `Stream.Stream` values:
 
 Both Streams are **lazy** — constructing them is pure; subscription
 registration happens at materialization time via `Stream.async`'s
-register callback. This is the AD1 path-(a) contract documented in
-architect plan #604 §3 and pinned at compile time by
-`snapshot-semantics.types-check.ts → Canary #1` … `Canary #4`.
+register callback. The compile-time canaries in
+`snapshot-semantics.types-check.ts → Canary #1` … `Canary #4` pin this
+behavior (subscription must not register until the Stream is
+materialized) — read that source file for the contract.
 
 ## Stream lifecycle contract
 
@@ -28,7 +29,7 @@ architect plan #604 §3 and pinned at compile time by
 | **Subscription construction** | Never fails. Pure value. Legal pre-`connect()`. |
 | **Stream materialization** | Synchronous `registry.register(...)` call inside the `Stream.async` register callback. In-memory only. |
 | **First pull before connect** | Suspends inside `Stream.async`'s internal buffer until `emit.single`/`emit.fail` fires. No `NotConnectedError` is raised on the consumer side until terminal close. |
-| **Mid-stream disconnect** | Stream does not terminate during transient disconnects — `SubscriberRegistry` survives the reconnect path, and the reader fiber resumes feeding `onFrame` on the new socket. Frames lost at the transport during the disconnect window are pre-existing (spec #222). |
+| **Mid-stream disconnect** | Stream does not terminate during transient disconnects — `SubscriberRegistry` survives the reconnect path, and the reader fiber resumes feeding `onFrame` on the new socket. Frames lost at the transport during the disconnect window are a pre-existing limitation of the wire protocol (no per-frame ack at this layer). |
 | **Closed client** | Terminates with `NotConnectedError` in the error channel via the registry's `closeAll` → each sub's `onClose(new NotConnectedError(...))` → Stream's `emit.fail` path. |
 | **Reconnect** | Subscription persists; consumer's `runForEach` resumes consuming the same Stream. |
 
@@ -95,9 +96,9 @@ sequenceDiagram
 3. `unregister` does `Ref.update(subsRef, drop X)` atomically.
 4. Dispatch's next `Ref.get(subsRef)` snapshot excludes X.
 
-The snapshot semantic from spec #222 §5.3 OQ-3 holds at the **registry's
-dispatch iteration** level: dispatch never re-reads `subsRef` mid-loop, so
-in-flight dispatch of frame N is not interrupted by unsubscribe during
+The snapshot semantic holds at the **registry's dispatch iteration**
+level: dispatch never re-reads `subsRef` mid-loop, so in-flight dispatch
+of frame N is not interrupted by unsubscribe during
 frame N. The runtime property tests in
 `packages/client/src/notification/__tests__/snapshot-semantics.test.ts`
 exercise this invariant end-to-end.
@@ -125,8 +126,8 @@ client.subscribe(def).pipe(
 For tests using `@moltzap/server-core/test-utils`, the
 `awaitOneNotification(client, def, timeoutMs?)` helper wraps the recipe
 above. For tests using the protocol-side `TestClient`, the
-`TestClient.waitForNotification` API is preserved (spec #596 Non-goals
-row 2) and remains the ergonomic test-side API.
+`TestClient.waitForNotification` API is preserved alongside the
+Stream-based public API and remains the ergonomic test-side API.
 
 Tagged errors live at `packages/client/src/notification/errors.ts`:
 `NotificationConsumerError` (the union), plus `TimeoutError` and
@@ -160,6 +161,4 @@ test sites can keep the simpler post-trigger form).
 - [Inbound Dispatch Sequence](./inbound-dispatch.md) — reader fiber →
   `SubscriberRegistry.dispatch`.
 - [Error Taxonomy](./error-taxonomy.md) — `NotConnectedError` (terminal)
-  + the three new notification-consumer tagged errors.
-- Architect plan: [#604](https://github.com/chughtapan/moltzap/issues/604).
-- Spec: [#596](https://github.com/chughtapan/moltzap/issues/596).
+  + the three notification-consumer tagged errors.
