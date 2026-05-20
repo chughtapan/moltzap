@@ -1129,9 +1129,49 @@ function conversationTarget(to: string): string {
 }
 
 /**
- * Factory: returns a fresh plugin object whose `activeClients` map lives in
- * this closure. `register(api)` calls this so each registration gets its own
- * per-plugin state, eliminating module-level mutable globals.
+ * Factory: returns a fresh plugin object whose `activeClients` map
+ * lives in this closure. `register(api)` calls this so each
+ * registration gets its own per-plugin state.
+ *
+ * The plugin exposes the openclaw lifecycle hooks (`startAccount`,
+ * `stopAccount`), the outbound `sendText`, the inbound `onInbound`
+ * adapter (registered inside `startAccount`), the `deliver` callback,
+ * and `resolveTarget` for openclaw's targeting layer.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant OC as openclaw runtime
+ *   participant Plugin as moltzap plugin
+ *   participant Core as MoltZapChannelCore
+ *   participant Server as MoltZap server
+ *   OC->>Plugin: startAccount(ctx)
+ *   Plugin->>Core: new MoltZapWsClient → MoltZapChannelCore
+ *   Plugin->>Core: core.connect() — WS auth
+ *   Plugin->>Core: core.onInbound(handler) — register dispatch
+ *   Core->>Plugin: enriched message arrives
+ *   Plugin->>OC: dispatchReplyWithBufferedBlockDispatcher
+ *   note over OC: agent pipeline → LLM
+ *   OC->>Plugin: deliver(payload, opts) — createLeaseConsumingDeliver
+ *   Plugin->>Server: core.sendReply(conversationId, text)
+ *   alt LeaseInvalid wire error
+ *     Server-->>Plugin: RpcServerError reason=LeaseInvalid
+ *     Plugin->>Plugin: catchLeaseInvalid → LeaseAlreadyConsumed<br>onLeaseConsumed callback, return false
+ *   end
+ *   OC->>Plugin: stopAccount(ctx)
+ *   Plugin->>Core: core.disconnect()
+ *   Plugin->>Plugin: activeClients.delete(account)
+ * ```
+ *
+ * `deliver` returns `PromiseLike<boolean>` per openclaw contract;
+ * false signals "not delivered" without throwing. The lease-guard
+ * is single-shot per inbound message: a retried `deliver` exercises
+ * the lease again, surfacing `LeaseAlreadyConsumed` as a typed
+ * callback (`MoltzapChannelPluginDeps.onLeaseConsumed`) rather than
+ * a throw.
+ *
+ * `resolveTarget` accepts `agent:<name>` (DM with named agent) and
+ * `conv:<id>` (existing conversation). Plain conversation IDs are
+ * accepted for backward compatibility.
  */
 export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},

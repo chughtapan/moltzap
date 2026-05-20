@@ -103,9 +103,9 @@ export function dateTimeStringSchema(): typeof DateTimeStringSchema
 _Function_
 
 ```ts
-export function decodeClientInbound(
-  parsed: unknown,
-): Effect.Effect<DecodedClientInbound, MalformedFrameError>
+    Effect.mapError(wrap),
+    Effect.flatMap(
+      (decoded): Effect.Effect<DecodedServerInbound, MalformedFrameError>
 ```
 
 Typed entry point for server-inbound frames. Fails closed with
@@ -178,9 +178,27 @@ request, or a notification.
 _Function_
 
 ```ts
-export function decodeServerInbound(
-  parsed: unknown,
-): Effect.Effect<DecodedServerInbound, MalformedFrameError>
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A["raw socket payload<br>(JSON.parse happens before this call)"]
+ *   A --> B["decodeFrame(parsed)"]
+ *   B --> C{tag?}
+ *   C -->|Request| D["decodeRpcRequest(taskCallbackMethods)<br>→ ServerRequest"]
+ *   C -->|Response| E["decodeResponseFrame<br>→ ResponseSuccess | ResponseError"]
+ *   C -->|Notification| F["decodeNotification(notificationDefs)<br>→ Notification"]
+ *   D --> G[DecodedServerInbound]
+ *   E --> G
+ *   F --> G
+ * ```
+ *
+ * Client-inbound `Request` frames are restricted to
+ * `taskCallbackMethods` (the subset the server is allowed to call
+ * back into the client — `dispatch/authorize`, etc.). Response
+ * frames with `id === null` fail closed since a null id has no
+ * pending call to resolve.
+ *
+ * Sibling:
 ```
 
 Typed entry point for client-inbound frames. Fails closed with

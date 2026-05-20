@@ -156,6 +156,24 @@ export function registerAllClientProperties(
  * End-to-end client-side library entry. Acquires context, registers
  * every client-side property, runs them, closes Scope. Returns a
  * typed `SuiteResult` (reused from server-side — same failure shape).
+ *
+ * The conformance suite defines properties any compliant
+ * client/server pair must satisfy. Each property ships an
+ * **executable** (a divergence proof) that intentionally fails the
+ * property to prove the assertion has teeth.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A["src/testing/conformance/{layer}/&lt;property>.ts"]
+ *   A --> B["property body — Effect that asserts the invariant"]
+ *   A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts&lt;br>(server intentionally violates invariant)"]
+ *   C --> D[vitest runs the proof: failure-of-failure = pass]
+ * ```
+ *
+ * External consumers (e.g. `moltzap-arena`) drop a ~20-line vitest
+ * wrapper matching the AC22 template (see
+ * `packages/protocol/CLAUDE.md`) and the suite runs against their
+ * real WS client.
  */
 export function runClientConformanceSuite(
   opts: ClientConformanceSuiteOptions,

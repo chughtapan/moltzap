@@ -241,6 +241,29 @@ function spawnConfiguredOpenClaw(
   );
 }
 
+/**
+ * OpenClaw runtime adapter. Spawns the OpenClaw gateway as a child
+ * process, configures it with a moltzap channel plugin, and reports
+ * readiness via the server-side WS authentication event.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   OCS["OpenClawAdapter.spawn(input)"]
+ *   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
+ *   OC2["2. prepareOpenClawStateDir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
+ *   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
+ *   OC4["4. spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>scope-bound; exitFiber + log buffer"]
+ *   OC5["5. state = { process, stateDir, logBuffer, ... }"]
+ *   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
+ *   OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
+ * ```
+ *
+ * Readiness signal: server-side WS authentication event surfaces via
+ * `deps.server.awaitAgentReady`. Inbound traffic log marker:
+ * `inbound from agent:`. Errors flow into the fleet via `SpawnFailed`
+ * (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
+ * (post-spawn, surfaced by `processExitLoop`).
+ */
 export class OpenClawAdapter implements Runtime {
   private state: AdapterState | null = null;
 
@@ -359,6 +382,27 @@ export class OpenClawAdapter implements Runtime {
   }
 }
 
+/**
+ * Workspace-aware factory: resolves `openclawBin`, `channelDistDir`,
+ * and `repoRoot` from the monorepo layout at module-load time
+ * (synchronously via `Effect.runSync`), then constructs an
+ * {@link OpenClawAdapter}.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   OCWF["createWorkspaceOpenClawAdapter(input)"]
+ *   OCPR["resolveWorkspacePackageRoot<br>(walk import.meta.url ancestors to 'packages' segment)"]
+ *   OCRR["repoRoot = input.repoRoot ?? two-dirs-up-from-packageRoot"]
+ *   OCBIN["openclawBin = input.openclawBin ??<br>resolveWorkspaceOpenClawBin<br>(createRequire(packages/runtimes/package.json).resolve('openclaw') → walk back to package root → read package.json bin)"]
+ *   OCCH["channelDistDir = input.channelDistDir ??<br>repoRoot/packages/openclaw-channel/dist"]
+ *   OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir, repoRoot })"]
+ *   OCWF --> OCPR --> OCRR --> OCBIN --> OCCH --> OCOUT
+ * ```
+ *
+ * Non-workspace usage: pass explicit `openclawBin` /
+ * `channelDistDir` to {@link OpenClawAdapter}'s constructor
+ * directly. This factory is a convenience for monorepo callers.
+ */
 export function createWorkspaceOpenClawAdapter(
   input: WorkspaceOpenClawAdapterInput,
 ): OpenClawAdapter {

@@ -77,6 +77,40 @@ export type ParamsOf<D extends RpcDefinition<string, TSchema, TSchema>> =
 export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
   D extends RpcDefinition<string, TSchema, infer R> ? Static<R> : never;
 
+/**
+ * Create one wire method's frozen descriptor: name, schemas, AJV
+ * validators, and per-descriptor request/response encoders. Every
+ * wire boundary in moltzap is born from a single `defineRpc` call at
+ * module-load time so AJV validators are compiled eagerly and the
+ * runtime never re-parses schemas.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A["domain layer call site:&lt;br>defineRpc{ name, params, result, optional?, capabilities? }"]
+ *   A --> B["ajv.compile(params)&lt;br>→ validateParams"]
+ *   A --> C["ajv.compile(result)&lt;br>→ validateResult"]
+ *   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
+ *   C --> D
+ *   D --> E["pushed into per-layer *RpcMethods const"]
+ *   E --> F["aggregated into rpcMethods"]
+ * ```
+ *
+ * - `optional` absent → REQUIRED slot in the handler table; missing
+ *   key fails compilation with TS2741 at the factory call.
+ * - `optional` present → OPTIONAL slot carrying the fail-CLOSED
+ *   default the dispatcher synthesizes when the slot value equals
+ *   the sentinel.
+ * - `capabilities` absent → no auto-provision; the dispatcher reads
+ *   `definition.capabilities` per frame and threads
+ *   `Effect.provideServiceEffect` for each entry.
+ *
+ * Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
+ * string can never accidentally type-fit a method position. See
+ * `wire.ts → JsonRpcMethod` for the brand.
+ *
+ * Sibling: {@link defineNotification} — same pipeline minus the
+ * result schema and response encoder.
+ */
 export function defineRpc<
   Name extends string,
   P extends TSchema,
@@ -138,6 +172,28 @@ export function defineRpc<
   };
 }
 
+/**
+ * A frozen descriptor for one server-to-client notification.
+ * Notifications are fire-and-forget — no `id`, no response, no
+ * pending-call registry. The transport-side runtimes don't track
+ * them; consumers subscribe externally via per-method handlers.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant Server
+ *   participant Wire as WebSocket
+ *   participant Client
+ *   Server->>Server: NotificationDefinition.encode(params)
+ *   Server->>Wire: {jsonrpc, method, params}
+ *   Wire->>Client: frame arrives
+ *   Client->>Client: decodeServerInbound&lt;br>→ tag Notification, definition, params
+ *   Client->>Client: subscriber dispatcher routes to handler
+ * ```
+ *
+ * Descriptor role at the transport layer: encode + decode + schema
+ * validation. Routing semantics live in consumers (e.g.
+ * `@moltzap/client/runtime/subscribers.ts`).
+ */
 export interface NotificationDefinition<
   Name extends string,
   P extends TSchema,
@@ -153,6 +209,11 @@ export type NotificationParamsOf<
   D extends NotificationDefinition<string, TSchema>,
 > = D extends NotificationDefinition<string, infer P> ? Static<P> : never;
 
+/**
+ * Sibling of {@link defineRpc} for server-to-client notifications.
+ * Same pipeline minus the result schema and response encoder —
+ * notifications are fire-and-forget, no `id` field, no `result`.
+ */
 export function defineNotification<
   Name extends string,
   P extends TSchema,

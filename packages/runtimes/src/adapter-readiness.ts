@@ -12,6 +12,28 @@ export interface ProcessExitReadinessSource {
   readonly timeoutMs: number;
 }
 
+/**
+ * Poll the runtime child process for exit. Used alongside
+ * `server.awaitAgentReady` in an `Effect.race` so we observe BOTH
+ * "agent authenticated against the server" AND "process died before
+ * authenticating" as competing outcomes.
+ *
+ * Each adapter instance tracks its process lifecycle through an
+ * internal `AdapterState` object with a `tornDown` boolean guard.
+ *
+ * ```mermaid
+ * stateDiagram-v2
+ *   [*] --> NOT_STARTED
+ *   NOT_STARTED --> SPAWNED : spawn() ok
+ *   NOT_STARTED --> NOT_STARTED : spawn() err — SpawnFailed propagates
+ *   SPAWNED --> READY : Ready outcome
+ *   SPAWNED --> TORN_DOWN : Timeout or ProcessExited outcome → teardown before fail
+ *   READY --> TORN_DOWN : teardown()
+ *   TORN_DOWN --> TORN_DOWN : teardown() — no-op, idempotent
+ * ```
+ *
+ * Polls at 250ms intervals; returns `Timeout` after `source.timeoutMs`.
+ */
 export function processExitLoop(
   source: ProcessExitReadinessSource,
 ): Effect.Effect<ReadyOutcome, never, never> {

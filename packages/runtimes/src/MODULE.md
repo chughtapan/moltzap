@@ -151,9 +151,8 @@ export interface ClaudeCodeAdapterDeps {
 _Function_
 
 ```ts
-export function createWorkspaceClaudeCodeAdapter(
-  input: WorkspaceClaudeCodeAdapterInput,
-): ClaudeCodeAdapter
+
+    // SIGTERM with a timeout
 ```
 
 ### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L362)
@@ -161,9 +160,7 @@ export function createWorkspaceClaudeCodeAdapter(
 _Function_
 
 ```ts
-export function createWorkspaceOpenClawAdapter(
-  input: WorkspaceOpenClawAdapterInput,
-): OpenClawAdapter
+      const
 ```
 
 ### [`launchRuntimeFleet`](./fleet.ts#L282)
@@ -171,9 +168,7 @@ export function createWorkspaceOpenClawAdapter(
 _Function_
 
 ```ts
-export function launchRuntimeFleet(
-  options: RuntimeFleetLaunchOptions,
-): Effect.Effect<RuntimeFleet, RuntimeLaunchFailed, never>
+  })
 ```
 
 ### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L366)
@@ -181,13 +176,7 @@ export function launchRuntimeFleet(
 _Function_
 
 ```ts
-export function launchRuntimeFleetWithProcessSignals(
-  options: RuntimeFleetProcessSignalOptions,
-): Effect.Effect<
-  RuntimeFleet,
-  RuntimeLaunchFailed | RuntimeFleetStartupInterrupted,
-  never
->
+    const handler = (): void
 ```
 
 ### [`LogSlice`](./runtime.ts#L51)
@@ -390,14 +379,7 @@ export interface RuntimeAgentSpec {
 _Class_
 
 ```ts
-export class RuntimeExitedBeforeReady extends Data.TaggedError(
-  "RuntimeExitedBeforeReady",
-)<{
   readonly agentName: string;
-  readonly exitCode: number | null;
-  readonly stderr: string;
-  readonly message: string;
-}> {}
 ```
 
 ### [`RuntimeFleet`](./fleet.ts#L74)
@@ -477,10 +459,9 @@ export type RuntimeKind = "openclaw" | "nanoclaw" | "claude-code";
 _TypeAlias_
 
 ```ts
-export type RuntimeLaunchFailed =
-  | SpawnFailed
-  | RuntimeReadyTimedOut
-  | RuntimeExitedBeforeReady;
+ *
+ * Caller action: increase `readyTimeoutMs`, or inspect
+ * `runtime.getLogs(0)` to see what the subprocess is doing.
 ```
 
 ### [`RuntimeReadyTimedOut`](./errors.ts#L9)
@@ -488,13 +469,7 @@ export type RuntimeLaunchFailed =
 _Class_
 
 ```ts
-export class RuntimeReadyTimedOut extends Data.TaggedError(
-  "RuntimeReadyTimedOut",
-)<{
-  readonly agentName: string;
-  readonly timeoutMs: number;
-  readonly message: string;
-}> {}
+ * Raised by `Runtime.spawn()` in any adapter when the child process
 ```
 
 ### [`RuntimeServerHandle`](./runtime.ts#L22)
@@ -560,11 +535,7 @@ export type ServerUrl = string & Brand.Brand<"ServerUrl">
 _Class_
 
 ```ts
-export class SpawnFailed extends Data.TaggedError("SpawnFailed")<{
-  readonly agentName: string;
-  readonly message: string;
-  readonly cause: Error;
-}> {}
+ * orchestration. Every adapter's `spawn()` and `waitUntilReady()`
 ```
 
 ### [`SpawnInput`](./runtime.ts#L42)
@@ -587,9 +558,8 @@ export interface SpawnInput {
 _Function_
 
 ```ts
-export function startRuntimeAgent(
-  options: RuntimeStartOptions,
-): Effect.Effect<Runtime, RuntimeLaunchFailed, never>
+          }),
+        )
 ```
 
 ### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L85)

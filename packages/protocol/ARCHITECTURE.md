@@ -88,16 +88,20 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 
 ## 4. Communication Flows
 
+Most per-symbol flow diagrams now live in JSDoc next to the
+relevant export and surface on the auto-generated module pages
+(`packages/*/src/**/MODULE.md`). The standalone arch docs below
+remain for flows that span multiple symbols or packages:
+
 | Topic | Document |
 |---|---|
-| How wire methods are defined and validated | [Method-definition pipeline](docs/architecture/method-definition.md) |
-| Decoding inbound frames (both sides) | [Frame decode pipeline](docs/architecture/frame-decode.md) |
-| Notification fan-out | [Notification fan-out](docs/architecture/notification-fanout.md) |
-| Tagged error registry mechanics | [Tagged error registry](docs/architecture/tagged-error-registry.md) |
 | Layer DAG enforcement | [Layer DAG](docs/architecture/layer-dag.md) |
-| Conformance suite mechanics | [Conformance suite](docs/architecture/conformance-suite.md) |
 | TestClient Stream consolidation | [TestClient Stream consolidation](docs/architecture/test-client-stream-consolidation.md) |
 | Task / TaskConversation family (Spec D1) | [Task / TaskConversation family](docs/architecture/task-conversation-family.md) |
+
+For per-symbol detail (defineRpc, decodeServerInbound,
+registerErrorClass, NotificationDefinition, runClientConformanceSuite,
+etc.), see the generated MODULE.md next to the source.
 
 The typed dispatcher, originator lifecycle, and worked end-to-end RPC
 flow (request handling + server-initiated callbacks) are documented in

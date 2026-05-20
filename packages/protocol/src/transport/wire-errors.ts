@@ -32,7 +32,30 @@ class DuplicateErrorCodeError extends Error {
   override readonly name = "DuplicateErrorCodeError";
 }
 
-/** Throws at module-load time on duplicate code registration. */
+/**
+ * Register a tagged-error class so the originator can resurrect it
+ * from a wire `error` payload by code. Each registered class carries
+ * `static readonly code: number` and `static readonly message:
+ * string`; both are read at registration time. Throws
+ * `DuplicateErrorCodeError` at module-load if two classes claim the
+ * same code.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   A["domain module load:&lt;br>class FooError extends Data.TaggedError(...)&lt;br>static code = -32019&lt;br>registerErrorClass(FooError)"]
+ *   A --> B["codeToClass.set(-32019, FooError)"]
+ *   B --> C["client side: errorClassFor(code)&lt;br>→ FooError instance | undefined"]
+ *   C --> D["caller: Effect.catchTag('Foo', ...)"]
+ *   B --> E["server side: wireErrorFromInstance&lt;br>→ wire 'error' sub-object"]
+ * ```
+ *
+ * `JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec
+ * codes (-32700, -32600, -32601, -32602, -32603). Every other code
+ * lives in the runtime registry, not in a central table. The
+ * `RegisteredTaggedError` union in `rpc-registry.ts` mirrors the
+ * registered classes and must be hand-kept in sync — the TS type
+ * system cannot enumerate the static-side registry into a union.
+ */
 export function registerErrorClass(cls: RpcErrorClass): void {
   const existing = codeToClass.get(cls.code);
   if (existing !== undefined && existing !== cls) {
