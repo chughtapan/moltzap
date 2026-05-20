@@ -174,32 +174,47 @@ demands auto-archive; D1 keeps the conservative behavior.
 | `TaskConversationAddParticipant` | TM only + participant-admitted invariant |
 | `TaskConversationRemoveParticipant` | TM only |
 
-## Capability list per new handler (impl-staff target)
+## Capability list per new handler (post-Spec-F #632 cutover)
 
-D1 impl-staff dispatch is HARD-blocked on Spec E (#601) Phase 1
-(primitives PR — `TmAuthority` `Context.Tag` + `obtainTmAuthority`
-helper) merging first. Every new handler is born with the Spec E
-R-channel capability chain per the matrix below; there is no
-runtime-only fallback path. If Spec E Phase 1 has not landed when D1
-impl-staff dispatches, the orchestrator BLOCKs with a `NEEDS_CONTEXT`
-verdict pointing at Spec E (#606). See plan §R5 + §14.
+Spec F (#632, PR #660) merged the typed-dispatcher cutover: each
+`defineRpc` in `packages/protocol/src/task/tasks.ts` declares its
+capability tags in `capabilities: [{ tag, argsOf }]`, and the
+dispatcher in `packages/protocol/src/transport/dispatch.ts →
+applyCapabilityProvisioning` auto-threads
+`Effect.provideServiceEffect(tag, providerEffect)` per frame from the
+shared provider table in
+`packages/server/src/app/capability-providers.ts → serverCapabilityProviders`.
+Handler bodies just call the service method; the service body yields
+the tag and the dispatcher's lazy provision runs the obtain helper at
+first yield. The compile-time lockstep gate (Canary 7 in
+`packages/protocol/src/transport/typed-dispatcher.types-check.ts`)
+rejects any handler whose R channel references a tag NOT declared in
+the descriptor's `capabilities` array.
 
-| Handler | Capability list (Spec E shape) |
-|---|---|
-| `TaskCreate` | `[ContactPolicyAllowsReach]` (only when `invitedAgentIds` non-empty) |
-| `TaskLeave` | `[]` (self-auth via `ctx.agentId`; no obtain) |
-| `TaskConversationCreate` | `[TmAuthority, AgentInTaskParticipants]` (one per invited agent) |
-| `TaskConversationList` | `[]` (self-auth) |
-| `TaskConversationArchive` | `[TmAuthority, ConversationInTask]` |
-| `TaskConversationUnarchive` | `[TmAuthority, ConversationInTask]` |
-| `TaskConversationAddParticipant` | `[TmAuthority, ConversationInTask, AgentInTaskParticipants]` |
-| `TaskConversationRemoveParticipant` | `[TmAuthority, ConversationInTask]` |
+| Handler | Descriptor `capabilities` | Notes |
+|---|---|---|
+| `TaskCreate` | (none declared) | `obtainContactPolicyForCreate` stays inline-piped (conditional on `invitedAgentIds.length > 0`); `obtainConversationCreateAuthorization` stays inline-piped inside `mintInitialConversation` (conditional on `initialConversation`). Both conditions fail the static `argsOf` shape; pattern matches the `MessagesSend` Spec F §3 carve-out. |
+| `TaskLeave` | (none declared) | Self-auth via `ctx.agentId`; `taskService.leaveTask` does not require any capability tag. |
+| `TaskConversationCreate` | `[TmAuthority, ConversationCreateAuthorization]` | Handler explicitly `yield* TmAuthority` BEFORE `requireAgentsAreInTaskParticipants` to force the lazy obtain helper to execute ahead of the participant-admitted probe (auth-first invariant). `ConversationCreateAuthorization` is consumed inside `conversationService.create`. |
+| `TaskConversationList` | (none declared) | Self-auth via `ctx.agentId`; the underlying `conversationService.list` does not require any capability tag. |
+| `TaskConversationArchive` | `[TmAuthority, ConversationInTask]` | Both tags consumed inside `taskService.archiveTaskConversation`. |
+| `TaskConversationUnarchive` | `[TmAuthority, ConversationInTask]` | Both tags consumed inside `taskService.unarchiveTaskConversation`. |
+| `TaskConversationAddParticipant` | `[TmAuthority, ConversationInTask]` | Handler explicitly `yield* TmAuthority` BEFORE `requireAgentsAreInTaskParticipants` (auth-first invariant). `ConversationInTask` is consumed inside `taskService.addTaskConversationParticipant`. |
+| `TaskConversationRemoveParticipant` | `[TmAuthority, ConversationInTask]` | Both tags consumed inside `taskService.removeTaskConversationParticipant`. |
 
-Spec F (#617) consumes these arrays at the dispatcher; D1 impl-staff
-populates the arrays at Spec E wiring time (the two land together at
-the handler call site). The descriptor stubs in `tasks.ts` are Spec
-F-compatible (no `slotDisposition` or `capabilities` field added; the
-future Spec F edit just decorates each `defineRpc(...)` call).
+The four `TaskConversation{Archive,Unarchive,AddParticipant,RemoveParticipant}`
+descriptors share `tmAuthorityArgsOfTask` / `conversationInTaskArgsOfPair`
+builders in `tasks.ts` so their identical capability shapes cannot drift.
+`TaskConversationCreate`'s `ConversationCreateAuthorization` argsOf calls
+`inferConversationType(p.participants)` (exported from the same file) so the
+descriptor-provisioned `type` label stays in lockstep with the handler's
+`conversationService.create({ type, ... })` call.
+
+The auth-first explicit yield matters: lazy `Effect.provideServiceEffect`
+runs the provider only at first tag-yield inside the composed effect, so
+without the explicit `yield* TmAuthority` a non-TM caller could see
+`ParticipantNotAdmittedError` from `requireAgentsAreInTaskParticipants`
+(a side-channel probe for task membership) instead of `ForbiddenError`.
 
 ## Dual emission during D1
 
