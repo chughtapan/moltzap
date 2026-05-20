@@ -35,9 +35,6 @@ import {
   TasksCloseConversation,
   TasksAddParticipant,
   TasksRemoveParticipant,
-  TasksStoreMessage,
-  TasksGetMessages,
-  TasksGetMessagesSince,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
   // Spec D1 (#598) — additive `task/*` + `task/conversation/*` surface.
@@ -80,9 +77,6 @@ export const taskRpcMethods = [
   TasksCloseConversation,
   TasksAddParticipant,
   TasksRemoveParticipant,
-  TasksStoreMessage,
-  TasksGetMessages,
-  TasksGetMessagesSince,
   // Spec D1 additions. Order: TaskCreate / TaskLeave first (task-level
   // operations), then the `task/conversation/*` admin set.
   TaskCreate,

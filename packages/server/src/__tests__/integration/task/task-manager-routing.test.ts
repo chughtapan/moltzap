@@ -59,7 +59,6 @@ import {
   TasksClose,
   TasksCreate,
   TasksCreateConversation,
-  TasksStoreMessage,
   type Message,
   type Task,
 } from "@moltzap/protocol";
@@ -414,10 +413,11 @@ it(
 
       // TM stores a message authored by the sender (typical
       // post-admission flow: TM accepted via gate, now persists).
-      yield* pair.tm.sendRpc(TasksStoreMessage, {
+      // Post-D3, the TM uses MessagesSend directly (TasksStoreMessage
+      // deleted; TM authority is enforced by capability descriptor).
+      yield* pair.tm.sendRpc(MessagesSend, {
         taskId,
         conversationId,
-        senderAgentId: protocolAgentId(pair.senderAgentId),
         parts: [{ type: "text", text: "stored by TM" }],
       });
 

@@ -86,10 +86,6 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
   return MessagePartsSchema;
 }
 
-export function messageSchema(): typeof MessageSchema {
-  return MessageSchema;
-}
-
 // ── tm_decision (#560) ──────────────────────────────────────────────
 //
 // Per-message TM fan-out verdict. Lives on `messages.tm_decision`
