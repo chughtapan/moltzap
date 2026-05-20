@@ -1,11 +1,6 @@
 import { Effect } from "effect";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
   DEFAULT_APP_ID,
-  ParticipantsAddedNotificationDefinition,
-  ParticipantsRemovedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskConversationAddParticipant,
   TaskConversationArchive,
@@ -244,11 +239,6 @@ function mintInitialConversation(input: MintInitialInput) {
     ];
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      ConversationCreatedNotificationDefinition,
-      { conversation },
-    );
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
       TaskConversationCreatedNotificationDefinition,
       {
         taskId: input.task.id,
@@ -334,11 +324,6 @@ function fanoutTaskConversationCreateDualEmit(
     const recipientAgentIds: ReadonlyArray<AgentId> = input.participants;
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      ConversationCreatedNotificationDefinition,
-      { conversation: input.conversation },
-    );
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
       TaskConversationCreatedNotificationDefinition,
       {
         taskId: input.taskId,
@@ -399,17 +384,6 @@ function fanoutLeaveParticipantDualEmit(input: LeaveParticipantDualEmitInput) {
       .getParticipantAgentIds(input.conversationId)
       .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
     const recipientAgentIds: AgentId[] = [input.leaver, ...remaining];
-    const removedAt = new Date().toISOString();
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      ParticipantsRemovedNotificationDefinition,
-      {
-        conversationId: input.conversationId,
-        agentId: input.leaver,
-        removedBy: input.leaver,
-        removedAt,
-      },
-    );
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
       TaskConversationParticipantsRemovedNotificationDefinition,
@@ -436,18 +410,6 @@ function fanoutArchiveDualEmit(input: ArchiveDualEmitInput) {
     const recipientAgentIds = yield* conversationService
       .getParticipantAgentIds(input.conversationId)
       .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-    // Dual-emit: legacy `conversations/archived` AND new
-    // `task/conversation/archived`. D3 deletes the legacy line.
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      ConversationArchivedNotificationDefinition,
-      {
-        conversationId: input.conversationId,
-        archivedAt: input.archivedAt,
-        by: input.by,
-      },
-      { forConversation: input.conversationId },
-    );
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
       TaskConversationArchivedNotificationDefinition,
@@ -473,19 +435,6 @@ function fanoutUnarchiveDualEmit(input: UnarchiveDualEmitInput) {
     const recipientAgentIds = yield* conversationService
       .getParticipantAgentIds(input.conversationId)
       .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-    // Dual-emit: legacy `conversations/unarchived` AND new
-    // `task/conversation/unarchived`. D3 deletes the legacy line.
-    // Mirror of `fanoutArchiveDualEmit`; the unarchive payload has no
-    // `archivedAt` (the row's `archivedAt` is being cleared, not set).
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      ConversationUnarchivedNotificationDefinition,
-      {
-        conversationId: input.conversationId,
-        by: input.by,
-      },
-      { forConversation: input.conversationId },
-    );
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
       TaskConversationUnarchivedNotificationDefinition,
@@ -564,11 +513,11 @@ export const taskHandlers: RpcMethodRegistry = [
         for (const conversation of closed.archivedConversations) {
           yield* broadcastNotificationToAgents(
             conversation.participantAgentIds,
-            ConversationArchivedNotificationDefinition,
+            TaskConversationArchivedNotificationDefinition,
             {
+              taskId: params.taskId,
               conversationId: conversation.conversationId,
               archivedAt: conversation.archivedAt,
-              by: ctx.agentId,
             },
             { forConversation: conversation.conversationId },
           );
@@ -812,7 +761,7 @@ export const taskHandlers: RpcMethodRegistry = [
 
   defineTaskMethod(TaskConversationAddParticipant, {
     requiresActive: true,
-    handler: (params, ctx) =>
+    handler: (params) =>
       Effect.gen(function* () {
         // Auth-first invariant — same rationale as
         // `taskConversationCreateBody` (the explicit yield forces the
@@ -835,18 +784,8 @@ export const taskHandlers: RpcMethodRegistry = [
             params.conversationId,
             params.agentId,
           );
-        // Dual-emit. Post-mutation membership drives fan-out so the
-        // newcomer receives their own added notification.
-        yield* broadcastNotificationToAgents(
-          postMutationParticipants,
-          ParticipantsAddedNotificationDefinition,
-          {
-            conversationId: params.conversationId,
-            agentId: params.agentId,
-            addedBy: ctx.agentId,
-            addedAt: new Date().toISOString(),
-          },
-        );
+        // Post-mutation membership drives fan-out so the newcomer
+        // receives their own added notification.
         yield* broadcastNotificationToAgents(
           postMutationParticipants,
           TaskConversationParticipantsAddedNotificationDefinition,
@@ -863,7 +802,7 @@ export const taskHandlers: RpcMethodRegistry = [
 
   defineTaskMethod(TaskConversationRemoveParticipant, {
     requiresActive: true,
-    handler: (params, ctx) =>
+    handler: (params) =>
       Effect.gen(function* () {
         // `TmAuthority` + `ConversationInTask` auto-provisioned per
         // descriptor `capabilities: [...]`; consumed inside
@@ -883,18 +822,8 @@ export const taskHandlers: RpcMethodRegistry = [
           // not in `conversation_participants`.
           return {};
         }
-        // Dual-emit. Pre-mutation membership drives fan-out so the
-        // removed agent still receives the notification.
-        yield* broadcastNotificationToAgents(
-          preMutationParticipants,
-          ParticipantsRemovedNotificationDefinition,
-          {
-            conversationId: params.conversationId,
-            agentId: params.agentId,
-            removedBy: ctx.agentId,
-            removedAt: new Date().toISOString(),
-          },
-        );
+        // Pre-mutation membership drives fan-out so the removed agent
+        // still receives the notification.
         yield* broadcastNotificationToAgents(
           preMutationParticipants,
           TaskConversationParticipantsRemovedNotificationDefinition,
