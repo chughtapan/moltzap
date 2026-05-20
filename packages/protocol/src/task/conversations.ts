@@ -11,6 +11,22 @@ import {
   registerErrorClass,
   type RpcErrorPayload,
 } from "../transport/wire-errors.js";
+// Direct per-file imports (NOT via `./capabilities/index.js`) to keep
+// the runtime dep graph one-way: the barrel re-exports
+// `conversation-not-archived.js` which value-imports
+// `ConversationArchivedError` from THIS file, so going via the barrel
+// closes a runtime cycle. The capability files this descriptor needs
+// only consume conversations.ts as type imports — direct paths skip the
+// barrel and the cycle.
+import {
+  AddParticipantPermission,
+  type ObtainAddParticipantPermissionInput,
+} from "./capabilities/add-participant-permission.js";
+import {
+  ConversationCreateAuthorization,
+  type ObtainConversationCreateAuthorizationInput,
+} from "./capabilities/conversation-create-authorization.js";
+import { ConversationParticipantAccess } from "./capabilities/conversation-participant-access.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -133,6 +149,27 @@ export const ConversationsCreate = defineRpc({
     { conversation: ConversationSchema },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: ConversationCreateAuthorization,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainConversationCreateAuthorizationInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly type: "dm" | "group";
+          readonly participants: ReadonlyArray<{ readonly id: string }>;
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          type: p.type,
+          agentIds: p.participants.map((x) => x.id as AgentId),
+          creatorAgentId: c.auth.agentId,
+        };
+      },
+    },
+  ] as const,
 });
 
 export const ConversationsList = defineRpc({
@@ -167,6 +204,20 @@ export const ConversationsGet = defineRpc({
     },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: ConversationParticipantAccess,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly conversationId: ConversationId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          conversationId: p.conversationId,
+          callerAgentId: c.auth.agentId,
+        };
+      },
+    },
+  ] as const,
 });
 
 export const ConversationsUpdate = defineRpc({
@@ -218,6 +269,27 @@ export const ConversationsAddParticipant = defineRpc({
     { participant: ConversationParticipantSchema },
     { additionalProperties: false },
   ),
+  capabilities: [
+    {
+      tag: AddParticipantPermission,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainAddParticipantPermissionInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly conversationId: ConversationId;
+          readonly participant: { readonly id: string };
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          conversationId: p.conversationId,
+          requesterAgentId: c.auth.agentId,
+          targetAgentId: p.participant.id as AgentId,
+        };
+      },
+    },
+  ] as const,
 });
 
 export const ConversationsRemoveParticipant = defineRpc({

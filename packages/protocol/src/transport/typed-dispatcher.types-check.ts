@@ -27,7 +27,7 @@
  *
  * Activated at impl-staff time (Spec F #617 PR):
  *   - Canary 6: TM `{ handlers: {} }` is well-typed once both TM
- *     callback slots carry `slotDisposition: optionalForbidden`.
+ *     callback slots carry `optional: forbidden`.
  *     Asserts `TaskMasterHandlers` resolves the empty literal as
  *     legal (the runtime fail-CLOSED default fires per slot).
  *
@@ -44,10 +44,13 @@
  */
 
 import { MessagesSend } from "../task/messages.js";
+import { TasksGet } from "../task/tasks.js";
 import { DispatchAuthorize, MessagesAuthorize } from "../app/methods.js";
+import { TmAuthority } from "../task/capabilities/tm-authority.js";
 
 import type { AnyTaskCallbackRpcDefinition } from "../rpc-registry.js";
 import type { ParamsOf } from "./method.js";
+import type { CapabilitiesOf } from "./capabilities.js";
 
 import type {
   ServerConnection as _ServerConnection,
@@ -60,6 +63,7 @@ import type {
   TaskMasterHandlers,
   HandlerSlot,
 } from "./handlers.js";
+import { forbidden } from "./defaults.js";
 
 // ───────────────────────────────────────────────────────────────────────
 // Canary 1: ServerHandlers requires every catalog member.
@@ -120,14 +124,19 @@ declare const _tmHandlers: TaskMasterHandlers<unknown, never>;
 const _tmHandlersSink: TaskMasterHandlers<unknown, never> = _tmHandlers;
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 6: TaskMasterHandlers accepts `{}` (both TM-callback slots
-// OPTIONAL with fail-CLOSED `ForbiddenError` defaults per Spec F R2).
-// If a future spec promotes either `DispatchAuthorize` /
-// `MessagesAuthorize` to REQUIRED, this canary starts erroring and
-// every TM construction site that omits handlers must be revisited.
+// Canary 6: TaskMasterHandlers REJECTS `{}` — optional slots no longer
+// permit omission. Both TM-callback keys MUST appear in the literal,
+// either as a real `HandlerSlot` or as the `forbidden` sentinel.
 // ───────────────────────────────────────────────────────────────────────
 
+// @ts-expect-error — explicit-sentinel design: every catalog key must appear.
 const _tmEmpty: TaskMasterHandlers<unknown, never> = {};
+
+// Positive control: explicit sentinels make the literal well-typed.
+const _tmAllDeclined: TaskMasterHandlers<unknown, never> = {
+  "dispatch/authorize": forbidden,
+  "messages/authorize": forbidden,
+};
 
 // ───────────────────────────────────────────────────────────────────────
 // Canary 5: ServerConnection.call rejects non-task-callback definitions
@@ -153,6 +162,51 @@ declare const _msgsSendParams: ParamsOf<typeof MessagesSend>;
 // @ts-expect-error — MessagesSend isn't AnyTaskCallbackRpcDefinition (Spec F I5 direct).
 const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
 
+// ───────────────────────────────────────────────────────────────────────
+// Canary 7 — handler R-channel must be a subset of CapabilitiesOf<D>.
+//
+// Post-cutover invariant (`docs/architecture/request-response-handling.md`
+// server-side notes): handler bodies may yield capability tags only if
+// the descriptor's `capabilities: [...]` array declares them. The
+// dispatcher's auto-provision iterates the descriptor's list at runtime;
+// a handler that yields an UNDECLARED tag would face an unresolved
+// service Tag at handler-invocation time. Catching the mismatch at
+// compile time means a server author cannot ship a handler whose
+// authorization needs aren't reflected in the wire-protocol descriptor.
+//
+// The check below uses `TasksGet` which declares `[TaskReadAccess]`. A
+// handler that yields `TmAuthority` (a different capability NOT in
+// TasksGet's catalog) should fail the `Handler<D, Ctx, Caps>`
+// constraint where `Caps = CapabilitiesOf<typeof TasksGet>` =
+// `TaskReadAccess`. Yielding `TmAuthority` widens R beyond `Caps` and
+// the slot literal fails to assign.
+// ───────────────────────────────────────────────────────────────────────
+
+declare const _tasksGetSlotWithExtraCap: HandlerSlot<
+  typeof TasksGet,
+  unknown,
+  typeof TmAuthority
+>;
+// @ts-expect-error — handler R (TmAuthority) is NOT in CapabilitiesOf<TasksGet> ([TaskReadAccess]).
+const _capLockstepReject: HandlerSlot<
+  typeof TasksGet,
+  unknown,
+  CapabilitiesOf<typeof TasksGet>
+> = _tasksGetSlotWithExtraCap;
+
+// Positive control: a handler whose Caps exactly matches the descriptor's
+// `capabilities` declaration assigns cleanly.
+declare const _tasksGetSlotProper: HandlerSlot<
+  typeof TasksGet,
+  unknown,
+  CapabilitiesOf<typeof TasksGet>
+>;
+const _capLockstepAccept: HandlerSlot<
+  typeof TasksGet,
+  unknown,
+  CapabilitiesOf<typeof TasksGet>
+> = _tasksGetSlotProper;
+
 // Export each canary local as a discriminated union so the unused-vars
 // rule (which is otherwise satisfied by leading `_`) cannot trim them
 // in a future refactor.
@@ -166,7 +220,12 @@ export type _TypedDispatcherCanarySink =
   | typeof _agentClientEmpty
   | typeof _tmHandlersSink
   | typeof _tmEmpty
+  | typeof _tmAllDeclined
   | typeof _directReject
+  | typeof _tasksGetSlotWithExtraCap
+  | typeof _capLockstepReject
+  | typeof _tasksGetSlotProper
+  | typeof _capLockstepAccept
   | _ServerConnection
   | _AgentClientConnection
   | _TaskMasterConnection;

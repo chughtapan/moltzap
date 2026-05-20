@@ -202,7 +202,7 @@ export function subscribeAll(
 ): Effect.Effect<void, PropertyUnavailable, Scope.Scope> {
   return Effect.gen(function* () {
     const sub = yield* handle.notifications
-      .subscribe({})
+      .subscribe()
       .pipe(
         Effect.mapError((e) =>
           unavailable(

@@ -3,7 +3,7 @@
  *
  * Architect plan #606 / Spec #601. See `README.md` in this directory
  * for the pattern overview; see
- * `packages/server/docs/architecture/10-r-channel-capabilities.md`
+ * `packages/server/docs/architecture/r-channel-capabilities.md`
  * for the migration recipe + bug-class explainer.
  */
 

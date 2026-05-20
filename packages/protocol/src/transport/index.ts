@@ -80,11 +80,12 @@ export type {
 } from "./capabilities.js";
 export type {
   FailClosedDefault,
-  SlotDisposition,
+  Forbidden,
+  NoOpNotification,
   IsOptionalSlot,
   FailClosedForbidden,
 } from "./defaults.js";
-export { optionalForbidden, optionalNoOp } from "./defaults.js";
+export { forbidden, noOpNotification } from "./defaults.js";
 export type {
   HandlerSlot,
   HandlerTable,

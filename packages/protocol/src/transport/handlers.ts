@@ -1,22 +1,18 @@
 /**
- * @file Per-kind handler-table type aliases — Spec F G3.
+ * @file Per-kind handler-table type aliases.
  *
  * Three closed catalogs of inbound RPC methods, one per connection
  * kind. Each catalog yields an object type whose keys are the catalog
- * member's `name` and whose values are `HandlerSlot&lt;...&gt;` (a record
- * carrying the per-definition handler effect). REQUIRED slots are
- * structurally required; OPTIONAL slots (those whose definition carries
- * `slotDisposition.optional`) are marked optional via a mapped-type
- * branch.
+ * member's `name` and whose values are either `HandlerSlot&lt;...>` (a
+ * real implementation) OR a sentinel value (`forbidden`,
+ * `noOpNotification`) for OPTIONAL slots that the caller is explicitly
+ * declining to implement.
  *
- * The catalogs are LSP-anchored to the current `rpc-registry.ts`
- * aggregator state (`origin/main` @ `227c398`) — `identityRpcMethods`
- * (11) + `networkRpcMethods` (4) + `taskRpcMethods` (24) +
- * `appRpcMethods` (3) for the Server kind; `taskCallbackMethods` (2)
- * for the TaskMaster kind; the empty set for AgentClient. Any future
- * `rpcMethods` mutation (D1 / D3 additions or deletions) propagates
- * through these type aliases via the `typeof rpcMethods[number]`
- * derivation; no architect re-partitioning needed.
+ * Every protocol slot MUST appear in every handler-table literal —
+ * there is no `?:` field-level optionality. An optional slot is one
+ * whose definition carries `optional: FailClosedDefault`; its value
+ * type widens to `HandlerSlot | Forbidden` (or `NoOpNotification`),
+ * forcing the caller to pick explicitly.
  */
 import type { Context, Effect } from "effect";
 import type { TSchema } from "@sinclair/typebox";
@@ -30,7 +26,7 @@ import type { ParamsOf, ResultOf, RpcDefinition } from "./method.js";
 
 import type { CapabilitiesOf } from "./capabilities.js";
 
-import type { IsOptionalSlot } from "./defaults.js";
+import type { Forbidden, NoOpNotification } from "./defaults.js";
 
 /**
  * Per-definition handler slot. `Ctx` is the dispatch context the
@@ -46,7 +42,7 @@ import type { IsOptionalSlot } from "./defaults.js";
 export interface HandlerSlot<
   D extends RpcDefinition<string, TSchema, TSchema>,
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 > {
   readonly definition: D;
   readonly handle: (
@@ -64,56 +60,49 @@ export interface HandlerSlot<
 type NameOf<D> = D extends RpcDefinition<infer N, TSchema, TSchema> ? N : never;
 
 /**
- * Type-level partition: an object whose keys are the REQUIRED slot
- * names (`NameOf&lt;D&gt;` where D's slotDisposition is absent) and whose
- * values are `HandlerSlot&lt;D, Ctx, Caps&gt;`. Stripping members for which
- * `IsOptionalSlot&lt;D&gt;` is `true` is performed by the `as` re-key clause.
+ * Per-slot value type. REQUIRED slots resolve to plain
+ * `HandlerSlot&lt;D, Ctx, Caps>`. OPTIONAL slots widen to a union with
+ * the matching sentinel — `HandlerSlot | Forbidden` for slots whose
+ * descriptor carries `optional: forbidden`; `HandlerSlot |
+ * NoOpNotification` for the notification variant.
+ *
+ * The caller passes the sentinel value at the handler-table literal
+ * site (`makeServerConnection({ handlers: { "messages/authorize":
+ * forbidden, ... } })`). The dispatcher reads the value at runtime;
+ * sentinel ⇒ synthesize fail-CLOSED, handler ⇒ invoke.
  */
-type RequiredSlots<
-  Defs extends RpcDefinition<string, TSchema, TSchema>,
-  Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
-> = {
-  readonly [D in Defs as IsOptionalSlot<D> extends true
-    ? never
-    : NameOf<D>]: D extends RpcDefinition<string, TSchema, TSchema>
-    ? HandlerSlot<D, Ctx, Caps>
-    : never;
-};
+type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> = D extends {
+  readonly optional: { readonly _tag: "Forbidden" };
+}
+  ? D extends RpcDefinition<string, TSchema, TSchema>
+    ? HandlerSlot<D, Ctx, Caps> | Forbidden
+    : never
+  : D extends { readonly optional: { readonly _tag: "NoOpNotification" } }
+    ? D extends RpcDefinition<string, TSchema, TSchema>
+      ? HandlerSlot<D, Ctx, Caps> | NoOpNotification
+      : never
+    : D extends RpcDefinition<string, TSchema, TSchema>
+      ? HandlerSlot<D, Ctx, Caps>
+      : never;
 
 /**
- * Type-level partition counterpart for OPTIONAL slots. Each slot key
- * is suffixed `?` so consumers may omit it. The dispatcher resolves
- * omitted optional slots to the protocol's baked-in fail-CLOSED default
- * at runtime.
- */
-type OptionalSlots<
-  Defs extends RpcDefinition<string, TSchema, TSchema>,
-  Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
-> = {
-  readonly [D in Defs as IsOptionalSlot<D> extends true
-    ? NameOf<D>
-    : never]?: D extends RpcDefinition<string, TSchema, TSchema>
-    ? HandlerSlot<D, Ctx, Caps>
-    : never;
-};
-
-/**
- * Closed handler-table type generated from a definition union. Required
- * keys must be present (TS2741 if omitted); optional keys may be absent.
+ * Closed handler-table type generated from a definition union. Every
+ * catalog member appears as a structurally-required key; OPTIONAL
+ * slots widen their value type to include the matching sentinel.
  *
  * Type-parameter erasure note: `RpcDefinition` is variant across `Name`
  * — the catalog `typeof rpcMethods[number]` resolves to a union of the
- * concrete `RpcDefinition&lt;"identity/register", ...&gt;` etc. arms; the
- * mapped types preserve each arm's `name` literal so the resulting
+ * concrete `RpcDefinition&lt;"identity/register", ...>` etc. arms; the
+ * mapped type preserves each arm's `name` literal so the resulting
  * table has named keys.
  */
 export type HandlerTable<
   Defs extends RpcDefinition<string, TSchema, TSchema>,
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
-> = RequiredSlots<Defs, Ctx, Caps> & OptionalSlots<Defs, Ctx, Caps>;
+  Caps extends Context.Tag<any, any>,
+> = {
+  readonly [D in Defs as NameOf<D>]: SlotValue<D, Ctx, Caps>;
+};
 
 /**
  * Server-side inbound RPC catalog — every method an agent client may
@@ -134,7 +123,7 @@ export type ServerInboundRpcDefinition = (typeof rpcMethods)[number] &
  */
 export type ServerHandlers<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown> = never,
+  Caps extends Context.Tag<any, any> = never,
 > = HandlerTable<ServerInboundRpcDefinition, Ctx, Caps>;
 
 /**
@@ -152,32 +141,39 @@ export type ServerHandlers<
  */
 export type AgentClientHandlers<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown> = never,
+  Caps extends Context.Tag<any, any> = never,
 > = HandlerTable<never, Ctx, Caps>;
 
 /**
  * `TaskMasterHandlers` — handler table for an agent acting as TM for
- * one or more tasks. LSP-anchored: the catalog is `taskCallbackMethods`
- * — `DispatchAuthorize`, `MessagesAuthorize`. Both slots' impl-staff
- * `defineRpc` calls carry `slotDisposition: optionalForbidden`, which
- * makes both slots OPTIONAL with fail-CLOSED `ForbiddenError` (-32001)
- * defaults. The stub branch leaves them REQUIRED (no slotDisposition
- * yet); impl-staff relaxes.
+ * one or more tasks. Catalog: `taskCallbackMethods` —
+ * `DispatchAuthorize`, `MessagesAuthorize`. Both descriptors carry
+ * `optional: forbidden`, so handler-table literals must name each key
+ * but may supply the `forbidden` sentinel; the dispatcher synthesizes
+ * `-32001 ForbiddenError` for those.
  */
 export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
 
 export type TaskMasterHandlers<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown> = never,
+  Caps extends Context.Tag<any, any> = never,
 > = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 
 /**
+ * Per-slot capability extractor. Distributes over the slot's value
+ * union (`HandlerSlot | Forbidden` / `HandlerSlot | NoOpNotification` /
+ * plain `HandlerSlot`) so sentinel arms contribute `never` and real
+ * `HandlerSlot` arms contribute `CapabilitiesOf&lt;D>`.
+ */
+type SlotCaps<V> = V extends { readonly definition: infer D }
+  ? CapabilitiesOf<D>
+  : never;
+
+/**
  * Capability-union extractor: union of every capability tag referenced
- * across all slots in the handler table. The factory's signature uses
- * this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T&gt;&gt;`.
+ * across all real `HandlerSlot` arms in the table. The factory's
+ * signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
  */
 export type CapsUnionOf<T> = {
-  [K in keyof T]: T[K] extends { readonly definition: infer D }
-    ? CapabilitiesOf<D>
-    : never;
+  [K in keyof T]: SlotCaps<T[K]>;
 }[keyof T];

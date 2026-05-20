@@ -52,18 +52,30 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
+// D1 uses three capability surfaces directly:
+//   - `TmAuthority` — explicit `yield*` in two handlers to force the
+//     dispatcher's lazy `provideServiceEffect` to evaluate the obtain
+//     helper BEFORE the participant-admitted invariant runs (auth-first
+//     guarantee per per-flow doc §"Capability list per new handler").
+//   - `obtainContactPolicyForCreate` — inline-yielded in `taskCreateBody`
+//     ONLY when `invitedAgentIds` is non-empty; the conditional shape
+//     means it can't fit the descriptor's unconditional `capabilities:
+//     [...]` array.
+//   - `ConversationCreateAuthorization` + `obtainConversationCreateAuthorization`
+//     — hand-piped via `Effect.provideServiceEffect` inside
+//     `mintInitialConversation` ONLY when `initialConversation` is
+//     supplied; same conditional rationale.
+// The four other capability tags consumed by D1 service methods
+// (`TmAuthority` + `ConversationInTask` for archive/unarchive/add/remove
+// participant, and `ConversationCreateAuthorization` for the
+// non-conditional `task/conversation/create` path) are auto-provisioned
+// by the dispatcher per the descriptor `capabilities: [...]` arrays in
+// `@moltzap/protocol/task/tasks.ts`.
 import {
   ConversationCreateAuthorization,
-  ConversationInTask,
-  MessageSendPermission,
-  TaskReadAccess,
   TmAuthority,
   obtainContactPolicyForCreate,
   obtainConversationCreateAuthorization,
-  obtainConversationInTask,
-  obtainMessageSendPermission,
-  obtainTaskReadAccess,
-  obtainTmAuthority,
 } from "../../app/capabilities/index.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
@@ -269,11 +281,15 @@ function taskConversationCreateBody(
   return Effect.gen(function* () {
     // Authority FIRST per per-flow doc §"Capability list per new
     // handler" — proves the caller is the TM before any other gate
-    // observes task state. Per-flow doc order matters: a non-TM
-    // caller MUST get `ForbiddenError` (not `ParticipantNotAdmitted`)
-    // regardless of the participant set so they cannot probe task
-    // membership via the participant-admitted invariant.
-    yield* obtainTmAuthority(params.taskId, ctx.agentId);
+    // observes task state. The descriptor declares `[TmAuthority,
+    // ConversationCreateAuthorization]`, but the dispatcher provisions
+    // tags via lazy `provideServiceEffect`. Forcing the yield here
+    // executes `obtainTmAuthority` BEFORE
+    // `requireAgentsAreInTaskParticipants` so a non-TM caller MUST get
+    // `ForbiddenError` rather than `ParticipantNotAdmittedError` (the
+    // participant-admitted invariant is a side-channel for task state
+    // and must stay behind the auth gate).
+    yield* TmAuthority;
     const taskService = yield* TaskServiceTag;
     const conversationService = yield* ConversationServiceTag;
     // Spec D1 invariant: every participant MUST already appear in
@@ -286,28 +302,15 @@ function taskConversationCreateBody(
       params.participants,
     );
     const inferredType = inferConversationType(params.participants);
-    const conversation = yield* conversationService
-      .create({
-        type: inferredType,
-        name: params.name,
-        agentIds: [...params.participants],
-        creatorAgentId: ctx.agentId,
-        mintTask: Effect.succeed({ id: params.taskId }),
-      })
-      .pipe(
-        Effect.provideServiceEffect(
-          TmAuthority,
-          obtainTmAuthority(params.taskId, ctx.agentId),
-        ),
-        Effect.provideServiceEffect(
-          ConversationCreateAuthorization,
-          obtainConversationCreateAuthorization({
-            type: inferredType,
-            agentIds: [...params.participants],
-            creatorAgentId: ctx.agentId,
-          }),
-        ),
-      );
+    // `ConversationCreateAuthorization` is auto-provisioned by the
+    // descriptor's `argsOf` and consumed inside `conversationService.create`.
+    const conversation = yield* conversationService.create({
+      type: inferredType,
+      name: params.name,
+      agentIds: [...params.participants],
+      creatorAgentId: ctx.agentId,
+      mintTask: Effect.succeed({ id: params.taskId }),
+    });
     yield* fanoutTaskConversationCreateDualEmit({
       taskId: params.taskId,
       conversation,
@@ -505,14 +508,7 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        return yield* taskService
-          .get(params.taskId, ctx.agentId)
-          .pipe(
-            Effect.provideServiceEffect(
-              TaskReadAccess,
-              obtainTaskReadAccess(params.taskId, ctx.agentId),
-            ),
-          );
+        return yield* taskService.get(params.taskId, ctx.agentId);
       }).pipe(Effect.withSpan("tasks.get")),
   }),
 
@@ -533,14 +529,10 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const closed = yield* taskService
-          .closeWithLifecycle(params.taskId, ctx.agentId)
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-          );
+        const closed = yield* taskService.closeWithLifecycle(
+          params.taskId,
+          ctx.agentId,
+        );
         for (const conversation of closed.archivedConversations) {
           yield* broadcastNotificationToAgents(
             conversation.participantAgentIds,
@@ -567,26 +559,15 @@ export const taskHandlers: RpcMethodRegistry = [
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
         const agentIds = params.participants.map((p) => p.id as AgentId);
-        const conversation = yield* taskService
-          .createConversation(params.taskId, ctx.agentId, {
+        const conversation = yield* taskService.createConversation(
+          params.taskId,
+          ctx.agentId,
+          {
             type: params.type,
             name: params.name,
             participantAgentIds: agentIds,
-          })
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationCreateAuthorization,
-              obtainConversationCreateAuthorization({
-                type: params.type,
-                agentIds,
-                creatorAgentId: ctx.agentId,
-              }),
-            ),
-          );
+          },
+        );
         return { conversation };
       }).pipe(Effect.withSpan("tasks.createConversation")),
   }),
@@ -595,18 +576,11 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        yield* taskService
-          .closeConversation(params.taskId, ctx.agentId, params.conversationId)
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
-          );
+        yield* taskService.closeConversation(
+          params.taskId,
+          ctx.agentId,
+          params.conversationId,
+        );
         return {};
       }).pipe(Effect.withSpan("tasks.closeConversation")),
   }),
@@ -615,14 +589,11 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const participant = yield* taskService
-          .addParticipant(params.taskId, ctx.agentId, params.agentId)
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-          );
+        const participant = yield* taskService.addParticipant(
+          params.taskId,
+          ctx.agentId,
+          params.agentId,
+        );
         return { participant };
       }).pipe(Effect.withSpan("tasks.addParticipant")),
   }),
@@ -631,14 +602,11 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        yield* taskService
-          .removeParticipant(params.taskId, ctx.agentId, params.agentId)
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-          );
+        yield* taskService.removeParticipant(
+          params.taskId,
+          ctx.agentId,
+          params.agentId,
+        );
         return {};
       }).pipe(Effect.withSpan("tasks.removeParticipant")),
   }),
@@ -647,32 +615,16 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const message = yield* taskService
-          .storeMessage(params.taskId, ctx.agentId, {
+        const message = yield* taskService.storeMessage(
+          params.taskId,
+          ctx.agentId,
+          {
             conversationId: params.conversationId,
             senderAgentId: params.senderAgentId,
             parts: params.parts,
             replyToId: params.replyToId,
-          })
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
-            Effect.provideServiceEffect(
-              MessageSendPermission,
-              obtainMessageSendPermission({
-                taskId: params.taskId,
-                conversationId: params.conversationId,
-                senderAgentId: params.senderAgentId,
-                replyToId: params.replyToId,
-              }),
-            ),
-          );
+          },
+        );
         return { message };
       }).pipe(Effect.withSpan("tasks.storeMessage")),
   }),
@@ -681,21 +633,10 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        return yield* taskService
-          .getMessages(params.taskId, ctx.agentId, {
-            conversationId: params.conversationId,
-            limit: params.limit,
-          })
-          .pipe(
-            Effect.provideServiceEffect(
-              TaskReadAccess,
-              obtainTaskReadAccess(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
-          );
+        return yield* taskService.getMessages(params.taskId, ctx.agentId, {
+          conversationId: params.conversationId,
+          limit: params.limit,
+        });
       }).pipe(Effect.withSpan("tasks.getMessages")),
   }),
 
@@ -703,22 +644,11 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        return yield* taskService
-          .getMessagesSince(params.taskId, ctx.agentId, {
-            conversationId: params.conversationId,
-            sinceSeq: params.sinceSeq,
-            limit: params.limit,
-          })
-          .pipe(
-            Effect.provideServiceEffect(
-              TaskReadAccess,
-              obtainTaskReadAccess(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
-          );
+        return yield* taskService.getMessagesSince(params.taskId, ctx.agentId, {
+          conversationId: params.conversationId,
+          sinceSeq: params.sinceSeq,
+          limit: params.limit,
+        });
       }).pipe(Effect.withSpan("tasks.getMessagesSince")),
   }),
 
@@ -731,14 +661,24 @@ export const taskHandlers: RpcMethodRegistry = [
   // (parent epic #602).
   //
   // Per-flow walkthroughs:
-  //   packages/protocol/docs/architecture/12-task-conversation-family.md
+  //   packages/protocol/docs/architecture/task-conversation-family.md
   //
-  // Capability shape: every TM-gated handler runs
-  // `Effect.provideServiceEffect(TmAuthority, obtainTmAuthority(...))`;
-  // archive / unarchive / participants-add / participants-remove also
-  // run `provideServiceEffect(ConversationInTask, ...)`. The per-flow
-  // doc's "Capability list per new handler" table is the source of
-  // truth for the gates each handler wires.
+  // Capability shape (post-Spec-F #632 typed-dispatcher cutover): every
+  // TM-gated descriptor in `@moltzap/protocol/task/tasks.ts` declares
+  // its capability tags in `capabilities: [...]`. The dispatcher
+  // auto-provisions each tag via lazy `Effect.provideServiceEffect`
+  // per frame from the shared `serverCapabilityProviders` table; handler
+  // bodies just call the service method whose R channel yields the
+  // tag. The per-flow doc's "Capability list per new handler" table
+  // remains the source of truth for which tags each descriptor declares.
+  //
+  // Two handlers explicitly `yield* TmAuthority` before any inline
+  // gate that could leak state (`requireAgentsAreInTaskParticipants`):
+  // `TaskConversationCreate` and `TaskConversationAddParticipant`.
+  // The explicit yield forces the lazy obtain helper to execute up
+  // front so a non-TM caller sees `ForbiddenError` rather than
+  // `ParticipantNotAdmittedError` (auth-first invariant per
+  // codex review N=1).
   // ───────────────────────────────────────────────────────────────────
 
   defineTaskMethod(TaskCreate, {
@@ -803,19 +743,14 @@ export const taskHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        // `TmAuthority` + `ConversationInTask` auto-provisioned per
+        // descriptor `capabilities: [...]`; consumed inside
+        // `archiveTaskConversation`.
         const taskService = yield* TaskServiceTag;
-        const { archivedAt } = yield* taskService
-          .archiveTaskConversation(params.taskId, params.conversationId)
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
-          );
+        const { archivedAt } = yield* taskService.archiveTaskConversation(
+          params.taskId,
+          params.conversationId,
+        );
         yield* fanoutArchiveDualEmit({
           taskId: params.taskId,
           conversationId: params.conversationId,
@@ -830,19 +765,14 @@ export const taskHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        // `TmAuthority` + `ConversationInTask` auto-provisioned per
+        // descriptor `capabilities: [...]`; consumed inside
+        // `unarchiveTaskConversation`.
         const taskService = yield* TaskServiceTag;
-        yield* taskService
-          .unarchiveTaskConversation(params.taskId, params.conversationId)
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
-          );
+        yield* taskService.unarchiveTaskConversation(
+          params.taskId,
+          params.conversationId,
+        );
         const conversationService = yield* ConversationServiceTag;
         const recipientAgentIds = yield* conversationService
           .getParticipantAgentIds(params.conversationId)
@@ -877,28 +807,29 @@ export const taskHandlers: RpcMethodRegistry = [
         // Authority FIRST per per-flow doc §"Capability list per new
         // handler" — a non-TM caller MUST get `ForbiddenError` before
         // the participant-admitted invariant gives them a probe
-        // signal for task membership.
-        yield* obtainTmAuthority(params.taskId, ctx.agentId);
+        // signal for task membership. The descriptor declares
+        // `[TmAuthority, ConversationInTask]`, but the dispatcher
+        // provisions tags via lazy `provideServiceEffect`. The
+        // explicit `yield* TmAuthority` forces the obtain helper to
+        // execute up-front so it lands before
+        // `requireAgentsAreInTaskParticipants` rather than only when
+        // `addTaskConversationParticipant`'s service body yields the
+        // tag.
+        yield* TmAuthority;
         const taskService = yield* TaskServiceTag;
         // Spec D1 participant-admitted invariant — runs AFTER TM auth.
         yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
           params.agentId,
         ]);
-        const { postMutationParticipants } = yield* taskService
-          .addTaskConversationParticipant(
+        // `ConversationInTask` auto-provisioned per descriptor and
+        // consumed inside `addTaskConversationParticipant`. `TmAuthority`
+        // already resolved above (cached in the provisioned context, so
+        // the obtain helper does not re-run).
+        const { postMutationParticipants } =
+          yield* taskService.addTaskConversationParticipant(
             params.taskId,
             params.conversationId,
             params.agentId,
-          )
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
           );
         // Dual-emit. Post-mutation membership drives fan-out so the
         // newcomer receives their own added notification.
@@ -930,22 +861,18 @@ export const taskHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
+        // `TmAuthority` + `ConversationInTask` auto-provisioned per
+        // descriptor `capabilities: [...]`; consumed inside
+        // `removeTaskConversationParticipant`. No inline gate runs
+        // before the service call, so an explicit up-front
+        // `yield* TmAuthority` is unnecessary here (auth runs at the
+        // service body's `yield* TmAuthority`).
         const taskService = yield* TaskServiceTag;
-        const { preMutationParticipants, wasParticipant } = yield* taskService
-          .removeTaskConversationParticipant(
+        const { preMutationParticipants, wasParticipant } =
+          yield* taskService.removeTaskConversationParticipant(
             params.taskId,
             params.conversationId,
             params.agentId,
-          )
-          .pipe(
-            Effect.provideServiceEffect(
-              TmAuthority,
-              obtainTmAuthority(params.taskId, ctx.agentId),
-            ),
-            Effect.provideServiceEffect(
-              ConversationInTask,
-              obtainConversationInTask(params.taskId, params.conversationId),
-            ),
           );
         if (!wasParticipant) {
           // Idempotent no-op: no notifications fire when the agent was
