@@ -1,6 +1,6 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
-import { Effect } from "effect";
+import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   awaitOneNotification,
   startTestServerEffect,
@@ -98,17 +98,7 @@ function messageTextsFor(agent: ConnectedAgent, conversationId: string) {
   );
 }
 
-function isMessageReceivedEvent(event: {
-  readonly definition?: unknown;
-}): boolean {
-  return event.definition === MessageReceivedNotificationDefinition;
-}
-
-function drainMessageReceivedEvents(agent: ConnectedAgent) {
-  return Effect.map(agent.client.drainNotifications, (events) =>
-    events.filter(isMessageReceivedEvent),
-  );
-}
+const NO_ECHO_SETTLE_MS = 500;
 
 function closeAgents(agents: ReadonlyArray<ConnectedAgent>) {
   return Effect.all(
@@ -198,6 +188,17 @@ function senderDoesNotReceiveOwnMessage() {
     const bob = yield* registerAndConnect("bob-noecho");
     const conv = yield* createDm(alice, bob);
 
+    // #645: subscribe Alice BEFORE the send so the Stream observes
+    // any echo frame that would otherwise have arrived in flight.
+    // `Stream.interruptAfter` bounds the collection window.
+    const aliceEcho = yield* alice.client
+      .subscribe(MessageReceivedNotificationDefinition)
+      .pipe(
+        Stream.interruptAfter(Duration.millis(NO_ECHO_SETTLE_MS)),
+        Stream.runCollect,
+        Effect.fork,
+      );
+
     yield* sendText(alice, conv.conversation.id, NO_ECHO_MESSAGE);
     expect(
       yield* awaitOneNotification(
@@ -205,7 +206,8 @@ function senderDoesNotReceiveOwnMessage() {
         MessageReceivedNotificationDefinition,
       ),
     ).toBeDefined();
-    expect(yield* drainMessageReceivedEvents(alice)).toHaveLength(0);
+    const echoEvents = Chunk.toReadonlyArray(yield* Fiber.join(aliceEcho));
+    expect(echoEvents).toHaveLength(0);
     yield* closeAgents([alice, bob]);
   });
 }
@@ -228,9 +230,9 @@ describe("Regression: conversations/create subscribes connected participants", (
   );
 });
 
-describe("Regression: waitForNotification does not double-consume buffered events", () => {
+describe("Regression: subscribe Stream does not double-consume buffered events", () => {
   it(
-    "sequential waitForNotification calls return distinct events, not duplicates",
+    "sequential subscribe pulls return distinct events, not duplicates",
     bufferedNotificationsAreConsumedOnce,
   );
 });

@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- generic-type JSDoc references like `Stream.Stream<T>` use the natural angle-bracket form inside backtick code spans; the lint rule's pre-render check fires false positives on these. Matches the precedent in @moltzap/client's notification/stream.ts. */
+
 /**
  * TestClient — connects to a REAL MoltZap server URL and drives the wire.
  *
@@ -11,7 +13,6 @@
  */
 import {
   Cause,
-  Chunk,
   Context,
   Data,
   Deferred,
@@ -34,13 +35,13 @@ import type {
 import { taskCallbackMethods } from "../../../../rpc-registry.js";
 import {
   decodeRpcResult,
+  type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
 } from "../../../../transport/method.js";
 import {
   decodeNotification,
   decodeRpcRequest,
-  isDecodedNotification,
   type DecodedNotification,
   type DecodedRpcRequest,
 } from "../../../../transport/rpc-groups.js";
@@ -82,6 +83,12 @@ import {
   TransportClosedError,
   TransportIoError,
 } from "../errors.js";
+import {
+  makeTestSubscriberRegistry,
+  subscribe as registrySubscribe,
+  subscribeAll as registrySubscribeAll,
+  type TestSubscriberRegistry,
+} from "./test-subscribers.js";
 
 import { Connect } from "../../../../network/methods.js";
 
@@ -140,18 +147,46 @@ export interface TestClient {
     frame: ResponseFrame,
   ) => Effect.Effect<void, TransportClosedError | TransportIoError>;
 
-  readonly notifications: Stream.Stream<
-    DecodedNotification<AnyNotificationDefinition>,
-    TransportClosedError
-  >;
   readonly captures: CaptureBuffer;
   readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
-  readonly waitForNotification: <D extends AnyNotificationDefinition>(
-    definition: D,
-    timeoutMs?: number,
-  ) => Effect.Effect<DecodedNotification<D>, NotificationWaitError>;
-  readonly drainNotifications: Effect.Effect<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+
+  /**
+   * Typed-payload subscribe (Spec B parity — #645). Returns a Stream of
+   * `DecodedNotification<D>` whose error channel is `TransportClosedError`
+   * and requirement set is `never`. Optional `refinement` is a typed
+   * predicate over the definition's params; the type-guard overload
+   * narrows the Stream's payload to `DecodedNotification<D, R>`.
+   *
+   * Lifecycle: construction is pure (no I/O, no scope); first pull
+   * suspends inside `Stream.async` until dispatch fires `emit.single`;
+   * terminal `TestClient.close` fires `emit.fail(TransportClosedError)`
+   * via the registry's `closeAll`.
+   */
+  readonly subscribe: {
+    <D extends AnyNotificationDefinition>(
+      definition: D,
+      refinement?: (params: NotificationParamsOf<D>) => boolean,
+    ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+    <D extends AnyNotificationDefinition, R extends NotificationParamsOf<D>>(
+      definition: D,
+      refinement: (params: NotificationParamsOf<D>) => params is R,
+    ): Stream.Stream<DecodedNotification<D, R>, TransportClosedError>;
+  };
+
+  /**
+   * Broad-union subscribe (Spec B parity — #645). Returns a Stream of
+   * every inbound notification regardless of definition. Used by
+   * conformance helpers that need to filter on params-shaped predicates
+   * (e.g. presence/changed by agentId+status). Payload narrowing is
+   * intentionally lost; callers wanting typed payloads use `subscribe`.
+   */
+  readonly subscribeAll: (
+    refinement?: (
+      notification: DecodedNotification<AnyNotificationDefinition>,
+    ) => boolean,
+  ) => Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    TransportClosedError
   >;
 
   /**
@@ -206,14 +241,6 @@ export interface TestClient {
   ) => Effect.Effect<ServerRpcParams<D>, ServerRequestWaitError>;
 }
 
-export class NotificationWaitError extends Data.TaggedError(
-  "TestingNotificationWaitError",
-)<{
-  readonly definition: AnyNotificationDefinition;
-  readonly message: string;
-  readonly reason: "closed" | "timeout";
-}> {}
-
 export class ServerRequestWaitError extends Data.TaggedError(
   "TestingServerRequestWaitError",
 )<{
@@ -256,10 +283,6 @@ type PendingMap = Map<
   Deferred.Deferred<ResponseFrame, RpcResponseError | TransportClosedError>
 >;
 
-type NotificationQueue = ReadonlyArray<
-  DecodedNotification<AnyNotificationDefinition>
->;
-
 type AppCallbackHandler = (
   params: unknown,
   ctx: ServerRpcContext,
@@ -292,7 +315,7 @@ interface TestClientRuntime {
   readonly captures: CaptureBuffer;
   readonly pending: PendingMap;
   readonly closeRef: Ref.Ref<CloseState>;
-  readonly notificationQueue: Ref.Ref<NotificationQueue>;
+  readonly subscribers: TestSubscriberRegistry;
   readonly onAppCallbackHandlersRef: Ref.Ref<
     HashMap.HashMap<ServerRpcDefinition, AppCallbackHandler>
   >;
@@ -305,9 +328,7 @@ let requestIdCounter = 0;
 
 const DEFAULT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_MALFORMED_QUIESCENCE_MS = 500;
-const DEFAULT_WAIT_FOR_NOTIFICATION_TIMEOUT_MS = 5_000;
 const HANDLER_DEFECT_MESSAGE_LIMIT = 200;
-const POLL_INTERVAL_MS = 10;
 const REQUEST_ID_RADIX = 36;
 
 const outboundTransportIoError = (cause: unknown): TransportIoError =>
@@ -327,12 +348,6 @@ const inboundFrameSchemaError = (
 function nextRequestId(): string {
   requestIdCounter += 1;
   return `tc-${Date.now().toString(REQUEST_ID_RADIX)}-${requestIdCounter.toString(REQUEST_ID_RADIX)}`;
-}
-
-function appendNotification(
-  notification: DecodedNotification<AnyNotificationDefinition>,
-): (queue: NotificationQueue) => NotificationQueue {
-  return (queue) => [...queue, notification];
 }
 
 function awaitEntryMatches(params: unknown, entry: AwaitEntry): boolean {
@@ -416,13 +431,6 @@ class RuntimeTestClient implements TestClient {
   readonly close?: Effect.Effect<void, never>;
   readonly captures: CaptureBuffer;
   readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
-  readonly notifications: Stream.Stream<
-    DecodedNotification<AnyNotificationDefinition>,
-    TransportClosedError
-  >;
-  readonly drainNotifications: Effect.Effect<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
-  >;
 
   constructor(
     private readonly runtime: TestClientRuntime,
@@ -433,8 +441,6 @@ class RuntimeTestClient implements TestClient {
     }
     this.captures = runtime.captures;
     this.snapshot = runtime.captures.snapshot;
-    this.notifications = makeNotificationsStream(runtime);
-    this.drainNotifications = Ref.getAndSet(runtime.notificationQueue, []);
   }
 
   sendRpc<D extends AnyRpcDefinition>(
@@ -464,13 +470,35 @@ class RuntimeTestClient implements TestClient {
     return writeOutboundFrame(this.runtime, frame);
   }
 
-  waitForNotification<D extends AnyNotificationDefinition>(
+  subscribe<D extends AnyNotificationDefinition>(
     definition: D,
-    timeoutMs?: number,
-  ): Effect.Effect<DecodedNotification<D>, NotificationWaitError> {
-    const resolvedTimeoutMs =
-      timeoutMs ?? DEFAULT_WAIT_FOR_NOTIFICATION_TIMEOUT_MS;
-    return waitForNotification(this.runtime, definition, resolvedTimeoutMs);
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+  subscribe<
+    D extends AnyNotificationDefinition,
+    R extends NotificationParamsOf<D>,
+  >(
+    definition: D,
+    refinement: (params: NotificationParamsOf<D>) => params is R,
+  ): Stream.Stream<DecodedNotification<D, R>, TransportClosedError>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, TransportClosedError> {
+    return registrySubscribe(this.runtime.subscribers, definition, refinement);
+  }
+
+  subscribeAll(
+    // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
+    refinement?: (
+      notification: DecodedNotification<AnyNotificationDefinition>,
+    ) => boolean,
+  ): Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    TransportClosedError
+  > {
+    return registrySubscribeAll(this.runtime.subscribers, refinement);
   }
 
   onAppCallback<D extends ServerRpcDefinition>(
@@ -525,7 +553,7 @@ function acquireTestClientRuntime(
       captures,
       pending: new Map(),
       closeRef,
-      notificationQueue: yield* Ref.make<NotificationQueue>([]),
+      subscribers: yield* makeTestSubscriberRegistry(),
       onAppCallbackHandlersRef: yield* Ref.make(
         HashMap.empty<ServerRpcDefinition, AppCallbackHandler>(),
       ),
@@ -544,6 +572,14 @@ function openTestClientRuntime(
   return Effect.gen(function* () {
     const runtime = yield* acquireTestClientRuntime(config);
     yield* startSocketReader(runtime);
+    // Plan §R3: register `subscribers.closeAll` AFTER the socket reader
+    // fork. Scope finalizers fire LIFO, so this `closeAll` runs BEFORE
+    // the socket reader's `forkScoped` interruption finalizer — every
+    // in-flight `Stream.async` consumer sees a typed
+    // `TransportClosedError` via `emit.fail` before the transport tears
+    // down. Mirrors production's `composeServiceTeardown` ordering
+    // between `MoltZapService.scope` and `MoltZapWsClient.close()`.
+    yield* Effect.addFinalizer(() => runtime.subscribers.closeAll);
     if (config.autoConnect !== false) {
       yield* autoConnect(runtime);
     }
@@ -706,18 +742,8 @@ function handleNotificationFrame(
   return decodeNotification(notificationDefinitions, frame).pipe(
     Effect.matchEffect({
       onFailure: () => Effect.void,
-      onSuccess: (notification) => queueNotification(runtime, notification),
+      onSuccess: (notification) => runtime.subscribers.dispatch(notification),
     }),
-  );
-}
-
-function queueNotification(
-  runtime: TestClientRuntime,
-  notification: DecodedNotification<AnyNotificationDefinition>,
-): Effect.Effect<void> {
-  return Ref.update(
-    runtime.notificationQueue,
-    appendNotification(notification),
   );
 }
 
@@ -1001,107 +1027,6 @@ function awaitMalformedResponse(
           : Effect.fail(err),
     }),
   );
-}
-
-function takeNotification<D extends AnyNotificationDefinition>(
-  runtime: TestClientRuntime,
-  definition: D,
-): Effect.Effect<DecodedNotification<D> | null> {
-  return Ref.modify(runtime.notificationQueue, (notifications) => {
-    for (const [idx, notification] of notifications.entries()) {
-      if (!isDecodedNotification(definition, notification)) continue;
-      return [
-        notification,
-        [...notifications.slice(0, idx), ...notifications.slice(idx + 1)],
-      ];
-    }
-    return [null, notifications];
-  });
-}
-
-function waitForNotification<D extends AnyNotificationDefinition>(
-  runtime: TestClientRuntime,
-  definition: D,
-  timeoutMs = DEFAULT_WAIT_FOR_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<DecodedNotification<D>, NotificationWaitError> {
-  return pollNotification(runtime, definition).pipe(
-    Effect.timeoutFail({
-      duration: Duration.millis(timeoutMs),
-      onTimeout: () =>
-        new NotificationWaitError({
-          definition,
-          message: `Timeout waiting for notification: ${definition.name}`,
-          reason: "timeout",
-        }),
-    }),
-  );
-}
-
-function pollNotification<D extends AnyNotificationDefinition>(
-  runtime: TestClientRuntime,
-  definition: D,
-): Effect.Effect<DecodedNotification<D>, NotificationWaitError> {
-  return Effect.gen(function* () {
-    while (true) {
-      const notification = yield* takeNotification(runtime, definition);
-      if (notification !== null) return notification;
-      yield* failIfClosedWhileWaiting(runtime, definition);
-      yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
-    }
-  });
-}
-
-function failIfClosedWhileWaiting(
-  runtime: TestClientRuntime,
-  definition: AnyNotificationDefinition,
-): Effect.Effect<void, NotificationWaitError> {
-  return Effect.gen(function* () {
-    const state = yield* Ref.get(runtime.closeRef);
-    if (!state.closed) return;
-    return yield* Effect.fail(
-      new NotificationWaitError({
-        definition,
-        message: `Connection closed while waiting for notification: ${definition.name}`,
-        reason: "closed",
-      }),
-    );
-  });
-}
-
-function makeNotificationsStream(
-  runtime: TestClientRuntime,
-): Stream.Stream<
-  DecodedNotification<AnyNotificationDefinition>,
-  TransportClosedError
-> {
-  return Stream.repeatEffectChunk(
-    pullNotifications(runtime).pipe(Effect.map(Chunk.fromIterable)),
-  );
-}
-
-function pullNotifications(
-  runtime: TestClientRuntime,
-): Effect.Effect<
-  ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>,
-  TransportClosedError
-> {
-  return Effect.gen(function* () {
-    while (true) {
-      const state = yield* Ref.get(runtime.closeRef);
-      if (state.closed) return yield* Effect.fail(socketClosedError(state));
-      const queue = yield* Ref.getAndSet(runtime.notificationQueue, []);
-      if (queue.length > 0) return queue;
-      yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
-    }
-  });
-}
-
-function socketClosedError(state: CloseState): TransportClosedError {
-  return new TransportClosedError({
-    direction: "inbound",
-    code: state.code,
-    reason: state.reason,
-  });
 }
 
 function registerAppCallbackHandler(
