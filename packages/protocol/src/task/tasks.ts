@@ -891,7 +891,7 @@ export const TaskConversationRemoveParticipant = defineRpc({
 // entry in the dispatch brief is stale relative to the spec body —
 // `TaskConversationUpdate` is explicitly NOT included per Goal 1).
 //
-// Recipient fan-out (impl-staff target per docs/architecture/12):
+// Recipient fan-out:
 //   - `created` → initial `participants` list
 //   - `archived` / `unarchived` → post-mutation `conversation_participants`
 //   - `participants/added` → post-mutation membership (newcomer included)

@@ -69,9 +69,8 @@ export type ConversationActor = {
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
-   * mirrors `@moltzap/server-core/test-utils → connectTestClient` per
-   * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
-   * → §3 "Historical-buffer bridge for integration tests"`.
+   * mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
+   * `makeNotificationBuffer` JSDoc below covers the design).
    */
   readonly notifications: NotificationBuffer;
 };
@@ -249,9 +248,7 @@ export function deliveryViolation(
  * that arrived between the triggering RPC and the wait — the legacy
  * polling semantic preserved without resurrecting the deleted
  * per-definition dedup ring. Mirrors
- * `@moltzap/server-core/test-utils → awaitOneNotification` per
- * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
- * → §3 "Historical-buffer bridge for integration tests"`.
+ * `@moltzap/server-core/test-utils → awaitOneNotification`.
  *
  * Surfaces a single string message on either timeout or stream
  * exhaustion so call sites preserve the legacy `e.message`-style error

@@ -24,8 +24,11 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 _Function_
 
 ```ts
-    }
-  }).pipe(Effect.withSpan("assertConversationRejectsMessages"))
+
+export function acquireClient(
+  ctx: ConformanceRunContext,
+  name: string,
+): Effect.Effect<ConversationActor, string, Scope.Scope>
 ```
 
 ### [`acquireConversation`](./_helpers.ts#L556)
@@ -33,7 +36,12 @@ _Function_
 _Function_
 
 ```ts
-    return
+
+export function acquireConversation(
+  ctx: ConformanceRunContext,
+  n: number,
+  namePrefix: string,
+): Effect.Effect<ConversationFixture, string, Scope.Scope>
 ```
 
 ### [`acquirePropertyConversation`](./_helpers.ts#L288)
@@ -41,7 +49,12 @@ _Function_
 _Function_
 
 ```ts
-export function fixtureN(requested: number): number
+
+export function acquirePropertyConversation(
+  ctx: ConformanceRunContext,
+  propertyName: string,
+  namePrefix: string,
+): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
 ```
 
 ### [`agent`](./_helpers.ts#L61)
@@ -65,7 +78,11 @@ export type AgentIdValue = Static<typeof AgentId>;
 _Function_
 
 ```ts
-    parts: [
+
+export function archiveConversation(
+  actor: ConversationActor,
+  conversationId: ConversationIdValue,
+)
 ```
 
 ### [`assertConversationRejectsMessages`](./_helpers.ts#L491)
@@ -73,8 +90,12 @@ _Function_
 _Function_
 
 ```ts
-    }
-  }).pipe(Effect.withSpan("waitForUnarchivedEvent"))
+
+export function assertConversationRejectsMessages(
+  actor: ConversationActor,
+  conversationId: ConversationIdValue,
+  propertyName: string,
+  expectedError:
 ```
 
 ### [`awaitOneNotification`](./_helpers.ts#L256)
@@ -82,9 +103,6 @@ _Function_
 _Function_
 
 ```ts
- * Surfaces a single string message on either timeout or stream
- * exhaustion so call sites preserve the legacy `e.message`-style error
- * mapper without re-deriving a tagged error type per definition.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
@@ -136,9 +154,8 @@ export type ConversationActor = {
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
-   * mirrors `@moltzap/server-core/test-utils → connectTestClient` per
-   * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
-   * → §3 "Historical-buffer bridge for integration tests"`.
+   * mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
+   * `makeNotificationBuffer` JSDoc below covers the design).
    */
   readonly notifications: NotificationBuffer;
 };
@@ -201,7 +218,7 @@ export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 _Function_
 
 ```ts
-  readonly conversationId?: unknown
+  readonly by?: unknown
 ```
 
 ### [`firstParticipant`](./_helpers.ts#L298)
@@ -209,7 +226,11 @@ _Function_
 _Function_
 
 ```ts
-    Effect.mapError((e)
+
+export function firstParticipant(
+  fixture: ConversationFixture,
+  propertyName: string,
+): Effect.Effect<ConversationActor, PropertyInvariantViolation>
 ```
 
 ### [`fixtureN`](./_helpers.ts#L284)
@@ -217,8 +238,8 @@ _Function_
 _Function_
 
 ```ts
-    ),
-  )
+
+export function fixtureN(requested: number): number
 ```
 
 ### [`NotificationBuffer`](./_helpers.ts#L92)
@@ -226,12 +247,9 @@ _Function_
 _Interface_
 
 ```ts
-export interface NotificationBuffer {
   readonly snapshot: Ref.Ref<
     ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
   >;
-  readonly closed: Ref.Ref<boolean>;
-}
 ```
 
 Historical notification buffer used by `awaitOneNotification`. Holds
@@ -251,7 +269,7 @@ a missing notification as a timeout.
 _Property_
 
 ```ts
-  readonly notifications: NotificationBuffer;
+};
 ```
 
 Per-client historical notification buffer (#645): the consolidated
@@ -404,8 +422,12 @@ export function registerTaskLeave(ctx: ConformanceRunContext): void
 _Function_
 
 ```ts
-      )
-    : Effect.succeed(participant)
+
+export function sendText(
+  actor: ConversationActor,
+  conversationId: ConversationIdValue,
+  text: string,
+)
 ```
 
 ### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L522)
@@ -435,8 +457,11 @@ Spec D1 additions append to the delivery subset.
 _Function_
 
 ```ts
-    name,
-  })
+
+export function unarchiveConversation(
+  actor: ConversationActor,
+  conversationId: ConversationIdValue,
+)
 ```
 
 ### [`updateConversationName`](./_helpers.ts#L328)
@@ -444,6 +469,11 @@ _Function_
 _Function_
 
 ```ts
+
+export function updateConversationName(
+  actor: ConversationActor,
+  conversationId: ConversationIdValue,
+  name: string,
 )
 ```
 
@@ -452,8 +482,13 @@ _Function_
 _Function_
 
 ```ts
-    }
-  }).pipe(Effect.withSpan("waitForMessageReceivedNotification"))
+
+export function waitForArchivedEvent(
+  observer: ConversationActor,
+  conversationId: ConversationIdValue,
+  byAgentId: AgentIdValue,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
 ### [`waitForConversationCreatedNotification`](./_helpers.ts#L346)
@@ -461,7 +496,12 @@ _Function_
 _Function_
 
 ```ts
-)
+
+export function waitForConversationCreatedNotification(
+  observer: ConversationActor,
+  conversationId: ConversationIdValue,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
 ### [`waitForConversationUpdatedNotification`](./_helpers.ts#L373)
@@ -469,8 +509,13 @@ _Function_
 _Function_
 
 ```ts
-    }
-  }).pipe(Effect.withSpan("waitForConversationCreatedNotification"))
+
+export function waitForConversationUpdatedNotification(
+  observer: ConversationActor,
+  conversationId: ConversationIdValue,
+  name: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
 ### [`waitForMessageReceivedNotification`](./_helpers.ts#L404)
@@ -478,8 +523,12 @@ _Function_
 _Function_
 
 ```ts
-    }
-  }).pipe(Effect.withSpan("waitForConversationUpdatedNotification"))
+
+export function waitForMessageReceivedNotification(
+  observer: ConversationActor,
+  conversationId: ConversationIdValue,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
 ### [`waitForUnarchivedEvent`](./_helpers.ts#L463)
@@ -487,8 +536,13 @@ _Function_
 _Function_
 
 ```ts
-    }
-  }).pipe(Effect.withSpan("waitForArchivedEvent"))
+
+export function waitForUnarchivedEvent(
+  observer: ConversationActor,
+  conversationId: ConversationIdValue,
+  byAgentId: AgentIdValue,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
 ## Files

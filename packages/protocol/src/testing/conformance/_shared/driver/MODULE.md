@@ -81,7 +81,6 @@ and awaits port release.
 _Function_
 
 ```ts
-export function makeTestSubscriberRegistry(): Effect.Effect<
   TestSubscriberRegistry,
   never
 >
@@ -153,7 +152,6 @@ Outbound result type for an app-callback method handler.
 _Function_
 
 ```ts
-export function subscribe<D extends AnyNotificationDefinition>(
   registry: TestSubscriberRegistry,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>)
@@ -183,7 +181,6 @@ Lifecycle parity with production (`packages/client/src/notification/stream.ts`):
 _Function_
 
 ```ts
-export function subscribeAll(
   registry: TestSubscriberRegistry,
   refinement?: (
     notification: DecodedNotification<AnyNotificationDefinition>,
@@ -315,16 +312,9 @@ below the identity layer.
 _Interface_
 
 ```ts
-export interface TestSubscriberRegistry {
   readonly register: <D extends AnyNotificationDefinition>(
     definition: D,
     refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
-    callbacks: {
-      readonly onFrame: (
-        frame: DecodedNotification<D>,
-      ) => Effect.Effect<void, never>;
-      readonly onClose: SubscriberCloseCallback;
-    },
 ```
 
 Subscriber registry. One instance per `TestClientRuntime`.
@@ -346,10 +336,7 @@ Subscriber registry. One instance per `TestClientRuntime`.
 _Interface_
 
 ```ts
-export interface TestSubscriptionHandle {
   readonly id: string;
-  readonly unregister: Effect.Effect<void, never>;
-}
 ```
 
 Handle returned by `register` / `registerAll`. `unregister` is

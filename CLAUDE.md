@@ -76,10 +76,12 @@ pinned to a specific commit.
 
 ### Cross-package DRY
 
-If a flow lives canonically in another package, **link to it**, don't
-re-explain it. Example: the dispatch lease FSM lives in `server/06-lease-lifecycle.md`;
-channel docs that touch the lease should link there and describe only
-their channel-local concerns (projection logic, local state).
+If a flow lives canonically in another package, **link by symbol
+name**, don't re-explain it. Example: the dispatch lease FSM lives
+canonically in `@moltzap/server-core` on `LeaseRegistry`
+(`packages/server/src/app/lease-registry.ts → LeaseRegistry`); channel
+JSDoc that touches the lease should link there and describe only its
+channel-local concerns (projection logic, local state).
 
 ### Mermaid diagrams
 

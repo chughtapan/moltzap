@@ -5,11 +5,9 @@ _`packages/server/src/app/capabilities`_
 ## Purpose
 
 R-channel capability tokens for privileged service methods.
-
-Architect plan #606 / Spec #601. See `README.md` in this directory
-for the pattern overview; see
-`packages/server/docs/architecture/r-channel-capabilities.md`
-for the migration recipe + bug-class explainer.
+See `README.md` in this directory for the pattern overview and
+`packages/server/src/app/capability-providers.ts` (file-level
+JSDoc) for the migration recipe.
 
 ## Public surface
 

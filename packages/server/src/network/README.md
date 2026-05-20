@@ -1,26 +1,32 @@
 # network/
 
-Connect, presence, app-TM registry, agent-endpoint resolution, outbound `send` and `broadcast`.
+Presence, ping, app-TM registry, agent-endpoint resolution, outbound
+`send` and `broadcast`.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels, transport, identity |
+| Imports FROM | kernels (db, crypto, runtime), transport, identity |
 | Imports TO   | task, app |
 
 ## Files
 
-Already in tree (kept at `network/` root):
-- `agent-endpoint-resolver.ts`
-- `app-tm-registry.ts`
-- `network-send.ts`
+- `agent-endpoint-resolver.ts` — `AgentId → HashSet<ConnId>` multimap
+  kept fresh by `network/connect` success and the disconnect
+  finalizer.
+- `app-tm-registry.ts` — `tm_endpoint_address` → app mapping; seeds
+  default DM / Group TMs at boot.
+- `network-send.ts` — `NetworkSendService` (the sole outbound
+  routing surface; consumes the resolver + connection manager).
+- `handlers/ping.handlers.ts` — `network/ping` RPC handler.
+- `services/presence.service.ts` — `PresenceService` (online /
+  offline / away transitions + subscriber set).
+- `services/presence-event-sink.ts` —
+  `createConnectionFanOutPresenceEventSink` (the canonical
+  fan-out pattern; JSDoc shows the flow).
 
-Subdirs:
-- `handlers/` — `ping.handlers.ts` (today); auth.handlers.ts moves OUT to `identity/handlers/` in 2A.2.
-- `services/` — `presence.service.ts`, `presence-event-sink.ts` move IN from `services/` in 2A.2.
-
-## Handler shape (post-2A.0)
+## Handler shape
 
 ```ts
 defineNetworkMethod(Ping, {

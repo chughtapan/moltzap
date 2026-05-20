@@ -11,8 +11,8 @@ the capability via an `obtain*` smart constructor. The compiler enforces the
 today's runtime check exactly once per request and supplies the typed token
 + payload for re-use inside the body.
 
-See `packages/server/docs/architecture/r-channel-capabilities.md` for the
-pattern, migration recipe, and bug classes it catches.
+See `packages/server/src/app/capability-providers.ts` (file-level
+JSDoc) for the pattern, migration recipe, and bug classes it catches.
 
 ### Shapes
 
