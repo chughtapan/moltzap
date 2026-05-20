@@ -1,11 +1,20 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
 export default [
-  ...packageEslintConfig({ maxLines: 1200 }),
+  ...packageEslintConfig({
+    maxLines: 1200,
+    customJsDocTags: [
+      "failure",
+      "error",
+      "relatedNotification",
+      "triggeredBy",
+      "file",
+    ],
+  }),
   {
     // Documentation generators are byte-level scanners and TypeDoc
-    // walkers. The strict production-code complexity / nesting /
-    // line-length budgets are wrong for this code; relax them here.
+    // walkers. The strict production-code complexity / nesting
+    // budgets are wrong for this code; relax those only.
     files: ["scripts/**/*.ts"],
     rules: {
       complexity: "off",
@@ -23,10 +32,9 @@ export default [
       "sonarjs/no-nested-functions": "off",
       "sonarjs/no-nested-template-literals": "off",
       "sonarjs/too-many-break-or-continue-in-loop": "off",
-      "agent-code-guard/either-discriminant": "off",
-      "agent-code-guard/no-effect-error-coalescing": "off",
+      // Script entry points are short-lived processes; traces add
+      // noise without value.
       "agent-code-guard/require-span-on-exported-effect": "off",
-      "jsdoc/text-escaping": "off",
     },
   },
 ];

@@ -16,6 +16,9 @@
     "excludePrivate": true,
     "readme": "none",
     "skipErrorChecking": true,
+    "outputs": [
+      { "name": "json", "path": "node_modules/.cache/typedoc-pkg.json" }
+    ],
     "blockTags": [
       "@file",
       "@failure",
@@ -29,11 +32,14 @@
       "@remarks",
       "@internal",
       "@since",
-      "@module"
+      "@module",
+      "@relatedNotification",
+      "@triggeredBy"
     ]
   },
-  "json": "node_modules/.cache/typedoc.json",
-  "emit": "none",
+  "outputs": [
+    { "name": "json", "path": "node_modules/.cache/typedoc.json" }
+  ],
   "readme": "none",
   "skipErrorChecking": true,
   "logLevel": "Warn"

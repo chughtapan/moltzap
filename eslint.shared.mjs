@@ -78,6 +78,16 @@ const documentationRules = {
 
 export function packageEslintConfig(options = {}) {
   const strictRules = makeStrictRules(options);
+  const customTags = options.customJsDocTags ?? [];
+  const tagRules =
+    customTags.length === 0
+      ? {}
+      : {
+          "jsdoc/check-tag-names": [
+            "error",
+            { definedTags: customTags },
+          ],
+        };
   return [
     packageIgnores,
     {
@@ -86,7 +96,7 @@ export function packageEslintConfig(options = {}) {
       languageOptions: tsLanguageOptions,
       plugins: guard.configs.strict.plugins,
       settings: guard.configs.strict.settings,
-      rules: strictRules,
+      rules: { ...strictRules, ...tagRules },
     },
     makeTestSupportRules(strictRules),
     integrationTestRules,

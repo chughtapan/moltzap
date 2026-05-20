@@ -135,6 +135,10 @@ export function conversationSchema(): typeof ConversationSchema {
   return ConversationSchema;
 }
 
+/**
+ * Create a new group conversation with participants.
+ * @relatedNotification conversations/created
+ */
 export const ConversationsCreate = defineRpc({
   name: "conversations/create",
   params: Type.Object(
@@ -172,6 +176,9 @@ export const ConversationsCreate = defineRpc({
   ] as const,
 });
 
+/**
+ * List your conversations with message previews and unread counts.
+ */
 export const ConversationsList = defineRpc({
   name: "conversations/list",
   params: Type.Object(
@@ -191,6 +198,9 @@ export const ConversationsList = defineRpc({
   ),
 });
 
+/**
+ * Get conversation details including the full participant list.
+ */
 export const ConversationsGet = defineRpc({
   name: "conversations/get",
   params: Type.Object(
@@ -220,6 +230,10 @@ export const ConversationsGet = defineRpc({
   ] as const,
 });
 
+/**
+ * Update conversation metadata (name).
+ * @relatedNotification conversations/updated
+ */
 export const ConversationsUpdate = defineRpc({
   name: "conversations/update",
   params: Type.Object(
@@ -235,6 +249,9 @@ export const ConversationsUpdate = defineRpc({
   ),
 });
 
+/**
+ * Mute notifications for a conversation, optionally until a specific time.
+ */
 export const ConversationsMute = defineRpc({
   name: "conversations/mute",
   params: Type.Object(
@@ -247,6 +264,9 @@ export const ConversationsMute = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
+/**
+ * Unmute notifications for a conversation.
+ */
 export const ConversationsUnmute = defineRpc({
   name: "conversations/unmute",
   params: Type.Object(
@@ -256,6 +276,11 @@ export const ConversationsUnmute = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
+/**
+ * Add a participant to a group conversation. Requires admin or owner role.
+ * @error ForbiddenError when Caller is not admin or owner
+ * @error ConversationFullError when Max participants reached
+ */
 export const ConversationsAddParticipant = defineRpc({
   name: "conversations/addParticipant",
   params: Type.Object(
@@ -292,6 +317,9 @@ export const ConversationsAddParticipant = defineRpc({
   ] as const,
 });
 
+/**
+ * Remove a participant from a group conversation.
+ */
 export const ConversationsRemoveParticipant = defineRpc({
   name: "conversations/removeParticipant",
   params: Type.Object(
@@ -304,6 +332,9 @@ export const ConversationsRemoveParticipant = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
+/**
+ * Leave a group conversation.
+ */
 export const ConversationsLeave = defineRpc({
   name: "conversations/leave",
   params: Type.Object(
@@ -313,6 +344,12 @@ export const ConversationsLeave = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
+/**
+ * Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.
+ * @error ForbiddenError when Caller is not owner or admin
+ * @error ConflictError when Conversation is attached to an active app session; close the session to archive
+ * @relatedNotification conversations/archived
+ */
 export const ConversationsArchive = defineRpc({
   name: "conversations/archive",
   params: Type.Object(
@@ -322,6 +359,11 @@ export const ConversationsArchive = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
+/**
+ * Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.
+ * @error ForbiddenError when Caller is not owner or admin
+ * @relatedNotification conversations/unarchived
+ */
 export const ConversationsUnarchive = defineRpc({
   name: "conversations/unarchive",
   params: Type.Object(
@@ -409,21 +451,40 @@ export type ParticipantsRemovedNotification = Static<
   typeof ParticipantsRemovedNotificationSchema
 >;
 
+/**
+ * Pushed when you are added to a new conversation.
+ * @triggeredBy conversations/create
+ * @triggeredBy messages/send
+ */
 export const ConversationCreatedNotificationDefinition = defineNotification({
   name: "conversations/created",
   params: ConversationCreatedNotificationSchema,
 });
 
+/**
+ * Pushed when a conversation's metadata changes (name, participants).
+ * @triggeredBy conversations/update
+ * @triggeredBy conversations/addParticipant
+ * @triggeredBy conversations/removeParticipant
+ */
 export const ConversationUpdatedNotificationDefinition = defineNotification({
   name: "conversations/updated",
   params: ConversationUpdatedNotificationSchema,
 });
 
+/**
+ * Pushed when a conversation is archived (explicit archive call or app-session close).
+ * @triggeredBy conversations/archive
+ */
 export const ConversationArchivedNotificationDefinition = defineNotification({
   name: "conversations/archived",
   params: ConversationArchivedNotificationSchema,
 });
 
+/**
+ * Pushed when a conversation is unarchived.
+ * @triggeredBy conversations/unarchive
+ */
 export const ConversationUnarchivedNotificationDefinition = defineNotification({
   name: "conversations/unarchived",
   params: ConversationUnarchivedNotificationSchema,

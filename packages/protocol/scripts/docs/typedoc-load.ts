@@ -8,7 +8,7 @@
  * an `Effect` so callers compose with the rest of the Effect-based
  * pipeline.
  */
-import { FileSystem } from "@effect/platform";
+import { FileSystem, type PlatformError } from "@effect/platform";
 import { Data, Effect } from "effect";
 import { dirname } from "node:path";
 import { ReflectionKind } from "typedoc";
@@ -57,9 +57,6 @@ export class TypeDocCacheMalformedError extends Data.TaggedError(
   "TypeDocCacheMalformedError",
 )<{ readonly path: string; readonly reason: string }> {}
 
-export class TypeDocCacheReadError extends Data.TaggedError(
-  "TypeDocCacheReadError",
-)<{ readonly path: string; readonly cause: unknown }> {}
 
 interface RawComment {
   readonly summary?: ReadonlyArray<{ readonly kind?: string; readonly text?: string }>;
@@ -107,8 +104,8 @@ export const loadTypeDoc = (
 ): Effect.Effect<
   TypeDocCache,
   | TypeDocCacheMissingError
-  | TypeDocCacheReadError
-  | TypeDocCacheMalformedError,
+  | TypeDocCacheMalformedError
+  | PlatformError.PlatformError,
   FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
@@ -121,11 +118,7 @@ export const loadTypeDoc = (
         new TypeDocCacheMissingError({ path: cachePath }),
       );
     }
-    const text = yield* fs.readFileString(cachePath).pipe(
-      Effect.mapError(
-        (cause) => new TypeDocCacheReadError({ path: cachePath, cause }),
-      ),
-    );
+    const text = yield* fs.readFileString(cachePath);
     const raw = yield* Effect.try({
       try: () => JSON.parse(text) as RawReflection,
       catch: (e) =>

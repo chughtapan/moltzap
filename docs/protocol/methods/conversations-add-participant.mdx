@@ -1,6 +1,6 @@
 ---
 title: "conversations/addParticipant"
-description: "Add a participant to a group conversation. Requires admin or owner role."
+description: "Add a participant to a group conversation."
 ---
 
 # conversations/addParticipant
@@ -25,7 +25,7 @@ Add a participant to a group conversation. Requires admin or owner role.
 
 ## Errors
 
-| Code | Name | When |
-|------|------|------|
-| -32001 | Forbidden | Caller is not admin or owner |
-| -32007 | ConversationFull | Max participants reached |
+| Type | When |
+|------|------|
+| `ForbiddenError` | Caller is not admin or owner |
+| `ConversationFullError` | Max participants reached |

@@ -123,7 +123,7 @@ sequenceDiagram
     alt claude-code
         Channel->>Host: toolErrorResult LeaseAlreadyConsumed
     else openclaw
-        Channel->>Host: onLeaseConsumed callback, deliver returns false
+        Channel->>Host: onLeaseConsumed callback; deliver returns false
     else nanoclaw
         Channel->>Host: Effect raises typed LeaseAlreadyConsumed
     end

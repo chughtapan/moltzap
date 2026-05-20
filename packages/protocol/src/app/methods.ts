@@ -125,6 +125,9 @@ export function validateAppManifest(
 
 // ── apps/* RPCs ──────────────────────────────────────────────────────
 
+/**
+ * Register an app manifest for the current connection.
+ */
 export const AppsRegister = defineRpc({
   name: "apps/register",
   params: Type.Object(

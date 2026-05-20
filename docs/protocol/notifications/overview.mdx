@@ -28,6 +28,6 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 | [`task/conversation/unarchived`](/protocol/notifications/task-conversation-unarchived) | Pushed as the `task/conversation/unarchived` notification. |
 | [`task/conversation/participants/added`](/protocol/notifications/task-conversation-participants-added) | Pushed as the `task/conversation/participants/added` notification. |
 | [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed) | Pushed as the `task/conversation/participants/removed` notification. |
-| [`dispatch/release`](/protocol/notifications/dispatch-release) | Pushed as the `dispatch/release` notification. |
-| [`dispatches/consumed`](/protocol/notifications/dispatches-consumed) | Pushed as the `dispatches/consumed` notification. |
-| [`dispatches/expired`](/protocol/notifications/dispatches-expired) | Pushed as the `dispatches/expired` notification. |
+| [`dispatch/release`](/protocol/notifications/dispatch-release) | Server → recipient verdict notification. |
+| [`dispatches/consumed`](/protocol/notifications/dispatches-consumed) | Server → moderator notification: a lease was consumed by a successful `messages/send`. |
+| [`dispatches/expired`](/protocol/notifications/dispatches-expired) | Server → moderator notification: a granted lease aged out via post- grant TTL without being consumed. |
