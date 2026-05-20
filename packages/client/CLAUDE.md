@@ -32,7 +32,7 @@ Exports from `@moltzap/client/channel-base`:
   parameterized formatters (`"json-header"` for openclaw, `"xml-system-reminder"`
   for nanoclaw).
 
-Detail doc: `docs/architecture/08-channel-base.md`.
+Detail doc: `docs/architecture/channel-base.md`.
 
 ## Commands
 

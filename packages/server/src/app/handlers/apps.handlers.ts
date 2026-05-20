@@ -17,7 +17,7 @@ export const appHandlers: RpcMethodRegistry = [
     // verbs via `sendRpcToClient` against this socket. If the client
     // constructed its `MoltZapWsClient` without a handler-table entry
     // for `dispatch/authorize`, the fail-CLOSED default slot replies
-    // deny (per Spec F R2 / `optionalForbidden`) — same posture as a
+    // deny (the descriptor's `optional: forbidden` default) — same posture as a
     // crashed in-process handler. Server-side in-process registration
     // continues to use `coreApp.registerApp(manifest)` directly; that
     // path bypasses this RPC entirely.

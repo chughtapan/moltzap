@@ -14,13 +14,13 @@ packages/protocol/src/
 │
 ├── transport/              # Wire-frame layer (no domain semantics)
 │   ├── wire.ts                # Ajv, JSON-RPC frame schemas, encoders, decodeFrame
-│   ├── method.ts              # defineRpc, defineNotification, RpcDefinition (Spec F slotDisposition / capabilities)
+│   ├── method.ts              # defineRpc, defineNotification, RpcDefinition (optional + capabilities)
 │   ├── wire-errors.ts         # Tagged-error registry, JSON_RPC_RESERVED_CODES
 │   ├── rpc-errors.ts          # NotConnectedError, RpcServerError
 │   ├── rpc-groups.ts          # decodeRpcRequest, decodeNotification over a method group
 │   ├── handlers.ts            # ServerHandlers / AgentClientHandlers / TaskMasterHandlers (typed catalogs)
-│   ├── capabilities.ts        # CapabilityProviderTable, CapabilityDescriptor, CapabilitiesOf (Spec F G5)
-│   ├── defaults.ts            # SlotDisposition, optionalForbidden, optionalNoOp (Spec F G4)
+│   ├── capabilities.ts        # CapabilityProviderTable, CapabilityDescriptor, CapabilitiesOf
+│   ├── defaults.ts            # FailClosedDefault taggedEnum, forbidden / noOpNotification sentinels (per-slot fail-CLOSED defaults)
 │   ├── connection.ts          # ServerConnection / AgentClient / TaskMaster types + factories
 │   ├── dispatch.ts            # build{Server,AgentClient,TaskMaster}Dispatcher (static-table dispatch + capability auto-provision)
 │   ├── originator.ts          # makeOriginator — scope-bound outbound RPC + pending-call registry (internal helper)
@@ -51,10 +51,10 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | `rpcMethods` | rpc-registry | All C↔S request methods (frozen array) |
 | `notificationDefinitions` | rpc-registry | All S↔C notifications |
 | `decodeServerInbound` / `decodeClientInbound` | rpc-registry | Tagged-union frame decoders, fail-closed |
-| `makeServerConnection` / `makeAgentClientConnection` / `makeTaskMasterConnection` | transport/connection | Typed-dispatcher factories — one per connection kind (Spec F G2) |
-| `ServerHandlers` / `AgentClientHandlers` / `TaskMasterHandlers` | transport/handlers | Per-kind static handler-table type aliases (Spec F G3) |
-| `CapabilityProviderTable<Caps>` | transport/capabilities | Capability auto-provision table (Spec F G5/G6) |
-| `optionalForbidden` / `optionalNoOp` | transport/defaults | Per-slot fail-CLOSED default markers (Spec F G4) |
+| `makeServerConnection` / `makeAgentClientConnection` / `makeTaskMasterConnection` | transport/connection | Typed-dispatcher factories — one per connection kind |
+| `ServerHandlers` / `AgentClientHandlers` / `TaskMasterHandlers` | transport/handlers | Per-kind static handler-table type aliases |
+| `CapabilityProviderTable<Caps>` | transport/capabilities | Capability auto-provision table (plumbing-ships-empty until a defineRpc populates `capabilities`) |
+| `FailClosedDefault` / `forbidden` / `noOpNotification` | transport/defaults | Per-slot fail-CLOSED default tagged-enum + sentinel values; the same values are both descriptor metadata (`optional: forbidden`) and handler-table sentinels |
 | `Agent*`, `User*`, `Session*` | identity | Identity primitives + auth flows |
 | `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state |
 | `Dispatch*`, `App*`, `Hook*` | app | AppHost surface |
@@ -88,16 +88,22 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 
 | Topic | Document |
 |---|---|
-| How wire methods are defined and validated | [01 — Method-definition pipeline](docs/architecture/01-method-definition.md) |
-| Decoding inbound frames (both sides) | [02 — Frame decode pipeline](docs/architecture/02-frame-decode.md) |
-| Notification fan-out | [05 — Notification fan-out](docs/architecture/05-notification-fanout.md) |
-| End-to-end `messages/send` walk-through | [06 — End-to-end messages/send](docs/architecture/06-end-to-end-messages-send.md) |
-| Server-initiated callbacks (e.g. dispatch/authorize) | [07 — Server-initiated callbacks](docs/architecture/07-server-initiated-callback.md) |
-| Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
-| Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
-| Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
-| Typed dispatcher (Spec F #617) — request handling, originator lifecycle, capability auto-provision | [11 — Typed dispatcher](docs/architecture/11-typed-dispatcher.md) |
-| TestClient Stream consolidation (Spec B obsolete-code remediation, #645) | [12 — TestClient Stream consolidation](docs/architecture/12-test-client-stream-consolidation.md) |
+| How wire methods are defined and validated | [Method-definition pipeline](docs/architecture/method-definition.md) |
+| Decoding inbound frames (both sides) | [Frame decode pipeline](docs/architecture/frame-decode.md) |
+| Notification fan-out | [Notification fan-out](docs/architecture/notification-fanout.md) |
+| Tagged error registry mechanics | [Tagged error registry](docs/architecture/tagged-error-registry.md) |
+| Layer DAG enforcement | [Layer DAG](docs/architecture/layer-dag.md) |
+| Conformance suite mechanics | [Conformance suite](docs/architecture/conformance-suite.md) |
+| TestClient Stream consolidation | [TestClient Stream consolidation](docs/architecture/test-client-stream-consolidation.md) |
+
+The typed dispatcher, originator lifecycle, and worked end-to-end RPC
+flow (request handling + server-initiated callbacks) are documented in
+the server package, where the only real consumers live. See
+`packages/server/docs/architecture/request-response-handling.md` and
+`packages/server/docs/architecture/server-initiated-callback.md`. The
+protocol-side type-system invariants are exercised by the canaries in
+`src/transport/typed-dispatcher.types-check.ts` — the source file is the
+contract.
 
 ## 5. Dependencies
 

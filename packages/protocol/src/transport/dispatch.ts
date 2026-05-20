@@ -8,9 +8,9 @@
  *      type system has already rejected the factory call (Spec F I2 —
  *      TS2741) so runtime cannot reach a "required missing" state.
  *      Method not in the kind's catalog → wire `MethodNotFound` -32601.
- *   2. If the slot is OPTIONAL and the handler-table value is absent,
- *      synthesize the fail-CLOSED default response from the
- *      `slotDisposition.optional` payload (per `defaults.ts`).
+ *   2. If the slot value is one of the fail-CLOSED sentinels
+ *      (`forbidden` / `noOpNotification`), synthesize the wire response
+ *      directly from the sentinel's `_tag` (per `defaults.ts`).
  *   3. If the slot is present, read `slot.definition.capabilities`
  *      (Shape B). For each `{ tag, argsOf }` in declaration order:
  *      look up `CapabilityProviderTable[tag.key]`, call it with
@@ -41,8 +41,6 @@ import {
   type ResponseFrame,
 } from "./wire.js";
 import { makeOriginator } from "./originator.js";
-import { rpcMethods } from "../rpc-registry.js";
-import { taskCallbackMethods } from "../app/methods.js";
 import type {
   ServerConnection,
   AgentClientConnection,
@@ -53,7 +51,7 @@ import type {
 } from "./connection.js";
 import type { HandlerSlot } from "./handlers.js";
 import type { CapabilityDescriptor } from "./capabilities.js";
-import type { FailClosedDefault, SlotDisposition } from "./defaults.js";
+import { FailClosedDefault } from "./defaults.js";
 
 type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 type AnySlot = HandlerSlot<
@@ -69,11 +67,19 @@ type WireError = {
 
 /**
  * Erased view of the static handler table: maps wire method names to
- * `HandlerSlot` values. The mapped-type machinery in `handlers.ts`
- * enforces structural shape at the factory call; at runtime the slot
- * lookup is a property access on this record.
+ * either a `HandlerSlot` (real implementation) or a `FailClosedDefault`
+ * sentinel (`forbidden` / `noOpNotification` — the caller explicitly
+ * declined to implement this optional slot). The mapped-type machinery
+ * in `handlers.ts` enforces structural shape at the factory call; at
+ * runtime the slot lookup is a property access on this record.
+ *
+ * `undefined` is unreachable for a well-typed literal — every catalog
+ * member MUST appear as a key — but the runtime stays defensive so
+ * malformed wire frames pointing at unknown methods get `MethodNotFound`.
  */
-type ErasedHandlerTable = Readonly<Record<string, AnySlot | undefined>>;
+type ErasedHandlerTable = Readonly<
+  Record<string, AnySlot | FailClosedDefault | undefined>
+>;
 
 /** Erased view of the provider table — `[tag.key]` → obtain effect. */
 type ErasedProviderTable = Readonly<
@@ -81,37 +87,15 @@ type ErasedProviderTable = Readonly<
 >;
 
 /**
- * Per-kind catalog map: method name → `SlotDisposition` for catalog
- * members marked OPTIONAL. Built once at factory time from the kind's
- * static catalog (`rpcMethods` for Server, `taskCallbackMethods` for
- * TM). The dispatcher consults this map only when `table[method]` is
- * undefined — distinguishing "catalog-known OPTIONAL, synthesize
- * fail-CLOSED default" from "method not in catalog, MethodNotFound."
- *
- * REQUIRED slots never appear here: the type system rejects the
- * factory call (TS2741) before the dispatcher is constructed.
+ * Slot-value sentinel discriminator. Uses the `FailClosedDefault`
+ * `Data.taggedEnum`'s built-in `$is` guard so we never hand-parse the
+ * `_tag` field; Effect owns the predicate.
  */
-type CatalogDispositionMap = ReadonlyMap<string, SlotDisposition>;
-
-const buildCatalogDispositions = (
-  catalog: ReadonlyArray<{
-    readonly name: string;
-    readonly slotDisposition?: SlotDisposition;
-  }>,
-): CatalogDispositionMap => {
-  const out = new Map<string, SlotDisposition>();
-  for (const def of catalog) {
-    if (def.slotDisposition !== undefined) {
-      out.set(def.name, def.slotDisposition);
-    }
-  }
-  return out;
-};
-
-const SERVER_CATALOG_DISPOSITIONS: CatalogDispositionMap =
-  buildCatalogDispositions(rpcMethods);
-const TASK_MASTER_CATALOG_DISPOSITIONS: CatalogDispositionMap =
-  buildCatalogDispositions(taskCallbackMethods);
+const isSlotSentinel = (
+  slot: AnySlot | FailClosedDefault,
+): slot is FailClosedDefault =>
+  FailClosedDefault.$is("Forbidden")(slot) ||
+  FailClosedDefault.$is("NoOpNotification")(slot);
 
 /**
  * Type-erase the per-kind handler table at the dispatcher boundary.
@@ -139,10 +123,7 @@ const eraseProviderTable = (table: object): ErasedProviderTable =>
  * dispatch loop + the outbound originator (TM-callback path) into a
  * single `ServerConnection` value.
  */
-export function buildServerDispatcher<
-  Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
->(
+export function buildServerDispatcher<Ctx, Caps extends Context.Tag<any, any>>(
   config: ServerConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
   return Effect.gen(function* () {
@@ -153,7 +134,6 @@ export function buildServerDispatcher<
     const dispatch = makeInboundDispatch<Ctx>(
       eraseHandlerTable(config.handlers),
       eraseProviderTable(config.capabilities),
-      SERVER_CATALOG_DISPOSITIONS,
     );
     return {
       id: config.id,
@@ -174,7 +154,7 @@ export function buildServerDispatcher<
  */
 export function buildAgentClientDispatcher<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: AgentClientConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
@@ -206,7 +186,7 @@ export function buildAgentClientDispatcher<
  */
 export function buildTaskMasterDispatcher<
   Ctx,
-  Caps extends Context.Tag<unknown, unknown>,
+  Caps extends Context.Tag<any, any>,
 >(
   config: TaskMasterConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope> {
@@ -218,7 +198,6 @@ export function buildTaskMasterDispatcher<
     const dispatch = makeInboundDispatch<Ctx>(
       eraseHandlerTable(config.handlers),
       eraseProviderTable(config.capabilities),
-      TASK_MASTER_CATALOG_DISPOSITIONS,
     );
     return {
       id: config.id,
@@ -276,7 +255,6 @@ function makeNotify(write: (raw: string) => Effect.Effect<void, unknown>) {
 function makeInboundDispatch<Ctx>(
   table: ErasedHandlerTable,
   providers: ErasedProviderTable,
-  dispositions: CatalogDispositionMap,
 ) {
   return (
     frame: RequestFrame,
@@ -288,11 +266,17 @@ function makeInboundDispatch<Ctx>(
       const method: string = frame.method;
       const slot = table[method];
       if (slot === undefined) {
-        const disp = dispositions.get(method);
-        if (disp !== undefined) {
-          return synthesizeFailClosedResponse(frame, disp.optional);
-        }
+        // Catalog-membership is type-level enforced — a well-typed
+        // factory literal cannot omit a catalog key. Reaching here means
+        // a malformed wire frame named a method that isn't in the kind's
+        // catalog.
         return methodNotFoundResponse(frame);
+      }
+      if (isSlotSentinel(slot)) {
+        // Caller passed an explicit sentinel (`forbidden` /
+        // `noOpNotification`) for this optional slot. Synthesize the
+        // matching fail-CLOSED response without invoking a handler.
+        return synthesizeFailClosedResponse(frame, slot);
       }
 
       const paramsResult = yield* Effect.exit(
@@ -413,35 +397,33 @@ const provideOne = (
 };
 
 /**
- * Synthesize the wire response for a catalog-known method whose slot
- * is unbound at construction. Caller passes the slot's
- * `slotDisposition.optional` payload to encode the outcome.
+ * Synthesize the wire response when the caller passed a sentinel
+ * (`forbidden` / `noOpNotification`) for an optional slot.
  *
  * `Forbidden` produces a `ForbiddenError` (-32001) wire response with
- * "Forbidden: &lt;method&gt;" message — used for the TM-callback hooks
- * (`DispatchAuthorize`, `MessagesAuthorize`) per Spec F R2; an unbound
- * TM slot fails-CLOSED by responding "deny" to every inbound auth
- * check.
+ * "Forbidden: &lt;method>" — used for the TM-callback hooks
+ * (`DispatchAuthorize`, `MessagesAuthorize`); declining authorization
+ * fails-CLOSED, responding "deny" to every inbound auth check.
  *
  * `NoOpNotification` is unreachable on this path: `RequestFrame`s
- * always require a response in JSON-RPC 2.0, so the dispatcher emits
+ * always require a response per JSON-RPC 2.0, so the dispatcher emits
  * `MethodNotFound` to keep the wire contract honest. The branch
- * exists for symmetry with the type definition.
+ * exists for exhaustiveness over the `FailClosedDefault` enum.
  */
-function synthesizeFailClosedResponse(
+const synthesizeFailClosedResponse = (
   frame: RequestFrame,
   fail: FailClosedDefault,
-): ResponseFrame {
-  if (fail.kind === "Forbidden") {
-    return responseFrame(frame.id, {
-      error: {
-        code: -32001,
-        message: `Forbidden: ${frame.method}`,
-      },
-    });
-  }
-  return methodNotFoundResponse(frame);
-}
+): ResponseFrame =>
+  FailClosedDefault.$match(fail, {
+    Forbidden: () =>
+      responseFrame(frame.id, {
+        error: {
+          code: -32001,
+          message: `Forbidden: ${frame.method}`,
+        },
+      }),
+    NoOpNotification: () => methodNotFoundResponse(frame),
+  });
 
 // ── Response shape helpers (mirrored from json-rpc-server.ts) ───────
 

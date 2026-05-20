@@ -3,6 +3,8 @@
  */
 export type { ConversationId, MessageId, TaskId } from "./methods.js";
 
+export * from "./capabilities/index.js";
+
 export {
   TaskClosedError,
   ConversationArchivedError,
