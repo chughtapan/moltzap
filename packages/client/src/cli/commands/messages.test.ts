@@ -17,11 +17,14 @@ import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
 
 import { MessagesList } from "@moltzap/protocol";
-import { brandConversationId, brandTaskId } from "@moltzap/protocol/task";
+import {
+  conversationId as makeConversationId,
+  taskId as makeTaskId,
+} from "@moltzap/protocol/testing";
 
 const it = effectIt.effect;
-const TASK_ID = brandTaskId("00000000-0000-4000-8000-00000000001a");
-const CONVERSATION_ID = brandConversationId(
+const TASK_ID = makeTaskId("00000000-0000-4000-8000-00000000001a");
+const CONVERSATION_ID = makeConversationId(
   "00000000-0000-4000-8000-00000000000c",
 );
 const FIRST_MESSAGE_ID = "00000000-0000-4000-8000-00000000000a";

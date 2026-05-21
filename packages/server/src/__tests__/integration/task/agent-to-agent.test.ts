@@ -10,19 +10,18 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskCreate,
+  type ConversationId,
+  type TaskId,
 } from "@moltzap/protocol";
 
 const it = effectIt.live;
 
-const CONV_TYPE_DM = "dm";
-const CONV_TYPE_GROUP = "group";
-const PARTICIPANT_TYPE_AGENT = "agent";
-const PART_TYPE_TEXT = "text";
 const GROUP_NAME = "Team Chat";
 const HELLO_BOB = "Hello Bob!";
 const HEY_ALICE = "Hey Alice!";
@@ -37,38 +36,61 @@ beforeAll(() => Effect.runPromise(startTestServerEffect()));
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-function agentParticipant(agent: ConnectedAgent) {
-  return { type: PARTICIPANT_TYPE_AGENT, id: agent.agentId };
-}
-
 function textPart(text: string) {
-  return { type: PART_TYPE_TEXT, text };
+  return { type: "text" as const, text };
 }
 
-function createDm(creator: ConnectedAgent, participant: ConnectedAgent) {
-  return creator.client.sendRpc(ConversationsCreate, {
-    type: CONV_TYPE_DM,
-    participants: [agentParticipant(participant)],
-  }) as Effect.Effect<{ conversation: { id: string; type: string } }, unknown>;
+function createDm(
+  creator: ConnectedAgent,
+  participant: ConnectedAgent,
+): Effect.Effect<
+  { task: { id: TaskId }; conversation: { id: ConversationId } },
+  unknown
+> {
+  return creator.client
+    .sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [participant.agentId],
+      initialConversation: { participants: [participant.agentId] },
+    })
+    .pipe(
+      Effect.map((result) => ({
+        task: { id: result.task.id },
+        conversation: { id: result.conversation!.id },
+      })),
+    );
 }
 
 function createGroup(
   creator: ConnectedAgent,
   participants: ReadonlyArray<ConnectedAgent>,
-) {
-  return creator.client.sendRpc(ConversationsCreate, {
-    type: CONV_TYPE_GROUP,
-    name: GROUP_NAME,
-    participants: participants.map(agentParticipant),
-  }) as Effect.Effect<{ conversation: { id: string } }, unknown>;
+): Effect.Effect<
+  { task: { id: TaskId }; conversation: { id: ConversationId } },
+  unknown
+> {
+  const ids = participants.map((p) => p.agentId);
+  return creator.client
+    .sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: ids,
+      initialConversation: { name: GROUP_NAME, participants: ids },
+    })
+    .pipe(
+      Effect.map((result) => ({
+        task: { id: result.task.id },
+        conversation: { id: result.conversation!.id },
+      })),
+    );
 }
 
 function sendText(
   sender: ConnectedAgent,
-  conversationId: string,
+  taskId: TaskId,
+  conversationId: ConversationId,
   text: string,
 ) {
   return sender.client.sendRpc(MessagesSend, {
+    taskId,
     conversationId,
     parts: [textPart(text)],
   });
@@ -87,8 +109,12 @@ function waitForMessageText(agent: ConnectedAgent) {
   ).pipe(Effect.map(notificationText));
 }
 
-function messageTextsFor(agent: ConnectedAgent, conversationId: string) {
-  return agent.client.sendRpc(MessagesList, { conversationId }).pipe(
+function messageTextsFor(
+  agent: ConnectedAgent,
+  taskId: TaskId,
+  conversationId: ConversationId,
+) {
+  return agent.client.sendRpc(MessagesList, { taskId, conversationId }).pipe(
     Effect.map(
       (result) =>
         (result as { messages: Array<{ parts: Array<{ text: string }> }> })
@@ -113,16 +139,16 @@ function fullDmFlow() {
     const bob = yield* registerAndConnect("bob-a2a");
 
     const conv = yield* createDm(alice, bob);
-    expect(conv.conversation.type).toBe(CONV_TYPE_DM);
+    const taskId = conv.task.id;
     const conversationId = conv.conversation.id;
 
-    yield* sendText(alice, conversationId, HELLO_BOB);
+    yield* sendText(alice, taskId, conversationId, HELLO_BOB);
     expect(yield* waitForMessageText(bob)).toBe(HELLO_BOB);
 
-    yield* sendText(bob, conversationId, HEY_ALICE);
+    yield* sendText(bob, taskId, conversationId, HEY_ALICE);
     expect(yield* waitForMessageText(alice)).toBe(HEY_ALICE);
 
-    expect(yield* messageTextsFor(alice, conversationId)).toEqual([
+    expect(yield* messageTextsFor(alice, taskId, conversationId)).toEqual([
       HELLO_BOB,
       HEY_ALICE,
     ]);
@@ -136,13 +162,14 @@ function groupChatFansOut() {
     const bob = yield* registerAndConnect("bob-fan");
     const eve = yield* registerAndConnect("eve-fan");
     const conv = yield* createGroup(alice, [bob, eve]);
+    const taskId = conv.task.id;
     const conversationId = conv.conversation.id;
 
-    yield* sendText(alice, conversationId, TEAM_STANDUP);
+    yield* sendText(alice, taskId, conversationId, TEAM_STANDUP);
     expect(yield* waitForMessageText(bob)).toBe(TEAM_STANDUP);
     expect(yield* waitForMessageText(eve)).toBe(TEAM_STANDUP);
 
-    yield* sendText(bob, conversationId, ALL_CLEAR);
+    yield* sendText(bob, taskId, conversationId, ALL_CLEAR);
     expect(yield* waitForMessageText(alice)).toBe(ALL_CLEAR);
     expect(yield* waitForMessageText(eve)).toBe(ALL_CLEAR);
     yield* closeAgents([alice, bob, eve]);
@@ -157,11 +184,16 @@ function connectedParticipantReceivesWithoutReconnect() {
 
     const createdEvent = yield* awaitOneNotification(
       bob.client,
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
     );
     expect(createdEvent).toBeDefined();
 
-    yield* sendText(alice, conv.conversation.id, NO_RECONNECT_NEEDED);
+    yield* sendText(
+      alice,
+      conv.task.id,
+      conv.conversation.id,
+      NO_RECONNECT_NEEDED,
+    );
     expect(yield* waitForMessageText(bob)).toBe(NO_RECONNECT_NEEDED);
     yield* closeAgents([alice, bob]);
   });
@@ -173,10 +205,10 @@ function bufferedNotificationsAreConsumedOnce() {
     const bob = yield* registerAndConnect("bob-buf");
     const conv = yield* createDm(alice, bob);
 
-    yield* sendText(alice, conv.conversation.id, FIRST_MESSAGE);
+    yield* sendText(alice, conv.task.id, conv.conversation.id, FIRST_MESSAGE);
     expect(yield* waitForMessageText(bob)).toBe(FIRST_MESSAGE);
 
-    yield* sendText(alice, conv.conversation.id, SECOND_MESSAGE);
+    yield* sendText(alice, conv.task.id, conv.conversation.id, SECOND_MESSAGE);
     expect(yield* waitForMessageText(bob)).toBe(SECOND_MESSAGE);
     yield* closeAgents([alice, bob]);
   });
@@ -199,7 +231,7 @@ function senderDoesNotReceiveOwnMessage() {
         Effect.fork,
       );
 
-    yield* sendText(alice, conv.conversation.id, NO_ECHO_MESSAGE);
+    yield* sendText(alice, conv.task.id, conv.conversation.id, NO_ECHO_MESSAGE);
     expect(
       yield* awaitOneNotification(
         bob.client,
@@ -223,7 +255,7 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
   it("messages fan out to all group participants", groupChatFansOut);
 });
 
-describe("Regression: conversations/create subscribes connected participants", () => {
+describe("Regression: task/conversation/create subscribes connected participants", () => {
   it(
     "participant connected before conversation creation receives messages without reconnecting",
     connectedParticipantReceivesWithoutReconnect,

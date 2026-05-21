@@ -4,14 +4,12 @@ import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { sendCommand } from "./send.js";
 
 import { MessagesSend } from "@moltzap/protocol";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import {
-  brandConversationId,
-  brandMessageId,
-  brandTaskId,
-  type ConversationId,
-  type MessageId,
-  type TaskId,
-} from "@moltzap/protocol/task";
+  conversationId as makeConversationId,
+  messageId as makeMessageId,
+  taskId as makeTaskId,
+} from "@moltzap/protocol/testing";
 
 const it = effectIt.effect;
 const TASK_UUID = "00000000-0000-4000-8000-00000000abc2";
@@ -49,9 +47,9 @@ describe("send command handler", () => {
     process.exit = originalExit;
   });
 
-  const taskId = brandTaskId(TASK_UUID);
-  const conversationId = brandConversationId(CONV_UUID);
-  const replyToId = brandMessageId(REPLY_MSG);
+  const taskId = makeTaskId(TASK_UUID);
+  const conversationId = makeConversationId(CONV_UUID);
+  const replyToId = makeMessageId(REPLY_MSG);
 
   it("sends to task+conversation target", () =>
     Effect.gen(function* () {

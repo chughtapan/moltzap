@@ -89,8 +89,8 @@ function crossConversationRequestsRunConcurrently() {
     const conv2 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
-      conv1,
-      conv2,
+      conv1.conversationId,
+      conv2.conversationId,
     ]);
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
@@ -109,8 +109,8 @@ function sameConversationRequestsRunConcurrently() {
     const conv = yield* createModeratedDm(alice, bob, TEST_APP_ID);
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
-      conv,
-      conv,
+      conv.conversationId,
+      conv.conversationId,
     ]);
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);

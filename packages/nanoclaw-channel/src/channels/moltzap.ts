@@ -6,11 +6,11 @@ import {
   type ServiceRpcError,
 } from "@moltzap/client";
 import {
-  brandConversationId,
-  type ConversationId,
+  ConversationId,
   type LeaseId,
   type TaskId,
 } from "@moltzap/protocol/task";
+import { Value } from "@sinclair/typebox/value";
 import {
   LeaseAlreadyConsumed,
   LeaseStore,
@@ -53,7 +53,7 @@ function jidFromConversationId(conversationId: string): string {
 }
 
 function conversationIdFromJid(jid: string): ConversationId {
-  return brandConversationId(jid.slice(MOLTZAP_JID_PREFIX.length));
+  return Value.Decode(ConversationId, jid.slice(MOLTZAP_JID_PREFIX.length));
 }
 
 function loadMoltZapChannelEnv(): {

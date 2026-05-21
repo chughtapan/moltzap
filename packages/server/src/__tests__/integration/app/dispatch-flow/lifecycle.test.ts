@@ -61,9 +61,14 @@ function requestModeratedDispatch(
   text: string,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createModeratedDm(alice, bob, appId);
-    const ack = yield* requestDispatch(bob, conversationId, alice, text);
-    return { ack, conversationId };
+    const binding = yield* createModeratedDm(alice, bob, appId);
+    const ack = yield* requestDispatch(
+      bob,
+      binding.conversationId,
+      alice,
+      text,
+    );
+    return { ack, binding, conversationId: binding.conversationId };
   }).pipe(Effect.withSpan("requestModeratedLifecycleDispatch"));
 }
 
@@ -73,9 +78,14 @@ function requestUnmoderatedDispatch(
   text: string,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
-    const ack = yield* requestDispatch(bob, conversationId, alice, text);
-    return { ack, conversationId };
+    const binding = yield* createUnmoderatedDm(alice, bob);
+    const ack = yield* requestDispatch(
+      bob,
+      binding.conversationId,
+      alice,
+      text,
+    );
+    return { ack, binding, conversationId: binding.conversationId };
   }).pipe(Effect.withSpan("requestUnmoderatedLifecycleDispatch"));
 }
 
@@ -173,7 +183,7 @@ function consumedDisconnectKeepsLeaseConsumed() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const { ack, conversationId } = yield* requestUnmoderatedDispatch(
+    const { ack, binding } = yield* requestUnmoderatedDispatch(
       alice,
       bob,
       "first",
@@ -181,7 +191,7 @@ function consumedDisconnectKeepsLeaseConsumed() {
     yield* Fiber.join(releaseFiber);
     const sent = yield* sendMessageWithLease(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "first",
     );

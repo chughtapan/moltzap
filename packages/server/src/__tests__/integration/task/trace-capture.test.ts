@@ -15,12 +15,12 @@ import {
   type TraceCapture,
 } from "../../../runtime-surface/trace-capture.js";
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   HookBlockedError,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
+  TaskConversationCreate,
+  TaskCreate,
   type AppManifest,
 } from "@moltzap/protocol";
 import { endpointAddress } from "@moltzap/protocol/network";
@@ -83,13 +83,16 @@ function recordDeliveredMessageTrace(): Effect.Effect<void> {
     const alice = yield* registerAndConnect("alice-trace-capture");
     const bob = yield* registerAndConnect("bob-trace-capture");
 
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string } };
+    const conv = yield* alice.client.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
+    const conversationId = conv.conversation!.id;
 
     yield* alice.client.sendRpc(MessagesSend, {
-      conversationId: conv.conversation.id,
+      taskId: conv.task.id,
+      conversationId,
       parts: [{ type: "text", text: "hello from trace capture test" }],
     });
     yield* awaitOneNotification(
@@ -101,12 +104,12 @@ function recordDeliveredMessageTrace(): Effect.Effect<void> {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       _tag: "Message",
-      channelKey: conv.conversation.id,
+      channelKey: conversationId,
       senderDisplayName: alice.name,
       recipientAgentIds: [bob.agentId],
       deliveredAgentIds: [bob.agentId],
       message: {
-        conversationId: conv.conversation.id,
+        conversationId,
         senderId: alice.agentId,
         parts: [{ type: "text", text: "hello from trace capture test" }],
       },
@@ -123,17 +126,17 @@ function recordBlockedHookTrace(): Effect.Effect<void> {
     const bob = yield* registerAndConnect("bob-trace-blocked");
     registerBlockingMessageAuthorize(alice.agentId);
 
-    const task = yield* alice.client.sendRpc(TasksCreate, {
+    const task = yield* alice.client.sendRpc(TaskCreate, {
       appId: TRACE_APP_ID,
-      tmType: "self",
+      invitedAgentIds: [bob.agentId],
     });
-    const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
+    const conv = yield* alice.client.sendRpc(TaskConversationCreate, {
       taskId: task.task.id,
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
+      participants: [bob.agentId],
     });
     const outcome = yield* Effect.either(
       alice.client.sendRpc(MessagesSend, {
+        taskId: task.task.id,
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: TRACE_BLOCKED_TEXT }],
       }),

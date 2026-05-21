@@ -91,7 +91,7 @@ function handleDomainRequestFrame(
         return;
       }
       case "task/conversation/create": {
-        yield* handleTasksCreateConversation(frame, opts);
+        yield* handleTaskConversationCreate(frame, opts);
         return;
       }
       case "task/addParticipant": {
@@ -171,7 +171,7 @@ function handleTaskCreate(
   });
 }
 
-function handleTasksCreateConversation(
+function handleTaskConversationCreate(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {

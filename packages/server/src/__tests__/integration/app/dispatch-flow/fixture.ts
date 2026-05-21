@@ -1,15 +1,17 @@
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   DispatchRelease,
   DispatchRequest,
   MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
+  TaskConversationCreate,
+  TaskConversationParticipantsRemovedNotificationDefinition,
+  TaskCreate,
+  type AppId,
   type AppManifest,
   type ConversationId,
   type DispatchId,
   type LeaseId,
+  type TaskId,
 } from "@moltzap/protocol";
 import {
   agentId as protocolAgentId,
@@ -50,6 +52,11 @@ export const MODERATOR_TIMEOUT_REASON = "timeout";
 export const DISPATCH_RELEASE_TIMEOUT_MS = 5_000;
 export const DISPATCH_REQUEST_CONCURRENCY = 2;
 
+export interface ConversationBinding {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+
 export const startDispatchFlowServer = () =>
   Effect.runPromise(startTestServerEffect());
 
@@ -62,31 +69,31 @@ export function createModeratedDm(
   alice: ConnectedAgent,
   bob: ConnectedAgent,
   appId: string,
-) {
+): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
-    const task = yield* alice.client.sendRpc(TasksCreate, {
-      appId,
-      tmType: "self",
+    const task = yield* alice.client.sendRpc(TaskCreate, {
+      appId: appId as AppId,
+      invitedAgentIds: [bob.agentId],
     });
-    const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
+    const conv = yield* alice.client.sendRpc(TaskConversationCreate, {
       taskId: task.task.id,
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
+      participants: [bob.agentId],
     });
-    return conv.conversation.id;
+    return { taskId: task.task.id, conversationId: conv.conversation.id };
   }).pipe(Effect.withSpan("createModeratedDm"));
 }
 
 export function createUnmoderatedDm(
   alice: ConnectedAgent,
   bob: ConnectedAgent,
-) {
+): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
-    const conv = yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
+    const conv = yield* alice.client.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
     });
-    return conv.conversation.id;
+    return { taskId: conv.task.id, conversationId: conv.conversation!.id };
   }).pipe(Effect.withSpan("createUnmoderatedDm"));
 }
 
@@ -106,12 +113,13 @@ export function requestDispatch(
 
 export function sendMessageWithLease(
   sender: ConnectedAgent,
-  conversationId: ConversationId,
+  binding: ConversationBinding,
   leaseId: LeaseId,
   text: string,
 ) {
   return sender.client.sendRpc(MessagesSend, {
-    conversationId,
+    taskId: binding.taskId,
+    conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
     dispatchLeaseId: leaseId,
   });
@@ -154,7 +162,7 @@ export function waitForParticipantsRemoved(
   return Effect.fork(
     awaitOneNotification(
       recipient.client,
-      ParticipantsRemovedNotificationDefinition,
+      TaskConversationParticipantsRemovedNotificationDefinition,
       timeoutMs,
     ).pipe(
       Effect.map((notification) => notification.params),

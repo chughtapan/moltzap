@@ -10,10 +10,11 @@ import {
 } from "../helpers.js";
 
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
   MessageReceivedNotificationDefinition,
+  TaskCreate,
 } from "@moltzap/protocol";
 
 const PART_ONE_TEXT = "Part 1: Introduction";
@@ -30,11 +31,13 @@ it("message with multiple text parts preserves all parts in order", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string } };
-    const conversationId = conv.conversation.id;
+    const conv = yield* alice.client.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
+    const taskId = conv.task.id;
+    const conversationId = conv.conversation!.id;
 
     const parts = [
       { type: "text" as const, text: PART_ONE_TEXT },
@@ -44,12 +47,11 @@ it("message with multiple text parts preserves all parts in order", () =>
 
     // Set up Bob's event waiter BEFORE send
 
-    const sendResult = (yield* alice.client.sendRpc(MessagesSend, {
+    const sendResult = yield* alice.client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts,
-    })) as {
-      message: { parts: Array<{ type: string; text: string }> };
-    };
+    });
 
     expect(sendResult.message.parts).toHaveLength(3);
     expect(sendResult.message.parts).toEqual(parts);
@@ -70,11 +72,10 @@ it("message with multiple text parts preserves all parts in order", () =>
     expect(received.parts[2]!.text).toBe(PART_THREE_TEXT);
 
     // Verify via message listing
-    const history = (yield* bob.client.sendRpc(MessagesList, {
+    const history = yield* bob.client.sendRpc(MessagesList, {
+      taskId,
       conversationId,
-    })) as {
-      messages: Array<{ parts: Array<{ type: string; text: string }> }>;
-    };
+    });
     expect(history.messages).toHaveLength(1);
     expect(history.messages[0]!.parts).toEqual(parts);
   }));

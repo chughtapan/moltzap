@@ -43,14 +43,13 @@ import {
   type RpcDefinition,
 } from "@moltzap/protocol";
 import {
-  brandConversationId,
-  brandMessageId,
-  brandTaskId,
+  ConversationId,
+  MessageId,
   TaskClosedError,
-  type ConversationId,
+  TaskId,
   type LeaseId,
-  type TaskId,
 } from "@moltzap/protocol/task";
+import { Value } from "@sinclair/typebox/value";
 import { RpcServerError } from "@moltzap/protocol/transport";
 
 const DEFAULT_ACCOUNT_ID = "default";
@@ -1105,9 +1104,12 @@ function parseTaskTarget(
   if (sep <= 0 || sep === body.length - 1) {
     return Effect.fail(new MoltZapTargetMalformedError({ target: to }));
   }
-  return Effect.succeed({
-    taskId: brandTaskId(body.slice(0, sep)),
-    conversationId: brandConversationId(body.slice(sep + 1)),
+  return Effect.try({
+    try: () => ({
+      taskId: Value.Decode(TaskId, body.slice(0, sep)),
+      conversationId: Value.Decode(ConversationId, body.slice(sep + 1)),
+    }),
+    catch: () => new MoltZapTargetMalformedError({ target: to }),
   });
 }
 
@@ -1139,7 +1141,7 @@ function dispatchOutbound(
       parsed.conversationId,
       ctx.text,
       ctx.replyToId !== undefined
-        ? { replyTo: brandMessageId(ctx.replyToId) }
+        ? { replyTo: Value.Decode(MessageId, ctx.replyToId) }
         : {},
     );
   });

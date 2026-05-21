@@ -49,7 +49,11 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 
 function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
   return Effect.gen(function* () {
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const { conversationId } = yield* createModeratedDm(
+      alice,
+      bob,
+      TEST_APP_ID,
+    );
     const ack = yield* requestDispatch(bob, conversationId, alice);
     return { ack, conversationId };
   });
@@ -71,11 +75,11 @@ function expectReleaseVerdict(
 }
 
 function expectParticipantRemoved(
-  removed: { conversationId: string; agentId: string },
+  removed: { conversationId: string; removedAgentId: string },
   expected: { readonly conversationId: string; readonly agentId: string },
 ) {
   expect(removed.conversationId).toBe(expected.conversationId);
-  expect(removed.agentId).toBe(expected.agentId);
+  expect(removed.removedAgentId).toBe(expected.agentId);
 }
 
 function moderatorDenyReleasesDeny() {

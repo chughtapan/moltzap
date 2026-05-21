@@ -10,9 +10,10 @@ import {
 } from "../helpers.js";
 
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesSend,
   MessageReceivedNotificationDefinition,
+  TaskCreate,
 } from "@moltzap/protocol";
 
 const FIRST_MESSAGE_TEXT = "First message";
@@ -28,13 +29,16 @@ it("second message to existing DM delivers correctly with same conversationId", 
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string } };
-    const conversationId = conv.conversation.id;
+    const conv = yield* alice.client.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
+    const taskId = conv.task.id;
+    const conversationId = conv.conversation!.id;
 
     yield* alice.client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text: FIRST_MESSAGE_TEXT }],
     });
@@ -44,16 +48,11 @@ it("second message to existing DM delivers correctly with same conversationId", 
     );
 
     // Send second message using conversationId
-    const send2 = (yield* alice.client.sendRpc(MessagesSend, {
+    const send2 = yield* alice.client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text: SECOND_MESSAGE_TEXT }],
-    })) as {
-      message: {
-        conversationId: string;
-        sender: { type: string; id: string };
-        parts: Array<{ type: string; text: string }>;
-      };
-    };
+    });
 
     expect(send2.message.conversationId).toBe(conversationId);
     expect(send2.message.senderId).toBe(alice.agentId);

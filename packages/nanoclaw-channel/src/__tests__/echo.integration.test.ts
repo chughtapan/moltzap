@@ -21,6 +21,7 @@ import { type Message } from "@moltzap/protocol";
 import { TaskCreate, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
 import { MoltZapChannel } from "../channels/moltzap.js";
 import type { NewMessage, RegisteredGroup } from "../types.js";
@@ -34,8 +35,8 @@ interface InjectedConfig {
   readonly wsUrl: string;
   readonly channelApiKey: string;
   readonly peerApiKey: string;
-  readonly channelAgentId: string;
-  readonly peerAgentId: string;
+  readonly channelAgentId: AgentId;
+  readonly peerAgentId: AgentId;
 }
 
 interface ChatMetadataCapture {
@@ -77,8 +78,8 @@ function injectedConfig(): InjectedConfig {
     wsUrl: injectString("moltzapWsUrl"),
     channelApiKey: injectString("agentAApiKey"),
     peerApiKey: injectString("agentBApiKey"),
-    channelAgentId: injectString("agentAAgentId"),
-    peerAgentId: injectString("agentBAgentId"),
+    channelAgentId: makeAgentId(injectString("agentAAgentId")),
+    peerAgentId: makeAgentId(injectString("agentBAgentId")),
   };
 }
 
@@ -195,7 +196,7 @@ function bootPeerService(
 
 function createDm(
   peerService: MoltZapService,
-  channelAgentId: string,
+  channelAgentId: AgentId,
 ): Effect.Effect<
   { taskId: TaskId; conversationId: ConversationId },
   EchoIntegrationError
@@ -203,8 +204,8 @@ function createDm(
   return peerService
     .sendRpc(TaskCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [channelAgentId as AgentId],
-      initialConversation: { participants: [channelAgentId as AgentId] },
+      invitedAgentIds: [channelAgentId],
+      initialConversation: { participants: [channelAgentId] },
     })
     .pipe(
       Effect.map((res) => {
