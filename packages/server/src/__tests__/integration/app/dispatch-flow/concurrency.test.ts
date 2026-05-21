@@ -33,7 +33,7 @@ import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const EXPECTED_HOOK_CALLS = 2;
 
 const TEST_APP_MANIFEST: AppManifest = {

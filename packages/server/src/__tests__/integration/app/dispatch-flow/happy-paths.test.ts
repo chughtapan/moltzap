@@ -35,7 +35,7 @@ import { setupAgentPair } from "../../helpers.js";
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const EXPECTED_MODERATED_HOOK_CALLS = 1;
 const EXPECTED_UNMODERATED_HOOK_CALLS = 0;
 

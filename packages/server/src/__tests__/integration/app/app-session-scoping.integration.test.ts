@@ -32,7 +32,7 @@ import {
 
 const it = effectIt.live;
 
-const APP_ID = "app-session-scoping-app" as AppId;
+const APP_ID = "00000000-0000-4000-8000-000000010004" as AppId;
 const APP_MANIFEST: AppManifest = {
   appId: APP_ID,
   name: "App Session Scoping Test App",
