@@ -3,10 +3,6 @@ import { describe, expect, it } from "vitest";
 import { Effect, unsafeCoerce } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
-  endpointAddress,
-  type EndpointAddress,
-} from "@moltzap/protocol/network";
-import {
   agentId,
   conversationId,
   messageId,
@@ -31,7 +27,7 @@ type HookRegistry = Map<
   }
 >;
 
-type MessageAuthorizeRegistry = Map<EndpointAddress, unknown>;
+type MessageAuthorizeRegistry = Map<string, unknown>;
 
 function makeAppHost(db: Db = makeEmptyDb()): { host: AppHost } {
   const connections = makeFakeService<ConnectionManager>(
@@ -57,8 +53,8 @@ function makeParticipantDb(): Db {
   });
 }
 
-const TM_APP_ID = "00000000-0000-4000-8000-000000000560";
-const TM_ADDRESS = endpointAddress(`tm:app:${TM_APP_ID}`);
+const APP_ID = "00000000-0000-4000-8000-000000000560";
+const OTHER_APP_ID = "00000000-0000-4000-8000-000000000999";
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000c560");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-00000000e560");
 const TASK_ID = taskId("00000000-0000-4000-8000-00000000a560");
@@ -76,7 +72,7 @@ function messageAuthorizeContext(
       parts: [{ type: "text", text: "hello" }],
     },
     taskId: TASK_ID,
-    appId: TM_APP_ID,
+    appId: APP_ID,
     receivedAt: "2026-05-12T00:00:00.000Z",
     signal: new AbortController().signal,
   };
@@ -105,36 +101,36 @@ describe("AppHost.onTaskAuthorizeDispatch (registration surface)", () => {
 });
 
 describe("AppHost.registerMessageAuthorize", () => {
-  it("stores the handler keyed by endpoint address", () => {
+  it("stores the handler keyed by appId", () => {
     const { host } = makeAppHost();
     const handler = () => ({ decision: "Forward" as const, recipients: [] });
-    host.registerMessageAuthorize(TM_ADDRESS, handler);
+    host.registerMessageAuthorize(APP_ID, handler);
 
     const hooks = privateField<MessageAuthorizeRegistry>(
       host,
       "messageAuthorizeHooks",
     );
-    expect(hooks.get(TM_ADDRESS)).toBe(handler);
+    expect(hooks.get(APP_ID)).toBe(handler);
   });
 
-  it("overwrites a prior handler for the same endpoint address", () => {
+  it("overwrites a prior handler for the same appId", () => {
     const { host } = makeAppHost();
     const first = () => ({ decision: "Forward" as const, recipients: [] });
     const second = () => ({ decision: "Block" as const, reason: "policy" });
-    host.registerMessageAuthorize(TM_ADDRESS, first);
-    host.registerMessageAuthorize(TM_ADDRESS, second);
+    host.registerMessageAuthorize(APP_ID, first);
+    host.registerMessageAuthorize(APP_ID, second);
 
     const hooks = privateField<MessageAuthorizeRegistry>(
       host,
       "messageAuthorizeHooks",
     );
-    expect(hooks.get(TM_ADDRESS)).toBe(second);
+    expect(hooks.get(APP_ID)).toBe(second);
   });
 });
 
 describe("AppHost.runMessageAuthorize", () => {
   liveIt(
-    "runs the in-process hook registered for the TM endpoint",
+    "runs the in-process hook registered for the app",
     inProcessMessageAuthorizeHook,
   );
 
@@ -142,18 +138,23 @@ describe("AppHost.runMessageAuthorize", () => {
     "defaults to participants minus sender when no hook is registered",
     defaultMessageAuthorizeRecipients,
   );
+
+  liveIt(
+    "no-hook fallback ignores unknown appId without crashing",
+    defaultMessageAuthorizeForUnknownApp,
+  );
 });
 
 function inProcessMessageAuthorizeHook() {
   return Effect.gen(function* () {
     const { host } = makeAppHost();
-    host.registerMessageAuthorize(TM_ADDRESS, (ctx) => ({
+    host.registerMessageAuthorize(APP_ID, (ctx) => ({
       decision: "Forward",
       recipients: ctx.message.senderAgentId === SENDER ? [RECIPIENT] : [SENDER],
     }));
 
     const result = yield* host.runMessageAuthorize(
-      TM_ADDRESS,
+      APP_ID,
       messageAuthorizeContext(),
     );
     expect(result).toEqual({ decision: "Forward", recipients: [RECIPIENT] });
@@ -168,7 +169,18 @@ function defaultMessageAuthorizeRecipients() {
     });
 
     const result = yield* host.runMessageAuthorize(
-      TM_ADDRESS,
+      APP_ID,
+      messageAuthorizeContext(),
+    );
+    expect(result).toEqual({ decision: "Forward", recipients: [RECIPIENT] });
+  });
+}
+
+function defaultMessageAuthorizeForUnknownApp() {
+  return Effect.gen(function* () {
+    const { host } = makeAppHost(makeParticipantDb());
+    const result = yield* host.runMessageAuthorize(
+      OTHER_APP_ID,
       messageAuthorizeContext(),
     );
     expect(result).toEqual({ decision: "Forward", recipients: [RECIPIENT] });

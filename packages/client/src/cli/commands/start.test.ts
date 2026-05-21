@@ -56,7 +56,6 @@ const taskFixture = {
   appId: DEFAULT_APP_ID,
   initiatorAgentId: INITIATOR_ID,
   status: "active" as const,
-  tmEndpointAddress: "endpoint",
   startedAt: NOW_ISO,
   endedAt: null,
   createdAt: NOW_ISO,

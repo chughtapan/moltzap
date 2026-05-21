@@ -65,9 +65,11 @@ export class MessageSendPermission extends Context.Tag(
 /**
  * Input shape consumed by the dispatch-time smart constructor. The
  * handler passes the raw `MessagesSend` params + the authenticated
- * `ctx.agentId`; the constructor handles the conversation lookup,
- * participant check, reply-target check, TM-bypass discrimination, and
- * returns the populated discriminated union.
+ * `ctx.agentId` + the calling WS connection id; the constructor
+ * handles the conversation lookup, participant check, reply-target
+ * check, TM-bypass discrimination (proved via app-ownership of the
+ * calling connection against `task.appId`), and returns the populated
+ * discriminated union.
  */
 export interface ObtainMessageSendPermissionInput {
   /**
@@ -81,5 +83,11 @@ export interface ObtainMessageSendPermissionInput {
   readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
+
+  /**
+   * Calling WebSocket connection id. The TM-bypass branch is taken
+   * iff `AppHost.isAppConnection(task.appId, callerConnId)`.
+   */
+  readonly callerConnId: string;
   readonly replyToId?: MessageId;
 }

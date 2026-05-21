@@ -33,17 +33,18 @@ import {
 } from "@moltzap/protocol/testing";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
+  AppHostTag,
   ConversationServiceTag,
   MessageServiceTag,
   ParticipantServiceTag,
   TaskServiceTag,
 } from "../../layers.js";
+import type { AppHost } from "../../app-host.js";
 import type { ConversationService } from "../../../task/services/conversation.service.js";
 import type { MessageService } from "../../../task/services/message.service.js";
 import type { SendConversationRow } from "../../../task/services/message-service-types.js";
 import type { TaskService } from "../../../task/services/task.service.js";
 import type { ParticipantService } from "../../../identity/services/participant.service.js";
-import { endpointAddressForAgent } from "../../../task/services/task.service.js";
 import { obtainAgentExists } from "../agent-exists.js";
 import { obtainAgentInTaskParticipants } from "../agent-in-task-participants.js";
 import {
@@ -76,6 +77,9 @@ const OTHER_CONV_ID = makeConversationId(
 const REPLY_ID = makeMessageId("00000000-0000-4000-8000-00000000beef");
 const ALICE = makeAgentId("00000000-0000-4000-8000-00000000aa11");
 const BOB = makeAgentId("00000000-0000-4000-8000-00000000bb22");
+const APP_ID = "app-fixture";
+const OWNER_CONN_ID = "owner-conn-1";
+const OTHER_CONN_ID = "other-conn-1";
 
 // Discriminant constants — contractual values in `MessageSendPermissionValue`'s
 // tagged union. Centralizing the strings here avoids the
@@ -89,10 +93,9 @@ const TAG_NO_REPLY = "NoReply" as const;
 function makeTaskFixture(overrides: Partial<Task> = {}): Task {
   return {
     id: TASK_ID,
-    appId: null,
+    appId: APP_ID,
     initiatorAgentId: ALICE,
     status: "active",
-    tmEndpointAddress: endpointAddressForAgent(ALICE),
     startedAt: null,
     endedAt: null,
     createdAt: new Date(0).toISOString(),
@@ -106,12 +109,23 @@ function makeSendConvRow(
   return {
     archived_at: null,
     task_id: TASK_ID,
-    // Default: TM endpoint differs from default sender (BOB) ⇒ non-bypass.
-    // Bypass-branch tests override to ALICE.
-    tm_endpoint_address: endpointAddressForAgent(ALICE),
+    app_id: APP_ID,
     task_status: "active",
     ...overrides,
   };
+}
+
+/**
+ * Minimal AppHost stub for capability tests. `bindings` lists the
+ * `(appId, connId)` pairs that should be considered registered remote
+ * app connections.
+ */
+function appHostLayer(bindings: ReadonlyArray<readonly [string, string]>) {
+  const seeded = new Set(bindings.map(([app, conn]) => `${app}::${conn}`));
+  const stub: Pick<AppHost, "isAppConnection"> = {
+    isAppConnection: (appId, connId) => seeded.has(`${appId}::${connId}`),
+  };
+  return Layer.succeed(AppHostTag, stub as AppHost);
 }
 
 // Stub builders. The partial cast is a deliberate test pragma — only
@@ -148,24 +162,43 @@ function expectFailureOf<E>(
 function tmAuthHappy() {
   return Effect.gen(function* () {
     const task = makeTaskFixture();
-    const layer = taskServiceLayer({
-      loadTaskAsTmAuthority: () => Effect.succeed(task),
-    });
-    const value = yield* obtainTmAuthority(TASK_ID, ALICE).pipe(
+    const layer = Layer.mergeAll(
+      taskServiceLayer({ loadOpenTask: () => Effect.succeed(task) }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
+    const value = yield* obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(
       Effect.provide(layer),
     );
-    expect(value).toEqual({ task, callerAgentId: ALICE });
+    expect(value).toEqual({ task });
   });
 }
 
-function tmAuthForbidden() {
+function tmAuthForbiddenWrongConn() {
   return Effect.gen(function* () {
-    const layer = taskServiceLayer({
-      loadTaskAsTmAuthority: () =>
-        Effect.fail(new ForbiddenError({ message: "not the TM" })),
-    });
+    const layer = Layer.mergeAll(
+      taskServiceLayer({
+        loadOpenTask: () => Effect.succeed(makeTaskFixture()),
+      }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
     const exit = yield* Effect.exit(
-      obtainTmAuthority(TASK_ID, ALICE).pipe(Effect.provide(layer)),
+      obtainTmAuthority(TASK_ID, OTHER_CONN_ID).pipe(Effect.provide(layer)),
+    );
+    expectFailureOf(exit, ForbiddenError);
+  });
+}
+
+function tmAuthForbiddenClosedTask() {
+  return Effect.gen(function* () {
+    const layer = Layer.mergeAll(
+      taskServiceLayer({
+        loadOpenTask: () =>
+          Effect.fail(new ForbiddenError({ message: "task not open" })),
+      }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
+    const exit = yield* Effect.exit(
+      obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, ForbiddenError);
   });
@@ -173,20 +206,30 @@ function tmAuthForbidden() {
 
 function tmAuthNotFound() {
   return Effect.gen(function* () {
-    const layer = taskServiceLayer({
-      loadTaskAsTmAuthority: () =>
-        Effect.fail(new NotFoundError({ message: "task gone" })),
-    });
+    const layer = Layer.mergeAll(
+      taskServiceLayer({
+        loadOpenTask: () =>
+          Effect.fail(new NotFoundError({ message: "task gone" })),
+      }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
     const exit = yield* Effect.exit(
-      obtainTmAuthority(TASK_ID, ALICE).pipe(Effect.provide(layer)),
+      obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, NotFoundError);
   });
 }
 
 describe("obtainTmAuthority", () => {
-  it("happy path returns { task, callerAgentId }", tmAuthHappy);
-  it("propagates ForbiddenError from loadTaskAsTmAuthority", tmAuthForbidden);
+  it("happy path returns { task }", tmAuthHappy);
+  it(
+    "fails ForbiddenError when caller connection is not the app owner",
+    tmAuthForbiddenWrongConn,
+  );
+  it(
+    "propagates ForbiddenError when task is closed/failed",
+    tmAuthForbiddenClosedTask,
+  );
   it("propagates NotFoundError when task missing", tmAuthNotFound);
 });
 
@@ -578,7 +621,10 @@ interface SendPermStubs {
   assertReplyTarget?: MessageService["assertReplyTarget"];
 }
 
-function sendPermLayer(opts: SendPermStubs) {
+function sendPermLayer(
+  opts: SendPermStubs,
+  bindings: ReadonlyArray<readonly [string, string]> = [],
+) {
   const conv = conversationServiceLayer({
     assertConversationParticipant:
       opts.assertConversationParticipant ?? (() => Effect.void),
@@ -591,17 +637,18 @@ function sendPermLayer(opts: SendPermStubs) {
   const task = taskServiceLayer({
     fetchTask: opts.fetchTask ?? (() => Effect.succeed(makeTaskFixture())),
   });
-  return Layer.mergeAll(conv, msg, task);
+  return Layer.mergeAll(conv, msg, task, appHostLayer(bindings));
 }
 
 function runObtainSendPerm(
   layer: Layer.Layer<
-    MessageServiceTag | ConversationServiceTag | TaskServiceTag
+    MessageServiceTag | ConversationServiceTag | TaskServiceTag | AppHostTag
   >,
   input: {
     taskId?: typeof TASK_ID;
     conversationId?: typeof CONV_ID;
     senderAgentId: AgentId;
+    callerConnId?: string;
     replyToId?: typeof REPLY_ID;
   },
 ) {
@@ -609,6 +656,7 @@ function runObtainSendPerm(
     taskId: input.taskId ?? TASK_ID,
     conversationId: input.conversationId ?? CONV_ID,
     senderAgentId: input.senderAgentId,
+    callerConnId: input.callerConnId ?? OTHER_CONN_ID,
     replyToId: input.replyToId,
   }).pipe(Effect.provide(layer));
 }
@@ -640,16 +688,12 @@ function sendPermNonBypassWithReply() {
 
 function sendPermTmBypassNoReply() {
   return Effect.gen(function* () {
-    const layer = sendPermLayer({
-      readSendConversation: () =>
-        Effect.succeed(
-          makeSendConvRow({
-            tm_endpoint_address: endpointAddressForAgent(ALICE),
-          }),
-        ),
-    });
+    // Caller's connection IS the registered app connection for APP_ID
+    // ⇒ TM-bypass branch.
+    const layer = sendPermLayer({}, [[APP_ID, OWNER_CONN_ID]]);
     const value: MessageSendPermissionValue = yield* runObtainSendPerm(layer, {
       senderAgentId: ALICE,
+      callerConnId: OWNER_CONN_ID,
     });
     expect(value._tag).toBe(TAG_TM_BYPASS);
   });
@@ -657,16 +701,10 @@ function sendPermTmBypassNoReply() {
 
 function sendPermTmBypassWithReply() {
   return Effect.gen(function* () {
-    const layer = sendPermLayer({
-      readSendConversation: () =>
-        Effect.succeed(
-          makeSendConvRow({
-            tm_endpoint_address: endpointAddressForAgent(ALICE),
-          }),
-        ),
-    });
+    const layer = sendPermLayer({}, [[APP_ID, OWNER_CONN_ID]]);
     const value: MessageSendPermissionValue = yield* runObtainSendPerm(layer, {
       senderAgentId: ALICE,
+      callerConnId: OWNER_CONN_ID,
       replyToId: REPLY_ID,
     });
     expect(value._tag).toBe(TAG_TM_BYPASS_REPLY);
@@ -752,10 +790,7 @@ describe("obtainMessageSendPermission", () => {
 
 function assertTmAuthMatchOk() {
   return Effect.gen(function* () {
-    yield* assertTmAuthorityMatchesTask(
-      { task: makeTaskFixture(), callerAgentId: ALICE },
-      TASK_ID,
-    );
+    yield* assertTmAuthorityMatchesTask({ task: makeTaskFixture() }, TASK_ID);
   });
 }
 
@@ -763,10 +798,7 @@ function assertTmAuthMismatch() {
   return Effect.gen(function* () {
     const exit = yield* Effect.exit(
       assertTmAuthorityMatchesTask(
-        {
-          task: makeTaskFixture({ id: OTHER_TASK_ID }),
-          callerAgentId: ALICE,
-        },
+        { task: makeTaskFixture({ id: OTHER_TASK_ID }) },
         TASK_ID,
       ),
     );

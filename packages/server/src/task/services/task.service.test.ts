@@ -1,7 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
-import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect } from "vitest";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Layer } from "effect";
 import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import {
   agentId,
@@ -9,7 +8,7 @@ import {
   wireErrorFromInstance,
 } from "@moltzap/protocol/testing";
 import type { TaskId } from "@moltzap/protocol/task";
-import { TaskService, endpointAddressForAgent } from "./task.service.js";
+import { TaskService } from "./task.service.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { MessageService } from "./message.service.js";
 import {
@@ -23,7 +22,8 @@ import {
   obtainTaskReadAccess,
   obtainTmAuthority,
 } from "../../app/capabilities/index.js";
-import { TaskServiceTag } from "../../app/layers.js";
+import { AppHostTag, TaskServiceTag } from "../../app/layers.js";
+import type { AppHost } from "../../app/app-host.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
@@ -63,15 +63,15 @@ const AGENTS = [
     status: "active",
   },
 ] as const;
-const KNOWN_AGENTS = [ALICE, BOB, CAROL] as const;
-const NON_ALICE_AGENTS = [BOB, CAROL] as const;
-const PROPERTY_RUNS = 8;
 const TASK_STATUS_WAITING = "waiting";
 const TASK_STATUS_CLOSED = "closed";
-const TM_APP_ADDRESS_PATTERN = /^tm:app:/;
 const UNKNOWN_TASK_ID = makeTaskId("00000000-0000-4000-8000-deadbeefcafe");
-const FOREIGN_TM_ENDPOINT = "tm://foreign/addr-1";
-const EMPTY_TM_ENDPOINT = "";
+
+const ALICE_APP_ID = "alice-app";
+const BOB_APP_ID = "bob-app";
+const ALICE_CONN = "alice-conn-1";
+const BOB_CONN = "bob-conn-1";
+const CAROL_CONN = "carol-conn-1";
 
 let harness: PgliteHarness;
 
@@ -96,10 +96,27 @@ function makeService() {
   return new TaskService(harness.db, STUB_CONV, STUB_MSG);
 }
 
-function aliceAsTm() {
-  return {
-    tmEndpointAddress: endpointAddressForAgent(ALICE),
+/**
+ * Minimal AppHost stub for capability tests: `isAppConnection(appId,
+ * connId)` returns true iff `(appId, connId)` is in the seeded set.
+ */
+type AppHostStub = Pick<AppHost, "isAppConnection">;
+
+function makeAppHostStub(
+  bindings: ReadonlyArray<readonly [string, string]>,
+): AppHost {
+  const seeded = new Set(bindings.map(([app, conn]) => `${app}::${conn}`));
+  const stub: AppHostStub = {
+    isAppConnection: (appId, connId) => seeded.has(`${appId}::${connId}`),
   };
+  return stub as AppHost;
+}
+
+function aliceAppLayer() {
+  return Layer.succeed(
+    AppHostTag,
+    makeAppHostStub([[ALICE_APP_ID, ALICE_CONN]]),
+  );
 }
 
 function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
@@ -109,15 +126,21 @@ function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
   return wireErrorFromInstance(failure.value)?.code ?? null;
 }
 
-function withTmAuth(taskId: TaskId, caller: AgentId, svc: TaskService) {
+function withTmAuth(
+  taskId: TaskId,
+  callerConnId: string,
+  svc: TaskService,
+  app: Layer.Layer<AppHostTag> = aliceAppLayer(),
+) {
   return <A, E, R>(eff: Effect.Effect<A, E, R | TmAuthority>) =>
     eff.pipe(
       Effect.provideServiceEffect(
         TmAuthority,
-        obtainTmAuthority(taskId, caller),
+        obtainTmAuthority(taskId, callerConnId),
       ),
       Effect.provideService(TaskServiceTag, svc),
-    ) as Effect.Effect<A, E, Exclude<R, TmAuthority>>;
+      Effect.provide(app),
+    ) as Effect.Effect<A, E, Exclude<R, TmAuthority | AppHostTag>>;
 }
 
 function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
@@ -131,55 +154,13 @@ function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
     ) as Effect.Effect<A, E, Exclude<R, TaskReadAccess>>;
 }
 
-function setPersistedTmEndpoint(id: TaskId, address: string) {
-  return harness.db
-    .updateTable("tasks")
-    .set({ tm_endpoint_address: address })
-    .where("id", "=", id);
-}
-
-function knownAgentEndpointMatches(agent: (typeof KNOWN_AGENTS)[number]) {
-  expect(endpointAddressForAgent(agent)).toBe(`tm:agent:${agent}`);
-}
-
-function nonAliceEndpointDiffers(agent: (typeof NON_ALICE_AGENTS)[number]) {
-  expect(endpointAddressForAgent(agent)).not.toBe(
-    endpointAddressForAgent(ALICE),
-  );
-}
-
-function endpointAddressProperty() {
-  return Effect.sync(() => {
-    fc.assert(
-      fc.property(fc.constantFrom(...KNOWN_AGENTS), knownAgentEndpointMatches),
-      {
-        numRuns: PROPERTY_RUNS,
-      },
-    );
-  });
-}
-
-function nonTmEndpointProperty() {
-  return Effect.sync(() => {
-    fc.assert(
-      fc.property(
-        fc.constantFrom(...NON_ALICE_AGENTS),
-        nonAliceEndpointDiffers,
-      ),
-      {
-        numRuns: PROPERTY_RUNS,
-      },
-    );
-  });
-}
-
 function createsWaitingTask() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
     expect(task.status).toBe(TASK_STATUS_WAITING);
     expect(task.initiatorAgentId).toBe(ALICE);
-    expect(task.tmEndpointAddress).toBe(endpointAddressForAgent(ALICE));
+    expect(task.appId).toBe(ALICE_APP_ID);
 
     const view = yield* svc
       .get(task.id, ALICE)
@@ -195,7 +176,7 @@ function admitsInvitedParticipantAsPending() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, {
-      ...aliceAsTm(),
+      appId: ALICE_APP_ID,
       invitedAgentIds: [BOB],
     });
     const view = yield* svc
@@ -210,8 +191,8 @@ function admitsInvitedParticipantAsPending() {
 function scopesListToCallerTasks() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const aliceTask = yield* svc.create(ALICE, aliceAsTm());
-    yield* svc.create(BOB, { tmEndpointAddress: endpointAddressForAgent(BOB) });
+    const aliceTask = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
+    yield* svc.create(BOB, { appId: BOB_APP_ID });
 
     const aliceList = yield* svc.list(ALICE, {});
     expect(aliceList.map((t) => t.id)).toContain(aliceTask.id);
@@ -225,7 +206,7 @@ function scopesListToCallerTasks() {
 function rejectsGetForNonParticipant() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
     const exit = yield* Effect.exit(
       svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
     );
@@ -245,32 +226,12 @@ function rejectsUnknownTaskGet() {
   });
 }
 
-function bindsDefaultDmTmAddress() {
-  return Effect.gen(function* () {
-    const svc = makeService();
-    const task = yield* svc.createDefaultTaskForType("dm", ALICE);
-    expect(task.tmEndpointAddress).toMatch(TM_APP_ADDRESS_PATTERN);
-    expect(task.initiatorAgentId).toBe(ALICE);
-    expect(task.status).toBe(TASK_STATUS_WAITING);
-  });
-}
-
-function bindsDefaultGroupTmAddress() {
-  return Effect.gen(function* () {
-    const svc = makeService();
-    const dmTask = yield* svc.createDefaultTaskForType("dm", ALICE);
-    const groupTask = yield* svc.createDefaultTaskForType("group", ALICE);
-    expect(groupTask.tmEndpointAddress).toMatch(TM_APP_ADDRESS_PATTERN);
-    expect(groupTask.tmEndpointAddress).not.toBe(dmTask.tmEndpointAddress);
-  });
-}
-
 function rejectsCloseFromNonTm() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
     const exit = yield* Effect.exit(
-      svc.close(task.id, BOB).pipe(withTmAuth(task.id, BOB, svc)),
+      svc.close(task.id, BOB).pipe(withTmAuth(task.id, BOB_CONN, svc)),
     );
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
@@ -279,10 +240,10 @@ function rejectsCloseFromNonTm() {
 function closesTaskFromRegisteredTm() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
     const closed = yield* svc
       .close(task.id, ALICE)
-      .pipe(withTmAuth(task.id, ALICE, svc));
+      .pipe(withTmAuth(task.id, ALICE_CONN, svc));
     expect(closed.status).toBe(TASK_STATUS_CLOSED);
     expect(closed.endedAt).not.toBeNull();
   });
@@ -291,18 +252,18 @@ function closesTaskFromRegisteredTm() {
 function restrictsAddParticipantToRegisteredTm() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
 
     const denied = yield* Effect.exit(
       svc
         .addParticipant(task.id, BOB, CAROL)
-        .pipe(withTmAuth(task.id, BOB, svc)),
+        .pipe(withTmAuth(task.id, BOB_CONN, svc)),
     );
     expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
 
     const participant = yield* svc
       .addParticipant(task.id, ALICE, CAROL)
-      .pipe(withTmAuth(task.id, ALICE, svc));
+      .pipe(withTmAuth(task.id, ALICE_CONN, svc));
     expect(participant.agentId).toBe(CAROL);
     expect(participant.admittedAt).not.toBeNull();
   });
@@ -312,20 +273,20 @@ function restrictsRemoveParticipantToRegisteredTm() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, {
-      ...aliceAsTm(),
+      appId: ALICE_APP_ID,
       invitedAgentIds: [BOB],
     });
 
     const denied = yield* Effect.exit(
       svc
         .removeParticipant(task.id, CAROL, BOB)
-        .pipe(withTmAuth(task.id, CAROL, svc)),
+        .pipe(withTmAuth(task.id, CAROL_CONN, svc)),
     );
     expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
 
     yield* svc
       .removeParticipant(task.id, ALICE, BOB)
-      .pipe(withTmAuth(task.id, ALICE, svc));
+      .pipe(withTmAuth(task.id, ALICE_CONN, svc));
     const view = yield* svc
       .get(task.id, ALICE)
       .pipe(withReadAccess(task.id, ALICE, svc));
@@ -336,18 +297,18 @@ function restrictsRemoveParticipantToRegisteredTm() {
 function rejectsMutationAfterClose() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
-    yield* svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE, svc));
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
+    yield* svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE_CONN, svc));
 
     const addExit = yield* Effect.exit(
       svc
         .addParticipant(task.id, ALICE, BOB)
-        .pipe(withTmAuth(task.id, ALICE, svc)),
+        .pipe(withTmAuth(task.id, ALICE_CONN, svc)),
     );
     expect(rpcFailureCode(addExit)).toBe(ForbiddenError.code);
 
     const closeExit = yield* Effect.exit(
-      svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE, svc)),
+      svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE_CONN, svc)),
     );
     expect(rpcFailureCode(closeExit)).toBe(ForbiddenError.code);
   });
@@ -357,7 +318,7 @@ function deniesReadAccessToPendingInvitee() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, {
-      ...aliceAsTm(),
+      appId: ALICE_APP_ID,
       invitedAgentIds: [BOB],
     });
     const exit = yield* Effect.exit(
@@ -367,30 +328,29 @@ function deniesReadAccessToPendingInvitee() {
   });
 }
 
-function rejectsForeignFormattedPersistedAddress() {
+function loadOpenTaskRejectsClosed() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
-    yield* setPersistedTmEndpoint(task.id, FOREIGN_TM_ENDPOINT);
-    const exit = yield* Effect.exit(svc.loadTaskAsTmAuthority(task.id, ALICE));
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
+    yield* svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE_CONN, svc));
+    const exit = yield* Effect.exit(svc.loadOpenTask(task.id));
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }
 
-function rejectsEmptyPersistedAddress() {
+function loadOpenTaskOk() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const task = yield* svc.create(ALICE, aliceAsTm());
-    yield* setPersistedTmEndpoint(task.id, EMPTY_TM_ENDPOINT);
-    const exit = yield* Effect.exit(svc.loadTaskAsTmAuthority(task.id, ALICE));
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
+    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
+    const loaded = yield* svc.loadOpenTask(task.id);
+    expect(loaded.id).toBe(task.id);
   });
 }
 
 function registerCreateReadListTests() {
   describe("create + get + list", () => {
     it(
-      "creates a waiting task with the initiator auto-admitted and the requested TM bound",
+      "creates a waiting task with the initiator auto-admitted and the bound app",
       createsWaitingTask,
     );
     it(
@@ -403,42 +363,27 @@ function registerCreateReadListTests() {
       rejectsGetForNonParticipant,
     );
     it("404s on get of unknown taskId", rejectsUnknownTaskGet);
-    it(
-      "preserves the agent endpoint address contract",
-      endpointAddressProperty,
-    );
-  });
-}
-
-function registerDefaultTmTests() {
-  describe("createDefaultTaskForType", () => {
-    it("DM type binds the default DM TM address", bindsDefaultDmTmAddress);
-    it(
-      "group type binds the default group TM address",
-      bindsDefaultGroupTmAddress,
-    );
   });
 }
 
 function registerTmAuthorityTests() {
-  describe("loadTaskAsTmAuthority", () => {
+  describe("TmAuthority — app-ownership gate", () => {
     it(
-      "close: rejects caller that isn't the registered TM",
+      "close: rejects caller whose connection does not own the app",
       rejectsCloseFromNonTm,
     );
     it(
-      "close: registered TM transitions task to closed",
+      "close: registered remote-app connection transitions task to closed",
       closesTaskFromRegisteredTm,
     );
     it(
-      "addParticipant: only registered TM may add",
+      "addParticipant: only the registered app connection may add",
       restrictsAddParticipantToRegisteredTm,
     );
     it(
-      "removeParticipant: only registered TM may remove",
+      "removeParticipant: only the registered app connection may remove",
       restrictsRemoveParticipantToRegisteredTm,
     );
-    it("distinguishes non-TM agent endpoint addresses", nonTmEndpointProperty);
   });
 }
 
@@ -460,13 +405,10 @@ function registerPendingInviteeTests() {
   });
 }
 
-function registerBrandDecodedTmAuthorityTests() {
-  describe("brand-decoded TM authority", () => {
-    it(
-      "rejects when persisted address is foreign-formatted",
-      rejectsForeignFormattedPersistedAddress,
-    );
-    it("rejects when persisted address is empty", rejectsEmptyPersistedAddress);
+function registerLoadOpenTaskTests() {
+  describe("loadOpenTask", () => {
+    it("succeeds on waiting/active tasks", loadOpenTaskOk);
+    it("rejects closed tasks with ForbiddenError", loadOpenTaskRejectsClosed);
   });
 }
 
@@ -475,9 +417,8 @@ describe("TaskService", () => {
   afterEach(() => Effect.runPromise(harness.close), PGLITE_HOOK_TIMEOUT_MS);
 
   registerCreateReadListTests();
-  registerDefaultTmTests();
   registerTmAuthorityTests();
   registerClosedTaskTests();
   registerPendingInviteeTests();
-  registerBrandDecodedTmAuthorityTests();
+  registerLoadOpenTaskTests();
 });

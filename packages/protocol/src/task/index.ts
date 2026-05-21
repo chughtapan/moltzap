@@ -57,7 +57,6 @@ export type {
   TaskStatus,
   Task,
   TaskParticipant,
-  TmType,
   MessageReceivedNotification,
   TmDecision,
   MessageWithTmDecision,

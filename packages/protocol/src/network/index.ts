@@ -1,5 +1,5 @@
 /**
- * @file Public barrel for network, presence, and endpoint-address protocol descriptors.
+ * @file Public barrel for network and presence protocol descriptors.
  */
 export {
   Connect,
@@ -10,12 +10,3 @@ export {
 } from "./methods.js";
 
 export type { HelloOk } from "./methods.js";
-
-export {
-  isEndpointAddress,
-  endpointAddress,
-  endpointAddressKind,
-  makeEndpointAddress,
-} from "./actor-model.js";
-
-export type { EndpointAddress, EndpointAddressKind } from "./actor-model.js";

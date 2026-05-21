@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  AppsRegister,
   DEFAULT_APP_ID,
   TaskAddParticipant,
   TaskClose,
@@ -97,7 +98,7 @@ function setupAliceAndBob(): Effect.Effect<
   });
 }
 
-it("task/create returns a waiting task with server-derived self TM", () =>
+it("task/create returns a waiting task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
     const result = yield* aliceClient.sendRpc(TaskCreate, {
@@ -106,18 +107,28 @@ it("task/create returns a waiting task with server-derived self TM", () =>
     });
     expect(result.task.status).toBe(WAITING_STATUS);
     expect(result.task.initiatorAgentId).toBe(aliceAgentId);
-    expect(result.task.tmEndpointAddress).toBe(`tm:agent:${aliceAgentId}`);
+    expect(result.task.appId).toBe(DEFAULT_APP_ID);
   }));
 
-it("TM authority: only the task creator may mutate task membership", () =>
+it("TM authority: only the registered app connection may mutate task membership", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient, bobAgentId } = yield* setupAliceAndBob();
+    // #673: TM authority is proved via app-ownership of the calling
+    // WS connection. Alice registers as the app first; her connection
+    // becomes the remote-app entry for DEFAULT_APP_ID. Bob does not
+    // register, so his connection cannot pass TM-authority.
+    yield* aliceClient.sendRpc(AppsRegister, {
+      manifest: {
+        appId: DEFAULT_APP_ID,
+        name: "test-app",
+      },
+    });
     const created = yield* aliceClient.sendRpc(TaskCreate, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
 
-    // Bob (not the TM) cannot mutate.
+    // Bob (not the registered app connection) cannot mutate.
     const closeDenied = yield* Effect.either(
       bobClient.sendRpc(TaskClose, { taskId: created.task.id }),
     );
@@ -131,20 +142,18 @@ it("TM authority: only the task creator may mutate task membership", () =>
     );
     expect(expectEitherLeft(addDenied)).toBeDefined();
 
-    // Alice (the TM) can.
+    // Alice (the registered app connection) can.
     const added = yield* aliceClient.sendRpc(TaskAddParticipant, {
       taskId: created.task.id,
       agentId: bobAgentId,
     });
     expect(added.participant.agentId).toBe(bobAgentId);
 
-    // Alice (TM) removes.
     yield* aliceClient.sendRpc(TaskRemoveParticipant, {
       taskId: created.task.id,
       agentId: bobAgentId,
     });
 
-    // Alice (TM) closes.
     const closed = yield* aliceClient.sendRpc(TaskClose, {
       taskId: created.task.id,
     });

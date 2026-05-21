@@ -352,12 +352,6 @@ const SETUP_FAILURE_PROPERTY = "driver-acquire";
 // violation reasons. Long enough to identify the failure mode; short
 // enough to avoid swamping property reports.
 const ERROR_CAUSE_TRUNCATE_LEN = 200;
-// `Math.random().toString(36)` returns "0." + base-36 digits; slicing
-// at index 2 drops the "0." prefix. The 6-char suffix is enough
-// to disambiguate per-property instances within a single conformance
-// run.
-const RANDOM_SUFFIX_LEN = 6;
-
 function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
 }
@@ -989,7 +983,9 @@ function resolveDriverConfig(
     appId:
       taskAppId === null
         ? null
-        : (taskAppId ?? `conformance-dispatch-app-${cryptoRandomShort()}`),
+        : // AppId is a `brandedId("AppId")` (UUID format); use a real UUID
+          // here so the dispatcher's `Value.Decode(AppId, …)` succeeds.
+          (taskAppId ?? globalThis.crypto.randomUUID()),
   };
 }
 
@@ -1277,14 +1273,6 @@ function leaseStateTimeout(
 
 function advanceTime(durationMs: number): Effect.Effect<void> {
   return Effect.sleep(Duration.millis(durationMs));
-}
-
-// ── Crypto helper for unique appId (avoids `crypto` import noise) ─────
-function cryptoRandomShort(): string {
-  return globalThis.crypto
-    .randomUUID()
-    .replaceAll("-", "")
-    .slice(0, RANDOM_SUFFIX_LEN);
 }
 
 // ── Re-export wire types for property authors ─────────────────────────

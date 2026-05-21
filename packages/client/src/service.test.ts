@@ -124,7 +124,6 @@ const taskCreateResponse = (
     appId: DEFAULT_APP_ID,
     initiatorAgentId: AGENT_SELF_ID,
     status: "active" as const,
-    tmEndpointAddress: "tm:test",
     startedAt: null,
     endedAt: null,
     createdAt: DEFAULT_TEST_DATE,
