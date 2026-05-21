@@ -48,9 +48,13 @@ identified server-side; no wire flag), and folds
 - **BREAKING (`@moltzap/protocol`):** Branded `TaskId` / `LeaseId`
   promoted to the wire — `MessagesSend.taskId`,
   `MessageReceivedNotification.taskId`,
-  `DispatchAdmissionDecision.leaseId` all carry brand. New brand
-  helpers (`brandTaskId`, `brandConversationId`, `brandMessageId`)
-  live at `@moltzap/protocol/task`.
+  `DispatchAdmissionDecision.leaseId` all carry brand. Production
+  callers brand untrusted strings at the boundary via
+  `Value.Decode(TaskId, raw)` directly on the public TypeBox
+  schemas; tests use the `agentId` / `taskId` / `conversationId` /
+  `messageId` helpers from `@moltzap/protocol/testing`. (No
+  `brand*` helpers are exported from the public protocol surface —
+  the schema IS the validator.)
 - **BREAKING (`@moltzap/protocol`):** `ConversationParticipantAccess`
   and `AddParticipantPermission` capability tags retire (the
   `Conversations*` RPCs that referenced them are gone).
