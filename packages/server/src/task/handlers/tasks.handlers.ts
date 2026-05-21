@@ -19,8 +19,8 @@ import {
   TaskClose,
   TaskList,
   TaskRemoveParticipant,
-  type AppId,
   type Conversation,
+  type ParamsOf,
   type Task,
   type TaskConversationListItem,
 } from "@moltzap/protocol";
@@ -33,49 +33,10 @@ import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
 import { ContactPolicyAllowsReach, TmAuthority } from "@moltzap/protocol/task";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
-function taskCreateBody(
-  params: {
-    readonly appId: AppId;
-    readonly invitedAgentIds: ReadonlyArray<AgentId>;
-    readonly initialConversation?: {
-      readonly name?: string;
-      readonly participants?: ReadonlyArray<AgentId>;
-    };
-  },
-  ctx: { readonly agentId: AgentId },
-) {
-  return Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
-    const existing = yield* maybeTaskCreateDedup(taskService, params, ctx);
-    if (existing !== null) return existing;
-    // Force the auto-provisioned contact-policy check to run before
-    // the task row is written. Dedup short-circuits above; on a fresh
-    // create we always need the policy gate.
-    yield* ContactPolicyAllowsReach;
-    const task = yield* taskService.create(ctx.agentId, {
-      appId: params.appId,
-      invitedAgentIds: params.invitedAgentIds,
-      tmEndpointAddress: defaultAppTmEndpointAddress(params.appId),
-    });
-    if (params.initialConversation === undefined) {
-      return { task, conversation: null as Conversation | null };
-    }
-    return yield* mintInitialConversation({
-      task,
-      initial: params.initialConversation,
-      invitedAgentIds: params.invitedAgentIds,
-      callerAgentId: ctx.agentId,
-    });
-  }).pipe(Effect.withSpan("task.create"));
-}
-
-type TaskCreateParams = Parameters<typeof taskCreateBody>[0];
-type TaskCreateCtx = Parameters<typeof taskCreateBody>[1];
-
 function maybeTaskCreateDedup(
   taskService: TaskServiceShape,
-  params: TaskCreateParams,
-  ctx: TaskCreateCtx,
+  params: ParamsOf<typeof TaskCreate>,
+  ctx: { readonly agentId: AgentId },
 ) {
   return Effect.gen(function* () {
     if (params.appId !== DEFAULT_APP_ID) return null;
@@ -134,42 +95,6 @@ function mintInitialConversation(input: MintInitialInput) {
   }).pipe(Effect.withSpan("task.create.mintInitialConversation"));
 }
 
-function taskConversationCreateBody(
-  params: {
-    readonly taskId: TaskId;
-    readonly name?: string;
-    readonly participants: ReadonlyArray<AgentId>;
-  },
-  ctx: { readonly agentId: AgentId },
-) {
-  return Effect.gen(function* () {
-    // Auth before participant-admitted check so a non-TM caller sees
-    // ForbiddenError, not ParticipantNotAdmittedError (which leaks
-    // task state). The descriptor declares the tag lazily; an
-    // explicit yield forces obtainTmAuthority to run up front.
-    yield* TmAuthority;
-    const taskService = yield* TaskServiceTag;
-    const conversationService = yield* ConversationServiceTag;
-    yield* taskService.requireAgentsAreInTaskParticipants(
-      params.taskId,
-      params.participants,
-    );
-    const conversation = yield* conversationService.create({
-      name: params.name,
-      agentIds: [...params.participants],
-      creatorAgentId: ctx.agentId,
-      mintTask: Effect.succeed({ id: params.taskId }),
-    });
-    yield* fanoutTaskConversationCreate({
-      taskId: params.taskId,
-      conversation,
-      participants: params.participants,
-      name: params.name,
-    });
-    return { conversation };
-  }).pipe(Effect.withSpan("task.conversation.create"));
-}
-
 interface TaskConversationCreateInput {
   readonly taskId: TaskId;
   readonly conversation: Conversation;
@@ -191,37 +116,6 @@ function fanoutTaskConversationCreate(input: TaskConversationCreateInput) {
       participants: [...input.participants],
     },
   ).pipe(Effect.withSpan("task.conversation.create.fanout"));
-}
-
-function taskLeaveBody(
-  params: { readonly taskId: TaskId },
-  ctx: { readonly agentId: AgentId },
-) {
-  return Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
-    const { leftConversationIds, closedTask } = yield* taskService.leaveTask(
-      params.taskId,
-      ctx.agentId,
-    );
-    for (const conversationId of leftConversationIds) {
-      yield* fanoutLeaveParticipantDualEmit({
-        taskId: params.taskId,
-        conversationId,
-        leaver: ctx.agentId,
-      });
-    }
-    if (closedTask !== null) {
-      // Last-participant task closure. `task/closed { task }` reuses
-      // the EXISTING `TaskClosedNotificationDefinition` payload shape
-      // per architect plan §R9.
-      yield* broadcastNotificationToAgents(
-        [ctx.agentId],
-        TaskClosedNotificationDefinition,
-        { task: closedTask },
-      );
-    }
-    return {};
-  }).pipe(Effect.withSpan("task.leave"));
 }
 
 interface LeaveParticipantDualEmitInput {
@@ -386,17 +280,89 @@ export const taskHandlers: RpcMethodRegistry = [
 
   defineTaskMethod(TaskCreate, {
     requiresActive: true,
-    handler: (params, ctx) => taskCreateBody(params, ctx),
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const existing = yield* maybeTaskCreateDedup(taskService, params, ctx);
+        if (existing !== null) return existing;
+        // Force the auto-provisioned contact-policy check to run before
+        // the task row is written. Dedup short-circuits above; on a fresh
+        // create we always need the policy gate.
+        yield* ContactPolicyAllowsReach;
+        const task = yield* taskService.create(ctx.agentId, {
+          appId: params.appId,
+          invitedAgentIds: params.invitedAgentIds,
+          tmEndpointAddress: defaultAppTmEndpointAddress(params.appId),
+        });
+        if (params.initialConversation === undefined) {
+          return { task, conversation: null as Conversation | null };
+        }
+        return yield* mintInitialConversation({
+          task,
+          initial: params.initialConversation,
+          invitedAgentIds: params.invitedAgentIds,
+          callerAgentId: ctx.agentId,
+        });
+      }).pipe(Effect.withSpan("task.create")),
   }),
 
   defineTaskMethod(TaskLeave, {
     requiresActive: true,
-    handler: (params, ctx) => taskLeaveBody(params, ctx),
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const { leftConversationIds, closedTask } =
+          yield* taskService.leaveTask(params.taskId, ctx.agentId);
+        for (const conversationId of leftConversationIds) {
+          yield* fanoutLeaveParticipantDualEmit({
+            taskId: params.taskId,
+            conversationId,
+            leaver: ctx.agentId,
+          });
+        }
+        if (closedTask !== null) {
+          // Last-participant task closure. `task/closed { task }` reuses
+          // the EXISTING `TaskClosedNotificationDefinition` payload shape
+          // per architect plan §R9.
+          yield* broadcastNotificationToAgents(
+            [ctx.agentId],
+            TaskClosedNotificationDefinition,
+            { task: closedTask },
+          );
+        }
+        return {};
+      }).pipe(Effect.withSpan("task.leave")),
   }),
 
   defineTaskMethod(TaskConversationCreate, {
     requiresActive: true,
-    handler: (params, ctx) => taskConversationCreateBody(params, ctx),
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        // Auth before participant-admitted check so a non-TM caller sees
+        // ForbiddenError, not ParticipantNotAdmittedError (which leaks
+        // task state). The descriptor declares the tag lazily; an
+        // explicit yield forces obtainTmAuthority to run up front.
+        yield* TmAuthority;
+        const taskService = yield* TaskServiceTag;
+        const conversationService = yield* ConversationServiceTag;
+        yield* taskService.requireAgentsAreInTaskParticipants(
+          params.taskId,
+          params.participants,
+        );
+        const conversation = yield* conversationService.create({
+          name: params.name,
+          agentIds: [...params.participants],
+          creatorAgentId: ctx.agentId,
+          mintTask: Effect.succeed({ id: params.taskId }),
+        });
+        yield* fanoutTaskConversationCreate({
+          taskId: params.taskId,
+          conversation,
+          participants: params.participants,
+          name: params.name,
+        });
+        return { conversation };
+      }).pipe(Effect.withSpan("task.conversation.create")),
   }),
 
   defineTaskMethod(TaskConversationList, {
@@ -489,11 +455,11 @@ export const taskHandlers: RpcMethodRegistry = [
     requiresActive: true,
     handler: (params) =>
       Effect.gen(function* () {
-        // Auth-first invariant — same rationale as
-        // `taskConversationCreateBody` (the explicit yield forces the
-        // dispatcher's lazy `provideServiceEffect` to run the obtain
-        // helper before `requireAgentsAreInTaskParticipants` can leak
-        // task-state to a non-TM caller).
+        // Auth-first invariant — same rationale as the
+        // `TaskConversationCreate` handler above (the explicit yield
+        // forces the dispatcher's lazy `provideServiceEffect` to run
+        // the obtain helper before `requireAgentsAreInTaskParticipants`
+        // can leak task-state to a non-TM caller).
         yield* TmAuthority;
         const taskService = yield* TaskServiceTag;
         // Participant-admitted invariant — runs AFTER TM auth.
