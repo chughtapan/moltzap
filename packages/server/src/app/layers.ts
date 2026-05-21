@@ -273,7 +273,6 @@ const MessageServiceLive = Layer.effect(
     const encryption = yield* EncryptionTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
-    const traceCapture = yield* TraceCaptureTag;
     const appHost = yield* AppHostTag;
     return new MessageService({
       db,
@@ -282,7 +281,6 @@ const MessageServiceLive = Layer.effect(
       encryption,
       deliveryWebhook,
       webhookClient,
-      traceCapture,
       appHost,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
