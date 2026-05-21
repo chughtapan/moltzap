@@ -61,7 +61,6 @@ import {
 } from "../../crypto/serialization.js";
 import { sql } from "../../db/sql.js";
 import type { MessageRow } from "../../db/database.js";
-import type { TraceCapture } from "../../runtime-surface/trace-capture.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -91,6 +90,17 @@ export type {
 /** Postgres returns bytea as Buffer, while PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
 function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
+}
+
+// Flatten the message `parts` array to its text contents for OTel span
+// attributes (which support string arrays but not arbitrary objects).
+// Mirrors arena's `eventText` consumer: only text parts contribute.
+function textPartsAsArray(parts: readonly Part[]): string[] {
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part.type === "text") out.push(part.text);
+  }
+  return out;
 }
 
 const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
@@ -124,7 +134,6 @@ export interface MessageServiceDeps {
   readonly encryption: EnvelopeEncryption | null;
   readonly deliveryWebhook: DeliveryWebhookConfig | null;
   readonly webhookClient: WebhookClient | null;
-  readonly traceCapture: TraceCapture | null;
 
   /**
    * #560: AppHost owns the `messages/authorize` registry and runner.
@@ -169,7 +178,6 @@ export class MessageService {
   private readonly encryption: EnvelopeEncryption | null;
   private readonly deliveryWebhook: DeliveryWebhookConfig | null;
   private readonly webhookClient: WebhookClient | null;
-  private readonly traceCapture: TraceCapture | null;
   private readonly appHost: AppHost | null;
 
   constructor(deps: MessageServiceDeps) {
@@ -179,7 +187,6 @@ export class MessageService {
     this.encryption = deps.encryption;
     this.deliveryWebhook = deps.deliveryWebhook;
     this.webhookClient = deps.webhookClient;
-    this.traceCapture = deps.traceCapture;
     this.appHost = deps.appHost;
   }
 
@@ -555,21 +562,26 @@ export class MessageService {
     recipientList: readonly AgentId[],
     delivered: readonly AgentId[],
   ): Effect.Effect<void, never> {
-    const traceCapture = this.traceCapture;
-    if (traceCapture === null) return Effect.void;
     return Effect.gen(this, function* () {
       const traceMetadata = yield* this.getTraceMessageMetadata(
         input.conversationId,
         input.senderAgentId,
       );
-      yield* traceCapture.record({
-        _tag: "Message",
-        message: input.carrier.message,
-        channelKey: traceMetadata.channelKey,
-        senderDisplayName: traceMetadata.senderDisplayName,
-        recipientAgentIds: recipientList,
-        deliveredAgentIds: delivered,
-      });
+      yield* Effect.void.pipe(
+        Effect.withSpan("moltzap.message.delivered", {
+          attributes: {
+            "moltzap.message.id": input.carrier.message.id,
+            "moltzap.message.conversation_id": input.conversationId,
+            "moltzap.message.sender_id": input.senderAgentId,
+            "moltzap.message.created_at": input.carrier.message.createdAt,
+            "moltzap.message.text_parts": textPartsAsArray(input.carrier.parts),
+            "moltzap.channel.key": traceMetadata.channelKey,
+            "moltzap.sender.display_name": traceMetadata.senderDisplayName,
+            "moltzap.recipients": [...recipientList],
+            "moltzap.delivered": [...delivered],
+          },
+        }),
+      );
     });
   }
 
@@ -577,24 +589,25 @@ export class MessageService {
     input: SendCommitInput,
     reason: string,
   ): Effect.Effect<void, never> {
-    const traceCapture = this.traceCapture;
-    if (traceCapture === null) return Effect.void;
     return Effect.gen(this, function* () {
       const traceMetadata = yield* this.getTraceMessageMetadata(
         input.conversationId,
         input.senderAgentId,
       );
-      yield* traceCapture.record({
-        _tag: "HookBlocked",
-        hookName: "before_message_delivery",
-        conversationId: input.conversationId,
-        channelKey: traceMetadata.channelKey,
-        senderAgentId: input.senderAgentId,
-        senderDisplayName: traceMetadata.senderDisplayName,
-        reason,
-        parts: input.carrier.parts,
-        createdAt: input.carrier.message.createdAt,
-      });
+      yield* Effect.void.pipe(
+        Effect.withSpan("moltzap.message.blocked", {
+          attributes: {
+            "moltzap.hook.name": "before_message_delivery",
+            "moltzap.message.conversation_id": input.conversationId,
+            "moltzap.message.sender_id": input.senderAgentId,
+            "moltzap.message.created_at": input.carrier.message.createdAt,
+            "moltzap.message.text_parts": textPartsAsArray(input.carrier.parts),
+            "moltzap.channel.key": traceMetadata.channelKey,
+            "moltzap.sender.display_name": traceMetadata.senderDisplayName,
+            "moltzap.block.reason": reason,
+          },
+        }),
+      );
     });
   }
 
