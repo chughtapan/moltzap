@@ -9,7 +9,9 @@ import {
   Scope,
 } from "effect";
 
+import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
+import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import type {
   DispatchContext,
   RpcMethodRegistry,
@@ -53,18 +55,28 @@ class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
   readonly cause: unknown;
 }> {}
 
+function resolveSpanProcessor(
+  configured: SpanProcessor | undefined,
+): SpanProcessor | null {
+  if (configured !== undefined) return configured;
+  return Effect.runSync(readDefaultSpanProcessor);
+}
+
 function makeCoreRuntime(config: CoreConfig) {
   const envelope = config.encryptionMasterSecret
     ? new EnvelopeEncryption(config.encryptionMasterSecret)
     : null;
   const webhookClient = config.webhookClient ?? new WebhookClient();
+  const spanProcessor = resolveSpanProcessor(config.spanProcessor);
+  const TracingLive =
+    spanProcessor === null ? Layer.empty : makeTracingLayer({ spanProcessor });
   const BaseLive = Layer.mergeAll(
     Layer.succeed(DbTag, config.db),
     Layer.succeed(EncryptionTag, envelope),
     Layer.succeed(SessionValidatorTag, config.sessionValidator ?? null),
     Layer.succeed(WebhookClientTag, webhookClient),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
-    config.traceCaptureLayer ?? NoopTraceCaptureLive,
+    NoopTraceCaptureLive,
   );
   const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
   const WireConversationIntoAppHost = Layer.effectDiscard(
@@ -79,7 +91,7 @@ function makeCoreRuntime(config: CoreConfig) {
     ServicesWithBase,
   );
   const dispatchRuntime = ManagedRuntime.make(
-    Layer.mergeAll(NodeHttpServer.layerContext, FullLive),
+    Layer.mergeAll(NodeHttpServer.layerContext, FullLive, TracingLive),
   );
   const services = dispatchRuntime.runSync(resolveServices);
   return { dispatchRuntime, services };
