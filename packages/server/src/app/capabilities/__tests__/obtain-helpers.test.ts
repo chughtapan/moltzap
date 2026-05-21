@@ -56,7 +56,6 @@ import {
 } from "../contact-policy-allows-reach.js";
 import { obtainConversationInTask } from "../conversation-in-task.js";
 import { refineConversationNotArchived } from "../conversation-not-archived.js";
-import { obtainConversationParticipantAccess } from "../conversation-participant-access.js";
 import { obtainGroupCapacityForCreate } from "../group-capacity-for-create.js";
 import {
   obtainMessageSendPermission,
@@ -239,44 +238,6 @@ describe("obtainTaskReadAccess", () => {
   it("happy path returns { task, callerAgentId }", readAccessHappy);
   it("propagates ForbiddenError when caller lacks access", readAccessForbidden);
   it("propagates NotFoundError when task missing", readAccessNotFound);
-});
-
-// ── obtainConversationParticipantAccess ───────────────────────────────
-
-function partAccessHappy() {
-  return Effect.gen(function* () {
-    const layer = conversationServiceLayer({
-      assertConversationParticipant: () => Effect.void,
-    });
-    const value = yield* obtainConversationParticipantAccess(
-      CONV_ID,
-      ALICE,
-    ).pipe(Effect.provide(layer));
-    expect(value).toEqual({ conversationId: CONV_ID, callerAgentId: ALICE });
-  });
-}
-
-function partAccessForbidden() {
-  return Effect.gen(function* () {
-    const layer = conversationServiceLayer({
-      assertConversationParticipant: () =>
-        Effect.fail(new ForbiddenError({ message: "not a participant" })),
-    });
-    const exit = yield* Effect.exit(
-      obtainConversationParticipantAccess(CONV_ID, ALICE).pipe(
-        Effect.provide(layer),
-      ),
-    );
-    expectFailureOf(exit, ForbiddenError);
-  });
-}
-
-describe("obtainConversationParticipantAccess", () => {
-  it("happy path returns { conversationId, callerAgentId }", partAccessHappy);
-  it(
-    "propagates ForbiddenError when caller not a participant",
-    partAccessForbidden,
-  );
 });
 
 // ── obtainConversationInTask ──────────────────────────────────────────

@@ -21,10 +21,8 @@ import {
   firstParticipant,
   sendText,
   unarchiveConversation,
-  updateConversationName,
   waitForArchivedEvent,
   waitForConversationCreatedNotification,
-  waitForConversationUpdatedNotification,
   waitForMessageReceivedNotification,
   waitForUnarchivedEvent,
   type ConversationActor,
@@ -56,7 +54,9 @@ function runConversationLifecycle(ctx: ConformanceRunContext) {
       const fixture = yield* acquirePropertyConversation(ctx, PROPERTY, "life");
       const participant = yield* firstParticipant(fixture, PROPERTY);
       yield* assertCreatedAndInitialSend(fixture, participant);
-      yield* assertConversationUpdate(ctx, fixture, participant);
+      // Spec D3 D10 deletes the `conversations/update` RPC and its
+      // notification; the conversation rename branch retires with the
+      // legacy surface.
       yield* assertArchivePhase(fixture, participant);
       yield* assertUnarchivePhase(fixture, participant);
     }),
@@ -93,30 +93,6 @@ function assertCreatedAndInitialSend(
   });
 }
 
-function assertConversationUpdate(
-  ctx: ConformanceRunContext,
-  fixture: LifecycleFixture,
-  participant: LifecycleParticipant,
-) {
-  return Effect.gen(function* () {
-    const updatedName = `Lifecycle ${ctx.seed}`;
-    const update = yield* updateConversationName(
-      fixture.owner,
-      fixture.conversationId,
-      updatedName,
-    ).pipe(Effect.either);
-    yield* requireRight(update, (error) =>
-      deliveryViolation(PROPERTY, `conversations/update failed: ${error._tag}`),
-    );
-    yield* waitForConversationUpdatedNotification(
-      participant,
-      fixture.conversationId,
-      updatedName,
-      PROPERTY,
-    );
-  });
-}
-
 function assertArchivePhase(
   fixture: LifecycleFixture,
   participant: LifecycleParticipant,
@@ -124,6 +100,7 @@ function assertArchivePhase(
   return Effect.gen(function* () {
     const archive = yield* archiveConversation(
       fixture.owner,
+      fixture.taskId,
       fixture.conversationId,
     ).pipe(Effect.either);
     yield* requireRight(archive, (error) =>
@@ -151,6 +128,7 @@ function assertUnarchivePhase(
   return Effect.gen(function* () {
     const unarchive = yield* unarchiveConversation(
       fixture.owner,
+      fixture.taskId,
       fixture.conversationId,
     ).pipe(Effect.either);
     yield* requireRight(unarchive, (error) =>

@@ -51,7 +51,6 @@ import type {
 import type {
   TmAuthority,
   TaskReadAccess,
-  ConversationParticipantAccess,
   ConversationInTask,
   AgentExists,
   AgentInTaskParticipants,
@@ -63,7 +62,6 @@ import type {
   GroupCapacityForCreate,
   MessageSendPermission,
   ConversationCreateAuthorization,
-  AddParticipantPermission,
 } from "../app/capabilities/index.js";
 
 /**
@@ -180,7 +178,6 @@ export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
 export type CapabilityTags =
   | TmAuthority
   | TaskReadAccess
-  | ConversationParticipantAccess
   | ConversationInTask
   | AgentExists
   | AgentInTaskParticipants
@@ -191,5 +188,4 @@ export type CapabilityTags =
   | NoReplyTarget
   | GroupCapacityForCreate
   | MessageSendPermission
-  | ConversationCreateAuthorization
-  | AddParticipantPermission;
+  | ConversationCreateAuthorization;

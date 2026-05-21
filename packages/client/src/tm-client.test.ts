@@ -7,7 +7,7 @@ import { Cause, Effect, Exit, Option } from "effect";
 import { MessagesAuthorize } from "@moltzap/protocol";
 import {
   AgentsLookupByName,
-  ConversationsList,
+  TaskList,
   DispatchAuthorize,
   Duration,
   Fiber,
@@ -344,12 +344,10 @@ effectTest(
         const client = makeClient(server.url);
         yield* connectClient(client);
 
-        const result = (yield* sendRpcEffect(
-          client,
-          ConversationsList,
-          {},
-        )) as { conversations: unknown[] };
-        expect(result.conversations).toEqual([]);
+        const result = (yield* sendRpcEffect(client, TaskList, {})) as {
+          tasks: unknown[];
+        };
+        expect(result.tasks).toEqual([]);
         yield* closeClient(client);
       }),
     ),
@@ -370,7 +368,7 @@ effectTest(
         yield* connectClient(client);
 
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+          sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
         );
         yield* realSleep(POST_TIMEOUT_SETTLE_MS);
 
@@ -398,7 +396,7 @@ effectTest("routes a well-formed notification frame to onNotification", () =>
       // rather than an RPC response, so the noop Deferred never resolves.
       // Awaiting it would wedge the test for the full RPC_TIMEOUT_MS.
       const rpcFiber = yield* Effect.fork(
-        sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+        sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
       );
       yield* waitFor(() => events.length > 0, {
         maxMs: CLOSE_INFO_WAIT_MS,
@@ -428,7 +426,7 @@ effectTest("does NOT route a notification frame missing the method field", () =>
 
       // Fire-and-forget: see the well-formed-event test above for rationale.
       const rpcFiber = yield* Effect.fork(
-        sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+        sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
       );
       yield* Effect.sleep(Duration.millis(POST_TIMEOUT_SETTLE_MS));
       expect(events).toHaveLength(0);
@@ -457,7 +455,7 @@ effectTest(
         // Fire-and-forget: server responds with 101 malformed frames, no
         // actual RPC response, so awaiting the noop would wedge the test.
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+          sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
         );
 
         // Wait for the malformed frames to flush through the reader fiber.
@@ -490,7 +488,7 @@ effectTest(
         yield* connectClient(client);
 
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, ConversationsList, {}),
+          sendRpcEffect(client, TaskList, {}),
         );
         yield* waitFor(() => server.connections[0]!.received.length >= 2);
 
@@ -524,7 +522,7 @@ effectTest(
         yield* connectClient(client);
 
         yield* expectEffectFailure(
-          sendRpcEffect(client, ConversationsList, {}),
+          sendRpcEffect(client, TaskList, {}),
           /WebSocket not connected/,
         );
         yield* closeClient(client);

@@ -28,7 +28,8 @@ import {
 } from "@moltzap/protocol/testing";
 import { getBaseUrl, getWsUrl } from "./index.js";
 
-import { ConversationsCreate } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol";
+import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 
 /**
  * Spec B (#596) + #645: the legacy `waitForNotification(def, timeoutMs?)`,
@@ -478,16 +479,18 @@ export function setupAgentGroup(
     let conversationId: string | undefined;
     if (opts?.groupName) {
       const creator = agents[0]!;
-      const others = agents.slice(1).map((a) => ({
-        type: "agent" as const,
-        id: a.agentId,
-      }));
-      const conv = (yield* creator.client.sendRpc(ConversationsCreate, {
-        type: "group",
-        name: opts.groupName,
-        participants: others,
-      })) as { conversation: { id: string } };
-      conversationId = conv.conversation.id;
+      const otherAgentIds = agents
+        .slice(1)
+        .map((a) => a.agentId as ProtocolAgentId);
+      const created = (yield* creator.client.sendRpc(TaskCreate, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: otherAgentIds,
+        initialConversation: {
+          name: opts.groupName,
+          participants: otherAgentIds,
+        },
+      })) as { conversation: { id: string } | null };
+      conversationId = created.conversation?.id;
     }
 
     return { agents, conversationId };

@@ -5,7 +5,7 @@
  */
 import { Clock, Effect } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
-import { ConversationsList } from "@moltzap/protocol/task";
+import { TaskList } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -41,9 +41,7 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
               unavailable,
             });
             // A single RPC proves the socket is alive before close.
-            yield* _client.client
-              .sendRpc(ConversationsList, {})
-              .pipe(Effect.either);
+            yield* _client.client.sendRpc(TaskList, {}).pipe(Effect.either);
           }),
         );
         const elapsed = (yield* Clock.currentTimeMillis) - start;

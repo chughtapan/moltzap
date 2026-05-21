@@ -2,30 +2,8 @@ export * from "./conversations.js";
 export * from "./messages.js";
 export * from "./tasks.js";
 
-import {
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
-  ConversationCreatedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ParticipantsAddedNotificationDefinition,
-  ParticipantsRemovedNotificationDefinition,
-} from "./conversations.js";
-import {
-  MessagesSend,
-  MessagesList,
-  MessageReceivedNotificationDefinition,
-} from "./messages.js";
+import { MessagesSend, MessagesList } from "./messages.js";
+import { MessageReceivedNotificationDefinition } from "./messages.js";
 import {
   TaskList,
   TaskClose,
@@ -50,17 +28,6 @@ import {
 } from "./tasks.js";
 
 export const taskRpcMethods = [
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
   MessagesSend,
   MessagesList,
   TaskCreate,
@@ -98,17 +65,11 @@ export const tmOnlyTaskRpcMethods = [
 ] as const;
 
 export const taskNotifications = [
-  ConversationCreatedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ParticipantsAddedNotificationDefinition,
-  ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Spec D1: dual-emit alongside the legacy `conversations/*` set.
-  // D3 deletes the legacy entries; this block becomes canonical.
+  // Spec D3 canonical: only the task/conversation/* set survives the
+  // `conversations/*` notification deletion.
   TaskConversationCreatedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,

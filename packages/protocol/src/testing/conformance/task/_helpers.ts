@@ -17,16 +17,14 @@ import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import {
   ConversationArchivedError,
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
   MessageReceivedNotificationDefinition,
-  ConversationsArchive,
-  ConversationsUnarchive,
-  ConversationsUpdate,
   MessagesSend,
   ConversationId,
+  TaskConversationArchive,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationUnarchive,
+  TaskConversationUnarchivedNotificationDefinition,
   TaskCreate,
   TaskId,
   DEFAULT_APP_ID,
@@ -201,28 +199,10 @@ function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
   );
 }
 
-type ArchiveEventData = {
-  readonly conversationId?: unknown;
-  readonly archivedAt?: unknown;
-  readonly by?: unknown;
-};
-
-type ConversationNotificationData = {
-  readonly conversation?: {
-    readonly id?: unknown;
-    readonly name?: unknown;
-  };
-};
-
 type MessageEventData = {
   readonly message?: {
     readonly conversationId?: unknown;
   };
-};
-
-type UnarchiveEventData = {
-  readonly conversationId?: unknown;
-  readonly by?: unknown;
 };
 
 export function deliveryViolation(
@@ -324,27 +304,24 @@ export function sendText(
 
 export function archiveConversation(
   actor: ConversationActor,
+  taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(ConversationsArchive, { conversationId });
-}
-
-export function updateConversationName(
-  actor: ConversationActor,
-  conversationId: ConversationId,
-  name: string,
-) {
-  return actor.client.sendRpc(ConversationsUpdate, {
+  return actor.client.sendRpc(TaskConversationArchive, {
+    taskId,
     conversationId,
-    name,
   });
 }
 
 export function unarchiveConversation(
   actor: ConversationActor,
+  taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(ConversationsUnarchive, { conversationId });
+  return actor.client.sendRpc(TaskConversationUnarchive, {
+    taskId,
+    conversationId,
+  });
 }
 
 export function waitForConversationCreatedNotification(
@@ -355,15 +332,16 @@ export function waitForConversationCreatedNotification(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `created event missing: ${reason}`),
       ),
     );
-    const data = event.params as ConversationNotificationData | undefined;
-    if (data?.conversation?.id !== conversationId) {
+    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
+    const data = event.params as { conversationId?: unknown } | undefined;
+    if (data?.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -372,37 +350,6 @@ export function waitForConversationCreatedNotification(
       );
     }
   }).pipe(Effect.withSpan("waitForConversationCreatedNotification"));
-}
-
-export function waitForConversationUpdatedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationId,
-  name: string,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation> {
-  return Effect.gen(function* () {
-    const event = yield* awaitOneNotification(
-      observer.notifications,
-      ConversationUpdatedNotificationDefinition,
-      DELIVERY_DEFAULT_TIMEOUT_MS,
-    ).pipe(
-      Effect.mapError((reason) =>
-        deliveryViolation(propertyName, `updated event missing: ${reason}`),
-      ),
-    );
-    const data = event.params as ConversationNotificationData | undefined;
-    if (
-      data?.conversation?.id !== conversationId ||
-      data.conversation.name !== name
-    ) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad updated event payload: ${JSON.stringify(event.params)}`,
-        ),
-      );
-    }
-  }).pipe(Effect.withSpan("waitForConversationUpdatedNotification"));
 }
 
 export function waitForMessageReceivedNotification(
@@ -435,24 +382,29 @@ export function waitForMessageReceivedNotification(
 export function waitForArchivedEvent(
   observer: ConversationActor,
   conversationId: ConversationId,
-  byAgentId: AgentId,
+  _byAgentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      ConversationArchivedNotificationDefinition,
+      TaskConversationArchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `archive event missing: ${reason}`),
       ),
     );
-    const data = event.params as ArchiveEventData | undefined;
+    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
+    const data = event.params as
+      | {
+          conversationId?: unknown;
+          archivedAt?: unknown;
+        }
+      | undefined;
     if (
       data?.conversationId !== conversationId ||
-      typeof data.archivedAt !== "string" ||
-      data.by !== byAgentId
+      typeof data.archivedAt !== "string"
     ) {
       return yield* Effect.fail(
         deliveryViolation(
@@ -467,21 +419,22 @@ export function waitForArchivedEvent(
 export function waitForUnarchivedEvent(
   observer: ConversationActor,
   conversationId: ConversationId,
-  byAgentId: AgentId,
+  _byAgentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      ConversationUnarchivedNotificationDefinition,
+      TaskConversationUnarchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `unarchive event missing: ${reason}`),
       ),
     );
-    const data = event.params as UnarchiveEventData | undefined;
-    if (data?.conversationId !== conversationId || data.by !== byAgentId) {
+    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
+    const data = event.params as { conversationId?: unknown } | undefined;
+    if (data?.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,

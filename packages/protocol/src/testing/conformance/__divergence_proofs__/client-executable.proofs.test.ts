@@ -7,8 +7,8 @@ import type {
   ResponseFrame,
 } from "../../../transport/wire.js";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
 } from "../../../task/methods.js";
 import type {
   TestServer,
@@ -719,16 +719,16 @@ function rewriteMessageConversationId(
 function swapArchiveLifecycleNotification(
   frame: NotificationFrame,
 ): NotificationFrame {
-  if (frame.method === ConversationArchivedNotificationDefinition.name) {
+  if (frame.method === TaskConversationArchivedNotificationDefinition.name) {
     return {
       ...frame,
-      method: ConversationUnarchivedNotificationDefinition.name,
+      method: TaskConversationUnarchivedNotificationDefinition.name,
     } as NotificationFrame;
   }
-  if (frame.method === ConversationUnarchivedNotificationDefinition.name) {
+  if (frame.method === TaskConversationUnarchivedNotificationDefinition.name) {
     return {
       ...frame,
-      method: ConversationArchivedNotificationDefinition.name,
+      method: TaskConversationArchivedNotificationDefinition.name,
     } as NotificationFrame;
   }
   return frame;

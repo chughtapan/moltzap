@@ -4,7 +4,7 @@
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { ConversationsList } from "../../../task/methods.js";
+import { TaskList } from "../../../task/methods.js";
 import { type JsonRpcId } from "../../../transport/wire.js";
 import { isRequestFrame, isResponseFrame } from "../_shared/frame-mutator.js";
 import {
@@ -98,7 +98,7 @@ function sendConversationListBatch(
 ): Effect.Effect<ReadonlyArray<unknown>> {
   return Effect.forEach(
     requestIndexes(count),
-    () => client.sendRpc(ConversationsList, {}).pipe(Effect.either),
+    () => client.sendRpc(TaskList, {}).pipe(Effect.either),
     { concurrency: count },
   );
 }

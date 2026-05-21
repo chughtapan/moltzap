@@ -3,7 +3,7 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import type { Effect } from "effect";
 
-export type ContactPolicyCheck = (
+type ContactPolicyCheck = (
   ownerUserIdA: string,
   ownerUserIdB: string,
 ) => Effect.Effect<boolean, never>;
@@ -50,28 +50,6 @@ export interface CreateConversationOptions<TaskMintError = never> {
   readonly mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>;
 }
 
-export interface AddParticipantOptions {
-  readonly conversationId: ConversationId;
-  readonly agentId: AgentId;
-  readonly requesterAgentId: AgentId;
-}
-
-export interface ParticipantAddedBroadcast {
-  readonly conversationId: ConversationId;
-  readonly targetAgentIds: readonly AgentId[];
-  readonly addedAgentId: AgentId;
-  readonly addedBy: AgentId;
-  readonly addedAt: Date;
-}
-
-export interface ParticipantRemovedBroadcast {
-  readonly conversationId: ConversationId;
-  readonly targetAgentIds: readonly AgentId[];
-  readonly removedAgentId: AgentId;
-  readonly removedBy: AgentId;
-  readonly removedAt: Date;
-}
-
 export interface CreatorContactPolicyInput {
   readonly creatorAgentId: AgentId;
   readonly targetAgentIds: ReadonlyArray<AgentId>;
@@ -87,9 +65,4 @@ export interface ContactEdgeInput {
   readonly targetOwnerUserId: string | null;
   readonly policy: ContactPolicyCheck;
   readonly pathLabel: "dm" | "group" | "addParticipant";
-}
-
-export interface ParticipantInsertResult {
-  readonly row: ParticipantRow;
-  readonly wasAlreadyMember: boolean;
 }

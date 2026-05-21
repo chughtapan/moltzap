@@ -7,7 +7,7 @@ import type {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
-import { Cause, Effect, Option } from "effect";
+import { Effect, Option } from "effect";
 import { InvalidParamsError } from "../../runtime/index.js";
 import {
   ConversationArchivedError,
@@ -15,8 +15,6 @@ import {
   ForbiddenError,
   NotFoundError,
   NotInContactsError,
-  ParticipantsAddedNotificationDefinition,
-  ParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol";
 import { ParticipantService } from "../../identity/services/participant.service.js";
 import type { ConnectionManager } from "../../transport/connection.js";
@@ -29,31 +27,23 @@ import {
   takeFirstOrFail,
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
-import { assertConversationAdminAuthority } from "./conversation-admin-authority.js";
 import { listConversations } from "./conversation/list-pagination.js";
 import {
-  AddParticipantPermission,
   ConversationCreateAuthorization,
-  ConversationParticipantAccess,
   obtainConversationCreateAuthorization,
 } from "../../app/capabilities/index.js";
 import { ConversationServiceTag } from "../../app/layers.js";
 import type {
-  AddParticipantOptions,
   ContactEdgeInput,
   ContactPolicyResolver,
   ConversationArchiveFilter,
   ConversationColumns,
   CreateConversationOptions,
   CreatorContactPolicyInput,
-  ParticipantAddedBroadcast,
-  ParticipantInsertResult,
-  ParticipantRemovedBroadcast,
   ParticipantRow,
 } from "./conversation-service-types.js";
 
 export type {
-  ContactPolicyCheck,
   ContactPolicyResolver,
   CreateConversationOptions,
 } from "./conversation-service-types.js";
@@ -72,7 +62,6 @@ const PREVIEW_CACHE_MAX = 2000;
 const PREVIEW_CACHE_TEXT_CHARS = 80;
 const DEFAULT_CONVERSATION_LIST_LIMIT = 50;
 const MSG_CONVERSATION_NOT_FOUND = "Conversation not found";
-const MSG_NOT_A_PARTICIPANT = "Not a participant";
 
 export class ConversationService {
   /** In-memory cache for last message previews — avoids decrypting on every list() call */
@@ -205,6 +194,68 @@ export class ConversationService {
       ownerByAgentId,
       policy,
       pathLabel: pathType,
+    });
+  }
+
+  /**
+   * Spec D3 reduced-surface removeParticipant: NO broadcast, NO authority
+   * gate. Used by `AppHost.removeDeniedParticipant` for dispatch-deny
+   * eviction — that path runs server-internally, not via the wire RPC
+   * (which is deleted in Commit 10). The broadcast was tied to the now-
+   * deleted `conversations/participants/removed` notification.
+   * @internal
+   */
+  removeParticipant(
+    conversationId: ConversationId,
+    agentId: AgentId,
+    _requesterAgentId: AgentId,
+  ): Effect.Effect<void, ConversationServiceError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const deleted = yield* this.db
+          .deleteFrom("conversation_participants")
+          .where("conversation_id", "=", conversationId)
+          .where("agent_id", "=", agentId)
+          .returning("conversation_id");
+        if (deleted.length === 0) {
+          return yield* Effect.fail(
+            new NotFoundError({ message: "Participant not found" }),
+          );
+        }
+        for (const conn of this.connections.getByAgent(agentId)) {
+          conn.conversationIds.delete(conversationId);
+        }
+      }),
+    );
+  }
+
+  /**
+   * Package-private add-participant contact-policy gate consumed by
+   * `obtainContactPolicyForAdd` (TaskConversationAddParticipant path).
+   * @internal
+   */
+  assertAddParticipantContactPolicy(
+    requesterAgentId: AgentId,
+    targetAgentId: AgentId,
+    targetOwnerUserId: string | null,
+  ): Effect.Effect<void, ConversationServiceError> {
+    const policy = this.resolveContactPolicy();
+    if (policy === null) return Effect.void;
+    return Effect.gen(this, function* () {
+      const requester = yield* this.participants.resolve(requesterAgentId);
+      if (!requester.exists) {
+        return yield* Effect.fail(
+          new NotFoundError({ message: `Agent ${requesterAgentId} not found` }),
+        );
+      }
+      yield* this.checkContactEdge({
+        requesterAgentId,
+        requesterOwnerUserId: requester.ownerUserId,
+        targetAgentId,
+        targetOwnerUserId,
+        policy,
+        pathLabel: "addParticipant",
+      });
     });
   }
 
@@ -347,487 +398,6 @@ export class ConversationService {
     );
   }
 
-  get(
-    conversationId: ConversationId,
-    _requesterAgentId: AgentId,
-  ): Effect.Effect<
-    {
-      conversation: Conversation;
-      participants: ConversationParticipant[];
-    },
-    ConversationServiceError,
-    ConversationParticipantAccess
-  > {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const access = yield* ConversationParticipantAccess;
-        if (access.conversationId !== conversationId) {
-          return yield* Effect.fail(
-            new ForbiddenError({ message: "capability/conversation mismatch" }),
-          );
-        }
-        const convOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .selectAll()
-            .where("id", "=", conversationId),
-        );
-        if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(
-            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
-          );
-        }
-        const partRows = yield* this.db
-          .selectFrom("conversation_participants as cp")
-          .leftJoin("agents as a", "a.id", "cp.agent_id")
-          .select([
-            "cp.conversation_id",
-            "cp.agent_id",
-            "cp.joined_at",
-            "cp.last_read_seq",
-            "cp.muted_until",
-            "a.name as agent_name",
-            "a.display_name as agent_display_name",
-          ])
-          .where("cp.conversation_id", "=", conversationId);
-        return {
-          conversation: this.mapConversation(convOpt.value),
-          participants: partRows.map((row) => this.mapParticipant(row)),
-        };
-      }),
-    );
-  }
-
-  update(
-    conversationId: ConversationId,
-    name: string | undefined,
-    requesterAgentId: AgentId,
-  ): Effect.Effect<Conversation, ConversationServiceError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        yield* assertConversationAdminAuthority(
-          this.db,
-          conversationId,
-          requesterAgentId,
-        );
-
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .updateTable("conversations")
-            .set({ name: name ?? null })
-            .where("id", "=", conversationId)
-            .returningAll(),
-        );
-
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
-          );
-        }
-
-        return this.mapConversation(rowOpt.value);
-      }),
-    );
-  }
-
-  archive(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<{ archivedAt: string }, ConversationServiceError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        yield* assertConversationAdminAuthority(
-          this.db,
-          conversationId,
-          agentId,
-        );
-
-        const updatedOpt = yield* takeFirstOption(
-          this.db
-            .updateTable("conversations")
-            .set({ archived_at: new Date() })
-            .where("id", "=", conversationId)
-            .where("archived_at", "is", null)
-            .returning("archived_at"),
-        );
-        if (Option.isSome(updatedOpt)) {
-          return { archivedAt: updatedOpt.value.archived_at!.toISOString() };
-        }
-
-        // No transition happened: already archived, or a concurrent caller
-        // won the UPDATE. Re-read to return the winner's timestamp.
-        const currentOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("archived_at")
-            .where("id", "=", conversationId),
-        );
-        if (Option.isNone(currentOpt) || !currentOpt.value.archived_at) {
-          return yield* Effect.fail(
-            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
-          );
-        }
-        return { archivedAt: currentOpt.value.archived_at.toISOString() };
-      }),
-    );
-  }
-
-  unarchive(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<void, ConversationServiceError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        yield* assertConversationAdminAuthority(
-          this.db,
-          conversationId,
-          agentId,
-        );
-
-        yield* this.db
-          .updateTable("conversations")
-          .set({ archived_at: null })
-          .where("id", "=", conversationId)
-          .where("archived_at", "is not", null);
-      }),
-    );
-  }
-
-  leave(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<void, ConversationServiceError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const convOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations")
-            .select("type")
-            .where("id", "=", conversationId),
-        );
-
-        if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(
-            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
-          );
-        }
-        if (convOpt.value.type === "dm") {
-          return yield* Effect.fail(
-            new InvalidParamsError({ message: "Cannot leave a DM" }),
-          );
-        }
-
-        const deleted = yield* this.db
-          .deleteFrom("conversation_participants")
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", agentId)
-          .returning("conversation_id");
-
-        if (deleted.length === 0) {
-          return yield* Effect.fail(
-            new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
-          );
-        }
-      }),
-    );
-  }
-
-  addParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-    requesterAgentId: AgentId,
-  ): Effect.Effect<
-    ConversationParticipant,
-    ConversationServiceError,
-    AddParticipantPermission
-  > {
-    return catchSqlErrorAsDefect(
-      this.addParticipantEffect({ conversationId, agentId, requesterAgentId }),
-    );
-  }
-
-  private addParticipantEffect(
-    input: AddParticipantOptions,
-  ): Effect.Effect<
-    ConversationParticipant,
-    ConversationServiceError | SqlError | Cause.NoSuchElementException,
-    AddParticipantPermission
-  > {
-    return Effect.gen(this, function* () {
-      const cap = yield* AddParticipantPermission;
-      // Defensive: handler-input <-> capability identity match.
-      if (
-        cap.conversationId !== input.conversationId ||
-        cap.targetAgentId !== input.agentId ||
-        cap.requesterAgentId !== input.requesterAgentId
-      ) {
-        return yield* Effect.fail(
-          new ForbiddenError({
-            message: "capability/add-participant target mismatch",
-          }),
-        );
-      }
-      const inserted = yield* this.insertParticipant(input);
-      this.subscribeAddedParticipant(input);
-      yield* this.publishParticipantAdded(input, inserted);
-      return this.mapParticipant(inserted.row);
-    });
-  }
-
-  /**
-   * Spec E (#601) Decision B / Option A — package-private add-
-   * participant authority gate. Consumed by D1's add-participant
-   * handler (post-D3 routes through `TmAuthority`).
-   * @internal
-   */
-  assertAddParticipantAuthority(
-    input: AddParticipantOptions,
-  ): Effect.Effect<void, ConversationServiceError | SqlError> {
-    return Effect.gen(this, function* () {
-      yield* assertConversationAdminAuthority(
-        this.db,
-        input.conversationId,
-        input.requesterAgentId,
-      );
-      const convOpt = yield* takeFirstOption(
-        this.db
-          .selectFrom("conversations")
-          .select("type")
-          .where("id", "=", input.conversationId),
-      );
-      if (Option.isNone(convOpt)) {
-        return yield* Effect.fail(
-          new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
-        );
-      }
-      if (convOpt.value.type === "dm") {
-        return yield* Effect.fail(
-          new InvalidParamsError({
-            message: "Cannot add participants to a DM conversation",
-          }),
-        );
-      }
-    });
-  }
-
-  /**
-   * Package-private add-participant contact-policy gate consumed by
-   * `obtainContactPolicyForAdd`. Spec E (#601) Decision B / Option A.
-   * @internal
-   */
-  assertAddParticipantContactPolicy(
-    requesterAgentId: AgentId,
-    targetAgentId: AgentId,
-    targetOwnerUserId: string | null,
-  ): Effect.Effect<void, ConversationServiceError> {
-    const policy = this.resolveContactPolicy();
-    if (policy === null) return Effect.void;
-    return Effect.gen(this, function* () {
-      const requester = yield* this.participants.resolve(requesterAgentId);
-      if (!requester.exists) {
-        return yield* Effect.fail(
-          new NotFoundError({ message: `Agent ${requesterAgentId} not found` }),
-        );
-      }
-      yield* this.checkContactEdge({
-        requesterAgentId,
-        requesterOwnerUserId: requester.ownerUserId,
-        targetAgentId,
-        targetOwnerUserId,
-        policy,
-        pathLabel: "addParticipant",
-      });
-    });
-  }
-
-  /**
-   * Spec E (#601) Decision B / Option A — package-private participant-
-   * capacity gate. Survives as an internal collaborator of
-   * `addParticipantEffect`; no direct capability binding.
-   * @internal
-   */
-  assertParticipantCapacity(
-    conversationId: ConversationId,
-  ): Effect.Effect<
-    void,
-    ConversationFullError | SqlError | Cause.NoSuchElementException
-  > {
-    return Effect.gen(this, function* () {
-      const countRow = yield* takeFirstOrFail(
-        this.db
-          .selectFrom("conversation_participants")
-          .select(sql<number>`COUNT(*)::int`.as("count"))
-          .where("conversation_id", "=", conversationId),
-        "count not returned",
-      );
-      if (countRow.count >= MAX_GROUP_PARTICIPANTS) {
-        return yield* Effect.fail(
-          new ConversationFullError({ message: GROUP_OVERFLOW_MSG }),
-        );
-      }
-    });
-  }
-
-  private insertParticipant(
-    input: AddParticipantOptions,
-  ): Effect.Effect<
-    ParticipantInsertResult,
-    SqlError | Cause.NoSuchElementException
-  > {
-    return Effect.gen(this, function* () {
-      const insertedOpt = yield* takeFirstOption(
-        this.db
-          .insertInto("conversation_participants")
-          .values({
-            conversation_id: input.conversationId,
-            agent_id: input.agentId,
-          })
-          .onConflict((oc) =>
-            oc.columns(["conversation_id", "agent_id"]).doNothing(),
-          )
-          .returningAll(),
-      );
-      const row = Option.isSome(insertedOpt)
-        ? insertedOpt.value
-        : yield* this.readParticipant(input);
-      return { row, wasAlreadyMember: Option.isNone(insertedOpt) };
-    });
-  }
-
-  private readParticipant(
-    input: AddParticipantOptions,
-  ): Effect.Effect<ParticipantRow, SqlError | Cause.NoSuchElementException> {
-    return takeFirstOrFail(
-      this.db
-        .selectFrom("conversation_participants")
-        .selectAll()
-        .where("conversation_id", "=", input.conversationId)
-        .where("agent_id", "=", input.agentId),
-      "participant row vanished after onConflict",
-    );
-  }
-
-  private subscribeAddedParticipant(input: AddParticipantOptions): void {
-    this.connections.subscribeAgentsToConversation(
-      [input.agentId],
-      input.conversationId,
-    );
-  }
-
-  private publishParticipantAdded(
-    input: AddParticipantOptions,
-    inserted: ParticipantInsertResult,
-  ): Effect.Effect<void, SqlError> {
-    if (inserted.wasAlreadyMember) return Effect.void;
-    return Effect.gen(this, function* () {
-      const participants = yield* this.getParticipantAgentIds(
-        input.conversationId,
-      );
-      yield* this.broadcastParticipantsAdded({
-        conversationId: input.conversationId,
-        targetAgentIds: participants,
-        addedAgentId: input.agentId,
-        addedBy: input.requesterAgentId,
-        addedAt: inserted.row.joined_at,
-      });
-    });
-  }
-
-  removeParticipant(
-    conversationId: ConversationId,
-    agentId: AgentId,
-    requesterAgentId: AgentId,
-  ): Effect.Effect<void, ConversationServiceError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        yield* assertConversationAdminAuthority(
-          this.db,
-          conversationId,
-          requesterAgentId,
-        );
-
-        // Snapshot BEFORE delete so the about-to-be-removed agent stays
-        // in the fan-out target list. The membership row is still live
-        // at this point so the snapshot includes them.
-        const participantsSnapshot =
-          yield* this.getParticipantAgentIds(conversationId);
-
-        const deleted = yield* this.db
-          .deleteFrom("conversation_participants")
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", agentId)
-          .returning("conversation_id");
-
-        if (deleted.length === 0) {
-          return yield* Effect.fail(
-            new NotFoundError({
-              message: "Participant not found",
-            }),
-          );
-        }
-
-        const removedAt = new Date();
-        yield* this.broadcastParticipantsRemoved({
-          conversationId,
-          targetAgentIds: participantsSnapshot,
-          removedAgentId: agentId,
-          removedBy: requesterAgentId,
-          removedAt,
-        });
-
-        for (const conn of this.connections.getByAgent(agentId)) {
-          conn.conversationIds.delete(conversationId);
-        }
-      }),
-    );
-  }
-
-  // PGlite's Kysely dialect returns numUpdatedRows: 0n on UPDATE even when rows match.
-  // Use .returning().execute() and check rows.length instead.
-  mute(
-    conversationId: ConversationId,
-    agentId: AgentId,
-    until?: string,
-  ): Effect.Effect<void, ConversationServiceError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const mutedUntil = until ?? "9999-12-31T23:59:59+00:00";
-        const rows = yield* this.db
-          .updateTable("conversation_participants")
-          .set({ muted_until: sql`${mutedUntil}::timestamptz` })
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", agentId)
-          .returning("conversation_id");
-        if (rows.length === 0) {
-          return yield* Effect.fail(
-            new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
-          );
-        }
-      }),
-    );
-  }
-
-  unmute(
-    conversationId: ConversationId,
-    agentId: AgentId,
-  ): Effect.Effect<void, ConversationServiceError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rows = yield* this.db
-          .updateTable("conversation_participants")
-          .set({ muted_until: sql.lit(null) })
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", agentId)
-          .returning("conversation_id");
-        if (rows.length === 0) {
-          return yield* Effect.fail(
-            new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
-          );
-        }
-      }),
-    );
-  }
-
   getParticipantAgentIds(
     conversationId: ConversationId,
   ): Effect.Effect<readonly AgentId[]> {
@@ -935,36 +505,6 @@ export class ConversationService {
         }
       }),
     );
-  }
-
-  private broadcastParticipantsAdded(
-    input: ParticipantAddedBroadcast,
-  ): Effect.Effect<void> {
-    return Effect.sync(() => {
-      const frame = ParticipantsAddedNotificationDefinition.encode({
-        conversationId: input.conversationId,
-        agentId: input.addedAgentId,
-        addedBy: input.addedBy,
-        addedAt: input.addedAt.toISOString(),
-      });
-      const payload = opaquePayload(JSON.stringify(frame));
-      this.fanOutToAgents(input.targetAgentIds, payload);
-    });
-  }
-
-  private broadcastParticipantsRemoved(
-    input: ParticipantRemovedBroadcast,
-  ): Effect.Effect<void> {
-    return Effect.sync(() => {
-      const frame = ParticipantsRemovedNotificationDefinition.encode({
-        conversationId: input.conversationId,
-        agentId: input.removedAgentId,
-        removedBy: input.removedBy,
-        removedAt: input.removedAt.toISOString(),
-      });
-      const payload = opaquePayload(JSON.stringify(frame));
-      this.fanOutToAgents(input.targetAgentIds, payload);
-    });
   }
 
   private fanOutToAgents(
