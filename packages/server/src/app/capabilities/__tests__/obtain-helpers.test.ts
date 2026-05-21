@@ -169,7 +169,7 @@ function tmAuthHappy() {
       taskServiceLayer({ loadOpenTask: () => Effect.succeed(task) }),
       appHostLayer([[APP_ID, OWNER_CONN_ID]]),
     );
-    const value = yield* obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(
+    const value = yield* obtainTmAuthority(TASK_ID, OWNER_CONN_ID, ALICE).pipe(
       Effect.provide(layer),
     );
     expect(value).toEqual({ task });
@@ -185,7 +185,9 @@ function tmAuthForbiddenWrongConn() {
       appHostLayer([[APP_ID, OWNER_CONN_ID]]),
     );
     const exit = yield* Effect.exit(
-      obtainTmAuthority(TASK_ID, OTHER_CONN_ID).pipe(Effect.provide(layer)),
+      obtainTmAuthority(TASK_ID, OTHER_CONN_ID, BOB).pipe(
+        Effect.provide(layer),
+      ),
     );
     expectFailureOf(exit, ForbiddenError);
   });
@@ -201,7 +203,9 @@ function tmAuthForbiddenClosedTask() {
       appHostLayer([[APP_ID, OWNER_CONN_ID]]),
     );
     const exit = yield* Effect.exit(
-      obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(Effect.provide(layer)),
+      obtainTmAuthority(TASK_ID, OWNER_CONN_ID, ALICE).pipe(
+        Effect.provide(layer),
+      ),
     );
     expectFailureOf(exit, ForbiddenError);
   });
@@ -217,7 +221,9 @@ function tmAuthNotFound() {
       appHostLayer([[APP_ID, OWNER_CONN_ID]]),
     );
     const exit = yield* Effect.exit(
-      obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(Effect.provide(layer)),
+      obtainTmAuthority(TASK_ID, OWNER_CONN_ID, ALICE).pipe(
+        Effect.provide(layer),
+      ),
     );
     expectFailureOf(exit, NotFoundError);
   });
