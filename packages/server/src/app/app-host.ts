@@ -16,7 +16,13 @@ import type {
 } from "@moltzap/protocol";
 import { DispatchAuthorize } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/network";
+import type {
+  AppId,
+  ConversationId,
+  MessageId,
+  TaskId,
+} from "@moltzap/protocol/task";
 import {
   type AppHooks,
   type DispatchAdmissionResult,
@@ -45,6 +51,13 @@ function errorMessage(err: unknown): string {
 
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const EMPTY_TASK_ID = "" as TaskId;
+// Placeholder app id used by the dispatchBindingForLookup default-grant
+// branch; the binding is consumed only by the registry mint path, which
+// never re-uses it for an `isAppConnection` check. The empty-string
+// sentinel mirrors `EMPTY_TASK_ID` and the moderator-conn-id default
+// below — see `dispatchBindingForLookup`.
+const EMPTY_APP_ID = "" as AppId;
+const EMPTY_CONNECTION_ID = "" as ConnectionId;
 
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
@@ -65,9 +78,9 @@ interface ConversationServiceForRemove {
 }
 
 class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
-  readonly appId: string;
+  readonly appId: AppId;
   readonly method: string;
-  readonly connectionId: string;
+  readonly connectionId: ConnectionId;
   readonly reason: string;
   readonly cause?: unknown;
 }> {
@@ -77,7 +90,7 @@ class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
 }
 
 interface RemoteRegistration {
-  readonly connectionId: string;
+  readonly connectionId: ConnectionId;
 }
 
 type PendingDispatchMessage = Readonly<{
@@ -93,7 +106,7 @@ type PendingDispatchMessage = Readonly<{
 interface EnqueueDispatchRequestArgs {
   readonly conversationId: ConversationId;
   readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: string;
+  readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
   readonly parts?: Part[];
@@ -104,9 +117,9 @@ interface EnqueueDispatchRequestArgs {
 }
 
 interface DispatchBindingContext {
-  readonly appId: string;
+  readonly appId: AppId;
   readonly taskId: TaskId;
-  readonly moderatorConnectionId: string;
+  readonly moderatorConnectionId: ConnectionId;
 }
 
 interface DispatchRoundTripParams {
@@ -119,7 +132,7 @@ interface DispatchRoundTripParams {
   readonly receivedAt?: string;
   readonly clock?: LogicalClock;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
-  readonly moderatorConnectionId: string;
+  readonly moderatorConnectionId: ConnectionId;
 }
 
 type AppBoundConversationLookup = Extract<
@@ -152,9 +165,9 @@ function dispatchVerdictToLeaseVerdict(
 }
 
 export class AppHost {
-  private manifests = new Map<string, AppManifest>();
+  private manifests = new Map<AppId, AppManifest>();
   private contactService: ContactService | null = null;
-  private hooks = new Map<string, AppHooks>();
+  private hooks = new Map<AppId, AppHooks>();
 
   /**
    * In-process `messageAuthorize` handlers keyed by `appId`. Apps with
@@ -163,7 +176,7 @@ export class AppHost {
    * and call `apps/register` over the wire route through the
    * remote-registration path in {@link runMessageAuthorize}.
    */
-  private messageAuthorizeHooks = new Map<string, MessageAuthorizeHook>();
+  private messageAuthorizeHooks = new Map<AppId, MessageAuthorizeHook>();
 
   /**
    * Remote-app routing table. An entry exists iff `registerRemoteApp` was
@@ -179,7 +192,7 @@ export class AppHost {
    * helpers prefer the remote entry when present — `registerRemoteApp`
    * is the explicit promotion path.
    */
-  private remoteRegistrations = new Map<string, RemoteRegistration>();
+  private remoteRegistrations = new Map<AppId, RemoteRegistration>();
 
   /**
    * Optional lease registry for the #529 reshape surface.
@@ -229,7 +242,9 @@ export class AppHost {
   }
 
   registerApp(manifest: AppManifest): void {
-    this.manifests.set(manifest.appId, manifest);
+    // `AppManifest.appId` is wire-typed `Type.String()` (no brand on the
+    // schema), so brand at the boundary when populating the registry.
+    this.manifests.set(manifest.appId as AppId, manifest);
     Effect.runFork(
       Effect.logInfo("App registered").pipe(
         Effect.annotateLogs({ appId: manifest.appId }),
@@ -250,12 +265,15 @@ export class AppHost {
    * finalizer; the registration keeps pointing at the dead id and
    * dispatches stay fail-closed until the app re-registers.
    */
-  registerRemoteApp(manifest: AppManifest, connectionId: string): void {
-    this.manifests.set(manifest.appId, manifest);
-    this.remoteRegistrations.set(manifest.appId, { connectionId });
+  registerRemoteApp(manifest: AppManifest, connectionId: ConnectionId): void {
+    // `AppManifest.appId` is wire-typed `Type.String()` (no brand on the
+    // schema); brand at the boundary so both maps stay brand-typed.
+    const appId = manifest.appId as AppId;
+    this.manifests.set(appId, manifest);
+    this.remoteRegistrations.set(appId, { connectionId });
     Effect.runFork(
       Effect.logInfo("Remote app registered").pipe(
-        Effect.annotateLogs({ appId: manifest.appId, connectionId }),
+        Effect.annotateLogs({ appId, connectionId }),
       ),
     );
   }
@@ -272,7 +290,7 @@ export class AppHost {
    * on disconnect. Future dispatches for `appId` fall through to whatever
    * in-process hook is registered (or grant-by-default if none).
    */
-  unregisterRemoteApp(appId: string): void {
+  unregisterRemoteApp(appId: AppId): void {
     if (this.remoteRegistrations.delete(appId)) {
       Effect.runFork(
         Effect.logInfo("Remote app unregistered").pipe(
@@ -290,12 +308,12 @@ export class AppHost {
    * connection closes (the registration entry is dropped via
    * {@link unregisterRemoteApp} on the disconnect finalizer).
    */
-  isAppConnection(appId: string, callerConnId: string): boolean {
+  isAppConnection(appId: AppId, callerConnId: ConnectionId): boolean {
     const entry = this.remoteRegistrations.get(appId);
     return entry !== undefined && entry.connectionId === callerConnId;
   }
 
-  getManifest(appId: string): AppManifest | undefined {
+  getManifest(appId: AppId): AppManifest | undefined {
     return this.manifests.get(appId);
   }
 
@@ -315,7 +333,7 @@ export class AppHost {
   }
 
   onTaskAuthorizeDispatch(
-    appId: string,
+    appId: AppId,
     handler: TaskAuthorizeDispatchHook,
   ): void {
     const existing = this.hooks.get(appId) ?? {};
@@ -407,16 +425,16 @@ export class AppHost {
   ): DispatchBindingContext {
     if (lookup._tag !== "AppBound") {
       return {
-        appId: "",
+        appId: EMPTY_APP_ID,
         taskId: EMPTY_TASK_ID,
-        moderatorConnectionId: "",
+        moderatorConnectionId: EMPTY_CONNECTION_ID,
       };
     }
     const remote = this.remoteRegistrations.get(lookup.appId);
     return {
       appId: lookup.appId,
       taskId: lookup.taskId,
-      moderatorConnectionId: remote?.connectionId ?? "",
+      moderatorConnectionId: remote?.connectionId ?? EMPTY_CONNECTION_ID,
     };
   }
 
@@ -496,7 +514,7 @@ export class AppHost {
     });
   }
 
-  private hasDispatchAuthorizeHook(appId: string): boolean {
+  private hasDispatchAuthorizeHook(appId: AppId): boolean {
     return (
       this.remoteRegistrations.has(appId) ||
       this.hooks.get(appId)?.taskAuthorizeDispatch !== undefined
@@ -587,8 +605,8 @@ export class AppHost {
       );
   }
 
-  private moderatorAgentIdFromConn(connectionId: string): AgentId | null {
-    if (connectionId === "") return null;
+  private moderatorAgentIdFromConn(connectionId: ConnectionId): AgentId | null {
+    if (connectionId === EMPTY_CONNECTION_ID) return null;
     const conn = this.connections.get(connectionId);
     if (!conn || !conn.auth) return null;
     return conn.auth.agentId as AgentId;
@@ -602,7 +620,7 @@ export class AppHost {
    * plan §3.4.
    */
   private dispatchAuthorizeHook(
-    appId: string,
+    appId: AppId,
     ctx: TaskAuthorizeDispatchContext,
   ): Effect.Effect<DispatchAdmissionResult, never> {
     const remote = this.remoteRegistrations.get(appId);
@@ -635,7 +653,7 @@ export class AppHost {
   }
 
   private dispatchAuthorizeRaw(
-    appId: string,
+    appId: AppId,
     ctx: TaskAuthorizeDispatchContext,
     remote: RemoteRegistration | undefined,
     inProcess: TaskAuthorizeDispatchHook | undefined,
@@ -661,7 +679,7 @@ export class AppHost {
    * default policy `Forward { participants \ sender }` applies.
    * Idempotent — repeat calls overwrite the entry.
    */
-  registerMessageAuthorize(appId: string, hook: MessageAuthorizeHook): void {
+  registerMessageAuthorize(appId: AppId, hook: MessageAuthorizeHook): void {
     this.messageAuthorizeHooks.set(appId, hook);
   }
 
@@ -684,7 +702,7 @@ export class AppHost {
    * with zero wire chatter.
    */
   runMessageAuthorize(
-    appId: string,
+    appId: AppId,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
     const inProcess = this.messageAuthorizeHooks.get(appId);
@@ -718,7 +736,7 @@ export class AppHost {
     });
   }
 
-  private messageAuthorizeTimeoutMs(appId: string): number {
+  private messageAuthorizeTimeoutMs(appId: AppId): number {
     const manifest = this.manifests.get(appId);
     return (
       manifest?.hooks?.message_authorize?.timeout_ms ??
@@ -748,7 +766,7 @@ export class AppHost {
 
   private messageAuthorizeRaw(
     ctx: MessageAuthorizeContext,
-    appId: string,
+    appId: AppId,
     remote: RemoteRegistration | undefined,
     inProcess: MessageAuthorizeHook | undefined,
   ): Effect.Effect<MessageAuthorizeResult, Error> {
@@ -900,9 +918,9 @@ export class AppHost {
    * result schema before this method can observe a value.
    */
   private runRemoteHookEffect<D extends AnyTaskCallbackRpcDefinition>(opts: {
-    appId: string;
+    appId: AppId;
     definition: D;
-    connectionId: string;
+    connectionId: ConnectionId;
     params: ParamsOf<D>;
   }): Effect.Effect<ResultOf<D>, RemoteHookError> {
     return Effect.gen(this, function* () {

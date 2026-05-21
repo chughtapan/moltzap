@@ -3,7 +3,6 @@ import {
   ForbiddenError,
   type ConversationArchivedError,
   type NotFoundError,
-  type Task,
   type TaskClosedError,
 } from "@moltzap/protocol";
 import {
@@ -17,7 +16,6 @@ import {
   type TaskId,
 } from "@moltzap/protocol/task";
 import {
-  AppHostTag,
   ConversationServiceTag,
   MessageServiceTag,
   TaskServiceTag,
@@ -42,19 +40,18 @@ export {
  *   2. Look up the send-projection row via
  *      `MessageService.readSendConversation` (joins `conversations ⋈
  *      tasks`).
- *   3. Refine `conversation.archived_at IS NULL` via
+ *   3. Refine `task.status` via `refineTaskActive` — fails closed on
+ *      `closed`/`failed` tasks. (Pre-cutover this was a bypassed gate
+ *      for the TM; the bypass mechanism was removed in the #673
+ *      follow-up because no production caller exercised the
+ *      failed-task window and the downstream `sendInsert` never
+ *      discriminated the resulting variants.)
+ *   4. Refine `conversation.archived_at IS NULL` via
  *      `refineConversationNotArchived` (no DB read; uses column).
- *   4. Decide TM-bypass via app-ownership: the caller's WS connection
- *      IS the registered remote-app connection for `conv.app_id`
- *      (`AppHost.isAppConnection`). #673 cutover.
  *   5. Fetch the task row via `TaskService.fetchTask` — carried in
- *      every variant's `task` payload field.
+ *      the value's `task` payload field.
  *   6. Resolve the reply target: when present, verify via
  *      `MessageService.assertReplyTarget`.
- *   7. Non-bypass: refine `task.status` via `refineTaskActive` and
- *      return `forParticipantOnActiveTask`.
- *      Bypass + no reply: return `forTmBypass`.
- *      Bypass + reply: return `forTmBypassWithReply`.
  *
  * Error channel — union of every source-service public failure that
  * the body propagates without rewrap:
@@ -114,8 +111,8 @@ const readSendConversationStrict = (
  * Guards the `conv.task_id === input.taskId` invariant (codex review
  * #601 R1). Without this, the carried `task` payload (fetched by
  * `taskService.fetchTask(input.taskId)`) could refer to a different
- * task than the `conv.task_status` / `conv.tm_endpoint_address`
- * columns used for the TM-bypass branch.
+ * task than the `conv.task_status` column used for the
+ * `refineTaskActive` gate.
  */
 const assertConvBelongsToTask = (
   conv: SendConversationRow,
@@ -131,29 +128,6 @@ const assertConvBelongsToTask = (
   return Effect.void;
 };
 
-const buildPermissionForTmBypass = (
-  task: Task,
-  input: ObtainMessageSendPermissionInput,
-  replyTarget: ReplyTargetValue,
-): MessageSendPermissionValue => {
-  if (replyTarget._tag === "NoReply") {
-    return {
-      _tag: "forTmBypass" as const,
-      task,
-      conversationId: input.conversationId,
-      senderAgentId: input.senderAgentId,
-      replyTarget,
-    };
-  }
-  return {
-    _tag: "forTmBypassWithReply" as const,
-    task,
-    conversationId: input.conversationId,
-    senderAgentId: input.senderAgentId,
-    replyTarget,
-  };
-};
-
 export const obtainMessageSendPermission = (
   input: ObtainMessageSendPermissionInput,
 ): Effect.Effect<
@@ -163,12 +137,11 @@ export const obtainMessageSendPermission = (
   | ConversationArchivedError
   | TaskClosedError
   | TaskServiceError,
-  TaskServiceTag | ConversationServiceTag | MessageServiceTag | AppHostTag
+  TaskServiceTag | ConversationServiceTag | MessageServiceTag
 > =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const convService = yield* ConversationServiceTag;
-    const appHost = yield* AppHostTag;
     // Participant check first — an unknown conversationId in
     // readSendConversation would surface as 500 instead of ForbiddenError.
     yield* convService.assertConversationParticipant(
@@ -182,10 +155,7 @@ export const obtainMessageSendPermission = (
     // refineTaskActive must precede refineConversationNotArchived: a
     // closed task should surface TaskClosed (-32008), not the
     // auto-archive's ConversationArchived (-32022).
-    const isTmBypass = appHost.isAppConnection(conv.app_id, input.callerConnId);
-    if (!isTmBypass) {
-      yield* refineTaskActive(input.taskId ?? conv.task_id, conv.task_status);
-    }
+    yield* refineTaskActive(input.taskId ?? conv.task_id, conv.task_status);
     yield* refineConversationNotArchived(
       input.conversationId,
       conv.archived_at,
@@ -195,19 +165,10 @@ export const obtainMessageSendPermission = (
       input.conversationId,
       input.replyToId,
     );
-    return isTmBypass
-      ? buildPermissionForTmBypass(task, input, replyTarget)
-      : buildParticipantPermission(task, input, replyTarget);
+    return {
+      task,
+      conversationId: input.conversationId,
+      senderAgentId: input.senderAgentId,
+      replyTarget,
+    };
   }).pipe(Effect.withSpan("obtainMessageSendPermission"));
-
-const buildParticipantPermission = (
-  task: Task,
-  input: ObtainMessageSendPermissionInput,
-  replyTarget: ReplyTargetValue,
-): MessageSendPermissionValue => ({
-  _tag: "forParticipantOnActiveTask",
-  task,
-  conversationId: input.conversationId,
-  senderAgentId: input.senderAgentId,
-  replyTarget,
-});

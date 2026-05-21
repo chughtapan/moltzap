@@ -15,6 +15,8 @@
 export {
   userId,
   agentId,
+  appId,
+  connectionId,
   contactId,
   conversationId,
   leaseId,

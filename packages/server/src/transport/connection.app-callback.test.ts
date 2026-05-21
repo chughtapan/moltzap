@@ -50,6 +50,7 @@ import {
 import type { DispatchContext } from "./context.js";
 import {
   agentId,
+  connectionId as makeConnectionId,
   conversationId,
   messageId,
   taskId as makeTaskId,
@@ -143,29 +144,31 @@ describe("sendRpcToClient timeout cleanup", () => {
 });
 
 function happyRoundTrip() {
-  return useFakeConnection("conn-happy", ({ conn, outbound }) =>
-    Effect.gen(function* () {
-      const params = authorizeDispatchParams("happy", HAPPY_TASK_ID);
-      const fiber = yield* forkDispatchAuthorize(conn, params);
-      const frame = yield* waitForRequestFrame(outbound);
+  return useFakeConnection(
+    makeConnectionId("conn-happy"),
+    ({ conn, outbound }) =>
+      Effect.gen(function* () {
+        const params = authorizeDispatchParams("happy", HAPPY_TASK_ID);
+        const fiber = yield* forkDispatchAuthorize(conn, params);
+        const frame = yield* waitForRequestFrame(outbound);
 
-      expect(frame.method).toBe(DispatchAuthorize.name);
-      expect(frame.params).toEqual(params);
-      expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
+        expect(frame.method).toBe(DispatchAuthorize.name);
+        expect(frame.params).toEqual(params);
+        expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
 
-      const matched = yield* conn.originator.resolve(
-        DispatchAuthorize.encodeResponse(frame.id, GRANTED_ADMISSION),
-      );
-      expect(matched).toBe(true);
+        const matched = yield* conn.originator.resolve(
+          DispatchAuthorize.encodeResponse(frame.id, GRANTED_ADMISSION),
+        );
+        expect(matched).toBe(true);
 
-      const exit = yield* Fiber.join(fiber).pipe(Effect.exit);
-      expect(expectSuccess(exit)).toEqual(GRANTED_ADMISSION);
-    }),
+        const exit = yield* Fiber.join(fiber).pipe(Effect.exit);
+        expect(expectSuccess(exit)).toEqual(GRANTED_ADMISSION);
+      }),
   );
 }
 
 function typedErrorResponse() {
-  return useFakeConnection("conn-err", ({ conn, outbound }) =>
+  return useFakeConnection(makeConnectionId("conn-err"), ({ conn, outbound }) =>
     Effect.gen(function* () {
       const fiber = yield* forkDispatchAuthorize(
         conn,
@@ -190,8 +193,9 @@ function typedErrorResponse() {
 
 function disconnectFailsPending() {
   return Effect.gen(function* () {
-    const { conn, outbound, scope } =
-      yield* createManualFakeConnection("conn-drop");
+    const { conn, outbound, scope } = yield* createManualFakeConnection(
+      makeConnectionId("conn-drop"),
+    );
     const fiberA = yield* forkDispatchAuthorize(
       conn,
       authorizeDispatchParams("A"),
@@ -220,11 +224,12 @@ function writeFailureSurfacesNotConnected() {
       });
       const failingWrite: MoltZapConnection["write"] = () =>
         Effect.fail(failingSocket);
+      const writefailConnId = makeConnectionId("conn-writefail");
       const originator = yield* acquireConnectionRpcClient(
-        "conn-writefail",
+        writefailConnId,
         failingWrite,
       );
-      const conn = makeConnection("conn-writefail", failingWrite, originator);
+      const conn = makeConnection(writefailConnId, failingWrite, originator);
 
       const exit = yield* sendRpcToClient(
         conn,
@@ -237,48 +242,52 @@ function writeFailureSurfacesNotConnected() {
 }
 
 function callerTimeout() {
-  return useFakeConnection("conn-timeout", ({ conn, outbound }) =>
-    Effect.gen(function* () {
-      const start = Date.now();
-      const exit = yield* sendRpcToClient(
-        conn,
-        DispatchAuthorize,
-        authorizeDispatchParams("timeout", TIMEOUT_TASK_ID),
-      ).pipe(Effect.timeout(Duration.millis(CALLER_TIMEOUT_MS)), Effect.exit);
-      const elapsed = Date.now() - start;
+  return useFakeConnection(
+    makeConnectionId("conn-timeout"),
+    ({ conn, outbound }) =>
+      Effect.gen(function* () {
+        const start = Date.now();
+        const exit = yield* sendRpcToClient(
+          conn,
+          DispatchAuthorize,
+          authorizeDispatchParams("timeout", TIMEOUT_TASK_ID),
+        ).pipe(Effect.timeout(Duration.millis(CALLER_TIMEOUT_MS)), Effect.exit);
+        const elapsed = Date.now() - start;
 
-      const written = yield* Ref.get(outbound);
-      expect(written.length).toBe(1);
-      expectTimeoutFailure(exit);
-      expect(elapsed).toBeGreaterThanOrEqual(MIN_TIMEOUT_ELAPSED_MS);
-      expect(elapsed).toBeLessThan(MAX_TIMEOUT_ELAPSED_MS);
-    }),
+        const written = yield* Ref.get(outbound);
+        expect(written.length).toBe(1);
+        expectTimeoutFailure(exit);
+        expect(elapsed).toBeGreaterThanOrEqual(MIN_TIMEOUT_ELAPSED_MS);
+        expect(elapsed).toBeLessThan(MAX_TIMEOUT_ELAPSED_MS);
+      }),
   );
 }
 
 function lateResponseAfterInterrupt() {
-  return useFakeConnection("conn-late-reply", ({ conn, outbound }) =>
-    Effect.gen(function* () {
-      const fiber = yield* forkDispatchAuthorize(
-        conn,
-        authorizeDispatchParams("late", LATE_RESPONSE_TASK_ID),
-      );
-      const { id: requestId } = yield* waitForRequestFrame(outbound);
+  return useFakeConnection(
+    makeConnectionId("conn-late-reply"),
+    ({ conn, outbound }) =>
+      Effect.gen(function* () {
+        const fiber = yield* forkDispatchAuthorize(
+          conn,
+          authorizeDispatchParams("late", LATE_RESPONSE_TASK_ID),
+        );
+        const { id: requestId } = yield* waitForRequestFrame(outbound);
 
-      yield* Fiber.interrupt(fiber);
-      const matched = yield* conn.originator.resolve(
-        DispatchAuthorize.encodeResponse(requestId, GRANTED_ADMISSION),
-      );
+        yield* Fiber.interrupt(fiber);
+        const matched = yield* conn.originator.resolve(
+          DispatchAuthorize.encodeResponse(requestId, GRANTED_ADMISSION),
+        );
 
-      expect(matched).toBe(false);
-    }),
+        expect(matched).toBe(false);
+      }),
   );
 }
 
 function scopeCloseAfterInterruptClean() {
   return Effect.gen(function* () {
     const { conn, outbound, scope } = yield* createManualFakeConnection(
-      "conn-int-then-close",
+      makeConnectionId("conn-int-then-close"),
     );
     const fiber = yield* forkDispatchAuthorize(
       conn,
@@ -296,29 +305,31 @@ function scopeCloseAfterInterruptClean() {
 }
 
 function timeoutDropsLateResponse() {
-  return useFakeConnection("conn-timeout-drain", ({ conn, outbound }) =>
-    Effect.gen(function* () {
-      const exit = yield* sendRpcToClient(
-        conn,
-        DispatchAuthorize,
-        authorizeDispatchParams("drain", TIMEOUT_TASK_ID),
-      ).pipe(Effect.timeout(Duration.millis(DRAIN_TIMEOUT_MS)), Effect.exit);
+  return useFakeConnection(
+    makeConnectionId("conn-timeout-drain"),
+    ({ conn, outbound }) =>
+      Effect.gen(function* () {
+        const exit = yield* sendRpcToClient(
+          conn,
+          DispatchAuthorize,
+          authorizeDispatchParams("drain", TIMEOUT_TASK_ID),
+        ).pipe(Effect.timeout(Duration.millis(DRAIN_TIMEOUT_MS)), Effect.exit);
 
-      const written = yield* Ref.get(outbound);
-      const { id: requestId } = parseRequestFrame(written[0]!);
-      const matched = yield* conn.originator.resolve(
-        DispatchAuthorize.encodeResponse(requestId, GRANTED_ADMISSION),
-      );
+        const written = yield* Ref.get(outbound);
+        const { id: requestId } = parseRequestFrame(written[0]!);
+        const matched = yield* conn.originator.resolve(
+          DispatchAuthorize.encodeResponse(requestId, GRANTED_ADMISSION),
+        );
 
-      expect(written.length).toBe(1);
-      expect(matched).toBe(false);
-      expectTimeoutFailure(exit);
-    }),
+        expect(written.length).toBe(1);
+        expect(matched).toBe(false);
+        expectTimeoutFailure(exit);
+      }),
   );
 }
 
 function makeConnection(
-  id: string,
+  id: import("@moltzap/protocol/network").ConnectionId,
   write: MoltZapConnection["write"],
   originator: ServerConnection<DispatchContext>,
 ): MoltZapConnection {
@@ -340,7 +351,7 @@ function makeConnection(
  * inbound response via `conn.originator.resolve`.
  */
 const makeFakeConnection = (
-  connId: string,
+  connId: import("@moltzap/protocol/network").ConnectionId,
 ): Effect.Effect<FakeConnSetup, never, Scope.Scope> =>
   Effect.gen(function* () {
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
@@ -351,14 +362,14 @@ const makeFakeConnection = (
   });
 
 function useFakeConnection<A, E>(
-  connId: string,
+  connId: import("@moltzap/protocol/network").ConnectionId,
   run: (setup: FakeConnSetup) => Effect.Effect<A, E>,
 ): Effect.Effect<A, E> {
   return Effect.scoped(makeFakeConnection(connId).pipe(Effect.flatMap(run)));
 }
 
 function createManualFakeConnection(
-  connId: string,
+  connId: import("@moltzap/protocol/network").ConnectionId,
 ): Effect.Effect<ManualFakeConnSetup> {
   return Effect.gen(function* () {
     const scope = yield* Scope.make();

@@ -4,6 +4,8 @@ import { Cause, Effect, Exit, Layer } from "effect";
 import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import {
   agentId,
+  appId as makeAppId,
+  connectionId as makeConnectionId,
   taskId as makeTaskId,
   wireErrorFromInstance,
 } from "@moltzap/protocol/testing";
@@ -67,11 +69,11 @@ const TASK_STATUS_WAITING = "waiting";
 const TASK_STATUS_CLOSED = "closed";
 const UNKNOWN_TASK_ID = makeTaskId("00000000-0000-4000-8000-deadbeefcafe");
 
-const ALICE_APP_ID = "alice-app";
-const BOB_APP_ID = "bob-app";
-const ALICE_CONN = "alice-conn-1";
-const BOB_CONN = "bob-conn-1";
-const CAROL_CONN = "carol-conn-1";
+const ALICE_APP_ID = makeAppId("00000000-0000-4000-8000-0000000a11ce");
+const BOB_APP_ID = makeAppId("00000000-0000-4000-8000-00000000b0b0");
+const ALICE_CONN = makeConnectionId("alice-conn-1");
+const BOB_CONN = makeConnectionId("bob-conn-1");
+const CAROL_CONN = makeConnectionId("carol-conn-1");
 
 let harness: PgliteHarness;
 
@@ -103,7 +105,9 @@ function makeService() {
 type AppHostStub = Pick<AppHost, "isAppConnection">;
 
 function makeAppHostStub(
-  bindings: ReadonlyArray<readonly [string, string]>,
+  bindings: ReadonlyArray<
+    readonly [string, import("@moltzap/protocol/network").ConnectionId]
+  >,
 ): AppHost {
   const seeded = new Set(bindings.map(([app, conn]) => `${app}::${conn}`));
   const stub: AppHostStub = {
@@ -128,7 +132,7 @@ function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
 
 function withTmAuth(
   taskId: TaskId,
-  callerConnId: string,
+  callerConnId: import("@moltzap/protocol/network").ConnectionId,
   svc: TaskService,
   app: Layer.Layer<AppHostTag> = aliceAppLayer(),
 ) {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { agentId as makeAgentId } from "@moltzap/protocol/testing";
+import {
+  agentId as makeAgentId,
+  connectionId as makeConnectionId,
+} from "@moltzap/protocol/testing";
 import type { AuthenticatedContext } from "../transport/context.js";
 import type { AgentId } from "../app/types.js";
 import { ConnectionManager, type MoltZapConnection } from "./connection.js";
@@ -22,7 +25,7 @@ function makeConn(id: string, agentId: AgentId | null): MoltZapConnection {
     ? { agentId, agentStatus: "active", ownerUserId: null }
     : null;
   return {
-    id,
+    id: makeConnectionId(id),
     write: noopWrite,
     shutdown: noopShutdown,
     auth,

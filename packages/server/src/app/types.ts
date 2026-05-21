@@ -1,7 +1,8 @@
 import type { Layer } from "effect";
 import type { AppManifest } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/network";
+import type { AppId, ConversationId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import type { ContactService } from "./app-host.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
@@ -85,13 +86,13 @@ export type ConnectionHook = (params: {
   agentName: string;
   /** Owner user ID resolved at network/connect time. Null for unclaimed agents. */
   ownerUserId: string | null;
-  connId: string;
+  connId: ConnectionId;
 }) => PromiseLike<void> | void;
 
 export type DisconnectionHook = (params: {
   agentId: string;
   ownerUserId: string | null;
-  connId: string;
+  connId: ConnectionId;
 }) => PromiseLike<void> | void;
 
 export interface CoreApp {
@@ -139,16 +140,19 @@ export interface CoreApp {
    * when a connection is known to be gone (operator-driven cleanup;
    * the disconnect-finalizer handles in-flight Deferreds either way).
    */
-  registerRemoteApp: (manifest: AppManifest, connectionId: string) => void;
+  registerRemoteApp: (
+    manifest: AppManifest,
+    connectionId: ConnectionId,
+  ) => void;
 
   /**
    * Drop a remote-app registration. Idempotent. Does NOT remove the
    * manifest; only the routing entry. See {@link AppHost.unregisterRemoteApp}.
    */
-  unregisterRemoteApp: (appId: string) => void;
+  unregisterRemoteApp: (appId: AppId) => void;
   setContactService: (checker: ContactService) => void;
   onTaskAuthorizeDispatch: (
-    appId: string,
+    appId: AppId,
     handler: TaskAuthorizeDispatchHook,
   ) => void;
 
@@ -160,7 +164,7 @@ export interface CoreApp {
    * overwrite the entry.
    */
   registerMessageAuthorize: (
-    appId: string,
+    appId: AppId,
     handler: MessageAuthorizeHook,
   ) => void;
 

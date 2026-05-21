@@ -1,7 +1,9 @@
 import type { Db } from "../../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type {
+  AppId,
   ConversationId,
   MessageId,
   TmDecision,
@@ -291,12 +293,16 @@ export class MessageService {
 
   /**
    * Send-conversation projection consumed by
-   * `obtainMessageSendPermission` (composite capability). Joins
-   * `conversations` ⋈ `tasks` and returns the
-   * `(archived_at, task_id, app_id, task_status)` projection. The
-   * `app_id` is the #673 TM-bypass discriminator (matched against the
-   * caller's registered remote-app connection via
-   * `AppHost.isAppConnection`).
+   * `obtainMessageSendPermission` (composite capability) AND
+   * `MessageService.sendCommit`'s `messages/authorize` verdict route.
+   * Joins `conversations` ⋈ `tasks` and returns
+   * `(archived_at, task_id, app_id, task_status)`.
+   *
+   * Pre-cutover the obtain helper also consulted `app_id` to decide
+   * the TM-bypass branch (caller IS the registered remote-app
+   * connection ⇒ skip `refineTaskActive`). That branch was removed in
+   * the #673 follow-up; the `app_id` column stays because the
+   * verdict-routing consumer still reads it.
    * @internal
    */
   readSendConversation(
@@ -454,7 +460,9 @@ export class MessageService {
     }
     return this.resolveSendVerdict({
       messageId: input.carrier.message.id,
-      appId: input.carrier.conv.app_id,
+      // Boundary cast: SendConversationRow.app_id arrives as the raw
+      // Kysely `string`; brand at the consumer call site.
+      appId: input.carrier.conv.app_id as AppId,
       conversationId: input.conversationId,
       senderAgentId: input.senderAgentId,
       parts: input.carrier.parts,
@@ -770,7 +778,7 @@ export class MessageService {
   list(
     conversationId: ConversationId,
     requesterAgentId: AgentId,
-    callerConnId: string,
+    callerConnId: ConnectionId,
     options: {
       limit?: number;
       sinceSeq?: string;
@@ -804,7 +812,7 @@ export class MessageService {
   private visibleMessageRows(args: {
     readonly conversationId: ConversationId;
     readonly requesterAgentId: AgentId;
-    readonly callerConnId: string;
+    readonly callerConnId: ConnectionId;
     readonly sinceSeq: string | undefined;
     readonly limit: number;
   }): Effect.Effect<ReadonlyArray<MessageRow>, SqlError> {
@@ -866,7 +874,7 @@ export class MessageService {
    */
   private isTmForAppBoundTask(
     conversationId: ConversationId,
-    callerConnId: string,
+    callerConnId: ConnectionId,
   ): Effect.Effect<boolean, never> {
     const host = this.appHost;
     if (host === null) return Effect.succeed(false);
@@ -880,7 +888,9 @@ export class MessageService {
             .where("c.id", "=", conversationId),
         );
         if (Option.isNone(rowOpt)) return false;
-        return host.isAppConnection(rowOpt.value.app_id, callerConnId);
+        // Boundary cast: Kysely returns `app_id` as `string`; the brand
+        // boundary is the type system, not a format check.
+        return host.isAppConnection(rowOpt.value.app_id as AppId, callerConnId);
       }),
     );
   }

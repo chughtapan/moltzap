@@ -14,6 +14,7 @@ import {
   encodeErrorResponse,
   makeServerConnection,
 } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 
 import type {
   AuthenticatedContext,
@@ -48,7 +49,7 @@ interface SocketHandlerOptions {
 }
 
 interface SocketSession {
-  readonly connId: string;
+  readonly connId: ConnectionId;
   readonly write: SocketWrite;
   readonly sendFrame: SendFrame;
   readonly closeRequested: Deferred.Deferred<void>;
@@ -104,7 +105,11 @@ function makeSocketSession(
   socket: Socket.Socket,
 ): Effect.Effect<SocketSession, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const connId = crypto.randomUUID();
+    // Single boundary brand at the WS-accept mint site:
+    // `crypto.randomUUID()` returns `string`; `brandConnectionId` encapsulates
+    // the only acceptable cast in production. Every downstream service
+    // receives the brand-typed id.
+    const connId = brandConnectionId(crypto.randomUUID());
     const writer = yield* socket.writer;
     const closeRequested = yield* Deferred.make<void>();
     const write: SocketWrite = (raw) => writer(raw);
@@ -118,7 +123,7 @@ function makeSocketSession(
   }).pipe(Effect.withSpan("socket.makeSession"));
 }
 
-function makeSendFrame(connId: string, write: SocketWrite): SendFrame {
+function makeSendFrame(connId: ConnectionId, write: SocketWrite): SendFrame {
   return (obj) =>
     write(JSON.stringify(obj)).pipe(
       Effect.catchAll((err) =>
@@ -316,7 +321,7 @@ function closeSocketSession(
       yield* runDisconnectionHooks(authCtx, session, options);
       yield* options.services.agentEndpointResolver.remove(
         authCtx.agentId,
-        brandConnectionId(session.connId),
+        session.connId,
       );
     }
     yield* options.services.leaseRegistry.abandon(session.connId);
