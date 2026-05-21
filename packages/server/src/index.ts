@@ -97,13 +97,6 @@ export {
 
 // Infrastructure
 export {
-  InvalidParamsError,
-  validateParams,
-  coalesce,
-  drainCoalesceMap,
-  type Validator,
-} from "./runtime/index.js";
-export {
   makeEffectKysely,
   takeFirstOption,
   takeFirstOrElse,
