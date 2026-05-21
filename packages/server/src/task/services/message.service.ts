@@ -452,6 +452,7 @@ export class MessageService {
         carrier.conv.tm_endpoint_address,
       );
       const tmFrame = MessageReceivedNotificationDefinition.encode({
+        taskId: carrier.conv.task_id,
         message: carrier.message,
       });
       yield* this.networkSendService
@@ -534,6 +535,7 @@ export class MessageService {
     recipientList: readonly AgentId[],
   ): Effect.Effect<readonly AgentId[], never> {
     const event = MessageReceivedNotificationDefinition.encode({
+      taskId: input.carrier.conv.task_id,
       message: input.carrier.message,
     });
     const audience = Array.from(

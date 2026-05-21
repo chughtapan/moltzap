@@ -763,11 +763,14 @@ export class TaskService {
     creator: AgentId,
     appId: string,
   ): Effect.Effect<ReadonlyArray<TaskId>, SqlError> {
+    // Closed tasks are excluded so a fresh `task/create` after a close
+    // mints a new task instead of returning the dead one.
     return this.db
       .selectFrom("tasks")
       .innerJoin("task_participants", "task_participants.task_id", "tasks.id")
       .where("tasks.app_id", "=", appId)
       .where("task_participants.agent_id", "=", creator)
+      .where("tasks.status", "!=", "closed")
       .select("tasks.id")
       .distinct()
       .pipe(Effect.map((rows) => rows.map((row) => row.id)));

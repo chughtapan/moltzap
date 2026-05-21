@@ -98,6 +98,8 @@ const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
 const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const HISTORY_LOOKUP_CONCURRENCY = 2;
+const SEND_TO_AGENT_LOOKUP_PAGE_SIZE = 50;
+const SEND_TO_AGENT_LOOKUP_MAX_PAGES = 20;
 
 const ClientEventLogDir = Config.option(
   Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
@@ -911,23 +913,49 @@ export class MoltZapService {
           invitedAgentIds: [agent.id as AgentId],
           initialConversation: { participants: [agent.id as AgentId] },
         });
-        if (createResult.conversation === null) {
-          // Server contract violation: TaskCreate with initialConversation
-          // must return the minted conversation. Treat as a defect.
-          return yield* Effect.die(
-            "TaskCreate({ initialConversation }) returned conversation: null",
-          );
-        }
-        entry = {
-          taskId: createResult.task.id,
-          conversationId: createResult.conversation.id,
-        };
+        // `conversation: null` is the documented dedup-hit shape under
+        // `DEFAULT_APP_ID`. Resolve the reusable conversation under the
+        // returned task; if none exists (task closed / all archived),
+        // fail rather than die.
+        const conversationId =
+          createResult.conversation !== null
+            ? createResult.conversation.id
+            : yield* this.resolveReusableConversationId(
+                createResult.task.id,
+                agentName,
+              );
+        entry = { taskId: createResult.task.id, conversationId };
         const cached = entry;
         yield* Ref.update(this.agentConversationCacheRef, (m) =>
           HashMap.set(m, agentName, cached),
         );
       }
       yield* this.send(entry.taskId, entry.conversationId, text, opts);
+    });
+  }
+
+  private resolveReusableConversationId(
+    taskId: TaskId,
+    agentName: string,
+  ): Effect.Effect<ConversationId, ServiceRpcError | AgentNotFoundError> {
+    return Effect.gen(this, function* () {
+      let cursor: string | undefined = undefined;
+      for (let page = 0; page < SEND_TO_AGENT_LOOKUP_MAX_PAGES; page++) {
+        const params: { limit: number; cursor?: string } = {
+          limit: SEND_TO_AGENT_LOOKUP_PAGE_SIZE,
+        };
+        if (cursor !== undefined) params.cursor = cursor;
+        const result = yield* this.sendRpc(TaskConversationList, params);
+        const hit = result.items.find(
+          (item) =>
+            item.taskId === taskId &&
+            item.conversation.archivedAt === undefined,
+        );
+        if (hit !== undefined) return hit.conversation.id;
+        if (result.nextCursor === undefined) break;
+        cursor = result.nextCursor;
+      }
+      return yield* Effect.fail(new AgentNotFoundError({ agentName }));
     });
   }
 
