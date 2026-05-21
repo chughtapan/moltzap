@@ -5,7 +5,6 @@ const KEY_ID_BYTES = 8;
 const SECRET_BYTES = 24;
 const HEX_CHARS_PER_BYTE = 2;
 const CLAIM_TOKEN_BYTES = 16;
-const INVITE_TOKEN_BYTES = 32;
 
 /** Generate a Key ID + Secret API key with its derived storage values. */
 export function generateApiKey(): {
@@ -40,12 +39,4 @@ export function hashSecret(secret: string): string {
 
 export function generateClaimToken(): string {
   return "MZAP-" + randomBytes(CLAIM_TOKEN_BYTES).toString("hex").toUpperCase();
-}
-
-export function generateInviteToken(): string {
-  return randomBytes(INVITE_TOKEN_BYTES).toString("base64url");
-}
-
-export function isValidApiKeyFormat(key: string): boolean {
-  return parseApiKey(key) !== null;
 }
