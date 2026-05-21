@@ -47,8 +47,8 @@ import {
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
-const WIRE_APP_ID = "wire-moderator-dispatch-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
+const WIRE_APP_ID = "00000000-0000-4000-8000-000000010003";
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,

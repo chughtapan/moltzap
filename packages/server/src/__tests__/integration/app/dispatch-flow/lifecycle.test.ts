@@ -33,8 +33,8 @@ import {
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
-const UNKNOWN_APP_ID = "no-hook-dispatch-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
+const UNKNOWN_APP_ID = "00000000-0000-4000-8000-000000010002";
 const SHORT_LEASE_TIMEOUT_MS = 100;
 const PARTICIPANT_REMOVED_NEGATIVE_WAIT_MS = 500;
 const DISCONNECT_FINALIZER_WAIT = "300 millis";

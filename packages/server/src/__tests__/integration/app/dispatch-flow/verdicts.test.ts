@@ -28,7 +28,7 @@ import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const DENIAL_REASON = "phase closed";
 const HOLD_REASON = "waiting for turn";
 const MODERATOR_TIMEOUT_MS = 10_000;
