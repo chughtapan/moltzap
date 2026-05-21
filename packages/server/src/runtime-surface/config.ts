@@ -1,5 +1,11 @@
 /**
  * Shared runtime process config for server boot and eval orchestration.
+ *
+ * Loads the YAML config (when present) and the env-driven `LoadedConfig`,
+ * then combines them into a `RuntimeProcessConfig` that `standalone.ts`
+ * consumes. OTel tracing (formerly modeled here as a dead config branch)
+ * is wired separately via `app/tracing.ts` — it reads
+ * `OTEL_EXPORTER_OTLP_ENDPOINT` directly when needed.
  */
 
 import {
@@ -25,32 +31,13 @@ export function runtimeConfigPath(path: string): RuntimeConfigPath {
   return RuntimeConfigPathBrand(path);
 }
 
-type RuntimeEnvironment = "development" | "test" | "production";
-
-type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
-
-interface RuntimeLoggingConfig {
-  readonly level: RuntimeLogLevel;
-  readonly preserveLegacyFields: boolean;
-}
-
-interface RuntimeTracingConfig {
-  readonly serviceName: string;
-  readonly includeFiberIds: boolean;
-  readonly includeRequestContext: boolean;
-}
-
 export interface LoadRuntimeConfigInput {
   readonly configPath?: RuntimeConfigPath;
   readonly processEnv?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface RuntimeProcessConfig {
-  readonly configPath: RuntimeConfigPath;
   readonly configDirectory: string;
-  readonly environment: RuntimeEnvironment;
-  readonly logging: RuntimeLoggingConfig;
-  readonly tracing: RuntimeTracingConfig;
   readonly app: MoltZapAppConfig;
   readonly server: LoadedConfig;
 }
@@ -83,9 +70,6 @@ type RuntimeConfigSurfaceCause =
 
 type ProcessEnvSnapshot = Readonly<Record<string, string | undefined>>;
 
-const DEFAULT_RUNTIME_ENVIRONMENT: RuntimeEnvironment = "development";
-const DEFAULT_LOG_LEVEL: RuntimeLogLevel = "info";
-const DEFAULT_SERVICE_NAME = "moltzap-server";
 const DECIMAL_RADIX = 10;
 const TRUE_BOOLEAN_VALUES = new Set(["true", "1", "yes", "on"]);
 const FALSE_BOOLEAN_VALUES = new Set(["false", "0", "no", "off"]);
@@ -97,15 +81,8 @@ const RuntimeEnvSnapshotConfig = Config.all({
   CORS_ORIGINS: optionalEnv("CORS_ORIGINS"),
   DATABASE_URL: optionalEnv("DATABASE_URL"),
   ENCRYPTION_MASTER_SECRET: optionalEnv("ENCRYPTION_MASTER_SECRET"),
-  LOG_LEVEL: optionalEnv("LOG_LEVEL"),
   MOLTZAP_CONFIG: optionalEnv("MOLTZAP_CONFIG"),
   MOLTZAP_DEV_MODE: optionalEnv("MOLTZAP_DEV_MODE"),
-  MOLTZAP_INCLUDE_FIBER_IDS: optionalEnv("MOLTZAP_INCLUDE_FIBER_IDS"),
-  MOLTZAP_INCLUDE_REQUEST_CONTEXT: optionalEnv(
-    "MOLTZAP_INCLUDE_REQUEST_CONTEXT",
-  ),
-  NODE_ENV: optionalEnv("NODE_ENV"),
-  OTEL_SERVICE_NAME: optionalEnv("OTEL_SERVICE_NAME"),
   PORT: optionalEnv("PORT"),
 });
 
@@ -120,10 +97,7 @@ const configFileUnreadable = (
   message: string,
 ): RuntimeConfigSurfaceError =>
   new RuntimeConfigSurfaceError({
-    cause: new ConfigFileUnreadable({
-      path,
-      message,
-    }),
+    cause: new ConfigFileUnreadable({ path, message }),
   });
 
 const configFileInvalid = (
@@ -131,10 +105,7 @@ const configFileInvalid = (
   message: string,
 ): RuntimeConfigSurfaceError =>
   new RuntimeConfigSurfaceError({
-    cause: new ConfigFileInvalid({
-      path,
-      message,
-    }),
+    cause: new ConfigFileInvalid({ path, message }),
   });
 
 const environmentInvalid = (
@@ -142,10 +113,7 @@ const environmentInvalid = (
   message: string,
 ): RuntimeConfigSurfaceError =>
   new RuntimeConfigSurfaceError({
-    cause: new EnvironmentInvalid({
-      key,
-      message,
-    }),
+    cause: new EnvironmentInvalid({ key, message }),
   });
 
 function resolveRuntimeConfigPath(
@@ -208,49 +176,6 @@ function formatConfigError(error: ConfigError): string {
   return "\n" + deduped.join("\n");
 }
 
-function resolveRuntimeEnvironment(
-  raw: string | undefined,
-): Effect.Effect<RuntimeEnvironment, RuntimeConfigSurfaceError, never> {
-  if (raw === undefined || raw.length === 0) {
-    return Effect.succeed(DEFAULT_RUNTIME_ENVIRONMENT);
-  }
-  switch (raw) {
-    case "development":
-    case "test":
-    case "production":
-      return Effect.succeed(raw);
-    default:
-      return Effect.fail(
-        environmentInvalid(
-          "NODE_ENV",
-          `NODE_ENV must be one of development, test, production; received "${raw}"`,
-        ),
-      );
-  }
-}
-
-function resolveRuntimeLogLevel(
-  raw: string | undefined,
-): Effect.Effect<RuntimeLogLevel, RuntimeConfigSurfaceError, never> {
-  if (raw === undefined || raw.length === 0) {
-    return Effect.succeed(DEFAULT_LOG_LEVEL);
-  }
-  switch (raw) {
-    case "debug":
-    case "info":
-    case "warn":
-    case "error":
-      return Effect.succeed(raw);
-    default:
-      return Effect.fail(
-        environmentInvalid(
-          "LOG_LEVEL",
-          `LOG_LEVEL must be one of debug, info, warn, error; received "${raw}"`,
-        ),
-      );
-  }
-}
-
 function parseBooleanEnv(
   raw: string | undefined,
   key: string,
@@ -283,23 +208,6 @@ function parseIntegerEnv(
     );
   }
   return Effect.succeed(Number.parseInt(raw, DECIMAL_RADIX));
-}
-
-function resolveTracingServiceName(
-  raw: string | undefined,
-): Effect.Effect<string, RuntimeConfigSurfaceError, never> {
-  if (raw === undefined) {
-    return Effect.succeed(DEFAULT_SERVICE_NAME);
-  }
-  if (raw.trim().length === 0) {
-    return Effect.fail(
-      environmentInvalid(
-        "OTEL_SERVICE_NAME",
-        "OTEL_SERVICE_NAME must be a non-empty string when set",
-      ),
-    );
-  }
-  return Effect.succeed(raw);
 }
 
 function setProviderInputIfDefined(
@@ -436,39 +344,6 @@ function loadServerConfig(
   );
 }
 
-interface RuntimeConfigAssembly {
-  readonly configPath: RuntimeConfigPath;
-  readonly configDirectory: string;
-  readonly environment: RuntimeEnvironment;
-  readonly loggingLevel: RuntimeLogLevel;
-  readonly tracingServiceName: string;
-  readonly includeFiberIds: boolean;
-  readonly includeRequestContext: boolean;
-  readonly app: MoltZapAppConfig;
-  readonly server: LoadedConfig;
-}
-
-function assembleRuntimeProcessConfig(
-  input: RuntimeConfigAssembly,
-): RuntimeProcessConfig {
-  return {
-    configPath: input.configPath,
-    configDirectory: input.configDirectory,
-    environment: input.environment,
-    logging: {
-      level: input.loggingLevel,
-      preserveLegacyFields: true,
-    },
-    tracing: {
-      serviceName: input.tracingServiceName,
-      includeFiberIds: input.includeFiberIds,
-      includeRequestContext: input.includeRequestContext,
-    },
-    app: input.app,
-    server: input.server,
-  };
-}
-
 export function loadRuntimeProcessConfig(
   input: LoadRuntimeConfigInput,
 ): Effect.Effect<RuntimeProcessConfig, RuntimeConfigSurfaceError, never> {
@@ -481,41 +356,16 @@ export function loadRuntimeProcessConfig(
       isExplicitConfigPath(input, processEnv),
     );
     const app = stripConfigDir(loadedAppConfig);
-    const environment = yield* resolveRuntimeEnvironment(
-      processEnv["NODE_ENV"],
-    );
-    const loggingLevel = yield* resolveRuntimeLogLevel(
-      processEnv["LOG_LEVEL"] ?? loadedAppConfig.log_level,
-    );
-    const tracingServiceName = yield* resolveTracingServiceName(
-      processEnv["OTEL_SERVICE_NAME"],
-    );
-    const includeFiberIds = yield* parseBooleanEnv(
-      processEnv["MOLTZAP_INCLUDE_FIBER_IDS"],
-      "MOLTZAP_INCLUDE_FIBER_IDS",
-      true,
-    );
-    const includeRequestContext = yield* parseBooleanEnv(
-      processEnv["MOLTZAP_INCLUDE_REQUEST_CONTEXT"],
-      "MOLTZAP_INCLUDE_REQUEST_CONTEXT",
-      true,
-    );
     const serverProviderInput = yield* buildServerConfigProviderInput(
       app,
       processEnv,
     );
     const server = yield* loadServerConfig(configPath, serverProviderInput);
 
-    return assembleRuntimeProcessConfig({
-      configPath,
+    return {
       configDirectory: loadedAppConfig._configDir,
-      environment,
-      loggingLevel,
-      tracingServiceName,
-      includeFiberIds,
-      includeRequestContext,
       app,
       server,
-    });
+    };
   }).pipe(Effect.withSpan("loadRuntimeProcessConfig"));
 }
