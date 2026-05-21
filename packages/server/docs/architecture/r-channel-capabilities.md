@@ -44,20 +44,19 @@ R-channel capabilities encode the precondition in the method's *type
 signature*:
 
 ```ts
-storeMessage(
+sendInsert(
   /* ... */
-): Effect.Effect<Message, TaskServiceError, TmAuthority>;
+): Effect.Effect<Message, MessageServiceError, TmAuthority | ConversationInTask | MessageSendPermission>;
 ```
 
-Today the descriptor `TasksStoreMessage.capabilities` declares
-`[TmAuthority, ConversationInTask, MessageSendPermission]`. The
-dispatcher reads that array per inbound frame, calls the matching
-provider entry from `app/capability-providers.ts`, and threads
-`Effect.provideServiceEffect` over the handler effect before
+Each task-layer descriptor's `capabilities: [...]` array names the tags
+its handler needs. The dispatcher reads that array per inbound frame,
+calls the matching provider entry from `app/capability-providers.ts`,
+and threads `Effect.provideServiceEffect` over the handler before
 invoking. Handlers yield the capability values directly. The
-compile-time lockstep gate (`typed-dispatcher.types-check.ts →
-Canary 7`) rejects handler bodies that yield a tag not declared on
-the descriptor.
+compile-time lockstep gate (`typed-dispatcher.types-check.ts → Canary 7`)
+rejects handler bodies that yield a tag not declared on the
+descriptor.
 
 ## 2. Two capability shapes
 

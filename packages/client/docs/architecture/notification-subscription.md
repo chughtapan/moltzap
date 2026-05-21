@@ -4,7 +4,7 @@
 
 ## Overview
 
-`MoltZapWsClient` exposes two notification consumption entry points, both
+`MoltZapAgentClient` exposes two notification consumption entry points, both
 returning `Stream.Stream` values:
 
 - `subscribe<D>(def, refinement?)` — typed Stream over one definition's
@@ -38,7 +38,7 @@ materialized) — read that source file for the contract.
 ```mermaid
 sequenceDiagram
     participant caller
-    participant wsClient as MoltZapWsClient
+    participant wsClient as MoltZapAgentClient
     participant stream as notification/stream.ts
     participant registry as SubscriberRegistry
     participant reader as WS reader fiber

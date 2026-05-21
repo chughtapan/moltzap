@@ -10,7 +10,7 @@ work.
 ```
 packages/client/src/
 ├── service.ts                  # MoltZapService — high-level RPC + conversation state
-├── ws-client.ts                # MoltZapWsClient — low-level WS + JSON-RPC transport
+├── agent-client.ts                # MoltZapAgentClient — low-level WS + JSON-RPC transport
 ├── channel-core.ts             # MoltZapChannelCore — inbound dispatch + admission
 ├── channel-core-enrichment.ts  # enrichMessage — agent-name / conversation / cross-conv context
 ├── channel-core-errors.ts      # DispatchAdmissionTimedOut, DispatchLeaseExpired
@@ -33,7 +33,7 @@ Three layered entry points; pick the lowest level that meets your need.
 
 | Surface | Use when |
 |---|---|
-| `MoltZapWsClient` | You need raw RPC + notification subscription |
+| `MoltZapAgentClient` | You need raw RPC + notification subscription |
 | `MoltZapChannelCore` | You need inbound dispatch + admission lease handling |
 | `MoltZapService` | You want managed conversation/context state too |
 | `@moltzap/client/channel-base` (subpath) | You are building a channel adapter and want the shared `LeaseAlreadyConsumed` / `LeaseStore` / `LeaseGuard` / `formatCrossConv` primitives |
@@ -51,7 +51,7 @@ understand the lease and connection state machines that underpin all flows.
 | Doc | Description |
 |---|---|
 | [Connection Lifecycle](docs/architecture/connection-lifecycle.md) | HTTP register → WS connect → `network/connect` handshake → subscribe → steady state; reconnect arm |
-| [Outbound `messages/send`](docs/architecture/outbound-messages-send.md) | Caller → `MoltZapService.send` → `MoltZapWsClient.sendRpc` → wire → server |
+| [Outbound `messages/send`](docs/architecture/outbound-messages-send.md) | Caller → `MoltZapService.send` → `MoltZapAgentClient.sendRpc` → wire → server |
 | [Inbound Dispatch](docs/architecture/inbound-dispatch.md) | Wire bytes → reader fiber → `SubscriberRegistry` → `MoltZapChannelCore` → `InboundHandler`; ack/release race |
 | [Notification Subscription](docs/architecture/notification-subscription.md) | Typed `subscribe(def, refinement?)` Stream + `subscribeAll` escape hatch; lazy-materialization cancellation contract; tagged errors |
 | [Error Taxonomy](docs/architecture/error-taxonomy.md) | All Effect-tagged error types, where each is raised, and propagation invariants |
