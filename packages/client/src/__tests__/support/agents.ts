@@ -1,5 +1,13 @@
 import { Effect } from "effect";
-import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
+import {
+  DEFAULT_APP_ID,
+  MessagesSend,
+  TaskCreate,
+  type AgentId,
+  type ConversationId,
+  type TaskId,
+} from "@moltzap/protocol";
+import { agentId as brandAgentId } from "@moltzap/protocol/testing";
 import { MoltZapAgentClient } from "@moltzap/client";
 import {
   registerAgent as registerAgentHttp,
@@ -16,7 +24,7 @@ export function registerAgent(name: string) {
       serverUrl: stripWsPath(coreWsUrl()),
       agentKey: reg.apiKey,
     });
-    return { client, ...reg };
+    return { ...reg, agentId: brandAgentId(reg.agentId), client };
   }).pipe(Effect.withSpan("registerAgent"));
 }
 
@@ -35,11 +43,13 @@ export function connectService(
 
 export function sendAndSettle(
   client: MoltZapAgentClient,
-  conversationId: string,
+  taskId: TaskId,
+  conversationId: ConversationId,
   text: string,
 ) {
   return Effect.gen(function* () {
     yield* client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text }],
     });
@@ -54,11 +64,12 @@ type TestClient = Effect.Effect.Success<
   ReturnType<typeof registerAgent>
 >["client"];
 
-export const createDm = (service: ConnectedService, agentId: string) =>
+export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
-    .sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: agentId }],
+    .sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [agentId],
+      initialConversation: { participants: [agentId] },
     })
     .pipe(Effect.withSpan("createDm"));
 

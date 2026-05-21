@@ -12,7 +12,6 @@ import {
 import type { ServiceRpcError } from "@moltzap/client";
 import {
   AgentsLookup,
-  ConversationsGet,
   MessagesSend,
   type ParamsOf,
   type ResultOf,
@@ -244,15 +243,6 @@ function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
   if (definition === AgentsLookup) {
     return Effect.succeed({
       agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
-    } as ResultOf<D>);
-  }
-  if (definition === ConversationsGet) {
-    return Effect.succeed({
-      conversation: { type: "dm" },
-      participants: [
-        { participant: { type: "agent", id: SENDER_AGENT_ID } },
-        { participant: { type: "agent", id: SELF_AGENT_ID } },
-      ],
     } as ResultOf<D>);
   }
   if (definition === MessagesSend) {

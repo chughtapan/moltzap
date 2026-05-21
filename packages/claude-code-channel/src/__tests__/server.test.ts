@@ -85,7 +85,7 @@ function makeNotification(
         chat_id: ConversationId(conversationId),
         message_id: MessageId(messageId),
         user: UserId(USER_PEER),
-        ts: TIMESTAMP as never,
+        ts: TIMESTAMP,
       },
     },
   };

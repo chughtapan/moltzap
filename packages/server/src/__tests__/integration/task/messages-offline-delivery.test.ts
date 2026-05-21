@@ -10,15 +10,17 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
 import {
+  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TasksAddParticipant,
-  TasksCreate,
-  TasksCreateConversation,
+  TaskAddParticipant,
+  TaskConversationCreate,
+  TaskCreate,
+  type ConversationId,
   type Message,
+  type TaskId,
 } from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
 import {
   awaitOneNotification,
   startTestServerEffect,
@@ -103,30 +105,36 @@ function connectTracked(agentId: string, apiKey: string) {
   });
 }
 
-function setupGroupConversation(agents: ThreeAgents) {
+interface GroupBinding {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+
+function setupGroupConversation(
+  agents: ThreeAgents,
+): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    const task = yield* agents.tm.sendRpc(TasksCreate, { tmType: "self" });
-    yield* agents.tm.sendRpc(TasksAddParticipant, {
-      taskId: task.task.id,
-      agentId: protocolAgentId(agents.senderAgentId),
+    const task = yield* agents.tm.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [],
     });
-    yield* agents.tm.sendRpc(TasksAddParticipant, {
+    yield* agents.tm.sendRpc(TaskAddParticipant, {
       taskId: task.task.id,
-      agentId: protocolAgentId(agents.recipientAgentId),
+      agentId: agents.senderAgentId,
     });
-    const conv = yield* agents.tm.sendRpc(TasksCreateConversation, {
+    yield* agents.tm.sendRpc(TaskAddParticipant, {
       taskId: task.task.id,
-      type: "group",
-      participants: [
-        { type: "agent", id: agents.senderAgentId },
-        { type: "agent", id: agents.recipientAgentId },
-      ],
+      agentId: agents.recipientAgentId,
     });
-    return conv.conversation.id;
+    const conv = yield* agents.tm.sendRpc(TaskConversationCreate, {
+      taskId: task.task.id,
+      participants: [agents.senderAgentId, agents.recipientAgentId],
+    });
+    return { taskId: task.task.id, conversationId: conv.conversation.id };
   });
 }
 
-function messageRowsForConversation(conversationId: string) {
+function messageRowsForConversation(conversationId: ConversationId) {
   return Effect.tryPromise({
     try: () =>
       getKyselyDb()
@@ -140,11 +148,12 @@ function messageRowsForConversation(conversationId: string) {
 
 function sendText(
   client: ServerTestClient,
-  conversationId: string,
+  binding: GroupBinding,
   text: string,
 ) {
   return client.sendRpc(MessagesSend, {
-    conversationId,
+    taskId: binding.taskId,
+    conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
   });
 }
@@ -158,14 +167,14 @@ function sentMessageTexts(messages: readonly Message[]): readonly string[] {
 function commitsWhenParticipantIsOffline() {
   return Effect.gen(function* () {
     const agents = yield* setupThreeAgents(1);
-    const conversationId = yield* setupGroupConversation(agents);
+    const binding = yield* setupGroupConversation(agents);
 
     yield* agents.recipient.close();
     yield* Effect.sleep(FINALIZER_GRACE);
 
-    const sent = yield* sendText(agents.sender, conversationId, OFFLINE_TEXT);
+    const sent = yield* sendText(agents.sender, binding, OFFLINE_TEXT);
     expect(sent.message.parts).toEqual([{ type: "text", text: OFFLINE_TEXT }]);
-    const rows = yield* messageRowsForConversation(conversationId);
+    const rows = yield* messageRowsForConversation(binding.conversationId);
     expect(rows.map((row) => row.id)).toContain(sent.message.id);
 
     const reconnectedRecipient = yield* connectTracked(
@@ -173,7 +182,8 @@ function commitsWhenParticipantIsOffline() {
       agents.recipientApiKey,
     );
     const listed = yield* reconnectedRecipient.sendRpc(MessagesList, {
-      conversationId,
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
     });
     expect(sentMessageTexts(listed.messages)).toContain(OFFLINE_TEXT);
   });
@@ -182,8 +192,8 @@ function commitsWhenParticipantIsOffline() {
 function broadcastsWhenParticipantsAreOnline() {
   return Effect.gen(function* () {
     const agents = yield* setupThreeAgents(2);
-    const conversationId = yield* setupGroupConversation(agents);
-    const sent = yield* sendText(agents.sender, conversationId, HAPPY_TEXT);
+    const binding = yield* setupGroupConversation(agents);
+    const sent = yield* sendText(agents.sender, binding, HAPPY_TEXT);
     expect(sent.message.parts).toEqual([{ type: "text", text: HAPPY_TEXT }]);
 
     const received = yield* awaitOneNotification(
@@ -193,7 +203,7 @@ function broadcastsWhenParticipantsAreOnline() {
     const receivedMsg = (received.params as { message: Message }).message;
     expect(receivedMsg.id).toBe(sent.message.id);
 
-    const rows = yield* messageRowsForConversation(conversationId);
+    const rows = yield* messageRowsForConversation(binding.conversationId);
     expect(rows.map((row) => row.id)).toContain(sent.message.id);
   });
 }

@@ -3,9 +3,9 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import {
-  ConversationsArchive,
+  TaskConversationArchive,
   type AppManifest,
-  type ConversationId,
+  type LeaseId,
 } from "@moltzap/protocol";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
@@ -22,6 +22,7 @@ import {
   startDispatchFlowServer,
   stopDispatchFlowServer,
   waitForDispatchRelease,
+  type ConversationBinding,
 } from "./fixture.js";
 import {
   expectEitherLeft,
@@ -53,9 +54,14 @@ function requestPendingModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ kind: "never-reply" });
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
-    const ack = yield* requestDispatch(bob, conversationId, alice, "race");
-    return { ack, conversationId };
+    const binding = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const ack = yield* requestDispatch(
+      bob,
+      binding.conversationId,
+      alice,
+      "race",
+    );
+    return { ack, binding };
   }).pipe(Effect.withSpan("requestPendingModeratedDispatch"));
 }
 
@@ -66,12 +72,17 @@ function requestGrantedModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const binding = yield* createModeratedDm(alice, bob, TEST_APP_ID);
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const ack = yield* requestDispatch(bob, conversationId, alice, text);
+    const ack = yield* requestDispatch(
+      bob,
+      binding.conversationId,
+      alice,
+      text,
+    );
     yield* Fiber.join(releaseFiber);
-    return { ack, conversationId };
+    return { ack, binding };
   }).pipe(Effect.withSpan("requestGrantedModeratedDispatch"));
 }
 
@@ -81,36 +92,36 @@ function requestGrantedUnmoderatedDispatch(
   text: string,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
+    const binding = yield* createUnmoderatedDm(alice, bob);
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const ack = yield* requestDispatch(bob, conversationId, alice, text);
+    const ack = yield* requestDispatch(
+      bob,
+      binding.conversationId,
+      alice,
+      text,
+    );
     yield* Fiber.join(releaseFiber);
-    return { ack, conversationId };
+    return { ack, binding };
   }).pipe(Effect.withSpan("requestGrantedUnmoderatedDispatch"));
 }
 
 function sendWithLeaseRejected(
   bob: ConnectedAgent,
-  conversationId: ConversationId,
-  leaseId: Parameters<typeof sendMessageWithLease>[2],
+  binding: ConversationBinding,
+  leaseId: LeaseId,
   text: string,
 ) {
-  return Effect.either(
-    sendMessageWithLease(bob, conversationId, leaseId, text),
-  );
+  return Effect.either(sendMessageWithLease(bob, binding, leaseId, text));
 }
 
 function pendingLeaseRejectsSend() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, conversationId } = yield* requestPendingModeratedDispatch(
-      alice,
-      bob,
-    );
+    const { ack, binding } = yield* requestPendingModeratedDispatch(alice, bob);
     const result = yield* sendWithLeaseRejected(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "race",
     );
@@ -121,14 +132,14 @@ function pendingLeaseRejectsSend() {
 function grantedLeaseIsSingleUse() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, conversationId } = yield* requestGrantedUnmoderatedDispatch(
+    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
       alice,
       bob,
       "first",
     );
     const first = yield* sendMessageWithLease(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "first",
     );
@@ -136,7 +147,7 @@ function grantedLeaseIsSingleUse() {
 
     const second = yield* sendWithLeaseRejected(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "second",
     );
@@ -147,16 +158,19 @@ function grantedLeaseIsSingleUse() {
 function insertFailureRollsBackLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, conversationId } = yield* requestGrantedUnmoderatedDispatch(
+    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
       alice,
       bob,
       "probe",
     );
-    yield* alice.client.sendRpc(ConversationsArchive, { conversationId });
+    yield* alice.client.sendRpc(TaskConversationArchive, {
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+    });
 
     const sendResult = yield* sendWithLeaseRejected(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "probe",
     );
@@ -170,14 +184,14 @@ function insertFailureRollsBackLease() {
 function postInsertDurabilityHappyPath() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, conversationId } = yield* requestGrantedUnmoderatedDispatch(
+    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
       alice,
       bob,
       "first",
     );
     const first = yield* sendMessageWithLease(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "first",
     );
@@ -188,7 +202,7 @@ function postInsertDurabilityHappyPath() {
 
     const retry = yield* sendWithLeaseRejected(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "retry",
     );
@@ -199,7 +213,7 @@ function postInsertDurabilityHappyPath() {
 function postInsertFailureKeepsLeaseConsumed() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, conversationId } = yield* requestGrantedModeratedDispatch(
+    const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "first",
@@ -210,7 +224,7 @@ function postInsertFailureKeepsLeaseConsumed() {
 
     const sendResult = yield* sendWithLeaseRejected(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "first",
     );
@@ -222,7 +236,7 @@ function postInsertFailureKeepsLeaseConsumed() {
 
     const retry = yield* sendWithLeaseRejected(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "retry",
     );

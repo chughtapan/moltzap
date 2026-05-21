@@ -99,7 +99,7 @@ function requestWireModeratedDispatch(
   recipient: ConnectedAgent,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createModeratedDm(
+    const { conversationId } = yield* createModeratedDm(
       moderator,
       recipient,
       WIRE_APP_ID,
@@ -125,7 +125,11 @@ function registryDirectReadShowsGrantedLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const { conversationId } = yield* createModeratedDm(
+      alice,
+      bob,
+      TEST_APP_ID,
+    );
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
       DISPATCH_RELEASE_TIMEOUT_MS,
@@ -143,7 +147,7 @@ function registryDirectReadShowsGrantedLease() {
 function nonModeratorCannotReadDispatch() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
+    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
     const ack = yield* requestDispatch(bob, conversationId, alice);
     const result = yield* Effect.either(
       bob.client.sendRpc(DispatchesGet, {

@@ -5,11 +5,8 @@
  */
 import { Args, Command, HelpDoc, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
-import {
-  BrandedIdDecodeError,
-  brandConversationId,
-  brandTaskId,
-} from "@moltzap/protocol/task";
+import { Value } from "@sinclair/typebox/value";
+import { ConversationId, TaskId } from "@moltzap/protocol/task";
 import { LocalServiceCommands, requestLocalService } from "../socket-client.js";
 import type {
   HistoryRequestInput,
@@ -52,23 +49,17 @@ const sessionKeyOption = Options.text("session-key").pipe(
 
 const taskIdArg = Args.text({ name: "taskId" }).pipe(
   Args.withDescription("Task ID"),
-  Args.mapTryCatch(brandTaskId, (err) =>
-    HelpDoc.p(
-      err instanceof BrandedIdDecodeError
-        ? `invalid taskId: ${err.input}`
-        : `invalid taskId: ${String(err)}`,
-    ),
+  Args.mapTryCatch(
+    (raw) => Value.Decode(TaskId, raw),
+    (err) => HelpDoc.p(`invalid taskId: ${String(err)}`),
   ),
 );
 
 const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
   Args.withDescription("Conversation ID"),
-  Args.mapTryCatch(brandConversationId, (err) =>
-    HelpDoc.p(
-      err instanceof BrandedIdDecodeError
-        ? `invalid conversationId: ${err.input}`
-        : `invalid conversationId: ${String(err)}`,
-    ),
+  Args.mapTryCatch(
+    (raw) => Value.Decode(ConversationId, raw),
+    (err) => HelpDoc.p(`invalid conversationId: ${String(err)}`),
   ),
 );
 

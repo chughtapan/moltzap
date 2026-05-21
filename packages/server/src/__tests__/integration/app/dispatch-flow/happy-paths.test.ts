@@ -71,7 +71,11 @@ function moderatedDispatchReleasesGrant() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const { conversationId } = yield* createModeratedDm(
+      alice,
+      bob,
+      TEST_APP_ID,
+    );
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
@@ -89,7 +93,7 @@ function moderatedDispatchReleasesGrant() {
 function unmoderatedDispatchDefaultGrants() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
+    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
       DISPATCH_RELEASE_TIMEOUT_MS,
@@ -105,7 +109,7 @@ function unmoderatedDispatchDefaultGrants() {
 function dispatchRequestDescriptorIsRegistered() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
+    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
     const ack = yield* requestDispatch(bob, conversationId, alice, "canary");
 
     expectAckShape(ack);

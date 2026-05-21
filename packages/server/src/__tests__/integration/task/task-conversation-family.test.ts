@@ -42,7 +42,6 @@ import {
   TaskCreate,
   TaskLeave,
   TaskClosedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
   type AgentId,
 } from "@moltzap/protocol";
 import {
@@ -120,7 +119,7 @@ function registerAndConnect(
       apiKey: reg.apiKey,
     });
     trackClient(client);
-    return { client, agentId: reg.agentId as AgentId };
+    return { client, agentId: reg.agentId };
   });
 }
 
@@ -185,7 +184,7 @@ it("TaskCreate (different appId) does NOT dedup across apps", () =>
     expect(second.task.id).not.toBe(first.task.id);
   }));
 
-it("TaskCreate (initialConversation) mints a conversation + dual-emits notifications", () =>
+it("TaskCreate (initialConversation) mints a conversation + emits task/conversation/created", () =>
   Effect.gen(function* () {
     const { alice, bob, carol } = yield* setupThreeAgents();
     // Subscribe BEFORE sending so the stream-based waiter has the
@@ -197,15 +196,7 @@ it("TaskCreate (initialConversation) mints a conversation + dual-emits notificat
         NOTIF_TIMEOUT_MS,
       ),
     );
-    const legacyNotif = Effect.fork(
-      awaitOneNotification(
-        alice.client,
-        ConversationCreatedNotificationDefinition,
-        NOTIF_TIMEOUT_MS,
-      ),
-    );
     const newFib = yield* newNotif;
-    const legacyFib = yield* legacyNotif;
     const result = yield* alice.client.sendRpc(TaskCreate, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
@@ -217,10 +208,7 @@ it("TaskCreate (initialConversation) mints a conversation + dual-emits notificat
     expect(result.conversation).not.toBeNull();
     expect(result.conversation?.name).toBe(INITIAL_CONV_NAME);
     expect(result.conversation?.createdBy).toBe(alice.agentId);
-    // Dual-emit: BOTH `task/conversation/created` AND
-    // `conversations/created` fan out to the initial participants.
     yield* newFib.await;
-    yield* legacyFib.await;
   }));
 
 // ─── TaskLeave ───────────────────────────────────────────────────────
@@ -461,7 +449,7 @@ it("dual-emit suppression: a rolled-back TaskCreate emits zero notifications", (
     const result = yield* Effect.either(
       alice.client.sendRpc(TaskCreate, {
         appId: DEFAULT_APP_ID,
-        invitedAgentIds: ["not-a-uuid" as AgentId],
+        invitedAgentIds: ["not-a-uuid"],
       }),
     );
     expect(expectEitherLeft(result)).toBeDefined();

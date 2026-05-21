@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
+import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -13,23 +14,25 @@ it("lastRead tracks seen message IDs across reads", () =>
     const service = yield* H.connectService(regA.apiKey);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(H.ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: regB.agentId }],
+      const conv = yield* H.socketRpcRequest(TaskCreate, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: [regB.agentId],
+        initialConversation: { participants: [regB.agentId] },
       });
 
       // Send 3 messages from B
       for (let i = 0; i < 3; i++) {
         yield* H.sendAndSettle(
           regB.client,
-          conv.conversation.id,
+          conv.task.id,
+          conv.conversation!.id,
           `track-msg-${i}`,
         );
       }
 
       // First read marks all 3 as seen
       const hist1 = yield* H.socketHistory(
-        conv.conversation.id,
+        conv.conversation!.id,
         H.TRACK_SESSION_KEY,
       );
       expect(hist1.messages.length).toBe(H.SOCKET_PAGE_MESSAGE_COUNT);
@@ -37,13 +40,14 @@ it("lastRead tracks seen message IDs across reads", () =>
       // New message arrives after read
       yield* H.sendAndSettle(
         regB.client,
-        conv.conversation.id,
+        conv.task.id,
+        conv.conversation!.id,
         H.TRACK_NEW_MESSAGE,
       );
 
       // Read again — only the new message should be marked new
       const hist2 = yield* H.socketHistory(
-        conv.conversation.id,
+        conv.conversation!.id,
         H.TRACK_SESSION_KEY,
       );
       expect(hist2.newCount).toBe(1);
@@ -64,13 +68,15 @@ it("non-text message parts render as markers in socket history", () =>
     const service = yield* H.connectService(regA.apiKey);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(H.ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: regB.agentId }],
+      const conv = yield* H.socketRpcRequest(TaskCreate, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: [regB.agentId],
+        initialConversation: { participants: [regB.agentId] },
       });
 
       yield* regB.client.sendRpc(H.MessagesSend, {
-        conversationId: conv.conversation.id,
+        taskId: conv.task.id,
+        conversationId: conv.conversation!.id,
         parts: [
           { type: "text", text: "Check this out" },
           { type: "image", url: "https://example.com/photo.jpg" },
@@ -78,7 +84,7 @@ it("non-text message parts render as markers in socket history", () =>
       });
       yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
-      const result = yield* H.socketHistory(conv.conversation.id);
+      const result = yield* H.socketHistory(conv.conversation!.id);
 
       const msg = result.messages.find((m) =>
         m.text.includes("Check this out"),

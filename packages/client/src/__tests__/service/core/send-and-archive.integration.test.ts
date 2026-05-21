@@ -13,10 +13,7 @@ it("send() delivers message to other agent", () =>
     yield* regB.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const conv = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
+    const conv = yield* H.createDm(service, regB.agentId);
 
     // Spec B (#596): `subscribe` returns a Stream backed by `Stream.async`
     // with no historical buffer — a notification that arrives BEFORE
@@ -40,7 +37,11 @@ it("send() delivers message to other agent", () =>
       ),
     );
 
-    yield* service.send(conv.conversation.id, H.HELLO_FROM_SERVICE);
+    yield* service.send(
+      conv.task.id,
+      conv.conversation!.id,
+      H.HELLO_FROM_SERVICE,
+    );
 
     const eventOpt = yield* Fiber.join(eventFiber);
     const event = Option.getOrThrowWith(
@@ -65,19 +66,19 @@ it("conversation archive events purge service state and block late sends", () =>
     yield* regOwner.client.connect();
     const service = yield* H.connectService(regReceiver.apiKey);
 
-    const conv = yield* regOwner.client.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regReceiver.agentId }],
-    });
-    const convId = conv.conversation.id;
+    const ownerService = yield* H.connectService(regOwner.apiKey);
+    const conv = yield* H.createDm(ownerService, regReceiver.agentId);
+    const taskId = conv.task.id;
+    const convId = conv.conversation!.id;
 
-    yield* H.sendAndSettle(regOwner.client, convId, "before archive");
+    yield* H.sendAndSettle(regOwner.client, taskId, convId, "before archive");
     expect(service.getHistory(convId)).toHaveLength(1);
 
     const archivedEvents: unknown[] = [];
     service.on("conversationArchived", (data) => archivedEvents.push(data));
 
-    yield* regOwner.client.sendRpc(H.ConversationsArchive, {
+    yield* regOwner.client.sendRpc(H.TaskConversationArchive, {
+      taskId,
       conversationId: convId,
     });
     yield* Effect.sleep("500 millis");
@@ -88,7 +89,7 @@ it("conversation archive events purge service state and block late sends", () =>
     expect(service.getHistory(convId)).toEqual([]);
 
     const lateSend = yield* Effect.either(
-      service.send(convId, "after archive"),
+      service.send(taskId, convId, "after archive"),
     );
     Either.match(lateSend, {
       onLeft: (error) =>
@@ -100,6 +101,7 @@ it("conversation archive events purge service state and block late sends", () =>
     });
 
     service.close();
+    ownerService.close();
     yield* regOwner.client.close();
     yield* regReceiver.client.close();
   }));

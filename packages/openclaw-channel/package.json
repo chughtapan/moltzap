@@ -38,6 +38,7 @@
     "@effect/platform-node": "^0.106.0",
     "@moltzap/client": "workspace:*",
     "@moltzap/protocol": "workspace:*",
+    "@sinclair/typebox": "^0.34.0",
     "effect": "3.21.2"
   },
   "devDependencies": {

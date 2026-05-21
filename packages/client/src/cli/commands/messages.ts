@@ -24,18 +24,8 @@ import {
 } from "../transport.js";
 
 import { MessagesList } from "@moltzap/protocol";
-import {
-  BrandedIdDecodeError,
-  brandConversationId,
-  brandTaskId,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol/task";
-
-const brandDecodeError = (label: string) => (err: unknown) =>
-  err instanceof BrandedIdDecodeError
-    ? HelpDoc.p(`invalid ${label}: ${err.input}`)
-    : HelpDoc.p(`invalid ${label}: ${String(err)}`);
+import { ConversationId, TaskId } from "@moltzap/protocol/task";
+import { Value } from "@sinclair/typebox/value";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -102,11 +92,17 @@ export const messagesListHandler = (
 
 const taskOption = Options.text("task").pipe(
   Options.withDescription("Task id"),
-  Options.mapTryCatch(brandTaskId, brandDecodeError("--task")),
+  Options.mapTryCatch(
+    (raw) => Value.Decode(TaskId, raw),
+    (err) => HelpDoc.p(`invalid --task: ${String(err)}`),
+  ),
 );
 const conversationOption = Options.text("conversation").pipe(
   Options.withDescription("Conversation id"),
-  Options.mapTryCatch(brandConversationId, brandDecodeError("--conversation")),
+  Options.mapTryCatch(
+    (raw) => Value.Decode(ConversationId, raw),
+    (err) => HelpDoc.p(`invalid --conversation: ${String(err)}`),
+  ),
 );
 const msgLimitOption = Options.integer("limit").pipe(Options.optional);
 

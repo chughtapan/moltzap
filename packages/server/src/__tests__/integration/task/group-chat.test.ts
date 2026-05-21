@@ -9,10 +9,12 @@ import {
 } from "../helpers.js";
 
 import {
-  ConversationsAddParticipant,
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
+  TaskConversationAddParticipant,
+  TaskConversationCreate,
+  TaskCreate,
 } from "@moltzap/protocol";
 
 const GROUP_TYPE = "group";
@@ -41,61 +43,91 @@ it("create group, send messages, verify seq monotonicity", () =>
   Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-grp");
     const bob = yield* registerAndConnect("bob-grp");
+    const eve = yield* registerAndConnect("eve-grp");
 
-    // Alice creates a group
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: GROUP_TYPE,
-      name: TEST_GROUP_NAME,
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string; type: string; name: string } };
+    // Alice creates a group (3+ participants ⇒ "group", not "dm")
+    const conv = yield* alice.client.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId, eve.agentId],
+      initialConversation: {
+        name: TEST_GROUP_NAME,
+        participants: [bob.agentId, eve.agentId],
+      },
+    });
 
-    expect(conv.conversation.type).toBe(GROUP_TYPE);
-    expect(conv.conversation.name).toBe(TEST_GROUP_NAME);
+    expect(conv.conversation!.type).toBe(GROUP_TYPE);
+    expect(conv.conversation!.name).toBe(TEST_GROUP_NAME);
 
-    const conversationId = conv.conversation.id;
+    const taskId = conv.task.id;
+    const conversationId = conv.conversation!.id;
 
     // Alice sends multiple messages
     for (let i = 0; i < 3; i++) {
       yield* alice.client.sendRpc(MessagesSend, {
+        taskId,
         conversationId,
         parts: [{ type: "text", text: `Message ${i + 1}` }],
       });
     }
 
     // List messages
-    const messages = (yield* alice.client.sendRpc(MessagesList, {
+    const messages = yield* alice.client.sendRpc(MessagesList, {
+      taskId,
       conversationId,
-    })) as { messages: Array<{ parts: Array<{ text: string }> }> };
+    });
 
     expect(messages.messages).toHaveLength(3);
-    expect(messages.messages[0]!.parts[0]!.text).toBe(FIRST_MESSAGE_TEXT);
-    expect(messages.messages[2]!.parts[0]!.text).toBe(THIRD_MESSAGE_TEXT);
+    const firstPart = messages.messages[0]!.parts[0]!;
+    const thirdPart = messages.messages[2]!.parts[0]!;
+    expect(firstPart.type === "text" ? firstPart.text : "").toBe(
+      FIRST_MESSAGE_TEXT,
+    );
+    expect(thirdPart.type === "text" ? thirdPart.text : "").toBe(
+      THIRD_MESSAGE_TEXT,
+    );
 
     yield* alice.client.close();
     yield* bob.client.close();
+    yield* eve.client.close();
   }));
 
-it("addParticipant returns participant", () =>
+it("addParticipant adds an agent to a task conversation", () =>
   Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-addp");
     const bob = yield* registerAndConnect("bob-addp");
+    const eve = yield* registerAndConnect("eve-addp");
 
-    // Create group with just Alice
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "group",
-      name: "Add Test",
-      participants: [{ type: "agent", id: alice.agentId }],
-    })) as { conversation: { id: string } };
+    // Create task with Alice + Bob admitted; initial conversation has just Bob.
+    const created = yield* alice.client.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId, eve.agentId],
+      initialConversation: {
+        name: "Add Test",
+        participants: [bob.agentId],
+      },
+    });
+    const taskId = created.task.id;
+    const conversationId = created.conversation!.id;
 
-    // Add Bob
-    const result = (yield* alice.client.sendRpc(ConversationsAddParticipant, {
-      conversationId: conv.conversation.id,
-      participant: { type: "agent", id: bob.agentId },
-    })) as { participant: { conversationId: string } };
+    // Add Eve to that conversation; she's already in task_participants.
+    const result = yield* alice.client.sendRpc(TaskConversationAddParticipant, {
+      taskId,
+      conversationId,
+      agentId: eve.agentId,
+    });
 
-    expect(result.participant).toBeDefined();
-    expect(result.participant.conversationId).toBe(conv.conversation.id);
+    expect(result).toEqual({});
+
+    // Sanity-check via TaskConversationCreate side: the same task admits eve
+    // for another conversation under the same task.
+    const second = yield* alice.client.sendRpc(TaskConversationCreate, {
+      taskId,
+      name: "Second",
+      participants: [eve.agentId],
+    });
+    expect(second.conversation.id).toBeDefined();
 
     yield* alice.client.close();
     yield* bob.client.close();
+    yield* eve.client.close();
   }));

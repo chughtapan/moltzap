@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
+import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -14,32 +15,34 @@ it("messages/list returns both own and other agent messages", () =>
     const service = yield* H.connectService(regA.apiKey);
 
     // Create DM between A and B
-    const conv = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
+    const conv = yield* H.createDm(service, regB.agentId);
 
     // A sends a message
-    yield* service.send(conv.conversation.id, "Hello from A");
+    yield* service.send(conv.task.id, conv.conversation!.id, "Hello from A");
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     // B sends a message
-    yield* H.sendAndSettle(regB.client, conv.conversation.id, "Hello from B");
+    yield* H.sendAndSettle(
+      regB.client,
+      conv.task.id,
+      conv.conversation!.id,
+      "Hello from B",
+    );
 
     // A sends another message
-    yield* service.send(conv.conversation.id, "Follow up from A");
+    yield* service.send(
+      conv.task.id,
+      conv.conversation!.id,
+      "Follow up from A",
+    );
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     // Fetch history via RPC (same as CLI moltzap history would do)
-    const result = (yield* service.sendRpc(H.MessagesList, {
-      conversationId: conv.conversation.id,
+    const result = yield* service.sendRpc(H.MessagesList, {
+      taskId: conv.task.id,
+      conversationId: conv.conversation!.id,
       limit: 10,
-    })) as {
-      messages: Array<{
-        senderId: string;
-        parts: Array<{ type: string; text?: string }>;
-      }>;
-    };
+    });
 
     // Should contain messages from BOTH agents
     expect(result.messages.length).toBeGreaterThanOrEqual(3);
@@ -75,31 +78,29 @@ it("group conversation history shows all participants", () =>
     const service = yield* H.connectService(regA.apiKey);
 
     // Create group
-    const conv = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "group",
-      name: "Test Group",
-      participants: [
-        { type: "agent", id: regB.agentId },
-        { type: "agent", id: regC.agentId },
-      ],
+    const conv = yield* service.sendRpc(TaskCreate, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [regB.agentId, regC.agentId],
+      initialConversation: {
+        name: "Test Group",
+        participants: [regB.agentId, regC.agentId],
+      },
     });
+    const taskId = conv.task.id;
+    const conversationId = conv.conversation!.id;
 
     // Each agent sends a message
-    yield* service.send(conv.conversation.id, "Agent A here");
+    yield* service.send(taskId, conversationId, "Agent A here");
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
-    yield* H.sendAndSettle(regB.client, conv.conversation.id, "Agent B here");
-    yield* H.sendAndSettle(regC.client, conv.conversation.id, "Agent C here");
+    yield* H.sendAndSettle(regB.client, taskId, conversationId, "Agent B here");
+    yield* H.sendAndSettle(regC.client, taskId, conversationId, "Agent C here");
 
     // Fetch history
-    const result = (yield* service.sendRpc(H.MessagesList, {
-      conversationId: conv.conversation.id,
+    const result = yield* service.sendRpc(H.MessagesList, {
+      taskId,
+      conversationId,
       limit: 10,
-    })) as {
-      messages: Array<{
-        senderId: string;
-        parts: Array<{ type: string; text?: string }>;
-      }>;
-    };
+    });
 
     // All 3 agents should appear
     const senderIds = new Set(result.messages.map((m) => m.senderId));

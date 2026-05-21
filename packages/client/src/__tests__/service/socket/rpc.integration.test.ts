@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
+import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -45,14 +46,16 @@ it("passthrough RPC works via socket", () =>
     const service = yield* H.connectService(regA.apiKey);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(H.ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: regB.agentId }],
+      const conv = yield* H.socketRpcRequest(TaskCreate, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: [regB.agentId],
+        initialConversation: { participants: [regB.agentId] },
       });
-      expect(conv.conversation.id).toBeDefined();
+      expect(conv.conversation!.id).toBeDefined();
 
       const msg = yield* H.socketRpcRequest(H.MessagesSend, {
-        conversationId: conv.conversation.id,
+        taskId: conv.task.id,
+        conversationId: conv.conversation!.id,
         parts: [{ type: "text", text: "via socket" }],
       });
       expect(msg.message.id).toBeDefined();

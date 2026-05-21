@@ -35,6 +35,7 @@ import {
   type TaskId,
 } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
+import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
 class ReconnectionIntegrationError extends Data.TaggedError(
   "ReconnectionIntegrationError",
@@ -47,7 +48,7 @@ interface InjectedConfig {
   readonly wsUrl: string;
   readonly channelApiKey: string;
   readonly peerApiKey: string;
-  readonly channelAgentId: string;
+  readonly channelAgentId: AgentId;
 }
 
 const DISCONNECT_WAIT_MS = 3_000;
@@ -69,7 +70,7 @@ beforeAll(() => {
     wsUrl: injectString("moltzapWsUrl"),
     channelApiKey: injectString("agentAApiKey"),
     peerApiKey: injectString("agentBApiKey"),
-    channelAgentId: injectString("agentAAgentId"),
+    channelAgentId: makeAgentId(injectString("agentAAgentId")),
   };
 });
 
@@ -183,7 +184,7 @@ function makeCounters(): Counters {
 
 function createDm(
   peerClient: MoltZapAgentClient,
-  channelAgentId: string,
+  channelAgentId: AgentId,
 ): Effect.Effect<
   { taskId: TaskId; conversationId: ConversationId },
   ReconnectionIntegrationError
@@ -191,8 +192,8 @@ function createDm(
   return peerClient
     .sendRpc(TaskCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [channelAgentId as AgentId],
-      initialConversation: { participants: [channelAgentId as AgentId] },
+      invitedAgentIds: [channelAgentId],
+      initialConversation: { participants: [channelAgentId] },
     })
     .pipe(
       Effect.map((result) => {

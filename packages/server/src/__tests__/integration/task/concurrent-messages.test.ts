@@ -11,9 +11,12 @@ import {
 } from "../helpers.js";
 
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesSend,
   MessageReceivedNotificationDefinition,
+  TaskCreate,
+  type ConversationId,
+  type TaskId,
 } from "@moltzap/protocol";
 
 let _baseUrl: string;
@@ -51,19 +54,32 @@ function forkExtraCollector(receiver: ConnectedAgent) {
     );
 }
 
+interface DmConversation {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly receiverIdx: number;
+}
+
 function setupDmConversations(
   sender: ConnectedAgent,
   receivers: ReadonlyArray<ConnectedAgent>,
-) {
+): Effect.Effect<ReadonlyArray<DmConversation>, unknown> {
   return Effect.forEach(
     receivers,
     (receiver, i) =>
       Effect.map(
-        sender.client.sendRpc(ConversationsCreate, {
-          type: "dm",
-          participants: [{ type: "agent", id: receiver.agentId }],
-        }) as Effect.Effect<{ conversation: { id: string } }>,
-        (conv) => ({ id: conv.conversation.id, receiverIdx: i }),
+        sender.client.sendRpc(TaskCreate, {
+          appId: DEFAULT_APP_ID,
+          invitedAgentIds: [receiver.agentId],
+          initialConversation: {
+            participants: [receiver.agentId],
+          },
+        }),
+        (result) => ({
+          taskId: result.task.id,
+          conversationId: result.conversation!.id,
+          receiverIdx: i,
+        }),
       ),
     { concurrency: 1 },
   );
@@ -71,12 +87,13 @@ function setupDmConversations(
 
 function sendToAll(
   sender: ConnectedAgent,
-  conversations: ReadonlyArray<{ id: string }>,
+  conversations: ReadonlyArray<DmConversation>,
 ) {
   return Effect.all(
     conversations.map((conv, i) =>
       sender.client.sendRpc(MessagesSend, {
-        conversationId: conv.id,
+        taskId: conv.taskId,
+        conversationId: conv.conversationId,
         parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
       }),
     ),
@@ -115,7 +132,9 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
         };
       };
 
-      expect(data.message.conversationId).toBe(conversations[i]!.id);
+      expect(data.message.conversationId).toBe(
+        conversations[i]!.conversationId,
+      );
       expect(data.message.parts[0]!.text).toBe(`Hello receiver-${i + 1}`);
     }
 

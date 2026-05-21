@@ -3,8 +3,13 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   ForbiddenError,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  TaskConversationArchive,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationList,
+  TaskConversationUnarchive,
+  TaskConversationUnarchivedNotificationDefinition,
+  type ConversationId,
+  type TaskId,
 } from "@moltzap/protocol";
 import {
   awaitOneNotification,
@@ -17,12 +22,6 @@ import {
 import type { ConnectedAgent } from "../helpers.js";
 import { getCoreDb, expectRpcFailure } from "../../../test-utils/index.js";
 
-import {
-  ConversationsArchive,
-  ConversationsList,
-  ConversationsUnarchive,
-} from "@moltzap/protocol";
-
 const PROPERTY_RUNS = 25;
 const ARCHIVE_TARGET_GROUP_NAME = "Archive Target";
 const PERMISSION_GROUP_NAME = "Perm Test";
@@ -34,15 +33,16 @@ interface ArchiveGroup {
   alice: ConnectedAgent;
   bob: ConnectedAgent;
   eve: ConnectedAgent;
-  conversationId: string;
+  taskId: TaskId;
+  conversationId: ConversationId;
 }
 
-interface ConversationListResult {
-  conversations: Array<{ id: string }>;
+interface ListItem {
+  readonly conversation: { readonly id: string; readonly archivedAt?: string };
 }
 
-function conversationStub(id: string): { id: string } {
-  return { id };
+function conversationStub(id: string): ListItem {
+  return { conversation: { id } };
 }
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
@@ -59,10 +59,8 @@ it("property: conversation membership lookup follows listed IDs", () =>
         fc.uuid(),
         fc.array(fc.uuid(), { minLength: 0, maxLength: 8 }),
         (conversationId, ids) => {
-          const list = {
-            conversations: ids.map(conversationStub),
-          };
-          expect(hasConversation(list, conversationId)).toBe(
+          const items = ids.map(conversationStub);
+          expect(hasConversation(items, conversationId)).toBe(
             ids.includes(conversationId),
           );
         },
@@ -75,13 +73,15 @@ it("owner archives and unarchives; broadcasts events", () =>
   Effect.gen(function* () {
     const group = yield* archiveGroup();
 
-    yield* group.alice.client.sendRpc(ConversationsArchive, {
+    yield* group.alice.client.sendRpc(TaskConversationArchive, {
+      taskId: group.taskId,
       conversationId: group.conversationId,
     });
     yield* expectArchivedBroadcast(group);
     yield* expectArchivedListVisibility(group.bob, group.conversationId);
 
-    yield* group.alice.client.sendRpc(ConversationsUnarchive, {
+    yield* group.alice.client.sendRpc(TaskConversationUnarchive, {
+      taskId: group.taskId,
       conversationId: group.conversationId,
     });
     yield* expectUnarchivedBroadcast(group.bob, group.conversationId);
@@ -94,10 +94,11 @@ it("non-owner/admin member gets 403 on archive", () =>
       groupName: PERMISSION_GROUP_NAME,
     });
     const [, bob] = group.agents as [ConnectedAgent, ConnectedAgent];
+    const taskId = group.taskId!;
     const conversationId = group.conversationId!;
 
     const err = yield* expectRpcFailure(
-      bob.client.sendRpc(ConversationsArchive, { conversationId }),
+      bob.client.sendRpc(TaskConversationArchive, { taskId, conversationId }),
       ForbiddenError.code,
     );
     expect(err.code).toBe(ForbiddenError.code);
@@ -109,12 +110,15 @@ it("archive of archived conversation is idempotent", () =>
       groupName: IDEMPOTENT_GROUP_NAME,
     });
     const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
+    const taskId = group.taskId!;
     const conversationId = group.conversationId!;
 
-    const first = yield* alice.client.sendRpc(ConversationsArchive, {
+    const first = yield* alice.client.sendRpc(TaskConversationArchive, {
+      taskId,
       conversationId,
     });
-    const second = yield* alice.client.sendRpc(ConversationsArchive, {
+    const second = yield* alice.client.sendRpc(TaskConversationArchive, {
+      taskId,
       conversationId,
     });
     expect(first).toEqual({});
@@ -127,9 +131,11 @@ it("unarchive of active conversation is idempotent", () =>
       groupName: UNARCHIVE_IDEMPOTENT_GROUP_NAME,
     });
     const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
+    const taskId = group.taskId!;
     const conversationId = group.conversationId!;
 
-    const result = yield* alice.client.sendRpc(ConversationsUnarchive, {
+    const result = yield* alice.client.sendRpc(TaskConversationUnarchive, {
+      taskId,
       conversationId,
     });
     expect(result).toEqual({});
@@ -141,7 +147,8 @@ it("archive of task-attached conversation succeeds for the owner", () =>
     const taskId = yield* readConversationTaskId(group.conversationId);
     expect(taskId).toEqual(expect.any(String));
 
-    const result = yield* group.alice.client.sendRpc(ConversationsArchive, {
+    const result = yield* group.alice.client.sendRpc(TaskConversationArchive, {
+      taskId: group.taskId,
       conversationId: group.conversationId,
     });
     expect(result).toEqual({});
@@ -152,12 +159,19 @@ it("concurrent archive by the same privileged caller is idempotent", () =>
   Effect.gen(function* () {
     const group = yield* setupAgentGroup(2, { groupName: RACE_GROUP_NAME });
     const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
+    const taskId = group.taskId!;
     const conversationId = group.conversationId!;
 
     const [first, second] = yield* Effect.all(
       [
-        alice.client.sendRpc(ConversationsArchive, { conversationId }),
-        alice.client.sendRpc(ConversationsArchive, { conversationId }),
+        alice.client.sendRpc(TaskConversationArchive, {
+          taskId,
+          conversationId,
+        }),
+        alice.client.sendRpc(TaskConversationArchive, {
+          taskId,
+          conversationId,
+        }),
       ],
       { concurrency: 2 },
     );
@@ -177,7 +191,13 @@ function archiveGroup() {
       ConnectedAgent,
       ConnectedAgent,
     ];
-    return { alice, bob, eve, conversationId: group.conversationId! };
+    return {
+      alice,
+      bob,
+      eve,
+      taskId: group.taskId!,
+      conversationId: group.conversationId!,
+    };
   });
 }
 
@@ -185,77 +205,61 @@ function expectArchivedBroadcast(group: ArchiveGroup) {
   return Effect.gen(function* () {
     const bobArchived = yield* awaitOneNotification(
       group.bob.client,
-      ConversationArchivedNotificationDefinition,
+      TaskConversationArchivedNotificationDefinition,
     );
     const eveArchived = yield* awaitOneNotification(
       group.eve.client,
-      ConversationArchivedNotificationDefinition,
+      TaskConversationArchivedNotificationDefinition,
     );
-    const bobData = bobArchived.params as {
-      conversationId: string;
-      archivedAt: string;
-      by: string;
-    };
-    expect(bobData.conversationId).toBe(group.conversationId);
-    expect(bobData.by).toBe(group.alice.agentId);
-    expect(bobData.archivedAt).toEqual(expect.any(String));
-    expect((eveArchived.params as { by: string }).by).toBe(group.alice.agentId);
+    expect(bobArchived.params.conversationId).toBe(group.conversationId);
+    expect(bobArchived.params.taskId).toBe(group.taskId);
+    expect(bobArchived.params.archivedAt).toEqual(expect.any(String));
+    expect(eveArchived.params.conversationId).toBe(group.conversationId);
   });
 }
 
 function expectArchivedListVisibility(
   agent: ConnectedAgent,
-  conversationId: string,
+  conversationId: ConversationId,
 ) {
   return Effect.gen(function* () {
-    const listDefault = (yield* agent.client.sendRpc(
-      ConversationsList,
-      {},
-    )) as ConversationListResult;
-    expect(hasConversation(listDefault, conversationId)).toBe(false);
-
-    const listInclude = (yield* agent.client.sendRpc(ConversationsList, {
-      archived: "include",
-    })) as ConversationListResult;
-    expect(hasConversation(listInclude, conversationId)).toBe(true);
-
-    const listOnly = (yield* agent.client.sendRpc(ConversationsList, {
-      archived: "only",
-    })) as ConversationListResult;
-    expect(listOnly.conversations).toHaveLength(1);
-    expect(listOnly.conversations[0]!.id).toBe(conversationId);
+    const list = yield* agent.client.sendRpc(TaskConversationList, {});
+    const found = list.items.find(
+      (item) => item.conversation.id === conversationId,
+    );
+    expect(found).toBeDefined();
+    expect(found!.conversation.archivedAt).toEqual(expect.any(String));
   });
 }
 
 function expectUnarchivedBroadcast(
   agent: ConnectedAgent,
-  conversationId: string,
+  conversationId: ConversationId,
 ) {
   return Effect.gen(function* () {
     const unarchived = yield* awaitOneNotification(
       agent.client,
-      ConversationUnarchivedNotificationDefinition,
+      TaskConversationUnarchivedNotificationDefinition,
     );
-    expect(
-      (unarchived.params as { conversationId: string }).conversationId,
-    ).toBe(conversationId);
+    expect(unarchived.params.conversationId).toBe(conversationId);
   });
 }
 
 function expectConversationVisible(
   agent: ConnectedAgent,
-  conversationId: string,
+  conversationId: ConversationId,
 ) {
   return Effect.gen(function* () {
-    const list = (yield* agent.client.sendRpc(
-      ConversationsList,
-      {},
-    )) as ConversationListResult;
-    expect(hasConversation(list, conversationId)).toBe(true);
+    const list = yield* agent.client.sendRpc(TaskConversationList, {});
+    const found = list.items.find(
+      (item) => item.conversation.id === conversationId,
+    );
+    expect(found).toBeDefined();
+    expect(found!.conversation.archivedAt).toBeUndefined();
   });
 }
 
-function expectArchivedInDb(conversationId: string) {
+function expectArchivedInDb(conversationId: ConversationId) {
   const db = getCoreDb();
   return Effect.gen(function* () {
     const row = yield* Effect.tryPromise(() =>
@@ -269,7 +273,7 @@ function expectArchivedInDb(conversationId: string) {
   });
 }
 
-function readConversationTaskId(conversationId: string) {
+function readConversationTaskId(conversationId: ConversationId) {
   const db = getCoreDb();
   return Effect.gen(function* () {
     const row = yield* Effect.tryPromise(() =>
@@ -284,10 +288,8 @@ function readConversationTaskId(conversationId: string) {
 }
 
 function hasConversation(
-  list: ConversationListResult,
+  items: ReadonlyArray<ListItem>,
   conversationId: string,
 ): boolean {
-  return list.conversations.some(
-    (conversation) => conversation.id === conversationId,
-  );
+  return items.some((item) => item.conversation.id === conversationId);
 }

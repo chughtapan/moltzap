@@ -1,51 +1,45 @@
 import { Args, Command, HelpDoc, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Data, Effect, Option } from "effect";
+import { Value } from "@sinclair/typebox/value";
 import { request } from "../socket-client.js";
 
 import { MessagesSend } from "@moltzap/protocol";
-import {
-  BrandedIdDecodeError,
-  brandConversationId,
-  brandMessageId,
-  brandTaskId,
-  type ConversationId,
-  type MessageId,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 
 const TASK_CONVERSATION_TARGET_PREFIX = "task:";
 
-const brandDecodeError = (label: string) => (err: unknown) =>
-  err instanceof BrandedIdDecodeError
-    ? HelpDoc.p(`invalid ${label}: ${err.input}`)
-    : HelpDoc.p(`invalid ${label}: ${String(err)}`);
+class SendTargetMalformedError extends Data.TaggedError(
+  "SendTargetMalformedError",
+)<{ readonly target: string; readonly reason: string }> {
+  override get message(): string {
+    return `invalid target ${this.target}: ${this.reason}`;
+  }
+}
 
 const targetArg = Args.text({ name: "target" }).pipe(
   Args.withDescription("Target task+conversation as task:<taskId>:<convId>"),
   Args.mapTryCatch(
     (raw): { taskId: TaskId; conversationId: ConversationId } => {
       if (!raw.startsWith(TASK_CONVERSATION_TARGET_PREFIX)) {
-        throw new BrandedIdDecodeError({
-          kind: "TaskId",
-          input: raw,
-          cause: `missing '${TASK_CONVERSATION_TARGET_PREFIX}' prefix`,
+        throw new SendTargetMalformedError({
+          target: raw,
+          reason: `missing '${TASK_CONVERSATION_TARGET_PREFIX}' prefix`,
         });
       }
       const rest = raw.slice(TASK_CONVERSATION_TARGET_PREFIX.length);
       const [tid, cid] = rest.split(":");
       if (!tid || !cid) {
-        throw new BrandedIdDecodeError({
-          kind: "TaskId",
-          input: raw,
-          cause: "expected task:<taskId>:<conversationId>",
+        throw new SendTargetMalformedError({
+          target: raw,
+          reason: "expected task:<taskId>:<conversationId>",
         });
       }
       return {
-        taskId: brandTaskId(tid),
-        conversationId: brandConversationId(cid),
+        taskId: Value.Decode(TaskId, tid),
+        conversationId: Value.Decode(ConversationId, cid),
       };
     },
-    brandDecodeError("target"),
+    (err) => HelpDoc.p(`invalid target: ${String(err)}`),
   ),
 );
 
@@ -55,7 +49,10 @@ const messageArg = Args.text({ name: "message" }).pipe(
 
 const replyToOption = Options.text("reply-to").pipe(
   Options.withDescription("Reply to a specific message"),
-  Options.mapTryCatch(brandMessageId, brandDecodeError("--reply-to")),
+  Options.mapTryCatch(
+    (raw) => Value.Decode(MessageId, raw),
+    (err) => HelpDoc.p(`invalid --reply-to: ${String(err)}`),
+  ),
   Options.optional,
 );
 

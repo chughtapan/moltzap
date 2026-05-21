@@ -54,6 +54,7 @@
     "@effect/rpc": "0.75.1",
     "@effect/typeclass": "0.40.0",
     "@moltzap/protocol": "workspace:*",
+    "@sinclair/typebox": "^0.34.0",
     "effect": "3.21.2"
   },
   "devDependencies": {
