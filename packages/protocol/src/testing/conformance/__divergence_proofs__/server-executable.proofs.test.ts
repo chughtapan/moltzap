@@ -602,16 +602,12 @@ function makeConversationLifecycleBadResult(request: RequestFrame): unknown {
     return {
       conversation: {
         id: "00000000-0000-4000-8000-000000000101",
-        type: "group",
         name: "bad lifecycle",
-        archived: false,
+        createdBy: "00000000-0000-4000-8000-000000000001",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
     };
-  }
-  if (request.method === TaskConversationCreate.name) {
-    return {};
   }
   if (
     request.method === TaskConversationArchive.name ||

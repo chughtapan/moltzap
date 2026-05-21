@@ -327,7 +327,6 @@ function makeConversationResult(
     return {
       conversation: {
         id: state.fixedConversationId,
-        type: "group",
         name: "bad-server-conv",
         createdBy: callerAgentId,
         createdAt: "2026-01-01T00:00:00.000Z",

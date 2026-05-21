@@ -27,21 +27,20 @@ at the call site.
 
 ```ts
 // protocol/task/tasks.ts — descriptor declares its capabilities
-export const TasksStoreMessage = defineRpc({
-  name: "tasks/storeMessage",
-  params: TasksStoreMessageParams,
-  result: TasksStoreMessageResult,
+export const TaskConversationCreate = defineRpc({
+  name: "task/conversation/create",
+  params: TaskConversationCreateParams,
+  result: TaskConversationCreateResult,
   capabilities: [
-    { tag: TmAuthority,        argsOf: (p, ctx) => ({ taskId: p.taskId, callerAgentId: ctx.auth.agentId }) },
-    { tag: ConversationInTask, argsOf: (p) => ({ taskId: p.taskId, conversationId: p.conversationId }) },
-    { tag: MessageSendPermission, argsOf: (p, ctx) => ({ /* ... */ }) },
+    { tag: TmAuthority,                    argsOf: (p, ctx) => ({ taskId: p.taskId, callerAgentId: ctx.auth.agentId }) },
+    { tag: ConversationCreateAuthorization, argsOf: (p, ctx) => ({ agentIds: [...p.participants], creatorAgentId: ctx.auth.agentId }) },
   ],
 });
 
-// task.service.ts — handler body just yields, no provideServiceEffect
-storeMessage(
+// service body just yields the tag, no provideServiceEffect at the call site
+create(
   /* ... */
-): Effect.Effect<void, MessageServiceError, TmAuthority | ConversationInTask | MessageSendPermission>;
+): Effect.Effect<Conversation, ConversationServiceError, ConversationCreateAuthorization>;
 
 // server/src/app/capability-providers.ts — single source of truth for obtain helpers
 export const serverCapabilityProviders = {
