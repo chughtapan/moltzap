@@ -42,12 +42,11 @@ export class HookBlockedError extends Data.TaggedError(
 registerErrorClass(HookBlockedError);
 
 /**
- * Spec D1 (#598) NEW invariant: `task/conversation/create` and
- * `task/conversation/participants/add` reject agents who are not
- * already in `task_participants`. The error tag lets clients
- * distinguish "wrong agentId shape" (InvalidParams) from "agent
- * exists but is not admitted to this task" (this tag) without
- * parsing message strings.
+ * `task/conversation/create` and `task/conversation/participants/add`
+ * reject agents who are not already in `task_participants`. The error
+ * tag lets clients distinguish "wrong agentId shape" (InvalidParams)
+ * from "agent exists but is not admitted to this task" (this tag)
+ * without parsing message strings.
  */
 export class ParticipantNotAdmittedError extends Data.TaggedError(
   "ParticipantNotAdmitted",
@@ -217,31 +216,12 @@ export const TaskClosedNotificationDefinition = defineNotification({
   params: TaskClosedNotificationSchema,
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Spec D1 (#598) — additive `task/*` + `task/conversation/*` surface.
-//
-// These descriptors coexist with the legacy `tasks/*` and `conversations/*`
-// families for the D1 transitional window. Spec D3 (#600) deletes the
-// legacy descriptors and the parallel notification emission; this block
-// becomes the only task-layer surface.
-//
-// Naming convention chosen by architect (resolves spec ambiguity):
-//   - New methods use the singular `task/*` namespace to avoid wire
-//     collisions with legacy `tasks/*` during dual-emit (`task/create`
-//     vs. `tasks/create` are distinct wire names).
-//   - Nested admin methods live under `task/conversation/*`.
-//   - Participant operations sit under `task/conversation/participants/*`.
-//
-// Authority routing (impl-staff): all `Task*Authority`-gated admin
-// methods (`task/conversation/{create,archive,unarchive,participants/*}`)
-// MUST resolve via Spec E's `obtainTmAuthority(taskId, ctx.agentId)`
-// once Spec E (#601) primitives land. `task/conversation/list` and
-// `task/leave` resolve via self-auth (caller participation check).
-// `task/create` is open to any authenticated agent subject to
-// `requireContactPolicyForCreate` per `conversation.service.ts`
-// (`/safer:architect` per-flow doc §"Capability list per new
-// handler" — see `packages/protocol/docs/architecture/task-conversation-family.md`).
-// ─────────────────────────────────────────────────────────────────────
+// `task/*` + `task/conversation/*` surface. Authority routing:
+// `task/conversation/{create,archive,unarchive,participants/*}` resolve via
+// `obtainTmAuthority(taskId, ctx.agentId)`. `task/conversation/list` and
+// `task/leave` use self-auth (caller participation check). `task/create` is
+// open to any authenticated agent subject to `obtainContactPolicyForCreate`.
+// Per-flow detail: `packages/protocol/docs/architecture/task-conversation-family.md`.
 
 const InitialConversationSchema = Type.Object(
   {
@@ -267,16 +247,12 @@ export type TaskConversationListItem = Static<
 >;
 
 /**
- * Reshaped task-create: `appId` REQUIRED (branded), `tmType`
- * ELIMINATED at the wire, optional `initialConversation` for atomic
- * task + first-conversation creation.
+ * Open to any authenticated agent.
  *
  * Dedup: when `appId === DEFAULT_APP_ID`, the server returns any
  * existing task whose `task_participants` set is exactly
- * `{callerAgentId} ∪ invitedAgentIds`. Single-invitee dedup
- * generalizes today's `conversationService.existingDmForCreate` (the
- * DM case is the `invitedAgentIds.length === 1` instance of the
- * same exact-participant-set match query).
+ * `{callerAgentId} ∪ invitedAgentIds`. The single-invitee case is
+ * the canonical "one DM per agent pair" rule.
  *
  * Returns `{ task, conversation }` where `conversation` is `null`
  * when `initialConversation` is omitted.
@@ -320,18 +296,9 @@ export const TaskLeave = defineRpc({
 });
 
 /**
- * TM-only: mint a new conversation under an existing task.
- * Renamed/reshaped from legacy `tasks/createConversation`. NEW
- * invariant: every entry in `participants` MUST already appear in
- * `task_participants` for `taskId`; violations return
- * `ParticipantNotAdmittedError`. Spec body Goal 1.
- *
- * Schema diff vs. legacy `tasks/createConversation`:
- *   - removes `type: ConversationTypeEnum` (DM/Group collapse — D3
- *     retires the `conversation_type` enum column entirely)
- *   - participants typed as `AgentId[]` (was `agentParticipantRefSchema`)
- *     reflecting "agents only" — `tm:agent:*` shape is internal-only
- *     per spec body Non-goal 6
+ * TM-only: mint a new conversation under an existing task. Every
+ * entry in `participants` MUST already appear in `task_participants`
+ * for `taskId`; violations return `ParticipantNotAdmittedError`.
  */
 export const TaskConversationCreate = defineRpc({
   name: "task/conversation/create",
@@ -347,13 +314,11 @@ export const TaskConversationCreate = defineRpc({
     { conversation: ConversationSchema },
     { additionalProperties: false },
   ),
-  // Spec F #632 typed-dispatcher: declare in auth-first order. The
-  // handler MUST also `yield* TmAuthority` before
-  // `requireAgentsAreInTaskParticipants` runs (per per-flow doc
-  // §"Capability list per new handler" + auth-first invariant) — the
-  // dispatcher lazily provisions tags via `provideServiceEffect`, so a
-  // tag that no body yields would never validate. `ConversationCreate-
-  // Authorization` is consumed inside `conversationService.create`.
+  // Tags are declared in auth-first order. The handler must explicitly
+  // `yield* TmAuthority` before `requireAgentsAreInTaskParticipants` —
+  // the dispatcher provisions tags lazily, so a non-TM caller would
+  // otherwise see `ParticipantNotAdmittedError` (a state probe) instead
+  // of `ForbiddenError`.
   capabilities: [
     {
       tag: TmAuthority,
@@ -548,8 +513,8 @@ const TaskConversationParticipantsAddedNotificationSchema = Type.Object(
     taskId: TaskId,
     conversationId: ConversationId,
     addedAgentId: AgentId,
-    // Spec body Goal 5 declares this enum literal. Only `"tm"` for
-    // now (D1 narrows authority to TM-only); D3 may widen.
+    // Authority is TM-only today; the enum is single-valued but kept
+    // open-shaped so the wire can widen without a schema rev.
     byAgentOrTm: stringEnum(["tm"]),
   },
   { additionalProperties: false },

@@ -389,34 +389,17 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.removeParticipant")),
   }),
 
-  // ───────────────────────────────────────────────────────────────────
-  // Spec D1 (#598) — additive `task/*` + `task/conversation/*` family.
+  // `task/*` + `task/conversation/*` handlers. Per-flow walkthrough:
+  // `packages/protocol/docs/architecture/task-conversation-family.md`.
   //
-  // Handlers below coexist with the legacy `tasks/*` and `conversations/*`
-  // bindings above for the transitional window. Spec D3 (#600) deletes
-  // the legacy handlers + dual-emission inside the same orchestration
-  // (parent epic #602).
+  // Capability tags are declared on each descriptor's `capabilities: [...]`
+  // and auto-provisioned by the dispatcher; handler bodies just call the
+  // service method whose R channel yields the tag.
   //
-  // Per-flow walkthroughs:
-  //   packages/protocol/docs/architecture/task-conversation-family.md
-  //
-  // Capability shape (post-Spec-F #632 typed-dispatcher cutover): every
-  // TM-gated descriptor in `@moltzap/protocol/task/tasks.ts` declares
-  // its capability tags in `capabilities: [...]`. The dispatcher
-  // auto-provisions each tag via lazy `Effect.provideServiceEffect`
-  // per frame from the shared `serverCapabilityProviders` table; handler
-  // bodies just call the service method whose R channel yields the
-  // tag. The per-flow doc's "Capability list per new handler" table
-  // remains the source of truth for which tags each descriptor declares.
-  //
-  // Two handlers explicitly `yield* TmAuthority` before any inline
-  // gate that could leak state (`requireAgentsAreInTaskParticipants`):
-  // `TaskConversationCreate` and `TaskConversationAddParticipant`.
-  // The explicit yield forces the lazy obtain helper to execute up
-  // front so a non-TM caller sees `ForbiddenError` rather than
-  // `ParticipantNotAdmittedError` (auth-first invariant per
-  // codex review N=1).
-  // ───────────────────────────────────────────────────────────────────
+  // `TaskConversationCreate` and `TaskConversationAddParticipant`
+  // explicitly `yield* TmAuthority` before any inline gate so a non-TM
+  // caller sees `ForbiddenError` instead of `ParticipantNotAdmittedError`
+  // (which would leak task state).
 
   defineTaskMethod(TaskCreate, {
     requiresActive: true,
@@ -530,7 +513,7 @@ export const taskHandlers: RpcMethodRegistry = [
         // task-state to a non-TM caller).
         yield* TmAuthority;
         const taskService = yield* TaskServiceTag;
-        // Spec D1 participant-admitted invariant — runs AFTER TM auth.
+        // Participant-admitted invariant — runs AFTER TM auth.
         yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
           params.agentId,
         ]);
