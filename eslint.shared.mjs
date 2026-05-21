@@ -34,6 +34,9 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
     "error",
     { max: maxLines, skipBlankLines: true, skipComments: true },
   ],
+  // Disabled: knip runs once at the workspace root (whole-monorepo)
+  // via `pnpm lint`; per-package lint scripts run eslint only.
+  "agent-code-guard/require-knip-in-lint": "off",
 });
 
 const makeTestSupportRules = (strictRules) => ({
