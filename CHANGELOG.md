@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
+
+The cutover phase of the layered-refactor sequence (`E → D1 → D2 →
+D3`). D3 collapses the dual `Conversations*` / `Tasks*` wire surface
+into the single `Task*` / `TaskConversation*` set from D1, reshapes
+the `MessagesSend` / `MessagesList` boundary so `taskId` is required,
+absorbs `TasksStoreMessage` into `MessagesSend` (TM-authority caller
+identified server-side; no wire flag), and folds
+`TasksGetMessages` / `TasksGetMessagesSince` into `MessagesList`
+(canonical read RPC).
+
+- **BREAKING (`@moltzap/protocol`):** All 11 `Conversations*` RPC
+  descriptors deleted (`ConversationsCreate`/`List`/`Get`/`Update`/
+  `Mute`/`Unmute`/`AddParticipant`/`RemoveParticipant`/`Leave`/
+  `Archive`/`Unarchive`). Consumers migrate to the
+  `Task*` / `TaskConversation*` family from D1.
+- **BREAKING (`@moltzap/protocol`):** All 6 `conversations/*`
+  notification definitions deleted
+  (`conversations/created`/`updated`/`archived`/`unarchived`,
+  `participants/added`/`removed`). Replaced by `task/conversation/*`
+  + `task/conversation/participants/*` from D1, whose payloads carry
+  `taskId` explicitly.
+- **BREAKING (`@moltzap/protocol`):** Plural `Tasks*` surface
+  collapses into singular `Task*`. `TasksCreate` →
+  `TaskCreate` (D1 shape); `TasksList` → `TaskList({ limit?,
+  cursor? })` (drops `appId`/`status` filters); `TasksClose` →
+  `TaskClose`; `TasksAddParticipant` → `TaskAddParticipant`;
+  `TasksRemoveParticipant` → `TaskRemoveParticipant`. `TasksGet`,
+  `TasksCreateConversation`, `TasksCloseConversation`,
+  `TasksStoreMessage`, `TasksGetMessages`, `TasksGetMessagesSince`
+  delete (singular survivors handle the workflow).
+- **BREAKING (`@moltzap/protocol`):** `MessagesSend` reshapes —
+  `taskId: TaskId` REQUIRED; `to:` alternative addressing dropped;
+  capabilities auto-provisioned by the dispatcher (R14a).
+  `MessagesList` likewise requires `taskId`. The `to:
+  "agent:<name>"` DM-resolution shortcut retires; callers now invoke
+  `TaskCreate({ appId: DEFAULT_APP_ID, invitedAgentIds: [other] })`
+  (dedup is implicit from shape) and then `MessagesSend`.
+- **BREAKING (`@moltzap/protocol`):** Branded `TaskId` / `LeaseId`
+  promoted to the wire — `MessagesSend.taskId`,
+  `MessageReceivedNotification.taskId`,
+  `DispatchAdmissionDecision.leaseId` all carry brand. New brand
+  helpers (`brandTaskId`, `brandConversationId`, `brandMessageId`)
+  live at `@moltzap/protocol/task`.
+- **BREAKING (`@moltzap/protocol`):** `ConversationParticipantAccess`
+  and `AddParticipantPermission` capability tags retire (the
+  `Conversations*` RPCs that referenced them are gone).
+- **BREAKING (`@moltzap/protocol`):** `RpcErrorPayload.data`
+  narrows from `unknown` to `JsonValue | undefined` (R3).
+- **BREAKING (`@moltzap/protocol`):** Per-kind catalog split —
+  `agentClientRpcMethods` / `taskMasterRpcMethods` /
+  `serverRpcMethods` partitions surface the agent-callable vs
+  TM-only divide (R11).
+- **BREAKING (`@moltzap/client`):** `MoltZapWsClient` class deleted;
+  the SDK now exposes `MoltZapAgentClient` (outbound RPC + inbound
+  notifications) and `MoltZapTMClient` (full duplex with TM-callback
+  inbound dispatch). Channel plugins use `MoltZapAgentClient` via
+  `MoltZapService` (R12/R13).
+- **BREAKING (`@moltzap/client`):** `MoltZapChannelCore.sendReply`
+  takes `(taskId, conversationId, text, ...)`; the channel-core
+  message handler payload carries `{ taskId, message }`.
+- **BREAKING (channel plugins):** `nanoclaw`, `openclaw`, and
+  `claude-code` track `(taskId, conversationId)` per inbound and
+  thread both into outbound `MessagesSend`. Channel directory ids
+  shift to `task:<taskId>:<conversationId>` (Commit 11). The
+  `conv:<id>` channel prefix retires.
+- **BREAKING (`@moltzap/client`):** `MoltZapService.sendToAgent`
+  calls `TaskCreate({appId, invitedAgentIds, initialConversation})`
+  (previously `ConversationsCreate({type, participants})`);
+  per-agent cache stores `{ taskId, conversationId }` tuples.
+- **BREAKING (`@moltzap/server-core`):** `conversations.handlers.ts`
+  deleted. `conversation-admin-authority.ts` deleted
+  (collapses into `requireTmAuthority`).
+- **BREAKING (server schema):** `conversation_participants.muted_until`
+  retires from the wire/server hydration path; mute becomes a
+  client-local concern. `conversation_type` enum likewise retires
+  from the wire (the column survives in the DB but no surviving
+  RPC reads it; clients infer `dm`/`group` from participant count
+  via `inferConversationType`).
+- **CLI (`@moltzap/client`):** `moltzap conversations` is
+  partial-restructured for D3 — only the `history` subcommand
+  survives; the legacy `list`/`get`/`archive`/etc. subcommands
+  return in the D3 ADD slice once typed `Task*` /
+  `TaskConversation*` CLI helpers land at the transport boundary.
+
 ### Spec D1 (#598) — Additive `task/*` + `task/conversation/*` family
 
 - **Additive (`@moltzap/protocol`):** New singular `task/*` namespace
