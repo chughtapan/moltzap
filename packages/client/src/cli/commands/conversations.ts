@@ -1,16 +1,7 @@
 /**
- * Spec D3 (#600) D10 cutover: the legacy `Conversations*` RPC family
- * retires; this module now exposes only the local-history surface and
- * a stub `conversations` parent that lists installed subcommands.
- *
- * Per spec body Goal 3 + D10, the prior list/get/create/archive/etc.
- * subcommands restructure to call `Task*` / `TaskConversation*` analogues.
- * The full restructure ships in a follow-up commit (D3 ADD scope) once
- * the SDK exposes typed helpers for `TaskCreate({appId, ...})` +
- * `TaskConversationCreate({taskId, ...})` from the CLI transport
- * boundary. For now, only `history` survives — every other subcommand's
- * underlying RPC is deleted by Commit 10 and the wire shape changes are
- * incompatible with a one-line rename.
+ * D3 cutover: only `history` survives; legacy list/create/archive/etc.
+ * subcommands ship in the D3 ADD slice once typed `Task*` CLI helpers
+ * land at the transport boundary.
  */
 import { Args, Command, HelpDoc, Options } from "@effect/cli";
 import { Effect, Option } from "effect";

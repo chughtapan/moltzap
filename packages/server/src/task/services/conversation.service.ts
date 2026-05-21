@@ -198,11 +198,9 @@ export class ConversationService {
   }
 
   /**
-   * Spec D3 reduced-surface removeParticipant: NO broadcast, NO authority
-   * gate. Used by `AppHost.removeDeniedParticipant` for dispatch-deny
-   * eviction — that path runs server-internally, not via the wire RPC
-   * (which is deleted in Commit 10). The broadcast was tied to the now-
-   * deleted `conversations/participants/removed` notification.
+   * Server-internal removeParticipant — no broadcast, no authority gate.
+   * Consumed by `AppHost.removeDeniedParticipant` for dispatch-deny
+   * eviction; the wire RPC retired with Spec D3.
    * @internal
    */
   removeParticipant(

@@ -39,6 +39,7 @@ import {
   type RpcDefinition,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
+import { inferConversationType } from "@moltzap/protocol/task";
 import type {
   ConversationId,
   LeaseId,
@@ -1200,18 +1201,14 @@ export class MoltZapService {
     const { conversationId, name, participants } = notification;
     this.archivedConversationIds.delete(conversationId);
     Effect.runSync(
-      Ref.update(this.conversationsRef, (m) => {
-        // Spec D3 collapsed the `conversation_type` column; client infers
-        // dm/group from participant count.
-        const inferredType: "dm" | "group" =
-          participants.length === 1 ? "dm" : "group";
-        return HashMap.set(m, conversationId, {
+      Ref.update(this.conversationsRef, (m) =>
+        HashMap.set(m, conversationId, {
           id: conversationId,
-          type: inferredType,
+          type: inferConversationType(participants),
           participants: participants.map((p) => `agent:${p}`),
           ...(name !== undefined ? { name } : {}),
-        });
-      }),
+        }),
+      ),
     );
   }
 
