@@ -136,8 +136,27 @@ const architectureSettings = {
   },
 };
 
+// Per-package architecture additions (e.g., `layers`) merge ON TOP of
+// the shared architectureSettings. Packages that don't pass `architecture`
+// get the shared defaults.
+function buildArchitectureSettings(extra) {
+  if (extra === undefined) return architectureSettings;
+  return {
+    "agent-code-guard": {
+      architecture: {
+        ...architectureSettings["agent-code-guard"].architecture,
+        ...extra,
+      },
+    },
+  };
+}
+
 export function packageEslintConfig(options = {}) {
   const strictRules = makeStrictRules(options);
+  const settings = {
+    ...guard.configs.strict.settings,
+    ...buildArchitectureSettings(options.architecture),
+  };
   return [
     packageIgnores,
     {
@@ -145,7 +164,7 @@ export function packageEslintConfig(options = {}) {
       ignores: ["**/*.test.ts", "**/*.spec.ts"],
       languageOptions: tsLanguageOptions,
       plugins: guard.configs.strict.plugins,
-      settings: { ...guard.configs.strict.settings, ...architectureSettings },
+      settings,
       rules: strictRules,
     },
     makeTestSupportRules(strictRules),
