@@ -20,8 +20,6 @@ const STATUS_WAITING = "waiting";
 const WEREWOLF_APP_ID = "werewolf";
 const WEREWOLF_HOST_ENDPOINT = "tm://werewolf/host-1";
 const AGENT_ENDPOINT = "tm:agent:00000000-0000-4000-8000-0000000a9e47";
-const GROUP_CONVERSATION_TYPE = "group";
-const DM_CONVERSATION_TYPE = "dm";
 const MESSAGE_SEQ = "1";
 const LEGACY_TABLES = [
   "app_sessions",
@@ -130,7 +128,7 @@ function rejectsConversationWithoutTask() {
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
         harness.exec(
-          `INSERT INTO conversations (id, type, created_by_id) VALUES ('${CONV_ID}', '${DM_CONVERSATION_TYPE}', '${AGENT_ID}')`,
+          `INSERT INTO conversations (id, created_by_id) VALUES ('${CONV_ID}', '${AGENT_ID}')`,
         ),
       );
       expect(Exit.isFailure(exit)).toBe(true);
@@ -144,7 +142,6 @@ function rejectsConversationWithOrphanTask() {
       const exit = yield* Effect.exit(
         harness.db.insertInto("conversations").values({
           id: CONV_ID,
-          type: GROUP_CONVERSATION_TYPE,
           created_by_id: AGENT_ID,
           task_id: ORPHAN_TASK_ID,
         }),
@@ -264,7 +261,6 @@ function admitAgentToTask(harness: PgliteHarness) {
 function insertConversation(harness: PgliteHarness, task: typeof TASK_ID) {
   return harness.db.insertInto("conversations").values({
     id: CONV_ID,
-    type: GROUP_CONVERSATION_TYPE,
     created_by_id: AGENT_ID,
     task_id: task,
   });

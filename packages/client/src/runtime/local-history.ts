@@ -42,7 +42,6 @@ const ConversationMetadataSchema = Schema.Struct({
 
 const HistoryConversationMetaSchema = Schema.Struct({
   id: Schema.String,
-  type: Schema.Literal("dm", "group"),
   name: Schema.optional(Schema.String),
   createdBy: Schema.String,
   metadata: Schema.optional(ConversationMetadataSchema),

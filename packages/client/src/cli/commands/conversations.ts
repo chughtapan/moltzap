@@ -78,7 +78,7 @@ function renderHistoryHeader(
   result: HistoryResponse,
 ): void {
   if (!Option.isSome(sessionKey) || !result.conversationMeta) return;
-  const label = result.conversationMeta.name ?? result.conversationMeta.type;
+  const label = result.conversationMeta.name ?? "conversation";
   console.log(
     `Conversation: ${label} (${conversationId}) | ${result.newCount} new`,
   );

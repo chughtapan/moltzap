@@ -64,7 +64,6 @@ const taskFixture = {
 
 const conversationFixture = {
   id: CONVERSATION_ID,
-  type: "group" as const,
   name: CONVERSATION_NAME,
   createdBy: INITIATOR_ID,
   createdAt: NOW_ISO,

@@ -6,7 +6,6 @@
 
 -- Enum types
 CREATE TYPE agent_status AS ENUM ('pending_claim', 'active', 'suspended');
-CREATE TYPE conversation_type AS ENUM ('dm', 'group');
 CREATE TYPE encryption_key_status AS ENUM ('active', 'deprecated', 'revoked');
 
 -- Shared trigger for updated_at columns
@@ -45,7 +44,6 @@ CREATE TRIGGER agents_updated_at BEFORE UPDATE ON agents
 -- Conversations
 CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  type conversation_type NOT NULL,
   name TEXT,
   created_by_id UUID NOT NULL REFERENCES agents(id),
   archived_at TIMESTAMPTZ,
@@ -61,7 +59,6 @@ CREATE TABLE conversation_participants (
   agent_id UUID NOT NULL REFERENCES agents(id),
   joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_read_seq BIGINT NOT NULL DEFAULT 0,
-  muted_until TIMESTAMPTZ,
   PRIMARY KEY (conversation_id, agent_id)
 );
 CREATE INDEX idx_participants_lookup

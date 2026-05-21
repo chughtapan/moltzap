@@ -50,10 +50,7 @@ import {
   assertConversationInTaskMatches,
   assertTmAuthorityMatchesTask,
 } from "../assert-capability-matches-task.js";
-import {
-  obtainContactPolicyForAdd,
-  obtainContactPolicyForCreate,
-} from "../contact-policy-allows-reach.js";
+import { obtainContactPolicyForCreate } from "../contact-policy-allows-reach.js";
 import { obtainConversationInTask } from "../conversation-in-task.js";
 import { refineConversationNotArchived } from "../conversation-not-archived.js";
 import { obtainGroupCapacityForCreate } from "../group-capacity-for-create.js";
@@ -380,11 +377,9 @@ function policyCreateHappy() {
         return Effect.void;
       },
     });
-    const value = yield* obtainContactPolicyForCreate(
-      ALICE,
-      [BOB],
-      "group",
-    ).pipe(Effect.provide(layer));
+    const value = yield* obtainContactPolicyForCreate(ALICE, [BOB]).pipe(
+      Effect.provide(layer),
+    );
     expect(value).toEqual({ creatorAgentId: ALICE, targetAgentIds: [BOB] });
     expect(policyCalls).toBe(1);
   });
@@ -398,9 +393,7 @@ function policyCreateMissingTarget() {
       assertContactPolicyForCreate: () => Effect.void,
     });
     const exit = yield* Effect.exit(
-      obtainContactPolicyForCreate(ALICE, [BOB], "group").pipe(
-        Effect.provide(layer),
-      ),
+      obtainContactPolicyForCreate(ALICE, [BOB]).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, NotFoundError);
   });
@@ -415,9 +408,7 @@ function policyCreateNotInContacts() {
         Effect.fail(new NotInContactsError({ message: "blocked" })),
     });
     const exit = yield* Effect.exit(
-      obtainContactPolicyForCreate(ALICE, [BOB], "group").pipe(
-        Effect.provide(layer),
-      ),
+      obtainContactPolicyForCreate(ALICE, [BOB]).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, NotInContactsError);
   });
@@ -433,79 +424,6 @@ describe("obtainContactPolicyForCreate", () => {
     policyCreateMissingTarget,
   );
   it("propagates NotInContactsError from policy", policyCreateNotInContacts);
-});
-
-// ── obtainContactPolicyForAdd ─────────────────────────────────────────
-
-function policyAddHappy() {
-  return Effect.gen(function* () {
-    const ownerMap = new Map<AgentId, string | null>([[BOB, "owner-bob"]]);
-    const seen: Array<{
-      requester: AgentId;
-      target: AgentId;
-      owner: string | null;
-    }> = [];
-    const layer = conversationServiceLayer({
-      loadAgentOwners: () => Effect.succeed(ownerMap),
-      assertAddParticipantContactPolicy: (
-        requesterAgentId,
-        targetAgentId,
-        targetOwnerUserId,
-      ) => {
-        seen.push({
-          requester: requesterAgentId,
-          target: targetAgentId,
-          owner: targetOwnerUserId,
-        });
-        return Effect.void;
-      },
-    });
-    const value = yield* obtainContactPolicyForAdd(ALICE, BOB).pipe(
-      Effect.provide(layer),
-    );
-    expect(value).toEqual({ creatorAgentId: ALICE, targetAgentIds: [BOB] });
-    expect(seen).toEqual([
-      { requester: ALICE, target: BOB, owner: "owner-bob" },
-    ]);
-  });
-}
-
-function policyAddMissingTarget() {
-  return Effect.gen(function* () {
-    const layer = conversationServiceLayer({
-      loadAgentOwners: () =>
-        Effect.fail(new NotFoundError({ message: "target missing" })),
-      assertAddParticipantContactPolicy: () => Effect.void,
-    });
-    const exit = yield* Effect.exit(
-      obtainContactPolicyForAdd(ALICE, BOB).pipe(Effect.provide(layer)),
-    );
-    expectFailureOf(exit, NotFoundError);
-  });
-}
-
-function policyAddNotInContacts() {
-  return Effect.gen(function* () {
-    const ownerMap = new Map<AgentId, string | null>([[BOB, "owner-bob"]]);
-    const layer = conversationServiceLayer({
-      loadAgentOwners: () => Effect.succeed(ownerMap),
-      assertAddParticipantContactPolicy: () =>
-        Effect.fail(new NotInContactsError({ message: "blocked" })),
-    });
-    const exit = yield* Effect.exit(
-      obtainContactPolicyForAdd(ALICE, BOB).pipe(Effect.provide(layer)),
-    );
-    expectFailureOf(exit, NotInContactsError);
-  });
-}
-
-describe("obtainContactPolicyForAdd", () => {
-  it(
-    "happy path returns { creatorAgentId, targetAgentIds: [target] }",
-    policyAddHappy,
-  );
-  it("propagates NotFoundError from loadAgentOwners", policyAddMissingTarget);
-  it("propagates NotInContactsError from policy", policyAddNotInContacts);
 });
 
 // ── refineTaskActive ──────────────────────────────────────────────────
@@ -611,10 +529,10 @@ describe("noReplyTarget", () => {
 
 function groupCapacityHappy() {
   return Effect.gen(function* () {
-    const seen: Array<{ pathType: string; agentCount: number }> = [];
+    const seen: Array<{ agentCount: number }> = [];
     const layer = conversationServiceLayer({
-      assertGroupCapacityForCreate: (pathType, agentIds) => {
-        seen.push({ pathType, agentCount: agentIds.length });
+      assertGroupCapacityForCreate: (agentIds) => {
+        seen.push({ agentCount: agentIds.length });
         return Effect.void;
       },
     });
@@ -623,7 +541,7 @@ function groupCapacityHappy() {
       Effect.provide(layer),
     );
     expect(value).toEqual({ creatorAgentId: ALICE, invitedAgentIds: invited });
-    expect(seen).toEqual([{ pathType: "group", agentCount: 1 }]);
+    expect(seen).toEqual([{ agentCount: 1 }]);
   });
 }
 

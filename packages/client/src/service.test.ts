@@ -131,7 +131,6 @@ const taskCreateResponse = (
   },
   conversation: {
     id: conversationId,
-    type: "dm" as const,
     createdBy: AGENT_SELF_ID,
     createdAt: DEFAULT_TEST_DATE,
     updatedAt: DEFAULT_TEST_DATE,
@@ -1025,7 +1024,6 @@ describe("MoltZapService.peekFullMessages history size", () => {
 
 const archivedConversation = () => ({
   id: CONVERSATION_ARCHIVED_ID,
-  type: "group" as const,
   name: ARCHIVED_DISPLAY_NAME,
   createdBy: AGENT_SELF_ID,
   createdAt: ARCHIVED_TIMESTAMP,
