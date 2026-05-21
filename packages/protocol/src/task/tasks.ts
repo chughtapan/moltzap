@@ -15,6 +15,7 @@ import {
   ConversationCreateAuthorization,
   type ObtainConversationCreateAuthorizationInput,
 } from "./capabilities/conversation-create-authorization.js";
+import { ContactPolicyAllowsReach } from "./capabilities/contact-policy-allows-reach.js";
 import { ConversationInTask } from "./capabilities/conversation-in-task.js";
 import { TmAuthority } from "./capabilities/tm-authority.js";
 
@@ -274,6 +275,50 @@ export const TaskCreate = defineRpc({
     },
     { additionalProperties: false },
   ),
+  // Auto-provision the contact-policy + conversation-create-authorization
+  // capabilities. Handler yields `ContactPolicyAllowsReach` to force the
+  // invitee-list contact-policy check up front; `ConversationCreateAuthorization`
+  // is consumed lazily by `ConversationService.create` only when
+  // `initialConversation` is provided (the dispatcher's provideServiceEffect
+  // is lazy — the obtain effect does not run unless yielded).
+  capabilities: [
+    {
+      tag: ContactPolicyAllowsReach,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly invitedAgentIds: ReadonlyArray<AgentId>;
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          creatorAgentId: c.auth.agentId,
+          targetAgentIds: p.invitedAgentIds,
+        };
+      },
+    },
+    {
+      tag: ConversationCreateAuthorization,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainConversationCreateAuthorizationInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly invitedAgentIds: ReadonlyArray<AgentId>;
+          readonly initialConversation?: {
+            readonly participants?: ReadonlyArray<AgentId>;
+          };
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        const agentIds =
+          p.initialConversation?.participants ?? p.invitedAgentIds;
+        return {
+          agentIds: [...agentIds],
+          creatorAgentId: c.auth.agentId,
+        };
+      },
+    },
+  ],
 });
 
 /**

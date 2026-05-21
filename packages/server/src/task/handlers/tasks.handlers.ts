@@ -31,10 +31,8 @@ import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
 import {
-  ConversationCreateAuthorization,
+  ContactPolicyAllowsReach,
   TmAuthority,
-  obtainContactPolicyForCreate,
-  obtainConversationCreateAuthorization,
 } from "../../app/capabilities/index.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
@@ -53,7 +51,10 @@ function taskCreateBody(
     const taskService = yield* TaskServiceTag;
     const existing = yield* maybeTaskCreateDedup(taskService, params, ctx);
     if (existing !== null) return existing;
-    yield* maybeRunContactPolicyForTaskCreate(params, ctx);
+    // Force the auto-provisioned contact-policy check to run before
+    // the task row is written. Dedup short-circuits above; on a fresh
+    // create we always need the policy gate.
+    yield* ContactPolicyAllowsReach;
     const task = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
       invitedAgentIds: params.invitedAgentIds,
@@ -92,14 +93,6 @@ function maybeTaskCreateDedup(
   }).pipe(Effect.withSpan("task.create.dedup"));
 }
 
-function maybeRunContactPolicyForTaskCreate(
-  params: TaskCreateParams,
-  ctx: TaskCreateCtx,
-) {
-  if (params.invitedAgentIds.length === 0) return Effect.void;
-  return obtainContactPolicyForCreate(ctx.agentId, params.invitedAgentIds);
-}
-
 type TaskServiceShape = Effect.Effect.Success<typeof TaskServiceTag>;
 
 interface MintInitialInput {
@@ -117,22 +110,15 @@ function mintInitialConversation(input: MintInitialInput) {
     const conversationService = yield* ConversationServiceTag;
     const participantAgentIds: ReadonlyArray<AgentId> =
       input.initial.participants ?? input.invitedAgentIds;
-    const conversation = yield* conversationService
-      .create({
-        name: input.initial.name,
-        agentIds: [...participantAgentIds],
-        creatorAgentId: input.callerAgentId,
-        mintTask: Effect.succeed({ id: input.task.id }),
-      })
-      .pipe(
-        Effect.provideServiceEffect(
-          ConversationCreateAuthorization,
-          obtainConversationCreateAuthorization({
-            agentIds: [...participantAgentIds],
-            creatorAgentId: input.callerAgentId,
-          }),
-        ),
-      );
+    // `ConversationCreateAuthorization` is auto-provisioned by the
+    // dispatcher via TaskCreate.capabilities — the obtain is consumed
+    // lazily here by `conversationService.create`.
+    const conversation = yield* conversationService.create({
+      name: input.initial.name,
+      agentIds: [...participantAgentIds],
+      creatorAgentId: input.callerAgentId,
+      mintTask: Effect.succeed({ id: input.task.id }),
+    });
     const recipientAgentIds: AgentId[] = [
       input.callerAgentId,
       ...participantAgentIds,

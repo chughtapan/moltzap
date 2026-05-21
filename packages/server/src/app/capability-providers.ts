@@ -15,11 +15,13 @@
  */
 import type { AgentId, ConversationId, TaskId } from "@moltzap/protocol";
 import {
+  ContactPolicyAllowsReach,
   ConversationCreateAuthorization,
   ConversationInTask,
   MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
+  obtainContactPolicyForCreate,
   obtainConversationCreateAuthorization,
   obtainConversationInTask,
   obtainMessageSendPermission,
@@ -39,6 +41,11 @@ interface TaskAndConversation {
   readonly conversationId: ConversationId;
 }
 
+interface CreatorAndTargets {
+  readonly creatorAgentId: AgentId;
+  readonly targetAgentIds: ReadonlyArray<AgentId>;
+}
+
 /**
  * Provider table keyed by `Context.Tag.key`. Each entry receives the
  * dispatcher-derived args (built by the descriptor's `argsOf`), narrows
@@ -48,6 +55,10 @@ interface TaskAndConversation {
  * `Caps` generic of `ServerConnectionConfig` agrees across them.
  */
 export const serverCapabilityProviders = {
+  [ContactPolicyAllowsReach.key]: (args: unknown) => {
+    const { creatorAgentId, targetAgentIds } = args as CreatorAndTargets;
+    return obtainContactPolicyForCreate(creatorAgentId, targetAgentIds);
+  },
   [TmAuthority.key]: (args: unknown) => {
     const { taskId, callerAgentId } = args as TaskAndAgent;
     return obtainTmAuthority(taskId, callerAgentId);
