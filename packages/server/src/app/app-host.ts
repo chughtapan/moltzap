@@ -18,7 +18,6 @@ import { DispatchAuthorize } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import {
-  type AppHooks,
   type DispatchAdmissionResult,
   type MessageAuthorizeContext,
   type MessageAuthorizeHook,
@@ -211,7 +210,7 @@ function dispatchVerdictToLeaseVerdict(
 export class AppHost {
   private manifests = new Map<string, AppManifest>();
   private contactService: ContactService | null = null;
-  private hooks = new Map<string, AppHooks>();
+  private hooks = new Map<string, TaskAuthorizeDispatchHook>();
 
   /**
    * #560: send-side fan-out hooks keyed by `EndpointAddress`. The
@@ -372,9 +371,7 @@ export class AppHost {
     appId: string,
     handler: TaskAuthorizeDispatchHook,
   ): void {
-    const existing = this.hooks.get(appId) ?? {};
-    existing.taskAuthorizeDispatch = handler;
-    this.hooks.set(appId, existing);
+    this.hooks.set(appId, handler);
   }
 
   /**
@@ -581,8 +578,7 @@ export class AppHost {
 
   private hasDispatchAuthorizeHook(appId: string): boolean {
     return (
-      this.remoteRegistrations.has(appId) ||
-      this.hooks.get(appId)?.taskAuthorizeDispatch !== undefined
+      this.remoteRegistrations.has(appId) || this.hooks.get(appId) !== undefined
     );
   }
 
@@ -605,8 +601,7 @@ export class AppHost {
         attempt: params.attempt ?? 0,
         receivedAt: params.receivedAt,
         clock: params.clock,
-        pending: params.pending,
-        signal: new AbortController().signal,
+        pending: params.pending ? [...params.pending] : undefined,
       };
     });
   }
@@ -676,7 +671,7 @@ export class AppHost {
     ctx: TaskAuthorizeDispatchContext,
   ): Effect.Effect<DispatchAdmissionResult, never> {
     const remote = this.remoteRegistrations.get(appId);
-    const inProcess = this.hooks.get(appId)?.taskAuthorizeDispatch;
+    const inProcess = this.hooks.get(appId);
     if (!remote && !inProcess) {
       return Effect.succeed({ decision: "grant" as const });
     }
@@ -877,20 +872,19 @@ export class AppHost {
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,
   ): ParamsOf<typeof MessagesAuthorize> {
-    const wire = this.contextForWire(ctx);
     return {
-      taskId: wire.taskId,
-      appId: wire.appId,
-      conversationId: wire.conversationId,
+      taskId: ctx.taskId,
+      appId: ctx.appId,
+      conversationId: ctx.conversationId,
       message: {
-        id: wire.message.id,
-        senderAgentId: wire.message.senderAgentId,
-        ...(wire.message.parts !== undefined
-          ? { parts: wire.message.parts }
+        id: ctx.message.id,
+        senderAgentId: ctx.message.senderAgentId,
+        ...(ctx.message.parts !== undefined
+          ? { parts: ctx.message.parts }
           : {}),
       },
-      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
-      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
+      ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
+      ...(ctx.clock !== undefined ? { clock: ctx.clock } : {}),
     };
   }
 
@@ -915,45 +909,27 @@ export class AppHost {
   // session is bound to a single appId so the iteration is len-1; the
   // combinator is forward-compatible for multi-app sessions.
 
-  /**
-   * Strip non-wire-safe fields from a hook context so it can be sent over
-   * the task-callback RPC. Currently the only such field is
-   * `signal: AbortSignal`, which has meaning only in-process. Returns a
-   * new object — does not mutate `ctx`.
-   */
-  private contextForWire<C extends { signal?: AbortSignal }>(
-    ctx: C,
-  ): Omit<C, "signal"> {
-    // Type-checker insists we elide `signal` explicitly rather than using
-    // a destructure-discard, because `signal` is optional in the constraint
-    // but always present in the concrete contexts.
-    const out = { ...ctx } as { signal?: AbortSignal } & Omit<C, "signal">;
-    delete out.signal;
-    return out;
-  }
-
   private authorizeDispatchParamsForWire(
     ctx: TaskAuthorizeDispatchContext,
   ): ParamsOf<typeof DispatchAuthorize> {
-    const wire = this.contextForWire(ctx);
     return {
-      taskId: wire.taskId,
-      appId: wire.appId,
-      conversationId: wire.conversationId,
-      recipient: wire.recipient,
+      taskId: ctx.taskId,
+      appId: ctx.appId,
+      conversationId: ctx.conversationId,
+      recipient: ctx.recipient,
       message: {
-        id: wire.message.id,
-        senderAgentId: wire.message.senderAgentId,
-        ...(wire.message.parts !== undefined
-          ? { parts: wire.message.parts }
+        id: ctx.message.id,
+        senderAgentId: ctx.message.senderAgentId,
+        ...(ctx.message.parts !== undefined
+          ? { parts: ctx.message.parts }
           : {}),
       },
-      attempt: wire.attempt,
-      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
-      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
-      ...(wire.pending !== undefined
+      attempt: ctx.attempt,
+      ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
+      ...(ctx.clock !== undefined ? { clock: ctx.clock } : {}),
+      ...(ctx.pending !== undefined
         ? {
-            pending: wire.pending.map((pending) => ({
+            pending: ctx.pending.map((pending) => ({
               messageId: pending.messageId,
               conversationId: pending.conversationId,
               senderAgentId: pending.senderAgentId,

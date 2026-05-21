@@ -135,7 +135,6 @@ const baseAuthorizeDispatchCtx = (
   taskId,
   appId,
   attempt: 0,
-  signal: new AbortController().signal,
 });
 
 const baseMessageAuthorizeCtx = (
@@ -151,7 +150,6 @@ const baseMessageAuthorizeCtx = (
   taskId,
   appId,
   receivedAt: "2026-05-12T00:00:00.000Z",
-  signal: new AbortController().signal,
 });
 
 /** Decode the most recently captured outbound frame from a fake connection. */

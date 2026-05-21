@@ -664,7 +664,6 @@ export class MessageService {
         // appId carried for observability + future TM routing. App-
         // bound tasks fill this; default-DM/group leaves it empty.
         appId: "",
-        signal: new AbortController().signal,
       });
       switch (result.decision) {
         case "Forward":

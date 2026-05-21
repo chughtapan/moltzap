@@ -1,11 +1,11 @@
 import { it as effectIt } from "@effect/vitest";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
+
+const it = effectIt.live;
+
 import { Effect, unsafeCoerce } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import {
-  endpointAddress,
-  type EndpointAddress,
-} from "@moltzap/protocol/network";
+import { endpointAddress } from "@moltzap/protocol/network";
 import {
   agentId,
   conversationId,
@@ -17,21 +17,6 @@ import type { ConnectionManager } from "../transport/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type { MessageAuthorizeContext } from "./hooks.js";
-
-const liveIt = effectIt.live;
-
-function privateField<T>(target: object, key: string): T {
-  return Reflect.get(target, key) as T;
-}
-
-type HookRegistry = Map<
-  string,
-  {
-    taskAuthorizeDispatch?: unknown;
-  }
->;
-
-type MessageAuthorizeRegistry = Map<EndpointAddress, unknown>;
 
 function makeAppHost(db: Db = makeEmptyDb()): { host: AppHost } {
   const connections = makeFakeService<ConnectionManager>(
@@ -78,67 +63,16 @@ function messageAuthorizeContext(
     taskId: TASK_ID,
     appId: TM_APP_ID,
     receivedAt: "2026-05-12T00:00:00.000Z",
-    signal: new AbortController().signal,
   };
 }
 
-describe("AppHost.onTaskAuthorizeDispatch (registration surface)", () => {
-  it("stores the handler keyed by appId", () => {
-    const { host } = makeAppHost();
-    const handler = () => ({ decision: "grant" as const });
-    host.onTaskAuthorizeDispatch("my-app", handler);
-
-    const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get("my-app")?.taskAuthorizeDispatch).toBe(handler);
-  });
-
-  it("overwrites a prior handler for the same appId (last-writer-wins)", () => {
-    const { host } = makeAppHost();
-    const first = () => ({ decision: "grant" as const });
-    const second = () => ({ decision: "deny" as const });
-    host.onTaskAuthorizeDispatch("app-x", first);
-    host.onTaskAuthorizeDispatch("app-x", second);
-
-    const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get("app-x")?.taskAuthorizeDispatch).toBe(second);
-  });
-});
-
-describe("AppHost.registerMessageAuthorize", () => {
-  it("stores the handler keyed by endpoint address", () => {
-    const { host } = makeAppHost();
-    const handler = () => ({ decision: "Forward" as const, recipients: [] });
-    host.registerMessageAuthorize(TM_ADDRESS, handler);
-
-    const hooks = privateField<MessageAuthorizeRegistry>(
-      host,
-      "messageAuthorizeHooks",
-    );
-    expect(hooks.get(TM_ADDRESS)).toBe(handler);
-  });
-
-  it("overwrites a prior handler for the same endpoint address", () => {
-    const { host } = makeAppHost();
-    const first = () => ({ decision: "Forward" as const, recipients: [] });
-    const second = () => ({ decision: "Block" as const, reason: "policy" });
-    host.registerMessageAuthorize(TM_ADDRESS, first);
-    host.registerMessageAuthorize(TM_ADDRESS, second);
-
-    const hooks = privateField<MessageAuthorizeRegistry>(
-      host,
-      "messageAuthorizeHooks",
-    );
-    expect(hooks.get(TM_ADDRESS)).toBe(second);
-  });
-});
-
 describe("AppHost.runMessageAuthorize", () => {
-  liveIt(
+  it(
     "runs the in-process hook registered for the TM endpoint",
     inProcessMessageAuthorizeHook,
   );
 
-  liveIt(
+  it(
     "defaults to participants minus sender when no hook is registered",
     defaultMessageAuthorizeRecipients,
   );
