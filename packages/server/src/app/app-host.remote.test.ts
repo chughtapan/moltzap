@@ -37,7 +37,7 @@ import { AppHost } from "./app-host.js";
 import type {
   MessageAuthorizeContext,
   TaskAuthorizeDispatchContext,
-} from "./hooks.js";
+} from "./types.js";
 
 const liveIt = effectIt.live;
 

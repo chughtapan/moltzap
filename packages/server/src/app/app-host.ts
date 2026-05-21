@@ -24,7 +24,7 @@ import {
   type MessageAuthorizeResult,
   type TaskAuthorizeDispatchContext,
   type TaskAuthorizeDispatchHook,
-} from "./hooks.js";
+} from "./types.js";
 import { MessagesAuthorize } from "@moltzap/protocol";
 import {
   endpointAddressKind,

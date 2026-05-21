@@ -40,7 +40,7 @@ import {
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 
-import type { MessageAuthorizeHook } from "./hooks.js";
+import type { MessageAuthorizeHook } from "./types.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
 /**

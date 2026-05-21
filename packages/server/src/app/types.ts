@@ -1,5 +1,11 @@
 import type { Layer } from "effect";
-import type { AppManifest } from "@moltzap/protocol";
+import {
+  type AppManifest,
+  type DispatchAuthorize,
+  type MessagesAuthorize,
+  type ParamsOf,
+  type ResultOf,
+} from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { Db } from "../db/client.js";
 import type { ContactService } from "./app-host.js";
@@ -7,10 +13,6 @@ import type { SessionValidator } from "../identity/services/session-validator.js
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
-import type {
-  MessageAuthorizeHook,
-  TaskAuthorizeDispatchHook,
-} from "./hooks.js";
 import type { EndpointAddress } from "@moltzap/protocol/network";
 import type { LeaseRegistry } from "../task/leases/lease-registry.js";
 import type {
@@ -19,6 +21,31 @@ import type {
 } from "../runtime-surface/trace-capture.js";
 
 export type { UserId, AgentId };
+
+// Hook type derivations — context + result shapes come from the protocol's
+// wire schemas via `ParamsOf` / `ResultOf`. The `signal: AbortSignal` reaches
+// handlers via the runner that invokes them (`AppHost.runInProcessHookEffect`),
+// not via the wire context.
+
+export type TaskAuthorizeDispatchContext = ParamsOf<typeof DispatchAuthorize>;
+
+export type DispatchAdmissionResult = ResultOf<
+  typeof DispatchAuthorize
+>["admission"];
+
+export type TaskAuthorizeDispatchHook = (
+  ctx: TaskAuthorizeDispatchContext & { signal: AbortSignal },
+) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
+
+export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
+
+export type MessageAuthorizeResult = ResultOf<
+  typeof MessagesAuthorize
+>["verdict"];
+
+export type MessageAuthorizeHook = (
+  ctx: MessageAuthorizeContext & { signal: AbortSignal },
+) => MessageAuthorizeResult | Promise<MessageAuthorizeResult>;
 
 export interface CoreConfig {
   db: Db;
