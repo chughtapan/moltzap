@@ -1,10 +1,6 @@
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import {
-  stringEnum,
-  dateTimeStringSchema,
-  brandedId,
-} from "../schema-primitives.js";
+import { dateTimeStringSchema, brandedId } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import {
   registerErrorClass,
@@ -39,11 +35,9 @@ export class ConversationFullError extends Data.TaggedError(
 }
 registerErrorClass(ConversationFullError);
 
-const ConversationTypeEnum = stringEnum(["dm", "group"]);
-
 const AgentParticipantRefSchema = Type.Object(
   {
-    type: stringEnum(["agent"]),
+    type: Type.Literal("agent"),
     id: Type.String({ format: "uuid" }),
   },
   { additionalProperties: false },
@@ -59,7 +53,6 @@ const ConversationMetadataSchema = Type.Object(
 const ConversationSchema = Type.Object(
   {
     id: ConversationId,
-    type: ConversationTypeEnum,
     name: Type.Optional(Type.String()),
     createdBy: AgentId,
     metadata: Type.Optional(ConversationMetadataSchema),
@@ -83,7 +76,6 @@ const ConversationParticipantSchema = Type.Object(
     participant: AgentParticipantRefSchema,
     joinedAt: DateTimeString,
     lastReadMessageId: Type.Optional(MessageId),
-    mutedUntil: Type.Optional(DateTimeString),
     agentName: Type.Optional(Type.String()),
     agentDisplayName: Type.Optional(Type.String()),
   },
@@ -93,7 +85,6 @@ const ConversationParticipantSchema = Type.Object(
 const ConversationSummarySchema = Type.Object(
   {
     id: ConversationId,
-    type: ConversationTypeEnum,
     name: Type.Optional(Type.String()),
     lastMessagePreview: Type.Optional(Type.String()),
     lastMessageTimestamp: Type.Optional(DateTimeString),

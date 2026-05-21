@@ -253,32 +253,6 @@ const InitialConversationSchema = Type.Object(
 
 export type InitialConversationInput = Static<typeof InitialConversationSchema>;
 
-/**
- * Spec D1 (#598) cardinality → label mapping for the legacy
- * `conversations.type` enum column. D1 retires the wire-level
- * `type: "dm" | "group"` field; the label is now derived from
- * participant cardinality (caller + targets totals 2 ⇒ `"dm"`,
- * otherwise `"group"`).
- *
- * Single source of truth so descriptor `argsOf` resolvers (which
- * build `ConversationCreateAuthorization` capability input
- * unconditionally per frame) cannot drift from the server-side
- * handler that calls `conversationService.create({ type, ... })`.
- * Both must agree because the type label is what the
- * `ConversationCreateAuthorization` obtain helper uses for
- * DM-existence dedup, contact-policy fan-out, and group-capacity
- * checks; a descriptor-vs-handler split would silently authorize
- * one path's type while persisting the other.
- *
- * Spec D3 (#600) deletes the `conversations.type` column entirely;
- * at that point this helper retires alongside.
- */
-export function inferConversationType(
-  participantAgentIds: ReadonlyArray<AgentId>,
-): "dm" | "group" {
-  return 1 + participantAgentIds.length === 2 ? "dm" : "group";
-}
-
 const TaskConversationListItemSchema = Type.Object(
   {
     taskId: TaskId,
@@ -402,12 +376,6 @@ export const TaskConversationCreate = defineRpc({
         };
         const c = ctx as { readonly auth: { readonly agentId: AgentId } };
         return {
-          // Spec D1 retires the wire `type` enum; `inferConversationType`
-          // is the single source of truth shared with the server-side
-          // `conversationService.create({ type, ... })` call so the
-          // descriptor-provisioned obtain helper authorizes the same
-          // label the handler persists.
-          type: inferConversationType(p.participants),
           agentIds: [...p.participants],
           creatorAgentId: c.auth.agentId,
         };

@@ -34,7 +34,6 @@ import type {
 } from "./conversation.service.js";
 import type { MessageService, MessageServiceError } from "./message.service.js";
 import {
-  ConversationCreateAuthorization,
   ConversationInTask,
   TaskReadAccess,
   TmAuthority,
@@ -153,12 +152,6 @@ export interface TaskCreateInput {
 
 export interface TaskListInput {
   readonly limit?: number;
-}
-
-export interface CreateConversationInput {
-  readonly type: "dm" | "group";
-  readonly name?: string;
-  readonly participantAgentIds: readonly AgentId[];
 }
 
 export interface TaskCloseLifecycle {
@@ -566,31 +559,6 @@ export class TaskService {
     });
   }
 
-  createConversation(
-    id: TaskId,
-    caller: AgentId,
-    input: CreateConversationInput,
-  ): Effect.Effect<
-    Conversation,
-    TaskServiceError,
-    TmAuthority | ConversationCreateAuthorization
-  > {
-    return Effect.gen(this, function* () {
-      const cap = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(cap, id);
-      // The task id is fixed (this is a TM acting on its own task),
-      // so wrap it in `Effect.succeed` for the lazy-`mintTask`
-      // contract `ConversationService.create` expects.
-      return yield* this.conversations.create({
-        type: input.type,
-        name: input.name,
-        agentIds: [...input.participantAgentIds],
-        creatorAgentId: caller,
-        mintTask: Effect.succeed({ id }),
-      });
-    });
-  }
-
   closeConversation(
     id: TaskId,
     _caller: AgentId,
@@ -756,20 +724,10 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — participant-set dedup for `task/create` under the
-   * server-bundled DEFAULT_APP. Returns the extant task whose
-   * `task_participants` set is exactly `{creator} ∪ invitedAgentIds`
-   * for the given `appId`, or `null` if no match exists.
-   *
-   * Sibling to `conversationService.existingDmForCreate`. NOT a
-   * generalization: the legacy DM dedup matches via
-   * `conversation_participants` (conversation-level), while this
-   * helper matches via `task_participants` (task-level). The
-   * single-invitee case is functionally equivalent at the observable
-   * layer but uses a different table — D3 retires the legacy path.
-   *
-   * Index: covered by the `task_participants` PRIMARY KEY
-   * `(task_id, agent_id)`.
+   * Participant-set dedup for `task/create` under the bundled
+   * DEFAULT_APP. Returns the extant task whose `task_participants`
+   * set is exactly `{creator} ∪ invitedAgentIds` for the given
+   * `appId`, or `null` if no match exists.
    * @internal
    */
   findExistingTaskByParticipants(

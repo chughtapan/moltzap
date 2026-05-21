@@ -157,9 +157,6 @@ function hydrateConnectionState(
   return Effect.gen(function* () {
     const convIds = yield* conversationService.getConversationIds(auth.agentId);
     for (const id of convIds) conn.conversationIds.add(id);
-    // Spec D3 R14: `conversation_participants.muted_until` retires; mute
-    // is now a client-local concern. The server no longer hydrates a
-    // muted-conversation set per connection.
   }).pipe(Effect.withSpan("connect.hydrateConnectionState"));
 }
 

@@ -40,7 +40,6 @@ export {
   ContactPolicyAllowsReach,
   type ContactPolicyAllowsReachValue,
   obtainContactPolicyForCreate,
-  obtainContactPolicyForAdd,
 } from "./contact-policy-allows-reach.js";
 
 // Tier 4 — state proofs (refine-shape)

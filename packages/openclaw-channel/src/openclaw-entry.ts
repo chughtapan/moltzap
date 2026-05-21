@@ -223,7 +223,6 @@ interface AgentDirectoryEntry {
 
 interface ConversationDirectoryEntry {
   readonly id: string;
-  readonly type: string;
   readonly name?: string;
 }
 
@@ -680,7 +679,7 @@ function listGroupsEffect(
 function isNamedGroup(
   conversation: ConversationDirectoryEntry,
 ): conversation is ConversationDirectoryEntry & { readonly name: string } {
-  return conversation.type === "group" && conversation.name !== undefined;
+  return conversation.name !== undefined;
 }
 
 function createConfigSection() {

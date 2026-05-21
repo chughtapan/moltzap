@@ -15,7 +15,6 @@ import {
   TaskConversationUnarchivedNotificationDefinition,
   TaskCreate,
   TaskLeave,
-  inferConversationType,
   TaskAddParticipant,
   TaskClose,
   TaskList,
@@ -31,25 +30,6 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-// D1 uses three capability surfaces directly:
-//   - `TmAuthority` — explicit `yield*` in two handlers to force the
-//     dispatcher's lazy `provideServiceEffect` to evaluate the obtain
-//     helper BEFORE the participant-admitted invariant runs (auth-first
-//     guarantee per per-flow doc §"Capability list per new handler").
-//   - `obtainContactPolicyForCreate` — inline-yielded in `taskCreateBody`
-//     ONLY when `invitedAgentIds` is non-empty; the conditional shape
-//     means it can't fit the descriptor's unconditional `capabilities:
-//     [...]` array.
-//   - `ConversationCreateAuthorization` + `obtainConversationCreateAuthorization`
-//     — hand-piped via `Effect.provideServiceEffect` inside
-//     `mintInitialConversation` ONLY when `initialConversation` is
-//     supplied; same conditional rationale.
-// The four other capability tags consumed by D1 service methods
-// (`TmAuthority` + `ConversationInTask` for archive/unarchive/add/remove
-// participant, and `ConversationCreateAuthorization` for the
-// non-conditional `task/conversation/create` path) are auto-provisioned
-// by the dispatcher per the descriptor `capabilities: [...]` arrays in
-// `@moltzap/protocol/task/tasks.ts`.
 import {
   ConversationCreateAuthorization,
   TmAuthority,
@@ -58,15 +38,6 @@ import {
 } from "../../app/capabilities/index.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
-/**
- * Spec D1 (#598) `task/create` body — extracted out of the
- * `defineTaskMethod` arrow to fit the package's
- * `max-lines-per-function` cap. The handler delegates here; this
- * function owns dedup + atomic-initial-conversation orchestration
- * across `taskService.create` + `conversationService.create` and
- * the dual-emit notification fan-out per architect plan §"Dual
- * emission during D1".
- */
 function taskCreateBody(
   params: {
     readonly appId: AppId;
@@ -115,10 +86,6 @@ function maybeTaskCreateDedup(
       params.invitedAgentIds,
       params.appId,
     );
-    // Dedup is task-level (spec body Goal 3): no fresh conversation
-    // even when `initialConversation` is supplied. The contact-policy
-    // gate is NOT applied on dedup hit — the extant task's participant
-    // set was authorized at its original create time.
     return existing === null
       ? null
       : { task: existing, conversation: null as Conversation | null };
@@ -130,25 +97,7 @@ function maybeRunContactPolicyForTaskCreate(
   ctx: TaskCreateCtx,
 ) {
   if (params.invitedAgentIds.length === 0) return Effect.void;
-  // Per per-flow doc §"Capability list per new handler" — `TaskCreate`
-  // declares `[ContactPolicyAllowsReach]` only when `invitedAgentIds`
-  // is non-empty (a self-only task is exempt; there are no targets to
-  // reach). The obtain helper surfaces `NotInContactsError` /
-  // `NotFoundError` / `ForbiddenError` if any caller -> target edge
-  // fails.
-  const inferredType: "dm" | "group" =
-    params.initialConversation !== undefined &&
-    1 +
-      (params.initialConversation.participants ?? params.invitedAgentIds)
-        .length ===
-      2
-      ? "dm"
-      : "group";
-  return obtainContactPolicyForCreate(
-    ctx.agentId,
-    params.invitedAgentIds,
-    inferredType,
-  );
+  return obtainContactPolicyForCreate(ctx.agentId, params.invitedAgentIds);
 }
 
 type TaskServiceShape = Effect.Effect.Success<typeof TaskServiceTag>;
@@ -168,10 +117,8 @@ function mintInitialConversation(input: MintInitialInput) {
     const conversationService = yield* ConversationServiceTag;
     const participantAgentIds: ReadonlyArray<AgentId> =
       input.initial.participants ?? input.invitedAgentIds;
-    const inferredType = inferConversationType(participantAgentIds);
     const conversation = yield* conversationService
       .create({
-        type: inferredType,
         name: input.initial.name,
         agentIds: [...participantAgentIds],
         creatorAgentId: input.callerAgentId,
@@ -181,7 +128,6 @@ function mintInitialConversation(input: MintInitialInput) {
         Effect.provideServiceEffect(
           ConversationCreateAuthorization,
           obtainConversationCreateAuthorization({
-            type: inferredType,
             agentIds: [...participantAgentIds],
             creatorAgentId: input.callerAgentId,
           }),
@@ -214,39 +160,24 @@ function taskConversationCreateBody(
   ctx: { readonly agentId: AgentId },
 ) {
   return Effect.gen(function* () {
-    // Authority FIRST per per-flow doc §"Capability list per new
-    // handler" — proves the caller is the TM before any other gate
-    // observes task state. The descriptor declares `[TmAuthority,
-    // ConversationCreateAuthorization]`, but the dispatcher provisions
-    // tags via lazy `provideServiceEffect`. Forcing the yield here
-    // executes `obtainTmAuthority` BEFORE
-    // `requireAgentsAreInTaskParticipants` so a non-TM caller MUST get
-    // `ForbiddenError` rather than `ParticipantNotAdmittedError` (the
-    // participant-admitted invariant is a side-channel for task state
-    // and must stay behind the auth gate).
+    // Auth before participant-admitted check so a non-TM caller sees
+    // ForbiddenError, not ParticipantNotAdmittedError (which leaks
+    // task state). The descriptor declares the tag lazily; an
+    // explicit yield forces obtainTmAuthority to run up front.
     yield* TmAuthority;
     const taskService = yield* TaskServiceTag;
     const conversationService = yield* ConversationServiceTag;
-    // Spec D1 invariant: every participant MUST already appear in
-    // `task_participants` for `taskId`. Per-flow doc §"Participant
-    // invariant" — admitted-OR-pending both pass; missing fails with
-    // `ParticipantNotAdmittedError`. Runs AFTER TM auth so the tag
-    // is only observable to authorized callers.
     yield* taskService.requireAgentsAreInTaskParticipants(
       params.taskId,
       params.participants,
     );
-    const inferredType = inferConversationType(params.participants);
-    // `ConversationCreateAuthorization` is auto-provisioned by the
-    // descriptor's `argsOf` and consumed inside `conversationService.create`.
     const conversation = yield* conversationService.create({
-      type: inferredType,
       name: params.name,
       agentIds: [...params.participants],
       creatorAgentId: ctx.agentId,
       mintTask: Effect.succeed({ id: params.taskId }),
     });
-    yield* fanoutTaskConversationCreateDualEmit({
+    yield* fanoutTaskConversationCreate({
       taskId: params.taskId,
       conversation,
       participants: params.participants,
@@ -256,37 +187,27 @@ function taskConversationCreateBody(
   }).pipe(Effect.withSpan("task.conversation.create"));
 }
 
-interface TaskConversationCreateDualEmitInput {
+interface TaskConversationCreateInput {
   readonly taskId: TaskId;
   readonly conversation: Conversation;
   readonly participants: ReadonlyArray<AgentId>;
   readonly name?: string;
 }
 
-function fanoutTaskConversationCreateDualEmit(
-  input: TaskConversationCreateDualEmitInput,
-) {
-  return Effect.gen(function* () {
-    // Recipients per per-flow doc §"Notifications" → "Recipients
-    // (impl-staff target)" table: "initial `participants` list".
-    // The caller is the TM (NOT a `conversation_participants` row
-    // under D1's TM-only authority model), so the caller is NOT
-    // included in the fan-out — even though the legacy
-    // `ConversationsCreate` path auto-included the caller because
-    // the legacy creator WAS a participant. D1 removes that
-    // implicit self-include.
-    const recipientAgentIds: ReadonlyArray<AgentId> = input.participants;
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      TaskConversationCreatedNotificationDefinition,
-      {
-        taskId: input.taskId,
-        conversationId: input.conversation.id,
-        name: input.name,
-        participants: [...input.participants],
-      },
-    );
-  }).pipe(Effect.withSpan("task.conversation.create.fanout"));
+function fanoutTaskConversationCreate(input: TaskConversationCreateInput) {
+  // Recipients = the initial participants. The TM caller is NOT a
+  // `conversation_participants` row under the TM-only authority model,
+  // so it is not in the fan-out.
+  return broadcastNotificationToAgents(
+    input.participants,
+    TaskConversationCreatedNotificationDefinition,
+    {
+      taskId: input.taskId,
+      conversationId: input.conversation.id,
+      name: input.name,
+      participants: [...input.participants],
+    },
+  ).pipe(Effect.withSpan("task.conversation.create.fanout"));
 }
 
 function taskLeaveBody(

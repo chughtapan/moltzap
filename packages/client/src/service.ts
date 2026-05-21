@@ -1201,8 +1201,10 @@ export class MoltZapService {
     const { conversationId, name, participants } = notification;
     this.archivedConversationIds.delete(conversationId);
     Effect.runSync(
-      Ref.update(this.conversationsRef, (m) =>
-        HashMap.set(m, conversationId, {
+      Ref.update(this.conversationsRef, (m) => {
+        const inferredType: "dm" | "group" =
+          participants.length === 1 ? "dm" : "group";
+        return HashMap.set(m, conversationId, {
           id: conversationId,
           type: inferConversationType(participants),
           participants: participants.map((p) => `agent:${p}`),

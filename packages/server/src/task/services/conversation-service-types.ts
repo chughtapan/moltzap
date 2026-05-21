@@ -1,4 +1,3 @@
-import type { ConversationType } from "../../db/database.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import type { Effect } from "effect";
@@ -13,7 +12,6 @@ export type ConversationArchiveFilter = "exclude" | "include" | "only";
 
 export interface ListRow {
   readonly id: ConversationId;
-  readonly type: ConversationType;
   readonly name: string | null;
   readonly updated_at: Date;
   readonly has_last_message: boolean;
@@ -23,7 +21,6 @@ export interface ListRow {
 
 export interface ConversationColumns {
   readonly id: ConversationId;
-  readonly type: ConversationType;
   readonly name: string | null;
   readonly created_by_id: AgentId;
   readonly created_at: Date;
@@ -36,14 +33,12 @@ export interface ParticipantRow {
   readonly agent_id: AgentId;
   readonly joined_at: Date;
   readonly last_read_seq: string;
-  readonly muted_until: Date | null;
   readonly agent_name?: string | null;
   readonly agent_display_name?: string | null;
   readonly last_read_message_id?: MessageId | null;
 }
 
 export interface CreateConversationOptions<TaskMintError = never> {
-  readonly type: "dm" | "group";
   readonly name: string | undefined;
   readonly agentIds: ReadonlyArray<AgentId>;
   readonly creatorAgentId: AgentId;
@@ -55,7 +50,6 @@ export interface CreatorContactPolicyInput {
   readonly targetAgentIds: ReadonlyArray<AgentId>;
   readonly ownerByAgentId: ReadonlyMap<AgentId, string | null>;
   readonly policy: ContactPolicyCheck;
-  readonly pathLabel: "dm" | "group";
 }
 
 export interface ContactEdgeInput {
@@ -64,5 +58,4 @@ export interface ContactEdgeInput {
   readonly targetAgentId: AgentId;
   readonly targetOwnerUserId: string | null;
   readonly policy: ContactPolicyCheck;
-  readonly pathLabel: "dm" | "group" | "addParticipant";
 }

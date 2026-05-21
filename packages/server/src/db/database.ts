@@ -16,7 +16,6 @@ import type {
   TaskParticipants as RawTaskParticipants,
   Tasks as RawTasks,
 } from "./database.generated.js";
-export type { ConversationType } from "./database.generated.js";
 
 type Branded<T extends string> = ColumnType<T, string, string>;
 type BrandedNullable<T extends string> = ColumnType<
