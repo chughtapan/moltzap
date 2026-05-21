@@ -76,6 +76,66 @@ const documentationRules = {
   rules: guard.configs.documentation.rules,
 };
 
+// Architecture options consumed by @safer-by-default/architecture-lsp's
+// LSP server + `check.js` CLI. The analyzer reads these from
+// settings["agent-code-guard"].architecture; see safer-by-default PR #313.
+//
+// publicTypePackages: vendor packages whose types are intentionally part
+// of the public contract — channels and the client SDK expose Effect and
+// the moltzap protocol/client types directly. Wrapping them at every
+// boundary would produce noise without changing the actual contract.
+//
+// allowedTestPublicSubpaths: package.json `exports` keys that intentionally
+// expose test-only paths for cross-package integration testing.
+const architectureSettings = {
+  "agent-code-guard": {
+    architecture: {
+      publicTypePackages: [
+        {
+          package: "effect",
+          reason:
+            "Foundational Effect runtime; intentionally part of public contract",
+        },
+        {
+          package: "@effect/platform",
+          reason: "Effect platform abstractions used at boundaries",
+        },
+        {
+          package: "@effect/platform-node",
+          reason: "Effect Node integration used at boundaries",
+        },
+        {
+          package: "@sinclair/typebox",
+          reason: "Schema runtime; types are the contract",
+        },
+        {
+          package: "@moltzap/protocol",
+          reason: "Intra-monorepo protocol; foundational shared contract",
+        },
+        {
+          package: "@moltzap/client",
+          reason:
+            "Intra-monorepo client SDK; channels depend on its public surface",
+        },
+      ],
+      allowedTestPublicSubpaths: [
+        {
+          subpath: "./test-utils",
+          reason: "Test helpers exposed for cross-package integration testing",
+        },
+        {
+          subpath: "./test",
+          reason: "Test harness API for downstream packages",
+        },
+        {
+          subpath: "./test-support",
+          reason: "Channel test support exposed for integration tests",
+        },
+      ],
+    },
+  },
+};
+
 export function packageEslintConfig(options = {}) {
   const strictRules = makeStrictRules(options);
   return [
@@ -85,7 +145,7 @@ export function packageEslintConfig(options = {}) {
       ignores: ["**/*.test.ts", "**/*.spec.ts"],
       languageOptions: tsLanguageOptions,
       plugins: guard.configs.strict.plugins,
-      settings: guard.configs.strict.settings,
+      settings: { ...guard.configs.strict.settings, ...architectureSettings },
       rules: strictRules,
     },
     makeTestSupportRules(strictRules),
@@ -103,7 +163,7 @@ export function rootEslintConfig() {
       files: ["*.ts"],
       languageOptions: tsLanguageOptions,
       plugins: guard.configs.strict.plugins,
-      settings: guard.configs.strict.settings,
+      settings: { ...guard.configs.strict.settings, ...architectureSettings },
       rules: strictRules,
     },
     eslintDisableCommentRules,
