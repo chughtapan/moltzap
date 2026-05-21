@@ -50,7 +50,7 @@ import {
   AgentsLookupByName,
   DispatchAuthorize,
   Connect,
-  ConversationsList,
+  TaskList,
   MessagesAuthorize,
   MessagesSend,
   MessageReceivedNotificationDefinition,
@@ -559,7 +559,7 @@ function sendMalformedFramesAndResponse(
   frame: RequestFrame,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
-    if (frame.method !== ConversationsList.name) return;
+    if (frame.method !== TaskList.name) return;
     yield* conn.send("not json at all");
     yield* conn.send(JSON.stringify({ jsonrpc: JSON_RPC_VERSION, result: {} }));
     yield* conn.send(
@@ -567,8 +567,8 @@ function sendMalformedFramesAndResponse(
     );
     yield* conn.send(
       JSON.stringify(
-        ConversationsList.encodeResponse(frame.id, {
-          conversations: [],
+        TaskList.encodeResponse(frame.id, {
+          tasks: [],
         }),
       ),
     );
@@ -580,13 +580,13 @@ function sendPaddedNotificationAndResponse(
   _raw: string,
   frame: RequestFrame,
 ): Effect.Effect<void> {
-  if (frame.method !== ConversationsList.name) return Effect.void;
+  if (frame.method !== TaskList.name) return Effect.void;
   return conn.send(
     JSON.stringify(messageReceivedFrame()) +
       "\u0000" +
       JSON.stringify(
-        ConversationsList.encodeResponse(frame.id, {
-          conversations: [],
+        TaskList.encodeResponse(frame.id, {
+          tasks: [],
         }),
       ),
   );
@@ -754,7 +754,7 @@ function makeClient(
 
 export {
   AgentsLookupByName,
-  ConversationsList,
+  TaskList,
   DispatchAuthorize,
   Duration,
   Fiber,

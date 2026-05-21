@@ -21,7 +21,6 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 import { agentsLookupHandlers } from "../identity/handlers/agents-lookup.handlers.js";
 import { pingHandlers } from "../network/handlers/ping.handlers.js";
 import { connectHandlers } from "../task/handlers/connect.handlers.js";
-import { conversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { messageHandlers } from "../task/handlers/messages.handlers.js";
 import { presenceHandlers } from "../task/handlers/presence.handlers.js";
 import { contactHandlers } from "../task/handlers/contacts.handlers.js";
@@ -141,7 +140,6 @@ function makeCoreRpcMethods(): RpcMethodRegistry {
   return [
     ...connectHandlers,
     ...agentsLookupHandlers,
-    ...conversationHandlers,
     ...messageHandlers,
     ...presenceHandlers,
     ...appHandlers,

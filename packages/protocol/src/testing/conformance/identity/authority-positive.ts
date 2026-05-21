@@ -5,7 +5,7 @@
  * newly-registered agent), asserts a Right outcome.
  */
 import { Effect } from "effect";
-import { ConversationsList } from "@moltzap/protocol/task";
+import { TaskList } from "@moltzap/protocol/task";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -54,9 +54,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             invariant(`client acquire failed: ${String(e)}`),
           ),
         );
-        const outcome = yield* client
-          .sendRpc(ConversationsList, {})
-          .pipe(Effect.either);
+        const outcome = yield* client.sendRpc(TaskList, {}).pipe(Effect.either);
         const failure = leftOrNull(outcome);
         if (failure !== null) {
           return yield* Effect.fail(

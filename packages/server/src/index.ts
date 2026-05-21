@@ -17,7 +17,6 @@ export type { ContactService } from "./app/app-host.js";
 export { connectHandlers } from "./task/handlers/connect.handlers.js";
 export { agentsLookupHandlers } from "./identity/handlers/agents-lookup.handlers.js";
 export { pingHandlers } from "./network/handlers/ping.handlers.js";
-export { conversationHandlers } from "./task/handlers/conversations.handlers.js";
 export { messageHandlers } from "./task/handlers/messages.handlers.js";
 export { presenceHandlers } from "./task/handlers/presence.handlers.js";
 export { contactHandlers } from "./task/handlers/contacts.handlers.js";

@@ -21,10 +21,10 @@
 import { Effect, type Scope } from "effect";
 import { notificationFrame } from "../../../transport/wire.js";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
 } from "../../../task/methods.js";
-import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
 import {
   agentId,
   conversationId as toConversationId,
@@ -489,18 +489,18 @@ function emitArchiveLifecycle(
   });
 }
 
-function archiveNotification(conversationId: ConversationId, by: AgentId) {
-  return notificationFrame(ConversationArchivedNotificationDefinition, {
+function archiveNotification(conversationId: ConversationId, _by: AgentId) {
+  return notificationFrame(TaskConversationArchivedNotificationDefinition, {
+    taskId: taskId("00000000-0000-4000-8000-fa0c0a0fa0c0"),
     conversationId,
     archivedAt: new Date(0).toISOString(),
-    by,
   });
 }
 
-function unarchiveNotification(conversationId: ConversationId, by: AgentId) {
-  return notificationFrame(ConversationUnarchivedNotificationDefinition, {
+function unarchiveNotification(conversationId: ConversationId, _by: AgentId) {
+  return notificationFrame(TaskConversationUnarchivedNotificationDefinition, {
+    taskId: taskId("00000000-0000-4000-8000-fa0c0a0fa0c0"),
     conversationId,
-    by,
   });
 }
 
@@ -533,8 +533,8 @@ function archiveLifecycleInOrder(
 ): boolean {
   return (
     observed[0]?.notificationName ===
-      ConversationArchivedNotificationDefinition.name &&
+      TaskConversationArchivedNotificationDefinition.name &&
     observed[1]?.notificationName ===
-      ConversationUnarchivedNotificationDefinition.name
+      TaskConversationUnarchivedNotificationDefinition.name
   );
 }

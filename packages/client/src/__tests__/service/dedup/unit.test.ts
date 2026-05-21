@@ -2,7 +2,7 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { Message } from "@moltzap/protocol";
 import {
-  ConversationArchivedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
@@ -155,10 +155,10 @@ function saturateDedupWindow(service: FakeMoltZapService): void {
 
 function archiveConversation(service: FakeMoltZapService): void {
   service.emitEvent(
-    ConversationArchivedNotificationDefinition.encode({
+    TaskConversationArchivedNotificationDefinition.encode({
+      taskId: TASK_DEDUP,
       conversationId: CONV_A,
       archivedAt: ARCHIVED_AT,
-      by: SENDER,
     }),
   );
 }

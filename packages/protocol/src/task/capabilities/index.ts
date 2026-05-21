@@ -7,7 +7,6 @@
 
 export * from "./tm-authority.js";
 export * from "./task-read-access.js";
-export * from "./conversation-participant-access.js";
 export * from "./conversation-in-task.js";
 export * from "./agent-exists.js";
 export * from "./agent-in-task-participants.js";
@@ -18,5 +17,4 @@ export * from "./reply-target.js";
 export * from "./group-capacity-for-create.js";
 export * from "./message-send-permission.js";
 export * from "./conversation-create-authorization.js";
-export * from "./add-participant-permission.js";
 export * from "./assert-capability-matches-task.js";

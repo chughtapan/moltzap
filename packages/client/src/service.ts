@@ -4,9 +4,6 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type HelloOk,
-  ConversationsGet,
-  type ConversationCreatedNotification,
-  type ConversationUpdatedNotification,
   type AnyNotificationDefinition,
   type AnyServerRpcDefinition,
   type DecodedNotification,
@@ -18,18 +15,19 @@ import {
   type DispatchId,
   type Message,
   type MessageReceivedNotification,
-  type ConversationArchivedNotification,
-  type ConversationUnarchivedNotification,
+  type TaskConversationCreatedNotification,
+  type TaskConversationArchivedNotification,
+  type TaskConversationUnarchivedNotification,
   MessageReceivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
   ConversationArchivedError,
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
   TaskCreate,
+  TaskConversationList,
   NotConnectedError,
   serverRpcMethods,
   type RpcCallError,
@@ -226,8 +224,8 @@ interface ServiceHandlerPayloads {
   readonly rawNotification: DecodedNotification<AnyNotificationDefinition>;
   readonly disconnect: void;
   readonly reconnect: HelloOk;
-  readonly conversationArchived: ConversationArchivedNotification;
-  readonly conversationUnarchived: ConversationUnarchivedNotification;
+  readonly conversationArchived: TaskConversationArchivedNotification;
+  readonly conversationUnarchived: TaskConversationUnarchivedNotification;
   readonly dispatchRelease: NotificationParamsOf<typeof DispatchRelease>;
   readonly dispatchesConsumed: NotificationParamsOf<typeof DispatchesConsumed>;
   readonly dispatchesExpired: NotificationParamsOf<typeof DispatchesExpired>;
@@ -375,31 +373,24 @@ export class MoltZapService {
         ),
     ],
     [
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
       (notification) =>
         this.handleConversationCreatedNotification(
-          notification.params as ConversationCreatedNotification,
+          notification.params as TaskConversationCreatedNotification,
         ),
     ],
     [
-      ConversationUpdatedNotificationDefinition,
-      (notification) =>
-        this.handleConversationUpdatedNotification(
-          notification.params as ConversationUpdatedNotification,
-        ),
-    ],
-    [
-      ConversationArchivedNotificationDefinition,
+      TaskConversationArchivedNotificationDefinition,
       (notification) =>
         this.handleConversationArchivedNotification(
-          notification.params as ConversationArchivedNotification,
+          notification.params as TaskConversationArchivedNotification,
         ),
     ],
     [
-      ConversationUnarchivedNotificationDefinition,
+      TaskConversationUnarchivedNotificationDefinition,
       (notification) =>
         this.handleConversationUnarchivedNotification(
-          notification.params as ConversationUnarchivedNotification,
+          notification.params as TaskConversationUnarchivedNotification,
         ),
     ],
     [
@@ -734,10 +725,15 @@ export class MoltZapService {
   }
 
   private fetchHistoryConversationMeta(convId: string) {
-    return this.sendRpc(ConversationsGet, {
-      conversationId: convId as ConversationId,
-    }).pipe(
-      Effect.map((result) => result.conversation),
+    // Spec D3 D10: ConversationsGet retires; client filters
+    // TaskConversationList output for the matching conversation id.
+    return this.sendRpc(TaskConversationList, {}).pipe(
+      Effect.map((result) => {
+        const hit = result.items.find(
+          (item) => item.conversation.id === (convId as ConversationId),
+        );
+        return hit?.conversation;
+      }),
       Effect.catchAll(() => Effect.succeed(undefined)),
     );
   }
@@ -1116,42 +1112,6 @@ export class MoltZapService {
 
   // --- Internals ---
 
-  /**
-   * Fetch full conversation details (including participants) via RPC and merge
-   * into the local cache. Called on ConversationCreated notifications because
-   * the notification schema omits the participants list — see
-   * protocol/notifications.ts.
-   */
-  private refreshConversationParticipants(
-    conversationId: string,
-  ): Effect.Effect<void, never> {
-    return this.sendRpc(ConversationsGet, {
-      conversationId: conversationId as ConversationId,
-    }).pipe(
-      Effect.tap((res) => {
-        const meta: ConversationMeta = {
-          id: res.conversation.id,
-          type: res.conversation.type,
-          participants: res.participants.map(
-            (p) => `${p.participant.type}:${p.participant.id}`,
-          ),
-          ...(res.conversation.name !== undefined
-            ? { name: res.conversation.name }
-            : {}),
-        };
-        if (this.archivedConversationIds.has(conversationId)) {
-          return Effect.void;
-        }
-        return Ref.update(this.conversationsRef, (m) =>
-          HashMap.set(m, conversationId, meta),
-        );
-      }),
-      Effect.asVoid,
-      // Best-effort refresh. Leave the existing entry in place on failure.
-      Effect.catchAll(() => Effect.void),
-    );
-  }
-
   protected handleNotification(
     notification: DecodedNotification<AnyNotificationDefinition>,
   ): void {
@@ -1235,54 +1195,38 @@ export class MoltZapService {
   }
 
   private handleConversationCreatedNotification(
-    notification: ConversationCreatedNotification,
+    notification: TaskConversationCreatedNotification,
   ): void {
-    this.upsertConversationNotification(notification);
-    Effect.runFork(
-      this.refreshConversationParticipants(notification.conversation.id),
+    const { conversationId, name, participants } = notification;
+    this.archivedConversationIds.delete(conversationId);
+    Effect.runSync(
+      Ref.update(this.conversationsRef, (m) => {
+        // Spec D3 collapsed the `conversation_type` column; client infers
+        // dm/group from participant count.
+        const inferredType: "dm" | "group" =
+          participants.length === 1 ? "dm" : "group";
+        return HashMap.set(m, conversationId, {
+          id: conversationId,
+          type: inferredType,
+          participants: participants.map((p) => `agent:${p}`),
+          ...(name !== undefined ? { name } : {}),
+        });
+      }),
     );
   }
 
-  private handleConversationUpdatedNotification(
-    notification: ConversationUpdatedNotification,
-  ): void {
-    this.upsertConversationNotification(notification);
-  }
-
   private handleConversationArchivedNotification(
-    notification: ConversationArchivedNotification,
+    notification: TaskConversationArchivedNotification,
   ): void {
     this.markConversationArchived(notification.conversationId);
     fanout(this.handlers.conversationArchived, notification);
   }
 
   private handleConversationUnarchivedNotification(
-    notification: ConversationUnarchivedNotification,
+    notification: TaskConversationUnarchivedNotification,
   ): void {
     this.archivedConversationIds.delete(notification.conversationId);
     fanout(this.handlers.conversationUnarchived, notification);
-  }
-
-  private upsertConversationNotification(
-    notification:
-      | ConversationCreatedNotification
-      | ConversationUpdatedNotification,
-  ): void {
-    const { conversation } = notification;
-    this.archivedConversationIds.delete(conversation.id);
-    Effect.runSync(
-      Ref.update(this.conversationsRef, (m) => {
-        const existing = Option.getOrUndefined(HashMap.get(m, conversation.id));
-        return HashMap.set(m, conversation.id, {
-          id: conversation.id,
-          type: conversation.type,
-          participants: existing?.participants ?? [],
-          ...(conversation.name !== undefined
-            ? { name: conversation.name }
-            : {}),
-        });
-      }),
-    );
   }
 
   private markConversationArchived(conversationId: ConversationId): void {

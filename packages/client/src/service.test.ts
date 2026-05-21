@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit } from "effect";
 import type { Message, ResultOf } from "@moltzap/protocol";
 import {
-  ConversationsGet,
+  TaskConversationList,
   ConversationArchivedError,
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
   DispatchRequest,
   MessageReceivedNotificationDefinition,
   MessagesSend,
@@ -1033,9 +1033,14 @@ const archivedConversation = () => ({
 });
 
 function seedArchivedConversation(service: FakeMoltZapService): void {
-  service.setResponse(ConversationsGet, {
-    conversation: archivedConversation(),
-    participants: [],
+  service.setResponse(TaskConversationList, {
+    items: [
+      {
+        taskId: TASK_ARCHIVED_ID,
+        participants: [],
+        conversation: archivedConversation(),
+      },
+    ],
   });
   service.setResponse(MessagesSend, {
     message: buildMessage({
@@ -1047,8 +1052,11 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
     }),
   });
   service.emitEvent(
-    ConversationCreatedNotificationDefinition.encode({
-      conversation: archivedConversation(),
+    TaskConversationCreatedNotificationDefinition.encode({
+      taskId: TASK_ARCHIVED_ID,
+      conversationId: CONVERSATION_ARCHIVED_ID,
+      name: ARCHIVED_DISPLAY_NAME,
+      participants: [],
     }),
   );
   service.addMessage(
@@ -1087,11 +1095,13 @@ function archiveLifecyclePurgesAndRejectsSends() {
     service.on("conversationArchived", (data) => archivedEvents.push(data));
     service.on("conversationUnarchived", (data) => unarchivedEvents.push(data));
 
-    const archivedEvent = ConversationArchivedNotificationDefinition.encode({
-      conversationId: CONVERSATION_ARCHIVED_ID,
-      archivedAt: ARCHIVED_AT,
-      by: AGENT_GM_ID,
-    });
+    const archivedEvent = TaskConversationArchivedNotificationDefinition.encode(
+      {
+        taskId: TASK_ARCHIVED_ID,
+        conversationId: CONVERSATION_ARCHIVED_ID,
+        archivedAt: ARCHIVED_AT,
+      },
+    );
     service.emitEvent(archivedEvent);
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(true);
@@ -1111,12 +1121,11 @@ function archiveLifecyclePurgesAndRejectsSends() {
       service.calls.filter((call) => call.method === MessagesSend.name),
     ).toEqual([]);
 
-    const unarchivedEvent = ConversationUnarchivedNotificationDefinition.encode(
-      {
+    const unarchivedEvent =
+      TaskConversationUnarchivedNotificationDefinition.encode({
+        taskId: TASK_ARCHIVED_ID,
         conversationId: CONVERSATION_ARCHIVED_ID,
-        by: AGENT_GM_ID,
-      },
-    );
+      });
     service.emitEvent(unarchivedEvent);
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(

@@ -37,7 +37,7 @@ import {
 import {
   AgentsLookup,
   ContactsList,
-  ConversationsList,
+  TaskConversationList,
   type ParamsOf,
   type ResultOf,
   type RpcDefinition,
@@ -658,17 +658,19 @@ function listGroupsEffect(
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
     if (!service?.sendRpc) return [];
-    const { conversations } = (yield* service.sendRpc(
-      ConversationsList,
-      {},
-    )) as {
-      conversations: ConversationDirectoryEntry[];
+    const result = (yield* service.sendRpc(TaskConversationList, {})) as {
+      items: Array<{
+        taskId: string;
+        conversation: ConversationDirectoryEntry;
+      }>;
     };
-    return conversations.filter(isNamedGroup).map((conversation) => ({
-      id: `conv:${conversation.id}`,
-      name: conversation.name,
-      kind: "group" as const,
-    }));
+    return result.items
+      .filter((item) => isNamedGroup(item.conversation))
+      .map((item) => ({
+        id: `task:${item.taskId}:${item.conversation.id}`,
+        name: item.conversation.name!,
+        kind: "group" as const,
+      }));
   }).pipe(
     Effect.withSpan("createMoltzapChannelPlugin.listGroups"),
     Effect.catchAll(() => Effect.succeed([])),

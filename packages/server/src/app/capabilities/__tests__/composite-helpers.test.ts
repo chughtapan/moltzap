@@ -14,7 +14,6 @@ import { describe, expect } from "vitest";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import {
   ConversationFullError,
-  ForbiddenError,
   NotFoundError,
   NotInContactsError,
   type Conversation,
@@ -24,10 +23,8 @@ import {
   conversationId as makeConversationId,
 } from "@moltzap/protocol/testing";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ConversationServiceTag, ParticipantServiceTag } from "../../layers.js";
+import { ConversationServiceTag } from "../../layers.js";
 import type { ConversationService } from "../../../task/services/conversation.service.js";
-import type { ParticipantService } from "../../../identity/services/participant.service.js";
-import { obtainAddParticipantPermission } from "../add-participant-permission.js";
 import { obtainConversationCreateAuthorization } from "../conversation-create-authorization.js";
 
 const it = effectIt.effect;
@@ -38,9 +35,6 @@ const BOB = makeAgentId("00000000-0000-4000-8000-00000000bb22");
 
 function conversationServiceLayer(impl: Partial<ConversationService>) {
   return Layer.succeed(ConversationServiceTag, impl as ConversationService);
-}
-function participantServiceLayer(impl: Partial<ParticipantService>) {
-  return Layer.succeed(ParticipantServiceTag, impl as ParticipantService);
 }
 
 function expectFailureOf<E>(
@@ -200,151 +194,7 @@ describe("obtainConversationCreateAuthorization", () => {
   );
 });
 
-// ── obtainAddParticipantPermission (Decision D, r3) ───────────────────
-
-function addParticipantHappy() {
-  return Effect.gen(function* () {
-    let authorityCalls = 0;
-    let policyCalls = 0;
-    let capacityCalls = 0;
-    const convLayer = conversationServiceLayer({
-      assertAddParticipantAuthority: () => {
-        authorityCalls += 1;
-        return Effect.void;
-      },
-      assertAddParticipantContactPolicy: () => {
-        policyCalls += 1;
-        return Effect.void;
-      },
-      assertParticipantCapacity: () => {
-        capacityCalls += 1;
-        return Effect.void;
-      },
-    });
-    const partLayer = participantServiceLayer({
-      assertAgentExists: () => Effect.succeed("owner-bob"),
-    });
-    const value = yield* obtainAddParticipantPermission({
-      conversationId: CONV_ID,
-      requesterAgentId: ALICE,
-      targetAgentId: BOB,
-    }).pipe(Effect.provide(Layer.merge(convLayer, partLayer)));
-    expect(value).toEqual({
-      conversationId: CONV_ID,
-      requesterAgentId: ALICE,
-      targetAgentId: BOB,
-      targetOwnerUserId: "owner-bob",
-    });
-    expect(authorityCalls).toBe(1);
-    expect(policyCalls).toBe(1);
-    expect(capacityCalls).toBe(1);
-  });
-}
-
-function addParticipantAuthorityDenied() {
-  return Effect.gen(function* () {
-    const convLayer = conversationServiceLayer({
-      assertAddParticipantAuthority: () =>
-        Effect.fail(new ForbiddenError({ message: "not admin" })),
-      assertAddParticipantContactPolicy: () => Effect.void,
-      assertParticipantCapacity: () => Effect.void,
-    });
-    const partLayer = participantServiceLayer({
-      assertAgentExists: () => Effect.succeed("owner-bob"),
-    });
-    const exit = yield* Effect.exit(
-      obtainAddParticipantPermission({
-        conversationId: CONV_ID,
-        requesterAgentId: ALICE,
-        targetAgentId: BOB,
-      }).pipe(Effect.provide(Layer.merge(convLayer, partLayer))),
-    );
-    expectFailureOf(exit, ForbiddenError);
-  });
-}
-
-function addParticipantTargetMissing() {
-  return Effect.gen(function* () {
-    const convLayer = conversationServiceLayer({
-      assertAddParticipantAuthority: () => Effect.void,
-      assertAddParticipantContactPolicy: () => Effect.void,
-      assertParticipantCapacity: () => Effect.void,
-    });
-    const partLayer = participantServiceLayer({
-      assertAgentExists: () =>
-        Effect.fail(new NotFoundError({ message: "agent missing" })),
-    });
-    const exit = yield* Effect.exit(
-      obtainAddParticipantPermission({
-        conversationId: CONV_ID,
-        requesterAgentId: ALICE,
-        targetAgentId: BOB,
-      }).pipe(Effect.provide(Layer.merge(convLayer, partLayer))),
-    );
-    expectFailureOf(exit, NotFoundError);
-  });
-}
-
-function addParticipantContactPolicyDenied() {
-  return Effect.gen(function* () {
-    const convLayer = conversationServiceLayer({
-      assertAddParticipantAuthority: () => Effect.void,
-      assertAddParticipantContactPolicy: () =>
-        Effect.fail(new NotInContactsError({ message: "blocked" })),
-      assertParticipantCapacity: () => Effect.void,
-    });
-    const partLayer = participantServiceLayer({
-      assertAgentExists: () => Effect.succeed("owner-bob"),
-    });
-    const exit = yield* Effect.exit(
-      obtainAddParticipantPermission({
-        conversationId: CONV_ID,
-        requesterAgentId: ALICE,
-        targetAgentId: BOB,
-      }).pipe(Effect.provide(Layer.merge(convLayer, partLayer))),
-    );
-    expectFailureOf(exit, NotInContactsError);
-  });
-}
-
-function addParticipantCapacityRejected() {
-  return Effect.gen(function* () {
-    const convLayer = conversationServiceLayer({
-      assertAddParticipantAuthority: () => Effect.void,
-      assertAddParticipantContactPolicy: () => Effect.void,
-      assertParticipantCapacity: () =>
-        Effect.fail(new ConversationFullError({ message: "too many" })),
-    });
-    const partLayer = participantServiceLayer({
-      assertAgentExists: () => Effect.succeed("owner-bob"),
-    });
-    const exit = yield* Effect.exit(
-      obtainAddParticipantPermission({
-        conversationId: CONV_ID,
-        requesterAgentId: ALICE,
-        targetAgentId: BOB,
-      }).pipe(Effect.provide(Layer.merge(convLayer, partLayer))),
-    );
-    expectFailureOf(exit, ConversationFullError);
-  });
-}
-
-describe("obtainAddParticipantPermission", () => {
-  it("happy path carries resolved targetOwnerUserId", addParticipantHappy);
-  it(
-    "propagates ForbiddenError from authority gate",
-    addParticipantAuthorityDenied,
-  );
-  it(
-    "propagates NotFoundError when target missing",
-    addParticipantTargetMissing,
-  );
-  it(
-    "propagates NotInContactsError from contact-policy gate",
-    addParticipantContactPolicyDenied,
-  );
-  it(
-    "propagates ConversationFullError from capacity gate",
-    addParticipantCapacityRejected,
-  );
-});
+// Spec D3 cutover: the `ConversationsAddParticipant` RPC and its
+// composite `obtainAddParticipantPermission` helper retire with the
+// legacy `Conversations*` surface. `TaskConversationAddParticipant` is
+// gated by `TmAuthority` + `obtainContactPolicyForAdd` instead.
