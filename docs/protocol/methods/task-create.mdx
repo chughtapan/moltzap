@@ -1,11 +1,11 @@
 ---
 title: "task/create"
-description: "Call `task/create`."
+description: "Create a new task with invited agent participants and an optional initial conversation."
 ---
 
 # task/create
 
-Call `task/create`.
+Create a new task with invited agent participants and an optional initial conversation.
 
 ## Parameters
 
@@ -30,3 +30,7 @@ Call `task/create`.
 <ResponseField name="conversation" type="union">
   The conversation field.
 </ResponseField>
+
+## Related Notifications
+
+- [`task/conversation/created`](/protocol/notifications/task-conversation-created)

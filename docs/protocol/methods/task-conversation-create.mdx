@@ -1,11 +1,11 @@
 ---
 title: "task/conversation/create"
-description: "Call `task/conversation/create`."
+description: "TM only — create a new conversation under an existing task. Participants must already be in task_participants."
 ---
 
 # task/conversation/create
 
-Call `task/conversation/create`.
+TM only — create a new conversation under an existing task. Participants must already be in task_participants.
 
 ## Parameters
 
@@ -26,3 +26,13 @@ Call `task/conversation/create`.
 <ResponseField name="conversation" type="object">
   The conversation field.
 </ResponseField>
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32023 | ParticipantNotAdmitted | Agent is not admitted to the task |
+
+## Related Notifications
+
+- [`task/conversation/created`](/protocol/notifications/task-conversation-created)

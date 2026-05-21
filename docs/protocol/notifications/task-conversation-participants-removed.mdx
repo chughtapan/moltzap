@@ -1,11 +1,11 @@
 ---
 title: "task/conversation/participants/removed"
-description: "Pushed as the `task/conversation/participants/removed` notification."
+description: "Pushed when an agent is removed from a conversation (explicit, or task/leave, or dispatch deny)."
 ---
 
 # task/conversation/participants/removed
 
-Pushed as the `task/conversation/participants/removed` notification.
+Pushed when an agent is removed from a conversation (explicit, or task/leave, or dispatch deny).
 
 ## Params
 
@@ -34,3 +34,8 @@ Pushed as the `task/conversation/participants/removed` notification.
   "params": { ... }
 }
 ```
+
+## Triggered By
+
+- [`task/conversation/participants/remove`](/protocol/methods/task-conversation-participants-remove)
+- [`task/leave`](/protocol/methods/task-leave)
