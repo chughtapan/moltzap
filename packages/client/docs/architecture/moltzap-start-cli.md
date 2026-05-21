@@ -247,46 +247,19 @@ Test-side: `process.exit = vi.fn() as never` (per `register.test.ts`
 pattern); assert `expect(process.exit).toHaveBeenCalledWith(64)` /
 `...(2)` / `...(1)` per scenario.
 
-### Why we don't reuse `resolveParticipant`
+### Resolving `agent:` tokens
 
-`socket-client.ts → resolveParticipant` is the helper today's
-`commands/conversations.ts → createConversation` uses. It returns
-`{ type: "agent", id: AgentId }` after a server lookup via
-`socket-client.ts → request(AgentsLookupByName, ...)`. D2 does NOT
-reuse it. Reasons:
-
-1. **Transport mismatch.** `socket-client.ts → request` hard-wires
-   the daemon-socket path (`MoltZapService.SOCKET_PATH`). D2's
-   `TaskCreate` and `MessagesSend` calls go through
-   `transport.ts → rpc(...)` (the `Transport` Effect service),
-   which is selected by `cli/index.ts → moltzapBase` from `--as` /
-   `--profile` / daemon precedence. A `moltzap --as <key> start
-   ... agent:bob ...` invocation would resolve `bob` through the
-   daemon socket (potentially unreachable) but call `TaskCreate`
-   through direct-WS — a confusing split.
-2. **Testability.** `commands/test-transport.ts → makeFakeTransport`
-   intercepts `Transport.rpc` calls. It cannot intercept the
-   daemon-socket path. Spec D2 ACs require unit tests that mock
-   `AgentsLookupByName`'s response (empty vs. populated) to drive
-   the resolution-failure branch. Without a transport-routed
-   resolver, this test is not implementable cleanly.
-3. **Wire-shape match.** D2's `TaskCreate.initialConversation.participants`
-   is `Array(AgentId)` (Spec D1 canary `_L1..L3`), not
-   `agentParticipantRefSchema[]`. The local resolver returns bare
-   `AgentId` directly, eliminating a `.map(p => p.id)` step.
-
-D2 introduces `start.ts → resolveAgentTokens` (transport-routed
-sibling): classifies each token (shape-fail / UUID-shaped / name-shaped)
-and coalesces all name-shaped tokens into ONE batched
-`rpc(AgentsLookupByName, { names: [...uniqueNames] })` call (P3-2);
-UUID-shaped tokens short-circuit client-side. Names with no matching
-agent in the response → `UnresolvedParticipantError({ token, reason:
+`start.ts → resolveAgentTokens` classifies each token (shape-fail /
+UUID-shaped / name-shaped) and coalesces all name-shaped tokens into
+ONE batched `rpc(AgentsLookupByName, { names: [...uniqueNames] })`
+call; UUID-shaped tokens short-circuit client-side. Names with no
+matching agent → `UnresolvedParticipantError({ token, reason:
 "not-found" })`. Shape failures (no `agent:` prefix, etc.) →
 `UnresolvedParticipantError({ token, reason: "shape" })`.
 
-`commands/conversations.ts` keeps using `resolveParticipant`
-unchanged (Non-goal 1). D3 may consolidate when the legacy command
-deletes.
+The resolver is transport-routed (uses the `Transport` Effect
+service selected by `cli/index.ts → moltzapBase`), so unit tests
+can intercept via `commands/test-transport.ts → makeFakeTransport`.
 
 ## 7. Test alignment
 

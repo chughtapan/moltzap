@@ -81,11 +81,26 @@ identified server-side; no wire flag), and folds
   deleted. `conversation-admin-authority.ts` deleted
   (collapses into `requireTmAuthority`).
 - **BREAKING (server schema):** `conversation_participants.muted_until`
-  retires from the wire/server hydration path; mute becomes a
-  client-local concern. `conversation_type` enum likewise retires
-  from the wire (the column survives in the DB but no surviving
-  RPC reads it; clients infer `dm`/`group` from participant count
-  via `inferConversationType`).
+  column + `conversations.type` column + `conversation_type` ENUM
+  all deleted. Mute is now a client-local concern. Conversation
+  kind (DM vs Group) is inferred client-side from participant
+  cardinality where display still needs the distinction.
+- **BREAKING (`@moltzap/server-core`):** DM/Group runtime split
+  collapses. `conversationService.findExistingDm`,
+  `existingDmForCreate`, `createDmByAgentName`,
+  `assertAddParticipantContactPolicy` deleted as dead post-cutover —
+  participant-set dedup is owned by
+  `taskService.findExistingTaskByParticipants` at the `TaskCreate`
+  layer. `taskService.createConversation` + `CreateConversationInput`
+  deleted (zero callers). `obtainContactPolicyForAdd` deleted
+  (never wired to a handler). `obtainContactPolicyForCreate` drops
+  the `type` parameter; `obtainGroupCapacityForCreate` derives
+  capacity from cardinality.
+- **BREAKING (`@moltzap/protocol`):** `inferConversationType` helper
+  retires (zero callers post-collapse). `ConversationCreateAuthorization-
+  Value` collapses to `{ ownerByAgentId }`; the `ExistingDm`
+  short-circuit retires. `ObtainConversationCreateAuthorizationInput`
+  drops `type`.
 - **CLI (`@moltzap/client`):** `moltzap conversations` is
   partial-restructured for D3 — only the `history` subcommand
   survives; the legacy `list`/`get`/`archive`/etc. subcommands
