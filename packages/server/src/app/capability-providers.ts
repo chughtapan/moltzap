@@ -14,6 +14,7 @@
  * obtain helper from `app/capabilities/*`.
  */
 import type { AgentId, ConversationId, TaskId } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import {
   ConversationCreateAuthorization,
   ConversationInTask,
@@ -36,7 +37,7 @@ interface TaskAndAgent {
 
 interface TaskAndConn {
   readonly taskId: TaskId;
-  readonly callerConnId: string;
+  readonly callerConnId: ConnectionId;
 }
 
 interface TaskAndConversation {

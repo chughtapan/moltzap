@@ -24,21 +24,17 @@
  * Out of scope: cross-process / multi-server scaling. Resolver state is
  * process-local.
  */
-import { Effect, HashMap, HashSet, Option, Ref, type Brand } from "effect";
+import { Effect, HashMap, HashSet, Option, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 
 /**
- * Branded type alias for a WebSocket connection id. Resolver internals
- * are pure `ConnectionId → AgentId` lookups. The brand is nominal
- * (string-shaped, no UUID predicate) because the caller is
- * `app/server.ts` minting the id via `crypto.randomUUID()`; runtime
- * validation would be redundant.
- */
-export type ConnectionId = string & Brand.Brand<"ConnectionId">;
-
-/**
- * Brand a raw connection-id string. Used by the resolver and its callers
- * (`auth.handlers.ts`, `app/server.ts`) so the maps stay strongly typed.
+ * Brand a raw connection-id string. Used by call sites that mint a fresh
+ * id (`socket-handler.ts` at WS accept) or in tests that name connections
+ * with synthetic strings. `ConnectionId` itself lives at
+ * `@moltzap/protocol/network`; the boundary cast here is the only
+ * acceptable production construction since `crypto.randomUUID()` returns
+ * `string` and `ConnectionId` is a `brandedString` (no UUID predicate).
  */
 export const connectionId = (raw: string): ConnectionId => raw as ConnectionId;
 

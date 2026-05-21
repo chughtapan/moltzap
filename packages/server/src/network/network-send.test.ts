@@ -48,7 +48,7 @@ const makeResolver = (): AgentEndpointResolver =>
  * but are not exercised by the send path.
  */
 function fakeConnection(
-  id: string,
+  id: import("@moltzap/protocol/network").ConnectionId,
   writeBehavior: "ok" | { fail: Socket.SocketError },
   capture: { raw: string | null },
 ): import("../transport/connection.js").MoltZapConnection {

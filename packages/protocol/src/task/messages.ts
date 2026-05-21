@@ -1,6 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { brandedId, dateTimeStringSchema } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
+import type { ConnectionId } from "../network/actor-model.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ajv } from "../transport/wire.js";
 import { ConversationId, MessageId } from "./conversations.js";
@@ -172,7 +173,7 @@ export const MessagesSend = defineRpc({
       argsOf: (params: unknown, ctx: unknown) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly connId: string };
+        const c = ctx as { readonly connId: ConnectionId };
         return { taskId: p.taskId, callerConnId: c.connId };
       },
     },
@@ -202,13 +203,11 @@ export const MessagesSend = defineRpc({
         };
         const c = ctx as {
           readonly auth: { readonly agentId: AgentId };
-          readonly connId: string;
         };
         return {
           taskId: p.taskId,
           conversationId: p.conversationId,
           senderAgentId: p.senderAgentId ?? c.auth.agentId,
-          callerConnId: c.connId,
           replyToId: p.replyToId,
         };
       },

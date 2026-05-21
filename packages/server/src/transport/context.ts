@@ -6,6 +6,7 @@ import {
   type ResultOf,
   type RpcDefinition,
 } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import { ConnIdTag } from "../app/layers.js";
 import type { AgentId, UserId } from "../app/types.js";
 
@@ -18,7 +19,7 @@ export interface AuthenticatedContext {
 /** Per-request dispatch context handed to every RPC handler by the typed dispatcher. */
 export interface DispatchContext {
   readonly auth: AuthenticatedContext;
-  readonly connId: string;
+  readonly connId: ConnectionId;
 }
 
 /**

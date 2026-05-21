@@ -6,6 +6,7 @@
  */
 import { Context, Effect, Layer } from "effect";
 
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type { Db } from "../db/client.js";
 import {
   TraceCaptureTag,
@@ -58,7 +59,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
  */
 export class ConnIdTag extends Context.Tag("moltzap/ConnId")<
   ConnIdTag,
-  string
+  ConnectionId
 >() {}
 
 export class ConnectionManagerTag extends Context.Tag(

@@ -1,9 +1,11 @@
 import { Effect } from "effect";
 import { ForbiddenError } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import {
   TmAuthority,
-  type TmAuthorityValue,
+  type AppId,
   type TaskId,
+  type TmAuthorityValue,
 } from "@moltzap/protocol/task";
 import { AppHostTag, TaskServiceTag } from "../layers.js";
 import type { TaskServiceError } from "../../task/services/task.service.js";
@@ -28,7 +30,7 @@ const ERR_NOT_TM = "Caller is not the registered task manager for this task";
  */
 export const obtainTmAuthority = (
   taskId: TaskId,
-  callerConnId: string,
+  callerConnId: ConnectionId,
 ): Effect.Effect<
   TmAuthorityValue,
   TaskServiceError,
@@ -38,7 +40,11 @@ export const obtainTmAuthority = (
     const taskService = yield* TaskServiceTag;
     const appHost = yield* AppHostTag;
     const task = yield* taskService.loadOpenTask(taskId);
-    if (!appHost.isAppConnection(task.appId, callerConnId)) {
+    // `task.appId` arrives as `string` because the wire-shaped TaskSchema
+    // still types `appId` as plain string (legacy carry-over from the
+    // pre-brand era). Brand at the boundary so the AppHost map lookup
+    // is type-safe end-to-end.
+    if (!appHost.isAppConnection(task.appId as AppId, callerConnId)) {
       return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
     }
     return { task };

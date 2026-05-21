@@ -8,6 +8,7 @@ import {
   type LeaseId,
   type ParamsOf,
 } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import { Effect, Exit } from "effect";
 import type { AuthenticatedContext } from "../../transport/context.js";
 import {
@@ -45,7 +46,7 @@ function claimDispatchLease(leaseRegistry: LeaseRegistry, leaseId: LeaseId) {
 }
 
 interface LeaseSendInput {
-  readonly connId: string;
+  readonly connId: ConnectionId;
   readonly ctx: AuthenticatedContext;
   readonly params: MessagesSendParams;
   readonly messageService: MessageService;

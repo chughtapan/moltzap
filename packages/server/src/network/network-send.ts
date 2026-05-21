@@ -14,6 +14,7 @@
  */
 import { Brand, Data, Effect, Either, HashSet } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../transport/connection.js";
@@ -74,12 +75,12 @@ export type DeliveryError = RecipientNotResolved | WriteFailed;
 
 interface BroadcastOptions {
   readonly forConversation?: ConversationId;
-  readonly excludeConnectionId?: string;
+  readonly excludeConnectionId?: ConnectionId;
   readonly messageId?: MessageId;
 }
 
 interface BroadcastWrite {
-  readonly cid: string;
+  readonly cid: ConnectionId;
   readonly target: AgentId;
   readonly payload: OpaquePayload;
   readonly options: BroadcastOptions;
@@ -180,7 +181,7 @@ export class NetworkSendService {
   }
 
   private connectionCanReceive(
-    cid: string,
+    cid: ConnectionId,
     options: BroadcastOptions,
   ): boolean {
     if (

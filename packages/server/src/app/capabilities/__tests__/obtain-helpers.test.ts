@@ -27,11 +27,13 @@ import {
 } from "@moltzap/protocol";
 import {
   agentId as makeAgentId,
+  connectionId as makeConnectionId,
   conversationId as makeConversationId,
   messageId as makeMessageId,
   taskId as makeTaskId,
 } from "@moltzap/protocol/testing";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import {
   AppHostTag,
   ConversationServiceTag,
@@ -78,15 +80,12 @@ const REPLY_ID = makeMessageId("00000000-0000-4000-8000-00000000beef");
 const ALICE = makeAgentId("00000000-0000-4000-8000-00000000aa11");
 const BOB = makeAgentId("00000000-0000-4000-8000-00000000bb22");
 const APP_ID = "app-fixture";
-const OWNER_CONN_ID = "owner-conn-1";
-const OTHER_CONN_ID = "other-conn-1";
+const OWNER_CONN_ID = makeConnectionId("owner-conn-1");
+const OTHER_CONN_ID = makeConnectionId("other-conn-1");
 
-// Discriminant constants — contractual values in `MessageSendPermissionValue`'s
-// tagged union. Centralizing the strings here avoids the
+// Discriminant constants for `MessageSendPermissionValue.replyTarget`.
+// Centralizing the strings here avoids the
 // `no-hardcoded-assertion-literals` lint and makes the contract auditable.
-const TAG_PARTICIPANT = "forParticipantOnActiveTask" as const;
-const TAG_TM_BYPASS = "forTmBypass" as const;
-const TAG_TM_BYPASS_REPLY = "forTmBypassWithReply" as const;
 const TAG_VALID_REPLY = "ValidReply" as const;
 const TAG_NO_REPLY = "NoReply" as const;
 
@@ -118,9 +117,13 @@ function makeSendConvRow(
 /**
  * Minimal AppHost stub for capability tests. `bindings` lists the
  * `(appId, connId)` pairs that should be considered registered remote
- * app connections.
+ * app connections. Only `obtainTmAuthority` exercises this stub after
+ * the #673 follow-up cutover; `MessageSendPermission` no longer
+ * consults AppHost.
  */
-function appHostLayer(bindings: ReadonlyArray<readonly [string, string]>) {
+function appHostLayer(
+  bindings: ReadonlyArray<readonly [string, ConnectionId]>,
+) {
   const seeded = new Set(bindings.map(([app, conn]) => `${app}::${conn}`));
   const stub: Pick<AppHost, "isAppConnection"> = {
     isAppConnection: (appId, connId) => seeded.has(`${appId}::${connId}`),
@@ -621,10 +624,7 @@ interface SendPermStubs {
   assertReplyTarget?: MessageService["assertReplyTarget"];
 }
 
-function sendPermLayer(
-  opts: SendPermStubs,
-  bindings: ReadonlyArray<readonly [string, string]> = [],
-) {
+function sendPermLayer(opts: SendPermStubs) {
   const conv = conversationServiceLayer({
     assertConversationParticipant:
       opts.assertConversationParticipant ?? (() => Effect.void),
@@ -637,18 +637,17 @@ function sendPermLayer(
   const task = taskServiceLayer({
     fetchTask: opts.fetchTask ?? (() => Effect.succeed(makeTaskFixture())),
   });
-  return Layer.mergeAll(conv, msg, task, appHostLayer(bindings));
+  return Layer.mergeAll(conv, msg, task);
 }
 
 function runObtainSendPerm(
   layer: Layer.Layer<
-    MessageServiceTag | ConversationServiceTag | TaskServiceTag | AppHostTag
+    MessageServiceTag | ConversationServiceTag | TaskServiceTag
   >,
   input: {
     taskId?: typeof TASK_ID;
     conversationId?: typeof CONV_ID;
     senderAgentId: AgentId;
-    callerConnId?: string;
     replyToId?: typeof REPLY_ID;
   },
 ) {
@@ -656,58 +655,39 @@ function runObtainSendPerm(
     taskId: input.taskId ?? TASK_ID,
     conversationId: input.conversationId ?? CONV_ID,
     senderAgentId: input.senderAgentId,
-    callerConnId: input.callerConnId ?? OTHER_CONN_ID,
     replyToId: input.replyToId,
   }).pipe(Effect.provide(layer));
 }
 
-function sendPermNonBypassNoReply() {
+function sendPermHappyNoReply() {
   return Effect.gen(function* () {
+    const task = makeTaskFixture();
     const value: MessageSendPermissionValue = yield* runObtainSendPerm(
-      sendPermLayer({}),
+      sendPermLayer({ fetchTask: () => Effect.succeed(task) }),
       { senderAgentId: BOB },
     );
-    expect(value._tag).toBe(TAG_PARTICIPANT);
-    expect(value.replyTarget).toEqual({ _tag: TAG_NO_REPLY });
+    expect(value).toEqual({
+      task,
+      conversationId: CONV_ID,
+      senderAgentId: BOB,
+      replyTarget: { _tag: TAG_NO_REPLY },
+    });
   });
 }
 
-function sendPermNonBypassWithReply() {
+function sendPermHappyWithReply() {
   return Effect.gen(function* () {
+    const task = makeTaskFixture();
     const value: MessageSendPermissionValue = yield* runObtainSendPerm(
-      sendPermLayer({}),
+      sendPermLayer({ fetchTask: () => Effect.succeed(task) }),
       { senderAgentId: BOB, replyToId: REPLY_ID },
     );
-    expect(value._tag).toBe(TAG_PARTICIPANT);
-    expect(value.replyTarget).toEqual({
-      _tag: TAG_VALID_REPLY,
-      replyToId: REPLY_ID,
+    expect(value).toEqual({
+      task,
+      conversationId: CONV_ID,
+      senderAgentId: BOB,
+      replyTarget: { _tag: TAG_VALID_REPLY, replyToId: REPLY_ID },
     });
-  });
-}
-
-function sendPermTmBypassNoReply() {
-  return Effect.gen(function* () {
-    // Caller's connection IS the registered app connection for APP_ID
-    // ⇒ TM-bypass branch.
-    const layer = sendPermLayer({}, [[APP_ID, OWNER_CONN_ID]]);
-    const value: MessageSendPermissionValue = yield* runObtainSendPerm(layer, {
-      senderAgentId: ALICE,
-      callerConnId: OWNER_CONN_ID,
-    });
-    expect(value._tag).toBe(TAG_TM_BYPASS);
-  });
-}
-
-function sendPermTmBypassWithReply() {
-  return Effect.gen(function* () {
-    const layer = sendPermLayer({}, [[APP_ID, OWNER_CONN_ID]]);
-    const value: MessageSendPermissionValue = yield* runObtainSendPerm(layer, {
-      senderAgentId: ALICE,
-      callerConnId: OWNER_CONN_ID,
-      replyToId: REPLY_ID,
-    });
-    expect(value._tag).toBe(TAG_TM_BYPASS_REPLY);
   });
 }
 
@@ -764,26 +744,15 @@ function sendPermTaskClosed() {
 }
 
 describe("obtainMessageSendPermission", () => {
-  it("non-bypass + no reply → participant variant", sendPermNonBypassNoReply);
-  it(
-    "non-bypass + reply → participant variant with ValidReply",
-    sendPermNonBypassWithReply,
-  );
-  it("TM bypass + no reply → tm-bypass variant", sendPermTmBypassNoReply);
-  it(
-    "TM bypass + reply → tm-bypass-with-reply variant",
-    sendPermTmBypassWithReply,
-  );
+  it("happy path + no reply → NoReply replyTarget", sendPermHappyNoReply);
+  it("happy path + reply → ValidReply replyTarget", sendPermHappyWithReply);
   it("participant check runs first (ForbiddenError)", sendPermParticipantFirst);
   it(
     "rejects conv.task_id !== input.taskId (ForbiddenError)",
     sendPermTaskMismatch,
   );
   it("propagates ConversationArchivedError when archived", sendPermArchived);
-  it(
-    "propagates TaskClosedError on closed task (non-bypass)",
-    sendPermTaskClosed,
-  );
+  it("propagates TaskClosedError on closed task", sendPermTaskClosed);
 });
 
 // ── assertCapabilityMatchesTask ───────────────────────────────────────

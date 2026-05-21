@@ -20,11 +20,14 @@ import {
 } from "@moltzap/protocol";
 import {
   agentId,
+  appId as makeAppId,
+  connectionId as makeConnectionId,
   conversationId,
   messageId,
   taskId as makeTaskId,
   validateRequestFrame,
 } from "@moltzap/protocol/testing";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import {
   acquireConnectionRpcClient,
   ConnectionManager,
@@ -60,7 +63,7 @@ interface FakeConn {
  * surrounding scope closes — close to drive the disconnect path.
  */
 const makeFakeConnection = (
-  connId: string,
+  connId: ConnectionId,
 ): Effect.Effect<FakeConn, never, Scope.Scope> =>
   Effect.gen(function* () {
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
@@ -92,9 +95,12 @@ function makeAppHostFixture(): AppHostFixture {
   return { host, connections };
 }
 
-const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
-  appId,
-  name: `Test App ${appId}`,
+const baseManifest = (
+  manifestAppId: string,
+  hookTimeoutMs?: number,
+): AppManifest => ({
+  appId: manifestAppId,
+  name: `Test App ${manifestAppId}`,
   conversations: [],
   hooks: hookTimeoutMs
     ? { dispatch_authorize: { timeout_ms: hookTimeoutMs } }
@@ -102,11 +108,11 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
 });
 
 const messageAuthorizeManifest = (
-  appId: string,
+  manifestAppId: string,
   hookTimeoutMs?: number,
 ): AppManifest => ({
-  appId,
-  name: `Test App ${appId}`,
+  appId: manifestAppId,
+  name: `Test App ${manifestAppId}`,
   conversations: [],
   hooks: {
     message_authorize:
@@ -120,7 +126,19 @@ const FIXTURE_CONVERSATION_ID = conversationId(
 const FIXTURE_AGENT_RECIPIENT = agentId("00000000-0000-4000-8000-000000000a01");
 const FIXTURE_AGENT_SENDER = agentId("00000000-0000-4000-8000-000000000a02");
 const FIXTURE_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000201");
-const MESSAGE_APP_ID = "00000000-0000-4000-8000-000000000560";
+const MESSAGE_APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
+const APP_R = makeAppId("00000000-0000-4000-8000-000000000570");
+const APP_M = makeAppId("00000000-0000-4000-8000-000000000571");
+const APP_NEVER = makeAppId("00000000-0000-4000-8000-000000000572");
+const CONN_NO_SUCH = makeConnectionId("no-such-conn");
+const CONN_1 = makeConnectionId("conn-1");
+const CONN_2 = makeConnectionId("conn-2");
+const CONN_RM_1 = makeConnectionId("conn-rm-1");
+const CONN_RM_DECODE = makeConnectionId("conn-rm-decode");
+const CONN_RD_1 = makeConnectionId("conn-rd-1");
+const CONN_RD_DENY = makeConnectionId("conn-rd-deny");
+const CONN_RD_DROP = makeConnectionId("conn-rd-drop");
+const CONN_RD_DECODE = makeConnectionId("conn-rd-decode");
 const MANIFEST_DISPATCH_TIMEOUT_MS = 1234;
 
 const baseAuthorizeDispatchCtx = (
@@ -250,7 +268,7 @@ function bindPrivateMethod<Fn extends (...args: never[]) => unknown>(
   return value.bind(target) as Fn;
 }
 
-type RemoteRegistrations = Map<string, { connectionId: string }>;
+type RemoteRegistrations = Map<string, { connectionId: ConnectionId }>;
 type AuthorizeDispatchDispatch = (
   appId: string,
   ctx: TaskAuthorizeDispatchContext,
@@ -262,7 +280,7 @@ const remoteRegistrations = (host: AppHost): RemoteRegistrations =>
 const dispatchAuthorizeDispatch = (host: AppHost): AuthorizeDispatchDispatch =>
   bindPrivateMethod(host, "dispatchAuthorizeHook");
 
-function makeRemoteFixture(connectionId: string, manifest: AppManifest) {
+function makeRemoteFixture(connectionId: ConnectionId, manifest: AppManifest) {
   return Effect.gen(function* () {
     const scope = yield* Scope.make();
     const fixture = makeAppHostFixture();
@@ -297,7 +315,7 @@ function expectMessageAuthorizeRequest(
 function remoteMessageAuthorizeForwards() {
   return Effect.gen(function* () {
     const fixture = yield* makeRemoteFixture(
-      "conn-rm-1",
+      CONN_RM_1,
       messageAuthorizeManifest(MESSAGE_APP_ID),
     );
     const taskId = makeTaskId("00000000-0000-4000-8000-000000ce5601");
@@ -332,7 +350,7 @@ function staleRemoteMessageBlocks() {
     const fixture = makeAppHostFixture();
     fixture.host.registerRemoteApp(
       messageAuthorizeManifest(MESSAGE_APP_ID),
-      "no-such-conn",
+      CONN_NO_SUCH,
     );
     const result = yield* fixture.host.runMessageAuthorize(
       MESSAGE_APP_ID,
@@ -348,7 +366,7 @@ function staleRemoteMessageBlocks() {
 function malformedRemoteMessageBlocks() {
   return Effect.gen(function* () {
     const fixture = yield* makeRemoteFixture(
-      "conn-rm-decode",
+      CONN_RM_DECODE,
       messageAuthorizeManifest(MESSAGE_APP_ID),
     );
     const fiber = yield* Effect.fork(
@@ -381,14 +399,11 @@ function startRemoteDispatch(
 
 function remoteDispatchGrantPassesThrough() {
   return Effect.gen(function* () {
-    const fixture = yield* makeRemoteFixture(
-      "conn-rd-1",
-      baseManifest("app-r"),
-    );
+    const fixture = yield* makeRemoteFixture(CONN_RD_1, baseManifest(APP_R));
     const fiber = yield* Effect.fork(
       startRemoteDispatch(
         fixture,
-        "app-r",
+        APP_R,
         makeTaskId("00000000-0000-4000-8000-000000ce5510"),
       ),
     );
@@ -412,14 +427,11 @@ function remoteDispatchGrantPassesThrough() {
 
 function remoteDispatchDenyPassesThrough() {
   return Effect.gen(function* () {
-    const fixture = yield* makeRemoteFixture(
-      "conn-rd-deny",
-      baseManifest("app-r"),
-    );
+    const fixture = yield* makeRemoteFixture(CONN_RD_DENY, baseManifest(APP_R));
     const fiber = yield* Effect.fork(
       startRemoteDispatch(
         fixture,
-        "app-r",
+        APP_R,
         makeTaskId("00000000-0000-4000-8000-000000ce55d0"),
       ),
     );
@@ -438,10 +450,10 @@ function remoteDispatchDenyPassesThrough() {
 function staleRemoteDispatchDenies() {
   return Effect.gen(function* () {
     const fixture = makeAppHostFixture();
-    fixture.host.registerRemoteApp(baseManifest("app-r"), "no-such-conn");
+    fixture.host.registerRemoteApp(baseManifest(APP_R), CONN_NO_SUCH);
     const verdict = yield* startRemoteDispatch(
       fixture,
-      "app-r",
+      APP_R,
       makeTaskId("00000000-0000-4000-8000-000000ce5573"),
     );
     expect(verdict).toEqual({
@@ -453,14 +465,11 @@ function staleRemoteDispatchDenies() {
 
 function disconnectedRemoteDispatchDenies() {
   return Effect.gen(function* () {
-    const fixture = yield* makeRemoteFixture(
-      "conn-rd-drop",
-      baseManifest("app-r"),
-    );
+    const fixture = yield* makeRemoteFixture(CONN_RD_DROP, baseManifest(APP_R));
     const fiber = yield* Effect.fork(
       startRemoteDispatch(
         fixture,
-        "app-r",
+        APP_R,
         makeTaskId("00000000-0000-4000-8000-000000ce5570"),
       ),
     );
@@ -477,13 +486,13 @@ function disconnectedRemoteDispatchDenies() {
 function malformedRemoteDispatchDenies() {
   return Effect.gen(function* () {
     const fixture = yield* makeRemoteFixture(
-      "conn-rd-decode",
-      baseManifest("app-r"),
+      CONN_RD_DECODE,
+      baseManifest(APP_R),
     );
     const fiber = yield* Effect.fork(
       startRemoteDispatch(
         fixture,
-        "app-r",
+        APP_R,
         makeTaskId("00000000-0000-4000-8000-000000ce55de"),
       ),
     );
@@ -507,26 +516,26 @@ function malformedRemoteDispatchDenies() {
 describe("AppHost.registerRemoteApp", () => {
   it("records the remote-app source keyed by appId", () => {
     const { host } = makeAppHostFixture();
-    host.registerRemoteApp(baseManifest("app-r"), "conn-1");
+    host.registerRemoteApp(baseManifest(APP_R), CONN_1);
 
     const map = remoteRegistrations(host);
-    expect(map.get("app-r")).toEqual({ connectionId: "conn-1" });
+    expect(map.get(APP_R)).toEqual({ connectionId: CONN_1 });
   });
 
   it("stores the manifest verbatim (so dispatch can read timeout_ms)", () => {
     const { host } = makeAppHostFixture();
-    const manifest = baseManifest("app-m", MANIFEST_DISPATCH_TIMEOUT_MS);
-    host.registerRemoteApp(manifest, "conn-1");
-    expect(host.getManifest("app-m")).toBe(manifest);
+    const manifest = baseManifest(APP_M, MANIFEST_DISPATCH_TIMEOUT_MS);
+    host.registerRemoteApp(manifest, CONN_1);
+    expect(host.getManifest(APP_M)).toBe(manifest);
   });
 
   it("re-registration overwrites the prior connection", () => {
     const { host } = makeAppHostFixture();
-    host.registerRemoteApp(baseManifest("app-r"), "conn-1");
-    host.registerRemoteApp(baseManifest("app-r"), "conn-2");
+    host.registerRemoteApp(baseManifest(APP_R), CONN_1);
+    host.registerRemoteApp(baseManifest(APP_R), CONN_2);
 
     const map = remoteRegistrations(host);
-    expect(map.get("app-r")).toEqual({ connectionId: "conn-2" });
+    expect(map.get(APP_R)).toEqual({ connectionId: CONN_2 });
   });
 });
 
@@ -554,18 +563,18 @@ describe("AppHost remote messages — messages/authorize", () => {
 describe("AppHost.unregisterRemoteApp", () => {
   it("drops the routing entry; manifest stays", () => {
     const { host } = makeAppHostFixture();
-    const manifest = baseManifest("app-r");
-    host.registerRemoteApp(manifest, "conn-1");
-    host.unregisterRemoteApp("app-r");
+    const manifest = baseManifest(APP_R);
+    host.registerRemoteApp(manifest, CONN_1);
+    host.unregisterRemoteApp(APP_R);
 
     const map = remoteRegistrations(host);
-    expect(map.has("app-r")).toBe(false);
-    expect(host.getManifest("app-r")).toBe(manifest);
+    expect(map.has(APP_R)).toBe(false);
+    expect(host.getManifest(APP_R)).toBe(manifest);
   });
 
   it("is idempotent for unknown appIds", () => {
     const { host } = makeAppHostFixture();
-    expect(() => host.unregisterRemoteApp("never-registered")).not.toThrow();
+    expect(() => host.unregisterRemoteApp(APP_NEVER)).not.toThrow();
   });
 });
 

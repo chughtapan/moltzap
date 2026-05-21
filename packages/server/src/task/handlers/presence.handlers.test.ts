@@ -7,7 +7,11 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { NotInContactsError } from "@moltzap/protocol";
-import { userId, wireErrorFromInstance } from "@moltzap/protocol/testing";
+import {
+  connectionId as makeConnectionId,
+  userId,
+  wireErrorFromInstance,
+} from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AgentId } from "../../app/types.js";
 import { takeFirstOrFail } from "../../db/effect-kysely-toolkit.js";
@@ -23,7 +27,7 @@ import { presenceHandlers } from "./presence.handlers.js";
 
 const ALICE_OWNER = userId("00000000-0000-4000-8000-00000000a11c") as UserId;
 const CAROL_OWNER = userId("00000000-0000-4000-8000-00000000ca20") as UserId;
-const TEST_CONNECTION_ID = "test-conn-1";
+const TEST_CONNECTION_ID = makeConnectionId("test-conn-1");
 const PRESENCE_SUBSCRIBE = "presence/subscribe";
 
 const noopSink: PresenceEventSink = { publish: () => {} };

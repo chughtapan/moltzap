@@ -9,10 +9,10 @@ import {
 } from "../transport/wire-errors.js";
 import { ConversationId, conversationSchema } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
-// `connId` is injected by the dispatcher's ctx; we only need its TS shape
-// here, not the runtime brand, so a structural alias keeps the
-// descriptor module free of server-layer imports.
-type CallerConnIdCtx = { readonly connId: string };
+import type { ConnectionId } from "../network/actor-model.js";
+// Structural alias for the dispatcher ctx shape consumed by argsOf
+// resolvers — the brand keeps it type-safe end to end.
+type CallerConnIdCtx = { readonly connId: ConnectionId };
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
 import {

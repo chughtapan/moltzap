@@ -21,7 +21,7 @@ import {
   PresenceServiceTag,
   SessionValidatorTag,
 } from "../../app/layers.js";
-import { connectionId as brandConnectionId } from "../../network/agent-endpoint-resolver.js";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
@@ -163,12 +163,12 @@ function hydrateConnectionState(
 function registerEndpointIfStillConnected(
   connections: ConnectionManager,
   resolver: AgentEndpointResolver,
-  connId: string,
+  connId: ConnectionId,
   auth: AuthenticatedContext,
 ) {
   return Effect.gen(function* () {
     if (connections.get(connId)) {
-      yield* resolver.add(auth.agentId, brandConnectionId(connId));
+      yield* resolver.add(auth.agentId, connId);
     }
   }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
 }

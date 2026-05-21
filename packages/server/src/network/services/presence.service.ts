@@ -1,10 +1,11 @@
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type {
   PresenceEventSink,
   PresenceStatus,
 } from "./presence-event-sink.js";
 
-const EMPTY_SUBSCRIBERS: ReadonlySet<string> = new Set();
+const EMPTY_SUBSCRIBERS: ReadonlySet<ConnectionId> = new Set();
 
 /**
  * In-memory presence state + subscriber registry. Every mutating call
@@ -17,11 +18,11 @@ const EMPTY_SUBSCRIBERS: ReadonlySet<string> = new Set();
  */
 export class PresenceService {
   private statuses = new Map<string, PresenceStatus>();
-  private subscribers = new Map<string, Set<string>>();
+  private subscribers = new Map<string, Set<ConnectionId>>();
   // Per-connection record of which agentIds the connection is subscribed
   // to. Tracked so `subscribe()` can replace the prior subscription set
   // atomically without scanning every agent's subscriber set.
-  private connSubscriptions = new Map<string, Set<string>>();
+  private connSubscriptions = new Map<ConnectionId, Set<string>>();
 
   constructor(private readonly eventSink: PresenceEventSink) {}
 
@@ -36,7 +37,7 @@ export class PresenceService {
   update(
     agentId: string,
     status: PresenceStatus,
-    options: { readonly excludeConnId?: string } = {},
+    options: { readonly excludeConnId?: ConnectionId } = {},
   ): void {
     this.transition(agentId, status, options.excludeConnId);
   }
@@ -65,7 +66,7 @@ export class PresenceService {
    * clients that re-evaluate their watch set per iteration can call this
    * idempotently without leaking fan-out across the union of past sets.
    */
-  subscribe(connId: string, agentIds: ReadonlyArray<string>): void {
+  subscribe(connId: ConnectionId, agentIds: ReadonlyArray<string>): void {
     const next = new Set(agentIds);
     const prev = this.connSubscriptions.get(connId);
     this.removeStaleSubscriptions(connId, next, prev);
@@ -74,7 +75,7 @@ export class PresenceService {
   }
 
   private removeStaleSubscriptions(
-    connId: string,
+    connId: ConnectionId,
     next: ReadonlySet<string>,
     prev: ReadonlySet<string> | undefined,
   ): void {
@@ -87,7 +88,10 @@ export class PresenceService {
     }
   }
 
-  private addSubscriptions(connId: string, next: ReadonlySet<string>): void {
+  private addSubscriptions(
+    connId: ConnectionId,
+    next: ReadonlySet<string>,
+  ): void {
     for (const agentId of next) {
       let subs = this.subscribers.get(agentId);
       if (!subs) {
@@ -99,7 +103,7 @@ export class PresenceService {
   }
 
   private rememberSubscriptionSet(
-    connId: string,
+    connId: ConnectionId,
     next: ReadonlySet<string>,
   ): void {
     if (next.size === 0) {
@@ -109,11 +113,11 @@ export class PresenceService {
     }
   }
 
-  getSubscribers(agentId: string): ReadonlySet<string> {
+  getSubscribers(agentId: string): ReadonlySet<ConnectionId> {
     return this.subscribers.get(agentId) ?? EMPTY_SUBSCRIBERS;
   }
 
-  removeConnection(connId: string): void {
+  removeConnection(connId: ConnectionId): void {
     for (const subs of this.subscribers.values()) {
       subs.delete(connId);
     }
@@ -123,7 +127,7 @@ export class PresenceService {
   private transition(
     agentId: string,
     next: PresenceStatus,
-    excludeConnId?: string,
+    excludeConnId?: ConnectionId,
   ): void {
     const prev = this.statuses.get(agentId) ?? "offline";
     if (prev === next) return;

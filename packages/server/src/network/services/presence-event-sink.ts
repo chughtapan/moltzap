@@ -2,6 +2,7 @@ import { Effect } from "effect";
 
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 
 import type { ConnectionManager } from "../../transport/connection.js";
 
@@ -10,8 +11,8 @@ export type PresenceStatus = "online" | "offline" | "away";
 export interface PresencePublishInput {
   readonly agentId: AgentId;
   readonly status: PresenceStatus;
-  readonly subscriberConnIds: ReadonlySet<string>;
-  readonly excludeConnId?: string;
+  readonly subscriberConnIds: ReadonlySet<ConnectionId>;
+  readonly excludeConnId?: ConnectionId;
 }
 
 /**

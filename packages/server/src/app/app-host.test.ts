@@ -4,6 +4,7 @@ import { Effect, unsafeCoerce } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
   agentId,
+  appId as makeAppId,
   conversationId,
   messageId,
   taskId,
@@ -53,8 +54,8 @@ function makeParticipantDb(): Db {
   });
 }
 
-const APP_ID = "00000000-0000-4000-8000-000000000560";
-const OTHER_APP_ID = "00000000-0000-4000-8000-000000000999";
+const APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
+const OTHER_APP_ID = makeAppId("00000000-0000-4000-8000-000000000999");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000c560");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-00000000e560");
 const TASK_ID = taskId("00000000-0000-4000-8000-00000000a560");
@@ -82,21 +83,21 @@ describe("AppHost.onTaskAuthorizeDispatch (registration surface)", () => {
   it("stores the handler keyed by appId", () => {
     const { host } = makeAppHost();
     const handler = () => ({ decision: "grant" as const });
-    host.onTaskAuthorizeDispatch("my-app", handler);
+    host.onTaskAuthorizeDispatch(APP_ID, handler);
 
     const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get("my-app")?.taskAuthorizeDispatch).toBe(handler);
+    expect(hooks.get(APP_ID)?.taskAuthorizeDispatch).toBe(handler);
   });
 
   it("overwrites a prior handler for the same appId (last-writer-wins)", () => {
     const { host } = makeAppHost();
     const first = () => ({ decision: "grant" as const });
     const second = () => ({ decision: "deny" as const });
-    host.onTaskAuthorizeDispatch("app-x", first);
-    host.onTaskAuthorizeDispatch("app-x", second);
+    host.onTaskAuthorizeDispatch(OTHER_APP_ID, first);
+    host.onTaskAuthorizeDispatch(OTHER_APP_ID, second);
 
     const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get("app-x")?.taskAuthorizeDispatch).toBe(second);
+    expect(hooks.get(OTHER_APP_ID)?.taskAuthorizeDispatch).toBe(second);
   });
 });
 
