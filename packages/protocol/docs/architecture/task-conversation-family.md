@@ -126,19 +126,35 @@ notification fires; the conversation row stays with
 | `TaskConversationAddParticipant` | TM only + participant-admitted invariant |
 | `TaskConversationRemoveParticipant` | TM only |
 
-## Capability list per new handler (post-Spec-F #632 cutover)
+### "TM only" — what that means today
 
-Spec F (#632, PR #660) merged the typed-dispatcher cutover: each
-`defineRpc` in `packages/protocol/src/task/tasks.ts` declares its
-capability tags in `capabilities: [{ tag, argsOf }]`, and the
-dispatcher in `packages/protocol/src/transport/dispatch.ts →
-applyCapabilityProvisioning` auto-threads
+`TaskCreate` binds `tasks.tm_endpoint_address` to `tm:app:<appId>`,
+and `loadTaskAsTmAuthority` does a byte-equality check against
+`tm:agent:<caller>`. The two address shapes never match, so the
+TM-only RPCs above are unreachable from a regular agent WS
+connection — only server-internal app-host code (via
+`AppsRegister`-installed `dispatch_authorize` / `message_authorize`
+callbacks) can drive them.
+
+The TM-routing layer is being refactored to drop the redundant
+`tm_endpoint_address` column and route by `tasks.app_id` directly,
+with auth keyed off `AppHost.remoteRegistrations` so a
+`MoltZapTMClient` that has `AppsRegister`'d its app can call the
+TM-only RPCs over the wire. See [#673](https://github.com/chughtapan/moltzap/issues/673).
+
+## Capability list per handler
+
+Each `defineRpc` in `packages/protocol/src/task/tasks.ts` declares its
+capability tags in `capabilities: [{ tag, argsOf }]`. The dispatcher
+(`packages/protocol/src/transport/dispatch.ts →
+applyCapabilityProvisioning`) auto-threads
 `Effect.provideServiceEffect(tag, providerEffect)` per frame from the
 shared provider table in
-`packages/server/src/app/capability-providers.ts → serverCapabilityProviders`.
-Handler bodies just call the service method; the service body yields
-the tag and the dispatcher's lazy provision runs the obtain helper at
-first yield. The compile-time lockstep gate (Canary 7 in
+`packages/server/src/app/capability-providers.ts →
+serverCapabilityProviders`. Handler bodies just call the service
+method; the service yields the tag and the dispatcher's lazy provision
+runs the obtain helper at first yield. The compile-time lockstep gate
+(Canary 7 in
 `packages/protocol/src/transport/typed-dispatcher.types-check.ts`)
 rejects any handler whose R channel references a tag NOT declared in
 the descriptor's `capabilities` array.

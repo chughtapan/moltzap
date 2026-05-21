@@ -82,6 +82,19 @@ export const obtainTmAuthority = (
   }).pipe(Effect.withSpan("obtainTmAuthority"));
 ```
 
+`requireTmAuthority` enforces byte-equality between the task's
+`tm_endpoint_address` and `endpointAddressForAgent(caller) =
+"tm:agent:<caller>"`. Tasks created via the wire `TaskCreate` always
+bind to `tm:app:<appId>` (the app is the TM), so a regular agent WS
+connection cannot pass `TmAuthority` over the wire — the TM-only
+RPCs (`TaskConversationCreate`, `TaskConversationArchive`,
+`TaskAddParticipant`, `TaskClose`, etc.) are reachable only from
+server-internal app-host code paths.
+
+The address layer is being collapsed onto `tasks.app_id` so a
+`MoltZapTMClient` that has `AppsRegister`'d its app can pass the
+gate over the wire. Tracking: [#673](https://github.com/chughtapan/moltzap/issues/673).
+
 ### Refine shape
 
 `refine*` helpers validate an already-fetched row inline — no DB read.
