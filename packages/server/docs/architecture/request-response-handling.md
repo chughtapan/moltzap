@@ -102,33 +102,17 @@ sequenceDiagram
     Dispatch->>Handler: provideServiceEffect chain, then handle(params, ctx)
     Handler-->>Dispatch: success or tagged failure
     Dispatch-->>Socket: wire ResponseFrame
-  else slot absent and OPTIONAL
-    Dispatch->>Default: synthesize FailClosedDefault
-    Default-->>Dispatch: ResponseFrame error or no-op
-    Dispatch-->>Socket: wire ResponseFrame
   else method not in catalog
     Dispatch-->>Socket: MethodNotFound -32601
   end
 ```
 
-**Slot disposition is fixed at protocol-definition time** by the
-`optional?: FailClosedDefault` field on each `defineRpc(...)` call.
-Absent → REQUIRED. Present → OPTIONAL carrying its fail-CLOSED default;
-the dispatcher reads that default when the handler-table value equals
-the matching sentinel (`forbidden` / `noOpNotification`).
-
-| Slot | Disposition | Default | Justification |
-|---|---|---|---|
-| `MessagesAuthorize` (TM) | OPTIONAL | `forbidden` (-32001) | Authorization hook; default-deny is the safe outcome. |
-| `DispatchAuthorize` (TM) | OPTIONAL | `forbidden` (-32001) | Same. |
-| Mutating server methods (`MessagesSend`, `TasksCreate`, …) | REQUIRED | — | Server has no fallback. |
-| Read-only server methods (`AgentsLookup`, `AgentsList`, …) | REQUIRED | — | Same. |
-| Notification-receiver slots (future kinds) | OPTIONAL | `noOpNotification` | Notifications have no response. |
-
-A caller cannot "register an empty handler" to bypass authorization —
-the slot's sentinel value IS authorization-failing, and the handler
-table mapped type forces every slot key to appear in every literal
-(no `?:` field-level optional).
+Every server slot is REQUIRED: the handler-table type forces every slot
+key to appear in every literal (no `?:` field-level optional), so a
+caller cannot "register an empty handler" to bypass authorization. TM
+hooks like `MessagesAuthorize` and `DispatchAuthorize` route through
+explicit `Effect.fail(ForbiddenError)` bodies on the TM side rather
+than a dispatcher-side fail-closed sentinel.
 
 **Capability auto-provision is live.** Each task-layer `defineRpc`
 carries a `capabilities: [{ tag, argsOf }, ...]` array; the dispatcher
@@ -137,7 +121,7 @@ entry (from `packages/server/src/app/capability-providers.ts`), and
 threads `Effect.provideServiceEffect(tag, providerEffect)` over the
 handler. Handler bodies `yield* TmAuthority` / `yield* TaskReadAccess`
 / etc. directly — no hand-piped `provideServiceEffect` chains in
-`tasks.handlers.ts` / `conversations.handlers.ts`.
+`tasks.handlers.ts`.
 
 `MessagesSend` is the one structural exception: its wire schema accepts
 `(conversationId | to | replyToId)` and the handler resolves
@@ -156,7 +140,7 @@ CLIENT                                              SERVER
 caller
   │  service.send({...})
   ▼
-MoltZapWsClient.call(MessagesSend, params)
+MoltZapAgentClient.call(MessagesSend, params)
   │
   ▼  originator.ts → call (idPrefix "rpc")
   │
@@ -214,7 +198,7 @@ pending-request map and the request-id counter for outbound `call(...)`
 invocations — both directions. On the server side it's how
 `AppHost.runAuthorizeDispatch` calls out for verdicts
 (see [server/04](./server-initiated-callback.md)). On the client side
-it's how `MoltZapWsClient.sendRpc` works (idPrefix `"rpc"` there). Lives
+it's how `MoltZapAgentClient.sendRpc` works (idPrefix `"rpc"` there). Lives
 at `protocol/transport/originator.ts → makeOriginator`, scope-bound so
 closing the scope runs `failAllPending(NotConnectedError)`.
 
@@ -227,7 +211,7 @@ caller
    │       generates `${idPrefix}-${next}` JsonRpcId
    │       (server idPrefix = `srv-${connectionId}` per
    │        server/src/transport/connection.ts:69;
-   │        client idPrefix = "rpc" per ws-client.ts:509)
+   │        client idPrefix = "rpc" per agent-client.ts:509)
    │
    ▼  requestFrame(id, definition, params) → RequestFrame
    │

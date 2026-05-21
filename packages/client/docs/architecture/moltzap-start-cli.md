@@ -136,7 +136,7 @@ sequenceDiagram
 | 64 | Usage error (bad `--app-id` UUID OR unresolvable agent token OR >100 distinct name-shaped tokens) | empty | `Invalid --app-id: not a UUID` OR `Cannot resolve "<token>": <reason>` OR `Too many distinct agent names: <count> (max <max>)` |
 
 NO rollback on exit 2: the task + empty conversation persist; user can
-retry `moltzap send conv:<id> <text>` (Non-goal 3).
+retry `moltzap send task:<taskId>:<conversationId> <text>` (Non-goal 3).
 
 Exit code 64 matches POSIX `EX_USAGE` (sysexits.h) for script-friendly
 discrimination between "your input was wrong" (64) and "the wire was

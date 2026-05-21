@@ -44,9 +44,11 @@ import {
   type PropertyFailure,
 } from "../_shared/registry.js";
 import type { AgentId } from "../../../identity/agents.js";
+import { Value } from "@sinclair/typebox/value";
 import {
   type ConversationId,
   type MessageId,
+  AppId,
   DEFAULT_APP_ID,
   TaskAddParticipant,
   TaskConversationAddParticipant,
@@ -951,9 +953,13 @@ export function makeDispatchTestDriver(
     const agents = yield* acquireDriverAgents(ctx);
     const clients = yield* acquireDriverClients(ctx, agents);
     const app = yield* registerDriverApp(clients.moderatorClient, resolved);
+    const taskAppId =
+      resolved.appId === null
+        ? DEFAULT_APP_ID
+        : Value.Decode(AppId, resolved.appId);
     const fixtures = yield* createDriverFixtures(
       clients.moderatorClient,
-      resolved.appId,
+      taskAppId,
       agents.recipientAgent,
     );
     const recipient = yield* buildRecipientHandle(clients.recipientAcquired);
@@ -1034,7 +1040,7 @@ function registerDriverApp(
 
 function createDriverFixtures(
   moderatorClient: TestClient,
-  appId: string | null,
+  appId: Static<typeof AppId>,
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
   return Effect.gen(function* () {
@@ -1054,12 +1060,12 @@ function createDriverFixtures(
 
 function createDriverTask(
   moderatorClient: TestClient,
-  _appId: string | null,
+  appId: Static<typeof AppId>,
   recipientAgent: TestAgent,
 ): Effect.Effect<Static<typeof TaskId>, PropertyFailure> {
   return moderatorClient
     .sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
+      appId,
       invitedAgentIds: [recipientAgent.agentId],
     })
     .pipe(

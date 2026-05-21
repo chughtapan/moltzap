@@ -79,7 +79,7 @@ See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context
 
 ## Dependencies
 - `@moltzap/protocol` (workspace, runtime types + schemas)
-- `@moltzap/client` (workspace, `MoltZapWsClient` used directly in E2E tests;
+- `@moltzap/client` (workspace, `MoltZapAgentClient` used directly in E2E tests;
   test helpers at `@moltzap/client/test`: `registerAgent`, `registerAndConnect`,
   `stripWsPath`)
 - E2E tests spawn the server as a subprocess via `src/__tests__/spawn-server.ts` — requires `pnpm --filter @moltzap/server build` first

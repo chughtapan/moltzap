@@ -13,7 +13,7 @@ import { unusedOriginator } from "./connection.test-utils.js";
 const noopWrite: MoltZapConnection["write"] = () => Effect.void;
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
 
-const ALICE: AgentId = makeAgentId("00000000-0000-4000-8000-00000000a11ce");
+const ALICE: AgentId = makeAgentId("00000000-0000-4000-8000-00000000a11c");
 const BOB: AgentId = makeAgentId("00000000-0000-4000-8000-000000000b0b");
 const CAROL: AgentId = makeAgentId("00000000-0000-4000-8000-0000000ca201");
 
