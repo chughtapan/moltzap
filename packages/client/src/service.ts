@@ -39,7 +39,6 @@ import {
   type RpcDefinition,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { inferConversationType } from "@moltzap/protocol/task";
 import type {
   ConversationId,
   LeaseId,
@@ -1234,11 +1233,11 @@ export class MoltZapService {
           participants.length === 1 ? "dm" : "group";
         return HashMap.set(m, conversationId, {
           id: conversationId,
-          type: inferConversationType(participants),
+          type: inferredType,
           participants: participants.map((p) => `agent:${p}`),
           ...(name !== undefined ? { name } : {}),
-        }),
-      ),
+        });
+      }),
     );
   }
 
