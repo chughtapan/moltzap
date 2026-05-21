@@ -56,9 +56,9 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | `CapabilityProviderTable<Caps>` | transport/capabilities | Capability auto-provision table (plumbing-ships-empty until a defineRpc populates `capabilities`) |
 | `FailClosedDefault` / `forbidden` / `noOpNotification` | transport/defaults | Per-slot fail-CLOSED default tagged-enum + sentinel values; the same values are both descriptor metadata (`optional: forbidden`) and handler-table sentinels |
 | `Agent*`, `User*`, `Session*` | identity | Identity primitives + auth flows |
-| `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state (legacy `Conversations*` + `Tasks*` families) |
-| `TaskCreate`, `TaskLeave`, `TaskConversation*` | task | Spec D1 additive surface (singular `task/*` namespace) |
-| `AppId`, `DEFAULT_APP_ID`, `ParticipantNotAdmittedError` | task | Spec D1 wire-level branding + invariant tag |
+| `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state (Conversation row schemas + message payload + TM verdict union) |
+| `TaskCreate`, `TaskLeave`, `TaskConversation*` | task | `task/*` + `task/conversation/*` RPC surface |
+| `AppId`, `DEFAULT_APP_ID`, `ParticipantNotAdmittedError` | task | Wire-level app brand + participant-admitted invariant tag |
 | `Dispatch*`, `App*`, `Hook*` | app | AppHost surface |
 | Tagged errors (`HookBlockedError`, `TaskClosedError`, …) | various | Auto-registered into `RegisteredTaggedError` union |
 

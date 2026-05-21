@@ -24,7 +24,7 @@ sequenceDiagram
     HS->>RPC: acquireConnectionRpcClient(connId, write)
     Note over RPC: per-connection JSON-RPC originator<br>(internal to the typed Connection)<br>scope-bound: finalizer fails every<br>pending Deferred with NotConnectedError
     RPC-->>HS: originator
-    HS->>CM: connections.add({id, write, shutdown, auth: null,<br>lastPong, conversationIds, mutedConversations, originator})
+    HS->>CM: connections.add({id, write, shutdown, auth: null,<br>lastPong, conversationIds, originator})
     HS->>Reader: socket.runRaw(data => handleFrame(decode(data)))
     Note over HS,Reader: Effect.raceFirst(reader, Deferred.await(closeRequested))<br>raceFirst (not race): abrupt disconnect still triggers onExit—<br>plain `race` would leak on abnormal close
     Reader-->>Cleanup: connection closes (normal or abrupt)

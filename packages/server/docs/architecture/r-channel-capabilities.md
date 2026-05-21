@@ -212,12 +212,11 @@ spec #601 §Non-goals #5. The caller's agent ID rides as a `ctx.agentId`
 parameter; migrating it touches every handler in the workspace. Spec
 #601 §Open question Q3 documents the open follow-up.
 
-The `ConversationService` + `MessageService` public methods (`create`,
-`addParticipant`, `update`, `archive`, `unarchive`, `mute`, `unmute`,
-`removeParticipant`, `sendInsert`, `list`) also stay on the inline-gate
-shape — their R-channel cutover lands when `conversation.service.ts` /
-`message.service.ts` get restructured to fit the `max-lines: 1050` lint
-cap with the added signature plumbing. The obtain helpers are in place;
+The surviving `ConversationService` + `MessageService` public methods
+(`create`, `removeParticipant`, `sendInsert`, `list`, archive helpers)
+stay on the inline-gate shape — their R-channel cutover lands when
+those services get restructured to fit the `max-lines: 1050` lint cap
+with the added signature plumbing. The obtain helpers are in place;
 the cutover follows the recipe in §4.
 
 The infrastructure handlers (`Connect`, `AppsRegister`,
