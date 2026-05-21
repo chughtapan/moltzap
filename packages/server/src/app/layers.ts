@@ -7,10 +7,6 @@
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
-import {
-  TraceCaptureTag,
-  type TraceCapture,
-} from "../runtime-surface/trace-capture.js";
 import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import {
@@ -481,7 +477,6 @@ export interface ResolvedServices {
   readonly messageService: MessageService;
   readonly taskService: TaskService;
   readonly encryption: EnvelopeEncryption | null;
-  readonly traceCapture: TraceCapture;
 }
 
 /**
@@ -505,5 +500,4 @@ export const resolveServices = Effect.all({
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
   taskService: TaskServiceTag,
-  traceCapture: TraceCaptureTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;

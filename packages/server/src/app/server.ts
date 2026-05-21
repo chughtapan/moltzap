@@ -10,7 +10,6 @@ import {
 } from "effect";
 
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import type {
   DispatchContext,
@@ -76,7 +75,6 @@ function makeCoreRuntime(config: CoreConfig) {
     Layer.succeed(SessionValidatorTag, config.sessionValidator ?? null),
     Layer.succeed(WebhookClientTag, webhookClient),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
-    NoopTraceCaptureLive,
   );
   const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
   const WireConversationIntoAppHost = Layer.effectDiscard(
@@ -197,7 +195,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
       return options.getPort();
     },
     networkSendService: services.networkSendService,
-    traceCapture: services.traceCapture,
     connections: services.connections,
     leaseRegistry: services.leaseRegistry,
     registerApp: (manifest) => services.appHost.registerApp(manifest),

@@ -11,7 +11,6 @@ import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
 import type { EndpointAddress } from "@moltzap/protocol/network";
 import type { LeaseRegistry } from "../task/leases/lease-registry.js";
-import type { TraceCapture } from "../runtime-surface/trace-capture.js";
 
 export type { UserId, AgentId };
 
@@ -55,7 +54,6 @@ export interface CoreApp {
    * via `networkSendService.send` outcomes.
    */
   readonly networkSendService: NetworkSendService;
-  readonly traceCapture: TraceCapture;
 
   /**
    * Live ConnectionManager instance. Apps can query `getByParticipant` to
