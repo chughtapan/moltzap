@@ -282,10 +282,9 @@ export class ConversationService {
   }
 
   /**
-   * Spec D1 (#598) — parent task lookup for `task/conversation/list`
-   * row projection. Fails with `NotFoundError` when the conversation
-   * row is missing. `task_id` is `NOT NULL` per Phase 9b R12 so the
-   * column is non-nullable; the only failure mode is "row missing".
+   * Parent task lookup for `task/conversation/list` row projection.
+   * `conversations.task_id` is NOT NULL, so the only failure mode is
+   * `NotFoundError` (row missing).
    * @internal
    */
   taskIdForConversation(
@@ -310,11 +309,10 @@ export class ConversationService {
   }
 
   /**
-   * Spec D1 (#598) — by-id projection used by `task/conversation/*`
-   * archive/unarchive handlers to surface the post-mutation
-   * `Conversation` row (with populated `archivedAt`) for the
-   * dual-emit `conversations/*` legacy notification fan-out. Fails
-   * with `NotFoundError` when the row is missing.
+   * By-id projection used by `task/conversation/{archive,unarchive}`
+   * handlers to surface the post-mutation `Conversation` row (with
+   * populated `archivedAt`) for the fan-out notification. Fails with
+   * `NotFoundError` when the row is missing.
    * @internal
    */
   loadById(
