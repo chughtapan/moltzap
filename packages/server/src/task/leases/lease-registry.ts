@@ -92,7 +92,7 @@ type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
  * scope-enforcement and connection-close cleanup. Once recorded, the
  * tuple is immutable for the lease's lifetime.
  */
-export interface LeaseBindingTuple {
+interface LeaseBindingTuple {
   readonly recipientAgentId: AgentId;
   readonly recipientConnectionId: string;
   readonly moderatorConnectionId: string;
@@ -147,7 +147,7 @@ export interface LeaseRecord {
  * timestamp; the registry generates `leaseId` and `dispatchId`
  * internally via `crypto.randomUUID()` (≥122 bits entropy per spec).
  */
-export interface LeaseMintContext {
+interface LeaseMintContext {
   readonly recipientAgentId: AgentId;
   readonly recipientConnectionId: string;
   readonly moderatorConnectionId: string;
@@ -162,7 +162,7 @@ export interface LeaseMintContext {
  * accidentally confuse them with `MessageId` / `TaskId` / generic
  * strings.
  */
-export interface LeaseMintResult {
+interface LeaseMintResult {
   readonly leaseId: LeaseId;
   readonly dispatchId: DispatchId;
 }
@@ -198,7 +198,7 @@ export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
  * when the id is unknown (caller forged it, or it aged out of the
  * retention window).
  */
-export class LeaseNotFoundError extends Data.TaggedError("LeaseNotFoundError")<{
+class LeaseNotFoundError extends Data.TaggedError("LeaseNotFoundError")<{
   readonly id: LeaseId | DispatchId;
   readonly kind: "leaseId" | "dispatchId";
 }> {
@@ -214,7 +214,7 @@ export class LeaseNotFoundError extends Data.TaggedError("LeaseNotFoundError")<{
  * The handle carries the lease id privately so callers cannot forge a
  * finalize against a different lease.
  */
-export interface Claim {
+interface Claim {
   readonly leaseId: LeaseId;
 
   /**

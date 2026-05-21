@@ -216,7 +216,7 @@ export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
 
 // ── Infrastructure Layers (no app deps) ───────────────────────────────────
 
-export const ConnectionManagerLive = Layer.sync(
+const ConnectionManagerLive = Layer.sync(
   ConnectionManagerTag,
   () => new ConnectionManager(),
 );
@@ -227,7 +227,7 @@ export const ConnectionManagerLive = Layer.sync(
  * Layer exists to register it under {@link AgentEndpointResolverTag} so
  * downstream layers (and `network.send`) can pick it up via Context.
  */
-export const AgentEndpointResolverLive = Layer.effect(
+const AgentEndpointResolverLive = Layer.effect(
   AgentEndpointResolverTag,
   AgentEndpointResolver.make,
 );
@@ -237,7 +237,7 @@ export const AgentEndpointResolverLive = Layer.effect(
  * boot. `tasks.tm_endpoint_address` is NOT NULL — every task needs a
  * registered TM at insert time, and non-app DMs/groups bind here.
  */
-export const AppTmRegistryLive = Layer.effect(
+const AppTmRegistryLive = Layer.effect(
   AppTmRegistryTag,
   Effect.gen(function* () {
     const registry = yield* AppTmRegistry.make;
@@ -255,7 +255,7 @@ export const AppTmRegistryLive = Layer.effect(
  * and the app-TM registry into the {@link NetworkSendService} instance
  * the rest of the server holds via {@link NetworkSendServiceTag}.
  */
-export const NetworkSendServiceLive = Layer.effect(
+const NetworkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
   Effect.gen(function* () {
     const resolver = yield* AgentEndpointResolverTag;
@@ -267,7 +267,7 @@ export const NetworkSendServiceLive = Layer.effect(
 
 // ── Service Layers ────────────────────────────────────────────────────────
 
-export const AuthServiceLive = Layer.effect(
+const AuthServiceLive = Layer.effect(
   AuthServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -275,7 +275,7 @@ export const AuthServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("AuthServiceLive")),
 );
 
-export const ParticipantServiceLive = Layer.effect(
+const ParticipantServiceLive = Layer.effect(
   ParticipantServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -283,7 +283,7 @@ export const ParticipantServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("ParticipantServiceLive")),
 );
 
-export const ConversationServiceLive = Layer.effect(
+const ConversationServiceLive = Layer.effect(
   ConversationServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -307,7 +307,7 @@ export const ConversationServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("ConversationServiceLive")),
 );
 
-export const ContactsServiceLive = Layer.effect(
+const ContactsServiceLive = Layer.effect(
   ContactsServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -315,7 +315,7 @@ export const ContactsServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("ContactsServiceLive")),
 );
 
-export const PresenceServiceLive = Layer.effect(
+const PresenceServiceLive = Layer.effect(
   PresenceServiceTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
@@ -324,7 +324,7 @@ export const PresenceServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("PresenceServiceLive")),
 );
 
-export const LeaseRegistryLive = Layer.effect(
+const LeaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
@@ -335,7 +335,7 @@ export const LeaseRegistryLive = Layer.effect(
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );
 
-export const AppHostLive = Layer.effect(
+const AppHostLive = Layer.effect(
   AppHostTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -360,7 +360,7 @@ export const AppHostLive = Layer.effect(
   }).pipe(Effect.withSpan("AppHostLive")),
 );
 
-export const MessageServiceLive = Layer.effect(
+const MessageServiceLive = Layer.effect(
   MessageServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -446,7 +446,7 @@ const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
 /** Tier 5 — MessageService needs ConversationService + AppHost + upstream. */
 const Tier5 = Layer.provideMerge(MessageServiceLive, Tier4);
 
-export const TaskServiceLive = Layer.effect(
+const TaskServiceLive = Layer.effect(
   TaskServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;

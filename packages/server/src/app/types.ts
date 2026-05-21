@@ -1,7 +1,6 @@
 import type { Layer } from "effect";
 import type { AppManifest } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import type { ContactService } from "./app-host.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
@@ -19,7 +18,7 @@ import type {
   TraceCaptureTag,
 } from "../runtime-surface/trace-capture.js";
 
-export type { UserId, AgentId, ConversationId };
+export type { UserId, AgentId };
 
 export interface CoreConfig {
   db: Db;
