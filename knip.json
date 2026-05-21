@@ -1,21 +1,83 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreWorkspaces": [
-    "packages/claude-code-channel",
-    "packages/client",
-    "packages/nanoclaw-channel",
-    "packages/openclaw-channel",
-    "packages/protocol",
-    "packages/runtimes",
-    "packages/server"
-  ],
   "workspaces": {
     ".": {
-      "entry": [
-        "eslint.shared.mjs",
-        "vitest.workspace-aliases.ts"
-      ],
+      "entry": ["eslint.shared.mjs", "vitest.workspace-aliases.ts"],
       "project": ["*.mjs", "*.ts"]
+    },
+    "packages/claude-code-channel": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "src/**/__tests__/**/*.ts",
+        "vitest*.config.ts"
+      ],
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+    },
+    "packages/client": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "src/**/*.int.test.ts",
+        "src/**/*.types-check.ts",
+        "src/**/__tests__/**/*.ts",
+        "vitest*.config.ts"
+      ],
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+    },
+    "packages/nanoclaw-channel": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/**/__tests__/**/*.ts",
+        "vitest*.config.ts"
+      ],
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+    },
+    "packages/openclaw-channel": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "src/**/__tests__/**/*.ts",
+        "vitest*.config.ts"
+      ],
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+    },
+    "packages/protocol": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/**/*.types-check.ts",
+        "src/testing/conformance/**/*.ts",
+        "vitest*.config.ts"
+      ],
+      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+    },
+    "packages/runtimes": {
+      "entry": [
+        "src/trace-capture-harness.ts",
+        "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "vitest*.config.ts"
+      ],
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+    },
+    "packages/server": {
+      "entry": [
+        "src/standalone.ts",
+        "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "src/**/*.types-check.ts",
+        "src/**/__tests__/**/*.ts",
+        "src/app/capabilities/index.ts",
+        "vitest*.config.ts"
+      ],
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
     }
   }
 }
