@@ -52,7 +52,7 @@ function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
     const { conversationId } = yield* createModeratedDm(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
     );
     const ack = yield* requestDispatch(bob, conversationId, alice);
     return { ack, conversationId };

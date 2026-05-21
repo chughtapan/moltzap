@@ -1,7 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { brandedId, dateTimeStringSchema } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
-import type { ConnectionId } from "../network/actor-model.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ajv } from "../transport/wire.js";
 import { ConversationId, MessageId } from "./conversations.js";
@@ -15,7 +14,6 @@ import {
   type ObtainMessageSendPermissionInput,
 } from "./capabilities/message-send-permission.js";
 import { TaskReadAccess } from "./capabilities/task-read-access.js";
-import { TmAuthority } from "./capabilities/tm-authority.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -158,7 +156,6 @@ export const MessagesSend = defineRpc({
       conversationId: ConversationId,
       parts: MessagePartsSchema,
       replyToId: Type.Optional(MessageId),
-      senderAgentId: Type.Optional(AgentId),
       dispatchLeaseId: Type.Optional(LeaseId),
     },
     { additionalProperties: false },
@@ -168,15 +165,6 @@ export const MessagesSend = defineRpc({
     { additionalProperties: false },
   ),
   capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly connId: ConnectionId };
-        return { taskId: p.taskId, callerConnId: c.connId };
-      },
-    },
     {
       tag: ConversationInTask,
       argsOf: (params: unknown) => {
@@ -198,7 +186,6 @@ export const MessagesSend = defineRpc({
         const p = params as {
           readonly taskId: TaskId;
           readonly conversationId: ConversationId;
-          readonly senderAgentId?: AgentId;
           readonly replyToId?: Static<typeof MessageId>;
         };
         const c = ctx as {
@@ -207,7 +194,7 @@ export const MessagesSend = defineRpc({
         return {
           taskId: p.taskId,
           conversationId: p.conversationId,
-          senderAgentId: p.senderAgentId ?? c.auth.agentId,
+          senderAgentId: c.auth.agentId,
           replyToId: p.replyToId,
         };
       },

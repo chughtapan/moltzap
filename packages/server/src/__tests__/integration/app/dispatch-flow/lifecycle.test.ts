@@ -46,6 +46,15 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
+// Registered as remote-app so TaskConversationCreate passes TmAuthority,
+// but no dispatch hook is wired so dispatch admission falls into the
+// synthesized infra-hold branch.
+const UNKNOWN_APP_MANIFEST: AppManifest = {
+  appId: UNKNOWN_APP_ID,
+  name: "No-Hook Dispatch App",
+  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+};
+
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
 beforeAll(startDispatchFlowServer, 60_000);
@@ -57,11 +66,11 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 function requestModeratedDispatch(
   alice: ConnectedAgent,
   bob: ConnectedAgent,
-  appId: string,
+  manifest: AppManifest,
   text: string,
 ) {
   return Effect.gen(function* () {
-    const binding = yield* createModeratedDm(alice, bob, appId);
+    const binding = yield* createModeratedDm(alice, bob, manifest);
     const ack = yield* requestDispatch(
       bob,
       binding.conversationId,
@@ -105,7 +114,7 @@ function synthesizedInfraHoldDoesNotRemoveRecipient() {
     const { ack } = yield* requestModeratedDispatch(
       alice,
       bob,
-      UNKNOWN_APP_ID,
+      UNKNOWN_APP_MANIFEST,
       "probe",
     );
     const release = yield* Fiber.join(releaseFiber);
@@ -130,7 +139,7 @@ function grantedLeaseExpiresAfterTtl() {
     const { ack } = yield* requestModeratedDispatch(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "probe",
     );
 
@@ -149,7 +158,7 @@ function pendingDisconnectAbandonsLease() {
     const { ack } = yield* requestModeratedDispatch(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "abandon",
     );
 
@@ -219,7 +228,7 @@ function expiredReconnectMintsNewLease() {
     const first = yield* requestModeratedDispatch(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "first",
     );
     yield* Fiber.join(releaseFiber);
@@ -234,7 +243,7 @@ function expiredReconnectMintsNewLease() {
     const second = yield* requestModeratedDispatch(
       alice,
       bob2,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "second",
     );
 

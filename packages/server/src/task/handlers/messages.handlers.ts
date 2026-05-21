@@ -65,7 +65,7 @@ function sendWithDispatchLease(input: LeaseSendInput) {
             const carrier = yield* input.messageService.sendInsert({
               conversationId: input.params.conversationId,
               parts: input.params.parts,
-              senderAgentId: input.params.senderAgentId ?? input.ctx.agentId,
+              senderAgentId: input.ctx.agentId,
               replyToId: input.params.replyToId,
               excludeConnectionId: input.connId,
               bypassTmRouting: false,
@@ -106,13 +106,10 @@ function handleMessageSend(
           leaseRegistry,
         });
       }
-      // MessageSendPermission auto-provisioned per descriptor capabilities
-      // (Spec D3 R14a). senderAgentId optional: TM impersonation path
-      // gated by TmAuthority (also auto-provisioned).
       const message = yield* messageService.send({
         conversationId: params.conversationId,
         parts: params.parts,
-        senderAgentId: params.senderAgentId ?? ctx.agentId,
+        senderAgentId: ctx.agentId,
         replyToId: params.replyToId,
         excludeConnectionId: connId,
       });
