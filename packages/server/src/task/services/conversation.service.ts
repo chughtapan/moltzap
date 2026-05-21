@@ -8,7 +8,7 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
-import { InvalidParamsError } from "../../runtime/index.js";
+import { InvalidParamsError } from "@moltzap/protocol";
 import {
   ConversationArchivedError,
   ConversationFullError,

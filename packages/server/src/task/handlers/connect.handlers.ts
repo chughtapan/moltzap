@@ -28,7 +28,7 @@ import type { PresenceService } from "../../network/services/presence.service.js
 import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { Db } from "../../db/client.js";
 import type { ConversationService } from "../services/conversation.service.js";
-import { InvalidParamsError } from "../../runtime/index.js";
+import { InvalidParamsError } from "@moltzap/protocol";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
