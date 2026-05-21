@@ -33,7 +33,6 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
-import { sql } from "../../db/sql.js";
 import type {
   ConnectionManager,
   MoltZapConnection,
@@ -153,20 +152,14 @@ function hydrateConnectionState(
   conn: MoltZapConnection,
   auth: AuthenticatedContext,
   conversationService: ConversationService,
-  db: Db,
+  _db: Db,
 ) {
   return Effect.gen(function* () {
     const convIds = yield* conversationService.getConversationIds(auth.agentId);
     for (const id of convIds) conn.conversationIds.add(id);
-    const mutedRows = yield* db
-      .selectFrom("conversation_participants")
-      .select("conversation_id")
-      .where("agent_id", "=", auth.agentId)
-      .where("muted_until", "is not", null)
-      .where("muted_until", ">", sql<Date>`now()`);
-    for (const row of mutedRows) {
-      conn.mutedConversations.add(row.conversation_id);
-    }
+    // Spec D3 R14: `conversation_participants.muted_until` retires; mute
+    // is now a client-local concern. The server no longer hydrates a
+    // muted-conversation set per connection.
   }).pipe(Effect.withSpan("connect.hydrateConnectionState"));
 }
 
