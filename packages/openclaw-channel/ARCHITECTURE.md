@@ -71,7 +71,7 @@ Subpath exports: `./test-utils` (Docker-backed integration harness),
   multiple accounts can run side-by-side. Each maps to one MoltZap
   agent (apiKey + agentName + serverUrl).
 - **Target** — An outbound send destination, either `agent:<id>` or
-  `conv:<id>`. `isMoltZapTarget` is the type guard.
+  `task:<taskId>:<conversationId>`. `isMoltZapTarget` is the type guard.
 - **Context log** — Per-message JSONL dump of the full enriched inbound
   payload (system reminder, cross-conv block, etc.), written to a
   configurable directory for debugging/training data capture.
