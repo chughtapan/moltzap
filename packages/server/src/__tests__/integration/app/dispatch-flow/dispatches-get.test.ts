@@ -102,7 +102,7 @@ function requestWireModeratedDispatch(
     const { conversationId } = yield* createModeratedDm(
       moderator,
       recipient,
-      WIRE_APP_ID,
+      WIRE_APP_MANIFEST,
     );
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(
@@ -128,7 +128,7 @@ function registryDirectReadShowsGrantedLease() {
     const { conversationId } = yield* createModeratedDm(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
     );
     const releaseFiber = yield* waitForDispatchRelease(
       bob,

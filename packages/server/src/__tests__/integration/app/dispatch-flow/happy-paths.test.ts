@@ -74,7 +74,7 @@ function moderatedDispatchReleasesGrant() {
     const { conversationId } = yield* createModeratedDm(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
     );
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(

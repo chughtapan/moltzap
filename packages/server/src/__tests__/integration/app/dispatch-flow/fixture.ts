@@ -3,10 +3,8 @@ import {
   DispatchRelease,
   DispatchRequest,
   MessagesSend,
-  TaskConversationCreate,
   TaskConversationParticipantsRemovedNotificationDefinition,
   TaskCreate,
-  type AppId,
   type AppManifest,
   type ConversationId,
   type DispatchId,
@@ -68,18 +66,18 @@ export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 export function createModeratedDm(
   alice: ConnectedAgent,
   bob: ConnectedAgent,
-  appId: string,
+  manifest: AppManifest,
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
-    const task = yield* alice.client.sendRpc(TaskCreate, {
-      appId: appId as AppId,
+    const result = yield* alice.client.sendRpc(TaskCreate, {
+      appId: manifest.appId,
       invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
     });
-    const conv = yield* alice.client.sendRpc(TaskConversationCreate, {
-      taskId: task.task.id,
-      participants: [bob.agentId],
-    });
-    return { taskId: task.task.id, conversationId: conv.conversation.id };
+    return {
+      taskId: result.task.id,
+      conversationId: result.conversation!.id,
+    };
   }).pipe(Effect.withSpan("createModeratedDm"));
 }
 

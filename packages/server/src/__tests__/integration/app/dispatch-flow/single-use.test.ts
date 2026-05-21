@@ -54,7 +54,7 @@ function requestPendingModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ kind: "never-reply" });
-    const binding = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const binding = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
     const ack = yield* requestDispatch(
       bob,
       binding.conversationId,
@@ -72,7 +72,7 @@ function requestGrantedModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
-    const binding = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const binding = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(bob);
     const ack = yield* requestDispatch(

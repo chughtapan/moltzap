@@ -85,8 +85,8 @@ function forkTwoReleaseFibers(recipient: ConnectedAgent) {
 function crossConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conv1 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
-    const conv2 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const conv1 = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
+    const conv2 = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv1.conversationId,
@@ -106,7 +106,7 @@ function crossConversationRequestsRunConcurrently() {
 function sameConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conv = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    const conv = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv.conversationId,
