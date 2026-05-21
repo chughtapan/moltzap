@@ -340,16 +340,13 @@ export class AppHost {
    */
   unregisterRemoteApp(appId: string): void {
     if (this.remoteRegistrations.delete(appId)) {
+      this.manifests.delete(appId);
       Effect.runFork(
         Effect.logInfo("Remote app unregistered").pipe(
           Effect.annotateLogs({ appId }),
         ),
       );
     }
-  }
-
-  getManifest(appId: string): AppManifest | undefined {
-    return this.manifests.get(appId);
   }
 
   setContactService(checker: ContactService): void {
