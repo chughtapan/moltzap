@@ -62,7 +62,7 @@ import type {
   GroupCapacityForCreate,
   MessageSendPermission,
   ConversationCreateAuthorization,
-} from "../app/capabilities/index.js";
+} from "@moltzap/protocol/task";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.

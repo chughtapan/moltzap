@@ -68,7 +68,7 @@ import {
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
 import { endpointAddressForAgent } from "./task.service.js";
-import { MessageSendPermission } from "../../app/capabilities/index.js";
+import { MessageSendPermission } from "@moltzap/protocol/task";
 import type {
   ActiveKekRow,
   ConversationDek,

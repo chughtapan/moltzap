@@ -30,10 +30,7 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-import {
-  ContactPolicyAllowsReach,
-  TmAuthority,
-} from "../../app/capabilities/index.js";
+import { ContactPolicyAllowsReach, TmAuthority } from "@moltzap/protocol/task";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
 function taskCreateBody(

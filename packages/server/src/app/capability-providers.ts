@@ -1,18 +1,21 @@
 /**
- * @file Shared capability provider table for `makeServerConnection`.
+ * @file Capability provider table for `makeServerConnection`.
  *
- * Spec F #632 cutover. The dispatcher's auto-provision path
+ * The dispatcher's auto-provision path
  * (`@moltzap/protocol/transport/dispatch.ts → applyCapabilityProvisioning`)
- * keys obtain helpers by each `Context.Tag.key` declared on the
+ * keys these callbacks by each `Context.Tag.key` declared on the
  * `RpcDefinition.capabilities` array. Both `makeServerConnection` call
- * sites (per-socket `acquireConnectionRpcClient` + the
- * `socket-handler.ts` factory) pass an IDENTICAL provider table, so we
- * extract it here.
+ * sites pass the same constant so the `Caps` generic of
+ * `ServerConnectionConfig` agrees across them.
  *
- * Each provider unwraps the dispatcher-supplied `args` (built by the
- * descriptor's `argsOf(params, ctx)` resolver) and invokes the matching
- * obtain helper from `app/capabilities/*`.
+ * Each callback unwraps the dispatcher-supplied `args` (built by the
+ * descriptor's `argsOf(params, ctx)` resolver), narrows via a single-
+ * level `as` cast, and runs the capability composition inline. The
+ * one exception is `MessageSendPermission` — its composition is large
+ * enough to live as its own named function next to the services it
+ * composes.
  */
+import { Effect } from "effect";
 import type { AgentId, ConversationId, TaskId } from "@moltzap/protocol";
 import {
   ContactPolicyAllowsReach,
@@ -21,15 +24,12 @@ import {
   MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
-  obtainContactPolicyForCreate,
-  obtainConversationCreateAuthorization,
-  obtainConversationInTask,
-  obtainMessageSendPermission,
-  obtainTaskReadAccess,
-  obtainTmAuthority,
   type ObtainConversationCreateAuthorizationInput,
   type ObtainMessageSendPermissionInput,
-} from "./capabilities/index.js";
+} from "@moltzap/protocol/task";
+import { ConversationServiceTag, TaskServiceTag } from "./layers.js";
+import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
+import { obtainMessageSendPermission } from "../task/services/message-send-permission.js";
 
 interface TaskAndAgent {
   readonly taskId: TaskId;
@@ -46,35 +46,71 @@ interface CreatorAndTargets {
   readonly targetAgentIds: ReadonlyArray<AgentId>;
 }
 
-/**
- * Provider table keyed by `Context.Tag.key`. Each entry receives the
- * dispatcher-derived args (built by the descriptor's `argsOf`), narrows
- * via a single-level `as` cast, and returns the obtain helper's effect.
- *
- * Both `makeServerConnection` call sites pass this same constant so the
- * `Caps` generic of `ServerConnectionConfig` agrees across them.
- */
 export const serverCapabilityProviders = {
   [ContactPolicyAllowsReach.key]: (args: unknown) => {
     const { creatorAgentId, targetAgentIds } = args as CreatorAndTargets;
-    return obtainContactPolicyForCreate(creatorAgentId, targetAgentIds);
+    return catchSqlErrorAsDefect(
+      Effect.gen(function* () {
+        const conversations = yield* ConversationServiceTag;
+        const ownerByAgentId =
+          yield* conversations.loadAgentOwners(targetAgentIds);
+        yield* conversations.assertContactPolicyForCreate(
+          creatorAgentId,
+          targetAgentIds,
+          ownerByAgentId,
+        );
+        return { creatorAgentId, targetAgentIds };
+      }),
+    ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
   },
   [TmAuthority.key]: (args: unknown) => {
     const { taskId, callerAgentId } = args as TaskAndAgent;
-    return obtainTmAuthority(taskId, callerAgentId);
+    return Effect.gen(function* () {
+      const taskService = yield* TaskServiceTag;
+      const task = yield* taskService.loadTaskAsTmAuthority(
+        taskId,
+        callerAgentId,
+      );
+      return { task, callerAgentId };
+    }).pipe(Effect.withSpan("obtainTmAuthority"));
   },
   [TaskReadAccess.key]: (args: unknown) => {
     const { taskId, callerAgentId } = args as TaskAndAgent;
-    return obtainTaskReadAccess(taskId, callerAgentId);
+    return Effect.gen(function* () {
+      const taskService = yield* TaskServiceTag;
+      const task = yield* taskService.loadTaskWithReadAccess(
+        taskId,
+        callerAgentId,
+      );
+      return { task, callerAgentId };
+    }).pipe(Effect.withSpan("obtainTaskReadAccess"));
   },
   [ConversationInTask.key]: (args: unknown) => {
     const { taskId, conversationId } = args as TaskAndConversation;
-    return obtainConversationInTask(taskId, conversationId);
+    return Effect.gen(function* () {
+      const taskService = yield* TaskServiceTag;
+      yield* taskService.assertConversationInTask(taskId, conversationId);
+      return { taskId, conversationId };
+    }).pipe(Effect.withSpan("obtainConversationInTask"));
   },
-  [ConversationCreateAuthorization.key]: (args: unknown) =>
-    obtainConversationCreateAuthorization(
-      args as ObtainConversationCreateAuthorizationInput,
-    ),
+  [ConversationCreateAuthorization.key]: (args: unknown) => {
+    const input = args as ObtainConversationCreateAuthorizationInput;
+    return catchSqlErrorAsDefect(
+      Effect.gen(function* () {
+        const conversations = yield* ConversationServiceTag;
+        const ownerByAgentId = yield* conversations.loadAgentOwners(
+          input.agentIds,
+        );
+        yield* conversations.assertContactPolicyForCreate(
+          input.creatorAgentId,
+          input.agentIds,
+          ownerByAgentId,
+        );
+        yield* conversations.assertGroupCapacityForCreate(input.agentIds);
+        return { ownerByAgentId };
+      }),
+    ).pipe(Effect.withSpan("obtainConversationCreateAuthorization"));
+  },
   [MessageSendPermission.key]: (args: unknown) =>
     obtainMessageSendPermission(args as ObtainMessageSendPermissionInput),
 } as const;

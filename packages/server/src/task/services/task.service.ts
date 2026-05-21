@@ -40,7 +40,7 @@ import {
   assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
   assertTmAuthorityMatchesTask,
-} from "../../app/capabilities/index.js";
+} from "@moltzap/protocol/task";
 
 /**
  * Public-but-package-scoped error union. Spec E (#601) needs this
