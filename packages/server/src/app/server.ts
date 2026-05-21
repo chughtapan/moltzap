@@ -43,7 +43,6 @@ import {
 } from "./layers.js";
 import { makeNodeHttpServer } from "./node-http-server.js";
 import { makeCoreHttpApp } from "./http-routes.js";
-import { logError, logInfo } from "./logging.js";
 import { makeSocketHandler } from "./socket-handler.js";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
@@ -109,11 +108,17 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     yield* serverSvc.serve(httpApp);
     const addr = serverSvc.address;
     actualPort = addr._tag === "TcpAddress" ? addr.port : config.port;
-    yield* logInfo("MoltZap core server listening", { port: actualPort });
+    yield* Effect.logInfo("MoltZap core server listening").pipe(
+      Effect.annotateLogs({ port: actualPort }),
+    );
   }).pipe(Effect.withSpan("createCoreApp.startup"), Scope.extend(appScope));
 
   dispatchRuntime.runPromise(startup).catch((err) => {
-    Effect.runFork(logError("Server startup failed", { err }));
+    Effect.runFork(
+      Effect.logError("Server startup failed").pipe(
+        Effect.annotateLogs({ err }),
+      ),
+    );
   });
 
   return makeCoreAppApi({

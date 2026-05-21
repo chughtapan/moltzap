@@ -23,7 +23,6 @@ import { connectionId as brandConnectionId } from "../network/agent-endpoint-res
 import type { AppTags } from "../transport/layer-tags.js";
 import { serverCapabilityProviders } from "./capability-providers.js";
 import type { ConnIdTag, ResolvedServices } from "./layers.js";
-import { logInfo, logWarning } from "./logging.js";
 
 const ERROR_INVALID_JSON = "Invalid JSON";
 
@@ -89,7 +88,9 @@ function openSocketSession(
       mutedConversations: new Set(),
       originator: serverConn,
     });
-    yield* logInfo("WebSocket connected", { connId: session.connId });
+    yield* Effect.logInfo("WebSocket connected").pipe(
+      Effect.annotateLogs({ connId: session.connId }),
+    );
     const reader = socket.runRaw((data) =>
       handleSocketData(data, session, options),
     );
@@ -119,7 +120,9 @@ function makeSendFrame(connId: string, write: SocketWrite): SendFrame {
   return (obj) =>
     write(JSON.stringify(obj)).pipe(
       Effect.catchAll((err) =>
-        logWarning("socket write failed", { err, connId }),
+        Effect.logWarning("socket write failed").pipe(
+          Effect.annotateLogs({ err, connId }),
+        ),
       ),
     );
 }
@@ -181,11 +184,9 @@ function handleParseFailure(
     const count = session.malformedFrames.count + 1;
     session.malformedFrames.count = count;
     if (count === 1 || count % MALFORMED_LOG_EVERY === 0) {
-      yield* logWarning("Failed to parse WebSocket frame", {
-        err,
-        connId: session.connId,
-        count,
-      });
+      yield* Effect.logWarning("Failed to parse WebSocket frame").pipe(
+        Effect.annotateLogs({ err, connId: session.connId, count }),
+      );
     }
     yield* session.sendFrame(
       encodeErrorResponse(null, {
@@ -209,10 +210,9 @@ function handleResponseFrame(
     const matched = yield* conn.originator.resolve(frame);
     if (!matched) {
       const responseId = frame.id;
-      yield* logWarning(
+      yield* Effect.logWarning(
         "no pending appCallback request matched inbound response",
-        { connId: session.connId, id: responseId },
-      );
+      ).pipe(Effect.annotateLogs({ connId: session.connId, id: responseId }));
     }
   }).pipe(Effect.withSpan("socket.handleResponseFrame"));
 }
@@ -272,12 +272,16 @@ function closeSocketSession(
     options.services.presenceService.removeConnection(session.connId);
     options.services.connections.remove(session.connId);
     if (Exit.isFailure(exit)) {
-      yield* logWarning("WebSocket error", {
-        connId: session.connId,
-        cause: Cause.pretty(exit.cause),
-      });
+      yield* Effect.logWarning("WebSocket error").pipe(
+        Effect.annotateLogs({
+          connId: session.connId,
+          cause: Cause.pretty(exit.cause),
+        }),
+      );
     }
-    yield* logInfo("WebSocket disconnected", { connId: session.connId });
+    yield* Effect.logInfo("WebSocket disconnected").pipe(
+      Effect.annotateLogs({ connId: session.connId }),
+    );
   }).pipe(Effect.withSpan("socket.closeSession"));
 }
 
