@@ -25,16 +25,16 @@ export function runtimeConfigPath(path: string): RuntimeConfigPath {
   return RuntimeConfigPathBrand(path);
 }
 
-export type RuntimeEnvironment = "development" | "test" | "production";
+type RuntimeEnvironment = "development" | "test" | "production";
 
-export type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
+type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
 
-export interface RuntimeLoggingConfig {
+interface RuntimeLoggingConfig {
   readonly level: RuntimeLogLevel;
   readonly preserveLegacyFields: boolean;
 }
 
-export interface RuntimeTracingConfig {
+interface RuntimeTracingConfig {
   readonly serviceName: string;
   readonly includeFiberIds: boolean;
   readonly includeRequestContext: boolean;
