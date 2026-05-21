@@ -12,7 +12,6 @@ import type {
   MessageAuthorizeHook,
   TaskAuthorizeDispatchHook,
 } from "./hooks.js";
-import type { EndpointAddress } from "@moltzap/protocol/network";
 import type { LeaseRegistry } from "./lease-registry.js";
 import type {
   TraceCapture,
@@ -154,13 +153,14 @@ export interface CoreApp {
   ) => void;
 
   /**
-   * #560: register an in-process `messages/authorize` handler keyed by
-   * `EndpointAddress`. Default-DM and default-group register at boot
-   * to preserve today's broadcast; apps register their custom TM hook
-   * via this surface. Idempotent — repeat calls overwrite the entry.
+   * Register an in-process `messages/authorize` handler keyed by
+   * `appId`. Apps that hold their own moderator register here; absent
+   * registration the server falls back to the default policy
+   * `Forward { participants \ sender }`. Idempotent — repeat calls
+   * overwrite the entry.
    */
   registerMessageAuthorize: (
-    address: EndpointAddress,
+    appId: string,
     handler: MessageAuthorizeHook,
   ) => void;
 

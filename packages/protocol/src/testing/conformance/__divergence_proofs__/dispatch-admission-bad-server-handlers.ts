@@ -308,7 +308,6 @@ function makeTaskResult(
         appId: "bad-server-app",
         initiatorAgentId: callerAgentId,
         status: "active",
-        tmEndpointAddress: "ws://bad-server-tm",
         startedAt: null,
         endedAt: null,
         createdAt: "2026-01-01T00:00:00.000Z",

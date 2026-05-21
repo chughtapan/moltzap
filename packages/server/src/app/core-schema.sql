@@ -138,21 +138,12 @@ CREATE TYPE task_status AS ENUM ('waiting', 'active', 'failed', 'closed');
 
 CREATE TABLE tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  app_id TEXT,
+  -- Every task is owned by a registered app. TM authority is proved at
+  -- request time via app-ownership of the caller's WS connection (see
+  -- `AppHost.isAppConnection`); there is no separate TM-endpoint column.
+  app_id TEXT NOT NULL,
   initiator_agent_id UUID NOT NULL REFERENCES agents(id),
   status task_status NOT NULL DEFAULT 'waiting',
-  -- Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL.
-  -- Every task carries a registered TM at insert time. The pre-Phase-9b
-  -- two-step (`tasks/create` then `endpoints/registerTaskManager`)
-  -- collapsed to one transaction; `endpoints/{,un}registerTaskManager`
-  -- wire RPCs retired with the schema constraint.
-  --
-  -- Round 4 R18 (codex HIGH-C): the schema is greenfield. Pre-prod
-  -- deployments rebuild the DB on every deploy — there is no in-place
-  -- upgrade path for the NOT NULL flip and no migration script
-  -- accompanies it. Future production cutover (Phase 11+) needs an
-  -- explicit migration framework before this column can be backfilled.
-  tm_endpoint_address TEXT NOT NULL,
   started_at TIMESTAMPTZ,
   ended_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

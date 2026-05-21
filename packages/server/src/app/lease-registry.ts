@@ -98,7 +98,6 @@ export interface LeaseBindingTuple {
   readonly moderatorConnectionId: string;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly tmEndpointAddress: string;
   readonly appId: string;
 }
 
@@ -153,7 +152,6 @@ export interface LeaseMintContext {
   readonly moderatorConnectionId: string;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly tmEndpointAddress: string;
   readonly appId: string;
 }
 
@@ -458,7 +456,6 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire {
     appId: record.binding.appId,
     recipientAgentId: record.binding.recipientAgentId,
     moderatorConnectionId: record.binding.moderatorConnectionId,
-    tmEndpointAddress: record.binding.tmEndpointAddress,
     state: record.state,
     verdict: leaseVerdictToWire(record.verdict),
     mintedAt: record.mintedAt,
@@ -825,7 +822,6 @@ function makeMintedLeaseRecord(
       moderatorConnectionId: ctx.moderatorConnectionId,
       taskId: ctx.taskId,
       conversationId: ctx.conversationId,
-      tmEndpointAddress: ctx.tmEndpointAddress,
       appId: ctx.appId,
     },
     state: "PENDING",

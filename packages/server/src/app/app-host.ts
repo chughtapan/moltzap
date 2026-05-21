@@ -27,10 +27,6 @@ import {
   type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
 import { MessagesAuthorize } from "@moltzap/protocol";
-import {
-  endpointAddressKind,
-  type EndpointAddress,
-} from "@moltzap/protocol/network";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Data, Effect, Either, Option } from "effect";
 import {
@@ -47,51 +43,8 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * For app-bound conversations whose TM IS the moderator agent (the
- * common case per architect plan §3 + prereq 2 §3 — the
- * `assertConversationAdminAuthority` gate accepts only this shape for
- * `app_id IS NOT NULL`), `tasks.tm_endpoint_address` is the wire
- * address `tm:agent:&lt;moderatorAgentId>`. Recover the agentId so the
- * deny arm of the forked round-trip can call `removeParticipant`
- * with the correct requester (epic decision #8).
- *
- * Returns `null` if the address shape doesn't match the expected
- * agent-kind prefix — caller falls back to no-op (the architect-level
- * authority chain is the source of truth; if the shape is unexpected,
- * we'd rather skip removeParticipant than mis-evict the recipient).
- */
-function parseModeratorAgentIdFromTm(raw: string): AgentId | null {
-  // Wire shape: "tm:agent:<uuid>". App-kind addresses ("tm:app:<uuid>")
-  // are not moderator-IS-agent and shouldn't drive removeParticipant
-  // — those are TM-as-app routing and the authority chain on
-  // conversations.task.app_id != null requires moderator IS agent.
-  const prefix = "tm:agent:";
-  if (!raw.startsWith(prefix)) return null;
-  const rest = raw.slice(prefix.length);
-  if (rest.length === 0) return null;
-  return rest as AgentId;
-}
-
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const EMPTY_TASK_ID = "" as TaskId;
-
-/**
- * Derive an `appId` from an `EndpointAddress` for `remoteRegistrations`
- * lookup (#560 C5 remote-path resolution). The mapping is well-defined
- * only for the `tm:app:&lt;appId>` shape — custom-TM `tm:agent:&lt;id>`
- * addresses do not carry an appId and short-circuit to null. Caller
- * (`runMessageAuthorize`) falls through to the synthetic default
- * verdict when both the in-process hook AND this lookup are absent.
- */
-function appIdFromTmEndpointAddress(address: EndpointAddress): string | null {
-  if (endpointAddressKind(address) !== "app") return null;
-  const prefix = "tm:app:";
-  const raw = address as string;
-  if (!raw.startsWith(prefix)) return null;
-  const rest = raw.slice(prefix.length);
-  return rest.length === 0 ? null : rest;
-}
 
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
@@ -153,7 +106,6 @@ interface EnqueueDispatchRequestArgs {
 interface DispatchBindingContext {
   readonly appId: string;
   readonly taskId: TaskId;
-  readonly tmEndpointAddress: string;
   readonly moderatorConnectionId: string;
 }
 
@@ -167,7 +119,7 @@ interface DispatchRoundTripParams {
   readonly receivedAt?: string;
   readonly clock?: LogicalClock;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
-  readonly tmEndpointAddress: string;
+  readonly moderatorConnectionId: string;
 }
 
 type AppBoundConversationLookup = Extract<
@@ -179,12 +131,6 @@ type NonAppBoundConversationLookup = Exclude<
   ConversationAppLookup,
   AppBoundConversationLookup
 >;
-
-interface MessageAuthorizeRoute {
-  readonly inProcess: MessageAuthorizeHook | undefined;
-  readonly remoteAppId: string | null;
-  readonly remote: RemoteRegistration | undefined;
-}
 
 function dispatchVerdictToLeaseVerdict(
   verdict: DispatchAdmissionResult,
@@ -211,22 +157,13 @@ export class AppHost {
   private hooks = new Map<string, AppHooks>();
 
   /**
-   * #560: send-side fan-out hooks keyed by `EndpointAddress`. The
-   * lookup key for `messages/authorize` is the parent task's
-   * `tm_endpoint_address` (always populated post-#461 R12), NOT an
-   * appId. Default-DM and default-group register at boot under
-   * `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`; app TMs
-   * register under their `tm:app:&lt;uuid>` address; future custom TMs
-   * (e.g., `tm:agent:&lt;id>`) register under that.
-   *
-   * No sentinel constants needed — the existing address shapes IS
-   * the key. See R8 (ghost-service hazard) for why this stays
-   * separate from the `AppTmRegistry` opaque-payload registry.
+   * In-process `messageAuthorize` handlers keyed by `appId`. Apps with
+   * an in-process moderator (typical test fixture) register via
+   * {@link registerMessageAuthorize}. Apps that authenticate over WS
+   * and call `apps/register` over the wire route through the
+   * remote-registration path in {@link runMessageAuthorize}.
    */
-  private messageAuthorizeHooks = new Map<
-    EndpointAddress,
-    MessageAuthorizeHook
-  >();
+  private messageAuthorizeHooks = new Map<string, MessageAuthorizeHook>();
 
   /**
    * Remote-app routing table. An entry exists iff `registerRemoteApp` was
@@ -259,10 +196,9 @@ export class AppHost {
    * {@link setConversationService}). Used by the forked moderator
    * round-trip to call `removeParticipant` on verdict-deny / synthesized
    * timeout-deny — the architect §3 state-machine rule "On `deny`
-   * verdict, registry calls `conversationService.removeParticipant(...)`"
-   * (epic decision #8). Synthesized infra-hold (no hook registered)
-   * does NOT call removeParticipant — that is the prereq-2 hold case
-   * (architect risk #5; epic decision #10).
+   * verdict, registry calls `conversationService.removeParticipant(...)`".
+   * Synthesized infra-hold (no hook registered) does NOT call
+   * removeParticipant — that is the prereq-2 hold case.
    */
   private conversationService: ConversationServiceForRemove | null = null;
 
@@ -346,6 +282,19 @@ export class AppHost {
     }
   }
 
+  /**
+   * TM-authority gate: returns true iff `callerConnId` IS the
+   * connection currently registered as the remote app for `appId` —
+   * i.e. the caller's WebSocket is the app's `apps/register` channel.
+   * Stable across requests on the same WS; invalidated when the
+   * connection closes (the registration entry is dropped via
+   * {@link unregisterRemoteApp} on the disconnect finalizer).
+   */
+  isAppConnection(appId: string, callerConnId: string): boolean {
+    const entry = this.remoteRegistrations.get(appId);
+    return entry !== undefined && entry.connectionId === callerConnId;
+  }
+
   getManifest(appId: string): AppManifest | undefined {
     return this.manifests.get(appId);
   }
@@ -390,12 +339,10 @@ export class AppHost {
    *    after the ack lands.
    *  - `ConversationArchived`: synthesize `deny{conversation_archived}`.
    *  - `AppBound` with no hook: synthesize `hold{moderator_unavailable}`
-   *    (load-bearing — does NOT call `removeParticipant` per risk #5).
+   *    (load-bearing — does NOT call `removeParticipant`).
    *  - `AppBound` with hook: forked round-trip; verdict-deny + timeout-
    *    deny call `resolve(deny)` and the caller is responsible for
-   *    `removeParticipant` via the standard verdict-deny path. (Hook
-   *    surface here only manages the lease; participant removal stays in
-   *    the existing legacy flow until cutover.)
+   *    `removeParticipant` via the standard verdict-deny path.
    *
    * Returns immediately with `{leaseId, dispatchId}` (or fails closed
    * via `LeaseRegistry not wired` defect if the registry hasn't been
@@ -424,14 +371,13 @@ export class AppHost {
         this.db,
         args.conversationId,
       );
-      const binding = yield* this.dispatchBindingForLookup(lookup);
+      const binding = this.dispatchBindingForLookup(lookup);
       const minted = yield* registry.mint({
         recipientAgentId: args.recipientAgentId,
         recipientConnectionId: args.recipientConnectionId,
         moderatorConnectionId: binding.moderatorConnectionId,
         taskId: binding.taskId,
         conversationId: args.conversationId,
-        tmEndpointAddress: binding.tmEndpointAddress,
         appId: binding.appId,
       });
 
@@ -449,7 +395,7 @@ export class AppHost {
           receivedAt: args.receivedAt,
           clock: args.clock,
           pending: args.pending,
-          tmEndpointAddress: binding.tmEndpointAddress,
+          moderatorConnectionId: binding.moderatorConnectionId,
         },
       );
       return minted;
@@ -458,46 +404,20 @@ export class AppHost {
 
   private dispatchBindingForLookup(
     lookup: ConversationAppLookup,
-  ): Effect.Effect<DispatchBindingContext, SqlError> {
+  ): DispatchBindingContext {
     if (lookup._tag !== "AppBound") {
-      return Effect.succeed({
+      return {
         appId: "",
         taskId: EMPTY_TASK_ID,
-        tmEndpointAddress: "",
         moderatorConnectionId: "",
-      });
-    }
-
-    return Effect.gen(this, function* () {
-      const tmEndpointAddress = yield* this.taskTmEndpointAddress(
-        lookup.taskId,
-      );
-      const remote = this.remoteRegistrations.get(lookup.appId);
-      return {
-        appId: lookup.appId,
-        taskId: lookup.taskId,
-        tmEndpointAddress,
-        moderatorConnectionId: remote?.connectionId ?? "",
       };
-    });
-  }
-
-  private taskTmEndpointAddress(
-    taskId: TaskId,
-  ): Effect.Effect<string, SqlError> {
-    return takeFirstOption(
-      this.db
-        .selectFrom("tasks")
-        .select(["tm_endpoint_address"])
-        .where("id", "=", taskId),
-    ).pipe(
-      Effect.map((taskRow) =>
-        Option.match(taskRow, {
-          onNone: () => "",
-          onSome: (row) => row.tm_endpoint_address,
-        }),
-      ),
-    );
+    }
+    const remote = this.remoteRegistrations.get(lookup.appId);
+    return {
+      appId: lookup.appId,
+      taskId: lookup.taskId,
+      moderatorConnectionId: remote?.connectionId ?? "",
+    };
   }
 
   private attachDispatchRoundTripFiber(
@@ -632,14 +552,20 @@ export class AppHost {
     return registry.resolve(leaseId, verdict).pipe(Effect.ignore);
   }
 
+  /**
+   * On verdict-deny, evict the recipient from the conversation. Uses
+   * the moderator's WS auth identity (the registered remote app's
+   * `auth.agentId`) as the requester. Skips when no moderator
+   * connection or no conversation service is wired.
+   */
   private removeDeniedParticipant(
     verdict: DispatchAdmissionResult,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never> {
     if (verdict.decision !== "deny") return Effect.void;
     const svc = this.conversationService;
-    const moderatorAgentId = parseModeratorAgentIdFromTm(
-      params.tmEndpointAddress,
+    const moderatorAgentId = this.moderatorAgentIdFromConn(
+      params.moderatorConnectionId,
     );
     if (svc === null || moderatorAgentId === null) return Effect.void;
     return svc
@@ -659,6 +585,13 @@ export class AppHost {
           ),
         ),
       );
+  }
+
+  private moderatorAgentIdFromConn(connectionId: string): AgentId | null {
+    if (connectionId === "") return null;
+    const conn = this.connections.get(connectionId);
+    if (!conn || !conn.auth) return null;
+    return conn.auth.agentId as AgentId;
   }
 
   /**
@@ -723,73 +656,57 @@ export class AppHost {
 
   /**
    * Register an in-process `messageAuthorize` handler keyed by
-   * `EndpointAddress`. Issue #560 default-DM and default-group register at boot
-   * (in `app-tm-registry.ts` or wherever default TMs bootstrap);
-   * apps that hold their own `tm:app:&lt;uuid>` address register at
-   * `apps/register` time. Idempotent — repeat calls overwrite the
-   * existing entry for that address.
+   * `appId`. App-bound tasks resolve their hook via this map; if no
+   * entry exists AND no remote registration covers the app, the
+   * default policy `Forward { participants \ sender }` applies.
+   * Idempotent — repeat calls overwrite the entry.
    */
-  registerMessageAuthorize(
-    address: EndpointAddress,
-    hook: MessageAuthorizeHook,
-  ): void {
-    this.messageAuthorizeHooks.set(address, hook);
+  registerMessageAuthorize(appId: string, hook: MessageAuthorizeHook): void {
+    this.messageAuthorizeHooks.set(appId, hook);
   }
 
   /**
-   * Resolve the per-message fan-out verdict for a `messages/send`
-   * (#560). Looks up the registered handler by `tmEndpointAddress`,
-   * dispatches either the in-process `MessageAuthorizeHook` or the
-   * remote `messages/authorize` S→C RPC, applies the uniform fail-
-   * closed envelope, and returns a verdict the
+   * Resolve the per-message fan-out verdict for a `messages/send`.
+   * Looks up the registered handler by `appId`, dispatches either the
+   * in-process `MessageAuthorizeHook` or the remote
+   * `messages/authorize` S→C RPC, applies the uniform fail-closed
+   * envelope, and returns a verdict the
    * `MessageService.sendCommit` caller can switch on.
    *
-   * Fail-closed posture (mirrors `runAuthorizeDispatch` per #461 r3
-   * R3/R4): timeout / RPC error / handler throw / decode failure all
-   * synthesize `Block { reason: "tm_unreachable" }` (or
-   * `"messages/authorize timeout"` / `"messages/authorize error"`,
-   * matching `dispatch/authorize`'s wording where the cause is known).
+   * Fail-closed posture (mirrors `runAuthorizeDispatch`): timeout / RPC
+   * error / handler throw / decode failure all synthesize `Block { reason:
+   * "tm_unreachable" }` (or `"messages/authorize timeout"` /
+   * `"messages/authorize error"`, matching `dispatch/authorize`'s
+   * wording where the cause is known).
    *
-   * Default policy when no hook is registered for the address:
-   * `Forward { recipients: participants \ sender }`. Default-DM and
-   * default-group's in-process registrations return exactly this —
-   * preserves today's broadcast behavior with zero wire chatter.
-   *
-   * The address-keyed map (`messageAuthorizeHooks`) is the C2 design
-   * pin: separate registry from the appId-keyed `hooks`, identical
-   * shape (`Map&lt;TKey, Hook&lt;TContext, TResult>>`). The hook-shape
-   * unification is the v4 design pin (architect risk R13).
+   * Default policy when no hook is registered: `Forward { recipients:
+   * participants \ sender }` — preserves today's broadcast behavior
+   * with zero wire chatter.
    */
   runMessageAuthorize(
-    tmEndpointAddress: EndpointAddress,
+    appId: string,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
-    const route = this.messageAuthorizeRoute(tmEndpointAddress);
-    if (!route.inProcess && !route.remote) {
+    const inProcess = this.messageAuthorizeHooks.get(appId);
+    const remote = this.remoteRegistrations.get(appId);
+    if (!inProcess && !remote) {
       return this.defaultMessageAuthorize(ctx);
     }
 
-    const timeoutMs = this.messageAuthorizeTimeoutMs(route.remoteAppId);
+    const timeoutMs = this.messageAuthorizeTimeoutMs(appId);
     const taskId = ctx.taskId;
-    const appId = ctx.appId;
 
     return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
-      raw: this.messageAuthorizeRaw(
-        ctx,
-        route.remoteAppId ?? appId,
-        route.remote,
-        route.inProcess,
-      ),
+      raw: this.messageAuthorizeRaw(ctx, appId, remote, inProcess),
       timeoutMs,
       timeoutLogMessage: "messages/authorize timed out",
       timeoutLogContext: {
         taskId,
         appId,
-        tmEndpointAddress,
         timeoutMs,
       },
       errorLogMessage: "messages/authorize error",
-      errorLogContext: { taskId, appId, tmEndpointAddress },
+      errorLogContext: { taskId, appId },
       onTimeout: () => ({
         decision: "Block" as const,
         reason: "tm_unreachable",
@@ -801,23 +718,7 @@ export class AppHost {
     });
   }
 
-  private messageAuthorizeRoute(
-    tmEndpointAddress: EndpointAddress,
-  ): MessageAuthorizeRoute {
-    const inProcess = this.messageAuthorizeHooks.get(tmEndpointAddress);
-    const remoteAppId = appIdFromTmEndpointAddress(tmEndpointAddress);
-    if (remoteAppId === null) {
-      return { inProcess, remoteAppId, remote: undefined };
-    }
-    return {
-      inProcess,
-      remoteAppId,
-      remote: this.remoteRegistrations.get(remoteAppId),
-    };
-  }
-
-  private messageAuthorizeTimeoutMs(appId: string | null): number {
-    if (appId === null) return DEFAULT_APP_HOOK_TIMEOUT_MS;
+  private messageAuthorizeTimeoutMs(appId: string): number {
     const manifest = this.manifests.get(appId);
     return (
       manifest?.hooks?.message_authorize?.timeout_ms ??
@@ -905,12 +806,6 @@ export class AppHost {
   // INSIDE the dispatch helpers; call sites observe one type. Failure
   // modes (timeout, throw, RPC error, NotConnectedError, decode failure)
   // collapse into fail-closed verdicts (`deny`).
-  //
-  // Multi-app composition (architect plan §3.4: "Effect.forEach in
-  // registration order, first deny short-circuits") is implemented by
-  // {@link dispatchAcrossAppsWithDenyShortCircuit} below. Today every
-  // session is bound to a single appId so the iteration is len-1; the
-  // combinator is forward-compatible for multi-app sessions.
 
   /**
    * Strip non-wire-safe fields from a hook context so it can be sent over

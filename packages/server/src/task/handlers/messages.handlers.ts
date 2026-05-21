@@ -130,10 +130,16 @@ export const messageHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const messageService = yield* MessageServiceTag;
-        return yield* messageService.list(params.conversationId, ctx.agentId, {
-          limit: params.limit,
-          sinceSeq: params.sinceSeq,
-        });
+        const connId = yield* ConnIdTag;
+        return yield* messageService.list(
+          params.conversationId,
+          ctx.agentId,
+          connId,
+          {
+            limit: params.limit,
+            sinceSeq: params.sinceSeq,
+          },
+        );
       }).pipe(Effect.withSpan("messages.list")),
   }),
 ];

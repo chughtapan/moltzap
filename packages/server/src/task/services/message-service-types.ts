@@ -31,7 +31,7 @@ export interface SendCommitInput {
 
 export interface ResolveSendVerdictInput {
   readonly messageId: MessageId;
-  readonly tmEndpointAddressRaw: string;
+  readonly appId: string;
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
   readonly parts: ReadonlyArray<Part>;
@@ -41,7 +41,7 @@ export interface ResolveSendVerdictInput {
 export interface SendConversationRow {
   readonly archived_at: Date | null;
   readonly task_id: TaskId;
-  readonly tm_endpoint_address: string;
+  readonly app_id: string;
   readonly task_status: TaskStatus;
 }
 

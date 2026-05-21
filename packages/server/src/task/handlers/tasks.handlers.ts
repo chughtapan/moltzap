@@ -25,7 +25,6 @@ import {
   type TaskConversationListItem,
 } from "@moltzap/protocol";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
-import { defaultAppTmEndpointAddress } from "../../task/services/task.service.js";
 import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
@@ -57,7 +56,6 @@ function taskCreateBody(
     const task = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
       invitedAgentIds: params.invitedAgentIds,
-      tmEndpointAddress: defaultAppTmEndpointAddress(params.appId),
     });
     if (params.initialConversation === undefined) {
       return { task, conversation: null as Conversation | null };

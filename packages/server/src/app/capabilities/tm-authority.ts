@@ -1,35 +1,45 @@
 import { Effect } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
+import { ForbiddenError } from "@moltzap/protocol";
 import {
   TmAuthority,
   type TmAuthorityValue,
   type TaskId,
 } from "@moltzap/protocol/task";
-import { TaskServiceTag } from "../layers.js";
+import { AppHostTag, TaskServiceTag } from "../layers.js";
 import type { TaskServiceError } from "../../task/services/task.service.js";
 
 export { TmAuthority, type TmAuthorityValue };
 
+const ERR_NOT_TM = "Caller is not the registered task manager for this task";
+
 /**
- * Smart constructor: wraps today's runtime check exactly once per
- * request. Body delegates to `TaskService.loadTaskAsTmAuthority`, which
- * still performs the same SQL lookup + status branch + endpoint
- * equality check it did pre-Spec-E.
+ * Smart constructor for the TM-authority capability. The proof is
+ * "the calling WS connection IS the registered remote-app connection
+ * for `task.appId`". Body:
+ *   1. Fetch the task (existence + open-status gate via
+ *      `TaskService.loadOpenTask`).
+ *   2. Check app-ownership of `callerConnId` against `task.appId` via
+ *      `AppHost.isAppConnection`.
  *
- * Error channel propagates `TaskService.loadTaskAsTmAuthority`'s full
- * public error union (`TaskServiceError`) verbatim — practically
- * `ForbiddenError` (not-the-TM, task-closed/failed) and `NotFoundError`
- * (task-does-not-exist); `SqlError` is caught defectively by
- * `fetchTask` so it does NOT appear in E. The union is carried as
- * `TaskServiceError` so impl-staff cannot accidentally over-narrow
- * when the underlying helper widens.
+ * Error channel: `TaskServiceError` (carried verbatim from
+ * `loadOpenTask` — typically `ForbiddenError` on closed/failed task or
+ * `NotFoundError` on missing task; SqlError is caught defectively
+ * inside `fetchTask`) plus a `ForbiddenError` on the auth failure.
  */
 export const obtainTmAuthority = (
   taskId: TaskId,
-  caller: AgentId,
-): Effect.Effect<TmAuthorityValue, TaskServiceError, TaskServiceTag> =>
+  callerConnId: string,
+): Effect.Effect<
+  TmAuthorityValue,
+  TaskServiceError,
+  TaskServiceTag | AppHostTag
+> =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    const task = yield* taskService.loadTaskAsTmAuthority(taskId, caller);
-    return { task, callerAgentId: caller };
+    const appHost = yield* AppHostTag;
+    const task = yield* taskService.loadOpenTask(taskId);
+    if (!appHost.isAppConnection(task.appId, callerConnId)) {
+      return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
+    }
+    return { task };
   }).pipe(Effect.withSpan("obtainTmAuthority"));

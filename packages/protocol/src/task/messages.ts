@@ -170,16 +170,16 @@ export const MessagesSend = defineRpc({
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        const c = ctx as { readonly connId: string };
+        return { taskId: p.taskId, callerConnId: c.connId };
       },
     },
     {
       tag: ConversationInTask,
       argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly taskId: TaskId;
           readonly conversationId: ConversationId;
@@ -193,18 +193,22 @@ export const MessagesSend = defineRpc({
         params: unknown,
         ctx: unknown,
       ): ObtainMessageSendPermissionInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly taskId: TaskId;
           readonly conversationId: ConversationId;
           readonly senderAgentId?: AgentId;
           readonly replyToId?: Static<typeof MessageId>;
         };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        const c = ctx as {
+          readonly auth: { readonly agentId: AgentId };
+          readonly connId: string;
+        };
         return {
           taskId: p.taskId,
           conversationId: p.conversationId,
           senderAgentId: p.senderAgentId ?? c.auth.agentId,
+          callerConnId: c.connId,
           replyToId: p.replyToId,
         };
       },

@@ -8,6 +8,7 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import {
+  AppsRegister,
   DEFAULT_APP_ID,
   HookBlockedError,
   MessagesList,
@@ -21,7 +22,6 @@ import {
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol";
-import { endpointAddress } from "@moltzap/protocol/network";
 import {
   startTestServerEffect,
   stopTestServerEffect,
@@ -44,9 +44,6 @@ const TEST_APP_MANIFEST: AppManifest = {
   },
 };
 
-const DEFAULT_DM_TM_ADDRESS = endpointAddress(
-  "tm:app:00000000-0000-4d11-8000-000000000d11",
-);
 const DECISION_FORWARD = "Forward";
 const DECISION_BLOCK = "Block";
 const NEVER_REPLY = "never-reply";
@@ -117,9 +114,11 @@ beforeEach(() =>
   ),
 );
 
-function registerTmHook(tmAgentId: string): void {
-  const addr = endpointAddress(`tm:agent:${tmAgentId}`);
-  getTestCoreApp().registerMessageAuthorize(addr, () => {
+function registerTmHook(_tmAgentId: string): void {
+  // #673: hook is keyed by appId, not by TM-agent-address. The
+  // `_tmAgentId` parameter is preserved for call-site symmetry with the
+  // pre-cutover signature; the hook routes to TEST_APP_ID.
+  getTestCoreApp().registerMessageAuthorize(TEST_APP_ID, () => {
     appHookState.calls += 1;
     const verdict = appHookState.next;
     if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
@@ -130,8 +129,12 @@ function registerTmHook(tmAgentId: string): void {
 }
 
 function registerDefaultDmHook(verdict: MessageAuthorizeVerdict): void {
+  // #673: default-DM / default-group machinery deleted. The legacy
+  // "no app, just a DM" path now goes through the DEFAULT_APP_ID app;
+  // tests that need a custom default-policy hook for non-TEST_APP_ID
+  // conversations register against DEFAULT_APP_ID.
   defaultDmHookState = { next: verdict, calls: 0 };
-  getTestCoreApp().registerMessageAuthorize(DEFAULT_DM_TM_ADDRESS, () => {
+  getTestCoreApp().registerMessageAuthorize(DEFAULT_APP_ID, () => {
     if (defaultDmHookState === null) expect.fail("default DM hook not seeded");
     defaultDmHookState.calls += 1;
     return defaultDmHookState.next as MessageAuthorizeVerdict;
@@ -273,9 +276,19 @@ function createAppManagedTask(
   agent: ConnectedAgent,
   invited: ReadonlyArray<ConnectedAgent>,
 ) {
-  return agent.client.sendRpc(TaskCreate, {
-    appId: TEST_APP_ID,
-    invitedAgentIds: invited.map((a) => a.agentId),
+  // #673: `agent` must be the registered remote-app connection for
+  // TEST_APP_ID so TM authority is provable on subsequent admin RPCs
+  // (task/conversation/create etc.). `apps/register` is idempotent in
+  // the AppHost implementation — repeated calls overwrite the entry
+  // with the same connection id.
+  return Effect.gen(function* () {
+    yield* agent.client.sendRpc(AppsRegister, {
+      manifest: TEST_APP_MANIFEST,
+    });
+    return yield* agent.client.sendRpc(TaskCreate, {
+      appId: TEST_APP_ID,
+      invitedAgentIds: invited.map((a) => a.agentId),
+    });
   });
 }
 

@@ -18,7 +18,6 @@ import {
   type AppManifest,
   type JsonRpcId,
 } from "@moltzap/protocol";
-import { endpointAddress } from "@moltzap/protocol/network";
 import {
   agentId,
   conversationId,
@@ -123,7 +122,6 @@ const FIXTURE_AGENT_SENDER = agentId("00000000-0000-4000-8000-000000000a02");
 const FIXTURE_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000201");
 const MESSAGE_APP_ID = "00000000-0000-4000-8000-000000000560";
 const MANIFEST_DISPATCH_TIMEOUT_MS = 1234;
-const MESSAGE_TM_ADDRESS = endpointAddress(`tm:app:${MESSAGE_APP_ID}`);
 
 const baseAuthorizeDispatchCtx = (
   appId: string,
@@ -305,7 +303,7 @@ function remoteMessageAuthorizeForwards() {
     const taskId = makeTaskId("00000000-0000-4000-8000-000000ce5601");
     const fiber = yield* Effect.fork(
       fixture.host.runMessageAuthorize(
-        MESSAGE_TM_ADDRESS,
+        MESSAGE_APP_ID,
         baseMessageAuthorizeCtx(MESSAGE_APP_ID, taskId),
       ),
     );
@@ -337,7 +335,7 @@ function staleRemoteMessageBlocks() {
       "no-such-conn",
     );
     const result = yield* fixture.host.runMessageAuthorize(
-      MESSAGE_TM_ADDRESS,
+      MESSAGE_APP_ID,
       baseMessageAuthorizeCtx(
         MESSAGE_APP_ID,
         makeTaskId("00000000-0000-4000-8000-000000ce5602"),
@@ -355,7 +353,7 @@ function malformedRemoteMessageBlocks() {
     );
     const fiber = yield* Effect.fork(
       fixture.host.runMessageAuthorize(
-        MESSAGE_TM_ADDRESS,
+        MESSAGE_APP_ID,
         baseMessageAuthorizeCtx(
           MESSAGE_APP_ID,
           makeTaskId("00000000-0000-4000-8000-000000ce5603"),

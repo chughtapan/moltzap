@@ -9,6 +9,10 @@ import {
 } from "../transport/wire-errors.js";
 import { ConversationId, conversationSchema } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
+// `connId` is injected by the dispatcher's ctx; we only need its TS shape
+// here, not the runtime brand, so a structural alias keeps the
+// descriptor module free of server-layer imports.
+type CallerConnIdCtx = { readonly connId: string };
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
 import {
@@ -75,9 +79,6 @@ export function logicalClockSchema(): typeof LogicalClockSchema {
   return LogicalClockSchema;
 }
 
-const TmTypeEnum = stringEnum(["self", "default-dm", "default-group"]);
-export type TmType = (typeof TmTypeEnum)["static"];
-
 // Mirrors the `task_status` DB enum.
 const TaskStatusEnum = stringEnum(["waiting", "active", "failed", "closed"]);
 
@@ -86,14 +87,9 @@ export type TaskStatus = Static<typeof TaskStatusEnum>;
 const TaskSchema = Type.Object(
   {
     id: TaskId,
-    appId: Type.Union([Type.String(), Type.Null()]),
+    appId: Type.String(),
     initiatorAgentId: AgentId,
     status: TaskStatusEnum,
-    // The persisted task output exposes `tmEndpointAddress` (a branded
-    // `EndpointAddress` string). The public `tasks/create` request does
-    // NOT take an address directly; it takes a `tmType` enum and the
-    // server derives the address (Phase 9b R16, PR #461).
-    tmEndpointAddress: Type.String({ minLength: 1 }),
     startedAt: Type.Union([DateTimeString, Type.Null()]),
     endedAt: Type.Union([DateTimeString, Type.Null()]),
     createdAt: DateTimeString,
@@ -138,10 +134,10 @@ export const TaskClose = defineRpc({
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        const c = ctx as CallerConnIdCtx;
+        return { taskId: p.taskId, callerConnId: c.connId };
       },
     },
   ] as const,
@@ -164,10 +160,10 @@ export const TaskAddParticipant = defineRpc({
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        const c = ctx as CallerConnIdCtx;
+        return { taskId: p.taskId, callerConnId: c.connId };
       },
     },
   ] as const,
@@ -187,10 +183,10 @@ export const TaskRemoveParticipant = defineRpc({
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        const c = ctx as CallerConnIdCtx;
+        return { taskId: p.taskId, callerConnId: c.connId };
       },
     },
   ] as const,
@@ -323,10 +319,10 @@ export const TaskConversationCreate = defineRpc({
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        const c = ctx as CallerConnIdCtx;
+        return { taskId: p.taskId, callerConnId: c.connId };
       },
     },
     {
@@ -335,7 +331,7 @@ export const TaskConversationCreate = defineRpc({
         params: unknown,
         ctx: unknown,
       ): ObtainConversationCreateAuthorizationInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly participants: ReadonlyArray<AgentId>;
         };
@@ -379,13 +375,13 @@ export const TaskConversationList = defineRpc({
 // exported) to keep the descriptor definitions terse and avoid
 // drift between siblings.
 const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
   const p = params as { readonly taskId: TaskId };
-  const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-  return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+  const c = ctx as CallerConnIdCtx;
+  return { taskId: p.taskId, callerConnId: c.connId };
 };
 const conversationInTaskArgsOfPair = (params: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
   const p = params as {
     readonly taskId: TaskId;
     readonly conversationId: ConversationId;

@@ -122,12 +122,11 @@ export interface TaskParticipants {
 }
 
 export interface Tasks {
-  app_id: string | null;
+  app_id: string;
   created_at: Generated<Timestamp>;
   ended_at: Timestamp | null;
   id: Generated<string>;
   initiator_agent_id: string;
   started_at: Timestamp | null;
   status: Generated<TaskStatus>;
-  tm_endpoint_address: string;
 }

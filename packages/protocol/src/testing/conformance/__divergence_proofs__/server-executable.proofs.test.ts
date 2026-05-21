@@ -563,10 +563,9 @@ function makeTaskListBadResult(
         id: `00000000-0000-4000-8000-${ordinal
           .toString(BAD_SERVER_AGENT_UUID_RADIX)
           .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`,
-        appId: null,
+        appId: "bad-server-app",
         initiatorAgentId: "00000000-0000-4000-8000-000000000001",
         status: "active",
-        tmEndpointAddress: "tm:test",
         startedAt: null,
         endedAt: null,
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -685,7 +684,7 @@ function badTaskCreateResult(request: RequestFrame): unknown {
   return {
     task: badTask({
       id: BAD_TASK_ID,
-      appId: typeof params.appId === "string" ? params.appId : null,
+      appId: typeof params.appId === "string" ? params.appId : "bad-server-app",
       status: "waiting",
     }),
   };
@@ -745,7 +744,7 @@ function badTaskConversation(request: RequestFrame): unknown {
 
 function badTask(opts: {
   readonly id: string;
-  readonly appId: string | null;
+  readonly appId: string;
   readonly status: "waiting" | "active" | "failed" | "closed";
   readonly endedAt?: string;
 }) {
@@ -754,7 +753,6 @@ function badTask(opts: {
     appId: opts.appId,
     initiatorAgentId: badServerAgentId(1),
     status: opts.status,
-    tmEndpointAddress: `tm:agent:${badServerAgentId(1)}`,
     startedAt: null,
     endedAt: opts.endedAt ?? null,
     createdAt: BAD_SERVER_NOW,

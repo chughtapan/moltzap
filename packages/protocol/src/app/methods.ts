@@ -369,7 +369,6 @@ const LeaseRecordSchema = Type.Object(
     appId: Type.String(),
     recipientAgentId: AgentId,
     moderatorConnectionId: Type.String(),
-    tmEndpointAddress: Type.String(),
     state: LeaseStateSchema,
     verdict: Type.Union([DispatchAdmissionDecisionSchema, Type.Null()]),
     mintedAt: DateTimeString,

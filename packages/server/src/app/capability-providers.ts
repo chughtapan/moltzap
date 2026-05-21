@@ -34,6 +34,11 @@ interface TaskAndAgent {
   readonly callerAgentId: AgentId;
 }
 
+interface TaskAndConn {
+  readonly taskId: TaskId;
+  readonly callerConnId: string;
+}
+
 interface TaskAndConversation {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
@@ -49,8 +54,8 @@ interface TaskAndConversation {
  */
 export const serverCapabilityProviders = {
   [TmAuthority.key]: (args: unknown) => {
-    const { taskId, callerAgentId } = args as TaskAndAgent;
-    return obtainTmAuthority(taskId, callerAgentId);
+    const { taskId, callerConnId } = args as TaskAndConn;
+    return obtainTmAuthority(taskId, callerConnId);
   },
   [TaskReadAccess.key]: (args: unknown) => {
     const { taskId, callerAgentId } = args as TaskAndAgent;
