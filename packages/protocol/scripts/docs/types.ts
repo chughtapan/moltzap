@@ -1,7 +1,7 @@
 export const TypeBoxKind = Symbol.for("TypeBox.Kind");
 export const SORT_KEY_PAD_WIDTH = 2;
 export const JSON_INDENT = 2;
-export const TASKS_CREATE_METHOD = "tasks/create";
+export const TASK_CREATE_METHOD = "task/create";
 
 export interface TypeBoxSchema {
   readonly [key: symbol]: unknown;

@@ -49,9 +49,10 @@ is a display-only label derived from participant cardinality where
 needed; the server schema does not store it. Capacity is uniform 256
 per conversation.
 
-The `tm_endpoint_address` for the default app derives from
-`DEFAULT_APP_ID` via the app-tm-registry lookup (one-app-to-one-TM).
-No dedicated schema column.
+Tasks created with `DEFAULT_APP_ID` are unmoderated — there is no
+remote app registered for them, so no connection passes the TM-authority
+gate and TM-only RPCs are unreachable. Ordinary participants still send
+messages via the AgentClient surface.
 
 ## TaskCreate flow
 
@@ -89,7 +90,7 @@ NOT normative pseudocode):
 Additional contract clauses (spec body Goal 2):
 
 - **Last-participant in individual conversations** — left in place (NOT auto-archived). No `TaskConversationArchive` notification fires from `TaskLeave`.
-- **TM unaffected** — `tm_endpoint_address` does NOT change; TMs are not participants.
+- **TM unaffected** — `tasks.app_id` does NOT change; TMs are not participants.
 - **Owner is not special** — task closure rule applies even if the owner leaves.
 
 ## Participant invariant: TaskConversationAddParticipant
@@ -128,19 +129,14 @@ notification fires; the conversation row stays with
 
 ### "TM only" — what that means today
 
-`TaskCreate` binds `tasks.tm_endpoint_address` to `tm:app:<appId>`,
-and `loadTaskAsTmAuthority` does a byte-equality check against
-`tm:agent:<caller>`. The two address shapes never match, so the
-TM-only RPCs above are unreachable from a regular agent WS
-connection — only server-internal app-host code (via
-`AppsRegister`-installed `dispatch_authorize` / `message_authorize`
-callbacks) can drive them.
-
-The TM-routing layer is being refactored to drop the redundant
-`tm_endpoint_address` column and route by `tasks.app_id` directly,
-with auth keyed off `AppHost.remoteRegistrations` so a
-`MoltZapTMClient` that has `AppsRegister`'d its app can call the
-TM-only RPCs over the wire. See [#673](https://github.com/chughtapan/moltzap/issues/673).
+TM authority is proved by the calling WS connection being the
+registered remote-app connection for `tasks.app_id`. Apps register via
+the wire `AppsRegister` RPC; `AppHost.isAppConnection(appId, connId)`
+does the lookup. A `MoltZapTMClient` that has `AppsRegister`'d its
+manifest can call the TM-only RPCs over the wire from that connection.
+Server-internal app-host code (in-process `dispatch_authorize` /
+`message_authorize` callbacks) also drives them when the in-process
+hook is registered.
 
 ## Capability list per handler
 

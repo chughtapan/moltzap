@@ -56,8 +56,8 @@ sequenceDiagram
 
 The same shape applies to `runMessageAuthorize` — second caller of the
 unified `wrapHookEffectWithEnvelope` in `app/app-host.ts`, keyed by
-`EndpointAddress` instead of `appId`, with verdicts in the Forward/Block
-shape instead of grant/deny/hold.
+`appId` with verdicts in the Forward/Block shape instead of
+grant/deny/hold.
 
 ## See also
 

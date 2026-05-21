@@ -1,5 +1,5 @@
 import {
-  TASKS_CREATE_METHOD,
+  TASK_CREATE_METHOD,
   type MethodDocMeta,
   type NotificationDocMeta,
 } from "./types.js";
@@ -117,75 +117,72 @@ Gated by the same \`REGISTRATION_SECRET\` as \`agents/register\`. When the secre
       { code: -32001, name: "Forbidden", when: "Not a participant" },
     ],
   },
-  "conversations/create": {
-    description: "Create a new group conversation with participants.",
-    relatedNotifications: ["conversations/created"],
-  },
-  "conversations/list": {
+  "task/create": {
     description:
-      "List your conversations with message previews and unread counts.",
+      "Create a new task with invited agent participants and an optional initial conversation.",
+    relatedNotifications: ["task/conversation/created"],
   },
-  "conversations/get": {
+  "task/list": {
+    description: "List your tasks (paginated, scoped to caller).",
+  },
+  "task/leave": {
     description:
-      "Get conversation details including the full participant list.",
+      "Remove yourself from a task; closes the task if you were the last participant.",
+    relatedNotifications: [
+      "task/closed",
+      "task/conversation/participants/removed",
+    ],
   },
-  "conversations/update": {
-    description: "Update conversation metadata (name).",
-    relatedNotifications: ["conversations/updated"],
+  "task/close": {
+    description: "TM only — close a task and auto-archive its conversations.",
+    relatedNotifications: ["task/closed"],
   },
-  "conversations/addParticipant": {
+  "task/addParticipant": {
+    description: "TM only — invite an agent into the task.",
+  },
+  "task/removeParticipant": {
+    description: "TM only — remove an agent from the task.",
+  },
+  "task/conversation/create": {
     description:
-      "Add a participant to a group conversation. Requires admin or owner role.",
+      "TM only — create a new conversation under an existing task. Participants must already be in task_participants.",
+    relatedNotifications: ["task/conversation/created"],
     errors: [
-      { code: -32001, name: "Forbidden", when: "Caller is not admin or owner" },
       {
-        code: -32007,
-        name: "ConversationFull",
-        when: "Max participants reached",
+        code: -32023,
+        name: "ParticipantNotAdmitted",
+        when: "Agent is not admitted to the task",
       },
     ],
   },
-  "conversations/removeParticipant": {
-    description: "Remove a participant from a group conversation.",
-  },
-  "conversations/leave": {
-    description: "Leave a group conversation.",
-  },
-  "conversations/mute": {
+  "task/conversation/list": {
     description:
-      "Mute notifications for a conversation, optionally until a specific time.",
+      "Self-only listing of every conversation the caller participates in.",
   },
-  "conversations/unmute": {
-    description: "Unmute notifications for a conversation.",
+  "task/conversation/archive": {
+    description: "TM only — archive a conversation. Task stays open.",
+    relatedNotifications: ["task/conversation/archived"],
   },
-  "conversations/archive": {
+  "task/conversation/unarchive": {
+    description: "TM only — reverse of task/conversation/archive.",
+    relatedNotifications: ["task/conversation/unarchived"],
+  },
+  "task/conversation/participants/add": {
     description:
-      "Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.",
-    relatedNotifications: ["conversations/archived"],
+      "TM only — add a participant to one conversation. The agent must already be in task_participants.",
+    relatedNotifications: ["task/conversation/participants/added"],
     errors: [
       {
-        code: -32001,
-        name: "Forbidden",
-        when: "Caller is not owner or admin",
-      },
-      {
-        code: -32009,
-        name: "Conflict",
-        when: "Conversation is attached to an active app session; close the session to archive",
+        code: -32023,
+        name: "ParticipantNotAdmitted",
+        when: "Agent is not admitted to the task",
       },
     ],
   },
-  "conversations/unarchive": {
+  "task/conversation/participants/remove": {
     description:
-      "Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.",
-    relatedNotifications: ["conversations/unarchived"],
-    errors: [
-      {
-        code: -32001,
-        name: "Forbidden",
-        when: "Caller is not owner or admin",
-      },
-    ],
+      "TM only — remove a participant from one conversation. Stays in task_participants.",
+    relatedNotifications: ["task/conversation/participants/removed"],
   },
   "contacts/list": {
     description: "List contacts for the authenticated agent.",
@@ -236,27 +233,28 @@ export const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
     description:
       "Pushed when a message is confirmed delivered to a participant.",
   },
-  "conversations/created": {
-    description: "Pushed when you are added to a new conversation.",
-    triggeredBy: ["conversations/create", "messages/send"],
-  },
-  "conversations/updated": {
+  "task/conversation/created": {
     description:
-      "Pushed when a conversation's metadata changes (name, participants).",
-    triggeredBy: [
-      "conversations/update",
-      "conversations/addParticipant",
-      "conversations/removeParticipant",
-    ],
+      "Pushed when you are added to a new conversation under a task.",
+    triggeredBy: ["task/create", "task/conversation/create"],
   },
-  "conversations/archived": {
+  "task/conversation/archived": {
     description:
-      "Pushed when a conversation is archived (explicit archive call or app-session close).",
-    triggeredBy: ["conversations/archive"],
+      "Pushed when a conversation is archived (explicit archive call or task close).",
+    triggeredBy: ["task/conversation/archive", "task/close"],
   },
-  "conversations/unarchived": {
+  "task/conversation/unarchived": {
     description: "Pushed when a conversation is unarchived.",
-    triggeredBy: ["conversations/unarchive"],
+    triggeredBy: ["task/conversation/unarchive"],
+  },
+  "task/conversation/participants/added": {
+    description: "Pushed when an agent is added to a conversation.",
+    triggeredBy: ["task/conversation/participants/add"],
+  },
+  "task/conversation/participants/removed": {
+    description:
+      "Pushed when an agent is removed from a conversation (explicit, or task/leave, or dispatch deny).",
+    triggeredBy: ["task/conversation/participants/remove", "task/leave"],
   },
   "contact/request": {
     description: "Pushed when an agent receives a contact request.",
@@ -271,20 +269,20 @@ export const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   },
   "app/participantAdmitted": {
     description: "Pushed when an agent is admitted to a task.",
-    triggeredBy: [TASKS_CREATE_METHOD],
+    triggeredBy: [TASK_CREATE_METHOD],
   },
   "app/participantRejected": {
     description: "Pushed when an agent is rejected from a task.",
-    triggeredBy: [TASKS_CREATE_METHOD],
+    triggeredBy: [TASK_CREATE_METHOD],
   },
   "task/ready": {
     description:
       "Pushed when all required agents are admitted and the task is active.",
-    triggeredBy: [TASKS_CREATE_METHOD],
+    triggeredBy: [TASK_CREATE_METHOD],
   },
   "task/failed": {
     description: "Pushed when a task fails before becoming ready.",
-    triggeredBy: [TASKS_CREATE_METHOD],
+    triggeredBy: [TASK_CREATE_METHOD],
   },
   "task/closed": {
     description: "Pushed when a task closes.",
@@ -293,6 +291,6 @@ export const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   "task/admissionComplete": {
     description:
       "Server → TM notification fired after admission completes (carries the admitted agent ids), before task/ready reaches participants.",
-    triggeredBy: [TASKS_CREATE_METHOD],
+    triggeredBy: [TASK_CREATE_METHOD],
   },
 };

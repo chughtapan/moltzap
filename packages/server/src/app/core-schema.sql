@@ -166,8 +166,7 @@ CREATE INDEX idx_task_participants_agent ON task_participants(agent_id);
 -- created task-less conversations retired alongside the broadcast
 -- fallback in `MessageService.send`.
 --
--- Round 4 R18 (codex HIGH-C): greenfield schema. See the comment at
--- `tasks.tm_endpoint_address` above — pre-prod rebuilds, no migration.
+-- Greenfield schema — pre-prod rebuilds, no migration.
 ALTER TABLE conversations
   ADD COLUMN task_id UUID NOT NULL REFERENCES tasks(id);
 CREATE INDEX idx_conversations_task ON conversations(task_id);

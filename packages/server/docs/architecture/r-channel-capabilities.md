@@ -77,23 +77,21 @@ export const obtainTmAuthority = (
 ): Effect.Effect<TmAuthorityValue, TaskServiceError, TaskServiceTag> =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    const task = yield* taskService.requireTmAuthority(taskId, caller);
-    return { task, callerAgentId: caller };
+    const task = yield* taskService.loadOpenTask(taskId);
+    if (!appHost.isAppConnection(task.appId, callerConnId)) {
+      return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
+    }
+    return { task };
   }).pipe(Effect.withSpan("obtainTmAuthority"));
 ```
 
-`requireTmAuthority` enforces byte-equality between the task's
-`tm_endpoint_address` and `endpointAddressForAgent(caller) =
-"tm:agent:<caller>"`. Tasks created via the wire `TaskCreate` always
-bind to `tm:app:<appId>` (the app is the TM), so a regular agent WS
-connection cannot pass `TmAuthority` over the wire — the TM-only
-RPCs (`TaskConversationCreate`, `TaskConversationArchive`,
-`TaskAddParticipant`, `TaskClose`, etc.) are reachable only from
-server-internal app-host code paths.
-
-The address layer is being collapsed onto `tasks.app_id` so a
-`MoltZapTMClient` that has `AppsRegister`'d its app can pass the
-gate over the wire. Tracking: [#673](https://github.com/chughtapan/moltzap/issues/673).
+The gate proves "the calling WS connection IS the registered remote-app
+connection for `task.appId`". Apps register their connection via the
+wire `AppsRegister` RPC; `AppHost.isAppConnection(appId, connId)` does
+the lookup. A `MoltZapTMClient` that has `AppsRegister`'d its app can
+pass the gate over the wire. TM-only RPCs (`TaskConversationCreate`,
+`TaskConversationArchive`, `TaskAddParticipant`, `TaskClose`, etc.)
+gate on this proof at the descriptor level.
 
 ### Refine shape
 
