@@ -41,7 +41,10 @@ import {
   lookupAppForConversation,
   type ConversationAppLookup,
 } from "./conversation-app-lookup.js";
-import type { LeaseRegistry, LeaseVerdict } from "./lease-registry.js";
+import type {
+  LeaseRegistry,
+  LeaseVerdict,
+} from "../task/leases/lease-registry.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

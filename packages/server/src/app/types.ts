@@ -13,7 +13,7 @@ import type {
   TaskAuthorizeDispatchHook,
 } from "./hooks.js";
 import type { EndpointAddress } from "@moltzap/protocol/network";
-import type { LeaseRegistry } from "./lease-registry.js";
+import type { LeaseRegistry } from "../task/leases/lease-registry.js";
 import type {
   TraceCapture,
   TraceCaptureTag,

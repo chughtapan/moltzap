@@ -33,7 +33,10 @@ import {
 import { TaskService } from "../task/services/task.service.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
 import { AppHost } from "./app-host.js";
-import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
+import {
+  makeLeaseRegistry,
+  type LeaseRegistry,
+} from "../task/leases/lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 
