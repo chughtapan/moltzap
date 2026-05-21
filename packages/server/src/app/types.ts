@@ -81,30 +81,8 @@ export interface CoreConfig {
   traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
 }
 
-export type ConnectionHook = (params: {
-  agentId: string;
-  agentName: string;
-  /** Owner user ID resolved at network/connect time. Null for unclaimed agents. */
-  ownerUserId: string | null;
-  connId: string;
-}) => PromiseLike<void> | void;
-
-export type DisconnectionHook = (params: {
-  agentId: string;
-  ownerUserId: string | null;
-  connId: string;
-}) => PromiseLike<void> | void;
-
 export interface CoreApp {
   readonly port: number;
-  onConnection: (hook: ConnectionHook) => void;
-
-  /**
-   * Fires when a WebSocket closes, after auth was established. Use for
-   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
-   * connections that never authenticated.
-   */
-  onDisconnection: (hook: DisconnectionHook) => void;
 
   /**
    * Outbound-routing primitive. Apps emit events out-of-band via

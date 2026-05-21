@@ -29,12 +29,7 @@ import { appHandlers } from "./handlers/apps.handlers.js";
 
 import { WebhookClient } from "../adapters/webhook.js";
 
-import type {
-  CoreConfig,
-  CoreApp,
-  ConnectionHook,
-  DisconnectionHook,
-} from "./types.js";
+import type { CoreConfig, CoreApp } from "./types.js";
 import {
   AppHostTag,
   ConversationServiceTag,
@@ -92,15 +87,11 @@ function makeCoreRuntime(config: CoreConfig) {
 
 export function createCoreApp(config: CoreConfig): CoreApp {
   const { dispatchRuntime, services } = makeCoreRuntime(config);
-  const connectionHooks: ConnectionHook[] = [];
-  const disconnectionHooks: DisconnectionHook[] = [];
   const methods = makeCoreRpcMethods();
   const handlers = buildServerHandlers(methods);
   const handleSocket = makeSocketHandler({
     services,
     handlers,
-    connectionHooks,
-    disconnectionHooks,
   });
   const httpApp = makeCoreHttpApp({
     config,
@@ -129,8 +120,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     config,
     dispatchRuntime,
     services,
-    connectionHooks,
-    disconnectionHooks,
     appScope,
     getPort: () => actualPort,
   });
@@ -179,8 +168,6 @@ interface CoreAppApiOptions {
   readonly config: CoreConfig;
   readonly dispatchRuntime: CoreRuntime["dispatchRuntime"];
   readonly services: CoreRuntime["services"];
-  readonly connectionHooks: ConnectionHook[];
-  readonly disconnectionHooks: DisconnectionHook[];
   readonly appScope: Scope.CloseableScope;
   readonly getPort: () => number;
 }
@@ -191,8 +178,6 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     get port() {
       return options.getPort();
     },
-    onConnection: (hook) => options.connectionHooks.push(hook),
-    onDisconnection: (hook) => options.disconnectionHooks.push(hook),
     networkSendService: services.networkSendService,
     traceCapture: services.traceCapture,
     connections: services.connections,

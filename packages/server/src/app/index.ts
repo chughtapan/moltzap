@@ -20,8 +20,6 @@ export type {
   AgentId,
   UserId,
   ConversationId,
-  ConnectionHook,
-  DisconnectionHook,
 } from "./types.js";
 
 export { AppHost } from "./app-host.js";

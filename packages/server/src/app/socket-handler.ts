@@ -23,7 +23,6 @@ import { connectionId as brandConnectionId } from "../network/agent-endpoint-res
 import type { AppTags } from "../transport/layer-tags.js";
 import { serverCapabilityProviders } from "./capability-providers.js";
 import type { ConnIdTag, ResolvedServices } from "./layers.js";
-import type { ConnectionHook, DisconnectionHook } from "./types.js";
 import { ERROR_INVALID_JSON } from "./server-constants.js";
 import { logInfo, logWarning } from "./logging.js";
 
@@ -36,15 +35,12 @@ type SendFrame = (obj: unknown) => Effect.Effect<void>;
 interface SocketHandlerOptions {
   readonly services: Pick<
     ResolvedServices,
-    | "db"
     | "connections"
     | "agentEndpointResolver"
     | "presenceService"
     | "leaseRegistry"
   >;
   readonly handlers: ServerHandlers<DispatchContext>;
-  readonly connectionHooks: readonly ConnectionHook[];
-  readonly disconnectionHooks: readonly DisconnectionHook[];
 }
 
 interface SocketSession {
@@ -243,54 +239,7 @@ function handleRequestFrame(
       connId: session.connId,
     });
     yield* session.sendFrame(response);
-    if (isConnect) yield* fireConnectionHooks(session, options);
   }).pipe(Effect.withSpan("socket.handleRequestFrame"));
-}
-
-function fireConnectionHooks(
-  session: SocketSession,
-  options: SocketHandlerOptions,
-) {
-  return Effect.gen(function* () {
-    const authCtx = options.services.connections.get(session.connId)?.auth;
-    if (authCtx === undefined || authCtx === null) return;
-    const { agentId, ownerUserId } = authCtx;
-    const agentName = yield* readAgentName(agentId, options);
-    for (const hook of options.connectionHooks) {
-      yield* runConnectionHook(hook, {
-        agentId,
-        agentName,
-        ownerUserId,
-        connId: session.connId,
-      });
-    }
-  }).pipe(Effect.withSpan("socket.fireConnectionHooks"));
-}
-
-function readAgentName(
-  agentId: AuthenticatedContext["agentId"],
-  options: SocketHandlerOptions,
-) {
-  return Effect.tryPromise(() =>
-    options.services.db
-      .selectFrom("agents")
-      .select("name")
-      .where("id", "=", agentId)
-      .executeTakeFirst(),
-  ).pipe(
-    Effect.catchAll(() => Effect.succeed(undefined)),
-    Effect.map((row) => row?.name ?? agentId),
-  );
-}
-
-function runConnectionHook(
-  hook: ConnectionHook,
-  args: Parameters<ConnectionHook>[0],
-) {
-  return runUserHook(hook, args, "Connection hook", {
-    agentId: args.agentId,
-    connId: args.connId,
-  });
 }
 
 function runSocketReader<R>(
@@ -313,7 +262,6 @@ function closeSocketSession(
     const authCtx = conn?.auth ?? null;
     if (authCtx !== null) {
       options.services.presenceService.setOffline(authCtx.agentId);
-      yield* runDisconnectionHooks(authCtx, session, options);
       yield* options.services.agentEndpointResolver.remove(
         authCtx.agentId,
         brandConnectionId(session.connId),
@@ -330,42 +278,6 @@ function closeSocketSession(
     }
     yield* logInfo("WebSocket disconnected", { connId: session.connId });
   }).pipe(Effect.withSpan("socket.closeSession"));
-}
-
-function runDisconnectionHooks(
-  authCtx: AuthenticatedContext,
-  session: SocketSession,
-  options: SocketHandlerOptions,
-) {
-  return Effect.gen(function* () {
-    const { agentId, ownerUserId } = authCtx;
-    for (const hook of options.disconnectionHooks) {
-      yield* runUserHook(
-        hook,
-        { agentId, ownerUserId, connId: session.connId },
-        "Disconnection hook",
-        { agentId, connId: session.connId },
-      );
-    }
-  }).pipe(Effect.withSpan("socket.runDisconnectionHooks"));
-}
-
-function runUserHook<TArgs>(
-  hook: (args: TArgs) => void | PromiseLike<void>,
-  args: TArgs,
-  label: string,
-  logCtx: Record<string, unknown>,
-): Effect.Effect<void> {
-  return Effect.tryPromise({
-    try: () => Promise.resolve(hook(args)),
-    catch: (err) => err,
-  }).pipe(
-    Effect.timeoutFail({
-      duration: "2 seconds",
-      onTimeout: () => new Error(`${label} timed out`),
-    }),
-    Effect.catchAll((err) => logWarning(`${label} error`, { err, ...logCtx })),
-  );
 }
 
 function sendInvalidRequest(session: SocketSession) {
