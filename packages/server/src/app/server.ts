@@ -46,6 +46,7 @@ import {
   WebhookClientTag,
   resolveServices,
 } from "./layers.js";
+import { installDefaultAppDispatchHook } from "./default-app.js";
 import { makeNodeHttpServer } from "./node-http-server.js";
 import { makeCoreHttpApp } from "./http-routes.js";
 import { logError, logInfo } from "./logging.js";
@@ -77,6 +78,7 @@ function makeCoreRuntime(config: CoreConfig) {
       const appHost = yield* AppHostTag;
       const conversation = yield* ConversationServiceTag;
       appHost.setConversationService(conversation);
+      installDefaultAppDispatchHook(appHost);
     }).pipe(Effect.withSpan("makeCoreRuntime.wireConversationIntoAppHost")),
   );
   const FullLive = Layer.provideMerge(

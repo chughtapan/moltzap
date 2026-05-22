@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import {
-  DEFAULT_APP_ID,
   TaskClosedNotificationDefinition,
   TaskConversationAddParticipant,
   TaskConversationArchive,
@@ -50,8 +49,6 @@ function taskCreateBody(
 ) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    const existing = yield* maybeTaskCreateDedup(taskService, params, ctx);
-    if (existing !== null) return existing;
     yield* maybeRunContactPolicyForTaskCreate(params, ctx);
     const task = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
@@ -72,24 +69,6 @@ function taskCreateBody(
 type TaskCreateParams = Parameters<typeof taskCreateBody>[0];
 type TaskCreateCtx = Parameters<typeof taskCreateBody>[1];
 
-function maybeTaskCreateDedup(
-  taskService: TaskServiceShape,
-  params: TaskCreateParams,
-  ctx: TaskCreateCtx,
-) {
-  return Effect.gen(function* () {
-    if (params.appId !== DEFAULT_APP_ID) return null;
-    const existing = yield* taskService.findExistingTaskByParticipants(
-      ctx.agentId,
-      params.invitedAgentIds,
-      params.appId,
-    );
-    return existing === null
-      ? null
-      : { task: existing, conversation: null as Conversation | null };
-  }).pipe(Effect.withSpan("task.create.dedup"));
-}
-
 function maybeRunContactPolicyForTaskCreate(
   params: TaskCreateParams,
   ctx: TaskCreateCtx,
@@ -97,8 +76,6 @@ function maybeRunContactPolicyForTaskCreate(
   if (params.invitedAgentIds.length === 0) return Effect.void;
   return obtainContactPolicyForCreate(ctx.agentId, params.invitedAgentIds);
 }
-
-type TaskServiceShape = Effect.Effect.Success<typeof TaskServiceTag>;
 
 interface MintInitialInput {
   readonly task: Task;
