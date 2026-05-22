@@ -128,7 +128,7 @@ function recordBlockedHookTrace(): Effect.Effect<void> {
     // server's forked round-trip lands on a live handler.
     yield* attachBlockingMessageAuthorize(alice);
     // Alice registers as TRACE_APP_ID's moderator so she can drive
-    // TaskConversationCreate (TM-only post-#677).
+    // TaskConversationCreate (TM-only).
     yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });
 
     const task = yield* alice.client.sendRpc(TaskCreate, {

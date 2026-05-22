@@ -38,7 +38,7 @@ import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type {
   MessageAuthorizeContext,
-  TaskAuthorizeDispatchContext,
+  DispatchAuthorizeContext,
 } from "./hooks.js";
 
 const liveIt = effectIt.live;
@@ -144,7 +144,7 @@ const MANIFEST_DISPATCH_TIMEOUT_MS = 1234;
 const baseAuthorizeDispatchCtx = (
   appId: string,
   taskId: ReturnType<typeof makeTaskId>,
-): TaskAuthorizeDispatchContext => ({
+): DispatchAuthorizeContext => ({
   conversationId: FIXTURE_CONVERSATION_ID,
   recipient: { agentId: FIXTURE_AGENT_RECIPIENT, ownerId: "owner-r" },
   message: { id: FIXTURE_MESSAGE_ID, senderAgentId: FIXTURE_AGENT_SENDER },
@@ -266,7 +266,7 @@ function bindPrivateMethod<Fn extends (...args: never[]) => unknown>(
 
 type AuthorizeDispatchDispatch = (
   appId: string,
-  ctx: TaskAuthorizeDispatchContext,
+  ctx: DispatchAuthorizeContext,
 ) => Effect.Effect<unknown, never>;
 
 const dispatchAuthorizeDispatch = (host: AppHost): AuthorizeDispatchDispatch =>

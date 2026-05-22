@@ -27,7 +27,7 @@ import {
   type DispatchAdmissionResult,
   type MessageAuthorizeContext,
   type MessageAuthorizeResult,
-  type TaskAuthorizeDispatchContext,
+  type DispatchAuthorizeContext,
 } from "./hooks.js";
 import {
   AppRegistry,
@@ -519,7 +519,7 @@ export class AppHost {
   private dispatchAuthorizeContext(
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<TaskAuthorizeDispatchContext, SqlError> {
+  ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
     return Effect.gen(this, function* () {
       const ownerId = yield* this.recipientOwnerId(params.recipientAgentId);
       return {
@@ -616,7 +616,7 @@ export class AppHost {
    */
   private dispatchAuthorizeHook(
     appId: AppId,
-    ctx: TaskAuthorizeDispatchContext,
+    ctx: DispatchAuthorizeContext,
   ): Effect.Effect<DispatchAdmissionResult, never> {
     const entry = this.apps.get(appId);
     if (entry === undefined) {
@@ -647,12 +647,12 @@ export class AppHost {
 
   private dispatchAuthorizeRaw(
     entry: AppRegistration,
-    ctx: TaskAuthorizeDispatchContext,
+    ctx: DispatchAuthorizeContext,
   ): Effect.Effect<DispatchAdmissionResult, Error> {
     return Match.value(entry).pipe(
       Match.tag("InProcess", (reg) =>
         this.runInProcessHookEffect<
-          TaskAuthorizeDispatchContext,
+          DispatchAuthorizeContext,
           DispatchAdmissionResult
         >((ctxWithSignal) => reg.dispatchAuthorize(ctxWithSignal), ctx),
       ),
@@ -836,7 +836,7 @@ export class AppHost {
   }
 
   private authorizeDispatchParamsForWire(
-    ctx: TaskAuthorizeDispatchContext,
+    ctx: DispatchAuthorizeContext,
   ): ParamsOf<typeof DispatchAuthorize> {
     const wire = this.contextForWire(ctx);
     return {

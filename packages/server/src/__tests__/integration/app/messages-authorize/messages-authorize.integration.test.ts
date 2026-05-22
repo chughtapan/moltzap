@@ -184,15 +184,10 @@ interface ConversationBinding {
 }
 
 /**
- * Settle-window collector for `messages/received` notifications.
- *
- * Post-#645 the legacy `drainNotifications` snapshot is deleted; the
- * new Stream.async-backed subscription only observes frames emitted
- * from materialisation forward. Each call site that previously
- * asserted "no message received" via a settle-then-drain pattern now
- * forks one of these collectors BEFORE the triggering send and joins
- * it after — the `Stream.interruptAfter` window bounds collection so
- * the assert doesn't block when no event is expected.
+ * Settle-window collector for `messages/received` notifications. Fork
+ * BEFORE the triggering send and join after; `Stream.interruptAfter`
+ * bounds collection so the assert doesn't block when no event is
+ * expected.
  */
 function forkMessageReceivedCollector(
   agent: ConnectedAgent,
@@ -261,11 +256,10 @@ function createAppManagedTask(
   agent: ConnectedAgent,
   invited: ReadonlyArray<ConnectedAgent>,
 ) {
-  // #673: `agent` must be the registered remote-app connection for
+  // `agent` must be the registered remote-app connection for
   // TEST_APP_ID so TM authority is provable on subsequent admin RPCs
-  // (task/conversation/create etc.). `apps/register` is idempotent in
-  // the AppHost implementation — repeated calls overwrite the entry
-  // with the same connection id.
+  // (task/conversation/create etc.). `apps/register` overwrites any
+  // prior entry for the same appId.
   return Effect.gen(function* () {
     yield* agent.client.sendRpc(AppsRegister, {
       manifest: TEST_APP_MANIFEST,
@@ -596,11 +590,10 @@ describe("messages/authorize — block verdict paths", () => {
     TEST_TIMEOUT_MS,
   );
 
-  // #677: DEFAULT_APP_ID is boot-installed in-process and cannot be
-  // overridden by a wire-app registration. The "replace the default
-  // policy" capability is no longer reachable by design — by the time
-  // a task is bound to DEFAULT_APP_ID, the messages/authorize verdict
-  // is fixed to the default Forward policy.
+  // DEFAULT_APP_ID is boot-installed in-process; a wire-app
+  // AppsRegister against it is rejected. The messages/authorize
+  // verdict for DEFAULT_APP_ID tasks is fixed to the default Forward
+  // policy and cannot be overridden.
 });
 
 describe("messages/authorize — forward verdict paths", () => {
