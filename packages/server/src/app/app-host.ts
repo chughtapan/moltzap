@@ -1,4 +1,5 @@
 import type { Db } from "../db/client.js";
+import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type {
   ConnectionManager,
@@ -93,10 +94,6 @@ function appIdFromTmEndpointAddress(address: EndpointAddress): string | null {
   if (!raw.startsWith(prefix)) return null;
   const rest = raw.slice(prefix.length);
   return rest.length === 0 ? null : rest;
-}
-
-export interface ContactService {
-  areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
 }
 
 /**

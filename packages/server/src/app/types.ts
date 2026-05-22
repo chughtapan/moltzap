@@ -6,7 +6,7 @@ import type {
   ResultOf,
 } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ContactService } from "./app-host.js";
+import type { ContactService } from "../identity/services/contact-policy.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
 import type { EndpointAddress } from "@moltzap/protocol/network";
