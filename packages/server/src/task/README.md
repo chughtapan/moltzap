@@ -12,10 +12,7 @@ Conversations, messages, tasks, contacts (handler-routing), task-manager dispatc
 ## Files
 
 Existing:
-- `handlers/conversations.handlers.ts`
 - `handlers/messages.handlers.ts`
-- `handlers/presence.handlers.ts` (presence handler routes via TM message bus)
-- `handlers/contacts.handlers.ts`
 - `handlers/tasks.handlers.ts`
 
 Moved IN during 2A.2:
