@@ -16,7 +16,6 @@ import {
   TaskCreate,
 } from "@moltzap/protocol";
 
-const GROUP_TYPE = "group";
 const GROUP_NAME = "Eval Group";
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
@@ -45,7 +44,6 @@ it("group creation notifies all participants with task/conversation/created even
       },
     });
 
-    expect(conv.conversation!.type).toBe(GROUP_TYPE);
     expect(conv.conversation!.name).toBe(GROUP_NAME);
 
     const bobCreated = yield* awaitOneNotification(

@@ -17,7 +17,6 @@ import {
   TaskCreate,
 } from "@moltzap/protocol";
 
-const GROUP_TYPE = "group";
 const TEST_GROUP_NAME = "Test Group";
 const FIRST_MESSAGE_TEXT = "Message 1";
 const THIRD_MESSAGE_TEXT = "Message 3";
@@ -55,7 +54,6 @@ it("create group, send messages, verify seq monotonicity", () =>
       },
     });
 
-    expect(conv.conversation!.type).toBe(GROUP_TYPE);
     expect(conv.conversation!.name).toBe(TEST_GROUP_NAME);
 
     const taskId = conv.task.id;

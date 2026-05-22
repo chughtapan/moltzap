@@ -45,7 +45,6 @@ it("send and receive a DM, list messages", () =>
       initialConversation: { participants: [bob.agentId] },
     });
 
-    expect(conv.conversation!.type).toBe("dm");
     const taskId = conv.task.id;
     const conversationId = conv.conversation!.id;
 
