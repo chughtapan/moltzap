@@ -26,7 +26,7 @@ import {
   loadRuntimeProcessConfig,
   type RuntimeProcessConfig,
   type RuntimeConfigSurfaceError,
-} from "./runtime-surface/config.js";
+} from "./config/runtime-config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;

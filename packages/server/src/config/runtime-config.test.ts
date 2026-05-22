@@ -4,7 +4,10 @@ import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
 import { Effect, type Scope } from "effect";
 import { describe, expect } from "vitest";
-import { loadRuntimeProcessConfig, runtimeConfigPath } from "./config.js";
+import {
+  loadRuntimeProcessConfig,
+  runtimeConfigPath,
+} from "./runtime-config.js";
 
 const it = effectIt.scoped;
 

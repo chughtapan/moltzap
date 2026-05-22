@@ -21,8 +21,8 @@ import { NodeContext } from "@effect/platform-node";
 import type { ConfigError } from "effect/ConfigError";
 import type { LoadedConfig } from "../app/config.js";
 import { ServerConfigLoader } from "../app/config.js";
-import type { MoltZapAppConfig } from "../config/effect-config.js";
-import { ConfigLoadError, loadConfigFromFile } from "../config/loader.js";
+import type { MoltZapAppConfig } from "./effect-config.js";
+import { ConfigLoadError, loadConfigFromFile } from "./loader.js";
 
 export type RuntimeConfigPath = string & Brand.Brand<"RuntimeConfigPath">;
 const RuntimeConfigPathBrand = Brand.nominal<RuntimeConfigPath>();
