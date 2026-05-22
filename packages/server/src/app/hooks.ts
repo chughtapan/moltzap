@@ -3,35 +3,19 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 
 /**
- * Generic hook shape — single source of truth for the abstraction
- * shared by every server-side authorization hook. Specific hooks are
- * instantiations of this alias; registries that hold them stay
- * shape-aligned even when their key types differ.
- *
- * Today's instantiations (#560 v4 unification):
- *
- *   type TaskAuthorizeDispatchHook = Hook&lt;TaskAuthorizeDispatchContext,
- *                                         DispatchAdmissionResult>;
- *   type MessageAuthorizeHook      = Hook&lt;MessageAuthorizeContext,
- *                                         MessageAuthorizeResult>;
- *
- * The user-facing callback returns sync-or-Promise (matches existing
- * SDK ergonomics); the AppHost runner wraps the call into Effect and
- * applies the uniform fail-closed envelope. Future hooks land as
- * additional instantiations — adding a bespoke hook shape is a
- * doctrine violation (architect risk R13).
+ * Generic shape shared by every server-side authorization hook. The
+ * user-facing callback returns sync-or-Promise; the AppHost runner
+ * wraps the call into Effect and applies the fail-closed envelope.
+ * New hooks land as additional instantiations of this alias.
  */
 type Hook<TContext, TResult> = (ctx: TContext) => TResult | Promise<TResult>;
 
 /**
- * Server-side dispatch admission hook surface. The single hook
+ * Server-side dispatch admission hook context. The single hook
  * (`taskAuthorizeDispatch`) services the `dispatch/authorize` S→C RPC;
- * its context shape mirrors the wire `DispatchAuthorizeContextSchema`.
- * The legacy server-side names (`TaskAuthorizeDispatchContext` /
- * `TaskAuthorizeDispatchHook`) are retained for stability of in-tree
- * server consumers (in-process moderator registrations).
+ * its shape mirrors the wire `DispatchAuthorizeContextSchema`.
  */
-export interface TaskAuthorizeDispatchContext {
+export interface DispatchAuthorizeContext {
   conversationId: ConversationId;
   recipient: { agentId: AgentId; ownerId: string };
   message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
@@ -62,24 +46,17 @@ export type DispatchAdmissionResult =
   | { decision: "deny"; reason?: string }
   | { decision: "hold"; reason?: string };
 
-export type TaskAuthorizeDispatchHook = Hook<
-  TaskAuthorizeDispatchContext,
+export type DispatchAuthorizeHook = Hook<
+  DispatchAuthorizeContext,
   DispatchAdmissionResult
 >;
 
 /**
- * Server-side message-fan-out authorization hook surface (#560). The
- * hook (`messageAuthorize`) services the `messages/authorize` S→C RPC;
- * its context shape mirrors the wire `MessagesAuthorizeContextSchema`.
- *
- * This hook restores the send-side gate that Phase 9b (#461) deleted
- * by removing `apps/onBeforeMessageDelivery` without an equivalent on
- * the new wire surface. Verdict shape is the 2-arm subset of #142's
- * 5-arm `TaskManagerAction`: `Forward { recipients } | Block { reason }`.
- *
- * Symmetric to `TaskAuthorizeDispatchHook`: same context fields
- * (`taskId`, `appId`, `conversationId`, `message`, `receivedAt`,
- * `clock`), same fail-closed posture, different verdict union.
+ * Server-side message-fan-out authorization hook context. The hook
+ * (`messageAuthorize`) services the `messages/authorize` S→C RPC; its
+ * shape mirrors the wire `MessagesAuthorizeContextSchema`. Symmetric
+ * to `DispatchAuthorizeContext` — same fields, same fail-closed
+ * posture, different verdict union.
  */
 export interface MessageAuthorizeContext {
   conversationId: ConversationId;
@@ -99,10 +76,6 @@ export interface MessageAuthorizeContext {
  * participants; the server does not re-fan to non-participants.
  * Empty `recipients` is legal — message lands in the sender's
  * transcript but is delivered to no one else.
- *
- * The remaining `Modify | Close | AttachConversation` arms from
- * #142's 5-arm spec are out of scope for #560; see the design doc
- * §11 for rationale.
  */
 export type MessageAuthorizeResult =
   | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
