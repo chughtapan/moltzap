@@ -13,9 +13,9 @@ import {
  *
  * - `NoAppSession` — parent task has `app_id IS NULL` and the conversation
  *   is not archived. Caller default-grants (no moderator to consult).
- * - `AppBound` — parent task has `app_id IS NOT NULL`. Caller routes to
- *   the in-process hook (`AppHost.hooks` map) or remote registration
- *   (`AppHost.remoteRegistrations` map) for that `appId`.
+ * - `AppBound` — parent task has `app_id IS NOT NULL`. Caller looks the
+ *   `AppRegistration` up in `AppHost.apps` and routes to the bundled
+ *   InProcess or Remote hook for that `appId`.
  * - `ConversationArchived` — `conversations.archived_at IS NOT NULL`.
  *   Caller denies with reason `"conversation_archived"`. The archive
  *   check fires before the app discriminator so an archived app-bound
