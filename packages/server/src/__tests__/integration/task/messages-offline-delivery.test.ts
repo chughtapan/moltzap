@@ -14,8 +14,6 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TaskAddParticipant,
-  TaskConversationCreate,
   TaskCreate,
   type ConversationId,
   type Message,
@@ -114,23 +112,21 @@ function setupGroupConversation(
   agents: ThreeAgents,
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    const task = yield* agents.tm.sendRpc(TaskCreate, {
+    // Single TaskCreate auto-admits invitees (#677) + atomically mints
+    // the initial conversation. Replaces the prior TaskAddParticipant +
+    // TaskConversationCreate dance which is TM-only and unreachable on
+    // DEFAULT_APP_ID tasks.
+    const created = yield* agents.tm.sendRpc(TaskCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [],
+      invitedAgentIds: [agents.senderAgentId, agents.recipientAgentId],
+      initialConversation: {
+        participants: [agents.senderAgentId, agents.recipientAgentId],
+      },
     });
-    yield* agents.tm.sendRpc(TaskAddParticipant, {
-      taskId: task.task.id,
-      agentId: agents.senderAgentId,
-    });
-    yield* agents.tm.sendRpc(TaskAddParticipant, {
-      taskId: task.task.id,
-      agentId: agents.recipientAgentId,
-    });
-    const conv = yield* agents.tm.sendRpc(TaskConversationCreate, {
-      taskId: task.task.id,
-      participants: [agents.senderAgentId, agents.recipientAgentId],
-    });
-    return { taskId: task.task.id, conversationId: conv.conversation.id };
+    return {
+      taskId: created.task.id,
+      conversationId: created.conversation!.id,
+    };
   });
 }
 

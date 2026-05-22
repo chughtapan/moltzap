@@ -149,22 +149,10 @@ it("TaskCreate (DEFAULT_APP, multi-invitee) mints a fresh task with all particip
     expect(result.conversation).toBeNull();
   }));
 
-it("TaskCreate (DEFAULT_APP, same participants) dedup returns the extant task", () =>
-  Effect.gen(function* () {
-    const { alice, bob } = yield* setupThreeAgents();
-    const first = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-    });
-    const second = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-    });
-    // Dedup hit: same participant set -> same task id.
-    expect(second.task.id).toBe(first.task.id);
-    // Dedup is task-level; no fresh conversation even if requested.
-    expect(second.conversation).toBeNull();
-  }));
+// Server-side TaskCreate dedup retired in #677. Re-add coverage as a
+// client-side test once the SDK helper for "list + filter + create-or-use"
+// lands.
+it.todo("client-side DEFAULT_APP dedup — list + match");
 
 it("TaskCreate (different appId) does NOT dedup across apps", () =>
   Effect.gen(function* () {

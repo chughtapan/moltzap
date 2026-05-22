@@ -12,8 +12,6 @@ import {
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
-  TaskConversationAddParticipant,
-  TaskConversationCreate,
   TaskCreate,
 } from "@moltzap/protocol";
 
@@ -89,43 +87,8 @@ it("create group, send messages, verify seq monotonicity", () =>
     yield* eve.client.close();
   }));
 
-it("addParticipant adds an agent to a task conversation", () =>
-  Effect.gen(function* () {
-    const alice = yield* registerAndConnect("alice-addp");
-    const bob = yield* registerAndConnect("bob-addp");
-    const eve = yield* registerAndConnect("eve-addp");
-
-    // Create task with Alice + Bob admitted; initial conversation has just Bob.
-    const created = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId, eve.agentId],
-      initialConversation: {
-        name: "Add Test",
-        participants: [bob.agentId],
-      },
-    });
-    const taskId = created.task.id;
-    const conversationId = created.conversation!.id;
-
-    // Add Eve to that conversation; she's already in task_participants.
-    const result = yield* alice.client.sendRpc(TaskConversationAddParticipant, {
-      taskId,
-      conversationId,
-      agentId: eve.agentId,
-    });
-
-    expect(result).toEqual({});
-
-    // Sanity-check via TaskConversationCreate side: the same task admits eve
-    // for another conversation under the same task.
-    const second = yield* alice.client.sendRpc(TaskConversationCreate, {
-      taskId,
-      name: "Second",
-      participants: [eve.agentId],
-    });
-    expect(second.conversation.id).toBeDefined();
-
-    yield* alice.client.close();
-    yield* bob.client.close();
-    yield* eve.client.close();
-  }));
+// TaskConversationAddParticipant is TM-only. DEFAULT_APP_ID tasks have
+// no registered TM (#677); re-add coverage when the test fixture
+// rewires to AppsRegister + a custom app OR a future invitation-accept
+// RPC adds a non-TM path.
+it.todo("addParticipant adds an agent — needs AppsRegister fixture");

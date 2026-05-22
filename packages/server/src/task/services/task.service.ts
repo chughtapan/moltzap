@@ -205,10 +205,19 @@ export class TaskService {
               })
               .returningAll(),
           );
+          // Auto-admit every invited participant at create time. The
+          // `admitted_at` column + the `WHERE admitted_at IS NOT NULL`
+          // filters in read paths (`loadTaskWithReadAccess`,
+          // `assertAgentInTaskParticipants`, task list scope) stay in
+          // place — so a future "invitation accept" flow that writes
+          // pending invitees with `admitted_at: null` slots in without
+          // changing the read gates. No wire RPC exposes the pending
+          // semantic today; revisit if/when one lands.
+          const admittedAt = new Date();
           yield* trx.insertInto("task_participants").values({
             task_id: row.id,
             agent_id: initiator,
-            admitted_at: new Date(),
+            admitted_at: admittedAt,
           });
           const invited = input.invitedAgentIds ?? [];
           for (const agentId of invited) {
@@ -217,7 +226,7 @@ export class TaskService {
               .values({
                 task_id: row.id,
                 agent_id: agentId,
-                admitted_at: null,
+                admitted_at: admittedAt,
               })
               .onConflict((oc) => oc.doNothing());
           }

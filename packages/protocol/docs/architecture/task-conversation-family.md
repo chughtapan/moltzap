@@ -99,7 +99,7 @@ Data-flow contract (impl-staff translates to Effect+Kysely; non-normative):
 
 1. **Decode** — schema validates `taskId`, `conversationId`, `agentId`.
 2. **Authority** — `TmAuthority` (Spec E) for `taskId`.
-3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. Existing row admitted-or-pending (i.e. `admittedAt` may be NULL) — both are accepted; admission state is a separate gate.
+3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. The server auto-admits every invitee at TaskCreate today (`admittedAt` is non-null on every row), so the membership check is sufficient. The `admittedAt`-null branch + the `WHERE admitted_at IS NOT NULL` read filters are kept in place for a future "pending invitation" flow.
 4. **Conversation-in-task verification** — verify `(conversations.id = $conversationId AND conversations.task_id = $taskId)`. Mismatch = `NotFoundError` (cross-task `conversationId` rejected).
 5. **Insert** — `INSERT INTO conversation_participants (conversation_id, agent_id) ON CONFLICT DO NOTHING` inside a transaction.
 6. **Notification** — `TaskConversationParticipantsAddedNotificationDefinition` enqueues AFTER the participant insert returns. Broadcast is best-effort: `notification-broadcast.ts` calls `NetworkSendService.broadcast`, which forks socket writes via `Effect.runFork` and does not participate in the participant-insert transaction.

@@ -102,7 +102,12 @@ const TaskSchema = Type.Object(
 
 export type Task = Static<typeof TaskSchema>;
 
-// `admittedAt = null` ⇒ invited but not yet admitted.
+// `admittedAt = null` is reserved for a future "pending invitation"
+// flow. Today the server auto-admits every invitee at TaskCreate, so
+// the field is always non-null on the wire. The column is kept
+// nullable + the `WHERE admitted_at IS NOT NULL` filters in read
+// paths stay in place so the future flow drops in without
+// re-engineering the gating.
 const TaskParticipantSchema = Type.Object(
   {
     taskId: TaskId,
