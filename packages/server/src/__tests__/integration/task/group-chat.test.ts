@@ -1,4 +1,4 @@
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
 import { Effect } from "effect";
 import {
   it,
@@ -91,4 +91,4 @@ it("create group, send messages, verify seq monotonicity", () =>
 // no registered TM (#677); re-add coverage when the test fixture
 // rewires to AppsRegister + a custom app OR a future invitation-accept
 // RPC adds a non-TM path.
-it.todo("addParticipant adds an agent — needs AppsRegister fixture");
+vit.todo("addParticipant adds an agent — needs AppsRegister fixture");
