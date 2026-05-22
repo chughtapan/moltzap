@@ -19,14 +19,15 @@ import {
   HookBlockedError,
   MessagesSend,
   MessageReceivedNotificationDefinition,
+  AppsRegister,
   TaskConversationCreate,
   TaskCreate,
+  type AppId,
   type AppManifest,
 } from "@moltzap/protocol";
-import { endpointAddress } from "@moltzap/protocol/network";
 
 let traceCapture: TraceCapture;
-const TRACE_APP_ID = "trace-capture-test-app";
+const TRACE_APP_ID = "00000000-0000-4000-8000-000000010005" as AppId;
 const TRACE_BLOCK_REASON = "trace-block";
 const TRACE_BLOCKED_TEXT = "blocked trace capture";
 const TRACE_APP_MANIFEST: AppManifest = {
@@ -62,11 +63,11 @@ beforeEach(() =>
   ),
 );
 
-function registerBlockingMessageAuthorize(agentId: string): void {
-  getTestCoreApp().registerMessageAuthorize(
-    endpointAddress(`tm:agent:${agentId}`),
-    () => ({ decision: "Block", reason: TRACE_BLOCK_REASON }),
-  );
+function registerBlockingMessageAuthorize(): void {
+  getTestCoreApp().registerMessageAuthorize(TRACE_APP_ID, () => ({
+    decision: "Block",
+    reason: TRACE_BLOCK_REASON,
+  }));
 }
 
 function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
@@ -124,7 +125,10 @@ function recordBlockedHookTrace(): Effect.Effect<void> {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-trace-blocked");
     const bob = yield* registerAndConnect("bob-trace-blocked");
-    registerBlockingMessageAuthorize(alice.agentId);
+    registerBlockingMessageAuthorize();
+    // Alice registers as TRACE_APP_ID's moderator so she can drive
+    // TaskConversationCreate (TM-only post-#677).
+    yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });
 
     const task = yield* alice.client.sendRpc(TaskCreate, {
       appId: TRACE_APP_ID,

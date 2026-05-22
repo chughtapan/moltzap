@@ -19,8 +19,6 @@ import {
   MessagesSend,
   TaskClose,
   TaskClosedError,
-  TaskAddParticipant,
-  TaskConversationCreate,
   TaskCreate,
   type ConversationId,
   type Message,
@@ -110,19 +108,18 @@ function setupTaskBoundConversation(
   pair: AgentPair,
 ): Effect.Effect<TaskBinding, Error> {
   return Effect.gen(function* () {
-    const task = yield* pair.tm.sendRpc(TaskCreate, {
+    // Single TaskCreate auto-admits + atomically mints the conversation.
+    // Pre-#677 this used TaskAddParticipant + TaskConversationCreate,
+    // both TM-only on DEFAULT_APP_ID tasks (unreachable by design).
+    const created = yield* pair.tm.sendRpc(TaskCreate, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [],
+      invitedAgentIds: [pair.senderAgentId],
+      initialConversation: { participants: [pair.senderAgentId] },
     });
-    yield* pair.tm.sendRpc(TaskAddParticipant, {
-      taskId: task.task.id,
-      agentId: pair.senderAgentId,
-    });
-    const conv = yield* pair.tm.sendRpc(TaskConversationCreate, {
-      taskId: task.task.id,
-      participants: [pair.senderAgentId],
-    });
-    return { taskId: task.task.id, conversationId: conv.conversation.id };
+    return {
+      taskId: created.task.id,
+      conversationId: created.conversation!.id,
+    };
   });
 }
 

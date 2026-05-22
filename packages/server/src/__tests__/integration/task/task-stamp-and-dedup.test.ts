@@ -17,36 +17,10 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("TaskCreate with DEFAULT_APP_ID dedupes on identical participant set", () =>
-  Effect.gen(function* () {
-    const alice = yield* registerAndConnect("alice-dedup");
-    const bob = yield* registerAndConnect("bob-dedup");
-
-    const first = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-
-    const second = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-
-    expect(second.task.id).toBe(first.task.id);
-    expect(second.conversation!.id).toBe(first.conversation!.id);
-
-    const db = getKyselyDb();
-    const tasksForAlice = yield* Effect.tryPromise(() =>
-      db
-        .selectFrom("tasks")
-        .select(["id"])
-        .where("initiator_agent_id", "=", alice.agentId)
-        .execute(),
-    );
-    expect(tasksForAlice).toHaveLength(1);
-  }));
+// Pre-#677 the server deduped DEFAULT_APP_ID TaskCreate by participant
+// set. Server dedup retired; the "one DM per pair" UX moves to clients
+// (list + filter + create-or-use). Re-add coverage in the SDK package.
+it.todo("client-side DEFAULT_APP_ID dedup — list + match");
 
 it("messages/send stamps task_id matching conversations.task_id", () =>
   Effect.gen(function* () {
