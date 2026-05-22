@@ -52,6 +52,19 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * True if the registration opts in to handling `messages/authorize`.
+ * InProcess: the optional `messageAuthorize` hook is set. Remote:
+ * the manifest declares `hooks.message_authorize`. Otherwise the
+ * server uses the default forward policy.
+ */
+function hasMessageAuthorizeHook(entry: AppRegistration): boolean {
+  if (entry._tag === "InProcess") {
+    return entry.messageAuthorize !== undefined;
+  }
+  return entry.manifest.hooks?.message_authorize !== undefined;
+}
+
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const EMPTY_TASK_ID = "" as TaskId;
 // Placeholder app id used by the dispatchBindingForLookup default-grant
@@ -691,13 +704,7 @@ export class AppHost {
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
     const entry = this.apps.get(appId);
-    // InProcess registrations may legitimately have no messageAuthorize
-    // hook (it is optional on the variant); fall through to the default
-    // policy in that case, identical to "no registration at all."
-    if (
-      entry === undefined ||
-      (entry._tag === "InProcess" && entry.messageAuthorize === undefined)
-    ) {
+    if (entry === undefined || !hasMessageAuthorizeHook(entry)) {
       return this.defaultMessageAuthorize(ctx);
     }
 
