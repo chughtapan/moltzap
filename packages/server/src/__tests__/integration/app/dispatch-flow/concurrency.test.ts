@@ -22,7 +22,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_REQUEST_CONCURRENCY,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createDispatchFlowFixture,
   requestDispatch,
   startDispatchFlowServer,
@@ -85,8 +86,17 @@ function forkTwoReleaseFibers(recipient: ConnectedAgent) {
 function crossConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conv1 = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
-    const conv2 = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const conv1 = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
+    const conv2 = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv1.conversationId,
@@ -106,7 +116,12 @@ function crossConversationRequestsRunConcurrently() {
 function sameConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conv = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const conv = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv.conversationId,

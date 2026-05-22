@@ -21,7 +21,7 @@ import { messageId } from "@moltzap/protocol/testing";
 
 const NETWORK_PING_MAX_CLOCK_SKEW_MS = 60_000;
 const PROPERTY_RUNS = 25;
-const APP_ID = "my-test-app";
+const APP_ID = "00000000-0000-4000-8000-000000010008";
 const QUESTION_TEXT = "question";
 const ANSWER_TEXT = "answer";
 const ORPHAN_REPLY_TEXT = "orphan";

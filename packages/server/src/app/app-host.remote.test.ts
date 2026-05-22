@@ -253,10 +253,6 @@ function waitForLatestRequest(outbound: Ref.Ref<ReadonlyArray<string>>) {
   );
 }
 
-function privateField<T>(target: object, key: string): T {
-  return Reflect.get(target, key) as T;
-}
-
 function bindPrivateMethod<Fn extends (...args: never[]) => unknown>(
   target: object,
   key: string,
@@ -268,14 +264,10 @@ function bindPrivateMethod<Fn extends (...args: never[]) => unknown>(
   return value.bind(target) as Fn;
 }
 
-type RemoteRegistrations = Map<string, { connectionId: ConnectionId }>;
 type AuthorizeDispatchDispatch = (
   appId: string,
   ctx: TaskAuthorizeDispatchContext,
 ) => Effect.Effect<unknown, never>;
-
-const remoteRegistrations = (host: AppHost): RemoteRegistrations =>
-  privateField<RemoteRegistrations>(host, "remoteRegistrations");
 
 const dispatchAuthorizeDispatch = (host: AppHost): AuthorizeDispatchDispatch =>
   bindPrivateMethod(host, "dispatchAuthorizeHook");
@@ -518,8 +510,7 @@ describe("AppHost.registerRemoteApp", () => {
     const { host } = makeAppHostFixture();
     host.registerRemoteApp(baseManifest(APP_R), CONN_1);
 
-    const map = remoteRegistrations(host);
-    expect(map.get(APP_R)).toEqual({ connectionId: CONN_1 });
+    expect(host.isAppConnection(APP_R, CONN_1)).toBe(true);
   });
 
   it("stores the manifest verbatim (so dispatch can read timeout_ms)", () => {
@@ -534,8 +525,8 @@ describe("AppHost.registerRemoteApp", () => {
     host.registerRemoteApp(baseManifest(APP_R), CONN_1);
     host.registerRemoteApp(baseManifest(APP_R), CONN_2);
 
-    const map = remoteRegistrations(host);
-    expect(map.get(APP_R)).toEqual({ connectionId: CONN_2 });
+    expect(host.isAppConnection(APP_R, CONN_1)).toBe(false);
+    expect(host.isAppConnection(APP_R, CONN_2)).toBe(true);
   });
 });
 
@@ -561,15 +552,13 @@ describe("AppHost remote messages — messages/authorize", () => {
 });
 
 describe("AppHost.unregisterRemoteApp", () => {
-  it("drops the routing entry; manifest stays", () => {
+  it("drops the registration entirely (manifest + routing)", () => {
     const { host } = makeAppHostFixture();
-    const manifest = baseManifest(APP_R);
-    host.registerRemoteApp(manifest, CONN_1);
+    host.registerRemoteApp(baseManifest(APP_R), CONN_1);
     host.unregisterRemoteApp(APP_R);
 
-    const map = remoteRegistrations(host);
-    expect(map.has(APP_R)).toBe(false);
-    expect(host.getManifest(APP_R)).toBe(manifest);
+    expect(host.isAppConnection(APP_R, CONN_1)).toBe(false);
+    expect(host.getManifest(APP_R)).toBeUndefined();
   });
 
   it("is idempotent for unknown appIds", () => {

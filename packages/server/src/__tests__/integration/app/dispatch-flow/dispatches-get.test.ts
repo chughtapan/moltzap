@@ -28,7 +28,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_STATE_GRANTED,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createUnmoderatedDm,
   createDispatchFlowFixture,
   readLeaseByDispatchId,
@@ -39,7 +40,6 @@ import {
 } from "./fixture.js";
 import {
   expectEitherLeft,
-  getTestCoreApp,
   registerAndConnect,
   setupAgentPair,
   type ConnectedAgent,
@@ -82,14 +82,13 @@ function grantDispatchAuthorize() {
 function registerWireModerator() {
   return Effect.gen(function* () {
     const moderator = yield* registerAndConnect("wire-moderator");
-    getTestCoreApp().registerApp(WIRE_APP_MANIFEST);
-    yield* moderator.client.sendRpc(AppsRegister, {
-      manifest: WIRE_APP_MANIFEST,
-    });
     yield* moderator.client.onAppCallback(
       DispatchAuthorize,
       grantDispatchAuthorize,
     );
+    yield* moderator.client.sendRpc(AppsRegister, {
+      manifest: WIRE_APP_MANIFEST,
+    });
     return moderator;
   });
 }
@@ -99,7 +98,7 @@ function requestWireModeratedDispatch(
   recipient: ConnectedAgent,
 ) {
   return Effect.gen(function* () {
-    const { conversationId } = yield* createModeratedDm(
+    const { conversationId } = yield* createTaskConversationOnApp(
       moderator,
       recipient,
       WIRE_APP_MANIFEST,
@@ -125,7 +124,8 @@ function registryDirectReadShowsGrantedLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
-    const { conversationId } = yield* createModeratedDm(
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const { conversationId } = yield* createTaskConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,

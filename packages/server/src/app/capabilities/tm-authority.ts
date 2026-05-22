@@ -2,11 +2,12 @@ import { Effect } from "effect";
 import { ForbiddenError } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import {
+  AppId,
   TmAuthority,
-  type AppId,
   type TaskId,
   type TmAuthorityValue,
 } from "@moltzap/protocol/task";
+import { Value } from "@sinclair/typebox/value";
 import { AppHostTag, TaskServiceTag } from "../layers.js";
 import type { TaskServiceError } from "../../task/services/task.service.js";
 
@@ -33,7 +34,8 @@ export const obtainTmAuthority = (
     const taskService = yield* TaskServiceTag;
     const appHost = yield* AppHostTag;
     const task = yield* taskService.loadOpenTask(taskId);
-    if (!appHost.isAppConnection(task.appId as AppId, callerConnId)) {
+    const taskAppId = Value.Decode(AppId, task.appId);
+    if (!appHost.isAppConnection(taskAppId, callerConnId)) {
       return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
     }
     return { task };

@@ -14,7 +14,8 @@ import {
   DISPATCH_STATE_GRANTED,
   EXPECTED_TYPE_STRING,
   createDispatchFlowFixture,
-  createModeratedDmAsModerator,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createUnmoderatedDm,
   readLeaseByLeaseId,
   requestDispatch,
@@ -54,7 +55,8 @@ function requestPendingModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ kind: "never-reply" });
-    const binding = yield* createModeratedDmAsModerator(
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const binding = yield* createTaskConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -76,7 +78,8 @@ function requestGrantedModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
-    const binding = yield* createModeratedDmAsModerator(
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const binding = yield* createTaskConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,

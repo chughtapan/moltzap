@@ -46,7 +46,7 @@ import {
   WebhookClientTag,
   resolveServices,
 } from "./layers.js";
-import { installDefaultAppDispatchHook } from "./default-app.js";
+import { installDefaultApp } from "./default-app.js";
 import { makeNodeHttpServer } from "./node-http-server.js";
 import { makeCoreHttpApp } from "./http-routes.js";
 import { logError, logInfo } from "./logging.js";
@@ -78,7 +78,7 @@ function makeCoreRuntime(config: CoreConfig) {
       const appHost = yield* AppHostTag;
       const conversation = yield* ConversationServiceTag;
       appHost.setConversationService(conversation);
-      installDefaultAppDispatchHook(appHost);
+      installDefaultApp(appHost);
     }).pipe(Effect.withSpan("makeCoreRuntime.wireConversationIntoAppHost")),
   );
   const FullLive = Layer.provideMerge(
@@ -199,15 +199,7 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     traceCapture: services.traceCapture,
     connections: services.connections,
     leaseRegistry: services.leaseRegistry,
-    registerApp: (manifest) => services.appHost.registerApp(manifest),
-    registerRemoteApp: (manifest, connectionId) =>
-      services.appHost.registerRemoteApp(manifest, connectionId),
-    unregisterRemoteApp: (appId) => services.appHost.unregisterRemoteApp(appId),
     setContactService: (checker) => services.appHost.setContactService(checker),
-    onTaskAuthorizeDispatch: (appId, handler) =>
-      services.appHost.onTaskAuthorizeDispatch(appId, handler),
-    registerMessageAuthorize: (address, handler) =>
-      services.appHost.registerMessageAuthorize(address, handler),
     close: () => Effect.runPromise(closeCoreAppEffect(options)),
   };
 }

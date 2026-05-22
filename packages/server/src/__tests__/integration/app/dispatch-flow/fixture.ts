@@ -1,6 +1,7 @@
 import {
   AppsRegister,
   DEFAULT_APP_ID,
+  DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
   MessagesSend,
@@ -14,6 +15,7 @@ import {
 } from "@moltzap/protocol";
 import {
   agentId as protocolAgentId,
+  appId as mkAppId,
   messageId,
 } from "@moltzap/protocol/testing";
 import { Effect } from "effect";
@@ -64,14 +66,23 @@ export const stopDispatchFlowServer = () =>
 
 export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 
-export function createModeratedDm(
+/**
+ * App-managed task with one initial conversation between alice and
+ * bob. The caller MUST have wired alice's `DispatchAuthorize` (and
+ * optionally `MessagesAuthorize`) wire callback BEFORE calling this
+ * — typically via {@link attachDispatchAuthorizeHook} — so the
+ * server can resolve the forked moderator round-trip the first
+ * `dispatch/request` triggers.
+ */
+export function createTaskConversationOnApp(
   alice: ConnectedAgent,
   bob: ConnectedAgent,
   manifest: AppManifest,
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
+    yield* alice.client.sendRpc(AppsRegister, { manifest });
     const result = yield* alice.client.sendRpc(TaskCreate, {
-      appId: manifest.appId,
+      appId: mkAppId(manifest.appId),
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
@@ -79,24 +90,28 @@ export function createModeratedDm(
       taskId: result.task.id,
       conversationId: result.conversation!.id,
     };
-  }).pipe(Effect.withSpan("createModeratedDm"));
+  }).pipe(Effect.withSpan("createTaskConversationOnApp"));
 }
 
 /**
- * Like {@link createModeratedDm} but also registers `alice`'s connection
- * as the wire endpoint for `manifest.appId`. Needed when the test needs
- * `moderatorConnectionId` populated (deny-eviction, post-#673) or
- * TM-only admin RPCs (TaskConversationArchive, etc.).
+ * Attach the wire callback that handles server→client
+ * `dispatch/authorize` invocations for `alice`. Tests register this
+ * BEFORE AppsRegister so the callback is live by the time the server
+ * forks the moderator round-trip on `dispatch/request`. Delegates to
+ * `fixture.consumeNextVerdict` so test bodies can swap verdicts via
+ * `setNextHookVerdict(...)` between scenarios.
  */
-export function createModeratedDmAsModerator(
+export function attachDispatchAuthorizeHook(
   alice: ConnectedAgent,
-  bob: ConnectedAgent,
-  manifest: AppManifest,
-): Effect.Effect<ConversationBinding, unknown> {
-  return Effect.gen(function* () {
-    yield* alice.client.sendRpc(AppsRegister, { manifest });
-    return yield* createModeratedDm(alice, bob, manifest);
-  }).pipe(Effect.withSpan("createModeratedDmAsModerator"));
+  fixture: DispatchFlowFixture,
+): Effect.Effect<void> {
+  return alice.client.onAppCallback(DispatchAuthorize, () =>
+    Effect.gen(function* () {
+      const verdict = fixture.consumeNextVerdict();
+      if ("kind" in verdict) return yield* Effect.never;
+      return { admission: verdict };
+    }).pipe(Effect.withSpan("dispatchFlow.wireHook")),
+  );
 }
 
 export function createUnmoderatedDm(
@@ -205,40 +220,37 @@ export function readLeaseByDispatchId(dispatchId: DispatchId) {
     .pipe(Effect.withSpan("readLeaseByDispatchId"));
 }
 
-export function createDispatchFlowFixture(manifest: AppManifest) {
+export interface DispatchFlowFixture {
+  readonly reset: Effect.Effect<void, unknown>;
+  hookCalls(): number;
+  setNextHookVerdict(verdict: DispatchHookVerdict): void;
+  /** Used by {@link attachDispatchAuthorizeHook}; do not call from tests. */
+  consumeNextVerdict(): DispatchHookVerdict;
+}
+
+export function createDispatchFlowFixture(
+  _manifest: AppManifest,
+): DispatchFlowFixture {
   let hookCalls = 0;
   let nextHookVerdict: DispatchHookVerdict = { decision: "grant" };
 
-  const authorizeDispatch = () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        hookCalls += 1;
-        const verdict = nextHookVerdict;
-        if ("kind" in verdict && verdict.kind === "never-reply") {
-          return yield* Effect.never;
-        }
-        return verdict;
-      }).pipe(Effect.withSpan("dispatchFlow.authorizeHook")),
-    );
-
-  const reset = resetTestDbEffect().pipe(
-    Effect.tap(() =>
-      Effect.sync(() => {
-        hookCalls = 0;
-        nextHookVerdict = { decision: "grant" };
-        const coreApp = getTestCoreApp();
-        coreApp.registerApp(manifest);
-        coreApp.onTaskAuthorizeDispatch(manifest.appId, authorizeDispatch);
-      }),
-    ),
-    Effect.withSpan("dispatchFlow.reset"),
-  );
-
   return {
-    reset,
+    reset: resetTestDbEffect().pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          hookCalls = 0;
+          nextHookVerdict = { decision: "grant" };
+        }),
+      ),
+      Effect.withSpan("dispatchFlow.reset"),
+    ),
     hookCalls: () => hookCalls,
-    setNextHookVerdict: (verdict: DispatchHookVerdict) => {
+    setNextHookVerdict: (verdict) => {
       nextHookVerdict = verdict;
+    },
+    consumeNextVerdict: () => {
+      hookCalls += 1;
+      return nextHookVerdict;
     },
   };
 }

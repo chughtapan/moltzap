@@ -17,7 +17,8 @@ import {
   DISPATCH_VERDICT_HOLD,
   MODERATOR_TIMEOUT_REASON,
   createDispatchFlowFixture,
-  createModeratedDmAsModerator,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
@@ -49,7 +50,8 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 
 function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
   return Effect.gen(function* () {
-    const { conversationId } = yield* createModeratedDmAsModerator(
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const { conversationId } = yield* createTaskConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,

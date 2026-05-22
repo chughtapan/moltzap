@@ -2,14 +2,13 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 
 import { Effect, Exit } from "effect";
-import { Connect, PROTOCOL_VERSION, type AppManifest } from "@moltzap/protocol";
+import { Connect, PROTOCOL_VERSION } from "@moltzap/protocol";
 import { parseApiKey } from "../../../identity/services/agent-auth.js";
 import {
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
   getKyselyDb,
-  getTestCoreApp,
   postJson,
   trackClient,
   connectTestClient,
@@ -39,12 +38,6 @@ const AGENT_STATUS_SUSPENDED = "suspended";
 const API_KEY_PATTERN = /^moltzap_agent_/;
 const CONCURRENT_ROTATION_CALLS = 2;
 
-const ADMIN_TEST_MANIFEST: AppManifest = {
-  appId: "admin-register-test-app",
-  name: "Admin Register Test App",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
-};
-
 let baseUrl: string;
 let wsUrl: string;
 
@@ -57,7 +50,6 @@ beforeAll(() =>
         Effect.sync(() => {
           baseUrl = server.baseUrl;
           wsUrl = server.wsUrl;
-          getTestCoreApp().registerApp(ADMIN_TEST_MANIFEST);
         }),
       ),
     ),
@@ -66,17 +58,7 @@ beforeAll(() =>
 
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-beforeEach(() =>
-  Effect.runPromise(
-    resetTestDbEffect().pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          getTestCoreApp().registerApp(ADMIN_TEST_MANIFEST);
-        }),
-      ),
-    ),
-  ),
-);
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 interface AdminRegisterResponse {
   agentId: string;

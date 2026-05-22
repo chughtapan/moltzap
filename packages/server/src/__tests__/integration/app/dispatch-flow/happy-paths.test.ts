@@ -23,7 +23,8 @@ import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_VERDICT_GRANT,
   EXPECTED_TYPE_STRING,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createUnmoderatedDm,
   createDispatchFlowFixture,
   requestDispatch,
@@ -71,7 +72,8 @@ function moderatedDispatchReleasesGrant() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
-    const { conversationId } = yield* createModeratedDm(
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const { conversationId } = yield* createTaskConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
