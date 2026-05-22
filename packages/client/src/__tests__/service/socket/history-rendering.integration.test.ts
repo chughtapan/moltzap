@@ -32,6 +32,7 @@ it("lastRead tracks seen message IDs across reads", () =>
 
       // First read marks all 3 as seen
       const hist1 = yield* H.socketHistory(
+        conv.task.id,
         conv.conversation!.id,
         H.TRACK_SESSION_KEY,
       );
@@ -47,6 +48,7 @@ it("lastRead tracks seen message IDs across reads", () =>
 
       // Read again — only the new message should be marked new
       const hist2 = yield* H.socketHistory(
+        conv.task.id,
         conv.conversation!.id,
         H.TRACK_SESSION_KEY,
       );
@@ -84,7 +86,10 @@ it("non-text message parts render as markers in socket history", () =>
       });
       yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
-      const result = yield* H.socketHistory(conv.conversation!.id);
+      const result = yield* H.socketHistory(
+        conv.task.id,
+        conv.conversation!.id,
+      );
 
       const msg = result.messages.find((m) =>
         m.text.includes("Check this out"),

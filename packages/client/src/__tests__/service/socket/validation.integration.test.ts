@@ -31,7 +31,7 @@ it("unknown socket method rejects with error", () =>
     }
   }));
 
-it("history rejects when conversationId is missing or wrong type", () =>
+it("history rejects when required fields are missing or wrong type", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-validate");
     const service = yield* H.connectService(reg.apiKey);
@@ -39,14 +39,23 @@ it("history rejects when conversationId is missing or wrong type", () =>
     const tryReq = (params: Record<string, unknown>) =>
       H.socketRequest(H.LocalServiceCommands.History, params);
     try {
-      expectSocketFailure(yield* Effect.either(tryReq({})), "conversationId");
+      // Empty body: taskId AND conversationId both required.
+      expectSocketFailure(yield* Effect.either(tryReq({})), "taskId");
       expectSocketFailure(
-        yield* Effect.either(tryReq({ conversationId: 123 })),
+        yield* Effect.either(tryReq({ taskId: "t-1" })),
+        "conversationId",
+      );
+      expectSocketFailure(
+        yield* Effect.either(tryReq({ taskId: "t-1", conversationId: 123 })),
         "conversationId",
       );
       expectSocketFailure(
         yield* Effect.either(
-          tryReq({ conversationId: "abc", limit: "not-a-number" }),
+          tryReq({
+            taskId: "t-1",
+            conversationId: "abc",
+            limit: "not-a-number",
+          }),
         ),
         "limit",
       );

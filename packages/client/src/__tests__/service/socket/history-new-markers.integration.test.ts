@@ -33,7 +33,10 @@ it("history via socket returns messages with isOwn labels", () =>
         "Hello from B",
       );
 
-      const result = yield* H.socketHistory(conv.conversation!.id);
+      const result = yield* H.socketHistory(
+        conv.task.id,
+        conv.conversation!.id,
+      );
 
       expect(result.messages.length).toBeGreaterThanOrEqual(2);
       const ownMsgs = result.messages.filter((m) => m.isOwn);
@@ -84,6 +87,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
 
       // BUT history via socket still shows *NEW* (lastRead not advanced yet)
       const hist1 = yield* H.socketHistory(
+        convC.task.id,
         convC.conversation!.id,
         convB.conversation!.id,
       );
@@ -93,6 +97,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
 
       // After reading, lastRead advances → second fetch shows 0 new
       const hist2 = yield* H.socketHistory(
+        convC.task.id,
         convC.conversation!.id,
         convB.conversation!.id,
       );
@@ -128,20 +133,19 @@ it("new messages after history read are marked *NEW*", () =>
         type: "cross-conversation",
       });
 
+      const readC = () =>
+        H.socketHistory(
+          convC.task.id,
+          convC.conversation!.id,
+          convB.conversation!.id,
+        );
+
       // Read history → advances lastRead
-      const hist1 = yield* H.socketHistory(
-        convC.conversation!.id,
-        convB.conversation!.id,
-      );
+      const hist1 = yield* readC();
       expect(hist1.newCount).toBe(1); // first read: 1 new
-
       // Second read → 0 new (already read)
-      const hist2 = yield* H.socketHistory(
-        convC.conversation!.id,
-        convB.conversation!.id,
-      );
+      const hist2 = yield* readC();
       expect(hist2.newCount).toBe(0);
-
       // New message arrives AFTER read
       yield* H.sendAndSettle(
         regC.client,
@@ -149,12 +153,8 @@ it("new messages after history read are marked *NEW*", () =>
         convC.conversation!.id,
         H.SECOND_MESSAGE,
       );
-
       // Third read → 1 new (the new message)
-      const hist3 = yield* H.socketHistory(
-        convC.conversation!.id,
-        convB.conversation!.id,
-      );
+      const hist3 = yield* readC();
       expect(hist3.newCount).toBe(1);
       const newMsgs = hist3.messages.filter((m) => m.isNew);
       expect(newMsgs[0]!.text).toBe(H.SECOND_MESSAGE);
