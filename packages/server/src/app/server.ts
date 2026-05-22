@@ -24,7 +24,7 @@ import { pingHandlers } from "../network/handlers/ping.handlers.js";
 import { connectHandlers } from "../task/handlers/connect.handlers.js";
 import { messageHandlers } from "../task/handlers/messages.handlers.js";
 import { presenceHandlers } from "../network/handlers/presence.handlers.js";
-import { contactHandlers } from "../task/handlers/contacts.handlers.js";
+import { contactHandlers } from "../identity/handlers/contacts.handlers.js";
 import { taskHandlers } from "../task/handlers/tasks.handlers.js";
 import { appHandlers } from "./handlers/apps.handlers.js";
 
