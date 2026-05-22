@@ -102,7 +102,6 @@ declare const serviceBodyUnion: Effect.Effect<
 >;
 declare const tmTaskId: Parameters<typeof obtainTmAuthority>[0];
 declare const tmCallerConn: Parameters<typeof obtainTmAuthority>[1];
-declare const tmCallerAgent: Parameters<typeof obtainTmAuthority>[2];
 
 // @ts-expect-error - providing only `TmAuthority` leaves `TaskActive` in R;
 // the result still requires `TaskActive`, so it cannot widen to `R = never`.
@@ -110,7 +109,7 @@ const union_MISSING_TASK_ACTIVE: Effect.Effect<void, never, never> =
   serviceBodyUnion.pipe(
     Effect.provideServiceEffect(
       TmAuthority,
-      obtainTmAuthority(tmTaskId, tmCallerConn, tmCallerAgent),
+      obtainTmAuthority(tmTaskId, tmCallerConn),
     ),
   );
 void union_MISSING_TASK_ACTIVE;
@@ -131,7 +130,7 @@ const union_BOTH_provided: Effect.Effect<
 > = serviceBodyUnion.pipe(
   Effect.provideServiceEffect(
     TmAuthority,
-    obtainTmAuthority(tmTaskId, tmCallerConn, tmCallerAgent),
+    obtainTmAuthority(tmTaskId, tmCallerConn),
   ),
   Effect.provideServiceEffect(
     TaskActive,

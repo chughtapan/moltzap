@@ -114,12 +114,11 @@ export type MessageAuthorizeHook = Hook<
 >;
 
 /**
- * `AppHooks` keys per-appId. Both hooks (`taskAuthorizeDispatch` for
- * receive-side admission and `messageAuthorize` for send-side fan-out)
- * run against the recipient's bound app, found via
- * `lookupAppForConversation`. The `messageAuthorize` field is held in
- * AppHost's separate `messageAuthorizeHooks` map (also keyed by
- * `appId`); registration helper is `AppHost.registerMessageAuthorize`.
+ * `AppHooks` keys per-appId. Today's single slot is the receive-side
+ * `taskAuthorizeDispatch` hook (external moderator callback with
+ * fail-closed envelope). `messageAuthorize` lives in
+ * `AppHost.messageAuthorizeHooks` (separate appId-keyed map);
+ * registration helper is `AppHost.registerMessageAuthorize`.
  */
 export interface AppHooks {
   taskAuthorizeDispatch?: TaskAuthorizeDispatchHook;

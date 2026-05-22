@@ -1,10 +1,5 @@
 import { Effect, Option } from "effect";
-import {
-  DEFAULT_APP_ID,
-  type AppId,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import type { AppId, ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import {
   catchSqlErrorAsDefect,
@@ -102,10 +97,7 @@ export function lookupAppForConversation(
       if (row.archived_at !== null) {
         return { _tag: "ConversationArchived" } as const;
       }
-      // DEFAULT_APP_ID is the unmoderated app — there's no real app
-      // registered for it, so dispatch admission falls through to the
-      // default-grant branch the same way pre-#673's nullable app_id did.
-      if (row.app_id === null || row.app_id === DEFAULT_APP_ID) {
+      if (row.app_id === null) {
         return { _tag: "NoAppSession" } as const;
       }
       return {

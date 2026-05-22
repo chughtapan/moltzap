@@ -143,7 +143,6 @@ export const TaskClose = defineRpc({
         return {
           taskId: p.taskId,
           callerConnId: c.connId,
-          callerAgentId: c.auth.agentId,
         };
       },
     },
@@ -173,7 +172,6 @@ export const TaskAddParticipant = defineRpc({
         return {
           taskId: p.taskId,
           callerConnId: c.connId,
-          callerAgentId: c.auth.agentId,
         };
       },
     },
@@ -200,7 +198,6 @@ export const TaskRemoveParticipant = defineRpc({
         return {
           taskId: p.taskId,
           callerConnId: c.connId,
-          callerAgentId: c.auth.agentId,
         };
       },
     },
@@ -258,15 +255,12 @@ export type TaskConversationListItem = Static<
 >;
 
 /**
- * Open to any authenticated agent.
+ * Open to any authenticated agent. Returns `{ task, conversation }`
+ * where `conversation` is `null` when `initialConversation` is omitted.
  *
- * Dedup: when `appId === DEFAULT_APP_ID`, the server returns any
- * existing task whose `task_participants` set is exactly
- * `{callerAgentId} ∪ invitedAgentIds`. The single-invitee case is
- * the canonical "one DM per agent pair" rule.
- *
- * Returns `{ task, conversation }` where `conversation` is `null`
- * when `initialConversation` is omitted.
+ * Dedup is a client-side concern: clients that want "one DM per
+ * participant set" semantics list their tasks and filter locally
+ * before creating a new one.
  */
 export const TaskCreate = defineRpc({
   name: "task/create",
@@ -340,7 +334,6 @@ export const TaskConversationCreate = defineRpc({
         return {
           taskId: p.taskId,
           callerConnId: c.connId,
-          callerAgentId: c.auth.agentId,
         };
       },
     },
@@ -400,7 +393,6 @@ const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown) => {
   return {
     taskId: p.taskId,
     callerConnId: c.connId,
-    callerAgentId: c.auth.agentId,
   };
 };
 const conversationInTaskArgsOfPair = (params: unknown) => {
