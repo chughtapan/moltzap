@@ -18,14 +18,8 @@ import {
   Option,
   Schema,
 } from "effect";
-import * as ConfigErrorTree from "effect/ConfigError";
 import type { ConfigError } from "effect/ConfigError";
 import { MoltZapConfig, type MoltZapAppConfig } from "./effect-config.js";
-import {
-  validateConfig,
-  formatConfigErrors,
-  type ConfigError as SchemaConfigError,
-} from "./schema.js";
 
 /**
  * Top-level YAML document shape. `ConfigProvider.fromJson` silently
@@ -137,51 +131,6 @@ function decodeYamlMapping(
       ),
     onRight: (value) => Effect.succeed(value),
   }).pipe(Effect.withSpan("decodeYamlMapping"));
-}
-
-function validateYamlConfig(
-  value: unknown,
-  configPath: string,
-): Effect.Effect<unknown, ConfigLoadError> {
-  const schemaResult = validateConfig(value);
-  if (schemaResult.ok) {
-    return Effect.succeed(value);
-  }
-  return Effect.fail(
-    new ConfigLoadError({
-      kind: "validation",
-      path: configPath,
-      message: `Invalid config in "${configPath}":\n${formatConfigErrors(schemaResult.errors)}`,
-      configError: schemaErrorsToConfigError(schemaResult.errors),
-    }),
-  );
-}
-
-function schemaErrorsToConfigError(
-  errors: readonly SchemaConfigError[],
-): ConfigError {
-  const [first, ...rest] = errors;
-  const head =
-    first === undefined
-      ? ConfigErrorTree.InvalidData([], "validation failed")
-      : schemaErrorToConfigError(first);
-  return rest.reduce(
-    (acc, error) => ConfigErrorTree.And(acc, schemaErrorToConfigError(error)),
-    head,
-  );
-}
-
-function schemaErrorToConfigError(error: SchemaConfigError): ConfigError {
-  return ConfigErrorTree.InvalidData(
-    configErrorPathSegments(error.path),
-    `${error.problem}; expected ${error.expected}`,
-  );
-}
-
-function configErrorPathSegments(path: string): string[] {
-  return path === "/"
-    ? []
-    : path.split("/").filter((segment) => segment !== "");
 }
 
 function decodeMoltZapConfig(
@@ -308,8 +257,7 @@ export const loadConfigFromFile = (
       configPath,
       processEnv,
     );
-    const validated = yield* validateYamlConfig(interpolated, configPath);
-    const value = yield* decodeMoltZapConfig(validated, configPath);
+    const value = yield* decodeMoltZapConfig(interpolated, configPath);
     const configDir = yield* resolveConfigDir(configPath);
 
     return { ...value, _configDir: configDir };
