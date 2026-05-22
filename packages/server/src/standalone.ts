@@ -15,7 +15,7 @@ import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import { WebhookClient } from "./adapters/webhook.js";
 import { WebhookContactService } from "./adapters/webhook-contact-service.js";
-import { WebhookSessionValidator } from "./identity/services/session-validator.js";
+import { WebhookSessionValidator } from "./adapters/webhook-session-validator.js";
 import type { CoreApp } from "./app/types.js";
 import type { CoreConfig } from "./app/config.js";
 import type { Database } from "./db/database.js";
