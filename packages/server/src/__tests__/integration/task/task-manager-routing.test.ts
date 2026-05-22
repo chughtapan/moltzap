@@ -10,15 +10,12 @@
  *    auto-mints a default-TM-bound task; `messages/send` succeeds.
  */
 import * as fc from "fast-check";
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
+import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { Effect } from "effect";
 import {
   DEFAULT_APP_ID,
-  HookBlockedError,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  TaskClose,
-  TaskClosedError,
   TaskCreate,
   type ConversationId,
   type Message,
@@ -37,14 +34,11 @@ import {
   trackClient,
   connectTestClient,
   registerAgent,
-  expectEitherLeft,
   type ServerTestClient,
 } from "../helpers.js";
 
 const TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS = 20_000;
 const PROPERTY_RUNS = 25;
-const TASK_CLOSED_REASON = "TaskClosed";
-const CLOSED_STATUS = "closed";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -166,67 +160,18 @@ it(
   TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
 );
 
-it(
-  "TM offline: messages/send surfaces RpcFailure (RecipientNotResolved → HookBlocked)",
-  () =>
-    Effect.gen(function* () {
-      const pair = yield* setupTmAndSender(2);
-      const { taskId, conversationId } =
-        yield* setupTaskBoundConversation(pair);
-
-      yield* pair.tm.close();
-      yield* Effect.sleep("100 millis");
-
-      const outcome = yield* Effect.either(
-        pair.sender.sendRpc(MessagesSend, {
-          taskId,
-          conversationId,
-          parts: [{ type: "text", text: "tm offline" }],
-        }),
-      );
-      const err = expectEitherLeft(outcome) as {
-        code?: number;
-        message?: string;
-      };
-      expect(err.code).toBe(HookBlockedError.code);
-      expect(err.message).toMatch(/Task manager/i);
-    }),
-  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+// DEFAULT_APP_ID has no per-task TM (#677); closing the task creator's
+// socket no longer makes messages/send unreachable. Re-add via AppsRegister
+// fixture + custom appId once the TM moderator test driver lands.
+vit.todo(
+  "TM offline: messages/send surfaces RpcFailure — needs AppsRegister fixture",
 );
 
-it(
-  "Closed task: messages/send fails closed with TaskClosed",
-  () =>
-    Effect.gen(function* () {
-      const pair = yield* setupTmAndSender(4);
-      const { taskId, conversationId } =
-        yield* setupTaskBoundConversation(pair);
-
-      yield* pair.sender.sendRpc(MessagesSend, {
-        taskId,
-        conversationId,
-        parts: [{ type: "text", text: "before close" }],
-      });
-
-      yield* pair.tm.sendRpc(TaskClose, { taskId });
-
-      const outcome = yield* Effect.either(
-        pair.sender.sendRpc(MessagesSend, {
-          taskId,
-          conversationId,
-          parts: [{ type: "text", text: "after close" }],
-        }),
-      );
-      const err = expectEitherLeft(outcome) as {
-        code?: number;
-        message?: string;
-        data?: { reason?: string; status?: string };
-      };
-      expect(err.code).toBe(TaskClosedError.code);
-      expect(err.data?.reason).toBe(TASK_CLOSED_REASON);
-      expect(err.data?.status).toBe(CLOSED_STATUS);
-    }),
-  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+// TaskClose requires TM authority (#677); DEFAULT_APP_ID has no TM, so
+// the close path is unreachable for unmoderated tasks. Re-add coverage
+// via AppsRegister fixture + custom appId.
+vit.todo(
+  "Closed task: messages/send fails closed with TaskClosed — needs AppsRegister fixture",
 );
 
 it(
@@ -302,36 +247,10 @@ it(
   TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
 );
 
-it(
-  "TM-authored messages/send does not self-loop the TM via network.send (codex HIGH-1)",
-  () =>
-    Effect.gen(function* () {
-      const pair = yield* setupTmAndSender(6);
-      const { taskId, conversationId } =
-        yield* setupTaskBoundConversation(pair);
-
-      const SETTLE_MS = 200;
-      const tmCollector = yield* pair.tm
-        .subscribe(MessageReceivedNotificationDefinition)
-        .pipe(
-          Stream.filter(
-            (n) =>
-              (n.params as { message?: { parts?: unknown[] } }).message
-                ?.parts !== undefined,
-          ),
-          Stream.interruptAfter(Duration.millis(SETTLE_MS)),
-          Stream.runCollect,
-          Effect.fork,
-        );
-
-      yield* pair.tm.sendRpc(MessagesSend, {
-        taskId,
-        conversationId,
-        parts: [{ type: "text", text: "stored by TM" }],
-      });
-
-      const received = Chunk.toReadonlyArray(yield* Fiber.join(tmCollector));
-      expect(received).toHaveLength(1);
-    }),
-  TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
+// The TM self-loop bug was specific to the path where a registered TM
+// hook handler re-emits a message it just sent. DEFAULT_APP_ID has no
+// TM hook (#677); this scenario is unreachable here. Re-add via
+// AppsRegister fixture + custom appId once that test driver lands.
+vit.todo(
+  "TM-authored messages/send does not self-loop via network.send (codex HIGH-1) — needs AppsRegister fixture",
 );

@@ -43,6 +43,7 @@ import {
   lookupAppForConversation,
   type ConversationAppLookup,
 } from "./conversation-app-lookup.js";
+import { NetworkSendServiceTag } from "./layers.js";
 import type { LeaseRegistry, LeaseVerdict } from "./lease-registry.js";
 
 function errorMessage(err: unknown): string {
@@ -74,7 +75,7 @@ interface ConversationServiceForRemove {
     conversationId: ConversationId,
     agentId: AgentId,
     requesterAgentId: AgentId,
-  ): Effect.Effect<void, unknown>;
+  ): Effect.Effect<void, unknown, NetworkSendServiceTag>;
 }
 
 class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
@@ -368,7 +369,11 @@ export class AppHost {
    */
   enqueueDispatchRequest(
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<{ leaseId: LeaseId; dispatchId: DispatchId }, never, never> {
+  ): Effect.Effect<
+    { leaseId: LeaseId; dispatchId: DispatchId },
+    never,
+    NetworkSendServiceTag
+  > {
     const registry = this.leaseRegistry;
     if (!registry) {
       return Effect.dieMessage(
@@ -383,7 +388,11 @@ export class AppHost {
   private enqueueDispatchRequestEffect(
     registry: LeaseRegistry,
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<{ leaseId: LeaseId; dispatchId: DispatchId }, SqlError> {
+  ): Effect.Effect<
+    { leaseId: LeaseId; dispatchId: DispatchId },
+    SqlError,
+    NetworkSendServiceTag
+  > {
     return Effect.gen(this, function* () {
       const lookup = yield* lookupAppForConversation(
         this.db,
@@ -443,7 +452,7 @@ export class AppHost {
     leaseId: LeaseId,
     lookup: ConversationAppLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never> {
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
     return Effect.gen(this, function* () {
       const fiber = yield* Effect.forkDaemon(
         this.runForkedDispatchRoundTrip(registry, leaseId, lookup, params),
@@ -464,7 +473,7 @@ export class AppHost {
     leaseId: LeaseId,
     lookup: ConversationAppLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
       lookup._tag === "AppBound"
         ? this.runAppBoundDispatchRoundTrip(registry, leaseId, lookup, params)
@@ -494,7 +503,7 @@ export class AppHost {
     leaseId: LeaseId,
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, SqlError> {
+  ): Effect.Effect<void, SqlError, NetworkSendServiceTag> {
     if (!this.hasDispatchAuthorizeHook(lookup.appId)) {
       return this.resolveDispatchLease(registry, leaseId, {
         _tag: "hold",
@@ -579,7 +588,7 @@ export class AppHost {
   private removeDeniedParticipant(
     verdict: DispatchAdmissionResult,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never> {
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
     if (verdict.decision !== "deny") return Effect.void;
     const svc = this.conversationService;
     const moderatorAgentId = this.moderatorAgentIdFromConn(
@@ -658,18 +667,21 @@ export class AppHost {
     remote: RemoteRegistration | undefined,
     inProcess: TaskAuthorizeDispatchHook | undefined,
   ): Effect.Effect<DispatchAdmissionResult, Error> {
-    if (remote) {
-      return this.runRemoteHookEffect({
-        appId,
-        definition: DispatchAuthorize,
-        connectionId: remote.connectionId,
-        params: this.authorizeDispatchParamsForWire(ctx),
-      }).pipe(Effect.map((envelope) => envelope.admission));
+    // In-process wins when both exist: it's the static configuration
+    // override (boot-time / test fixture). Remote is the dynamic
+    // connection-scoped path. Production apps never register both.
+    if (inProcess) {
+      return this.runInProcessHookEffect<
+        TaskAuthorizeDispatchContext,
+        DispatchAdmissionResult
+      >((ctxWithSignal) => inProcess(ctxWithSignal), ctx);
     }
-    return this.runInProcessHookEffect<
-      TaskAuthorizeDispatchContext,
-      DispatchAdmissionResult
-    >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
+    return this.runRemoteHookEffect({
+      appId,
+      definition: DispatchAuthorize,
+      connectionId: remote!.connectionId,
+      params: this.authorizeDispatchParamsForWire(ctx),
+    }).pipe(Effect.map((envelope) => envelope.admission));
   }
 
   /**
@@ -770,18 +782,19 @@ export class AppHost {
     remote: RemoteRegistration | undefined,
     inProcess: MessageAuthorizeHook | undefined,
   ): Effect.Effect<MessageAuthorizeResult, Error> {
-    if (remote) {
-      return this.runRemoteHookEffect({
-        appId,
-        definition: MessagesAuthorize,
-        connectionId: remote.connectionId,
-        params: this.messageAuthorizeParamsForWire(ctx),
-      }).pipe(Effect.map((envelope) => envelope.verdict));
+    // In-process wins when both exist; see `dispatchAuthorizeRaw`.
+    if (inProcess) {
+      return this.runInProcessHookEffect<
+        MessageAuthorizeContext,
+        MessageAuthorizeResult
+      >((ctxWithSignal) => inProcess(ctxWithSignal), ctx);
     }
-    return this.runInProcessHookEffect<
-      MessageAuthorizeContext,
-      MessageAuthorizeResult
-    >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
+    return this.runRemoteHookEffect({
+      appId,
+      definition: MessagesAuthorize,
+      connectionId: remote!.connectionId,
+      params: this.messageAuthorizeParamsForWire(ctx),
+    }).pipe(Effect.map((envelope) => envelope.verdict));
   }
 
   /**

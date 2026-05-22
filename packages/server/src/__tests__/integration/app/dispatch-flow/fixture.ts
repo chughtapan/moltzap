@@ -1,4 +1,5 @@
 import {
+  AppsRegister,
   DEFAULT_APP_ID,
   DispatchRelease,
   DispatchRequest,
@@ -79,6 +80,23 @@ export function createModeratedDm(
       conversationId: result.conversation!.id,
     };
   }).pipe(Effect.withSpan("createModeratedDm"));
+}
+
+/**
+ * Like {@link createModeratedDm} but also registers `alice`'s connection
+ * as the wire endpoint for `manifest.appId`. Needed when the test needs
+ * `moderatorConnectionId` populated (deny-eviction, post-#673) or
+ * TM-only admin RPCs (TaskConversationArchive, etc.).
+ */
+export function createModeratedDmAsModerator(
+  alice: ConnectedAgent,
+  bob: ConnectedAgent,
+  manifest: AppManifest,
+): Effect.Effect<ConversationBinding, unknown> {
+  return Effect.gen(function* () {
+    yield* alice.client.sendRpc(AppsRegister, { manifest });
+    return yield* createModeratedDm(alice, bob, manifest);
+  }).pipe(Effect.withSpan("createModeratedDmAsModerator"));
 }
 
 export function createUnmoderatedDm(

@@ -14,7 +14,7 @@ import {
   DISPATCH_STATE_GRANTED,
   EXPECTED_TYPE_STRING,
   createDispatchFlowFixture,
-  createModeratedDm,
+  createModeratedDmAsModerator,
   createUnmoderatedDm,
   readLeaseByLeaseId,
   requestDispatch,
@@ -54,7 +54,11 @@ function requestPendingModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ kind: "never-reply" });
-    const binding = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
+    const binding = yield* createModeratedDmAsModerator(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     const ack = yield* requestDispatch(
       bob,
       binding.conversationId,
@@ -72,7 +76,11 @@ function requestGrantedModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
-    const binding = yield* createModeratedDm(alice, bob, TEST_APP_MANIFEST);
+    const binding = yield* createModeratedDmAsModerator(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(bob);
     const ack = yield* requestDispatch(
@@ -158,7 +166,10 @@ function grantedLeaseIsSingleUse() {
 function insertFailureRollsBackLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
+    // Moderated path so alice (as the AppsRegister'd app) has
+    // TaskConversationArchive authority; archiving forces the
+    // subsequent messages/send to fail at insert time.
+    const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "probe",
