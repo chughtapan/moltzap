@@ -8,6 +8,7 @@ export * from "./server.js";
 export * from "./socket.js";
 
 export {
+  AppsRegister,
   ConversationArchivedError,
   DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,

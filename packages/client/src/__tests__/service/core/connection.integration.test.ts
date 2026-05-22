@@ -74,8 +74,12 @@ it("on('message') fires for incoming message from another agent", () =>
     );
 
     expect(received.length).toBe(1);
-    const msg = received[0] as { parts: Array<{ text: string }> };
-    expect(msg.parts[0]!.text).toBe(H.HELLO_RECEIVER);
+    const event = received[0] as {
+      taskId: string;
+      message: { parts: Array<{ text: string }> };
+    };
+    expect(event.taskId).toBe(conv.task.id);
+    expect(event.message.parts[0]!.text).toBe(H.HELLO_RECEIVER);
 
     service.close();
     yield* regSender.client.close();

@@ -22,28 +22,32 @@ it("different sessions have independent read markers", () =>
       // Message in conv C
       yield* H.sendAndSettle(
         regC.client,
-        convC.conversation.id,
+        convC.task.id,
+        convC.conversation!.id,
         H.SHARED_UPDATE,
       );
 
       // Conv B reads history → advances lastRead for convB→convC
       const histB = yield* H.socketHistory(
-        convC.conversation.id,
-        convB.conversation.id,
+        convC.task.id,
+        convC.conversation!.id,
+        convB.conversation!.id,
       );
       expect(histB.newCount).toBe(1); // first read
 
       // Conv B reads again → 0 new
       const histB2 = yield* H.socketHistory(
-        convC.conversation.id,
-        convB.conversation.id,
+        convC.task.id,
+        convC.conversation!.id,
+        convB.conversation!.id,
       );
       expect(histB2.newCount).toBe(0);
 
       // Conv D reads same conversation → still 1 new (independent markers)
       const histD = yield* H.socketHistory(
-        convC.conversation.id,
-        convD.conversation.id,
+        convC.task.id,
+        convC.conversation!.id,
+        convD.conversation!.id,
       );
       expect(histD.newCount).toBe(1);
     } finally {
