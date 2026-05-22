@@ -27,8 +27,11 @@ import {
   TaskConversationUnarchivedNotificationDefinition,
   TaskCreate,
   TaskId,
-  DEFAULT_APP_ID,
 } from "../../../task/methods.js";
+import { AppsRegister, DispatchAuthorize } from "../../../app/methods.js";
+import { AppId as AppIdSchema } from "../../../task/ids.js";
+import type { Static } from "@sinclair/typebox";
+import { appId as makeAppId } from "../_shared/test-fixtures.js";
 import { AgentId } from "../../../identity/methods.js";
 import {
   conversationId as makeConversationId,
@@ -518,6 +521,48 @@ export function acquireClient(
   }).pipe(Effect.withSpan("acquireClient"));
 }
 
+/**
+ * Mint a fresh app-id per conversation fixture, AppsRegister the
+ * owner, and attach a forward-all `DispatchAuthorize` wire callback.
+ * Required for properties that drive TM-only RPCs (archive,
+ * addParticipant, close); DEFAULT_APP_ID has no TM. The server's
+ * default `messages/authorize` policy (forward to participants minus
+ * sender) applies because no `MessagesAuthorize` callback is wired.
+ */
+function freshConformanceAppId(): string {
+  return crypto.randomUUID();
+}
+
+function attachGrantDispatchAuthorize(client: TestClient): Effect.Effect<void> {
+  return client.onAppCallback(DispatchAuthorize, () =>
+    Effect.succeed({ admission: { decision: "grant" as const } }),
+  );
+}
+
+/**
+ * Wire `owner` as moderator: attach grant-all DispatchAuthorize
+ * callback, AppsRegister against a fresh appId, return that appId.
+ */
+function moderateAs(
+  owner: ConversationActor,
+  namePrefix: string,
+): Effect.Effect<Static<typeof AppIdSchema>, string> {
+  return Effect.gen(function* () {
+    const fixtureAppId = makeAppId(freshConformanceAppId());
+    yield* attachGrantDispatchAuthorize(owner.client);
+    const registerResult = yield* owner.client
+      .sendRpc(AppsRegister, {
+        manifest: { appId: fixtureAppId, name: `${namePrefix}-app` },
+      })
+      .pipe(Effect.either);
+    yield* requireRight(
+      registerResult,
+      (error) => `apps/register failed: ${error._tag}`,
+    );
+    return fixtureAppId;
+  });
+}
+
 export function acquireConversation(
   ctx: ConformanceRunContext,
   n: number,
@@ -531,11 +576,12 @@ export function acquireConversation(
       (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
       { concurrency: clamped },
     );
-    // Spec D3: TaskCreate is the canonical entry; returns both task
-    // (with id) and the initial conversation in one round-trip.
+    // Spec D3 + #677: owner needs TM authority for TM-only RPCs
+    // (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
+    const fixtureAppId = yield* moderateAs(owner, namePrefix);
     const createResult = yield* owner.client
       .sendRpc(TaskCreate, {
-        appId: DEFAULT_APP_ID,
+        appId: fixtureAppId,
         invitedAgentIds: participants.map((p) => p.agent.agentId),
         initialConversation: {
           name: `${namePrefix}-conv`,
