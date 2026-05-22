@@ -10,10 +10,9 @@ import {
   DISPATCH_STATE_CONSUMED,
   DISPATCH_STATE_EXPIRED,
   DISPATCH_STATE_GRANTED,
-  DISPATCH_VERDICT_HOLD,
-  MODERATOR_UNAVAILABLE_REASON,
   createDispatchFlowFixture,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createUnmoderatedDm,
   readLeaseByDispatchId,
   readLeaseByLeaseId,
@@ -22,10 +21,8 @@ import {
   startDispatchFlowServer,
   stopDispatchFlowServer,
   waitForDispatchRelease,
-  waitForParticipantsRemoved,
 } from "./fixture.js";
 import {
-  expectEitherLeft,
   registerAndConnect,
   setupAgentPair,
   type ConnectedAgent,
@@ -34,24 +31,13 @@ import {
 const it = effectIt.live;
 
 const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
-const UNKNOWN_APP_ID = "00000000-0000-4000-8000-000000010002";
 const SHORT_LEASE_TIMEOUT_MS = 100;
-const PARTICIPANT_REMOVED_NEGATIVE_WAIT_MS = 500;
 const DISCONNECT_FINALIZER_WAIT = "300 millis";
 const TTL_WAIT = "400 millis";
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
-  conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
-};
-
-// Registered as remote-app so TaskConversationCreate passes TmAuthority,
-// but no dispatch hook is wired so dispatch admission falls into the
-// synthesized infra-hold branch.
-const UNKNOWN_APP_MANIFEST: AppManifest = {
-  appId: UNKNOWN_APP_ID,
-  name: "No-Hook Dispatch App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
@@ -70,7 +56,8 @@ function requestModeratedDispatch(
   text: string,
 ) {
   return Effect.gen(function* () {
-    const binding = yield* createModeratedDm(alice, bob, manifest);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const binding = yield* createTaskConversationOnApp(alice, bob, manifest);
     const ack = yield* requestDispatch(
       bob,
       binding.conversationId,
@@ -96,36 +83,6 @@ function requestUnmoderatedDispatch(
     );
     return { ack, binding, conversationId: binding.conversationId };
   }).pipe(Effect.withSpan("requestUnmoderatedLifecycleDispatch"));
-}
-
-function synthesizedInfraHoldDoesNotRemoveRecipient() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    // Fork-before-trigger (Spec B #596 r2 fix): subscribe before the
-    // dispatch RPC fires. The participants/removed listener is also
-    // forked up-front so a stray event would still be captured; the
-    // assertion is `expectEitherLeft` (timeout) since infra-hold must
-    // NOT remove the recipient.
-    const releaseFiber = yield* waitForDispatchRelease(bob);
-    const removedFiber = yield* waitForParticipantsRemoved(
-      bob,
-      PARTICIPANT_REMOVED_NEGATIVE_WAIT_MS,
-    );
-    const { ack } = yield* requestModeratedDispatch(
-      alice,
-      bob,
-      UNKNOWN_APP_MANIFEST,
-      "probe",
-    );
-    const release = yield* Fiber.join(releaseFiber);
-
-    expect(release.leaseId).toBe(ack.leaseId);
-    expect(release.verdict.decision).toBe(DISPATCH_VERDICT_HOLD);
-    expect(release.verdict.reason).toBe(MODERATOR_UNAVAILABLE_REASON);
-
-    const removed = yield* Effect.either(Fiber.join(removedFiber));
-    expectEitherLeft(removed);
-  });
 }
 
 function grantedLeaseExpiresAfterTtl() {
@@ -253,12 +210,6 @@ function expiredReconnectMintsNewLease() {
 }
 
 describe("dispatch/* - lifecycle verdict and ttl", () => {
-  it(
-    "does not remove the recipient for synthesized infra hold",
-    synthesizedInfraHoldDoesNotRemoveRecipient,
-    20_000,
-  );
-
   it(
     "expires a granted lease after leaseTimeoutMs",
     grantedLeaseExpiresAfterTtl,

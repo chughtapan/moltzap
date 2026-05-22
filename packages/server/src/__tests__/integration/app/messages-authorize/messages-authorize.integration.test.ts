@@ -9,8 +9,8 @@ import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import {
   AppsRegister,
-  DEFAULT_APP_ID,
   HookBlockedError,
+  MessagesAuthorize,
   MessagesList,
   MessagesSend,
   MessageReceivedNotificationDefinition,
@@ -28,7 +28,6 @@ import {
   resetTestDbEffect,
   registerAndConnect,
   setupAgentPair,
-  getTestCoreApp,
   getKyselyDb,
   type ConnectedAgent,
 } from "../../helpers.js";
@@ -51,7 +50,6 @@ const VERDICT_TAG_FORWARD = "forward";
 const VERDICT_TAG_BLOCK = "block";
 const VERDICT_TAG_PENDING = "pending";
 const BLOCK_REASON = "test-block";
-const DEFAULT_DM_BLOCK_REASON = "default-dm-block";
 const RACE_LOSER_REASON = "race-loser";
 const BLOCK_MESSAGE_PATTERN = /block/i;
 const CONV_NAME_BLOCK = "ma-block";
@@ -61,7 +59,6 @@ const TEXT_BLOCKED = "blocked-msg";
 const TEXT_SUBSET = "subset-msg";
 const TEXT_UNREACHABLE = "unreachable";
 const TEXT_EMPTY_FORWARD = "empty-forward";
-const TEXT_DM_BLOCKED = "dm-blocked";
 const TEXT_FORWARD_CAROL = "m1-forward-carol";
 const TEXT_BLOCKED_SECOND = "m2-blocked";
 const TEXT_FORWARD_BOB = "m3-forward-bob";
@@ -71,7 +68,6 @@ const LONG_SETTLE = "300 millis";
 const SERVER_TIMEOUT_BUDGET_MS = 10_000;
 const TEST_TIMEOUT_MS = 30_000;
 const START_TIMEOUT_MS = 60_000;
-const MIN_DEFAULT_DM_HOOK_CALLS = 1;
 
 type MessageAuthorizeVerdict =
   | { decision: typeof DECISION_FORWARD; recipients: ReadonlyArray<AgentId> }
@@ -93,7 +89,6 @@ let appHookState: VerdictState = {
   next: { decision: DECISION_FORWARD, recipients: [] },
   calls: 0,
 };
-let defaultDmHookState: VerdictState | null = null;
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()), START_TIMEOUT_MS);
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
@@ -106,39 +101,29 @@ beforeEach(() =>
             next: { decision: DECISION_FORWARD, recipients: [] },
             calls: 0,
           };
-          defaultDmHookState = null;
-          getTestCoreApp().registerApp(TEST_APP_MANIFEST);
         }),
       ),
     ),
   ),
 );
 
-function registerTmHook(_tmAgentId: string): void {
-  // #673: hook is keyed by appId, not by TM-agent-address. The
-  // `_tmAgentId` parameter is preserved for call-site symmetry with the
-  // pre-cutover signature; the hook routes to TEST_APP_ID.
-  getTestCoreApp().registerMessageAuthorize(TEST_APP_ID, () => {
-    appHookState.calls += 1;
-    const verdict = appHookState.next;
-    if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
-      return Effect.runPromise(Effect.never);
-    }
-    return verdict as MessageAuthorizeVerdict;
-  });
-}
-
-function registerDefaultDmHook(verdict: MessageAuthorizeVerdict): void {
-  // #673: default-DM / default-group machinery deleted. The legacy
-  // "no app, just a DM" path now goes through the DEFAULT_APP_ID app;
-  // tests that need a custom default-policy hook for non-TEST_APP_ID
-  // conversations register against DEFAULT_APP_ID.
-  defaultDmHookState = { next: verdict, calls: 0 };
-  getTestCoreApp().registerMessageAuthorize(DEFAULT_APP_ID, () => {
-    if (defaultDmHookState === null) expect.fail("default DM hook not seeded");
-    defaultDmHookState.calls += 1;
-    return defaultDmHookState.next as MessageAuthorizeVerdict;
-  });
+/**
+ * Attach the wire callback handling server→client `messages/authorize`
+ * for `alice`. MUST be called BEFORE `createAppManagedTask`'s
+ * `AppsRegister` so the callback is live when the first
+ * `messages/send` fires.
+ */
+function attachMessageAuthorizeHook(alice: ConnectedAgent) {
+  return alice.client.onAppCallback(MessagesAuthorize, () =>
+    Effect.gen(function* () {
+      appHookState.calls += 1;
+      const verdict = appHookState.next;
+      if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
+        return yield* Effect.never;
+      }
+      return { verdict: verdict as MessageAuthorizeVerdict };
+    }),
+  );
 }
 
 function dbError(message: string, cause: unknown) {
@@ -348,7 +333,7 @@ function sendTextWithTimeout(
 function blockVerdictPreventsFanoutAndPersistsBlock() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { decision: DECISION_BLOCK, reason: BLOCK_REASON };
 
     const task = yield* createAppManagedTask(alice, [bob]);
@@ -382,7 +367,7 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
 function tmUnreachableSynthesizesBlock() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { kind: NEVER_REPLY };
 
     const task = yield* createAppManagedTask(alice, [bob]);
@@ -406,43 +391,13 @@ function tmUnreachableSynthesizesBlock() {
   });
 }
 
-function defaultDmHookBlockChangesBehavior() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    registerDefaultDmHook({
-      decision: DECISION_BLOCK,
-      reason: DEFAULT_DM_BLOCK_REASON,
-    });
-
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-    const binding: ConversationBinding = {
-      taskId: conv.task.id,
-      conversationId: conv.conversation!.id,
-    };
-    const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
-    const outcome = yield* Effect.either(
-      sendText(alice, binding, TEXT_DM_BLOCKED),
-    );
-    expectHookBlocked(outcome);
-    expect(defaultDmHookState?.calls).toBeGreaterThanOrEqual(
-      MIN_DEFAULT_DM_HOOK_CALLS,
-    );
-
-    yield* assertNoMessageReceived(bobCollector);
-  });
-}
-
 function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-sub");
     const bob = yield* registerAndConnect("bob-sub");
     const carol = yield* registerAndConnect("carol-sub");
     const dave = yield* registerAndConnect("dave-sub");
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
 
     const task = yield* createAppManagedTask(alice, [bob, carol, dave]);
     const conv = yield* createManagedGroup(
@@ -485,7 +440,7 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
 function forwardEmptySendsNoFanout() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { decision: DECISION_FORWARD, recipients: [] };
 
     const task = yield* createAppManagedTask(alice, [bob]);
@@ -575,7 +530,7 @@ function senderAndRecipientsSeeOnlyAuthorizedRows() {
     const alice = yield* registerAndConnect("alice-vis");
     const bob = yield* registerAndConnect("bob-vis");
     const carol = yield* registerAndConnect("carol-vis");
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     const task = yield* createAppManagedTask(alice, [bob, carol]);
     const conv = yield* createManagedGroup(
       alice,
@@ -606,7 +561,7 @@ function senderAndRecipientsSeeOnlyAuthorizedRows() {
 function casGuardPreservesCommittedVerdict() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     const task = yield* createAppManagedTask(alice, [bob]);
     const conv = yield* createManagedDm(alice, task.task.id, bob);
     const binding: ConversationBinding = {
@@ -641,11 +596,11 @@ describe("messages/authorize — block verdict paths", () => {
     TEST_TIMEOUT_MS,
   );
 
-  it(
-    "default-DM messageAuthorize: replacing the default hook with Block changes behavior",
-    defaultDmHookBlockChangesBehavior,
-    TEST_TIMEOUT_MS,
-  );
+  // #677: DEFAULT_APP_ID is boot-installed in-process and cannot be
+  // overridden by a wire-app registration. The "replace the default
+  // policy" capability is no longer reachable by design — by the time
+  // a task is bound to DEFAULT_APP_ID, the messages/authorize verdict
+  // is fixed to the default Forward policy.
 });
 
 describe("messages/authorize — forward verdict paths", () => {

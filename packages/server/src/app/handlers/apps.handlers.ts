@@ -12,20 +12,24 @@ import { leaseRecordToWire } from "../lease-registry.js";
 
 export const appHandlers: RpcMethodRegistry = [
   defineAppMethod(AppsRegister, {
-    // A client-originated `apps/register` call records the calling
-    // connection id so AppHost dispatches future `dispatch/authorize`
-    // verbs via `sendRpcToClient` against this socket. If the client
-    // constructed its `MoltZapAgentClient` without a handler-table entry
-    // for `dispatch/authorize`, the fail-CLOSED default slot replies
-    // deny (the descriptor's `optional: forbidden` default) — same posture as a
-    // crashed in-process handler. Server-side in-process registration
-    // continues to use `coreApp.registerApp(manifest)` directly; that
-    // path bypasses this RPC entirely.
+    // A client-originated `apps/register` writes a `Wire` registration
+    // recording the calling connection. `dispatch/authorize` and
+    // `messages/authorize` then route to this socket via
+    // `sendRpcToClient`. Rejects with `ForbiddenError` if the appId is
+    // already installed in-process (e.g. DEFAULT_APP_ID) — a wire
+    // registration MUST NOT hijack a boot-installed app.
     handler: (params) =>
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
         const connId = yield* ConnIdTag;
-        appHost.registerRemoteApp(params.manifest, connId);
+        const ok = appHost.registerRemoteApp(params.manifest, connId);
+        if (!ok) {
+          return yield* Effect.fail(
+            new ForbiddenError({
+              message: `App ${params.manifest.appId} is already installed in-process`,
+            }),
+          );
+        }
         return { appId: params.manifest.appId };
       }).pipe(Effect.withSpan("apps.register")),
   }),

@@ -24,17 +24,19 @@ import type {
   TaskId,
 } from "@moltzap/protocol/task";
 import {
-  type AppHooks,
   type DispatchAdmissionResult,
   type MessageAuthorizeContext,
-  type MessageAuthorizeHook,
   type MessageAuthorizeResult,
   type TaskAuthorizeDispatchContext,
-  type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
+import {
+  AppRegistry,
+  type AppRegistration,
+  type InProcessHooks,
+} from "./app-registration.js";
 import { MessagesAuthorize } from "@moltzap/protocol";
 import type { SqlError } from "@effect/sql/SqlError";
-import { Data, Effect, Either, Option } from "effect";
+import { Data, Effect, Either, Match, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -88,10 +90,6 @@ class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
   override get message(): string {
     return this.reason;
   }
-}
-
-interface RemoteRegistration {
-  readonly connectionId: ConnectionId;
 }
 
 type PendingDispatchMessage = Readonly<{
@@ -166,34 +164,18 @@ function dispatchVerdictToLeaseVerdict(
 }
 
 export class AppHost {
-  private manifests = new Map<AppId, AppManifest>();
+  /**
+   * Single source of truth for app registrations. Each `AppId` maps to
+   * exactly ONE `AppRegistration` — either an `InProcess` variant
+   * (boot-installed, e.g. DEFAULT_APP_ID) or a `Wire` variant (a remote
+   * app that called `apps/register` over the wire). The tagged union
+   * makes the "registered in both shapes" and "registered manifest
+   * without a hook" states unrepresentable; see
+   * `./app-registration.ts` for the type definition.
+   */
+  private apps = new AppRegistry();
+
   private contactService: ContactService | null = null;
-  private hooks = new Map<AppId, AppHooks>();
-
-  /**
-   * In-process `messageAuthorize` handlers keyed by `appId`. Apps with
-   * an in-process moderator (typical test fixture) register via
-   * {@link registerMessageAuthorize}. Apps that authenticate over WS
-   * and call `apps/register` over the wire route through the
-   * remote-registration path in {@link runMessageAuthorize}.
-   */
-  private messageAuthorizeHooks = new Map<AppId, MessageAuthorizeHook>();
-
-  /**
-   * Remote-app routing table. An entry exists iff `registerRemoteApp` was
-   * called for `appId`; the value records which WS connection serves the
-   * app's hook RPCs. Looked up at dispatch time (not registration time)
-   * so the connection can be closed and re-resolved without re-registering
-   * the app — the Scope finalizer on the old connection drains its
-   * pending Deferreds with `NotConnectedError`, which the dispatch envelope
-   * maps to fail-closed verdicts.
-   *
-   * Disjoint with `hooks` per-app: a given `appId` is either in-process
-   * (entries in `hooks`) or remote (entry here), never both. The dispatch
-   * helpers prefer the remote entry when present — `registerRemoteApp`
-   * is the explicit promotion path.
-   */
-  private remoteRegistrations = new Map<AppId, RemoteRegistration>();
 
   /**
    * Optional lease registry for the #529 reshape surface.
@@ -242,59 +224,71 @@ export class AppHost {
     return this.leaseRegistry;
   }
 
-  registerApp(manifest: AppManifest): void {
-    // `AppManifest.appId` is wire-typed `Type.String()` (no brand on the
-    // schema), so brand at the boundary when populating the registry.
-    this.manifests.set(manifest.appId as AppId, manifest);
+  /**
+   * Install an app whose hooks run in-process. The boot-installed
+   * `DEFAULT_APP_ID` is the only production caller; tests that need a
+   * custom hook MUST go through {@link registerRemoteApp} + an
+   * `onAppCallback` handler instead.
+   *
+   * Throws if `appId` is already wire-registered (a boot-installed app
+   * MUST NOT be hijacked by a remote registration).
+   */
+  installInProcessApp(manifest: AppManifest, hooks: InProcessHooks): void {
+    this.apps.installInProcess(manifest, hooks);
     Effect.runFork(
-      Effect.logInfo("App registered").pipe(
+      Effect.logInfo("In-process app installed").pipe(
         Effect.annotateLogs({ appId: manifest.appId }),
       ),
     );
   }
 
   /**
-   * Register an app whose `dispatch/authorize` admission round-trips run
-   * in a remote process (typically a WebSocket client). The verb
-   * dispatches via {@link sendRpcToClient}; verdicts decode through the
-   * schemas in `hooks.ts` and feed the same fail-closed envelope as
-   * in-process hooks.
+   * Register an app whose hooks run in a remote process — typically a
+   * WebSocket client that just called `apps/register`. Returns `false`
+   * (and the AppsRegister handler MUST surface a typed `ForbiddenError`)
+   * when the app is already in-process; otherwise overwrites any prior
+   * wire registration (the connection may have reconnected).
    *
-   * Remote registration takes precedence over any prior in-process
-   * registration for the same `appId`. Disconnect: every pending
-   * Deferred fails with `NotConnectedError` via the connection's Scope
-   * finalizer; the registration keeps pointing at the dead id and
-   * dispatches stay fail-closed until the app re-registers.
+   * `dispatch/authorize` and `messages/authorize` dispatch via
+   * {@link sendRpcToClient}; verdicts decode through the schemas in
+   * `hooks.ts` and feed the same fail-closed envelope used elsewhere.
+   * Disconnect: every pending Deferred fails with `NotConnectedError`
+   * via the connection's Scope finalizer; the registration keeps
+   * pointing at the dead id and dispatches stay fail-closed until
+   * `unregisterRemoteApp` runs.
    */
-  registerRemoteApp(manifest: AppManifest, connectionId: ConnectionId): void {
-    // `AppManifest.appId` is wire-typed `Type.String()` (no brand on the
-    // schema); brand at the boundary so both maps stay brand-typed.
-    const appId = manifest.appId as AppId;
-    this.manifests.set(appId, manifest);
-    this.remoteRegistrations.set(appId, { connectionId });
-    Effect.runFork(
-      Effect.logInfo("Remote app registered").pipe(
-        Effect.annotateLogs({ appId, connectionId }),
-      ),
-    );
+  registerRemoteApp(
+    manifest: AppManifest,
+    connectionId: ConnectionId,
+  ): boolean {
+    const ok = this.apps.registerRemote(manifest, connectionId);
+    if (ok) {
+      Effect.runFork(
+        Effect.logInfo("Remote app registered").pipe(
+          Effect.annotateLogs({
+            appId: manifest.appId,
+            connectionId,
+          }),
+        ),
+      );
+    }
+    return ok;
   }
 
   /**
-   * Drop a remote-app registration. Idempotent — no-op if `appId` was not
-   * previously registered as remote. Does NOT remove the manifest entry
-   * (sessions and conversations may still reference it); callers that
-   * want a full removal should also clear the manifest separately.
+   * Drop a wire-app registration on connection close. Idempotent —
+   * no-op if absent or if the entry is in-process (boot-installed apps
+   * stay installed for the server's lifetime).
    *
-   * Existing in-flight admission Deferreds are unaffected by this call —
-   * they're owned by the connection's pending map and resolved either by
-   * the response router (if the app replies) or by the Scope finalizer
-   * on disconnect. Future dispatches for `appId` fall through to whatever
-   * in-process hook is registered (or grant-by-default if none).
+   * Existing in-flight admission Deferreds are unaffected — they're
+   * owned by the connection's pending map and resolved either by the
+   * response router (if the app replies) or by the Scope finalizer on
+   * disconnect.
    */
   unregisterRemoteApp(appId: AppId): void {
-    if (this.remoteRegistrations.delete(appId)) {
+    if (this.apps.unregisterRemote(appId)) {
       Effect.runFork(
-        Effect.logInfo("Remote app unregistered").pipe(
+        Effect.logInfo("Wire app unregistered").pipe(
           Effect.annotateLogs({ appId }),
         ),
       );
@@ -303,19 +297,22 @@ export class AppHost {
 
   /**
    * TM-authority gate: returns true iff `callerConnId` IS the
-   * connection currently registered as the remote app for `appId` —
+   * connection currently registered as the wire app for `appId` —
    * i.e. the caller's WebSocket is the app's `apps/register` channel.
-   * Stable across requests on the same WS; invalidated when the
-   * connection closes (the registration entry is dropped via
-   * {@link unregisterRemoteApp} on the disconnect finalizer).
+   * In-process registrations have no connection and always return
+   * false here.
    */
   isAppConnection(appId: AppId, callerConnId: ConnectionId): boolean {
-    const entry = this.remoteRegistrations.get(appId);
-    return entry !== undefined && entry.connectionId === callerConnId;
+    const entry = this.apps.get(appId);
+    return (
+      entry !== undefined &&
+      entry._tag === "Remote" &&
+      entry.connectionId === callerConnId
+    );
   }
 
   getManifest(appId: AppId): AppManifest | undefined {
-    return this.manifests.get(appId);
+    return this.apps.get(appId)?.manifest;
   }
 
   setContactService(checker: ContactService): void {
@@ -331,15 +328,6 @@ export class AppHost {
    */
   getContactService(): ContactService | null {
     return this.contactService;
-  }
-
-  onTaskAuthorizeDispatch(
-    appId: AppId,
-    handler: TaskAuthorizeDispatchHook,
-  ): void {
-    const existing = this.hooks.get(appId) ?? {};
-    existing.taskAuthorizeDispatch = handler;
-    this.hooks.set(appId, existing);
   }
 
   /**
@@ -439,11 +427,12 @@ export class AppHost {
         moderatorConnectionId: EMPTY_CONNECTION_ID,
       };
     }
-    const remote = this.remoteRegistrations.get(lookup.appId);
+    const entry = this.apps.get(lookup.appId);
     return {
       appId: lookup.appId,
       taskId: lookup.taskId,
-      moderatorConnectionId: remote?.connectionId ?? EMPTY_CONNECTION_ID,
+      moderatorConnectionId:
+        entry?._tag === "Remote" ? entry.connectionId : EMPTY_CONNECTION_ID,
     };
   }
 
@@ -524,10 +513,7 @@ export class AppHost {
   }
 
   private hasDispatchAuthorizeHook(appId: AppId): boolean {
-    return (
-      this.remoteRegistrations.has(appId) ||
-      this.hooks.get(appId)?.taskAuthorizeDispatch !== undefined
-    );
+    return this.apps.has(appId);
   }
 
   private dispatchAuthorizeContext(
@@ -632,19 +618,17 @@ export class AppHost {
     appId: AppId,
     ctx: TaskAuthorizeDispatchContext,
   ): Effect.Effect<DispatchAdmissionResult, never> {
-    const remote = this.remoteRegistrations.get(appId);
-    const inProcess = this.hooks.get(appId)?.taskAuthorizeDispatch;
-    if (!remote && !inProcess) {
+    const entry = this.apps.get(appId);
+    if (entry === undefined) {
       return Effect.succeed({ decision: "grant" as const });
     }
-    const manifest = this.manifests.get(appId);
     const timeoutMs =
-      manifest?.hooks?.dispatch_authorize?.timeout_ms ??
+      entry.manifest.hooks?.dispatch_authorize?.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
 
     return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
-      raw: this.dispatchAuthorizeRaw(appId, ctx, remote, inProcess),
+      raw: this.dispatchAuthorizeRaw(entry, ctx),
       timeoutMs,
       timeoutLogMessage: "dispatch/authorize timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
@@ -662,37 +646,26 @@ export class AppHost {
   }
 
   private dispatchAuthorizeRaw(
-    appId: AppId,
+    entry: AppRegistration,
     ctx: TaskAuthorizeDispatchContext,
-    remote: RemoteRegistration | undefined,
-    inProcess: TaskAuthorizeDispatchHook | undefined,
   ): Effect.Effect<DispatchAdmissionResult, Error> {
-    // In-process wins when both exist: it's the static configuration
-    // override (boot-time / test fixture). Remote is the dynamic
-    // connection-scoped path. Production apps never register both.
-    if (inProcess) {
-      return this.runInProcessHookEffect<
-        TaskAuthorizeDispatchContext,
-        DispatchAdmissionResult
-      >((ctxWithSignal) => inProcess(ctxWithSignal), ctx);
-    }
-    return this.runRemoteHookEffect({
-      appId,
-      definition: DispatchAuthorize,
-      connectionId: remote!.connectionId,
-      params: this.authorizeDispatchParamsForWire(ctx),
-    }).pipe(Effect.map((envelope) => envelope.admission));
-  }
-
-  /**
-   * Register an in-process `messageAuthorize` handler keyed by
-   * `appId`. App-bound tasks resolve their hook via this map; if no
-   * entry exists AND no remote registration covers the app, the
-   * default policy `Forward { participants \ sender }` applies.
-   * Idempotent — repeat calls overwrite the entry.
-   */
-  registerMessageAuthorize(appId: AppId, hook: MessageAuthorizeHook): void {
-    this.messageAuthorizeHooks.set(appId, hook);
+    return Match.value(entry).pipe(
+      Match.tag("InProcess", (reg) =>
+        this.runInProcessHookEffect<
+          TaskAuthorizeDispatchContext,
+          DispatchAdmissionResult
+        >((ctxWithSignal) => reg.dispatchAuthorize(ctxWithSignal), ctx),
+      ),
+      Match.tag("Remote", (reg) =>
+        this.runRemoteHookEffect({
+          appId: reg.appId,
+          definition: DispatchAuthorize,
+          connectionId: reg.connectionId,
+          params: this.authorizeDispatchParamsForWire(ctx),
+        }).pipe(Effect.map((envelope) => envelope.admission)),
+      ),
+      Match.exhaustive,
+    );
   }
 
   /**
@@ -717,17 +690,24 @@ export class AppHost {
     appId: AppId,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
-    const inProcess = this.messageAuthorizeHooks.get(appId);
-    const remote = this.remoteRegistrations.get(appId);
-    if (!inProcess && !remote) {
+    const entry = this.apps.get(appId);
+    // InProcess registrations may legitimately have no messageAuthorize
+    // hook (it is optional on the variant); fall through to the default
+    // policy in that case, identical to "no registration at all."
+    if (
+      entry === undefined ||
+      (entry._tag === "InProcess" && entry.messageAuthorize === undefined)
+    ) {
       return this.defaultMessageAuthorize(ctx);
     }
 
-    const timeoutMs = this.messageAuthorizeTimeoutMs(appId);
+    const timeoutMs =
+      entry.manifest.hooks?.message_authorize?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
 
     return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
-      raw: this.messageAuthorizeRaw(ctx, appId, remote, inProcess),
+      raw: this.messageAuthorizeRaw(entry, ctx),
       timeoutMs,
       timeoutLogMessage: "messages/authorize timed out",
       timeoutLogContext: {
@@ -746,14 +726,6 @@ export class AppHost {
         reason: "tm_unreachable",
       }),
     });
-  }
-
-  private messageAuthorizeTimeoutMs(appId: AppId): number {
-    const manifest = this.manifests.get(appId);
-    return (
-      manifest?.hooks?.message_authorize?.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS
-    );
   }
 
   private defaultMessageAuthorize(
@@ -777,24 +749,30 @@ export class AppHost {
   }
 
   private messageAuthorizeRaw(
+    entry: AppRegistration,
     ctx: MessageAuthorizeContext,
-    appId: AppId,
-    remote: RemoteRegistration | undefined,
-    inProcess: MessageAuthorizeHook | undefined,
   ): Effect.Effect<MessageAuthorizeResult, Error> {
-    // In-process wins when both exist; see `dispatchAuthorizeRaw`.
-    if (inProcess) {
-      return this.runInProcessHookEffect<
-        MessageAuthorizeContext,
-        MessageAuthorizeResult
-      >((ctxWithSignal) => inProcess(ctxWithSignal), ctx);
-    }
-    return this.runRemoteHookEffect({
-      appId,
-      definition: MessagesAuthorize,
-      connectionId: remote!.connectionId,
-      params: this.messageAuthorizeParamsForWire(ctx),
-    }).pipe(Effect.map((envelope) => envelope.verdict));
+    return Match.value(entry).pipe(
+      Match.tag("InProcess", (reg) => {
+        // Caller (`runMessageAuthorize`) already short-circuited the
+        // undefined case to `defaultMessageAuthorize`; the `!` here is
+        // safe and load-bearing for the exhaustive match.
+        const hook = reg.messageAuthorize!;
+        return this.runInProcessHookEffect<
+          MessageAuthorizeContext,
+          MessageAuthorizeResult
+        >((ctxWithSignal) => hook(ctxWithSignal), ctx);
+      }),
+      Match.tag("Remote", (reg) =>
+        this.runRemoteHookEffect({
+          appId: reg.appId,
+          definition: MessagesAuthorize,
+          connectionId: reg.connectionId,
+          params: this.messageAuthorizeParamsForWire(ctx),
+        }).pipe(Effect.map((envelope) => envelope.verdict)),
+      ),
+      Match.exhaustive,
+    );
   }
 
   /**
@@ -825,9 +803,11 @@ export class AppHost {
 
   /** Clear in-memory state. Called on shutdown. */
   destroy(): void {
-    this.hooks.clear();
-    this.remoteRegistrations.clear();
-    this.messageAuthorizeHooks.clear();
+    // Wire registrations only — InProcess apps (DEFAULT_APP_ID and
+    // friends) stay installed for the lifetime of the server process,
+    // so the AppRegistry retains them across `destroy()` calls. The
+    // wire-side connections close via the WS layer's own scope
+    // finalizer; AppRegistry has no per-connection cleanup hook.
   }
 
   // ── Uniform hook dispatch (in-process + remote) ────────────────────

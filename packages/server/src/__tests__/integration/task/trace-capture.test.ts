@@ -8,18 +8,19 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   registerAndConnect,
-  getTestCoreApp,
+  type ConnectedAgent,
 } from "../helpers.js";
 import {
   InMemoryTraceCaptureLive,
   type TraceCapture,
 } from "../../../runtime-surface/trace-capture.js";
 import {
+  AppsRegister,
   DEFAULT_APP_ID,
   HookBlockedError,
+  MessagesAuthorize,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  AppsRegister,
   TaskConversationCreate,
   TaskCreate,
   type AppId,
@@ -56,18 +57,16 @@ beforeEach(() =>
     Effect.gen(function* () {
       yield* resetTestDbEffect();
       yield* traceCapture.clear();
-      yield* Effect.sync(() => {
-        getTestCoreApp().registerApp(TRACE_APP_MANIFEST);
-      });
     }),
   ),
 );
 
-function registerBlockingMessageAuthorize(): void {
-  getTestCoreApp().registerMessageAuthorize(TRACE_APP_ID, () => ({
-    decision: "Block",
-    reason: TRACE_BLOCK_REASON,
-  }));
+function attachBlockingMessageAuthorize(alice: ConnectedAgent) {
+  return alice.client.onAppCallback(MessagesAuthorize, () =>
+    Effect.succeed({
+      verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
+    }),
+  );
 }
 
 function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
@@ -125,7 +124,9 @@ function recordBlockedHookTrace(): Effect.Effect<void> {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-trace-blocked");
     const bob = yield* registerAndConnect("bob-trace-blocked");
-    registerBlockingMessageAuthorize();
+    // Wire the message-authorize callback BEFORE AppsRegister so the
+    // server's forked round-trip lands on a live handler.
+    yield* attachBlockingMessageAuthorize(alice);
     // Alice registers as TRACE_APP_ID's moderator so she can drive
     // TaskConversationCreate (TM-only post-#677).
     yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });

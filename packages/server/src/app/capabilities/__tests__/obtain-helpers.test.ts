@@ -79,7 +79,7 @@ const OTHER_CONV_ID = makeConversationId(
 const REPLY_ID = makeMessageId("00000000-0000-4000-8000-00000000beef");
 const ALICE = makeAgentId("00000000-0000-4000-8000-00000000aa11");
 const BOB = makeAgentId("00000000-0000-4000-8000-00000000bb22");
-const APP_ID = "app-fixture";
+const APP_ID = "00000000-0000-4000-8000-000000a99001";
 const OWNER_CONN_ID = makeConnectionId("owner-conn-1");
 const OTHER_CONN_ID = makeConnectionId("other-conn-1");
 

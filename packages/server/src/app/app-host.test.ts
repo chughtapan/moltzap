@@ -2,6 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, unsafeCoerce } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { AppManifest } from "@moltzap/protocol";
 import {
   agentId,
   appId as makeAppId,
@@ -16,19 +17,6 @@ import { AppHost } from "./app-host.js";
 import type { MessageAuthorizeContext } from "./hooks.js";
 
 const liveIt = effectIt.live;
-
-function privateField<T>(target: object, key: string): T {
-  return Reflect.get(target, key) as T;
-}
-
-type HookRegistry = Map<
-  string,
-  {
-    taskAuthorizeDispatch?: unknown;
-  }
->;
-
-type MessageAuthorizeRegistry = Map<string, unknown>;
 
 function makeAppHost(db: Db = makeEmptyDb()): { host: AppHost } {
   const connections = makeFakeService<ConnectionManager>(
@@ -62,6 +50,12 @@ const TASK_ID = taskId("00000000-0000-4000-8000-00000000a560");
 const SENDER = agentId("00000000-0000-4000-8000-00000000b001");
 const RECIPIENT = agentId("00000000-0000-4000-8000-00000000b002");
 
+const APP_MANIFEST = { appId: APP_ID, name: "test app" } satisfies AppManifest;
+const OTHER_APP_MANIFEST = {
+  appId: OTHER_APP_ID,
+  name: "other test app",
+} satisfies AppManifest;
+
 function messageAuthorizeContext(
   senderAgentId: AgentId = SENDER,
 ): MessageAuthorizeContext {
@@ -79,59 +73,30 @@ function messageAuthorizeContext(
   };
 }
 
-describe("AppHost.onTaskAuthorizeDispatch (registration surface)", () => {
-  it("stores the handler keyed by appId", () => {
+describe("AppHost.installInProcessApp (registration surface)", () => {
+  it("bundles manifest + dispatch hook in one registration", () => {
     const { host } = makeAppHost();
     const handler = () => ({ decision: "grant" as const });
-    host.onTaskAuthorizeDispatch(APP_ID, handler);
-
-    const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get(APP_ID)?.taskAuthorizeDispatch).toBe(handler);
+    host.installInProcessApp(APP_MANIFEST, { dispatchAuthorize: handler });
+    expect(host.getManifest(APP_ID)).toBe(APP_MANIFEST);
   });
 
-  it("overwrites a prior handler for the same appId (last-writer-wins)", () => {
+  it("re-install overwrites the prior registration (last-writer-wins)", () => {
     const { host } = makeAppHost();
     const first = () => ({ decision: "grant" as const });
     const second = () => ({ decision: "deny" as const });
-    host.onTaskAuthorizeDispatch(OTHER_APP_ID, first);
-    host.onTaskAuthorizeDispatch(OTHER_APP_ID, second);
-
-    const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get(OTHER_APP_ID)?.taskAuthorizeDispatch).toBe(second);
-  });
-});
-
-describe("AppHost.registerMessageAuthorize", () => {
-  it("stores the handler keyed by appId", () => {
-    const { host } = makeAppHost();
-    const handler = () => ({ decision: "Forward" as const, recipients: [] });
-    host.registerMessageAuthorize(APP_ID, handler);
-
-    const hooks = privateField<MessageAuthorizeRegistry>(
-      host,
-      "messageAuthorizeHooks",
-    );
-    expect(hooks.get(APP_ID)).toBe(handler);
-  });
-
-  it("overwrites a prior handler for the same appId", () => {
-    const { host } = makeAppHost();
-    const first = () => ({ decision: "Forward" as const, recipients: [] });
-    const second = () => ({ decision: "Block" as const, reason: "policy" });
-    host.registerMessageAuthorize(APP_ID, first);
-    host.registerMessageAuthorize(APP_ID, second);
-
-    const hooks = privateField<MessageAuthorizeRegistry>(
-      host,
-      "messageAuthorizeHooks",
-    );
-    expect(hooks.get(APP_ID)).toBe(second);
+    host.installInProcessApp(OTHER_APP_MANIFEST, { dispatchAuthorize: first });
+    host.installInProcessApp(OTHER_APP_MANIFEST, { dispatchAuthorize: second });
+    // Manifest is the same instance; behavioural assertion of the
+    // overwritten dispatch hook lives in `runMessageAuthorize` /
+    // dispatch-flow integration tests.
+    expect(host.getManifest(OTHER_APP_ID)).toBe(OTHER_APP_MANIFEST);
   });
 });
 
 describe("AppHost.runMessageAuthorize", () => {
   liveIt(
-    "runs the in-process hook registered for the app",
+    "runs the in-process hook bundled with the InProcess registration",
     inProcessMessageAuthorizeHook,
   );
 
@@ -149,10 +114,14 @@ describe("AppHost.runMessageAuthorize", () => {
 function inProcessMessageAuthorizeHook() {
   return Effect.gen(function* () {
     const { host } = makeAppHost();
-    host.registerMessageAuthorize(APP_ID, (ctx) => ({
-      decision: "Forward",
-      recipients: ctx.message.senderAgentId === SENDER ? [RECIPIENT] : [SENDER],
-    }));
+    host.installInProcessApp(APP_MANIFEST, {
+      dispatchAuthorize: () => ({ decision: "grant" as const }),
+      messageAuthorize: (ctx) => ({
+        decision: "Forward",
+        recipients:
+          ctx.message.senderAgentId === SENDER ? [RECIPIENT] : [SENDER],
+      }),
+    });
 
     const result = yield* host.runMessageAuthorize(
       APP_ID,

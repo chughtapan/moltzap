@@ -113,18 +113,22 @@ it("task/create returns a waiting task bound to the supplied appId", () =>
 it("TM authority: only the registered app connection may mutate task membership", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient, bobAgentId } = yield* setupAliceAndBob();
-    // #673: TM authority is proved via app-ownership of the calling
-    // WS connection. Alice registers as the app first; her connection
-    // becomes the remote-app entry for DEFAULT_APP_ID. Bob does not
+    // #673/#677: TM authority is proved via app-ownership of the calling
+    // WS connection. Alice registers a custom app first; her connection
+    // becomes the remote-app entry for TM_TEST_APP_ID. Bob does not
     // register, so his connection cannot pass TM-authority.
+    // DEFAULT_APP_ID is boot-installed in-process and cannot be hijacked
+    // by AppsRegister (it'd return ForbiddenError) — use a custom appId.
+    const TM_TEST_APP_ID =
+      "00000000-0000-4000-8000-000000010007" as typeof DEFAULT_APP_ID;
     yield* aliceClient.sendRpc(AppsRegister, {
       manifest: {
-        appId: DEFAULT_APP_ID,
-        name: "test-app",
+        appId: TM_TEST_APP_ID,
+        name: "tm-test-app",
       },
     });
     const created = yield* aliceClient.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
+      appId: TM_TEST_APP_ID,
       invitedAgentIds: [],
     });
 
