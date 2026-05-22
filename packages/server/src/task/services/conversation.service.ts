@@ -15,7 +15,10 @@ import {
   ForbiddenError,
   NotFoundError,
   NotInContactsError,
+  TaskConversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol";
+import { broadcastNotificationToAgents } from "../handlers/notification-broadcast.js";
+import type { NetworkSendServiceTag } from "../../app/layers.js";
 import { ParticipantService } from "../../identity/services/participant.service.js";
 import type { ConnectionManager } from "../../transport/connection.js";
 import { opaquePayload } from "../../network/network-send.js";
@@ -159,18 +162,35 @@ export class ConversationService {
   }
 
   /**
-   * Reduced-surface participant removal: NO broadcast, NO authority
-   * gate. Used by `AppHost.removeDeniedParticipant` for dispatch-deny
-   * eviction (runs server-internally, not via a wire RPC).
+   * Reduced-surface participant removal: NO authority gate. Used by
+   * `AppHost.removeDeniedParticipant` for dispatch-deny eviction
+   * (runs server-internally, not via a wire RPC). Broadcasts
+   * `TaskConversationParticipantsRemoved` with `reason: "tm_remove"`
+   * so the evicted agent and the remaining participants observe the
+   * removal.
    * @internal
    */
   removeParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
     _requesterAgentId: AgentId,
-  ): Effect.Effect<void, ConversationServiceError> {
+  ): Effect.Effect<void, ConversationServiceError, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
+        // Snapshot membership BEFORE delete so the evicted agent
+        // is included in the fan-out target list.
+        const participantsSnapshot =
+          yield* this.getParticipantAgentIds(conversationId);
+        const taskRowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("conversations")
+            .select("task_id")
+            .where("id", "=", conversationId),
+        );
+        const taskId = Option.match(taskRowOpt, {
+          onNone: () => null,
+          onSome: (row) => row.task_id as TaskId,
+        });
         const deleted = yield* this.db
           .deleteFrom("conversation_participants")
           .where("conversation_id", "=", conversationId)
@@ -183,6 +203,18 @@ export class ConversationService {
         }
         for (const conn of this.connections.getByAgent(agentId)) {
           conn.conversationIds.delete(conversationId);
+        }
+        if (taskId !== null) {
+          yield* broadcastNotificationToAgents(
+            participantsSnapshot,
+            TaskConversationParticipantsRemovedNotificationDefinition,
+            {
+              taskId,
+              conversationId,
+              removedAgentId: agentId,
+              reason: "tm_remove" as const,
+            },
+          );
         }
       }),
     );
