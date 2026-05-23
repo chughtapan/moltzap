@@ -12,7 +12,7 @@ import { Claim, Register } from "@moltzap/protocol";
 
 import type { AuthenticatedContext } from "../transport/context.js";
 import type { AppTags } from "../transport/layer-tags.js";
-import type { ConnIdTag, ResolvedServices } from "./layers.js";
+import type { ConnectionTag, ResolvedServices } from "./layers.js";
 import {
   CLAIM_NOT_FOUND,
   CLAIM_OWNER_MISMATCH,
@@ -50,7 +50,7 @@ interface CoreHttpAppOptions {
   readonly connections: ResolvedServices["connections"];
   readonly handleSocket: (
     socket: Socket.Socket,
-  ) => Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnIdTag>>;
+  ) => Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnectionTag>>;
 }
 
 interface AdminRegisterPayload {

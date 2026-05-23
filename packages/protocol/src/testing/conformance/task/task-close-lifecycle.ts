@@ -12,9 +12,9 @@ import {
   TaskClose,
   TaskConversationCreate,
   TaskCreate,
-  DEFAULT_APP_ID,
 } from "../../../task/methods.js";
 import type { TaskId } from "../../../task/methods.js";
+import type { ModeratedHandle } from "./_helpers.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
@@ -24,6 +24,7 @@ import {
   assertConversationRejectsMessages,
   awaitOneNotification,
   deliveryViolation,
+  moderateAs,
   waitForArchivedEvent,
   type ConversationActor,
 } from "./_helpers.js";
@@ -101,9 +102,42 @@ function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
     const participant = yield* acquireClient(ctx, "tc-participant").pipe(
       Effect.mapError((e) => deliveryViolation(PROPERTY, `participant: ${e}`)),
     );
+    const moderator = yield* moderateAs(owner, "tc").pipe(
+      Effect.mapError((message) => deliveryViolation(PROPERTY, message)),
+    );
+    const task = yield* createTaskAndAddParticipant(
+      owner,
+      participant,
+      moderator.appId,
+    );
+    const conversation = yield* createTaskCloseConversation(
+      owner,
+      task.task.id,
+      participant,
+    );
+    yield* moderator
+      .awaitConversationReady(conversation.conversation.id, [
+        participant.agent.agentId,
+      ])
+      .pipe(Effect.mapError((message) => deliveryViolation(PROPERTY, message)));
+    return {
+      owner,
+      participant,
+      taskId: task.task.id,
+      conversationId: conversation.conversation.id,
+    };
+  });
+}
+
+function createTaskAndAddParticipant(
+  owner: ConversationActor,
+  participant: ConversationActor,
+  appId: ModeratedHandle["appId"],
+) {
+  return Effect.gen(function* () {
     const taskResult = yield* owner.client
       .sendRpc(TaskCreate, {
-        appId: DEFAULT_APP_ID,
+        appId,
         invitedAgentIds: [participant.agent.agentId],
       })
       .pipe(Effect.either);
@@ -119,24 +153,28 @@ function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
     yield* requireRight(addResult, (error) =>
       deliveryViolation(PROPERTY, `task/addParticipant failed: ${error._tag}`),
     );
+    return task;
+  });
+}
+
+function createTaskCloseConversation(
+  owner: ConversationActor,
+  taskId: TaskId,
+  participant: ConversationActor,
+) {
+  return Effect.gen(function* () {
     const conversationResult = yield* owner.client
       .sendRpc(TaskConversationCreate, {
-        taskId: task.task.id,
+        taskId,
         participants: [participant.agent.agentId],
       })
       .pipe(Effect.either);
-    const conversation = yield* requireRight(conversationResult, (error) =>
+    return yield* requireRight(conversationResult, (error) =>
       deliveryViolation(
         PROPERTY,
         `task/conversation/create failed: ${error._tag}`,
       ),
     );
-    return {
-      owner,
-      participant,
-      taskId: task.task.id,
-      conversationId: conversation.conversation.id,
-    };
   });
 }
 

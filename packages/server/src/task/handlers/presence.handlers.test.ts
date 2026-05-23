@@ -17,7 +17,8 @@ import type { AgentId } from "../../app/types.js";
 import { takeFirstOrFail } from "../../db/effect-kysely-toolkit.js";
 import { PresenceService } from "../../network/services/presence.service.js";
 import type { PresenceEventSink } from "../../network/services/presence-event-sink.js";
-import { ConnIdTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
+import { ConnectionTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
+import type { MoltZapConnection } from "../../transport/connection.js";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -28,6 +29,23 @@ import { presenceHandlers } from "./presence.handlers.js";
 const ALICE_OWNER = userId("00000000-0000-4000-8000-00000000a11c") as UserId;
 const CAROL_OWNER = userId("00000000-0000-4000-8000-00000000ca20") as UserId;
 const TEST_CONNECTION_ID = makeConnectionId("test-conn-1");
+const TEST_CONNECTION: MoltZapConnection = {
+  id: TEST_CONNECTION_ID,
+  write: () => Effect.die("test connection: write unused"),
+  shutdown: Effect.void,
+  auth: null,
+  lastPong: Date.now(),
+  conversationIds: new Set<string>(),
+  mutedConversations: new Set<string>(),
+  originator: {
+    id: TEST_CONNECTION_ID,
+    call: () => Effect.die("test connection: call unused"),
+    notify: () => Effect.void,
+    failAllPending: () => Effect.void,
+    handle: () => Effect.die("test connection: handle unused"),
+    resolve: () => Effect.die("test connection: resolve unused"),
+  } as MoltZapConnection["originator"],
+};
 const PRESENCE_SUBSCRIBE = "presence/subscribe";
 
 const noopSink: PresenceEventSink = { publish: () => {} };
@@ -81,7 +99,7 @@ function runSubscribe(opts: {
       agentStatus: "active",
       ownerUserId: opts.callerOwnerUserId,
     },
-    connId: TEST_CONNECTION_ID,
+    connection: TEST_CONNECTION,
   };
   const testServices = Layer.mergeAll(
     Layer.succeed(DbTag, harness.db),
@@ -100,7 +118,7 @@ function runSubscribe(opts: {
   const narrowed = rawHandle as unknown as NarrowedSubscribe; // #ignore-sloppy-code[as-unknown-as]: test boundary re-narrows the post-Spec-F HandlerSlot R-channel widening to the specific tag union the test provides via `testServices`.
   return Effect.exit(
     narrowed.pipe(
-      Effect.provideService(ConnIdTag, TEST_CONNECTION_ID),
+      Effect.provideService(ConnectionTag, TEST_CONNECTION),
       Effect.provide(testServices),
     ),
   );

@@ -14,7 +14,7 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   AgentEndpointResolverTag,
   AuthServiceTag,
-  ConnIdTag,
+  ConnectionTag,
   ConnectionManagerTag,
   ConversationServiceTag,
   DbTag,
@@ -183,14 +183,8 @@ function handleConnect(params: ConnectParams) {
       const agentEndpointResolver = yield* AgentEndpointResolverTag;
       const db = yield* DbTag;
       const sessionValidator = yield* SessionValidatorTag;
-      const connId = yield* ConnIdTag;
-      const conn = connections.get(connId);
+      const conn = yield* ConnectionTag;
 
-      if (!conn) {
-        return yield* Effect.fail(
-          new UnauthorizedError({ message: "Connection not found" }),
-        );
-      }
       if (conn.auth) {
         return yield* buildHelloOk(conn.auth, presenceService);
       }
@@ -206,7 +200,7 @@ function handleConnect(params: ConnectParams) {
       yield* registerEndpointIfStillConnected(
         connections,
         agentEndpointResolver,
-        connId,
+        conn.id,
         auth,
       );
       return yield* buildHelloOk(auth, presenceService);

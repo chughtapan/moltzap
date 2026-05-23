@@ -31,7 +31,7 @@
  * maintenance cost over a codegen pipeline.
  */
 import type {
-  ConnIdTag,
+  ConnectionTag,
   DbTag,
   AuthServiceTag,
   AgentEndpointResolverTag,
@@ -65,12 +65,12 @@ import type {
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.
- * Both are infrastructure that every protocol layer may pull. ConnIdTag
+ * Both are infrastructure that every protocol layer may pull. ConnectionTag
  * is provided by `defineMethod` from the dispatch context; DbTag is
  * provided by the dispatcher's `ManagedRuntime` from the configured
  * database `Layer.succeed(DbTag, db)`.
  */
-export type TransportTags = ConnIdTag | DbTag;
+export type TransportTags = ConnectionTag | DbTag;
 
 /**
  * Identity-layer allowlist: registration, claim, login, contacts,

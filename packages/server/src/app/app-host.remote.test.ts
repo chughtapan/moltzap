@@ -15,6 +15,7 @@ import { Data, Effect, Exit, Fiber, Ref, Scope } from "effect";
 import {
   DispatchAuthorize,
   MessagesAuthorize,
+  NotConnectedError,
   type AppManifest,
   type JsonRpcId,
 } from "@moltzap/protocol";
@@ -82,6 +83,59 @@ const makeFakeConnection = (
     };
     return { conn, outbound };
   });
+
+/**
+ * Minimal stub `MoltZapConnection` for tests that only assert the
+ * registration surface (id-equality via `isAppConnection` or
+ * unregister-side effects). Every dispatch method defects: tests that
+ * actually drive `runMessageAuthorize` / `runDispatchAuthorize` must
+ * use {@link makeFakeConnection}.
+ */
+const stubConnection = (connId: ConnectionId): MoltZapConnection => ({
+  id: connId,
+  write: () =>
+    Effect.die(new Error(`stubConnection ${connId}: write not implemented`)),
+  shutdown: noopShutdown,
+  auth: null,
+  lastPong: Date.now(),
+  conversationIds: new Set<string>(),
+  mutedConversations: new Set<string>(),
+  originator: {
+    id: connId,
+    call: () =>
+      Effect.die(new Error(`stubConnection ${connId}: call not implemented`)),
+    notify: () => Effect.void,
+    failAllPending: () => Effect.void,
+    handle: () =>
+      Effect.die(new Error(`stubConnection ${connId}: handle not implemented`)),
+    resolve: () =>
+      Effect.die(
+        new Error(`stubConnection ${connId}: resolve not implemented`),
+      ),
+  } as MoltZapConnection["originator"],
+});
+
+/**
+ * Stub connection whose `originator.call` always fails with
+ * `NotConnectedError`. Mimics the "registration outlives its
+ * connection" scenario (e.g., the WS dropped after AppsRegister
+ * succeeded but before the cleanup finalizer ran).
+ */
+const staleConnection = (connId: ConnectionId): MoltZapConnection => {
+  const base = stubConnection(connId);
+  return {
+    ...base,
+    originator: {
+      ...base.originator,
+      call: () =>
+        Effect.fail(
+          new NotConnectedError({
+            message: `connection ${connId} is stale`,
+          }),
+        ),
+    } as MoltZapConnection["originator"],
+  };
+};
 
 interface AppHostFixture {
   readonly host: AppHost;
@@ -281,7 +335,7 @@ function makeRemoteFixture(connectionId: ConnectionId, manifest: AppManifest) {
       scope,
     );
     fixture.connections.add(conn);
-    fixture.host.registerRemoteApp(manifest, connectionId);
+    fixture.host.registerApp(manifest, conn);
     return { ...fixture, conn, outbound, scope };
   }).pipe(Effect.withSpan("appHostTest.makeRemoteFixture"));
 }
@@ -340,9 +394,9 @@ function remoteMessageAuthorizeForwards() {
 function staleRemoteMessageBlocks() {
   return Effect.gen(function* () {
     const fixture = makeAppHostFixture();
-    fixture.host.registerRemoteApp(
+    fixture.host.registerApp(
       messageAuthorizeManifest(MESSAGE_APP_ID),
-      CONN_NO_SUCH,
+      staleConnection(CONN_NO_SUCH),
     );
     const result = yield* fixture.host.runMessageAuthorize(
       MESSAGE_APP_ID,
@@ -442,7 +496,10 @@ function remoteDispatchDenyPassesThrough() {
 function staleRemoteDispatchDenies() {
   return Effect.gen(function* () {
     const fixture = makeAppHostFixture();
-    fixture.host.registerRemoteApp(baseManifest(APP_R), CONN_NO_SUCH);
+    fixture.host.registerApp(
+      baseManifest(APP_R),
+      staleConnection(CONN_NO_SUCH),
+    );
     const verdict = yield* startRemoteDispatch(
       fixture,
       APP_R,
@@ -505,10 +562,10 @@ function malformedRemoteDispatchDenies() {
 // Registration surface
 // ─────────────────────────────────────────────────────────────────────
 
-describe("AppHost.registerRemoteApp", () => {
-  it("records the remote-app source keyed by appId", () => {
+describe("AppHost.registerApp", () => {
+  it("records the registration keyed by appId, exposing isAppConnection", () => {
     const { host } = makeAppHostFixture();
-    host.registerRemoteApp(baseManifest(APP_R), CONN_1);
+    host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
 
     expect(host.isAppConnection(APP_R, CONN_1)).toBe(true);
   });
@@ -516,17 +573,22 @@ describe("AppHost.registerRemoteApp", () => {
   it("stores the manifest verbatim (so dispatch can read timeout_ms)", () => {
     const { host } = makeAppHostFixture();
     const manifest = baseManifest(APP_M, MANIFEST_DISPATCH_TIMEOUT_MS);
-    host.registerRemoteApp(manifest, CONN_1);
+    host.registerApp(manifest, stubConnection(CONN_1));
     expect(host.getManifest(APP_M)).toBe(manifest);
   });
 
-  it("re-registration overwrites the prior connection", () => {
+  it("rejects re-registration: registry is strict, no overwrites", () => {
     const { host } = makeAppHostFixture();
-    host.registerRemoteApp(baseManifest(APP_R), CONN_1);
-    host.registerRemoteApp(baseManifest(APP_R), CONN_2);
+    const first = host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
+    const second = host.registerApp(
+      baseManifest(APP_R),
+      stubConnection(CONN_2),
+    );
 
-    expect(host.isAppConnection(APP_R, CONN_1)).toBe(false);
-    expect(host.isAppConnection(APP_R, CONN_2)).toBe(true);
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(host.isAppConnection(APP_R, CONN_1)).toBe(true);
+    expect(host.isAppConnection(APP_R, CONN_2)).toBe(false);
   });
 });
 
@@ -551,11 +613,11 @@ describe("AppHost remote messages — messages/authorize", () => {
   );
 });
 
-describe("AppHost.unregisterRemoteApp", () => {
+describe("AppHost.unregisterApp", () => {
   it("drops the registration entirely (manifest + routing)", () => {
     const { host } = makeAppHostFixture();
-    host.registerRemoteApp(baseManifest(APP_R), CONN_1);
-    host.unregisterRemoteApp(APP_R);
+    host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
+    host.unregisterApp(APP_R);
 
     expect(host.isAppConnection(APP_R, CONN_1)).toBe(false);
     expect(host.getManifest(APP_R)).toBeUndefined();
@@ -563,7 +625,7 @@ describe("AppHost.unregisterRemoteApp", () => {
 
   it("is idempotent for unknown appIds", () => {
     const { host } = makeAppHostFixture();
-    expect(() => host.unregisterRemoteApp(APP_NEVER)).not.toThrow();
+    expect(() => host.unregisterApp(APP_NEVER)).not.toThrow();
   });
 });
 

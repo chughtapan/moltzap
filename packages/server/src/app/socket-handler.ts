@@ -23,7 +23,7 @@ import type {
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import type { AppTags } from "../transport/layer-tags.js";
 import { serverCapabilityProviders } from "./capability-providers.js";
-import type { ConnIdTag, ResolvedServices } from "./layers.js";
+import type { ConnectionTag, ResolvedServices } from "./layers.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 import { ERROR_INVALID_JSON } from "./server-constants.js";
 import { logInfo, logWarning } from "./logging.js";
@@ -42,6 +42,7 @@ interface SocketHandlerOptions {
     | "agentEndpointResolver"
     | "presenceService"
     | "leaseRegistry"
+    | "appHost"
   >;
   readonly handlers: ServerHandlers<DispatchContext>;
   readonly connectionHooks: readonly ConnectionHook[];
@@ -59,7 +60,7 @@ interface SocketSession {
 export function makeSocketHandler(options: SocketHandlerOptions) {
   return (
     socket: Socket.Socket,
-  ): Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnIdTag>> =>
+  ): Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnectionTag>> =>
     Effect.scoped(openSocketSession(socket, options));
 }
 
@@ -245,7 +246,7 @@ function handleRequestFrame(
     // provides every handler-body Tag at request time.
     const response = yield* conn.originator.handle(frame, {
       auth,
-      connId: session.connId,
+      connection: conn,
     });
     yield* session.sendFrame(response);
     if (isConnect) yield* fireConnectionHooks(session, options);
@@ -326,6 +327,7 @@ function closeSocketSession(
     }
     yield* options.services.leaseRegistry.abandon(session.connId);
     options.services.presenceService.removeConnection(session.connId);
+    options.services.appHost.unregisterAppsForConnection(session.connId);
     options.services.connections.remove(session.connId);
     if (Exit.isFailure(exit)) {
       yield* logWarning("WebSocket error", {

@@ -45,7 +45,6 @@ const CATEGORY = "boundary" as const;
 const PROPERTY = "app-disconnect-fail-policy";
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 32;
-const DATE_ID_RADIX = 36;
 
 const unavailable = (reason: string): PropertyUnavailable =>
   new PropertyUnavailable({
@@ -150,7 +149,7 @@ function acquireScopedClient(
 function registerDisconnectFailApp(
   session: AppClientSession,
 ): Effect.Effect<TestApp, PropertyUnavailable> {
-  const appId = `adfp-${Date.now().toString(DATE_ID_RADIX)}`;
+  const appId = crypto.randomUUID();
   return registerTestApp({
     client: session.client,
     manifest: makeTestAppManifest({

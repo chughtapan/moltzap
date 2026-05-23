@@ -12,7 +12,7 @@ import type { ConnectionId } from "@moltzap/protocol/network";
 import { Effect, Exit } from "effect";
 import type { AuthenticatedContext } from "../../transport/context.js";
 import {
-  ConnIdTag,
+  ConnectionTag,
   LeaseRegistryTag,
   MessageServiceTag,
 } from "../../app/layers.js";
@@ -96,10 +96,10 @@ function handleMessageSend(
     Effect.gen(function* () {
       const messageService = yield* MessageServiceTag;
       const leaseRegistry = yield* LeaseRegistryTag;
-      const connId = yield* ConnIdTag;
+      const connection = yield* ConnectionTag;
       if (params.dispatchLeaseId !== undefined) {
         return yield* sendWithDispatchLease({
-          connId,
+          connId: connection.id,
           ctx,
           params,
           messageService,
@@ -111,7 +111,7 @@ function handleMessageSend(
         parts: params.parts,
         senderAgentId: ctx.agentId,
         replyToId: params.replyToId,
-        excludeConnectionId: connId,
+        excludeConnectionId: connection.id,
       });
       return { message };
     }).pipe(Effect.withSpan("messages.send")),
@@ -128,11 +128,11 @@ export const messageHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const messageService = yield* MessageServiceTag;
-        const connId = yield* ConnIdTag;
+        const connection = yield* ConnectionTag;
         return yield* messageService.list(
           params.conversationId,
           ctx.agentId,
-          connId,
+          connection.id,
           {
             limit: params.limit,
             sinceSeq: params.sinceSeq,

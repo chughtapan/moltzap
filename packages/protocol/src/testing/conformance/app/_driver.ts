@@ -1020,18 +1020,32 @@ function registerDriverApp(
   config: ResolvedDriverConfig,
 ): Effect.Effect<TestApp | null, PropertyFailure> {
   if (config.appId === null) return Effect.succeed(null);
-  return registerTestApp({
-    client: moderatorClient,
-    manifest: makeTestAppManifest({
-      appId: config.appId,
-      name: "Conformance Dispatch Test App",
-      dispatchAuthorizeTimeoutMs: config.moderatorTimeoutMs,
-    }),
-  }).pipe(
-    Effect.mapError((e) =>
-      violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
-    ),
-  );
+  const appId = config.appId;
+  return Effect.gen(function* () {
+    const app = yield* registerTestApp({
+      client: moderatorClient,
+      manifest: makeTestAppManifest({
+        appId,
+        name: "Conformance Dispatch Test App",
+        dispatchAuthorizeTimeoutMs: config.moderatorTimeoutMs,
+      }),
+    }).pipe(
+      Effect.mapError((e) =>
+        violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
+      ),
+    );
+    // Remote apps must answer `messages/authorize` or the server's
+    // wire-callback round-trip times out (fail-closed Block). The
+    // dispatch-admission properties assert lease / dispatches/* events,
+    // not message routing — `Forward { recipients: [] }` is sufficient
+    // and matches the "store, don't fan out" intent.
+    yield* app.messagesAuthorize.handle({
+      respondWith: {
+        verdict: { decision: "Forward" as const, recipients: [] },
+      },
+    });
+    return app;
+  });
 }
 
 function createDriverFixtures(

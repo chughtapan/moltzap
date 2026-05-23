@@ -21,7 +21,7 @@ export { messageHandlers } from "./task/handlers/messages.handlers.js";
 export { presenceHandlers } from "./task/handlers/presence.handlers.js";
 export { contactHandlers } from "./task/handlers/contacts.handlers.js";
 export { appHandlers } from "./app/handlers/apps.handlers.js";
-export { ConnIdTag } from "./app/layers.js";
+export { ConnectionTag } from "./app/layers.js";
 
 // Service adapters
 export type { SessionValidator } from "./identity/services/session-validator.js";

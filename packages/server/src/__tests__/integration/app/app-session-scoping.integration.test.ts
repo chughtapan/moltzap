@@ -110,31 +110,18 @@ function disconnectDropsRegistration() {
   });
 }
 
-function reregisterReplacesBinding() {
+function reregisterRejectedWhileOldConnectionAlive() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-4");
-    const bob = yield* registerAndConnect("bob-4");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    const task = yield* alice.client.sendRpc(TaskCreate, {
-      appId: APP_ID,
-      invitedAgentIds: [bob.agentId],
-    });
-    // New connection re-registers the same app; takes over the binding.
+    // A second connection trying to register the same app while the
+    // first connection is still alive is a hijack attempt — the
+    // server MUST reject it. (Pre-#677 the handler silently overwrote
+    // the binding, which let any client steal another's app by
+    // knowing its appId. That was a bug.)
     const alice2 = yield* registerAndConnect("alice-4b");
-    yield* alice2.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    // The new connection passes the gate.
-    const conv = yield* alice2.client.sendRpc(TaskConversationCreate, {
-      taskId: task.task.id,
-      participants: [bob.agentId],
-    });
-    expect(conv.conversation.id).toBeTruthy();
-    // The OLD connection no longer passes the gate (its registration
-    // was overwritten).
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(TaskConversationCreate, {
-        taskId: task.task.id,
-        participants: [bob.agentId],
-      }),
+      alice2.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST }),
     );
     expect(rpcErrorCode(exit)).toBe(ForbiddenError.code);
   });
@@ -149,8 +136,8 @@ describe("app-session-scoping — TM authority via remote-app connection", () =>
   it("peer connection fails the TM gate", peerConnFailsTmGate, 20_000);
   it("disconnect drops the registration", disconnectDropsRegistration, 20_000);
   it(
-    "re-register on new connection replaces the prior binding",
-    reregisterReplacesBinding,
+    "rejects hijack: re-register from a different connection while the old one is alive",
+    reregisterRejectedWhileOldConnectionAlive,
     20_000,
   );
 });

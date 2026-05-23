@@ -50,7 +50,7 @@ export {
   AgentEndpointResolverTag,
   AppHostTag,
   AuthServiceTag,
-  ConnIdTag,
+  ConnectionTag,
   ConnectionManagerTag,
   ContactsServiceTag,
   ConversationServiceTag,

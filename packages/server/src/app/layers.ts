@@ -6,13 +6,15 @@
  */
 import { Context, Effect, Layer } from "effect";
 
-import type { ConnectionId } from "@moltzap/protocol/network";
 import type { Db } from "../db/client.js";
 import {
   TraceCaptureTag,
   type TraceCapture,
 } from "../runtime-surface/trace-capture.js";
-import { ConnectionManager } from "../transport/connection.js";
+import {
+  ConnectionManager,
+  type MoltZapConnection,
+} from "../transport/connection.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
@@ -53,13 +55,16 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 >() {}
 
 /**
- * Request-scoped connection id. Provided per WebSocket RPC dispatch by the
- * router; read by handlers via `yield* ConnIdTag`. Replaces the previous
- * `AsyncLocalStorage&lt;string>` + `getConnId` prop threading.
+ * Request-scoped connection. Provided per WebSocket RPC dispatch by the
+ * router; read by handlers via `yield* ConnectionTag`. Handlers that
+ * only need the id read `.id` on the connection. Replaces the
+ * previous `ConnectionTag` — carrying the connection directly eliminates
+ * the lookup-by-id-and-maybe-fail step (and its associated defect
+ * path) every handler that wanted the connection object had to do.
  */
-export class ConnIdTag extends Context.Tag("moltzap/ConnId")<
-  ConnIdTag,
-  ConnectionId
+export class ConnectionTag extends Context.Tag("moltzap/Connection")<
+  ConnectionTag,
+  MoltZapConnection
 >() {}
 
 export class ConnectionManagerTag extends Context.Tag(

@@ -6,27 +6,30 @@ import {
   ForbiddenError,
 } from "@moltzap/protocol";
 import { Effect } from "effect";
-import { AppHostTag, ConnIdTag } from "../layers.js";
+import { AppHostTag, ConnectionTag } from "../layers.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import { leaseRecordToWire } from "../lease-registry.js";
 
 export const appHandlers: RpcMethodRegistry = [
   defineAppMethod(AppsRegister, {
-    // A client-originated `apps/register` writes a `Wire` registration
-    // recording the calling connection. `dispatch/authorize` and
-    // `messages/authorize` then route to this socket via
-    // `sendRpcToClient`. Rejects with `ForbiddenError` if the appId is
-    // already installed in-process (e.g. DEFAULT_APP_ID) — a wire
-    // registration MUST NOT hijack a boot-installed app.
+    // A client-originated `apps/register` stores the calling WS
+    // connection as the moderator endpoint for `manifest.appId`.
+    // `dispatch/authorize` and `messages/authorize` route to this
+    // socket via `sendRpcToClient`. The registry rejects overwrites
+    // unconditionally (default app's loopback OR a still-alive wire
+    // connection blocks re-registration); reconnects work only after
+    // the old connection's WS-close finalizer
+    // (`unregisterAppsForConnection` via `socket-handler.ts →
+    // closeSession`) clears the entry.
     handler: (params) =>
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
-        const connId = yield* ConnIdTag;
-        const ok = appHost.registerRemoteApp(params.manifest, connId);
+        const connection = yield* ConnectionTag;
+        const ok = appHost.registerApp(params.manifest, connection);
         if (!ok) {
           return yield* Effect.fail(
             new ForbiddenError({
-              message: `App ${params.manifest.appId} is already installed in-process`,
+              message: `App ${params.manifest.appId} is already registered`,
             }),
           );
         }
@@ -41,11 +44,11 @@ export const appHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
-        const connId = yield* ConnIdTag;
+        const connection = yield* ConnectionTag;
         const minted = yield* appHost.enqueueDispatchRequest({
           conversationId: params.conversationId,
           recipientAgentId: ctx.agentId,
-          recipientConnectionId: connId,
+          recipientConnectionId: connection.id,
           messageId: params.messageId,
           senderAgentId: params.senderAgentId,
           parts: params.parts,
@@ -66,7 +69,7 @@ export const appHandlers: RpcMethodRegistry = [
     handler: (params) =>
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
-        const connId = yield* ConnIdTag;
+        const connection = yield* ConnectionTag;
         const registry = appHost.getLeaseRegistry();
         if (!registry) {
           return yield* Effect.die(
@@ -84,7 +87,7 @@ export const appHandlers: RpcMethodRegistry = [
               ),
             ),
           );
-        if (record.binding.moderatorConnectionId !== connId) {
+        if (record.binding.moderatorConnectionId !== connection.id) {
           return yield* Effect.fail(
             new ForbiddenError({
               message: "dispatches/get not authorized for this lease",

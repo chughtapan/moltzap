@@ -29,14 +29,10 @@ import {
   type MessageAuthorizeResult,
   type DispatchAuthorizeContext,
 } from "./hooks.js";
-import {
-  AppRegistry,
-  type AppRegistration,
-  type InProcessHooks,
-} from "./app-registration.js";
+import { AppRegistry, type AppRegistration } from "./app-registration.js";
 import { MessagesAuthorize } from "@moltzap/protocol";
 import type { SqlError } from "@effect/sql/SqlError";
-import { Data, Effect, Either, Match, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -50,19 +46,6 @@ import type { LeaseRegistry, LeaseVerdict } from "./lease-registry.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * True if the registration opts in to handling `messages/authorize`.
- * InProcess: the optional `messageAuthorize` hook is set. Remote:
- * the manifest declares `hooks.message_authorize`. Otherwise the
- * server uses the default forward policy.
- */
-function hasMessageAuthorizeHook(entry: AppRegistration): boolean {
-  if (entry._tag === "InProcess") {
-    return entry.messageAuthorize !== undefined;
-  }
-  return entry.manifest.hooks?.message_authorize !== undefined;
 }
 
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
@@ -238,49 +221,20 @@ export class AppHost {
   }
 
   /**
-   * Install an app whose hooks run in-process. The boot-installed
-   * `DEFAULT_APP_ID` is the only production caller; tests that need a
-   * custom hook MUST go through {@link registerRemoteApp} + an
-   * `onAppCallback` handler instead.
-   *
-   * Throws if `appId` is already wire-registered (a boot-installed app
-   * MUST NOT be hijacked by a remote registration).
+   * Register an app under the given connection. The registry rejects
+   * overwrites unconditionally — returns false when `manifest.appId`
+   * is already registered. Callers (the `apps/register` handler and
+   * `installDefaultApp`) decide how to surface false (typed
+   * `ForbiddenError` over the wire; exception at boot).
    */
-  installInProcessApp(manifest: AppManifest, hooks: InProcessHooks): void {
-    this.apps.installInProcess(manifest, hooks);
-    Effect.runFork(
-      Effect.logInfo("In-process app installed").pipe(
-        Effect.annotateLogs({ appId: manifest.appId }),
-      ),
-    );
-  }
-
-  /**
-   * Register an app whose hooks run in a remote process — typically a
-   * WebSocket client that just called `apps/register`. Returns `false`
-   * (and the AppsRegister handler MUST surface a typed `ForbiddenError`)
-   * when the app is already in-process; otherwise overwrites any prior
-   * wire registration (the connection may have reconnected).
-   *
-   * `dispatch/authorize` and `messages/authorize` dispatch via
-   * {@link sendRpcToClient}; verdicts decode through the schemas in
-   * `hooks.ts` and feed the same fail-closed envelope used elsewhere.
-   * Disconnect: every pending Deferred fails with `NotConnectedError`
-   * via the connection's Scope finalizer; the registration keeps
-   * pointing at the dead id and dispatches stay fail-closed until
-   * `unregisterRemoteApp` runs.
-   */
-  registerRemoteApp(
-    manifest: AppManifest,
-    connectionId: ConnectionId,
-  ): boolean {
-    const ok = this.apps.registerRemote(manifest, connectionId);
+  registerApp(manifest: AppManifest, connection: MoltZapConnection): boolean {
+    const ok = this.apps.register(manifest, connection);
     if (ok) {
       Effect.runFork(
-        Effect.logInfo("Remote app registered").pipe(
+        Effect.logInfo("App registered").pipe(
           Effect.annotateLogs({
             appId: manifest.appId,
-            connectionId,
+            connectionId: connection.id,
           }),
         ),
       );
@@ -289,39 +243,48 @@ export class AppHost {
   }
 
   /**
-   * Drop a wire-app registration on connection close. Idempotent —
-   * no-op if absent or if the entry is in-process (boot-installed apps
-   * stay installed for the server's lifetime).
-   *
-   * Existing in-flight admission Deferreds are unaffected — they're
-   * owned by the connection's pending map and resolved either by the
-   * response router (if the app replies) or by the Scope finalizer on
-   * disconnect.
+   * Drop a registration. Idempotent (no-op if absent). The
+   * boot-installed default app is never unregistered in production —
+   * its loopback connection has a stable id no client caller can
+   * match, so {@link unregisterAppsForConnection} never targets it.
    */
-  unregisterRemoteApp(appId: AppId): void {
-    if (this.apps.unregisterRemote(appId)) {
+  unregisterApp(appId: AppId): void {
+    if (this.apps.unregister(appId)) {
       Effect.runFork(
-        Effect.logInfo("Wire app unregistered").pipe(
-          Effect.annotateLogs({ appId }),
-        ),
+        Effect.logInfo("App unregistered").pipe(Effect.annotateLogs({ appId })),
       );
     }
   }
 
   /**
+   * Drop every registration whose connection matches `connId`. Called
+   * by `socket-handler.ts → closeSession` on WS disconnect. The
+   * default app's loopback connection has a server-minted id that no
+   * client connection can ever match, so this method never targets
+   * boot-installed apps.
+   */
+  unregisterAppsForConnection(connId: ConnectionId): void {
+    this.apps.unregisterByConnection(connId);
+  }
+
+  /**
+   * Read-side accessor for handlers + capability obtain helpers.
+   * Returns the registration record (manifest + connection) or
+   * undefined if no entry exists.
+   */
+  lookupApp(appId: AppId): AppRegistration | undefined {
+    return this.apps.get(appId);
+  }
+
+  /**
    * TM-authority gate: returns true iff `callerConnId` IS the
-   * connection currently registered as the wire app for `appId` —
-   * i.e. the caller's WebSocket is the app's `apps/register` channel.
-   * In-process registrations have no connection and always return
-   * false here.
+   * connection currently registered for `appId`. For the default app
+   * (loopback connection with a server-minted id), no client caller
+   * can match — always returns false.
    */
   isAppConnection(appId: AppId, callerConnId: ConnectionId): boolean {
     const entry = this.apps.get(appId);
-    return (
-      entry !== undefined &&
-      entry._tag === "Remote" &&
-      entry.connectionId === callerConnId
-    );
+    return entry !== undefined && entry.connection.id === callerConnId;
   }
 
   getManifest(appId: AppId): AppManifest | undefined {
@@ -444,8 +407,7 @@ export class AppHost {
     return {
       appId: lookup.appId,
       taskId: lookup.taskId,
-      moderatorConnectionId:
-        entry?._tag === "Remote" ? entry.connectionId : EMPTY_CONNECTION_ID,
+      moderatorConnectionId: entry?.connection.id ?? EMPTY_CONNECTION_ID,
     };
   }
 
@@ -633,7 +595,14 @@ export class AppHost {
   ): Effect.Effect<DispatchAdmissionResult, never> {
     const entry = this.apps.get(appId);
     if (entry === undefined) {
-      return Effect.succeed({ decision: "grant" as const });
+      // Unknown app — fail-closed Deny. Every registered conversation's
+      // appId came from `AppsRegister` or boot, so reaching here means
+      // the app's WS dropped after the conversation was created. No
+      // moderator means no admission grant.
+      return Effect.succeed({
+        decision: "deny" as const,
+        reason: "app_unavailable",
+      });
     }
     const timeoutMs =
       entry.manifest.hooks?.dispatch_authorize?.timeout_ms ??
@@ -641,7 +610,11 @@ export class AppHost {
     const taskId = ctx.taskId;
 
     return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
-      raw: this.dispatchAuthorizeRaw(entry, ctx),
+      raw: this.callAppRpc(
+        entry,
+        DispatchAuthorize,
+        this.authorizeDispatchParamsForWire(ctx),
+      ).pipe(Effect.map((envelope) => envelope.admission)),
       timeoutMs,
       timeoutLogMessage: "dispatch/authorize timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
@@ -658,54 +631,29 @@ export class AppHost {
     });
   }
 
-  private dispatchAuthorizeRaw(
-    entry: AppRegistration,
-    ctx: DispatchAuthorizeContext,
-  ): Effect.Effect<DispatchAdmissionResult, Error> {
-    return Match.value(entry).pipe(
-      Match.tag("InProcess", (reg) =>
-        this.runInProcessHookEffect<
-          DispatchAuthorizeContext,
-          DispatchAdmissionResult
-        >((ctxWithSignal) => reg.dispatchAuthorize(ctxWithSignal), ctx),
-      ),
-      Match.tag("Remote", (reg) =>
-        this.runRemoteHookEffect({
-          appId: reg.appId,
-          definition: DispatchAuthorize,
-          connectionId: reg.connectionId,
-          params: this.authorizeDispatchParamsForWire(ctx),
-        }).pipe(Effect.map((envelope) => envelope.admission)),
-      ),
-      Match.exhaustive,
-    );
-  }
-
   /**
    * Resolve the per-message fan-out verdict for a `messages/send`.
-   * Looks up the registered handler by `appId`, dispatches either the
-   * in-process `MessageAuthorizeHook` or the remote
-   * `messages/authorize` S→C RPC, applies the uniform fail-closed
-   * envelope, and returns a verdict the
-   * `MessageService.sendCommit` caller can switch on.
+   * Dispatches `messages/authorize` over the app's connection (real
+   * WS for wire apps, loopback for the boot-installed default), then
+   * applies the uniform fail-closed envelope.
    *
-   * Fail-closed posture (mirrors `runAuthorizeDispatch`): timeout / RPC
-   * error / handler throw / decode failure all synthesize `Block { reason:
-   * "tm_unreachable" }` (or `"messages/authorize timeout"` /
-   * `"messages/authorize error"`, matching `dispatch/authorize`'s
-   * wording where the cause is known).
+   * Unknown-app: fail-closed Block. Reaching this branch means the
+   * app's WS dropped after the conversation was created; without a
+   * moderator there's nobody to authorize the fan-out.
    *
-   * Default policy when no hook is registered: `Forward { recipients:
-   * participants \ sender }` — preserves today's broadcast behavior
-   * with zero wire chatter.
+   * Fail-closed posture: timeout / RPC error / decode failure all
+   * synthesize `Block { reason: "tm_unreachable" }`.
    */
   runMessageAuthorize(
     appId: AppId,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
     const entry = this.apps.get(appId);
-    if (entry === undefined || !hasMessageAuthorizeHook(entry)) {
-      return this.defaultMessageAuthorize(ctx);
+    if (entry === undefined) {
+      return Effect.succeed({
+        decision: "Block" as const,
+        reason: "tm_unreachable",
+      });
     }
 
     const timeoutMs =
@@ -714,7 +662,11 @@ export class AppHost {
     const taskId = ctx.taskId;
 
     return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
-      raw: this.messageAuthorizeRaw(entry, ctx),
+      raw: this.callAppRpc(
+        entry,
+        MessagesAuthorize,
+        this.messageAuthorizeParamsForWire(ctx),
+      ).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
       timeoutLogMessage: "messages/authorize timed out",
       timeoutLogContext: {
@@ -735,50 +687,30 @@ export class AppHost {
     });
   }
 
-  private defaultMessageAuthorize(
-    ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rows = yield* this.db
-          .selectFrom("conversation_participants")
-          .select("agent_id")
-          .where("conversation_id", "=", ctx.conversationId);
-        const recipients = rows
-          .map((r) => r.agent_id as AgentId)
-          .filter((a) => a !== ctx.message.senderAgentId);
-        return {
-          decision: "Forward" as const,
-          recipients,
-        } satisfies MessageAuthorizeResult;
-      }),
-    );
-  }
-
-  private messageAuthorizeRaw(
+  /**
+   * Dispatch a task-callback RPC over the app's connection. The
+   * connection knows whether it's a real WS or a loopback — AppHost
+   * doesn't care. Errors (NotConnectedError, RPC response error,
+   * socket error, decode failure) fold into the fail-closed envelope
+   * upstream via `wrapHookEffectWithEnvelope`.
+   */
+  private callAppRpc<D extends AnyTaskCallbackRpcDefinition>(
     entry: AppRegistration,
-    ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult, Error> {
-    return Match.value(entry).pipe(
-      Match.tag("InProcess", (reg) => {
-        // Caller (`runMessageAuthorize`) already short-circuited the
-        // undefined case to `defaultMessageAuthorize`; the `!` here is
-        // safe and load-bearing for the exhaustive match.
-        const hook = reg.messageAuthorize!;
-        return this.runInProcessHookEffect<
-          MessageAuthorizeContext,
-          MessageAuthorizeResult
-        >((ctxWithSignal) => hook(ctxWithSignal), ctx);
-      }),
-      Match.tag("Remote", (reg) =>
-        this.runRemoteHookEffect({
-          appId: reg.appId,
-          definition: MessagesAuthorize,
-          connectionId: reg.connectionId,
-          params: this.messageAuthorizeParamsForWire(ctx),
-        }).pipe(Effect.map((envelope) => envelope.verdict)),
+    definition: D,
+    params: ParamsOf<D>,
+  ): Effect.Effect<ResultOf<D>, Error> {
+    return sendRpcToClient(entry.connection, definition, params).pipe(
+      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Upstream `wrapHookEffectWithEnvelope` collapses every Effect failure into a fail-closed verdict; per-tag handling cannot influence the outcome. The `RemoteHookError` here preserves call-context (appId, method, connectionId) in the log message and is the documented `messageAuthorizeRaw`/`dispatchAuthorizeRaw` envelope shape from #529.
+      Effect.mapError(
+        (cause) =>
+          new RemoteHookError({
+            appId: entry.appId,
+            method: definition.name,
+            connectionId: entry.connection.id as ConnectionId,
+            reason: `task-callback RPC failed: ${errorMessage(cause)}`,
+            cause,
+          }),
       ),
-      Match.exhaustive,
     );
   }
 
@@ -875,91 +807,6 @@ export class AppHost {
           }
         : {}),
     };
-  }
-
-  /**
-   * Run an in-process Promise-returning hook under an `AbortController`
-   * tied to fiber interrupts (e.g., from `Effect.timeout` upstream). The
-   * controller is wired so:
-   *   - timeout fires → fiber interrupts → `Effect.onInterrupt` aborts
-   *   - hook throws / rejects → `tapErrorCause` aborts
-   * preserving the abort-on-timeout / abort-on-throw guarantees.
-   *
-   * Returns the raw verdict in the success channel and a typed `Error`
-   * in the failure channel (so the dispatch envelope's `catchAll` can
-   * synthesize the fail-closed verdict).
-   */
-  private runInProcessHookEffect<Ctx, T>(
-    handler: (ctx: Ctx & { signal: AbortSignal }) => T | Promise<T>,
-    ctx: Ctx,
-  ): Effect.Effect<T, Error> {
-    return Effect.gen(function* () {
-      const controller = new AbortController();
-      return yield* Effect.tryPromise({
-        try: () =>
-          Promise.resolve(handler({ ...ctx, signal: controller.signal })),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-      }).pipe(
-        Effect.tapErrorCause(() => Effect.sync(() => controller.abort())),
-        Effect.onInterrupt(() => Effect.sync(() => controller.abort())),
-      );
-    });
-  }
-
-  /**
-   * Dispatch a server-initiated RPC to a remote app's connection and
-   * decode the verdict. Returns the typed verdict in the success channel;
-   * any failure (`NotConnectedError`, RPC response error, socket error,
-   * schema decode failure, missing connection) lands in the failure
-   * channel for the dispatch envelope to map to fail-closed.
-   *
-   * Result decoding happens in `sendRpcToClient`, where the descriptor
-   * that constructed the frame validates the response against its TypeBox
-   * result schema before this method can observe a value.
-   */
-  private runRemoteHookEffect<D extends AnyTaskCallbackRpcDefinition>(opts: {
-    appId: AppId;
-    definition: D;
-    connectionId: ConnectionId;
-    params: ParamsOf<D>;
-  }): Effect.Effect<ResultOf<D>, RemoteHookError> {
-    return Effect.gen(this, function* () {
-      const method = opts.definition.name;
-      const conn: MoltZapConnection | undefined = this.connections.get(
-        opts.connectionId,
-      );
-      if (!conn) {
-        // Stale registration: the remote app's connection has already
-        // gone away. Treat identically to mid-flight `NotConnectedError`
-        // so the dispatch envelope folds it into fail-closed.
-        return yield* Effect.fail(
-          new RemoteHookError({
-            appId: opts.appId,
-            method,
-            connectionId: opts.connectionId,
-            reason: `Remote app ${opts.appId} connection ${opts.connectionId} is gone`,
-          }),
-        );
-      }
-      return yield* Either.match(
-        yield* Effect.either(
-          sendRpcToClient(conn, opts.definition, opts.params),
-        ),
-        {
-          onLeft: (cause) =>
-            Effect.fail(
-              new RemoteHookError({
-                appId: opts.appId,
-                method,
-                connectionId: opts.connectionId,
-                reason: `task-callback RPC failed: ${errorMessage(cause)}`,
-                cause,
-              }),
-            ),
-          onRight: (result) => Effect.succeed(result),
-        },
-      );
-    });
   }
 
   /**
