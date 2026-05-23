@@ -52,6 +52,11 @@ export {
   NotFoundError,
   ConflictError,
   InvalidParamsError,
+  // Read-only registry predicate — lets a consumer (e.g. the CLI transport)
+  // recognise any registered wire-error instance and recover its static
+  // `code`/`message`. Does NOT expose `registerErrorClass`: the registered set
+  // stays closed.
+  isRegisteredErrorInstance,
 } from "./wire-errors.js";
 export type { RpcErrorClass, RpcErrorPayload } from "./wire-errors.js";
 
