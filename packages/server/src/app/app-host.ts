@@ -63,17 +63,26 @@ export interface ContactService {
 }
 
 /**
- * Structural slice of {@link ConversationService} that AppHost depends
- * on for the #529 reshape deny arm. Defined locally rather than
+ * Structural slice of {@link ConversationService} that AppHost +
+ * `installDefaultApp` depend on. Defined locally rather than
  * importing the concrete service to avoid a circular import — the
  * layer order has ConversationService depending on AppHost.
+ *
+ *  - `removeParticipant`: #529 reshape deny arm (forked moderator
+ *    round-trip drops the recipient on deny).
+ *  - `getParticipantAgentIds`: default-app `messages/authorize`
+ *    forward-all policy reads the conversation's participant set
+ *    here instead of re-implementing the SQL.
  */
-interface ConversationServiceForRemove {
+export interface ConversationServiceForAppHost {
   removeParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
     requesterAgentId: AgentId,
   ): Effect.Effect<void, unknown, NetworkSendServiceTag>;
+  getParticipantAgentIds(
+    conversationId: ConversationId,
+  ): Effect.Effect<readonly AgentId[]>;
 }
 
 class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
@@ -162,12 +171,10 @@ function dispatchVerdictToLeaseVerdict(
 export class AppHost {
   /**
    * Single source of truth for app registrations. Each `AppId` maps to
-   * exactly ONE `AppRegistration` — either an `InProcess` variant
-   * (boot-installed, e.g. DEFAULT_APP_ID) or a `Wire` variant (a remote
-   * app that called `apps/register` over the wire). The tagged union
-   * makes the "registered in both shapes" and "registered manifest
-   * without a hook" states unrepresentable; see
-   * `./app-registration.ts` for the type definition.
+   * one `AppRegistration` carrying its `MoltZapConnection` — a real WS
+   * connection for wire-registered apps, a loopback connection for
+   * boot-installed apps (e.g. `DEFAULT_APP_ID`). AppHost dispatches
+   * via the connection uniformly; see `./app-registration.ts`.
    */
   private apps = new AppRegistry();
 
@@ -192,7 +199,7 @@ export class AppHost {
    * Synthesized infra-hold (no hook registered) does NOT call
    * removeParticipant — that is the prereq-2 hold case.
    */
-  private conversationService: ConversationServiceForRemove | null = null;
+  private conversationService: ConversationServiceForAppHost | null = null;
 
   constructor(
     private db: Db,
@@ -211,7 +218,7 @@ export class AppHost {
    * AppHost, so the inverse cannot be a constructor arg without
    * breaking the cycle).
    */
-  setConversationService(svc: ConversationServiceForRemove): void {
+  setConversationService(svc: ConversationServiceForAppHost): void {
     this.conversationService = svc;
   }
 
@@ -706,7 +713,7 @@ export class AppHost {
           new RemoteHookError({
             appId: entry.appId,
             method: definition.name,
-            connectionId: entry.connection.id as ConnectionId,
+            connectionId: entry.connection.id,
             reason: `task-callback RPC failed: ${errorMessage(cause)}`,
             cause,
           }),

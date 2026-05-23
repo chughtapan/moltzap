@@ -14,6 +14,7 @@ import {
   Scope,
 } from "effect";
 import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
+import type { NotificationParamsOf } from "../../../transport/method.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import {
   ConversationArchivedError,
@@ -586,43 +587,49 @@ function subscribeParticipantNotifications(
   client: TestClient,
   participantsRef: Ref.Ref<ParticipantMap>,
 ): Effect.Effect<void, never, Scope.Scope> {
+  const pump = <D extends AnyNotificationDefinition>(
+    definition: D,
+    mutate: (
+      prev: ParticipantMap,
+      params: NotificationParamsOf<D>,
+    ) => ParticipantMap,
+  ) =>
+    Effect.forkScoped(
+      client.subscribe(definition).pipe(
+        Stream.runForEach((notif) =>
+          Ref.update(participantsRef, (m) =>
+            mutate(m, notif.params as NotificationParamsOf<D>),
+          ),
+        ),
+        Effect.catchAll(() => Effect.void),
+      ),
+    ).pipe(Effect.asVoid);
+
   return Effect.gen(function* () {
-    yield* Effect.forkScoped(
-      client
-        .subscribe(TaskConversationParticipantsAddedNotificationDefinition)
-        .pipe(
-          Stream.runForEach((notif) =>
-            Ref.update(participantsRef, (m) => {
-              const convId = makeConversationId(notif.params.conversationId);
-              const next = new Map(m);
-              const existing = next.get(convId) ?? new Set();
-              const updated = new Set(existing);
-              updated.add(notif.params.addedAgentId);
-              next.set(convId, updated);
-              return next;
-            }),
-          ),
-          Effect.catchAll(() => Effect.void),
-        ),
+    yield* pump(
+      TaskConversationParticipantsAddedNotificationDefinition,
+      (m, params) => {
+        const convId = makeConversationId(params.conversationId);
+        const next = new Map(m);
+        const existing = next.get(convId) ?? new Set();
+        const updated = new Set(existing);
+        updated.add(params.addedAgentId);
+        next.set(convId, updated);
+        return next;
+      },
     );
-    yield* Effect.forkScoped(
-      client
-        .subscribe(TaskConversationParticipantsRemovedNotificationDefinition)
-        .pipe(
-          Stream.runForEach((notif) =>
-            Ref.update(participantsRef, (m) => {
-              const convId = makeConversationId(notif.params.conversationId);
-              const existing = m.get(convId);
-              if (existing === undefined) return m;
-              const updated = new Set(existing);
-              updated.delete(notif.params.removedAgentId);
-              const next = new Map(m);
-              next.set(convId, updated);
-              return next;
-            }),
-          ),
-          Effect.catchAll(() => Effect.void),
-        ),
+    yield* pump(
+      TaskConversationParticipantsRemovedNotificationDefinition,
+      (m, params) => {
+        const convId = makeConversationId(params.conversationId);
+        const existing = m.get(convId);
+        if (existing === undefined) return m;
+        const updated = new Set(existing);
+        updated.delete(params.removedAgentId);
+        const next = new Map(m);
+        next.set(convId, updated);
+        return next;
+      },
     );
   });
 }
