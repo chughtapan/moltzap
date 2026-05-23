@@ -9,6 +9,7 @@ import {
   taskRpcMethods,
   taskNotifications,
   TaskClosedError,
+  TaskRejectedError,
   ConversationArchivedError,
   ConversationFullError,
   HookBlockedError,
@@ -58,6 +59,7 @@ export type RegisteredTaggedError =
   | InvalidParamsError
   | NotInContactsError
   | TaskClosedError
+  | TaskRejectedError
   | ConversationArchivedError
   | ConversationFullError
   | HookBlockedError;

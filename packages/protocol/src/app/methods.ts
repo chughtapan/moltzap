@@ -562,8 +562,8 @@ const TaskCreateVerdictSchema = Type.Union([
  * (the callback is a network call, not a DB op), so a crash or fiber
  * interrupt in that window can strand a task in `waiting`. Stranded
  * waiting tasks are invisible to delivery (no conversation, no
- * participants observe them) and are reaped by follow-up work (see
- * the stale-waiting-task sweep issue).
+ * participants observe them) and are reaped by follow-up work (the
+ * stale-waiting-task sweep, #684).
  */
 export const TaskCreate = defineRpc({
   name: "task/create",
