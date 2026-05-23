@@ -22,13 +22,12 @@ packages/server/src/
 ├── identity/           # Auth, agents, sessions, participants
 ├── network/            # Ping, presence, connection liveness, send routing
 │   ├── agent-endpoint-resolver.ts  # AgentId → HashSet<ConnId> multimap
-│   ├── app-tm-registry.ts          # Default DM/group TM seeding
 │   ├── network-send.ts             # Single outbound surface (send + broadcast)
 │   ├── handlers/
 │   └── services/                   # presence.service, presence-event-sink
 ├── task/               # Conversations, messages, dispatch lease lifecycle
 │   ├── handlers/          # conversations, messages, presence, contacts, connect, tasks
-│   └── services/          # conversation.service, message.service, task.service, default-tm
+│   └── services/          # conversation.service, message.service, task.service
 ├── transport/          # WS connection acquisition, dispatch context, layer-tags (Tag-allowlist hierarchy used by handler R-channel)
 ├── crypto/             # Envelope encryption, key rotation
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
@@ -86,10 +85,10 @@ used by integration tests; the same Kysely schema runs against both. The
 returns a real `Kysely<Database>`, `db.kind = "pglite"` returns the
 in-memory variant. Handlers and services never branch on `db.kind`.
 
-`tasks` carries `app_id` (nullable) and `tm_endpoint_address` (not null).
-The `app_id IS NULL` discriminator drives the "is this app-bound?"
-behavior across `AppHost.runMessageAuthorize`, `conversation.service`
-authority checks, and the dispatch admission path.
+`tasks` carries `app_id` (NOT NULL). `app_id` is the routing key for
+`AppHost.runMessageAuthorize`, TM-authority gating, and dispatch
+admission — all keyed on the calling WS connection being the app's
+registered remote connection (see `AppHost.isAppConnection`).
 
 ## 5. Layer-tag hierarchy
 
@@ -143,9 +142,9 @@ handler-invocation time.
   registries; emits `dispatch/release` and `participants/removed`
   notifications post-verdict.
 - **TM (Task Manager)** — Authority for a task's conversation set.
-  Default-TM (UUID-bound `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`)
-  for ordinary DMs/groups; app-bound `tm:app:<uuid>` for app-moderated
-  tasks. The `tm_endpoint_address` column on `tasks` is the routing key.
+  Proved by the calling WS connection being the app's registered remote
+  connection (`AppHost.isAppConnection(task.appId, callerConnId)`).
+  Apps register via the wire `AppsRegister` RPC.
 - **Dispatch lease** — Single-use token gating inbound message processing.
   In-memory state in `LeaseRegistry`; states PENDING → GRANTED / DENIED /
   HOLD → CLAIMED → CONSUMED / EXPIRED / ABANDONED. Atomic transitions via

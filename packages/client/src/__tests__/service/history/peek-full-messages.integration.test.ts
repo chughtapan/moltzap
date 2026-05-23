@@ -15,20 +15,23 @@ it("returns full messages from other conversations sorted by timestamp", () =>
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const convB = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
+    const convB = yield* H.createDm(service, regB.agentId);
+    const convC = yield* H.createDm(service, regC.agentId);
 
-    const convC = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regC.agentId }],
-    });
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      H.PEEK_FROM_C,
+    );
+    yield* H.sendAndSettle(
+      regB.client,
+      convB.task.id,
+      convB.conversation!.id,
+      "from B",
+    );
 
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.PEEK_FROM_C);
-    yield* H.sendAndSettle(regB.client, convB.conversation.id, "from B");
-
-    const { messages } = service.peekFullMessages(convB.conversation.id);
+    const { messages } = service.peekFullMessages(convB.conversation!.id);
 
     expect(messages.length).toBeGreaterThanOrEqual(1);
     // convC message should appear (it's a different conversation)
@@ -57,14 +60,12 @@ it("returns all messages without artificial caps", () =>
 
     const convIds: string[] = [];
     for (const agent of agents) {
-      const conv = yield* service.sendRpc(H.ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: agent.agentId }],
-      });
-      convIds.push(conv.conversation.id);
+      const conv = yield* H.createDm(service, agent.agentId);
+      convIds.push(conv.conversation!.id);
       yield* H.sendAndSettle(
         agent.client,
-        conv.conversation.id,
+        conv.task.id,
+        conv.conversation!.id,
         `hi from ${agent.agentId.slice(0, 8)}`,
       );
     }
@@ -88,29 +89,32 @@ it("commit advances markers — second peek returns only new messages", () =>
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const convB = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
+    const convB = yield* H.createDm(service, regB.agentId);
+    const convC = yield* H.createDm(service, regC.agentId);
 
-    const convC = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regC.agentId }],
-    });
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      "old msg",
+    );
 
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, "old msg");
-
-    const first = service.peekFullMessages(convB.conversation.id);
+    const first = service.peekFullMessages(convB.conversation!.id);
     expect(first.messages.length).toBeGreaterThanOrEqual(1);
     first.commit();
 
     // Peek again — old message should be gone
-    const second = service.peekFullMessages(convB.conversation.id);
+    const second = service.peekFullMessages(convB.conversation!.id);
     expect(second.messages.length).toBe(0);
 
     // Send a new message — should appear
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.NEW_MESSAGE);
-    const third = service.peekFullMessages(convB.conversation.id);
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      H.NEW_MESSAGE,
+    );
+    const third = service.peekFullMessages(convB.conversation!.id);
     expect(third.messages.length).toBeGreaterThanOrEqual(1);
     expect(third.messages.map((m) => m.text)).toContain(H.NEW_MESSAGE);
 

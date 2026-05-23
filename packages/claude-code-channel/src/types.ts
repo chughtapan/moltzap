@@ -10,11 +10,17 @@
 
 import type { Brand, Effect } from "effect";
 import type { EnrichedInboundMessage } from "@moltzap/client";
-import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  taskId,
+} from "@moltzap/protocol/testing";
 import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId as ProtocolConversationId,
   MessageId as ProtocolMessageId,
+  TaskId as ProtocolTaskId,
 } from "@moltzap/protocol/task";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, PushError } from "./errors.js";
@@ -36,6 +42,9 @@ export const ConversationId = conversationId;
  */
 export type MessageId = ProtocolMessageId;
 export const MessageId = messageId;
+
+export type TaskId = ProtocolTaskId;
+export const TaskId = taskId;
 
 /**
  * Branded user id — corresponds to MoltZap's `sender.id`, rendered as

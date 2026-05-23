@@ -1,12 +1,18 @@
 import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/network";
+import type {
+  AppId,
+  ConversationId,
+  MessageId,
+  TaskId,
+} from "@moltzap/protocol/task";
 
 export interface SendInsertResult {
   readonly message: Message;
   readonly parts: ReadonlyArray<Part>;
   readonly conv: SendConversationRow;
-  readonly excludeConnectionId: string | undefined;
+  readonly excludeConnectionId: ConnectionId | undefined;
   readonly bypassTmRouting: boolean;
 }
 
@@ -15,7 +21,7 @@ export interface SendMessageInput {
   readonly parts: ReadonlyArray<Part>;
   readonly senderAgentId: AgentId;
   readonly replyToId?: MessageId;
-  readonly excludeConnectionId?: string;
+  readonly excludeConnectionId?: ConnectionId;
   readonly bypassTmRouting?: boolean;
 }
 
@@ -31,7 +37,7 @@ export interface SendCommitInput {
 
 export interface ResolveSendVerdictInput {
   readonly messageId: MessageId;
-  readonly tmEndpointAddressRaw: string;
+  readonly appId: AppId;
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
   readonly parts: ReadonlyArray<Part>;
@@ -41,7 +47,20 @@ export interface ResolveSendVerdictInput {
 export interface SendConversationRow {
   readonly archived_at: Date | null;
   readonly task_id: TaskId;
-  readonly tm_endpoint_address: string;
+
+  /**
+   * Parent task's `app_id`. Consumed by `MessageService.sendCommit` to
+   * route the per-message `messages/authorize` verdict request to the
+   * right app. Pre-cutover this was also the TM-bypass discriminator
+   * for `obtainMessageSendPermission`; the bypass branch was removed
+   * in the #673 follow-up but this column survives because the
+   * verdict-routing consumer still reads it.
+   *
+   * Typed as `string` because Kysely's row inference returns the raw
+   * SQL column shape; consumers brand at the boundary
+   * (`row.app_id as AppId`) at each read site.
+   */
+  readonly app_id: string;
   readonly task_status: TaskStatus;
 }
 

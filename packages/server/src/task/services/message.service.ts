@@ -1,7 +1,9 @@
 import type { Db } from "../../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type {
+  AppId,
   ConversationId,
   MessageId,
   TmDecision,
@@ -16,10 +18,6 @@ import {
   NotFoundError,
   TaskClosedError,
 } from "@moltzap/protocol";
-import {
-  isEndpointAddress,
-  type EndpointAddress,
-} from "@moltzap/protocol/network";
 import {
   Cause,
   Duration,
@@ -40,11 +38,7 @@ export type MessageServiceError =
 import { nextSnowflakeId } from "../../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
-import {
-  opaquePayload,
-  RecipientNotResolved,
-  WriteFailed,
-} from "../../network/network-send.js";
+import { opaquePayload } from "../../network/network-send.js";
 import {
   type WebhookClient,
   signWebhookPayload,
@@ -67,7 +61,6 @@ import {
   takeFirstOption,
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
-import { endpointAddressForAgent } from "./task.service.js";
 import { MessageSendPermission } from "../../app/capabilities/index.js";
 import type {
   ActiveKekRow,
@@ -299,11 +292,17 @@ export class MessageService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private send-
-   * conversation projection consumed by `obtainMessageSendPermission`
-   * (Decision A composite). Joins `conversations` ⋈ `tasks` and returns
-   * the `(archived_at, task_id, tm_endpoint_address, task_status)`
-   * projection.
+   * Send-conversation projection consumed by
+   * `obtainMessageSendPermission` (composite capability) AND
+   * `MessageService.sendCommit`'s `messages/authorize` verdict route.
+   * Joins `conversations` ⋈ `tasks` and returns
+   * `(archived_at, task_id, app_id, task_status)`.
+   *
+   * Pre-cutover the obtain helper also consulted `app_id` to decide
+   * the TM-bypass branch (caller IS the registered remote-app
+   * connection ⇒ skip `refineTaskActive`). That branch was removed in
+   * the #673 follow-up; the `app_id` column stays because the
+   * verdict-routing consumer still reads it.
    * @internal
    */
   readSendConversation(
@@ -319,7 +318,7 @@ export class MessageService {
         .select([
           "c.archived_at",
           "c.task_id",
-          "t.tm_endpoint_address as tm_endpoint_address",
+          "t.app_id as app_id",
           "t.status as task_status",
         ])
         .where("c.id", "=", conversationId),
@@ -421,7 +420,6 @@ export class MessageService {
     input: SendCommitInput,
   ): Effect.Effect<Message, MessageServiceError | SqlError> {
     return Effect.gen(this, function* () {
-      yield* this.routeMessageToTm(input.carrier);
       this.updatePreview(input);
 
       const verdict = yield* this.resolveCommitVerdict(input);
@@ -440,23 +438,6 @@ export class MessageService {
       this.spawnDeliveryWebhooks(input, recipientList, delivered);
       yield* this.logMessageSent(input);
       return input.carrier.message;
-    });
-  }
-
-  private routeMessageToTm(
-    carrier: SendInsertResult,
-  ): Effect.Effect<void, HookBlockedError> {
-    if (carrier.bypassTmRouting) return Effect.void;
-    return Effect.gen(this, function* () {
-      const tmAddr = yield* decodeTmEndpointAddress(
-        carrier.conv.tm_endpoint_address,
-      );
-      const tmFrame = MessageReceivedNotificationDefinition.encode({
-        message: carrier.message,
-      });
-      yield* this.networkSendService
-        .send(tmAddr, opaquePayload(JSON.stringify(tmFrame)))
-        .pipe(Effect.mapError(deliveryErrorToHookBlocked));
     });
   }
 
@@ -479,7 +460,9 @@ export class MessageService {
     }
     return this.resolveSendVerdict({
       messageId: input.carrier.message.id,
-      tmEndpointAddressRaw: input.carrier.conv.tm_endpoint_address,
+      // Boundary cast: SendConversationRow.app_id arrives as the raw
+      // Kysely `string`; brand at the consumer call site.
+      appId: input.carrier.conv.app_id as AppId,
       conversationId: input.conversationId,
       senderAgentId: input.senderAgentId,
       parts: input.carrier.parts,
@@ -534,6 +517,7 @@ export class MessageService {
     recipientList: readonly AgentId[],
   ): Effect.Effect<readonly AgentId[], never> {
     const event = MessageReceivedNotificationDefinition.encode({
+      taskId: input.carrier.conv.task_id,
       message: input.carrier.message,
     });
     const audience = Array.from(
@@ -650,8 +634,7 @@ export class MessageService {
       );
     }
     return Effect.gen(this, function* () {
-      const tmAddr = yield* decodeTmEndpointAddress(input.tmEndpointAddressRaw);
-      const result = yield* host.runMessageAuthorize(tmAddr, {
+      const result = yield* host.runMessageAuthorize(input.appId, {
         conversationId: input.conversationId,
         message: {
           id: input.messageId,
@@ -659,9 +642,7 @@ export class MessageService {
           parts: [...input.parts],
         },
         taskId: input.taskId,
-        // appId carried for observability + future TM routing. App-
-        // bound tasks fill this; default-DM/group leaves it empty.
-        appId: "",
+        appId: input.appId,
         signal: new AbortController().signal,
       });
       switch (result.decision) {
@@ -797,6 +778,7 @@ export class MessageService {
   list(
     conversationId: ConversationId,
     requesterAgentId: AgentId,
+    callerConnId: ConnectionId,
     options: {
       limit?: number;
       sinceSeq?: string;
@@ -812,12 +794,13 @@ export class MessageService {
           options.limit ?? DEFAULT_MESSAGE_HISTORY_LIMIT,
           MAX_MESSAGE_HISTORY_LIMIT,
         );
-        const rows = yield* this.visibleMessageRows(
+        const rows = yield* this.visibleMessageRows({
           conversationId,
           requesterAgentId,
-          options.sinceSeq,
+          callerConnId,
+          sinceSeq: options.sinceSeq,
           limit,
-        );
+        });
         const hasMore = rows.length > limit;
         const resultRows = hasMore ? rows.slice(0, limit) : rows;
         const messages = yield* this.messageRowsToMessages(resultRows);
@@ -826,16 +809,19 @@ export class MessageService {
     );
   }
 
-  private visibleMessageRows(
-    conversationId: ConversationId,
-    requesterAgentId: AgentId,
-    sinceSeq: string | undefined,
-    limit: number,
-  ): Effect.Effect<ReadonlyArray<MessageRow>, SqlError> {
+  private visibleMessageRows(args: {
+    readonly conversationId: ConversationId;
+    readonly requesterAgentId: AgentId;
+    readonly callerConnId: ConnectionId;
+    readonly sinceSeq: string | undefined;
+    readonly limit: number;
+  }): Effect.Effect<ReadonlyArray<MessageRow>, SqlError> {
+    const { conversationId, requesterAgentId, callerConnId, sinceSeq, limit } =
+      args;
     return Effect.gen(this, function* () {
       const isTmCaller = yield* this.isTmForAppBoundTask(
         conversationId,
-        requesterAgentId,
+        callerConnId,
       );
       let qb = this.db
         .selectFrom("messages")
@@ -880,38 +866,31 @@ export class MessageService {
   }
 
   /**
-   * Visibility helper that returns true when the caller is the registered TM for
-   * an app-bound task.
-   *
-   * Issue #560 mirrors `assertConversationAdminAuthority`'s second branch:
-   *
-   *   task.app_id IS NOT NULL
-   *   AND task.tm_endpoint_address === `tm:agent:&lt;callerAgentId>`
-   *
-   * For default-DM/group tasks (app_id IS NULL) returns false — there
-   * is no external caller to authenticate; the default-DM/group
-   * messageAuthorize hook fires server-internally. The asymmetry is
-   * intentional per architect plan §1 + R10.
+   * Visibility helper that returns true iff the caller's WS
+   * connection IS the registered remote-app connection for the
+   * conversation's bound app (#673 app-ownership gate). Tasks whose
+   * caller is not the app moderator see the filtered-by-tm_decision
+   * view; the moderator sees every row.
    */
   private isTmForAppBoundTask(
     conversationId: ConversationId,
-    callerAgentId: AgentId,
+    callerConnId: ConnectionId,
   ): Effect.Effect<boolean, never> {
+    const host = this.appHost;
+    if (host === null) return Effect.succeed(false);
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rowOpt = yield* takeFirstOption(
           this.db
             .selectFrom("conversations as c")
             .innerJoin("tasks as t", "t.id", "c.task_id")
-            .select(["t.app_id", "t.tm_endpoint_address"])
+            .select(["t.app_id"])
             .where("c.id", "=", conversationId),
         );
         if (Option.isNone(rowOpt)) return false;
-        const row = rowOpt.value;
-        if (row.app_id === null) return false;
-        return (
-          row.tm_endpoint_address === endpointAddressForAgent(callerAgentId)
-        );
+        // Boundary cast: Kysely returns `app_id` as `string`; the brand
+        // boundary is the type system, not a format check.
+        return host.isAppConnection(rowOpt.value.app_id as AppId, callerConnId);
       }),
     );
   }
@@ -1151,15 +1130,6 @@ export class MessageService {
   }
 }
 
-/**
- * Decode raw `tasks.tm_endpoint_address`. A malformed non-null row is
- * data corruption and dies as a defect rather than silently mis-routing.
- */
-function decodeTmEndpointAddress(raw: string): Effect.Effect<EndpointAddress> {
-  if (isEndpointAddress(raw)) return Effect.succeed(raw);
-  return Effect.die(`Malformed tm_endpoint_address in tasks row: ${raw}`);
-}
-
 function recipientsFromVerdict(verdict: TmDecision): readonly AgentId[] {
   if (verdict.tag !== "forward") return [];
   return verdict.recipients as readonly AgentId[];
@@ -1185,29 +1155,6 @@ function unwrapConversationDek(
     dekVersion: row.dek_version,
     kekVersion: row.kek_version,
   };
-}
-
-/**
- * Translate a `network.send` `DeliveryError` into `HookBlockedError`.
- * Both tags signal a caller-recoverable TM-offline / socket-fail.
- */
-function deliveryErrorToHookBlocked(
-  err: RecipientNotResolved | WriteFailed,
-): HookBlockedError {
-  if (err instanceof RecipientNotResolved) {
-    return new HookBlockedError({
-      message: "Task manager is not reachable",
-      data: { reason: "RecipientNotResolved", to: String(err.to) },
-    });
-  }
-  return new HookBlockedError({
-    message: "Task manager dispatch failed",
-    data: {
-      reason: "WriteFailed",
-      to: String(err.to),
-      cause: String(err.cause),
-    },
-  });
 }
 
 function decodeTmDecision(raw: unknown): Effect.Effect<TmDecision> {

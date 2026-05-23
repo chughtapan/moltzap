@@ -9,15 +9,15 @@ lease admission state machine and the ack/release race buffer.
 sequenceDiagram
     participant server
     participant reader as WS reader fiber
-    participant wsClient as MoltZapWsClient
+    participant wsClient as MoltZapTMClient
     participant core as MoltZapChannelCore
     participant handler as InboundHandler
 
     server->>reader: JSON-RPC notification<br>("dispatch/release" OR "messages/received")
-    Note over reader: handleIncoming()<br>decodeFrames()<br>(frame.ts → decodeFrame)<br>JSON.parse(raw)<br>decodeServerInbound()<br>(ws-client.ts → handleIncoming)
+    Note over reader: handleIncoming()<br>decodeFrames()<br>(frame.ts → decodeFrame)<br>JSON.parse(raw)<br>decodeServerInbound()<br>(tm-client.ts → handleIncoming)
 
     Note over reader: [notification frame route]
-    Note over reader: handleDecodedNotification()<br>(ws-client.ts → handleDecodedNotification):<br>subscribers.dispatch(frame)<br>(subscribers.ts → SubscriberRegistry.dispatch)<br>snapshot subs → filter-match → each sub calls handler(frame)
+    Note over reader: handleDecodedNotification()<br>(tm-client.ts → handleDecodedNotification):<br>subscribers.dispatch(frame)<br>(subscribers.ts → SubscriberRegistry.dispatch)<br>snapshot subs → filter-match → each sub calls handler(frame)
     reader->>core: handler(frame) → MoltZapService.handleNotification()
 
     Note over core: [messages/received notification]

@@ -10,7 +10,8 @@ See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
 
 - `src/service.ts` — `MoltZapService` (high-level RPC + conversation state)
 - `src/channel-core.ts` — `MoltZapChannelCore` (inbound dispatch + admission)
-- `src/ws-client.ts` — `MoltZapWsClient` (low-level WS + JSON-RPC transport)
+- `src/agent-client.ts` — `MoltZapAgentClient` (outbound RPC + inbound notifications)
+- `src/tm-client.ts` — `MoltZapTMClient` (full-duplex; adds TM-callback inbound dispatch)
 - `src/auth.ts` — `registerAgent`
 - `src/channel-base/` — `@moltzap/client/channel-base` subpath (see below)
 - `src/cli/` — `moltzap` CLI binary

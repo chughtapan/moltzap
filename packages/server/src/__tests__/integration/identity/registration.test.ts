@@ -11,7 +11,7 @@ import {
 } from "../helpers.js";
 import { getCoreDb } from "../../../test-utils/index.js";
 
-import { Connect, ConversationsList } from "@moltzap/protocol";
+import { Connect, TaskConversationList } from "@moltzap/protocol";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -66,8 +66,8 @@ function registeredAgentCanUseMethods() {
     expect(hello.protocolVersion).toBeDefined();
     expect(hello.agentId).toBe(reg.agentId);
 
-    const result = yield* client.sendRpc(ConversationsList, {});
-    expect(result.conversations).toEqual([]);
+    const result = yield* client.sendRpc(TaskConversationList, {});
+    expect(result.items).toEqual([]);
 
     yield* client.close();
   });

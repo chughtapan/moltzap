@@ -1,15 +1,14 @@
-import * as fc from "fast-check";
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
-  InvalidParamsError,
-  TasksAddParticipant,
-  TasksClose,
-  TasksCreate,
-  TasksGet,
-  TasksList,
-  TasksRemoveParticipant,
-  type Task,
+  AppsRegister,
+  TaskCreate,
+  DEFAULT_APP_ID,
+  TaskAddParticipant,
+  TaskClose,
+  TaskRequest,
+  TaskList,
+  TaskRemoveParticipant,
 } from "@moltzap/protocol";
 import {
   it,
@@ -26,10 +25,8 @@ import {
 const REGISTRATION_SECRET = "tasks-test-secret-mnop";
 const ALICE_USER_ID = "00000000-0000-4000-8000-00000000a11d";
 const BOB_USER_ID = "00000000-0000-4000-8000-00000000b0b1";
-const PROPERTY_RUNS = 25;
-const WAITING_STATUS = "waiting";
+const ACTIVE_STATUS = "active";
 const CLOSED_STATUS = "closed";
-const APP_ID = "some-app";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -102,194 +99,89 @@ function setupAliceAndBob(): Effect.Effect<
   });
 }
 
-/**
- * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
- * HIGH-A): the wire body carries `tmType` (a kind marker), not a raw
- * address. Custom-TM callers pass `tmType: "self"` so the server
- * derives `tm:agent:&lt;callerAgentId&gt;` from the authenticated caller —
- * the pre-R16 hole where caller A could pass
- * `tmEndpointAddress: "tm:agent:&lt;B&gt;"` is closed at the wire boundary.
- * The server-derived address is what `endpoints/registerTaskManager`
- * used to mint pre-R13.
- */
-function expectSelfTmAddress(agentId: string): string {
-  return `tm:agent:${agentId}`;
-}
-
-it("property: self TM address derives from the authenticated agent ID", () =>
-  Effect.sync(() => {
-    expect.hasAssertions();
-    fc.assert(
-      fc.property(fc.uuid(), (agentId) => {
-        expect(expectSelfTmAddress(agentId)).toBe(`tm:agent:${agentId}`);
-      }),
-      { numRuns: PROPERTY_RUNS },
-    );
-  }));
-
-it("tasks/create returns a waiting task with server-derived self TM", () =>
+it("task/request returns an active task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
-    const result = yield* aliceClient.sendRpc(TasksCreate, {
-      tmType: "self",
+    const result = yield* aliceClient.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [],
     });
-    expect(result.task.status).toBe(WAITING_STATUS);
+    // DEFAULT_APP auto-accepts the task/create TM callback → active.
+    expect(result.task.status).toBe(ACTIVE_STATUS);
     expect(result.task.initiatorAgentId).toBe(aliceAgentId);
-    // Phase 9b round 4 R16: server derives the address from
-    // ctx.agentId; matches the address the deleted
-    // `endpoints/registerTaskManager` used to derive.
-    expect(result.task.tmEndpointAddress).toBe(
-      expectSelfTmAddress(aliceAgentId),
-    );
+    expect(result.task.appId).toBe(DEFAULT_APP_ID);
   }));
 
-it("tasks/get rejects callers who are neither initiator nor participant", () =>
-  Effect.gen(function* () {
-    const { aliceClient, bobClient } = yield* setupAliceAndBob();
-    const created = yield* aliceClient.sendRpc(TasksCreate, {
-      tmType: "self",
-    });
-    const result = yield* Effect.either(
-      bobClient.sendRpc(TasksGet, { taskId: created.task.id }),
-    );
-    expect(expectEitherLeft(result)).toBeDefined();
-  }));
-
-it("TM authority: only the registered TM may mutate task membership", () =>
+it("TM authority: only the registered app connection may mutate task membership", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient, bobAgentId } = yield* setupAliceAndBob();
-    const created = yield* aliceClient.sendRpc(TasksCreate, {
-      tmType: "self",
+    // TM authority is proved via app-ownership of the calling WS
+    // connection. Alice AppsRegisters a custom app; her connection
+    // becomes the remote-app entry for TM_TEST_APP_ID. Bob does not
+    // register, so his connection cannot pass TM-authority. (A
+    // DEFAULT_APP_ID AppsRegister would return ForbiddenError — that
+    // app is boot-installed and unhijackable.)
+    const TM_TEST_APP_ID =
+      "00000000-0000-4000-8000-000000010007" as typeof DEFAULT_APP_ID;
+    yield* aliceClient.sendRpc(AppsRegister, {
+      manifest: {
+        appId: TM_TEST_APP_ID,
+        name: "tm-test-app",
+      },
+    });
+    yield* aliceClient.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
+    const created = yield* aliceClient.sendRpc(TaskRequest, {
+      appId: TM_TEST_APP_ID,
+      invitedAgentIds: [],
     });
 
-    // Bob (not the TM) cannot mutate.
+    // Bob (not the registered app connection) cannot mutate.
     const closeDenied = yield* Effect.either(
-      bobClient.sendRpc(TasksClose, { taskId: created.task.id }),
+      bobClient.sendRpc(TaskClose, { taskId: created.task.id }),
     );
     expect(expectEitherLeft(closeDenied)).toBeDefined();
 
     const addDenied = yield* Effect.either(
-      bobClient.sendRpc(TasksAddParticipant, {
+      bobClient.sendRpc(TaskAddParticipant, {
         taskId: created.task.id,
-        agentId: bobAgentId as Task["initiatorAgentId"],
+        agentId: bobAgentId,
       }),
     );
     expect(expectEitherLeft(addDenied)).toBeDefined();
 
-    // Alice (the TM) can.
-    const added = yield* aliceClient.sendRpc(TasksAddParticipant, {
+    // Alice (the registered app connection) can.
+    const added = yield* aliceClient.sendRpc(TaskAddParticipant, {
       taskId: created.task.id,
-      agentId: bobAgentId as Task["initiatorAgentId"],
+      agentId: bobAgentId,
     });
     expect(added.participant.agentId).toBe(bobAgentId);
 
-    // Now Bob is a participant — get works.
-    const getView = yield* bobClient.sendRpc(TasksGet, {
+    yield* aliceClient.sendRpc(TaskRemoveParticipant, {
       taskId: created.task.id,
-    });
-    expect(getView.participants.length).toBe(2);
-
-    // Alice (TM) removes.
-    yield* aliceClient.sendRpc(TasksRemoveParticipant, {
-      taskId: created.task.id,
-      agentId: bobAgentId as Task["initiatorAgentId"],
+      agentId: bobAgentId,
     });
 
-    // Alice (TM) closes.
-    const closed = yield* aliceClient.sendRpc(TasksClose, {
+    const closed = yield* aliceClient.sendRpc(TaskClose, {
       taskId: created.task.id,
     });
     expect(closed.task.status).toBe(CLOSED_STATUS);
   }));
 
-it("tasks/list scopes results to caller-as-participant", () =>
+it("task/list scopes results to caller-as-participant", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
-    const aliceTask = yield* aliceClient.sendRpc(TasksCreate, {
-      tmType: "self",
+    const aliceTask = yield* aliceClient.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [],
     });
-    yield* bobClient.sendRpc(TasksCreate, {
-      tmType: "self",
+    yield* bobClient.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [],
     });
 
-    const aliceList = yield* aliceClient.sendRpc(TasksList, {});
+    const aliceList = yield* aliceClient.sendRpc(TaskList, {});
     expect(aliceList.tasks.map((t) => t.id)).toContain(aliceTask.task.id);
     expect(aliceList.tasks).toHaveLength(1);
-  }));
-
-// Prereq 2 (#525 §7) follow-up (#528): app-bound tasks must carry
-// their own moderator (the TM IS the app), so pairing an `appId`
-// with a `default-*` TM kind is rejected at the wire boundary with
-// `InvalidParamsError`. Implementation:
-// `task/handlers/tasks.handlers.ts:71-83`.
-it("tasks/create rejects appId + default-dm with InvalidParamsError", () =>
-  Effect.gen(function* () {
-    const { aliceClient } = yield* setupAliceAndBob();
-    const outcome = yield* Effect.either(
-      aliceClient.sendRpc(TasksCreate, {
-        appId: APP_ID,
-        tmType: "default-dm",
-      }),
-    );
-    const err = expectEitherLeft(outcome) as {
-      code?: number;
-      message?: string;
-    };
-    expect(err.code).toBe(InvalidParamsError.code);
-    expect(err.message).toMatch(/app-bound tasks cannot use a default TM/i);
-  }));
-
-it("tasks/create rejects appId + default-group with InvalidParamsError", () =>
-  Effect.gen(function* () {
-    const { aliceClient } = yield* setupAliceAndBob();
-    const outcome = yield* Effect.either(
-      aliceClient.sendRpc(TasksCreate, {
-        appId: APP_ID,
-        tmType: "default-group",
-      }),
-    );
-    const err = expectEitherLeft(outcome) as {
-      code?: number;
-      message?: string;
-    };
-    expect(err.code).toBe(InvalidParamsError.code);
-    expect(err.message).toMatch(/app-bound tasks cannot use a default TM/i);
-  }));
-
-// Positive control for the §7 rejection arm: `appId` paired with a
-// non-default TM kind (`self`) is the legitimate app-bound shape and
-// must succeed.
-it("tasks/create accepts appId + tmType: self", () =>
-  Effect.gen(function* () {
-    const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
-    const result = yield* aliceClient.sendRpc(TasksCreate, {
-      appId: APP_ID,
-      tmType: "self",
-    });
-    expect(result.task.appId).toBe(APP_ID);
-    expect(result.task.tmEndpointAddress).toBe(
-      expectSelfTmAddress(aliceAgentId),
-    );
-  }));
-
-it("tasks/create cannot bind a stranger's TM", () =>
-  // Pre-R16 this scenario was the bug: caller A invokes
-  // `tasks/create({ tmEndpointAddress: "tm:agent:<B>" })` and the
-  // server happily wrote it. With `tmType` the wire body has no
-  // path for caller-supplied addresses; `"self"` always derives
-  // `tm:agent:<callerAgentId>`, never a stranger's id.
-  Effect.gen(function* () {
-    const { aliceClient, aliceAgentId, bobAgentId } = yield* setupAliceAndBob();
-    const result = yield* aliceClient.sendRpc(TasksCreate, {
-      tmType: "self",
-    });
-    // The persisted address belongs to the caller, regardless of
-    // what bobAgentId looks like — there is no longer a wire
-    // affordance to name another agent.
-    expect(result.task.tmEndpointAddress).toBe(
-      expectSelfTmAddress(aliceAgentId),
-    );
-    expect(result.task.tmEndpointAddress).not.toBe(
-      expectSelfTmAddress(bobAgentId),
-    );
   }));

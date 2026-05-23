@@ -10,7 +10,7 @@
  *
  * Architect O5 decision: the factory returns an `Effect` that owns the real
  * client's lifetime via `Scope`. Consumers that already ship an Effect-native
- * construction path (`packages/client/MoltZapWsClient` via its internal
+ * construction path (`packages/client/MoltZapAgentClient` via its internal
  * `ManagedRuntime`) wrap it in `Effect.acquireRelease`. Channel packages
  * (`openclaw-channel`, `nanoclaw-channel`) add a narrow test-support subpath
  * export (see §4 O5 resolution in the design doc) that returns the same
@@ -147,7 +147,7 @@ export interface RealClientSubscription {
 
 /**
  * Predicate over a decoded notification frame. The conformance adapter
- * plumbs this directly to `MoltZapWsClient.subscribeAll(refinement)` —
+ * plumbs this directly to `MoltZapAgentClient.subscribeAll(refinement)` —
  * no inline grammar reconstruction. Absent = match-all (#645).
  */
 export type RealClientNotificationFilter = (
@@ -487,7 +487,7 @@ export function makeClientHandshakeWindow(
  * Auto-handshake responder. Spawned as a background fiber by property
  * bodies; watches a TestServer connection's inbound capture buffer for
  * `network/connect` RPC requests and responds with a minimal valid
- * `HelloOkSchema`. Required because `MoltZapWsClient.connect()` blocks
+ * `HelloOkSchema`. Required because `MoltZapAgentClient.connect()` blocks
  * on the network/connect response before `ready` resolves.
  *
  * Exposed as a helper so each property body can choose whether to run

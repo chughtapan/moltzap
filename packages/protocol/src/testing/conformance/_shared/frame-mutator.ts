@@ -41,7 +41,11 @@ export class FrameSchemaError extends Data.TaggedError(
   readonly expected: "request" | "response" | "event";
   readonly raw: string;
   readonly reason: string;
-}> {}
+}> {
+  override get message(): string {
+    return `${this.expected} (${this.direction}): ${this.reason} — raw: ${this.raw.slice(0, 200)}`;
+  }
+}
 
 /**
  * Valid JSON-RPC frame objects exposed on the wire. Requests carry

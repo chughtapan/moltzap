@@ -6,7 +6,8 @@ import {
   type ResultOf,
   type RpcDefinition,
 } from "@moltzap/protocol";
-import { ConnIdTag } from "../app/layers.js";
+import { ConnectionTag } from "../app/layers.js";
+import type { MoltZapConnection } from "./connection.js";
 import type { AgentId, UserId } from "../app/types.js";
 
 export interface AuthenticatedContext {
@@ -18,13 +19,13 @@ export interface AuthenticatedContext {
 /** Per-request dispatch context handed to every RPC handler by the typed dispatcher. */
 export interface DispatchContext {
   readonly auth: AuthenticatedContext;
-  readonly connId: string;
+  readonly connection: MoltZapConnection;
 }
 
 /**
  * RPC binding stored in the registry. Each binding carries a method
  * definition and a Spec F (#617) typed-dispatcher `HandlerSlot`-shaped
- * handler that already provides `ConnIdTag` from the dispatch context.
+ * handler that already provides `ConnectionTag` from the dispatch context.
  *
  * The remaining R-channel tags (the rest of `AppTags`) are provided by
  * the dispatcher's `FullLive` Layer at request time via the surrounding
@@ -44,18 +45,18 @@ export type RpcMethodRegistry = RpcMethodBinding[];
 /**
  * Type-safe RPC method definition driven by a protocol manifest.
  * Wraps the user's handler with `requiresActive` enforcement and
- * provides `ConnIdTag` from the dispatch context.
+ * provides `ConnectionTag` from the dispatch context.
  *
  * `Reqs` is the handler body's R-channel — the union of service Tags it
- * `yield*`s plus `ConnIdTag` if the body reads it. Defaults to
- * `ConnIdTag` so existing handlers (which yield no service Tags)
+ * `yield*`s plus `ConnectionTag` if the body reads it. Defaults to
+ * `ConnectionTag` so existing handlers (which yield no service Tags)
  * continue to compile against this signature. Per the Phase 2A r2 plan
  * §3, the `defineXMethod` variants in `define-layered-method.ts` add
  * per-layer upper bounds on `Reqs` via constrained generics; this base
  * `defineMethod` is unconstrained.
  *
- * `Effect.provideService(ConnIdTag, ctx.connId)` is a no-op when the
- * body doesn't pull `ConnIdTag` (the `R` channel of `Effect` excludes
+ * `Effect.provideService(ConnectionTag, ctx.connId)` is a no-op when the
+ * body doesn't pull `ConnectionTag` (the `R` channel of `Effect` excludes
  * the tag if absent), so `Reqs` widening doesn't lie about
  * requirements.
  */
@@ -77,7 +78,7 @@ export function defineMethod<
     handler: (
       params: Static<P>,
       ctx: AuthenticatedContext,
-    ) => Effect.Effect<Static<R>, E, Reqs | ConnIdTag>;
+    ) => Effect.Effect<Static<R>, E, Reqs | ConnectionTag>;
     requiresActive?: boolean;
   },
 ): RpcMethodBinding {
@@ -102,14 +103,14 @@ export function defineMethod<
       // the generic boundary, so the cast bridges the equality.
       //
       // R-channel: `def.handler` returns
-      // `Effect<Static<R>, E, Reqs | ConnIdTag>`.
-      // `Effect.provideService(ConnIdTag, ctx.connId)` removes ConnIdTag;
+      // `Effect<Static<R>, E, Reqs | ConnectionTag>`.
+      // `Effect.provideService(ConnectionTag, ctx.connId)` removes ConnectionTag;
       // remaining Reqs ride through into the `HandlerSlot.handle` R
       // channel and are resolved by the dispatcher's `ManagedRuntime` at
       // request time.
       const result = yield* def
         .handler(params, ctx.auth)
-        .pipe(Effect.provideService(ConnIdTag, ctx.connId));
+        .pipe(Effect.provideService(ConnectionTag, ctx.connection));
       return result as ResultOf<RpcDefinition<Name, P, R>>;
     }).pipe(Effect.withSpan("defineMethod"));
   return {

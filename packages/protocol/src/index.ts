@@ -10,13 +10,17 @@ export * from "./task/index.js";
 export * from "./app/index.js";
 
 export {
-  rpcMethods,
+  serverRpcMethods,
+  agentClientRpcMethods,
+  taskMasterRpcMethods,
   notificationDefinitions,
   decodeServerInbound,
   decodeClientInbound,
 } from "./rpc-registry.js";
 export type {
-  AnyRpcDefinition,
+  AnyServerRpcDefinition,
+  AnyAgentClientRpcDefinition,
+  AnyTaskMasterRpcDefinition,
   AnyTaskCallbackRpcDefinition,
   AnyNotificationDefinition,
   DecodedServerInbound,

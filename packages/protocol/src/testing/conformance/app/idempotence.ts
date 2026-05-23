@@ -12,7 +12,7 @@
  */
 import { Effect, Either } from "effect";
 import { AgentsList } from "../../../identity/methods.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { TaskList } from "../../../task/methods.js";
 import { isIdempotent } from "../../models/dispatch.js";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {
@@ -39,7 +39,7 @@ const CATEGORY = "rpc-semantics" as const;
 const PROPERTY = "idempotence";
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
-const EMPTY_PARAM_IDEMPOTENTS = [AgentsList, ConversationsList] as const;
+const EMPTY_PARAM_IDEMPOTENTS = [AgentsList, TaskList] as const;
 
 type EmptyParamIdempotentDefinition = (typeof EMPTY_PARAM_IDEMPOTENTS)[number];
 type ReplayError =
@@ -99,7 +99,7 @@ function assertDefinitionIdempotent(
 }
 
 function assertOracleAgrees(
-  method: typeof AgentsList.name | typeof ConversationsList.name,
+  method: typeof AgentsList.name | typeof TaskList.name,
 ) {
   return isIdempotent(method)
     ? Effect.void
@@ -148,7 +148,7 @@ function unavailable(reason: string): PropertyUnavailable {
 }
 
 function assertReplayOutcomeTags(
-  method: typeof AgentsList.name | typeof ConversationsList.name,
+  method: typeof AgentsList.name | typeof TaskList.name,
   pair: ReplayPair,
 ) {
   const aTag = eitherTag(pair.a);
@@ -165,7 +165,7 @@ function assertReplayOutcomeTags(
 }
 
 function assertReplayBodies(
-  method: typeof AgentsList.name | typeof ConversationsList.name,
+  method: typeof AgentsList.name | typeof TaskList.name,
   pair: ReplayPair,
 ) {
   const successPair = successPairOrNull(pair);
@@ -210,7 +210,7 @@ function successPairOrNull(pair: ReplayPair) {
  * fails the property.
  */
 function canonIdempotenceResult(
-  method: typeof AgentsList.name | typeof ConversationsList.name,
+  method: typeof AgentsList.name | typeof TaskList.name,
   result: unknown,
 ): string {
   if (method === AgentsList.name) {

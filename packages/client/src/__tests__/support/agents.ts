@@ -1,6 +1,14 @@
 import { Effect } from "effect";
-import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
-import { MoltZapWsClient } from "@moltzap/client";
+import {
+  DEFAULT_APP_ID,
+  MessagesSend,
+  TaskRequest,
+  type AgentId,
+  type ConversationId,
+  type TaskId,
+} from "@moltzap/protocol";
+import { agentId as brandAgentId } from "@moltzap/protocol/testing";
+import { MoltZapAgentClient } from "@moltzap/client";
 import {
   registerAgent as registerAgentHttp,
   stripWsPath,
@@ -12,11 +20,11 @@ import { coreBaseUrl, coreWsUrl } from "./server.js";
 export function registerAgent(name: string) {
   return Effect.gen(function* () {
     const reg = yield* registerAgentHttp(coreBaseUrl(), name);
-    const client = new MoltZapWsClient({
+    const client = new MoltZapAgentClient({
       serverUrl: stripWsPath(coreWsUrl()),
       agentKey: reg.apiKey,
     });
-    return { client, ...reg };
+    return { ...reg, agentId: brandAgentId(reg.agentId), client };
   }).pipe(Effect.withSpan("registerAgent"));
 }
 
@@ -34,12 +42,14 @@ export function connectService(
 }
 
 export function sendAndSettle(
-  client: MoltZapWsClient,
-  conversationId: string,
+  client: MoltZapAgentClient,
+  taskId: TaskId,
+  conversationId: ConversationId,
   text: string,
 ) {
   return Effect.gen(function* () {
     yield* client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text }],
     });
@@ -54,11 +64,12 @@ type TestClient = Effect.Effect.Success<
   ReturnType<typeof registerAgent>
 >["client"];
 
-export const createDm = (service: ConnectedService, agentId: string) =>
+export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
-    .sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: agentId }],
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [agentId],
+      initialConversation: { participants: [agentId] },
     })
     .pipe(Effect.withSpan("createDm"));
 

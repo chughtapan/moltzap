@@ -13,6 +13,7 @@ import {
   AppsRegister,
   DispatchAuthorize,
   MessagesAuthorize,
+  TaskCreate,
   type AppManifest,
 } from "../../../app/index.js";
 import type {
@@ -59,6 +60,7 @@ export interface TestAppManifestOptions {
   readonly conversations?: AppManifest["conversations"];
   readonly dispatchAuthorizeTimeoutMs?: number;
   readonly messagesAuthorizeTimeoutMs?: number;
+  readonly taskCreateTimeoutMs?: number;
 }
 
 export interface RegisterTestAppOptions extends TestAppManifestOptions {
@@ -123,6 +125,13 @@ export function registerTestApp(
       options.client,
       MessagesAuthorize,
     );
+    // task/request fires a task/create TM callback before the task
+    // leaves `waiting`. Dispatch-admission properties don't gate task
+    // creation, so the test app auto-accepts; the dispatch lifecycle
+    // is what they exercise.
+    yield* options.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     return {
       appId: manifest.appId,
       manifest,
@@ -145,6 +154,11 @@ function makeManifestHooks(
   if (options.messagesAuthorizeTimeoutMs !== undefined) {
     hooks.message_authorize = {
       timeout_ms: options.messagesAuthorizeTimeoutMs,
+    };
+  }
+  if (options.taskCreateTimeoutMs !== undefined) {
+    hooks.task_create = {
+      timeout_ms: options.taskCreateTimeoutMs,
     };
   }
   return Object.keys(hooks).length === 0 ? undefined : hooks;

@@ -10,9 +10,10 @@ import {
 } from "../helpers.js";
 
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 let _baseUrl: string;
@@ -38,19 +39,21 @@ it("send and receive a DM, list messages", () =>
     const bob = yield* registerAndConnect("bob-dm");
 
     // Alice creates a DM conversation with Bob
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string; type: string } };
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
 
-    expect(conv.conversation.type).toBe("dm");
-    const conversationId = conv.conversation.id;
+    const taskId = conv.task.id;
+    const conversationId = conv.conversation!.id;
 
     // Alice sends a message
-    const sendResult = (yield* alice.client.sendRpc(MessagesSend, {
+    const sendResult = yield* alice.client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text: "Hello Bob!" }],
-    })) as { message: { id: string; parts: unknown[] } };
+    });
 
     expect(sendResult.message.id).toBeDefined();
     expect(sendResult.message.parts).toEqual([
@@ -58,9 +61,10 @@ it("send and receive a DM, list messages", () =>
     ]);
 
     // Alice lists messages
-    const messages = (yield* alice.client.sendRpc(MessagesList, {
+    const messages = yield* alice.client.sendRpc(MessagesList, {
+      taskId,
       conversationId,
-    })) as { messages: Array<{ id: string; parts: unknown[] }> };
+    });
 
     expect(messages.messages).toHaveLength(1);
     expect(messages.messages[0]!.id).toBe(sendResult.message.id);

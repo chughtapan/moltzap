@@ -10,11 +10,11 @@ import type {
   NotificationParamsOf,
 } from "./method.js";
 
-type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
+type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 type AnyNotificationDefinition = NotificationDefinition<string, TSchema>;
 
-export type DecodedRpcRequest<D extends AnyRpcDefinition> =
-  D extends AnyRpcDefinition
+export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
+  D extends AnyServerRpcDefinition
     ? {
         readonly frame: RequestFrame;
         readonly id: JsonRpcId;
@@ -30,7 +30,7 @@ export type DecodedRpcRequest<D extends AnyRpcDefinition> =
  * this struct, so the strict-additionalProperties wire schema stays unstuck.
  *
  * The optional second parameter `R` narrows the `params` field to the refined
- * type — used by `MoltZapWsClient.subscribe`'s user-defined-type-guard
+ * type — used by `MoltZapAgentClient.subscribe`'s user-defined-type-guard
  * overload (spec #596 / architect plan §5.2). The default sentinel
  * `unknown` resolves to the per-branch `NotificationParamsOf<D>` shape,
  * preserving the one-arg form for every existing consumer.
@@ -65,7 +65,7 @@ class UnknownRpcMethodError extends Data.TaggedError("UnknownRpcMethodError")<{
 
 class InvalidRpcParamsError extends Data.TaggedError("InvalidRpcParamsError")<{
   readonly frame: RequestFrame;
-  readonly definition: AnyRpcDefinition;
+  readonly definition: AnyServerRpcDefinition;
 }> {}
 
 export type RpcRequestDecodeError =
@@ -90,7 +90,7 @@ export type NotificationDecodeError =
   | InvalidNotificationParamsError;
 
 export function decodeRpcRequest<
-  const Definitions extends readonly AnyRpcDefinition[],
+  const Definitions extends readonly AnyServerRpcDefinition[],
 >(
   definitions: Definitions,
   frame: RequestFrame,

@@ -7,8 +7,8 @@ import type {
   ResponseFrame,
 } from "../../../transport/wire.js";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
 } from "../../../task/methods.js";
 import type {
   TestServer,
@@ -21,7 +21,7 @@ import {
 } from "../_shared/captures.js";
 import { encodeFrame } from "../_shared/frame-mutator.js";
 import { requestFrame } from "../../../transport/wire.js";
-import { rpcMethods } from "../../../rpc-registry.js";
+import { serverRpcMethods } from "../../../rpc-registry.js";
 import { jsonRpcMethod } from "../../../transport/wire.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import {
@@ -552,7 +552,7 @@ function makeProofRequest(
   params: unknown,
 ): Effect.Effect<RequestFrame> {
   return Effect.gen(function* () {
-    const definition = rpcMethods.find((def) => def.name === method);
+    const definition = serverRpcMethods.find((def) => def.name === method);
     if (definition === undefined || !definition.validateParams(params)) {
       return yield* Effect.die(new Error(`invalid proof RPC: ${method}`));
     }
@@ -719,16 +719,16 @@ function rewriteMessageConversationId(
 function swapArchiveLifecycleNotification(
   frame: NotificationFrame,
 ): NotificationFrame {
-  if (frame.method === ConversationArchivedNotificationDefinition.name) {
+  if (frame.method === TaskConversationArchivedNotificationDefinition.name) {
     return {
       ...frame,
-      method: ConversationUnarchivedNotificationDefinition.name,
+      method: TaskConversationUnarchivedNotificationDefinition.name,
     } as NotificationFrame;
   }
-  if (frame.method === ConversationUnarchivedNotificationDefinition.name) {
+  if (frame.method === TaskConversationUnarchivedNotificationDefinition.name) {
     return {
       ...frame,
-      method: ConversationArchivedNotificationDefinition.name,
+      method: TaskConversationArchivedNotificationDefinition.name,
     } as NotificationFrame;
   }
   return frame;

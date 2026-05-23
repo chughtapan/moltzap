@@ -22,7 +22,7 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   TaskConversationList,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 import { Transport } from "../transport.js";
 import { makeFakeTransport, type TestTransportCall } from "./test-transport.js";
@@ -56,7 +56,6 @@ const taskFixture = {
   appId: DEFAULT_APP_ID,
   initiatorAgentId: INITIATOR_ID,
   status: "active" as const,
-  tmEndpointAddress: "endpoint",
   startedAt: NOW_ISO,
   endedAt: null,
   createdAt: NOW_ISO,
@@ -64,7 +63,6 @@ const taskFixture = {
 
 const conversationFixture = {
   id: CONVERSATION_ID,
-  type: "group" as const,
   name: CONVERSATION_NAME,
   createdBy: INITIATOR_ID,
   createdAt: NOW_ISO,
@@ -116,7 +114,7 @@ const respondFromConfig =
     if (call.method === AgentsLookupByName.name) {
       return respondLookup(call, config);
     }
-    if (call.method === TaskCreate.name) {
+    if (call.method === TaskRequest.name) {
       return (config.taskCreate ?? TASK_CREATE_OK)();
     }
     if (call.method === MessagesSend.name) {
@@ -155,11 +153,11 @@ type TaskCreateParams = {
 const taskCreateParams = (
   calls: readonly TestTransportCall[],
 ): TaskCreateParams =>
-  findCallOf(calls, TaskCreate.name)!.params as TaskCreateParams;
+  findCallOf(calls, TaskRequest.name)!.params as TaskCreateParams;
 
 const mutatingCalls = (calls: readonly TestTransportCall[]) =>
   calls.filter(
-    (c) => c.method === TaskCreate.name || c.method === MessagesSend.name,
+    (c) => c.method === TaskRequest.name || c.method === MessagesSend.name,
   );
 
 const standardArgs = (
@@ -527,9 +525,9 @@ describe("moltzap start — failure paths", () => {
   beforeEach(installHarness);
   afterEach(restoreHarness);
 
-  it("server-reject TaskCreate -> exit 1", serverRejectsTaskCreate);
+  it("server-reject TaskRequest -> exit 1", serverRejectsTaskCreate);
   it(
-    "partial-success TaskCreate OK + MessagesSend fail -> exit 2",
+    "partial-success TaskRequest OK + MessagesSend fail -> exit 2",
     partialSuccess,
   );
   it(
@@ -800,7 +798,7 @@ const dedupHitCapsAtMaxPages = () =>
 
 const dedupHitClosedTaskWithMessage = () =>
   Effect.gen(function* () {
-    // Partial-failure: TaskCreate dedup-hit + closed-task + --message.
+    // Partial-failure: TaskRequest dedup-hit + closed-task + --message.
     // The user's message is intentionally DROPPED — handler exits 1
     // before reaching `sendFirstMessage`. Pinned so any future change
     // to add a separate diagnostic ('Message NOT sent: ...') has to
@@ -830,10 +828,10 @@ const dedupHitClosedTaskWithMessage = () =>
 
 const dedupHitListRpcFailure = () =>
   Effect.gen(function* () {
-    // TaskCreate succeeds (dedup hit). TaskConversationList fails with
+    // TaskRequest succeeds (dedup hit). TaskConversationList fails with
     // a wire error (e.g. cursor-format drift). Without the
     // `DedupListFailedError` remap, the user would see
-    // `Failed: <list-error>` and assume TaskCreate failed → retry →
+    // `Failed: <list-error>` and assume TaskRequest failed → retry →
     // re-dedup forever. The remap surfaces the existing taskId so the
     // user knows the task is real.
     const { transport } = makeTransportWith({

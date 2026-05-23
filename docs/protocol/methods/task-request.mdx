@@ -1,0 +1,36 @@
+---
+title: "task/request"
+description: "Agent-initiated request to create a new task with invited agent participants and an optional initial conversation hint. The server forwards a task/create callback to the bound TM; the TM's typed verdict decides whether the task transitions to active."
+---
+
+# task/request
+
+Agent-initiated request to create a new task with invited agent participants and an optional initial conversation hint. The server forwards a task/create callback to the bound TM; the TM's typed verdict decides whether the task transitions to active.
+
+## Parameters
+
+<ParamField path="appId" type="string (UUID)" required>
+  Branded AppId
+</ParamField>
+
+<ParamField path="invitedAgentIds" type="array" required>
+  The invitedAgentIds field.
+</ParamField>
+
+<ParamField path="initialConversation" type="object">
+  The initialConversation field.
+</ParamField>
+
+## Response
+
+<ResponseField name="task" type="object">
+  The task field.
+</ResponseField>
+
+<ResponseField name="conversation" type="union">
+  The conversation field.
+</ResponseField>
+
+## Related Notifications
+
+- [`task/conversation/created`](/protocol/notifications/task-conversation-created)

@@ -8,11 +8,14 @@ export * from "./server.js";
 export * from "./socket.js";
 
 export {
-  ConversationsArchive,
-  ConversationsCreate,
-  ConversationsList,
+  AppsRegister,
   ConversationArchivedError,
+  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
+  TaskConversationArchive,
+  TaskConversationList,
+  TaskRequest,
+  TaskLeave,
 } from "@moltzap/protocol";

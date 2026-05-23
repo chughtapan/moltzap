@@ -11,7 +11,7 @@
 import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { DispatchAuthorize, MessagesAuthorize } from "./methods.js";
+import { DispatchAuthorize, MessagesAuthorize, TaskCreate } from "./methods.js";
 import { taskCallbackMethods } from "../rpc-registry.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
@@ -67,6 +67,7 @@ describe("admission RPC registration", () => {
     expect(taskCallbackNames).toEqual([
       DispatchAuthorize.name,
       MessagesAuthorize.name,
+      TaskCreate.name,
     ]);
   });
 });
@@ -132,7 +133,10 @@ describe("DispatchAuthorize result", () => {
   it("references the DispatchAdmissionDecision union", () => {
     expect(
       validateDispatchAuthorizeResult({
-        admission: { decision: "grant", leaseId: "l1" },
+        admission: {
+          decision: "grant",
+          leaseId: "550e8400-e29b-41d4-a716-446655440099",
+        },
       }),
     ).toBe(true);
     expect(

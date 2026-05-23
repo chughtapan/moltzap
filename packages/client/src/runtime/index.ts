@@ -3,7 +3,7 @@
  *
  * Spec B (#596) deleted the three-field `SubscriptionFilter` re-export — the
  * notification consumption surface is now Stream-based via
- * `MoltZapWsClient.subscribe(def, refinement?)`.
+ * `MoltZapAgentClient.subscribe(def, refinement?)`.
  */
 
 export { LocalServiceCommands } from "./local-service-commands.js";

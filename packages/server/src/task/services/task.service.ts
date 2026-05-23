@@ -1,21 +1,13 @@
 import { Cause, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
-import {
-  endpointAddress as brandEndpointAddress,
-  makeEndpointAddress,
-  type EndpointAddress,
-} from "@moltzap/protocol/network";
-import { defaultTmAddressForType } from "../../network/app-tm-registry.js";
 import type {
   Conversation,
-  Message,
-  Part,
   Task,
   TaskParticipant,
   TaskStatus,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { TaskId, ConversationId, MessageId } from "@moltzap/protocol/task";
+import type { TaskId, ConversationId } from "@moltzap/protocol/task";
 import type { Db } from "../../db/client.js";
 import type { Database } from "../../db/database.js";
 import {
@@ -36,9 +28,7 @@ import type {
 } from "./conversation.service.js";
 import type { MessageService, MessageServiceError } from "./message.service.js";
 import {
-  ConversationCreateAuthorization,
   ConversationInTask,
-  MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
   assertConversationInTaskMatches,
@@ -60,7 +50,6 @@ export type TaskServiceError =
   | MessageServiceError;
 
 const ERR_NOT_FOUND = "Task not found";
-const ERR_NOT_TM = "Caller is not the registered task manager for this task";
 const ERR_NOT_PARTICIPANT = "Caller is not a participant of this task";
 const ERR_CONV_NOT_IN_TASK =
   "Conversation does not belong to the specified task";
@@ -71,44 +60,15 @@ function absurdTaskStatus(status: never): never {
 }
 
 const DEFAULT_TASK_LIST_LIMIT = 50;
-const DEFAULT_TASK_MESSAGES_LIMIT = 50;
 
 interface TaskRow {
   readonly id: TaskId;
-  readonly app_id: string | null;
+  readonly app_id: string;
   readonly initiator_agent_id: AgentId;
   readonly status: TaskStatus;
-  // Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL.
-  readonly tm_endpoint_address: string;
   readonly started_at: Date | null;
   readonly ended_at: Date | null;
   readonly created_at: Date;
-}
-
-/**
- * Stable TM-endpoint address for a registering agent: `tm:agent:&lt;agentId>`.
- * Persisted in `tasks.tm_endpoint_address` and routed through
- * `network.send` via `AgentEndpointResolver.resolveAll`. Phase 9b
- * consumer-migration (sub-issue #460 amendment) collapsed the volatile
- * per-WS-connection form into a resolver-internal `ConnectionId` lookup
- * — `tm:agent:&lt;agentId>` is the only `EndpointAddress` shape that
- * appears on the wire today.
- */
-export function endpointAddressForAgent(agent: AgentId): EndpointAddress {
-  return makeEndpointAddress("agent", agent);
-}
-
-/**
- * Spec D1 (#598) — stable TM-endpoint address derived from an `appId`.
- * Used by `task/create` to persist
- * `tasks.tm_endpoint_address = tm:app:&lt;appId>`. The address derives
- * deterministically from the UUID so every server boot binds the same
- * address per app. The default DM / group TMs from
- * `app-tm-registry` keep their pre-D1 addresses; they retire alongside
- * the legacy `conversations/*` family in D3 (#600).
- */
-export function defaultAppTmEndpointAddress(appId: string): EndpointAddress {
-  return makeEndpointAddress("app", appId);
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -117,7 +77,6 @@ function rowToTask(row: TaskRow): Task {
     appId: row.app_id,
     initiatorAgentId: row.initiator_agent_id,
     status: row.status,
-    tmEndpointAddress: row.tm_endpoint_address,
     startedAt: row.started_at ? row.started_at.toISOString() : null,
     endedAt: row.ended_at ? row.ended_at.toISOString() : null,
     createdAt: row.created_at.toISOString(),
@@ -137,52 +96,12 @@ function rowToParticipant(row: {
 }
 
 export interface TaskCreateInput {
-  readonly appId?: string;
+  readonly appId: string;
   readonly invitedAgentIds?: readonly AgentId[];
-
-  /**
-   * Phase 9b consumer-migration (sub-issue #460 round 3 R13): atomic
-   * task creation. Replaces the pre-R13 two-step (`tasks/create` then
-   * `endpoints/registerTaskManager`). Required by the schema-level
-   * NOT NULL constraint on `tasks.tm_endpoint_address` (R12).
-   * - Custom-TM callers (e.g. werewolf) pass
-   *   `endpointAddressForAgent(callerAgentId)` so the TM IS the
-   *   caller, matching the address `endpoints/registerTaskManager`
-   *   used to derive.
-   * - `conversations/create` auto-task callers pass a default
-   *   `tm:app:&lt;defaultDmTm | defaultGroupTm>` address (R14).
-   */
-  readonly tmEndpointAddress: EndpointAddress;
 }
 
 export interface TaskListInput {
-  readonly appId?: string;
-  readonly status?: TaskStatus;
   readonly limit?: number;
-}
-
-export interface TaskMessagesInput {
-  readonly conversationId: ConversationId;
-  readonly limit?: number;
-}
-
-export interface TaskMessagesSinceInput {
-  readonly conversationId: ConversationId;
-  readonly sinceSeq: string;
-  readonly limit?: number;
-}
-
-export interface CreateConversationInput {
-  readonly type: "dm" | "group";
-  readonly name?: string;
-  readonly participantAgentIds: readonly AgentId[];
-}
-
-export interface StoreMessageInput {
-  readonly conversationId: ConversationId;
-  readonly senderAgentId: AgentId;
-  readonly parts: readonly Part[];
-  readonly replyToId?: MessageId;
 }
 
 export interface TaskCloseLifecycle {
@@ -280,17 +199,25 @@ export class TaskService {
             trx
               .insertInto("tasks")
               .values({
-                app_id: input.appId ?? null,
+                app_id: input.appId,
                 initiator_agent_id: initiator,
                 status: "waiting",
-                tm_endpoint_address: input.tmEndpointAddress,
               })
               .returningAll(),
           );
+          // Auto-admit every invited participant at create time. The
+          // `admitted_at` column + the `WHERE admitted_at IS NOT NULL`
+          // filters in read paths (`loadTaskWithReadAccess`,
+          // `assertAgentInTaskParticipants`, task list scope) stay in
+          // place — so a future "invitation accept" flow that writes
+          // pending invitees with `admitted_at: null` slots in without
+          // changing the read gates. No wire RPC exposes the pending
+          // semantic today; revisit if/when one lands.
+          const admittedAt = new Date();
           yield* trx.insertInto("task_participants").values({
             task_id: row.id,
             agent_id: initiator,
-            admitted_at: new Date(),
+            admitted_at: admittedAt,
           });
           const invited = input.invitedAgentIds ?? [];
           for (const agentId of invited) {
@@ -299,13 +226,49 @@ export class TaskService {
               .values({
                 task_id: row.id,
                 agent_id: agentId,
-                admitted_at: null,
+                admitted_at: admittedAt,
               })
               .onConflict((oc) => oc.doNothing());
           }
           return rowToTask(row as TaskRow);
         }),
       ),
+    );
+  }
+
+  /**
+   * Transition a task from `waiting` to `active` (TM accepted via the
+   * `task/create` callback) or `failed` (TM rejected, timed out, or
+   * the synthesized fail-closed envelope fired). The state machine is
+   * `waiting → active | failed`, one-way.
+   *
+   * The `WHERE status = 'waiting'` guard SQL-enforces the one-way
+   * invariant: an UPDATE against an already-transitioned task matches
+   * zero rows and `takeFirstOrFail` raises (caught as a defect),
+   * rather than silently re-writing a terminal `active`/`failed`/
+   * `closed` row. The single guarded UPDATE also means a racing read
+   * never observes a stale `waiting` row after the verdict resolves.
+   *
+   * Returns the updated row so the handler can fan out
+   * `task/created { task }` or `task/failed { taskId, reason }`
+   * without a second SELECT.
+   */
+  setStatus(
+    id: TaskId,
+    status: "active" | "failed",
+  ): Effect.Effect<Task, TaskServiceError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const row = yield* takeFirstOrFail(
+          this.db
+            .updateTable("tasks")
+            .set({ status })
+            .where("id", "=", id)
+            .where("status", "=", "waiting")
+            .returningAll(),
+        );
+        return rowToTask(row as TaskRow);
+      }),
     );
   }
 
@@ -340,7 +303,7 @@ export class TaskService {
     const limit = input.limit ?? DEFAULT_TASK_LIST_LIMIT;
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        let qb = this.db
+        const rows = yield* this.db
           .selectFrom("tasks")
           .innerJoin(
             "task_participants",
@@ -351,13 +314,6 @@ export class TaskService {
           .selectAll("tasks")
           .orderBy("tasks.created_at", "desc")
           .limit(limit);
-        if (input.appId !== undefined) {
-          qb = qb.where("tasks.app_id", "=", input.appId);
-        }
-        if (input.status !== undefined) {
-          qb = qb.where("tasks.status", "=", input.status);
-        }
-        const rows = yield* qb;
         return rows.map((row) => rowToTask(row as TaskRow));
       }),
     );
@@ -458,52 +414,19 @@ export class TaskService {
   }
 
   /**
-   * Phase 9b consumer-migration (sub-issue #460 round 3 R14): server-
-   * internal helper for the `conversations/create` auto-task path and
-   * the `messages/send` auto-DM path. Creates a task whose TM is the
-   * default `tm:app:&lt;dm | group>` endpoint, returning the row so the
-   * caller can pass `task.id` to `ConversationService.create`.
-   *
-   * Used by `conversations/create` (server handler) and the
-   * `messages/send` agent:&lt;name> path. Custom-TM apps (werewolf etc.)
-   * call the public `create` directly with their own
-   * `tmEndpointAddress` instead.
+   * Fetch a task and assert it is open for mutation
+   * (`waiting | active`). Closed / failed tasks fail with
+   * `ForbiddenError`. Authority is the obtain helper's
+   * responsibility: this body performs no auth check, only the
+   * existence + status gate.
    */
-  createDefaultTaskForType(
-    type: "dm" | "group",
-    initiator: AgentId,
-    invitedAgentIds: readonly AgentId[] = [],
-  ): Effect.Effect<Task, TaskServiceError> {
-    // Importing the constants lazily here would create a cycle —
-    // `app-tm-registry` is a network-layer module, `task.service` is
-    // service-layer. Module-load-time import via the top of file is
-    // fine; resolved lazily by the `taskTmAddressForType` helper at
-    // file end.
-    return this.create(initiator, {
-      invitedAgentIds,
-      tmEndpointAddress: defaultTmAddressForType(type),
-    });
-  }
-
-  // Phase 9b consumer-migration (sub-issue #460 round 3 R12): the
-  // `registerTm` / `unregisterTm` methods retired alongside the wire
-  // RPCs. Atomic creation in `create` (R13) sets `tm_endpoint_address`
-  // at insert time; the schema-level NOT NULL constraint forbids the
-  // intermediate "task without TM" state.
-
-  // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
-  // `task.tmEndpointAddress` is now non-null by construction. The
-  // pre-R12 null branch retired alongside `endpoints/unregisterTaskManager`.
-  loadTaskAsTmAuthority(
-    id: TaskId,
-    caller: AgentId,
-  ): Effect.Effect<Task, TaskServiceError> {
+  loadOpenTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
     return Effect.gen(this, function* () {
       const task = yield* this.fetchTask(id);
       switch (task.status) {
         case "waiting":
         case "active":
-          break;
+          return task;
         case "closed":
         case "failed":
           return yield* Effect.fail(
@@ -512,15 +435,6 @@ export class TaskService {
         default:
           return absurdTaskStatus(task.status);
       }
-      const recorded = yield* Effect.try({
-        try: () => brandEndpointAddress(task.tmEndpointAddress),
-        catch: () => new ForbiddenError({ message: ERR_NOT_TM }),
-      });
-      const expected = endpointAddressForAgent(caller);
-      if (recorded !== expected) {
-        return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
-      }
-      return task;
     });
   }
 
@@ -597,31 +511,6 @@ export class TaskService {
     });
   }
 
-  createConversation(
-    id: TaskId,
-    caller: AgentId,
-    input: CreateConversationInput,
-  ): Effect.Effect<
-    Conversation,
-    TaskServiceError,
-    TmAuthority | ConversationCreateAuthorization
-  > {
-    return Effect.gen(this, function* () {
-      const cap = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(cap, id);
-      // The task id is fixed (this is a TM acting on its own task),
-      // so wrap it in `Effect.succeed` for the lazy-`mintTask`
-      // contract `ConversationService.create` expects.
-      return yield* this.conversations.create({
-        type: input.type,
-        name: input.name,
-        agentIds: [...input.participantAgentIds],
-        creatorAgentId: caller,
-        mintTask: Effect.succeed({ id }),
-      });
-    });
-  }
-
   closeConversation(
     id: TaskId,
     _caller: AgentId,
@@ -633,75 +522,6 @@ export class TaskService {
       const inTask = yield* ConversationInTask;
       yield* assertConversationInTaskMatches(inTask, id, conversationId);
       yield* this.archiveConversationInTask(id, conversationId);
-    });
-  }
-
-  storeMessage(
-    id: TaskId,
-    _caller: AgentId,
-    input: StoreMessageInput,
-  ): Effect.Effect<
-    Message,
-    TaskServiceError,
-    TmAuthority | ConversationInTask | MessageSendPermission
-  > {
-    return Effect.gen(this, function* () {
-      const tm = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(tm, id);
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
-      // The post-insert UPDATE retired — `MessageService.send` stamps
-      // `task_id` from `conv.task_id` at insert time, and the
-      // `ConversationInTask` capability above already proved
-      // `conv.task_id === id`.
-      return yield* this.messages.send({
-        conversationId: input.conversationId,
-        parts: [...input.parts],
-        senderAgentId: input.senderAgentId,
-        replyToId: input.replyToId,
-        bypassTmRouting: true,
-      });
-    });
-  }
-
-  getMessages(
-    id: TaskId,
-    caller: AgentId,
-    input: TaskMessagesInput,
-  ): Effect.Effect<
-    { messages: Message[]; hasMore: boolean },
-    TaskServiceError,
-    TaskReadAccess | ConversationInTask
-  > {
-    return Effect.gen(this, function* () {
-      const access = yield* TaskReadAccess;
-      yield* assertTaskReadAccessMatchesTask(access, id);
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
-      return yield* this.messages.list(input.conversationId, caller, {
-        limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
-      });
-    });
-  }
-
-  getMessagesSince(
-    id: TaskId,
-    caller: AgentId,
-    input: TaskMessagesSinceInput,
-  ): Effect.Effect<
-    { messages: Message[]; hasMore: boolean },
-    TaskServiceError,
-    TaskReadAccess | ConversationInTask
-  > {
-    return Effect.gen(this, function* () {
-      const access = yield* TaskReadAccess;
-      yield* assertTaskReadAccessMatchesTask(access, id);
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, input.conversationId);
-      return yield* this.messages.list(input.conversationId, caller, {
-        limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
-        sinceSeq: input.sinceSeq,
-      });
     });
   }
 
@@ -856,20 +676,10 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — participant-set dedup for `task/create` under the
-   * server-bundled DEFAULT_APP. Returns the extant task whose
-   * `task_participants` set is exactly `{creator} ∪ invitedAgentIds`
-   * for the given `appId`, or `null` if no match exists.
-   *
-   * Sibling to `conversationService.existingDmForCreate`. NOT a
-   * generalization: the legacy DM dedup matches via
-   * `conversation_participants` (conversation-level), while this
-   * helper matches via `task_participants` (task-level). The
-   * single-invitee case is functionally equivalent at the observable
-   * layer but uses a different table — D3 retires the legacy path.
-   *
-   * Index: covered by the `task_participants` PRIMARY KEY
-   * `(task_id, agent_id)`.
+   * Participant-set dedup for `task/create` under the bundled
+   * DEFAULT_APP. Returns the extant task whose `task_participants`
+   * set is exactly `{creator} ∪ invitedAgentIds` for the given
+   * `appId`, or `null` if no match exists.
    * @internal
    */
   findExistingTaskByParticipants(
@@ -905,11 +715,14 @@ export class TaskService {
     creator: AgentId,
     appId: string,
   ): Effect.Effect<ReadonlyArray<TaskId>, SqlError> {
+    // Closed tasks are excluded so a fresh `task/create` after a close
+    // mints a new task instead of returning the dead one.
     return this.db
       .selectFrom("tasks")
       .innerJoin("task_participants", "task_participants.task_id", "tasks.id")
       .where("tasks.app_id", "=", appId)
       .where("task_participants.agent_id", "=", creator)
+      .where("tasks.status", "!=", "closed")
       .select("tasks.id")
       .distinct()
       .pipe(Effect.map((rows) => rows.map((row) => row.id)));

@@ -39,7 +39,7 @@ import {
 } from "../arbitraries/index.js";
 
 import { Connect } from "../../network/methods.js";
-import { ConversationsList } from "../../task/methods.js";
+import { TaskList } from "../../task/methods.js";
 import {
   jsonRpcMethod,
   requestFrame,
@@ -164,7 +164,7 @@ describe("reference model", () => {
   });
 
   it("authorizationOutcome denies unknown agent for non-auth methods", () => {
-    const [call] = fc.sample(arbitraryCallFor(ConversationsList.name), {
+    const [call] = fc.sample(arbitraryCallFor(TaskList.name), {
       numRuns: 1,
       seed: 1,
     });

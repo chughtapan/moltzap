@@ -21,7 +21,6 @@ import {
   PROTOCOL_VERSION,
   Connect,
   encodeErrorResponse,
-  forbidden,
   makeTaskMasterConnection,
   NotConnectedError,
   RpcTimeoutError,
@@ -50,9 +49,9 @@ import {
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
 
 // Re-export `CloseInfo` so consumers can import it from
-// `@moltzap/client` alongside `MoltZapWsClient` itself; the type lives
+// `@moltzap/client` alongside `MoltZapTMClient` itself; the type lives
 // in `runtime/close-info.ts` for build hygiene but the public surface
-// is the package barrel and direct `ws-client.ts` import path.
+// is the package barrel and direct `tm-client.ts` import path.
 export type { CloseInfo };
 
 /**
@@ -201,15 +200,15 @@ export interface TaskCallbackContext {
 }
 
 /**
- * Public handler-table type for `MoltZapWsClientOptions.appCallbackHandlers`.
+ * Public handler-table type for `TMClientOptions.handlers`.
  * Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
  * client's per-frame context. Slots are OPTIONAL (Spec F R2 fail-CLOSED
  * `ForbiddenError -32001` defaults), so `{}` is a well-typed table for
  * agents that don't register TM-callback responders.
  */
-export type AppCallbackHandlers = TaskMasterHandlers<TaskCallbackContext>;
+export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
 
-export interface MoltZapWsClientOptions {
+export interface TMClientOptions {
   serverUrl: string;
   agentKey: string;
 
@@ -228,16 +227,13 @@ export interface MoltZapWsClientOptions {
   onReconnect?: (helloOk: ConnectResult) => void;
 
   /**
-   * Spec F (#617) typed-dispatcher TM-callback handler table — immutable
-   * at construction (Spec F I1). Keys are the catalog method names
+   * Spec D3 R14b — REQUIRED. TM-callback handler table immutable at
+   * construction (Spec F I1). Keys are catalog method names
    * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
-   * the matching `defineRpc` descriptor and its handler effect. Slots
-   * are OPTIONAL: an omitted slot falls back to the protocol's baked-in
-   * fail-CLOSED `ForbiddenError -32001` response (Spec F R2). The
-   * default `{}` is a TM that replies `Forbidden` to every inbound auth
-   * check.
+   * the matching `defineRpc` descriptor and its handler effect.
+   * Vacuous-deny moderators write the explicit ForbiddenError handler.
    */
-  appCallbackHandlers?: AppCallbackHandlers;
+  handlers: TMHandlers;
 }
 
 /**
@@ -258,7 +254,7 @@ export interface MoltZapWsClientOptions {
  * Consume via `Stream.runForEach` (long-lived) or `Stream.runHead` + `Effect.timeoutFail`
  * (one-shot).
  */
-export class MoltZapWsClient {
+export class MoltZapTMClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
@@ -274,37 +270,23 @@ export class MoltZapWsClient {
 
   /**
    * Spec F (#617) immutable TM-callback handler table. Captured from
-   * `MoltZapWsClientOptions.appCallbackHandlers` at construction and
-   * threaded through every `makeTaskMasterConnection` call (including
-   * reconnects). `{}` is the default — a TM that fails-CLOSED on every
-   * inbound auth check via the protocol's R2 default.
+   * `TMClientOptions.handlers` at construction and threaded through
+   * every `makeTaskMasterConnection` call (including reconnects).
    */
-  private readonly appCallbackHandlers: AppCallbackHandlers;
+  private readonly handlers: TMHandlers;
 
   private closed = false;
   private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private _helloOk: ConnectResult | null = null;
 
-  constructor(private readonly options: MoltZapWsClientOptions) {
+  constructor(private readonly options: TMClientOptions) {
     this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
-    // Registry construction is `Effect<…, never>`; running it sync here
-    // matches every other Ref initializer in this constructor and
-    // keeps `subscribers` non-nullable inside the class.
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
-    // Handler table is value-passed at construction. When the caller
-    // doesn't supply implementations for the TM-callback slots, fall
-    // back to the explicit `forbidden` sentinel — the dispatcher then
-    // synthesizes `-32001 Forbidden` per JSON-RPC fail-CLOSED. The
-    // reference is held verbatim; the protocol's `eraseHandlerTable`
-    // only reads keys.
-    this.appCallbackHandlers = options.appCallbackHandlers ?? {
-      "dispatch/authorize": forbidden,
-      "messages/authorize": forbidden,
-    };
+    this.handlers = options.handlers;
   }
 
   get helloOk(): ConnectResult | null {
@@ -508,8 +490,8 @@ export class MoltZapWsClient {
       const write = yield* Scope.extend(socket.writer, scope);
       const tmConn = yield* Scope.extend(
         makeTaskMasterConnection<TaskCallbackContext, never>({
-          id: "ws-client",
-          handlers: this.appCallbackHandlers,
+          id: "tm-client",
+          handlers: this.handlers,
           capabilities: {},
           write: (raw) => write(raw),
           idPrefix: "rpc",
@@ -660,7 +642,7 @@ export class MoltZapWsClient {
       }
       // `sendRpc` is the public surface; callers pass concrete descriptors
       // narrowed at the call site. The typed-dispatcher's `call` is
-      // constrained to `AnyRpcDefinition` (the union of catalog members);
+      // constrained to `AnyServerRpcDefinition` (the union of catalog members);
       // the bound carry-through is preserved by widening to the union here.
       const call = state.value.tmConn.call as <
         D2 extends RpcDefinition<string, any, any>,

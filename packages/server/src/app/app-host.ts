@@ -14,25 +14,25 @@ import type {
   Part,
   ResultOf,
 } from "@moltzap/protocol";
-import { DispatchAuthorize } from "@moltzap/protocol";
+import { DispatchAuthorize, TaskCreate } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/network";
+import type {
+  AppId,
+  ConversationId,
+  MessageId,
+  TaskId,
+} from "@moltzap/protocol/task";
 import {
-  type AppHooks,
   type DispatchAdmissionResult,
   type MessageAuthorizeContext,
-  type MessageAuthorizeHook,
   type MessageAuthorizeResult,
-  type TaskAuthorizeDispatchContext,
-  type TaskAuthorizeDispatchHook,
+  type DispatchAuthorizeContext,
 } from "./hooks.js";
+import { AppRegistry, type AppRegistration } from "./app-registration.js";
 import { MessagesAuthorize } from "@moltzap/protocol";
-import {
-  endpointAddressKind,
-  type EndpointAddress,
-} from "@moltzap/protocol/network";
 import type { SqlError } from "@effect/sql/SqlError";
-import { Data, Effect, Either, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -41,90 +41,60 @@ import {
   lookupAppForConversation,
   type ConversationAppLookup,
 } from "./conversation-app-lookup.js";
+import { NetworkSendServiceTag } from "./layers.js";
 import type { LeaseRegistry, LeaseVerdict } from "./lease-registry.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * For app-bound conversations whose TM IS the moderator agent (the
- * common case per architect plan §3 + prereq 2 §3 — the
- * `assertConversationAdminAuthority` gate accepts only this shape for
- * `app_id IS NOT NULL`), `tasks.tm_endpoint_address` is the wire
- * address `tm:agent:&lt;moderatorAgentId>`. Recover the agentId so the
- * deny arm of the forked round-trip can call `removeParticipant`
- * with the correct requester (epic decision #8).
- *
- * Returns `null` if the address shape doesn't match the expected
- * agent-kind prefix — caller falls back to no-op (the architect-level
- * authority chain is the source of truth; if the shape is unexpected,
- * we'd rather skip removeParticipant than mis-evict the recipient).
- */
-function parseModeratorAgentIdFromTm(raw: string): AgentId | null {
-  // Wire shape: "tm:agent:<uuid>". App-kind addresses ("tm:app:<uuid>")
-  // are not moderator-IS-agent and shouldn't drive removeParticipant
-  // — those are TM-as-app routing and the authority chain on
-  // conversations.task.app_id != null requires moderator IS agent.
-  const prefix = "tm:agent:";
-  if (!raw.startsWith(prefix)) return null;
-  const rest = raw.slice(prefix.length);
-  if (rest.length === 0) return null;
-  return rest as AgentId;
-}
-
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const EMPTY_TASK_ID = "" as TaskId;
-
-/**
- * Derive an `appId` from an `EndpointAddress` for `remoteRegistrations`
- * lookup (#560 C5 remote-path resolution). The mapping is well-defined
- * only for the `tm:app:&lt;appId>` shape — custom-TM `tm:agent:&lt;id>`
- * addresses do not carry an appId and short-circuit to null. Caller
- * (`runMessageAuthorize`) falls through to the synthetic default
- * verdict when both the in-process hook AND this lookup are absent.
- */
-function appIdFromTmEndpointAddress(address: EndpointAddress): string | null {
-  if (endpointAddressKind(address) !== "app") return null;
-  const prefix = "tm:app:";
-  const raw = address as string;
-  if (!raw.startsWith(prefix)) return null;
-  const rest = raw.slice(prefix.length);
-  return rest.length === 0 ? null : rest;
-}
+// Placeholder app id used by the dispatchBindingForLookup default-grant
+// branch; the binding is consumed only by the registry mint path, which
+// never re-uses it for an `isAppConnection` check. The empty-string
+// sentinel mirrors `EMPTY_TASK_ID` and the moderator-conn-id default
+// below — see `dispatchBindingForLookup`.
+const EMPTY_APP_ID = "" as AppId;
+const EMPTY_CONNECTION_ID = "" as ConnectionId;
 
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
 }
 
 /**
- * Structural slice of {@link ConversationService} that AppHost depends
- * on for the #529 reshape deny arm. Defined locally rather than
+ * Structural slice of {@link ConversationService} that AppHost +
+ * `installDefaultApp` depend on. Defined locally rather than
  * importing the concrete service to avoid a circular import — the
  * layer order has ConversationService depending on AppHost.
+ *
+ *  - `removeParticipant`: #529 reshape deny arm (forked moderator
+ *    round-trip drops the recipient on deny).
+ *  - `getParticipantAgentIds`: default-app `messages/authorize`
+ *    forward-all policy reads the conversation's participant set
+ *    here instead of re-implementing the SQL.
  */
-interface ConversationServiceForRemove {
+export interface ConversationServiceForAppHost {
   removeParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
     requesterAgentId: AgentId,
-  ): Effect.Effect<void, unknown>;
+  ): Effect.Effect<void, unknown, NetworkSendServiceTag>;
+  getParticipantAgentIds(
+    conversationId: ConversationId,
+  ): Effect.Effect<readonly AgentId[]>;
 }
 
 class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
-  readonly appId: string;
+  readonly appId: AppId;
   readonly method: string;
-  readonly connectionId: string;
+  readonly connectionId: ConnectionId;
   readonly reason: string;
   readonly cause?: unknown;
 }> {
   override get message(): string {
     return this.reason;
   }
-}
-
-interface RemoteRegistration {
-  readonly connectionId: string;
 }
 
 type PendingDispatchMessage = Readonly<{
@@ -140,7 +110,7 @@ type PendingDispatchMessage = Readonly<{
 interface EnqueueDispatchRequestArgs {
   readonly conversationId: ConversationId;
   readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: string;
+  readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
   readonly parts?: Part[];
@@ -151,10 +121,9 @@ interface EnqueueDispatchRequestArgs {
 }
 
 interface DispatchBindingContext {
-  readonly appId: string;
+  readonly appId: AppId;
   readonly taskId: TaskId;
-  readonly tmEndpointAddress: string;
-  readonly moderatorConnectionId: string;
+  readonly moderatorConnectionId: ConnectionId;
 }
 
 interface DispatchRoundTripParams {
@@ -167,7 +136,7 @@ interface DispatchRoundTripParams {
   readonly receivedAt?: string;
   readonly clock?: LogicalClock;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
-  readonly tmEndpointAddress: string;
+  readonly moderatorConnectionId: ConnectionId;
 }
 
 type AppBoundConversationLookup = Extract<
@@ -179,12 +148,6 @@ type NonAppBoundConversationLookup = Exclude<
   ConversationAppLookup,
   AppBoundConversationLookup
 >;
-
-interface MessageAuthorizeRoute {
-  readonly inProcess: MessageAuthorizeHook | undefined;
-  readonly remoteAppId: string | null;
-  readonly remote: RemoteRegistration | undefined;
-}
 
 function dispatchVerdictToLeaseVerdict(
   verdict: DispatchAdmissionResult,
@@ -206,43 +169,16 @@ function dispatchVerdictToLeaseVerdict(
 }
 
 export class AppHost {
-  private manifests = new Map<string, AppManifest>();
+  /**
+   * Single source of truth for app registrations. Each `AppId` maps to
+   * one `AppRegistration` carrying its `MoltZapConnection` — a real WS
+   * connection for wire-registered apps, a loopback connection for
+   * boot-installed apps (e.g. `DEFAULT_APP_ID`). AppHost dispatches
+   * via the connection uniformly; see `./app-registration.ts`.
+   */
+  private apps = new AppRegistry();
+
   private contactService: ContactService | null = null;
-  private hooks = new Map<string, AppHooks>();
-
-  /**
-   * #560: send-side fan-out hooks keyed by `EndpointAddress`. The
-   * lookup key for `messages/authorize` is the parent task's
-   * `tm_endpoint_address` (always populated post-#461 R12), NOT an
-   * appId. Default-DM and default-group register at boot under
-   * `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`; app TMs
-   * register under their `tm:app:&lt;uuid>` address; future custom TMs
-   * (e.g., `tm:agent:&lt;id>`) register under that.
-   *
-   * No sentinel constants needed — the existing address shapes IS
-   * the key. See R8 (ghost-service hazard) for why this stays
-   * separate from the `AppTmRegistry` opaque-payload registry.
-   */
-  private messageAuthorizeHooks = new Map<
-    EndpointAddress,
-    MessageAuthorizeHook
-  >();
-
-  /**
-   * Remote-app routing table. An entry exists iff `registerRemoteApp` was
-   * called for `appId`; the value records which WS connection serves the
-   * app's hook RPCs. Looked up at dispatch time (not registration time)
-   * so the connection can be closed and re-resolved without re-registering
-   * the app — the Scope finalizer on the old connection drains its
-   * pending Deferreds with `NotConnectedError`, which the dispatch envelope
-   * maps to fail-closed verdicts.
-   *
-   * Disjoint with `hooks` per-app: a given `appId` is either in-process
-   * (entries in `hooks`) or remote (entry here), never both. The dispatch
-   * helpers prefer the remote entry when present — `registerRemoteApp`
-   * is the explicit promotion path.
-   */
-  private remoteRegistrations = new Map<string, RemoteRegistration>();
 
   /**
    * Optional lease registry for the #529 reshape surface.
@@ -259,12 +195,11 @@ export class AppHost {
    * {@link setConversationService}). Used by the forked moderator
    * round-trip to call `removeParticipant` on verdict-deny / synthesized
    * timeout-deny — the architect §3 state-machine rule "On `deny`
-   * verdict, registry calls `conversationService.removeParticipant(...)`"
-   * (epic decision #8). Synthesized infra-hold (no hook registered)
-   * does NOT call removeParticipant — that is the prereq-2 hold case
-   * (architect risk #5; epic decision #10).
+   * verdict, registry calls `conversationService.removeParticipant(...)`".
+   * Synthesized infra-hold (no hook registered) does NOT call
+   * removeParticipant — that is the prereq-2 hold case.
    */
-  private conversationService: ConversationServiceForRemove | null = null;
+  private conversationService: ConversationServiceForAppHost | null = null;
 
   constructor(
     private db: Db,
@@ -283,7 +218,7 @@ export class AppHost {
    * AppHost, so the inverse cannot be a constructor arg without
    * breaking the cycle).
    */
-  setConversationService(svc: ConversationServiceForRemove): void {
+  setConversationService(svc: ConversationServiceForAppHost): void {
     this.conversationService = svc;
   }
 
@@ -292,62 +227,75 @@ export class AppHost {
     return this.leaseRegistry;
   }
 
-  registerApp(manifest: AppManifest): void {
-    this.manifests.set(manifest.appId, manifest);
-    Effect.runFork(
-      Effect.logInfo("App registered").pipe(
-        Effect.annotateLogs({ appId: manifest.appId }),
-      ),
-    );
-  }
-
   /**
-   * Register an app whose `dispatch/authorize` admission round-trips run
-   * in a remote process (typically a WebSocket client). The verb
-   * dispatches via {@link sendRpcToClient}; verdicts decode through the
-   * schemas in `hooks.ts` and feed the same fail-closed envelope as
-   * in-process hooks.
-   *
-   * Remote registration takes precedence over any prior in-process
-   * registration for the same `appId`. Disconnect: every pending
-   * Deferred fails with `NotConnectedError` via the connection's Scope
-   * finalizer; the registration keeps pointing at the dead id and
-   * dispatches stay fail-closed until the app re-registers.
+   * Register an app under the given connection. The registry rejects
+   * overwrites unconditionally — returns false when `manifest.appId`
+   * is already registered. Callers (the `apps/register` handler and
+   * `installDefaultApp`) decide how to surface false (typed
+   * `ForbiddenError` over the wire; exception at boot).
    */
-  registerRemoteApp(manifest: AppManifest, connectionId: string): void {
-    this.manifests.set(manifest.appId, manifest);
-    this.remoteRegistrations.set(manifest.appId, { connectionId });
-    Effect.runFork(
-      Effect.logInfo("Remote app registered").pipe(
-        Effect.annotateLogs({ appId: manifest.appId, connectionId }),
-      ),
-    );
-  }
-
-  /**
-   * Drop a remote-app registration. Idempotent — no-op if `appId` was not
-   * previously registered as remote. Does NOT remove the manifest entry
-   * (sessions and conversations may still reference it); callers that
-   * want a full removal should also clear the manifest separately.
-   *
-   * Existing in-flight admission Deferreds are unaffected by this call —
-   * they're owned by the connection's pending map and resolved either by
-   * the response router (if the app replies) or by the Scope finalizer
-   * on disconnect. Future dispatches for `appId` fall through to whatever
-   * in-process hook is registered (or grant-by-default if none).
-   */
-  unregisterRemoteApp(appId: string): void {
-    if (this.remoteRegistrations.delete(appId)) {
+  registerApp(manifest: AppManifest, connection: MoltZapConnection): boolean {
+    const ok = this.apps.register(manifest, connection);
+    if (ok) {
       Effect.runFork(
-        Effect.logInfo("Remote app unregistered").pipe(
-          Effect.annotateLogs({ appId }),
+        Effect.logInfo("App registered").pipe(
+          Effect.annotateLogs({
+            appId: manifest.appId,
+            connectionId: connection.id,
+          }),
         ),
+      );
+    }
+    return ok;
+  }
+
+  /**
+   * Drop a registration. Idempotent (no-op if absent). The
+   * boot-installed default app is never unregistered in production —
+   * its loopback connection has a stable id no client caller can
+   * match, so {@link unregisterAppsForConnection} never targets it.
+   */
+  unregisterApp(appId: AppId): void {
+    if (this.apps.unregister(appId)) {
+      Effect.runFork(
+        Effect.logInfo("App unregistered").pipe(Effect.annotateLogs({ appId })),
       );
     }
   }
 
-  getManifest(appId: string): AppManifest | undefined {
-    return this.manifests.get(appId);
+  /**
+   * Drop every registration whose connection matches `connId`. Called
+   * by `socket-handler.ts → closeSession` on WS disconnect. The
+   * default app's loopback connection has a server-minted id that no
+   * client connection can ever match, so this method never targets
+   * boot-installed apps.
+   */
+  unregisterAppsForConnection(connId: ConnectionId): void {
+    this.apps.unregisterByConnection(connId);
+  }
+
+  /**
+   * Read-side accessor for handlers + capability obtain helpers.
+   * Returns the registration record (manifest + connection) or
+   * undefined if no entry exists.
+   */
+  lookupApp(appId: AppId): AppRegistration | undefined {
+    return this.apps.get(appId);
+  }
+
+  /**
+   * TM-authority gate: returns true iff `callerConnId` IS the
+   * connection currently registered for `appId`. For the default app
+   * (loopback connection with a server-minted id), no client caller
+   * can match — always returns false.
+   */
+  isAppConnection(appId: AppId, callerConnId: ConnectionId): boolean {
+    const entry = this.apps.get(appId);
+    return entry !== undefined && entry.connection.id === callerConnId;
+  }
+
+  getManifest(appId: AppId): AppManifest | undefined {
+    return this.apps.get(appId)?.manifest;
   }
 
   setContactService(checker: ContactService): void {
@@ -363,15 +311,6 @@ export class AppHost {
    */
   getContactService(): ContactService | null {
     return this.contactService;
-  }
-
-  onTaskAuthorizeDispatch(
-    appId: string,
-    handler: TaskAuthorizeDispatchHook,
-  ): void {
-    const existing = this.hooks.get(appId) ?? {};
-    existing.taskAuthorizeDispatch = handler;
-    this.hooks.set(appId, existing);
   }
 
   /**
@@ -390,12 +329,10 @@ export class AppHost {
    *    after the ack lands.
    *  - `ConversationArchived`: synthesize `deny{conversation_archived}`.
    *  - `AppBound` with no hook: synthesize `hold{moderator_unavailable}`
-   *    (load-bearing — does NOT call `removeParticipant` per risk #5).
+   *    (load-bearing — does NOT call `removeParticipant`).
    *  - `AppBound` with hook: forked round-trip; verdict-deny + timeout-
    *    deny call `resolve(deny)` and the caller is responsible for
-   *    `removeParticipant` via the standard verdict-deny path. (Hook
-   *    surface here only manages the lease; participant removal stays in
-   *    the existing legacy flow until cutover.)
+   *    `removeParticipant` via the standard verdict-deny path.
    *
    * Returns immediately with `{leaseId, dispatchId}` (or fails closed
    * via `LeaseRegistry not wired` defect if the registry hasn't been
@@ -403,7 +340,11 @@ export class AppHost {
    */
   enqueueDispatchRequest(
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<{ leaseId: LeaseId; dispatchId: DispatchId }, never, never> {
+  ): Effect.Effect<
+    { leaseId: LeaseId; dispatchId: DispatchId },
+    never,
+    NetworkSendServiceTag
+  > {
     const registry = this.leaseRegistry;
     if (!registry) {
       return Effect.dieMessage(
@@ -418,20 +359,23 @@ export class AppHost {
   private enqueueDispatchRequestEffect(
     registry: LeaseRegistry,
     args: EnqueueDispatchRequestArgs,
-  ): Effect.Effect<{ leaseId: LeaseId; dispatchId: DispatchId }, SqlError> {
+  ): Effect.Effect<
+    { leaseId: LeaseId; dispatchId: DispatchId },
+    SqlError,
+    NetworkSendServiceTag
+  > {
     return Effect.gen(this, function* () {
       const lookup = yield* lookupAppForConversation(
         this.db,
         args.conversationId,
       );
-      const binding = yield* this.dispatchBindingForLookup(lookup);
+      const binding = this.dispatchBindingForLookup(lookup);
       const minted = yield* registry.mint({
         recipientAgentId: args.recipientAgentId,
         recipientConnectionId: args.recipientConnectionId,
         moderatorConnectionId: binding.moderatorConnectionId,
         taskId: binding.taskId,
         conversationId: args.conversationId,
-        tmEndpointAddress: binding.tmEndpointAddress,
         appId: binding.appId,
       });
 
@@ -449,7 +393,7 @@ export class AppHost {
           receivedAt: args.receivedAt,
           clock: args.clock,
           pending: args.pending,
-          tmEndpointAddress: binding.tmEndpointAddress,
+          moderatorConnectionId: binding.moderatorConnectionId,
         },
       );
       return minted;
@@ -458,46 +402,20 @@ export class AppHost {
 
   private dispatchBindingForLookup(
     lookup: ConversationAppLookup,
-  ): Effect.Effect<DispatchBindingContext, SqlError> {
+  ): DispatchBindingContext {
     if (lookup._tag !== "AppBound") {
-      return Effect.succeed({
-        appId: "",
-        taskId: EMPTY_TASK_ID,
-        tmEndpointAddress: "",
-        moderatorConnectionId: "",
-      });
-    }
-
-    return Effect.gen(this, function* () {
-      const tmEndpointAddress = yield* this.taskTmEndpointAddress(
-        lookup.taskId,
-      );
-      const remote = this.remoteRegistrations.get(lookup.appId);
       return {
-        appId: lookup.appId,
-        taskId: lookup.taskId,
-        tmEndpointAddress,
-        moderatorConnectionId: remote?.connectionId ?? "",
+        appId: EMPTY_APP_ID,
+        taskId: EMPTY_TASK_ID,
+        moderatorConnectionId: EMPTY_CONNECTION_ID,
       };
-    });
-  }
-
-  private taskTmEndpointAddress(
-    taskId: TaskId,
-  ): Effect.Effect<string, SqlError> {
-    return takeFirstOption(
-      this.db
-        .selectFrom("tasks")
-        .select(["tm_endpoint_address"])
-        .where("id", "=", taskId),
-    ).pipe(
-      Effect.map((taskRow) =>
-        Option.match(taskRow, {
-          onNone: () => "",
-          onSome: (row) => row.tm_endpoint_address,
-        }),
-      ),
-    );
+    }
+    const entry = this.apps.get(lookup.appId);
+    return {
+      appId: lookup.appId,
+      taskId: lookup.taskId,
+      moderatorConnectionId: entry?.connection.id ?? EMPTY_CONNECTION_ID,
+    };
   }
 
   private attachDispatchRoundTripFiber(
@@ -505,7 +423,7 @@ export class AppHost {
     leaseId: LeaseId,
     lookup: ConversationAppLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never> {
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
     return Effect.gen(this, function* () {
       const fiber = yield* Effect.forkDaemon(
         this.runForkedDispatchRoundTrip(registry, leaseId, lookup, params),
@@ -526,7 +444,7 @@ export class AppHost {
     leaseId: LeaseId,
     lookup: ConversationAppLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
       lookup._tag === "AppBound"
         ? this.runAppBoundDispatchRoundTrip(registry, leaseId, lookup, params)
@@ -556,7 +474,7 @@ export class AppHost {
     leaseId: LeaseId,
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, SqlError> {
+  ): Effect.Effect<void, SqlError, NetworkSendServiceTag> {
     if (!this.hasDispatchAuthorizeHook(lookup.appId)) {
       return this.resolveDispatchLease(registry, leaseId, {
         _tag: "hold",
@@ -576,17 +494,14 @@ export class AppHost {
     });
   }
 
-  private hasDispatchAuthorizeHook(appId: string): boolean {
-    return (
-      this.remoteRegistrations.has(appId) ||
-      this.hooks.get(appId)?.taskAuthorizeDispatch !== undefined
-    );
+  private hasDispatchAuthorizeHook(appId: AppId): boolean {
+    return this.apps.has(appId);
   }
 
   private dispatchAuthorizeContext(
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<TaskAuthorizeDispatchContext, SqlError> {
+  ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
     return Effect.gen(this, function* () {
       const ownerId = yield* this.recipientOwnerId(params.recipientAgentId);
       return {
@@ -632,14 +547,20 @@ export class AppHost {
     return registry.resolve(leaseId, verdict).pipe(Effect.ignore);
   }
 
+  /**
+   * On verdict-deny, evict the recipient from the conversation. Uses
+   * the moderator's WS auth identity (the registered remote app's
+   * `auth.agentId`) as the requester. Skips when no moderator
+   * connection or no conversation service is wired.
+   */
   private removeDeniedParticipant(
     verdict: DispatchAdmissionResult,
     params: DispatchRoundTripParams,
-  ): Effect.Effect<void, never> {
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
     if (verdict.decision !== "deny") return Effect.void;
     const svc = this.conversationService;
-    const moderatorAgentId = parseModeratorAgentIdFromTm(
-      params.tmEndpointAddress,
+    const moderatorAgentId = this.moderatorAgentIdFromConn(
+      params.moderatorConnectionId,
     );
     if (svc === null || moderatorAgentId === null) return Effect.void;
     return svc
@@ -661,6 +582,13 @@ export class AppHost {
       );
   }
 
+  private moderatorAgentIdFromConn(connectionId: ConnectionId): AgentId | null {
+    if (connectionId === EMPTY_CONNECTION_ID) return null;
+    const conn = this.connections.get(connectionId);
+    if (!conn || !conn.auth) return null;
+    return conn.auth.agentId as AgentId;
+  }
+
   /**
    * Dispatch a `dispatch/authorize` hook. In-process / remote choice is
    * made INSIDE the helper; callers see one signature and one return
@@ -669,22 +597,31 @@ export class AppHost {
    * plan §3.4.
    */
   private dispatchAuthorizeHook(
-    appId: string,
-    ctx: TaskAuthorizeDispatchContext,
+    appId: AppId,
+    ctx: DispatchAuthorizeContext,
   ): Effect.Effect<DispatchAdmissionResult, never> {
-    const remote = this.remoteRegistrations.get(appId);
-    const inProcess = this.hooks.get(appId)?.taskAuthorizeDispatch;
-    if (!remote && !inProcess) {
-      return Effect.succeed({ decision: "grant" as const });
+    const entry = this.apps.get(appId);
+    if (entry === undefined) {
+      // Unknown app — fail-closed Deny. Every registered conversation's
+      // appId came from `AppsRegister` or boot, so reaching here means
+      // the app's WS dropped after the conversation was created. No
+      // moderator means no admission grant.
+      return Effect.succeed({
+        decision: "deny" as const,
+        reason: "app_unavailable",
+      });
     }
-    const manifest = this.manifests.get(appId);
     const timeoutMs =
-      manifest?.hooks?.dispatch_authorize?.timeout_ms ??
+      entry.manifest.hooks?.dispatch_authorize?.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
 
     return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
-      raw: this.dispatchAuthorizeRaw(appId, ctx, remote, inProcess),
+      raw: this.callAppRpc(
+        entry,
+        DispatchAuthorize,
+        this.authorizeDispatchParamsForWire(ctx),
+      ).pipe(Effect.map((envelope) => envelope.admission)),
       timeoutMs,
       timeoutLogMessage: "dispatch/authorize timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
@@ -701,95 +638,51 @@ export class AppHost {
     });
   }
 
-  private dispatchAuthorizeRaw(
-    appId: string,
-    ctx: TaskAuthorizeDispatchContext,
-    remote: RemoteRegistration | undefined,
-    inProcess: TaskAuthorizeDispatchHook | undefined,
-  ): Effect.Effect<DispatchAdmissionResult, Error> {
-    if (remote) {
-      return this.runRemoteHookEffect({
-        appId,
-        definition: DispatchAuthorize,
-        connectionId: remote.connectionId,
-        params: this.authorizeDispatchParamsForWire(ctx),
-      }).pipe(Effect.map((envelope) => envelope.admission));
-    }
-    return this.runInProcessHookEffect<
-      TaskAuthorizeDispatchContext,
-      DispatchAdmissionResult
-    >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
-  }
-
   /**
-   * Register an in-process `messageAuthorize` handler keyed by
-   * `EndpointAddress`. Issue #560 default-DM and default-group register at boot
-   * (in `app-tm-registry.ts` or wherever default TMs bootstrap);
-   * apps that hold their own `tm:app:&lt;uuid>` address register at
-   * `apps/register` time. Idempotent — repeat calls overwrite the
-   * existing entry for that address.
-   */
-  registerMessageAuthorize(
-    address: EndpointAddress,
-    hook: MessageAuthorizeHook,
-  ): void {
-    this.messageAuthorizeHooks.set(address, hook);
-  }
-
-  /**
-   * Resolve the per-message fan-out verdict for a `messages/send`
-   * (#560). Looks up the registered handler by `tmEndpointAddress`,
-   * dispatches either the in-process `MessageAuthorizeHook` or the
-   * remote `messages/authorize` S→C RPC, applies the uniform fail-
-   * closed envelope, and returns a verdict the
-   * `MessageService.sendCommit` caller can switch on.
+   * Resolve the per-message fan-out verdict for a `messages/send`.
+   * Dispatches `messages/authorize` over the app's connection (real
+   * WS for wire apps, loopback for the boot-installed default), then
+   * applies the uniform fail-closed envelope.
    *
-   * Fail-closed posture (mirrors `runAuthorizeDispatch` per #461 r3
-   * R3/R4): timeout / RPC error / handler throw / decode failure all
-   * synthesize `Block { reason: "tm_unreachable" }` (or
-   * `"messages/authorize timeout"` / `"messages/authorize error"`,
-   * matching `dispatch/authorize`'s wording where the cause is known).
+   * Unknown-app: fail-closed Block. Reaching this branch means the
+   * app's WS dropped after the conversation was created; without a
+   * moderator there's nobody to authorize the fan-out.
    *
-   * Default policy when no hook is registered for the address:
-   * `Forward { recipients: participants \ sender }`. Default-DM and
-   * default-group's in-process registrations return exactly this —
-   * preserves today's broadcast behavior with zero wire chatter.
-   *
-   * The address-keyed map (`messageAuthorizeHooks`) is the C2 design
-   * pin: separate registry from the appId-keyed `hooks`, identical
-   * shape (`Map&lt;TKey, Hook&lt;TContext, TResult>>`). The hook-shape
-   * unification is the v4 design pin (architect risk R13).
+   * Fail-closed posture: timeout / RPC error / decode failure all
+   * synthesize `Block { reason: "tm_unreachable" }`.
    */
   runMessageAuthorize(
-    tmEndpointAddress: EndpointAddress,
+    appId: AppId,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
-    const route = this.messageAuthorizeRoute(tmEndpointAddress);
-    if (!route.inProcess && !route.remote) {
-      return this.defaultMessageAuthorize(ctx);
+    const entry = this.apps.get(appId);
+    if (entry === undefined) {
+      return Effect.succeed({
+        decision: "Block" as const,
+        reason: "tm_unreachable",
+      });
     }
 
-    const timeoutMs = this.messageAuthorizeTimeoutMs(route.remoteAppId);
+    const timeoutMs =
+      entry.manifest.hooks?.message_authorize?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
-    const appId = ctx.appId;
 
     return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
-      raw: this.messageAuthorizeRaw(
-        ctx,
-        route.remoteAppId ?? appId,
-        route.remote,
-        route.inProcess,
-      ),
+      raw: this.callAppRpc(
+        entry,
+        MessagesAuthorize,
+        this.messageAuthorizeParamsForWire(ctx),
+      ).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
       timeoutLogMessage: "messages/authorize timed out",
       timeoutLogContext: {
         taskId,
         appId,
-        tmEndpointAddress,
         timeoutMs,
       },
       errorLogMessage: "messages/authorize error",
-      errorLogContext: { taskId, appId, tmEndpointAddress },
+      errorLogContext: { taskId, appId },
       onTimeout: () => ({
         decision: "Block" as const,
         reason: "tm_unreachable",
@@ -801,68 +694,77 @@ export class AppHost {
     });
   }
 
-  private messageAuthorizeRoute(
-    tmEndpointAddress: EndpointAddress,
-  ): MessageAuthorizeRoute {
-    const inProcess = this.messageAuthorizeHooks.get(tmEndpointAddress);
-    const remoteAppId = appIdFromTmEndpointAddress(tmEndpointAddress);
-    if (remoteAppId === null) {
-      return { inProcess, remoteAppId, remote: undefined };
+  /**
+   * Fire the `task/create` TM callback after `task/request` lands a
+   * task in `waiting`. The TM's typed verdict drives the lifecycle
+   * transition (`waiting → active` on accept, `waiting → failed`
+   * on reject or any fail-closed synthesis: timeout, RPC error,
+   * decode failure).
+   *
+   * Unknown app → fail-closed reject (synthesized `tm_unreachable`).
+   * Same posture as {@link runMessageAuthorize}.
+   */
+  runTaskCreate(
+    appId: AppId,
+    ctx: ParamsOf<typeof TaskCreate>,
+  ): Effect.Effect<ResultOf<typeof TaskCreate>["verdict"], never> {
+    const entry = this.apps.get(appId);
+    if (entry === undefined) {
+      return Effect.succeed({
+        decision: "reject" as const,
+        reason: "tm_unreachable",
+      });
     }
-    return {
-      inProcess,
-      remoteAppId,
-      remote: this.remoteRegistrations.get(remoteAppId),
-    };
-  }
-
-  private messageAuthorizeTimeoutMs(appId: string | null): number {
-    if (appId === null) return DEFAULT_APP_HOOK_TIMEOUT_MS;
-    const manifest = this.manifests.get(appId);
-    return (
-      manifest?.hooks?.message_authorize?.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS
-    );
-  }
-
-  private defaultMessageAuthorize(
-    ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rows = yield* this.db
-          .selectFrom("conversation_participants")
-          .select("agent_id")
-          .where("conversation_id", "=", ctx.conversationId);
-        const recipients = rows
-          .map((r) => r.agent_id as AgentId)
-          .filter((a) => a !== ctx.message.senderAgentId);
-        return {
-          decision: "Forward" as const,
-          recipients,
-        } satisfies MessageAuthorizeResult;
+    const timeoutMs =
+      entry.manifest.hooks?.task_create?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
+    return this.wrapHookEffectWithEnvelope<
+      ResultOf<typeof TaskCreate>["verdict"]
+    >({
+      raw: this.callAppRpc(entry, TaskCreate, ctx).pipe(
+        Effect.map((envelope) => envelope.verdict),
+      ),
+      timeoutMs,
+      timeoutLogMessage: "task/create timed out",
+      timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
+      errorLogMessage: "task/create error",
+      errorLogContext: { taskId: ctx.taskId, appId },
+      onTimeout: () => ({
+        decision: "reject" as const,
+        reason: "timeout",
       }),
-    );
+      onError: () => ({
+        decision: "reject" as const,
+        reason: "tm_unreachable",
+      }),
+    });
   }
 
-  private messageAuthorizeRaw(
-    ctx: MessageAuthorizeContext,
-    appId: string,
-    remote: RemoteRegistration | undefined,
-    inProcess: MessageAuthorizeHook | undefined,
-  ): Effect.Effect<MessageAuthorizeResult, Error> {
-    if (remote) {
-      return this.runRemoteHookEffect({
-        appId,
-        definition: MessagesAuthorize,
-        connectionId: remote.connectionId,
-        params: this.messageAuthorizeParamsForWire(ctx),
-      }).pipe(Effect.map((envelope) => envelope.verdict));
-    }
-    return this.runInProcessHookEffect<
-      MessageAuthorizeContext,
-      MessageAuthorizeResult
-    >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
+  /**
+   * Dispatch a task-callback RPC over the app's connection. The
+   * connection knows whether it's a real WS or a loopback — AppHost
+   * doesn't care. Errors (NotConnectedError, RPC response error,
+   * socket error, decode failure) fold into the fail-closed envelope
+   * upstream via `wrapHookEffectWithEnvelope`.
+   */
+  private callAppRpc<D extends AnyTaskCallbackRpcDefinition>(
+    entry: AppRegistration,
+    definition: D,
+    params: ParamsOf<D>,
+  ): Effect.Effect<ResultOf<D>, Error> {
+    return sendRpcToClient(entry.connection, definition, params).pipe(
+      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Upstream `wrapHookEffectWithEnvelope` collapses every Effect failure into a fail-closed verdict; per-tag handling cannot influence the outcome. The `RemoteHookError` here preserves call-context (appId, method, connectionId) in the log message and is the documented `messageAuthorizeRaw`/`dispatchAuthorizeRaw` envelope shape from #529.
+      Effect.mapError(
+        (cause) =>
+          new RemoteHookError({
+            appId: entry.appId,
+            method: definition.name,
+            connectionId: entry.connection.id,
+            reason: `task-callback RPC failed: ${errorMessage(cause)}`,
+            cause,
+          }),
+      ),
+    );
   }
 
   /**
@@ -893,9 +795,11 @@ export class AppHost {
 
   /** Clear in-memory state. Called on shutdown. */
   destroy(): void {
-    this.hooks.clear();
-    this.remoteRegistrations.clear();
-    this.messageAuthorizeHooks.clear();
+    // Wire registrations only — InProcess apps (DEFAULT_APP_ID and
+    // friends) stay installed for the lifetime of the server process,
+    // so the AppRegistry retains them across `destroy()` calls. The
+    // wire-side connections close via the WS layer's own scope
+    // finalizer; AppRegistry has no per-connection cleanup hook.
   }
 
   // ── Uniform hook dispatch (in-process + remote) ────────────────────
@@ -905,12 +809,6 @@ export class AppHost {
   // INSIDE the dispatch helpers; call sites observe one type. Failure
   // modes (timeout, throw, RPC error, NotConnectedError, decode failure)
   // collapse into fail-closed verdicts (`deny`).
-  //
-  // Multi-app composition (architect plan §3.4: "Effect.forEach in
-  // registration order, first deny short-circuits") is implemented by
-  // {@link dispatchAcrossAppsWithDenyShortCircuit} below. Today every
-  // session is bound to a single appId so the iteration is len-1; the
-  // combinator is forward-compatible for multi-app sessions.
 
   /**
    * Strip non-wire-safe fields from a hook context so it can be sent over
@@ -930,7 +828,7 @@ export class AppHost {
   }
 
   private authorizeDispatchParamsForWire(
-    ctx: TaskAuthorizeDispatchContext,
+    ctx: DispatchAuthorizeContext,
   ): ParamsOf<typeof DispatchAuthorize> {
     const wire = this.contextForWire(ctx);
     return {
@@ -962,91 +860,6 @@ export class AppHost {
           }
         : {}),
     };
-  }
-
-  /**
-   * Run an in-process Promise-returning hook under an `AbortController`
-   * tied to fiber interrupts (e.g., from `Effect.timeout` upstream). The
-   * controller is wired so:
-   *   - timeout fires → fiber interrupts → `Effect.onInterrupt` aborts
-   *   - hook throws / rejects → `tapErrorCause` aborts
-   * preserving the abort-on-timeout / abort-on-throw guarantees.
-   *
-   * Returns the raw verdict in the success channel and a typed `Error`
-   * in the failure channel (so the dispatch envelope's `catchAll` can
-   * synthesize the fail-closed verdict).
-   */
-  private runInProcessHookEffect<Ctx, T>(
-    handler: (ctx: Ctx & { signal: AbortSignal }) => T | Promise<T>,
-    ctx: Ctx,
-  ): Effect.Effect<T, Error> {
-    return Effect.gen(function* () {
-      const controller = new AbortController();
-      return yield* Effect.tryPromise({
-        try: () =>
-          Promise.resolve(handler({ ...ctx, signal: controller.signal })),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-      }).pipe(
-        Effect.tapErrorCause(() => Effect.sync(() => controller.abort())),
-        Effect.onInterrupt(() => Effect.sync(() => controller.abort())),
-      );
-    });
-  }
-
-  /**
-   * Dispatch a server-initiated RPC to a remote app's connection and
-   * decode the verdict. Returns the typed verdict in the success channel;
-   * any failure (`NotConnectedError`, RPC response error, socket error,
-   * schema decode failure, missing connection) lands in the failure
-   * channel for the dispatch envelope to map to fail-closed.
-   *
-   * Result decoding happens in `sendRpcToClient`, where the descriptor
-   * that constructed the frame validates the response against its TypeBox
-   * result schema before this method can observe a value.
-   */
-  private runRemoteHookEffect<D extends AnyTaskCallbackRpcDefinition>(opts: {
-    appId: string;
-    definition: D;
-    connectionId: string;
-    params: ParamsOf<D>;
-  }): Effect.Effect<ResultOf<D>, RemoteHookError> {
-    return Effect.gen(this, function* () {
-      const method = opts.definition.name;
-      const conn: MoltZapConnection | undefined = this.connections.get(
-        opts.connectionId,
-      );
-      if (!conn) {
-        // Stale registration: the remote app's connection has already
-        // gone away. Treat identically to mid-flight `NotConnectedError`
-        // so the dispatch envelope folds it into fail-closed.
-        return yield* Effect.fail(
-          new RemoteHookError({
-            appId: opts.appId,
-            method,
-            connectionId: opts.connectionId,
-            reason: `Remote app ${opts.appId} connection ${opts.connectionId} is gone`,
-          }),
-        );
-      }
-      return yield* Either.match(
-        yield* Effect.either(
-          sendRpcToClient(conn, opts.definition, opts.params),
-        ),
-        {
-          onLeft: (cause) =>
-            Effect.fail(
-              new RemoteHookError({
-                appId: opts.appId,
-                method,
-                connectionId: opts.connectionId,
-                reason: `task-callback RPC failed: ${errorMessage(cause)}`,
-                cause,
-              }),
-            ),
-          onRight: (result) => Effect.succeed(result),
-        },
-      );
-    });
   }
 
   /**

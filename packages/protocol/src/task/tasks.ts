@@ -1,24 +1,24 @@
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import {
-  stringEnum,
-  dateTimeStringSchema,
-  brandedId,
-} from "../schema-primitives.js";
+import { stringEnum, dateTimeStringSchema } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
   registerErrorClass,
   type RpcErrorPayload,
 } from "../transport/wire-errors.js";
-import {
-  ConversationId,
-  ConversationTypeEnum,
-  agentParticipantRefSchema,
-  conversationSchema,
-  MessageId,
-} from "./conversations.js";
-import { messagePartsSchema, messageSchema } from "./messages.js";
+import { ConversationId, conversationSchema } from "./conversations.js";
+import { AppId, TaskId } from "./ids.js";
+import type { ConnectionId } from "../network/actor-model.js";
+// Structural alias for the dispatcher ctx shape consumed by argsOf
+// resolvers — the brand keeps it type-safe end to end. The
+// dispatcher provides a full `MoltZapConnection` per request; argsOf
+// reads `.id` for capability obtain helpers that take a
+// `ConnectionId`.
+type CallerConnIdCtx = {
+  readonly connection: { readonly id: ConnectionId };
+  readonly auth: { readonly agentId: AgentId };
+};
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
 import {
@@ -26,52 +26,14 @@ import {
   type ObtainConversationCreateAuthorizationInput,
 } from "./capabilities/conversation-create-authorization.js";
 import { ConversationInTask } from "./capabilities/conversation-in-task.js";
-import {
-  MessageSendPermission,
-  type ObtainMessageSendPermissionInput,
-} from "./capabilities/message-send-permission.js";
-import { TaskReadAccess } from "./capabilities/task-read-access.js";
 import { TmAuthority } from "./capabilities/tm-authority.js";
 
-/**
- * Branded UUID for the per-app identifier. Introduced by Spec D1
- * (issue #598) so the reshaped `task/create` wire and downstream
- * lookups (app-tm-registry → `tm_endpoint_address`) cannot accidentally
- * accept a non-UUID string. The old `tasks/create` keeps its
- * un-branded `appId: Type.Optional(Type.String())` shape during the
- * D1 transitional window; D3 (#600) deletes that surface and brands
- * every remaining call site.
- */
-export const AppId = brandedId("AppId");
-export type AppId = Static<typeof AppId>;
-
-/**
- * The single server-bundled default app. Every DM and Group lives
- * under this app from Spec D1 forward; the per-conversation `type`
- * enum (`dm` / `group`) becomes a display-only label derived from
- * participant count and retires in D3.
- *
- * UUID v4 fixed by spec body Goal 4 (#598). The constant is the
- * source of truth — the server registers `makeDefaultMessageAuthorizeHook`
- * against the TM address derived from this UUID, and the
- * `TaskCreate` dedup query keys off it.
- *
- * Greenfield schema (per project memory
- * `project_layered_refactor_packaging.md`): no prior rows under the
- * legacy `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`
- * constants exist at cutover, so dedup operates only on rows
- * created under `DEFAULT_APP_ID` from D1 forward.
- */
-export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId;
+// `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
+// re-exported here for backward compatibility of import paths.
+export { AppId, DEFAULT_APP_ID, TaskId } from "./ids.js";
 
 const DateTimeString = dateTimeStringSchema();
-const AgentParticipantRefSchema = agentParticipantRefSchema();
 const ConversationSchema = conversationSchema();
-const MessagePartsSchema = messagePartsSchema();
-const MessageSchema = messageSchema();
-
-export const TaskId = brandedId("TaskId");
-export type TaskId = Static<typeof TaskId>;
 
 export class TaskClosedError extends Data.TaggedError(
   "TaskClosed",
@@ -80,6 +42,23 @@ export class TaskClosedError extends Data.TaggedError(
   static readonly message = "Task is closed";
 }
 registerErrorClass(TaskClosedError);
+
+/**
+ * `task/request` failed because the bound TM rejected the
+ * server-initiated `task/create` callback (or the fail-closed
+ * envelope synthesized a reject on timeout / RPC error / decode
+ * failure). The tag lets a requester distinguish "my task was
+ * rejected by the moderator" — an expected, actionable outcome —
+ * from an opaque internal error. The TM's reason rides in the
+ * `data` arm when present.
+ */
+export class TaskRejectedError extends Data.TaggedError(
+  "TaskRejected",
+)<RpcErrorPayload> {
+  static readonly code = -32024;
+  static readonly message = "Task request was rejected by the task manager";
+}
+registerErrorClass(TaskRejectedError);
 
 export class HookBlockedError extends Data.TaggedError(
   "HookBlocked",
@@ -90,12 +69,11 @@ export class HookBlockedError extends Data.TaggedError(
 registerErrorClass(HookBlockedError);
 
 /**
- * Spec D1 (#598) NEW invariant: `task/conversation/create` and
- * `task/conversation/participants/add` reject agents who are not
- * already in `task_participants`. The error tag lets clients
- * distinguish "wrong agentId shape" (InvalidParams) from "agent
- * exists but is not admitted to this task" (this tag) without
- * parsing message strings.
+ * `task/conversation/create` and `task/conversation/participants/add`
+ * reject agents who are not already in `task_participants`. The error
+ * tag lets clients distinguish "wrong agentId shape" (InvalidParams)
+ * from "agent exists but is not admitted to this task" (this tag)
+ * without parsing message strings.
  */
 export class ParticipantNotAdmittedError extends Data.TaggedError(
   "ParticipantNotAdmitted",
@@ -124,9 +102,6 @@ export function logicalClockSchema(): typeof LogicalClockSchema {
   return LogicalClockSchema;
 }
 
-const TmTypeEnum = stringEnum(["self", "default-dm", "default-group"]);
-export type TmType = (typeof TmTypeEnum)["static"];
-
 // Mirrors the `task_status` DB enum.
 const TaskStatusEnum = stringEnum(["waiting", "active", "failed", "closed"]);
 
@@ -135,14 +110,9 @@ export type TaskStatus = Static<typeof TaskStatusEnum>;
 const TaskSchema = Type.Object(
   {
     id: TaskId,
-    appId: Type.Union([Type.String(), Type.Null()]),
+    appId: Type.String(),
     initiatorAgentId: AgentId,
     status: TaskStatusEnum,
-    // The persisted task output exposes `tmEndpointAddress` (a branded
-    // `EndpointAddress` string). The public `tasks/create` request does
-    // NOT take an address directly; it takes a `tmType` enum and the
-    // server derives the address (Phase 9b R16, PR #461).
-    tmEndpointAddress: Type.String({ minLength: 1 }),
     startedAt: Type.Union([DateTimeString, Type.Null()]),
     endedAt: Type.Union([DateTimeString, Type.Null()]),
     createdAt: DateTimeString,
@@ -152,7 +122,12 @@ const TaskSchema = Type.Object(
 
 export type Task = Static<typeof TaskSchema>;
 
-// `admittedAt = null` ⇒ invited but not yet admitted.
+// `admittedAt = null` is reserved for a future "pending invitation"
+// flow. Today the server auto-admits every invitee at TaskRequest, so
+// the field is always non-null on the wire. The column is kept
+// nullable + the `WHERE admitted_at IS NOT NULL` filters in read
+// paths stay in place so the future flow drops in without
+// re-engineering the gating.
 const TaskParticipantSchema = Type.Object(
   {
     taskId: TaskId,
@@ -164,49 +139,12 @@ const TaskParticipantSchema = Type.Object(
 
 export type TaskParticipant = Static<typeof TaskParticipantSchema>;
 
-export const TasksCreate = defineRpc({
-  name: "tasks/create",
+export const TaskList = defineRpc({
+  name: "task/list",
   params: Type.Object(
     {
-      appId: Type.Optional(Type.String()),
-      invitedAgentIds: Type.Optional(Type.Array(AgentId)),
-      tmType: TmTypeEnum,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
-});
-
-export const TasksGet = defineRpc({
-  name: "tasks/get",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object(
-    {
-      task: TaskSchema,
-      participants: Type.Array(TaskParticipantSchema),
-    },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksList = defineRpc({
-  name: "tasks/list",
-  params: Type.Object(
-    {
-      appId: Type.Optional(Type.String()),
-      status: Type.Optional(TaskStatusEnum),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      cursor: Type.Optional(Type.String()),
     },
     { additionalProperties: false },
   ),
@@ -216,106 +154,28 @@ export const TasksList = defineRpc({
   ),
 });
 
-export const TasksClose = defineRpc({
-  name: "tasks/close",
+export const TaskClose = defineRpc({
+  name: "task/close",
   params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
   result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
   capabilities: [
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksCreateConversation = defineRpc({
-  name: "tasks/createConversation",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      type: ConversationTypeEnum,
-      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      participants: Type.Array(AgentParticipantRefSchema, { minItems: 1 }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { conversation: ConversationSchema },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationCreateAuthorization,
-      argsOf: (
-        params: unknown,
-        ctx: unknown,
-      ): ObtainConversationCreateAuthorizationInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly type: "dm" | "group";
-          readonly participants: ReadonlyArray<{ readonly id: string }>;
-        };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        const c = ctx as CallerConnIdCtx;
         return {
-          type: p.type,
-          agentIds: p.participants.map((x) => x.id as AgentId),
-          creatorAgentId: c.auth.agentId,
+          taskId: p.taskId,
+          callerConnId: c.connection.id,
         };
       },
     },
   ] as const,
 });
 
-export const TasksCloseConversation = defineRpc({
-  name: "tasks/closeConversation",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksAddParticipant = defineRpc({
-  name: "tasks/addParticipant",
+export const TaskAddParticipant = defineRpc({
+  name: "task/addParticipant",
   params: Type.Object(
     {
       taskId: TaskId,
@@ -331,17 +191,20 @@ export const TasksAddParticipant = defineRpc({
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        const c = ctx as CallerConnIdCtx;
+        return {
+          taskId: p.taskId,
+          callerConnId: c.connection.id,
+        };
       },
     },
   ] as const,
 });
 
-export const TasksRemoveParticipant = defineRpc({
-  name: "tasks/removeParticipant",
+export const TaskRemoveParticipant = defineRpc({
+  name: "task/removeParticipant",
   params: Type.Object(
     {
       taskId: TaskId,
@@ -354,160 +217,32 @@ export const TasksRemoveParticipant = defineRpc({
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksStoreMessage = defineRpc({
-  name: "tasks/storeMessage",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      senderAgentId: AgentId,
-      parts: MessagePartsSchema,
-      replyToId: Type.Optional(MessageId),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { message: MessageSchema },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-    {
-      tag: MessageSendPermission,
-      argsOf: (params: unknown): ObtainMessageSendPermissionInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-          readonly senderAgentId: AgentId;
-          readonly replyToId?: Static<typeof MessageId>;
-        };
+        const c = ctx as CallerConnIdCtx;
         return {
           taskId: p.taskId,
-          conversationId: p.conversationId,
-          senderAgentId: p.senderAgentId,
-          replyToId: p.replyToId,
+          callerConnId: c.connection.id,
         };
-      },
-    },
-  ] as const,
-});
-
-export const TasksGetMessages = defineRpc({
-  name: "tasks/getMessages",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      messages: Type.Array(MessageSchema),
-      hasMore: Type.Boolean(),
-    },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-  ] as const,
-});
-
-export const TasksGetMessagesSince = defineRpc({
-  name: "tasks/getMessagesSince",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      sinceSeq: Type.String({
-        description: "Snowflake seq cursor (string-encoded BIGINT)",
-      }),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      messages: Type.Array(MessageSchema),
-      hasMore: Type.Boolean(),
-    },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
       },
     },
   ] as const,
 });
 
 const TaskFailedNotificationSchema = Type.Object(
-  { taskId: TaskId },
+  {
+    taskId: TaskId,
+    // Free-form one-liner. The task/create TM-callback verdict's
+    // `reject.reason`, the synthesized `"tm_unreachable"` /
+    // `"timeout"` strings from the fail-closed envelope, and any
+    // future caller-supplied failure reason all flow through here.
+    reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+  },
+  { additionalProperties: false },
+);
+
+const TaskCreatedNotificationSchema = Type.Object(
+  { task: TaskSchema },
   { additionalProperties: false },
 );
 
@@ -521,36 +256,29 @@ export const TaskFailedNotificationDefinition = defineNotification({
   params: TaskFailedNotificationSchema,
 });
 
+/**
+ * Pushed to the task initiator + invited participants after the TM
+ * accepts via the `task/create` wire callback and the task
+ * transitions from `waiting` to `active`. Carries the full Task row
+ * (matching `task/closed`'s shape) so subscribers don't need a
+ * second read to discover the post-transition state.
+ */
+export const TaskCreatedNotificationDefinition = defineNotification({
+  name: "task/created",
+  params: TaskCreatedNotificationSchema,
+});
+
 export const TaskClosedNotificationDefinition = defineNotification({
   name: "task/closed",
   params: TaskClosedNotificationSchema,
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Spec D1 (#598) — additive `task/*` + `task/conversation/*` surface.
-//
-// These descriptors coexist with the legacy `tasks/*` and `conversations/*`
-// families for the D1 transitional window. Spec D3 (#600) deletes the
-// legacy descriptors and the parallel notification emission; this block
-// becomes the only task-layer surface.
-//
-// Naming convention chosen by architect (resolves spec ambiguity):
-//   - New methods use the singular `task/*` namespace to avoid wire
-//     collisions with legacy `tasks/*` during dual-emit (`task/create`
-//     vs. `tasks/create` are distinct wire names).
-//   - Nested admin methods live under `task/conversation/*`.
-//   - Participant operations sit under `task/conversation/participants/*`.
-//
-// Authority routing (impl-staff): all `Task*Authority`-gated admin
-// methods (`task/conversation/{create,archive,unarchive,participants/*}`)
-// MUST resolve via Spec E's `obtainTmAuthority(taskId, ctx.agentId)`
-// once Spec E (#601) primitives land. `task/conversation/list` and
-// `task/leave` resolve via self-auth (caller participation check).
-// `task/create` is open to any authenticated agent subject to
-// `requireContactPolicyForCreate` per `conversation.service.ts`
-// (`/safer:architect` per-flow doc §"Capability list per new
-// handler" — see `packages/protocol/docs/architecture/task-conversation-family.md`).
-// ─────────────────────────────────────────────────────────────────────
+// `task/*` + `task/conversation/*` surface. Authority routing:
+// `task/conversation/{create,archive,unarchive,participants/*}` resolve via
+// `obtainTmAuthority(taskId, ctx.agentId)`. `task/conversation/list` and
+// `task/leave` use self-auth (caller participation check). `task/create` is
+// open to any authenticated agent subject to `obtainContactPolicyForCreate`.
+// Per-flow detail: `packages/protocol/docs/architecture/task-conversation-family.md`.
 
 const InitialConversationSchema = Type.Object(
   {
@@ -561,32 +289,6 @@ const InitialConversationSchema = Type.Object(
 );
 
 export type InitialConversationInput = Static<typeof InitialConversationSchema>;
-
-/**
- * Spec D1 (#598) cardinality → label mapping for the legacy
- * `conversations.type` enum column. D1 retires the wire-level
- * `type: "dm" | "group"` field; the label is now derived from
- * participant cardinality (caller + targets totals 2 ⇒ `"dm"`,
- * otherwise `"group"`).
- *
- * Single source of truth so descriptor `argsOf` resolvers (which
- * build `ConversationCreateAuthorization` capability input
- * unconditionally per frame) cannot drift from the server-side
- * handler that calls `conversationService.create({ type, ... })`.
- * Both must agree because the type label is what the
- * `ConversationCreateAuthorization` obtain helper uses for
- * DM-existence dedup, contact-policy fan-out, and group-capacity
- * checks; a descriptor-vs-handler split would silently authorize
- * one path's type while persisting the other.
- *
- * Spec D3 (#600) deletes the `conversations.type` column entirely;
- * at that point this helper retires alongside.
- */
-export function inferConversationType(
-  participantAgentIds: ReadonlyArray<AgentId>,
-): "dm" | "group" {
-  return 1 + participantAgentIds.length === 2 ? "dm" : "group";
-}
 
 const TaskConversationListItemSchema = Type.Object(
   {
@@ -602,22 +304,26 @@ export type TaskConversationListItem = Static<
 >;
 
 /**
- * Reshaped task-create: `appId` REQUIRED (branded), `tmType`
- * ELIMINATED at the wire, optional `initialConversation` for atomic
- * task + first-conversation creation.
+ * Open to any authenticated agent. Returns `{ task, conversation }`
+ * where `conversation` is `null` when `initialConversation` is omitted.
  *
- * Dedup: when `appId === DEFAULT_APP_ID`, the server returns any
- * existing task whose `task_participants` set is exactly
- * `{callerAgentId} ∪ invitedAgentIds`. Single-invitee dedup
- * generalizes today's `conversationService.existingDmForCreate` (the
- * DM case is the `invitedAgentIds.length === 1` instance of the
- * same exact-participant-set match query).
+ * Dedup is a client-side concern: clients that want "one DM per
+ * participant set" semantics list their tasks and filter locally
+ * before creating a new one.
  *
- * Returns `{ task, conversation }` where `conversation` is `null`
- * when `initialConversation` is omitted.
+ * NOTE (#683): the agent-facing entry RPC is `task/request`; the
+ * TM-facing wire callback `task/create` lives in
+ * `packages/protocol/src/app/methods.ts`. The server forks
+ * `task/create` to the bound TM after inserting the task in
+ * `waiting`; the TM's verdict drives the lifecycle (accept → active
+ * + `task/created`; reject → failed + `task/failed`). The synchronous
+ * `{ task, conversation }` result is returned after the verdict
+ * resolves (the handler awaits it). A future ack-then-notify variant
+ * could return `{ taskId }` immediately and let `task/created` /
+ * `task/failed` carry the outcome; that is not the current shape.
  */
-export const TaskCreate = defineRpc({
-  name: "task/create",
+export const TaskRequest = defineRpc({
+  name: "task/request",
   params: Type.Object(
     {
       appId: AppId,
@@ -655,18 +361,9 @@ export const TaskLeave = defineRpc({
 });
 
 /**
- * TM-only: mint a new conversation under an existing task.
- * Renamed/reshaped from legacy `tasks/createConversation`. NEW
- * invariant: every entry in `participants` MUST already appear in
- * `task_participants` for `taskId`; violations return
- * `ParticipantNotAdmittedError`. Spec body Goal 1.
- *
- * Schema diff vs. legacy `TasksCreateConversation`:
- *   - removes `type: ConversationTypeEnum` (DM/Group collapse — D3
- *     retires the `conversation_type` enum column entirely)
- *   - participants typed as `AgentId[]` (was `agentParticipantRefSchema`)
- *     reflecting "agents only" — `tm:agent:*` shape is internal-only
- *     per spec body Non-goal 6
+ * TM-only: mint a new conversation under an existing task. Every
+ * entry in `participants` MUST already appear in `task_participants`
+ * for `taskId`; violations return `ParticipantNotAdmittedError`.
  */
 export const TaskConversationCreate = defineRpc({
   name: "task/conversation/create",
@@ -682,21 +379,22 @@ export const TaskConversationCreate = defineRpc({
     { conversation: ConversationSchema },
     { additionalProperties: false },
   ),
-  // Spec F #632 typed-dispatcher: declare in auth-first order. The
-  // handler MUST also `yield* TmAuthority` before
-  // `requireAgentsAreInTaskParticipants` runs (per per-flow doc
-  // §"Capability list per new handler" + auth-first invariant) — the
-  // dispatcher lazily provisions tags via `provideServiceEffect`, so a
-  // tag that no body yields would never validate. `ConversationCreate-
-  // Authorization` is consumed inside `conversationService.create`.
+  // Tags are declared in auth-first order. The handler must explicitly
+  // `yield* TmAuthority` before `requireAgentsAreInTaskParticipants` —
+  // the dispatcher provisions tags lazily, so a non-TM caller would
+  // otherwise see `ParticipantNotAdmittedError` (a state probe) instead
+  // of `ForbiddenError`.
   capabilities: [
     {
       tag: TmAuthority,
       argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        const c = ctx as CallerConnIdCtx;
+        return {
+          taskId: p.taskId,
+          callerConnId: c.connection.id,
+        };
       },
     },
     {
@@ -705,18 +403,12 @@ export const TaskConversationCreate = defineRpc({
         params: unknown,
         ctx: unknown,
       ): ObtainConversationCreateAuthorizationInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly participants: ReadonlyArray<AgentId>;
         };
         const c = ctx as { readonly auth: { readonly agentId: AgentId } };
         return {
-          // Spec D1 retires the wire `type` enum; `inferConversationType`
-          // is the single source of truth shared with the server-side
-          // `conversationService.create({ type, ... })` call so the
-          // descriptor-provisioned obtain helper authorizes the same
-          // label the handler persists.
-          type: inferConversationType(p.participants),
           agentIds: [...p.participants],
           creatorAgentId: c.auth.agentId,
         };
@@ -755,13 +447,16 @@ export const TaskConversationList = defineRpc({
 // exported) to keep the descriptor definitions terse and avoid
 // drift between siblings.
 const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
   const p = params as { readonly taskId: TaskId };
-  const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-  return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+  const c = ctx as CallerConnIdCtx;
+  return {
+    taskId: p.taskId,
+    callerConnId: c.connection.id,
+  };
 };
 const conversationInTaskArgsOfPair = (params: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
   const p = params as {
     readonly taskId: TaskId;
     readonly conversationId: ConversationId;
@@ -889,8 +584,8 @@ const TaskConversationParticipantsAddedNotificationSchema = Type.Object(
     taskId: TaskId,
     conversationId: ConversationId,
     addedAgentId: AgentId,
-    // Spec body Goal 5 declares this enum literal. Only `"tm"` for
-    // now (D1 narrows authority to TM-only); D3 may widen.
+    // Authority is TM-only today; the enum is single-valued but kept
+    // open-shaped so the wire can widen without a schema rev.
     byAgentOrTm: stringEnum(["tm"]),
   },
   { additionalProperties: false },

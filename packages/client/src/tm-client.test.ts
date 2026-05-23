@@ -1,13 +1,13 @@
 /**
- * Tests for `ws-client.ts` against a real in-process `@effect/platform` WebSocket server.
+ * Tests for `tm-client.ts` against a real in-process `@effect/platform` WebSocket server.
  */
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 
-import { forbidden } from "@moltzap/protocol";
+import { MessagesAuthorize, TaskCreate } from "@moltzap/protocol";
 import {
   AgentsLookupByName,
-  ConversationsList,
+  TaskList,
   DispatchAuthorize,
   Duration,
   Fiber,
@@ -73,11 +73,12 @@ import {
   STALE_PORT_TEST_TIMEOUT_MS,
   TEST_AGENT_ID,
   TEST_CONVERSATION_ID,
+  TEST_TASK_ID,
   type CloseInfo,
   type MutableRef,
   type RequestFrame,
-} from "./ws-client-test-support.js";
-import { shouldLogMalformedFrame } from "./ws-client.js";
+} from "./tm-client-test-support.js";
+import { shouldLogMalformedFrame } from "./tm-client.js";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
@@ -180,6 +181,7 @@ effectTest("rejects pending sendRpc calls when disconnect() is called", () =>
 
       const rpcFiber = yield* Effect.fork(
         sendRpcEffect(client, MessagesSend, {
+          taskId: TEST_TASK_ID,
           conversationId: TEST_CONVERSATION_ID,
           parts: [{ type: "text", text: "hi" }],
         }),
@@ -233,6 +235,7 @@ scopedEffectTest(
 
         const rpcFiber = yield* Effect.fork(
           client.sendRpc(MessagesSend, {
+            taskId: TEST_TASK_ID,
             conversationId: TEST_CONVERSATION_ID,
             parts: [{ type: "text", text: "payload" }],
           }),
@@ -341,12 +344,10 @@ effectTest(
         const client = makeClient(server.url);
         yield* connectClient(client);
 
-        const result = (yield* sendRpcEffect(
-          client,
-          ConversationsList,
-          {},
-        )) as { conversations: unknown[] };
-        expect(result.conversations).toEqual([]);
+        const result = (yield* sendRpcEffect(client, TaskList, {})) as {
+          tasks: unknown[];
+        };
+        expect(result.tasks).toEqual([]);
         yield* closeClient(client);
       }),
     ),
@@ -367,7 +368,7 @@ effectTest(
         yield* connectClient(client);
 
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+          sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
         );
         yield* realSleep(POST_TIMEOUT_SETTLE_MS);
 
@@ -395,7 +396,7 @@ effectTest("routes a well-formed notification frame to onNotification", () =>
       // rather than an RPC response, so the noop Deferred never resolves.
       // Awaiting it would wedge the test for the full RPC_TIMEOUT_MS.
       const rpcFiber = yield* Effect.fork(
-        sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+        sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
       );
       yield* waitFor(() => events.length > 0, {
         maxMs: CLOSE_INFO_WAIT_MS,
@@ -425,7 +426,7 @@ effectTest("does NOT route a notification frame missing the method field", () =>
 
       // Fire-and-forget: see the well-formed-event test above for rationale.
       const rpcFiber = yield* Effect.fork(
-        sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+        sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
       );
       yield* Effect.sleep(Duration.millis(POST_TIMEOUT_SETTLE_MS));
       expect(events).toHaveLength(0);
@@ -454,7 +455,7 @@ effectTest(
         // Fire-and-forget: server responds with 101 malformed frames, no
         // actual RPC response, so awaiting the noop would wedge the test.
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, ConversationsList, {}).pipe(Effect.ignore),
+          sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
         );
 
         // Wait for the malformed frames to flush through the reader fiber.
@@ -487,7 +488,7 @@ effectTest(
         yield* connectClient(client);
 
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, ConversationsList, {}),
+          sendRpcEffect(client, TaskList, {}),
         );
         yield* waitFor(() => server.connections[0]!.received.length >= 2);
 
@@ -521,7 +522,7 @@ effectTest(
         yield* connectClient(client);
 
         yield* expectEffectFailure(
-          sendRpcEffect(client, ConversationsList, {}),
+          sendRpcEffect(client, TaskList, {}),
           /WebSocket not connected/,
         );
         yield* closeClient(client);
@@ -706,7 +707,7 @@ effectTest(
         // request reached the right descriptor's handler.
         const observedTaskId: MutableRef<string | null> = { current: null };
         const client = makeClient(server.url, {
-          appCallbackHandlers: grantDispatchAuthorizeHandlers(observedTaskId),
+          handlers: grantDispatchAuthorizeHandlers(observedTaskId),
         });
         yield* connectClient(client);
 
@@ -735,6 +736,34 @@ effectTest(
     ),
 );
 
+// Spec F: TM-callback handler-table fragment bound at construction.
+// The dispatch/authorize handler unconditionally fails with a
+// registered tagged error so the dispatcher encodes it onto the wire
+// as an `error` reply.
+const REGISTERED_ERROR_HANDLERS = {
+  "dispatch/authorize": {
+    definition: DispatchAuthorize,
+    handle: () =>
+      Effect.fail(
+        new ForbiddenError({
+          message: DOMAIN_REJECTED_MESSAGE,
+          data: { reason: DOMAIN_REJECTED_REASON },
+        }),
+      ),
+  },
+  "messages/authorize": {
+    definition: MessagesAuthorize,
+    handle: () => Effect.fail(new ForbiddenError({ message: "vacuous deny" })),
+  },
+  "task/create": {
+    definition: TaskCreate,
+    handle: () =>
+      Effect.succeed({
+        verdict: { decision: "reject" as const, reason: "vacuous deny" },
+      }),
+  },
+} as const;
+
 effectTest(
   "encodes a registered handler error as a `response` frame with `error`",
   () =>
@@ -744,24 +773,8 @@ effectTest(
           SERVER_ERROR_REQUEST_ID,
           dispatchRequestParams(SESSION_B),
         );
-        // Spec F: TM-callback handler-table fragment bound at
-        // construction. The handler unconditionally fails with a
-        // registered tagged error so the dispatcher encodes it onto
-        // the wire as an `error` reply.
         const client = makeClient(server.url, {
-          appCallbackHandlers: {
-            "dispatch/authorize": {
-              definition: DispatchAuthorize,
-              handle: () =>
-                Effect.fail(
-                  new ForbiddenError({
-                    message: DOMAIN_REJECTED_MESSAGE,
-                    data: { reason: DOMAIN_REJECTED_REASON },
-                  }),
-                ),
-            },
-            "messages/authorize": forbidden,
-          },
+          handlers: REGISTERED_ERROR_HANDLERS,
         });
         yield* connectClient(client);
 
@@ -787,7 +800,7 @@ effectTest(
 // Note: Spec F (#617) makes the TM-callback handler table immutable at
 // construction. Duplicate-key binding is now a TypeScript compile-time
 // error at the object-literal site (duplicate property name on the
-// `appCallbackHandlers` literal). The previous runtime
+// `handlers` literal). The previous runtime
 // duplicate-registration rejection test has been retired alongside the
 // runtime register API (D3 deletion); the type system carries the
 // invariant.

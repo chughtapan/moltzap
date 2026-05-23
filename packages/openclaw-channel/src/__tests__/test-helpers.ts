@@ -69,12 +69,30 @@ export function registerAndClaim(name: string) {
   );
 }
 
+import type { ConversationId, TaskId } from "@moltzap/protocol";
+
 export function extractMessage(event: { params?: unknown }): Message {
   return (event.params as { message: Message }).message;
 }
 
 export function extractConvId(result: unknown): string {
   return (result as { conversation: { id: string } }).conversation.id;
+}
+
+export interface TaskBinding {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+
+export function extractTaskBinding(result: unknown): TaskBinding {
+  const typed = result as {
+    task: { id: TaskId };
+    conversation: { id: ConversationId } | null;
+  };
+  if (typed.conversation === null) {
+    throw new Error("TaskRequest result missing initial conversation");
+  }
+  return { taskId: typed.task.id, conversationId: typed.conversation.id };
 }
 
 export function extractText(message: Message): string {

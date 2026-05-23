@@ -6,20 +6,22 @@
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
   registerAndClaim,
-  extractConvId,
+  extractTaskBinding,
   extractText,
+  type TaskBinding,
 } from "./test-helpers.js";
 import type { Message } from "@moltzap/protocol";
 
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 interface StressAgent {
@@ -27,15 +29,15 @@ interface StressAgent {
 }
 
 interface StressClients {
-  readonly clientA: MoltZapWsClient;
-  readonly clientB: MoltZapWsClient;
-  readonly clientC: MoltZapWsClient;
+  readonly clientA: MoltZapAgentClient;
+  readonly clientB: MoltZapAgentClient;
+  readonly clientC: MoltZapAgentClient;
 }
 
 interface StressConversationIds {
-  readonly convA: string;
-  readonly convB: string;
-  readonly convC: string;
+  readonly convA: TaskBinding;
+  readonly convB: TaskBinding;
+  readonly convC: TaskBinding;
 }
 
 interface StressReplies {
@@ -144,7 +146,7 @@ function stressClients(
 }
 
 function stressClient(agentKey: string) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
   });
@@ -175,13 +177,17 @@ function createStressConversations(
   ).pipe(Effect.map(([convA, convB, convC]) => ({ convA, convB, convC })));
 }
 
-function createConversation(client: MoltZapWsClient, receiverAgentId: string) {
+function createConversation(
+  client: MoltZapAgentClient,
+  receiverAgentId: string,
+) {
   return client
-    .sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: receiverAgentId }],
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [receiverAgentId],
+      initialConversation: { participants: [receiverAgentId] },
     })
-    .pipe(Effect.map(extractConvId));
+    .pipe(Effect.map(extractTaskBinding));
 }
 
 function sendStressMessages(
@@ -199,14 +205,15 @@ function sendStressMessages(
 }
 
 function sendBatch(
-  client: MoltZapWsClient,
-  conversationId: string,
+  client: MoltZapAgentClient,
+  binding: TaskBinding,
   prefix: string,
   count: number,
 ) {
   return Array.from({ length: count }, (_, i) =>
     client.sendRpc(MessagesSend, {
-      conversationId,
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
       parts: [{ type: TEXT_PART_TYPE, text: `${prefix}-msg-${i}` }],
     }),
   );
@@ -221,21 +228,21 @@ function waitForStressReplies(
     [
       waitForRepliesByList({
         client: clients.clientA,
-        conversationId: conversations.convA,
+        binding: conversations.convA,
         receiverAgentId,
         expectedCount: MESSAGES_FROM_A,
         timeoutMs: REPLY_WAIT_TIMEOUT_MS,
       }),
       waitForRepliesByList({
         client: clients.clientB,
-        conversationId: conversations.convB,
+        binding: conversations.convB,
         receiverAgentId,
         expectedCount: MESSAGES_FROM_B,
         timeoutMs: REPLY_WAIT_TIMEOUT_MS,
       }),
       waitForRepliesByList({
         client: clients.clientC,
-        conversationId: conversations.convC,
+        binding: conversations.convC,
         receiverAgentId,
         expectedCount: MESSAGES_FROM_C,
         timeoutMs: REPLY_WAIT_TIMEOUT_MS,
@@ -252,8 +259,8 @@ function waitForStressReplies(
 }
 
 function waitForRepliesByList(params: {
-  readonly client: MoltZapWsClient;
-  readonly conversationId: string;
+  readonly client: MoltZapAgentClient;
+  readonly binding: TaskBinding;
   readonly receiverAgentId: string;
   readonly expectedCount: number;
   readonly timeoutMs: number;
@@ -269,20 +276,21 @@ function waitForRepliesByList(params: {
     }
     return yield* Effect.fail(
       new StressTestError({
-        message: `Timed out waiting for replies in ${params.conversationId}`,
+        message: `Timed out waiting for replies in ${params.binding.conversationId}`,
       }),
     );
   });
 }
 
 function listMatchingReplies(params: {
-  readonly client: MoltZapWsClient;
-  readonly conversationId: string;
+  readonly client: MoltZapAgentClient;
+  readonly binding: TaskBinding;
   readonly receiverAgentId: string;
 }) {
   return params.client
     .sendRpc(MessagesList, {
-      conversationId: params.conversationId,
+      taskId: params.binding.taskId,
+      conversationId: params.binding.conversationId,
       limit: TOTAL_STRESS_MESSAGE_COUNT,
     })
     .pipe(
@@ -304,9 +312,21 @@ function expectStressReplies(
   expect(replies.repliesA).toHaveLength(MESSAGES_FROM_A);
   expect(replies.repliesB).toHaveLength(MESSAGES_FROM_B);
   expect(replies.repliesC).toHaveLength(MESSAGES_FROM_C);
-  expectReplyBatch(replies.repliesA, conversations.convA, receiverAgentId);
-  expectReplyBatch(replies.repliesB, conversations.convB, receiverAgentId);
-  expectReplyBatch(replies.repliesC, conversations.convC, receiverAgentId);
+  expectReplyBatch(
+    replies.repliesA,
+    conversations.convA.conversationId,
+    receiverAgentId,
+  );
+  expectReplyBatch(
+    replies.repliesB,
+    conversations.convB.conversationId,
+    receiverAgentId,
+  );
+  expectReplyBatch(
+    replies.repliesC,
+    conversations.convC.conversationId,
+    receiverAgentId,
+  );
   expect(uniqueReplyIds(replies).size).toBe(TOTAL_STRESS_MESSAGE_COUNT);
 }
 

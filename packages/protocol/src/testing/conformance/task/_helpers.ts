@@ -2,7 +2,6 @@
  * Task-layer helpers shared by delivery / lifecycle / isolation
  * properties. Carved verbatim from `conformance/delivery.ts@961a5c8`.
  */
-import type { Static } from "@sinclair/typebox";
 import {
   Chunk,
   Duration,
@@ -15,23 +14,39 @@ import {
   Scope,
 } from "effect";
 import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
+import type { NotificationParamsOf } from "../../../transport/method.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import {
   ConversationArchivedError,
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
   MessageReceivedNotificationDefinition,
-  ConversationsArchive,
-  ConversationsCreate,
-  ConversationsUnarchive,
-  ConversationsUpdate,
   MessagesSend,
   ConversationId,
+  TaskConversationArchive,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationUnarchive,
+  TaskConversationUnarchivedNotificationDefinition,
+  TaskRequest,
+  TaskId,
 } from "../../../task/methods.js";
+import {
+  AppsRegister,
+  DispatchAuthorize,
+  MessagesAuthorize,
+  TaskCreate,
+} from "../../../app/methods.js";
+import {
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
+} from "../../../task/methods.js";
+import { AppId as AppIdSchema } from "../../../task/ids.js";
+import type { Static } from "@sinclair/typebox";
+import { appId as makeAppId } from "../_shared/test-fixtures.js";
 import { AgentId } from "../../../identity/methods.js";
-import { conversationId as makeConversationId } from "../_shared/test-fixtures.js";
+import {
+  conversationId as makeConversationId,
+  taskId as makeTaskId,
+} from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
 import {
   makeTestClient,
@@ -48,13 +63,11 @@ export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256;
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3;
 const MAX_N = 4;
 
-export type AgentIdValue = Static<typeof AgentId>;
-export type ConversationIdValue = Static<typeof ConversationId>;
-
 export interface ConversationFixture {
   readonly owner: ConversationActor;
   readonly participants: ReadonlyArray<ConversationActor>;
-  readonly conversationId: ConversationIdValue;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
 }
 
 export type ConversationActor = {
@@ -199,28 +212,10 @@ function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
   );
 }
 
-type ArchiveEventData = {
-  readonly conversationId?: unknown;
-  readonly archivedAt?: unknown;
-  readonly by?: unknown;
-};
-
-type ConversationNotificationData = {
-  readonly conversation?: {
-    readonly id?: unknown;
-    readonly name?: unknown;
-  };
-};
-
 type MessageEventData = {
   readonly message?: {
     readonly conversationId?: unknown;
   };
-};
-
-type UnarchiveEventData = {
-  readonly conversationId?: unknown;
-  readonly by?: unknown;
 };
 
 export function deliveryViolation(
@@ -309,10 +304,12 @@ export function firstParticipant(
 
 export function sendText(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  taskId: TaskId,
+  conversationId: ConversationId,
   text: string,
 ) {
   return actor.client.sendRpc(MessagesSend, {
+    taskId,
     conversationId,
     parts: [{ type: "text", text }],
   });
@@ -320,46 +317,44 @@ export function sendText(
 
 export function archiveConversation(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  taskId: TaskId,
+  conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(ConversationsArchive, { conversationId });
-}
-
-export function updateConversationName(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  name: string,
-) {
-  return actor.client.sendRpc(ConversationsUpdate, {
+  return actor.client.sendRpc(TaskConversationArchive, {
+    taskId,
     conversationId,
-    name,
   });
 }
 
 export function unarchiveConversation(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  taskId: TaskId,
+  conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(ConversationsUnarchive, { conversationId });
+  return actor.client.sendRpc(TaskConversationUnarchive, {
+    taskId,
+    conversationId,
+  });
 }
 
 export function waitForConversationCreatedNotification(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `created event missing: ${reason}`),
       ),
     );
-    const data = event.params as ConversationNotificationData | undefined;
-    if (data?.conversation?.id !== conversationId) {
+    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
+    const data = event.params as { conversationId?: unknown } | undefined;
+    if (data?.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -370,40 +365,9 @@ export function waitForConversationCreatedNotification(
   }).pipe(Effect.withSpan("waitForConversationCreatedNotification"));
 }
 
-export function waitForConversationUpdatedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  name: string,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation> {
-  return Effect.gen(function* () {
-    const event = yield* awaitOneNotification(
-      observer.notifications,
-      ConversationUpdatedNotificationDefinition,
-      DELIVERY_DEFAULT_TIMEOUT_MS,
-    ).pipe(
-      Effect.mapError((reason) =>
-        deliveryViolation(propertyName, `updated event missing: ${reason}`),
-      ),
-    );
-    const data = event.params as ConversationNotificationData | undefined;
-    if (
-      data?.conversation?.id !== conversationId ||
-      data.conversation.name !== name
-    ) {
-      return yield* Effect.fail(
-        deliveryViolation(
-          propertyName,
-          `bad updated event payload: ${JSON.stringify(event.params)}`,
-        ),
-      );
-    }
-  }).pipe(Effect.withSpan("waitForConversationUpdatedNotification"));
-}
-
 export function waitForMessageReceivedNotification(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
+  conversationId: ConversationId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
@@ -430,25 +394,30 @@ export function waitForMessageReceivedNotification(
 
 export function waitForArchivedEvent(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
+  conversationId: ConversationId,
+  _byAgentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      ConversationArchivedNotificationDefinition,
+      TaskConversationArchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `archive event missing: ${reason}`),
       ),
     );
-    const data = event.params as ArchiveEventData | undefined;
+    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
+    const data = event.params as
+      | {
+          conversationId?: unknown;
+          archivedAt?: unknown;
+        }
+      | undefined;
     if (
       data?.conversationId !== conversationId ||
-      typeof data.archivedAt !== "string" ||
-      data.by !== byAgentId
+      typeof data.archivedAt !== "string"
     ) {
       return yield* Effect.fail(
         deliveryViolation(
@@ -462,22 +431,23 @@ export function waitForArchivedEvent(
 
 export function waitForUnarchivedEvent(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
+  conversationId: ConversationId,
+  _byAgentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      ConversationUnarchivedNotificationDefinition,
+      TaskConversationUnarchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `unarchive event missing: ${reason}`),
       ),
     );
-    const data = event.params as UnarchiveEventData | undefined;
-    if (data?.conversationId !== conversationId || data.by !== byAgentId) {
+    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
+    const data = event.params as { conversationId?: unknown } | undefined;
+    if (data?.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -488,18 +458,26 @@ export function waitForUnarchivedEvent(
   }).pipe(Effect.withSpan("waitForUnarchivedEvent"));
 }
 
+export interface AssertConversationRejectsMessagesInput {
+  readonly actor: ConversationActor;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly propertyName: string;
+  readonly expectedError?: { readonly code: number; readonly label: string };
+}
+
 export function assertConversationRejectsMessages(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-  expectedError: { readonly code: number; readonly label: string } = {
+  input: AssertConversationRejectsMessagesInput,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  const expectedError = input.expectedError ?? {
     code: ConversationArchivedError.code,
     label: "ConversationArchived",
-  },
-): Effect.Effect<void, PropertyInvariantViolation> {
+  };
+  const { actor, taskId, conversationId, propertyName } = input;
   return Effect.gen(function* () {
     const outcome = yield* sendText(
       actor,
+      taskId,
       conversationId,
       "must-fail-while-archived",
     ).pipe(Effect.either);
@@ -553,6 +531,225 @@ export function acquireClient(
   }).pipe(Effect.withSpan("acquireClient"));
 }
 
+/**
+ * Wire `owner` as moderator for a fresh app id: AppsRegister + attach
+ * grant-all `DispatchAuthorize` + forward-all `MessagesAuthorize` wire
+ * callbacks. Required for properties that drive TM-only RPCs
+ * (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
+ *
+ * Participant tracking is auto-discovered — the moderator subscribes
+ * to `task/conversation/participants/added` and
+ * `task/conversation/participants/removed` notifications (which the
+ * server delivers to every conversation participant including the
+ * moderator) and maintains a per-fixture conversation-id keyed
+ * mutable map of agent-id sets from those events. The forward-all
+ * callback reads from that map.
+ *
+ * Tests get a deterministic-readiness helper
+ * (`awaitConversationReady`) to bridge the inherent observation gap
+ * between `TaskRequest`/`TaskConversationCreate` returning and the
+ * matching notification arriving at the moderator's subscriber. Use
+ * it once per conversation, immediately after the create RPC
+ * resolves, before any `messages/send` triggers
+ * `MessagesAuthorize`.
+ */
+function freshConformanceAppId(): string {
+  return crypto.randomUUID();
+}
+
+function attachGrantDispatchAuthorize(client: TestClient): Effect.Effect<void> {
+  return client.onAppCallback(DispatchAuthorize, () =>
+    Effect.succeed({ admission: { decision: "grant" as const } }),
+  );
+}
+
+function attachAcceptTaskCreate(client: TestClient): Effect.Effect<void> {
+  return client.onAppCallback(TaskCreate, () =>
+    Effect.succeed({ verdict: { decision: "accept" as const } }),
+  );
+}
+
+type ParticipantMap = Map<ConversationId, Set<Static<typeof AgentId>>>;
+
+function attachForwardAllMessagesAuthorize(
+  client: TestClient,
+  participantsRef: Ref.Ref<ParticipantMap>,
+): Effect.Effect<void> {
+  return client.onAppCallback(MessagesAuthorize, (params) =>
+    Effect.gen(function* () {
+      const map = yield* Ref.get(participantsRef);
+      const conv = map.get(makeConversationId(params.conversationId));
+      const recipients =
+        conv === undefined
+          ? []
+          : [...conv].filter((a) => a !== params.message.senderAgentId);
+      return {
+        verdict: { decision: "Forward" as const, recipients },
+      };
+    }),
+  );
+}
+
+// Initial-conversation snapshot. `task/conversation/created` is the
+// bulk event the server emits when a conversation is born (typically
+// as the initialConversation hint folded into task/request); seed
+// participantsRef from its `participants` field so
+// awaitConversationReady doesn't time out waiting for per-participant
+// added events that the server never sent.
+function applyConversationCreated(
+  prev: ParticipantMap,
+  params: NotificationParamsOf<
+    typeof TaskConversationCreatedNotificationDefinition
+  >,
+): ParticipantMap {
+  const convId = makeConversationId(params.conversationId);
+  const next = new Map(prev);
+  next.set(convId, new Set(params.participants));
+  return next;
+}
+
+function applyParticipantsAdded(
+  prev: ParticipantMap,
+  params: NotificationParamsOf<
+    typeof TaskConversationParticipantsAddedNotificationDefinition
+  >,
+): ParticipantMap {
+  const convId = makeConversationId(params.conversationId);
+  const existing = prev.get(convId) ?? new Set();
+  const updated = new Set(existing);
+  updated.add(params.addedAgentId);
+  const next = new Map(prev);
+  next.set(convId, updated);
+  return next;
+}
+
+function applyParticipantsRemoved(
+  prev: ParticipantMap,
+  params: NotificationParamsOf<
+    typeof TaskConversationParticipantsRemovedNotificationDefinition
+  >,
+): ParticipantMap {
+  const convId = makeConversationId(params.conversationId);
+  const existing = prev.get(convId);
+  if (existing === undefined) return prev;
+  const updated = new Set(existing);
+  updated.delete(params.removedAgentId);
+  const next = new Map(prev);
+  next.set(convId, updated);
+  return next;
+}
+
+function subscribeParticipantNotifications(
+  client: TestClient,
+  participantsRef: Ref.Ref<ParticipantMap>,
+): Effect.Effect<void, never, Scope.Scope> {
+  const pump = <D extends AnyNotificationDefinition>(
+    definition: D,
+    mutate: (
+      prev: ParticipantMap,
+      params: NotificationParamsOf<D>,
+    ) => ParticipantMap,
+  ) =>
+    Effect.forkScoped(
+      client.subscribe(definition).pipe(
+        Stream.runForEach((notif) =>
+          Ref.update(participantsRef, (m) =>
+            mutate(m, notif.params as NotificationParamsOf<D>),
+          ),
+        ),
+        Effect.catchAll(() => Effect.void),
+      ),
+    ).pipe(Effect.asVoid);
+
+  return Effect.gen(function* () {
+    yield* pump(
+      TaskConversationCreatedNotificationDefinition,
+      applyConversationCreated,
+    );
+    yield* pump(
+      TaskConversationParticipantsAddedNotificationDefinition,
+      applyParticipantsAdded,
+    );
+    yield* pump(
+      TaskConversationParticipantsRemovedNotificationDefinition,
+      applyParticipantsRemoved,
+    );
+  });
+}
+
+const PARTICIPANT_READY_TIMEOUT_MS = 2000;
+const PARTICIPANT_READY_POLL_MS = 10;
+
+function awaitParticipantsForConversation(
+  participantsRef: Ref.Ref<ParticipantMap>,
+  conversationId: ConversationId,
+  expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+): Effect.Effect<void, string> {
+  const wanted = new Set(expectedAgentIds);
+  return Effect.gen(function* () {
+    const deadline = Date.now() + PARTICIPANT_READY_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const map = yield* Ref.get(participantsRef);
+      const have = map.get(conversationId) ?? new Set();
+      const missing = [...wanted].filter((a) => !have.has(a));
+      if (missing.length === 0) return;
+      yield* Effect.sleep(`${PARTICIPANT_READY_POLL_MS} millis`);
+    }
+    return yield* Effect.fail(
+      `moderator did not observe participants for ${conversationId} within ${PARTICIPANT_READY_TIMEOUT_MS}ms`,
+    );
+  });
+}
+
+export interface ModeratedHandle {
+  readonly appId: Static<typeof AppIdSchema>;
+
+  /**
+   * Block until the moderator has observed `expectedAgentIds` as
+   * participants of `conversationId` via
+   * `task/conversation/participants/added` notifications. Bridges
+   * the gap between the create RPC returning and the notification
+   * arriving on the moderator's subscriber.
+   */
+  readonly awaitConversationReady: (
+    conversationId: ConversationId,
+    expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+  ) => Effect.Effect<void, string>;
+}
+
+export function moderateAs(
+  owner: ConversationActor,
+  namePrefix: string,
+): Effect.Effect<ModeratedHandle, string, Scope.Scope> {
+  return Effect.gen(function* () {
+    const fixtureAppId = makeAppId(freshConformanceAppId());
+    const participantsRef = yield* Ref.make<ParticipantMap>(new Map());
+    yield* subscribeParticipantNotifications(owner.client, participantsRef);
+    yield* attachGrantDispatchAuthorize(owner.client);
+    yield* attachAcceptTaskCreate(owner.client);
+    yield* attachForwardAllMessagesAuthorize(owner.client, participantsRef);
+    const registerResult = yield* owner.client
+      .sendRpc(AppsRegister, {
+        manifest: { appId: fixtureAppId, name: `${namePrefix}-app` },
+      })
+      .pipe(Effect.either);
+    yield* requireRight(
+      registerResult,
+      (error) => `apps/register failed: ${error._tag}`,
+    );
+    const handle: ModeratedHandle = {
+      appId: fixtureAppId,
+      awaitConversationReady: (conversationId, expectedAgentIds) =>
+        awaitParticipantsForConversation(
+          participantsRef,
+          conversationId,
+          expectedAgentIds,
+        ),
+    };
+    return handle;
+  }).pipe(Effect.withSpan("moderateAs"));
+}
+
 export function acquireConversation(
   ctx: ConformanceRunContext,
   n: number,
@@ -566,32 +763,40 @@ export function acquireConversation(
       (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
       { concurrency: clamped },
     );
+    // Spec D3 + #677: owner needs TM authority for TM-only RPCs
+    // (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
+    const moderator = yield* moderateAs(owner, namePrefix);
     const createResult = yield* owner.client
-      .sendRpc(ConversationsCreate, {
-        type: "group",
-        name: `${namePrefix}-conv`,
-        participants: participants.map((p) => ({
-          type: "agent" as const,
-          id: p.agent.agentId,
-        })),
+      .sendRpc(TaskRequest, {
+        appId: moderator.appId,
+        invitedAgentIds: participants.map((p) => p.agent.agentId),
+        initialConversation: {
+          name: `${namePrefix}-conv`,
+          participants: participants.map((p) => p.agent.agentId),
+        },
       })
       .pipe(Effect.either);
     const created = (yield* requireRight(
       createResult,
-      (error) => `conversations/create failed: ${error._tag}`,
+      (error) => `task/create failed: ${error._tag}`,
     )) as {
-      conversation?: { id?: string };
+      task: { id: string };
+      conversation: { id: string } | null;
     };
     const conversationId = created.conversation?.id;
     if (typeof conversationId !== "string" || conversationId.length === 0) {
-      return yield* Effect.fail(
-        `conversations/create returned no conversation.id`,
-      );
+      return yield* Effect.fail(`task/create returned no conversation.id`);
     }
+    const branded = makeConversationId(conversationId);
+    yield* moderator.awaitConversationReady(
+      branded,
+      participants.map((p) => p.agent.agentId),
+    );
     return {
       owner,
       participants,
-      conversationId: makeConversationId(conversationId),
+      taskId: makeTaskId(created.task.id),
+      conversationId: branded,
     };
   }).pipe(Effect.withSpan("acquireConversation"));
 }

@@ -1,35 +1,40 @@
-# 12 — Task / TaskConversation family (Spec D1)
+# 12 — Task / TaskConversation family
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-Spec D1 (issue #598) adds an additive `task/*` + `task/conversation/*`
-RPC and notification surface alongside the legacy `tasks/*` +
-`conversations/*` families. The legacy descriptors stay live during a
-bounded transitional window; Spec D3 (#600) deletes them and the
-parallel notification emission inside the same orchestration (parent
-epic #602).
+The `task/*` + `task/conversation/*` RPC and notification surface for
+task-bound conversations.
 
-This doc covers the new surface only. See `01-method-definition.md` for
-how `defineRpc` / `defineNotification` build descriptors, and
-`05-notification-fanout.md` for the encode side of notifications.
-Server-side handler structure (`tasks.handlers.ts` extensions, service
-delegation, dual emission) is detailed in
-`packages/server/src/task/handlers/` — impl-staff target.
+See `01-method-definition.md` for how `defineRpc` /
+`defineNotification` build descriptors, and `05-notification-fanout.md`
+for the encode side of notifications. Server-side handler structure
+lives in `packages/server/src/task/handlers/`.
 
 ## Wire surface
 
 ### RPCs
 
-| Wire name | Const | Authority | Replaces |
-|---|---|---|---|
-| `task/create` | `TaskCreate` | any agent + contacts | `tasks/create` |
-| `task/leave` | `TaskLeave` | self | (new) |
-| `task/conversation/create` | `TaskConversationCreate` | TM | `tasks/createConversation` |
-| `task/conversation/list` | `TaskConversationList` | self | (new; replaces `conversations/list`) |
-| `task/conversation/archive` | `TaskConversationArchive` | TM | `tasks/closeConversation` |
-| `task/conversation/unarchive` | `TaskConversationUnarchive` | TM | (new) |
-| `task/conversation/participants/add` | `TaskConversationAddParticipant` | TM + admitted | `conversations/addParticipant` |
-| `task/conversation/participants/remove` | `TaskConversationRemoveParticipant` | TM | `conversations/removeParticipant` |
+| Wire name | Const | Authority |
+|---|---|---|
+| `task/request` | `TaskRequest` | any agent + contacts |
+| `task/leave` | `TaskLeave` | self |
+| `task/conversation/create` | `TaskConversationCreate` | TM |
+| `task/conversation/list` | `TaskConversationList` | self |
+| `task/conversation/archive` | `TaskConversationArchive` | TM |
+| `task/conversation/unarchive` | `TaskConversationUnarchive` | TM |
+| `task/conversation/participants/add` | `TaskConversationAddParticipant` | TM + admitted |
+| `task/conversation/participants/remove` | `TaskConversationRemoveParticipant` | TM |
+
+The agent-initiated `task/request` and the server-initiated
+`task/create` TM callback are distinct wires. `task/request` is the
+client→server entry point (agent asks for a task); after the task row
+lands in `waiting`, the server fires a `task/create` TM-callback
+(declared in `packages/protocol/src/app/methods.ts` → `TaskCreate`,
+result `{ verdict: { decision: "accept" } | { decision: "reject",
+reason?: string } }`). The TM's verdict drives the task's lifecycle
+transition (waiting → active on accept, waiting → failed on reject /
+timeout / RPC failure — fail-closed). The TM, once it accepts, owns
+conversation creation via `task/conversation/create`.
 
 ### Notifications
 
@@ -41,21 +46,8 @@ delegation, dual emission) is detailed in
 | `task/conversation/participants/added` | `TaskConversationParticipantsAddedNotificationDefinition` | post-mutation membership (newcomer included) |
 | `task/conversation/participants/removed` | `TaskConversationParticipantsRemovedNotificationDefinition` | pre-mutation membership (removed agent still receives) |
 
-`task/conversation/updated` is NOT defined — Spec D1 explicitly removes
-the conversation-update flow (set-at-create-time only). The dispatch
-brief listing it is stale relative to spec body Goal 1+5.
-
-## Naming decision: singular `task/*`
-
-The new namespace is singular (`task/create`, `task/leave`,
-`task/conversation/*`). The legacy family is plural (`tasks/create`,
-`tasks/createConversation`). Singular vs. plural lets both wire names
-coexist during the dual-emit window without collision; the
-single-word boundary also matches the per-flow doc title and is
-easier to grep for in client code.
-
-D3 (#600) deletes the plural `tasks/*` family; only the singular
-`task/*` family survives.
+`task/conversation/updated` is NOT defined — conversations are
+set-at-create-time only (no in-place update flow).
 
 ## DEFAULT_APP_ID — server-bundled default app
 
@@ -63,28 +55,17 @@ D3 (#600) deletes the plural `tasks/*` family; only the singular
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId;
 ```
 
-One app for every DM and every Group. The `conversation_type` enum
-(`dm` / `group`) becomes a display-only label derived from participant
-count; D3 retires the column. Capacity is uniform 256 per conversation.
+One app for every DM and every Group. Conversation kind (DM vs Group)
+is a display-only label derived from participant cardinality where
+needed; the server schema does not store it. Capacity is uniform 256
+per conversation.
 
-Server boot wiring (impl-staff target, replaces
-`packages/server/src/app/layers.ts` → the two existing default-TM
-registrations):
+Tasks created with `DEFAULT_APP_ID` are unmoderated — there is no
+remote app registered for them, so no connection passes the TM-authority
+gate and TM-only RPCs are unreachable. Ordinary participants still send
+messages via the AgentClient surface.
 
-```ts
-// Before (D1 still has both registrations; D3 deletes them):
-//   yield* registry.register(DEFAULT_DM_TM_ADDRESS, makeDefaultTmHandler("dm"));
-//   yield* registry.register(DEFAULT_GROUP_TM_ADDRESS, makeDefaultTmHandler("group"));
-//
-// D1: keep above (transitional) + add the single default-app TM registration.
-// D3: delete above, leave only the default-app TM registration.
-```
-
-The `tm_endpoint_address` for the default app derives from
-`DEFAULT_APP_ID` via the app-tm-registry lookup (the registry's
-existing one-app-to-one-TM contract). No new schema column required.
-
-## TaskCreate flow
+## TaskRequest flow
 
 Data-flow contract (impl-staff translates to Effect+Kysely; this is
 NOT normative pseudocode):
@@ -96,21 +77,11 @@ NOT normative pseudocode):
 5. **Atomic initial conversation** — when `initialConversation` is supplied the new task row is committed by `taskService.create` BEFORE `conversationService.create` opens its own transaction for the conversation insert. If the conversation insert fails the task row remains (the legacy `conversations/create` shape never offered cross-call atomicity either). Notifications enqueue AFTER each call returns: dual-emit fires only on the success path; failure rolls back ONLY the failing call. Implementers needing strict atomicity (one DB commit for task + first conversation) must extend `taskService.create` to nest the conversation insert inside its outer `transaction(...)` — out of scope for D1.
 6. **Return** — `{ task, conversation: Conversation | null }`. `conversation` is non-null iff `initialConversation` was supplied AND the dedup query missed.
 
-The dedup query matches via `task_participants` (the task-level
-participant table). This is a NEW query shape; the existing
-`conversationService.existingDmForCreate` matches via
-`conversation_participants` for the legacy 2-participant DM case and
-is NOT a generalization of the new dedup. Impl-staff lands the new
-helper `conversationService.findExistingTaskByParticipants(callerId,
-invitedAgentIds, appId)` as a sibling of `existingDmForCreate`, not a
-refactor of it.
-
-The single-invitee DM case under `DEFAULT_APP_ID` is functionally
-equivalent to today's DM-dedup behavior (one extant task per agent
-pair) at the OBSERVABLE layer. The IMPLEMENTATION queries are
-distinct tables (today's runs against `conversation_participants`;
-D1's runs against `task_participants`); the new helper is a sibling,
-not a refactor.
+Dedup matches via `task_participants` (task-level): the helper
+`taskService.findExistingTaskByParticipants(callerId, invitedAgentIds,
+appId)` finds an extant task whose participant set is exactly
+`{caller} ∪ invitedAgentIds`. The single-invitee case under
+`DEFAULT_APP_ID` is the canonical "one DM per agent pair" rule.
 
 ## TaskLeave flow
 
@@ -124,13 +95,13 @@ NOT normative pseudocode):
    - **Bulk participant deletion** — one DELETE: `DELETE FROM conversation_participants WHERE agent_id = $caller AND conversation_id IN (SELECT id FROM conversations WHERE task_id = $taskId)`. The bulk form avoids the per-cid loop's transaction-round-trip cost on tasks with many conversations.
    - **Task participant deletion** — one DELETE: `DELETE FROM task_participants WHERE task_id = $taskId AND agent_id = $caller`.
    - **Last-participant closure check** — if the remaining `task_participants` count for `taskId` is zero, transition `tasks.status = 'closed'` and enqueue `TaskClosedNotificationDefinition` with payload `{ task }` (matching the EXISTING notification shape; the spec body Goal 2 reference to `{ taskId }` is a shorthand — the wire shape is the canonical `{ task: Task }`).
-   - **Per-conversation removal notifications** — enqueue one `TaskConversationParticipantsRemovedNotificationDefinition` per `conversation_id` in the snapshot, with `{ taskId, conversationId, removedAgentId: callerAgentId, reason: "task_leave" }`. Dual-emit the legacy `participants/removed` per the dual-emission table below.
+   - **Per-conversation removal notifications** — enqueue one `TaskConversationParticipantsRemovedNotificationDefinition` per `conversation_id` in the snapshot, with `{ taskId, conversationId, removedAgentId: callerAgentId, reason: "task_leave" }`.
 4. **Post-commit** — broadcast all enqueued notifications via `broadcastNotificationToAgents`. Broadcast failure does NOT roll back the DB write (best-effort delivery).
 
 Additional contract clauses (spec body Goal 2):
 
 - **Last-participant in individual conversations** — left in place (NOT auto-archived). No `TaskConversationArchive` notification fires from `TaskLeave`.
-- **TM unaffected** — `tm_endpoint_address` does NOT change; TMs are not participants.
+- **TM unaffected** — `tasks.app_id` does NOT change; TMs are not participants.
 - **Owner is not special** — task closure rule applies even if the owner leaves.
 
 ## Participant invariant: TaskConversationAddParticipant
@@ -139,16 +110,10 @@ Data-flow contract (impl-staff translates to Effect+Kysely; non-normative):
 
 1. **Decode** — schema validates `taskId`, `conversationId`, `agentId`.
 2. **Authority** — `TmAuthority` (Spec E) for `taskId`.
-3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. Existing row admitted-or-pending (i.e. `admittedAt` may be NULL) — both are accepted; admission state is a separate gate.
+3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. The server auto-admits every invitee at TaskRequest today (`admittedAt` is non-null on every row), so the membership check is sufficient. The `admittedAt`-null branch + the `WHERE admitted_at IS NOT NULL` read filters are kept in place for a future "pending invitation" flow.
 4. **Conversation-in-task verification** — verify `(conversations.id = $conversationId AND conversations.task_id = $taskId)`. Mismatch = `NotFoundError` (cross-task `conversationId` rejected).
 5. **Insert** — `INSERT INTO conversation_participants (conversation_id, agent_id) ON CONFLICT DO NOTHING` inside a transaction.
-6. **Dual-emit notifications** — `TaskConversationParticipantsAddedNotificationDefinition` AND legacy `ParticipantsAddedNotificationDefinition` enqueue AFTER the participant insert returns. Broadcast is best-effort: `notification-broadcast.ts` calls `NetworkSendService.broadcast`, which forks socket writes via `Effect.runFork` and does not participate in the participant-insert transaction.
-
-The invariant is NEW in D1. Today's `ConversationsAddParticipant`
-does NOT check `task_participants` membership; D1's
-`TaskConversationAddParticipant` does. Legacy
-`ConversationsAddParticipant` keeps its current behavior during the
-transitional window; D3 deletes it.
+6. **Notification** — `TaskConversationParticipantsAddedNotificationDefinition` enqueues AFTER the participant insert returns. Broadcast is best-effort: `notification-broadcast.ts` calls `NetworkSendService.broadcast`, which forks socket writes via `Effect.runFork` and does not participate in the participant-insert transaction.
 
 ### TaskConversationRemoveParticipant last-removal
 
@@ -156,16 +121,15 @@ When `TaskConversationRemoveParticipant` removes the last remaining
 agent from a conversation's `conversation_participants` (i.e. the
 post-mutation count is zero), the conversation is **left in place,
 not auto-archived** — same semantics as `TaskLeave`'s
-last-participant-in-conversation rule (spec body Goal 2). No
-`TaskConversationArchive` notification fires; the conversation row
-stays with `archivedAt IS NULL`. D3 may revisit if product input
-demands auto-archive; D1 keeps the conservative behavior.
+last-participant-in-conversation rule. No `TaskConversationArchive`
+notification fires; the conversation row stays with
+`archivedAt IS NULL`.
 
 ## Authority gates per operation
 
 | Method | Authority |
 |---|---|
-| `TaskCreate` | any authenticated agent + `requireContactPolicyForCreate` |
+| `TaskRequest` | any authenticated agent + `requireContactPolicyForCreate` |
 | `TaskLeave` | self only |
 | `TaskConversationCreate` | TM only + participant-admitted invariant |
 | `TaskConversationList` | self only (caller ∈ `conversation_participants`) |
@@ -174,26 +138,37 @@ demands auto-archive; D1 keeps the conservative behavior.
 | `TaskConversationAddParticipant` | TM only + participant-admitted invariant |
 | `TaskConversationRemoveParticipant` | TM only |
 
-## Capability list per new handler (post-Spec-F #632 cutover)
+### "TM only" — what that means today
 
-Spec F (#632, PR #660) merged the typed-dispatcher cutover: each
-`defineRpc` in `packages/protocol/src/task/tasks.ts` declares its
-capability tags in `capabilities: [{ tag, argsOf }]`, and the
-dispatcher in `packages/protocol/src/transport/dispatch.ts →
-applyCapabilityProvisioning` auto-threads
+TM authority is proved by the calling WS connection being the
+registered remote-app connection for `tasks.app_id`. Apps register via
+the wire `AppsRegister` RPC; `AppHost.isAppConnection(appId, connId)`
+does the lookup. A `MoltZapTMClient` that has `AppsRegister`'d its
+manifest can call the TM-only RPCs over the wire from that connection.
+Server-internal app-host code (in-process `dispatch_authorize` /
+`message_authorize` callbacks) also drives them when the in-process
+hook is registered.
+
+## Capability list per handler
+
+Each `defineRpc` in `packages/protocol/src/task/tasks.ts` declares its
+capability tags in `capabilities: [{ tag, argsOf }]`. The dispatcher
+(`packages/protocol/src/transport/dispatch.ts →
+applyCapabilityProvisioning`) auto-threads
 `Effect.provideServiceEffect(tag, providerEffect)` per frame from the
 shared provider table in
-`packages/server/src/app/capability-providers.ts → serverCapabilityProviders`.
-Handler bodies just call the service method; the service body yields
-the tag and the dispatcher's lazy provision runs the obtain helper at
-first yield. The compile-time lockstep gate (Canary 7 in
+`packages/server/src/app/capability-providers.ts →
+serverCapabilityProviders`. Handler bodies just call the service
+method; the service yields the tag and the dispatcher's lazy provision
+runs the obtain helper at first yield. The compile-time lockstep gate
+(Canary 7 in
 `packages/protocol/src/transport/typed-dispatcher.types-check.ts`)
 rejects any handler whose R channel references a tag NOT declared in
 the descriptor's `capabilities` array.
 
 | Handler | Descriptor `capabilities` | Notes |
 |---|---|---|
-| `TaskCreate` | (none declared) | `obtainContactPolicyForCreate` stays inline-piped (conditional on `invitedAgentIds.length > 0`); `obtainConversationCreateAuthorization` stays inline-piped inside `mintInitialConversation` (conditional on `initialConversation`). Both conditions fail the static `argsOf` shape; pattern matches the `MessagesSend` Spec F §3 carve-out. |
+| `TaskRequest` | (none declared) | `obtainContactPolicyForCreate` stays inline-piped (conditional on `invitedAgentIds.length > 0`); `obtainConversationCreateAuthorization` stays inline-piped inside `mintInitialConversation` (conditional on `initialConversation`). Both conditions fail the static `argsOf` shape; pattern matches the `MessagesSend` Spec F §3 carve-out. |
 | `TaskLeave` | (none declared) | Self-auth via `ctx.agentId`; `taskService.leaveTask` does not require any capability tag. |
 | `TaskConversationCreate` | `[TmAuthority, ConversationCreateAuthorization]` | Handler explicitly `yield* TmAuthority` BEFORE `requireAgentsAreInTaskParticipants` to force the lazy obtain helper to execute ahead of the participant-admitted probe (auth-first invariant). `ConversationCreateAuthorization` is consumed inside `conversationService.create`. |
 | `TaskConversationList` | (none declared) | Self-auth via `ctx.agentId`; the underlying `conversationService.list` does not require any capability tag. |
@@ -205,10 +180,6 @@ the descriptor's `capabilities` array.
 The four `TaskConversation{Archive,Unarchive,AddParticipant,RemoveParticipant}`
 descriptors share `tmAuthorityArgsOfTask` / `conversationInTaskArgsOfPair`
 builders in `tasks.ts` so their identical capability shapes cannot drift.
-`TaskConversationCreate`'s `ConversationCreateAuthorization` argsOf calls
-`inferConversationType(p.participants)` (exported from the same file) so the
-descriptor-provisioned `type` label stays in lockstep with the handler's
-`conversationService.create({ type, ... })` call.
 
 The auth-first explicit yield matters: lazy `Effect.provideServiceEffect`
 runs the provider only at first tag-yield inside the composed effect, so
@@ -216,42 +187,28 @@ without the explicit `yield* TmAuthority` a non-TM caller could see
 `ParticipantNotAdmittedError` from `requireAgentsAreInTaskParticipants`
 (a side-channel probe for task membership) instead of `ForbiddenError`.
 
-## Dual emission during D1
+## Notification emission
 
-For each mutating operation, the server enqueues BOTH the legacy
-`conversations/*` notification AND the new `task/conversation/*`
-notification AFTER the row mutation returns. Broadcast is best-effort
-post-call: `notification-broadcast.ts` forks socket writes via
-`Effect.runFork` inside `NetworkSendService`, so a rollback BEFORE the
-enqueue line emits zero notifications (the failure short-circuits the
-handler), but a rollback AFTER the enqueue would deliver to clients
-without a committed row (no such path in D1 today). Recipients
-(notification fan-out) is unchanged from the legacy semantics; the
-new payload shapes carry `taskId` explicitly (legacy payloads did
-not).
+For each mutating operation, the server enqueues the matching
+`task/conversation/*` notification AFTER the row mutation returns.
+Broadcast is best-effort post-call: `notification-broadcast.ts` forks
+socket writes via `Effect.runFork` inside `NetworkSendService`, so a
+rollback BEFORE the enqueue line emits zero notifications.
 
-| Mutating op | Legacy notif | New notif |
-|---|---|---|
-| `conversations/create` / `task/conversation/create` | `conversations/created` | `task/conversation/created` |
-| `conversations/archive` / `task/conversation/archive` | `conversations/archived` | `task/conversation/archived` |
-| `conversations/unarchive` / `task/conversation/unarchive` | `conversations/unarchived` | `task/conversation/unarchived` |
-| `conversations/addParticipant` / `task/conversation/participants/add` | `participants/added` | `task/conversation/participants/added` |
-| `conversations/removeParticipant` / `task/conversation/participants/remove` | `participants/removed` | `task/conversation/participants/removed` |
-| `task/create` with `initialConversation` | `conversations/created` (mirrors the atomic conversation insert) | `task/conversation/created` |
-| `task/leave` (per conversation the leaver was in) | `participants/removed` (one per cid) | `task/conversation/participants/removed { reason: "task_leave" }` (one per cid) |
-| `task/leave` (last-participant-task-closure case) | (no legacy mirror — `task/closed` is a server-emitted task-level notification with no legacy alias; `TaskClosedNotificationDefinition` already exists pre-D1) | `task/closed { task }` (existing definition, unchanged) |
+| Mutating op | Notification |
+|---|---|
+| `task/conversation/create` | `task/conversation/created` |
+| `task/conversation/archive` | `task/conversation/archived` |
+| `task/conversation/unarchive` | `task/conversation/unarchived` |
+| `task/conversation/participants/add` | `task/conversation/participants/added` |
+| `task/conversation/participants/remove` | `task/conversation/participants/removed` |
+| `task/request` (after TM verdict `accept`) | `task/created { task }` (lifecycle transition waiting → active) |
+| `task/request` (after TM verdict `reject` / timeout / RPC failure) | `task/failed { taskId, reason? }` (lifecycle transition waiting → failed) |
+| `task/leave` (per conversation the leaver was in) | `task/conversation/participants/removed { reason: "task_leave" }` (one per cid) |
+| `task/leave` (last-participant-task-closure case) | `task/closed { task }` |
 
-The two new rows (`task/create` with `initialConversation`,
-`task/leave`) extend dual-emission to cover every D1 mutation that
-affects `conversation_participants` or `conversations` rows.
-`TaskCreate` without `initialConversation` does NOT emit any
+`TaskRequest` without `initialConversation` does NOT emit any
 conversation notification (no conversation row created).
-
-D3 deletes the legacy column. The deprecation-log warning at legacy
-handler entry (spec body Contract decision) fires once per call
-during D1 and goes away with the legacy handler in D3. `task/create`
-and `task/leave` are new wire methods (no legacy alias to
-deprecation-log).
 
 ## Test alignment
 
@@ -270,7 +227,7 @@ deprecation-log).
   invariant.
 - **Type canaries** — `packages/protocol/src/task/task-conversation-family.types-check.ts`
   encodes 5 invariants: wire-name namespace lock,
-  `TaskCreate` params shape, `DEFAULT_APP_ID` brand, list-item
+  `TaskRequest` params shape, `DEFAULT_APP_ID` brand, list-item
   shape, removed-reason discriminator, and the negative-canary
   block for explicitly-rejected symbols.
 

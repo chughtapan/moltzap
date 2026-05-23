@@ -7,56 +7,35 @@ import type { AgentId } from "../../identity/index.js";
  * Composite capability for `MessageService.send` — Architect Decision A
  * in plan #606.
  *
- * ## Why a composite (and not the spec's union-of-tags shape)?
+ * One tag carrying one payload shape. The handler obtains the value
+ * via `provideServiceEffect`; the service body destructures the
+ * carried proof rows directly.
  *
- * Effect's R channel uses union types to ENCODE the set of required
- * services — `Effect&lt;A, E, T1 | T2>` requires BOTH `T1` AND `T2` to be
- * provided before the effect is runnable. There is no native "exactly
- * one of" semantics in `provideServiceEffect`. The composite shape —
- * one tag with three constructors — preserves the "exactly one path"
- * authorization while keeping a single R-channel entry.
- *
- * ## Shape
- *
- * `MessageSendPermission` is a single `Context.Tag` whose value is a
- * discriminated union over the three legal authorization paths. The
- * handler picks the right constructor at `provideServiceEffect` time;
- * the service body destructures the union via `_tag` and uses the
- * carried proof rows.
- *
- * - `forParticipantOnActiveTask` — caller is a conversation participant
- *   on an OPEN task; optional `replyToId` carried inside the variant.
- * - `forTmBypass` — caller IS the TM (bypasses the "task is open" gate);
- *   no reply target.
- * - `forTmBypassWithReply` — TM bypass + the reply target was verified.
+ * Earlier revisions of this surface modelled a three-arm discriminated
+ * union (`forParticipantOnActiveTask | forTmBypass |
+ * forTmBypassWithReply`) so the TM could bypass the
+ * `refineTaskActive` gate when sending into a `failed` task. The
+ * downstream `MessageService.sendInsert` never discriminated the
+ * variants, no production caller exercised the failed-task window,
+ * and the TM gate is now proved at obtain time via app-ownership of
+ * the calling WS connection rather than a per-variant bypass flag.
+ * The bypass mechanism was removed in the #673 follow-up.
  */
-export type MessageSendPermissionValue =
-  | {
-      readonly _tag: "forParticipantOnActiveTask";
-      readonly task: Task;
-      readonly conversationId: ConversationId;
-      readonly senderAgentId: AgentId;
-      readonly replyTarget:
-        | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
-        | { readonly _tag: "NoReply" };
-    }
-  | {
-      readonly _tag: "forTmBypass";
-      readonly task: Task;
-      readonly conversationId: ConversationId;
-      readonly senderAgentId: AgentId;
-      readonly replyTarget: { readonly _tag: "NoReply" };
-    }
-  | {
-      readonly _tag: "forTmBypassWithReply";
-      readonly task: Task;
-      readonly conversationId: ConversationId;
-      readonly senderAgentId: AgentId;
-      readonly replyTarget: {
-        readonly _tag: "ValidReply";
-        readonly replyToId: MessageId;
-      };
-    };
+export interface MessageSendPermissionValue {
+  readonly task: Task;
+  readonly conversationId: ConversationId;
+  readonly senderAgentId: AgentId;
+
+  /**
+   * Reply-target proof. Tagged union — `ValidReply` carries the
+   * verified `replyToId`; `NoReply` is the absence sentinel. Kept as
+   * a sub-union because the verification step is a separate concern
+   * from message-send admission.
+   */
+  readonly replyTarget:
+    | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
+    | { readonly _tag: "NoReply" };
+}
 
 export class MessageSendPermission extends Context.Tag(
   "@moltzap/protocol/MessageSendPermission",
@@ -66,8 +45,8 @@ export class MessageSendPermission extends Context.Tag(
  * Input shape consumed by the dispatch-time smart constructor. The
  * handler passes the raw `MessagesSend` params + the authenticated
  * `ctx.agentId`; the constructor handles the conversation lookup,
- * participant check, reply-target check, TM-bypass discrimination, and
- * returns the populated discriminated union.
+ * participant check, task-active refinement, reply-target check, and
+ * returns the populated value.
  */
 export interface ObtainMessageSendPermissionInput {
   /**

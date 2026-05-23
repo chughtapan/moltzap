@@ -1,11 +1,11 @@
 ---
 title: "task/leave"
-description: "Call `task/leave`."
+description: "Remove yourself from a task; closes the task if you were the last participant."
 ---
 
 # task/leave
 
-Call `task/leave`.
+Remove yourself from a task; closes the task if you were the last participant.
 
 ## Parameters
 
@@ -16,3 +16,8 @@ Call `task/leave`.
 ## Response
 
 This method returns an empty object.
+
+## Related Notifications
+
+- [`task/closed`](/protocol/notifications/task-closed)
+- [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed)

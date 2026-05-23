@@ -1,47 +1,29 @@
 /**
  * @file Public barrel for task, conversation, message, and task-manager protocol descriptors.
  */
-export type { ConversationId, MessageId, TaskId } from "./methods.js";
+export { ConversationId, LeaseId, MessageId, TaskId } from "./methods.js";
 
 export * from "./capabilities/index.js";
 
 export {
   TaskClosedError,
+  TaskRejectedError,
   ConversationArchivedError,
   ConversationFullError,
   HookBlockedError,
   // Spec D1 (#598) — new tagged error for `task/conversation/*`
   // participant invariant.
   ParticipantNotAdmittedError,
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
   MessagesSend,
   MessagesList,
-  TasksCreate,
-  TasksGet,
-  TasksList,
-  TasksClose,
-  TasksCreateConversation,
-  TasksCloseConversation,
-  TasksAddParticipant,
-  TasksRemoveParticipant,
-  TasksStoreMessage,
-  TasksGetMessages,
-  TasksGetMessagesSince,
-  // Spec D1 — additive `task/*` + `task/conversation/*` family.
+  TaskList,
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
+  // Spec D1 — `task/*` + `task/conversation/*` family.
   AppId,
   DEFAULT_APP_ID,
-  inferConversationType,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
   TaskConversationCreate,
   TaskConversationList,
@@ -49,14 +31,9 @@ export {
   TaskConversationUnarchive,
   TaskConversationAddParticipant,
   TaskConversationRemoveParticipant,
-  ConversationCreatedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ParticipantsAddedNotificationDefinition,
-  ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   // Spec D1 — `task/conversation/*` notifications.
   TaskConversationCreatedNotificationDefinition,
@@ -67,6 +44,9 @@ export {
   validateTmDecision,
   tmDecisionSchema,
   messageWithTmDecisionSchema,
+  // Spec D3 R11 — per-kind catalog subsets.
+  nonTmAuthorityTaskRpcMethods,
+  tmOnlyTaskRpcMethods,
 } from "./methods.js";
 
 export type {
@@ -79,13 +59,6 @@ export type {
   TaskStatus,
   Task,
   TaskParticipant,
-  TmType,
-  ConversationCreatedNotification,
-  ConversationUpdatedNotification,
-  ConversationArchivedNotification,
-  ConversationUnarchivedNotification,
-  ParticipantsAddedNotification,
-  ParticipantsRemovedNotification,
   MessageReceivedNotification,
   TmDecision,
   MessageWithTmDecision,

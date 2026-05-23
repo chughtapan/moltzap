@@ -11,9 +11,10 @@ import {
 } from "../helpers.js";
 
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesSend,
   MessageReceivedNotificationDefinition,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 const ALIVE_AFTER_IDLE_TEXT = "Still alive after idle";
@@ -29,17 +30,20 @@ it("connection survives idle period and still delivers messages", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string } };
-    const conversationId = conv.conversation.id;
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
+    const taskId = conv.task.id;
+    const conversationId = conv.conversation!.id;
 
     // Wait 5 seconds of idle time
     yield* Effect.sleep(DEFAULT_NOTIFICATION_TIMEOUT_MS);
 
     // After idle period, Alice sends a message
     yield* alice.client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text: ALIVE_AFTER_IDLE_TEXT }],
     });
@@ -55,6 +59,7 @@ it("connection survives idle period and still delivers messages", () =>
 
     // Verify bidirectional: Bob replies after idle
     yield* bob.client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text: REPLY_AFTER_IDLE_TEXT }],
     });

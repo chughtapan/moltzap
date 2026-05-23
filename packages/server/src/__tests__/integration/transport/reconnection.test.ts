@@ -12,10 +12,14 @@ import {
 } from "../helpers.js";
 
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
   MessageReceivedNotificationDefinition,
+  TaskRequest,
+  type AgentId,
+  type ConversationId,
+  type TaskId,
 } from "@moltzap/protocol";
 
 const PRE_DISCONNECT_TEXT = "Pre-disconnect";
@@ -37,21 +41,26 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
+interface DmBinding {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+
 it("agent reconnects and retrieves messages sent while disconnected", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     let bobClient2: ServerTestClient | null = null;
 
     try {
-      const conversationId = yield* createDm(alice.client, bob.agentId);
-      yield* sendText(alice.client, conversationId, PRE_DISCONNECT_TEXT);
+      const binding = yield* createDm(alice.client, bob.agentId);
+      yield* sendText(alice.client, binding, PRE_DISCONNECT_TEXT);
       yield* awaitOneNotification(
         bob.client,
         MessageReceivedNotificationDefinition,
       );
 
       yield* bob.client.close();
-      yield* sendText(alice.client, conversationId, OFFLINE_TEXT);
+      yield* sendText(alice.client, binding, OFFLINE_TEXT);
 
       // Bob reconnects with the same API key
       bobClient2 = yield* connectTestClient({
@@ -60,8 +69,8 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
         apiKey: bob.apiKey,
       });
 
-      yield* expectReconnectedHistory(bobClient2, conversationId);
-      yield* sendText(bobClient2, conversationId, BACK_ONLINE_TEXT);
+      yield* expectReconnectedHistory(bobClient2, binding);
+      yield* sendText(bobClient2, binding, BACK_ONLINE_TEXT);
 
       const aliceEvent = yield* awaitOneNotification(
         alice.client,
@@ -73,41 +82,41 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
     }
   }));
 
-function createDm(client: ServerTestClient, participantAgentId: string) {
+function createDm(
+  client: ServerTestClient,
+  participantAgentId: AgentId,
+): Effect.Effect<DmBinding, unknown> {
   return Effect.gen(function* () {
-    const conv = (yield* client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: participantAgentId }],
-    })) as { conversation: { id: string } };
-    return conv.conversation.id;
+    const conv = yield* client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [participantAgentId],
+      initialConversation: { participants: [participantAgentId] },
+    });
+    return { taskId: conv.task.id, conversationId: conv.conversation!.id };
   });
 }
 
-function sendText(
-  client: ServerTestClient,
-  conversationId: string,
-  text: string,
-) {
+function sendText(client: ServerTestClient, binding: DmBinding, text: string) {
   return client.sendRpc(MessagesSend, {
-    conversationId,
+    taskId: binding.taskId,
+    conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
   });
 }
 
 function expectReconnectedHistory(
   client: ServerTestClient,
-  conversationId: string,
+  binding: DmBinding,
 ) {
   return Effect.gen(function* () {
-    const msgs = (yield* client.sendRpc(MessagesList, {
-      conversationId,
-    })) as {
-      messages: Array<{ parts: Array<{ text: string }> }>;
-    };
+    const msgs = yield* client.sendRpc(MessagesList, {
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+    });
 
     expect(msgs.messages).toHaveLength(2);
-    expect(msgs.messages[0]!.parts[0]!.text).toBe(PRE_DISCONNECT_TEXT);
-    expect(msgs.messages[1]!.parts[0]!.text).toBe(OFFLINE_TEXT);
+    expect(msgs.messages[0]!.parts[0]!.text!).toBe(PRE_DISCONNECT_TEXT);
+    expect(msgs.messages[1]!.parts[0]!.text!).toBe(OFFLINE_TEXT);
   });
 }
 

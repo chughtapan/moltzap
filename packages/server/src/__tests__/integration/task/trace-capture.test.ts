@@ -8,25 +8,28 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   registerAndConnect,
-  getTestCoreApp,
+  type ConnectedAgent,
 } from "../helpers.js";
 import {
   InMemoryTraceCaptureLive,
   type TraceCapture,
 } from "../../../runtime-surface/trace-capture.js";
 import {
-  ConversationsCreate,
+  AppsRegister,
+  DEFAULT_APP_ID,
   HookBlockedError,
+  MessagesAuthorize,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
+  TaskConversationCreate,
+  TaskCreate,
+  TaskRequest,
+  type AppId,
   type AppManifest,
 } from "@moltzap/protocol";
-import { endpointAddress } from "@moltzap/protocol/network";
 
 let traceCapture: TraceCapture;
-const TRACE_APP_ID = "trace-capture-test-app";
+const TRACE_APP_ID = "00000000-0000-4000-8000-000000010005" as AppId;
 const TRACE_BLOCK_REASON = "trace-block";
 const TRACE_BLOCKED_TEXT = "blocked trace capture";
 const TRACE_APP_MANIFEST: AppManifest = {
@@ -55,17 +58,15 @@ beforeEach(() =>
     Effect.gen(function* () {
       yield* resetTestDbEffect();
       yield* traceCapture.clear();
-      yield* Effect.sync(() => {
-        getTestCoreApp().registerApp(TRACE_APP_MANIFEST);
-      });
     }),
   ),
 );
 
-function registerBlockingMessageAuthorize(agentId: string): void {
-  getTestCoreApp().registerMessageAuthorize(
-    endpointAddress(`tm:agent:${agentId}`),
-    () => ({ decision: "Block", reason: TRACE_BLOCK_REASON }),
+function attachBlockingMessageAuthorize(alice: ConnectedAgent) {
+  return alice.client.onAppCallback(MessagesAuthorize, () =>
+    Effect.succeed({
+      verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
+    }),
   );
 }
 
@@ -83,13 +84,16 @@ function recordDeliveredMessageTrace(): Effect.Effect<void> {
     const alice = yield* registerAndConnect("alice-trace-capture");
     const bob = yield* registerAndConnect("bob-trace-capture");
 
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string } };
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
+    const conversationId = conv.conversation!.id;
 
     yield* alice.client.sendRpc(MessagesSend, {
-      conversationId: conv.conversation.id,
+      taskId: conv.task.id,
+      conversationId,
       parts: [{ type: "text", text: "hello from trace capture test" }],
     });
     yield* awaitOneNotification(
@@ -101,12 +105,12 @@ function recordDeliveredMessageTrace(): Effect.Effect<void> {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       _tag: "Message",
-      channelKey: conv.conversation.id,
+      channelKey: conversationId,
       senderDisplayName: alice.name,
       recipientAgentIds: [bob.agentId],
       deliveredAgentIds: [bob.agentId],
       message: {
-        conversationId: conv.conversation.id,
+        conversationId,
         senderId: alice.agentId,
         parts: [{ type: "text", text: "hello from trace capture test" }],
       },
@@ -121,19 +125,27 @@ function recordBlockedHookTrace(): Effect.Effect<void> {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-trace-blocked");
     const bob = yield* registerAndConnect("bob-trace-blocked");
-    registerBlockingMessageAuthorize(alice.agentId);
+    // Wire the message-authorize callback BEFORE AppsRegister so the
+    // server's forked round-trip lands on a live handler.
+    yield* attachBlockingMessageAuthorize(alice);
+    // Alice registers as TRACE_APP_ID's moderator so she can drive
+    // TaskConversationCreate (TM-only).
+    yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
 
-    const task = yield* alice.client.sendRpc(TasksCreate, {
+    const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: TRACE_APP_ID,
-      tmType: "self",
+      invitedAgentIds: [bob.agentId],
     });
-    const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
+    const conv = yield* alice.client.sendRpc(TaskConversationCreate, {
       taskId: task.task.id,
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
+      participants: [bob.agentId],
     });
     const outcome = yield* Effect.either(
       alice.client.sendRpc(MessagesSend, {
+        taskId: task.task.id,
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: TRACE_BLOCKED_TEXT }],
       }),

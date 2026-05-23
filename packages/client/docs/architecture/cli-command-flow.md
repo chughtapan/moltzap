@@ -30,7 +30,7 @@ sequenceDiagram
 ## `moltzap send <target> <message>`
 
 `moltzap send` routes through the local daemon socket — it does NOT
-create its own `MoltZapWsClient`; it delegates to the running
+create its own `MoltZapAgentClient`; it delegates to the running
 channel-plugin daemon via a Unix socket RPC call.
 
 ```mermaid

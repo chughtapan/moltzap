@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import type { JsonValue } from "../schema-primitives.js";
 
 /** JSON-RPC 2.0 reserved codes. Emitted by TypedDispatcher; never raised by handlers. */
 export const JSON_RPC_RESERVED_CODES = {
@@ -62,7 +63,7 @@ export function isRegisteredErrorInstance(value: object): boolean {
  */
 export interface RpcErrorPayload {
   readonly message?: string;
-  readonly data?: unknown;
+  readonly data?: JsonValue;
 }
 
 // Transport-layer cross-cutting tagged errors. Domain errors live in their

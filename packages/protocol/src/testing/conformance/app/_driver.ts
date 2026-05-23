@@ -44,12 +44,16 @@ import {
   type PropertyFailure,
 } from "../_shared/registry.js";
 import type { AgentId } from "../../../identity/agents.js";
+import { Value } from "@sinclair/typebox/value";
 import {
   type ConversationId,
   type MessageId,
-  TasksCreate,
-  TasksCreateConversation,
-  ConversationsAddParticipant,
+  AppId,
+  DEFAULT_APP_ID,
+  TaskAddParticipant,
+  TaskConversationAddParticipant,
+  TaskConversationCreate,
+  TaskRequest,
   MessagesSend,
 } from "@moltzap/protocol/task";
 import type { TaskId } from "../../../task/tasks.js";
@@ -61,8 +65,8 @@ import {
   DispatchesExpired,
   DispatchesGet,
   type DispatchId,
-  type LeaseId,
 } from "../../../app/index.js";
+import type { LeaseId } from "../../../task/index.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
@@ -160,6 +164,7 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
+    readonly taskId: Static<typeof TaskId>;
     readonly conversationId: Static<typeof ConversationId>;
     readonly leaseId: Static<typeof LeaseId>;
     readonly text: string;
@@ -347,12 +352,6 @@ const SETUP_FAILURE_PROPERTY = "driver-acquire";
 // violation reasons. Long enough to identify the failure mode; short
 // enough to avoid swamping property reports.
 const ERROR_CAUSE_TRUNCATE_LEN = 200;
-// `Math.random().toString(36)` returns "0." + base-36 digits; slicing
-// at index 2 drops the "0." prefix. The 6-char suffix is enough
-// to disambiguate per-property instances within a single conformance
-// run.
-const RANDOM_SUFFIX_LEN = 6;
-
 function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
 }
@@ -640,6 +639,7 @@ function sendWithLease(
   return Effect.gen(function* () {
     const exit = yield* Effect.exit(
       acquired.client.sendRpc(MessagesSend, {
+        taskId: params.taskId,
         conversationId: params.conversationId,
         parts: [{ type: "text", text: params.text }],
         dispatchLeaseId: params.leaseId,
@@ -736,6 +736,7 @@ interface DriverBuildParts {
 interface AddRecipientInput {
   readonly ctx: ConformanceRunContext;
   readonly moderatorClient: TestClient;
+  readonly taskId: Static<typeof TaskId>;
   readonly conversationId: Static<typeof ConversationId>;
   readonly opts: Parameters<DispatchTestDriver["addRecipient"]>[0];
 }
@@ -946,9 +947,13 @@ export function makeDispatchTestDriver(
     const agents = yield* acquireDriverAgents(ctx);
     const clients = yield* acquireDriverClients(ctx, agents);
     const app = yield* registerDriverApp(clients.moderatorClient, resolved);
+    const taskAppId =
+      resolved.appId === null
+        ? DEFAULT_APP_ID
+        : Value.Decode(AppId, resolved.appId);
     const fixtures = yield* createDriverFixtures(
       clients.moderatorClient,
-      resolved.appId,
+      taskAppId,
       agents.recipientAgent,
     );
     const recipient = yield* buildRecipientHandle(clients.recipientAcquired);
@@ -978,7 +983,9 @@ function resolveDriverConfig(
     appId:
       taskAppId === null
         ? null
-        : (taskAppId ?? `conformance-dispatch-app-${cryptoRandomShort()}`),
+        : // AppId is a `brandedId("AppId")` (UUID format); use a real UUID
+          // here so the dispatcher's `Value.Decode(AppId, …)` succeeds.
+          (taskAppId ?? globalThis.crypto.randomUUID()),
   };
 }
 
@@ -1013,27 +1020,45 @@ function registerDriverApp(
   config: ResolvedDriverConfig,
 ): Effect.Effect<TestApp | null, PropertyFailure> {
   if (config.appId === null) return Effect.succeed(null);
-  return registerTestApp({
-    client: moderatorClient,
-    manifest: makeTestAppManifest({
-      appId: config.appId,
-      name: "Conformance Dispatch Test App",
-      dispatchAuthorizeTimeoutMs: config.moderatorTimeoutMs,
-    }),
-  }).pipe(
-    Effect.mapError((e) =>
-      violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
-    ),
-  );
+  const appId = config.appId;
+  return Effect.gen(function* () {
+    const app = yield* registerTestApp({
+      client: moderatorClient,
+      manifest: makeTestAppManifest({
+        appId,
+        name: "Conformance Dispatch Test App",
+        dispatchAuthorizeTimeoutMs: config.moderatorTimeoutMs,
+      }),
+    }).pipe(
+      Effect.mapError((e) =>
+        violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
+      ),
+    );
+    // Remote apps must answer `messages/authorize` or the server's
+    // wire-callback round-trip times out (fail-closed Block). The
+    // dispatch-admission properties assert lease / dispatches/* events,
+    // not message routing — `Forward { recipients: [] }` is sufficient
+    // and matches the "store, don't fan out" intent.
+    yield* app.messagesAuthorize.handle({
+      respondWith: {
+        verdict: { decision: "Forward" as const, recipients: [] },
+      },
+    });
+    return app;
+  });
 }
 
 function createDriverFixtures(
   moderatorClient: TestClient,
-  appId: string | null,
+  appId: Static<typeof AppId>,
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
   return Effect.gen(function* () {
-    const taskId = yield* createDriverTask(moderatorClient, appId);
+    const taskId = yield* createDriverTask(
+      moderatorClient,
+      appId,
+      recipientAgent,
+    );
     const conversationId = yield* createDriverConversation(
       moderatorClient,
       taskId,
@@ -1045,23 +1070,25 @@ function createDriverFixtures(
 
 function createDriverTask(
   moderatorClient: TestClient,
-  appId: string | null,
+  appId: Static<typeof AppId>,
+  recipientAgent: TestAgent,
 ): Effect.Effect<Static<typeof TaskId>, PropertyFailure> {
-  const taskParams =
-    appId !== null
-      ? { appId, tmType: "self" as const }
-      : { tmType: "self" as const };
-  return moderatorClient.sendRpc(TasksCreate, taskParams).pipe(
-    Effect.map(
-      (result) => (result as { task: { id: Static<typeof TaskId> } }).task.id,
-    ),
-    Effect.mapError((e) =>
-      violation(
-        SETUP_FAILURE_PROPERTY,
-        `tasks/create failed: ${unwrapError(e)}`,
+  return moderatorClient
+    .sendRpc(TaskRequest, {
+      appId,
+      invitedAgentIds: [recipientAgent.agentId],
+    })
+    .pipe(
+      Effect.map(
+        (result) => (result as { task: { id: Static<typeof TaskId> } }).task.id,
       ),
-    ),
-  );
+      Effect.mapError((e) =>
+        violation(
+          SETUP_FAILURE_PROPERTY,
+          `task/create failed: ${unwrapError(e)}`,
+        ),
+      ),
+    );
 }
 
 function createDriverConversation(
@@ -1070,11 +1097,10 @@ function createDriverConversation(
   recipientAgent: TestAgent,
 ): Effect.Effect<Static<typeof ConversationId>, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TasksCreateConversation, {
+    .sendRpc(TaskConversationCreate, {
       taskId,
-      type: "group",
       name: "conformance-dispatch-conv",
-      participants: [{ type: "agent" as const, id: recipientAgent.agentId }],
+      participants: [recipientAgent.agentId],
     })
     .pipe(
       Effect.map(
@@ -1088,7 +1114,7 @@ function createDriverConversation(
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `tasks/createConversation failed: ${unwrapError(e)}`,
+          `task/conversation/create failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1103,6 +1129,7 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
       addRecipient({
         ctx: parts.ctx,
         moderatorClient: parts.clients.moderatorClient,
+        taskId: parts.fixtures.taskId,
         conversationId: parts.fixtures.conversationId,
         opts,
       }),
@@ -1124,8 +1151,10 @@ function addRecipient(
     const name = input.opts.agentName ?? "conf-rcpt2";
     const agent = yield* acquireAgent(input.ctx, name);
     const acquired = yield* acquireCloseableClient(input.ctx, agent);
+    yield* addTaskParticipant(input.moderatorClient, input.taskId, agent);
     yield* addConversationParticipant(
       input.moderatorClient,
+      input.taskId,
       input.conversationId,
       agent,
     );
@@ -1133,21 +1162,43 @@ function addRecipient(
   });
 }
 
-function addConversationParticipant(
+function addTaskParticipant(
   moderatorClient: TestClient,
-  conversationId: Static<typeof ConversationId>,
+  taskId: Static<typeof TaskId>,
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
-    .sendRpc(ConversationsAddParticipant, {
-      conversationId,
-      participant: { type: "agent" as const, id: agent.agentId },
+    .sendRpc(TaskAddParticipant, {
+      taskId,
+      agentId: agent.agentId,
     })
     .pipe(
       Effect.mapError((e) =>
         violation(
           "driver.addRecipient",
-          `conversations/addParticipant failed: ${unwrapError(e)}`,
+          `task/addParticipant failed: ${unwrapError(e)}`,
+        ),
+      ),
+    );
+}
+
+function addConversationParticipant(
+  moderatorClient: TestClient,
+  taskId: Static<typeof TaskId>,
+  conversationId: Static<typeof ConversationId>,
+  agent: TestAgent,
+): Effect.Effect<void, PropertyFailure> {
+  return moderatorClient
+    .sendRpc(TaskConversationAddParticipant, {
+      taskId,
+      conversationId,
+      agentId: agent.agentId,
+    })
+    .pipe(
+      Effect.mapError((e) =>
+        violation(
+          "driver.addRecipient",
+          `task/conversation/participants/add failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1236,14 +1287,6 @@ function leaseStateTimeout(
 
 function advanceTime(durationMs: number): Effect.Effect<void> {
   return Effect.sleep(Duration.millis(durationMs));
-}
-
-// ── Crypto helper for unique appId (avoids `crypto` import noise) ─────
-function cryptoRandomShort(): string {
-  return globalThis.crypto
-    .randomUUID()
-    .replaceAll("-", "")
-    .slice(0, RANDOM_SUFFIX_LEN);
 }
 
 // ── Re-export wire types for property authors ─────────────────────────

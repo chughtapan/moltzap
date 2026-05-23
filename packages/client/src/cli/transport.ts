@@ -29,8 +29,10 @@ import {
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
+  isRegisteredErrorInstance,
+  type RpcErrorClass,
 } from "@moltzap/protocol";
-import { MoltZapWsClient } from "../ws-client.js";
+import { MoltZapAgentClient } from "../agent-client.js";
 import { request as daemonRequest } from "./socket-client.js";
 import type { ProfileError } from "./profile.js";
 import {
@@ -278,8 +280,38 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
     ),
 });
 
-// Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
-// to TransportError tags.
+// Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError |
+// any registered domain wire error) to TransportError tags.
+
+// Registered domain wire errors (e.g. `TaskRejectedError`, -32024) decode to a
+// tagged-error instance whose numeric `code` lives on the constructor, not the
+// instance. Map them to `TransportRpcError` so the CLI surfaces the real
+// code/reason rather than misreporting a decode failure. Returns null when
+// `err` is not a registered wire error (caller falls through to decode).
+function mapRegisteredWireError(
+  method: string,
+  err: unknown,
+): TransportRpcError | null {
+  if (
+    typeof err !== "object" ||
+    err === null ||
+    !isRegisteredErrorInstance(err)
+  ) {
+    return null;
+  }
+  const cls = err.constructor as RpcErrorClass;
+  const payload = err as { readonly message?: string; readonly data?: unknown };
+  const message =
+    payload.message !== undefined && payload.message.length > 0
+      ? payload.message
+      : cls.message;
+  return new TransportRpcError({
+    method,
+    code: cls.code,
+    message,
+    data: payload.data,
+  });
+}
 
 /**
  * Exported for decoder-fixture tests only (sbd#198).
@@ -306,10 +338,14 @@ export const tagWsError = (method: string, err: unknown): TransportError => {
       data: err.data,
     });
   }
+  const registered = mapRegisteredWireError(method, err);
+  if (registered !== null) {
+    return registered;
+  }
   return new TransportDecodeError({ method, cause: err });
 };
 
-type DirectConnectOnce = Effect.Effect<MoltZapWsClient, TransportError>;
+type DirectConnectOnce = Effect.Effect<MoltZapAgentClient, TransportError>;
 
 function mapDirectRpcError(method: string): (err: unknown) => TransportError {
   return (err) => tagWsError(method, err);
@@ -338,7 +374,7 @@ function sendDirectRpc<D extends RpcDefinition<string, any, any>>(
  * `process.once("beforeExit", ...)` hook that never fired because the reader
  * fiber kept the event loop non-empty (sbd#198 Bug-2 / moltzap#228).
  *
- * `MoltZapWsClient` is constructed lazily inside `Effect.cached` so commands
+ * `MoltZapAgentClient` is constructed lazily inside `Effect.cached` so commands
  * that never reach the wire (e.g. help-text display, input validation failure)
  * do not pay for a ManagedRuntime spin-up.
  *
@@ -369,7 +405,7 @@ const makeDirectTransport = (
     // Lazily-created client: null until the first rpc() call fires connectOnce.
     // The finalizer checks the current value at scope-close time so help/
     // validation paths that never open a socket incur no cleanup cost.
-    let client: MoltZapWsClient | null = null;
+    let client: MoltZapAgentClient | null = null;
     yield* Effect.addFinalizer(() =>
       client !== null ? client.close() : Effect.void,
     );
@@ -378,7 +414,7 @@ const makeDirectTransport = (
     // cached for the lifetime of this scope.
     const connectOnce = yield* Effect.cached(
       Effect.gen(function* () {
-        const c = new MoltZapWsClient({ serverUrl, agentKey });
+        const c = new MoltZapAgentClient({ serverUrl, agentKey });
         client = c;
         yield* c
           .connect()

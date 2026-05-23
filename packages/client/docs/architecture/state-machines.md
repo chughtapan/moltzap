@@ -46,7 +46,7 @@ sequence that drives these state transitions, including the ack/release race
 
 ## Connection State Machine
 
-`MoltZapWsClient` transitions, driven by `stateRef` and the `closed` flag.
+`MoltZapAgentClient` transitions, driven by `stateRef` and the `closed` flag.
 
 ```mermaid
 stateDiagram-v2

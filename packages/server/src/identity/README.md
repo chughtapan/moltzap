@@ -35,4 +35,4 @@ defineNetworkMethod(Connect, {
 ```
 
 Boot wires `ServicesLive` into the dispatcher's `ManagedRuntime`; per-request
-`ConnIdTag` is provided by the JSON-RPC dispatcher.
+`ConnectionTag` is provided by the JSON-RPC dispatcher.

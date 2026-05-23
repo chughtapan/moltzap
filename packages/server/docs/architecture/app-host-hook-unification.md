@@ -12,7 +12,7 @@ flowchart TD
 
     Hook --> RegA["appId-keyed registry<br/>hooks: Map&lt;AppId, AppHooks&gt;<br/>AppHooks = { taskAuthorizeDispatch? }<br/>(one slot today; future hook slots<br/>(close, contactPolicy, invalidContacts)<br/>are not implemented — see app/hooks.ts)"]
 
-    Hook --> RegB["EndpointAddress-keyed registry<br/>messageAuthorizeHooks:<br/>Map&lt;EndpointAddress, MessageAuthorizeHook&gt;<br/>seeded at boot for<br/>DEFAULT_DM_TM_ADDRESS,<br/>DEFAULT_GROUP_TM_ADDRESS<br/>via AppHostLive Effect.gen<br/>(app/layers.ts)"]
+    Hook --> RegB["appId-keyed registry<br/>messageAuthorizeHooks:<br/>Map&lt;AppId, MessageAuthorizeHook&gt;<br/>(app/app-host.ts)"]
 
     RegA --> Remote["remoteRegistrations: Map&lt;AppId, {connectionId}&gt;<br/>(apps/register success → AppHost.registerRemoteApp)"]
     RegB --> Remote

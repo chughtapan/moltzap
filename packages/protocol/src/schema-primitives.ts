@@ -75,3 +75,28 @@ export type DateTimeString = Static<typeof DateTimeStringSchema>;
 export function dateTimeStringSchema(): typeof DateTimeStringSchema {
   return DateTimeStringSchema;
 }
+
+// Recursive JSON value — pins the wire-payload shape so AJV-decoded
+// `data` fields cannot smuggle Date / Map / Symbol. The hand-written
+// type alias is broader than Static<typeof JsonValue> so producer call
+// sites can pass readonly arrays / records (TypeBox's inferred Static
+// drops the readonly modifier).
+export const JsonValueSchema = Type.Recursive(
+  (Self) =>
+    Type.Union([
+      Type.Null(),
+      Type.Boolean(),
+      Type.Number(),
+      Type.String(),
+      Type.Array(Self),
+      Type.Record(Type.String(), Self),
+    ]),
+  { $id: "JsonValue" },
+);
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | ReadonlyArray<JsonValue>
+  | { readonly [k: string]: JsonValue };

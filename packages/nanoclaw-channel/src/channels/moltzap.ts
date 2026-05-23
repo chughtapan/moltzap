@@ -6,6 +6,12 @@ import {
   type ServiceRpcError,
 } from "@moltzap/client";
 import {
+  ConversationId,
+  type LeaseId,
+  type TaskId,
+} from "@moltzap/protocol/task";
+import { Value } from "@sinclair/typebox/value";
+import {
   LeaseAlreadyConsumed,
   LeaseStore,
   catchLeaseInvalid,
@@ -46,8 +52,8 @@ function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
 }
 
-function conversationIdFromJid(jid: string): string {
-  return jid.slice(MOLTZAP_JID_PREFIX.length);
+function conversationIdFromJid(jid: string): ConversationId {
+  return Value.Decode(ConversationId, jid.slice(MOLTZAP_JID_PREFIX.length));
 }
 
 function loadMoltZapChannelEnv(): {
@@ -74,7 +80,10 @@ export class MoltZapChannel implements Channel {
   // second sendMessage races a consumed lease, the server returns the typed
   // wire error and channel-base projects to LeaseAlreadyConsumed. See arch
   // sub-issue #605 §3.3 + §6.3.
-  private readonly dispatchLeases = new LeaseStore<string, string>();
+  private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
+  // Per-JID memory of the task that owns the most recent conversation we
+  // saw inbound on. Required by D3 because MessagesSend now needs taskId.
+  private readonly taskIdsByJid = new Map<string, TaskId>();
 
   constructor(
     private readonly opts: ChannelOpts,
@@ -165,8 +174,17 @@ export class MoltZapChannel implements Channel {
       }
       const leaseEntry = yield* this.dispatchLeases.peek(jid);
       const leaseId = Option.getOrUndefined(leaseEntry);
+      const taskId = this.taskIdsByJid.get(jid);
+      if (taskId === undefined) {
+        return yield* Effect.fail(
+          new MoltZapChannelError({
+            reason: `MoltZap channel has no taskId for jid: ${jid}`,
+          }),
+        );
+      }
       yield* this.core
         .sendReply(
+          taskId,
           conversationIdFromJid(jid),
           text,
           leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
@@ -183,6 +201,7 @@ export class MoltZapChannel implements Channel {
   private handleInbound(enriched: EnrichedInboundMessage): void {
     const chatJid = jidFromConversationId(enriched.conversationId);
     this.rememberDispatchLease(chatJid, enriched);
+    this.taskIdsByJid.set(chatJid, enriched.taskId);
     this.maybeAutoRegister(chatJid, enriched.conversationId);
     this.emitChatMetadata(chatJid, enriched);
     this.opts.onMessage(chatJid, this.toNewMessage(chatJid, enriched));
