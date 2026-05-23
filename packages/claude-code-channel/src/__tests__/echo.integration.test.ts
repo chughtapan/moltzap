@@ -134,8 +134,8 @@ function makePeerService(
     serverUrl: config.wsUrl,
     agentKey: config.agentBApiKey,
   });
-  peerService.on("message", (msg) => {
-    peerInbox.push(msg);
+  peerService.on("message", ({ message }) => {
+    peerInbox.push(message);
   });
   return peerService;
 }
