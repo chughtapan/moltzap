@@ -25,7 +25,7 @@ import {
   type TransportOptions,
 } from "./transport.js";
 
-import { TaskList } from "@moltzap/protocol";
+import { TaskList, TaskRejectedError } from "@moltzap/protocol";
 
 const it = effectIt.effect;
 const SESSION_NOT_FOUND_CODE = -32001;
@@ -264,6 +264,28 @@ function rpcServerErrorMapsToTransportRpcError() {
   });
 }
 
+function registeredWireErrorMapsToTransportRpcError() {
+  return Effect.sync(() => {
+    // A registered domain wire error (decoded from a -32024 frame) carries its
+    // numeric code on the constructor, not the instance. It must map to
+    // TransportRpcError preserving code/reason — not fall through to decode.
+    const err = tagWsError(
+      TaskList.name,
+      new TaskRejectedError({
+        message: TaskRejectedError.message,
+        data: { taskId: "task-1" },
+      }),
+    );
+    expect(err).toBeInstanceOf(TransportRpcError);
+    expect(err._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
+    if (err instanceof TransportRpcError) {
+      expect(err.code).toBe(TaskRejectedError.code);
+      expect(err.message).toBe(TaskRejectedError.message);
+      expect(err.data).toEqual({ taskId: "task-1" });
+    }
+  });
+}
+
 function notConnectedMapsToServiceUnreachable() {
   return Effect.sync(() => {
     const err = tagWsError(
@@ -321,6 +343,11 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
   it(
     "RpcServerError maps to TransportRpcError (not TransportDecodeError)",
     rpcServerErrorMapsToTransportRpcError,
+  );
+
+  it(
+    "registered wire error (TaskRejected) maps to TransportRpcError with its static code",
+    registeredWireErrorMapsToTransportRpcError,
   );
 
   it(

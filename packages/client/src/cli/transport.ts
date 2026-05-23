@@ -29,6 +29,8 @@ import {
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
+  isRegisteredErrorInstance,
+  type RpcErrorClass,
 } from "@moltzap/protocol";
 import { MoltZapAgentClient } from "../agent-client.js";
 import { request as daemonRequest } from "./socket-client.js";
@@ -278,8 +280,38 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
     ),
 });
 
-// Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
-// to TransportError tags.
+// Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError |
+// any registered domain wire error) to TransportError tags.
+
+// Registered domain wire errors (e.g. `TaskRejectedError`, -32024) decode to a
+// tagged-error instance whose numeric `code` lives on the constructor, not the
+// instance. Map them to `TransportRpcError` so the CLI surfaces the real
+// code/reason rather than misreporting a decode failure. Returns null when
+// `err` is not a registered wire error (caller falls through to decode).
+function mapRegisteredWireError(
+  method: string,
+  err: unknown,
+): TransportRpcError | null {
+  if (
+    typeof err !== "object" ||
+    err === null ||
+    !isRegisteredErrorInstance(err)
+  ) {
+    return null;
+  }
+  const cls = err.constructor as RpcErrorClass;
+  const payload = err as { readonly message?: string; readonly data?: unknown };
+  const message =
+    payload.message !== undefined && payload.message.length > 0
+      ? payload.message
+      : cls.message;
+  return new TransportRpcError({
+    method,
+    code: cls.code,
+    message,
+    data: payload.data,
+  });
+}
 
 /**
  * Exported for decoder-fixture tests only (sbd#198).
@@ -305,6 +337,10 @@ export const tagWsError = (method: string, err: unknown): TransportError => {
       message: err.message,
       data: err.data,
     });
+  }
+  const registered = mapRegisteredWireError(method, err);
+  if (registered !== null) {
+    return registered;
   }
   return new TransportDecodeError({ method, cause: err });
 };
