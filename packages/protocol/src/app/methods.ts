@@ -27,7 +27,7 @@ const AppManifestConversationSchema = Type.Object(
 );
 
 /**
- * Per-hook configuration entry. `dispatch_authorize` accepts the
+ * Per-hook configuration entry. Every hook key accepts the same
  * shape — only `timeout_ms` is configurable.
  */
 const HookEntrySchema = Type.Object(
@@ -38,7 +38,7 @@ const HookEntrySchema = Type.Object(
 );
 
 /**
- * Manifest hook map. Two hook keys:
+ * Manifest hook map. Three hook keys:
  *
  * - `dispatch_authorize` (receive-side) — selects the moderator round-
  *   trip target for per-recipient admission verdicts; emits the
@@ -50,11 +50,21 @@ const HookEntrySchema = Type.Object(
  *   without an equivalent on the new wire surface. Verdict is the
  *   minimum-viable subset of #142's 5-arm `TaskManagerAction`:
  *   `Forward { recipients } | Block { reason }`.
+ * - `task_create` (task-creation gate) — selects the TM round-trip
+ *   target for the per-task-request accept/reject verdict; emits the
+ *   matching `task/create` S→C RPC. Distinct from the two per-message
+ *   hooks: it gates the `waiting → active | failed` lifecycle
+ *   transition, so it carries its own `timeout_ms` rather than
+ *   borrowing the per-message tuning.
  *
- * Both hook keys are optional. Default policy when `message_authorize`
- * is absent: `Forward { participants \ sender }`. Default policy when
- * `dispatch_authorize` is absent: `grant`. See #560 for the send-side
- * design and #538/#536 for the receive-side history.
+ * All hook keys are optional. Default policy when `message_authorize`
+ * is absent: `Forward { participants \ sender }`. When
+ * `dispatch_authorize` is absent: `grant`. When `task_create` is
+ * absent: the server uses the default app-hook timeout and the bound
+ * app's registered `task/create` handler decides the verdict (the
+ * boot-installed default app auto-accepts). See #560 for the
+ * send-side design, #538/#536 for the receive-side history, and #683
+ * for the task-creation gate.
  */
 const AppManifestSchema = Type.Object(
   {
@@ -75,6 +85,7 @@ const AppManifestSchema = Type.Object(
         {
           dispatch_authorize: Type.Optional(HookEntrySchema),
           message_authorize: Type.Optional(HookEntrySchema),
+          task_create: Type.Optional(HookEntrySchema),
         },
         { additionalProperties: false },
       ),
@@ -512,7 +523,14 @@ const TaskCreateVerdictSchema = Type.Union([
   Type.Object(
     {
       decision: Type.Literal("reject"),
-      reason: Type.Optional(Type.String()),
+      // Bound matches `TaskFailedNotificationDefinition.reason`
+      // (1..256). The server forwards this verdict reason verbatim
+      // into the `task/failed` notification; an unbounded or empty
+      // reason here would produce a `task/failed` frame the client
+      // decoder rejects (the notification would silently never
+      // decode at subscribers). Keeping the two schemas in lockstep
+      // makes that mismatch unrepresentable.
+      reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
     },
     { additionalProperties: false },
   ),
@@ -531,11 +549,21 @@ const TaskCreateVerdictSchema = Type.Union([
  *     requester's `initialConversation` hint if it chose to.
  *   - On `reject` (or timeout / RPC error / decode failure) the
  *     server transitions the task to `"failed"` and fires
- *     `task/rejected` to the requester.
+ *     `task/failed` to the requester.
  *
  * Fail-closed envelope mirrors `DispatchAuthorize` /
- * `MessagesAuthorize`: timeout → synthesize
- * `{ decision: "reject", reason: "tm_unreachable" }`.
+ * `MessagesAuthorize`: timeout synthesizes
+ * `{ decision: "reject", reason: "timeout" }`; an unknown app or
+ * RPC/decode failure synthesizes `reason: "tm_unreachable"`.
+ *
+ * Durability note: the `task/request` handler inserts the task row
+ * (`waiting`) BEFORE this callback's network round-trip, and the
+ * terminal `setStatus` runs AFTER it. The sequence is not atomic
+ * (the callback is a network call, not a DB op), so a crash or fiber
+ * interrupt in that window can strand a task in `waiting`. Stranded
+ * waiting tasks are invisible to delivery (no conversation, no
+ * participants observe them) and are reaped by follow-up work (see
+ * the stale-waiting-task sweep issue).
  */
 export const TaskCreate = defineRpc({
   name: "task/create",

@@ -716,7 +716,7 @@ export class AppHost {
       });
     }
     const timeoutMs =
-      entry.manifest.hooks?.dispatch_authorize?.timeout_ms ??
+      entry.manifest.hooks?.task_create?.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     return this.wrapHookEffectWithEnvelope<
       ResultOf<typeof TaskCreate>["verdict"]

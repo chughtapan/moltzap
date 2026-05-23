@@ -36,6 +36,7 @@ import {
   TaskConversationUnarchive,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
+  TaskRejectedError,
   TaskRequest,
   TaskLeave,
   type Conversation,
@@ -218,7 +219,22 @@ const assertTaskRequestFailed = (
   outcome: Either.Either<unknown, unknown>,
 ): Effect.Effect<void, FixtureError> =>
   Either.match(outcome, {
-    onLeft: () => Effect.void,
+    // The reject surfaces as the typed `TaskRejected` wire error
+    // (-32024), NOT a generic internal error — that is the contract
+    // a requester discriminates on. Asserting the specific code keeps
+    // this non-vacuous: any-Left would also pass for an unrelated
+    // transport failure, which would not prove the TM-reject path.
+    onLeft: (error) => {
+      const code = (error as { readonly code?: unknown }).code;
+      return code === TaskRejectedError.code
+        ? Effect.void
+        : Effect.fail(
+            deliveryViolation(
+              TASK_REQUEST_REJECT_PROPERTY,
+              `task/request failed with code ${String(code)}, expected TaskRejected (${TaskRejectedError.code})`,
+            ),
+          );
+    },
     onRight: () =>
       Effect.fail(
         deliveryViolation(

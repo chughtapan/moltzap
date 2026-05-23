@@ -7,6 +7,7 @@ export * from "./capabilities/index.js";
 
 export {
   TaskClosedError,
+  TaskRejectedError,
   ConversationArchivedError,
   ConversationFullError,
   HookBlockedError,
