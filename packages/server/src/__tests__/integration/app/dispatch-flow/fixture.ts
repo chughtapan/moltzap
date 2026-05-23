@@ -67,12 +67,14 @@ export const stopDispatchFlowServer = () =>
 export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 
 /**
- * App-managed task with one initial conversation between alice and
- * bob. The caller MUST have wired alice's `DispatchAuthorize` (and
- * optionally `MessagesAuthorize`) wire callback BEFORE calling this
- * — typically via {@link attachDispatchAuthorizeHook} — so the
- * server can resolve the forked moderator round-trip the first
- * `dispatch/request` triggers.
+ * Create a task + conversation under `manifest`. Registers the app
+ * on alice's connection on the first call per test; subsequent calls
+ * (same alice, same manifest) skip AppsRegister because it strictly
+ * rejects double-registration. The fixture's `reset` clears the
+ * per-test registered-apps cache. The caller MUST have wired alice's
+ * `DispatchAuthorize` callback (via {@link attachDispatchAuthorizeHook})
+ * BEFORE calling this — the server resolves the forked moderator
+ * round-trip on the first `dispatch/request`.
  */
 export function createTaskConversationOnApp(
   alice: ConnectedAgent,
@@ -80,7 +82,7 @@ export function createTaskConversationOnApp(
   manifest: AppManifest,
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
-    yield* alice.client.sendRpc(AppsRegister, { manifest });
+    yield* ensureModeratorAppRegistered(alice, manifest);
     const result = yield* alice.client.sendRpc(TaskCreate, {
       appId: mkAppId(manifest.appId),
       invitedAgentIds: [bob.agentId],
@@ -91,6 +93,42 @@ export function createTaskConversationOnApp(
       conversationId: result.conversation!.id,
     };
   }).pipe(Effect.withSpan("createTaskConversationOnApp"));
+}
+
+const registeredAppsByConn = new Map<string, Set<string>>();
+
+function moderatorAppKey(connId: string): Set<string> {
+  let s = registeredAppsByConn.get(connId);
+  if (s === undefined) {
+    s = new Set<string>();
+    registeredAppsByConn.set(connId, s);
+  }
+  return s;
+}
+
+function ensureModeratorAppRegistered(
+  alice: ConnectedAgent,
+  manifest: AppManifest,
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    // Each test creates a fresh `alice` via `setupAgentPair` (fresh
+    // apiKey → fresh server connection), so per-test dedup keyed by
+    // apiKey suffices to skip re-registration when the same test
+    // creates multiple conversations under one moderator.
+    const registered = moderatorAppKey(alice.apiKey);
+    if (registered.has(manifest.appId)) return;
+    yield* alice.client.sendRpc(AppsRegister, { manifest });
+    registered.add(manifest.appId);
+  }).pipe(Effect.withSpan("ensureModeratorAppRegistered"));
+}
+
+/**
+ * Reset the per-test registered-apps cache. Called from
+ * {@link DispatchFlowFixture.reset} so cross-test connection-id
+ * recycling never leaks "already registered" state.
+ */
+function resetRegisteredApps(): void {
+  registeredAppsByConn.clear();
 }
 
 /**
@@ -240,6 +278,7 @@ export function createDispatchFlowFixture(
         Effect.sync(() => {
           hookCalls = 0;
           nextHookVerdict = { decision: "grant" };
+          resetRegisteredApps();
         }),
       ),
       Effect.withSpan("dispatchFlow.reset"),

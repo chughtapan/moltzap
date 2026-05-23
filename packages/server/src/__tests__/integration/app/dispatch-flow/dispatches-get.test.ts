@@ -17,7 +17,6 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import {
-  AppsRegister,
   DispatchAuthorize,
   DispatchesGet,
   type AppManifest,
@@ -86,9 +85,9 @@ function registerWireModerator() {
       DispatchAuthorize,
       grantDispatchAuthorize,
     );
-    yield* moderator.client.sendRpc(AppsRegister, {
-      manifest: WIRE_APP_MANIFEST,
-    });
+    // AppsRegister is driven by `createTaskConversationOnApp`'s
+    // idempotent `ensureModeratorAppRegistered` — calling it here
+    // would double-register, which the server now strictly rejects.
     return moderator;
   });
 }

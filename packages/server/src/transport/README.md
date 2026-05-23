@@ -19,7 +19,7 @@ Transport is the lowest protocol layer. It does not know about identity, convers
 ## Files
 
 - `connection.ts` — WS connection manager + per-connection RPC client.
-- `context.ts` — `defineMethod`, `RpcMethodBinding`, `AuthenticatedContext`, `DispatchContext`. The base wrapper; provides `ConnIdTag` from the per-request `DispatchContext`.
+- `context.ts` — `defineMethod`, `RpcMethodBinding`, `AuthenticatedContext`, `DispatchContext`. The base wrapper; provides `ConnectionTag` from the per-request `DispatchContext`.
 - `define-layered-method.ts` — `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`. Layer-specific wrappers that constrain handler R-channel to a per-layer Tag allowlist and provide the matching layer-scope service.
 - `layer-scopes.ts` — runtime `Context.Tag`s used as structural layer markers (`NetworkLayerScope`, `TaskLayerScope`, `AppLayerScope`).
 - `layer-tags.ts` — type-only allowlist hierarchy (`TransportTags`, `IdentityTags`, `NetworkTags`, `TaskTags`, `AppTags`).
@@ -47,7 +47,7 @@ Per-request handler R-channel resolution:
 ```
 RpcMethodBinding.handle  (call site: conn.originator.handle(frame, ctx) per Spec F #617 §6 FRI)
         │
-        │ ConnIdTag      ── provided by defineMethod from ctx.connId
+        │ ConnectionTag      ── provided by defineMethod from ctx.connId
         │ NetworkLayerScope, TaskLayerScope, AppLayerScope
         │                ── provided by defineXMethod wrappers, structurally
         │ MessageServiceTag, ConversationServiceTag, ...

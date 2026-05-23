@@ -28,7 +28,15 @@ import {
   TaskCreate,
   TaskId,
 } from "../../../task/methods.js";
-import { AppsRegister, DispatchAuthorize } from "../../../app/methods.js";
+import {
+  AppsRegister,
+  DispatchAuthorize,
+  MessagesAuthorize,
+} from "../../../app/methods.js";
+import {
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
+} from "../../../task/methods.js";
 import { AppId as AppIdSchema } from "../../../task/ids.js";
 import type { Static } from "@sinclair/typebox";
 import { appId as makeAppId } from "../_shared/test-fixtures.js";
@@ -522,12 +530,26 @@ export function acquireClient(
 }
 
 /**
- * Mint a fresh app-id per conversation fixture, AppsRegister the
- * owner, and attach a forward-all `DispatchAuthorize` wire callback.
- * Required for properties that drive TM-only RPCs (archive,
- * addParticipant, close); DEFAULT_APP_ID has no TM. The server's
- * default `messages/authorize` policy (forward to participants minus
- * sender) applies because no `MessagesAuthorize` callback is wired.
+ * Wire `owner` as moderator for a fresh app id: AppsRegister + attach
+ * grant-all `DispatchAuthorize` + forward-all `MessagesAuthorize` wire
+ * callbacks. Required for properties that drive TM-only RPCs
+ * (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
+ *
+ * Participant tracking is auto-discovered — the moderator subscribes
+ * to `task/conversation/participants/added` and
+ * `task/conversation/participants/removed` notifications (which the
+ * server delivers to every conversation participant including the
+ * moderator) and maintains a per-fixture conversation-id keyed
+ * mutable map of agent-id sets from those events. The forward-all
+ * callback reads from that map.
+ *
+ * Tests get a deterministic-readiness helper
+ * (`awaitConversationReady`) to bridge the inherent observation gap
+ * between `TaskCreate`/`TaskConversationCreate` returning and the
+ * matching notification arriving at the moderator's subscriber. Use
+ * it once per conversation, immediately after the create RPC
+ * resolves, before any `messages/send` triggers
+ * `MessagesAuthorize`.
  */
 function freshConformanceAppId(): string {
   return crypto.randomUUID();
@@ -539,17 +561,122 @@ function attachGrantDispatchAuthorize(client: TestClient): Effect.Effect<void> {
   );
 }
 
-/**
- * Wire `owner` as moderator: attach grant-all DispatchAuthorize
- * callback, AppsRegister against a fresh appId, return that appId.
- */
-function moderateAs(
+type ParticipantMap = Map<ConversationId, Set<Static<typeof AgentId>>>;
+
+function attachForwardAllMessagesAuthorize(
+  client: TestClient,
+  participantsRef: Ref.Ref<ParticipantMap>,
+): Effect.Effect<void> {
+  return client.onAppCallback(MessagesAuthorize, (params) =>
+    Effect.gen(function* () {
+      const map = yield* Ref.get(participantsRef);
+      const conv = map.get(makeConversationId(params.conversationId));
+      const recipients =
+        conv === undefined
+          ? []
+          : [...conv].filter((a) => a !== params.message.senderAgentId);
+      return {
+        verdict: { decision: "Forward" as const, recipients },
+      };
+    }),
+  );
+}
+
+function subscribeParticipantNotifications(
+  client: TestClient,
+  participantsRef: Ref.Ref<ParticipantMap>,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    yield* Effect.forkScoped(
+      client
+        .subscribe(TaskConversationParticipantsAddedNotificationDefinition)
+        .pipe(
+          Stream.runForEach((notif) =>
+            Ref.update(participantsRef, (m) => {
+              const convId = makeConversationId(notif.params.conversationId);
+              const next = new Map(m);
+              const existing = next.get(convId) ?? new Set();
+              const updated = new Set(existing);
+              updated.add(notif.params.addedAgentId);
+              next.set(convId, updated);
+              return next;
+            }),
+          ),
+          Effect.catchAll(() => Effect.void),
+        ),
+    );
+    yield* Effect.forkScoped(
+      client
+        .subscribe(TaskConversationParticipantsRemovedNotificationDefinition)
+        .pipe(
+          Stream.runForEach((notif) =>
+            Ref.update(participantsRef, (m) => {
+              const convId = makeConversationId(notif.params.conversationId);
+              const existing = m.get(convId);
+              if (existing === undefined) return m;
+              const updated = new Set(existing);
+              updated.delete(notif.params.removedAgentId);
+              const next = new Map(m);
+              next.set(convId, updated);
+              return next;
+            }),
+          ),
+          Effect.catchAll(() => Effect.void),
+        ),
+    );
+  });
+}
+
+const PARTICIPANT_READY_TIMEOUT_MS = 2000;
+const PARTICIPANT_READY_POLL_MS = 10;
+
+function awaitParticipantsForConversation(
+  participantsRef: Ref.Ref<ParticipantMap>,
+  conversationId: ConversationId,
+  expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+): Effect.Effect<void, string> {
+  const wanted = new Set(expectedAgentIds);
+  return Effect.gen(function* () {
+    const deadline = Date.now() + PARTICIPANT_READY_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const map = yield* Ref.get(participantsRef);
+      const have = map.get(conversationId) ?? new Set();
+      const missing = [...wanted].filter((a) => !have.has(a));
+      if (missing.length === 0) return;
+      yield* Effect.sleep(`${PARTICIPANT_READY_POLL_MS} millis`);
+    }
+    return yield* Effect.fail(
+      `moderator did not observe participants for ${conversationId} within ${PARTICIPANT_READY_TIMEOUT_MS}ms`,
+    );
+  });
+}
+
+export interface ModeratedHandle {
+  readonly appId: Static<typeof AppIdSchema>;
+
+  /**
+   * Block until the moderator has observed `expectedAgentIds` as
+   * participants of `conversationId` via
+   * `task/conversation/participants/added` notifications. Bridges
+   * the gap between the create RPC returning and the notification
+   * arriving on the moderator's subscriber.
+   */
+  readonly awaitConversationReady: (
+    conversationId: ConversationId,
+    expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+  ) => Effect.Effect<void, string>;
+}
+
+export function moderateAs(
   owner: ConversationActor,
   namePrefix: string,
-): Effect.Effect<Static<typeof AppIdSchema>, string> {
+): Effect.Effect<ModeratedHandle, string, Scope.Scope> {
   return Effect.gen(function* () {
     const fixtureAppId = makeAppId(freshConformanceAppId());
+    const participantsRef = yield* Ref.make<ParticipantMap>(new Map());
+    yield* subscribeParticipantNotifications(owner.client, participantsRef);
     yield* attachGrantDispatchAuthorize(owner.client);
+    yield* attachForwardAllMessagesAuthorize(owner.client, participantsRef);
     const registerResult = yield* owner.client
       .sendRpc(AppsRegister, {
         manifest: { appId: fixtureAppId, name: `${namePrefix}-app` },
@@ -559,8 +686,17 @@ function moderateAs(
       registerResult,
       (error) => `apps/register failed: ${error._tag}`,
     );
-    return fixtureAppId;
-  });
+    const handle: ModeratedHandle = {
+      appId: fixtureAppId,
+      awaitConversationReady: (conversationId, expectedAgentIds) =>
+        awaitParticipantsForConversation(
+          participantsRef,
+          conversationId,
+          expectedAgentIds,
+        ),
+    };
+    return handle;
+  }).pipe(Effect.withSpan("moderateAs"));
 }
 
 export function acquireConversation(
@@ -578,10 +714,10 @@ export function acquireConversation(
     );
     // Spec D3 + #677: owner needs TM authority for TM-only RPCs
     // (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
-    const fixtureAppId = yield* moderateAs(owner, namePrefix);
+    const moderator = yield* moderateAs(owner, namePrefix);
     const createResult = yield* owner.client
       .sendRpc(TaskCreate, {
-        appId: fixtureAppId,
+        appId: moderator.appId,
         invitedAgentIds: participants.map((p) => p.agent.agentId),
         initialConversation: {
           name: `${namePrefix}-conv`,
@@ -600,11 +736,16 @@ export function acquireConversation(
     if (typeof conversationId !== "string" || conversationId.length === 0) {
       return yield* Effect.fail(`task/create returned no conversation.id`);
     }
+    const branded = makeConversationId(conversationId);
+    yield* moderator.awaitConversationReady(
+      branded,
+      participants.map((p) => p.agent.agentId),
+    );
     return {
       owner,
       participants,
       taskId: makeTaskId(created.task.id),
-      conversationId: makeConversationId(conversationId),
+      conversationId: branded,
     };
   }).pipe(Effect.withSpan("acquireConversation"));
 }

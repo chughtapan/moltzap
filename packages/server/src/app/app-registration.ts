@@ -1,86 +1,62 @@
 import type { AppManifest } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/network";
 import { AppId } from "@moltzap/protocol/task";
 import { Value } from "@sinclair/typebox/value";
-import type { MessageAuthorizeHook, DispatchAuthorizeHook } from "./hooks.js";
+import type { MoltZapConnection } from "../transport/connection.js";
 
-export interface InProcessHooks {
-  readonly dispatchAuthorize: DispatchAuthorizeHook;
-  readonly messageAuthorize?: MessageAuthorizeHook;
+/**
+ * A registered app. There is NO `InProcess` vs `Remote` distinction —
+ * every app, including the boot-installed default, carries a
+ * `MoltZapConnection`. Wire-registered apps hold the real WebSocket
+ * connection their `apps/register` call arrived on; the default app
+ * holds a loopback connection (see `loopback-connection.ts`) whose
+ * `originator.call` dispatches in-process. AppHost sees ONE shape and
+ * uses ONE dispatch path: `sendRpcToClient(entry.connection, …)`.
+ */
+export interface AppRegistration {
+  readonly appId: AppId;
+  readonly manifest: AppManifest;
+  readonly connection: MoltZapConnection;
 }
 
 /**
- * A single tagged-union registration per app.
- *
- * Invariants enforced by the type:
- *  - manifest is bundled with its hooks; a "registered manifest with
- *    no hook" state is unrepresentable.
- *  - `InProcess` carries `dispatchAuthorize` (required) and optionally
- *    `messageAuthorize`; both run via the server's in-process hook
- *    runner, never over the wire.
- *  - `Remote` carries `connectionId`; the server invokes both
- *    `dispatch/authorize` and `messages/authorize` over the WS
- *    callback channel.
- *  - The two variants are mutually exclusive per appId: a single app
- *    cannot be in-process AND wire-registered at the same time.
- *
- * The default app (`DEFAULT_APP_ID`) is the only `InProcess`
- * registration in production — it is server-installed at boot. Tests
- * needing a custom hook MUST `AppsRegister` over the wire and attach
- * an `onAppCallback` handler.
- */
-export type AppRegistration =
-  | {
-      readonly _tag: "InProcess";
-      readonly appId: AppId;
-      readonly manifest: AppManifest;
-      readonly dispatchAuthorize: DispatchAuthorizeHook;
-      readonly messageAuthorize?: MessageAuthorizeHook;
-    }
-  | {
-      readonly _tag: "Remote";
-      readonly appId: AppId;
-      readonly manifest: AppManifest;
-      readonly connectionId: ConnectionId;
-    };
-
-/**
- * Single source of truth for app registrations. Remote registrations
- * cannot overwrite an `InProcess` entry — a malicious client MUST NOT
- * wire-register as a boot-installed app and hijack its grant hook.
- * `installInProcess` is boot-time only; duplicate installs are
- * last-writer-wins.
+ * Single source of truth for app registrations. The registry has no
+ * notion of "boot" vs "wire" — both go through {@link register}.
+ * The registry itself enforces the no-overwrite invariant: any
+ * attempt to register on top of an existing entry returns false.
+ * Callers (the `apps/register` handler, `installDefaultApp`) map a
+ * `false` return to whatever surfacing they need — typed
+ * `ForbiddenError` for the wire path, an exception for boot.
  */
 export class AppRegistry {
   private entries = new Map<AppId, AppRegistration>();
 
-  installInProcess(manifest: AppManifest, hooks: InProcessHooks): void {
+  /**
+   * Returns true if the registration was installed, false if `appId`
+   * is already present. Never overwrites — the caller MUST unregister
+   * first if they want to replace.
+   */
+  register(manifest: AppManifest, connection: MoltZapConnection): boolean {
     const appId = Value.Decode(AppId, manifest.appId);
-    this.entries.set(appId, {
-      _tag: "InProcess",
-      appId,
-      manifest,
-      ...hooks,
-    });
+    if (this.entries.has(appId)) return false;
+    this.entries.set(appId, { appId, manifest, connection });
+    return true;
   }
 
-  /** Returns false when the app is already InProcess; caller raises ForbiddenError. */
-  registerRemote(manifest: AppManifest, connectionId: ConnectionId): boolean {
-    const appId = Value.Decode(AppId, manifest.appId);
-    const existing = this.entries.get(appId);
-    if (existing && existing._tag === "InProcess") {
-      return false;
+  unregister(appId: AppId): boolean {
+    return this.entries.delete(appId);
+  }
+
+  /**
+   * Drop every entry whose connection matches `connectionId`. Used
+   * by the WS-close path to clean up any apps the closing connection
+   * registered.
+   */
+  unregisterByConnection(connectionId: string): void {
+    for (const [appId, entry] of this.entries) {
+      if (entry.connection.id === connectionId) {
+        this.entries.delete(appId);
+      }
     }
-    this.entries.set(appId, { _tag: "Remote", appId, manifest, connectionId });
-    return true;
-  }
-
-  /** No-op if absent or if the entry is `InProcess`. */
-  unregisterRemote(appId: AppId): boolean {
-    const existing = this.entries.get(appId);
-    if (!existing || existing._tag !== "Remote") return false;
-    this.entries.delete(appId);
-    return true;
   }
 
   get(appId: AppId): AppRegistration | undefined {

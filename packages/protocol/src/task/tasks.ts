@@ -11,9 +11,12 @@ import { ConversationId, conversationSchema } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
 import type { ConnectionId } from "../network/actor-model.js";
 // Structural alias for the dispatcher ctx shape consumed by argsOf
-// resolvers — the brand keeps it type-safe end to end.
+// resolvers — the brand keeps it type-safe end to end. The
+// dispatcher provides a full `MoltZapConnection` per request; argsOf
+// reads `.id` for capability obtain helpers that take a
+// `ConnectionId`.
 type CallerConnIdCtx = {
-  readonly connId: ConnectionId;
+  readonly connection: { readonly id: ConnectionId };
   readonly auth: { readonly agentId: AgentId };
 };
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
@@ -147,7 +150,7 @@ export const TaskClose = defineRpc({
         const c = ctx as CallerConnIdCtx;
         return {
           taskId: p.taskId,
-          callerConnId: c.connId,
+          callerConnId: c.connection.id,
         };
       },
     },
@@ -176,7 +179,7 @@ export const TaskAddParticipant = defineRpc({
         const c = ctx as CallerConnIdCtx;
         return {
           taskId: p.taskId,
-          callerConnId: c.connId,
+          callerConnId: c.connection.id,
         };
       },
     },
@@ -202,7 +205,7 @@ export const TaskRemoveParticipant = defineRpc({
         const c = ctx as CallerConnIdCtx;
         return {
           taskId: p.taskId,
-          callerConnId: c.connId,
+          callerConnId: c.connection.id,
         };
       },
     },
@@ -338,7 +341,7 @@ export const TaskConversationCreate = defineRpc({
         const c = ctx as CallerConnIdCtx;
         return {
           taskId: p.taskId,
-          callerConnId: c.connId,
+          callerConnId: c.connection.id,
         };
       },
     },
@@ -397,7 +400,7 @@ const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown) => {
   const c = ctx as CallerConnIdCtx;
   return {
     taskId: p.taskId,
-    callerConnId: c.connId,
+    callerConnId: c.connection.id,
   };
 };
 const conversationInTaskArgsOfPair = (params: unknown) => {

@@ -1,8 +1,10 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, unsafeCoerce } from "effect";
+import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AppManifest } from "@moltzap/protocol";
+import { ConnectionId } from "@moltzap/protocol/network";
+import type { AppManifest, ParamsOf } from "@moltzap/protocol";
+import { DispatchAuthorize, MessagesAuthorize } from "@moltzap/protocol";
 import {
   agentId,
   appId as makeAppId,
@@ -10,40 +12,31 @@ import {
   messageId,
   taskId,
 } from "@moltzap/protocol/testing";
+import { Value } from "@sinclair/typebox/value";
 import type { Db } from "../db/client.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type { MessageAuthorizeContext } from "./hooks.js";
+import { makeLoopbackConnection } from "./loopback-connection.js";
 
 const liveIt = effectIt.live;
 
-function makeAppHost(db: Db = makeEmptyDb()): { host: AppHost } {
+function makeAppHost(): { host: AppHost } {
   const connections = makeFakeService<ConnectionManager>(
     {} as Partial<ConnectionManager>,
   );
+  const db = makeFakeService<Db>({} as Partial<Db>);
   const host = new AppHost(db, connections);
   return { host };
 }
 
-function makeEmptyDb(): Db {
-  return makeFakeService<Db>({} as Partial<Db>);
-}
-
-function makeParticipantDb(): Db {
-  const selectFrom = unsafeCoerce<() => unknown, Db["selectFrom"]>(() => ({
-    select: () => ({
-      where: () =>
-        Effect.succeed([{ agent_id: SENDER }, { agent_id: RECIPIENT }]),
-    }),
-  }));
-  return makeFakeService<Db>({
-    selectFrom,
-  });
-}
-
 const APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
 const OTHER_APP_ID = makeAppId("00000000-0000-4000-8000-000000000999");
+const CONN_ID = Value.Decode(
+  ConnectionId,
+  "00000000-0000-4000-8000-00000000c001",
+);
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000c560");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-00000000e560");
 const TASK_ID = taskId("00000000-0000-4000-8000-00000000a560");
@@ -51,10 +44,6 @@ const SENDER = agentId("00000000-0000-4000-8000-00000000b001");
 const RECIPIENT = agentId("00000000-0000-4000-8000-00000000b002");
 
 const APP_MANIFEST = { appId: APP_ID, name: "test app" } satisfies AppManifest;
-const OTHER_APP_MANIFEST = {
-  appId: OTHER_APP_ID,
-  name: "other test app",
-} satisfies AppManifest;
 
 function messageAuthorizeContext(
   senderAgentId: AgentId = SENDER,
@@ -73,56 +62,62 @@ function messageAuthorizeContext(
   };
 }
 
-describe("AppHost.installInProcessApp (registration surface)", () => {
-  it("bundles manifest + dispatch hook in one registration", () => {
+describe("AppHost.registerApp", () => {
+  it("stores the manifest + connection", () => {
     const { host } = makeAppHost();
-    const handler = () => ({ decision: "grant" as const });
-    host.installInProcessApp(APP_MANIFEST, { dispatchAuthorize: handler });
+    const connection = makeLoopbackConnection({
+      id: CONN_ID,
+      handlers: {
+        [DispatchAuthorize.name]: () =>
+          Effect.succeed({ admission: { decision: "grant" as const } }),
+        [MessagesAuthorize.name]: () =>
+          Effect.succeed({
+            verdict: {
+              decision: "Forward" as const,
+              recipients: [] as ReadonlyArray<AgentId>,
+            },
+          }),
+      },
+    });
+    host.registerApp(APP_MANIFEST, connection);
     expect(host.getManifest(APP_ID)).toBe(APP_MANIFEST);
-  });
-
-  it("re-install overwrites the prior registration (last-writer-wins)", () => {
-    const { host } = makeAppHost();
-    const first = () => ({ decision: "grant" as const });
-    const second = () => ({ decision: "deny" as const });
-    host.installInProcessApp(OTHER_APP_MANIFEST, { dispatchAuthorize: first });
-    host.installInProcessApp(OTHER_APP_MANIFEST, { dispatchAuthorize: second });
-    // Manifest is the same instance; behavioural assertion of the
-    // overwritten dispatch hook lives in `runMessageAuthorize` /
-    // dispatch-flow integration tests.
-    expect(host.getManifest(OTHER_APP_ID)).toBe(OTHER_APP_MANIFEST);
   });
 });
 
 describe("AppHost.runMessageAuthorize", () => {
   liveIt(
-    "runs the in-process hook bundled with the InProcess registration",
-    inProcessMessageAuthorizeHook,
+    "dispatches via the registered app's connection",
+    runRegisteredMessageAuthorize,
   );
-
   liveIt(
-    "defaults to participants minus sender when no hook is registered",
-    defaultMessageAuthorizeRecipients,
-  );
-
-  liveIt(
-    "no-hook fallback ignores unknown appId without crashing",
-    defaultMessageAuthorizeForUnknownApp,
+    "fail-closes to Block when no app is registered",
+    unknownAppFailsClosed,
   );
 });
 
-function inProcessMessageAuthorizeHook() {
+function runRegisteredMessageAuthorize() {
   return Effect.gen(function* () {
     const { host } = makeAppHost();
-    host.installInProcessApp(APP_MANIFEST, {
-      dispatchAuthorize: () => ({ decision: "grant" as const }),
-      messageAuthorize: (ctx) => ({
-        decision: "Forward",
-        recipients:
-          ctx.message.senderAgentId === SENDER ? [RECIPIENT] : [SENDER],
-      }),
+    const connection = makeLoopbackConnection({
+      id: CONN_ID,
+      handlers: {
+        [DispatchAuthorize.name]: () =>
+          Effect.succeed({ admission: { decision: "grant" as const } }),
+        [MessagesAuthorize.name]: (
+          params: ParamsOf<typeof MessagesAuthorize>,
+        ) =>
+          Effect.succeed({
+            verdict: {
+              decision: "Forward" as const,
+              recipients:
+                params.message.senderAgentId === SENDER
+                  ? [RECIPIENT]
+                  : [SENDER],
+            },
+          }),
+      },
     });
-
+    host.registerApp(APP_MANIFEST, connection);
     const result = yield* host.runMessageAuthorize(
       APP_ID,
       messageAuthorizeContext(),
@@ -131,28 +126,13 @@ function inProcessMessageAuthorizeHook() {
   });
 }
 
-function defaultMessageAuthorizeRecipients() {
+function unknownAppFailsClosed() {
   return Effect.gen(function* () {
-    const { host } = makeAppHost(makeParticipantDb());
-    host.setConversationService({
-      removeParticipant: () => Effect.void,
-    });
-
-    const result = yield* host.runMessageAuthorize(
-      APP_ID,
-      messageAuthorizeContext(),
-    );
-    expect(result).toEqual({ decision: "Forward", recipients: [RECIPIENT] });
-  });
-}
-
-function defaultMessageAuthorizeForUnknownApp() {
-  return Effect.gen(function* () {
-    const { host } = makeAppHost(makeParticipantDb());
+    const { host } = makeAppHost();
     const result = yield* host.runMessageAuthorize(
       OTHER_APP_ID,
       messageAuthorizeContext(),
     );
-    expect(result).toEqual({ decision: "Forward", recipients: [RECIPIENT] });
+    expect(result).toEqual({ decision: "Block", reason: "tm_unreachable" });
   });
 }

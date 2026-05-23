@@ -3,17 +3,10 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 
 /**
- * Generic shape shared by every server-side authorization hook. The
- * user-facing callback returns sync-or-Promise; the AppHost runner
- * wraps the call into Effect and applies the fail-closed envelope.
- * New hooks land as additional instantiations of this alias.
- */
-type Hook<TContext, TResult> = (ctx: TContext) => TResult | Promise<TResult>;
-
-/**
- * Server-side dispatch admission hook context. The single hook
- * (`taskAuthorizeDispatch`) services the `dispatch/authorize` S→C RPC;
- * its shape mirrors the wire `DispatchAuthorizeContextSchema`.
+ * Server-side dispatch admission hook context. Wire shape mirrors
+ * the protocol's `DispatchAuthorizeContextSchema`. Consumed by
+ * `AppHost.callAppRpc` to construct the params for the
+ * `dispatch/authorize` server→app call.
  */
 export interface DispatchAuthorizeContext {
   conversationId: ConversationId;
@@ -46,15 +39,9 @@ export type DispatchAdmissionResult =
   | { decision: "deny"; reason?: string }
   | { decision: "hold"; reason?: string };
 
-export type DispatchAuthorizeHook = Hook<
-  DispatchAuthorizeContext,
-  DispatchAdmissionResult
->;
-
 /**
- * Server-side message-fan-out authorization hook context. The hook
- * (`messageAuthorize`) services the `messages/authorize` S→C RPC; its
- * shape mirrors the wire `MessagesAuthorizeContextSchema`. Symmetric
+ * Server-side message-fan-out authorization hook context. Wire shape
+ * mirrors the protocol's `MessagesAuthorizeContextSchema`. Symmetric
  * to `DispatchAuthorizeContext` — same fields, same fail-closed
  * posture, different verdict union.
  */
@@ -80,8 +67,3 @@ export interface MessageAuthorizeContext {
 export type MessageAuthorizeResult =
   | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
   | { decision: "Block"; reason?: string };
-
-export type MessageAuthorizeHook = Hook<
-  MessageAuthorizeContext,
-  MessageAuthorizeResult
->;
