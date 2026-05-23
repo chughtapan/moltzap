@@ -15,7 +15,7 @@ import {
   MessagesSend,
   MessageReceivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol";
@@ -48,7 +48,7 @@ function createDm(
   unknown
 > {
   return creator.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [participant.agentId],
       initialConversation: { participants: [participant.agentId] },
@@ -70,7 +70,7 @@ function createGroup(
 > {
   const ids = participants.map((p) => p.agentId);
   return creator.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: ids,
       initialConversation: { name: GROUP_NAME, participants: ids },

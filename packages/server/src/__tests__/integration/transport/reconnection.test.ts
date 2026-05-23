@@ -16,7 +16,7 @@ import {
   MessagesList,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
   type AgentId,
   type ConversationId,
   type TaskId,
@@ -87,7 +87,7 @@ function createDm(
   participantAgentId: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return Effect.gen(function* () {
-    const conv = yield* client.sendRpc(TaskCreate, {
+    const conv = yield* client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [participantAgentId],
       initialConversation: { participants: [participantAgentId] },

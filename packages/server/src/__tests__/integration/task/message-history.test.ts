@@ -12,7 +12,7 @@ import {
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 const TOTAL_MESSAGES_TO_SEND = 15;
@@ -30,7 +30,7 @@ it("message listing returns messages in ascending order with hasMore", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },

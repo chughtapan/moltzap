@@ -34,7 +34,7 @@ import {
 import {
   type ConversationId,
   TaskClose,
-  TaskCreate,
+  TaskRequest,
   TaskList,
 } from "../../task/methods.js";
 import {
@@ -123,7 +123,7 @@ const MODEL_METHOD_OUTCOMES = {
   [AppsRegister.name]: "uncertain",
   [DispatchRequest.name]: "uncertain",
   [DispatchesGet.name]: "uncertain",
-  [TaskCreate.name]: "uncertain",
+  [TaskRequest.name]: "uncertain",
   [TaskList.name]: "uncertain",
   [TaskClose.name]: "uncertain",
 } as const satisfies Readonly<Record<MethodName, ModelMethodOutcome>>;

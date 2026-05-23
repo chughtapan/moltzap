@@ -34,7 +34,7 @@ import {
   TaskConversationList,
   TaskConversationRemoveParticipant,
   TaskConversationUnarchive,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
   type Conversation,
   type Task,
@@ -70,7 +70,7 @@ const acquireActor = (
   name: string,
 ) => acquireClient(ctx, name).pipe(Effect.mapError(fixtureMap(property)));
 
-// ─── TaskCreate ──────────────────────────────────────────────────────
+// ─── TaskRequest ──────────────────────────────────────────────────────
 
 const TASK_CREATE_PROPERTY = "task-create";
 
@@ -82,7 +82,7 @@ const createTaskCreate = (
   FixtureError
 > =>
   alice.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agent.agentId as AgentId],
     })
@@ -126,7 +126,7 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     TASK_CREATE_PROPERTY,
-    "TaskCreate accepts appId-only payload and returns task + null conversation",
+    "TaskRequest accepts appId-only payload and returns task + null conversation",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(
@@ -169,7 +169,7 @@ const createSelfOnlyTask = (
   property: string,
 ): Effect.Effect<Task, FixtureError> =>
   alice.client
-    .sendRpc(TaskCreate, { appId: DEFAULT_APP_ID, invitedAgentIds: [] })
+    .sendRpc(TaskRequest, { appId: DEFAULT_APP_ID, invitedAgentIds: [] })
     .pipe(
       Effect.either,
       Effect.flatMap((res) =>
@@ -213,7 +213,7 @@ const createTaskWithInitialConversation = (
   FixtureError
 > =>
   alice.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agent.agentId as AgentId],
       initialConversation: {
@@ -279,7 +279,7 @@ export function registerTaskConversationCreateAndList(
     ctx,
     CATEGORY,
     TCC_LIST_PROPERTY,
-    "TaskCreate(initialConversation) + TaskConversationList surface the new conversation",
+    "TaskRequest(initialConversation) + TaskConversationList surface the new conversation",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(ctx, TCC_LIST_PROPERTY, "tcf-tcl-a");
@@ -488,7 +488,7 @@ export function registerTaskConversationCreateDenied(
         );
         const bob = yield* acquireActor(ctx, TCC_DENIED_PROPERTY, "tcf-tccd-b");
         const payload = yield* alice.client
-          .sendRpc(TaskCreate, {
+          .sendRpc(TaskRequest, {
             appId: DEFAULT_APP_ID,
             invitedAgentIds: [bob.agent.agentId as AgentId],
           })

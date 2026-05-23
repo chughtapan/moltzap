@@ -22,7 +22,7 @@ import {
   MessagesSend,
   MessageReceivedNotificationDefinition,
   TaskConversationCreate,
-  TaskCreate,
+  TaskRequest,
   type AppId,
   type AppManifest,
 } from "@moltzap/protocol";
@@ -83,7 +83,7 @@ function recordDeliveredMessageTrace(): Effect.Effect<void> {
     const alice = yield* registerAndConnect("alice-trace-capture");
     const bob = yield* registerAndConnect("bob-trace-capture");
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -131,7 +131,7 @@ function recordBlockedHookTrace(): Effect.Effect<void> {
     // TaskConversationCreate (TM-only).
     yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });
 
-    const task = yield* alice.client.sendRpc(TaskCreate, {
+    const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: TRACE_APP_ID,
       invitedAgentIds: [bob.agentId],
     });

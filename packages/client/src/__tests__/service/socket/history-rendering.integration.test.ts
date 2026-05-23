@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -14,7 +14,7 @@ it("lastRead tracks seen message IDs across reads", () =>
     const service = yield* H.connectService(regA.apiKey);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskCreate, {
+      const conv = yield* H.socketRpcRequest(TaskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
@@ -70,7 +70,7 @@ it("non-text message parts render as markers in socket history", () =>
     const service = yield* H.connectService(regA.apiKey);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskCreate, {
+      const conv = yield* H.socketRpcRequest(TaskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },

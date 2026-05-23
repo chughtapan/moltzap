@@ -18,7 +18,7 @@ import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
 import { MoltZapChannelCore, MoltZapService } from "@moltzap/client";
 import { type Message } from "@moltzap/protocol";
-import { TaskCreate, DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
@@ -202,7 +202,7 @@ function createDm(
   EchoIntegrationError
 > {
   return peerService
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },

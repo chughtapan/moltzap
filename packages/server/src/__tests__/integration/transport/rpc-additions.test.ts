@@ -15,7 +15,7 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   NetworkPing,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 import { messageId } from "@moltzap/protocol/testing";
 
@@ -103,7 +103,7 @@ it("messages/send preserves replyToId on the persisted message", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -132,7 +132,7 @@ it("messages/send rejects replyToId that points to an unknown message", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },

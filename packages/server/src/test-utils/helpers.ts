@@ -28,7 +28,7 @@ import {
 } from "@moltzap/protocol/testing";
 import { getBaseUrl, getWsUrl } from "./index.js";
 
-import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
 import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 
@@ -489,7 +489,7 @@ export function setupAgentGroup(
     if (opts?.groupName) {
       const creator = agents[0]!;
       const otherAgentIds = agents.slice(1).map((a) => a.agentId);
-      const created = yield* creator.client.sendRpc(TaskCreate, {
+      const created = yield* creator.client.sendRpc(TaskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: otherAgentIds,
         initialConversation: {

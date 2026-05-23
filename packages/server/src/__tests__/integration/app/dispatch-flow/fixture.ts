@@ -6,7 +6,7 @@ import {
   DispatchRequest,
   MessagesSend,
   TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
   type AppManifest,
   type ConversationId,
   type DispatchId,
@@ -83,7 +83,7 @@ export function createTaskConversationOnApp(
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
     yield* ensureModeratorAppRegistered(alice, manifest);
-    const result = yield* alice.client.sendRpc(TaskCreate, {
+    const result = yield* alice.client.sendRpc(TaskRequest, {
       appId: mkAppId(manifest.appId),
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -157,7 +157,7 @@ export function createUnmoderatedDm(
   bob: ConnectedAgent,
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },

@@ -29,7 +29,7 @@ import { Data, Effect } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
 import { MessagesList, MessagesSend, type Message } from "@moltzap/protocol";
 import {
-  TaskCreate,
+  TaskRequest,
   DEFAULT_APP_ID,
   type ConversationId,
   type TaskId,
@@ -190,7 +190,7 @@ function createDm(
   ReconnectionIntegrationError
 > {
   return peerClient
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },
@@ -206,7 +206,7 @@ function createDm(
       Effect.mapError(
         (cause) =>
           new ReconnectionIntegrationError({
-            message: "TaskCreate failed",
+            message: "TaskRequest failed",
             cause,
           }),
       ),

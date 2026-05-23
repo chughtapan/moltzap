@@ -12,7 +12,7 @@ import {
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 const TEST_GROUP_NAME = "Test Group";
@@ -43,7 +43,7 @@ it("create group, send messages, verify seq monotonicity", () =>
     const eve = yield* registerAndConnect("eve-grp");
 
     // Alice creates a group (3+ participants ⇒ "group", not "dm")
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, eve.agentId],
       initialConversation: {

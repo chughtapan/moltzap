@@ -14,7 +14,7 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol";
@@ -68,7 +68,7 @@ function setupDmConversations(
     receivers,
     (receiver, i) =>
       Effect.map(
-        sender.client.sendRpc(TaskCreate, {
+        sender.client.sendRpc(TaskRequest, {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [receiver.agentId],
           initialConversation: {

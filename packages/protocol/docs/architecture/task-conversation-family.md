@@ -16,7 +16,7 @@ lives in `packages/server/src/task/handlers/`.
 
 | Wire name | Const | Authority |
 |---|---|---|
-| `task/create` | `TaskCreate` | any agent + contacts |
+| `task/create` | `TaskRequest` | any agent + contacts |
 | `task/leave` | `TaskLeave` | self |
 | `task/conversation/create` | `TaskConversationCreate` | TM |
 | `task/conversation/list` | `TaskConversationList` | self |
@@ -54,7 +54,7 @@ remote app registered for them, so no connection passes the TM-authority
 gate and TM-only RPCs are unreachable. Ordinary participants still send
 messages via the AgentClient surface.
 
-## TaskCreate flow
+## TaskRequest flow
 
 Data-flow contract (impl-staff translates to Effect+Kysely; this is
 NOT normative pseudocode):
@@ -99,7 +99,7 @@ Data-flow contract (impl-staff translates to Effect+Kysely; non-normative):
 
 1. **Decode** — schema validates `taskId`, `conversationId`, `agentId`.
 2. **Authority** — `TmAuthority` (Spec E) for `taskId`.
-3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. The server auto-admits every invitee at TaskCreate today (`admittedAt` is non-null on every row), so the membership check is sufficient. The `admittedAt`-null branch + the `WHERE admitted_at IS NOT NULL` read filters are kept in place for a future "pending invitation" flow.
+3. **Invariant check** — verify `(task_id = $taskId, agent_id = $agentId)` exists in `task_participants`. Missing row = fail with `ParticipantNotAdmittedError`. The server auto-admits every invitee at TaskRequest today (`admittedAt` is non-null on every row), so the membership check is sufficient. The `admittedAt`-null branch + the `WHERE admitted_at IS NOT NULL` read filters are kept in place for a future "pending invitation" flow.
 4. **Conversation-in-task verification** — verify `(conversations.id = $conversationId AND conversations.task_id = $taskId)`. Mismatch = `NotFoundError` (cross-task `conversationId` rejected).
 5. **Insert** — `INSERT INTO conversation_participants (conversation_id, agent_id) ON CONFLICT DO NOTHING` inside a transaction.
 6. **Notification** — `TaskConversationParticipantsAddedNotificationDefinition` enqueues AFTER the participant insert returns. Broadcast is best-effort: `notification-broadcast.ts` calls `NetworkSendService.broadcast`, which forks socket writes via `Effect.runFork` and does not participate in the participant-insert transaction.
@@ -118,7 +118,7 @@ notification fires; the conversation row stays with
 
 | Method | Authority |
 |---|---|
-| `TaskCreate` | any authenticated agent + `requireContactPolicyForCreate` |
+| `TaskRequest` | any authenticated agent + `requireContactPolicyForCreate` |
 | `TaskLeave` | self only |
 | `TaskConversationCreate` | TM only + participant-admitted invariant |
 | `TaskConversationList` | self only (caller ∈ `conversation_participants`) |
@@ -157,7 +157,7 @@ the descriptor's `capabilities` array.
 
 | Handler | Descriptor `capabilities` | Notes |
 |---|---|---|
-| `TaskCreate` | (none declared) | `obtainContactPolicyForCreate` stays inline-piped (conditional on `invitedAgentIds.length > 0`); `obtainConversationCreateAuthorization` stays inline-piped inside `mintInitialConversation` (conditional on `initialConversation`). Both conditions fail the static `argsOf` shape; pattern matches the `MessagesSend` Spec F §3 carve-out. |
+| `TaskRequest` | (none declared) | `obtainContactPolicyForCreate` stays inline-piped (conditional on `invitedAgentIds.length > 0`); `obtainConversationCreateAuthorization` stays inline-piped inside `mintInitialConversation` (conditional on `initialConversation`). Both conditions fail the static `argsOf` shape; pattern matches the `MessagesSend` Spec F §3 carve-out. |
 | `TaskLeave` | (none declared) | Self-auth via `ctx.agentId`; `taskService.leaveTask` does not require any capability tag. |
 | `TaskConversationCreate` | `[TmAuthority, ConversationCreateAuthorization]` | Handler explicitly `yield* TmAuthority` BEFORE `requireAgentsAreInTaskParticipants` to force the lazy obtain helper to execute ahead of the participant-admitted probe (auth-first invariant). `ConversationCreateAuthorization` is consumed inside `conversationService.create`. |
 | `TaskConversationList` | (none declared) | Self-auth via `ctx.agentId`; the underlying `conversationService.list` does not require any capability tag. |
@@ -195,7 +195,7 @@ rollback BEFORE the enqueue line emits zero notifications.
 | `task/leave` (per conversation the leaver was in) | `task/conversation/participants/removed { reason: "task_leave" }` (one per cid) |
 | `task/leave` (last-participant-task-closure case) | `task/closed { task }` |
 
-`TaskCreate` without `initialConversation` does NOT emit any
+`TaskRequest` without `initialConversation` does NOT emit any
 conversation notification (no conversation row created).
 
 ## Test alignment
@@ -215,7 +215,7 @@ conversation notification (no conversation row created).
   invariant.
 - **Type canaries** — `packages/protocol/src/task/task-conversation-family.types-check.ts`
   encodes 5 invariants: wire-name namespace lock,
-  `TaskCreate` params shape, `DEFAULT_APP_ID` brand, list-item
+  `TaskRequest` params shape, `DEFAULT_APP_ID` brand, list-item
   shape, removed-reason discriminator, and the negative-canary
   block for explicitly-rejected symbols.
 

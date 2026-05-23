@@ -19,7 +19,7 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { TaskCreate, DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { conversationId, taskId } from "../_shared/test-fixtures.js";
@@ -227,7 +227,7 @@ export function createOneOnOneConversation(
 > {
   return Effect.gen(function* () {
     const create = yield* owner.client
-      .sendRpc(TaskCreate, {
+      .sendRpc(TaskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [participant.agent.agentId],
         initialConversation: {

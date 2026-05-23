@@ -6,7 +6,7 @@
  *  - Custom-TM routing: TM live → success; TM offline → HookBlocked.
  *  - Closed task: `messages/send` fails closed with `TaskClosed`.
  *  - TM-authored `messages/send` does NOT self-loop the TM (codex HIGH-1).
- *  - Default-DM-TM lifecycle: `TaskCreate` with `initialConversation`
+ *  - Default-DM-TM lifecycle: `TaskRequest` with `initialConversation`
  *    auto-mints a default-TM-bound task; `messages/send` succeeds.
  */
 import * as fc from "fast-check";
@@ -16,7 +16,7 @@ import {
   DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
   type ConversationId,
   type Message,
   type Task,
@@ -102,10 +102,10 @@ function setupTaskBoundConversation(
   pair: AgentPair,
 ): Effect.Effect<TaskBinding, Error> {
   return Effect.gen(function* () {
-    // Single TaskCreate auto-admits + atomically mints the conversation.
+    // Single TaskRequest auto-admits + atomically mints the conversation.
     // Pre-#677 this used TaskAddParticipant + TaskConversationCreate,
     // both TM-only on DEFAULT_APP_ID tasks (unreachable by design).
-    const created = yield* pair.tm.sendRpc(TaskCreate, {
+    const created = yield* pair.tm.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [pair.senderAgentId],
       initialConversation: { participants: [pair.senderAgentId] },
@@ -175,11 +175,11 @@ vit.todo(
 );
 
 it(
-  "Default-DM-TM: TaskCreate auto-binds the default TM; messages/send succeeds without a custom TM",
+  "Default-DM-TM: TaskRequest auto-binds the default TM; messages/send succeeds without a custom TM",
   () =>
     Effect.gen(function* () {
       const pair = yield* setupTmAndSender(5);
-      const conv = yield* pair.sender.sendRpc(TaskCreate, {
+      const conv = yield* pair.sender.sendRpc(TaskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [pair.tmAgentId],
         initialConversation: { participants: [pair.tmAgentId] },
@@ -205,7 +205,7 @@ it(
 );
 
 it(
-  "Default-group-TM: TaskCreate type=group auto-binds the default group TM",
+  "Default-group-TM: TaskRequest type=group auto-binds the default group TM",
   () =>
     Effect.gen(function* () {
       const pair = yield* setupTmAndSender(7);
@@ -219,7 +219,7 @@ it(
       trackClient(observer);
       const tmAgentId = pair.tmAgentId;
       const observerAgentId = observerReg.agentId;
-      const conv = yield* pair.sender.sendRpc(TaskCreate, {
+      const conv = yield* pair.sender.sendRpc(TaskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [tmAgentId, observerAgentId],
         initialConversation: {

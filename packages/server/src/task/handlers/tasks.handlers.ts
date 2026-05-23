@@ -12,7 +12,7 @@ import {
   TaskConversationRemoveParticipant,
   TaskConversationUnarchive,
   TaskConversationUnarchivedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
   TaskAddParticipant,
   TaskClose,
@@ -157,6 +157,7 @@ function taskConversationCreateBody(
       conversation,
       participants: params.participants,
       name: params.name,
+      callerAgentId: ctx.agentId,
     });
     return { conversation };
   }).pipe(Effect.withSpan("task.conversation.create"));
@@ -167,14 +168,22 @@ interface TaskConversationCreateInput {
   readonly conversation: Conversation;
   readonly participants: ReadonlyArray<AgentId>;
   readonly name?: string;
+  readonly callerAgentId: AgentId;
 }
 
 function fanoutTaskConversationCreate(input: TaskConversationCreateInput) {
-  // Recipients = the initial participants. The TM caller is NOT a
-  // `conversation_participants` row under the TM-only authority model,
-  // so it is not in the fan-out.
+  // Recipients = the TM caller PLUS the initial participants. The
+  // caller is the TM (the only agent authorized to call
+  // task/conversation/create); including it here matches
+  // `mintInitialConversation`'s broadcast and gives the TM a
+  // confirmation event for its own creation so it can populate
+  // moderator-side bookkeeping without a separate read path.
+  const recipientAgentIds: AgentId[] = [
+    input.callerAgentId,
+    ...input.participants,
+  ];
   return broadcastNotificationToAgents(
-    input.participants,
+    recipientAgentIds,
     TaskConversationCreatedNotificationDefinition,
     {
       taskId: input.taskId,
@@ -376,7 +385,7 @@ export const taskHandlers: RpcMethodRegistry = [
   // caller sees `ForbiddenError` instead of `ParticipantNotAdmittedError`
   // (which would leak task state).
 
-  defineTaskMethod(TaskCreate, {
+  defineTaskMethod(TaskRequest, {
     requiresActive: true,
     handler: (params, ctx) => taskCreateBody(params, ctx),
   }),

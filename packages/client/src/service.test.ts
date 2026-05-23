@@ -23,7 +23,7 @@ import {
 } from "./test-utils/index.js";
 
 import { AgentsLookupByName } from "@moltzap/protocol";
-import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;
 
@@ -73,7 +73,7 @@ const AGENT_NOT_FOUND_TAG = "AgentNotFoundError";
 const NOBODY_AGENT_NAME = "nobody";
 const LOOKUP_MISSING_RESPONSE_MESSAGE =
   /no canned response for agents\/lookupByName/;
-const CREATE_MISSING_RESPONSE_MESSAGE = /no canned response for task\/create/;
+const CREATE_MISSING_RESPONSE_MESSAGE = /no canned response for task\/request/;
 const SEND_MISSING_RESPONSE_MESSAGE = /no canned response for messages\/send/;
 const PLAIN_NAME = "Alice";
 const PLAIN_TEXT = "hello world";
@@ -164,7 +164,7 @@ function seedAgentLookup(
 function makeSendToAgentService(): FakeMoltZapService {
   const service = new FakeMoltZapService();
   seedAgentLookup(service);
-  service.setResponse(TaskCreate, taskCreateResponse());
+  service.setResponse(TaskRequest, taskCreateResponse());
   seedMessageSendResponse(service);
   return service;
 }
@@ -185,7 +185,7 @@ function sendToAgentCreatesConversation() {
         params: { names: [SEND_TO_AGENT_NAME] },
       },
       {
-        method: TaskCreate.name,
+        method: TaskRequest.name,
         params: {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [AGENT_ALICE_ID],
@@ -250,7 +250,7 @@ function sendToAgentCachesPerAgentName() {
 
     seedAgentLookup(service, AGENT_BOB_ID, BOB_AGENT_NAME);
     service.setResponse(
-      TaskCreate,
+      TaskRequest,
       taskCreateResponse(TASK_BOB_ID, CONVERSATION_BOB_ID),
     );
     yield* service.sendToAgent(BOB_AGENT_NAME, HELLO_BOB_TEXT);
@@ -306,7 +306,7 @@ function sendToAgentLookupFailurePropagates() {
 function sendToAgentCreateFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(TaskCreate);
+    service.deleteResponse(TaskRequest);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),

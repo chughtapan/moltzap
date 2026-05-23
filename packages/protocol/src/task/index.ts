@@ -22,7 +22,7 @@ export {
   // Spec D1 — `task/*` + `task/conversation/*` family.
   AppId,
   DEFAULT_APP_ID,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
   TaskConversationCreate,
   TaskConversationList,

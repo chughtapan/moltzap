@@ -26,7 +26,7 @@ import {
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
   TaskConversationList,
   NotConnectedError,
   serverRpcMethods,
@@ -907,7 +907,7 @@ export class MoltZapService {
         if (!agent) {
           return yield* Effect.fail(new AgentNotFoundError({ agentName }));
         }
-        const createResult = yield* this.sendRpc(TaskCreate, {
+        const createResult = yield* this.sendRpc(TaskRequest, {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [agent.id as AgentId],
           initialConversation: { participants: [agent.id as AgentId] },

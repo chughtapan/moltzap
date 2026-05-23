@@ -16,6 +16,6 @@ export {
   MessagesSend,
   TaskConversationArchive,
   TaskConversationList,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
 } from "@moltzap/protocol";
