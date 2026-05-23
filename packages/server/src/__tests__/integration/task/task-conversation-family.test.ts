@@ -35,10 +35,12 @@ import {
   ParticipantNotAdmittedError,
   TaskConversationAddParticipant,
   TaskConversationArchive,
+  AppsRegister,
   TaskConversationCreate,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationList,
   TaskConversationRemoveParticipant,
+  TaskCreate,
   TaskRequest,
   TaskLeave,
   TaskClosedNotificationDefinition,
@@ -65,7 +67,7 @@ const NOTIF_TIMEOUT_MS = 2_500;
 
 // Surface invariants that the spec body pins; pulling these into
 // named constants keeps the assertions grep-able + lints clean.
-const STATUS_WAITING = "waiting" as const;
+const STATUS_ACTIVE = "active" as const;
 const STATUS_CLOSED = "closed" as const;
 const INITIAL_CONV_NAME = "kickoff" as const;
 
@@ -142,7 +144,9 @@ it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all partici
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
     });
-    expect(result.task.status).toBe(STATUS_WAITING);
+    // DEFAULT_APP auto-accepts the task/create TM callback, so the
+    // task transitions waiting → active before task/request returns.
+    expect(result.task.status).toBe(STATUS_ACTIVE);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
     expect(result.task.initiatorAgentId).toBe(alice.agentId);
     // No initialConversation supplied -> null per spec body Goal 3.
@@ -161,10 +165,17 @@ it("TaskRequest (different appId) does NOT dedup across apps", () =>
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
-    // Non-default app: dedup only fires under DEFAULT_APP per
-    // spec body Goal 3.
+    // Non-default app: register alice as its TM so the task/create
+    // callback resolves. Dedup is retired (#677); two requests under
+    // different apps always mint distinct tasks.
     const other =
       "11111111-2222-4333-8444-555555555555" as typeof DEFAULT_APP_ID;
+    yield* alice.client.sendRpc(AppsRegister, {
+      manifest: { appId: other, name: "other-app" },
+    });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     const second = yield* alice.client.sendRpc(TaskRequest, {
       appId: other,
       invitedAgentIds: [bob.agentId],

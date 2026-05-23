@@ -12,15 +12,12 @@ import {
   TaskConversationRemoveParticipant,
   TaskConversationUnarchive,
   TaskConversationUnarchivedNotificationDefinition,
-  TaskRequest,
   TaskLeave,
   TaskAddParticipant,
   TaskClose,
   TaskList,
   TaskRemoveParticipant,
-  type AppId,
   type Conversation,
-  type Task,
   type TaskConversationListItem,
 } from "@moltzap/protocol";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
@@ -28,103 +25,14 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-import {
-  ConversationCreateAuthorization,
-  TmAuthority,
-  obtainContactPolicyForCreate,
-  obtainConversationCreateAuthorization,
-} from "../../app/capabilities/index.js";
+import { TmAuthority } from "../../app/capabilities/index.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
-function taskRequestBody(
-  params: {
-    readonly appId: AppId;
-    readonly invitedAgentIds: ReadonlyArray<AgentId>;
-    readonly initialConversation?: {
-      readonly name?: string;
-      readonly participants?: ReadonlyArray<AgentId>;
-    };
-  },
-  ctx: { readonly agentId: AgentId },
-) {
-  return Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
-    yield* maybeRunContactPolicyForTaskRequest(params, ctx);
-    const task = yield* taskService.create(ctx.agentId, {
-      appId: params.appId,
-      invitedAgentIds: params.invitedAgentIds,
-    });
-    if (params.initialConversation === undefined) {
-      return { task, conversation: null as Conversation | null };
-    }
-    return yield* mintInitialConversation({
-      task,
-      initial: params.initialConversation,
-      invitedAgentIds: params.invitedAgentIds,
-      callerAgentId: ctx.agentId,
-    });
-  }).pipe(Effect.withSpan("task.create"));
-}
-
-type TaskRequestParams = Parameters<typeof taskRequestBody>[0];
-type TaskRequestCtx = Parameters<typeof taskRequestBody>[1];
-
-function maybeRunContactPolicyForTaskRequest(
-  params: TaskRequestParams,
-  ctx: TaskRequestCtx,
-) {
-  if (params.invitedAgentIds.length === 0) return Effect.void;
-  return obtainContactPolicyForCreate(ctx.agentId, params.invitedAgentIds);
-}
-
-interface MintInitialInput {
-  readonly task: Task;
-  readonly initial: {
-    readonly name?: string;
-    readonly participants?: ReadonlyArray<AgentId>;
-  };
-  readonly invitedAgentIds: ReadonlyArray<AgentId>;
-  readonly callerAgentId: AgentId;
-}
-
-function mintInitialConversation(input: MintInitialInput) {
-  return Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    const participantAgentIds: ReadonlyArray<AgentId> =
-      input.initial.participants ?? input.invitedAgentIds;
-    const conversation = yield* conversationService
-      .create({
-        name: input.initial.name,
-        agentIds: [...participantAgentIds],
-        creatorAgentId: input.callerAgentId,
-        mintTask: Effect.succeed({ id: input.task.id }),
-      })
-      .pipe(
-        Effect.provideServiceEffect(
-          ConversationCreateAuthorization,
-          obtainConversationCreateAuthorization({
-            agentIds: [...participantAgentIds],
-            creatorAgentId: input.callerAgentId,
-          }),
-        ),
-      );
-    const recipientAgentIds: AgentId[] = [
-      input.callerAgentId,
-      ...participantAgentIds,
-    ];
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      TaskConversationCreatedNotificationDefinition,
-      {
-        taskId: input.task.id,
-        conversationId: conversation.id,
-        name: input.initial.name,
-        participants: [...participantAgentIds],
-      },
-    );
-    return { task: input.task, conversation };
-  }).pipe(Effect.withSpan("task.create.mintInitialConversation"));
-}
+// `task/request` lives in `packages/server/src/app/handlers/task-request.handler.ts`
+// — its handler binds via `defineAppMethod` because it dispatches the
+// `task/create` TM callback through `AppHost`, which is an app-layer
+// service. The descriptor itself stays in `@moltzap/protocol/task`;
+// only the binding moves up a layer.
 
 function taskConversationCreateBody(
   params: {
@@ -385,10 +293,11 @@ export const taskHandlers: RpcMethodRegistry = [
   // caller sees `ForbiddenError` instead of `ParticipantNotAdmittedError`
   // (which would leak task state).
 
-  defineTaskMethod(TaskRequest, {
-    requiresActive: true,
-    handler: (params, ctx) => taskRequestBody(params, ctx),
-  }),
+  // `task/request` is registered via `defineAppMethod` in
+  // `packages/server/src/app/handlers/task-request.handler.ts`. The
+  // descriptor stays in `@moltzap/protocol/task`; the binding moves up
+  // a layer because the handler needs `AppHostTag` to fire the
+  // `task/create` TM callback (an app-layer service).
 
   defineTaskMethod(TaskLeave, {
     requiresActive: true,

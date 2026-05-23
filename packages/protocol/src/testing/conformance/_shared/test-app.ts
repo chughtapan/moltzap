@@ -13,6 +13,7 @@ import {
   AppsRegister,
   DispatchAuthorize,
   MessagesAuthorize,
+  TaskCreate,
   type AppManifest,
 } from "../../../app/index.js";
 import type {
@@ -122,6 +123,13 @@ export function registerTestApp(
     const messagesAuthorize = yield* makeCallbackScript(
       options.client,
       MessagesAuthorize,
+    );
+    // task/request fires a task/create TM callback before the task
+    // leaves `waiting`. Dispatch-admission properties don't gate task
+    // creation, so the test app auto-accepts; the dispatch lifecycle
+    // is what they exercise.
+    yield* options.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
     return {
       appId: manifest.appId,

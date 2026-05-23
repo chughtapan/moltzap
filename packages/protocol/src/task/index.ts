@@ -32,6 +32,7 @@ export {
   TaskConversationRemoveParticipant,
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   // Spec D1 — `task/conversation/*` notifications.
   TaskConversationCreatedNotificationDefinition,

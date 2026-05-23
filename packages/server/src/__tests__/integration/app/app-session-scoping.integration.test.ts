@@ -15,6 +15,7 @@
 import { it as effectIt } from "@effect/vitest";
 import {
   AppsRegister,
+  TaskCreate,
   TaskConversationCreate,
   TaskRequest,
   type AppId,
@@ -56,6 +57,9 @@ function registeredAppConnPassesTmGate() {
     const alice = yield* registerAndConnect("alice");
     const bob = yield* registerAndConnect("bob");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: APP_ID,
       invitedAgentIds: [bob.agentId],
@@ -73,6 +77,9 @@ function peerConnFailsTmGate() {
     const alice = yield* registerAndConnect("alice-2");
     const bob = yield* registerAndConnect("bob-2");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: APP_ID,
       invitedAgentIds: [bob.agentId],
@@ -92,6 +99,9 @@ function disconnectDropsRegistration() {
     const alice = yield* registerAndConnect("alice-3");
     const bob = yield* registerAndConnect("bob-3");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: APP_ID,
       invitedAgentIds: [bob.agentId],
@@ -114,6 +124,9 @@ function reregisterRejectedWhileOldConnectionAlive() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-4");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     // A second connection trying to register the same app while the
     // first connection is still alive is a hijack attempt — the
     // server MUST reject it. (Pre-#677 the handler silently overwrote

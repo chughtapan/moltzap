@@ -213,7 +213,19 @@ export const TaskRemoveParticipant = defineRpc({
 });
 
 const TaskFailedNotificationSchema = Type.Object(
-  { taskId: TaskId },
+  {
+    taskId: TaskId,
+    // Free-form one-liner. The task/create TM-callback verdict's
+    // `reject.reason`, the synthesized `"tm_unreachable"` /
+    // `"timeout"` strings from the fail-closed envelope, and any
+    // future caller-supplied failure reason all flow through here.
+    reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+  },
+  { additionalProperties: false },
+);
+
+const TaskCreatedNotificationSchema = Type.Object(
+  { task: TaskSchema },
   { additionalProperties: false },
 );
 
@@ -225,6 +237,18 @@ const TaskClosedNotificationSchema = Type.Object(
 export const TaskFailedNotificationDefinition = defineNotification({
   name: "task/failed",
   params: TaskFailedNotificationSchema,
+});
+
+/**
+ * Pushed to the task initiator + invited participants after the TM
+ * accepts via the `task/create` wire callback and the task
+ * transitions from `waiting` to `active`. Carries the full Task row
+ * (matching `task/closed`'s shape) so subscribers don't need a
+ * second read to discover the post-transition state.
+ */
+export const TaskCreatedNotificationDefinition = defineNotification({
+  name: "task/created",
+  params: TaskCreatedNotificationSchema,
 });
 
 export const TaskClosedNotificationDefinition = defineNotification({

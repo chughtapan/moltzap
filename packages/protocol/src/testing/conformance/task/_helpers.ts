@@ -33,6 +33,7 @@ import {
   AppsRegister,
   DispatchAuthorize,
   MessagesAuthorize,
+  TaskCreate,
 } from "../../../app/methods.js";
 import {
   TaskConversationParticipantsAddedNotificationDefinition,
@@ -562,6 +563,12 @@ function attachGrantDispatchAuthorize(client: TestClient): Effect.Effect<void> {
   );
 }
 
+function attachAcceptTaskCreate(client: TestClient): Effect.Effect<void> {
+  return client.onAppCallback(TaskCreate, () =>
+    Effect.succeed({ verdict: { decision: "accept" as const } }),
+  );
+}
+
 type ParticipantMap = Map<ConversationId, Set<Static<typeof AgentId>>>;
 
 function attachForwardAllMessagesAuthorize(
@@ -719,6 +726,7 @@ export function moderateAs(
     const participantsRef = yield* Ref.make<ParticipantMap>(new Map());
     yield* subscribeParticipantNotifications(owner.client, participantsRef);
     yield* attachGrantDispatchAuthorize(owner.client);
+    yield* attachAcceptTaskCreate(owner.client);
     yield* attachForwardAllMessagesAuthorize(owner.client, participantsRef);
     const registerResult = yield* owner.client
       .sendRpc(AppsRegister, {

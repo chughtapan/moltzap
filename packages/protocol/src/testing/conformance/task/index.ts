@@ -34,6 +34,7 @@ import {
   registerTaskConversationCreateDenied,
   registerTaskConversationRemoveParticipant,
   registerTaskCreate,
+  registerTaskRequestReject,
   registerTaskLeave,
 } from "./task-conversation-family.js";
 
@@ -52,6 +53,7 @@ export {
   registerTaskConversationCreateDenied,
   registerTaskConversationRemoveParticipant,
   registerTaskCreate,
+  registerTaskRequestReject,
   registerTaskLeave,
 };
 
