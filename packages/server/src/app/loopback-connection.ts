@@ -30,6 +30,23 @@ export type LoopbackHandlers = {
   readonly [D in AnyTaskCallbackRpcDefinition as D["name"]]: LoopbackHandler<D>;
 };
 
+function defectingWrite(id: ConnectionId, label: string) {
+  return (_raw: string): Effect.Effect<void, Socket.SocketError> =>
+    Effect.die(
+      new Error(
+        `${label} connection ${id}: write is not implemented (use originator.call)`,
+      ),
+    );
+}
+
+function defectingOp(id: ConnectionId, label: string, op: string) {
+  return Effect.die(
+    new Error(
+      `${label} connection ${id}: ${op} is not implemented (no inbound dispatch)`,
+    ),
+  );
+}
+
 /**
  * Build a `MoltZapConnection` whose outbound `call` dispatches to
  * in-process handlers instead of going over a WebSocket. The
@@ -65,25 +82,9 @@ export function makeLoopbackConnection(args: {
     return handler(params);
   };
 
-  const wiringBug = (op: string) =>
-    Effect.die(
-      new Error(
-        `loopback connection ${args.id}: ${op} is not implemented (no inbound dispatch)`,
-      ),
-    );
-
-  const writeUnreachable = (
-    _raw: string,
-  ): Effect.Effect<void, Socket.SocketError> =>
-    Effect.die(
-      new Error(
-        `loopback connection ${args.id}: write is not implemented (use originator.call)`,
-      ),
-    );
-
   return {
     id: args.id,
-    write: writeUnreachable,
+    write: defectingWrite(args.id, "loopback"),
     shutdown: Effect.void,
     auth: null,
     lastPong: Date.now(),
@@ -94,8 +95,50 @@ export function makeLoopbackConnection(args: {
       call,
       notify: () => Effect.void,
       failAllPending: () => Effect.void,
-      handle: () => wiringBug("originator.handle"),
-      resolve: () => wiringBug("originator.resolve"),
+      handle: () => defectingOp(args.id, "loopback", "originator.handle"),
+      resolve: () => defectingOp(args.id, "loopback", "originator.resolve"),
+    } as MoltZapConnection["originator"],
+  };
+}
+
+/**
+ * Minimal `MoltZapConnection` for tests that only assert the
+ * registration surface (id-equality via `isAppConnection`,
+ * unregister-side effects, etc.). Every dispatch method defects —
+ * tests that actually drive `runMessageAuthorize` /
+ * `runDispatchAuthorize` MUST use {@link makeLoopbackConnection}
+ * (or, in app-host integration tests, a real wire connection via
+ * `acquireConnectionRpcClient`).
+ *
+ * Optional `originatorCall` override lets a test mock the outbound
+ * RPC channel (e.g., to simulate a stale-connection
+ * `NotConnectedError` without spinning up a real socket).
+ */
+export function makeStubConnection(args: {
+  readonly id: ConnectionId;
+  readonly originatorCall?: <D extends AnyTaskCallbackRpcDefinition>(
+    definition: D,
+    params: ParamsOf<D>,
+  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+}): MoltZapConnection {
+  const call =
+    args.originatorCall ??
+    (() => defectingOp(args.id, "stub", "originator.call"));
+  return {
+    id: args.id,
+    write: defectingWrite(args.id, "stub"),
+    shutdown: Effect.void,
+    auth: null,
+    lastPong: Date.now(),
+    conversationIds: new Set<string>(),
+    mutedConversations: new Set<string>(),
+    originator: {
+      id: args.id,
+      call,
+      notify: () => Effect.void,
+      failAllPending: () => Effect.void,
+      handle: () => defectingOp(args.id, "stub", "originator.handle"),
+      resolve: () => defectingOp(args.id, "stub", "originator.resolve"),
     } as MoltZapConnection["originator"],
   };
 }

@@ -19,6 +19,7 @@ import {
   type AppManifest,
   type JsonRpcId,
 } from "@moltzap/protocol";
+import { makeStubConnection } from "./loopback-connection.js";
 import {
   agentId,
   appId as makeAppId,
@@ -84,36 +85,8 @@ const makeFakeConnection = (
     return { conn, outbound };
   });
 
-/**
- * Minimal stub `MoltZapConnection` for tests that only assert the
- * registration surface (id-equality via `isAppConnection` or
- * unregister-side effects). Every dispatch method defects: tests that
- * actually drive `runMessageAuthorize` / `runDispatchAuthorize` must
- * use {@link makeFakeConnection}.
- */
-const stubConnection = (connId: ConnectionId): MoltZapConnection => ({
-  id: connId,
-  write: () =>
-    Effect.die(new Error(`stubConnection ${connId}: write not implemented`)),
-  shutdown: noopShutdown,
-  auth: null,
-  lastPong: Date.now(),
-  conversationIds: new Set<string>(),
-  mutedConversations: new Set<string>(),
-  originator: {
-    id: connId,
-    call: () =>
-      Effect.die(new Error(`stubConnection ${connId}: call not implemented`)),
-    notify: () => Effect.void,
-    failAllPending: () => Effect.void,
-    handle: () =>
-      Effect.die(new Error(`stubConnection ${connId}: handle not implemented`)),
-    resolve: () =>
-      Effect.die(
-        new Error(`stubConnection ${connId}: resolve not implemented`),
-      ),
-  } as MoltZapConnection["originator"],
-});
+const stubConnection = (connId: ConnectionId): MoltZapConnection =>
+  makeStubConnection({ id: connId });
 
 /**
  * Stub connection whose `originator.call` always fails with
@@ -121,21 +94,14 @@ const stubConnection = (connId: ConnectionId): MoltZapConnection => ({
  * connection" scenario (e.g., the WS dropped after AppsRegister
  * succeeded but before the cleanup finalizer ran).
  */
-const staleConnection = (connId: ConnectionId): MoltZapConnection => {
-  const base = stubConnection(connId);
-  return {
-    ...base,
-    originator: {
-      ...base.originator,
-      call: () =>
-        Effect.fail(
-          new NotConnectedError({
-            message: `connection ${connId} is stale`,
-          }),
-        ),
-    } as MoltZapConnection["originator"],
-  };
-};
+const staleConnection = (connId: ConnectionId): MoltZapConnection =>
+  makeStubConnection({
+    id: connId,
+    originatorCall: () =>
+      Effect.fail(
+        new NotConnectedError({ message: `connection ${connId} is stale` }),
+      ),
+  });
 
 interface AppHostFixture {
   readonly host: AppHost;

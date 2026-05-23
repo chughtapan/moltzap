@@ -18,7 +18,7 @@ import { takeFirstOrFail } from "../../db/effect-kysely-toolkit.js";
 import { PresenceService } from "../../network/services/presence.service.js";
 import type { PresenceEventSink } from "../../network/services/presence-event-sink.js";
 import { ConnectionTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
-import type { MoltZapConnection } from "../../transport/connection.js";
+import { makeStubConnection } from "../../app/loopback-connection.js";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -29,23 +29,7 @@ import { presenceHandlers } from "./presence.handlers.js";
 const ALICE_OWNER = userId("00000000-0000-4000-8000-00000000a11c") as UserId;
 const CAROL_OWNER = userId("00000000-0000-4000-8000-00000000ca20") as UserId;
 const TEST_CONNECTION_ID = makeConnectionId("test-conn-1");
-const TEST_CONNECTION: MoltZapConnection = {
-  id: TEST_CONNECTION_ID,
-  write: () => Effect.die("test connection: write unused"),
-  shutdown: Effect.void,
-  auth: null,
-  lastPong: Date.now(),
-  conversationIds: new Set<string>(),
-  mutedConversations: new Set<string>(),
-  originator: {
-    id: TEST_CONNECTION_ID,
-    call: () => Effect.die("test connection: call unused"),
-    notify: () => Effect.void,
-    failAllPending: () => Effect.void,
-    handle: () => Effect.die("test connection: handle unused"),
-    resolve: () => Effect.die("test connection: resolve unused"),
-  } as MoltZapConnection["originator"],
-};
+const TEST_CONNECTION = makeStubConnection({ id: TEST_CONNECTION_ID });
 const PRESENCE_SUBSCRIBE = "presence/subscribe";
 
 const noopSink: PresenceEventSink = { publish: () => {} };
