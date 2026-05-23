@@ -4,7 +4,11 @@ import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 import { Data, Effect } from "effect";
 
 import { bootChannelMcpServer, type ServerHandle } from "../server.js";
-import { createRoutingState, type RoutingState } from "../routing.js";
+import {
+  createRoutingState,
+  type RoutingState,
+  type RoutingTarget,
+} from "../routing.js";
 import type { ReplyError } from "../errors.js";
 
 export class ServerHarnessError extends Data.TaggedError("ServerHarnessError")<{
@@ -14,7 +18,7 @@ export class ServerHarnessError extends Data.TaggedError("ServerHarnessError")<{
 
 export interface ServerHarnessOptions {
   readonly onSendReply?: (
-    conversationId: string,
+    target: RoutingTarget,
     text: string,
   ) => Effect.Effect<void, ReplyError>;
 }
@@ -53,7 +57,7 @@ export function setupHarness(
 
     const sendReply =
       opts.onSendReply ??
-      ((_conversationId: string, _text: string) =>
+      ((_target: RoutingTarget, _text: string) =>
         Effect.succeed(undefined as void));
 
     const boot = yield* tryHarnessPromise("bootChannelMcpServer", () =>

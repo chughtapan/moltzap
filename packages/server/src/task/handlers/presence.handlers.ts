@@ -7,7 +7,7 @@ import {
 } from "@moltzap/protocol";
 import type { AgentId as ServerAgentId } from "../../app/types.js";
 import { Effect } from "effect";
-import { ConnIdTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
+import { ConnectionTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
 
 export const presenceHandlers: RpcMethodRegistry = [
@@ -16,9 +16,9 @@ export const presenceHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const presenceService = yield* PresenceServiceTag;
-        const senderConnId = yield* ConnIdTag;
+        const senderConnection = yield* ConnectionTag;
         presenceService.update(ctx.agentId, params.status, {
-          excludeConnId: senderConnId,
+          excludeConnId: senderConnection.id,
         });
         return {};
       }).pipe(Effect.withSpan("presence.update")),
@@ -31,7 +31,7 @@ export const presenceHandlers: RpcMethodRegistry = [
       Effect.gen(function* () {
         const presenceService = yield* PresenceServiceTag;
         const db = yield* DbTag;
-        const connId = yield* ConnIdTag;
+        const connection = yield* ConnectionTag;
         const requested = params.agentIds as ServerAgentId[];
         const visibleIds = yield* visibleAgentIds({
           db,
@@ -46,7 +46,7 @@ export const presenceHandlers: RpcMethodRegistry = [
             new NotInContactsError({ data: { agentIds: rejected } }),
           );
         }
-        presenceService.subscribe(connId, visibleIds);
+        presenceService.subscribe(connection.id, visibleIds);
         const statuses = presenceService.getMany(visibleIds);
         return { statuses };
       }).pipe(Effect.withSpan("presence.subscribe")),

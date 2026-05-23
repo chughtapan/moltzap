@@ -30,7 +30,7 @@ import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type {
   AnyTaskCallbackRpcDefinition,
-  AnyRpcDefinition,
+  AnyServerRpcDefinition,
 } from "../../../../rpc-registry.js";
 import { taskCallbackMethods } from "../../../../rpc-registry.js";
 import {
@@ -120,7 +120,7 @@ export interface TestClientConfig {
  * them inside `Effect.forEach` / `fc.asyncProperty`.
  */
 export interface TestClient {
-  readonly sendRpc: <D extends AnyRpcDefinition>(
+  readonly sendRpc: <D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
@@ -133,7 +133,7 @@ export interface TestClient {
     | FrameSchemaError
   >;
 
-  readonly sendMalformed: <D extends AnyRpcDefinition>(opts: {
+  readonly sendMalformed: <D extends AnyServerRpcDefinition>(opts: {
     readonly baseDefinition: D;
     readonly baseParams: ParamsOf<D>;
     readonly kind: MalformedFrameKind;
@@ -191,7 +191,7 @@ export interface TestClient {
 
   /**
    * Register a handler for an app-callback RPC (test-driver-local;
-   * distinct from the production `MoltZapWsClient`'s static handler
+   * distinct from the production `MoltZapAgentClient`'s static handler
    * table, which is immutable per Spec F I1).
    *
    * When `handleInbound` sees a request frame whose method matches,
@@ -316,7 +316,7 @@ interface TestClientRuntime {
   readonly pending: PendingMap;
   readonly closeRef: Ref.Ref<CloseState>;
   readonly subscribers: TestSubscriberRegistry;
-  readonly onAppCallbackHandlersRef: Ref.Ref<
+  readonly onTMHandlersRef: Ref.Ref<
     HashMap.HashMap<ServerRpcDefinition, AppCallbackHandler>
   >;
   readonly awaitersRef: Ref.Ref<AwaitersMap>;
@@ -410,7 +410,7 @@ interface PendingRpcRequest {
   readonly timeoutMs: number;
 }
 
-interface SendRpcInput<D extends AnyRpcDefinition> {
+interface SendRpcInput<D extends AnyServerRpcDefinition> {
   readonly definition: D;
   readonly params: ParamsOf<D>;
   readonly opts?: { readonly timeoutMs?: number };
@@ -443,7 +443,7 @@ class RuntimeTestClient implements TestClient {
     this.snapshot = runtime.captures.snapshot;
   }
 
-  sendRpc<D extends AnyRpcDefinition>(
+  sendRpc<D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
@@ -455,7 +455,7 @@ class RuntimeTestClient implements TestClient {
     return sendClientRpc(this.runtime, input);
   }
 
-  sendMalformed<D extends AnyRpcDefinition>(
+  sendMalformed<D extends AnyServerRpcDefinition>(
     opts: Parameters<TestClient["sendMalformed"]>[0] & {
       readonly baseDefinition: D;
       readonly baseParams: ParamsOf<D>;
@@ -554,7 +554,7 @@ function acquireTestClientRuntime(
       pending: new Map(),
       closeRef,
       subscribers: yield* makeTestSubscriberRegistry(),
-      onAppCallbackHandlersRef: yield* Ref.make(
+      onTMHandlersRef: yield* Ref.make(
         HashMap.empty<ServerRpcDefinition, AppCallbackHandler>(),
       ),
       awaitersRef: yield* Ref.make(
@@ -578,7 +578,7 @@ function openTestClientRuntime(
     // in-flight `Stream.async` consumer sees a typed
     // `TransportClosedError` via `emit.fail` before the transport tears
     // down. Mirrors production's `composeServiceTeardown` ordering
-    // between `MoltZapService.scope` and `MoltZapWsClient.close()`.
+    // between `MoltZapService.scope` and `MoltZapAgentClient.close()`.
     yield* Effect.addFinalizer(() => runtime.subscribers.closeAll);
     if (config.autoConnect !== false) {
       yield* autoConnect(runtime);
@@ -762,7 +762,7 @@ function buildServerRequestReply(
   request: ServerRequestDispatch,
 ): Effect.Effect<ResponseFrame> {
   return Effect.gen(function* () {
-    const handlers = yield* Ref.get(runtime.onAppCallbackHandlersRef);
+    const handlers = yield* Ref.get(runtime.onTMHandlersRef);
     const handler = Option.getOrUndefined(
       HashMap.get(handlers, request.definition),
     );
@@ -873,7 +873,7 @@ function handleSocketReaderFailure(
   });
 }
 
-function sendClientRpc<D extends AnyRpcDefinition>(
+function sendClientRpc<D extends AnyServerRpcDefinition>(
   runtime: TestClientRuntime,
   input: SendRpcInput<D>,
 ): Effect.Effect<
@@ -936,7 +936,7 @@ function awaitPendingRpcResponse(
   );
 }
 
-function decodeRpcSuccessResult<D extends AnyRpcDefinition>(
+function decodeRpcSuccessResult<D extends AnyServerRpcDefinition>(
   definition: D,
   response: ResponseFrame,
 ): Effect.Effect<ResultOf<D>, FrameSchemaError> {
@@ -960,7 +960,7 @@ function decodeRpcSuccessResult<D extends AnyRpcDefinition>(
   );
 }
 
-function sendMalformedFrame<D extends AnyRpcDefinition>(
+function sendMalformedFrame<D extends AnyServerRpcDefinition>(
   runtime: TestClientRuntime,
   opts: Parameters<TestClient["sendMalformed"]>[0] & {
     readonly baseDefinition: D;
@@ -1034,7 +1034,7 @@ function registerAppCallbackHandler(
   definition: ServerRpcDefinition,
   handler: AppCallbackHandler,
 ): Effect.Effect<void> {
-  return Ref.update(runtime.onAppCallbackHandlersRef, (handlers) =>
+  return Ref.update(runtime.onTMHandlersRef, (handlers) =>
     HashMap.set(handlers, definition, handler),
   );
 }

@@ -13,15 +13,13 @@ import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
 import { JSON_RPC_RESERVED_CODES } from "../../../transport/wire-errors.js";
 import { responseFrame } from "../../../transport/wire.js";
 import {
-  ConversationsArchive,
-  ConversationsCreate,
+  TaskConversationArchive,
+  TaskConversationCreate,
+  TaskConversationUnarchive,
   MessagesSend,
-  TasksAddParticipant,
-  TasksClose,
-  TasksCreate,
-  TasksCreateConversation,
-  ConversationsUnarchive,
-  ConversationsUpdate,
+  TaskAddParticipant,
+  TaskClose,
+  TaskRequest,
 } from "../../../task/methods.js";
 import {
   decodeFrame,
@@ -64,7 +62,7 @@ import {
 import { AgentsList } from "../../../identity/methods.js";
 import { Connect } from "../../../network/methods.js";
 import { ContactsList } from "../../../identity/methods.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { TaskList } from "../../../task/methods.js";
 import { PresenceSubscribe, PresenceUpdate } from "../../../network/methods.js";
 
 type BadServerBehavior =
@@ -485,8 +483,7 @@ function makeBadResponse(
     });
   }
   const responseId =
-    behavior === "duplicate-response-id" &&
-    request.method === ConversationsList.name
+    behavior === "duplicate-response-id" && request.method === TaskList.name
       ? DUPLICATE_RESPONSE_ID
       : request.id;
   return responseFrame(responseId, {
@@ -507,8 +504,7 @@ const shouldRejectBadResponse = (
 ): boolean =>
   (behavior === "reject-confident-model-call" &&
     request.method === AgentsList.name) ||
-  (behavior === "reject-authorized" &&
-    request.method === ConversationsList.name);
+  (behavior === "reject-authorized" && request.method === TaskList.name);
 
 function makeBadResult(
   request: RequestFrame,
@@ -532,12 +528,50 @@ function makeBadResult(
     case Connect.name:
       return {};
     case AgentsList.name:
-      return { agents: {} };
-    case ConversationsList.name:
-      return makeConversationsListBadResult(behavior, ordinal);
+      return makeAgentsListBadResult(behavior, ordinal);
+    case TaskList.name:
+      return makeTaskListBadResult(behavior, ordinal);
     default:
       return {};
   }
+}
+
+function makeAgentsListBadResult(
+  behavior: BadServerBehavior,
+  ordinal: number,
+): unknown {
+  if (behavior !== "drift-idempotent-result") {
+    return { agents: {} };
+  }
+  return {
+    agents: {
+      [`agent-${ordinal}`]: { id: `agent-${ordinal}`, status: "active" },
+    },
+  };
+}
+
+function makeTaskListBadResult(
+  behavior: BadServerBehavior,
+  ordinal: number,
+): unknown {
+  if (behavior !== "drift-idempotent-result") {
+    return { tasks: [] };
+  }
+  return {
+    tasks: [
+      {
+        id: `00000000-0000-4000-8000-${ordinal
+          .toString(BAD_SERVER_AGENT_UUID_RADIX)
+          .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`,
+        appId: "bad-server-app",
+        initiatorAgentId: "00000000-0000-4000-8000-000000000001",
+        status: "active",
+        startedAt: null,
+        endedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  };
 }
 
 function makePresenceBadResult(
@@ -562,45 +596,21 @@ function makePresenceBadResult(
   return request.method === PresenceUpdate.name ? {} : undefined;
 }
 
-function makeConversationsListBadResult(
-  behavior: BadServerBehavior,
-  ordinal: number,
-): unknown {
-  if (behavior !== "drift-idempotent-result") {
-    return { conversations: [] };
-  }
-  return {
-    conversations: [
-      {
-        id: `00000000-0000-4000-8000-${ordinal
-          .toString(BAD_SERVER_AGENT_UUID_RADIX)
-          .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`,
-        type: "group",
-        unreadCount: ordinal,
-      },
-    ],
-  };
-}
-
 function makeConversationLifecycleBadResult(request: RequestFrame): unknown {
-  if (request.method === ConversationsCreate.name) {
+  if (request.method === TaskConversationCreate.name) {
     return {
       conversation: {
         id: "00000000-0000-4000-8000-000000000101",
-        type: "group",
         name: "bad lifecycle",
-        archived: false,
+        createdBy: "00000000-0000-4000-8000-000000000001",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
     };
   }
-  if (request.method === ConversationsUpdate.name) {
-    return {};
-  }
   if (
-    request.method === ConversationsArchive.name ||
-    request.method === ConversationsUnarchive.name
+    request.method === TaskConversationArchive.name ||
+    request.method === TaskConversationUnarchive.name
   ) {
     return {};
   }
@@ -620,7 +630,7 @@ function makeConversationLifecycleBadResult(request: RequestFrame): unknown {
 }
 
 function makeArchiveLifecycleBadResult(request: RequestFrame): unknown {
-  if (request.method === ConversationsCreate.name) {
+  if (request.method === TaskConversationCreate.name) {
     return {
       conversation: {
         id: "00000000-0000-4000-8000-000000000001",
@@ -628,8 +638,8 @@ function makeArchiveLifecycleBadResult(request: RequestFrame): unknown {
     };
   }
   if (
-    request.method === ConversationsArchive.name ||
-    request.method === ConversationsUnarchive.name
+    request.method === TaskConversationArchive.name ||
+    request.method === TaskConversationUnarchive.name
   ) {
     return {};
   }
@@ -656,10 +666,10 @@ const taskCloseLifecycleBadResultHandlers = new Map<
   string,
   (request: RequestFrame) => unknown
 >([
-  [TasksCreate.name, badTaskCreateResult],
-  [TasksAddParticipant.name, badTaskParticipant],
-  [TasksCreateConversation.name, badTaskConversation],
-  [TasksClose.name, badTaskCloseResult],
+  [TaskRequest.name, badTaskCreateResult],
+  [TaskAddParticipant.name, badTaskParticipant],
+  [TaskConversationCreate.name, badTaskConversation],
+  [TaskClose.name, badTaskCloseResult],
   [MessagesSend.name, badTaskMessageSendResult],
 ]);
 
@@ -674,7 +684,7 @@ function badTaskCreateResult(request: RequestFrame): unknown {
   return {
     task: badTask({
       id: BAD_TASK_ID,
-      appId: typeof params.appId === "string" ? params.appId : null,
+      appId: typeof params.appId === "string" ? params.appId : "bad-server-app",
       status: "waiting",
     }),
   };
@@ -734,7 +744,7 @@ function badTaskConversation(request: RequestFrame): unknown {
 
 function badTask(opts: {
   readonly id: string;
-  readonly appId: string | null;
+  readonly appId: string;
   readonly status: "waiting" | "active" | "failed" | "closed";
   readonly endedAt?: string;
 }) {
@@ -743,7 +753,6 @@ function badTask(opts: {
     appId: opts.appId,
     initiatorAgentId: badServerAgentId(1),
     status: opts.status,
-    tmEndpointAddress: `tm:agent:${badServerAgentId(1)}`,
     startedAt: null,
     endedAt: opts.endedAt ?? null,
     createdAt: BAD_SERVER_NOW,

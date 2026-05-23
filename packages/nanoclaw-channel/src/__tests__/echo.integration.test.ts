@@ -17,7 +17,11 @@ import { afterAll, beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
 import { MoltZapChannelCore, MoltZapService } from "@moltzap/client";
-import { ConversationsCreate, type Message } from "@moltzap/protocol";
+import { type Message } from "@moltzap/protocol";
+import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
 import { MoltZapChannel } from "../channels/moltzap.js";
 import type { NewMessage, RegisteredGroup } from "../types.js";
@@ -31,8 +35,8 @@ interface InjectedConfig {
   readonly wsUrl: string;
   readonly channelApiKey: string;
   readonly peerApiKey: string;
-  readonly channelAgentId: string;
-  readonly peerAgentId: string;
+  readonly channelAgentId: AgentId;
+  readonly peerAgentId: AgentId;
 }
 
 interface ChatMetadataCapture {
@@ -49,7 +53,8 @@ interface Harness {
   readonly inboundMessages: NewMessage[];
   readonly chatMetadata: ChatMetadataCapture[];
   readonly peerInbox: Message[];
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
   readonly chatJid: string;
   readonly peerAgentId: string;
   readonly stop: () => PromiseLike<void>;
@@ -73,8 +78,8 @@ function injectedConfig(): InjectedConfig {
     wsUrl: injectString("moltzapWsUrl"),
     channelApiKey: injectString("agentAApiKey"),
     peerApiKey: injectString("agentBApiKey"),
-    channelAgentId: injectString("agentAAgentId"),
-    peerAgentId: injectString("agentBAgentId"),
+    channelAgentId: makeAgentId(injectString("agentAAgentId")),
+    peerAgentId: makeAgentId(injectString("agentBAgentId")),
   };
 }
 
@@ -183,7 +188,7 @@ function bootPeerService(
     serverUrl: config.wsUrl,
     agentKey: config.peerApiKey,
   });
-  peerService.on("message", (msg) => {
+  peerService.on("message", ({ message: msg }) => {
     peerInbox.push(msg);
   });
   return peerService;
@@ -191,15 +196,28 @@ function bootPeerService(
 
 function createDm(
   peerService: MoltZapService,
-  channelAgentId: string,
-): Effect.Effect<string, EchoIntegrationError> {
+  channelAgentId: AgentId,
+): Effect.Effect<
+  { taskId: TaskId; conversationId: ConversationId },
+  EchoIntegrationError
+> {
   return peerService
-    .sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: channelAgentId }],
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [channelAgentId],
+      initialConversation: { participants: [channelAgentId] },
     })
     .pipe(
-      Effect.map((res) => res.conversation.id),
+      Effect.map((res) => {
+        const r = res as {
+          task: { id: TaskId };
+          conversation: { id: ConversationId } | null;
+        };
+        return {
+          taskId: r.task.id,
+          conversationId: r.conversation!.id,
+        };
+      }),
       Effect.mapError(
         (cause) => new EchoIntegrationError({ operation: "createDm", cause }),
       ),
@@ -225,13 +243,17 @@ function makeHarness(
           }),
       ),
     );
-    const conversationId = yield* createDm(peerService, config.channelAgentId);
+    const { taskId, conversationId } = yield* createDm(
+      peerService,
+      config.channelAgentId,
+    );
     return {
       channel,
       peerService,
       inboundMessages,
       chatMetadata,
       peerInbox,
+      taskId,
       conversationId,
       chatJid: `mz:${conversationId}`,
       peerAgentId: config.peerAgentId,
@@ -284,7 +306,7 @@ function peerInboxHas(needle: string): boolean {
 
 function peerSend(text: string): Effect.Effect<void, EchoIntegrationError> {
   return h.peerService
-    .send(h.conversationId, text)
+    .send(h.taskId, h.conversationId, text)
     .pipe(
       Effect.mapError(
         (cause) =>

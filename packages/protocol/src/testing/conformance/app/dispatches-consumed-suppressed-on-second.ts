@@ -58,6 +58,7 @@ function assertFirstSendConsumes(
 ) {
   return Effect.gen(function* () {
     const first = yield* driver.recipient.sendWithLease({
+      taskId: driver.fixtures.taskId,
       conversationId: driver.fixtures.conversationId,
       leaseId,
       text: "first",
@@ -82,6 +83,7 @@ function assertSecondSendRejected(
 ) {
   return Effect.gen(function* () {
     const second = yield* driver.recipient.sendWithLease({
+      taskId: driver.fixtures.taskId,
       conversationId: driver.fixtures.conversationId,
       leaseId,
       text: "second",

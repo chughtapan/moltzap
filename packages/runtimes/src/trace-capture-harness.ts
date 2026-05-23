@@ -18,8 +18,7 @@ import {
 } from "./trace-capture-bundle.js";
 
 import {
-  type AnyRpcDefinition,
-  ConversationsCreate,
+  type AnyServerRpcDefinition,
   MessagesSend,
   MessageReceivedNotificationDefinition,
   type DecodedNotification,
@@ -27,7 +26,13 @@ import {
   type ParamsOf,
   type ResultOf,
 } from "@moltzap/protocol";
-import { conversationId } from "@moltzap/protocol/testing";
+import {
+  DEFAULT_APP_ID,
+  TaskRequest,
+  type ConversationId,
+  type TaskId,
+} from "@moltzap/protocol/task";
+import { agentId } from "@moltzap/protocol/testing";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
@@ -102,13 +107,13 @@ interface HarnessClient {
    * subscribes BEFORE issuing each `MessagesSend` (`sendMessageAndWait`'s
    * fork → trigger → join pattern) so the response notification is never
    * dropped between the request and the Stream materialisation. Structural
-   * shape mirrors `MoltZapWsClient.subscribe`.
+   * shape mirrors `MoltZapAgentClient.subscribe`.
    */
   subscribe<D extends typeof MessageReceivedNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
   ): Stream.Stream<DecodedNotification<D>, Error, never>;
-  sendRpc<D extends AnyRpcDefinition>(
+  sendRpc<D extends AnyServerRpcDefinition>(
     method: D,
     payload: ParamsOf<D>,
   ): Effect.Effect<ResultOf<D>, Error, never>;
@@ -352,7 +357,7 @@ function extractTextFromEvent(data: {
 function waitForTargetResponseStream(input: {
   readonly client: HarnessClient;
   readonly targetAgentId: string;
-  readonly conversationId: string;
+  readonly conversationId: ConversationId;
   readonly timeoutMs: number;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return input.client
@@ -401,16 +406,14 @@ function waitForTargetResponseStream(input: {
 function sendMessageAndWait(input: {
   readonly sender: ConnectedActor;
   readonly targetAgentId: string;
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
   readonly message: string;
   readonly timeoutMs?: number;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     // Spec B (#596) Goal #7 disposition (a): fork the response-listener
-    // Stream BEFORE the trigger RPC. `Stream.runHead`'s underlying
-    // subscription is established the moment `Effect.fork` materialises
-    // the Stream, so the response notification cannot arrive in the gap
-    // between `sendRpc` and the listener registering.
+    // Stream BEFORE the trigger RPC.
     const responseFiber = yield* Effect.fork(
       waitForTargetResponseStream({
         client: input.sender.client,
@@ -421,7 +424,8 @@ function sendMessageAndWait(input: {
     );
     yield* input.sender.client
       .sendRpc(MessagesSend, {
-        conversationId: conversationId(input.conversationId),
+        taskId: input.taskId,
+        conversationId: input.conversationId,
         parts: [{ type: "text", text: input.message }],
       })
       .pipe(
@@ -448,18 +452,34 @@ function registerConnectedAgent(
   );
 }
 
+interface TaskScope {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+
 function createDirectConversation(
   sender: ConnectedActor,
   targetAgentId: string,
-): Effect.Effect<string, HarnessFailure, never> {
+): Effect.Effect<TaskScope, HarnessFailure, never> {
+  const target = agentId(targetAgentId);
   return sender.client
-    .sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: targetAgentId }],
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [target],
+      initialConversation: { participants: [target] },
     })
     .pipe(
-      Effect.map((result) => result.conversation.id),
       Effect.mapError((error) => failHarness(error.message)),
+      Effect.flatMap((result) =>
+        result.conversation
+          ? Effect.succeed({
+              taskId: result.task.id,
+              conversationId: result.conversation.id,
+            })
+          : Effect.fail(
+              failHarness("TaskRequest returned null initial conversation"),
+            ),
+      ),
     );
 }
 
@@ -468,22 +488,29 @@ function createGroupConversation(input: {
   readonly targetAgentId: string;
   readonly groupName: string;
   readonly participants: ReadonlyArray<ConnectedActor>;
-}): Effect.Effect<string, HarnessFailure, never> {
+}): Effect.Effect<TaskScope, HarnessFailure, never> {
+  const invited = [
+    agentId(input.targetAgentId),
+    ...input.participants.map((p) => agentId(p.agentId)),
+  ];
   return input.sender.client
-    .sendRpc(ConversationsCreate, {
-      type: "group",
-      name: input.groupName,
-      participants: [
-        { type: "agent", id: input.targetAgentId },
-        ...input.participants.map((participant) => ({
-          type: "agent" as const,
-          id: participant.agentId,
-        })),
-      ],
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: invited,
+      initialConversation: { participants: invited },
     })
     .pipe(
-      Effect.map((result) => result.conversation.id),
       Effect.mapError((error) => failHarness(error.message)),
+      Effect.flatMap((result) =>
+        result.conversation
+          ? Effect.succeed({
+              taskId: result.task.id,
+              conversationId: result.conversation.id,
+            })
+          : Effect.fail(
+              failHarness("TaskRequest returned null initial conversation"),
+            ),
+      ),
     );
 }
 
@@ -535,7 +562,7 @@ function executeDirectConversation(
   state: ConversationExecutionState,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createDirectConversation(
+    const scope = yield* createDirectConversation(
       state.sender,
       input.targetAgentId,
     );
@@ -543,7 +570,7 @@ function executeDirectConversation(
       state,
       sender: state.sender,
       targetAgentId: input.targetAgentId,
-      conversationId,
+      scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
     });
@@ -565,22 +592,18 @@ function executeGroupConversation(
       return;
     }
     const bystanders = yield* registerBystanders(input, state);
-    const conversationId = yield* createGroupConversation({
+    const scope = yield* createGroupConversation({
       sender: state.sender,
       targetAgentId: input.targetAgentId,
       groupName: input.payload.conversation.groupName ?? DEFAULT_GROUP_NAME,
       participants: bystanders.map((entry) => entry.actor),
     });
-    yield* sendBystanderMessages(
-      bystanders,
-      input.targetAgentId,
-      conversationId,
-    );
+    yield* sendBystanderMessages(bystanders, input.targetAgentId, scope);
     yield* sendSetupAndFollowUps({
       state,
       sender: state.sender,
       targetAgentId: input.targetAgentId,
-      conversationId,
+      scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
     });
@@ -601,7 +624,7 @@ function executeCrossConversation(
     if (input.payload.conversation.kind !== "cross") {
       return;
     }
-    const firstConversationId = yield* createDirectConversation(
+    const firstScope = yield* createDirectConversation(
       state.sender,
       input.targetAgentId,
     );
@@ -609,12 +632,12 @@ function executeCrossConversation(
       state,
       sender: state.sender,
       targetAgentId: input.targetAgentId,
-      conversationId: firstConversationId,
+      scope: firstScope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
     });
     const probeSender = yield* registerProbeSender(input, state);
-    const secondConversationId = yield* createDirectConversation(
+    const secondScope = yield* createDirectConversation(
       probeSender,
       input.targetAgentId,
     );
@@ -622,7 +645,8 @@ function executeCrossConversation(
       yield* sendMessageAndWait({
         sender: probeSender,
         targetAgentId: input.targetAgentId,
-        conversationId: secondConversationId,
+        taskId: secondScope.taskId,
+        conversationId: secondScope.conversationId,
         message: input.payload.conversation.probeMessage,
       }),
     );
@@ -702,7 +726,7 @@ function sendSetupAndFollowUps(input: {
   readonly state: ConversationExecutionState;
   readonly sender: ConnectedActor;
   readonly targetAgentId: string;
-  readonly conversationId: string;
+  readonly scope: TaskScope;
   readonly setupMessage: string;
   readonly followUpMessages: ReadonlyArray<string>;
 }) {
@@ -711,7 +735,8 @@ function sendSetupAndFollowUps(input: {
       yield* sendMessageAndWait({
         sender: input.sender,
         targetAgentId: input.targetAgentId,
-        conversationId: input.conversationId,
+        taskId: input.scope.taskId,
+        conversationId: input.scope.conversationId,
         message: input.setupMessage,
       }),
     );
@@ -720,7 +745,8 @@ function sendSetupAndFollowUps(input: {
         yield* sendMessageAndWait({
           sender: input.sender,
           targetAgentId: input.targetAgentId,
-          conversationId: input.conversationId,
+          taskId: input.scope.taskId,
+          conversationId: input.scope.conversationId,
           message: followUp,
         }),
       );
@@ -734,7 +760,7 @@ function sendBystanderMessages(
     readonly messages: ReadonlyArray<string>;
   }>,
   targetAgentId: string,
-  conversationId: string,
+  scope: TaskScope,
 ) {
   return Effect.forEach(
     bystanders,
@@ -745,7 +771,8 @@ function sendBystanderMessages(
           sendMessageAndWait({
             sender: bystander.actor,
             targetAgentId,
-            conversationId,
+            taskId: scope.taskId,
+            conversationId: scope.conversationId,
             message,
           }),
         { concurrency: 1, discard: true },

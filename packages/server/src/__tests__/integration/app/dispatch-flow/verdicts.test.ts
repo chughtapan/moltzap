@@ -17,7 +17,8 @@ import {
   DISPATCH_VERDICT_HOLD,
   MODERATOR_TIMEOUT_REASON,
   createDispatchFlowFixture,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
@@ -28,7 +29,7 @@ import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const DENIAL_REASON = "phase closed";
 const HOLD_REASON = "waiting for turn";
 const MODERATOR_TIMEOUT_MS = 10_000;
@@ -49,7 +50,12 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 
 function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
   return Effect.gen(function* () {
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const { conversationId } = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     const ack = yield* requestDispatch(bob, conversationId, alice);
     return { ack, conversationId };
   });
@@ -71,11 +77,11 @@ function expectReleaseVerdict(
 }
 
 function expectParticipantRemoved(
-  removed: { conversationId: string; agentId: string },
+  removed: { conversationId: string; removedAgentId: string },
   expected: { readonly conversationId: string; readonly agentId: string },
 ) {
   expect(removed.conversationId).toBe(expected.conversationId);
-  expect(removed.agentId).toBe(expected.agentId);
+  expect(removed.removedAgentId).toBe(expected.agentId);
 }
 
 function moderatorDenyReleasesDeny() {

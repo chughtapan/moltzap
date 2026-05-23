@@ -1,6 +1,12 @@
 import { Data, Effect, Fiber, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/network";
+import type {
+  AppId,
+  ConversationId,
+  MessageId,
+  TaskId,
+} from "@moltzap/protocol/task";
 import type {
   DispatchId,
   DispatchesGet,
@@ -94,12 +100,11 @@ type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
  */
 export interface LeaseBindingTuple {
   readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: string;
-  readonly moderatorConnectionId: string;
+  readonly recipientConnectionId: ConnectionId;
+  readonly moderatorConnectionId: ConnectionId;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly tmEndpointAddress: string;
-  readonly appId: string;
+  readonly appId: AppId;
 }
 
 /**
@@ -149,12 +154,11 @@ export interface LeaseRecord {
  */
 export interface LeaseMintContext {
   readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: string;
-  readonly moderatorConnectionId: string;
+  readonly recipientConnectionId: ConnectionId;
+  readonly moderatorConnectionId: ConnectionId;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly tmEndpointAddress: string;
-  readonly appId: string;
+  readonly appId: AppId;
 }
 
 /**
@@ -311,7 +315,7 @@ export interface LeaseRegistry {
    */
   bindToConnection(
     leaseId: LeaseId,
-    connId: string,
+    connId: ConnectionId,
   ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
 
   /**
@@ -344,7 +348,7 @@ export interface LeaseRegistry {
    * disconnect path must complete even if a single lease's state is
    * unexpected). Public error channel is `never`.
    */
-  abandon(connId: string): Effect.Effect<void, never, never>;
+  abandon(connId: ConnectionId): Effect.Effect<void, never, never>;
 
   /**
    * Internal — record the forked moderator round-trip fiber so
@@ -458,7 +462,6 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire {
     appId: record.binding.appId,
     recipientAgentId: record.binding.recipientAgentId,
     moderatorConnectionId: record.binding.moderatorConnectionId,
-    tmEndpointAddress: record.binding.tmEndpointAddress,
     state: record.state,
     verdict: leaseVerdictToWire(record.verdict),
     mintedAt: record.mintedAt,
@@ -542,7 +545,7 @@ function invalidLeaseState(
 
 function writeFrame(
   state: LeaseRegistryState,
-  connId: string,
+  connId: ConnectionId,
   raw: string,
 ): Effect.Effect<void, never, never> {
   const conn = state.deps.connections.get(connId);
@@ -825,7 +828,6 @@ function makeMintedLeaseRecord(
       moderatorConnectionId: ctx.moderatorConnectionId,
       taskId: ctx.taskId,
       conversationId: ctx.conversationId,
-      tmEndpointAddress: ctx.tmEndpointAddress,
       appId: ctx.appId,
     },
     state: "PENDING",
@@ -991,7 +993,7 @@ function rejectTerminalBinding(
 function bindLeaseToConnection(
   state: LeaseRegistryState,
   leaseId: LeaseId,
-  connId: string,
+  connId: ConnectionId,
 ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never> {
   return Effect.gen(function* () {
     const entry = yield* getExistingLeaseEntry(state, leaseId);
@@ -1033,7 +1035,7 @@ function attachRoundTripFiberToLease(
 
 function leaseTargetsForConnection(
   entries: ReadonlyMap<LeaseId, LeaseEntry>,
-  connId: string,
+  connId: ConnectionId,
 ): ReadonlyArray<LeaseConnectionTarget> {
   return Array.from(entries, ([leaseId, entry]) => ({
     leaseId,
@@ -1107,7 +1109,7 @@ function abandonLeaseForConnection(
 
 function abandonConnectionLeases(
   state: LeaseRegistryState,
-  connId: string,
+  connId: ConnectionId,
 ): Effect.Effect<void, never, never> {
   return Effect.gen(function* () {
     const entries = yield* Ref.get(state.entriesRef);

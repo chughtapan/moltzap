@@ -2,17 +2,18 @@ import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Effect, Stream } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import type { Message } from "@moltzap/protocol";
 import { registerAndClaim, waitFor } from "./test-helpers.js";
 
 import {
   AgentsLookup,
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 let baseUrl: string;
@@ -85,7 +86,7 @@ function waitUntil(predicate: () => boolean, timeoutMs: number, label: string) {
 }
 
 function createClient(agentKey: string, options = {}) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: baseUrl,
     agentKey,
     ...options,
@@ -93,35 +94,53 @@ function createClient(agentKey: string, options = {}) {
 }
 
 function createStrippedClient(agentKey: string) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
   });
 }
 
-function createDmConversation(client: MoltZapWsClient, agentId: string) {
+interface DmBinding {
+  readonly taskId: string;
+  readonly conversationId: string;
+}
+
+function createDmConversation(
+  client: MoltZapAgentClient,
+  agentId: string,
+): Effect.Effect<DmBinding, unknown> {
   return client
-    .sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: agentId }],
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [agentId],
+      initialConversation: { participants: [agentId] },
     })
-    .pipe(Effect.map((result) => result.conversation.id));
+    .pipe(
+      Effect.map((result) => ({
+        taskId: result.task.id,
+        conversationId: result.conversation!.id,
+      })),
+    );
 }
 
 function sendText(
-  client: MoltZapWsClient,
-  conversationId: string,
+  client: MoltZapAgentClient,
+  binding: DmBinding,
   text: string,
 ) {
   return client.sendRpc(MessagesSend, {
-    conversationId,
+    taskId: binding.taskId,
+    conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
   });
 }
 
-function listMessageTexts(client: MoltZapWsClient, conversationId: string) {
+function listMessageTexts(client: MoltZapAgentClient, binding: DmBinding) {
   return client
-    .sendRpc(MessagesList, { conversationId })
+    .sendRpc(MessagesList, {
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+    })
     .pipe(Effect.map((result) => messageTexts(result.messages)));
 }
 
@@ -170,10 +189,7 @@ function onReconnectReceivesHelloOk() {
     const bob = yield* registerAgent(RECONNECT_BOB_HISTORY_NAME);
     const aliceClient = createStrippedClient(alice.apiKey);
     yield* aliceClient.connect();
-    const conversationId = yield* createDmConversation(
-      aliceClient,
-      bob.agentId,
-    );
+    const binding = yield* createDmConversation(aliceClient, bob.agentId);
     let reconnectHelloOk: unknown = null;
     const bobClient = createClient(bob.apiKey, {
       onDisconnect: () => undefined,
@@ -184,14 +200,14 @@ function onReconnectReceivesHelloOk() {
 
     yield* bobClient.connect();
     yield* bobClient.disconnect();
-    yield* sendText(aliceClient, conversationId, MISSED_WHILE_OFFLINE_TEXT);
+    yield* sendText(aliceClient, binding, MISSED_WHILE_OFFLINE_TEXT);
     yield* waitUntil(
       () => reconnectHelloOk !== null,
       RECONNECT_WAIT_MS,
       "missed-message reconnect",
     );
     expect(reconnectHelloOk).toMatchObject({ agentId: bob.agentId });
-    expect(yield* listMessageTexts(bobClient, conversationId)).toContain(
+    expect(yield* listMessageTexts(bobClient, binding)).toContain(
       MISSED_WHILE_OFFLINE_TEXT,
     );
     yield* bobClient.close();
@@ -228,19 +244,16 @@ function eventsAfterReconnect() {
     yield* bobClient.connect();
     const aliceClient = createStrippedClient(alice.apiKey);
     yield* aliceClient.connect();
-    const conversationId = yield* createDmConversation(
-      aliceClient,
-      bob.agentId,
-    );
+    const binding = yield* createDmConversation(aliceClient, bob.agentId);
 
-    yield* sendText(aliceClient, conversationId, BEFORE_DISCONNECT_TEXT);
+    yield* sendText(aliceClient, binding, BEFORE_DISCONNECT_TEXT);
     yield* waitForReceivedMessages(receivedMessages);
     expectFirstMessageText(receivedMessages, BEFORE_DISCONNECT_TEXT);
     yield* bobClient.disconnect();
     yield* waitUntil(() => disconnected, DISCONNECT_WAIT_MS, "disconnect");
     yield* waitUntil(() => reconnected, RECONNECT_WAIT_MS, "reconnect");
     receivedMessages.length = 0;
-    yield* sendText(aliceClient, conversationId, AFTER_RECONNECT_TEXT);
+    yield* sendText(aliceClient, binding, AFTER_RECONNECT_TEXT);
     yield* waitForReceivedMessages(receivedMessages);
     expectFirstMessageText(receivedMessages, AFTER_RECONNECT_TEXT);
     yield* bobClient.close();

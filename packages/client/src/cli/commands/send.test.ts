@@ -4,12 +4,18 @@ import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { sendCommand } from "./send.js";
 
 import { MessagesSend } from "@moltzap/protocol";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import {
+  conversationId as makeConversationId,
+  messageId as makeMessageId,
+  taskId as makeTaskId,
+} from "@moltzap/protocol/testing";
 
 const it = effectIt.effect;
+const TASK_UUID = "00000000-0000-4000-8000-00000000abc2";
 const CONV_UUID = "00000000-0000-4000-8000-00000000abc1";
 const REPLY_MSG = "00000000-0000-4000-8000-0000000000a1";
 const HELLO_WORLD = "Hello world";
-const HI_ALICE = "Hi Alice";
 const REPLY_TEXT = "Reply text";
 
 const mockRequest = vi.fn(() => Effect.succeed({ message: { id: "msg-123" } }));
@@ -19,9 +25,9 @@ vi.mock("../socket-client.js", () => ({
 }));
 
 function runSendCommand(input: {
-  readonly target: string;
+  readonly target: { taskId: TaskId; conversationId: ConversationId };
   readonly message: string;
-  readonly replyTo: Option.Option<string>;
+  readonly replyTo: Option.Option<MessageId>;
 }) {
   return sendCommand.handler(input);
 }
@@ -41,43 +47,36 @@ describe("send command handler", () => {
     process.exit = originalExit;
   });
 
-  it("sends to conversation by conv: prefix", () =>
+  const taskId = makeTaskId(TASK_UUID);
+  const conversationId = makeConversationId(CONV_UUID);
+  const replyToId = makeMessageId(REPLY_MSG);
+
+  it("sends to task+conversation target", () =>
     Effect.gen(function* () {
       yield* runSendCommand({
-        target: `conv:${CONV_UUID}`,
+        target: { taskId, conversationId },
         message: HELLO_WORLD,
         replyTo: Option.none(),
       });
       expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
-        conversationId: CONV_UUID,
+        taskId,
+        conversationId,
         parts: [{ type: "text", text: HELLO_WORLD }],
-      });
-    }));
-
-  it("sends to agent target without conv: prefix", () =>
-    Effect.gen(function* () {
-      yield* runSendCommand({
-        target: "agent:alice",
-        message: HI_ALICE,
-        replyTo: Option.none(),
-      });
-      expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
-        to: "agent:alice",
-        parts: [{ type: "text", text: HI_ALICE }],
       });
     }));
 
   it("includes replyToId when --reply-to is provided", () =>
     Effect.gen(function* () {
       yield* runSendCommand({
-        target: `conv:${CONV_UUID}`,
+        target: { taskId, conversationId },
         message: REPLY_TEXT,
-        replyTo: Option.some(REPLY_MSG),
+        replyTo: Option.some(replyToId),
       });
       expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
-        conversationId: CONV_UUID,
+        taskId,
+        conversationId,
         parts: [{ type: "text", text: REPLY_TEXT }],
-        replyToId: REPLY_MSG,
+        replyToId,
       });
     }));
 });

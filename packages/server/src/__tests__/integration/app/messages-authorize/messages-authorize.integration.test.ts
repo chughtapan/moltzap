@@ -8,33 +8,34 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import {
-  ConversationsCreate,
+  AppsRegister,
+  TaskCreate,
   HookBlockedError,
+  MessagesAuthorize,
   MessagesList,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
+  TaskConversationCreate,
+  TaskRequest,
   type AgentId,
+  type AppId,
   type AppManifest,
   type ConversationId,
-  type MessageId,
+  type TaskId,
 } from "@moltzap/protocol";
-import { endpointAddress } from "@moltzap/protocol/network";
 import {
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
   registerAndConnect,
   setupAgentPair,
-  getTestCoreApp,
   getKyselyDb,
   type ConnectedAgent,
 } from "../../helpers.js";
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "messages-authorize-test-app";
+const TEST_APP_ID = "00000000-0000-4d11-8000-00000000a121" as AppId;
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Messages-Authorize Test App",
@@ -43,9 +44,6 @@ const TEST_APP_MANIFEST: AppManifest = {
   },
 };
 
-const DEFAULT_DM_TM_ADDRESS = endpointAddress(
-  "tm:app:00000000-0000-4d11-8000-000000000d11",
-);
 const DECISION_FORWARD = "Forward";
 const DECISION_BLOCK = "Block";
 const NEVER_REPLY = "never-reply";
@@ -53,13 +51,8 @@ const VERDICT_TAG_FORWARD = "forward";
 const VERDICT_TAG_BLOCK = "block";
 const VERDICT_TAG_PENDING = "pending";
 const BLOCK_REASON = "test-block";
-const DEFAULT_DM_BLOCK_REASON = "default-dm-block";
 const RACE_LOSER_REASON = "race-loser";
 const BLOCK_MESSAGE_PATTERN = /block/i;
-const CONV_TYPE_DM = "dm";
-const CONV_TYPE_GROUP = "group";
-const PARTICIPANT_TYPE_AGENT = "agent";
-const PART_TYPE_TEXT = "text";
 const CONV_NAME_BLOCK = "ma-block";
 const CONV_NAME_SUBSET = "ma-subset";
 const CONV_NAME_VISIBILITY = "vis-test";
@@ -67,7 +60,6 @@ const TEXT_BLOCKED = "blocked-msg";
 const TEXT_SUBSET = "subset-msg";
 const TEXT_UNREACHABLE = "unreachable";
 const TEXT_EMPTY_FORWARD = "empty-forward";
-const TEXT_DM_BLOCKED = "dm-blocked";
 const TEXT_FORWARD_CAROL = "m1-forward-carol";
 const TEXT_BLOCKED_SECOND = "m2-blocked";
 const TEXT_FORWARD_BOB = "m3-forward-bob";
@@ -77,7 +69,6 @@ const LONG_SETTLE = "300 millis";
 const SERVER_TIMEOUT_BUDGET_MS = 10_000;
 const TEST_TIMEOUT_MS = 30_000;
 const START_TIMEOUT_MS = 60_000;
-const MIN_DEFAULT_DM_HOOK_CALLS = 1;
 
 type MessageAuthorizeVerdict =
   | { decision: typeof DECISION_FORWARD; recipients: ReadonlyArray<AgentId> }
@@ -99,7 +90,6 @@ let appHookState: VerdictState = {
   next: { decision: DECISION_FORWARD, recipients: [] },
   calls: 0,
 };
-let defaultDmHookState: VerdictState | null = null;
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()), START_TIMEOUT_MS);
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
@@ -112,33 +102,29 @@ beforeEach(() =>
             next: { decision: DECISION_FORWARD, recipients: [] },
             calls: 0,
           };
-          defaultDmHookState = null;
-          getTestCoreApp().registerApp(TEST_APP_MANIFEST);
         }),
       ),
     ),
   ),
 );
 
-function registerTmHook(tmAgentId: string): void {
-  const addr = endpointAddress(`tm:agent:${tmAgentId}`);
-  getTestCoreApp().registerMessageAuthorize(addr, () => {
-    appHookState.calls += 1;
-    const verdict = appHookState.next;
-    if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
-      return Effect.runPromise(Effect.never);
-    }
-    return verdict as MessageAuthorizeVerdict;
-  });
-}
-
-function registerDefaultDmHook(verdict: MessageAuthorizeVerdict): void {
-  defaultDmHookState = { next: verdict, calls: 0 };
-  getTestCoreApp().registerMessageAuthorize(DEFAULT_DM_TM_ADDRESS, () => {
-    if (defaultDmHookState === null) expect.fail("default DM hook not seeded");
-    defaultDmHookState.calls += 1;
-    return defaultDmHookState.next as MessageAuthorizeVerdict;
-  });
+/**
+ * Attach the wire callback handling server→client `messages/authorize`
+ * for `alice`. MUST be called BEFORE `createAppManagedTask`'s
+ * `AppsRegister` so the callback is live when the first
+ * `messages/send` fires.
+ */
+function attachMessageAuthorizeHook(alice: ConnectedAgent) {
+  return alice.client.onAppCallback(MessagesAuthorize, () =>
+    Effect.gen(function* () {
+      appHookState.calls += 1;
+      const verdict = appHookState.next;
+      if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
+        return yield* Effect.never;
+      }
+      return { verdict: verdict as MessageAuthorizeVerdict };
+    }),
+  );
 }
 
 function dbError(message: string, cause: unknown) {
@@ -193,24 +179,16 @@ function attemptPendingCasBlock(messageId: string) {
   });
 }
 
-function agentParticipant(agent: ConnectedAgent) {
-  return { type: PARTICIPANT_TYPE_AGENT, id: agent.agentId };
-}
-
-function textPart(text: string) {
-  return { type: PART_TYPE_TEXT, text };
+interface ConversationBinding {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
 }
 
 /**
- * Settle-window collector for `messages/received` notifications.
- *
- * Post-#645 the legacy `drainNotifications` snapshot is deleted; the
- * new Stream.async-backed subscription only observes frames emitted
- * from materialisation forward. Each call site that previously
- * asserted "no message received" via a settle-then-drain pattern now
- * forks one of these collectors BEFORE the triggering send and joins
- * it after — the `Stream.interruptAfter` window bounds collection so
- * the assert doesn't block when no event is expected.
+ * Settle-window collector for `messages/received` notifications. Fork
+ * BEFORE the triggering send and join after; `Stream.interruptAfter`
+ * bounds collection so the assert doesn't block when no event is
+ * expected.
  */
 function forkMessageReceivedCollector(
   agent: ConnectedAgent,
@@ -269,67 +247,84 @@ function expectDecisionReason(decision: unknown, reason: string): void {
 function expectDecisionRecipients(
   decision: unknown,
   recipients: ReadonlyArray<string>,
-): void {
+) {
   expect(
     (decision as { recipients?: ReadonlyArray<string> }).recipients,
   ).toEqual(recipients);
 }
 
-function createSelfTask(agent: ConnectedAgent) {
-  return agent.client.sendRpc(TasksCreate, {
-    appId: TEST_APP_ID,
-    tmType: "self",
+function createAppManagedTask(
+  agent: ConnectedAgent,
+  invited: ReadonlyArray<ConnectedAgent>,
+) {
+  // `agent` must be the registered remote-app connection for
+  // TEST_APP_ID so TM authority is provable on subsequent admin RPCs
+  // (task/conversation/create etc.). `apps/register` overwrites any
+  // prior entry for the same appId.
+  return Effect.gen(function* () {
+    yield* agent.client.sendRpc(AppsRegister, {
+      manifest: TEST_APP_MANIFEST,
+    });
+    // task/request fires a task/create TM callback before the task
+    // leaves `waiting`; this test's app auto-accepts.
+    yield* agent.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
+    return yield* agent.client.sendRpc(TaskRequest, {
+      appId: TEST_APP_ID,
+      invitedAgentIds: invited.map((a) => a.agentId),
+    });
   });
 }
 
 function createManagedGroup(
   agent: ConnectedAgent,
-  taskId: string,
+  taskId: TaskId,
   name: string,
   participants: ReadonlyArray<ConnectedAgent>,
 ) {
-  return agent.client.sendRpc(TasksCreateConversation, {
+  return agent.client.sendRpc(TaskConversationCreate, {
     taskId,
-    type: CONV_TYPE_GROUP,
     name,
-    participants: participants.map(agentParticipant),
+    participants: participants.map((p) => p.agentId),
   });
 }
 
 function createManagedDm(
   agent: ConnectedAgent,
-  taskId: string,
+  taskId: TaskId,
   participant: ConnectedAgent,
 ) {
-  return agent.client.sendRpc(TasksCreateConversation, {
+  return agent.client.sendRpc(TaskConversationCreate, {
     taskId,
-    type: CONV_TYPE_DM,
-    participants: [agentParticipant(participant)],
+    participants: [participant.agentId],
   });
 }
 
 function sendText(
   agent: ConnectedAgent,
-  conversationId: ConversationId,
+  binding: ConversationBinding,
   text: string,
 ) {
   return agent.client.sendRpc(MessagesSend, {
-    conversationId,
-    parts: [textPart(text)],
+    taskId: binding.taskId,
+    conversationId: binding.conversationId,
+    parts: [{ type: "text", text }],
   });
 }
 
 function sendTextWithTimeout(
   agent: ConnectedAgent,
-  conversationId: ConversationId,
+  binding: ConversationBinding,
   text: string,
   timeoutMs: number,
 ) {
   return agent.client.sendRpc(
     MessagesSend,
     {
-      conversationId,
-      parts: [textPart(text)],
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+      parts: [{ type: "text", text }],
     },
     { timeoutMs },
   );
@@ -338,27 +333,30 @@ function sendTextWithTimeout(
 function blockVerdictPreventsFanoutAndPersistsBlock() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { decision: DECISION_BLOCK, reason: BLOCK_REASON };
 
-    const task = yield* createSelfTask(alice);
+    const task = yield* createAppManagedTask(alice, [bob]);
     const conv = yield* createManagedGroup(
       alice,
       task.task.id,
       CONV_NAME_BLOCK,
       [bob],
     );
-    const conversationId = conv.conversation.id as ConversationId;
+    const binding: ConversationBinding = {
+      taskId: task.task.id,
+      conversationId: conv.conversation.id,
+    };
     const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
     const outcome = yield* Effect.either(
-      sendText(alice, conversationId, TEXT_BLOCKED),
+      sendText(alice, binding, TEXT_BLOCKED),
     );
     expectHookBlocked(outcome, BLOCK_MESSAGE_PATTERN);
     expect(appHookState.calls).toBe(1);
 
     yield* assertNoMessageReceived(bobCollector);
 
-    const ids = yield* readAllMessageIdsForConversation(conversationId);
+    const ids = yield* readAllMessageIdsForConversation(binding.conversationId);
     expect(ids.length).toBe(1);
     const decision = yield* readTmDecision(ids[0]!);
     expectDecisionTag(decision, VERDICT_TAG_BLOCK);
@@ -369,48 +367,25 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
 function tmUnreachableSynthesizesBlock() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { kind: NEVER_REPLY };
 
-    const task = yield* createSelfTask(alice);
+    const task = yield* createAppManagedTask(alice, [bob]);
     const conv = yield* createManagedDm(alice, task.task.id, bob);
-    const conversationId = conv.conversation.id as ConversationId;
+    const binding: ConversationBinding = {
+      taskId: task.task.id,
+      conversationId: conv.conversation.id,
+    };
     const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
     const outcome = yield* Effect.either(
       sendTextWithTimeout(
         alice,
-        conversationId,
+        binding,
         TEXT_UNREACHABLE,
         SERVER_TIMEOUT_BUDGET_MS,
       ),
     );
     expectHookBlocked(outcome);
-
-    yield* assertNoMessageReceived(bobCollector);
-  });
-}
-
-function defaultDmHookBlockChangesBehavior() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    registerDefaultDmHook({
-      decision: DECISION_BLOCK,
-      reason: DEFAULT_DM_BLOCK_REASON,
-    });
-
-    const conv = yield* alice.client.sendRpc(ConversationsCreate, {
-      type: CONV_TYPE_DM,
-      participants: [agentParticipant(bob)],
-    });
-    const conversationId = conv.conversation.id as ConversationId;
-    const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
-    const outcome = yield* Effect.either(
-      sendText(alice, conversationId, TEXT_DM_BLOCKED),
-    );
-    expectHookBlocked(outcome);
-    expect(defaultDmHookState?.calls).toBeGreaterThanOrEqual(
-      MIN_DEFAULT_DM_HOOK_CALLS,
-    );
 
     yield* assertNoMessageReceived(bobCollector);
   });
@@ -422,19 +397,22 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
     const bob = yield* registerAndConnect("bob-sub");
     const carol = yield* registerAndConnect("carol-sub");
     const dave = yield* registerAndConnect("dave-sub");
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
 
-    const task = yield* createSelfTask(alice);
+    const task = yield* createAppManagedTask(alice, [bob, carol, dave]);
     const conv = yield* createManagedGroup(
       alice,
       task.task.id,
       CONV_NAME_SUBSET,
       [bob, carol, dave],
     );
-    const conversationId = conv.conversation.id as ConversationId;
+    const binding: ConversationBinding = {
+      taskId: task.task.id,
+      conversationId: conv.conversation.id,
+    };
     appHookState.next = {
       decision: DECISION_FORWARD,
-      recipients: [carol.agentId as AgentId],
+      recipients: [carol.agentId],
     };
 
     const carolCollector = yield* forkMessageReceivedCollector(
@@ -446,8 +424,8 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
       dave,
       LONG_SETTLE,
     );
-    const sent = yield* sendText(alice, conversationId, TEXT_SUBSET);
-    const messageId = sent.message.id as MessageId;
+    const sent = yield* sendText(alice, binding, TEXT_SUBSET);
+    const messageId = sent.message.id;
 
     yield* assertExactMessageReceived(carolCollector, 1);
     yield* assertNoMessageReceived(bobCollector);
@@ -462,15 +440,18 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
 function forwardEmptySendsNoFanout() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
+    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { decision: DECISION_FORWARD, recipients: [] };
 
-    const task = yield* createSelfTask(alice);
+    const task = yield* createAppManagedTask(alice, [bob]);
     const conv = yield* createManagedDm(alice, task.task.id, bob);
-    const conversationId = conv.conversation.id as ConversationId;
+    const binding: ConversationBinding = {
+      taskId: task.task.id,
+      conversationId: conv.conversation.id,
+    };
     const bobCollector = yield* forkMessageReceivedCollector(bob, SHORT_SETTLE);
-    const sent = yield* sendText(alice, conversationId, TEXT_EMPTY_FORWARD);
-    const messageId = sent.message.id as MessageId;
+    const sent = yield* sendText(alice, binding, TEXT_EMPTY_FORWARD);
+    const messageId = sent.message.id;
 
     yield* assertNoMessageReceived(bobCollector);
     const decision = yield* readTmDecision(messageId);
@@ -479,77 +460,120 @@ function forwardEmptySendsNoFanout() {
   });
 }
 
+function sendThreeAuthorizedMessages(input: {
+  readonly alice: ConnectedAgent;
+  readonly bob: ConnectedAgent;
+  readonly carol: ConnectedAgent;
+  readonly binding: ConversationBinding;
+}) {
+  const { alice, bob, carol, binding } = input;
+  return Effect.gen(function* () {
+    appHookState.next = {
+      decision: DECISION_FORWARD,
+      recipients: [carol.agentId],
+    };
+    const carolForward = yield* sendText(alice, binding, TEXT_FORWARD_CAROL);
+    appHookState.next = { decision: DECISION_BLOCK, reason: BLOCK_REASON };
+    yield* Effect.either(sendText(alice, binding, TEXT_BLOCKED_SECOND));
+    appHookState.next = {
+      decision: DECISION_FORWARD,
+      recipients: [bob.agentId],
+    };
+    const bobForward = yield* sendText(alice, binding, TEXT_FORWARD_BOB);
+    return { carolForward, bobForward };
+  });
+}
+
+interface VisibilityCheckInput {
+  readonly alice: ConnectedAgent;
+  readonly bob: ConnectedAgent;
+  readonly carol: ConnectedAgent;
+  readonly binding: ConversationBinding;
+  readonly forwarded: {
+    readonly carolForward: { message: { id: string } };
+    readonly bobForward: { message: { id: string } };
+  };
+}
+
+function expectPerCallerVisibility(input: VisibilityCheckInput) {
+  const { alice, bob, carol, binding, forwarded } = input;
+  return Effect.gen(function* () {
+    const aliceList = yield* alice.client.sendRpc(MessagesList, {
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+    });
+    const allIds = (yield* readAllMessageIdsForConversation(
+      binding.conversationId,
+    ))
+      .slice()
+      .sort();
+    expect(aliceList.messages.map((m) => m.id).sort()).toEqual(allIds);
+    const bobList = yield* bob.client.sendRpc(MessagesList, {
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+    });
+    expect(bobList.messages.map((m) => m.id)).toEqual([
+      forwarded.bobForward.message.id,
+    ]);
+    const carolList = yield* carol.client.sendRpc(MessagesList, {
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+    });
+    expect(carolList.messages.map((m) => m.id)).toEqual([
+      forwarded.carolForward.message.id,
+    ]);
+  });
+}
+
 function senderAndRecipientsSeeOnlyAuthorizedRows() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-vis");
     const bob = yield* registerAndConnect("bob-vis");
     const carol = yield* registerAndConnect("carol-vis");
-    registerTmHook(alice.agentId);
-
-    const task = yield* createSelfTask(alice);
+    yield* attachMessageAuthorizeHook(alice);
+    const task = yield* createAppManagedTask(alice, [bob, carol]);
     const conv = yield* createManagedGroup(
       alice,
       task.task.id,
       CONV_NAME_VISIBILITY,
       [bob, carol],
     );
-    const conversationId = conv.conversation.id as ConversationId;
-
-    appHookState.next = {
-      decision: DECISION_FORWARD,
-      recipients: [carol.agentId as AgentId],
+    const binding: ConversationBinding = {
+      taskId: task.task.id,
+      conversationId: conv.conversation.id,
     };
-    const carolForward = yield* sendText(
+    const forwarded = yield* sendThreeAuthorizedMessages({
       alice,
-      conversationId,
-      TEXT_FORWARD_CAROL,
-    );
-
-    appHookState.next = { decision: DECISION_BLOCK, reason: BLOCK_REASON };
-    yield* Effect.either(sendText(alice, conversationId, TEXT_BLOCKED_SECOND));
-
-    appHookState.next = {
-      decision: DECISION_FORWARD,
-      recipients: [bob.agentId as AgentId],
-    };
-    const bobForward = yield* sendText(alice, conversationId, TEXT_FORWARD_BOB);
-
-    const aliceList = yield* alice.client.sendRpc(MessagesList, {
-      conversationId,
+      bob,
+      carol,
+      binding,
     });
-    const aliceIds = aliceList.messages.map((message) => message.id).sort();
-    const allIds = (yield* readAllMessageIdsForConversation(conversationId))
-      .slice()
-      .sort();
-    expect(aliceIds).toEqual(allIds);
-
-    const bobList = yield* bob.client.sendRpc(MessagesList, { conversationId });
-    expect(bobList.messages.map((message) => message.id)).toEqual([
-      bobForward.message.id,
-    ]);
-
-    const carolList = yield* carol.client.sendRpc(MessagesList, {
-      conversationId,
+    yield* expectPerCallerVisibility({
+      alice,
+      bob,
+      carol,
+      binding,
+      forwarded,
     });
-    expect(carolList.messages.map((message) => message.id)).toEqual([
-      carolForward.message.id,
-    ]);
   });
 }
 
 function casGuardPreservesCommittedVerdict() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    registerTmHook(alice.agentId);
-    const task = yield* createSelfTask(alice);
+    yield* attachMessageAuthorizeHook(alice);
+    const task = yield* createAppManagedTask(alice, [bob]);
     const conv = yield* createManagedDm(alice, task.task.id, bob);
-    const conversationId = conv.conversation.id as ConversationId;
+    const binding: ConversationBinding = {
+      taskId: task.task.id,
+      conversationId: conv.conversation.id,
+    };
 
     appHookState.next = {
       decision: DECISION_FORWARD,
-      recipients: [bob.agentId as AgentId],
+      recipients: [bob.agentId],
     };
-    const sent = yield* sendText(alice, conversationId, TEXT_RACE);
+    const sent = yield* sendText(alice, binding, TEXT_RACE);
     const messageId = sent.message.id;
 
     expectDecisionTag(yield* readTmDecision(messageId), VERDICT_TAG_FORWARD);
@@ -572,11 +596,10 @@ describe("messages/authorize — block verdict paths", () => {
     TEST_TIMEOUT_MS,
   );
 
-  it(
-    "default-DM messageAuthorize: replacing the default hook with Block changes behavior",
-    defaultDmHookBlockChangesBehavior,
-    TEST_TIMEOUT_MS,
-  );
+  // DEFAULT_APP_ID is boot-installed in-process; a wire-app
+  // AppsRegister against it is rejected. The messages/authorize
+  // verdict for DEFAULT_APP_ID tasks is fixed to the default Forward
+  // policy and cannot be overridden.
 });
 
 describe("messages/authorize — forward verdict paths", () => {

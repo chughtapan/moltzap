@@ -1,7 +1,7 @@
 # 12 — TestClient Stream consolidation (Spec B obsolete-code remediation, #645)
 
 Spec B (#596) consolidated the **production** notification surface onto a
-typed `Stream.async`-backed registry (`MoltZapWsClient.subscribe` /
+typed `Stream.async`-backed registry (`MoltZapAgentClient.subscribe` /
 `subscribeAll`). The Non-goals row 2 of #596 explicitly preserved the
 protocol-side `TestClient`'s polling shape (`waitForNotification`,
 `drainNotifications`, `notifications` queue). Per
@@ -75,7 +75,7 @@ list.
 | # | Module → symbols | LOC | Reason it existed |
 |---|---|---|---|
 | 1 | `packages/server/src/test-utils/helpers.ts → helperBuffer + pullOneMatching + makeSubscribeStream + NotificationBuffer + SUBSCRIBE_POLL_INTERVAL_MS` | ~95 | Per-`ServerTestClient` dedup ring + 5ms polling loop re-queueing unmatched frames so concurrent `subscribeTo(A)` + `subscribeTo(B)` couldn't race-lose chunk siblings |
-| 2 | `packages/client/src/test-utils/conformance-adapter.ts → notificationMatchesFilter + refinementFromRealClientFilter + asNotificationParamsRecord + tagMatches + conversationMatches` | ~74 | Inline reconstruction of the deleted three-field `SubscriptionFilter` grammar so the conformance suite's `RealClientNotificationFilter` could ride on `MoltZapWsClient.subscribeAll` |
+| 2 | `packages/client/src/test-utils/conformance-adapter.ts → notificationMatchesFilter + refinementFromRealClientFilter + asNotificationParamsRecord + tagMatches + conversationMatches` | ~74 | Inline reconstruction of the deleted three-field `SubscriptionFilter` grammar so the conformance suite's `RealClientNotificationFilter` could ride on `MoltZapAgentClient.subscribeAll` |
 | 3 | `packages/protocol/src/testing/conformance/_shared/driver/test-client.ts → waitForNotification + drainNotifications + notifications queue + appendNotification + takeNotification + pollNotification + pullNotifications + makeNotificationsStream + failIfClosedWhileWaiting + NotificationWaitError + NotificationQueue type + DEFAULT_WAIT_FOR_NOTIFICATION_TIMEOUT_MS + POLL_INTERVAL_MS` | ~115 | Root cause: polling-shaped protocol-side test API preserved per spec #596 Non-goals row 2 |
 
 All three rows collapse together: row 3 going Stream-shaped makes
@@ -125,14 +125,14 @@ without resurrecting the per-definition dedup ring:
 
 All three bridges live exclusively at the integration-test layer; the
 protocol-side `TestClient` itself stays pure-Stream and matches the
-production `MoltZapWsClient` lifecycle exactly.
+production `MoltZapAgentClient` lifecycle exactly.
 
 ## 4. Lifecycle parity with production
 
 The test driver mirrors the production `Stream.async` lifecycle
 contract (Spec B "Stream lifecycle contract" rows 1-5):
 
-| Phase | Production (`MoltZapWsClient`) | Test driver (`TestClient`) |
+| Phase | Production (`MoltZapAgentClient`) | Test driver (`TestClient`) |
 |---|---|---|
 | Construction | `subscribe(def, refinement?)` returns Stream value; pure | Same |
 | Materialisation | `Stream.async` register installs registry callbacks | Same |
@@ -148,7 +148,7 @@ cancellation finalizer chain then runs `registry.unregister`; only
 then does the socket reader finalizer fire. This is the same
 "interrupt subscribers first, tear transport second" ordering that
 `composeServiceTeardown` enforces between `MoltZapService.scope` and
-`MoltZapWsClient.close()`.
+`MoltZapAgentClient.close()`.
 
 ## 5. RealClientNotificationFilter collapse
 
@@ -176,7 +176,7 @@ export type RealClientNotificationFilter = (
 `RealClientNotificationSubscriber.subscribe` takes
 `filter?: RealClientNotificationFilter` (predicate optional;
 match-all when absent). The adapter plumbs the predicate through to
-`MoltZapWsClient.subscribeAll(refinement)` with no inline
+`MoltZapAgentClient.subscribeAll(refinement)` with no inline
 reconstruction. Channel re-exports
 (`@moltzap/openclaw-channel/test-support`,
 `@moltzap/nanoclaw-channel/test-support`) inherit the simpler shape.
@@ -332,4 +332,4 @@ CHANGED:
   `subscribeAll().pipe(Stream.runCollect)`
 - `packages/client/src/test-utils/conformance-adapter.ts`
   - `subscribeRealClient` accepts `filter` predicate directly; passes
-    through to `MoltZapWsClient.subscribeAll(filter)`
+    through to `MoltZapAgentClient.subscribeAll(filter)`

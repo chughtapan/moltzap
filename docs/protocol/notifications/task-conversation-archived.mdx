@@ -1,11 +1,11 @@
 ---
 title: "task/conversation/archived"
-description: "Pushed as the `task/conversation/archived` notification."
+description: "Pushed when a conversation is archived (explicit archive call or task close)."
 ---
 
 # task/conversation/archived
 
-Pushed as the `task/conversation/archived` notification.
+Pushed when a conversation is archived (explicit archive call or task close).
 
 ## Params
 
@@ -30,3 +30,8 @@ Pushed as the `task/conversation/archived` notification.
   "params": { ... }
 }
 ```
+
+## Triggered By
+
+- [`task/conversation/archive`](/protocol/methods/task-conversation-archive)
+- [`task/close`](/protocol/methods/task-close)

@@ -44,20 +44,19 @@ R-channel capabilities encode the precondition in the method's *type
 signature*:
 
 ```ts
-storeMessage(
+sendInsert(
   /* ... */
-): Effect.Effect<Message, TaskServiceError, TmAuthority>;
+): Effect.Effect<Message, MessageServiceError, TmAuthority | ConversationInTask | MessageSendPermission>;
 ```
 
-Today the descriptor `TasksStoreMessage.capabilities` declares
-`[TmAuthority, ConversationInTask, MessageSendPermission]`. The
-dispatcher reads that array per inbound frame, calls the matching
-provider entry from `app/capability-providers.ts`, and threads
-`Effect.provideServiceEffect` over the handler effect before
+Each task-layer descriptor's `capabilities: [...]` array names the tags
+its handler needs. The dispatcher reads that array per inbound frame,
+calls the matching provider entry from `app/capability-providers.ts`,
+and threads `Effect.provideServiceEffect` over the handler before
 invoking. Handlers yield the capability values directly. The
-compile-time lockstep gate (`typed-dispatcher.types-check.ts →
-Canary 7`) rejects handler bodies that yield a tag not declared on
-the descriptor.
+compile-time lockstep gate (`typed-dispatcher.types-check.ts → Canary 7`)
+rejects handler bodies that yield a tag not declared on the
+descriptor.
 
 ## 2. Two capability shapes
 
@@ -78,10 +77,21 @@ export const obtainTmAuthority = (
 ): Effect.Effect<TmAuthorityValue, TaskServiceError, TaskServiceTag> =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    const task = yield* taskService.requireTmAuthority(taskId, caller);
-    return { task, callerAgentId: caller };
+    const task = yield* taskService.loadOpenTask(taskId);
+    if (!appHost.isAppConnection(task.appId, callerConnId)) {
+      return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
+    }
+    return { task };
   }).pipe(Effect.withSpan("obtainTmAuthority"));
 ```
+
+The gate proves "the calling WS connection IS the registered remote-app
+connection for `task.appId`". Apps register their connection via the
+wire `AppsRegister` RPC; `AppHost.isAppConnection(appId, connId)` does
+the lookup. A `MoltZapTMClient` that has `AppsRegister`'d its app can
+pass the gate over the wire. TM-only RPCs (`TaskConversationCreate`,
+`TaskConversationArchive`, `TaskAddParticipant`, `TaskClose`, etc.)
+gate on this proof at the descriptor level.
 
 ### Refine shape
 
@@ -212,12 +222,11 @@ spec #601 §Non-goals #5. The caller's agent ID rides as a `ctx.agentId`
 parameter; migrating it touches every handler in the workspace. Spec
 #601 §Open question Q3 documents the open follow-up.
 
-The `ConversationService` + `MessageService` public methods (`create`,
-`addParticipant`, `update`, `archive`, `unarchive`, `mute`, `unmute`,
-`removeParticipant`, `sendInsert`, `list`) also stay on the inline-gate
-shape — their R-channel cutover lands when `conversation.service.ts` /
-`message.service.ts` get restructured to fit the `max-lines: 1050` lint
-cap with the added signature plumbing. The obtain helpers are in place;
+The surviving `ConversationService` + `MessageService` public methods
+(`create`, `removeParticipant`, `sendInsert`, `list`, archive helpers)
+stay on the inline-gate shape — their R-channel cutover lands when
+those services get restructured to fit the `max-lines: 1050` lint cap
+with the added signature plumbing. The obtain helpers are in place;
 the cutover follows the recipe in §4.
 
 The infrastructure handlers (`Connect`, `AppsRegister`,

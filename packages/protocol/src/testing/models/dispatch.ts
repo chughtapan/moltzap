@@ -8,14 +8,14 @@
  *
  * Exhaustiveness: the reducer takes `ArbitraryRpcCall` (discriminated on
  * `method`) so the TS compiler flags an unhandled method name if
- * `rpcMethods` grows without the model being updated.
+ * `serverRpcMethods` grows without the model being updated.
  */
-import { rpcMethods } from "../../rpc-registry.js";
+import { serverRpcMethods } from "../../rpc-registry.js";
 import type { NotificationFrame } from "../../transport/wire.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
 
-type MethodName = (typeof rpcMethods)[number]["name"];
+type MethodName = (typeof serverRpcMethods)[number]["name"];
 
 import {
   AgentsList,
@@ -33,10 +33,9 @@ import {
 } from "../../app/methods.js";
 import {
   type ConversationId,
-  TasksClose,
-  TasksCreate,
-  TasksGet,
-  TasksList,
+  TaskClose,
+  TaskRequest,
+  TaskList,
 } from "../../task/methods.js";
 import {
   ContactsAccept,
@@ -45,17 +44,12 @@ import {
   ContactsList,
 } from "../../identity/methods.js";
 import {
-  ConversationsAddParticipant,
-  ConversationsArchive,
-  ConversationsCreate,
-  ConversationsGet,
-  ConversationsLeave,
-  ConversationsList,
-  ConversationsMute,
-  ConversationsRemoveParticipant,
-  ConversationsUnarchive,
-  ConversationsUnmute,
-  ConversationsUpdate,
+  TaskAddParticipant,
+  TaskConversationArchive,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationUnarchive,
+  TaskLeave,
 } from "../../task/methods.js";
 import { InvitesCreateAgent } from "../../identity/methods.js";
 import { MessagesList, MessagesSend } from "../../task/methods.js";
@@ -90,13 +84,11 @@ const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set<string>([
   AgentsLookup.name,
   AgentsLookupByName.name,
   AgentsList.name,
-  ConversationsList.name,
-  ConversationsGet.name,
   MessagesList.name,
   ContactsList.name,
   PresenceSubscribe.name,
-  TasksList.name,
-  TasksGet.name,
+  TaskConversationList.name,
+  TaskList.name,
 ]);
 
 export function isIdempotent(method: string): boolean {
@@ -113,17 +105,12 @@ const MODEL_METHOD_OUTCOMES = {
   [NetworkPing.name]: "ok",
   [AgentsLookup.name]: "uncertain",
   [AgentsLookupByName.name]: "uncertain",
-  [ConversationsList.name]: "uncertain",
-  [ConversationsCreate.name]: "uncertain",
-  [ConversationsGet.name]: "uncertain",
-  [ConversationsUpdate.name]: "uncertain",
-  [ConversationsMute.name]: "uncertain",
-  [ConversationsUnmute.name]: "uncertain",
-  [ConversationsAddParticipant.name]: "uncertain",
-  [ConversationsRemoveParticipant.name]: "uncertain",
-  [ConversationsLeave.name]: "uncertain",
-  [ConversationsArchive.name]: "uncertain",
-  [ConversationsUnarchive.name]: "uncertain",
+  [TaskConversationList.name]: "uncertain",
+  [TaskConversationCreate.name]: "uncertain",
+  [TaskConversationArchive.name]: "uncertain",
+  [TaskConversationUnarchive.name]: "uncertain",
+  [TaskAddParticipant.name]: "uncertain",
+  [TaskLeave.name]: "uncertain",
   [MessagesSend.name]: "uncertain",
   [MessagesList.name]: "uncertain",
   [ContactsList.name]: "uncertain",
@@ -136,10 +123,9 @@ const MODEL_METHOD_OUTCOMES = {
   [AppsRegister.name]: "uncertain",
   [DispatchRequest.name]: "uncertain",
   [DispatchesGet.name]: "uncertain",
-  [TasksCreate.name]: "uncertain",
-  [TasksGet.name]: "uncertain",
-  [TasksList.name]: "uncertain",
-  [TasksClose.name]: "uncertain",
+  [TaskRequest.name]: "uncertain",
+  [TaskList.name]: "uncertain",
+  [TaskClose.name]: "uncertain",
 } as const satisfies Readonly<Record<MethodName, ModelMethodOutcome>>;
 
 /**
@@ -193,7 +179,7 @@ function extractConversationId(params: unknown): ConversationId | null {
  * flows through `_tag: "error"`.
  *
  * Exhaustiveness: the `switch` has a branch for every method name in
- * `rpcMethods`. A missing branch becomes a compile error at `absurd`.
+ * `serverRpcMethods`. A missing branch becomes a compile error at `absurd`.
  * Behaviour is intentionally conservative — the model predicts the
  * server's *observable* outcome (success vs typed error), not its full
  * result shape. Tier B canonicalizers downgrade server responses to the

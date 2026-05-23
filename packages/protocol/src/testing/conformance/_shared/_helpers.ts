@@ -16,9 +16,9 @@ import type {
 } from "./errors.js";
 
 /**
- * Send an RPC whose descriptor is not in the typed `rpcMethods` registry
+ * Send an RPC whose descriptor is not in the typed `serverRpcMethods` registry
  * (e.g., `apps/register`). Returns the result as `unknown`; the cast
- * widens `client.sendRpc`'s `D extends AnyRpcDefinition` constraint.
+ * widens `client.sendRpc`'s `D extends AnyServerRpcDefinition` constraint.
  */
 export function sendUntypedRpc(
   client: TestClient,

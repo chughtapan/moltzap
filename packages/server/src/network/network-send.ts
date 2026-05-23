@@ -1,42 +1,24 @@
 /**
- * `network.send(to: EndpointAddress, payload: OpaquePayload)
- *   → Effect&lt;DeliveryAck, DeliveryError, never>`
+ * `network.send` — outbound routing primitive.
  *
- * Outbound-routing primitive. Two collaborators: the
- * {@link AgentEndpointResolver} for the durable `agent` lookup and the
- * {@link ConnectionManager} for the writable socket; a Tag at
+ * Two collaborators: the {@link AgentEndpointResolver} for the durable
+ * `AgentId → live ConnectionId set` lookup and the
+ * {@link ConnectionManager} for the writable socket. A Tag at
  * `app/layers.ts` provides this composition.
  *
- * Endpoint kinds dispatched here (the brand at
- * `packages/protocol/src/network/actor-model.ts` encodes the kind in
- * the address prefix; the switch is exhaustive over
- * {@link EndpointAddressKind}):
- *
- * - `tm:agent:&lt;agentId>` — durable per-agent address used by
- *   `tasks.tm_endpoint_address` and for any consumer addressing an
- *   agent by identity. Resolves via the resolver's forward map and
- *   writes to one of the agent's live connections;
- *   {@link RecipientNotResolved} when no socket holds the address.
- * - `tm:app:&lt;id>` — app-TM registrations dispatched through the
- *   in-process {@link AppTmRegistry} (default DM / group TMs and any
- *   future custom in-process TMs register handlers at boot);
- *   {@link RecipientNotResolved} when no handler is registered.
- *
- * Same code path runs whether the resolved connection lives in this
- * process or another (plan §1.3 in-process loopback policy).
+ * Issue #673 cutover: the `EndpointAddress` brand + endpoint-kind
+ * dispatch retired. Outbound routing is now strictly per-agent
+ * ({@link send}) or per-agent-set ({@link broadcast}). App-TM
+ * observability writes via {@link AppHost}'s remote-registration table
+ * directly, not through here.
  */
-import { Brand, Data, Effect, Either, HashSet, Match } from "effect";
-import {
-  endpointAddressKind,
-  type EndpointAddress,
-  type EndpointAddressKind,
-} from "@moltzap/protocol/network";
+import { Brand, Data, Effect, Either, HashSet } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
-import type { AppTmRegistry } from "./app-tm-registry.js";
 
 /**
  * Branded raw-string payload. The send primitive writes the exact
@@ -62,17 +44,17 @@ export const opaquePayload = (raw: string): OpaquePayload =>
  * in its success channel and absorbs `DeliveryError` cases.
  */
 export class DeliveryAck extends Data.TaggedClass("DeliveryAck")<{
-  readonly to: EndpointAddress;
+  readonly to: AgentId;
 }> {}
 
 /**
- * Recipient address has no live connection. Caller-recoverable —
+ * Recipient agent has no live connection. Caller-recoverable —
  * usually drop or queue rather than retry.
  */
 export class RecipientNotResolved extends Data.TaggedError(
   "RecipientNotResolved",
 )<{
-  readonly to: EndpointAddress;
+  readonly to: AgentId;
 }> {}
 
 /**
@@ -81,7 +63,7 @@ export class RecipientNotResolved extends Data.TaggedError(
  * resolution failure without re-running the lookup.
  */
 export class WriteFailed extends Data.TaggedError("WriteFailed")<{
-  readonly to: EndpointAddress;
+  readonly to: AgentId;
   readonly cause: Socket.SocketError;
 }> {}
 
@@ -93,42 +75,57 @@ export type DeliveryError = RecipientNotResolved | WriteFailed;
 
 interface BroadcastOptions {
   readonly forConversation?: ConversationId;
-  readonly excludeConnectionId?: string;
+  readonly excludeConnectionId?: ConnectionId;
   readonly messageId?: MessageId;
 }
 
 interface BroadcastWrite {
-  readonly cid: string;
+  readonly cid: ConnectionId;
   readonly target: AgentId;
   readonly payload: OpaquePayload;
   readonly options: BroadcastOptions;
 }
 
 /**
- * The outbound-routing primitive. Use the constructor directly in code;
+ * Outbound-routing primitive. Use the constructor directly in code;
  * route through `NetworkSendServiceTag` in DI-aware code.
  */
 export class NetworkSendService {
   constructor(
     private readonly resolver: AgentEndpointResolver,
     private readonly connections: ConnectionManager,
-    private readonly appTmRegistry: AppTmRegistry,
   ) {}
 
   /**
-   * Route `payload` to the connection bound to `to`. Dispatches by
-   * address kind.
+   * Route `payload` to one live connection of `agentId`. Iterates the
+   * resolver set so a stale entry does not poison the send when a
+   * sibling connection is still live. {@link RecipientNotResolved}
+   * folds "no resolver entry" and "every resolved connection has gone
+   * away" — callers can't act on the distinction without poking
+   * internal state.
    */
   send(
-    to: EndpointAddress,
+    to: AgentId,
     payload: OpaquePayload,
   ): Effect.Effect<DeliveryAck, DeliveryError, never> {
-    const kind: EndpointAddressKind = endpointAddressKind(to);
-    return Match.value(kind).pipe(
-      Match.when("agent", () => this.sendToDurableAgent(to, payload)),
-      Match.when("app", () => this.sendToAppTm(to, payload)),
-      Match.exhaustive,
-    );
+    return Effect.gen(this, function* () {
+      const conns = yield* this.resolver.resolveAll(to);
+      for (const candidate of HashSet.values(conns)) {
+        const conn = this.connections.get(candidate);
+        if (conn === undefined) continue;
+        yield* conn.write(payload).pipe(
+          Effect.either,
+          Effect.flatMap(
+            Either.match({
+              onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
+              onRight: () => Effect.void,
+            }),
+          ),
+        );
+        return new DeliveryAck({ to });
+      }
+      return yield* Effect.fail(new RecipientNotResolved({ to }));
+    });
   }
 
   /**
@@ -184,7 +181,7 @@ export class NetworkSendService {
   }
 
   private connectionCanReceive(
-    cid: string,
+    cid: ConnectionId,
     options: BroadcastOptions,
   ): boolean {
     if (
@@ -224,63 +221,4 @@ export class NetworkSendService {
       ),
     );
   }
-
-  /**
-   * App-TM dispatch (`tm:app:&lt;id>`) — routes through the in-process
-   * {@link AppTmRegistry}; no WebSocket round-trip.
-   * {@link RecipientNotResolved} when no handler is registered.
-   * Handler errors are absorbed inside the handler's `never` channel.
-   */
-  private sendToAppTm(
-    to: EndpointAddress,
-    payload: OpaquePayload,
-  ): Effect.Effect<DeliveryAck, DeliveryError, never> {
-    return Effect.gen(this, function* () {
-      const handler = yield* this.appTmRegistry.resolve(to);
-      if (handler === undefined) {
-        return yield* Effect.fail(new RecipientNotResolved({ to }));
-      }
-      yield* handler(payload);
-      return new DeliveryAck({ to });
-    });
-  }
-
-  /**
-   * Durable-agent delivery (`tm:agent:&lt;agentId>`). Picks one live
-   * connection of the agent and writes; iterates the resolver set so a
-   * stale entry does not poison the send when a sibling connection is
-   * still live. {@link RecipientNotResolved} folds "no resolver
-   * entry" and "every resolved connection has gone away" — callers
-   * can't act on the distinction without poking internal state.
-   */
-  private sendToDurableAgent(
-    to: EndpointAddress,
-    payload: OpaquePayload,
-  ): Effect.Effect<DeliveryAck, DeliveryError, never> {
-    return Effect.gen(this, function* () {
-      const agentIdValue = parseAgentIdFromDurableAddress(to);
-      const conns = yield* this.resolver.resolveAll(agentIdValue);
-      for (const candidate of HashSet.values(conns)) {
-        const conn = this.connections.get(candidate);
-        if (conn === undefined) continue;
-        yield* conn.write(payload).pipe(
-          Effect.either,
-          Effect.flatMap(
-            Either.match({
-              onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
-              onRight: () => Effect.void,
-            }),
-          ),
-        );
-        return new DeliveryAck({ to });
-      }
-      return yield* Effect.fail(new RecipientNotResolved({ to }));
-    });
-  }
-}
-
-const DURABLE_AGENT_PREFIX = "tm:agent:";
-
-function parseAgentIdFromDurableAddress(address: EndpointAddress): AgentId {
-  return String(address).slice(DURABLE_AGENT_PREFIX.length) as AgentId;
 }

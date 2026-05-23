@@ -10,13 +10,14 @@ import {
   type ServerConnection,
   type ServerHandlers,
 } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type {
   AuthenticatedContext,
   DispatchContext,
 } from "../transport/context.js";
 
 export interface MoltZapConnection {
-  id: string;
+  id: ConnectionId;
 
   /**
    * Write a raw frame to this connection. Fails with SocketError on send
@@ -57,7 +58,7 @@ export interface MoltZapConnection {
  * `ServerHandlers&lt;DispatchContext>` table via `socket-handler.ts → openSocketSession`.
  */
 export function acquireConnectionRpcClient(
-  connectionId: string,
+  connectionId: ConnectionId,
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
   handlers: ServerHandlers<DispatchContext> = {} as ServerHandlers<DispatchContext>,
   // Providers default to empty: the test-only `originator` overload
@@ -96,7 +97,7 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError, never> {
   // `AnyTaskCallbackRpcDefinition` is a strict subset of the originator's
-  // `AnyRpcDefinition` bound; the cast widens to the originator's
+  // `AnyServerRpcDefinition` bound; the cast widens to the originator's
   // generic constraint shape without losing the per-definition
   // narrowing the caller provides.
   const call = connection.originator.call as <
@@ -109,17 +110,17 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
 }
 
 export class ConnectionManager {
-  private connections = new Map<string, MoltZapConnection>();
+  private connections = new Map<ConnectionId, MoltZapConnection>();
 
   add(conn: MoltZapConnection): void {
     this.connections.set(conn.id, conn);
   }
 
-  remove(id: string): void {
+  remove(id: ConnectionId): void {
     this.connections.delete(id);
   }
 
-  get(id: string): MoltZapConnection | undefined {
+  get(id: ConnectionId): MoltZapConnection | undefined {
     return this.connections.get(id);
   }
 
@@ -149,8 +150,8 @@ export class ConnectionManager {
   subscribeAgentsToConversation(
     agentIds: readonly string[],
     conversationId: string,
-  ): string[] {
-    const subscribed: string[] = [];
+  ): ConnectionId[] {
+    const subscribed: ConnectionId[] = [];
     const agentSet = new Set(agentIds);
     for (const conn of this.connections.values()) {
       if (conn.auth && agentSet.has(conn.auth.agentId)) {
@@ -161,7 +162,7 @@ export class ConnectionManager {
     return subscribed;
   }
 
-  entries(): IterableIterator<[string, MoltZapConnection]> {
+  entries(): IterableIterator<[ConnectionId, MoltZapConnection]> {
     return this.connections.entries();
   }
 

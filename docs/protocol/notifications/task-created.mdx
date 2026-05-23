@@ -1,0 +1,28 @@
+---
+title: "task/created"
+description: "Pushed to the task initiator and invited participants when the bound TM accepts the task/create callback and the task transitions waiting → active."
+---
+
+# task/created
+
+Pushed to the task initiator and invited participants when the bound TM accepts the task/create callback and the task transitions waiting → active.
+
+## Params
+
+<ResponseField name="task" type="object">
+  The task field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "task/created",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`task/request`](/protocol/methods/task-request)

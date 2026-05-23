@@ -27,36 +27,35 @@ import {
 } from "@moltzap/protocol";
 import {
   agentId as makeAgentId,
+  connectionId as makeConnectionId,
   conversationId as makeConversationId,
   messageId as makeMessageId,
   taskId as makeTaskId,
 } from "@moltzap/protocol/testing";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import {
+  AppHostTag,
   ConversationServiceTag,
   MessageServiceTag,
   ParticipantServiceTag,
   TaskServiceTag,
 } from "../../layers.js";
+import type { AppHost } from "../../app-host.js";
 import type { ConversationService } from "../../../task/services/conversation.service.js";
 import type { MessageService } from "../../../task/services/message.service.js";
 import type { SendConversationRow } from "../../../task/services/message-service-types.js";
 import type { TaskService } from "../../../task/services/task.service.js";
 import type { ParticipantService } from "../../../identity/services/participant.service.js";
-import { endpointAddressForAgent } from "../../../task/services/task.service.js";
 import { obtainAgentExists } from "../agent-exists.js";
 import { obtainAgentInTaskParticipants } from "../agent-in-task-participants.js";
 import {
   assertConversationInTaskMatches,
   assertTmAuthorityMatchesTask,
 } from "../assert-capability-matches-task.js";
-import {
-  obtainContactPolicyForAdd,
-  obtainContactPolicyForCreate,
-} from "../contact-policy-allows-reach.js";
+import { obtainContactPolicyForCreate } from "../contact-policy-allows-reach.js";
 import { obtainConversationInTask } from "../conversation-in-task.js";
 import { refineConversationNotArchived } from "../conversation-not-archived.js";
-import { obtainConversationParticipantAccess } from "../conversation-participant-access.js";
 import { obtainGroupCapacityForCreate } from "../group-capacity-for-create.js";
 import {
   obtainMessageSendPermission,
@@ -80,23 +79,22 @@ const OTHER_CONV_ID = makeConversationId(
 const REPLY_ID = makeMessageId("00000000-0000-4000-8000-00000000beef");
 const ALICE = makeAgentId("00000000-0000-4000-8000-00000000aa11");
 const BOB = makeAgentId("00000000-0000-4000-8000-00000000bb22");
+const APP_ID = "00000000-0000-4000-8000-000000a99001";
+const OWNER_CONN_ID = makeConnectionId("owner-conn-1");
+const OTHER_CONN_ID = makeConnectionId("other-conn-1");
 
-// Discriminant constants — contractual values in `MessageSendPermissionValue`'s
-// tagged union. Centralizing the strings here avoids the
+// Discriminant constants for `MessageSendPermissionValue.replyTarget`.
+// Centralizing the strings here avoids the
 // `no-hardcoded-assertion-literals` lint and makes the contract auditable.
-const TAG_PARTICIPANT = "forParticipantOnActiveTask" as const;
-const TAG_TM_BYPASS = "forTmBypass" as const;
-const TAG_TM_BYPASS_REPLY = "forTmBypassWithReply" as const;
 const TAG_VALID_REPLY = "ValidReply" as const;
 const TAG_NO_REPLY = "NoReply" as const;
 
 function makeTaskFixture(overrides: Partial<Task> = {}): Task {
   return {
     id: TASK_ID,
-    appId: null,
+    appId: APP_ID,
     initiatorAgentId: ALICE,
     status: "active",
-    tmEndpointAddress: endpointAddressForAgent(ALICE),
     startedAt: null,
     endedAt: null,
     createdAt: new Date(0).toISOString(),
@@ -110,12 +108,27 @@ function makeSendConvRow(
   return {
     archived_at: null,
     task_id: TASK_ID,
-    // Default: TM endpoint differs from default sender (BOB) ⇒ non-bypass.
-    // Bypass-branch tests override to ALICE.
-    tm_endpoint_address: endpointAddressForAgent(ALICE),
+    app_id: APP_ID,
     task_status: "active",
     ...overrides,
   };
+}
+
+/**
+ * Minimal AppHost stub for capability tests. `bindings` lists the
+ * `(appId, connId)` pairs that should be considered registered remote
+ * app connections. Only `obtainTmAuthority` exercises this stub after
+ * the #673 follow-up cutover; `MessageSendPermission` no longer
+ * consults AppHost.
+ */
+function appHostLayer(
+  bindings: ReadonlyArray<readonly [string, ConnectionId]>,
+) {
+  const seeded = new Set(bindings.map(([app, conn]) => `${app}::${conn}`));
+  const stub: Pick<AppHost, "isAppConnection"> = {
+    isAppConnection: (appId, connId) => seeded.has(`${appId}::${connId}`),
+  };
+  return Layer.succeed(AppHostTag, stub as AppHost);
 }
 
 // Stub builders. The partial cast is a deliberate test pragma — only
@@ -152,24 +165,43 @@ function expectFailureOf<E>(
 function tmAuthHappy() {
   return Effect.gen(function* () {
     const task = makeTaskFixture();
-    const layer = taskServiceLayer({
-      loadTaskAsTmAuthority: () => Effect.succeed(task),
-    });
-    const value = yield* obtainTmAuthority(TASK_ID, ALICE).pipe(
+    const layer = Layer.mergeAll(
+      taskServiceLayer({ loadOpenTask: () => Effect.succeed(task) }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
+    const value = yield* obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(
       Effect.provide(layer),
     );
-    expect(value).toEqual({ task, callerAgentId: ALICE });
+    expect(value).toEqual({ task });
   });
 }
 
-function tmAuthForbidden() {
+function tmAuthForbiddenWrongConn() {
   return Effect.gen(function* () {
-    const layer = taskServiceLayer({
-      loadTaskAsTmAuthority: () =>
-        Effect.fail(new ForbiddenError({ message: "not the TM" })),
-    });
+    const layer = Layer.mergeAll(
+      taskServiceLayer({
+        loadOpenTask: () => Effect.succeed(makeTaskFixture()),
+      }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
     const exit = yield* Effect.exit(
-      obtainTmAuthority(TASK_ID, ALICE).pipe(Effect.provide(layer)),
+      obtainTmAuthority(TASK_ID, OTHER_CONN_ID).pipe(Effect.provide(layer)),
+    );
+    expectFailureOf(exit, ForbiddenError);
+  });
+}
+
+function tmAuthForbiddenClosedTask() {
+  return Effect.gen(function* () {
+    const layer = Layer.mergeAll(
+      taskServiceLayer({
+        loadOpenTask: () =>
+          Effect.fail(new ForbiddenError({ message: "task not open" })),
+      }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
+    const exit = yield* Effect.exit(
+      obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, ForbiddenError);
   });
@@ -177,20 +209,30 @@ function tmAuthForbidden() {
 
 function tmAuthNotFound() {
   return Effect.gen(function* () {
-    const layer = taskServiceLayer({
-      loadTaskAsTmAuthority: () =>
-        Effect.fail(new NotFoundError({ message: "task gone" })),
-    });
+    const layer = Layer.mergeAll(
+      taskServiceLayer({
+        loadOpenTask: () =>
+          Effect.fail(new NotFoundError({ message: "task gone" })),
+      }),
+      appHostLayer([[APP_ID, OWNER_CONN_ID]]),
+    );
     const exit = yield* Effect.exit(
-      obtainTmAuthority(TASK_ID, ALICE).pipe(Effect.provide(layer)),
+      obtainTmAuthority(TASK_ID, OWNER_CONN_ID).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, NotFoundError);
   });
 }
 
 describe("obtainTmAuthority", () => {
-  it("happy path returns { task, callerAgentId }", tmAuthHappy);
-  it("propagates ForbiddenError from loadTaskAsTmAuthority", tmAuthForbidden);
+  it("happy path returns { task }", tmAuthHappy);
+  it(
+    "fails ForbiddenError when caller connection is not the app owner",
+    tmAuthForbiddenWrongConn,
+  );
+  it(
+    "propagates ForbiddenError when task is closed/failed",
+    tmAuthForbiddenClosedTask,
+  );
   it("propagates NotFoundError when task missing", tmAuthNotFound);
 });
 
@@ -239,44 +281,6 @@ describe("obtainTaskReadAccess", () => {
   it("happy path returns { task, callerAgentId }", readAccessHappy);
   it("propagates ForbiddenError when caller lacks access", readAccessForbidden);
   it("propagates NotFoundError when task missing", readAccessNotFound);
-});
-
-// ── obtainConversationParticipantAccess ───────────────────────────────
-
-function partAccessHappy() {
-  return Effect.gen(function* () {
-    const layer = conversationServiceLayer({
-      assertConversationParticipant: () => Effect.void,
-    });
-    const value = yield* obtainConversationParticipantAccess(
-      CONV_ID,
-      ALICE,
-    ).pipe(Effect.provide(layer));
-    expect(value).toEqual({ conversationId: CONV_ID, callerAgentId: ALICE });
-  });
-}
-
-function partAccessForbidden() {
-  return Effect.gen(function* () {
-    const layer = conversationServiceLayer({
-      assertConversationParticipant: () =>
-        Effect.fail(new ForbiddenError({ message: "not a participant" })),
-    });
-    const exit = yield* Effect.exit(
-      obtainConversationParticipantAccess(CONV_ID, ALICE).pipe(
-        Effect.provide(layer),
-      ),
-    );
-    expectFailureOf(exit, ForbiddenError);
-  });
-}
-
-describe("obtainConversationParticipantAccess", () => {
-  it("happy path returns { conversationId, callerAgentId }", partAccessHappy);
-  it(
-    "propagates ForbiddenError when caller not a participant",
-    partAccessForbidden,
-  );
 });
 
 // ── obtainConversationInTask ──────────────────────────────────────────
@@ -419,11 +423,9 @@ function policyCreateHappy() {
         return Effect.void;
       },
     });
-    const value = yield* obtainContactPolicyForCreate(
-      ALICE,
-      [BOB],
-      "group",
-    ).pipe(Effect.provide(layer));
+    const value = yield* obtainContactPolicyForCreate(ALICE, [BOB]).pipe(
+      Effect.provide(layer),
+    );
     expect(value).toEqual({ creatorAgentId: ALICE, targetAgentIds: [BOB] });
     expect(policyCalls).toBe(1);
   });
@@ -437,9 +439,7 @@ function policyCreateMissingTarget() {
       assertContactPolicyForCreate: () => Effect.void,
     });
     const exit = yield* Effect.exit(
-      obtainContactPolicyForCreate(ALICE, [BOB], "group").pipe(
-        Effect.provide(layer),
-      ),
+      obtainContactPolicyForCreate(ALICE, [BOB]).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, NotFoundError);
   });
@@ -454,9 +454,7 @@ function policyCreateNotInContacts() {
         Effect.fail(new NotInContactsError({ message: "blocked" })),
     });
     const exit = yield* Effect.exit(
-      obtainContactPolicyForCreate(ALICE, [BOB], "group").pipe(
-        Effect.provide(layer),
-      ),
+      obtainContactPolicyForCreate(ALICE, [BOB]).pipe(Effect.provide(layer)),
     );
     expectFailureOf(exit, NotInContactsError);
   });
@@ -472,79 +470,6 @@ describe("obtainContactPolicyForCreate", () => {
     policyCreateMissingTarget,
   );
   it("propagates NotInContactsError from policy", policyCreateNotInContacts);
-});
-
-// ── obtainContactPolicyForAdd ─────────────────────────────────────────
-
-function policyAddHappy() {
-  return Effect.gen(function* () {
-    const ownerMap = new Map<AgentId, string | null>([[BOB, "owner-bob"]]);
-    const seen: Array<{
-      requester: AgentId;
-      target: AgentId;
-      owner: string | null;
-    }> = [];
-    const layer = conversationServiceLayer({
-      loadAgentOwners: () => Effect.succeed(ownerMap),
-      assertAddParticipantContactPolicy: (
-        requesterAgentId,
-        targetAgentId,
-        targetOwnerUserId,
-      ) => {
-        seen.push({
-          requester: requesterAgentId,
-          target: targetAgentId,
-          owner: targetOwnerUserId,
-        });
-        return Effect.void;
-      },
-    });
-    const value = yield* obtainContactPolicyForAdd(ALICE, BOB).pipe(
-      Effect.provide(layer),
-    );
-    expect(value).toEqual({ creatorAgentId: ALICE, targetAgentIds: [BOB] });
-    expect(seen).toEqual([
-      { requester: ALICE, target: BOB, owner: "owner-bob" },
-    ]);
-  });
-}
-
-function policyAddMissingTarget() {
-  return Effect.gen(function* () {
-    const layer = conversationServiceLayer({
-      loadAgentOwners: () =>
-        Effect.fail(new NotFoundError({ message: "target missing" })),
-      assertAddParticipantContactPolicy: () => Effect.void,
-    });
-    const exit = yield* Effect.exit(
-      obtainContactPolicyForAdd(ALICE, BOB).pipe(Effect.provide(layer)),
-    );
-    expectFailureOf(exit, NotFoundError);
-  });
-}
-
-function policyAddNotInContacts() {
-  return Effect.gen(function* () {
-    const ownerMap = new Map<AgentId, string | null>([[BOB, "owner-bob"]]);
-    const layer = conversationServiceLayer({
-      loadAgentOwners: () => Effect.succeed(ownerMap),
-      assertAddParticipantContactPolicy: () =>
-        Effect.fail(new NotInContactsError({ message: "blocked" })),
-    });
-    const exit = yield* Effect.exit(
-      obtainContactPolicyForAdd(ALICE, BOB).pipe(Effect.provide(layer)),
-    );
-    expectFailureOf(exit, NotInContactsError);
-  });
-}
-
-describe("obtainContactPolicyForAdd", () => {
-  it(
-    "happy path returns { creatorAgentId, targetAgentIds: [target] }",
-    policyAddHappy,
-  );
-  it("propagates NotFoundError from loadAgentOwners", policyAddMissingTarget);
-  it("propagates NotInContactsError from policy", policyAddNotInContacts);
 });
 
 // ── refineTaskActive ──────────────────────────────────────────────────
@@ -650,10 +575,10 @@ describe("noReplyTarget", () => {
 
 function groupCapacityHappy() {
   return Effect.gen(function* () {
-    const seen: Array<{ pathType: string; agentCount: number }> = [];
+    const seen: Array<{ agentCount: number }> = [];
     const layer = conversationServiceLayer({
-      assertGroupCapacityForCreate: (pathType, agentIds) => {
-        seen.push({ pathType, agentCount: agentIds.length });
+      assertGroupCapacityForCreate: (agentIds) => {
+        seen.push({ agentCount: agentIds.length });
         return Effect.void;
       },
     });
@@ -662,7 +587,7 @@ function groupCapacityHappy() {
       Effect.provide(layer),
     );
     expect(value).toEqual({ creatorAgentId: ALICE, invitedAgentIds: invited });
-    expect(seen).toEqual([{ pathType: "group", agentCount: 1 }]);
+    expect(seen).toEqual([{ agentCount: 1 }]);
   });
 }
 
@@ -734,63 +659,35 @@ function runObtainSendPerm(
   }).pipe(Effect.provide(layer));
 }
 
-function sendPermNonBypassNoReply() {
+function sendPermHappyNoReply() {
   return Effect.gen(function* () {
+    const task = makeTaskFixture();
     const value: MessageSendPermissionValue = yield* runObtainSendPerm(
-      sendPermLayer({}),
+      sendPermLayer({ fetchTask: () => Effect.succeed(task) }),
       { senderAgentId: BOB },
     );
-    expect(value._tag).toBe(TAG_PARTICIPANT);
-    expect(value.replyTarget).toEqual({ _tag: TAG_NO_REPLY });
+    expect(value).toEqual({
+      task,
+      conversationId: CONV_ID,
+      senderAgentId: BOB,
+      replyTarget: { _tag: TAG_NO_REPLY },
+    });
   });
 }
 
-function sendPermNonBypassWithReply() {
+function sendPermHappyWithReply() {
   return Effect.gen(function* () {
+    const task = makeTaskFixture();
     const value: MessageSendPermissionValue = yield* runObtainSendPerm(
-      sendPermLayer({}),
+      sendPermLayer({ fetchTask: () => Effect.succeed(task) }),
       { senderAgentId: BOB, replyToId: REPLY_ID },
     );
-    expect(value._tag).toBe(TAG_PARTICIPANT);
-    expect(value.replyTarget).toEqual({
-      _tag: TAG_VALID_REPLY,
-      replyToId: REPLY_ID,
+    expect(value).toEqual({
+      task,
+      conversationId: CONV_ID,
+      senderAgentId: BOB,
+      replyTarget: { _tag: TAG_VALID_REPLY, replyToId: REPLY_ID },
     });
-  });
-}
-
-function sendPermTmBypassNoReply() {
-  return Effect.gen(function* () {
-    const layer = sendPermLayer({
-      readSendConversation: () =>
-        Effect.succeed(
-          makeSendConvRow({
-            tm_endpoint_address: endpointAddressForAgent(ALICE),
-          }),
-        ),
-    });
-    const value: MessageSendPermissionValue = yield* runObtainSendPerm(layer, {
-      senderAgentId: ALICE,
-    });
-    expect(value._tag).toBe(TAG_TM_BYPASS);
-  });
-}
-
-function sendPermTmBypassWithReply() {
-  return Effect.gen(function* () {
-    const layer = sendPermLayer({
-      readSendConversation: () =>
-        Effect.succeed(
-          makeSendConvRow({
-            tm_endpoint_address: endpointAddressForAgent(ALICE),
-          }),
-        ),
-    });
-    const value: MessageSendPermissionValue = yield* runObtainSendPerm(layer, {
-      senderAgentId: ALICE,
-      replyToId: REPLY_ID,
-    });
-    expect(value._tag).toBe(TAG_TM_BYPASS_REPLY);
   });
 }
 
@@ -847,36 +744,22 @@ function sendPermTaskClosed() {
 }
 
 describe("obtainMessageSendPermission", () => {
-  it("non-bypass + no reply → participant variant", sendPermNonBypassNoReply);
-  it(
-    "non-bypass + reply → participant variant with ValidReply",
-    sendPermNonBypassWithReply,
-  );
-  it("TM bypass + no reply → tm-bypass variant", sendPermTmBypassNoReply);
-  it(
-    "TM bypass + reply → tm-bypass-with-reply variant",
-    sendPermTmBypassWithReply,
-  );
+  it("happy path + no reply → NoReply replyTarget", sendPermHappyNoReply);
+  it("happy path + reply → ValidReply replyTarget", sendPermHappyWithReply);
   it("participant check runs first (ForbiddenError)", sendPermParticipantFirst);
   it(
     "rejects conv.task_id !== input.taskId (ForbiddenError)",
     sendPermTaskMismatch,
   );
   it("propagates ConversationArchivedError when archived", sendPermArchived);
-  it(
-    "propagates TaskClosedError on closed task (non-bypass)",
-    sendPermTaskClosed,
-  );
+  it("propagates TaskClosedError on closed task", sendPermTaskClosed);
 });
 
 // ── assertCapabilityMatchesTask ───────────────────────────────────────
 
 function assertTmAuthMatchOk() {
   return Effect.gen(function* () {
-    yield* assertTmAuthorityMatchesTask(
-      { task: makeTaskFixture(), callerAgentId: ALICE },
-      TASK_ID,
-    );
+    yield* assertTmAuthorityMatchesTask({ task: makeTaskFixture() }, TASK_ID);
   });
 }
 
@@ -884,10 +767,7 @@ function assertTmAuthMismatch() {
   return Effect.gen(function* () {
     const exit = yield* Effect.exit(
       assertTmAuthorityMatchesTask(
-        {
-          task: makeTaskFixture({ id: OTHER_TASK_ID }),
-          callerAgentId: ALICE,
-        },
+        { task: makeTaskFixture({ id: OTHER_TASK_ID }) },
         TASK_ID,
       ),
     );

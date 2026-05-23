@@ -55,6 +55,7 @@ function assertArchive(
   return Effect.gen(function* () {
     const archive = yield* archiveConversation(
       fixture.owner,
+      fixture.taskId,
       fixture.conversationId,
     ).pipe(Effect.either);
     yield* requireRight(archive, (error) =>
@@ -66,11 +67,12 @@ function assertArchive(
       fixture.owner.agent.agentId,
       PROPERTY,
     );
-    yield* assertConversationRejectsMessages(
-      participant,
-      fixture.conversationId,
-      PROPERTY,
-    );
+    yield* assertConversationRejectsMessages({
+      actor: participant,
+      taskId: fixture.taskId,
+      conversationId: fixture.conversationId,
+      propertyName: PROPERTY,
+    });
   });
 }
 
@@ -81,6 +83,7 @@ function assertUnarchive(
   return Effect.gen(function* () {
     const unarchive = yield* unarchiveConversation(
       fixture.owner,
+      fixture.taskId,
       fixture.conversationId,
     ).pipe(Effect.either);
     yield* requireRight(unarchive, (error) =>
@@ -94,6 +97,7 @@ function assertUnarchive(
     );
     const resumedSend = yield* sendText(
       participant,
+      fixture.taskId,
       fixture.conversationId,
       "must-succeed-after-unarchive",
     ).pipe(Effect.either);

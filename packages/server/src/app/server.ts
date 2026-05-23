@@ -21,12 +21,12 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 import { agentsLookupHandlers } from "../identity/handlers/agents-lookup.handlers.js";
 import { pingHandlers } from "../network/handlers/ping.handlers.js";
 import { connectHandlers } from "../task/handlers/connect.handlers.js";
-import { conversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { messageHandlers } from "../task/handlers/messages.handlers.js";
 import { presenceHandlers } from "../task/handlers/presence.handlers.js";
 import { contactHandlers } from "../task/handlers/contacts.handlers.js";
 import { taskHandlers } from "../task/handlers/tasks.handlers.js";
 import { appHandlers } from "./handlers/apps.handlers.js";
+import { taskRequestHandlers } from "./handlers/task-request.handler.js";
 
 import { WebhookClient } from "../adapters/webhook.js";
 
@@ -47,6 +47,7 @@ import {
   WebhookClientTag,
   resolveServices,
 } from "./layers.js";
+import { installDefaultApp } from "./default-app.js";
 import { makeNodeHttpServer } from "./node-http-server.js";
 import { makeCoreHttpApp } from "./http-routes.js";
 import { logError, logInfo } from "./logging.js";
@@ -78,6 +79,7 @@ function makeCoreRuntime(config: CoreConfig) {
       const appHost = yield* AppHostTag;
       const conversation = yield* ConversationServiceTag;
       appHost.setConversationService(conversation);
+      installDefaultApp(appHost, conversation);
     }).pipe(Effect.withSpan("makeCoreRuntime.wireConversationIntoAppHost")),
   );
   const FullLive = Layer.provideMerge(
@@ -141,10 +143,10 @@ function makeCoreRpcMethods(): RpcMethodRegistry {
   return [
     ...connectHandlers,
     ...agentsLookupHandlers,
-    ...conversationHandlers,
     ...messageHandlers,
     ...presenceHandlers,
     ...appHandlers,
+    ...taskRequestHandlers,
     ...contactHandlers,
     ...taskHandlers,
     ...pingHandlers,
@@ -199,15 +201,7 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
     traceCapture: services.traceCapture,
     connections: services.connections,
     leaseRegistry: services.leaseRegistry,
-    registerApp: (manifest) => services.appHost.registerApp(manifest),
-    registerRemoteApp: (manifest, connectionId) =>
-      services.appHost.registerRemoteApp(manifest, connectionId),
-    unregisterRemoteApp: (appId) => services.appHost.unregisterRemoteApp(appId),
     setContactService: (checker) => services.appHost.setContactService(checker),
-    onTaskAuthorizeDispatch: (appId, handler) =>
-      services.appHost.onTaskAuthorizeDispatch(appId, handler),
-    registerMessageAuthorize: (address, handler) =>
-      services.appHost.registerMessageAuthorize(address, handler),
     close: () => Effect.runPromise(closeCoreAppEffect(options)),
   };
 }

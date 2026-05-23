@@ -30,6 +30,7 @@ import {
   agentId,
   conversationId as toConversationId,
   messageId,
+  taskId,
 } from "../_shared/test-fixtures.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
@@ -136,6 +137,7 @@ function latencyNotification(
   slot: number,
 ) {
   return notificationFrame(MessageReceivedNotificationDefinition, {
+    taskId: taskId("00000000-0000-4000-8000-1a5c1ea5c1e7"),
     message: {
       id: messageId(`00000000-0000-4000-8000-${latencySlot(slot)}`),
       conversationId,

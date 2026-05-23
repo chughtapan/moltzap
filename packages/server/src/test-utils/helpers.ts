@@ -28,7 +28,9 @@ import {
 } from "@moltzap/protocol/testing";
 import { getBaseUrl, getWsUrl } from "./index.js";
 
-import { ConversationsCreate } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 
 /**
  * Spec B (#596) + #645: the legacy `waitForNotification(def, timeoutMs?)`,
@@ -110,7 +112,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
 
 export interface ConnectedAgent {
   client: ServerTestClient;
-  agentId: string;
+  agentId: ProtocolAgentId;
   apiKey: string;
   name: string;
 }
@@ -458,7 +460,14 @@ export function setupAgentPair(): Effect.Effect<
 export function setupAgentGroup(
   count: number,
   opts?: { groupName?: string },
-): Effect.Effect<{ agents: ConnectedAgent[]; conversationId?: string }, Error> {
+): Effect.Effect<
+  {
+    agents: ConnectedAgent[];
+    conversationId?: ConversationId;
+    taskId?: TaskId;
+  },
+  Error
+> {
   return Effect.gen(function* () {
     if (count < MIN_AGENT_GROUP_SIZE) {
       return yield* Effect.fail(
@@ -475,21 +484,23 @@ export function setupAgentGroup(
       agents.push(yield* registerAndConnect(`agent-${i}`));
     }
 
-    let conversationId: string | undefined;
+    let conversationId: ConversationId | undefined;
+    let taskId: TaskId | undefined;
     if (opts?.groupName) {
       const creator = agents[0]!;
-      const others = agents.slice(1).map((a) => ({
-        type: "agent" as const,
-        id: a.agentId,
-      }));
-      const conv = (yield* creator.client.sendRpc(ConversationsCreate, {
-        type: "group",
-        name: opts.groupName,
-        participants: others,
-      })) as { conversation: { id: string } };
-      conversationId = conv.conversation.id;
+      const otherAgentIds = agents.slice(1).map((a) => a.agentId);
+      const created = yield* creator.client.sendRpc(TaskRequest, {
+        appId: DEFAULT_APP_ID,
+        invitedAgentIds: otherAgentIds,
+        initialConversation: {
+          name: opts.groupName,
+          participants: otherAgentIds,
+        },
+      });
+      taskId = created.task.id;
+      conversationId = created.conversation?.id;
     }
 
-    return { agents, conversationId };
+    return { agents, conversationId, taskId };
   }).pipe(Effect.withSpan("setupAgentGroup"));
 }

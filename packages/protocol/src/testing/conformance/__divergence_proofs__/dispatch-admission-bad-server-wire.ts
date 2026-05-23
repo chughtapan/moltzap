@@ -42,7 +42,6 @@ export function makeLeaseRecordWire(
     appId: "bad-server-app",
     recipientAgentId: lease.recipientAgentId,
     moderatorConnectionId: String(state.moderatorConnId ?? ""),
-    tmEndpointAddress: "ws://bad-server-tm",
     state: lease.state,
     verdict: verdictWire,
     mintedAt: "2026-01-01T00:00:00.000Z",

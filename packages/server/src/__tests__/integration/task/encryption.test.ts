@@ -11,9 +11,12 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 import {
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
+  TaskRequest,
+  type ConversationId,
+  type TaskId,
 } from "@moltzap/protocol";
 import { rotateKek } from "../../../crypto/key-rotation.js";
 
@@ -21,9 +24,6 @@ const it = effectIt.live;
 
 const AES_GCM_IV_BYTES = 12;
 const AES_GCM_AUTH_TAG_BYTES = 16;
-const CONV_TYPE_GROUP = "group";
-const PARTICIPANT_TYPE_AGENT = "agent";
-const PART_TYPE_TEXT = "text";
 const ENCRYPTION_CONVERSATION_NAME = "Enc Test";
 const ENCRYPTED_MESSAGE_TEXT = "This should be encrypted";
 const POST_ROTATION_MESSAGE_TEXT = "This should still decrypt after rotation";
@@ -47,27 +47,50 @@ interface EncryptionKeySnapshot {
   readonly status: string;
 }
 
+interface EncryptedFixture {
+  readonly sender: ConnectedAgent;
+  readonly peer: ConnectedAgent;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+
 beforeAll(() => Effect.runPromise(startTestServerEffect({ encryption: true })));
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-function createEncryptedConversation(agent: ConnectedAgent) {
-  return agent.client.sendRpc(ConversationsCreate, {
-    type: CONV_TYPE_GROUP,
-    name: ENCRYPTION_CONVERSATION_NAME,
-    participants: [{ type: PARTICIPANT_TYPE_AGENT, id: agent.agentId }],
-  }) as Effect.Effect<{ conversation: { id: string } }, unknown>;
+function createEncryptedFixture(
+  senderName: string,
+  peerName: string,
+): Effect.Effect<EncryptedFixture, unknown> {
+  return Effect.gen(function* () {
+    const sender = yield* registerAndConnect(senderName);
+    const peer = yield* registerAndConnect(peerName);
+    const result = yield* sender.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [peer.agentId],
+      initialConversation: {
+        name: ENCRYPTION_CONVERSATION_NAME,
+        participants: [peer.agentId],
+      },
+    });
+    return {
+      sender,
+      peer,
+      taskId: result.task.id,
+      conversationId: result.conversation!.id,
+    };
+  });
 }
 
 function sendEncryptedProbe(
-  agent: ConnectedAgent,
-  conversationId: string,
+  fixture: EncryptedFixture,
   text = ENCRYPTED_MESSAGE_TEXT,
 ) {
-  return agent.client.sendRpc(MessagesSend, {
-    conversationId,
-    parts: [{ type: PART_TYPE_TEXT, text }],
-  }) as Effect.Effect<{ message: { id: string } }, unknown>;
+  return fixture.sender.client.sendRpc(MessagesSend, {
+    taskId: fixture.taskId,
+    conversationId: fixture.conversationId,
+    parts: [{ type: "text", text }],
+  });
 }
 
 function readMessageCryptoRow(messageId: string) {
@@ -87,7 +110,7 @@ function readMessageCryptoRow(messageId: string) {
   );
 }
 
-function readConversationKeyRows(conversationId: string) {
+function readConversationKeyRows(conversationId: ConversationId) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .selectFrom("conversation_keys")
@@ -107,15 +130,22 @@ function readEncryptionKeyRows() {
   );
 }
 
-function readMessageTexts(agent: ConnectedAgent, conversationId: string) {
-  return agent.client.sendRpc(MessagesList, { conversationId }).pipe(
-    Effect.map(
-      (result) =>
-        (result as { messages: Array<{ parts: Array<{ text: string }> }> })
-          .messages,
-    ),
-    Effect.map((messages) => messages.map((message) => message.parts[0]!.text)),
-  );
+function readMessageTexts(fixture: EncryptedFixture) {
+  return fixture.sender.client
+    .sendRpc(MessagesList, {
+      taskId: fixture.taskId,
+      conversationId: fixture.conversationId,
+    })
+    .pipe(
+      Effect.map(
+        (result) =>
+          (result as { messages: Array<{ parts: Array<{ text: string }> }> })
+            .messages,
+      ),
+      Effect.map((messages) =>
+        messages.map((message) => message.parts[0]!.text),
+      ),
+    );
 }
 
 function rotateLiveKek() {
@@ -163,10 +193,8 @@ function assertEncryptionKeysRotated(
 
 function messagePartsAreEncryptedInDb() {
   return Effect.gen(function* () {
-    const agent = yield* registerAndConnect("enc-agent");
-    const conv = yield* createEncryptedConversation(agent);
-    const conversationId = conv.conversation.id;
-    const msg = yield* sendEncryptedProbe(agent, conversationId);
+    const fixture = yield* createEncryptedFixture("enc-agent", "enc-peer");
+    const msg = yield* sendEncryptedProbe(fixture);
     const row = yield* readMessageCryptoRow(msg.message.id);
 
     const encrypted = row.parts_encrypted as Buffer;
@@ -178,24 +206,24 @@ function messagePartsAreEncryptedInDb() {
     expect(row.dek_version).toBeGreaterThanOrEqual(1);
     expect(row.kek_version).toBeGreaterThanOrEqual(1);
     expect(encrypted.toString("utf-8")).not.toContain(ENCRYPTED_MESSAGE_TEXT);
-    expect(yield* readMessageTexts(agent, conversationId)).toEqual([
-      ENCRYPTED_MESSAGE_TEXT,
-    ]);
+    expect(yield* readMessageTexts(fixture)).toEqual([ENCRYPTED_MESSAGE_TEXT]);
     expect(
-      (yield* readConversationKeyRows(conversationId)).length,
+      (yield* readConversationKeyRows(fixture.conversationId)).length,
     ).toBeGreaterThanOrEqual(1);
-    yield* agent.client.close();
+    yield* fixture.sender.client.close();
+    yield* fixture.peer.client.close();
   });
 }
 
 function kekRotationRewrapsConversationKeysAndKeepsMessagesReadable() {
   return Effect.gen(function* () {
-    const agent = yield* registerAndConnect("enc-rotation-agent");
-    const conv = yield* createEncryptedConversation(agent);
-    const conversationId = conv.conversation.id;
-    const firstMessage = yield* sendEncryptedProbe(agent, conversationId);
+    const fixture = yield* createEncryptedFixture(
+      "enc-rotation-agent",
+      "enc-rotation-peer",
+    );
+    const firstMessage = yield* sendEncryptedProbe(fixture);
     const keyRowBeforeRotation = assertInitialConversationKey(
-      yield* readConversationKeyRows(conversationId),
+      yield* readConversationKeyRows(fixture.conversationId),
     );
 
     const rotatedVersion = yield* rotateLiveKek();
@@ -203,7 +231,7 @@ function kekRotationRewrapsConversationKeysAndKeepsMessagesReadable() {
     expect(rotatedVersion).toBe(ROTATED_KEK_VERSION);
 
     assertRotatedConversationKey(
-      yield* readConversationKeyRows(conversationId),
+      yield* readConversationKeyRows(fixture.conversationId),
       keyRowBeforeRotation,
     );
     assertEncryptionKeysRotated(yield* readEncryptionKeyRows());
@@ -213,13 +241,10 @@ function kekRotationRewrapsConversationKeysAndKeepsMessagesReadable() {
     );
 
     expect(firstMessageRowAfterRotation.kek_version).toBe(ROTATED_KEK_VERSION);
-    expect(yield* readMessageTexts(agent, conversationId)).toEqual([
-      ENCRYPTED_MESSAGE_TEXT,
-    ]);
+    expect(yield* readMessageTexts(fixture)).toEqual([ENCRYPTED_MESSAGE_TEXT]);
 
     const secondMessage = yield* sendEncryptedProbe(
-      agent,
-      conversationId,
+      fixture,
       POST_ROTATION_MESSAGE_TEXT,
     );
     const secondMessageRow = yield* readMessageCryptoRow(
@@ -227,11 +252,12 @@ function kekRotationRewrapsConversationKeysAndKeepsMessagesReadable() {
     );
 
     expect(secondMessageRow.kek_version).toBe(ROTATED_KEK_VERSION);
-    expect(yield* readMessageTexts(agent, conversationId)).toEqual([
+    expect(yield* readMessageTexts(fixture)).toEqual([
       ENCRYPTED_MESSAGE_TEXT,
       POST_ROTATION_MESSAGE_TEXT,
     ]);
-    yield* agent.client.close();
+    yield* fixture.sender.client.close();
+    yield* fixture.peer.client.close();
   });
 }
 

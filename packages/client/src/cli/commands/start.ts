@@ -2,13 +2,13 @@
  * `moltzap start &lt;name> &lt;participant>... [--message &lt;text>] [--app-id &lt;uuid>]`
  *
  * Spec D2 (#599) — single-command CLI composition over Spec D1's atomic
- * `TaskCreate({ appId, invitedAgentIds, initialConversation })` plus an
+ * `TaskRequest({ appId, invitedAgentIds, initialConversation })` plus an
  * optional `MessagesSend`. Today's two-step workflow
  * (`conversations create` -> `send conv:&lt;id> &lt;text>`) collapses into
  * one subcommand for the common case.
  *
  * See also:
- *   - `packages/protocol/src/task/tasks.ts -> TaskCreate` / `DEFAULT_APP_ID` /
+ *   - `packages/protocol/src/task/tasks.ts -> TaskRequest` / `DEFAULT_APP_ID` /
  *     `AppId` — D1 (#598) wire surface this command composes.
  *   - `packages/client/docs/architecture/moltzap-start-cli.md` for the
  *     command flow diagram, exit-code contract, and test alignment.
@@ -18,7 +18,7 @@
  *   - `packages/client/src/cli/socket-client.ts -> resolveParticipant` —
  *     NOT reused by D2 because that helper goes via the daemon
  *     socket (`socket-client.ts -> request`), bypassing the CLI
- *     `Transport` service that `start.ts` uses for `TaskCreate` /
+ *     `Transport` service that `start.ts` uses for `TaskRequest` /
  *     `MessagesSend`. Mixing the two would make `--as`-mode name lookups
  *     hit the daemon (potentially absent) and would not be testable
  *     via `makeFakeTransport`. D2 introduces a local `resolveAgentTokens`
@@ -32,7 +32,7 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   TaskConversationList,
-  TaskCreate,
+  TaskRequest,
   type AgentId,
   type AppId,
   type Conversation,
@@ -79,7 +79,7 @@ class InvalidAppIdError extends Data.TaggedError("InvalidAppIdError")<{
  * Resolver calls `AgentsLookupByName` (a server RPC) for name-shaped
  * tokens. That RPC is read-only and does not mutate server state, so
  * the partial-failure invariant is unaffected. The spec D2 AC clause
- * "NO RPC calls" reads as "NO mutating (TaskCreate / MessagesSend)
+ * "NO RPC calls" reads as "NO mutating (TaskRequest / MessagesSend)
  * calls" in this plan; see per-flow doc §8 + plan §R5.
  */
 class UnresolvedParticipantError extends Data.TaggedError(
@@ -136,9 +136,9 @@ export interface StartCommandArgs {
  *   `InvalidAppIdError`             -> 64 (usage)
  *   `UnresolvedParticipantError`    -> 64 (usage)
  *   `TooManyParticipantNamesError`  -> 64 (usage; >100 distinct names)
- *   any other `TransportError`      -> 1  (rpc; from `TaskCreate`)
+ *   any other `TransportError`      -> 1  (rpc; from `TaskRequest`)
  *
- * The post-`TaskCreate` `MessagesSend` failure path exits 2 via inline
+ * The post-`TaskRequest` `MessagesSend` failure path exits 2 via inline
  * `process.exit` inside the handler body, NOT through `runStartCommand`
  * (see per-flow doc §"Partial-failure dispatcher").
  *
@@ -202,7 +202,7 @@ const classifyToken = (
 
 /**
  * Resolve all participant tokens to bare `AgentId`s matching
- * `TaskCreate.params.invitedAgentIds: Array(AgentId)` directly (no
+ * `TaskRequest.params.invitedAgentIds: Array(AgentId)` directly (no
  * `.map(p => p.id)` step needed).
  *
  * Failure modes (first in input order wins):
@@ -343,11 +343,13 @@ const printMessageSent = (messageId: string): Effect.Effect<void> =>
   });
 
 const sendFirstMessage = (
+  taskId: TaskId,
   conversationId: ConversationId,
   text: string,
 ): Effect.Effect<void, never, Transport> =>
   Effect.either(
     rpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text }],
     }),
@@ -365,7 +367,7 @@ const sendFirstMessage = (
   );
 
 /**
- * Outcome of the atomic `TaskCreate` call. The dedup branch fires when
+ * Outcome of the atomic `TaskRequest` call. The dedup branch fires when
  * `appId === DEFAULT_APP_ID` AND the caller already owns a task with
  * the exact same `{caller} ∪ invitedAgentIds` participant set (see
  * `packages/server/src/task/handlers/tasks.handlers.ts → maybeTaskCreateDedup`
@@ -389,7 +391,7 @@ const createTaskAtomic = (
   name: string,
 ): Effect.Effect<CreateTaskOutcome, TransportError, Transport> =>
   Effect.gen(function* () {
-    // Defensive copies: TaskCreate's params type expects mutable arrays
+    // Defensive copies: TaskRequest's params type expects mutable arrays
     // (TypeBox's Static<Array> resolves to T[], not readonly T[]); pass
     // shallow clones so the caller's readonly contract isn't bypassed.
     //
@@ -404,7 +406,7 @@ const createTaskAtomic = (
       invitedAgentIds.length === 0
         ? { name }
         : { name, participants: [...invitedAgentIds] };
-    const result = yield* rpc(TaskCreate, {
+    const result = yield* rpc(TaskRequest, {
       appId,
       invitedAgentIds: [...invitedAgentIds],
       initialConversation,
@@ -494,7 +496,7 @@ const findReusableConversation = (
  * Spec D2 amendment N6 — dedup-hit branch. `TaskConversationList`
  * wire failures are captured inline via `Effect.either` (same pattern
  * + same reason as `sendFirstMessage`'s partial-success handling)
- * because `TaskCreate` already succeeded server-side; routing the
+ * because `TaskRequest` already succeeded server-side; routing the
  * list error through `runStartCommand`'s `catchAll` would print
  * `Failed: &lt;list-error>`, misleading the user into thinking the
  * create failed.
@@ -508,7 +510,7 @@ const onReuseFound = (
     printTaskReused(task, reuse),
     Option.match(message, {
       onNone: () => Effect.void,
-      onSome: (m) => sendFirstMessage(reuse.id, m),
+      onSome: (m) => sendFirstMessage(task.id, reuse.id, m),
     }),
   );
 
@@ -553,7 +555,7 @@ const handleDedupOutcome = (
  *      batched `AgentsLookupByName` RPC for name-shaped tokens;
  *      UUID-shaped tokens short-circuit). Any token failure ->
  *      `UnresolvedParticipantError` -> exit 64.
- *   3. `rpc(TaskCreate, { appId, invitedAgentIds, initialConversation })`
+ *   3. `rpc(TaskRequest, { appId, invitedAgentIds, initialConversation })`
  *      where `initialConversation` carries `participants` ONLY when
  *      `invitedAgentIds.length > 0` (P2-B). Two success outcomes:
  *      - `created`: server returned a fresh `conversation`. Print
@@ -568,7 +570,7 @@ const handleDedupOutcome = (
  *        or out of dedup-lookup window), print
  *        `Task already exists but is closed: &lt;taskId>` to stderr and
  *        exit 1.
- *      `TaskCreate` wire failure -> `TransportError` -> exit 1 via
+ *      `TaskRequest` wire failure -> `TransportError` -> exit 1 via
  *      `runStartCommand`, no stdout.
  *   4. If `args.message` is set AND a conversation was produced (either
  *      kind), call `rpc(MessagesSend, { conversationId, parts: [{ type:
@@ -593,7 +595,8 @@ const startCommandHandler = (
     yield* printTaskCreated(outcome.task, outcome.conversation);
     yield* Option.match(messageOpt, {
       onNone: () => Effect.void,
-      onSome: (m) => sendFirstMessage(outcome.conversation.id, m),
+      onSome: (m) =>
+        sendFirstMessage(outcome.task.id, outcome.conversation.id, m),
     });
   }).pipe(Effect.withSpan("startCommandHandler"));
 
@@ -612,7 +615,7 @@ const startCommandHandler = (
  * The exit-2 partial-success branch runs inline inside
  * `startCommandHandler` (after `Task started:` has been printed to
  * stdout) and never reaches this adapter — re-throwing the post-
- * `TaskCreate` error here would discard the already-printed stdout
+ * `TaskRequest` error here would discard the already-printed stdout
  * line.
  */
 const runStartCommand = (
@@ -668,7 +671,7 @@ const participantsArg = Args.text({ name: "participant" }).pipe(
 const messageOption = Options.text("message").pipe(
   Options.withDescription(
     "First message body. If supplied, MessagesSend runs after the atomic " +
-      "TaskCreate (separate RPC, not server-atomic).",
+      "TaskRequest (separate RPC, not server-atomic).",
   ),
   Options.optional,
 );
@@ -712,15 +715,15 @@ export const startCommand = Command.make(
   Command.withDescription(
     "Start a task with named participants and (optionally) send the " +
       "first message in one atomic step. Spec D2 #599 — composes Spec D1 " +
-      "TaskCreate + MessagesSend.\n" +
+      "TaskRequest + MessagesSend.\n" +
       "\n" +
       "Zero participants creates a caller-only task (rare; usually you " +
       "will pass one or more `agent:<name>` tokens).\n" +
       "\n" +
       "Exit codes:\n" +
-      `  ${EXIT_CODES.SUCCESS}   success (TaskCreate + optional MessagesSend resolved)\n` +
-      `  ${EXIT_CODES.TASK_CREATE_FAILED}   TaskCreate failed (stdout empty)\n` +
-      `  ${EXIT_CODES.PARTIAL_SUCCESS}   TaskCreate OK, MessagesSend failed (no rollback)\n` +
+      `  ${EXIT_CODES.SUCCESS}   success (TaskRequest + optional MessagesSend resolved)\n` +
+      `  ${EXIT_CODES.TASK_CREATE_FAILED}   TaskRequest failed (stdout empty)\n` +
+      `  ${EXIT_CODES.PARTIAL_SUCCESS}   TaskRequest OK, MessagesSend failed (no rollback)\n` +
       `  ${EXIT_CODES.USAGE_ERROR}  usage error (bad --app-id UUID, unresolvable agent token, or >${MAX_NAME_LOOKUP_BATCH} distinct name-shaped tokens)`,
   ),
 );

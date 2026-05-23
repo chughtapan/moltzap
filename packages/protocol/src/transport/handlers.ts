@@ -1,32 +1,23 @@
 /**
  * @file Per-kind handler-table type aliases.
  *
- * Three closed catalogs of inbound RPC methods, one per connection
- * kind. Each catalog yields an object type whose keys are the catalog
- * member's `name` and whose values are either `HandlerSlot&lt;...>` (a
- * real implementation) OR a sentinel value (`forbidden`,
- * `noOpNotification`) for OPTIONAL slots that the caller is explicitly
- * declining to implement.
- *
- * Every protocol slot MUST appear in every handler-table literal —
- * there is no `?:` field-level optionality. An optional slot is one
- * whose definition carries `optional: FailClosedDefault`; its value
- * type widens to `HandlerSlot | Forbidden` (or `NoOpNotification`),
- * forcing the caller to pick explicitly.
+ * Three closed catalogs of inbound RPC methods, one per connection kind.
+ * Each catalog yields an object type whose keys are the catalog member's
+ * `name` and whose values are `HandlerSlot&lt;...>`. Every slot is REQUIRED
+ * (Spec D3 R14b retired the `forbidden` / `noOpNotification` sentinels);
+ * omitting any key fails TS2741 at the factory call.
  */
 import type { Context, Effect } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 
 import type {
-  rpcMethods,
+  serverRpcMethods,
   AnyTaskCallbackRpcDefinition,
 } from "../rpc-registry.js";
 
 import type { ParamsOf, ResultOf, RpcDefinition } from "./method.js";
 
 import type { CapabilitiesOf } from "./capabilities.js";
-
-import type { Forbidden, NoOpNotification } from "./defaults.js";
 
 /**
  * Per-definition handler slot. `Ctx` is the dispatch context the
@@ -60,30 +51,13 @@ export interface HandlerSlot<
 type NameOf<D> = D extends RpcDefinition<infer N, TSchema, TSchema> ? N : never;
 
 /**
- * Per-slot value type. REQUIRED slots resolve to plain
- * `HandlerSlot&lt;D, Ctx, Caps>`. OPTIONAL slots widen to a union with
- * the matching sentinel — `HandlerSlot | Forbidden` for slots whose
- * descriptor carries `optional: forbidden`; `HandlerSlot |
- * NoOpNotification` for the notification variant.
- *
- * The caller passes the sentinel value at the handler-table literal
- * site (`makeServerConnection({ handlers: { "messages/authorize":
- * forbidden, ... } })`). The dispatcher reads the value at runtime;
- * sentinel ⇒ synthesize fail-CLOSED, handler ⇒ invoke.
+ * Per-slot value type. Every slot is a real `HandlerSlot&lt;D, Ctx, Caps>`;
+ * Spec D3 R14b removed the sentinel widening.
  */
-type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> = D extends {
-  readonly optional: { readonly _tag: "Forbidden" };
-}
-  ? D extends RpcDefinition<string, TSchema, TSchema>
-    ? HandlerSlot<D, Ctx, Caps> | Forbidden
-    : never
-  : D extends { readonly optional: { readonly _tag: "NoOpNotification" } }
-    ? D extends RpcDefinition<string, TSchema, TSchema>
-      ? HandlerSlot<D, Ctx, Caps> | NoOpNotification
-      : never
-    : D extends RpcDefinition<string, TSchema, TSchema>
-      ? HandlerSlot<D, Ctx, Caps>
-      : never;
+type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> =
+  D extends RpcDefinition<string, TSchema, TSchema>
+    ? HandlerSlot<D, Ctx, Caps>
+    : never;
 
 /**
  * Closed handler-table type generated from a definition union. Every
@@ -91,7 +65,7 @@ type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> = D extends {
  * slots widen their value type to include the matching sentinel.
  *
  * Type-parameter erasure note: `RpcDefinition` is variant across `Name`
- * — the catalog `typeof rpcMethods[number]` resolves to a union of the
+ * — the catalog `typeof serverRpcMethods[number]` resolves to a union of the
  * concrete `RpcDefinition&lt;"identity/register", ...>` etc. arms; the
  * mapped type preserves each arm's `name` literal so the resulting
  * table has named keys.
@@ -106,12 +80,12 @@ export type HandlerTable<
 
 /**
  * Server-side inbound RPC catalog — every method an agent client may
- * call into the server. LSP-anchored: the catalog is `rpcMethods` from
+ * call into the server. LSP-anchored: the catalog is `serverRpcMethods` from
  * `rpc-registry.ts`, which composes `identityRpcMethods`,
  * `networkRpcMethods`, `taskRpcMethods`, and `appRpcMethods`. 42
  * members at `227c398`.
  */
-export type ServerInboundRpcDefinition = (typeof rpcMethods)[number] &
+export type ServerInboundRpcDefinition = (typeof serverRpcMethods)[number] &
   RpcDefinition<string, TSchema, TSchema>;
 
 /**
@@ -147,10 +121,11 @@ export type AgentClientHandlers<
 /**
  * `TaskMasterHandlers` — handler table for an agent acting as TM for
  * one or more tasks. Catalog: `taskCallbackMethods` —
- * `DispatchAuthorize`, `MessagesAuthorize`. Both descriptors carry
- * `optional: forbidden`, so handler-table literals must name each key
- * but may supply the `forbidden` sentinel; the dispatcher synthesizes
- * `-32001 ForbiddenError` for those.
+ * `DispatchAuthorize`, `MessagesAuthorize`, `TaskCreate`. All three
+ * REQUIRED (R14b); vacuous-deny moderators must write the handler
+ * explicitly. `TaskCreate` is the server-initiated callback fired
+ * after `task/request` lands the task in `waiting`; the TM's typed
+ * verdict drives the lifecycle transition.
  */
 export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
 
@@ -159,12 +134,7 @@ export type TaskMasterHandlers<
   Caps extends Context.Tag<any, any> = never,
 > = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 
-/**
- * Per-slot capability extractor. Distributes over the slot's value
- * union (`HandlerSlot | Forbidden` / `HandlerSlot | NoOpNotification` /
- * plain `HandlerSlot`) so sentinel arms contribute `never` and real
- * `HandlerSlot` arms contribute `CapabilitiesOf&lt;D>`.
- */
+/** Per-slot capability extractor; each slot is a real HandlerSlot. */
 type SlotCaps<V> = V extends { readonly definition: infer D }
   ? CapabilitiesOf<D>
   : never;

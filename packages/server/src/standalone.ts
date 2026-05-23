@@ -1,13 +1,12 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
 import { randomUUID } from "node:crypto";
-import { join, dirname, resolve, isAbsolute } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "./db/sql.js";
-import { Data, Effect, Either } from "effect";
+import { Data, Effect } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { validateAppManifest, type AppManifest } from "@moltzap/protocol";
 import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
@@ -43,17 +42,6 @@ export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
   readonly message: string;
 }> {}
 
-/**
- * Decode failure for an on-disk app manifest. `kind` discriminates JSON
- * parse failures from schema-validation failures so callers can log the
- * specific edge that fired without re-inspecting the cause.
- */
-export class InvalidAppManifest extends Data.TaggedError("InvalidAppManifest")<{
-  readonly kind: "parse" | "schema";
-  readonly path: string;
-  readonly errors: readonly string[];
-}> {}
-
 type StandaloneServerError =
   | RuntimeConfigSurfaceError
   | StandaloneOperationFailed
@@ -68,71 +56,6 @@ const operationFailed = (
     message: cause instanceof Error ? cause.message : String(cause),
     operation,
   });
-
-// ── App-manifest boundary validation ───────────────────────────────
-//
-// Principle 2: data crossing a boundary (JSON file on disk) is decoded
-// against the protocol manifest validator before it reaches
-// `app.registerApp(...)`.
-// Without this, a malformed-but-JSON-parseable manifest (missing
-// `appId`, wrong `participantFilter`, retired hook key, etc.) would
-// flow as `any` into `AppHost` and only surface deep inside RPC
-// handlers.
-
-/**
- * Parses and validates a JSON manifest blob. Returns `Right(AppManifest)`
- * on success, `Left(InvalidAppManifest)` on either JSON-parse failure
- * (`kind: "parse"`) or schema-validation failure (`kind: "schema"`).
- * Never throws. Exported for test access only.
- */
-function parseAppManifestJson(
-  json: string,
-  path: string,
-): Effect.Effect<unknown, InvalidAppManifest> {
-  return Effect.try({
-    try: () => JSON.parse(json) as unknown,
-    catch: (cause) =>
-      new InvalidAppManifest({
-        kind: "parse",
-        path,
-        errors: [cause instanceof Error ? cause.message : String(cause)],
-      }),
-  });
-}
-
-function validateParsedAppManifest(
-  parsed: unknown,
-  path: string,
-): Effect.Effect<AppManifest, InvalidAppManifest> {
-  return Either.match(validateAppManifest(parsed), {
-    onLeft: (error) =>
-      Effect.fail(
-        new InvalidAppManifest({
-          kind: "schema",
-          path,
-          errors: error.errors,
-        }),
-      ),
-    onRight: Effect.succeed,
-  });
-}
-
-function decodeAppManifestEffect(
-  json: string,
-  path: string,
-): Effect.Effect<AppManifest, InvalidAppManifest> {
-  return Effect.gen(function* () {
-    const parsed = yield* parseAppManifestJson(json, path);
-    return yield* validateParsedAppManifest(parsed, path);
-  });
-}
-
-export function decodeAppManifest(
-  json: string,
-  path: string,
-): Either.Either<AppManifest, InvalidAppManifest> {
-  return Effect.runSync(Effect.either(decodeAppManifestEffect(json, path)));
-}
 
 // ── Database factory ────────────────────────────────────────────────
 
@@ -349,8 +272,6 @@ interface StandaloneDatabase {
   readonly usePgLite: boolean;
 }
 
-type AppManifestRef = NonNullable<MoltZapConfig["apps"]>[number];
-
 function startServerEffect(
   configPath?: string,
 ): Effect.Effect<StandaloneServerHandle, StandaloneServerError, never> {
@@ -375,7 +296,6 @@ function startServerEffect(
     });
     const app = createCoreApp(coreConfig);
     yield* installContactService(app, runtimeConfig.app, webhookClient);
-    yield* registerConfiguredApps(app, runtimeConfig);
     yield* logStandaloneStarted(app, database.usePgLite);
     return {
       app,
@@ -497,110 +417,6 @@ function installContactService(
       ),
     );
   });
-}
-
-function registerConfiguredApps(
-  app: CoreApp,
-  runtimeConfig: RuntimeProcessConfig,
-): Effect.Effect<void> {
-  const apps = runtimeConfig.app.apps;
-  if (apps === undefined) return Effect.void;
-  return Effect.forEach(
-    apps,
-    (appRef) => registerConfiguredApp(app, runtimeConfig, appRef),
-    { concurrency: 1, discard: true },
-  );
-}
-
-function registerConfiguredApp(
-  app: CoreApp,
-  runtimeConfig: RuntimeProcessConfig,
-  appRef: AppManifestRef,
-): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    const manifestPath = resolveManifestPath(
-      runtimeConfig.configDirectory,
-      appRef.manifest,
-    );
-    const readResult = yield* Effect.either(readAppManifestFile(manifestPath));
-    yield* Either.match(readResult, {
-      onLeft: (err) => logManifestReadFailure(err, appRef.manifest),
-      onRight: (json) => decodeAndRegisterManifest(app, appRef.manifest, json),
-    });
-  }).pipe(Effect.withSpan("registerConfiguredApp"));
-}
-
-function resolveManifestPath(configDir: string, manifest: string): string {
-  if (isAbsolute(manifest)) return manifest;
-  return resolve(configDir, manifest);
-}
-
-function readAppManifestFile(
-  manifestPath: string,
-): Effect.Effect<string, StandaloneOperationFailed> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    return yield* fs
-      .readFileString(manifestPath, "utf-8")
-      .pipe(
-        Effect.mapError((cause) => operationFailed("read app manifest", cause)),
-      );
-  }).pipe(Effect.provide(NodeFileSystem.layer));
-}
-
-function logManifestReadFailure(
-  err: StandaloneOperationFailed,
-  path: string,
-): Effect.Effect<void> {
-  return Effect.logError("Failed to load app manifest").pipe(
-    Effect.annotateLogs({ err, path }),
-  );
-}
-
-function decodeAndRegisterManifest(
-  app: CoreApp,
-  path: string,
-  json: string,
-): Effect.Effect<void> {
-  return Either.match(decodeAppManifest(json, path), {
-    onLeft: logManifestDecodeFailure,
-    onRight: (manifest) => registerManifest(app, path, manifest),
-  });
-}
-
-function logManifestDecodeFailure(
-  err: InvalidAppManifest,
-): Effect.Effect<void> {
-  return Effect.logError(manifestDecodeFailureMessage(err)).pipe(
-    Effect.annotateLogs({
-      path: err.path,
-      kind: err.kind,
-      errors: err.errors,
-    }),
-  );
-}
-
-function manifestDecodeFailureMessage(err: InvalidAppManifest): string {
-  if (err.kind === "parse") {
-    return "App manifest JSON parse failed; skipping registration";
-  }
-  return "App manifest failed schema validation; skipping registration";
-}
-
-function registerManifest(
-  app: CoreApp,
-  path: string,
-  manifest: AppManifest,
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    app.registerApp(manifest);
-  }).pipe(
-    Effect.zipRight(
-      Effect.logInfo("App manifest registered").pipe(
-        Effect.annotateLogs({ appId: manifest.appId, path }),
-      ),
-    ),
-  );
 }
 
 function logStandaloneStarted(

@@ -12,11 +12,11 @@ import type { JsonRpcId } from "./wire.js";
 import { requestFrame, type ResponseFrame } from "./wire.js";
 import type { RegisteredTaggedError } from "../rpc-registry.js";
 
-type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
+type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 
 interface PendingCall {
   readonly method: string;
-  readonly definition: AnyRpcDefinition;
+  readonly definition: AnyServerRpcDefinition;
   readonly deferred: Deferred.Deferred<unknown, RpcCallError>;
 }
 
@@ -30,7 +30,7 @@ export type RpcCallError =
  * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
  */
 export interface Originator {
-  readonly call: <D extends AnyRpcDefinition>(
+  readonly call: <D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, RpcCallError>;
@@ -91,9 +91,13 @@ function wireErrorToRpcCallError(error: {
   // matches one of the union arms in `RegisteredTaggedError`. The type system
   // can't see through the open-ended `new (...) => { _tag: string }` factory
   // shape, so the cast bridges the static factory to the closed runtime union.
-  // The `data` argument is forwarded so any payload set by the server reaches
-  // the typed instance rather than being dropped (#511).
-  return new cls({ data: error.data } as never) as RegisteredTaggedError;
+  // Forward both `message` and `data` so the decoded instance reflects the
+  // wire payload — without `message`, `Data.TaggedError` defaults it to the
+  // empty string and a `catchTag` caller loses the server's error text (#511).
+  return new cls({
+    message: error.message,
+    data: error.data,
+  } as never) as RegisteredTaggedError;
 }
 
 function failAllPendingFromRef(
@@ -169,7 +173,7 @@ function writeRequestFrame(
     .pipe(Effect.catchAll(() => failWrite(deferred, method)));
 }
 
-function decodeCallResult<D extends AnyRpcDefinition>(
+function decodeCallResult<D extends AnyServerRpcDefinition>(
   definition: D,
   method: string,
   result: unknown,
@@ -188,7 +192,7 @@ function decodeCallResult<D extends AnyRpcDefinition>(
   );
 }
 
-function callWithRefs<D extends AnyRpcDefinition>(
+function callWithRefs<D extends AnyServerRpcDefinition>(
   config: OriginatorConfig,
   refs: OriginatorRefs,
   definition: D,
@@ -242,7 +246,7 @@ export const makeOriginator = (config: {
     const resolve = (frame: ResponseFrame): Effect.Effect<boolean> =>
       resolvePendingFrame(pendingRef, frame);
 
-    const call = <D extends AnyRpcDefinition>(
+    const call = <D extends AnyServerRpcDefinition>(
       definition: D,
       params: ParamsOf<D>,
     ): Effect.Effect<ResultOf<D>, RpcCallError> =>

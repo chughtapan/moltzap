@@ -86,15 +86,19 @@ function handleDomainRequestFrame(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     switch (frame.method) {
-      case "tasks/create": {
-        yield* handleTasksCreate(frame, opts);
+      case "task/request": {
+        yield* handleTaskRequest(frame, opts);
         return;
       }
-      case "tasks/createConversation": {
-        yield* handleTasksCreateConversation(frame, opts);
+      case "task/conversation/create": {
+        yield* handleTaskConversationCreate(frame, opts);
         return;
       }
-      case "conversations/addParticipant": {
+      case "task/addParticipant": {
+        yield* handleTaskAddParticipant(frame, opts);
+        return;
+      }
+      case "task/conversation/participants/add": {
         yield* handleAddParticipant(frame, opts);
         return;
       }
@@ -152,7 +156,7 @@ function dispatchRequestParams(raw: unknown): DispatchRequestParams {
   };
 }
 
-function handleTasksCreate(
+function handleTaskRequest(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {
@@ -167,7 +171,7 @@ function handleTasksCreate(
   });
 }
 
-function handleTasksCreateConversation(
+function handleTaskConversationCreate(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {
@@ -182,15 +186,38 @@ function handleTasksCreateConversation(
   });
 }
 
+function handleTaskAddParticipant(
+  frame: RequestFrame,
+  opts: HandleInboundFrameOpts,
+): Effect.Effect<void> {
+  const state = Ref.get(opts.stateRef);
+  const agentIdParam = paramField(frame.params, "agentId");
+  const participantAgentId =
+    typeof agentIdParam === "string"
+      ? agentIdParam
+      : "00000000-0000-4000-8000-000000000004";
+  return Effect.gen(function* () {
+    const s = yield* state;
+    yield* writeResponse(opts.stateRef, opts.connId, frame.id, {
+      result: {
+        participant: {
+          taskId: s.fixedTaskId,
+          agentId: participantAgentId,
+          admittedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+  });
+}
+
 function handleAddParticipant(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {
-  const participant = paramField(frame.params, "participant");
-  const participantId = paramField(participant, "id");
+  const agentIdParam = paramField(frame.params, "agentId");
   const participantAgentId =
-    typeof participantId === "string"
-      ? participantId
+    typeof agentIdParam === "string"
+      ? agentIdParam
       : "00000000-0000-4000-8000-000000000003";
   return writeResponse(opts.stateRef, opts.connId, frame.id, {
     result: makeAddParticipantResult(participantAgentId),
@@ -281,11 +308,11 @@ function makeTaskResult(
         appId: "bad-server-app",
         initiatorAgentId: callerAgentId,
         status: "active",
-        tmEndpointAddress: "ws://bad-server-tm",
         startedAt: null,
         endedAt: null,
         createdAt: "2026-01-01T00:00:00.000Z",
       },
+      conversation: null,
     };
   });
 }
@@ -299,7 +326,6 @@ function makeConversationResult(
     return {
       conversation: {
         id: state.fixedConversationId,
-        type: "group",
         name: "bad-server-conv",
         createdBy: callerAgentId,
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -309,17 +335,8 @@ function makeConversationResult(
   });
 }
 
-function makeAddParticipantResult(participantAgentId: string): unknown {
-  return {
-    participant: {
-      conversationId: "00000000-0000-4000-8000-000000000c01",
-      participant: {
-        type: "agent",
-        id: participantAgentId,
-      },
-      joinedAt: "2026-01-01T00:00:00.000Z",
-    },
-  };
+function makeAddParticipantResult(_participantAgentId: string): unknown {
+  return {};
 }
 
 function handleMessagesSend(args: {

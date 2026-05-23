@@ -49,9 +49,8 @@ export {
   // Tags
   AgentEndpointResolverTag,
   AppHostTag,
-  AppTmRegistryTag,
   AuthServiceTag,
-  ConnIdTag,
+  ConnectionTag,
   ConnectionManagerTag,
   ContactsServiceTag,
   ConversationServiceTag,
@@ -69,7 +68,6 @@ export {
   // Live Layers
   AgentEndpointResolverLive,
   AppHostLive,
-  AppTmRegistryLive,
   AuthServiceLive,
   ConnectionManagerLive,
   ContactsServiceLive,

@@ -20,7 +20,14 @@ import type { Static } from "@sinclair/typebox";
 import { Data, Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import { UserId, AgentId, ContactId } from "../../../identity/methods.js";
-import { ConversationId, MessageId, TaskId } from "../../../task/methods.js";
+import type { ConnectionId } from "../../../network/actor-model.js";
+import { AppId } from "../../../task/ids.js";
+import {
+  ConversationId,
+  LeaseId,
+  MessageId,
+  TaskId,
+} from "../../../task/methods.js";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
@@ -54,6 +61,15 @@ export const messageId = (value: string): Static<typeof MessageId> =>
   Value.Decode(MessageId, value);
 export const taskId = (value: string): Static<typeof TaskId> =>
   Value.Decode(TaskId, value);
+export const leaseId = (value: string): Static<typeof LeaseId> =>
+  Value.Decode(LeaseId, value);
+export const appId = (value: string): Static<typeof AppId> =>
+  Value.Decode(AppId, value);
+// `ConnectionId` is a `brandedString` (no UUID format predicate); skip
+// `Value.Decode` and brand the raw string directly. Test fixtures use
+// synthetic non-UUID values like "owner-conn-1".
+export const connectionId = (value: string): ConnectionId =>
+  value as ConnectionId;
 
 // --- Real-server agent registration ---
 //

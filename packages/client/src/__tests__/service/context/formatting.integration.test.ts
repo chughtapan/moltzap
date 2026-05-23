@@ -18,18 +18,17 @@ it("format matches @name (Xm ago): (N new) pattern", () =>
     // Resolve C's name so it appears in context
     yield* service.resolveAgentName(regC.agentId);
 
-    const convB = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
-    const convC = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regC.agentId }],
-    });
+    const convB = yield* H.createDm(service, regB.agentId);
+    const convC = yield* H.createDm(service, regC.agentId);
 
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, "Test message");
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      "Test message",
+    );
 
-    const ctx = service.getContext(convB.conversation.id)!;
+    const ctx = service.getContext(convB.conversation!.id)!;
     expect(ctx).toMatch(/@fmt-c \(\d+m ago\): \(1 new\) "Test message"/);
 
     service.close();
@@ -48,19 +47,18 @@ it("truncates long messages at 120 chars", () =>
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const convB = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
-    const convC = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regC.agentId }],
-    });
+    const convB = yield* H.createDm(service, regB.agentId);
+    const convC = yield* H.createDm(service, regC.agentId);
 
     const longMsg = "A".repeat(H.LONG_MESSAGE_LENGTH);
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, longMsg);
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      longMsg,
+    );
 
-    const ctx = service.getContext(convB.conversation.id)!;
+    const ctx = service.getContext(convB.conversation!.id)!;
     // The preview should be truncated — full 500-char message should not appear
     expect(ctx).not.toContain("A".repeat(H.LONG_MESSAGE_LENGTH));
     expect(ctx.length).toBeLessThan(H.LONG_MESSAGE_LENGTH);
@@ -81,22 +79,21 @@ it("advances markers — second call returns null", () =>
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const convB = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
-    const convC = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regC.agentId }],
-    });
+    const convB = yield* H.createDm(service, regB.agentId);
+    const convC = yield* H.createDm(service, regC.agentId);
 
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, "Once");
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      "Once",
+    );
 
-    const first = service.getContext(convB.conversation.id);
+    const first = service.getContext(convB.conversation!.id);
     expect(first).not.toBeNull();
 
     // Second call — no new messages since marker advanced
-    const second = service.getContext(convB.conversation.id);
+    const second = service.getContext(convB.conversation!.id);
     expect(second).toBeNull();
 
     service.close();

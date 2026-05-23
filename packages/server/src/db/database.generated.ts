@@ -9,8 +9,6 @@ type AgentStatus = "active" | "pending_claim" | "suspended";
 
 type ContactStatus = "accepted" | "pending";
 
-export type ConversationType = "dm" | "group";
-
 type EncryptionKeyStatus = "active" | "deprecated" | "revoked";
 
 type Generated<T> =
@@ -72,7 +70,6 @@ export interface ConversationParticipants {
   conversation_id: string;
   joined_at: Generated<Timestamp>;
   last_read_seq: Generated<Int8>;
-  muted_until: Timestamp | null;
 }
 
 export interface Conversations {
@@ -82,7 +79,6 @@ export interface Conversations {
   id: Generated<string>;
   name: string | null;
   task_id: string;
-  type: ConversationType;
   updated_at: Generated<Timestamp>;
 }
 
@@ -126,12 +122,11 @@ export interface TaskParticipants {
 }
 
 export interface Tasks {
-  app_id: string | null;
+  app_id: string;
   created_at: Generated<Timestamp>;
   ended_at: Timestamp | null;
   id: Generated<string>;
   initiator_agent_id: string;
   started_at: Timestamp | null;
   status: Generated<TaskStatus>;
-  tm_endpoint_address: string;
 }

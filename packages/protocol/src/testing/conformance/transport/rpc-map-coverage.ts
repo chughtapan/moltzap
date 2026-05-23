@@ -22,7 +22,7 @@ import {
 } from "../_shared/registry.js";
 import { AgentsList, ContactsList } from "../../../identity/methods.js";
 import { Connect } from "../../../network/methods.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { TaskList } from "../../../task/methods.js";
 
 const CATEGORY = "schema-conformance" as const;
 const PROPERTY = "rpc-map-coverage";
@@ -32,7 +32,7 @@ const DEFAULT_CAPTURE_CAPACITY = 64;
 const COVERAGE_SAMPLE = [
   Connect.name,
   AgentsList.name,
-  ConversationsList.name,
+  TaskList.name,
   ContactsList.name,
 ] as const;
 type CoverageMethod = (typeof COVERAGE_SAMPLE)[number];

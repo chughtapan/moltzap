@@ -31,7 +31,7 @@
  * maintenance cost over a codegen pipeline.
  */
 import type {
-  ConnIdTag,
+  ConnectionTag,
   DbTag,
   AuthServiceTag,
   AgentEndpointResolverTag,
@@ -46,12 +46,10 @@ import type {
   LeaseRegistryTag,
   SessionValidatorTag,
   AppHostTag,
-  AppTmRegistryTag,
 } from "../app/layers.js";
 import type {
   TmAuthority,
   TaskReadAccess,
-  ConversationParticipantAccess,
   ConversationInTask,
   AgentExists,
   AgentInTaskParticipants,
@@ -63,17 +61,16 @@ import type {
   GroupCapacityForCreate,
   MessageSendPermission,
   ConversationCreateAuthorization,
-  AddParticipantPermission,
 } from "../app/capabilities/index.js";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.
- * Both are infrastructure that every protocol layer may pull. ConnIdTag
+ * Both are infrastructure that every protocol layer may pull. ConnectionTag
  * is provided by `defineMethod` from the dispatch context; DbTag is
  * provided by the dispatcher's `ManagedRuntime` from the configured
  * database `Layer.succeed(DbTag, db)`.
  */
-export type TransportTags = ConnIdTag | DbTag;
+export type TransportTags = ConnectionTag | DbTag;
 
 /**
  * Identity-layer allowlist: registration, claim, login, contacts,
@@ -84,7 +81,7 @@ export type TransportTags = ConnIdTag | DbTag;
 export type IdentityTags = TransportTags | AuthServiceTag;
 
 /**
- * Network-layer allowlist: Connect, presence, app-TM dispatch surface.
+ * Network-layer allowlist: Connect, presence, outbound routing.
  * `ping.handlers.ts` lives here. The `agentEndpointResolver` is the
  * `AgentId → ConnectionId` multimap (network-conceptual — endpoint
  * resolution is what the network layer DOES, not who owns it). The
@@ -121,11 +118,9 @@ export type TaskTags =
 
 /**
  * App-layer allowlist: `apps.handlers.ts` (registration + dispatch
- * authorize). `AppTmRegistryTag` is yielded by the app-host construction
- * path; included here for completeness even though no current handler
- * yields it directly.
+ * authorize).
  */
-export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
+export type AppTags = TaskTags | AppHostTag;
 
 /**
  * Spec E (#601) R-channel capability tags — DELIBERATELY a SIBLING
@@ -180,7 +175,6 @@ export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
 export type CapabilityTags =
   | TmAuthority
   | TaskReadAccess
-  | ConversationParticipantAccess
   | ConversationInTask
   | AgentExists
   | AgentInTaskParticipants
@@ -191,5 +185,4 @@ export type CapabilityTags =
   | NoReplyTarget
   | GroupCapacityForCreate
   | MessageSendPermission
-  | ConversationCreateAuthorization
-  | AddParticipantPermission;
+  | ConversationCreateAuthorization;
