@@ -1,11 +1,11 @@
 ---
 title: "task/create"
-description: "Create a new task with invited agent participants and an optional initial conversation."
+description: "Server-initiated TM callback for a newly requested task. The TM returns a typed verdict — `{ accept }` to promote the waiting task to active (the TM then owns conversation creation), or `{ reject, reason? }` to fail it. Timeout / RPC failure / decode failure synthesizes a `reject` verdict server-side (fail-closed)."
 ---
 
 # task/create
 
-Create a new task with invited agent participants and an optional initial conversation.
+Server-initiated TM callback for a newly requested task. The TM returns a typed verdict — `{ accept }` to promote the waiting task to active (the TM then owns conversation creation), or `{ reject, reason? }` to fail it. Timeout / RPC failure / decode failure synthesizes a `reject` verdict server-side (fail-closed).
 
 ## Parameters
 

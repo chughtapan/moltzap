@@ -36,7 +36,7 @@ import {
 } from "../../app/capabilities/index.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
-function taskCreateBody(
+function taskRequestBody(
   params: {
     readonly appId: AppId;
     readonly invitedAgentIds: ReadonlyArray<AgentId>;
@@ -49,7 +49,7 @@ function taskCreateBody(
 ) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    yield* maybeRunContactPolicyForTaskCreate(params, ctx);
+    yield* maybeRunContactPolicyForTaskRequest(params, ctx);
     const task = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
       invitedAgentIds: params.invitedAgentIds,
@@ -66,12 +66,12 @@ function taskCreateBody(
   }).pipe(Effect.withSpan("task.create"));
 }
 
-type TaskCreateParams = Parameters<typeof taskCreateBody>[0];
-type TaskCreateCtx = Parameters<typeof taskCreateBody>[1];
+type TaskRequestParams = Parameters<typeof taskRequestBody>[0];
+type TaskRequestCtx = Parameters<typeof taskRequestBody>[1];
 
-function maybeRunContactPolicyForTaskCreate(
-  params: TaskCreateParams,
-  ctx: TaskCreateCtx,
+function maybeRunContactPolicyForTaskRequest(
+  params: TaskRequestParams,
+  ctx: TaskRequestCtx,
 ) {
   if (params.invitedAgentIds.length === 0) return Effect.void;
   return obtainContactPolicyForCreate(ctx.agentId, params.invitedAgentIds);
@@ -387,7 +387,7 @@ export const taskHandlers: RpcMethodRegistry = [
 
   defineTaskMethod(TaskRequest, {
     requiresActive: true,
-    handler: (params, ctx) => taskCreateBody(params, ctx),
+    handler: (params, ctx) => taskRequestBody(params, ctx),
   }),
 
   defineTaskMethod(TaskLeave, {

@@ -121,8 +121,11 @@ export type AgentClientHandlers<
 /**
  * `TaskMasterHandlers` — handler table for an agent acting as TM for
  * one or more tasks. Catalog: `taskCallbackMethods` —
- * `DispatchAuthorize`, `MessagesAuthorize`. Both REQUIRED (R14b);
- * vacuous-deny moderators must write the handler explicitly.
+ * `DispatchAuthorize`, `MessagesAuthorize`, `TaskCreate`. All three
+ * REQUIRED (R14b); vacuous-deny moderators must write the handler
+ * explicitly. `TaskCreate` is the server-initiated callback fired
+ * after `task/request` lands the task in `waiting`; the TM's typed
+ * verdict drives the lifecycle transition.
  */
 export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
 

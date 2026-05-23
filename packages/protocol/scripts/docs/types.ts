@@ -1,7 +1,10 @@
 export const TypeBoxKind = Symbol.for("TypeBox.Kind");
 export const SORT_KEY_PAD_WIDTH = 2;
 export const JSON_INDENT = 2;
-export const TASK_CREATE_METHOD = "task/create";
+// Agent-facing entry RPC that drives the bulk of the task lifecycle.
+// The TM-facing `task/create` wire callback is a separate descriptor;
+// the two should not be conflated in `triggeredBy` arrays.
+export const TASK_REQUEST_METHOD = "task/request";
 
 export interface TypeBoxSchema {
   readonly [key: symbol]: unknown;

@@ -11,6 +11,7 @@
  * respective commits.
  */
 import type { JsonValue } from "../schema-primitives.js";
+import type { JsonRpcMethod } from "../transport/wire.js";
 import type { RpcErrorPayload } from "../transport/wire-errors.js";
 import {
   agentClientRpcMethods,
@@ -31,6 +32,7 @@ import {
   TaskConversationUnarchive,
   TaskConversationAddParticipant,
   TaskConversationRemoveParticipant,
+  TaskCreate,
 } from "../index.js";
 
 // ── Partition cardinality ───────────────────────────────────────────
@@ -115,6 +117,19 @@ type _RpcErrorPayloadDataIsJsonValue = AssertEquals<
   JsonValue | undefined
 >;
 
+// ── Wire-name pins (iter-12 rename + new TM callback) ───────────────
+// Locks the agent-facing entry RPC to `task/request` and the new
+// TM-facing callback to `task/create`. A future refactor that touches
+// either constant must update these canaries deliberately.
+type _TaskRequestWireName = AssertEquals<
+  typeof TaskRequest.name,
+  JsonRpcMethod<"task/request">
+>;
+type _TaskCreateCallbackWireName = AssertEquals<
+  typeof TaskCreate.name,
+  JsonRpcMethod<"task/create">
+>;
+
 // ── Closed union — references every predicate so tsc sees them used ─
 export type _D3CanaryHolds =
   | _CardinalityHolds
@@ -132,7 +147,9 @@ export type _D3CanaryHolds =
   | _TaskCloseNotInAgentSet
   | _ConvCreateNotInAgentSet
   | _ServerSupersetOfTm
-  | _RpcErrorPayloadDataIsJsonValue;
+  | _RpcErrorPayloadDataIsJsonValue
+  | _TaskRequestWireName
+  | _TaskCreateCallbackWireName;
 
 // Reference nonTmAuthorityTaskRpcMethods so knip sees it as consumed
 // (otherwise it's flagged as exported-but-unused until Commit 4).

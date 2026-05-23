@@ -16,7 +16,7 @@ lives in `packages/server/src/task/handlers/`.
 
 | Wire name | Const | Authority |
 |---|---|---|
-| `task/create` | `TaskRequest` | any agent + contacts |
+| `task/request` | `TaskRequest` | any agent + contacts |
 | `task/leave` | `TaskLeave` | self |
 | `task/conversation/create` | `TaskConversationCreate` | TM |
 | `task/conversation/list` | `TaskConversationList` | self |
@@ -24,6 +24,17 @@ lives in `packages/server/src/task/handlers/`.
 | `task/conversation/unarchive` | `TaskConversationUnarchive` | TM |
 | `task/conversation/participants/add` | `TaskConversationAddParticipant` | TM + admitted |
 | `task/conversation/participants/remove` | `TaskConversationRemoveParticipant` | TM |
+
+The agent-initiated `task/request` and the server-initiated
+`task/create` TM callback are distinct wires. `task/request` is the
+client→server entry point (agent asks for a task); after the task row
+lands in `waiting`, the server fires a `task/create` TM-callback
+(declared in `packages/protocol/src/app/methods.ts` → `TaskCreate`,
+result `{ verdict: { decision: "accept" } | { decision: "reject",
+reason?: string } }`). The TM's verdict drives the task's lifecycle
+transition (waiting → active on accept, waiting → failed on reject /
+timeout / RPC failure — fail-closed). The TM, once it accepts, owns
+conversation creation via `task/conversation/create`.
 
 ### Notifications
 
@@ -191,7 +202,8 @@ rollback BEFORE the enqueue line emits zero notifications.
 | `task/conversation/unarchive` | `task/conversation/unarchived` |
 | `task/conversation/participants/add` | `task/conversation/participants/added` |
 | `task/conversation/participants/remove` | `task/conversation/participants/removed` |
-| `task/create` with `initialConversation` | `task/conversation/created` (mirrors the atomic conversation insert) |
+| `task/request` (after TM verdict `accept`) | `task/created { task }` (lifecycle transition waiting → active) |
+| `task/request` (after TM verdict `reject` / timeout / RPC failure) | `task/rejected { taskId, reason? }` (lifecycle transition waiting → failed) |
 | `task/leave` (per conversation the leaver was in) | `task/conversation/participants/removed { reason: "task_leave" }` (one per cid) |
 | `task/leave` (last-participant-task-closure case) | `task/closed { task }` |
 
