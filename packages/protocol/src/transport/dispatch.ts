@@ -485,6 +485,14 @@ export function wireErrorFromInstance(value: unknown): WireError | null {
     return null;
   }
   const cls = value.constructor as RpcErrorClass;
-  const message = stringProperty(value, "message") ?? cls.message;
+  // `Data.TaggedError` instances inherit `message: ""` from `Error`, so a
+  // nullish-only fallback (`?? cls.message`) would ship the empty string for
+  // any error constructed without an explicit message. Treat an empty
+  // instance message as absent so the class's static default reaches the wire.
+  const instanceMessage = stringProperty(value, "message");
+  const message =
+    instanceMessage !== undefined && instanceMessage.length > 0
+      ? instanceMessage
+      : cls.message;
   return wireErrorPayload(cls, message, value.data);
 }
