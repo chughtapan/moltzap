@@ -1,5 +1,5 @@
 import {
-  TASK_CREATE_METHOD,
+  TASK_REQUEST_METHOD,
   type MethodDocMeta,
   type NotificationDocMeta,
 } from "./types.js";
@@ -117,9 +117,14 @@ Gated by the same \`REGISTRATION_SECRET\` as \`agents/register\`. When the secre
       { code: -32001, name: "Forbidden", when: "Not a participant" },
     ],
   },
+  "task/request": {
+    description:
+      "Agent-initiated request to create a new task with invited agent participants and an optional initial conversation hint. The server forwards a task/create callback to the bound TM; the TM's typed verdict decides whether the task transitions to active.",
+    relatedNotifications: ["task/conversation/created"],
+  },
   "task/create": {
     description:
-      "Create a new task with invited agent participants and an optional initial conversation.",
+      "Server-initiated TM callback for a newly requested task. The TM returns a typed verdict — `{ accept }` to promote the waiting task to active (the TM then owns conversation creation), or `{ reject, reason? }` to fail it. Timeout / RPC failure / decode failure synthesizes a `reject` verdict server-side (fail-closed).",
     relatedNotifications: ["task/conversation/created"],
   },
   "task/list": {
@@ -236,7 +241,7 @@ export const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   "task/conversation/created": {
     description:
       "Pushed when you are added to a new conversation under a task.",
-    triggeredBy: ["task/create", "task/conversation/create"],
+    triggeredBy: ["task/request", "task/conversation/create"],
   },
   "task/conversation/archived": {
     description:
@@ -269,20 +274,20 @@ export const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   },
   "app/participantAdmitted": {
     description: "Pushed when an agent is admitted to a task.",
-    triggeredBy: [TASK_CREATE_METHOD],
+    triggeredBy: [TASK_REQUEST_METHOD],
   },
   "app/participantRejected": {
     description: "Pushed when an agent is rejected from a task.",
-    triggeredBy: [TASK_CREATE_METHOD],
+    triggeredBy: [TASK_REQUEST_METHOD],
   },
   "task/ready": {
     description:
       "Pushed when all required agents are admitted and the task is active.",
-    triggeredBy: [TASK_CREATE_METHOD],
+    triggeredBy: [TASK_REQUEST_METHOD],
   },
   "task/failed": {
     description: "Pushed when a task fails before becoming ready.",
-    triggeredBy: [TASK_CREATE_METHOD],
+    triggeredBy: [TASK_REQUEST_METHOD],
   },
   "task/closed": {
     description: "Pushed when a task closes.",
@@ -291,6 +296,6 @@ export const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   "task/admissionComplete": {
     description:
       "Server → TM notification fired after admission completes (carries the admitted agent ids), before task/ready reaches participants.",
-    triggeredBy: [TASK_CREATE_METHOD],
+    triggeredBy: [TASK_REQUEST_METHOD],
   },
 };
