@@ -86,8 +86,8 @@ function handleDomainRequestFrame(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     switch (frame.method) {
-      case "task/create": {
-        yield* handleTaskCreate(frame, opts);
+      case "task/request": {
+        yield* handleTaskRequest(frame, opts);
         return;
       }
       case "task/conversation/create": {
@@ -156,7 +156,7 @@ function dispatchRequestParams(raw: unknown): DispatchRequestParams {
   };
 }
 
-function handleTaskCreate(
+function handleTaskRequest(
   frame: RequestFrame,
   opts: HandleInboundFrameOpts,
 ): Effect.Effect<void> {

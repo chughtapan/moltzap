@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import {
   DEFAULT_APP_ID,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
   type AgentId,
   type ConversationId,
   type TaskId,
@@ -66,7 +66,7 @@ type TestClient = Effect.Effect.Success<
 
 export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agentId],
       initialConversation: { participants: [agentId] },

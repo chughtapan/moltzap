@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 
-import { MessagesAuthorize } from "@moltzap/protocol";
+import { MessagesAuthorize, TaskCreate } from "@moltzap/protocol";
 import {
   AgentsLookupByName,
   TaskList,
@@ -736,6 +736,34 @@ effectTest(
     ),
 );
 
+// Spec F: TM-callback handler-table fragment bound at construction.
+// The dispatch/authorize handler unconditionally fails with a
+// registered tagged error so the dispatcher encodes it onto the wire
+// as an `error` reply.
+const REGISTERED_ERROR_HANDLERS = {
+  "dispatch/authorize": {
+    definition: DispatchAuthorize,
+    handle: () =>
+      Effect.fail(
+        new ForbiddenError({
+          message: DOMAIN_REJECTED_MESSAGE,
+          data: { reason: DOMAIN_REJECTED_REASON },
+        }),
+      ),
+  },
+  "messages/authorize": {
+    definition: MessagesAuthorize,
+    handle: () => Effect.fail(new ForbiddenError({ message: "vacuous deny" })),
+  },
+  "task/create": {
+    definition: TaskCreate,
+    handle: () =>
+      Effect.succeed({
+        verdict: { decision: "reject" as const, reason: "vacuous deny" },
+      }),
+  },
+} as const;
+
 effectTest(
   "encodes a registered handler error as a `response` frame with `error`",
   () =>
@@ -745,28 +773,8 @@ effectTest(
           SERVER_ERROR_REQUEST_ID,
           dispatchRequestParams(SESSION_B),
         );
-        // Spec F: TM-callback handler-table fragment bound at
-        // construction. The handler unconditionally fails with a
-        // registered tagged error so the dispatcher encodes it onto
-        // the wire as an `error` reply.
         const client = makeClient(server.url, {
-          handlers: {
-            "dispatch/authorize": {
-              definition: DispatchAuthorize,
-              handle: () =>
-                Effect.fail(
-                  new ForbiddenError({
-                    message: DOMAIN_REJECTED_MESSAGE,
-                    data: { reason: DOMAIN_REJECTED_REASON },
-                  }),
-                ),
-            },
-            "messages/authorize": {
-              definition: MessagesAuthorize,
-              handle: () =>
-                Effect.fail(new ForbiddenError({ message: "vacuous deny" })),
-            },
-          },
+          handlers: REGISTERED_ERROR_HANDLERS,
         });
         yield* connectClient(client);
 

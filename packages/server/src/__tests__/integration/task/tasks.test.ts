@@ -5,7 +5,7 @@ import {
   DEFAULT_APP_ID,
   TaskAddParticipant,
   TaskClose,
-  TaskCreate,
+  TaskRequest,
   TaskList,
   TaskRemoveParticipant,
 } from "@moltzap/protocol";
@@ -101,7 +101,7 @@ function setupAliceAndBob(): Effect.Effect<
 it("task/create returns a waiting task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
-    const result = yield* aliceClient.sendRpc(TaskCreate, {
+    const result = yield* aliceClient.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
@@ -127,7 +127,7 @@ it("TM authority: only the registered app connection may mutate task membership"
         name: "tm-test-app",
       },
     });
-    const created = yield* aliceClient.sendRpc(TaskCreate, {
+    const created = yield* aliceClient.sendRpc(TaskRequest, {
       appId: TM_TEST_APP_ID,
       invitedAgentIds: [],
     });
@@ -167,11 +167,11 @@ it("TM authority: only the registered app connection may mutate task membership"
 it("task/list scopes results to caller-as-participant", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
-    const aliceTask = yield* aliceClient.sendRpc(TaskCreate, {
+    const aliceTask = yield* aliceClient.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
-    yield* bobClient.sendRpc(TaskCreate, {
+    yield* bobClient.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });

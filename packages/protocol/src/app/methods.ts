@@ -474,6 +474,78 @@ export const MessagesAuthorize = defineRpc({
   ),
 });
 
+// ── task/create (TM recruitment) ────────────────────────────────────
+//
+// Issue #683: agent-driven `task/request` creates a task in
+// `"waiting"` state and forks this wire callback to the registered
+// TM. The TM responds with an accept/reject verdict; on accept the
+// task transitions to `"active"` and the TM is responsible for
+// creating any conversations (via the TM-only
+// `task/conversation/create`). The verdict shape mirrors the rest
+// of the wire-callback family — same fail-closed envelope, same
+// timeout-synthesizes-reject posture.
+
+const TaskCreateContextSchema = Type.Object(
+  {
+    taskId: TaskId,
+    initiatorAgentId: AgentId,
+    invitedAgentIds: Type.Array(AgentId),
+    initialConversation: Type.Optional(
+      Type.Object(
+        {
+          name: Type.Optional(Type.String()),
+          participants: Type.Optional(Type.Array(AgentId)),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    receivedAt: Type.Optional(DateTimeString),
+  },
+  { additionalProperties: false },
+);
+
+const TaskCreateVerdictSchema = Type.Union([
+  Type.Object(
+    { decision: Type.Literal("accept") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      decision: Type.Literal("reject"),
+      reason: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+/**
+ * Server → TM round-trip asking whether the TM accepts a newly
+ * requested task. Triggered from the `task/request` handler after
+ * the task row is inserted (status `"waiting"`) and before the
+ * requester observes any state.
+ *
+ * The TM owns the post-accept lifecycle:
+ *   - On `accept` the server transitions the task to `"active"`
+ *     and fires `task/created` to the requester. The TM SHOULD
+ *     then call `task/conversation/create` to honor the
+ *     requester's `initialConversation` hint if it chose to.
+ *   - On `reject` (or timeout / RPC error / decode failure) the
+ *     server transitions the task to `"failed"` and fires
+ *     `task/rejected` to the requester.
+ *
+ * Fail-closed envelope mirrors `DispatchAuthorize` /
+ * `MessagesAuthorize`: timeout → synthesize
+ * `{ decision: "reject", reason: "tm_unreachable" }`.
+ */
+export const TaskCreate = defineRpc({
+  name: "task/create",
+  params: TaskCreateContextSchema,
+  result: Type.Object(
+    { verdict: TaskCreateVerdictSchema },
+    { additionalProperties: false },
+  ),
+});
+
 // ── Aggregators ─────────────────────────────────────────────────────
 
 export const appRpcMethods = [
@@ -485,6 +557,7 @@ export const appRpcMethods = [
 export const taskCallbackMethods = [
   DispatchAuthorize,
   MessagesAuthorize,
+  TaskCreate,
 ] as const;
 
 export const appNotifications = [

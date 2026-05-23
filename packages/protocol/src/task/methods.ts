@@ -12,7 +12,7 @@ import {
   TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
   // Spec D1 (#598) `task/*` + `task/conversation/*` surface (singular).
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
   TaskConversationCreate,
   TaskConversationList,
@@ -30,7 +30,7 @@ import {
 export const taskRpcMethods = [
   MessagesSend,
   MessagesList,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
   TaskList,
   TaskClose,
@@ -46,7 +46,7 @@ export const taskRpcMethods = [
 
 // Spec D3 R11 — per-kind subsets of the surviving task layer.
 export const nonTmAuthorityTaskRpcMethods = [
-  TaskCreate,
+  TaskRequest,
   TaskList,
   TaskLeave,
   MessagesSend,

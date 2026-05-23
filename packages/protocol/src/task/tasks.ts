@@ -106,7 +106,7 @@ const TaskSchema = Type.Object(
 export type Task = Static<typeof TaskSchema>;
 
 // `admittedAt = null` is reserved for a future "pending invitation"
-// flow. Today the server auto-admits every invitee at TaskCreate, so
+// flow. Today the server auto-admits every invitee at TaskRequest, so
 // the field is always non-null on the wire. The column is kept
 // nullable + the `WHERE admitted_at IS NOT NULL` filters in read
 // paths stay in place so the future flow drops in without
@@ -269,9 +269,18 @@ export type TaskConversationListItem = Static<
  * Dedup is a client-side concern: clients that want "one DM per
  * participant set" semantics list their tasks and filter locally
  * before creating a new one.
+ *
+ * NOTE (#683): This descriptor was renamed from `TaskCreate` /
+ * `task/create` to `TaskRequest` / `task/request` in Phase 1 to make
+ * room for a TM-facing `task/create` wire callback in
+ * `packages/protocol/src/app/methods.ts`. Phase 3 will swap the
+ * synchronous result for an ack-then-notification flow
+ * (`{ taskId }` + `task/created` / `task/rejected`). Until that
+ * lands the synchronous `{ task, conversation }` result is preserved
+ * for compatibility with existing callers.
  */
-export const TaskCreate = defineRpc({
-  name: "task/create",
+export const TaskRequest = defineRpc({
+  name: "task/request",
   params: Type.Object(
     {
       appId: AppId,

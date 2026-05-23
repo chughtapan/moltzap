@@ -15,7 +15,7 @@ import {
   MessagesSend,
   MessageReceivedNotificationDefinition,
   TaskConversationCreate,
-  TaskCreate,
+  TaskRequest,
   type AgentId,
   type AppId,
   type AppManifest,
@@ -264,7 +264,7 @@ function createAppManagedTask(
     yield* agent.client.sendRpc(AppsRegister, {
       manifest: TEST_APP_MANIFEST,
     });
-    return yield* agent.client.sendRpc(TaskCreate, {
+    return yield* agent.client.sendRpc(TaskRequest, {
       appId: TEST_APP_ID,
       invitedAgentIds: invited.map((a) => a.agentId),
     });

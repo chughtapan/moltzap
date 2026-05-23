@@ -13,7 +13,7 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 let baseUrl: string;
@@ -110,7 +110,7 @@ function createDmConversation(
   agentId: string,
 ): Effect.Effect<DmBinding, unknown> {
   return client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agentId],
       initialConversation: { participants: [agentId] },

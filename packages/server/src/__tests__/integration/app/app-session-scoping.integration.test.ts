@@ -16,7 +16,7 @@ import { it as effectIt } from "@effect/vitest";
 import {
   AppsRegister,
   TaskConversationCreate,
-  TaskCreate,
+  TaskRequest,
   type AppId,
   type AppManifest,
   ForbiddenError,
@@ -56,7 +56,7 @@ function registeredAppConnPassesTmGate() {
     const alice = yield* registerAndConnect("alice");
     const bob = yield* registerAndConnect("bob");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    const task = yield* alice.client.sendRpc(TaskCreate, {
+    const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: APP_ID,
       invitedAgentIds: [bob.agentId],
     });
@@ -73,7 +73,7 @@ function peerConnFailsTmGate() {
     const alice = yield* registerAndConnect("alice-2");
     const bob = yield* registerAndConnect("bob-2");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    const task = yield* alice.client.sendRpc(TaskCreate, {
+    const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: APP_ID,
       invitedAgentIds: [bob.agentId],
     });
@@ -92,7 +92,7 @@ function disconnectDropsRegistration() {
     const alice = yield* registerAndConnect("alice-3");
     const bob = yield* registerAndConnect("bob-3");
     yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    const task = yield* alice.client.sendRpc(TaskCreate, {
+    const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: APP_ID,
       invitedAgentIds: [bob.agentId],
     });

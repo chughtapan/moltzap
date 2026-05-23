@@ -188,7 +188,7 @@ function admitsInitiatorAndInvitedParticipants() {
       .pipe(withReadAccess(task.id, ALICE, svc));
     const bobRow = view.participants.find((p) => p.agentId === BOB);
     expect(bobRow).toBeDefined();
-    // Auto-admit on TaskCreate (#677); the `admitted_at` column + read
+    // Auto-admit on TaskRequest (#677); the `admitted_at` column + read
     // gates are preserved for a future invitation-accept flow, but no
     // current code path leaves a freshly-created invitee pending.
     expect(bobRow?.admittedAt).not.toBeNull();
@@ -330,7 +330,7 @@ function deniesReadAccessToPendingInvitee() {
     });
     // Force BOB back into pending (admitted_at IS NULL) to exercise
     // the read gate that the future invitation-accept flow will rely
-    // on; TaskCreate itself auto-admits today (#677).
+    // on; TaskRequest itself auto-admits today (#677).
     yield* harness.db
       .updateTable("task_participants")
       .set({ admitted_at: null })

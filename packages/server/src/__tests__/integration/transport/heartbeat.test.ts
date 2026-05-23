@@ -14,7 +14,7 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 const ALIVE_AFTER_IDLE_TEXT = "Still alive after idle";
@@ -30,7 +30,7 @@ it("connection survives idle period and still delivers messages", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },

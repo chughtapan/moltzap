@@ -13,7 +13,7 @@ import {
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 let _baseUrl: string;
@@ -39,7 +39,7 @@ it("send and receive a DM, list messages", () =>
     const bob = yield* registerAndConnect("bob-dm");
 
     // Alice creates a DM conversation with Bob
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },

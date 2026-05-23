@@ -4,7 +4,7 @@
 
 Spec D2 (#599) adds a single-command CLI for starting a task with named
 participants and (optionally) sending the first message in one shot.
-Composes Spec D1 (#598) atomic `TaskCreate({ appId, invitedAgentIds,
+Composes Spec D1 (#598) atomic `TaskRequest({ appId, invitedAgentIds,
 initialConversation })` plus a follow-up `MessagesSend` when
 `--message` is supplied.
 
@@ -17,10 +17,10 @@ live in `commands/start.ts`.
 
 | RPC | Provided by | When called |
 |---|---|---|
-| `TaskCreate` | Spec D1 (#635) → `packages/protocol/src/task/tasks.ts → TaskCreate` | Every invocation |
+| `TaskRequest` | Spec D1 (#635) → `packages/protocol/src/task/tasks.ts → TaskRequest` | Every invocation |
 | `MessagesSend` | Pre-D1, unchanged | Only when `--message` is set |
 | `AgentsLookupByName` | Pre-D1, unchanged | Per name-shaped participant token (uuid-shaped tokens skip the lookup) |
-| `TaskConversationList` | Spec D1 (#598) → `packages/protocol/src/task/tasks.ts → TaskConversationList` | Only on `TaskCreate` dedup hit (P2-A); used by `findReusableConversation` to locate a reusable conversation under the existing task |
+| `TaskConversationList` | Spec D1 (#598) → `packages/protocol/src/task/tasks.ts → TaskConversationList` | Only on `TaskRequest` dedup hit (P2-A); used by `findReusableConversation` to locate a reusable conversation under the existing task |
 
 **All three RPCs go through `transport.ts → rpc(...)` (the CLI
 `Transport` service), NOT `socket-client.ts → request(...)` (the
@@ -32,7 +32,7 @@ makeFakeTransport`. Architect plan §R1 explains the divergence; the
 local resolver `start.ts → resolveAgentTokens` is the new helper that
 covers D2's testability + transport-uniformity needs.**
 
-`TaskCreate` is called with `{ appId, invitedAgentIds, initialConversation
+`TaskRequest` is called with `{ appId, invitedAgentIds, initialConversation
 }` where `initialConversation` carries `participants: invitedAgentIds`
 ONLY when `invitedAgentIds.length > 0` — the caller-only path
 (`invitedAgentIds === []`) MUST omit the `participants` field entirely
@@ -66,7 +66,7 @@ moltzap start <name> <participant>... [--message <text>] [--app-id <uuid>]
   per D1 spec body Goal 5; spec D2 ACs do not require, but impl-staff
   handler MUST NOT reject).
 - `--message <text>` — optional. If supplied, a follow-up
-  `MessagesSend` runs after the atomic `TaskCreate`.
+  `MessagesSend` runs after the atomic `TaskRequest`.
 - `--app-id <uuid>` — optional. Defaults to `DEFAULT_APP_ID`
   (D1 plan §R3, exported from `@moltzap/protocol`). Syntactic UUID v4
   validation happens client-side BEFORE any RPC; server rejection of a
@@ -96,8 +96,8 @@ sequenceDiagram
     tx-->>start: { agents: [{ id, name, ... }, ...] }
     Note over start: Build name → AgentId map; resolve each token in input order.<br>First name with no matching agent → UnresolvedParticipantError → exit 64.
 
-    Note over start: 3. rpc(TaskCreate, {appId, invitedAgentIds, initialConversation})<br>initialConversation omits participants when invitedAgentIds.length === 0 (P2-B)
-    start->>tx: TaskCreate
+    Note over start: 3. rpc(TaskRequest, {appId, invitedAgentIds, initialConversation})<br>initialConversation omits participants when invitedAgentIds.length === 0 (P2-B)
+    start->>tx: TaskRequest
     tx-->>start: { task, conversation: Conversation | null }
     Note over start: failure → TransportError → exit 1<br>stdout: nothing
 
@@ -131,8 +131,8 @@ sequenceDiagram
 | Code | Meaning | Stdout state | Stderr state |
 |---|---|---|---|
 | 0 | Full success (fresh create OR dedup hit with reusable conversation) | `Task started: …` (+ `Message sent: …` when `--message`) | empty |
-| 1 | `TaskCreate` wire failure OR dedup hit on a closed/unreachable task (P2-A) | empty | `Failed: <err.message>` OR `Task already exists but is closed: <taskId>` |
-| 2 | `TaskCreate` (or dedup reuse) OK, `MessagesSend` failed | `Task started: …` (no `Message sent`) | `Error sending message: <err.message>` |
+| 1 | `TaskRequest` wire failure OR dedup hit on a closed/unreachable task (P2-A) | empty | `Failed: <err.message>` OR `Task already exists but is closed: <taskId>` |
+| 2 | `TaskRequest` (or dedup reuse) OK, `MessagesSend` failed | `Task started: …` (no `Message sent`) | `Error sending message: <err.message>` |
 | 64 | Usage error (bad `--app-id` UUID OR unresolvable agent token OR >100 distinct name-shaped tokens) | empty | `Invalid --app-id: not a UUID` OR `Cannot resolve "<token>": <reason>` OR `Too many distinct agent names: <count> (max <max>)` |
 
 NO rollback on exit 2: the task + empty conversation persist; user can
@@ -147,7 +147,7 @@ wrong" (1, 2).
 The command runs with the caller's identity per the global `--as` /
 `--profile` flags — same precedence rules as `moltzap send` (see
 [CLI Command Flow](./cli-command-flow.md) for the daemon-vs-direct
-branch and the `transport.ts` selection logic). `TaskCreate` is open
+branch and the `transport.ts` selection logic). `TaskRequest` is open
 to any authenticated agent (Spec D1 plan §"Authority matrix");
 server-side contact-policy gating per
 `requireContactPolicyForCreate` may reject the call with a
@@ -171,10 +171,10 @@ export const startCommandHandler = (args: StartCommandArgs) =>
     //    call (P3-2); UUID-shaped tokens short-circuit client-side. The
     //    helper maps shape failures + lookup-empty results to
     //    `UnresolvedParticipantError` and returns bare `AgentId[]`
-    //    matching `TaskCreate.params.invitedAgentIds` directly.
+    //    matching `TaskRequest.params.invitedAgentIds` directly.
     const invitedAgentIds = yield* resolveAgentTokens(args.participants);
 
-    // 3. TaskCreate atomic. P2-B carve-out: when `invitedAgentIds` is
+    // 3. TaskRequest atomic. P2-B carve-out: when `invitedAgentIds` is
     //    empty, omit `participants` from `initialConversation` entirely
     //    (the schema's `Type.Array(AgentId, { minItems: 1 })` rejects
     //    `[]`; the server adds the caller to participants implicitly).
@@ -229,7 +229,7 @@ startCommandHandler`):
     `process.exit(EXIT_CODES.TASK_CREATE_FAILED)` + stderr
     `Failed: <err.message>`
 - **Inline `process.exit(EXIT_CODES.PARTIAL_SUCCESS)`** inside the
-  handler body for the post-`TaskCreate` `MessagesSend` failure. This
+  handler body for the post-`TaskRequest` `MessagesSend` failure. This
   path cannot route through `runStartCommand` because the stdout
   `Task started: ...` line has already been printed; re-throwing the
   error and letting `runStartCommand` dispatch would discard the
@@ -267,7 +267,7 @@ Spec D2 acceptance criteria → test files:
 
 | AC | Test file | Strategy |
 |---|---|---|
-| RPC payload assertions | `start.test.ts` | `makeFakeTransport` records `{method, params}`; assert `TaskCreate` and `MessagesSend` payloads against parsed CLI args |
+| RPC payload assertions | `start.test.ts` | `makeFakeTransport` records `{method, params}`; assert `TaskRequest` and `MessagesSend` payloads against parsed CLI args |
 | Participant model: `length === 1` | `start.test.ts > dm-shape` | fixture: one `agent:` token → assert `invitedAgentIds.length === 1` |
 | Participant model: `length >= 2` | `start.test.ts > group-shape` | fixture: two `agent:` tokens → assert `invitedAgentIds.length === 2` and order preserved |
 | Caller NOT in `invitedAgentIds` | `start.test.ts > caller-excluded` | assert caller's own `AgentId` does NOT appear in `params.invitedAgentIds` |
@@ -275,16 +275,16 @@ Spec D2 acceptance criteria → test files:
 | `--app-id` default | `start.test.ts > default-app-id` | omit `--app-id` flag; assert recorded `params.appId === DEFAULT_APP_ID` (imported from `@moltzap/protocol`) |
 | `--app-id` invalid UUID | `start.test.ts > invalid-app-id` | pass `--app-id not-a-uuid`; assert exit 64, stderr `Invalid --app-id: not a UUID`, zero recorded RPC calls |
 | `--app-id` server reject | `start.test.ts > server-reject-app-id` | mock transport returns `TransportRpcError`; assert exit 1, stderr has error |
-| Partial failure | `start.test.ts > partial-success` | `TaskCreate` success + `MessagesSend` fail → assert stdout has `Task started:` line, stderr `Error sending message:`, exit 2 |
-| Unresolved participant | `start.test.ts > unresolved-participant` | `AgentsLookupByName` returns empty agents; assert exit 64, stderr names the token, ZERO `TaskCreate` / `MessagesSend` calls |
+| Partial failure | `start.test.ts > partial-success` | `TaskRequest` success + `MessagesSend` fail → assert stdout has `Task started:` line, stderr `Error sending message:`, exit 2 |
+| Unresolved participant | `start.test.ts > unresolved-participant` | `AgentsLookupByName` returns empty agents; assert exit 64, stderr names the token, ZERO `TaskRequest` / `MessagesSend` calls |
 | Help text | `start.test.ts > help` | snapshot `moltzap start --help`; assert presence of synopsis, `--message`, `--app-id`, and the four exit codes |
-| **Dedup hit, single conversation** (P2-A) | `start.test.ts > dedupHitSingleConversation` | `TaskCreate` returns `{ task: existing, conversation: null }`; `TaskConversationList` returns one matching item; assert stdout `Task started: <id> (reusing existing conversation: <id>)` |
+| **Dedup hit, single conversation** (P2-A) | `start.test.ts > dedupHitSingleConversation` | `TaskRequest` returns `{ task: existing, conversation: null }`; `TaskConversationList` returns one matching item; assert stdout `Task started: <id> (reusing existing conversation: <id>)` |
 | **Dedup hit, multiple conversations** (P2-A tie-break) | `start.test.ts > dedupHitMultipleConversations` | server-order first match wins (most-recently-active) |
 | **Dedup hit + `--message`** (P2-A reuse-conv MessagesSend route) | `start.test.ts > dedupHitWithMessage` | `MessagesSend.params.conversationId === existing.conversation.id` |
 | **Dedup hit, filtering** (P2-A taskId + archivedAt filter) | `start.test.ts > dedupHitFiltersOtherTaskAndArchived` | items from other tasks AND `archivedAt !== undefined` items are skipped |
 | **Dedup hit, closed task** (P2-A no-usable-conv branch) | `start.test.ts > dedupHitTaskClosedNoUsableConversation` | `findReusableConversation` returns null → stderr `Task already exists but is closed: <taskId>` + exit 1 |
 | **Dedup hit, pagination** (P2-A cursor follow) | `start.test.ts > dedupHitPaginatesUntilFound` | first page has no match → follow `nextCursor` until found |
-| **Zero-participant wire shape** (P2-B carve-out) | `start.test.ts > zeroParticipants` | `TaskCreate.params.initialConversation` deep-equals `{ name }` (no `participants` key) |
+| **Zero-participant wire shape** (P2-B carve-out) | `start.test.ts > zeroParticipants` | `TaskRequest.params.initialConversation` deep-equals `{ name }` (no `participants` key) |
 | CHANGELOG | (manual review at PR time) | grep root `CHANGELOG.md` `[Unreleased]` for the new-command entry |
 
 Test infra reuses `makeFakeTransport(...)` from
@@ -301,7 +301,7 @@ NOT exercised by unit tests — they use `Transport` directly.
 
 ## 8. Concerns from D1 dependency
 
-- **`TaskCreate` from `@moltzap/protocol` is not yet on `main`.** D1 stub
+- **`TaskRequest` from `@moltzap/protocol` is not yet on `main`.** D1 stub
   lives at `architect/598-task-conversation` @ `bc913ba` (plan #635
   plan-approved); the descriptor + brand + constant land in the
   package only when D1 impl-staff (HARD-blocked on Spec E Phase 1)
@@ -314,7 +314,7 @@ NOT exercised by unit tests — they use `Transport` directly.
   `rpc(AgentsLookupByName, ...)` (batched, one call total) for
   name-shaped tokens (a server RPC), which the strict reading of the
   AC would prohibit. Architect
-  interpretation: the AC means "NO `TaskCreate` / `MessagesSend`
+  interpretation: the AC means "NO `TaskRequest` / `MessagesSend`
   calls", since only those two are spec-D2's mutating calls. The
   read-only lookup is intentional + necessary (UUID-only tokens are
   the only alternative and would break the `agent:&lt;name>`
@@ -334,7 +334,7 @@ fewest hops:
    on.
 4. Read D1 per-flow doc
    `packages/protocol/docs/architecture/12-task-conversation-family.md`
-   for the `TaskCreate` semantics: appId-only, dedup behavior, and
+   for the `TaskRequest` semantics: appId-only, dedup behavior, and
    the `conversation: Conversation | null` result shape.
 5. Read Spec D2 body (#599) for the acceptance criteria and the
    partial-failure / exit-code contract verbatim.

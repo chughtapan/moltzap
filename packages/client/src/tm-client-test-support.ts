@@ -55,6 +55,7 @@ import {
   MessagesSend,
   MessageReceivedNotificationDefinition,
   PROTOCOL_VERSION,
+  TaskCreate,
   type AnyNotificationDefinition,
   type DecodedNotification,
   type NotificationFrame,
@@ -411,6 +412,13 @@ const denyEverythingHandlers = (): TMHandlers => ({
     handle: () =>
       Effect.fail(new ForbiddenError({ message: "test: deny-default" })),
   },
+  "task/create": {
+    definition: TaskCreate,
+    handle: () =>
+      Effect.succeed({
+        verdict: { decision: "reject" as const, reason: "test: deny-default" },
+      }),
+  },
 });
 
 const ignoreDisconnect = (_close: CloseInfo): void => undefined;
@@ -652,6 +660,16 @@ function grantDispatchAuthorizeHandlers(
         Effect.fail(
           new ForbiddenError({ message: "test: messages/authorize denied" }),
         ),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({
+          verdict: {
+            decision: "reject" as const,
+            reason: "test: deny-default",
+          },
+        }),
     },
   };
 }

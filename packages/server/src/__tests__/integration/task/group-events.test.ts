@@ -13,7 +13,7 @@ import type { ConnectedAgent } from "../helpers.js";
 import {
   DEFAULT_APP_ID,
   TaskConversationCreatedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 const GROUP_NAME = "Eval Group";
@@ -35,7 +35,7 @@ it("group creation notifies all participants with task/conversation/created even
 
     // Set up event waiters on Bob and Eve BEFORE creating the group
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, eve.agentId],
       initialConversation: {

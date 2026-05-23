@@ -11,7 +11,7 @@ import {
   TaskAddParticipant,
   TaskClose,
   TaskConversationCreate,
-  TaskCreate,
+  TaskRequest,
 } from "../../../task/methods.js";
 import type { TaskId } from "../../../task/methods.js";
 import type { ModeratedHandle } from "./_helpers.js";
@@ -136,7 +136,7 @@ function createTaskAndAddParticipant(
 ) {
   return Effect.gen(function* () {
     const taskResult = yield* owner.client
-      .sendRpc(TaskCreate, {
+      .sendRpc(TaskRequest, {
         appId,
         invitedAgentIds: [participant.agent.agentId],
       })

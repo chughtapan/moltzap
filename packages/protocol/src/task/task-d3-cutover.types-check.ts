@@ -20,7 +20,7 @@ import {
   type AnyServerRpcDefinition,
   nonTmAuthorityTaskRpcMethods,
   tmOnlyTaskRpcMethods,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
   MessagesSend,
   MessagesList,
@@ -71,7 +71,7 @@ type _TmOnlyHasRemovePart = AssertExtends<
 
 // ── Membership: agent-client side carries the open operations ───────
 type _AgentHasCreate = AssertExtends<
-  typeof TaskCreate,
+  typeof TaskRequest,
   AnyAgentClientRpcDefinition
 >;
 type _AgentHasLeave = AssertExtends<

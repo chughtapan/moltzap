@@ -90,7 +90,7 @@ export function extractTaskBinding(result: unknown): TaskBinding {
     conversation: { id: ConversationId } | null;
   };
   if (typed.conversation === null) {
-    throw new Error("TaskCreate result missing initial conversation");
+    throw new Error("TaskRequest result missing initial conversation");
   }
   return { taskId: typed.task.id, conversationId: typed.conversation.id };
 }

@@ -26,7 +26,7 @@ import {
   TaskConversationCreatedNotificationDefinition,
   TaskConversationUnarchive,
   TaskConversationUnarchivedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
   TaskId,
 } from "../../../task/methods.js";
 import {
@@ -546,7 +546,7 @@ export function acquireClient(
  *
  * Tests get a deterministic-readiness helper
  * (`awaitConversationReady`) to bridge the inherent observation gap
- * between `TaskCreate`/`TaskConversationCreate` returning and the
+ * between `TaskRequest`/`TaskConversationCreate` returning and the
  * matching notification arriving at the moderator's subscriber. Use
  * it once per conversation, immediately after the create RPC
  * resolves, before any `messages/send` triggers
@@ -583,6 +583,55 @@ function attachForwardAllMessagesAuthorize(
   );
 }
 
+// Initial-conversation snapshot. `task/conversation/created` is the
+// bulk event the server emits when a conversation is born (typically
+// as the initialConversation hint folded into task/request); seed
+// participantsRef from its `participants` field so
+// awaitConversationReady doesn't time out waiting for per-participant
+// added events that the server never sent.
+function applyConversationCreated(
+  prev: ParticipantMap,
+  params: NotificationParamsOf<
+    typeof TaskConversationCreatedNotificationDefinition
+  >,
+): ParticipantMap {
+  const convId = makeConversationId(params.conversationId);
+  const next = new Map(prev);
+  next.set(convId, new Set(params.participants));
+  return next;
+}
+
+function applyParticipantsAdded(
+  prev: ParticipantMap,
+  params: NotificationParamsOf<
+    typeof TaskConversationParticipantsAddedNotificationDefinition
+  >,
+): ParticipantMap {
+  const convId = makeConversationId(params.conversationId);
+  const existing = prev.get(convId) ?? new Set();
+  const updated = new Set(existing);
+  updated.add(params.addedAgentId);
+  const next = new Map(prev);
+  next.set(convId, updated);
+  return next;
+}
+
+function applyParticipantsRemoved(
+  prev: ParticipantMap,
+  params: NotificationParamsOf<
+    typeof TaskConversationParticipantsRemovedNotificationDefinition
+  >,
+): ParticipantMap {
+  const convId = makeConversationId(params.conversationId);
+  const existing = prev.get(convId);
+  if (existing === undefined) return prev;
+  const updated = new Set(existing);
+  updated.delete(params.removedAgentId);
+  const next = new Map(prev);
+  next.set(convId, updated);
+  return next;
+}
+
 function subscribeParticipantNotifications(
   client: TestClient,
   participantsRef: Ref.Ref<ParticipantMap>,
@@ -607,29 +656,16 @@ function subscribeParticipantNotifications(
 
   return Effect.gen(function* () {
     yield* pump(
+      TaskConversationCreatedNotificationDefinition,
+      applyConversationCreated,
+    );
+    yield* pump(
       TaskConversationParticipantsAddedNotificationDefinition,
-      (m, params) => {
-        const convId = makeConversationId(params.conversationId);
-        const next = new Map(m);
-        const existing = next.get(convId) ?? new Set();
-        const updated = new Set(existing);
-        updated.add(params.addedAgentId);
-        next.set(convId, updated);
-        return next;
-      },
+      applyParticipantsAdded,
     );
     yield* pump(
       TaskConversationParticipantsRemovedNotificationDefinition,
-      (m, params) => {
-        const convId = makeConversationId(params.conversationId);
-        const existing = m.get(convId);
-        if (existing === undefined) return m;
-        const updated = new Set(existing);
-        updated.delete(params.removedAgentId);
-        const next = new Map(m);
-        next.set(convId, updated);
-        return next;
-      },
+      applyParticipantsRemoved,
     );
   });
 }
@@ -723,7 +759,7 @@ export function acquireConversation(
     // (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
     const moderator = yield* moderateAs(owner, namePrefix);
     const createResult = yield* owner.client
-      .sendRpc(TaskCreate, {
+      .sendRpc(TaskRequest, {
         appId: moderator.appId,
         invitedAgentIds: participants.map((p) => p.agent.agentId),
         initialConversation: {

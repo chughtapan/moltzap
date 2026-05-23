@@ -27,7 +27,7 @@
  * baseline (architect §7).
  */
 import { Effect, Exit, Scope } from "effect";
-import { TaskCreate } from "../../../task/methods.js";
+import { TaskRequest } from "../../../task/methods.js";
 import {
   makeTestClient,
   type TestClient,
@@ -176,7 +176,7 @@ function missingTopologyUnavailable() {
     new PropertyUnavailable({
       category: CATEGORY,
       name: PROPERTY,
-      reason: `${TaskCreate.name} does not bootstrap session conversations; covered in Phase 9 with TM topology (#318)`,
+      reason: `${TaskRequest.name} does not bootstrap session conversations; covered in Phase 9 with TM topology (#318)`,
     }),
   );
 }

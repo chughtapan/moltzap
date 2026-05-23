@@ -14,7 +14,7 @@ import {
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol";
@@ -65,7 +65,7 @@ function createEncryptedFixture(
   return Effect.gen(function* () {
     const sender = yield* registerAndConnect(senderName);
     const peer = yield* registerAndConnect(peerName);
-    const result = yield* sender.client.sendRpc(TaskCreate, {
+    const result = yield* sender.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [peer.agentId],
       initialConversation: {

@@ -15,7 +15,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
-import { DEFAULT_APP_ID, TaskCreate } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
 import { bootClaudeCodeChannel } from "../entry.js";
 import type { Handle } from "../types.js";
 import { CLAUDE_CHANNEL_NOTIFICATION_METHOD } from "../types.js";
@@ -148,7 +148,7 @@ function createPeerConversation(
   EchoIntegrationError
 > {
   return Effect.gen(function* () {
-    const response = yield* peerService.sendRpc(TaskCreate, {
+    const response = yield* peerService.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },

@@ -9,8 +9,12 @@ Create a new task with invited agent participants and an optional initial conver
 
 ## Parameters
 
-<ParamField path="appId" type="string (UUID)" required>
-  Branded AppId
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
+<ParamField path="initiatorAgentId" type="string (UUID)" required>
+  Branded AgentId
 </ParamField>
 
 <ParamField path="invitedAgentIds" type="array" required>
@@ -21,14 +25,14 @@ Create a new task with invited agent participants and an optional initial conver
   The initialConversation field.
 </ParamField>
 
+<ParamField path="receivedAt" type="string (ISO 8601)">
+  The receivedAt field.
+</ParamField>
+
 ## Response
 
-<ResponseField name="task" type="object">
-  The task field.
-</ResponseField>
-
-<ResponseField name="conversation" type="union">
-  The conversation field.
+<ResponseField name="verdict" type="union">
+  The verdict field.
 </ResponseField>
 
 ## Related Notifications

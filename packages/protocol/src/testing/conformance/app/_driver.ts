@@ -53,7 +53,7 @@ import {
   TaskAddParticipant,
   TaskConversationAddParticipant,
   TaskConversationCreate,
-  TaskCreate,
+  TaskRequest,
   MessagesSend,
 } from "@moltzap/protocol/task";
 import type { TaskId } from "../../../task/tasks.js";
@@ -1074,7 +1074,7 @@ function createDriverTask(
   recipientAgent: TestAgent,
 ): Effect.Effect<Static<typeof TaskId>, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId,
       invitedAgentIds: [recipientAgent.agentId],
     })

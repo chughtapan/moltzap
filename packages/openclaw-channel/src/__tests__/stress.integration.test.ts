@@ -21,7 +21,7 @@ import {
   DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 interface StressAgent {
@@ -182,7 +182,7 @@ function createConversation(
   receiverAgentId: string,
 ) {
   return client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [receiverAgentId],
       initialConversation: { participants: [receiverAgentId] },

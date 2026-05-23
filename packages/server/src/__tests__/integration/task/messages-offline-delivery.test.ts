@@ -14,7 +14,7 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TaskCreate,
+  TaskRequest,
   type ConversationId,
   type Message,
   type TaskId,
@@ -112,11 +112,11 @@ function setupGroupConversation(
   agents: ThreeAgents,
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    // Single TaskCreate auto-admits invitees (#677) + atomically mints
+    // Single TaskRequest auto-admits invitees (#677) + atomically mints
     // the initial conversation. Replaces the prior TaskAddParticipant +
     // TaskConversationCreate dance which is TM-only and unreachable on
     // DEFAULT_APP_ID tasks.
-    const created = yield* agents.tm.sendRpc(TaskCreate, {
+    const created = yield* agents.tm.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agents.senderAgentId, agents.recipientAgentId],
       initialConversation: {

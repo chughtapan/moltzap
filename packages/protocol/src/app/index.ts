@@ -11,6 +11,7 @@ export {
   DispatchesExpired,
   DispatchesGet,
   MessagesAuthorize,
+  TaskCreate,
   validateAppManifest,
 } from "./methods.js";
 

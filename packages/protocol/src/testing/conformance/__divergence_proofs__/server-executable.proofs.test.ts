@@ -19,7 +19,7 @@ import {
   MessagesSend,
   TaskAddParticipant,
   TaskClose,
-  TaskCreate,
+  TaskRequest,
 } from "../../../task/methods.js";
 import {
   decodeFrame,
@@ -666,7 +666,7 @@ const taskCloseLifecycleBadResultHandlers = new Map<
   string,
   (request: RequestFrame) => unknown
 >([
-  [TaskCreate.name, badTaskCreateResult],
+  [TaskRequest.name, badTaskCreateResult],
   [TaskAddParticipant.name, badTaskParticipant],
   [TaskConversationCreate.name, badTaskConversation],
   [TaskClose.name, badTaskCloseResult],

@@ -9,7 +9,7 @@ import {
   getKyselyDb,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, MessagesSend, TaskCreate } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, MessagesSend, TaskRequest } from "@moltzap/protocol";
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
@@ -17,7 +17,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-// Pre-#677 the server deduped DEFAULT_APP_ID TaskCreate by participant
+// Pre-#677 the server deduped DEFAULT_APP_ID TaskRequest by participant
 // set. Server dedup retired; the "one DM per pair" UX moves to clients
 // (list + filter + create-or-use). Re-add coverage in the SDK package.
 vit.todo("client-side DEFAULT_APP_ID dedup — list + match");
@@ -27,7 +27,7 @@ it("messages/send stamps task_id matching conversations.task_id", () =>
     const alice = yield* registerAndConnect("alice-465");
     const bob = yield* registerAndConnect("bob-465");
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },

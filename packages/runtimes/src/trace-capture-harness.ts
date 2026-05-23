@@ -28,7 +28,7 @@ import {
 } from "@moltzap/protocol";
 import {
   DEFAULT_APP_ID,
-  TaskCreate,
+  TaskRequest,
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
@@ -463,7 +463,7 @@ function createDirectConversation(
 ): Effect.Effect<TaskScope, HarnessFailure, never> {
   const target = agentId(targetAgentId);
   return sender.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [target],
       initialConversation: { participants: [target] },
@@ -477,7 +477,7 @@ function createDirectConversation(
               conversationId: result.conversation.id,
             })
           : Effect.fail(
-              failHarness("TaskCreate returned null initial conversation"),
+              failHarness("TaskRequest returned null initial conversation"),
             ),
       ),
     );
@@ -494,7 +494,7 @@ function createGroupConversation(input: {
     ...input.participants.map((p) => agentId(p.agentId)),
   ];
   return input.sender.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: invited,
       initialConversation: { participants: invited },
@@ -508,7 +508,7 @@ function createGroupConversation(input: {
               conversationId: result.conversation.id,
             })
           : Effect.fail(
-              failHarness("TaskCreate returned null initial conversation"),
+              failHarness("TaskRequest returned null initial conversation"),
             ),
       ),
     );

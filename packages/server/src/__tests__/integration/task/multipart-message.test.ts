@@ -14,7 +14,7 @@ import {
   MessagesList,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
 } from "@moltzap/protocol";
 
 const PART_ONE_TEXT = "Part 1: Introduction";
@@ -31,7 +31,7 @@ it("message with multiple text parts preserves all parts in order", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskCreate, {
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
