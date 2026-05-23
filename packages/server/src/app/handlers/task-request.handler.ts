@@ -20,11 +20,12 @@
  *   4. On `reject` → setStatus(failed), fan out `task/failed` with
  *      reason, fail the RPC with `TaskRejectedError`.
  */
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 import {
   TaskConversationCreatedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
+  TaskRejectedError,
   TaskRequest,
   type AppId,
   type Conversation,
@@ -45,20 +46,6 @@ import {
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
-
-/**
- * Surfaced to the `task/request` caller when the bound TM's
- * `task/create` callback returns `{ decision: "reject" }` or the
- * fail-closed envelope synthesizes one (timeout / RPC failure /
- * decode failure). The wire still carries this as an RPC error;
- * the caller sees the same shape it would for any other handler
- * failure, with `reason` riding in the `data` arm of the JSON-RPC
- * error envelope.
- */
-class TaskRejectedError extends Data.TaggedError("TaskRejectedError")<{
-  readonly taskId: TaskId;
-  readonly reason?: string;
-}> {}
 
 type TaskRequestParams = {
   readonly appId: AppId;
@@ -150,14 +137,19 @@ function handleReject(
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const failedTask = yield* taskService.setStatus(taskId, "failed");
-    const reasonField = reason !== undefined ? { reason } : {};
+    const reasonField: { reason: string } | Record<string, never> =
+      reason !== undefined ? { reason } : {};
     yield* broadcastNotificationToAgents(
       recipients,
       TaskFailedNotificationDefinition,
       { taskId: failedTask.id, ...reasonField },
     );
+    // `reason` rides in the wire error's `data` arm (RpcErrorPayload),
+    // so the requester can read why without parsing the message.
     return yield* Effect.fail(
-      new TaskRejectedError({ taskId: failedTask.id, ...reasonField }),
+      new TaskRejectedError({
+        data: { taskId: failedTask.id as string, ...reasonField },
+      }),
     );
   }).pipe(Effect.withSpan("task.request.reject"));
 }

@@ -203,7 +203,7 @@ rollback BEFORE the enqueue line emits zero notifications.
 | `task/conversation/participants/add` | `task/conversation/participants/added` |
 | `task/conversation/participants/remove` | `task/conversation/participants/removed` |
 | `task/request` (after TM verdict `accept`) | `task/created { task }` (lifecycle transition waiting → active) |
-| `task/request` (after TM verdict `reject` / timeout / RPC failure) | `task/rejected { taskId, reason? }` (lifecycle transition waiting → failed) |
+| `task/request` (after TM verdict `reject` / timeout / RPC failure) | `task/failed { taskId, reason? }` (lifecycle transition waiting → failed) |
 | `task/leave` (per conversation the leaver was in) | `task/conversation/participants/removed { reason: "task_leave" }` (one per cid) |
 | `task/leave` (last-participant-task-closure case) | `task/closed { task }` |
 

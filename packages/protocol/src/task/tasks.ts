@@ -43,6 +43,23 @@ export class TaskClosedError extends Data.TaggedError(
 }
 registerErrorClass(TaskClosedError);
 
+/**
+ * `task/request` failed because the bound TM rejected the
+ * server-initiated `task/create` callback (or the fail-closed
+ * envelope synthesized a reject on timeout / RPC error / decode
+ * failure). The tag lets a requester distinguish "my task was
+ * rejected by the moderator" — an expected, actionable outcome —
+ * from an opaque internal error. The TM's reason rides in the
+ * `data` arm when present.
+ */
+export class TaskRejectedError extends Data.TaggedError(
+  "TaskRejected",
+)<RpcErrorPayload> {
+  static readonly code = -32024;
+  static readonly message = "Task request was rejected by the task manager";
+}
+registerErrorClass(TaskRejectedError);
+
 export class HookBlockedError extends Data.TaggedError(
   "HookBlocked",
 )<RpcErrorPayload> {
@@ -294,14 +311,16 @@ export type TaskConversationListItem = Static<
  * participant set" semantics list their tasks and filter locally
  * before creating a new one.
  *
- * NOTE (#683): This descriptor was renamed from `TaskCreate` /
- * `task/create` to `TaskRequest` / `task/request` in Phase 1 to make
- * room for a TM-facing `task/create` wire callback in
- * `packages/protocol/src/app/methods.ts`. Phase 3 will swap the
- * synchronous result for an ack-then-notification flow
- * (`{ taskId }` + `task/created` / `task/rejected`). Until that
- * lands the synchronous `{ task, conversation }` result is preserved
- * for compatibility with existing callers.
+ * NOTE (#683): the agent-facing entry RPC is `task/request`; the
+ * TM-facing wire callback `task/create` lives in
+ * `packages/protocol/src/app/methods.ts`. The server forks
+ * `task/create` to the bound TM after inserting the task in
+ * `waiting`; the TM's verdict drives the lifecycle (accept → active
+ * + `task/created`; reject → failed + `task/failed`). The synchronous
+ * `{ task, conversation }` result is returned after the verdict
+ * resolves (the handler awaits it). A future ack-then-notify variant
+ * could return `{ taskId }` immediately and let `task/created` /
+ * `task/failed` carry the outcome; that is not the current shape.
  */
 export const TaskRequest = defineRpc({
   name: "task/request",

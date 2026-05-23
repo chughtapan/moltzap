@@ -60,6 +60,7 @@ export interface TestAppManifestOptions {
   readonly conversations?: AppManifest["conversations"];
   readonly dispatchAuthorizeTimeoutMs?: number;
   readonly messagesAuthorizeTimeoutMs?: number;
+  readonly taskCreateTimeoutMs?: number;
 }
 
 export interface RegisterTestAppOptions extends TestAppManifestOptions {
@@ -153,6 +154,11 @@ function makeManifestHooks(
   if (options.messagesAuthorizeTimeoutMs !== undefined) {
     hooks.message_authorize = {
       timeout_ms: options.messagesAuthorizeTimeoutMs,
+    };
+  }
+  if (options.taskCreateTimeoutMs !== undefined) {
+    hooks.task_create = {
+      timeout_ms: options.taskCreateTimeoutMs,
     };
   }
   return Object.keys(hooks).length === 0 ? undefined : hooks;
