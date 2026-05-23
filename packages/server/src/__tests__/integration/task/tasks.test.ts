@@ -2,6 +2,7 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   AppsRegister,
+  TaskCreate,
   DEFAULT_APP_ID,
   TaskAddParticipant,
   TaskClose,
@@ -24,7 +25,7 @@ import {
 const REGISTRATION_SECRET = "tasks-test-secret-mnop";
 const ALICE_USER_ID = "00000000-0000-4000-8000-00000000a11d";
 const BOB_USER_ID = "00000000-0000-4000-8000-00000000b0b1";
-const WAITING_STATUS = "waiting";
+const ACTIVE_STATUS = "active";
 const CLOSED_STATUS = "closed";
 
 let baseUrl: string;
@@ -98,14 +99,15 @@ function setupAliceAndBob(): Effect.Effect<
   });
 }
 
-it("task/create returns a waiting task bound to the supplied appId", () =>
+it("task/request returns an active task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
     const result = yield* aliceClient.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
-    expect(result.task.status).toBe(WAITING_STATUS);
+    // DEFAULT_APP auto-accepts the task/create TM callback → active.
+    expect(result.task.status).toBe(ACTIVE_STATUS);
     expect(result.task.initiatorAgentId).toBe(aliceAgentId);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
   }));
@@ -127,6 +129,9 @@ it("TM authority: only the registered app connection may mutate task membership"
         name: "tm-test-app",
       },
     });
+    yield* aliceClient.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     const created = yield* aliceClient.sendRpc(TaskRequest, {
       appId: TM_TEST_APP_ID,
       invitedAgentIds: [],

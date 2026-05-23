@@ -9,6 +9,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import {
   AppsRegister,
+  TaskCreate,
   HookBlockedError,
   MessagesAuthorize,
   MessagesList,
@@ -264,6 +265,11 @@ function createAppManagedTask(
     yield* agent.client.sendRpc(AppsRegister, {
       manifest: TEST_APP_MANIFEST,
     });
+    // task/request fires a task/create TM callback before the task
+    // leaves `waiting`; this test's app auto-accepts.
+    yield* agent.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
     return yield* agent.client.sendRpc(TaskRequest, {
       appId: TEST_APP_ID,
       invitedAgentIds: invited.map((a) => a.agentId),

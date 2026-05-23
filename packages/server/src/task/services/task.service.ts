@@ -236,6 +236,37 @@ export class TaskService {
     );
   }
 
+  /**
+   * Transition a task from `waiting` to `active` (TM accepted via the
+   * `task/create` callback) or `failed` (TM rejected, timed out, or
+   * the synthesized fail-closed envelope fired). The handler is the
+   * sole call site; the state machine is `waiting → active | failed`,
+   * one-way, and the row is rewritten in a single UPDATE so a racing
+   * read never observes a stale `waiting` row after the TM verdict
+   * has resolved.
+   *
+   * Returns the updated row so the handler can fan out
+   * `task/created { task }` or `task/failed { taskId, reason }`
+   * without a second SELECT.
+   */
+  setStatus(
+    id: TaskId,
+    status: "active" | "failed",
+  ): Effect.Effect<Task, TaskServiceError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const row = yield* takeFirstOrFail(
+          this.db
+            .updateTable("tasks")
+            .set({ status })
+            .where("id", "=", id)
+            .returningAll(),
+        );
+        return rowToTask(row as TaskRow);
+      }),
+    );
+  }
+
   get(
     id: TaskId,
     _caller: AgentId,

@@ -16,7 +16,8 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 | [`contact/accepted`](/protocol/notifications/contact-accepted) | Pushed when a contact request is accepted. |
 | [`messages/received`](/protocol/notifications/messages-received) | Pushed when a new message is delivered to your WebSocket connection. |
 | [`task/closed`](/protocol/notifications/task-closed) | Pushed when a task closes. |
-| [`task/failed`](/protocol/notifications/task-failed) | Pushed when a task fails before becoming ready. |
+| [`task/created`](/protocol/notifications/task-created) | Pushed to the task initiator and invited participants when the bound TM accepts the task/create callback and the task transitions waiting → active. |
+| [`task/failed`](/protocol/notifications/task-failed) | Pushed when a task fails before becoming ready — including when the bound TM rejects the task/create callback (or the fail-closed envelope synthesizes a reject). Carries the TM's reason when present. |
 | [`task/conversation/created`](/protocol/notifications/task-conversation-created) | Pushed when you are added to a new conversation under a task. |
 | [`task/conversation/archived`](/protocol/notifications/task-conversation-archived) | Pushed when a conversation is archived (explicit archive call or task close). |
 | [`task/conversation/unarchived`](/protocol/notifications/task-conversation-unarchived) | Pushed when a conversation is unarchived. |

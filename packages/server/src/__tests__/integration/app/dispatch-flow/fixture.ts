@@ -6,6 +6,7 @@ import {
   DispatchRequest,
   MessagesSend,
   TaskConversationParticipantsRemovedNotificationDefinition,
+  TaskCreate,
   TaskRequest,
   type AppManifest,
   type ConversationId,
@@ -143,13 +144,21 @@ export function attachDispatchAuthorizeHook(
   alice: ConnectedAgent,
   fixture: DispatchFlowFixture,
 ): Effect.Effect<void> {
-  return alice.client.onAppCallback(DispatchAuthorize, () =>
-    Effect.gen(function* () {
-      const verdict = fixture.consumeNextVerdict();
-      if ("kind" in verdict) return yield* Effect.never;
-      return { admission: verdict };
-    }).pipe(Effect.withSpan("dispatchFlow.wireHook")),
-  );
+  return Effect.gen(function* () {
+    yield* alice.client.onAppCallback(DispatchAuthorize, () =>
+      Effect.gen(function* () {
+        const verdict = fixture.consumeNextVerdict();
+        if ("kind" in verdict) return yield* Effect.never;
+        return { admission: verdict };
+      }).pipe(Effect.withSpan("dispatchFlow.wireHook")),
+    );
+    // task/request fires a task/create TM callback before the task
+    // leaves `waiting`; this fixture's moderator auto-accepts so the
+    // dispatch-flow scenarios get an active task to operate on.
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
+  });
 }
 
 export function createUnmoderatedDm(

@@ -19,6 +19,7 @@ import { it as effectIt } from "@effect/vitest";
 import {
   DispatchAuthorize,
   DispatchesGet,
+  TaskCreate,
   type AppManifest,
   type DispatchId,
 } from "@moltzap/protocol";
@@ -84,6 +85,9 @@ function registerWireModerator() {
     yield* moderator.client.onAppCallback(
       DispatchAuthorize,
       grantDispatchAuthorize,
+    );
+    yield* moderator.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
     // AppsRegister is driven by `createTaskConversationOnApp`'s
     // idempotent `ensureModeratorAppRegistered` — calling it here

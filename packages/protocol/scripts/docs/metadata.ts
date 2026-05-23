@@ -285,8 +285,14 @@ export const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
       "Pushed when all required agents are admitted and the task is active.",
     triggeredBy: [TASK_REQUEST_METHOD],
   },
+  "task/created": {
+    description:
+      "Pushed to the task initiator and invited participants when the bound TM accepts the task/create callback and the task transitions waiting → active.",
+    triggeredBy: [TASK_REQUEST_METHOD],
+  },
   "task/failed": {
-    description: "Pushed when a task fails before becoming ready.",
+    description:
+      "Pushed when a task fails before becoming ready — including when the bound TM rejects the task/create callback (or the fail-closed envelope synthesizes a reject). Carries the TM's reason when present.",
     triggeredBy: [TASK_REQUEST_METHOD],
   },
   "task/closed": {

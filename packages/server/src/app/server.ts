@@ -26,6 +26,7 @@ import { presenceHandlers } from "../task/handlers/presence.handlers.js";
 import { contactHandlers } from "../task/handlers/contacts.handlers.js";
 import { taskHandlers } from "../task/handlers/tasks.handlers.js";
 import { appHandlers } from "./handlers/apps.handlers.js";
+import { taskRequestHandlers } from "./handlers/task-request.handler.js";
 
 import { WebhookClient } from "../adapters/webhook.js";
 
@@ -145,6 +146,7 @@ function makeCoreRpcMethods(): RpcMethodRegistry {
     ...messageHandlers,
     ...presenceHandlers,
     ...appHandlers,
+    ...taskRequestHandlers,
     ...contactHandlers,
     ...taskHandlers,
     ...pingHandlers,

@@ -1,16 +1,20 @@
 ---
 title: "task/failed"
-description: "Pushed when a task fails before becoming ready."
+description: "Pushed when a task fails before becoming ready — including when the bound TM rejects the task/create callback (or the fail-closed envelope synthesizes a reject). Carries the TM's reason when present."
 ---
 
 # task/failed
 
-Pushed when a task fails before becoming ready.
+Pushed when a task fails before becoming ready — including when the bound TM rejects the task/create callback (or the fail-closed envelope synthesizes a reject). Carries the TM's reason when present.
 
 ## Params
 
 <ResponseField name="taskId" type="string (UUID)">
   Branded TaskId
+</ResponseField>
+
+<ResponseField name="reason" type="string">
+  The reason field.
 </ResponseField>
 
 ## Example

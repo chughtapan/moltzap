@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import type { ParamsOf } from "@moltzap/protocol";
-import { DispatchAuthorize, MessagesAuthorize } from "@moltzap/protocol";
+import {
+  DispatchAuthorize,
+  MessagesAuthorize,
+  TaskCreate,
+} from "@moltzap/protocol";
 import { ConnectionId } from "@moltzap/protocol/network";
 import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import { Value } from "@sinclair/typebox/value";
@@ -53,6 +57,13 @@ export function installDefaultApp(
             verdict: { decision: "Forward" as const, recipients },
           };
         }).pipe(Effect.withSpan("defaultApp.messagesAuthorize")),
+      // DEFAULT_APP_ID is unmoderated. Every task/request bound to it
+      // is auto-accepted; the requester always sees the task land
+      // in `active` synchronously. Wire-registered apps that take
+      // over a task's TM slot replace this handler with their own
+      // verdict logic.
+      [TaskCreate.name]: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
   });
   appHost.registerApp({ appId: DEFAULT_APP_ID, name: "Default" }, connection);

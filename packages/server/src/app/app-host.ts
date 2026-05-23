@@ -14,7 +14,7 @@ import type {
   Part,
   ResultOf,
 } from "@moltzap/protocol";
-import { DispatchAuthorize } from "@moltzap/protocol";
+import { DispatchAuthorize, TaskCreate } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type {
@@ -689,6 +689,52 @@ export class AppHost {
       }),
       onError: () => ({
         decision: "Block" as const,
+        reason: "tm_unreachable",
+      }),
+    });
+  }
+
+  /**
+   * Fire the `task/create` TM callback after `task/request` lands a
+   * task in `waiting`. The TM's typed verdict drives the lifecycle
+   * transition (`waiting → active` on accept, `waiting → failed`
+   * on reject or any fail-closed synthesis: timeout, RPC error,
+   * decode failure).
+   *
+   * Unknown app → fail-closed reject (synthesized `tm_unreachable`).
+   * Same posture as {@link runMessageAuthorize}.
+   */
+  runTaskCreate(
+    appId: AppId,
+    ctx: ParamsOf<typeof TaskCreate>,
+  ): Effect.Effect<ResultOf<typeof TaskCreate>["verdict"], never> {
+    const entry = this.apps.get(appId);
+    if (entry === undefined) {
+      return Effect.succeed({
+        decision: "reject" as const,
+        reason: "tm_unreachable",
+      });
+    }
+    const timeoutMs =
+      entry.manifest.hooks?.dispatch_authorize?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
+    return this.wrapHookEffectWithEnvelope<
+      ResultOf<typeof TaskCreate>["verdict"]
+    >({
+      raw: this.callAppRpc(entry, TaskCreate, ctx).pipe(
+        Effect.map((envelope) => envelope.verdict),
+      ),
+      timeoutMs,
+      timeoutLogMessage: "task/create timed out",
+      timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
+      errorLogMessage: "task/create error",
+      errorLogContext: { taskId: ctx.taskId, appId },
+      onTimeout: () => ({
+        decision: "reject" as const,
+        reason: "timeout",
+      }),
+      onError: () => ({
+        decision: "reject" as const,
         reason: "tm_unreachable",
       }),
     });

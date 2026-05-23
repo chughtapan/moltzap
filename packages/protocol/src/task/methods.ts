@@ -10,6 +10,7 @@ import {
   TaskAddParticipant,
   TaskRemoveParticipant,
   TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   // Spec D1 (#598) `task/*` + `task/conversation/*` surface (singular).
   TaskRequest,
@@ -67,6 +68,7 @@ export const tmOnlyTaskRpcMethods = [
 export const taskNotifications = [
   MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   // Spec D3 canonical: only the task/conversation/* set survives the
   // `conversations/*` notification deletion.

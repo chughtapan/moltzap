@@ -22,6 +22,7 @@ import {
   MessagesSend,
   MessageReceivedNotificationDefinition,
   TaskConversationCreate,
+  TaskCreate,
   TaskRequest,
   type AppId,
   type AppManifest,
@@ -130,6 +131,9 @@ function recordBlockedHookTrace(): Effect.Effect<void> {
     // Alice registers as TRACE_APP_ID's moderator so she can drive
     // TaskConversationCreate (TM-only).
     yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
 
     const task = yield* alice.client.sendRpc(TaskRequest, {
       appId: TRACE_APP_ID,
