@@ -91,9 +91,13 @@ function wireErrorToRpcCallError(error: {
   // matches one of the union arms in `RegisteredTaggedError`. The type system
   // can't see through the open-ended `new (...) => { _tag: string }` factory
   // shape, so the cast bridges the static factory to the closed runtime union.
-  // The `data` argument is forwarded so any payload set by the server reaches
-  // the typed instance rather than being dropped (#511).
-  return new cls({ data: error.data } as never) as RegisteredTaggedError;
+  // Forward both `message` and `data` so the decoded instance reflects the
+  // wire payload — without `message`, `Data.TaggedError` defaults it to the
+  // empty string and a `catchTag` caller loses the server's error text (#511).
+  return new cls({
+    message: error.message,
+    data: error.data,
+  } as never) as RegisteredTaggedError;
 }
 
 function failAllPendingFromRef(
