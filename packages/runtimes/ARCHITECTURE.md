@@ -66,9 +66,13 @@ The runtimes package compiles the harness. The wire-side trace data is
 emitted by `@moltzap/server-core` as OpenTelemetry spans
 (`moltzap.message.delivered` / `moltzap.message.blocked` via Effect's
 `withSpan`); tests read finished spans from `CoreTestServer.spanExporter`
-(`InMemorySpanExporter`). The harness's `TraceCaptureEvent` bundle is
-arena-local and currently returns an empty `traceEvents` array pending an
-OTel-span→`TraceCaptureEvent` mapping (see `packages/evals/README.md`).
+(`InMemorySpanExporter`). Spans carry message-shape metadata only (ids,
+counts, total text length, channel/sender, recipients), never message
+body plaintext — body text is redacted from telemetry. The harness's
+`TraceCaptureEvent` bundle is arena-local and currently returns an empty
+`traceEvents` array pending an OTel-span→`TraceCaptureEvent` mapping; that
+mapping will NOT get message body text from spans (if it ever needs body
+text it must use a non-telemetry path). See `packages/evals/README.md`.
 
 ## Dependencies
 

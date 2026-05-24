@@ -27,8 +27,8 @@ Deleted from the old eval package:
 
 Trace emission in `@moltzap/server-core`:
 
-- `MessageService` emits `moltzap.message.delivered` and `moltzap.message.blocked` OTel spans (Effect `withSpan`), carrying the message id, conversation id, sender, created-at, text parts, channel key, sender display name, recipients/delivered (delivered) or block reason (blocked).
-- `app/tracing.ts` wires the OTel SDK Layer; production exports via batch OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, otherwise spans stay in-process.
+- `MessageService` emits `moltzap.message.delivered` and `moltzap.message.blocked` OTel spans (Effect `withSpan`). Spans carry message-shape **metadata only**, never message body content: message id, conversation id, sender id, created-at, part count, text-part count, total text length, channel key, sender display name, recipients/delivered (delivered) or block reason (blocked). Message body plaintext is deliberately redacted from telemetry — the envelope is encrypted at rest and spans can egress to an operator OTLP collector, so the body never belongs on a span.
+- `app/tracing.ts` wires the OTel SDK Layer; production exports via batch OTLP when an OTLP endpoint env var is set (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` used verbatim, else `OTEL_EXPORTER_OTLP_ENDPOINT` suffixed with `/v1/traces`), otherwise spans stay in-process.
 - Tests inject an `InMemorySpanExporter` via `CoreConfig.spanProcessor` and read finished spans from `CoreTestServer.spanExporter`.
 
 ## Verification
@@ -40,12 +40,17 @@ pnpm --filter @moltzap/runtimes test
 pnpm --filter @moltzap/runtimes build
 
 pnpm --filter @moltzap/server-core exec vitest run \
-  src/app/layers.test.ts
+  src/app/layers.test.ts \
+  src/app/tracing.test.ts
+
+pnpm --filter @moltzap/server-core exec vitest run \
+  --config vitest.integration.config.ts \
+  src/__tests__/integration/task/trace-spans.test.ts
 
 pnpm --filter @moltzap/server-core build
 ```
 
-Behavioral traces are verified at the span-exporter level: tests read finished OTel spans from `CoreTestServer.spanExporter` and assert on span name and attributes.
+Behavioral traces are verified at the span-exporter level: `trace-spans.test.ts` reads finished OTel spans from `CoreTestServer.spanExporter` and asserts on span name and the metadata attributes, and asserts that no span attribute carries message body plaintext. `tracing.test.ts` covers the OTLP endpoint env-var resolution (trace-specific precedence + URL normalization).
 
 ## cc-judge
 

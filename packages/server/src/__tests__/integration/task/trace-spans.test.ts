@@ -78,6 +78,17 @@ function parseArrayAttribute(value: unknown): unknown {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
 
+// Assert the message body plaintext appears in NO span attribute value
+// (stringified to catch JSON-encoded arrays/objects too). The redaction
+// contract: spans carry message-shape metadata, never body content.
+function expectNoPlaintext(
+  attributes: Record<string, unknown> | undefined,
+  plaintext: string,
+): void {
+  const serialized = JSON.stringify(attributes ?? {});
+  expect(serialized).not.toContain(plaintext);
+}
+
 function attachBlockingMessageAuthorize(alice: ConnectedAgent) {
   return alice.client.onAppCallback(MessagesAuthorize, () =>
     Effect.succeed({
@@ -107,10 +118,11 @@ function emitDeliveredMessageSpan(): Effect.Effect<void> {
     });
     const conversationId = conv.conversation!.id;
 
+    const messageText = "hello from trace span test";
     yield* alice.client.sendRpc(MessagesSend, {
       taskId: conv.task.id,
       conversationId,
-      parts: [{ type: "text", text: "hello from trace span test" }],
+      parts: [{ type: "text", text: messageText }],
     });
     yield* awaitOneNotification(
       bob.client,
@@ -124,16 +136,22 @@ function emitDeliveredMessageSpan(): Effect.Effect<void> {
       "moltzap.message.sender_id": alice.agentId,
       "moltzap.channel.key": conversationId,
       "moltzap.sender.display_name": alice.name,
+      // Metadata only — message body plaintext is never recorded on spans.
+      "moltzap.message.part_count": 1,
+      "moltzap.message.text_part_count": 1,
+      "moltzap.message.text_length": messageText.length,
     });
-    expect(
-      parseArrayAttribute(attributes?.["moltzap.message.text_parts"]),
-    ).toEqual(["hello from trace span test"]);
+    expect(attributes?.["moltzap.message.id"]).toBeDefined();
+    expect(attributes?.["moltzap.message.created_at"]).toBeDefined();
     expect(parseArrayAttribute(attributes?.["moltzap.recipients"])).toEqual([
       bob.agentId,
     ]);
     expect(parseArrayAttribute(attributes?.["moltzap.delivered"])).toEqual([
       bob.agentId,
     ]);
+    // Redaction guarantee: no span attribute carries message body text.
+    expect(attributes?.["moltzap.message.text_parts"]).toBeUndefined();
+    expectNoPlaintext(attributes, messageText);
 
     yield* alice.client.close();
     yield* bob.client.close();
@@ -178,10 +196,16 @@ function emitBlockedHookSpan(): Effect.Effect<void> {
       "moltzap.channel.key": conv.conversation.id,
       "moltzap.sender.display_name": alice.name,
       "moltzap.block.reason": TRACE_BLOCK_REASON,
+      // Metadata only — message body plaintext is never recorded on spans.
+      "moltzap.message.part_count": 1,
+      "moltzap.message.text_part_count": 1,
+      "moltzap.message.text_length": TRACE_BLOCKED_TEXT.length,
     });
-    expect(
-      parseArrayAttribute(attributes?.["moltzap.message.text_parts"]),
-    ).toEqual([TRACE_BLOCKED_TEXT]);
+    expect(attributes?.["moltzap.message.id"]).toBeDefined();
+    expect(attributes?.["moltzap.message.created_at"]).toBeDefined();
+    // Redaction guarantee: no span attribute carries message body text.
+    expect(attributes?.["moltzap.message.text_parts"]).toBeUndefined();
+    expectNoPlaintext(attributes, TRACE_BLOCKED_TEXT);
 
     yield* alice.client.close();
     yield* bob.client.close();

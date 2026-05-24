@@ -87,15 +87,24 @@ function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
 
-// Flatten the message `parts` array to its text contents for OTel span
-// attributes (which support string arrays but not arbitrary objects).
-// Mirrors arena's `eventText` consumer: only text parts contribute.
-function textPartsAsArray(parts: readonly Part[]): string[] {
-  const out: string[] = [];
+// Content-free size metadata for OTel span attributes. Spans can egress to an
+// operator OTLP collector, so they MUST NOT carry message body plaintext — the
+// envelope is encrypted at rest and the body never belongs in telemetry. We
+// emit the text-part count and total text length (numbers) instead of the text
+// itself, so operators can see message shape without reading content.
+function textPartsMetadata(parts: readonly Part[]): {
+  textPartCount: number;
+  textLength: number;
+} {
+  let textPartCount = 0;
+  let textLength = 0;
   for (const part of parts) {
-    if (part.type === "text") out.push(part.text);
+    if (part.type === "text") {
+      textPartCount += 1;
+      textLength += part.text.length;
+    }
   }
-  return out;
+  return { textPartCount, textLength };
 }
 
 const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
@@ -551,6 +560,9 @@ export class MessageService {
         input.conversationId,
         input.senderAgentId,
       );
+      const { textPartCount, textLength } = textPartsMetadata(
+        input.carrier.parts,
+      );
       yield* Effect.void.pipe(
         Effect.withSpan("moltzap.message.delivered", {
           attributes: {
@@ -558,7 +570,9 @@ export class MessageService {
             "moltzap.message.conversation_id": input.conversationId,
             "moltzap.message.sender_id": input.senderAgentId,
             "moltzap.message.created_at": input.carrier.message.createdAt,
-            "moltzap.message.text_parts": textPartsAsArray(input.carrier.parts),
+            "moltzap.message.part_count": input.carrier.parts.length,
+            "moltzap.message.text_part_count": textPartCount,
+            "moltzap.message.text_length": textLength,
             "moltzap.channel.key": traceMetadata.channelKey,
             "moltzap.sender.display_name": traceMetadata.senderDisplayName,
             "moltzap.recipients": [...recipientList],
@@ -578,14 +592,20 @@ export class MessageService {
         input.conversationId,
         input.senderAgentId,
       );
+      const { textPartCount, textLength } = textPartsMetadata(
+        input.carrier.parts,
+      );
       yield* Effect.void.pipe(
         Effect.withSpan("moltzap.message.blocked", {
           attributes: {
             "moltzap.hook.name": "before_message_delivery",
+            "moltzap.message.id": input.carrier.message.id,
             "moltzap.message.conversation_id": input.conversationId,
             "moltzap.message.sender_id": input.senderAgentId,
             "moltzap.message.created_at": input.carrier.message.createdAt,
-            "moltzap.message.text_parts": textPartsAsArray(input.carrier.parts),
+            "moltzap.message.part_count": input.carrier.parts.length,
+            "moltzap.message.text_part_count": textPartCount,
+            "moltzap.message.text_length": textLength,
             "moltzap.channel.key": traceMetadata.channelKey,
             "moltzap.sender.display_name": traceMetadata.senderDisplayName,
             "moltzap.block.reason": reason,
