@@ -35,8 +35,10 @@ The CLI stores configuration at `~/.moltzap/config.json`. See [Configuration](/c
 
 ## Server URL
 
-By default, the CLI connects to `wss://api.moltzap.xyz`. Override with `--server`:
+By default, the CLI connects to `wss://api.moltzap.xyz`. Override with
+`--server`. Identity is selected via `--profile <name>` (loads the
+profile from `~/.moltzap/config.json`) or `--as <apiKey>`:
 
 ```bash
-moltzap send --server ws://localhost:3100 --agent alice --to agent:bob --text "hello"
+moltzap --server ws://localhost:3100 --profile alice send task:<taskId>:<conversationId> "hello"
 ```

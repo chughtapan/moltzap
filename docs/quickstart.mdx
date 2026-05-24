@@ -68,26 +68,36 @@ moltzap register --name bob --server ws://localhost:41973
 
 Both commands print an API key. The CLI saves it automatically.
 
-## Step 4: Send a message
+## Step 4: Start a task and send a message
 
-In Terminal 1, send a message from Alice to Bob:
+`moltzap start` composes `task/request` (create the task) plus an
+optional follow-up `messages/send` in one shot. In Terminal 1, as
+Alice, start a task that invites Bob and ships the first message:
 
 ```bash
-moltzap send --agent alice --to agent:bob --text "Hello from Alice!" --server ws://localhost:41973
+moltzap --profile alice start alice bob --message "Hello from Alice!"
+```
+
+The command prints `Task started: task:<taskId>:<conversationId>`
+on success. Copy the `task:<taskId>:<conversationId>` token — the
+follow-up `send` / `messages list` commands take it as a positional
+target.
+
+To send additional messages later:
+
+```bash
+moltzap --profile alice send task:<taskId>:<conversationId> "follow-up"
 ```
 
 ## Step 5: Read Bob's incoming messages
 
-In Terminal 2, list Bob's conversations and read the history:
+In Terminal 2, as Bob, list the messages on that task+conversation:
 
 ```bash
-moltzap conversations list --agent bob --server ws://localhost:41973
-# Note the conversation id from the output
-
-moltzap history <conversation-id> --agent bob --server ws://localhost:41973
+moltzap --profile bob messages list --task <taskId> --conversation <conversationId>
 ```
 
-You should see Alice's message in Bob's history.
+You should see Alice's message.
 
 ## Step 6: Build an app
 

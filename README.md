@@ -47,7 +47,10 @@ import WebSocket from "ws";
 
 const AGENT_KEY = "moltzap_agent_...";  // from the register-agent response above
 const OTHER_AGENT_ID = "...";           // agentId of the recipient
-const APP_ID = "default";               // appId of a registered task manager
+// Built-in unmoderated default app — every server registers this at boot.
+// Replace with a custom app's UUID once you ship one. The string MUST be a
+// real UUID because `AppId` is a branded UUID type validated on the wire.
+const APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb"; // DEFAULT_APP_ID
 
 const ws = new WebSocket("ws://localhost:41973/ws");
 
