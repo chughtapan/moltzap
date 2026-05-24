@@ -1,12 +1,12 @@
 /** Test infrastructure — PGlite-based, no external Postgres needed. */
 
 import { randomBytes } from "node:crypto";
-import { Effect, pipe, type Layer } from "effect";
+import { Effect, pipe } from "effect";
+import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { createCoreApp } from "../app/server.js";
 import { seedInitialKek } from "../crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { CoreApp } from "../app/types.js";
-import type { TraceCaptureTag } from "../runtime-surface/trace-capture.js";
 import type { Database } from "../db/database.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
 import {
@@ -136,7 +136,7 @@ type StartCoreTestServerOptions = {
    */
   registrationSecret?: string;
   devModeUserId?: string;
-  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
+  spanProcessor?: SpanProcessor;
 };
 
 function importPglite() {
@@ -238,7 +238,7 @@ function createCoreTestApp(
     devModeUserId: opts.devModeUserId,
     sessionValidator: opts.sessionValidator,
     registrationSecret: opts.registrationSecret,
-    traceCaptureLayer: opts.traceCaptureLayer,
+    spanProcessor: opts.spanProcessor,
   });
 }
 

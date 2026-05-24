@@ -1,15 +1,8 @@
-import {
-  Config,
-  ConfigError,
-  Effect,
-  Option,
-  Redacted,
-  type Layer,
-} from "effect";
+import { Config, ConfigError, Effect, Option, Redacted } from "effect";
+import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Db } from "../db/client.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
 import type { WebhookClient } from "../adapters/webhook.js";
-import type { TraceCaptureTag } from "../runtime-surface/trace-capture.js";
 
 export interface CoreConfig {
   db: Db;
@@ -65,10 +58,15 @@ export interface CoreConfig {
   deliveryWebhook?: { url: string; secret: string };
 
   /**
-   * Optional trace-capture layer override. When unset, the server runs with
-   * the default no-op capture and emits no trace artifacts.
+   * Optional OpenTelemetry span processor. Tests typically pass
+   * `new SimpleSpanProcessor(new InMemorySpanExporter())` so they can
+   * read finished spans via the exporter; production deployments
+   * usually leave this unset and rely on `OTEL_EXPORTER_OTLP_ENDPOINT`
+   * env var (the server builds a `BatchSpanProcessor(OTLPTraceExporter)`
+   * when set). When neither is provided, spans live in Effect's fiber
+   * context but are not exported.
    */
-  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
+  spanProcessor?: SpanProcessor;
 }
 
 interface CorsConfig {
