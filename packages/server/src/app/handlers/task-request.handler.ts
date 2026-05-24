@@ -181,8 +181,10 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
     // `ContactPolicyAllowsReach` from the descriptor's `capabilities`
     // array before this body runs; draining the tag here makes the
     // gate a precondition of `taskService.create`. Empty
-    // `invitedAgentIds` provisions a no-op proof (the obtain helper
-    // short-circuits on zero targets).
+    // `invitedAgentIds` provisions a no-op proof: the service-layer
+    // guards short-circuit on zero targets (`loadAgentOwners([])` does
+    // no DB work; `assertContactPolicyForCreate(_, [], _)` returns
+    // `Effect.void`).
     yield* ContactPolicyAllowsReach;
     const waitingTask = yield* taskService.create(ctx.agentId, {
       appId: params.appId,

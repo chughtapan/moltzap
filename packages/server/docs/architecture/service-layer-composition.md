@@ -99,7 +99,7 @@ shared `dispatchRuntime` — no per-frame `Effect.provide`.
 ## Convention: package-private gate methods (Spec E Decision B / Option A)
 
 Each service class exposes a thin SQL gate per privileged operation
-— `loadTaskAsTmAuthority`, `loadTaskWithReadAccess`,
+— `loadOpenTask`, `loadTaskWithReadAccess`,
 `assertConversationInTask`, `assertConversationParticipant`, etc. These
 are **NOT** part of the service's exported public surface. They are
 `@internal` exported methods (the TS `private` modifier was dropped per
