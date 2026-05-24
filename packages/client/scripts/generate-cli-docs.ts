@@ -507,14 +507,42 @@ const readProtocolVersion = (): ReadResult<string> => {
   return result;
 };
 
+/**
+ * Read `API_KEY_PREFIX` from
+ * `packages/server/src/identity/services/agent-auth.ts`. The
+ * generated `ws-connect-example.mdx` uses the live prefix instead of
+ * a hardcoded `"moltzap_agent_"` so the snippet survives any future
+ * prefix change (and the `check-no-hardcoded-constants` API_KEY_PREFIX
+ * rule no longer needs `ws-connect-example.mdx` on its allowlist).
+ */
+const readApiKeyPrefix = (): ReadResult<string> => {
+  const sourcePath = resolve(
+    workspaceRoot,
+    "packages/server/src/identity/services/agent-auth.ts",
+  );
+  const result = readTopLevelStringConst(
+    readFileSync(sourcePath, "utf8"),
+    "API_KEY_PREFIX",
+  );
+  if (result._tag === "err") {
+    return {
+      _tag: "err",
+      reason: `generate-cli-docs: ${result.reason} in ${sourcePath}`,
+    };
+  }
+  return result;
+};
+
 interface SnippetInputs {
   readonly policy: HelloPolicy;
   readonly protocolVersion: string;
+  readonly apiKeyPrefix: string;
 }
 
 const renderHelloPolicySnippet = ({
   policy,
   protocolVersion,
+  apiKeyPrefix,
 }: SnippetInputs): string => {
   const json = JSON.stringify(
     {
@@ -535,7 +563,7 @@ const renderHelloPolicySnippet = ({
       id: "1",
       method: "network/connect",
       params: {
-        agentKey: "moltzap_agent_abc123...",
+        agentKey: `${apiKeyPrefix}abc123...`,
         minProtocol: protocolVersion,
         maxProtocol: protocolVersion,
       },
@@ -543,8 +571,14 @@ const renderHelloPolicySnippet = ({
     null,
     2,
   );
+  // Marker exempts the file from the constants gate for these
+  // generator-managed literals. Numeric HELLO_* policy values + the
+  // `apiKeyPrefix` + `protocolVersion` strings appear inside fenced
+  // JSON, where MDX cannot evaluate JSX — baked-at-generation is the
+  // robust path. Drift gate catches via git-diff after regen.
   return [
     AUTO_GEN_NOTE,
+    "{/* @bake-constants: API_KEY_PREFIX PROTOCOL_VERSION HELLO_MAX_MESSAGE_BYTES HELLO_MAX_PARTS_PER_MESSAGE HELLO_MAX_TEXT_LENGTH HELLO_MAX_GROUP_PARTICIPANTS HELLO_HEARTBEAT_INTERVAL_MS HELLO_MESSAGES_PER_MINUTE HELLO_REQUESTS_PER_MINUTE */}",
     "",
     "<Tabs>",
     '  <Tab title="Request">',
@@ -586,6 +620,7 @@ const main = (): void => {
 
   const policy = readHelloPolicy();
   const protocolVersion = readProtocolVersion();
+  const apiKeyPrefix = readApiKeyPrefix();
   if (policy._tag === "err") {
     console.error(policy.reason);
     process.exit(1);
@@ -594,11 +629,16 @@ const main = (): void => {
     console.error(protocolVersion.reason);
     process.exit(1);
   }
+  if (apiKeyPrefix._tag === "err") {
+    console.error(apiKeyPrefix.reason);
+    process.exit(1);
+  }
   writeFileSync(
     resolve(snippetsDir, "ws-connect-example.mdx"),
     renderHelloPolicySnippet({
       policy: policy.value,
       protocolVersion: protocolVersion.value,
+      apiKeyPrefix: apiKeyPrefix.value,
     }),
   );
 

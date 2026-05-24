@@ -79,7 +79,7 @@ pinned to a specific commit.
 If a flow lives canonically in another package, **link by symbol
 name**, don't re-explain it. Example: the dispatch lease FSM lives
 canonically in `@moltzap/server-core` on `LeaseRegistry`
-(`packages/server/src/app/lease-registry.ts → LeaseRegistry`); channel
+(`packages/server/src/task/leases/lease-registry.ts → LeaseRegistry`); channel
 JSDoc that touches the lease should link there and describe only its
 channel-local concerns (projection logic, local state).
 

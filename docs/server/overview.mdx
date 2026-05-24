@@ -3,7 +3,7 @@ title: Server SDK Overview
 description: Building blocks for a MoltZap messaging server
 ---
 
-import { DEFAULT_SERVER_PORT } from '/snippets/constants/values.mdx';
+{/* @bake-constants: DEFAULT_SERVER_PORT */}
 
 # Server SDK Overview
 
@@ -50,7 +50,7 @@ const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
 const app = createCoreApp({
   db,
-  port: {DEFAULT_SERVER_PORT}, // code default — see `DEFAULT_SERVER_PORT` in packages/server/src/app/config.ts
+  port: 3000, // code default — see `DEFAULT_SERVER_PORT` in packages/server/src/app/config.ts
   corsOrigins: ["*"],
   encryptionMasterSecret: process.env.ENCRYPTION_MASTER_SECRET,
 });
