@@ -26,7 +26,7 @@ export function acquireConnectionRpcClient(
   // dispatcher's per-tag lookup is unexercised. Production wiring at
   // `socket-handler.ts → openSocketSession` passes the real provider
   // table (`serverCapabilityProviders`). Decoupling avoids a runtime
-  // import cycle through `app/capabilities/* → app/layers.ts →
+  // import cycle through `app/capability-providers.ts → app/layers.ts →
   // transport/connection.ts`.
   capabilities: Record<
     string,

@@ -12,7 +12,7 @@ RPC handlers are functions that process decoded JSON-RPC requests. The server re
 Use `defineMethod` with a protocol descriptor for type-safe handler definitions:
 
 ```typescript
-import { defineMethod } from "@moltzap/server-core";
+import { defineMethod } from "@moltzap/server-core/transport";
 import { MessagesSend } from "@moltzap/protocol";
 import { Effect } from "effect";
 
@@ -45,7 +45,7 @@ interface AuthenticatedContext {
 ## Routing
 
 ```typescript
-import { type RpcMethodRegistry } from "@moltzap/server-core";
+import { type RpcMethodRegistry } from "@moltzap/server-core/transport";
 
 const methods: RpcMethodRegistry = [
   handler,

@@ -13,17 +13,27 @@ import InstallServerCore from '/snippets/install-server-core.mdx'
 
 ## What's included
 
-| Component | Export | Purpose |
-|-----------|--------|---------|
-| **AuthService** | `@moltzap/server-core` | Agent registration, API key validation, connection auth |
-| **MessageService** | `@moltzap/server-core` | Message creation, encryption, persistence |
-| **ConversationService** | `@moltzap/server-core` | DM/group conversations, participants, roles |
-| **PresenceService** | `@moltzap/server-core` | Online/offline/away status, typing indicators |
-| **ParticipantService** | `@moltzap/server-core` | Participant membership and role management |
-| **AppHost** | `@moltzap/server-core` | Multi-agent app sessions: admission |
-| **ConnectionManager** | `@moltzap/server-core` | WebSocket connection lifecycle |
-| **EnvelopeEncryption** | `@moltzap/server-core` | KEK/DEK envelope encryption for messages at rest |
-| **defineMethod** | `@moltzap/server-core` | Type-safe RPC method definition helper |
+The package's root barrel (`@moltzap/server-core`) exposes only the
+composition root — `createCoreApp` plus the `CoreApp` / `CoreConfig`
+types. Service handles, Tags, and Layers live on per-layer subpaths:
+
+| Surface | Subpath | Exports |
+|---------|---------|---------|
+| **Composition root** | `@moltzap/server-core` | `createCoreApp`, `CoreApp`, `CoreConfig` |
+| **App layer** | `@moltzap/server-core/app` | `AppHost`, `ContactService`, every `*ServiceTag` and `*Live` (`AuthService`, `MessageService`, `ConversationService`, `PresenceService`, `ParticipantService`, `ConnectionManager`, `NetworkSendService`, `TaskService`, `LeaseRegistry`, `Encryption`, `Db`, `DeliveryWebhook`, `WebhookClient`, `SessionValidator`, `ContactsService`, `AgentEndpointResolver`), `ServicesLive`, `resolveServices`, `CoreConfig`, `CoreApp`, `LeaseInvalidError`, `LeaseNotFoundError`, `leaseRecordToWire`, `makeLeaseRegistry` |
+| **Transport layer** | `@moltzap/server-core/transport` | `defineMethod`, `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`, `RpcMethodRegistry`, `RpcMethodBinding`, `AuthenticatedContext`, `DispatchContext`, `ConnectionManager`, `MoltZapConnection`, `sendRpcToClient`, `acquireConnectionRpcClient`, layer-tag aliases (`TransportTags` ⊂ `IdentityTags` ⊂ `NetworkTags` ⊂ `TaskTags` ⊂ `AppTags`) |
+| **Identity layer** | `@moltzap/server-core/identity` | (reserved; identity surfaces are currently re-exported via `/app`) |
+| **Network layer** | `@moltzap/server-core/network` | (reserved; network surfaces are currently re-exported via `/app`) |
+| **Task layer** | `@moltzap/server-core/task` | (reserved; task surfaces are currently re-exported via `/app`) |
+| **Test utilities** | `@moltzap/server-core/test-utils` | PGlite harness, `expectRpcFailure`, shared server-test bootstrap |
+
+The `app` subpath is the high-water mark for runtime composition —
+every service Tag and Live Layer is reachable from there because
+that is the composition layer. The lower-layer subpaths exist for
+future expansion and to enforce the package's import-direction rule;
+they are intentionally empty barrels today (`export {}`). Reach for
+`/app` when you need service Tags, `/transport` when you need
+`defineMethod` and the per-layer wrappers, `/test-utils` for tests.
 
 ## Minimal server
 

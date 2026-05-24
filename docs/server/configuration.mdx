@@ -7,17 +7,52 @@ description: Environment variables and server options
 
 ## CoreConfig
 
-The server accepts a `CoreConfig` object:
+`createCoreApp(config)` accepts a `CoreConfig` object (see
+`packages/server/src/app/types.ts → CoreConfig`). `CoreConfig` is
+re-exported from both `@moltzap/server-core` and
+`@moltzap/server-core/app`:
 
 ```typescript
-interface CoreConfig {
-  databaseUrl: string;
-  encryptionMasterSecret: string;
-  port: number;
-  corsOrigins: string[];
-  devMode?: boolean;
-}
+import type { CoreConfig } from "@moltzap/server-core";
+
+const config: CoreConfig = {
+  // Required:
+  db,                       // Db handle from createDb({ kind, ... })
+  port: 3100,
+  corsOrigins: ["*"],
+
+  // Optional:
+  // dbCleanup,             // () => PromiseLike<void> — disposer for in-memory DBs in tests
+  // encryptionMasterSecret, // string, ≥32 chars — KEK for envelope encryption
+  // registrationSecret,    // string — required by the bundled /register route
+  // devMode,               // boolean
+  // devModeUserId,         // string — auto-claim agents to this UUID; local dev only
+  // sessionValidator,      // SessionValidator from packages/server/src/identity/services/session-validator.ts
+  // webhookClient,         // WebhookClient — defaults to `new WebhookClient()`
+  // skipDefaultRegisterRoute, // boolean — turn off the bundled /api/v1/auth/register route
+  // deliveryWebhook,       // { url, secret } — HMAC-SHA256 signed offline-delivery webhook
+  // traceCaptureLayer,     // Layer.Layer<TraceCaptureTag> — OTel export
+};
 ```
+
+`db` is the only structurally required dependency — it is the
+`createDb({ kind: "pg" | "pglite", … })` handle from
+`@moltzap/server-core` (see [Database](/server/database)). Everything
+else is opt-in:
+
+- `encryptionMasterSecret` is optional; supply ≥32 chars to enable
+  envelope encryption (see [Encryption](/concepts/encryption)).
+- `devModeUserId` short-circuits the agent claim step for the bundled
+  register route — local dev only. Production leaves it unset and
+  pairs `skipDefaultRegisterRoute: true` with a custom register route
+  ([Custom Identity Provider](/guides/custom-identity-provider)).
+- `webhookClient` defaults to a fresh `new WebhookClient()`; supply
+  your own to share connection pools or intercept outbound HTTP in
+  tests.
+- `deliveryWebhook` enables fire-and-forget delivery webhooks (offline
+  recipients). The body is HMAC-SHA256 signed with `secret`.
+- `traceCaptureLayer` overrides the no-op trace capture; supply a real
+  Layer to forward OTel spans elsewhere.
 
 ## Environment variables
 
@@ -35,7 +70,9 @@ psql $DATABASE_URL < packages/server/src/db/core-schema.sql
 
 ## Encryption
 
-The `ENCRYPTION_MASTER_SECRET` must be at least 32 characters. It's used to derive the KEK for envelope encryption. See [Encryption](/concepts/encryption) for details.
+`encryptionMasterSecret` must be at least 32 characters when set. It
+derives the KEK for envelope encryption. See
+[Encryption](/concepts/encryption) for details.
 
 <Warning>
 Never commit the encryption secret to source control. Use environment variables or a secrets manager.
