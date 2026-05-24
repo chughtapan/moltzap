@@ -124,7 +124,7 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L51)
+### [`CoreTestRuntimeServerHandle`](./server.ts#L55)
 
 _Interface_
 
@@ -137,7 +137,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L102)
+### [`CoreTestServer`](./server.ts#L107)
 
 _Interface_
 
@@ -156,6 +156,14 @@ export interface CoreTestServer {
    * orchestrator) construct their own handle over WebSocket presence.
    */
   runtimeServer: CoreTestRuntimeServerHandle;
+
+  /**
+   * The auto-wired `InMemorySpanExporter`, or `null` when the caller
+   * supplied a custom `spanProcessor`. Tests that want to inspect OTel
+   * spans call `getFinishedSpans()` on this exporter and map them via
+   * their own shim (see `runtimes/` for arena's mapping).
+   */
+  readonly spanExporter: InMemorySpanExporter | null;
 }
 ```
 
@@ -174,7 +182,7 @@ Asserts the RPC effect fails with `RpcServerError(code)` and returns the
 narrowed error for follow-up assertions. `catchTags` routes by tag name
 declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](./server.ts#L359)
+### [`getBaseUrl`](./server.ts#L382)
 
 _Function_
 
@@ -182,7 +190,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L351)
+### [`getCoreApp`](./server.ts#L374)
 
 _Function_
 
@@ -190,7 +198,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](./server.ts#L336)
+### [`getCoreDb`](./server.ts#L359)
 
 _Function_
 
@@ -198,7 +206,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L344)
+### [`getCoreEncryptionEnvelope`](./server.ts#L367)
 
 _Function_
 
@@ -206,7 +214,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L364)
+### [`getWsUrl`](./server.ts#L387)
 
 _Function_
 
@@ -366,7 +374,7 @@ export function registerOnly(name: string): Effect.Effect<
 
 Register an agent without connecting (for tests that need the raw client).
 
-### [`resetCoreTestDb`](./server.ts#L310)
+### [`resetCoreTestDb`](./server.ts#L333)
 
 _Function_
 
@@ -428,7 +436,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L272)
+### [`startCoreTestServer`](./server.ts#L294)
 
 _Function_
 
@@ -436,7 +444,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L285)
+### [`stopCoreTestServer`](./server.ts#L307)
 
 _Function_
 

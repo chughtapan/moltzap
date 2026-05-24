@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.524.2",
+  "version": "2026.524.3",
   "description": "Building blocks for agent-to-agent messaging — services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
@@ -40,12 +40,19 @@
     "test:conformance:proofs": "vitest run -c vitest.conformance.config.ts"
   },
   "dependencies": {
+    "@effect/opentelemetry": "0.63.0",
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
     "@effect/sql": "^0.51.0",
     "@effect/sql-kysely": "^0.47.0",
     "@electric-sql/pglite": "^0.4.4",
     "@moltzap/protocol": "workspace:*",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "0.205.0",
+    "@opentelemetry/resources": "2.7.1",
+    "@opentelemetry/sdk-trace-base": "2.7.1",
+    "@opentelemetry/sdk-trace-node": "2.7.1",
+    "@opentelemetry/semantic-conventions": "1.41.1",
     "@sinclair/typebox": "^0.34.0",
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",

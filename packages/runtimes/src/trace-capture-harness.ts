@@ -154,9 +154,10 @@ interface ClientTestModule {
 }
 
 interface CoreAppHandle {
-  readonly traceCapture: {
-    snapshot(): Effect.Effect<readonly TraceCaptureEvent[], never, never>;
-  };
+  // No fields used by the harness directly today — the test server's
+  // `spanExporter` handle (see CoreTestServer below) is the path for
+  // reading messaging trace data.
+  readonly _placeholder?: never;
 }
 
 // Pre-wired RuntimeServerHandle that startCoreTestServer now exposes — the
@@ -186,12 +187,8 @@ interface CoreTestServer {
   readonly runtimeServer: RuntimeServerLike;
 }
 
-interface ServerIndexModule {
-  readonly InMemoryTraceCaptureLive: unknown;
-}
-
 interface ServerTestModule {
-  startCoreTestServer(opts: { readonly traceCaptureLayer: unknown }): unknown;
+  startCoreTestServer(opts: Readonly<Record<string, never>>): unknown;
   stopCoreTestServer(): unknown;
 }
 
@@ -286,21 +283,6 @@ function loadClientTestModule(): Effect.Effect<ClientTestModule, Error, never> {
       import(
         packageModuleUrl("client", "dist", "test", "index.js")
       ) as Promise<ClientTestModule>,
-    catch: (error) =>
-      error instanceof Error ? error : new Error(String(error)),
-  });
-}
-
-function loadServerIndexModule(): Effect.Effect<
-  ServerIndexModule,
-  Error,
-  never
-> {
-  return Effect.tryPromise({
-    try: () =>
-      import(
-        packageModuleUrl("server", "dist", "index.js")
-      ) as Promise<ServerIndexModule>,
     catch: (error) =>
       error instanceof Error ? error : new Error(String(error)),
   });
@@ -841,15 +823,12 @@ interface TargetAgentRegistration {
 }
 
 function startCoreTraceServer(
-  serverIndexModule: ServerIndexModule,
   serverTestModule: ServerTestModule,
 ): Effect.Effect<CoreTestServer, HarnessFailure> {
   return Effect.tryPromise({
     try: () =>
       Promise.resolve(
-        serverTestModule.startCoreTestServer({
-          traceCaptureLayer: serverIndexModule.InMemoryTraceCaptureLive,
-        }),
+        serverTestModule.startCoreTestServer({}),
       ) as Promise<CoreTestServer>,
     catch: (error) =>
       failHarness(error instanceof Error ? error.message : String(error)),
@@ -953,7 +932,17 @@ function executeTraceRun(input: {
       targetAgentId: input.targetAgent.agentId,
       clientModule: input.clientModule,
     });
-    const traceEvents = yield* input.server.coreApp.traceCapture.snapshot();
+    // TODO: read finished OTel spans from `server.spanExporter` and map
+    // `moltzap.message.delivered` spans to `TraceCaptureEvent`. The
+    // server-side custom `TraceCapture` was removed; arena's harness
+    // needs its own OTel→TraceCaptureEvent mapping. Bundles are empty
+    // until that's wired.
+    //
+    // Note: spans carry message-shape metadata only (part/text counts and
+    // lengths), NOT message body plaintext — the server redacts body text
+    // from telemetry. A future mapping that needs the actual message text
+    // must obtain it through a non-telemetry path, not from these spans.
+    const traceEvents: readonly TraceCaptureEvent[] = [];
     const runId = input.runId ?? (yield* randomRunId());
     return buildTraceBundle({
       sourcePath: input.sourcePath,
@@ -975,14 +964,8 @@ function executeCoordinatorRun(input: {
   readonly runId: string | undefined;
 }) {
   return Effect.gen(function* () {
-    const [serverIndexModule, serverTestModule] = yield* Effect.all([
-      loadServerIndexModule(),
-      loadServerTestModule(),
-    ]);
-    const server = yield* startCoreTraceServer(
-      serverIndexModule,
-      serverTestModule,
-    );
+    const serverTestModule = yield* loadServerTestModule();
+    const server = yield* startCoreTraceServer(serverTestModule);
     return yield* executeWithCoreServer(input, server).pipe(
       Effect.ensuring(stopCoreTraceServer(serverTestModule)),
     );

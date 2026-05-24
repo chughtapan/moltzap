@@ -1,6 +1,6 @@
 ---
 title: Behavioral Traces
-description: Server-owned trace capture plus external cc-judge execution
+description: Server-emitted OpenTelemetry spans plus external cc-judge execution
 ---
 
 # Behavioral Traces
@@ -9,8 +9,8 @@ description: Server-owned trace capture plus external cc-judge execution
 
 The current split is:
 
-1. `@moltzap/server-core` owns `TraceCapture` through Effect Layer DI.
-2. The server records message-delivery trace events directly where they happen.
+1. `@moltzap/server-core` emits behavioral traces as OpenTelemetry spans (Effect's `withSpan`).
+2. The server records message-delivery and hook-block traces directly where they happen, as the `moltzap.message.delivered` and `moltzap.message.blocked` spans.
 3. `packages/evals/` only keeps the scenario YAML catalog.
 4. `@moltzap/runtimes` owns the runtime adapters and the compiled `trace-capture-harness` module loaded by `cc-judge`.
 5. External `cc-judge` runners own scenario loading, harness dispatch, scoring, and report emission.
@@ -25,12 +25,11 @@ Deleted from the old eval package:
 - local runtime logger
 - old eval-agent Docker build scripts
 
-Added upstream in `@moltzap/server-core`:
+Trace emission in `@moltzap/server-core`:
 
-- `TraceCaptureTag`
-- `NoopTraceCaptureLive`
-- `InMemoryTraceCaptureLive`
-- message-delivery capture wired through the server's Layer graph
+- `MessageService` emits `moltzap.message.delivered` and `moltzap.message.blocked` OTel spans (Effect `withSpan`). Spans carry message-shape **metadata only**, never message body content: message id, conversation id, sender id, created-at, part count, text-part count, total text length, channel key, sender display name, recipients/delivered (delivered) or block reason (blocked). Message body plaintext is deliberately redacted from telemetry — the envelope is encrypted at rest and spans can egress to an operator OTLP collector, so the body never belongs on a span.
+- `app/tracing.ts` wires the OTel SDK Layer; production exports via batch OTLP when an OTLP endpoint env var is set (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` used verbatim, else `OTEL_EXPORTER_OTLP_ENDPOINT` suffixed with `/v1/traces`), otherwise spans stay in-process.
+- Tests inject an `InMemorySpanExporter` via `CoreConfig.spanProcessor` and read finished spans from `CoreTestServer.spanExporter`.
 
 ## Verification
 
@@ -41,19 +40,17 @@ pnpm --filter @moltzap/runtimes test
 pnpm --filter @moltzap/runtimes build
 
 pnpm --filter @moltzap/server-core exec vitest run \
-  src/runtime-surface/trace-capture.test.ts \
-  src/app/layers.test.ts
+  src/app/layers.test.ts \
+  src/app/tracing.test.ts
 
 pnpm --filter @moltzap/server-core exec vitest run \
   --config vitest.integration.config.ts \
-  src/__tests__/integration/task/trace-capture.test.ts
+  src/__tests__/integration/task/trace-spans.test.ts
 
 pnpm --filter @moltzap/server-core build
 ```
 
-The integration proof for server-owned trace capture is:
-
-- `packages/server/src/__tests__/integration/task/trace-capture.test.ts`
+Behavioral traces are verified at the span-exporter level: `trace-spans.test.ts` reads finished OTel spans from `CoreTestServer.spanExporter` and asserts on span name and the metadata attributes, and asserts that no span attribute carries message body plaintext. `tracing.test.ts` covers the OTLP endpoint env-var resolution (trace-specific precedence + URL normalization).
 
 ## cc-judge
 
@@ -62,7 +59,7 @@ The integration proof for server-owned trace capture is:
 That means:
 
 - MoltZap scenario YAML stays in `packages/evals/scenarios/`
-- the server emits trace data through `TraceCapture`
+- the server emits trace data as OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`)
 - the harness module is `packages/runtimes/dist/trace-capture-harness.js`
 - a consuming repo or local environment must install `cc-judge` separately
 
