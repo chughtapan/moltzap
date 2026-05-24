@@ -34,7 +34,10 @@ const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
     >,
     (r) => {
       if (json) {
-        console.log(JSON.stringify(r.contacts, null, JSON_INDENT_SPACES));
+        // Serialize the full result (contacts + nextCursor) so a machine
+        // consumer can detect a truncated page and fetch the next one —
+        // dumping only `contacts` would hide the truncation signal.
+        console.log(JSON.stringify(r, null, JSON_INDENT_SPACES));
         return;
       }
       if (r.contacts.length === 0) {

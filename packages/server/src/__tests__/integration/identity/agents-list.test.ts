@@ -26,7 +26,6 @@ import {
 const it = effectIt.live;
 
 type AgentsListResult = { agents: AgentCard[]; nextCursor?: string };
-type AgentsArrayResult = { agents: AgentCard[] };
 
 // agents/list is contact-scoped per #481; admin-register is used to bind
 // explicit owners so the cross-owner visibility cases can be exercised.
@@ -161,13 +160,13 @@ function listAgents(agent: OwnedConnectedAgent) {
 function lookupAgents(agent: OwnedConnectedAgent, agentIds: string[]) {
   return agent.client.sendRpc(AgentsLookup, {
     agentIds,
-  }) as Effect.Effect<AgentsArrayResult>;
+  }) as Effect.Effect<AgentsListResult>;
 }
 
 function lookupAgentsByName(agent: OwnedConnectedAgent, names: string[]) {
   return agent.client.sendRpc(AgentsLookupByName, {
     names,
-  }) as Effect.Effect<AgentsArrayResult>;
+  }) as Effect.Effect<AgentsListResult>;
 }
 
 function acceptContact(
