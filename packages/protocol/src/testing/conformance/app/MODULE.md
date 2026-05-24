@@ -82,16 +82,11 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L264)
+### [`DispatchTestDriver`](./_driver.ts#L269)
 
 _Interface_
 
 ```ts
- * Cross-impl driver. One `DispatchTestDriver` instance per property,
- * acquired under the property's `Scope`. Wires up the real server,
- * recipient + moderator clients, and shared task / conversation
- * fixtures.
- */
 export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
@@ -116,14 +111,16 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchTestDriverConfig`](./_driver.ts#L328)
+### [`DispatchTestDriverConfig`](./_driver.ts#L333)
 
 _Interface_
 
 ```ts
- * `moderatorTimeoutMs` is propagated to the manifest's
- * `hooks.dispatch_authorize.timeout_ms`. Properties that exercise the
- * moderator-response TTL pass a small value (e.g., 200 ms); properties
+export interface DispatchTestDriverConfig {
+  readonly taskAppId?: string | null;
+  readonly moderatorTimeoutMs?: number;
+  readonly leaseTimeoutMs?: number;
+}
 ```
 
 Driver options. `taskAppId` controls whether the server-side path is
@@ -136,15 +133,11 @@ via `taskAppId: "conformance-test-app"`. The `default-grant` properties
 moderator-response TTL pass a small value (e.g., 200 ms); properties
 that don't care pass the default 5_000 ms.
 
-### [`DispatchVerdict`](./_driver.ts#L90)
+### [`DispatchVerdict`](./_driver.ts#L94)
 
 _TypeAlias_
 
 ```ts
- * Properties that need to script a moderator's reply pass a
- * `DispatchVerdict` value to `recipient.expectAuthorize` /
- * `respondWith`; the driver encodes it to the wire shape internally.
- */
 export type DispatchVerdict =
   | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
 ```
@@ -234,14 +227,20 @@ _TypeAlias_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`LeaseState`](./_driver.ts#L101)
+### [`LeaseState`](./_driver.ts#L105)
 
 _TypeAlias_
 
 ```ts
- * `assertLeaseState` polls `dispatches/get` until the registry settles
- * to the named state or the bound elapses (impl-staff picks the bound
- * per-property; default 5 s).
+export type LeaseState =
+  | "PENDING"
+  | "CLAIMED"
+  | "GRANTED"
+  | "CONSUMED"
+  | "DENIED"
+  | "EXPIRED"
+  | "ABANDONED"
+  | "HOLD";
 ```
 
 Closed lease-state union mirroring `LeaseStateSchema`. The driver's
@@ -249,12 +248,11 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (impl-staff picks the bound
 per-property; default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L940)
+### [`makeDispatchTestDriver`](./_driver.ts#L941)
 
 _Function_
 
 ```ts
- */
 export function makeDispatchTestDriver(
   ctx: ConformanceRunContext,
   config?: DispatchTestDriverConfig,
@@ -276,16 +274,11 @@ _Property_
   readonly messageId: string;
 ```
 
-### [`ModeratorHandle`](./_driver.ts#L193)
+### [`ModeratorHandle`](./_driver.ts#L198)
 
 _Interface_
 
 ```ts
- * Moderator-side surface. Owns one TestClient connected to the real
- * server under a moderator agent identity, with `apps/register` already
- * driven to install a `dispatch_authorize` hook for the test app. Holds
- * the registered `appId` for `dispatches/get` scope assertions.
- */
 export interface ModeratorHandle {
   readonly agentId: Static<typeof AgentId>;
   readonly appId: string;
@@ -332,13 +325,32 @@ _Variable_
 export const NO_SECOND_RELEASE_WINDOW_MS = 250
 ```
 
-### [`RecipientHandle`](./_driver.ts#L119)
+### [`RecipientHandle`](./_driver.ts#L123)
 
 _Interface_
 
 ```ts
- * server under a recipient agent identity. All methods return Effects
- * scoped to the surrounding `Scope`;
+export interface RecipientHandle {
+  readonly agentId: Static<typeof AgentId>;
+
+  /**
+   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * payload `{leaseId, dispatchId}`. Single recipient may issue many
+   * concurrent requests; the property is responsible for ordering its
+   * own assertions.
+   */
+  readonly requestDispatch: (params: {
+    readonly conversationId: Static<typeof ConversationId>;
+    readonly messageId: Static<typeof MessageId>;
+    readonly senderAgentId: Static<typeof AgentId>;
+    readonly attempt?: number;
+  }) => Effect.Effect<
+    {
+      readonly leaseId: Static<typeof LeaseId>;
+      readonly dispatchId: Static<typeof DispatchId>;
+    },
+    PropertyFailure
+  >;
 ```
 
 Recipient-side surface. Owns one TestClient connected to the real
@@ -346,11 +358,12 @@ server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
 underlying TestClient.
 
-### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L57)
+### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L56)
 
 _Function_
 
 ```ts
+export function registerAppDisconnectFailPolicy(
   ctx: ConformanceRunContext,
 ): void
 ```
@@ -415,12 +428,11 @@ export function registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(
 ): void
 ```
 
-### [`registerDispatchesGetModeratorSeesRecord`](./dispatches-get-moderator-sees.ts#L14)
+### [`registerDispatchesGetModeratorSeesRecord`](./dispatches-get-moderator-sees.ts#L15)
 
 _Function_
 
 ```ts
-
 export function registerDispatchesGetModeratorSeesRecord(
   ctx: ConformanceRunContext,
 ): void
@@ -512,12 +524,11 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 ): void
 ```
 
-### [`registerSameConversationDispatchesConcurrent`](./same-conv-dispatches-concurrent.ts#L14)
+### [`registerSameConversationDispatchesConcurrent`](./same-conv-dispatches-concurrent.ts#L15)
 
 _Function_
 
 ```ts
-
 export function registerSameConversationDispatchesConcurrent(
   ctx: ConformanceRunContext,
 ): void

@@ -7,7 +7,7 @@
  *
  * 1. **Transport-layer** — `NotConnectedError`, `RpcTimeoutError`,
  *    `RpcServerError` (from `@moltzap/protocol`). Raised by
- *    `MoltZapWsClient.sendRpc` and reach the caller of the RPC.
+ *    `MoltZapAgentClient.sendRpc` and reach the caller of the RPC.
  *    `MalformedFrameError` is the exception: it never escapes the
  *    socket reader fiber (logged and dropped, sampled 1-in-50).
  *

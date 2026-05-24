@@ -22,12 +22,12 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireProxiedClient`](./_helpers.ts#L62)
+### [`acquireProxiedClient`](./_helpers.ts#L61)
 
 _Function_
 
 ```ts
-  readonly ctx: ConformanceRunContext
+export function acquireProxiedClient(opts:
 ```
 
 Acquire a TestClient that routes through the Toxiproxy proxy.
@@ -40,29 +40,31 @@ _Variable_
 export const ADVERSITY_CATEGORY = "adversity" as const
 ```
 
-### [`adversityViolation`](./_helpers.ts#L35)
+### [`adversityViolation`](./_helpers.ts#L34)
 
 _Function_
 
 ```ts
+export function adversityViolation(
   name: string,
   reason: string,
 ): PropertyInvariantViolation
 ```
 
-### [`attachToxic`](./_helpers.ts#L116)
+### [`attachToxic`](./_helpers.ts#L115)
 
 _Property_
 
 ```ts
-};
+  readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
 ```
 
-### [`createOneOnOneConversation`](./_helpers.ts#L221)
+### [`createOneOnOneConversation`](./_helpers.ts#L220)
 
 _Function_
 
 ```ts
+export function createOneOnOneConversation(
   owner:
 ```
 
@@ -74,20 +76,20 @@ _Variable_
 export const DEFAULT_CAPTURE_CAPACITY = 128
 ```
 
-### [`proxy`](./_helpers.ts#L114)
+### [`proxy`](./_helpers.ts#L113)
 
 _Property_
 
 ```ts
-  readonly unavailable: (reason: string) => PropertyUnavailable;
+  readonly proxy: ToxiproxyProxy;
 ```
 
-### [`proxyName`](./_helpers.ts#L53)
+### [`proxyName`](./_helpers.ts#L52)
 
 _Function_
 
 ```ts
-  return `${prefix}-${seed}-${randomIdSuffix()}`
+export function proxyName(prefix: string, seed: number): string
 ```
 
 ### [`registerCallerControlledAppCallbackTimeout`](./caller-controlled-app-callback-timeout.ts#L41)
@@ -100,17 +102,12 @@ export function registerCallerControlledAppCallbackTimeout(
 ): void
 ```
 
-### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L26)
+### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L24)
 
 _Function_
 
 ```ts
-    ctx,
-    propertyName: "latency-resilience",
-    description: "fan-out delivery survives added latency + jitter",
-    proxyName: proxyName("lat", ctx.seed),
-    profile: defaultToxicProfile.latency,
-    body: (params)
+export function registerLatencyResilience(ctx: ConformanceRunContext): void
 ```
 
 ### [`registerMalformedFrameHandling`](./malformed-frame-handling.ts#L26)
@@ -183,17 +180,12 @@ _Function_
 export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void
 ```
 
-### [`registerSlicerFraming`](./adversity-slicer-framing.ts#L27)
+### [`registerSlicerFraming`](./adversity-slicer-framing.ts#L25)
 
 _Function_
 
 ```ts
-    ctx,
-    propertyName: "slicer-framing",
-    description: "partial-frame slicing preserves payload byte-identity",
-    proxyName: proxyName("sli", ctx.seed),
-    profile: defaultToxicProfile.slicer,
-    body: (params)
+export function registerSlicerFraming(ctx: ConformanceRunContext): void
 ```
 
 ### [`registerSlowCloseCleanup`](./adversity-slow-close-cleanup.ts#L20)
@@ -212,12 +204,14 @@ _Function_
 export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 ```
 
-### [`ToxicBodyParams`](./_helpers.ts#L113)
+### [`ToxicBodyParams`](./_helpers.ts#L112)
 
 _TypeAlias_
 
 ```ts
+export type ToxicBodyParams = {
   readonly proxy: ToxiproxyProxy;
+  readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
 Body params — `attachToxic` attaches the toxic inside the caller's
@@ -250,20 +244,20 @@ All transport-layer property registrars, in the order
 schema-conformance subset (5) → rpc-semantics subset (2) →
 adversity (5) → boundary subset (1).
 
-### [`unavailable`](./_helpers.ts#L115)
+### [`unavailable`](./_helpers.ts#L114)
 
 _Property_
 
 ```ts
-  readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
+  readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
-### [`withToxicProxy`](./_helpers.ts#L125)
+### [`withToxicProxy`](./_helpers.ts#L124)
 
 _Function_
 
 ```ts
-  readonly ctx: ConformanceRunContext
+export function withToxicProxy(opts:
 ```
 
 Factory — wire a Toxiproxy proxy + attach the toxic; hand a body the

@@ -849,7 +849,7 @@ export class MoltZapService {
    * sequenceDiagram
    *   participant caller
    *   participant svc as MoltZapService
-   *   participant ws as MoltZapWsClient
+   *   participant ws as MoltZapAgentClient
    *   participant server
    *
    *   caller->>svc: send(convId, text, opts?)

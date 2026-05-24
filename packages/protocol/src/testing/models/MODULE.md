@@ -8,14 +8,15 @@ Public barrel for protocol reference-model helpers.
 
 ## Public surface
 
-### [`applyCall`](./dispatch.ts#L202)
+### [`applyCall`](./dispatch.ts#L188)
 
 _Function_
 
 ```ts
-}
-
-function modelOutcome(kind: ModelMethodOutcome): RpcModelResult
+export function applyCall(
+  state: ReferenceState,
+  call: ArbitraryRpcCall,
+):
 ```
 
 Pure reducer: given state + call, yield the next state and the
@@ -23,18 +24,22 @@ observable outcome. No I/O. No clocks. No exceptions — every failure
 flows through `_tag: "error"`.
 
 Exhaustiveness: the `switch` has a branch for every method name in
-`rpcMethods`. A missing branch becomes a compile error at `absurd`.
+`serverRpcMethods`. A missing branch becomes a compile error at `absurd`.
 Behaviour is intentionally conservative — the model predicts the
 server's *observable* outcome (success vs typed error), not its full
 result shape. Tier B canonicalizers downgrade server responses to the
 same projection before comparing.
 
-### [`authorizationOutcome`](./dispatch.ts#L155)
+### [`authorizationOutcome`](./dispatch.ts#L141)
 
 _Function_
 
 ```ts
-      return "deny-forbidden"
+export function authorizationOutcome(
+  state: ReferenceState,
+  call: ArbitraryRpcCall,
+  agentId: AgentId,
+): "allow" | "deny-unauthenticated" | "deny-forbidden"
 ```
 
 Authorization oracle (B2 / B3). Returns the expected typed outcome for a
@@ -54,39 +59,12 @@ _Variable_
 export const initialReferenceState: ReferenceState =
 ```
 
-### [`isIdempotent`](./dispatch.ts#L102)
+### [`isIdempotent`](./dispatch.ts#L94)
 
 _Function_
 
 ```ts
-  [Register.name]: "uncertain",
-  [InviteAgent.name]: "uncertain",
-  [AgentsList.name]: "ok",
-  [NetworkPing.name]: "ok",
-  [AgentsLookup.name]: "uncertain",
-  [AgentsLookupByName.name]: "uncertain",
-  [TaskConversationList.name]: "uncertain",
-  [TaskConversationCreate.name]: "uncertain",
-  [TaskConversationArchive.name]: "uncertain",
-  [TaskConversationUnarchive.name]: "uncertain",
-  [TaskAddParticipant.name]: "uncertain",
-  [TaskLeave.name]: "uncertain",
-  [MessagesSend.name]: "uncertain",
-  [MessagesList.name]: "uncertain",
-  [ContactsList.name]: "uncertain",
-  [ContactsAdd.name]: "uncertain",
-  [ContactsAccept.name]: "uncertain",
-  [ContactsById.name]: "uncertain",
-  [InvitesCreateAgent.name]: "uncertain",
-  [PresenceUpdate.name]: "uncertain",
-  [PresenceSubscribe.name]: "uncertain",
-  [AppsRegister.name]: "uncertain",
-  [DispatchRequest.name]: "uncertain",
-  [DispatchesGet.name]: "uncertain",
-  [TaskRequest.name]: "uncertain",
-  [TaskList.name]: "uncertain",
-  [TaskClose.name]: "uncertain",
-} as const satisfies Readonly<Record<MethodName, ModelMethodOutcome>>
+export function isIdempotent(method: string): boolean
 ```
 
 ### [`LogicalTick`](./state.ts#L22)
@@ -139,17 +117,17 @@ export interface ReferenceState {
 
 Every kind of entity the model tracks.
 
-### [`RpcModelResult`](./dispatch.ts#L71)
+### [`RpcModelResult`](./dispatch.ts#L65)
 
 _TypeAlias_
 
 ```ts
+export type RpcModelResult =
   | {
-      readonly _tag: "error";
-      readonly code: number;
-      readonly message: string;
+      readonly _tag: "ok";
+      readonly result: unknown;
       readonly events: ReadonlyArray<NotificationFrame>;
-    };
+    }
 ```
 
 Observable outcome of one RPC against the model, in the same shape the

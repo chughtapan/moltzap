@@ -8,14 +8,11 @@ Public barrel for schema-derived protocol arbitraries used by tests.
 
 ## Public surface
 
-### [`allRpcMethods`](./rpc.ts#L38)
+### [`allRpcMethods`](./rpc.ts#L41)
 
 _Variable_
 
 ```ts
- * assert "every method exercised at least once" without going through
- * `RpcMap` directly.
- */
 export const allRpcMethods: ReadonlyArray<MethodName> = serverRpcMethods.map(
   (m)
 ```
@@ -24,75 +21,35 @@ Ordered list of every wire method name. Exposed so properties can
 assert "every method exercised at least once" without going through
 `RpcMap` directly.
 
-### [`arbitraryAnyCall`](./rpc.ts#L71)
+### [`arbitraryAnyCall`](./rpc.ts#L74)
 
 _Function_
 
 ```ts
- * Arbitrary that draws any method name + matching params. Used by Tier A
- * A5 and by Tier E E2's cross-RPC fuzz.
- */
-export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
-  if (allRpcMethods.length === 0) {
-    throw new RpcArbitraryInvariantError({
-      message: "arbitraryAnyCall: serverRpcMethods empty",
-    });
-  }
-  return fc.constantFrom(...allRpcMethods).chain((m) => arbitraryCallFor(m));
-}
-
-/**
- * The set of method names the reference model predicts `_tag: "ok"`
- * for on `initialReferenceState` — derived mechanically at module load
- * by probing `applyCall` with a single drawn params value per method.
- *
- * Per architect #197 §2.2: this is NOT a hand-curated list. Methods
- * move in/out of the confident set automatically when `applyCall`'s
- * `allowNoEvents` / `uncertainError` split moves, so the sampling
- * distribution tracks the model.
- *
- * **Param-invariance contract:** every kept method is treated as
- * oracle-confident for every params value. If a future `applyCall`
- * amendment branches on `call.params`, the safety-net guard in
- * `registerModelEquivalence` (rpc-semantics.ts) fires loudly on the
- * first non-confident draw and the derivation must widen from the
- * single-probe form to an `fc.sample`-based invariant check.
- */
-export const confidentOracleMethods: ReadonlyArray<MethodName> = (()
+export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall>
 ```
 
 Arbitrary that draws any method name + matching params. Used by Tier A
 A5 and by Tier E E2's cross-RPC fuzz.
 
-### [`arbitraryCallFor`](./rpc.ts#L48)
+### [`arbitraryCallFor`](./rpc.ts#L51)
 
 _Function_
 
 ```ts
-)
+export function arbitraryCallFor(
+  method: MethodName,
+): fc.Arbitrary<ArbitraryRpcCall>
 ```
 
 Arbitrary of a valid params tree for a single, fixed RPC.
 
-### [`arbitraryConfidentCall`](./rpc.ts#L127)
+### [`arbitraryConfidentCall`](./rpc.ts#L130)
 
 _Function_
 
 ```ts
- * per the architect's contract. Single-probe is sufficient when
- * `applyCall` is method-only (today).
- */
-export function arbitraryConfidentCall(): fc.Arbitrary<ArbitraryRpcCall> {
-  if (confidentOracleMethods.length === 0) {
-    throw new RpcArbitraryInvariantError({
-      message:
-        "arbitraryConfidentCall: model has zero confident-oracle methods; flag needs-structural-rework",
-    });
-  }
-  return fc
-    .constantFrom(...confidentOracleMethods)
-    .chain((method) => arbitraryCallFor(method));
-}
+export function arbitraryConfidentCall(): fc.Arbitrary<ArbitraryRpcCall>
 ```
 
 Draw a call from the model's confident-oracle set. Per architect
@@ -190,14 +147,11 @@ _Function_
 export function arbitraryResponseFrame(): fc.Arbitrary<ResponseFrame>
 ```
 
-### [`ArbitraryRpcCall`](./rpc.ts#L27)
+### [`ArbitraryRpcCall`](./rpc.ts#L30)
 
 _Interface_
 
 ```ts
- * A single drawn RPC invocation: the method name carries through to the
- * reference model so it can pick the matching reducer.
- */
 export interface ArbitraryRpcCall {
   readonly definition: AnyServerRpcDefinition;
   readonly method: MethodName;
@@ -208,14 +162,11 @@ export interface ArbitraryRpcCall {
 A single drawn RPC invocation: the method name carries through to the
 reference model so it can pick the matching reducer.
 
-### [`confidentOracleMethods`](./rpc.ts#L97)
+### [`confidentOracleMethods`](./rpc.ts#L100)
 
 _Variable_
 
 ```ts
- * first non-confident draw and the derivation must widen from the
- * single-probe form to an `fc.sample`-based invariant check.
- */
 export const confidentOracleMethods: ReadonlyArray<MethodName> = (()
 ```
 

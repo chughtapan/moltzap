@@ -221,10 +221,9 @@ function handleSocketData(
  * `@moltzap/protocol`) reads `ServerHandlers["method"]`, runs the
  * descriptor's `capabilities` array through
  * `serverCapabilityProviders` to thread `provideServiceEffect`, then
- * invokes the handler. Missing OPTIONAL slots fall through to their
- * `FailClosedDefault` (e.g. `forbidden` for `messages/authorize` and
- * `dispatch/authorize`); REQUIRED slots that are absent at the type
- * level fail compilation at handler-table construction.
+ * invokes the handler. Every slot is REQUIRED (Spec D3 R14b retired
+ * the fail-closed sentinels); a slot absent at the type level fails
+ * compilation at handler-table construction.
  *
  * The originator's pending-map is keyed by frame id. `ResponseFrame`
  * routing is `pendingRef.modify(takePendingEntry(id))` — atomic

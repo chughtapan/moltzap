@@ -76,11 +76,12 @@ Bind an `@effect/platform` WebSocket server. The surrounding `Scope` owns
 the listener; releasing it closes every open connection, drains captures,
 and awaits port release.
 
-### [`makeTestSubscriberRegistry`](./test-subscribers.ts#L354)
+### [`makeTestSubscriberRegistry`](./test-subscribers.ts#L353)
 
 _Function_
 
 ```ts
+export function makeTestSubscriberRegistry(): Effect.Effect<
   TestSubscriberRegistry,
   never
 >
@@ -147,11 +148,12 @@ export type ServerRpcResult<D extends ServerRpcDefinition> = ResultOf<D>;
 
 Outbound result type for an app-callback method handler.
 
-### [`subscribe`](./test-subscribers.ts#L390)
+### [`subscribe`](./test-subscribers.ts#L389)
 
 _Function_
 
 ```ts
+export function subscribe<D extends AnyNotificationDefinition>(
   registry: TestSubscriberRegistry,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>)
@@ -176,11 +178,12 @@ Lifecycle parity with production (`packages/client/src/notification/stream.ts`):
     `Effect.suspend` so future yielded effects inside `unregister`
     stay deferred (matches production P3 fix #613).
 
-### [`subscribeAll`](./test-subscribers.ts#L431)
+### [`subscribeAll`](./test-subscribers.ts#L430)
 
 _Function_
 
 ```ts
+export function subscribeAll(
   registry: TestSubscriberRegistry,
   refinement?: (
     notification: DecodedNotification<AnyNotificationDefinition>,
@@ -307,14 +310,21 @@ A single live client connection accepted by TestServer. Identity is by
 `connectionId` (monotonic), not by any agent-level claim — TestServer is
 below the identity layer.
 
-### [`TestSubscriberRegistry`](./test-subscribers.ts#L115)
+### [`TestSubscriberRegistry`](./test-subscribers.ts#L114)
 
 _Interface_
 
 ```ts
+export interface TestSubscriberRegistry {
   readonly register: <D extends AnyNotificationDefinition>(
     definition: D,
     refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
+    callbacks: {
+      readonly onFrame: (
+        frame: DecodedNotification<D>,
+      ) => Effect.Effect<void, never>;
+      readonly onClose: SubscriberCloseCallback;
+    },
 ```
 
 Subscriber registry. One instance per `TestClientRuntime`.
@@ -331,12 +341,15 @@ Subscriber registry. One instance per `TestClientRuntime`.
 - `closeAll` invokes each live sub's onClose with a
   `TransportClosedError` before clearing `subsRef`. Idempotent.
 
-### [`TestSubscriptionHandle`](./test-subscribers.ts#L95)
+### [`TestSubscriptionHandle`](./test-subscribers.ts#L94)
 
 _Interface_
 
 ```ts
+export interface TestSubscriptionHandle {
   readonly id: string;
+  readonly unregister: Effect.Effect<void, never>;
+}
 ```
 
 Handle returned by `register` / `registerAll`. `unregister` is

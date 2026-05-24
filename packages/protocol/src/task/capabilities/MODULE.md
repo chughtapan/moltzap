@@ -11,21 +11,6 @@ server-side services live in `@moltzap/server-core/app/capabilities`.
 
 ## Public surface
 
-### [`AddParticipantPermission`](./add-participant-permission.ts#L20)
-
-_Class_
-
-### [`AddParticipantPermissionValue`](./add-participant-permission.ts#L13)
-
-_Interface_
-
-Single-arm composite capability for `ConversationService.addParticipant`
-— Architect plan #606 r3 Decision D.
-
-Carries the resolved `targetOwnerUserId` so the service body skips
-the downstream re-fetch (payload reuse parallel to
-`MessageSendPermission` carrying `task` + `replyTarget`).
-
 ### [`AgentExists`](./agent-exists.ts#L15)
 
 _Class_
@@ -127,40 +112,46 @@ Verifies `cap.task.id === expectedTaskId`. Fails with
 `ForbiddenError` when the handler obtained a capability for one task
 but passed a different `taskId` argument to the service method.
 
-### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L19)
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L9)
 
 _Class_
 
-### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L14)
+```ts
+export class ContactPolicyAllowsReach extends Context.Tag(
+  "@moltzap/protocol/ContactPolicyAllowsReach",
+)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {}
+```
+
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L4)
 
 _Interface_
 
-Tier 3 capability — caller-side contact policy permits creator →
-targets reach. Single capability covering the family of policy checks
-(`assertContactPolicyForCreate`, `assertAddParticipantContactPolicy`,
-`assertCreatorContactsAll`, `checkContactEdge`).
+```ts
+export interface ContactPolicyAllowsReachValue {
+  readonly creatorAgentId: AgentId;
+  readonly targetAgentIds: readonly AgentId[];
+}
+```
 
-Value payload carries the resolved `(creatorAgentId, targetAgentIds)`
-tuple so service methods don't re-derive who the policy was checked
-against.
-
-### [`ConversationCreateAuthorization`](./conversation-create-authorization.ts#L26)
+### [`ConversationCreateAuthorization`](./conversation-create-authorization.ts#L8)
 
 _Class_
 
-### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L16)
+```ts
+export class ConversationCreateAuthorization extends Context.Tag(
+  "@moltzap/protocol/ConversationCreateAuthorization",
+)<ConversationCreateAuthorization, ConversationCreateAuthorizationValue>() {}
+```
 
-_TypeAlias_
+### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L4)
 
-Composite capability for `ConversationService.create` — Architect
-plan #606 r3 Decision C.
+_Interface_
 
-The composite restores the DM-dedup short-circuit AT THE HANDLER
-TIER: the obtain helper runs the dedup check FIRST and returns
-`ExistingDm` with the existing row; otherwise it runs the policy +
-capacity gates and returns `PermittedToCreate { ownerByAgentId }`.
-Lazy `mintTask` stays in the service body (PermittedToCreate branch),
-so it never runs on a dedup hit.
+```ts
+export interface ConversationCreateAuthorizationValue {
+  readonly ownerByAgentId: ReadonlyMap<AgentId, string | null>;
+}
+```
 
 ### [`ConversationInTask`](./conversation-in-task.ts#L18)
 
@@ -217,21 +208,6 @@ caller. Folded into the composite `MessageSendPermission` value
 for the MessagesSend path (every constructor verifies the
 conversation is open).
 
-### [`ConversationParticipantAccess`](./conversation-participant-access.ts#L18)
-
-_Class_
-
-### [`ConversationParticipantAccessValue`](./conversation-participant-access.ts#L13)
-
-_Interface_
-
-Tier 1 capability — caller is a member of `conversation_participants`
-for `conversationId`.
-
-Value payload carries `(conversationId, callerAgentId)` so service
-methods can `assertCapabilityMatchesConversation` against handler
-input without re-querying.
-
 ### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
 
 _Class_
@@ -255,56 +231,60 @@ export interface GroupCapacityForCreateValue {
 
 Tier 4 capability — admitting the proposed `invitedAgentIds` to a new
 task respects policy limits on group capacity. Required by
-`TaskCreate` ONLY when `invitedAgentIds.length > 1`.
+`TaskRequest` ONLY when `invitedAgentIds.length > 1`.
 
 Value payload carries `(creatorAgentId, invitedAgentIds)` to match
 the obtain-time argument set; service methods consuming the capability
 verify the count matches handler input.
 
-### [`MessageSendPermission`](./message-send-permission.ts#L61)
+### [`MessageSendPermission`](./message-send-permission.ts#L40)
 
 _Class_
 
 ```ts
-  readonly conversationId: ConversationId;
+export class MessageSendPermission extends Context.Tag(
+  "@moltzap/protocol/MessageSendPermission",
+)<MessageSendPermission, MessageSendPermissionValue>() {}
 ```
 
-### [`MessageSendPermissionValue`](./message-send-permission.ts#L33)
+### [`MessageSendPermissionValue`](./message-send-permission.ts#L24)
 
-_TypeAlias_
+_Interface_
 
 ```ts
+export interface MessageSendPermissionValue {
+  readonly task: Task;
+  readonly conversationId: ConversationId;
+  readonly senderAgentId: AgentId;
+
+  /**
+   * Reply-target proof. Tagged union — `ValidReply` carries the
+   * verified `replyToId`; `NoReply` is the absence sentinel. Kept as
+   * a sub-union because the verification step is a separate concern
    * from message-send admission.
    */
   readonly replyTarget:
     | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
+    | { readonly _tag: "NoReply" };
+}
 ```
 
 Composite capability for `MessageService.send` — Architect Decision A
 in plan #606.
 
-## Why a composite (and not the spec's union-of-tags shape)?
+One tag carrying one payload shape. The handler obtains the value
+via `provideServiceEffect`; the service body destructures the
+carried proof rows directly.
 
-Effect's R channel uses union types to ENCODE the set of required
-services — `Effect&lt;A, E, T1 | T2>` requires BOTH `T1` AND `T2` to be
-provided before the effect is runnable. There is no native "exactly
-one of" semantics in `provideServiceEffect`. The composite shape —
-one tag with three constructors — preserves the "exactly one path"
-authorization while keeping a single R-channel entry.
-
-## Shape
-
-`MessageSendPermission` is a single `Context.Tag` whose value is a
-discriminated union over the three legal authorization paths. The
-handler picks the right constructor at `provideServiceEffect` time;
-the service body destructures the union via `_tag` and uses the
-carried proof rows.
-
-- `forParticipantOnActiveTask` — caller is a conversation participant
-  on an OPEN task; optional `replyToId` carried inside the variant.
-- `forTmBypass` — caller IS the TM (bypasses the "task is open" gate);
-  no reply target.
-- `forTmBypassWithReply` — TM bypass + the reply target was verified.
+Earlier revisions of this surface modelled a three-arm discriminated
+union (`forParticipantOnActiveTask | forTmBypass |
+forTmBypassWithReply`) so the TM could bypass the
+`refineTaskActive` gate when sending into a `failed` task. The
+downstream `MessageService.sendInsert` never discriminated the
+variants, no production caller exercised the failed-task window,
+and the TM gate is now proved at obtain time via app-ownership of
+the calling WS connection rather than a per-variant bypass flag.
+The bypass mechanism was removed in the #673 follow-up.
 
 ### [`noReplyTarget`](./reply-target.ts#L40)
 
@@ -338,23 +318,43 @@ export interface NoReplyTargetValue {
 
 Zero-payload tag: declared when the send has no reply target.
 
-### [`ObtainAddParticipantPermissionInput`](./add-participant-permission.ts#L24)
+### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L12)
 
 _Interface_
 
-### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L30)
+```ts
+export interface ObtainConversationCreateAuthorizationInput {
+  readonly agentIds: ReadonlyArray<AgentId>;
+  readonly creatorAgentId: AgentId;
+}
+```
+
+### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L51)
 
 _Interface_
 
-### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L72)
-
-_Interface_
+```ts
+export interface ObtainMessageSendPermissionInput {
+  /**
+   * Optional defensive cross-check. When supplied (e.g. by D1's
+   * `TaskConversation*` handlers whose wire shape names `taskId`
+   * independently of the conversation), `obtainMessageSendPermission`
+   * runs an `assertConvBelongsToTask` defense against the conv lookup.
+   * `MessagesSend` omits the field; when omitted the obtain helper
+   * uses `conv.task_id` directly.
+   */
+  readonly taskId?: TaskId;
+  readonly conversationId: ConversationId;
+  readonly senderAgentId: AgentId;
+  readonly replyToId?: MessageId;
+}
+```
 
 Input shape consumed by the dispatch-time smart constructor. The
 handler passes the raw `MessagesSend` params + the authenticated
 `ctx.agentId`; the constructor handles the conversation lookup,
-participant check, reply-target check, TM-bypass discrimination, and
-returns the populated discriminated union.
+participant check, task-active refinement, reply-target check, and
+returns the populated value.
 
 ### [`refineConversationNotArchived`](./conversation-not-archived.ts#L28)
 
@@ -458,32 +458,35 @@ Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
 `getMessagesSince`) via the R-channel; handlers wire the value with
 `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
 
-### [`TmAuthority`](./tm-authority.ts#L25)
+### [`TmAuthority`](./tm-authority.ts#L18)
 
 _Class_
 
-### [`TmAuthorityValue`](./tm-authority.ts#L20)
-
-_Interface_
-
 ```ts
+export class TmAuthority extends Context.Tag("@moltzap/protocol/TmAuthority")<
+  TmAuthority,
   TmAuthorityValue
 >() {}
 ```
 
-Tier 1 capability — caller is the registered task manager for `task.id`.
+### [`TmAuthorityValue`](./tm-authority.ts#L14)
 
-Value payload carries the `task` row already fetched by today's
-`TaskService.loadTaskAsTmAuthority` check; consumers reuse the payload
-instead of re-querying. `callerAgentId` lets refine-shape capabilities
-(e.g. `MessageSendPermission.forTmBypass`) verify the same agent
-authored the bypass decision.
+_Interface_
 
-Consumed by the `task.service.ts` public methods (`closeWithLifecycle`,
-`addParticipant`, `removeParticipant`, `createConversation`,
-`closeConversation`, `storeMessage`) via the R-channel; handlers
-wire the value with `Effect.provideServiceEffect(TmAuthority,
-obtainTmAuthority(...))`.
+```ts
+export interface TmAuthorityValue {
+  readonly task: Task;
+}
+```
+
+Capability — caller's WS connection IS the registered remote-app
+connection for `task.appId`. The obtain helper resolves the proof
+via `AppHost.isAppConnection(task.appId, callerConnId)`; the bind
+is stable across requests on the same WS and invalidated by the
+connection's Scope finalizer.
+
+Value payload carries the `task` row already fetched by the obtain
+helper so consumers don't re-query.
 
 ### [`ValidReplyTarget`](./reply-target.ts#L26)
 
@@ -524,7 +527,6 @@ independently if/when needed.
 
 ## Files
 
-- `add-participant-permission.ts`
 - `agent-exists.ts`
 - `agent-in-task-participants.ts`
 - `assert-capability-matches-task.ts`
@@ -532,7 +534,6 @@ independently if/when needed.
 - `conversation-create-authorization.ts`
 - `conversation-in-task.ts`
 - `conversation-not-archived.ts`
-- `conversation-participant-access.ts`
 - `group-capacity-for-create.ts`
 - `message-send-permission.ts`
 - `reply-target.ts`
