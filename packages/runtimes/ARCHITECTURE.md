@@ -62,9 +62,13 @@ and the typed error taxonomy:
 Trace-capture flow has no per-flow doc yet. The harness lives in
 `trace-capture-{bundle,harness,payload}.ts` and is loaded by the external
 `cc-judge` runner against scenarios in `packages/evals/scenarios/*.yaml`.
-The runtimes package compiles the harness; ownership of the wire-side
-trace capture lives in `@moltzap/server-core`'s `TraceCapture` DI (see
-`packages/evals/README.md`).
+The runtimes package compiles the harness. The wire-side trace data is
+emitted by `@moltzap/server-core` as OpenTelemetry spans
+(`moltzap.message.delivered` / `moltzap.message.blocked` via Effect's
+`withSpan`); tests read finished spans from `CoreTestServer.spanExporter`
+(`InMemorySpanExporter`). The harness's `TraceCaptureEvent` bundle is
+arena-local and currently returns an empty `traceEvents` array pending an
+OTel-span→`TraceCaptureEvent` mapping (see `packages/evals/README.md`).
 
 ## Dependencies
 

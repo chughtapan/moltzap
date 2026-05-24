@@ -29,7 +29,7 @@ Requirements:
 
 Ownership split:
 
-- `packages/server`: server runtime and `TraceCapture` DI
+- `packages/server`: server runtime; emits OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`), readable in tests via `CoreTestServer.spanExporter`
 - `packages/runtimes`: runtime adapters, fleet launch, and the compiled trace-capture harness loaded by `cc-judge`
 - `packages/evals`: scenario data only
 
