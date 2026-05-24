@@ -3,7 +3,7 @@ title: Configuration
 description: Environment variables and server options
 ---
 
-import { DEFAULT_SERVER_PORT } from '/snippets/constants/values.mdx';
+{/* @bake-constants: DEFAULT_SERVER_PORT */}
 
 # Configuration
 
@@ -24,7 +24,7 @@ const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
 const config: CoreConfig = {
   // Required:
   db,                       // Kysely<Database> instance (PostgreSQL or PGlite)
-  port: {DEFAULT_SERVER_PORT}, // code default — DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
+  port: 3000, // code default — DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
   corsOrigins: ["*"],
 
   // Optional:

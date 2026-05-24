@@ -9,18 +9,33 @@
  *   - `values.json` — JSON record consumed by
  *     `scripts/check-no-hardcoded-constants.ts` (the drift gate).
  *   - `values.mdx`  — Mintlify-friendly MDX module exporting each
- *     constant as a JSX variable so docs can interpolate them with
- *     `{PROTOCOL_VERSION}`.
+ *     constant as a JSX variable. Retained for the rare case where a
+ *     constant is rendered in a context Mintlify evaluates (plain
+ *     prose, not backticks / fenced code blocks).
+ *
+ * In addition this script BAKES literal values into every `.mdx`
+ * (and `README.md`) file that carries a `@bake-constants: NAME ...`
+ * marker comment. Bake-at-generation-time is the robust fix for MDX
+ * not evaluating `{VAR}` JSX expressions inside backtick code spans
+ * or fenced code blocks (Mintlify quirk). Drift is caught because
+ * regenerating after a source-side change produces a literal diff in
+ * the consumer file, which `pnpm docs:check:drift` git-diff-gates.
  *
  * Wired into `pnpm docs:generate`; `pnpm docs:check:drift` then catches
  * any drift between the snippets and the source-of-truth files.
  *
- * Adding a new constant: append an entry to `CONSTANT_SPECS`, point it
+ * Adding a new constant: append an entry to `collect()`, point it
  * at the source file + identifier, and the generator + the gate pick
  * it up automatically.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
@@ -335,13 +350,186 @@ const renderJson = (constants: readonly Constant[]): string => {
   return JSON.stringify(record, null, 2) + "\n";
 };
 
+// ─── Bake step ────────────────────────────────────────────────────────────
+//
+// Walks every `.mdx` doc (plus `README.md`) for the `@bake-constants:`
+// marker, then replaces stale literal values with the freshly generated
+// ones. The marker is the explicit opt-in (and the trust boundary for
+// `check-no-hardcoded-constants.ts`); a file without the marker is
+// untouched.
+
+const BAKE_MARKER_RE = /\{\/\*\s*@bake-constants:\s*([A-Z0-9_\s]+?)\s*\*\/\}/;
+
+const isDocFile = (p: string): boolean =>
+  p.endsWith(".mdx") || p.endsWith(".md");
+
+const walkDocFiles = (root: string): string[] => {
+  const out: string[] = [];
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const abs = resolve(dir, entry);
+      const st = statSync(abs);
+      if (st.isDirectory()) {
+        visit(abs);
+      } else if (isDocFile(abs)) {
+        out.push(abs);
+      }
+    }
+  };
+  visit(root);
+  return out;
+};
+
+interface BakeRecord {
+  readonly file: string;
+  readonly constant: string;
+  readonly previousValue: string | number;
+  readonly newValue: string | number;
+}
+
+const literalForReplace = (value: string | number): string =>
+  typeof value === "string" ? value : String(value);
+
+/**
+ * Replace `previous` literal occurrences with `next` in the file body
+ * (everywhere except the marker line and the constants snippet itself).
+ * Numeric replacements use a digit-boundary guard so `3000` doesn't
+ * smash `30000`; string replacements are taken verbatim — the literal
+ * is the unique key. Returns the modified body + a per-occurrence
+ * count.
+ */
+const replaceLiteral = (
+  body: string,
+  previous: string | number,
+  next: string | number,
+): { readonly body: string; readonly count: number } => {
+  if (previous === next) return { body, count: 0 };
+  const prevText = literalForReplace(previous);
+  const nextText = literalForReplace(next);
+  if (prevText.length === 0) return { body, count: 0 };
+  let count = 0;
+  let out = "";
+  let cursor = 0;
+  const numeric = typeof previous === "number";
+  while (cursor < body.length) {
+    const idx = body.indexOf(prevText, cursor);
+    if (idx === -1) {
+      out += body.slice(cursor);
+      break;
+    }
+    out += body.slice(cursor, idx);
+    if (numeric) {
+      const before = idx > 0 ? body.charCodeAt(idx - 1) : 0;
+      const afterPos = idx + prevText.length;
+      const after = afterPos < body.length ? body.charCodeAt(afterPos) : 0;
+      const isDigit = (c: number): boolean => c >= 48 && c <= 57;
+      const isWord = (c: number): boolean =>
+        isDigit(c) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+      if (isDigit(before) || isWord(after)) {
+        out += prevText;
+        cursor = afterPos;
+        continue;
+      }
+    }
+    out += nextText;
+    count += 1;
+    cursor = idx + prevText.length;
+  }
+  return { body: out, count };
+};
+
+const bakeFile = (
+  absPath: string,
+  constants: ReadonlyMap<string, Constant>,
+  previousValues: ReadonlyMap<string, string | number>,
+): readonly BakeRecord[] => {
+  const original = readFileSync(absPath, "utf8");
+  const m = BAKE_MARKER_RE.exec(original);
+  if (m === null) return [];
+  const names = (m[1] ?? "")
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (names.length === 0) return [];
+  let body = original;
+  const records: BakeRecord[] = [];
+  for (const name of names) {
+    const c = constants.get(name);
+    if (!c) {
+      console.error(
+        `[generate-constants-snippets] WARN: ${relative(workspaceRoot, absPath)} marker lists unknown constant '${name}'`,
+      );
+      continue;
+    }
+    const previous = previousValues.get(name);
+    if (previous === undefined) continue;
+    const next = c.value;
+    const replacement = replaceLiteral(body, previous, next);
+    if (replacement.count > 0) {
+      body = replacement.body;
+      records.push({
+        file: relative(workspaceRoot, absPath),
+        constant: name,
+        previousValue: previous,
+        newValue: next,
+      });
+    }
+  }
+  if (body !== original) writeFileSync(absPath, body);
+  return records;
+};
+
+const loadPreviousValues = (
+  jsonPath: string,
+): ReadonlyMap<string, string | number> => {
+  const out = new Map<string, string | number>();
+  let raw: string;
+  try {
+    raw = readFileSync(jsonPath, "utf8");
+  } catch {
+    return out;
+  }
+  try {
+    const parsed = JSON.parse(raw) as {
+      constants?: ReadonlyArray<{
+        readonly name: string;
+        readonly value: string | number;
+      }>;
+    };
+    for (const c of parsed.constants ?? []) {
+      out.set(c.name, c.value);
+    }
+  } catch {
+    /* malformed previous file — fall through to empty map */
+  }
+  return out;
+};
+
 // ─── Entry point ──────────────────────────────────────────────────────────
 
 const main = (): void => {
   mkdirSync(constantsDir, { recursive: true });
+  const valuesJsonPath = resolve(constantsDir, "values.json");
+  // Snapshot previous values BEFORE rewriting them; the bake step
+  // needs the old literal to know what to find-and-replace.
+  const previousValues = loadPreviousValues(valuesJsonPath);
   const constants = collect();
   writeFileSync(resolve(constantsDir, "values.mdx"), renderMdx(constants));
-  writeFileSync(resolve(constantsDir, "values.json"), renderJson(constants));
+  writeFileSync(valuesJsonPath, renderJson(constants));
+
+  const constantsByName = new Map<string, Constant>(
+    constants.map((c) => [c.name, c]),
+  );
+  const docsRoot = resolve(workspaceRoot, "docs");
+  const docFiles = walkDocFiles(docsRoot);
+  const readmePath = resolve(workspaceRoot, "README.md");
+  const allFiles = [...docFiles, readmePath];
+
+  const allBakes: BakeRecord[] = [];
+  for (const f of allFiles) {
+    allBakes.push(...bakeFile(f, constantsByName, previousValues));
+  }
+
   const headlines = constants
     .filter(
       (c) =>
@@ -351,8 +539,12 @@ const main = (): void => {
     )
     .map((c) => `${c.name}=${c.value}`)
     .join(", ");
+  const bakedSuffix =
+    allBakes.length === 0
+      ? "no consumer files needed re-baking"
+      : `re-baked ${allBakes.length} literal(s) across ${new Set(allBakes.map((b) => b.file)).size} file(s)`;
   console.log(
-    `[generate-constants-snippets] wrote ${constants.length} constants (${headlines}) → docs/snippets/constants/`,
+    `[generate-constants-snippets] wrote ${constants.length} constants (${headlines}) → docs/snippets/constants/; ${bakedSuffix}`,
   );
 };
 

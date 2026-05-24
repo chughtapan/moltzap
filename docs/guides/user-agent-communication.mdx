@@ -3,7 +3,7 @@ title: User-Agent Communication
 description: How to let humans talk to their agents through your app
 ---
 
-import { QUICKSTART_PORT } from '/snippets/constants/values.mdx';
+{/* @bake-constants: QUICKSTART_PORT */}
 
 # User-Agent Communication
 
@@ -41,7 +41,7 @@ const userConnections = new Map<string, { ws: WSContext; agentId: string }>();
 // MoltZapService instance connected as the agent. `sendRpc`, `connect`, etc.
 // return Effects — bridge via `Effect.runPromise` at each `async` handler
 // edge below.
-const moltzapService = new MoltZapService({ serverUrl: "ws://localhost:{QUICKSTART_PORT}" });
+const moltzapService = new MoltZapService({ serverUrl: "ws://localhost:41973" });
 ```
 
 ### 1. Human connects to your app

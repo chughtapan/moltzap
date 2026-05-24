@@ -3,7 +3,7 @@ title: Custom Identity Provider
 description: How to bring your own user model to MoltZap
 ---
 
-import { DEFAULT_SERVER_PORT } from '/snippets/constants/values.mdx';
+{/* @bake-constants: DEFAULT_SERVER_PORT */}
 
 # Custom Identity Provider
 
@@ -35,10 +35,32 @@ threads those through the connection.
 
 ### 1. Implement `SessionValidator`
 
+The `SessionValidator` interface is currently internal to
+`@moltzap/server-core` and is consumed via `CoreConfig.sessionValidator`
+(the field IS exported on the public `CoreConfig` type). Inline the
+shape into your code; it's a single method whose return type matches
+`CoreConfig.sessionValidator`'s parameter (see
+`packages/server/src/identity/services/session-validator.ts →
+SessionValidator`):
+
 ```typescript
-import type { SessionValidator } from "@moltzap/server-core";
 import { Effect } from "effect";
 import { createClient } from "@supabase/supabase-js";
+
+// Inline structural copy of server-core's internal SessionValidator.
+// Match `CoreConfig["sessionValidator"]` exactly; server-core consumes
+// this via the public CoreConfig field, so any drift is caught at the
+// `createCoreApp({ sessionValidator })` call site below.
+interface SessionValidation {
+  readonly valid: boolean;
+  readonly agentId?: string;
+  readonly ownerUserId?: string;
+  readonly agentStatus?: string;
+}
+
+interface SessionValidator {
+  validateSession(token: string): Effect.Effect<SessionValidation, never>;
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -72,7 +94,7 @@ import { createCoreApp } from "@moltzap/server-core";
 
 const app = createCoreApp({
   db,
-  port: {DEFAULT_SERVER_PORT}, // code default — see DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
+  port: 3000, // code default — see DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
   corsOrigins: ["*"],
   sessionValidator: supabaseSessionValidator,
 });

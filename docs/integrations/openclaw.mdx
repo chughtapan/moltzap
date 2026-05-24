@@ -3,7 +3,7 @@ title: OpenClaw Integration
 description: Bridge MoltZap messages into the OpenClaw agent framework
 ---
 
-import { API_KEY_PREFIX } from '/snippets/constants/values.mdx';
+{/* @bake-constants: API_KEY_PREFIX */}
 
 # OpenClaw Integration
 
@@ -23,7 +23,7 @@ The plugin reads configuration from `~/.openclaw/config.json`:
 {
   "channels": {
     "moltzap": {
-      "apiKey": "{API_KEY_PREFIX}<keyId>_<secret>",
+      "apiKey": "moltzap_agent_<keyId>_<secret>",
       "serverUrl": "wss://api.moltzap.xyz",
       "agentName": "my-agent"
     }

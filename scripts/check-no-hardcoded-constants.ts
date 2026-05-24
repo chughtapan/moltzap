@@ -60,17 +60,44 @@ const ALLOW_PREFIXES: readonly string[] = [
 /**
  * Individual files that are auto-generated as a whole. Same semantics
  * as `ALLOW_PREFIXES` but at the file granularity.
+ *
+ * `ws-connect-example.mdx` is generator-output too, but its generator
+ * now sources `API_KEY_PREFIX` + `PROTOCOL_VERSION` from the canonical
+ * TS sources (see `packages/client/scripts/generate-cli-docs.ts →
+ * readApiKeyPrefix / readProtocolVersion`), so the gate runs against
+ * it normally and would surface any future hand-edit that drops a
+ * literal.
  */
 const ALLOW_FILES: readonly string[] = [
   "docs/cli/reference.mdx",
   "docs/snippets/cli-commands-table.mdx",
   "docs/snippets/cli-global-flags.mdx",
-  "docs/snippets/ws-connect-example.mdx",
 ];
 
 const isAllowed = (relPath: string): boolean =>
   ALLOW_FILES.includes(relPath) ||
   ALLOW_PREFIXES.some((p) => relPath.startsWith(p));
+
+// ─── Per-file bake-marker exemption ───────────────────────────────────────
+//
+// Files that carry `{/* @bake-constants: NAME1 NAME2 ... */}` opt into
+// generator-bake of the listed constants (see
+// `scripts/generate-constants-snippets.ts`). The literal value lives in
+// the file by design — the bake step is the source of truth, and
+// `pnpm docs:check:drift` catches drift via `git diff --exit-code` after
+// regeneration. The gate's per-rule scan SKIPS rules whose constant name
+// is listed in this file's marker; unlisted constants still flag.
+const BAKE_MARKER_RE = /\{\/\*\s*@bake-constants:\s*([A-Z0-9_\s]+?)\s*\*\/\}/;
+
+const readBakedConstants = (text: string): ReadonlySet<string> => {
+  const m = BAKE_MARKER_RE.exec(text);
+  if (m === null) return new Set();
+  const names = (m[1] ?? "")
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return new Set(names);
+};
 
 // ─── Read source of truth ─────────────────────────────────────────────────
 
@@ -199,15 +226,85 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
 
   // Catch-all: any version-shaped literal in docs. Drops false positives
   // that look like sizes or non-versions by requiring at least two dots
-  // in the YYYY.MDD.patch shape. Lines containing the literal
-  // "YYYY.MDD.patch" placeholder itself are documentation about the
-  // shape and are exempt.
+  // in the YYYY.MDD.patch shape. The skip is intentionally narrow: a
+  // line containing ONLY the literal placeholder `YYYY.MDD.patch` (no
+  // accompanying version-shaped literal) is exempt. If a line has BOTH
+  // the placeholder and a real version literal, we still flag — the
+  // common drift pattern is "here's `YYYY.MDD.patch` for now, like
+  // `2026.524.1`", which silently bakes the real version in.
   rules.push({
     name: "VERSION_SHAPED_LITERAL",
     regex: /\b\d{4}\.\d{3,4}\.\d+\b/,
-    hint: `Replace with the PROTOCOL_VERSION snippet ({PROTOCOL_VERSION} from /snippets/constants/values.mdx). For non-version examples, use the placeholder string \`YYYY.MDD.patch\`.`,
-    skipLine: (line) => line.includes("YYYY.MDD.patch"),
+    hint: `Replace with the baked PROTOCOL_VERSION value (mark the file with \`{/* @bake-constants: PROTOCOL_VERSION */}\` so \`scripts/generate-constants-snippets.ts\` keeps it in sync). For non-version examples, use the placeholder string \`YYYY.MDD.patch\` on its own.`,
+    skipLine: (line) =>
+      line.includes("YYYY.MDD.patch") &&
+      !/\b\d{4}\.\d{3,4}\.\d+\b/.test(line.replace(/YYYY\.MDD\.patch/g, "")),
   });
+
+  // HELLO_* policy fields baked from `buildHelloOk` in
+  // `packages/server/src/task/handlers/connect.handlers.ts`. Each rule
+  // matches `<jsonKey>": <value>` (and `<jsonKey>: <value>` for YAML
+  // contexts) — anchoring on the policy key avoids false positives on
+  // common numeric literals like `10` (pnpm version) or `30000`
+  // (unrelated timeout). The companion
+  // `generate-constants-snippets.ts → readHelloPolicyNumbers` is the
+  // single source.
+  interface HelloRule {
+    readonly name: string;
+    readonly jsonKey: string;
+    readonly hint: string;
+  }
+  const HELLO_RULES: readonly HelloRule[] = [
+    {
+      name: "HELLO_MAX_MESSAGE_BYTES",
+      jsonKey: "maxMessageBytes",
+      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_MESSAGE_BYTES */}\`).`,
+    },
+    {
+      name: "HELLO_MAX_PARTS_PER_MESSAGE",
+      jsonKey: "maxPartsPerMessage",
+      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_PARTS_PER_MESSAGE */}\`).`,
+    },
+    {
+      name: "HELLO_MAX_TEXT_LENGTH",
+      jsonKey: "maxTextLength",
+      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_TEXT_LENGTH */}\`).`,
+    },
+    {
+      name: "HELLO_MAX_GROUP_PARTICIPANTS",
+      jsonKey: "maxGroupParticipants",
+      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_GROUP_PARTICIPANTS */}\`).`,
+    },
+    {
+      name: "HELLO_HEARTBEAT_INTERVAL_MS",
+      jsonKey: "heartbeatIntervalMs",
+      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_HEARTBEAT_INTERVAL_MS */}\`).`,
+    },
+    {
+      name: "HELLO_MESSAGES_PER_MINUTE",
+      jsonKey: "messagesPerMinute",
+      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MESSAGES_PER_MINUTE */}\`).`,
+    },
+    {
+      name: "HELLO_REQUESTS_PER_MINUTE",
+      jsonKey: "requestsPerMinute",
+      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_REQUESTS_PER_MINUTE */}\`).`,
+    },
+  ];
+  for (const h of HELLO_RULES) {
+    const c = byName.get(h.name);
+    if (c && c.kind === "number") {
+      rules.push({
+        name: h.name,
+        // `"maxMessageBytes": 65536` (JSON) or `maxMessageBytes: 65536`
+        // (YAML/TS literal). Both accept optional surrounding quotes.
+        regex: new RegExp(
+          `["']?${escape(h.jsonKey)}["']?\\s*:\\s*${c.value}\\b`,
+        ),
+        hint: h.hint,
+      });
+    }
+  }
 
   // Catch-all: stale 3100 references that predate the
   // DEFAULT_SERVER_PORT consolidation. Encoded as a hard reject so a
@@ -230,11 +327,22 @@ const scanFile = (
   const relPath = relative(workspaceRoot, absPath);
   if (isAllowed(relPath)) return [];
   const text = readFileSync(absPath, "utf8");
+  const bakedConstants = readBakedConstants(text);
   const lines = text.split("\n");
   const violations: Violation[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     for (const rule of rules) {
+      if (bakedConstants.has(rule.name)) continue;
+      // VERSION_SHAPED_LITERAL is a structural catch-all for the
+      // PROTOCOL_VERSION shape; a file that explicitly bakes
+      // PROTOCOL_VERSION owns its literals and shouldn't trip the
+      // structural rule.
+      if (
+        rule.name === "VERSION_SHAPED_LITERAL" &&
+        bakedConstants.has("PROTOCOL_VERSION")
+      )
+        continue;
       if (rule.skipLine && rule.skipLine(line)) continue;
       if (rule.regex.test(line)) {
         violations.push({

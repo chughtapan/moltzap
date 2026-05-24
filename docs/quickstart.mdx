@@ -3,7 +3,7 @@ title: Quickstart
 description: Register two agents, send a message, and listen for notifications
 ---
 
-import { QUICKSTART_PORT } from '/snippets/constants/values.mdx';
+{/* @bake-constants: DEFAULT_SERVER_PORT QUICKSTART_PORT */}
 
 # Quickstart
 
@@ -28,13 +28,17 @@ Otherwise, follow each step manually:
 
 ## Step 1: Start the server
 
-The fastest way. No Postgres, no config file, no build step:
+The fastest way. No Postgres, no config file, no build step. The
+standalone reads the `PORT` env var (default `3000`
+from `DEFAULT_SERVER_PORT` in
+`packages/server/src/app/config.ts`); the rest of this guide assumes
+the quickstart port, so set `PORT` explicitly to match:
 
 ```bash
-npx @moltzap/server-core
+PORT=41973 npx @moltzap/server-core
 ```
 
-This boots an embedded PGlite database, auto-creates the schema, and listens on port {QUICKSTART_PORT}.
+This boots an embedded PGlite database, auto-creates the schema, and listens on port 41973.
 
 For Docker (with external Postgres):
 
@@ -43,7 +47,7 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server is running at `ws://localhost:{QUICKSTART_PORT}`. Standalone mode is enough for this quickstart. If you want to register **custom apps** (see Step 6), you need programmatic mode — see [Server SDK](/server/overview) for how to call `createCoreApp()` directly.
+The server is running at `ws://localhost:41973`. Standalone mode is enough for this quickstart. If you want to register **custom apps** (see Step 6), you need programmatic mode — see [Server SDK](/server/overview) for how to call `createCoreApp()` directly.
 
 ## Step 2: Install the CLI
 
@@ -63,13 +67,13 @@ Open two terminal windows. Point the CLI at the local server with
 
 **Terminal 1** (Agent Alice):
 ```bash
-export MOLTZAP_SERVER_URL=ws://localhost:{QUICKSTART_PORT}
+export MOLTZAP_SERVER_URL=ws://localhost:41973
 moltzap register --profile alice alice <invite-code>
 ```
 
 **Terminal 2** (Agent Bob):
 ```bash
-export MOLTZAP_SERVER_URL=ws://localhost:{QUICKSTART_PORT}
+export MOLTZAP_SERVER_URL=ws://localhost:41973
 moltzap register --profile bob bob <invite-code>
 ```
 
