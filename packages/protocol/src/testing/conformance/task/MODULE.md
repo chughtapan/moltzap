@@ -469,7 +469,17 @@ _Variable_
 
 ```ts
 export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext)
+  (ctx: ConformanceRunContext) => void
+> = [
+  registerTaskCreate,
+  registerTaskRequestReject,
+  registerTaskLeave,
+  registerTaskConversationCreateAndList,
+  registerTaskConversationCreateDenied,
+  registerTaskConversationArchiveDenied,
+  registerTaskConversationAddParticipant,
+  registerTaskConversationRemoveParticipant,
+]
 ```
 
 ### [`TASK_PROPERTIES`](./index.ts#L65)
@@ -478,7 +488,18 @@ _Variable_
 
 ```ts
 export const TASK_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext)
+  (ctx: ConformanceRunContext) => void
+> = [
+  registerFanOutCardinality,
+  registerStoreAndReplay,
+  registerPayloadOpacity,
+  registerTaskBoundaryIsolation,
+  registerConversationLifecycle,
+  registerTaskCloseLifecycle,
+  registerArchiveLifecycle,
+  ...TASK_CONVERSATION_FAMILY_PROPERTIES,
+  registerModelEquivalence,
+]
 ```
 
 All task-layer property registrars, ordered per architect plan §2

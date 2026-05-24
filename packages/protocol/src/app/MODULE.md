@@ -56,7 +56,17 @@ export const appRpcMethods = [
 _Variable_
 
 ```ts
-export const AppsRegister = defineRpc(
+export const AppsRegister = defineRpc({
+  name: "apps/register",
+  params: Type.Object(
+    { manifest: AppManifestSchema },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { appId: Type.String() },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Register an app manifest for the current connection.
@@ -66,7 +76,14 @@ Register an app manifest for the current connection.
 _Variable_
 
 ```ts
-export const DispatchAuthorize = defineRpc(
+export const DispatchAuthorize = defineRpc({
+  name: "dispatch/authorize",
+  params: DispatchAuthorizeContextSchema,
+  result: Type.Object(
+    { admission: DispatchAdmissionDecisionSchema },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Server → moderator request asking for the admission verdict. Carried
@@ -80,7 +97,19 @@ round-trip synthesizes a fail-closed `deny` verdict at
 _Variable_
 
 ```ts
-export const DispatchesConsumed = defineNotification(
+export const DispatchesConsumed = defineNotification({
+  name: "dispatches/consumed",
+  params: Type.Object(
+    {
+      dispatchId: DispatchId,
+      leaseId: LeaseId,
+      conversationId: ConversationId,
+      messageId: MessageId,
+      consumedAt: DateTimeString,
+    },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Server → moderator notification: a lease was consumed by a
@@ -94,7 +123,18 @@ the durable insert lands, scoped to the moderator's connection only
 _Variable_
 
 ```ts
-export const DispatchesExpired = defineNotification(
+export const DispatchesExpired = defineNotification({
+  name: "dispatches/expired",
+  params: Type.Object(
+    {
+      dispatchId: DispatchId,
+      leaseId: LeaseId,
+      conversationId: ConversationId,
+      expiredAt: DateTimeString,
+    },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Server → moderator notification: a granted lease aged out via post-
@@ -107,7 +147,17 @@ connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 _Variable_
 
 ```ts
-export const DispatchesGet = defineRpc(
+export const DispatchesGet = defineRpc({
+  name: "dispatches/get",
+  params: Type.Object(
+    { dispatchId: DispatchId },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { lease: LeaseRecordSchema },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Moderator-only query for a specific lease record. Scope-enforced at
@@ -148,7 +198,18 @@ rolled back-and-re-granted within the same dispatch.
 _Variable_
 
 ```ts
-export const DispatchRelease = defineNotification(
+export const DispatchRelease = defineNotification({
+  name: "dispatch/release",
+  params: Type.Object(
+    {
+      dispatchId: DispatchId,
+      leaseId: LeaseId,
+      verdict: DispatchAdmissionDecisionSchema,
+      leaseTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
+    },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Server → recipient verdict notification. Fire-and-forget on the wire
@@ -167,7 +228,26 @@ never reached GRANTED).
 _Variable_
 
 ```ts
-export const DispatchRequest = defineRpc(
+export const DispatchRequest = defineRpc({
+  name: "dispatch/request",
+  params: Type.Object(
+    {
+      conversationId: ConversationId,
+      messageId: MessageId,
+      senderAgentId: AgentId,
+      parts: Type.Optional(MessagePartsSchema),
+      receivedAt: Type.Optional(DateTimeString),
+      pending: Type.Optional(PendingMessageArraySchema),
+      clock: Type.Optional(LogicalClockSchema),
+      attempt: Type.Optional(Type.Integer({ minimum: 0 })),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { leaseId: LeaseId, dispatchId: DispatchId },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Recipient → server admission request. The server returns an
@@ -183,7 +263,14 @@ lease `Deferred` (see `packages/client/src/channel-core.ts`).
 _Variable_
 
 ```ts
-export const MessagesAuthorize = defineRpc(
+export const MessagesAuthorize = defineRpc({
+  name: "messages/authorize",
+  params: MessagesAuthorizeContextSchema,
+  result: Type.Object(
+    { verdict: MessagesAuthorizeVerdictSchema },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Server → TM round-trip asking for the per-message fan-out verdict.
@@ -216,7 +303,14 @@ export const taskCallbackMethods = [
 _Variable_
 
 ```ts
-export const TaskCreate = defineRpc(
+export const TaskCreate = defineRpc({
+  name: "task/create",
+  params: TaskCreateContextSchema,
+  result: Type.Object(
+    { verdict: TaskCreateVerdictSchema },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Server → TM round-trip asking whether the TM accepts a newly

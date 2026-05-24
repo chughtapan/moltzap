@@ -156,7 +156,8 @@ _Function_
 export function subscribe<D extends AnyNotificationDefinition>(
   registry: TestSubscriberRegistry,
   definition: D,
-  refinement?: (params: NotificationParamsOf<D>)
+  refinement?: (params: NotificationParamsOf<D>) => boolean,
+): Stream.Stream<DecodedNotification<D>, TransportClosedError>
 ```
 
 Typed-payload subscribe. Returns a `Stream` whose error channel is
@@ -187,7 +188,11 @@ export function subscribeAll(
   registry: TestSubscriberRegistry,
   refinement?: (
     notification: DecodedNotification<AnyNotificationDefinition>,
-  )
+  ) => boolean,
+): Stream.Stream<
+  DecodedNotification<AnyNotificationDefinition>,
+  TransportClosedError
+>
 ```
 
 Broad-union subscribe. Returns a `Stream` of every inbound

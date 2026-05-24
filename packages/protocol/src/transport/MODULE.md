@@ -8,7 +8,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`_TypedDispatcherCanarySink`](./typed-dispatcher.types-check.ts#L204)
+### [`_TypedDispatcherCanarySink`](./typed-dispatcher.types-check.ts#L201)
 
 _TypeAlias_
 
@@ -33,7 +33,7 @@ export type _TypedDispatcherCanarySink =
   | _TaskMasterConnection;
 ```
 
-### [`AgentClientConnection`](./connection.ts#L158)
+### [`AgentClientConnection`](./connection.ts#L162)
 
 _Interface_
 
@@ -49,7 +49,7 @@ the full `serverRpcMethods` catalog. Outbound notifications: none
 `notify` method is typed `never`, which fails any call site. No
 inbound surface (the AgentClient kind's inbound catalog is empty).
 
-### [`AgentClientConnectionConfig`](./connection.ts#L223)
+### [`AgentClientConnectionConfig`](./connection.ts#L229)
 
 _Interface_
 
@@ -68,7 +68,7 @@ empty table; the factory accepts it for forward compatibility (if a
 future spec adds AgentClient-inbound RPCs, the type system demands
 coverage).
 
-### [`AgentClientHandlers`](./handlers.ts#L116)
+### [`AgentClientHandlers`](./handlers.ts#L117)
 
 _TypeAlias_
 
@@ -209,7 +209,7 @@ Parameter `Caps` is the union of `Context.Tag` instances referenced
 across all slots in the handler table; the factory rejects (TS2741) a
 provider table missing any tag in `Caps`.
 
-### [`CapsUnionOf`](./handlers.ts#L147)
+### [`CapsUnionOf`](./handlers.ts#L148)
 
 _TypeAlias_
 
@@ -366,7 +366,7 @@ _Function_
 export function defineNotification<
   Name extends string,
   P extends TSchema,
->(def:
+>(def: { name: Name; params: P }): NotificationDefinition<Name, P>
 ```
 
 Sibling of defineRpc for server-to-client notifications.
@@ -383,7 +383,21 @@ export function defineRpc<
   P extends TSchema,
   R extends TSchema,
   Caps extends ReadonlyArray<CapabilityDescriptor> = readonly [],
->(def:
+>(def: {
+  name: Name;
+  params: P;
+  result: R;
+
+  /**
+   * Per-definition capability descriptors. Each entry pairs a Spec E
+   * `Context.Tag` (the value the handler will `yield*`) with a
+   * synchronous `argsOf` resolver that derives the obtain helper's
+   * arguments from wire `params` + dispatcher `ctx`. Generic-parameterized
+   * so the return type preserves the literal tuple shape for
+   * `CapabilitiesOf&lt;D>`.
+   */
+  capabilities?: Caps;
+}): RpcDefinition<Name, P, R> &
 ```
 
 Create one wire method's frozen descriptor: name, schemas, AJV
@@ -494,7 +508,7 @@ lives in `typed-dispatcher.types-check.ts`. The impl-staff PR
 populates per-definition `capabilities` and the gate becomes
 exercisable.
 
-### [`HandlerTable`](./handlers.ts#L73)
+### [`HandlerTable`](./handlers.ts#L74)
 
 _TypeAlias_
 
@@ -509,8 +523,9 @@ export type HandlerTable<
 ```
 
 Closed handler-table type generated from a definition union. Every
-catalog member appears as a structurally-required key; OPTIONAL
-slots widen their value type to include the matching sentinel.
+catalog member appears as a structurally-required key whose value is
+a real `HandlerSlot&lt;D, Ctx, Caps&gt;` (Spec D3 R14b retired the
+sentinel widening — no slot is optional).
 
 Type-parameter erasure note: `RpcDefinition` is variant across `Name`
 — the catalog `typeof serverRpcMethods[number]` resolves to a union of the
@@ -605,7 +620,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeAgentClientConnection`](./connection.ts#L274)
+### [`makeAgentClientConnection`](./connection.ts#L280)
 
 _Function_
 
@@ -627,10 +642,13 @@ kind's inbound catalog is empty).
 _Function_
 
 ```ts
-export const makeOriginator = (config:
+export const makeOriginator = (config: {
+  readonly write: (raw: string) => Effect.Effect<void, unknown>;
+  readonly idPrefix: string;
+}): Effect.Effect<Originator, never, Scope.Scope>
 ```
 
-### [`makeServerConnection`](./connection.ts#L263)
+### [`makeServerConnection`](./connection.ts#L269)
 
 _Function_
 
@@ -652,7 +670,7 @@ Factory — server side. Delegates to `buildServerDispatcher`
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
-### [`makeTaskMasterConnection`](./connection.ts#L292)
+### [`makeTaskMasterConnection`](./connection.ts#L300)
 
 _Function_
 
@@ -668,10 +686,12 @@ export function makeTaskMasterConnection<
 Factory — TaskMaster. Delegates to `buildTaskMasterDispatcher` which
 wires both the inbound dispatch loop (against `taskCallbackMethods`)
 and the outbound originator (against the full `serverRpcMethods` catalog).
-Both inbound slots are OPTIONAL (fail-CLOSED `ForbiddenError` -32001
-defaults per Spec F R2); the empty literal `{ handlers: {} }` is
-well-typed and produces a TM that responds to every inbound auth
-check with `Forbidden`.
+Every TM-inbound slot is REQUIRED. Spec D3 R14b retired the optional
+sentinel defaults the prior shape carried; the empty literal
+`{ handlers: {} }` is REJECTED at the type level (TS2741 — see
+Canary 6 in `typed-dispatcher.types-check.ts`). Vacuous-deny
+moderators bind an explicit `ForbiddenError`-returning handler for
+each catalog method.
 
 ### [`MalformedFrameError`](./wire-errors.ts#L146)
 
@@ -1067,7 +1087,7 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`ServerConnection`](./connection.ts#L145)
+### [`ServerConnection`](./connection.ts#L149)
 
 _Interface_
 
@@ -1082,7 +1102,7 @@ are the full `AnyNotificationDefinition` set (the server originates
 delivery + lifecycle notifications). Inbound surface is the closed
 `serverRpcMethods` catalog, dispatched via the static `ServerHandlers` table.
 
-### [`ServerConnectionConfig`](./connection.ts#L204)
+### [`ServerConnectionConfig`](./connection.ts#L210)
 
 _Interface_
 
@@ -1108,7 +1128,7 @@ and TypeScript reconstructs `Caps` from the slots' definitions.
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound TM-callback path.
 
-### [`ServerHandlers`](./handlers.ts#L98)
+### [`ServerHandlers`](./handlers.ts#L99)
 
 _TypeAlias_
 
@@ -1125,7 +1145,7 @@ to the dispatch context the server's `defineMethod` wrapper exposes
 `Caps` is the union of `Context.Tag` instances the table's slots
 declare; the factory infers it from the literal.
 
-### [`ServerInboundRpcDefinition`](./handlers.ts#L88)
+### [`ServerInboundRpcDefinition`](./handlers.ts#L89)
 
 _TypeAlias_
 
@@ -1139,7 +1159,7 @@ call into the server. LSP-anchored: the catalog is `serverRpcMethods` from
 `networkRpcMethods`, `taskRpcMethods`, and `appRpcMethods`. 42
 members at `227c398`.
 
-### [`TaskMasterConnection`](./connection.ts#L178)
+### [`TaskMasterConnection`](./connection.ts#L184)
 
 _Interface_
 
@@ -1151,10 +1171,12 @@ export interface TaskMasterConnection<Ctx = unknown, R = never>
 full `serverRpcMethods` catalog (a TM is a superset of an AgentClient at the
 type level). Outbound notifications: none. Inbound surface is the
 `taskCallbackMethods` catalog, dispatched via the static
-`TaskMasterHandlers` table (both slots optional with fail-CLOSED
-`ForbiddenError` defaults per Spec F R2).
+`TaskMasterHandlers` table; every slot is a REQUIRED real handler
+(Spec D3 R14b retired the optional `forbidden` / `noOpNotification`
+sentinels), so vacuous-deny moderators must bind an explicit
+`ForbiddenError`-returning handler per catalog method.
 
-### [`TaskMasterConnectionConfig`](./connection.ts#L237)
+### [`TaskMasterConnectionConfig`](./connection.ts#L243)
 
 _Interface_
 
@@ -1174,7 +1196,7 @@ export interface TaskMasterConnectionConfig<
 Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
 catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
 
-### [`TaskMasterHandlers`](./handlers.ts#L132)
+### [`TaskMasterHandlers`](./handlers.ts#L133)
 
 _TypeAlias_
 
@@ -1185,7 +1207,7 @@ export type TaskMasterHandlers<
 > = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 ```
 
-### [`TaskMasterInboundRpcDefinition`](./handlers.ts#L130)
+### [`TaskMasterInboundRpcDefinition`](./handlers.ts#L131)
 
 _TypeAlias_
 

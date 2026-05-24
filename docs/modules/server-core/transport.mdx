@@ -24,7 +24,20 @@ _Function_
 ```ts
 export function acquireConnectionRpcClient(
   connectionId: ConnectionId,
-  write: (raw: string)
+  write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
+  handlers: ServerHandlers<DispatchContext> = {} as ServerHandlers<DispatchContext>,
+  // Providers default to empty: the test-only `originator` overload
+  // never drives a real handler whose body yields capabilities, so the
+  // dispatcher's per-tag lookup is unexercised. Production wiring at
+  // `socket-handler.ts → openSocketSession` passes the real provider
+  // table (`serverCapabilityProviders`). Decoupling avoids a runtime
+  // import cycle through `app/capabilities/* → app/layers.ts →
+  // transport/connection.ts`.
+  capabilities: Record<
+    string,
+    (args: unknown) => Effect.Effect<unknown, unknown, unknown>
+  > = {},
+): Effect.Effect<ServerConnection<DispatchContext>, never, Scope.Scope>
 ```
 
 Allocate a per-connection Spec F (#617) typed `ServerConnection` whose
@@ -174,7 +187,19 @@ export function defineMethod<
   // are unions of concrete `Context.Tag` instances (DbTag, etc.) whose
   // invariant `Id`/`Type` parameters reject the `Context.Tag<unknown,
   // unknown>` upper bound. The dispatcher's `asNeverR` erases R at the
-  // runtime boundary
+  // runtime boundary; the surrounding `ManagedRuntime` provides the
+  // tags via `FullLive`.
+  Reqs = never,
+>(
+  definition: RpcDefinition<Name, P, R>,
+  def: {
+    handler: (
+      params: Static<P>,
+      ctx: AuthenticatedContext,
+    ) => Effect.Effect<Static<R>, E, Reqs | ConnectionTag>;
+    requiresActive?: boolean;
+  },
+): RpcMethodBinding
 ```
 
 Type-safe RPC method definition driven by a protocol manifest.

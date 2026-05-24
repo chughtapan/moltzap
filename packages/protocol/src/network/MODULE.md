@@ -48,7 +48,28 @@ optionality is collapsed here.
 _Variable_
 
 ```ts
-export const Connect = defineRpc(
+export const Connect = defineRpc({
+  name: "network/connect",
+  params: Type.Union([
+    Type.Object(
+      {
+        agentKey: Type.String(),
+        minProtocol: Type.String(),
+        maxProtocol: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        sessionToken: Type.String(),
+        minProtocol: Type.String(),
+        maxProtocol: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+  ]),
+  result: HelloOkSchema,
+})
 ```
 
 Authenticate a WebSocket connection. Must be the first message on a new connection.
@@ -122,7 +143,11 @@ export const networkNotifications = [
 _Variable_
 
 ```ts
-export const NetworkPing = defineRpc(
+export const NetworkPing = defineRpc({
+  name: "network/ping",
+  params: Type.Object({}, { additionalProperties: false }),
+  result: Type.Object({ ts: DateTimeString }, { additionalProperties: false }),
+})
 ```
 
 Liveness probe. Returns server timestamp.
@@ -145,7 +170,10 @@ export const networkRpcMethods = [
 _Variable_
 
 ```ts
-export const PresenceChangedNotificationDefinition = defineNotification(
+export const PresenceChangedNotificationDefinition = defineNotification({
+  name: "presence/changed",
+  params: PresenceChangedNotificationSchema,
+})
 ```
 
 Pushed when a subscribed participant's presence status changes.
@@ -155,7 +183,17 @@ Pushed when a subscribed participant's presence status changes.
 _Variable_
 
 ```ts
-export const PresenceSubscribe = defineRpc(
+export const PresenceSubscribe = defineRpc({
+  name: "presence/subscribe",
+  params: Type.Object(
+    { agentIds: Type.Array(AgentId) },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { statuses: Type.Array(PresenceEntrySchema) },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Replace-semantics: replaces the connection's subscriber set with
@@ -166,7 +204,14 @@ Replace-semantics: replaces the connection's subscriber set with
 _Variable_
 
 ```ts
-export const PresenceUpdate = defineRpc(
+export const PresenceUpdate = defineRpc({
+  name: "presence/update",
+  params: Type.Object(
+    { status: PresenceStatusEnum },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+})
 ```
 
 Update your presence status (online, offline, away).

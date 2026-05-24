@@ -176,7 +176,9 @@ _Function_
 ```ts
 export function collectTagged(
   handle: RealClientHandle,
-  predicate: (tag: string)
+  predicate: (tag: string) => boolean,
+  opts: { readonly expected: number; readonly budgetMs: number },
+): Effect.Effect<ReadonlyArray<TaggedObservation>>
 ```
 
 ### [`freshTag`](./runner.ts#L546)

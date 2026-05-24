@@ -558,21 +558,13 @@ function extractFunctionSignature(
   startIx: number,
 ): string {
   const collected: string[] = [];
-  let depth = 0;
   for (let i = startIx; i < lines.length && i < startIx + 60; i++) {
-    const line = lines[i] ?? "";
-    collected.push(line);
-    for (const ch of line) {
-      if (ch === "(" || ch === "[" || ch === "<") depth++;
-      else if (ch === ")" || ch === "]" || ch === ">") depth--;
-    }
-    if (depth <= 0) {
-      const joined = collected.join("\n");
-      const cut = pickFirstCut(joined, ["=>", "{", ";"]);
-      if (cut >= 0) return joined.slice(0, cut).trimEnd();
-    }
+    collected.push(lines[i] ?? "");
   }
-  return collected.join("\n").trimEnd();
+  const joined = collected.join("\n");
+  const cut = pickFirstCut(joined, ["=>", "{", ";"]);
+  if (cut >= 0) return joined.slice(0, cut).trimEnd();
+  return joined.trimEnd();
 }
 
 /**
@@ -613,11 +605,108 @@ function extractBalancedBody(
   return collected.join("\n").trimEnd();
 }
 
+/**
+ * Find the first occurrence of any `needle` at TOP-LEVEL token depth
+ * (outside strings, comments, AND outside paren / bracket / angle /
+ * brace nesting). The depth gate keeps the function-signature cutter
+ * from slicing inside an inline param-object type like
+ * `connectTestClient(opts: ...)` whose first opening brace belongs to
+ * the params, not the body opener; a depth-blind cut truncates the
+ * signature inside the parameter object.
+ *
+ * Comment skipping is required because inline JSDoc on a param-object
+ * member commonly contains HTML-encoded open-angle paired with a
+ * literal close-angle (the Mintlify generator escapes the open angle
+ * to keep markdown-in-MDX happy). A naive depth tracker would
+ * decrement the angle counter into a negative state on the lone
+ * close-angle and lose the top-level detection that triggers the
+ * body-opener cut.
+ */
 function pickFirstCut(text: string, needles: ReadonlyArray<string>): number {
-  const cuts = needles
-    .map((n) => findOutsideStrings(text, n))
-    .filter((ix) => ix >= 0);
-  return cuts.length === 0 ? -1 : Math.min(...cuts);
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let angleDepth = 0;
+  let braceDepth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i] ?? "";
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && text[i + 1] === "/") {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (ch === "\\" && (inSingle || inDouble || inBacktick)) {
+      i++;
+      continue;
+    }
+    if (!inDouble && !inBacktick && ch === "'") {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (!inSingle && !inBacktick && ch === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inSingle && !inDouble && ch === "`") {
+      inBacktick = !inBacktick;
+      continue;
+    }
+    if (inSingle || inDouble || inBacktick) continue;
+    if (ch === "/" && text[i + 1] === "/") {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    const atTopLevel =
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      angleDepth === 0 &&
+      braceDepth === 0;
+    if (atTopLevel) {
+      for (const needle of needles) {
+        if (text.startsWith(needle, i)) return i;
+      }
+    }
+    // `=>` (arrow) and `<=` / `>=` (comparison) carry a `>` that is
+    // NOT a generic-close. Skip the trailing char so it does not bias
+    // angleDepth into a non-zero state and break top-level detection
+    // for everything that follows.
+    if (ch === "=" && text[i + 1] === ">") {
+      i++;
+      continue;
+    }
+    if (
+      (ch === "<" || ch === ">" || ch === "=" || ch === "!") &&
+      text[i + 1] === "="
+    ) {
+      i++;
+      continue;
+    }
+    if (ch === "(") parenDepth++;
+    else if (ch === ")") parenDepth--;
+    else if (ch === "[") bracketDepth++;
+    else if (ch === "]") bracketDepth--;
+    else if (ch === "<") angleDepth++;
+    else if (ch === ">") angleDepth--;
+    else if (ch === "{") braceDepth++;
+    else if (ch === "}") braceDepth--;
+  }
+  return -1;
 }
 
 function findOutsideStrings(text: string, needle: string): number {

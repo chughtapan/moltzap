@@ -23,7 +23,8 @@ _Variable_
 
 ```ts
 export const IDENTITY_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext)
+  (ctx: ConformanceRunContext) => void
+> = [registerAuthorityPositive, registerAuthorityNegative]
 ```
 
 All identity-layer property registrars in legacy walk order

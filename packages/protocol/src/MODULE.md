@@ -108,7 +108,8 @@ _Function_
 ```ts
 export function brandedNumber<const BrandName extends string>(
   brand: BrandName,
-  options: Parameters<typeof Type.Number>[0] =
+  options: Parameters<typeof Type.Number>[0] = {},
+)
 ```
 
 Build a `TNumber` TypeBox schema whose static type is
@@ -132,7 +133,8 @@ _Function_
 ```ts
 export function brandedString<const BrandName extends string>(
   brand: BrandName,
-  options: Parameters<typeof Type.String>[0] =
+  options: Parameters<typeof Type.String>[0] = {},
+)
 ```
 
 Build a `TString` TypeBox schema whose static type is
@@ -312,7 +314,17 @@ _Variable_
 
 ```ts
 export const JsonValueSchema = Type.Recursive(
-  (Self)
+  (Self) =>
+    Type.Union([
+      Type.Null(),
+      Type.Boolean(),
+      Type.Number(),
+      Type.String(),
+      Type.Array(Self),
+      Type.Record(Type.String(), Self),
+    ]),
+  { $id: "JsonValue" },
+)
 ```
 
 ### [`notificationDefinitions`](./rpc-registry.ts#L93)

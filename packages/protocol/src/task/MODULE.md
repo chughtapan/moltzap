@@ -310,7 +310,10 @@ export type MessageReceivedNotification = Static<
 _Variable_
 
 ```ts
-export const MessageReceivedNotificationDefinition = defineNotification(
+export const MessageReceivedNotificationDefinition = defineNotification({
+  name: "messages/received",
+  params: MessageReceivedNotificationSchema,
+})
 ```
 
 Pushed when a new message is delivered to your WebSocket connection.
@@ -320,7 +323,51 @@ Pushed when a new message is delivered to your WebSocket connection.
 _Variable_
 
 ```ts
-export const MessagesList = defineRpc(
+export const MessagesList = defineRpc({
+  name: "messages/list",
+  params: Type.Object(
+    {
+      taskId: TaskId,
+      conversationId: ConversationId,
+      sinceSeq: Type.Optional(
+        Type.String({
+          description: "Snowflake seq cursor (string-encoded BIGINT)",
+        }),
+      ),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    {
+      messages: Type.Array(MessageSchema),
+      hasMore: Type.Boolean(),
+    },
+    { additionalProperties: false },
+  ),
+  capabilities: [
+    {
+      tag: TaskReadAccess,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+      },
+    },
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+  ] as const,
+})
 ```
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
@@ -330,7 +377,59 @@ List messages in a conversation with cursor-based pagination using sequence numb
 _Variable_
 
 ```ts
-export const MessagesSend = defineRpc(
+export const MessagesSend = defineRpc({
+  name: "messages/send",
+  params: Type.Object(
+    {
+      taskId: TaskId,
+      conversationId: ConversationId,
+      parts: MessagePartsSchema,
+      replyToId: Type.Optional(MessageId),
+      dispatchLeaseId: Type.Optional(LeaseId),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { message: MessageSchema },
+    { additionalProperties: false },
+  ),
+  capabilities: [
+    {
+      tag: ConversationInTask,
+      argsOf: (params: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+        };
+        return { taskId: p.taskId, conversationId: p.conversationId };
+      },
+    },
+    {
+      tag: MessageSendPermission,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainMessageSendPermissionInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly taskId: TaskId;
+          readonly conversationId: ConversationId;
+          readonly replyToId?: Static<typeof MessageId>;
+        };
+        const c = ctx as {
+          readonly auth: { readonly agentId: AgentId };
+        };
+        return {
+          taskId: p.taskId,
+          conversationId: p.conversationId,
+          senderAgentId: c.auth.agentId,
+          replyToId: p.replyToId,
+        };
+      },
+    },
+  ] as const,
+})
 ```
 
 Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:&lt;name>"`.
@@ -407,7 +506,34 @@ export type Task = Static<typeof TaskSchema>;
 _Variable_
 
 ```ts
-export const TaskAddParticipant = defineRpc(
+export const TaskAddParticipant = defineRpc({
+  name: "task/addParticipant",
+  params: Type.Object(
+    {
+      taskId: TaskId,
+      agentId: AgentId,
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { participant: TaskParticipantSchema },
+    { additionalProperties: false },
+  ),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as CallerConnIdCtx;
+        return {
+          taskId: p.taskId,
+          callerConnId: c.connection.id,
+        };
+      },
+    },
+  ] as const,
+})
 ```
 
 ### [`TaskClose`](./tasks.ts#L157)
@@ -415,7 +541,25 @@ export const TaskAddParticipant = defineRpc(
 _Variable_
 
 ```ts
-export const TaskClose = defineRpc(
+export const TaskClose = defineRpc({
+  name: "task/close",
+  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
+  result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as CallerConnIdCtx;
+        return {
+          taskId: p.taskId,
+          callerConnId: c.connection.id,
+        };
+      },
+    },
+  ] as const,
+})
 ```
 
 ### [`TaskClosedError`](./tasks.ts#L38)
@@ -436,7 +580,10 @@ export class TaskClosedError extends Data.TaggedError(
 _Variable_
 
 ```ts
-export const TaskClosedNotificationDefinition = defineNotification(
+export const TaskClosedNotificationDefinition = defineNotification({
+  name: "task/closed",
+  params: TaskClosedNotificationSchema,
+})
 ```
 
 Pushed when a task closes.
@@ -446,7 +593,27 @@ Pushed when a task closes.
 _Variable_
 
 ```ts
-export const TaskConversationAddParticipant = defineRpc(
+export const TaskConversationAddParticipant = defineRpc({
+  name: "task/conversation/participants/add",
+  params: Type.Object(
+    {
+      taskId: TaskId,
+      conversationId: ConversationId,
+      agentId: AgentId,
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+  // Auth-first per per-flow doc §"Participant invariant" — the handler
+  // also `yield* TmAuthority`s explicitly BEFORE
+  // `requireAgentsAreInTaskParticipants` to force the obtain helper to
+  // run early (lazy provideServiceEffect would otherwise defer it past
+  // the participant-admitted probe).
+  capabilities: [
+    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
+    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
+  ] as const,
+})
 ```
 
 TM-only: add an agent to one conversation. The agent MUST already
@@ -458,7 +625,18 @@ appear in `task_participants` for `taskId`; otherwise
 _Variable_
 
 ```ts
-export const TaskConversationArchive = defineRpc(
+export const TaskConversationArchive = defineRpc({
+  name: "task/conversation/archive",
+  params: Type.Object(
+    { taskId: TaskId, conversationId: ConversationId },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+  capabilities: [
+    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
+    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
+  ] as const,
+})
 ```
 
 TM-only: archive one conversation. Task stays open.
@@ -479,7 +657,10 @@ _Variable_
 
 ```ts
 export const TaskConversationArchivedNotificationDefinition =
-  defineNotification(
+  defineNotification({
+    name: "task/conversation/archived",
+    params: TaskConversationArchivedNotificationSchema,
+  })
 ```
 
 ### [`TaskConversationCreate`](./tasks.ts#L426)
@@ -487,7 +668,57 @@ export const TaskConversationArchivedNotificationDefinition =
 _Variable_
 
 ```ts
-export const TaskConversationCreate = defineRpc(
+export const TaskConversationCreate = defineRpc({
+  name: "task/conversation/create",
+  params: Type.Object(
+    {
+      taskId: TaskId,
+      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+      participants: Type.Array(AgentId, { minItems: 1 }),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { conversation: ConversationSchema },
+    { additionalProperties: false },
+  ),
+  // Tags are declared in auth-first order. The handler must explicitly
+  // `yield* TmAuthority` before `requireAgentsAreInTaskParticipants` —
+  // the dispatcher provisions tags lazily, so a non-TM caller would
+  // otherwise see `ParticipantNotAdmittedError` (a state probe) instead
+  // of `ForbiddenError`.
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as CallerConnIdCtx;
+        return {
+          taskId: p.taskId,
+          callerConnId: c.connection.id,
+        };
+      },
+    },
+    {
+      tag: ConversationCreateAuthorization,
+      argsOf: (
+        params: unknown,
+        ctx: unknown,
+      ): ObtainConversationCreateAuthorizationInput => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly participants: ReadonlyArray<AgentId>;
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          agentIds: [...p.participants],
+          creatorAgentId: c.auth.agentId,
+        };
+      },
+    },
+  ] as const,
+})
 ```
 
 TM-only: mint a new conversation under an existing task. Every
@@ -510,6 +741,11 @@ _Variable_
 
 ```ts
 export const TaskConversationCreatedNotificationDefinition = defineNotification(
+  {
+    name: "task/conversation/created",
+    params: TaskConversationCreatedNotificationSchema,
+  },
+)
 ```
 
 ### [`TaskConversationList`](./tasks.ts#L484)
@@ -517,7 +753,23 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 _Variable_
 
 ```ts
-export const TaskConversationList = defineRpc(
+export const TaskConversationList = defineRpc({
+  name: "task/conversation/list",
+  params: Type.Object(
+    {
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+      cursor: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    {
+      items: Type.Array(TaskConversationListItemSchema),
+      nextCursor: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Self-only listing of every conversation the caller participates
@@ -551,7 +803,10 @@ _Variable_
 
 ```ts
 export const TaskConversationParticipantsAddedNotificationDefinition =
-  defineNotification(
+  defineNotification({
+    name: "task/conversation/participants/added",
+    params: TaskConversationParticipantsAddedNotificationSchema,
+  })
 ```
 
 ### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L674)
@@ -570,7 +825,10 @@ _Variable_
 
 ```ts
 export const TaskConversationParticipantsRemovedNotificationDefinition =
-  defineNotification(
+  defineNotification({
+    name: "task/conversation/participants/removed",
+    params: TaskConversationParticipantsRemovedNotificationSchema,
+  })
 ```
 
 ### [`TaskConversationRemoveParticipant`](./tasks.ts#L585)
@@ -578,7 +836,22 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
 _Variable_
 
 ```ts
-export const TaskConversationRemoveParticipant = defineRpc(
+export const TaskConversationRemoveParticipant = defineRpc({
+  name: "task/conversation/participants/remove",
+  params: Type.Object(
+    {
+      taskId: TaskId,
+      conversationId: ConversationId,
+      agentId: AgentId,
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+  capabilities: [
+    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
+    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
+  ] as const,
+})
 ```
 
 TM-only: remove an agent from one conversation. The agent stays
@@ -590,7 +863,18 @@ other conversations within the task).
 _Variable_
 
 ```ts
-export const TaskConversationUnarchive = defineRpc(
+export const TaskConversationUnarchive = defineRpc({
+  name: "task/conversation/unarchive",
+  params: Type.Object(
+    { taskId: TaskId, conversationId: ConversationId },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+  capabilities: [
+    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
+    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
+  ] as const,
+})
 ```
 
 TM-only: reverse of `task/conversation/archive`.
@@ -611,7 +895,10 @@ _Variable_
 
 ```ts
 export const TaskConversationUnarchivedNotificationDefinition =
-  defineNotification(
+  defineNotification({
+    name: "task/conversation/unarchived",
+    params: TaskConversationUnarchivedNotificationSchema,
+  })
 ```
 
 ### [`TaskCreatedNotificationDefinition`](./tasks.ts#L270)
@@ -619,7 +906,10 @@ export const TaskConversationUnarchivedNotificationDefinition =
 _Variable_
 
 ```ts
-export const TaskCreatedNotificationDefinition = defineNotification(
+export const TaskCreatedNotificationDefinition = defineNotification({
+  name: "task/created",
+  params: TaskCreatedNotificationSchema,
+})
 ```
 
 Pushed to the task initiator + invited participants after the TM
@@ -633,7 +923,10 @@ second read to discover the post-transition state.
 _Variable_
 
 ```ts
-export const TaskFailedNotificationDefinition = defineNotification(
+export const TaskFailedNotificationDefinition = defineNotification({
+  name: "task/failed",
+  params: TaskFailedNotificationSchema,
+})
 ```
 
 Pushed when a task fails before becoming ready.
@@ -659,7 +952,11 @@ export const TaskId = brandedId("TaskId")
 _Variable_
 
 ```ts
-export const TaskLeave = defineRpc(
+export const TaskLeave = defineRpc({
+  name: "task/leave",
+  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
+  result: Type.Object({}, { additionalProperties: false }),
+})
 ```
 
 Self-only: caller removes themselves from `task_participants` AND
@@ -679,7 +976,20 @@ transaction.
 _Variable_
 
 ```ts
-export const TaskList = defineRpc(
+export const TaskList = defineRpc({
+  name: "task/list",
+  params: Type.Object(
+    {
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      cursor: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { tasks: Type.Array(TaskSchema) },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 ### [`taskNotifications`](./methods.ts#L68)
@@ -736,7 +1046,31 @@ from an opaque internal error. The TM's reason rides in the
 _Variable_
 
 ```ts
-export const TaskRemoveParticipant = defineRpc(
+export const TaskRemoveParticipant = defineRpc({
+  name: "task/removeParticipant",
+  params: Type.Object(
+    {
+      taskId: TaskId,
+      agentId: AgentId,
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+  capabilities: [
+    {
+      tag: TmAuthority,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as { readonly taskId: TaskId };
+        const c = ctx as CallerConnIdCtx;
+        return {
+          taskId: p.taskId,
+          callerConnId: c.connection.id,
+        };
+      },
+    },
+  ] as const,
+})
 ```
 
 ### [`TaskRequest`](./tasks.ts#L383)
@@ -744,7 +1078,24 @@ export const TaskRemoveParticipant = defineRpc(
 _Variable_
 
 ```ts
-export const TaskRequest = defineRpc(
+export const TaskRequest = defineRpc({
+  name: "task/request",
+  params: Type.Object(
+    {
+      appId: AppId,
+      invitedAgentIds: Type.Array(AgentId),
+      initialConversation: Type.Optional(InitialConversationSchema),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    {
+      task: TaskSchema,
+      conversation: Type.Union([ConversationSchema, Type.Null()]),
+    },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Open to any authenticated agent. Returns `{ task, conversation }`

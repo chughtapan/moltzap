@@ -65,7 +65,12 @@ export interface ConnectedAgent {
 _Function_
 
 ```ts
-export function connectTestClient(opts:
+export function connectTestClient(opts: {
+  agentId: string;
+  apiKey: string;
+  wsUrl?: string;
+  autoConnect?: boolean;
+}): Effect.Effect<ServerTestClient, Error>
 ```
 
 ### [`CoreSchemaSqlLoadError`](./core-schema-sql.ts#L24)
@@ -276,7 +281,8 @@ _Function_
 export function registerAgent(
   baseUrl: string,
   name: string,
-  opts?:
+  opts?: { description?: string; inviteCode?: string },
+): Effect.Effect<TestAgent, Error>
 ```
 
 ### [`registerAndConnect`](./helpers.ts#L319)
@@ -297,6 +303,14 @@ _Function_
 
 ```ts
 export function registerOnly(name: string): Effect.Effect<
+  {
+    client: ServerTestClient;
+    agentId: string;
+    apiKey: string;
+    claimToken: string | undefined;
+  },
+  Error
+>
 ```
 
 Register an agent without connecting (for tests that need the raw client).
@@ -337,7 +351,15 @@ _Function_
 ```ts
 export function setupAgentGroup(
   count: number,
-  opts?:
+  opts?: { groupName?: string },
+): Effect.Effect<
+  {
+    agents: ConnectedAgent[];
+    conversationId?: ConversationId;
+    taskId?: TaskId;
+  },
+  Error
+>
 ```
 
 Create N agents, all connected. Optionally create a group conversation.
@@ -348,6 +370,9 @@ _Function_
 
 ```ts
 export function setupAgentPair(): Effect.Effect<
+  { alice: ConnectedAgent; bob: ConnectedAgent },
+  Error
+>
 ```
 
 Create two agents, both connected. No contacts needed (core has open access).
@@ -357,7 +382,7 @@ Create two agents, both connected. No contacts needed (core has open access).
 _Function_
 
 ```ts
-export function startCoreTestServer(opts: StartCoreTestServerOptions =
+export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
 ### [`stopCoreTestServer`](./server.ts#L285)
