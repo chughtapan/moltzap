@@ -133,23 +133,25 @@ export interface MessageServiceDeps {
 /**
  * `messages/send` server entry point. The `send` method runs the
  * structural checks against `(conversations ⋈ tasks)`, persists the
- * message, then fires the TM-routing `network.send` and the
- * conversation broadcast (in that order, so a failed insert never
- * surfaces a notification for a `messageId` the DB never committed).
+ * message, then resolves the TM verdict via the `messages/authorize`
+ * round-trip and broadcasts per verdict.
  *
  * Branch over `task.status`:
  * - `{closed, failed}` → fail closed with `TaskClosed`; no insert.
- * - `{waiting, active}` → insert + TM dispatch + broadcast.
+ * - `{waiting, active}` → insert + `messages/authorize` verdict +
+ *   verdict-scoped broadcast.
  *
- * `network.send` is one-way: the TM observes the message and acts via
- * CRUD (`tasks/storeMessage` etc.), with no return-channel verdict.
- * Failure surfaces only liveness (TM unreachable) and the `TaskClosed`
- * structural gate.
+ * The `messages/authorize` round-trip is the TM's gate: AppHost fails
+ * closed (`Block { reason: "tm_unreachable" }`) on timeout, handler
+ * error, or RPC failure. On Forward, `network.send` broadcasts to
+ * `verdict.recipients`; on Block, the call fails with `HookBlocked`.
  *
- * `bypassTmRouting` covers the TM-authored insert at
- * `tasks/storeMessage`: without the flag, the TM would receive a
- * `messages/received` frame for the message it just persisted (a
- * self-loop on every store).
+ * `bypassTmRouting=true` skips the `messages/authorize` round-trip
+ * and synthesizes a Forward-to-all-participants-except-sender verdict.
+ * No wire handler currently sets this flag (every entry point hardcodes
+ * `false`); it is retained as the internal extension point for
+ * server-authored inserts whose authorization is already established
+ * upstream.
  */
 export class MessageService {
   private deliveryWebhookFibers = new Set<
@@ -397,10 +399,11 @@ export class MessageService {
    *      On Forward, broadcast to `verdict.recipients` (not all
    *      participants).
    *
-   * `bypassTmRouting=true` (TM-authored insert via `tasks/storeMessage`)
-   * skips the gate: the TM has already admitted the message; the
-   * server records a synthetic `Forward { participants \ sender }`
-   * verdict and broadcasts as usual.
+   * `bypassTmRouting=true` skips the gate: the caller has already
+   * established authorization upstream, so the server records a
+   * synthetic `Forward { participants \ sender }` verdict and
+   * broadcasts as usual. No wire handler currently sets the flag;
+   * it is the internal extension point for server-authored inserts.
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
    * were reached, `recordTrace` and `deliveryWebhook` observe the misses, and

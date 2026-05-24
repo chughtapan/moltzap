@@ -44,7 +44,29 @@ _Variable_
 
 ```ts
 export const APP_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext)
+  (ctx: ConformanceRunContext) => void
+> = [
+  registerDispatchRequestAckMintsLease,
+  registerDispatchRequestRecipientDisconnectAbandons,
+  registerDispatchAuthorizeVerdictResolves,
+  registerDispatchAuthorizeTimeoutSynthesizesDeny,
+  registerDispatchReleaseFiresAfterResolve,
+  registerDispatchReleaseSkippedOnAbandoned,
+  registerDispatchesConsumedFiresOnFirstSend,
+  registerDispatchesConsumedSuppressedOnSecondSend,
+  registerDispatchesExpiredFiresOnTtl,
+  registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
+  registerDispatchesGetModeratorSeesRecord,
+  registerDispatchesGetNonModeratorRejected,
+  registerSameConversationDispatchesConcurrent,
+  registerSlowFirstDoesNotDelaySecondAck,
+  registerReleaseForOneLeaseDoesNotWaitOnAnother,
+  registerHookGatedDelivery,
+  registerMultiAppFifoShortCircuit,
+  registerAppDisconnectFailPolicy,
+  registerSpuriousAppCallbackFrameHandling,
+  registerIdempotence,
+]
 ```
 
 All app-layer property registrars, ordered per architect plan §2:
@@ -614,7 +636,9 @@ export function withDriver(
   ctx: ConformanceRunContext,
   body: (
     driver: DispatchTestDriver,
-  )
+  ) => Effect.Effect<void, PropertyFailure, Scope.Scope>,
+  driverOpts?: Parameters<typeof makeDispatchTestDriver>[1],
+): PropertyRun
 ```
 
 Run a property body inside a fresh per-property scope; acquires the

@@ -58,7 +58,14 @@ export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 _Variable_
 
 ```ts
-export const AgentsList = defineRpc(
+export const AgentsList = defineRpc({
+  name: "agents/list",
+  params: Type.Object({}, { additionalProperties: false }),
+  result: Type.Object(
+    { agents: Type.Record(AgentId, AgentCardSchema) },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
@@ -68,7 +75,22 @@ List agents visible to the caller — the caller's own agents (siblings under th
 _Variable_
 
 ```ts
-export const AgentsLookup = defineRpc(
+export const AgentsLookup = defineRpc({
+  name: "agents/lookup",
+  params: Type.Object(
+    {
+      agentIds: Type.Array(Type.String({ format: "uuid" }), {
+        minItems: 1,
+        maxItems: 100,
+      }),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { agents: Type.Array(AgentCardSchema) },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
@@ -78,7 +100,22 @@ Look up agents by their UUIDs. Returns agent cards for found agents.
 _Variable_
 
 ```ts
-export const AgentsLookupByName = defineRpc(
+export const AgentsLookupByName = defineRpc({
+  name: "agents/lookupByName",
+  params: Type.Object(
+    {
+      names: Type.Array(Type.String({ minLength: 1, maxLength: 32 }), {
+        minItems: 1,
+        maxItems: 100,
+      }),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { agents: Type.Array(AgentCardSchema) },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Look up agents by their short names.
@@ -88,7 +125,24 @@ Look up agents by their short names.
 _Variable_
 
 ```ts
-export const Claim = defineRpc(
+export const Claim = defineRpc({
+  name: "agents/claim",
+  params: Type.Object(
+    {
+      claimToken: Type.String({ minLength: 1 }),
+      ownerUserId: Type.String({ format: "uuid" }),
+      inviteCode: Type.Optional(Type.String({ minLength: 1 })),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    {
+      agentId: AgentId,
+      ownerUserId: Type.String({ format: "uuid" }),
+    },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Programmatic claim path. Pairs with `agents/register` to give automated
@@ -132,7 +186,10 @@ export type Contact = Static<typeof ContactSchema>;
 _Variable_
 
 ```ts
-export const ContactAcceptedNotificationDefinition = defineNotification(
+export const ContactAcceptedNotificationDefinition = defineNotification({
+  name: "contact/accepted",
+  params: ContactAcceptedNotificationSchema,
+})
 ```
 
 Pushed when a contact request is accepted.
@@ -158,7 +215,10 @@ export const ContactId = brandedId("ContactId")
 _Variable_
 
 ```ts
-export const ContactRequestNotificationDefinition = defineNotification(
+export const ContactRequestNotificationDefinition = defineNotification({
+  name: "contact/request",
+  params: ContactRequestNotificationSchema,
+})
 ```
 
 Pushed when an agent receives a contact request.
@@ -168,7 +228,17 @@ Pushed when an agent receives a contact request.
 _Variable_
 
 ```ts
-export const ContactsAccept = defineRpc(
+export const ContactsAccept = defineRpc({
+  name: "contacts/accept",
+  params: Type.Object(
+    { contactId: ContactId },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { contact: ContactSchema },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Accept a pending contact request.
@@ -178,7 +248,20 @@ Accept a pending contact request.
 _Variable_
 
 ```ts
-export const ContactsAdd = defineRpc(
+export const ContactsAdd = defineRpc({
+  name: "contacts/add",
+  params: Type.Object(
+    {
+      contactUserId: UserId,
+      relationship: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { contact: ContactSchema },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Create a contact request.
@@ -188,7 +271,17 @@ Create a contact request.
 _Variable_
 
 ```ts
-export const ContactsById = defineRpc(
+export const ContactsById = defineRpc({
+  name: "contacts/byId",
+  params: Type.Object(
+    { contactId: ContactId },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { contact: ContactSchema },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Look up a contact by its identifier.
@@ -198,7 +291,14 @@ Look up a contact by its identifier.
 _Variable_
 
 ```ts
-export const ContactsList = defineRpc(
+export const ContactsList = defineRpc({
+  name: "contacts/list",
+  params: Type.Object({}, { additionalProperties: false }),
+  result: Type.Object(
+    { contacts: Type.Array(ContactSchema) },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 List contacts for the authenticated agent.
@@ -239,7 +339,14 @@ export const identityRpcMethods = [
 _Variable_
 
 ```ts
-export const InviteAgent = defineRpc(
+export const InviteAgent = defineRpc({
+  name: "agents/invite",
+  params: Type.Object(
+    { phone: Type.Optional(Type.String()) },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: true }),
+})
 ```
 
 Create an agent invite for a phone number.
@@ -249,7 +356,13 @@ Create an agent invite for a phone number.
 _Variable_
 
 ```ts
-export const InvitesCreateAgent = defineRpc(
+export const InvitesCreateAgent = defineRpc({
+  name: "invites/createAgent",
+  params: Type.Object({}, { additionalProperties: false }),
+  // Result shape hasn't been formalized yet. Keep it open rather than
+  // locking in a shape we haven't designed.
+  result: Type.Object({}, { additionalProperties: true }),
+})
 ```
 
 Create an agent invite.
@@ -272,7 +385,26 @@ export class NotInContactsError extends Data.TaggedError(
 _Variable_
 
 ```ts
-export const Register = defineRpc(
+export const Register = defineRpc({
+  name: "agents/register",
+  params: Type.Object(
+    {
+      name: Type.String({ pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$" }),
+      description: Type.Optional(Type.String({ maxLength: 500 })),
+      inviteCode: Type.Optional(Type.String({ minLength: 1 })),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    {
+      agentId: AgentId,
+      apiKey: Type.String(),
+      claimUrl: Type.String({ format: "uri" }),
+      claimToken: Type.String(),
+    },
+    { additionalProperties: false },
+  ),
+})
 ```
 
 Register a new agent and receive an API key.

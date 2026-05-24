@@ -22,7 +22,17 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 _Function_
 
 ```ts
-export function acquireProxiedClient(opts:
+export function acquireProxiedClient(opts: {
+  readonly ctx: ConformanceRunContext;
+  readonly proxy: ToxiproxyProxy;
+  readonly name: string;
+  readonly defaultTimeoutMs: number;
+  readonly unavailable: (reason: string) => PropertyUnavailable;
+}): Effect.Effect<
+  { agent: TestAgent; client: TestClient },
+  PropertyUnavailable,
+  Scope.Scope
+>
 ```
 
 Acquire a TestClient that routes through the Toxiproxy proxy.
@@ -60,7 +70,13 @@ _Function_
 
 ```ts
 export function createOneOnOneConversation(
-  owner:
+  owner: { agent: TestAgent; client: TestClient },
+  participant: { agent: TestAgent; client: TestClient },
+  propertyName: string,
+): Effect.Effect<
+  { taskId: TaskId; conversationId: ConversationId },
+  PropertyInvariantViolation
+>
 ```
 
 ### [`DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L28)
@@ -230,7 +246,22 @@ _Variable_
 
 ```ts
 export const TRANSPORT_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext)
+  (ctx: ConformanceRunContext) => void
+> = [
+  registerRequestWellFormedness,
+  registerNotificationWellFormedness,
+  registerRoundTripIdentity,
+  registerMalformedFrameHandling,
+  registerRpcMapCoverage,
+  registerRequestIdUniqueness,
+  registerCallerControlledAppCallbackTimeout,
+  registerLatencyResilience,
+  registerSlicerFraming,
+  registerResetPeerRecovery,
+  registerTimeoutSurface,
+  registerSlowCloseCleanup,
+  registerSchemaExhaustiveFuzz,
+]
 ```
 
 All transport-layer property registrars, in the order
@@ -252,7 +283,16 @@ _Property_
 _Function_
 
 ```ts
-export function withToxicProxy(opts:
+export function withToxicProxy(opts: {
+  readonly ctx: ConformanceRunContext;
+  readonly propertyName: string;
+  readonly description: string;
+  readonly proxyName: string;
+  readonly profile: ToxicProfile;
+  readonly body: (
+    params: ToxicBodyParams,
+  ) => Effect.Effect<void, ToxicPropertyError, Scope.Scope>;
+}): void
 ```
 
 Factory — wire a Toxiproxy proxy + attach the toxic; hand a body the

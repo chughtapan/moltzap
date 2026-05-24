@@ -206,7 +206,15 @@ _Variable_
 ```ts
 export const AppHostLive = Layer.effect(
   AppHostTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const connections = yield* ConnectionManagerTag;
+    const leaseRegistry = yield* LeaseRegistryTag;
+    const host = new AppHost(db, connections);
+    host.setLeaseRegistry(leaseRegistry);
+    return host;
+  }).pipe(Effect.withSpan("AppHostLive")),
+)
 ```
 
 ### [`AppHostTag`](./layers.ts#L114)
@@ -302,7 +310,11 @@ _Variable_
 ```ts
 export const AuthServiceLive = Layer.effect(
   AuthServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new AuthService(db);
+  }).pipe(Effect.withSpan("AuthServiceLive")),
+)
 ```
 
 ### [`AuthServiceTag`](./layers.ts#L91)
@@ -360,7 +372,8 @@ _Variable_
 ```ts
 export const ConnectionManagerLive = Layer.sync(
   ConnectionManagerTag,
-  ()
+  () => new ConnectionManager(),
+)
 ```
 
 ### [`ConnectionManagerTag`](./layers.ts#L70)
@@ -408,7 +421,11 @@ _Variable_
 ```ts
 export const ContactsServiceLive = Layer.effect(
   ContactsServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new ContactsService(db);
+  }).pipe(Effect.withSpan("ContactsServiceLive")),
+)
 ```
 
 ### [`ContactsServiceTag`](./layers.ts#L104)
@@ -487,7 +504,27 @@ _Variable_
 ```ts
 export const ConversationServiceLive = Layer.effect(
   ConversationServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const participants = yield* ParticipantServiceTag;
+    const connections = yield* ConnectionManagerTag;
+    const appHost = yield* AppHostTag;
+    return new ConversationService(
+      db,
+      participants,
+      connections,
+      // Lazy: AppHost.contactService is wired post-construction in
+      // standalone.ts (`app.setContactService(...)`) AFTER this Layer has
+      // already produced its ConversationService instance, so capturing
+      // a snapshot here would always be `null`.
+      () => {
+        const cs = appHost.getContactService();
+        if (!cs) return null;
+        return (a, b) => cs.areInContact(a, b);
+      },
+    );
+  }).pipe(Effect.withSpan("ConversationServiceLive")),
+)
 ```
 
 ### [`ConversationServiceTag`](./layers.ts#L100)
@@ -974,7 +1011,14 @@ _Variable_
 ```ts
 export const LeaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const connections = yield* ConnectionManagerTag;
+    return yield* makeLeaseRegistry({
+      connections,
+      leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
+    });
+  }).pipe(Effect.withSpan("LeaseRegistryLive")),
+)
 ```
 
 ### [`LeaseRegistryTag`](./layers.ts#L125)
@@ -1069,7 +1113,8 @@ _Function_
 ```ts
 export const logError = (
   message: string,
-  annotations: Record<string, unknown> =
+  annotations: Record<string, unknown> = {},
+): Effect.Effect<void>
 ```
 
 ### [`logInfo`](./logging.ts#L3)
@@ -1079,7 +1124,8 @@ _Function_
 ```ts
 export const logInfo = (
   message: string,
-  annotations: Record<string, unknown> =
+  annotations: Record<string, unknown> = {},
+): Effect.Effect<void>
 ```
 
 ### [`logWarning`](./logging.ts#L9)
@@ -1089,7 +1135,8 @@ _Function_
 ```ts
 export const logWarning = (
   message: string,
-  annotations: Record<string, unknown> =
+  annotations: Record<string, unknown> = {},
+): Effect.Effect<void>
 ```
 
 ### [`lookupAppForConversation`](./conversation-app-lookup.ts#L75)
@@ -1210,7 +1257,10 @@ notification fires, satisfying the "first writer wins" invariant.
 _Function_
 
 ```ts
-export function makeLoopbackConnection(args:
+export function makeLoopbackConnection(args: {
+  readonly id: ConnectionId;
+  readonly handlers: LoopbackHandlers;
+}): MoltZapConnection
 ```
 
 Build a `MoltZapConnection` whose outbound `call` dispatches to
@@ -1289,7 +1339,13 @@ completes before the next observes post-close state.
 _Function_
 
 ```ts
-export function makeStubConnection(args:
+export function makeStubConnection(args: {
+  readonly id: ConnectionId;
+  readonly originatorCall?: <D extends AnyTaskCallbackRpcDefinition>(
+    definition: D,
+    params: ParamsOf<D>,
+  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+}): MoltZapConnection
 ```
 
 Minimal `MoltZapConnection` for tests that only assert the
@@ -1349,7 +1405,27 @@ _Variable_
 ```ts
 export const MessageServiceLive = Layer.effect(
   MessageServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const conversations = yield* ConversationServiceTag;
+    const networkSend = yield* NetworkSendServiceTag;
+    const encryption = yield* EncryptionTag;
+    const deliveryWebhook = yield* DeliveryWebhookTag;
+    const webhookClient = yield* WebhookClientTag;
+    const traceCapture = yield* TraceCaptureTag;
+    const appHost = yield* AppHostTag;
+    return new MessageService({
+      db,
+      conversations,
+      networkSend,
+      encryption,
+      deliveryWebhook,
+      webhookClient,
+      traceCapture,
+      appHost,
+    });
+  }).pipe(Effect.withSpan("MessageServiceLive")),
+)
 ```
 
 ### [`MessageServiceTag`](./layers.ts#L130)
@@ -1370,7 +1446,12 @@ _Variable_
 ```ts
 export const NetworkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const resolver = yield* AgentEndpointResolverTag;
+    const connections = yield* ConnectionManagerTag;
+    return new NetworkSendService(resolver, connections);
+  }).pipe(Effect.withSpan("NetworkSendServiceLive")),
+)
 ```
 
 `network.send` Layer. Composes the resolver and the connection
@@ -1397,7 +1478,11 @@ _Variable_
 ```ts
 export const ParticipantServiceLive = Layer.effect(
   ParticipantServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new ParticipantService(db);
+  }).pipe(Effect.withSpan("ParticipantServiceLive")),
+)
 ```
 
 ### [`ParticipantServiceTag`](./layers.ts#L96)
@@ -1417,7 +1502,12 @@ _Variable_
 ```ts
 export const PresenceServiceLive = Layer.effect(
   PresenceServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const connections = yield* ConnectionManagerTag;
+    const sink = createConnectionFanOutPresenceEventSink({ connections });
+    return new PresenceService(sink);
+  }).pipe(Effect.withSpan("PresenceServiceLive")),
+)
 ```
 
 ### [`PresenceServiceTag`](./layers.ts#L109)
@@ -1463,7 +1553,23 @@ plain-object view rather than reading each tag individually.
 _Variable_
 
 ```ts
-export const resolveServices = Effect.all(
+export const resolveServices = Effect.all({
+  db: DbTag,
+  encryption: EncryptionTag,
+  connections: ConnectionManagerTag,
+  agentEndpointResolver: AgentEndpointResolverTag,
+  networkSendService: NetworkSendServiceTag,
+  authService: AuthServiceTag,
+  participantService: ParticipantServiceTag,
+  conversationService: ConversationServiceTag,
+  contactService: ContactsServiceTag,
+  presenceService: PresenceServiceTag,
+  appHost: AppHostTag,
+  leaseRegistry: LeaseRegistryTag,
+  messageService: MessageServiceTag,
+  taskService: TaskServiceTag,
+  traceCapture: TraceCaptureTag,
+}) satisfies Effect.Effect<ResolvedServices, never, unknown>
 ```
 
 Resolves every service via Context into a plain-object view (matches the
@@ -1493,7 +1599,47 @@ _Variable_
 export const ServerConfigLoader: Effect.Effect<
   LoadedConfig,
   ConfigError.ConfigError
-> = Effect.gen(function* ()
+> = Effect.gen(function* () {
+  const devMode = yield* Config.boolean("MOLTZAP_DEV_MODE").pipe(
+    Config.withDefault(false),
+  );
+
+  const databaseUrl = yield* Config.string("DATABASE_URL").pipe(
+    Config.withDefault(""),
+  );
+
+  if (devMode && databaseUrl.includes(".supabase.co")) {
+    return yield* Effect.fail(
+      ConfigError.InvalidData(
+        ["DATABASE_URL"],
+        "MOLTZAP_DEV_MODE=true cannot be used with a Supabase-hosted database",
+      ),
+    );
+  }
+
+  const masterSecret = Option.getOrUndefined(
+    Option.map(
+      yield* Config.option(Config.redacted("ENCRYPTION_MASTER_SECRET")),
+      Redacted.value,
+    ),
+  );
+
+  const port = yield* Config.integer("PORT").pipe(
+    Config.withDefault(DEFAULT_SERVER_PORT),
+  );
+  const corsRawOpt = yield* Config.option(Config.string("CORS_ORIGINS"));
+  const corsOrigins = yield* parseCorsOrigins(
+    Option.getOrUndefined(corsRawOpt),
+    devMode,
+  );
+
+  return {
+    database: { url: databaseUrl },
+    encryption: { masterSecret },
+    server: { port, corsOrigins },
+    devMode,
+  };
+}).pipe(Effect.withSpan("ServerConfigLoader"))
 ```
 
 Effect-native server config loader. Reads env vars through `Config` so
@@ -1531,7 +1677,13 @@ _Variable_
 ```ts
 export const TaskServiceLive = Layer.effect(
   TaskServiceTag,
-  Effect.gen(function* ()
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const conversations = yield* ConversationServiceTag;
+    const messages = yield* MessageServiceTag;
+    return new TaskService(db, conversations, messages);
+  }).pipe(Effect.withSpan("TaskServiceLive")),
+)
 ```
 
 ### [`TaskServiceTag`](./layers.ts#L135)

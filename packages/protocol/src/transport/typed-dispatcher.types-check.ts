@@ -8,7 +8,7 @@
  * erroring. The file is compiled by the package's standard `tsc` pass
  * (no separate script).
  *
- * Canaries on this branch (stub):
+ * Live canaries:
  *   1. ServerHandlers requires every catalog member (TS2741 on `{}`).
  *   2. HandlerSlot's `Ctx` generic is invariant in the slot's `handle`
  *      signature (TS2322 on cross-Ctx assignment).
@@ -24,18 +24,15 @@
  *      helper-form check would still fire (it tests the union directly)
  *      but the live `.call(...)` signature would silently accept
  *      server-inbound definitions. Canary 5 closes that gap.
- *
- * Activated at impl-staff time (Spec F #617 PR):
- *   - Canary 6: TM `{ handlers: {} }` is well-typed once both TM
- *     callback slots carry `optional: forbidden`.
- *     Asserts `TaskMasterHandlers` resolves the empty literal as
- *     legal (the runtime fail-CLOSED default fires per slot).
- *
- * Deferred (require Spec E primitives to land):
- *   - "Capability provider missing for a referenced tag" + "handler
- *     R channel ⊃ definition.capabilities" (needs
- *     `definition.capabilities` populated with Spec E `Context.Tag`s
- *     in the catalog; Spec E hasn't landed at F's branch base).
+ *   6. TaskMasterHandlers REJECTS `{ handlers: {} }` (TS2741 on the
+ *      empty literal): Spec D3 R14b made every TM-callback slot a
+ *      REQUIRED real handler; vacuous-deny moderators must bind an
+ *      explicit `ForbiddenError`-returning handler per catalog method.
+ *   7. Handler R channel ⊆ `CapabilitiesOf&lt;D&gt;`: a slot whose
+ *      handler effect yields a `Context.Tag` not listed in the
+ *      descriptor's `capabilities` array fails to assign (TS2322).
+ *      Closes the gap the runtime dispatcher would otherwise hit as
+ *      an unresolved-service defect at handler invocation.
  *
  * Per `feedback_canaries_focus_on_live_code`: NO canaries that prove
  * a deleted thing is unreachable. `Connection.register` does not
@@ -117,7 +114,7 @@ const _serverOutboundOk2 = _assertTaskCallback(MessagesAuthorize);
 
 const _agentClientEmpty: AgentClientHandlers<unknown, never> = {};
 
-// Stub-branch positive sanity: a TaskMasterHandlers literal is shape-typed.
+// Positive sanity: a TaskMasterHandlers literal is shape-typed.
 declare const _tmHandlers: TaskMasterHandlers<unknown, never>;
 const _tmHandlersSink: TaskMasterHandlers<unknown, never> = _tmHandlers;
 

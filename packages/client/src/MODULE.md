@@ -239,7 +239,8 @@ _Function_
 ```ts
 export function formatCrossConversationBlock(
   entries: CrossConversationEntry[],
-  opts:
+  opts: { header: string },
+): string | null
 ```
 
 Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
@@ -650,7 +651,8 @@ _Function_
 export const registerAgent = (
   baseUrl: string,
   name: string,
-  opts: RegisterAgentOptions =
+  opts: RegisterAgentOptions = {},
+): Effect.Effect<RegisterResponse, RegisterAgentError>
 ```
 
 Register a new agent via HTTP. Thin wrapper around the agent-registration

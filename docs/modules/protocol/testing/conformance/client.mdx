@@ -181,7 +181,9 @@ _Function_
 ```ts
 export function collectTagged(
   handle: RealClientHandle,
-  predicate: (tag: string)
+  predicate: (tag: string) => boolean,
+  opts: { readonly expected: number; readonly budgetMs: number },
+): Effect.Effect<ReadonlyArray<TaggedObservation>>
 ```
 
 ### [`freshTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L546)

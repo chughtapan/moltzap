@@ -14,7 +14,8 @@ _Variable_
 
 ```ts
 export const allRpcMethods: ReadonlyArray<MethodName> = serverRpcMethods.map(
-  (m)
+  (m) => m.name,
+)
 ```
 
 Ordered list of every wire method name. Exposed so properties can
@@ -167,7 +168,19 @@ reference model so it can pick the matching reducer.
 _Variable_
 
 ```ts
-export const confidentOracleMethods: ReadonlyArray<MethodName> = (()
+export const confidentOracleMethods: ReadonlyArray<MethodName> = (() => {
+  // `models/dispatch.ts` imports `ArbitraryRpcCall` as a type-only
+  // reference, so the values imported above (`applyCall`,
+  // `initialReferenceState`) are safe to call at module load.
+  const kept: MethodName[] = [];
+  for (const method of allRpcMethods) {
+    const [sample] = fc.sample(arbitraryCallFor(method), 1);
+    if (sample === undefined) continue;
+    const outcome = applyCall(initialReferenceState, sample).outcome;
+    if (outcome._tag === "ok") kept.push(method);
+  }
+  return kept;
+})()
 ```
 
 The set of method names the reference model predicts `_tag: "ok"`

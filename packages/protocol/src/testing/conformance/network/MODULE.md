@@ -28,6 +28,10 @@ export function acquireClient(
   propertyName: string,
   name: string,
 ): Effect.Effect<
+  { agent: TestAgent; client: TestClient },
+  PropertyInvariantViolation,
+  Scope.Scope
+>
 ```
 
 ### [`acquireCloseableClient`](./_helpers.ts#L98)
@@ -60,7 +64,15 @@ _Variable_
 
 ```ts
 export const NETWORK_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext)
+  (ctx: ConformanceRunContext) => void
+> = [
+  registerConnectBroadcast,
+  registerDisconnectBroadcast,
+  registerReconnectStorm,
+  registerSameStateNoDoubleFire,
+  registerMultiSubscriberFanOut,
+  registerSubscribeAfterConnect,
+]
 ```
 
 All network-layer property registrars in legacy walk order
