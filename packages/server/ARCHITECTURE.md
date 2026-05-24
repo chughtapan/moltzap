@@ -47,7 +47,7 @@ packages/server/src/
 |---|---|
 | Bootstrap | `createCoreApp`, `startServer`, `CoreApp`, `CoreConfig` |
 | Handler registries | `connectHandlers`, `agentsLookupHandlers`, `pingHandlers`, `conversationHandlers`, `messageHandlers`, `presenceHandlers`, `contactHandlers`, `appHandlers` |
-| Services | `AuthService`, `ConversationService`, `MessageService`, `ParticipantService`, `PresenceService`, `AppHost` |
+| Services | `AuthService`, `ConversationService`, `MessageService`, `PresenceService`, `AppHost` |
 | Adapters | `WebhookClient` (+ typed errors), `WebhookSessionValidator` |
 | Config | `loadConfigFromFile`, `validateConfig`, `loadRuntimeProcessConfig` |
 | Observability | `createRuntimeObservability`, `withRuntimeLogContext`, `withRuntimeTraceSpan`, `TraceCaptureTag` |

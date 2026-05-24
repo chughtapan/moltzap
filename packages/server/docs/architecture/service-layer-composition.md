@@ -24,7 +24,6 @@ flowchart TD
         subgraph Tier1["Tier 1"]
             T1A["ConnectionManagerLive"]
             T1B["AuthServiceLive<br/>(needs Db)"]
-            T1C["ParticipantServiceLive<br/>(needs Db)"]
             T1D["ContactsServiceLive<br/>(needs Db)"]
         end
 
@@ -47,7 +46,7 @@ flowchart TD
         end
 
         subgraph Tier4["Tier 4"]
-            T4["ConversationServiceLive<br/>(needs Db + Participants + Connections + AppHost)<br/>AppHost.contactService captured lazily —<br/>post-construction wire via setContactService"]
+            T4["ConversationServiceLive<br/>(needs Db + Connections + AppHost)<br/>AppHost.contactService captured lazily —<br/>post-construction wire via setContactService"]
         end
 
         subgraph Tier5["Tier 5"]
