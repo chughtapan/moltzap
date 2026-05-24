@@ -1,6 +1,6 @@
 # app/
 
-App-host, app registration, lease registry, top-level server boot, layer composition.
+App-host, app registration, capability provider table, top-level server boot, layer composition. (The dispatch lease registry now lives in `task/leases/`.)
 
 ## Layer rules
 
@@ -12,14 +12,15 @@ App-host, app registration, lease registry, top-level server boot, layer composi
 ## Files (no folder moves in 2A.2)
 
 - `app-host.ts`
+- `capability-providers.ts` — `serverCapabilityProviders` obtain table (keyed by `Context.Tag.key`)
 - `config.ts`
 - `conversation-app-lookup.ts`
 - `core-schema.sql`
 - `dev.ts`
 - `handlers/apps.handlers.ts`
+- `handlers/task-request.handler.ts`
 - `hooks.ts`
 - `layers.ts` — Tag definitions + Layer composition for the whole stack
-- `lease-registry.ts`
 - `server.ts` — `createCoreApp`; entry to the dispatcher
 - `types.ts`
 

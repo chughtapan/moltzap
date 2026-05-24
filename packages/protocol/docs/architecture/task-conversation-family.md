@@ -129,7 +129,7 @@ notification fires; the conversation row stays with
 
 | Method | Authority |
 |---|---|
-| `TaskRequest` | any authenticated agent + `requireContactPolicyForCreate` |
+| `TaskRequest` | any authenticated agent + `ContactPolicyAllowsReach` capability (auto-provisioned) |
 | `TaskLeave` | self only |
 | `TaskConversationCreate` | TM only + participant-admitted invariant |
 | `TaskConversationList` | self only (caller ∈ `conversation_participants`) |
@@ -168,7 +168,7 @@ the descriptor's `capabilities` array.
 
 | Handler | Descriptor `capabilities` | Notes |
 |---|---|---|
-| `TaskRequest` | (none declared) | `obtainContactPolicyForCreate` stays inline-piped (conditional on `invitedAgentIds.length > 0`); `obtainConversationCreateAuthorization` stays inline-piped inside `mintInitialConversation` (conditional on `initialConversation`). Both conditions fail the static `argsOf` shape; pattern matches the `MessagesSend` Spec F §3 carve-out. |
+| `TaskRequest` | `[ContactPolicyAllowsReach]` | Auto-provisioned before the handler body; the body drains it via `yield* ContactPolicyAllowsReach` as a precondition of `taskService.create`. Empty `invitedAgentIds` provisions a no-op proof (service-layer guards short-circuit on zero targets). `obtainConversationCreateAuthorization` stays inline-piped inside `mintInitialConversation` (conditional on `initialConversation`, so it fails the static `argsOf` shape; pattern matches the `MessagesSend` Spec F §3 carve-out). |
 | `TaskLeave` | (none declared) | Self-auth via `ctx.agentId`; `taskService.leaveTask` does not require any capability tag. |
 | `TaskConversationCreate` | `[TmAuthority, ConversationCreateAuthorization]` | Handler explicitly `yield* TmAuthority` BEFORE `requireAgentsAreInTaskParticipants` to force the lazy obtain helper to execute ahead of the participant-admitted probe (auth-first invariant). `ConversationCreateAuthorization` is consumed inside `conversationService.create`. |
 | `TaskConversationList` | (none declared) | Self-auth via `ctx.agentId`; the underlying `conversationService.list` does not require any capability tag. |

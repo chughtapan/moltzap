@@ -771,9 +771,9 @@ export class AppHost {
 
   /**
    * Wire-shape params for `messages/authorize`. Mirrors
-   * {@link authorizeDispatchParamsForWire}: strip `signal`, then
-   * conditionally include optional fields so the TypeBox schema's
-   * `additionalProperties: false` doesn't reject `undefined`.
+   * {@link authorizeDispatchParamsForWire}: conditionally include
+   * optional fields so the TypeBox schema's `additionalProperties:
+   * false` doesn't reject an explicit `undefined`.
    */
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,
