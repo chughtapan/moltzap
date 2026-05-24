@@ -58,12 +58,11 @@ function messageAuthorizeContext(
     taskId: TASK_ID,
     appId: APP_ID,
     receivedAt: "2026-05-12T00:00:00.000Z",
-    signal: new AbortController().signal,
   };
 }
 
 describe("AppHost.registerApp", () => {
-  it("stores the manifest + connection", () => {
+  it("registers the app, exposing isAppConnection for the bound conn", () => {
     const { host } = makeAppHost();
     const connection = makeLoopbackConnection({
       id: CONN_ID,
@@ -80,7 +79,7 @@ describe("AppHost.registerApp", () => {
       },
     });
     host.registerApp(APP_MANIFEST, connection);
-    expect(host.getManifest(APP_ID)).toBe(APP_MANIFEST);
+    expect(host.isAppConnection(APP_ID, CONN_ID)).toBe(true);
   });
 });
 

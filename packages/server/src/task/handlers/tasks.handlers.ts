@@ -25,7 +25,7 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-import { TmAuthority } from "../../app/capabilities/index.js";
+import { TmAuthority } from "@moltzap/protocol/task";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
 // `task/request` lives in `packages/server/src/app/handlers/task-request.handler.ts`

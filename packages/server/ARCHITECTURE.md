@@ -12,13 +12,13 @@ the published handler registries.
 ```
 packages/server/src/
 ├── app/                # AppHost + composition root
-│   ├── server.ts          # createCoreApp — composes Layers, mounts routes
-│   ├── app-host.ts        # AppHost — dispatch/* + hook fan-out
-│   ├── lease-registry.ts  # In-memory lease state machine + TTL fibers
-│   ├── handlers/          # apps.handlers, dispatches.handlers
-│   ├── hooks.ts           # Hook<TContext, TResult> generic shape
-│   ├── layers.ts          # Tag definitions + Live composition (Tier 1-6)
-│   └── types.ts           # CoreConfig, CoreApp, branded IDs
+│   ├── server.ts             # createCoreApp — composes Layers, mounts routes
+│   ├── app-host.ts           # AppHost — dispatch/* + hook fan-out
+│   ├── capability-providers.ts # serverCapabilityProviders obtain table
+│   ├── handlers/             # apps.handlers, dispatches.handlers, task-request
+│   ├── hooks.ts              # Hook context types derived from ParamsOf<>
+│   ├── layers.ts             # Tag definitions + Live composition (Tier 1-6)
+│   └── types.ts              # CoreConfig, CoreApp, branded IDs
 ├── identity/           # Auth, agents, sessions, participants
 ├── network/            # Ping, presence, connection liveness, send routing
 │   ├── agent-endpoint-resolver.ts  # AgentId → HashSet<ConnId> multimap
@@ -27,7 +27,9 @@ packages/server/src/
 │   └── services/                   # presence.service, presence-event-sink
 ├── task/               # Conversations, messages, dispatch lease lifecycle
 │   ├── handlers/          # conversations, messages, presence, contacts, connect, tasks
-│   └── services/          # conversation.service, message.service, task.service
+│   ├── leases/            # lease-registry — in-memory lease state machine + TTL fibers
+│   └── services/          # conversation.service, message.service, task.service,
+│                          #   message-send-permission, conversation-create-authorization
 ├── transport/          # WS connection acquisition, dispatch context, layer-tags (Tag-allowlist hierarchy used by handler R-channel)
 ├── crypto/             # Envelope encryption, key rotation
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
@@ -180,8 +182,9 @@ handler-invocation time.
   reads the descriptor's `capabilities: [...]` array per frame and
   auto-provisions each tag from the `serverCapabilityProviders` table
   (`src/app/capability-providers.ts`) via
-  `Effect.provideServiceEffect`. Tag classes live in
-  `packages/protocol/src/task/capabilities/`; obtain helpers + the
-  provider table live in `packages/server/src/app/capabilities/`.
+  `Effect.provideServiceEffect`. Tag classes + `refine*` helpers live
+  in `packages/protocol/src/task/capabilities/`; the obtain logic lives
+  in `packages/server/src/app/capability-providers.ts` (inline for
+  simple obtains; composites in `packages/server/src/task/services/`).
   Pattern documented in
   [docs/architecture/r-channel-capabilities.md](docs/architecture/r-channel-capabilities.md).

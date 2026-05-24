@@ -13,15 +13,19 @@
 This doc explains the typed-capability pattern that lifts the prior
 `requireX`-style runtime authority checks into Effect's `R` channel.
 
-Capability **tag classes** + value types live in
-`packages/protocol/src/task/capabilities/`. **Obtain helpers** (which
-yield `TaskServiceTag` / `ConversationServiceTag` / `MessageServiceTag`)
-live in `packages/server/src/app/capabilities/`. The dispatcher reads
-each descriptor's `capabilities: [...]` array and threads
-`Effect.provideServiceEffect` from a shared provider table at
-`packages/server/src/app/capability-providers.ts`. Handler bodies
-yield the tag value without piping anything; the compile-time gate
-(`packages/protocol/src/transport/typed-dispatcher.types-check.ts →
+Capability **tag classes** + value types (plus the `refine*` helpers)
+live in `packages/protocol/src/task/capabilities/`. **Obtain logic**
+(which yields `TaskServiceTag` / `ConversationServiceTag` /
+`MessageServiceTag`) lives in
+`packages/server/src/app/capability-providers.ts`: inline in the
+provider-table entry for a simple obtain, or as a named function in
+`packages/server/src/task/services/<name>.ts` for a composite that has
+its own direct consumer (`obtainMessageSendPermission`,
+`obtainConversationCreateAuthorization`). The dispatcher reads each
+descriptor's `capabilities: [...]` array and threads
+`Effect.provideServiceEffect` from the shared provider table. Handler
+bodies yield the tag value without piping anything; the compile-time
+gate (`packages/protocol/src/transport/typed-dispatcher.types-check.ts →
 Canary 7`) catches a handler that yields a tag NOT declared on its
 descriptor.
 
@@ -70,19 +74,18 @@ carried inside the capability value so service-method bodies don't
 re-fetch what the obtain helper already proved.
 
 ```ts
-// app/capabilities/tm-authority.ts
-export const obtainTmAuthority = (
-  taskId: TaskId,
-  caller: AgentId,
-): Effect.Effect<TmAuthorityValue, TaskServiceError, TaskServiceTag> =>
+// server/src/app/capability-providers.ts — inline in the table entry
+[TmAuthority.key]: (args) =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
+    const appHost = yield* AppHostTag;
+    const { taskId, callerConnId } = args as TaskAndConn;
     const task = yield* taskService.loadOpenTask(taskId);
-    if (!appHost.isAppConnection(task.appId, callerConnId)) {
+    if (!appHost.isAppConnection(Value.Decode(AppId, task.appId), callerConnId)) {
       return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
     }
     return { task };
-  }).pipe(Effect.withSpan("obtainTmAuthority"));
+  }).pipe(Effect.withSpan("obtainTmAuthority")),
 ```
 
 The gate proves "the calling WS connection IS the registered remote-app
@@ -100,7 +103,7 @@ They're used when the caller already has the row in hand (e.g. inside
 `obtainMessageSendPermission` after `readSendConversation`).
 
 ```ts
-// app/capabilities/task-active.ts
+// protocol/src/task/capabilities/task-active.ts
 export const refineTaskActive = (
   taskId: TaskId,
   status: TaskStatus,
@@ -135,9 +138,9 @@ This shape DOES NOT WORK in Effect: the R channel uses union types to
 ENCODE a set of required services. `Effect<A, E, T1 | T2>` requires
 BOTH `T1` AND `T2` to be provided. There is no native "exactly one
 of" semantics in `provideServiceEffect`. See Architect Decision A in
-plan #606 for the full analysis; the
-`capability-r-channel.types-check.ts → Canary 2` documents this with
-an `@ts-expect-error`.
+plan #606 for the full analysis. The surviving type-canary,
+`server/src/task/services/message-send-permission.types-check.ts`,
+asserts the composite drains via ONE `provideServiceEffect`.
 
 Spec E ships a composite `MessageSendPermission` capability instead —
 one `Context.Tag` whose value is a discriminated union over the three
@@ -156,20 +159,22 @@ based on input shape; the service-method body destructures via `_tag`.
    `packages/protocol/src/task/capabilities/<name>.ts`. Tag class +
    value-type interface only — pure protocol types, no server deps.
    Re-export from the `capabilities/index.ts` barrel.
-2. **Add the obtain helper** in
-   `packages/server/src/app/capabilities/<name>.ts`. Importing the tag
-   from `@moltzap/protocol/task`. Wire into the
-   `CapabilityTags` sibling alias in `transport/layer-tags.ts`.
+2. **Wire the tag into the `CapabilityTags` sibling alias** in
+   `transport/layer-tags.ts` (import the tag from
+   `@moltzap/protocol/task`).
 3. **Service method:** add the tag to its R channel:
    `Effect.Effect<A, E, MyTag>`. Body destructures the tag's value
    via `yield* MyTag` and uses the carried proof rows.
 4. **Descriptor:** add `{ tag: MyTag, argsOf: (params, ctx) => ... }`
    to the descriptor's `capabilities: [...]` array. `argsOf` returns
    the shape the provider entry takes (typically `{ taskId,
-   callerAgentId }` or similar; cast `params`/`ctx` internally since
+   callerConnId }` or similar; cast `params`/`ctx` internally since
    they're typed `unknown` at the descriptor boundary).
-5. **Provider table:** add `[MyTag.key]: (args) => obtainMyTag(...)` to
-   `packages/server/src/app/capability-providers.ts`.
+5. **Provider table:** add the entry to
+   `packages/server/src/app/capability-providers.ts` — inline the
+   obtain logic in the table entry for a simple obtain, or call a named
+   composite function from `task/services/<name>.ts` when the obtain has
+   its own direct consumer.
 6. **Type-canary:** Canary 7 in
    `packages/protocol/src/transport/typed-dispatcher.types-check.ts`
    already catches handler R-channel drift; no per-tag canary needed.
@@ -186,18 +191,16 @@ The architect plan picked Option A: gate-helper methods stay on the
 service class as `@internal` exported instance methods (no `private`
 modifier). Why:
 
-- TS `private` is a compile-time access modifier; obtain helpers in
-  `app/capabilities/` need to reach the underlying check via the
-  service Tag. `private` blocks every caller, DI-injected or not.
-- Co-locating obtain helpers inside the service modules (Option B)
-  would bloat the service files (14 obtain helpers across 4 modules)
-  with no enforcement payoff.
+- TS `private` is a compile-time access modifier; obtain logic needs
+  to reach the underlying check via the service Tag. `private` blocks
+  every caller, DI-injected or not.
+- Inlining every obtain inside the service modules would bloat the
+  service files with no enforcement payoff.
 - The `CapabilityAccessors` interface (Option C) adds boilerplate +
   type churn for the same enforcement payoff as a JSDoc convention.
 
-JSDoc `@internal` + the directory-level
-`packages/server/src/app/capabilities/README.md` boundary is the
-package-internal convention; lint enforcement is not currently wired.
+JSDoc `@internal` on the gate-helper methods is the package-internal
+convention; lint enforcement is not currently wired.
 
 ## 6. State-proof staleness (open question Q1 in the spec)
 
@@ -226,8 +229,8 @@ The surviving `ConversationService` + `MessageService` public methods
 (`create`, `removeParticipant`, `sendInsert`, `list`, archive helpers)
 stay on the inline-gate shape — their R-channel cutover lands when
 those services get restructured to fit the `max-lines: 1050` lint cap
-with the added signature plumbing. The obtain helpers are in place;
-the cutover follows the recipe in §4.
+with the added signature plumbing. Such a cutover follows the recipe
+in §4.
 
 The infrastructure handlers (`Connect`, `AppsRegister`,
 `MessagesAuthorize`) stay out of scope — different authentication
@@ -235,13 +238,21 @@ patterns, separate follow-up.
 
 ## 8. Cross-references
 
-- Capability primitives: `packages/server/src/app/capabilities/`
+- Capability tag classes + value types + `refine*` helpers:
+  `packages/protocol/src/task/capabilities/`
+- Obtain provider table:
+  `packages/server/src/app/capability-providers.ts`
+- Composite obtain helpers:
+  `packages/server/src/task/services/message-send-permission.ts`,
+  `packages/server/src/task/services/conversation-create-authorization.ts`
 - Service-layer composition: [01-service-layer-composition.md](./service-layer-composition.md)
 - Request → response handling (where `defineXxxMethod` lives):
   [03-request-response-handling.md](./request-response-handling.md)
 - Layer-tag hierarchy:
   `packages/server/src/transport/layer-tags.ts`
-- Type-canary (Decision A gate + wrapper-boundary gate):
-  `packages/server/src/app/capabilities/capability-r-channel.types-check.ts`
+- Composite-drain type-canary:
+  `packages/server/src/task/services/message-send-permission.types-check.ts`
+- Dispatcher lockstep gate (handler R ⊆ descriptor capabilities):
+  `packages/protocol/src/transport/typed-dispatcher.types-check.ts → Canary 7`
 - Architect plan: [#606](https://github.com/chughtapan/moltzap/issues/606)
 - Spec: [#601](https://github.com/chughtapan/moltzap/issues/601)
