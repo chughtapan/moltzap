@@ -89,6 +89,21 @@ class MoltZapClientNotConnectedError extends Data.TaggedError(
   }
 }
 
+// A cursor-paginated drain must terminate. A byzantine / buggy server
+// that returns a `nextCursor` which does not strictly advance (repeats a
+// cursor already seen) would otherwise loop forever inside an
+// uninterruptible `while`. Fail typed instead — the directory caller's
+// `catchAll` then degrades to an empty list rather than hanging.
+class MoltZapNonAdvancingCursorError extends Data.TaggedError(
+  "MoltZapNonAdvancingCursorError",
+)<{
+  readonly method: string;
+}> {
+  override get message(): string {
+    return `Pagination cursor for ${this.method} did not advance — refusing to loop`;
+  }
+}
+
 class MoltZapAgentTargetUnsupportedError extends Data.TaggedError(
   "MoltZapAgentTargetUnsupportedError",
 )<{
@@ -637,11 +652,19 @@ function drainPaginatedList<
   sendRpc: NonNullable<OpenClawClientService["sendRpc"]>,
   definition: D,
   collectionKey: K,
-): Effect.Effect<ResultOf<D>[K], ServiceRpcError> {
+): Effect.Effect<
+  ResultOf<D>[K],
+  ServiceRpcError | MoltZapNonAdvancingCursorError
+> {
   return Effect.gen(function* () {
     const acc: Array<
       ResultOf<D>[K] extends ReadonlyArray<infer E> ? E : never
     > = [];
+    // Cursor-cycle guard: a server that returns a non-advancing
+    // `nextCursor` (one already seen) is byzantine; fail typed rather
+    // than loop forever. NOT a page cap — that would silently truncate a
+    // legitimately large directory.
+    const seenCursors = new Set<string>();
     let cursor: string | undefined;
     let more = true;
     while (more) {
@@ -654,6 +677,12 @@ function drainPaginatedList<
       >;
       acc.push(...rows);
       const nextCursor = (page as { readonly nextCursor?: string }).nextCursor;
+      if (nextCursor !== undefined && seenCursors.has(nextCursor)) {
+        return yield* Effect.fail(
+          new MoltZapNonAdvancingCursorError({ method: definition.name }),
+        );
+      }
+      if (nextCursor !== undefined) seenCursors.add(nextCursor);
       cursor = nextCursor;
       more = nextCursor !== undefined;
     }

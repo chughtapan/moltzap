@@ -63,6 +63,11 @@ interface PeerContact {
 let fixture: FakeChannelService;
 let plugin: ReturnType<typeof createMoltzapChannelPlugin>;
 let contactsCallCount: number;
+// When set, the fake server returns a CONSTANT non-advancing nextCursor
+// on every `contacts/list` page — the byzantine case the drain's
+// cursor-cycle guard must terminate on (rather than loop forever).
+let byzantineConstantCursor: boolean;
+const CONSTANT_CURSOR = Buffer.from("stuck", "utf8").toString("base64url");
 
 function buildContacts(count: number): ReadonlyArray<PeerContact> {
   const contacts: PeerContact[] = [];
@@ -109,6 +114,13 @@ function directorySendRpc<D extends RpcDefinition<string, any, any>>(
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
   if (definition === ContactsList) {
     contactsCallCount++;
+    if (byzantineConstantCursor) {
+      // Always claims "more" with the same cursor — never advances.
+      return Effect.succeed({
+        contacts: ALL_CONTACTS.slice(0, SERVER_PAGE_SIZE),
+        nextCursor: CONSTANT_CURSOR,
+      } as ResultOf<D>);
+    }
     const cursor = (params as { readonly cursor?: string }).cursor ?? "";
     return Effect.succeed(contactsPage(cursor) as ResultOf<D>);
   }
@@ -130,6 +142,7 @@ function peerNameForId(id: string): string {
 function startDirectoryGateway(): void {
   vi.clearAllMocks();
   contactsCallCount = 0;
+  byzantineConstantCursor = false;
   fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
   const sendRpc: SendRpcFn = directorySendRpc;
   const service = { ...fixture.service, sendRpc };
@@ -167,6 +180,23 @@ function followsNextCursorAcrossPages() {
   });
 }
 
+// Non-advancing cursor: the guard must TERMINATE the drain (not hang, not
+// truncate-loop). Page 1 records cursor C; page 2 (sent with cursor=C)
+// returns C again → already seen → typed fail. The directory's catchAll
+// absorbs the error to an empty list, so the observable signal is: the
+// call resolves (no hang) after a BOUNDED number of pages. Without the
+// guard this loops forever and the test never resolves.
+const EXPECTED_BYZANTINE_PAGE_CALLS = 2;
+
+function terminatesOnNonAdvancingCursor() {
+  return Effect.gen(function* () {
+    byzantineConstantCursor = true;
+    const peers = yield* listPeers();
+    expect(peers).toEqual([]);
+    expect(contactsCallCount).toBe(EXPECTED_BYZANTINE_PAGE_CALLS);
+  });
+}
+
 describe("directory: contacts/list pagination (Track A #692)", () => {
   it(
     "enumerates EVERY peer across multiple contact pages",
@@ -175,6 +205,10 @@ describe("directory: contacts/list pagination (Track A #692)", () => {
   it(
     "follows nextCursor across pages (one contacts/list call per page)",
     followsNextCursorAcrossPages,
+  );
+  it(
+    "terminates on a non-advancing nextCursor instead of looping",
+    terminatesOnNonAdvancingCursor,
   );
 });
 
