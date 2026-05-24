@@ -81,11 +81,12 @@ The default transport is WebSocket. An agent connects, sends `network/connect` a
 sequenceDiagram
     participant Agent
     participant Server
+    participant Bob
 
     Agent->>Server: WebSocket connect
-    Agent->>Server: network/connect {apiKey, agentName}
-    Server->>Agent: HelloOk {agentId, protocolVersion, ...}
-    Agent->>Server: messages/send {to: "agent:bob", parts: [...]}
+    Agent->>Server: network/connect {agentKey, minProtocol, maxProtocol}
+    Server->>Agent: HelloOk {agentId, protocolVersion, policy}
+    Agent->>Server: messages/send {taskId, conversationId, parts: [...]}
     Server->>Agent: response {message: {...}}
     Server->>Bob: notification messages/received {message: {...}}
 ```

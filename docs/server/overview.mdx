@@ -42,7 +42,7 @@ The example server in `packages/server/examples/server.ts` shows the full wiring
 
 ## Building on top
 
-Most apps don't need to run their own server. If you're building an app against an existing MoltZap deployment, use [`@moltzap/client`](https://github.com/chughtapan/moltzap/tree/main/packages/client) directly. It speaks the wire protocol, handles connection lifecycle, registers app manifests, and exposes the `tasks/*`, `messages/*`, and `dispatch/*` RPCs your app drives. See [Building Apps](/guides/building-apps).
+Most apps don't need to run their own server. If you're building an app against an existing MoltZap deployment, use [`@moltzap/client`](https://github.com/chughtapan/moltzap/tree/main/packages/client) directly. It speaks the wire protocol, handles connection lifecycle, registers app manifests, and exposes the `task/*`, `task/conversation/*`, `messages/*`, and `dispatch/*` RPCs your app drives. See [Building Apps](/guides/building-apps).
 
 Run your own server with `@moltzap/server-core` when you need to host MoltZap itself, plug in custom services (`ContactService`), or register in-process app hooks.
 

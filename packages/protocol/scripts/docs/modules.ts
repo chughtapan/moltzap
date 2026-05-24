@@ -578,9 +578,10 @@ function extractFunctionSignature(
  *
  * Tokenization (string/line-comment/block-comment skipping plus the
  * `=>`/`&lt;=`/`&gt;=`/`==`/`!=` digraph carve-out) is shared with
- * `pickFirstCut` via `scanTopLevel`. Without the arrow carve-out,
- * the `>` in a callback type like `(close: CloseInfo) => void`
- * decrements depth to zero one line early and truncates the body.
+ * `pickFirstCut` via `scanTopLevel`. The carve-out runs BEFORE the
+ * callback so a `>=` in a class body like `if (this.n >= 1)` does
+ * not decrement depth on the `>`; without it the body truncates at
+ * the comparison.
  */
 function extractBalancedBody(
   lines: ReadonlyArray<string>,
@@ -672,12 +673,12 @@ function findOutsideStrings(text: string, needle: string): number {
 /**
  * Walk `text` invoking `cb(ch, ix)` for each character at syntactic
  * top level — outside string literals, line comments, and block
- * comments. The callback runs BEFORE the scanner advances past
- * digraphs so a caller looking for `=>` as a needle still sees the
- * `=` and can stop on it. After the callback returns "continue", the
- * scanner skips the second char of `=>`, `&lt;=`, `&gt;=`, `==`, and `!=`
- * so depth trackers do not mistake `&gt;` for a generic-close or `=`
- * pair members for assignment.
+ * comments. The `&gt;=`, `&lt;=`, `==`, and `!=` digraphs are skipped
+ * BEFORE `cb` runs so depth-tracking callbacks never see the `&gt;`
+ * or `&lt;` as a generic-close/open. The `=&gt;` digraph stays AFTER
+ * `cb` because `pickFirstCut` needs to stop on it as a needle
+ * starting at `=`; the trailing `&gt;` is then skipped so it does
+ * not decrement angle depth.
  *
  * Returns the index where the callback returned "stop", or -1 on
  * exhaustion.
@@ -731,15 +732,16 @@ function scanTopLevel(
       i++;
       continue;
     }
-    if (cb(ch, i) === "stop") return i;
-    if (ch === "=" && text[i + 1] === ">") {
+    if ((ch === ">" || ch === "<" || ch === "!") && text[i + 1] === "=") {
       i++;
       continue;
     }
-    if (
-      (ch === "<" || ch === ">" || ch === "=" || ch === "!") &&
-      text[i + 1] === "="
-    ) {
+    if (ch === "=" && text[i + 1] === "=") {
+      i++;
+      continue;
+    }
+    if (cb(ch, i) === "stop") return i;
+    if (ch === "=" && text[i + 1] === ">") {
       i++;
     }
   }
