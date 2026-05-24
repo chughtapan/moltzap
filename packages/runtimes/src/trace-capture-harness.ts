@@ -155,8 +155,8 @@ interface ClientTestModule {
 
 interface CoreAppHandle {
   // No fields used by the harness directly today — the test server's
-  // `spanEvents()` accessor (see CoreTestServer below) is the path
-  // for reading messaging trace data.
+  // `spanExporter` handle (see CoreTestServer below) is the path for
+  // reading messaging trace data.
   readonly _placeholder?: never;
 }
 
@@ -937,6 +937,11 @@ function executeTraceRun(input: {
     // server-side custom `TraceCapture` was removed; arena's harness
     // needs its own OTel→TraceCaptureEvent mapping. Bundles are empty
     // until that's wired.
+    //
+    // Note: spans carry message-shape metadata only (part/text counts and
+    // lengths), NOT message body plaintext — the server redacts body text
+    // from telemetry. A future mapping that needs the actual message text
+    // must obtain it through a non-telemetry path, not from these spans.
     const traceEvents: readonly TraceCaptureEvent[] = [];
     const runId = input.runId ?? (yield* randomRunId());
     return buildTraceBundle({
