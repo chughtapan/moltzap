@@ -20,19 +20,19 @@ import {
   type ClaimAgentResult,
 } from "../identity/services/auth.service.js";
 import type { CoreConfig } from "./types.js";
-import {
-  ERROR_INVALID_JSON,
-  ERROR_INVALID_PARAMETERS,
-  HTTP_BAD_REQUEST,
-  HTTP_CONFLICT,
-  HTTP_CREATED,
-  HTTP_FORBIDDEN,
-  HTTP_INTERNAL_SERVER_ERROR,
-  HTTP_NOT_FOUND,
-  HTTP_OK,
-  HTTP_UNAUTHORIZED,
-} from "./server-constants.js";
 import { logError, logWarning } from "./logging.js";
+
+const HTTP_OK = 200;
+const HTTP_CREATED = 201;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_UNAUTHORIZED = 401;
+const HTTP_FORBIDDEN = 403;
+const HTTP_NOT_FOUND = 404;
+const HTTP_CONFLICT = 409;
+const HTTP_INTERNAL_SERVER_ERROR = 500;
+
+const ERROR_INVALID_JSON = "Invalid JSON";
+const ERROR_INVALID_PARAMETERS = "Invalid parameters";
 
 const INVALID_JSON_BODY = Symbol("InvalidJsonBody");
 const UUID_RE =

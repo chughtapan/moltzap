@@ -25,8 +25,9 @@ import type { AppTags } from "../transport/layer-tags.js";
 import { serverCapabilityProviders } from "./capability-providers.js";
 import type { ConnectionTag, ResolvedServices } from "./layers.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
-import { ERROR_INVALID_JSON } from "./server-constants.js";
 import { logInfo, logWarning } from "./logging.js";
+
+const ERROR_INVALID_JSON = "Invalid JSON";
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 const MALFORMED_LOG_EVERY = 50;
