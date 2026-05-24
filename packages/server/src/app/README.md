@@ -13,7 +13,8 @@ dispatch lease registry now lives in `task/leases/`.)
 
 ## Files
 
-- `server.ts` — `createCoreApp` + `closeCoreAppEffect` (composition root).
+- `server.ts` — `createCoreApp` (composition root) + the boot Effect
+  that wires Layers, services, and HTTP/WS routes.
 - `layers.ts` — Tag definitions + `ServicesLive` tier composition for
   the whole stack.
 - `app-host.ts` — `AppHost` class; hook envelope + 3-step resolution
@@ -35,13 +36,11 @@ dispatch lease registry now lives in `task/leases/`.)
 - `conversation-app-lookup.ts` — derives a conversation's
   app-binding (the `app_id IS NULL` discriminator) for
   `messages/authorize` routing.
-- `hooks.ts` — generic `Hook<TContext, TResult>` shape and the
-  concrete hook types (`TaskAuthorizeDispatchHook`,
-  `MessageAuthorizeHook`).
 - `types.ts` — `CoreConfig`, `CoreApp` surface types.
-- `config.ts` — `CoreConfig` schema + loader helpers.
+- `config.ts` — `CoreConfig` schema + loader helpers; owns
+  `DEFAULT_SERVER_PORT`.
 - `node-http-server.ts` — `@effect/platform-node` HTTP server wiring.
-- `logging.ts`, `dev.ts`, `server-constants.ts`, `index.ts` — small helpers.
+- `core-schema.sql` — bundled DDL for fresh schemas.
 - `handlers/apps.handlers.ts` — `apps/*` RPC handlers (register +
   authorize callbacks).
 - `handlers/task-request.handler.ts` — `task/request` entry point;

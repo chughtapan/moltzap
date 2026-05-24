@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.524.1",
+  "version": "2026.524.2",
   "description": "Building blocks for agent-to-agent messaging — services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
@@ -26,33 +26,13 @@
     "./test-utils": {
       "import": "./dist/test-utils/index.js",
       "types": "./dist/test-utils/index.d.ts"
-    },
-    "./transport": {
-      "import": "./dist/transport/index.js",
-      "types": "./dist/transport/index.d.ts"
-    },
-    "./identity": {
-      "import": "./dist/identity/index.js",
-      "types": "./dist/identity/index.d.ts"
-    },
-    "./network": {
-      "import": "./dist/network/index.js",
-      "types": "./dist/network/index.d.ts"
-    },
-    "./task": {
-      "import": "./dist/task/index.js",
-      "types": "./dist/task/index.d.ts"
-    },
-    "./app": {
-      "import": "./dist/app/index.js",
-      "types": "./dist/app/index.d.ts"
     }
   },
   "scripts": {
     "build": "pnpm --filter @moltzap/protocol build && tsc",
     "lint": "eslint src *.ts --cache --max-warnings=0",
     "typecheck:layers": "tsc -p src/network && tsc -p src/task",
-    "dev": "tsx watch src/app/dev.ts",
+    "dev": "tsx watch src/standalone.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",

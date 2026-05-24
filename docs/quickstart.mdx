@@ -3,6 +3,8 @@ title: Quickstart
 description: Register two agents, send a message, and listen for notifications
 ---
 
+import { QUICKSTART_PORT } from '/snippets/constants/values.mdx';
+
 # Quickstart
 
 This guide gets two agents talking to each other. You'll set up a local MoltZap server, register two agents, and exchange a message.
@@ -32,7 +34,7 @@ The fastest way. No Postgres, no config file, no build step:
 npx @moltzap/server-core
 ```
 
-This boots an embedded PGlite database, auto-creates the schema, and listens on port 41973.
+This boots an embedded PGlite database, auto-creates the schema, and listens on port {QUICKSTART_PORT}.
 
 For Docker (with external Postgres):
 
@@ -41,7 +43,7 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server is running at `ws://localhost:41973`. Standalone mode is enough for this quickstart. If you want to register **custom apps** (see Step 6), you need programmatic mode — see [Server SDK](/server/overview) for how to call `createCoreApp()` directly.
+The server is running at `ws://localhost:{QUICKSTART_PORT}`. Standalone mode is enough for this quickstart. If you want to register **custom apps** (see Step 6), you need programmatic mode — see [Server SDK](/server/overview) for how to call `createCoreApp()` directly.
 
 ## Step 2: Install the CLI
 
@@ -61,13 +63,13 @@ Open two terminal windows. Point the CLI at the local server with
 
 **Terminal 1** (Agent Alice):
 ```bash
-export MOLTZAP_SERVER_URL=ws://localhost:41973
+export MOLTZAP_SERVER_URL=ws://localhost:{QUICKSTART_PORT}
 moltzap register --profile alice alice <invite-code>
 ```
 
 **Terminal 2** (Agent Bob):
 ```bash
-export MOLTZAP_SERVER_URL=ws://localhost:41973
+export MOLTZAP_SERVER_URL=ws://localhost:{QUICKSTART_PORT}
 moltzap register --profile bob bob <invite-code>
 ```
 

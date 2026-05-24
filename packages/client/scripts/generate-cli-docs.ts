@@ -25,6 +25,11 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  collectNumericProperties,
+  readTopLevelStringConst,
+  type ReadResult,
+} from "./generate-cli-docs.helpers.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const clientPkgDir = resolve(scriptDir, "..");
@@ -434,47 +439,90 @@ interface HelloPolicy {
   };
 }
 
+const HELLO_FIELDS: ReadonlySet<string> = new Set([
+  "maxMessageBytes",
+  "maxPartsPerMessage",
+  "maxTextLength",
+  "maxGroupParticipants",
+  "heartbeatIntervalMs",
+  "messagesPerMinute",
+  "requestsPerMinute",
+]);
+
 /**
- * Read the integer literals out of `buildHelloOk` directly. The function
- * is a `const`-only object literal; a small regex over the source is
- * cheaper than spinning up a TS compiler-API rig for one struct.
+ * Read the integer literals out of `buildHelloOk` via the TS compiler
+ * API. Doctrine-aligned: the AST is the contract, not a regex over the
+ * source. A missing field produces a typed failure (no raw throw); the
+ * `main` function surfaces it and exits non-zero with a clear message.
  */
-const readHelloPolicy = (): HelloPolicy => {
+const readHelloPolicy = (): ReadResult<HelloPolicy> => {
   const sourcePath = resolve(
     workspaceRoot,
     "packages/server/src/task/handlers/connect.handlers.ts",
   );
-  const src = readFileSync(sourcePath, "utf8");
-  const grabInt = (key: string): number => {
-    const m = src.match(new RegExp(`${key}:\\s*(\\d+)`));
-    if (m === null || m[1] === undefined) {
-      throw new Error(
-        `generate-cli-docs: failed to read ${key} from ${sourcePath}`,
-      );
-    }
-    return Number(m[1]);
-  };
+  const found = collectNumericProperties(
+    readFileSync(sourcePath, "utf8"),
+    HELLO_FIELDS,
+  );
+  const missing = [...HELLO_FIELDS].filter((k) => !(k in found));
+  if (missing.length > 0) {
+    return {
+      _tag: "err",
+      reason: `generate-cli-docs: missing HelloOk policy fields in ${sourcePath}: ${missing.join(", ")}`,
+    };
+  }
   return {
-    maxMessageBytes: grabInt("maxMessageBytes"),
-    maxPartsPerMessage: grabInt("maxPartsPerMessage"),
-    maxTextLength: grabInt("maxTextLength"),
-    maxGroupParticipants: grabInt("maxGroupParticipants"),
-    heartbeatIntervalMs: grabInt("heartbeatIntervalMs"),
-    rateLimits: {
-      messagesPerMinute: grabInt("messagesPerMinute"),
-      requestsPerMinute: grabInt("requestsPerMinute"),
+    _tag: "ok",
+    value: {
+      maxMessageBytes: found.maxMessageBytes ?? 0,
+      maxPartsPerMessage: found.maxPartsPerMessage ?? 0,
+      maxTextLength: found.maxTextLength ?? 0,
+      maxGroupParticipants: found.maxGroupParticipants ?? 0,
+      heartbeatIntervalMs: found.heartbeatIntervalMs ?? 0,
+      rateLimits: {
+        messagesPerMinute: found.messagesPerMinute ?? 0,
+        requestsPerMinute: found.requestsPerMinute ?? 0,
+      },
     },
   };
 };
 
-const renderHelloPolicySnippet = (policy: HelloPolicy): string => {
+/**
+ * Read `PROTOCOL_VERSION` from `packages/protocol/src/version.ts` so
+ * the generated WS-connect example never drifts from the protocol
+ * package. Same AST-first pattern as `readHelloPolicy`.
+ */
+const readProtocolVersion = (): ReadResult<string> => {
+  const sourcePath = resolve(workspaceRoot, "packages/protocol/src/version.ts");
+  const result = readTopLevelStringConst(
+    readFileSync(sourcePath, "utf8"),
+    "PROTOCOL_VERSION",
+  );
+  if (result._tag === "err") {
+    return {
+      _tag: "err",
+      reason: `generate-cli-docs: ${result.reason} in ${sourcePath}`,
+    };
+  }
+  return result;
+};
+
+interface SnippetInputs {
+  readonly policy: HelloPolicy;
+  readonly protocolVersion: string;
+}
+
+const renderHelloPolicySnippet = ({
+  policy,
+  protocolVersion,
+}: SnippetInputs): string => {
   const json = JSON.stringify(
     {
       jsonrpc: "2.0",
       id: "1",
       result: {
         agentId: "550e8400-e29b-41d4-a716-446655440000",
-        protocolVersion: "2026.503.4",
+        protocolVersion,
         policy,
       },
     },
@@ -488,8 +536,8 @@ const renderHelloPolicySnippet = (policy: HelloPolicy): string => {
       method: "network/connect",
       params: {
         agentKey: "moltzap_agent_abc123...",
-        minProtocol: "2026.503.4",
-        maxProtocol: "2026.503.4",
+        minProtocol: protocolVersion,
+        maxProtocol: protocolVersion,
       },
     },
     null,
@@ -537,13 +585,25 @@ const main = (): void => {
   );
 
   const policy = readHelloPolicy();
+  const protocolVersion = readProtocolVersion();
+  if (policy._tag === "err") {
+    console.error(policy.reason);
+    process.exit(1);
+  }
+  if (protocolVersion._tag === "err") {
+    console.error(protocolVersion.reason);
+    process.exit(1);
+  }
   writeFileSync(
     resolve(snippetsDir, "ws-connect-example.mdx"),
-    renderHelloPolicySnippet(policy),
+    renderHelloPolicySnippet({
+      policy: policy.value,
+      protocolVersion: protocolVersion.value,
+    }),
   );
 
   console.log(
-    `[generate-cli-docs] wrote reference + ${commands.length} commands + HelloOk snippet`,
+    `[generate-cli-docs] wrote reference + ${commands.length} commands + HelloOk snippet (PROTOCOL_VERSION=${protocolVersion.value})`,
   );
 };
 

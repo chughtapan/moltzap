@@ -3,6 +3,8 @@ title: Server SDK Overview
 description: Building blocks for a MoltZap messaging server
 ---
 
+import { DEFAULT_SERVER_PORT } from '/snippets/constants/values.mdx';
+
 # Server SDK Overview
 
 `@moltzap/server-core` provides everything you need to build a MoltZap messaging server: services, an RPC router, WebSocket management, encryption, and a database layer.
@@ -13,27 +15,28 @@ import InstallServerCore from '/snippets/install-server-core.mdx'
 
 ## What's included
 
-The package's root barrel (`@moltzap/server-core`) exposes only the
+The package's root barrel (`@moltzap/server-core`) exposes the
 composition root — `createCoreApp` plus the `CoreApp` / `CoreConfig`
-types. Service handles, Tags, and Layers live on per-layer subpaths:
+types — along with the `Database` schema type for typing your own
+Kysely instance. Test utilities live on a separate subpath:
 
 | Surface | Subpath | Exports |
 |---------|---------|---------|
-| **Composition root** | `@moltzap/server-core` | `createCoreApp`, `CoreApp`, `CoreConfig` |
-| **App layer** | `@moltzap/server-core/app` | `AppHost`, `ContactService`, every `*ServiceTag` and `*Live` (`AuthService`, `MessageService`, `ConversationService`, `PresenceService`, `ParticipantService`, `ConnectionManager`, `NetworkSendService`, `TaskService`, `LeaseRegistry`, `Encryption`, `Db`, `DeliveryWebhook`, `WebhookClient`, `SessionValidator`, `ContactsService`, `AgentEndpointResolver`), `ServicesLive`, `resolveServices`, `CoreConfig`, `CoreApp`, `LeaseInvalidError`, `LeaseNotFoundError`, `leaseRecordToWire`, `makeLeaseRegistry` |
-| **Transport layer** | `@moltzap/server-core/transport` | `defineMethod`, `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`, `RpcMethodRegistry`, `RpcMethodBinding`, `AuthenticatedContext`, `DispatchContext`, `ConnectionManager`, `MoltZapConnection`, `sendRpcToClient`, `acquireConnectionRpcClient`, layer-tag aliases (`TransportTags` ⊂ `IdentityTags` ⊂ `NetworkTags` ⊂ `TaskTags` ⊂ `AppTags`) |
-| **Identity layer** | `@moltzap/server-core/identity` | (reserved; identity surfaces are currently re-exported via `/app`) |
-| **Network layer** | `@moltzap/server-core/network` | (reserved; network surfaces are currently re-exported via `/app`) |
-| **Task layer** | `@moltzap/server-core/task` | (reserved; task surfaces are currently re-exported via `/app`) |
-| **Test utilities** | `@moltzap/server-core/test-utils` | PGlite harness, `expectRpcFailure`, shared server-test bootstrap |
+| **Composition root** | `@moltzap/server-core` | `createCoreApp`, `CoreApp`, `CoreConfig`, `Database` |
+| **Test utilities** | `@moltzap/server-core/test-utils` | `makePgliteHarness`, `PgliteHarness`, `PGLITE_HOOK_TIMEOUT_MS`, `expectRpcFailure`, and the shared server-test bootstrap |
 
-The `app` subpath is the high-water mark for runtime composition —
-every service Tag and Live Layer is reachable from there because
-that is the composition layer. The lower-layer subpaths exist for
-future expansion and to enforce the package's import-direction rule;
-they are intentionally empty barrels today (`export {}`). Reach for
-`/app` when you need service Tags, `/transport` when you need
-`defineMethod` and the per-layer wrappers, `/test-utils` for tests.
+`createCoreApp` is the only construction entrypoint: pass it a
+`CoreConfig` and it builds the full Effect Layer graph
+(services, encryption, RPC handler registry, WebSocket transport,
+HTTP routes) and returns the running `CoreApp`. Service handles
+(`ConnectionManager`, the lease registry, the network-send service,
+the trace capture) are reachable from the returned `CoreApp` value —
+they are NOT individually importable from the package's public
+surface. To plug in custom behavior, use `CoreConfig` fields like
+`sessionValidator`, `webhookClient`, `deliveryWebhook`, or
+`traceCaptureLayer`, and the post-construction hooks
+(`onConnection`, `onDisconnection`, `setContactService`) exposed
+by the returned `CoreApp`.
 
 ## Minimal server
 
@@ -47,7 +50,7 @@ const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
 const app = createCoreApp({
   db,
-  port: 3100,
+  port: {DEFAULT_SERVER_PORT}, // code default — see `DEFAULT_SERVER_PORT` in packages/server/src/app/config.ts
   corsOrigins: ["*"],
   encryptionMasterSecret: process.env.ENCRYPTION_MASTER_SECRET,
 });

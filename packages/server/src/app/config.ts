@@ -1,4 +1,75 @@
-import { Config, ConfigError, Effect, Option, Redacted } from "effect";
+import {
+  Config,
+  ConfigError,
+  Effect,
+  Option,
+  Redacted,
+  type Layer,
+} from "effect";
+import type { Db } from "../db/client.js";
+import type { SessionValidator } from "../identity/services/session-validator.js";
+import type { WebhookClient } from "../adapters/webhook.js";
+import type { TraceCaptureTag } from "../runtime-surface/trace-capture.js";
+
+export interface CoreConfig {
+  db: Db;
+  dbCleanup?: () => PromiseLike<void>;
+  encryptionMasterSecret?: string;
+  port: number;
+  corsOrigins: string[];
+  registrationSecret?: string;
+  devMode?: boolean;
+
+  /**
+   * When set, agents registered via the default `/api/v1/auth/register`
+   * route are given this user id as their `owner_user_id`, skipping the
+   * claim step. Intended for local dev / quickstart. Production MUST
+   * leave this unset and perform claim through an external auth
+   * provider (see docs/guides/custom-identity-provider.mdx).
+   */
+  devModeUserId?: string;
+
+  /**
+   * Optional bearer-token session validator (called from `network/connect`
+   * when the caller authenticates with a `sessionToken`). Unset → bearer-
+   * token auth is unsupported; only `agentKey` auth works.
+   */
+  sessionValidator?: SessionValidator;
+
+  /**
+   * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
+   * fanout and user-side adapters (contact/user services). If unset,
+   * `createCoreApp` constructs a default `new WebhookClient()`. Tests may
+   * inject a fake to intercept outbound HTTP.
+   */
+  webhookClient?: WebhookClient;
+
+  /**
+   * When true, core does not mount its default `/api/v1/auth/register`
+   * route. Apps that want their own invite-gated / rate-limited register
+   * flow set this and mount their own handler.
+   */
+  skipDefaultRegisterRoute?: boolean;
+
+  /**
+   * Fire-and-forget HTTP webhook after message delivery with the list of
+   * offline recipient agent IDs. Use to drive push notifications or analytics
+   * out of band. Body is signed with HMAC-SHA256 in the
+   * `X-MoltZap-Signature: sha256=&lt;hex>` header using `secret`.
+   *
+   * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
+   *
+   * Dispatched on a detached daemon fiber with a 3-attempt exponential backoff
+   * (1s base, jittered). Failures log and drop — never block `messages/send`.
+   */
+  deliveryWebhook?: { url: string; secret: string };
+
+  /**
+   * Optional trace-capture layer override. When unset, the server runs with
+   * the default no-op capture and emits no trace artifacts.
+   */
+  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
+}
 
 interface CorsConfig {
   exact: string[];
@@ -25,6 +96,13 @@ export interface LoadedConfig {
 }
 
 const CORS_REGEX_PREFIX = "regex:";
+
+/**
+ * Code-level default port used by `ServerConfigLoader` when neither
+ * `PORT` nor the YAML `port:` field is set. The docs constants
+ * generator (`scripts/generate-constants-snippets.ts`) reads this
+ * literal via the TS compiler API so doc copy stays in lockstep.
+ */
 const DEFAULT_SERVER_PORT = 3000;
 
 const missingCorsOrigins = ConfigError.MissingData(
@@ -98,8 +176,7 @@ const parseCorsOrigins = (
 /**
  * Effect-native server config loader. Reads env vars through `Config` so
  * missing/invalid values surface as typed `ConfigError` instead of thrown
- * `Error`. Callers already inside an Effect program `yield*` this; the one
- * sync entrypoint (`loadCoreConfig`) bridges via `Effect.runSync`.
+ * `Error`. Callers already inside an Effect program `yield*` this.
  */
 export const ServerConfigLoader: Effect.Effect<
   LoadedConfig,
@@ -145,13 +222,3 @@ export const ServerConfigLoader: Effect.Effect<
     devMode,
   };
 }).pipe(Effect.withSpan("ServerConfigLoader"));
-
-/**
- * Sync facade for the one boot entry (`app/dev.ts`) that runs outside an
- * Effect program. Safe here because this is the absolute process entrypoint:
- * a `ConfigError` bubbles up as an unhandled exception and fails startup —
- * the same outcome the previous throw-based loader produced.
- */
-export function loadCoreConfig(): LoadedConfig {
-  return Effect.runSync(ServerConfigLoader);
-}

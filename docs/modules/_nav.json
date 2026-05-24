@@ -24,12 +24,7 @@
     "modules/protocol/testing/toxics",
     "modules/protocol/transport",
     "modules/runtimes/src",
-    "modules/server-core/app",
-    "modules/server-core/identity",
-    "modules/server-core/network",
     "modules/server-core/src",
-    "modules/server-core/task",
-    "modules/server-core/test-utils",
-    "modules/server-core/transport"
+    "modules/server-core/test-utils"
   ]
 }

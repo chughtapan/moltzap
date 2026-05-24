@@ -16,7 +16,7 @@ description: Contribution guidelines and conventions
 
 ## Versioning
 
-MoltZap uses date-based versioning: `YYYY.MDD.patch` (e.g., `2026.407.0`). Versions are auto-bumped by the publish workflow.
+MoltZap uses date-based versioning: `YYYY.MDD.patch`. Versions are auto-bumped by the publish workflow.
 
 ## Releases
 
@@ -26,10 +26,12 @@ To make releases easier to reference symbolically (cross-repo submodule pins, `g
 
 ### Tag convention
 
-- **Per-package tags** that match the commit message format:
+- **Per-package tags** that match the commit message format (`YYYY.MDD.patch`
+  shape is the convention; substitute the literal version on the release
+  commit you are tagging):
   ```bash
-  git tag -a "@moltzap/server-core@2026.501.6" -m "@moltzap/server-core@2026.501.6"
-  git push origin "@moltzap/server-core@2026.501.6"
+  git tag -a "@moltzap/server-core@YYYY.MDD.patch" -m "@moltzap/server-core@YYYY.MDD.patch"
+  git push origin "@moltzap/server-core@YYYY.MDD.patch"
   ```
 - Always use `git tag -a` (annotated) — never `git tag <name>` (lightweight). Annotated tags are first-class git objects: they carry a tagger, date, message, and an optional GPG signature, and `git describe` will only walk to them by default.
 - Tag against the `chore(release):` commit that bumped the version.

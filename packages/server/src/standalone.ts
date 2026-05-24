@@ -15,7 +15,8 @@ import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import { WebhookClient } from "./adapters/webhook.js";
 import { WebhookContactService } from "./adapters/webhook-contact-service.js";
 import { WebhookSessionValidator } from "./identity/services/session-validator.js";
-import type { CoreApp, CoreConfig } from "./app/types.js";
+import type { CoreApp } from "./app/types.js";
+import type { CoreConfig } from "./app/config.js";
 import type { Database } from "./db/database.js";
 import type { Db } from "./db/client.js";
 import { PostgresDialect } from "./db/postgres-dialect.js";
@@ -25,7 +26,6 @@ import {
   type RuntimeProcessConfig,
   type RuntimeConfigSurfaceError,
 } from "./runtime-surface/config.js";
-import { currentArgv, isStandaloneDirectRun } from "./runtime/direct-run.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
@@ -432,9 +432,16 @@ function logStandaloneStarted(
   );
 }
 
-// Auto-start when run directly (e.g. `node dist/standalone.js`, `tsx src/standalone.ts`)
-// bin/moltzap-server calls startServer() explicitly via import.
-if (isStandaloneDirectRun(currentArgv())) {
+// Auto-start when run directly (e.g. `node dist/standalone.js`,
+// `tsx watch src/standalone.ts`). `bin/moltzap-server` calls
+// `startServer()` explicitly via import, so its argv[1] doesn't match
+// the standalone suffix and this guard skips.
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- entrypoint-detection: process.argv is the only way to check whether this file was loaded as the direct entry vs. imported by the bin script
+const argv1 = process.argv[1];
+if (
+  argv1?.endsWith("standalone.js") === true ||
+  argv1?.endsWith("standalone.ts") === true
+) {
   startServer().catch((err) => {
     Effect.runFork(
       Effect.logError("Server startup failed").pipe(
