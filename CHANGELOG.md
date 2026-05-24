@@ -314,38 +314,41 @@ identified server-side; no wire flag), and folds
 
 ### Spec E (#601) — R-channel capability primitives + TaskService cutover
 
-- **Internal:** New `packages/server/src/app/capabilities/` module
-  with R-channel typed capability tags
+- **Internal:** R-channel typed capability tags
   (`TmAuthority`, `TaskReadAccess`, `ConversationParticipantAccess`,
   `ConversationInTask`, `AgentExists`, `AgentInTaskParticipants`,
   `ContactPolicyAllowsReach`, `TaskActive`, `ConversationNotArchived`,
   `ValidReplyTarget`, `NoReplyTarget`, `GroupCapacityForCreate`,
-  composite `MessageSendPermission`) and matching `obtain*` / `refine*`
+  composite `MessageSendPermission`) plus matching `obtain*` / `refine*`
   smart constructors. Each smart constructor wraps today's runtime
   check exactly once per request and produces a typed token + carried
-  payload row.
+  payload row. (Tag classes + `refine*` helpers live in
+  `packages/protocol/src/task/capabilities/`; the `obtain*` logic lives
+  in `packages/server/src/app/capability-providers.ts`, inline in the
+  provider table, with composites in `packages/server/src/task/services/`.)
 - **Internal:** `assertTmAuthorityMatchesTask` /
   `assertTaskReadAccessMatchesTask` / `assertConversationInTaskMatches`
   runtime equality helpers catch the "handler obtained a capability
   for task A but passed task B" bug class with one comparison.
 - **Internal:** `transport/layer-tags.ts` populates the
-  `CapabilityTags` sibling alias with the 13 concrete tag classes.
-  Capability tags are DELIBERATELY a sibling — not folded into
-  `TaskTags` — so the `defineTaskMethod` constraint
-  `Reqs extends TaskTags` rejects handlers that yield a capability
-  without piping `Effect.provideServiceEffect` (Decision A invariant;
-  `capability-r-channel.types-check.ts` Canary 5 enforces it).
+  `CapabilityTags` sibling alias with the 13 concrete tag classes
+  (imported from `@moltzap/protocol/task`). Capability tags are
+  DELIBERATELY a sibling — not folded into `TaskTags`. The
+  dispatcher-side lockstep gate (Canary 7 in
+  `packages/protocol/src/transport/typed-dispatcher.types-check.ts`)
+  rejects any handler whose R channel references a tag NOT declared in
+  its descriptor's `capabilities` array.
 - **Internal:** `TaskService` public-method R-channel cutover. All 10
   public methods (`get`, `close`, `closeWithLifecycle`,
   `addParticipant`, `removeParticipant`, `createConversation`,
   `closeConversation`, `storeMessage`, `getMessages`,
   `getMessagesSince`) consume `TmAuthority` / `TaskReadAccess` /
-  `ConversationInTask` from the R-channel; `tasks.handlers.ts` wires
-  the capabilities via `Effect.provideServiceEffect(Tag,
-  obtainTag(...))`. The 4 `@internal` SQL primitives on `TaskService`
-  (`loadTaskAsTmAuthority`, `loadTaskWithReadAccess`,
-  `assertConversationInTask`, `assertAgentInTaskParticipants`) are now
-  consumed only by the corresponding `obtain*` helpers.
+  `ConversationInTask` from the R-channel; the dispatcher
+  auto-provisions each from the descriptor's `capabilities` array via
+  the shared `serverCapabilityProviders` table. The `@internal` SQL
+  primitives on `TaskService` (`loadOpenTask`, `loadTaskWithReadAccess`,
+  `assertConversationInTask`, `assertAgentInTaskParticipants`) are
+  consumed only by the corresponding obtain logic.
 - **Internal:** `ConversationService` + `MessageService` public methods
   retain their inline-gate shape (call `@internal` `assertX`/`loadX`
   helpers directly). Their R-channel cutover requires a structural
