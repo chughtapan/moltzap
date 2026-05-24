@@ -7,8 +7,13 @@ import { sql } from "./db/sql.js";
 import { Data, Effect } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
+import {
+  loadStandaloneConfig,
+  type CoreConfig,
+  type ConfigLoadError,
+  type StandaloneBootPlan,
+} from "./config.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
@@ -16,16 +21,9 @@ import { WebhookClient } from "./adapters/webhook.js";
 import { WebhookContactService } from "./adapters/webhook-contact-service.js";
 import { WebhookSessionValidator } from "./identity/services/session-validator.js";
 import type { CoreApp } from "./app/types.js";
-import type { CoreConfig } from "./app/config.js";
 import type { Database } from "./db/database.js";
 import type { Db } from "./db/client.js";
 import { PostgresDialect } from "./db/postgres-dialect.js";
-import {
-  runtimeConfigPath,
-  loadRuntimeProcessConfig,
-  type RuntimeProcessConfig,
-  type RuntimeConfigSurfaceError,
-} from "./runtime-surface/config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
@@ -43,7 +41,7 @@ export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
 }> {}
 
 type StandaloneServerError =
-  | RuntimeConfigSurfaceError
+  | ConfigLoadError
   | StandaloneOperationFailed
   | SchemaFileNotFound;
 
@@ -263,7 +261,7 @@ export function startServer(configPath?: string) {
 
 interface StandaloneServerHandle {
   readonly app: CoreApp;
-  readonly config: MoltZapConfig;
+  readonly bootPlan: StandaloneBootPlan;
   readonly stop: CoreApp["close"];
 }
 
@@ -276,56 +274,37 @@ function startServerEffect(
   configPath?: string,
 ): Effect.Effect<StandaloneServerHandle, StandaloneServerError, never> {
   return Effect.gen(function* () {
-    const runtimeConfig = yield* loadStandaloneRuntimeConfig(configPath);
-    const database = yield* createStandaloneDatabase(runtimeConfig);
+    const bootPlan = yield* loadStandaloneConfig({ configPath });
+    const database = yield* createStandaloneDatabase(bootPlan);
     yield* logDatabaseSelection(database.usePgLite);
-    yield* migrateStandaloneDatabase(database.handle, runtimeConfig);
+    yield* migrateStandaloneDatabase(database.handle, bootPlan);
     const webhookClient = new WebhookClient();
-    const sessionValidator = makeSessionValidator(
-      runtimeConfig.app,
-      webhookClient,
-    );
-    const devModeUserId = resolveDevModeUserId(runtimeConfig.app);
+    const sessionValidator = makeSessionValidator(bootPlan, webhookClient);
+    const devModeUserId = resolveDevModeUserId(bootPlan);
     yield* warnDevModeUserId(devModeUserId);
     const coreConfig = makeCoreConfig({
-      runtimeConfig,
+      bootPlan,
       handle: database.handle,
       devModeUserId,
       sessionValidator,
       webhookClient,
     });
     const app = createCoreApp(coreConfig);
-    yield* installContactService(app, runtimeConfig.app, webhookClient);
+    yield* installContactService(app, bootPlan, webhookClient);
     yield* logStandaloneStarted(app, database.usePgLite);
-    return {
-      app,
-      config: runtimeConfig.app,
-      stop: () => app.close(),
-    };
+    return { app, bootPlan, stop: () => app.close() };
   }).pipe(Effect.withSpan("startServerEffect"));
 }
 
-function loadStandaloneRuntimeConfig(
-  configPath: string | undefined,
-): Effect.Effect<RuntimeProcessConfig, RuntimeConfigSurfaceError> {
-  if (configPath === undefined) return loadRuntimeProcessConfig({});
-  return loadRuntimeProcessConfig({
-    configPath: runtimeConfigPath(configPath),
-  });
-}
-
 function createStandaloneDatabase(
-  runtimeConfig: RuntimeProcessConfig,
+  bootPlan: StandaloneBootPlan,
 ): Effect.Effect<StandaloneDatabase, StandaloneOperationFailed> {
   return Effect.gen(function* () {
-    const databaseUrl = runtimeConfig.server.database.url;
-    if (databaseUrl.length === 0) {
-      const handle = yield* createPgLiteDb(
-        runtimeConfig.app.database?.data_dir,
-      );
+    if (bootPlan.databaseUrl.length === 0) {
+      const handle = yield* createPgLiteDb(bootPlan.pgliteDataDir);
       return { handle, usePgLite: true };
     }
-    const handle = yield* createPostgresDb(databaseUrl);
+    const handle = yield* createPostgresDb(bootPlan.databaseUrl);
     return { handle, usePgLite: false };
   }).pipe(Effect.withSpan("createStandaloneDatabase"));
 }
@@ -339,33 +318,31 @@ function logDatabaseSelection(usePgLite: boolean): Effect.Effect<void> {
 
 function migrateStandaloneDatabase(
   handle: DbHandle,
-  runtimeConfig: RuntimeProcessConfig,
+  bootPlan: StandaloneBootPlan,
 ) {
-  return autoMigrateEffect(
-    handle,
-    runtimeConfig.server.encryption.masterSecret,
-  ).pipe(Effect.provide(NodeFileSystem.layer));
-}
-
-function makeSessionValidator(
-  appConfig: MoltZapConfig,
-  webhookClient: WebhookClient,
-): CoreConfig["sessionValidator"] {
-  const sessionConfig = appConfig.services?.sessions;
-  if (sessionConfig?.type !== "webhook") return undefined;
-  const webhookUrl = sessionConfig.webhook_url;
-  if (!webhookUrl) return undefined;
-  return new WebhookSessionValidator(
-    webhookClient,
-    webhookUrl,
-    sessionConfig.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
+  return autoMigrateEffect(handle, bootPlan.encryptionMasterSecret).pipe(
+    Effect.provide(NodeFileSystem.layer),
   );
 }
 
-function resolveDevModeUserId(appConfig: MoltZapConfig): string | undefined {
-  const devMode = appConfig.dev_mode;
-  if (devMode?.enabled !== true) return undefined;
-  return devMode.user_id ?? randomUUID();
+function makeSessionValidator(
+  bootPlan: StandaloneBootPlan,
+  webhookClient: WebhookClient,
+): CoreConfig["sessionValidator"] {
+  const binding = bootPlan.sessionWebhook;
+  if (binding === undefined) return undefined;
+  return new WebhookSessionValidator(
+    webhookClient,
+    binding.url,
+    binding.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
+  );
+}
+
+function resolveDevModeUserId(
+  bootPlan: StandaloneBootPlan,
+): string | undefined {
+  if (!bootPlan.devModeEnabled) return undefined;
+  return bootPlan.devModeUserId ?? randomUUID();
 }
 
 function warnDevModeUserId(
@@ -378,21 +355,21 @@ function warnDevModeUserId(
 }
 
 function makeCoreConfig(options: {
-  readonly runtimeConfig: RuntimeProcessConfig;
+  readonly bootPlan: StandaloneBootPlan;
   readonly handle: DbHandle;
   readonly devModeUserId: string | undefined;
   readonly sessionValidator: CoreConfig["sessionValidator"];
   readonly webhookClient: WebhookClient;
 }): CoreConfig {
-  const { runtimeConfig, handle } = options;
+  const { bootPlan, handle } = options;
   return {
     db: handle.db,
     dbCleanup: () => Effect.runPromise(handle.cleanup()),
-    encryptionMasterSecret: runtimeConfig.server.encryption.masterSecret,
-    port: runtimeConfig.server.server.port,
-    corsOrigins: runtimeConfig.server.server.corsOrigins.exact,
-    registrationSecret: runtimeConfig.app.registration?.secret,
-    devMode: runtimeConfig.server.devMode,
+    encryptionMasterSecret: bootPlan.encryptionMasterSecret,
+    port: bootPlan.port,
+    corsOrigins: bootPlan.corsOrigins,
+    registrationSecret: bootPlan.registrationSecret,
+    devMode: bootPlan.devMode,
     devModeUserId: options.devModeUserId,
     sessionValidator: options.sessionValidator,
     webhookClient: options.webhookClient,
@@ -401,19 +378,17 @@ function makeCoreConfig(options: {
 
 function installContactService(
   app: CoreApp,
-  appConfig: MoltZapConfig,
+  bootPlan: StandaloneBootPlan,
   webhookClient: WebhookClient,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
-    const contacts = appConfig.services?.contacts;
-    if (contacts?.type !== "webhook") return;
-    const webhookUrl = contacts.webhook_url;
-    if (!webhookUrl) return;
+    const binding = bootPlan.contactWebhook;
+    if (binding === undefined) return;
     app.setContactService(
       new WebhookContactService(
         webhookClient,
-        webhookUrl,
-        contacts.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
+        binding.url,
+        binding.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
       ),
     );
   });

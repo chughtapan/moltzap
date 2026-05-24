@@ -16,7 +16,6 @@ packages/server/src/
 │   ├── app-host.ts           # AppHost — dispatch/* + hook fan-out
 │   ├── capability-providers.ts # serverCapabilityProviders obtain table
 │   ├── handlers/             # apps.handlers, dispatches.handlers, task-request
-│   ├── config.ts             # CoreConfig boot input + ServerConfigLoader (env)
 │   ├── layers.ts             # Tag definitions + Live composition (Tier 1-6)
 │   └── types.ts              # CoreApp, hook context types (ParamsOf<>), branded IDs
 ├── identity/           # Auth, agents, sessions, participants
@@ -34,9 +33,8 @@ packages/server/src/
 ├── crypto/             # Envelope encryption, key rotation
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── adapters/           # webhook client + typed errors
-├── config/             # YAML config loader + schema validation
-├── runtime-surface/    # Public host-runtime API (logging, tracing, config)
 ├── test-utils/         # PGlite boot + test drivers
+├── config.ts           # CoreConfig boot input + StandaloneBootPlan + loadStandaloneConfig (YAML + env)
 ├── standalone.ts       # startServer(configPath) — CLI/binary entry
 └── __tests__/          # unit, integration, conformance
 ```
@@ -49,7 +47,7 @@ packages/server/src/
 | Handler registries | `connectHandlers`, `agentsLookupHandlers`, `pingHandlers`, `conversationHandlers`, `messageHandlers`, `presenceHandlers`, `contactHandlers`, `appHandlers` |
 | Services | `AuthService`, `ConversationService`, `MessageService`, `PresenceService`, `AppHost` |
 | Adapters | `WebhookClient` (+ typed errors), `WebhookSessionValidator` |
-| Config | `loadConfigFromFile`, `validateConfig`, `loadRuntimeProcessConfig` |
+| Config | `loadStandaloneConfig`, `CoreConfig`, `StandaloneBootPlan`, `ConfigLoadError` |
 | Observability | OpenTelemetry spans via Effect's `withSpan` (metadata only — no message body plaintext); `CoreConfig.spanProcessor` (in-memory `InMemorySpanExporter` in tests, batch OTLP in production via `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT`); `CoreTestServer.spanExporter` for span inspection |
 | Crypto | `EnvelopeEncryption`, `seedInitialKek`, `generateApiKey`, `parseApiKey`, `hashSecret` |
 | DB | `createDb`, `makeEffectKysely`, `transaction`, `nextSnowflakeId`, Kysely toolkit |
