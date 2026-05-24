@@ -35,7 +35,6 @@ import {
   AuthService,
   ConversationService,
   MessageService,
-  ParticipantService,
   PresenceService,
   createRpcRouter,
   RpcError,
