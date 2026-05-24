@@ -71,7 +71,7 @@ export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
  *
  * ```mermaid
  * flowchart TD
- *   A["domain layer call site:<br>defineRpc{ name, params, result, optional?, capabilities? }"]
+ *   A["domain layer call site:<br>defineRpc{ name, params, result, capabilities? }"]
  *   A --> B["ajv.compile(params)<br>→ validateParams"]
  *   A --> C["ajv.compile(result)<br>→ validateResult"]
  *   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
@@ -80,11 +80,8 @@ export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
  *   E --> F["aggregated into rpcMethods"]
  * ```
  *
- * - `optional` absent → REQUIRED slot in the handler table; missing
- *   key fails compilation with TS2741 at the factory call.
- * - `optional` present → OPTIONAL slot carrying the fail-CLOSED
- *   default the dispatcher synthesizes when the slot value equals
- *   the sentinel.
+ * - Every slot is REQUIRED in the handler table (Spec D3 R14b);
+ *   omitting any key fails TS2741 at the factory call.
  * - `capabilities` absent → no auto-provision; the dispatcher reads
  *   `definition.capabilities` per frame and threads
  *   `Effect.provideServiceEffect` for each entry.

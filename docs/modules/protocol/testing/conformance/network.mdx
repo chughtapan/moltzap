@@ -23,7 +23,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L69)
+### [`acquireClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L69)
 
 _Function_
 
@@ -35,7 +35,7 @@ export function acquireClient(
 ): Effect.Effect<
 ```
 
-### [`acquireCloseableClient`](./_helpers.ts#L98)
+### [`acquireCloseableClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L98)
 
 _Function_
 
@@ -48,7 +48,7 @@ export function acquireCloseableClient(
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`countPresenceChangedFor`](./_helpers.ts#L235)
+### [`countPresenceChangedFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L235)
 
 _Function_
 
@@ -59,7 +59,7 @@ export function countPresenceChangedFor(
 ): Effect.Effect<number>
 ```
 
-### [`NETWORK_PROPERTIES`](./index.ts#L36)
+### [`NETWORK_PROPERTIES`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/index.ts#L36)
 
 _Variable_
 
@@ -71,7 +71,7 @@ export const NETWORK_PROPERTIES: ReadonlyArray<
 All network-layer property registrars in legacy walk order
 (mirroring legacy `presence.ts` registration sequence).
 
-### [`PRESENCE_CATEGORY`](./_helpers.ts#L29)
+### [`PRESENCE_CATEGORY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L29)
 
 _Variable_
 
@@ -79,7 +79,7 @@ _Variable_
 export const PRESENCE_CATEGORY = "presence" as const
 ```
 
-### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L31)
+### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L31)
 
 _Variable_
 
@@ -87,7 +87,7 @@ _Variable_
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
 ```
 
-### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L30)
+### [`PRESENCE_DEFAULT_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L30)
 
 _Variable_
 
@@ -95,7 +95,7 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceChangedPayload`](./_helpers.ts#L35)
+### [`PresenceChangedPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L35)
 
 _Interface_
 
@@ -106,7 +106,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`PresenceStatus`](./_helpers.ts#L33)
+### [`PresenceStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L33)
 
 _TypeAlias_
 
@@ -114,7 +114,7 @@ _TypeAlias_
 export type PresenceStatus = "online" | "offline" | "away";
 ```
 
-### [`presenceStatusesFor`](./_helpers.ts#L198)
+### [`presenceStatusesFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L198)
 
 _Function_
 
@@ -125,7 +125,7 @@ export function presenceStatusesFor(
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
-### [`presenceViolation`](./_helpers.ts#L40)
+### [`presenceViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L40)
 
 _Function_
 
@@ -136,7 +136,7 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](./_helpers.ts#L51)
+### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L51)
 
 _Function_
 
@@ -148,7 +148,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, PropertyInvariantViolation>
 ```
 
-### [`registerConnectBroadcast`](./presence-connect-broadcast.ts#L17)
+### [`registerConnectBroadcast`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/presence-connect-broadcast.ts#L17)
 
 _Function_
 
@@ -156,7 +156,7 @@ _Function_
 export function registerConnectBroadcast(ctx: ConformanceRunContext): void
 ```
 
-### [`registerDisconnectBroadcast`](./presence-disconnect-broadcast.ts#L17)
+### [`registerDisconnectBroadcast`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/presence-disconnect-broadcast.ts#L17)
 
 _Function_
 
@@ -164,7 +164,7 @@ _Function_
 export function registerDisconnectBroadcast(ctx: ConformanceRunContext): void
 ```
 
-### [`registerMultiSubscriberFanOut`](./presence-multi-subscriber-fan-out.ts#L19)
+### [`registerMultiSubscriberFanOut`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/presence-multi-subscriber-fan-out.ts#L19)
 
 _Function_
 
@@ -174,7 +174,7 @@ export function registerMultiSubscriberFanOut(
 ): void
 ```
 
-### [`registerReconnectStorm`](./presence-reconnect-storm.ts#L23)
+### [`registerReconnectStorm`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/presence-reconnect-storm.ts#L23)
 
 _Function_
 
@@ -182,7 +182,7 @@ _Function_
 export function registerReconnectStorm(ctx: ConformanceRunContext): void
 ```
 
-### [`registerSameStateNoDoubleFire`](./presence-same-state-no-double-fire.ts#L22)
+### [`registerSameStateNoDoubleFire`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/presence-same-state-no-double-fire.ts#L22)
 
 _Function_
 
@@ -192,7 +192,7 @@ export function registerSameStateNoDoubleFire(
 ): void
 ```
 
-### [`registerSubscribeAfterConnect`](./presence-subscribe-after-connect.ts#L17)
+### [`registerSubscribeAfterConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/presence-subscribe-after-connect.ts#L17)
 
 _Function_
 
@@ -202,7 +202,7 @@ export function registerSubscribeAfterConnect(
 ): void
 ```
 
-### [`subscribePresence`](./_helpers.ts#L129)
+### [`subscribePresence`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L129)
 
 _Function_
 
@@ -214,7 +214,7 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](./_helpers.ts#L154)
+### [`waitForPresenceWithStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L154)
 
 _Function_
 

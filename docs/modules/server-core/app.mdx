@@ -17,7 +17,7 @@ lower layers must not import it because app is the composition root.
 
 ## Public surface
 
-### [`AgentEndpointResolverLive`](./layers.ts#L178)
+### [`AgentEndpointResolverLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L178)
 
 _Variable_
 
@@ -33,7 +33,7 @@ a `Ref`-backed in-memory data structure with no upstream deps; the
 Layer exists to register it under AgentEndpointResolverTag so
 downstream layers (and `network.send`) can pick it up via Context.
 
-### [`AgentEndpointResolverTag`](./layers.ts#L79)
+### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L79)
 
 _Class_
 
@@ -47,7 +47,7 @@ export class AgentEndpointResolverTag extends Context.Tag(
 `network/connect` success path and the WS disconnect finalizer. Read by
 NetworkSendServiceTag for O(1) outbound routing.
 
-### [`AppHost`](./app-host.ts#L203)
+### [`AppHost`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/app-host.ts#L203)
 
 _Class_
 
@@ -204,7 +204,7 @@ Every fail-mode collapses to a deny-shaped verdict so callers
 never see an Effect failure on the hook channel — the envelope IS
 the contract.
 
-### [`AppHostLive`](./layers.ts#L267)
+### [`AppHostLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L267)
 
 _Variable_
 
@@ -214,7 +214,7 @@ export const AppHostLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`AppHostTag`](./layers.ts#L114)
+### [`AppHostTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L114)
 
 _Class_
 
@@ -225,7 +225,7 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 >() {}
 ```
 
-### [`AppRegistration`](./app-registration.ts#L15)
+### [`AppRegistration`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/app-registration.ts#L15)
 
 _Interface_
 
@@ -245,7 +245,7 @@ holds a loopback connection (see `loopback-connection.ts`) whose
 `originator.call` dispatches in-process. AppHost sees ONE shape and
 uses ONE dispatch path: `sendRpcToClient(entry.connection, …)`.
 
-### [`AppRegistry`](./app-registration.ts#L30)
+### [`AppRegistry`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/app-registration.ts#L30)
 
 _Class_
 
@@ -300,7 +300,7 @@ Callers (the `apps/register` handler, `installDefaultApp`) map a
 `false` return to whatever surfacing they need — typed
 `ForbiddenError` for the wire path, an exception for boot.
 
-### [`AuthServiceLive`](./layers.ts#L199)
+### [`AuthServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L199)
 
 _Variable_
 
@@ -310,7 +310,7 @@ export const AuthServiceLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`AuthServiceTag`](./layers.ts#L91)
+### [`AuthServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L91)
 
 _Class_
 
@@ -321,7 +321,7 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
 >() {}
 ```
 
-### [`Claim`](./lease-registry.ts#L222)
+### [`Claim`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L222)
 
 _Interface_
 
@@ -344,7 +344,7 @@ call exactly one of `finalize` or `rollback` on the release path.
 The handle carries the lease id privately so callers cannot forge a
 finalize against a different lease.
 
-### [`ConnectionHook`](./types.ts#L79)
+### [`ConnectionHook`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/types.ts#L79)
 
 _TypeAlias_
 
@@ -358,7 +358,7 @@ export type ConnectionHook = (params: {
 }) => PromiseLike<void> | void;
 ```
 
-### [`ConnectionManagerLive`](./layers.ts#L167)
+### [`ConnectionManagerLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L167)
 
 _Variable_
 
@@ -368,7 +368,7 @@ export const ConnectionManagerLive = Layer.sync(
   ()
 ```
 
-### [`ConnectionManagerTag`](./layers.ts#L70)
+### [`ConnectionManagerTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L70)
 
 _Class_
 
@@ -378,7 +378,7 @@ export class ConnectionManagerTag extends Context.Tag(
 )<ConnectionManagerTag, ConnectionManager>() {}
 ```
 
-### [`ConnectionTag`](./layers.ts#L65)
+### [`ConnectionTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L65)
 
 _Class_
 
@@ -396,7 +396,7 @@ previous `ConnectionTag` — carrying the connection directly eliminates
 the lookup-by-id-and-maybe-fail step (and its associated defect
 path) every handler that wanted the connection object had to do.
 
-### [`ContactService`](./app-host.ts#L62)
+### [`ContactService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/app-host.ts#L62)
 
 _Interface_
 
@@ -406,7 +406,7 @@ export interface ContactService {
 }
 ```
 
-### [`ContactsServiceLive`](./layers.ts#L239)
+### [`ContactsServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L239)
 
 _Variable_
 
@@ -416,7 +416,7 @@ export const ContactsServiceLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`ContactsServiceTag`](./layers.ts#L104)
+### [`ContactsServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L104)
 
 _Class_
 
@@ -427,7 +427,7 @@ export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
 >() {}
 ```
 
-### [`ConversationAppLookup`](./conversation-app-lookup.ts#L31)
+### [`ConversationAppLookup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/conversation-app-lookup.ts#L31)
 
 _TypeAlias_
 
@@ -457,7 +457,7 @@ archived flag — encodes exhaustiveness at the type level: every caller
 `switch` ends with a `never` assignment and a future fifth case
 becomes a compile error at every call site (Principle 4).
 
-### [`ConversationServiceForAppHost`](./app-host.ts#L78)
+### [`ConversationServiceForAppHost`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/app-host.ts#L78)
 
 _Interface_
 
@@ -485,7 +485,7 @@ layer order has ConversationService depending on AppHost.
    forward-all policy reads the conversation's participant set
    here instead of re-implementing the SQL.
 
-### [`ConversationServiceLive`](./layers.ts#L215)
+### [`ConversationServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L215)
 
 _Variable_
 
@@ -495,7 +495,7 @@ export const ConversationServiceLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`ConversationServiceTag`](./layers.ts#L100)
+### [`ConversationServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L100)
 
 _Class_
 
@@ -505,7 +505,7 @@ export class ConversationServiceTag extends Context.Tag(
 )<ConversationServiceTag, ConversationService>() {}
 ```
 
-### [`CoreApp`](./types.ts#L93)
+### [`CoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/types.ts#L93)
 
 _Interface_
 
@@ -515,7 +515,7 @@ export interface CoreApp {
   onConnection: (hook: ConnectionHook) => void;
 ```
 
-### [`CoreConfig`](./types.ts#L19)
+### [`CoreConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/types.ts#L19)
 
 _Interface_
 
@@ -525,7 +525,7 @@ export interface CoreConfig {
   dbCleanup?: () => PromiseLike<void>;
 ```
 
-### [`createCoreApp`](./server.ts#L96)
+### [`createCoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server.ts#L96)
 
 _Function_
 
@@ -533,7 +533,7 @@ _Function_
 export function createCoreApp(config: CoreConfig): CoreApp
 ```
 
-### [`DbTag`](./layers.ts#L49)
+### [`DbTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L49)
 
 _Class_
 
@@ -543,7 +543,7 @@ export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
 
 Postgres/PGlite database handle (Kysely&lt;Database>).
 
-### [`DeliveryWebhookTag`](./layers.ts#L160)
+### [`DeliveryWebhookTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L160)
 
 _Class_
 
@@ -557,7 +557,7 @@ export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
 Optional fire-and-forget message-delivery webhook. `null` means no
 webhook — the fanout is skipped entirely.
 
-### [`DisconnectionHook`](./types.ts#L87)
+### [`DisconnectionHook`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/types.ts#L87)
 
 _TypeAlias_
 
@@ -569,7 +569,7 @@ export type DisconnectionHook = (params: {
 }) => PromiseLike<void> | void;
 ```
 
-### [`DispatchAdmissionResult`](./hooks.ts#L32)
+### [`DispatchAdmissionResult`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/hooks.ts#L32)
 
 _TypeAlias_
 
@@ -583,7 +583,7 @@ export type DispatchAdmissionResult =
     }
 ```
 
-### [`DispatchAuthorizeContext`](./hooks.ts#L11)
+### [`DispatchAuthorizeContext`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/hooks.ts#L11)
 
 _Interface_
 
@@ -615,7 +615,7 @@ the protocol's `DispatchAuthorizeContextSchema`. Consumed by
 `AppHost.callAppRpc` to construct the params for the
 `dispatch/authorize` server→app call.
 
-### [`EncryptionTag`](./layers.ts#L52)
+### [`EncryptionTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L52)
 
 _Class_
 
@@ -628,7 +628,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 
 Optional envelope-encryption helper. null when encryption is disabled.
 
-### [`ERROR_INVALID_JSON`](./server-constants.ts#L10)
+### [`ERROR_INVALID_JSON`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L10)
 
 _Variable_
 
@@ -636,7 +636,7 @@ _Variable_
 export const ERROR_INVALID_JSON = "Invalid JSON"
 ```
 
-### [`ERROR_INVALID_PARAMETERS`](./server-constants.ts#L11)
+### [`ERROR_INVALID_PARAMETERS`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L11)
 
 _Variable_
 
@@ -644,7 +644,7 @@ _Variable_
 export const ERROR_INVALID_PARAMETERS = "Invalid parameters"
 ```
 
-### [`HTTP_BAD_REQUEST`](./server-constants.ts#L3)
+### [`HTTP_BAD_REQUEST`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L3)
 
 _Variable_
 
@@ -652,7 +652,7 @@ _Variable_
 export const HTTP_BAD_REQUEST = 400
 ```
 
-### [`HTTP_CONFLICT`](./server-constants.ts#L7)
+### [`HTTP_CONFLICT`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L7)
 
 _Variable_
 
@@ -660,7 +660,7 @@ _Variable_
 export const HTTP_CONFLICT = 409
 ```
 
-### [`HTTP_CREATED`](./server-constants.ts#L2)
+### [`HTTP_CREATED`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L2)
 
 _Variable_
 
@@ -668,7 +668,7 @@ _Variable_
 export const HTTP_CREATED = 201
 ```
 
-### [`HTTP_FORBIDDEN`](./server-constants.ts#L5)
+### [`HTTP_FORBIDDEN`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L5)
 
 _Variable_
 
@@ -676,7 +676,7 @@ _Variable_
 export const HTTP_FORBIDDEN = 403
 ```
 
-### [`HTTP_INTERNAL_SERVER_ERROR`](./server-constants.ts#L8)
+### [`HTTP_INTERNAL_SERVER_ERROR`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L8)
 
 _Variable_
 
@@ -684,7 +684,7 @@ _Variable_
 export const HTTP_INTERNAL_SERVER_ERROR = 500
 ```
 
-### [`HTTP_NOT_FOUND`](./server-constants.ts#L6)
+### [`HTTP_NOT_FOUND`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L6)
 
 _Variable_
 
@@ -692,7 +692,7 @@ _Variable_
 export const HTTP_NOT_FOUND = 404
 ```
 
-### [`HTTP_OK`](./server-constants.ts#L1)
+### [`HTTP_OK`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L1)
 
 _Variable_
 
@@ -700,7 +700,7 @@ _Variable_
 export const HTTP_OK = 200
 ```
 
-### [`HTTP_UNAUTHORIZED`](./server-constants.ts#L4)
+### [`HTTP_UNAUTHORIZED`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/server-constants.ts#L4)
 
 _Variable_
 
@@ -708,7 +708,7 @@ _Variable_
 export const HTTP_UNAUTHORIZED = 401
 ```
 
-### [`installDefaultApp`](./default-app.ts#L39)
+### [`installDefaultApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/default-app.ts#L39)
 
 _Function_
 
@@ -733,7 +733,7 @@ TM-only RPCs remain unreachable on DEFAULT_APP_ID tasks because
 `isAppConnection` compares the caller's connection id against the
 loopback's — no client connection can ever match.
 
-### [`LeaseBindingTuple`](./lease-registry.ts#L102)
+### [`LeaseBindingTuple`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L102)
 
 _Interface_
 
@@ -752,7 +752,7 @@ Audit binding tuple recorded at `mint` time. Used by `dispatches/get`
 scope-enforcement and connection-close cleanup. Once recorded, the
 tuple is immutable for the lease's lifetime.
 
-### [`LeaseInvalidError`](./lease-registry.ts#L182)
+### [`LeaseInvalidError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L182)
 
 _Class_
 
@@ -781,7 +781,7 @@ surface a precise wire-error code per #529's typed-CONSUMED /
 typed-EXPIRED requirements) and `expected` carries the set of
 states the operation would have accepted.
 
-### [`LeaseMintContext`](./lease-registry.ts#L156)
+### [`LeaseMintContext`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L156)
 
 _Interface_
 
@@ -800,7 +800,7 @@ Inputs to `mint`. Captured into the binding tuple plus mint
 timestamp; the registry generates `leaseId` and `dispatchId`
 internally via `crypto.randomUUID()` (≥122 bits entropy per spec).
 
-### [`LeaseMintResult`](./lease-registry.ts#L170)
+### [`LeaseMintResult`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L170)
 
 _Interface_
 
@@ -815,7 +815,7 @@ Lease mint result. Both ids are branded — calling code cannot
 accidentally confuse them with `MessageId` / `TaskId` / generic
 strings.
 
-### [`LeaseNotFoundError`](./lease-registry.ts#L206)
+### [`LeaseNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L206)
 
 _Class_
 
@@ -836,7 +836,7 @@ lease exists but is in the wrong state. `LeaseNotFoundError` fires
 when the id is unknown (caller forged it, or it aged out of the
 retention window).
 
-### [`LeaseRecord`](./lease-registry.ts#L137)
+### [`LeaseRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L137)
 
 _Interface_
 
@@ -860,7 +860,7 @@ Snapshot of a lease for `dispatches/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L513)
+### [`leaseRecordToWire`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L513)
 
 _Function_
 
@@ -877,7 +877,7 @@ ergonomics on the moderator client side.
 
 Advisory carry-over from review-senior-arch529 #2.
 
-### [`LeaseRegistry`](./lease-registry.ts#L307)
+### [`LeaseRegistry`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L307)
 
 _Interface_
 
@@ -953,7 +953,7 @@ scheduler fibers are forbidden. Manifest TTLs come from
 `manifest.hooks.dispatch_authorize.timeout_ms` (moderator response)
 and the verdict's `leaseTimeoutMs` (post-grant lease).
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L451)
+### [`LeaseRegistryDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L451)
 
 _Interface_
 
@@ -972,7 +972,7 @@ Constructor dependencies for the lease registry.
   DENIED / EXPIRED / ABANDONED). Live states (PENDING / GRANTED /
   HOLD / CLAIMED) age out on their own TTLs.
 
-### [`LeaseRegistryLive`](./layers.ts#L256)
+### [`LeaseRegistryLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L256)
 
 _Variable_
 
@@ -982,7 +982,7 @@ export const LeaseRegistryLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`LeaseRegistryTag`](./layers.ts#L125)
+### [`LeaseRegistryTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L125)
 
 _Class_
 
@@ -998,7 +998,7 @@ surface. In-process state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
 TTL fibers); no DB. Constructed once per server lifetime via
 LeaseRegistryLive.
 
-### [`LeaseState`](./lease-registry.ts#L116)
+### [`LeaseState`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L116)
 
 _TypeAlias_
 
@@ -1018,7 +1018,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L127)
+### [`LeaseVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L127)
 
 _TypeAlias_
 
@@ -1029,7 +1029,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`loadCoreConfig`](./config.ts#L155)
+### [`loadCoreConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/config.ts#L155)
 
 _Function_
 
@@ -1042,7 +1042,7 @@ Effect program. Safe here because this is the absolute process entrypoint:
 a `ConfigError` bubbles up as an unhandled exception and fails startup —
 the same outcome the previous throw-based loader produced.
 
-### [`LoadedConfig`](./config.ts#L8)
+### [`LoadedConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/config.ts#L8)
 
 _Interface_
 
@@ -1067,7 +1067,7 @@ export interface LoadedConfig {
 }
 ```
 
-### [`logError`](./logging.ts#L15)
+### [`logError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/logging.ts#L15)
 
 _Function_
 
@@ -1077,7 +1077,7 @@ export const logError = (
   annotations: Record<string, unknown> =
 ```
 
-### [`logInfo`](./logging.ts#L3)
+### [`logInfo`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/logging.ts#L3)
 
 _Function_
 
@@ -1087,7 +1087,7 @@ export const logInfo = (
   annotations: Record<string, unknown> =
 ```
 
-### [`logWarning`](./logging.ts#L9)
+### [`logWarning`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/logging.ts#L9)
 
 _Function_
 
@@ -1097,7 +1097,7 @@ export const logWarning = (
   annotations: Record<string, unknown> =
 ```
 
-### [`lookupAppForConversation`](./conversation-app-lookup.ts#L75)
+### [`lookupAppForConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/conversation-app-lookup.ts#L75)
 
 _Function_
 
@@ -1141,7 +1141,7 @@ which is the existing convention for AppHost DB reads. Defects are
 the right channel here — a database failure during admission is a
 server-internal fault, not a moderator verdict.
 
-### [`LoopbackHandlers`](./loopback-connection.ts#L29)
+### [`LoopbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/loopback-connection.ts#L29)
 
 _TypeAlias_
 
@@ -1158,7 +1158,7 @@ task-callback RPC at construction time — adding a new entry to
 construction site (which is the right blast radius for "I added a
 new server→app RPC; who needs to handle it?").
 
-### [`makeCoreHttpApp`](./http-routes.ts#L91)
+### [`makeCoreHttpApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/http-routes.ts#L91)
 
 _Function_
 
@@ -1189,7 +1189,7 @@ The `/api/v1/auth/claim` success path refreshes
 just-claimed agent so subsequent owner-gated RPCs see fresh state
 without forcing a reconnect.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1210)
+### [`makeLeaseRegistry`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/lease-registry.ts#L1210)
 
 _Function_
 
@@ -1210,7 +1210,7 @@ cancel). The side-effects run AFTER the predicate commits — so the
 state change is visible to concurrent readers before the
 notification fires, satisfying the "first writer wins" invariant.
 
-### [`makeLoopbackConnection`](./loopback-connection.ts#L71)
+### [`makeLoopbackConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/loopback-connection.ts#L71)
 
 _Function_
 
@@ -1238,7 +1238,7 @@ Loopback-specific behavior:
     wiring bug that should crash the server immediately.
   - `write` / `shutdown` are similarly defects / inert.
 
-### [`makeNodeHttpServer`](./node-http-server.ts#L3)
+### [`makeNodeHttpServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/node-http-server.ts#L3)
 
 _Function_
 
@@ -1246,7 +1246,7 @@ _Function_
 export function makeNodeHttpServer()
 ```
 
-### [`makeSocketHandler`](./socket-handler.ts#L97)
+### [`makeSocketHandler`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/socket-handler.ts#L97)
 
 _Function_
 
@@ -1289,7 +1289,7 @@ disconnect still propagates as an interruption that triggers
 Disconnection hooks run SEQUENTIALLY so each hook's cleanup
 completes before the next observes post-close state.
 
-### [`makeStubConnection`](./loopback-connection.ts#L117)
+### [`makeStubConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/loopback-connection.ts#L117)
 
 _Function_
 
@@ -1309,7 +1309,7 @@ Optional `originatorCall` override lets a test mock the outbound
 RPC channel (e.g., to simulate a stale-connection
 `NotConnectedError` without spinning up a real socket).
 
-### [`MessageAuthorizeContext`](./hooks.ts#L48)
+### [`MessageAuthorizeContext`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/hooks.ts#L48)
 
 _Interface_
 
@@ -1330,7 +1330,7 @@ mirrors the protocol's `MessagesAuthorizeContextSchema`. Symmetric
 to `DispatchAuthorizeContext` — same fields, same fail-closed
 posture, different verdict union.
 
-### [`MessageAuthorizeResult`](./hooks.ts#L67)
+### [`MessageAuthorizeResult`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/hooks.ts#L67)
 
 _TypeAlias_
 
@@ -1347,7 +1347,7 @@ participants; the server does not re-fan to non-participants.
 Empty `recipients` is legal — message lands in the sender's
 transcript but is delivered to no one else.
 
-### [`MessageServiceLive`](./layers.ts#L279)
+### [`MessageServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L279)
 
 _Variable_
 
@@ -1357,7 +1357,7 @@ export const MessageServiceLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`MessageServiceTag`](./layers.ts#L130)
+### [`MessageServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L130)
 
 _Class_
 
@@ -1368,7 +1368,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 >() {}
 ```
 
-### [`NetworkSendServiceLive`](./layers.ts#L188)
+### [`NetworkSendServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L188)
 
 _Variable_
 
@@ -1382,7 +1382,7 @@ export const NetworkSendServiceLive = Layer.effect(
 manager into the NetworkSendService instance the rest of the
 server holds via NetworkSendServiceTag.
 
-### [`NetworkSendServiceTag`](./layers.ts#L87)
+### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L87)
 
 _Class_
 
@@ -1395,7 +1395,7 @@ export class NetworkSendServiceTag extends Context.Tag(
 Single outbound surface: `send` (directed) and `broadcast`
 (fan-out).
 
-### [`ParticipantServiceLive`](./layers.ts#L207)
+### [`ParticipantServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L207)
 
 _Variable_
 
@@ -1405,7 +1405,7 @@ export const ParticipantServiceLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`ParticipantServiceTag`](./layers.ts#L96)
+### [`ParticipantServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L96)
 
 _Class_
 
@@ -1415,7 +1415,7 @@ export class ParticipantServiceTag extends Context.Tag(
 )<ParticipantServiceTag, ParticipantService>() {}
 ```
 
-### [`PresenceServiceLive`](./layers.ts#L247)
+### [`PresenceServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L247)
 
 _Variable_
 
@@ -1425,7 +1425,7 @@ export const PresenceServiceLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`PresenceServiceTag`](./layers.ts#L109)
+### [`PresenceServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L109)
 
 _Class_
 
@@ -1436,7 +1436,7 @@ export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
 >() {}
 ```
 
-### [`ResolvedServices`](./layers.ts#L407)
+### [`ResolvedServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L407)
 
 _Interface_
 
@@ -1463,7 +1463,7 @@ export interface ResolvedServices {
 Shape of the fully-resolved services. Handler factories consume this
 plain-object view rather than reading each tag individually.
 
-### [`resolveServices`](./layers.ts#L430)
+### [`resolveServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L430)
 
 _Variable_
 
@@ -1475,7 +1475,7 @@ Resolves every service via Context into a plain-object view (matches the
 shape handler factories already expect). Context requirements inferred
 from the tag record.
 
-### [`serverCapabilityProviders`](./capability-providers.ts#L127)
+### [`serverCapabilityProviders`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capability-providers.ts#L126)
 
 _Variable_
 
@@ -1490,7 +1490,7 @@ via a single-level `as` cast, and returns the obtain helper's effect.
 Both `makeServerConnection` call sites pass this same constant so the
 `Caps` generic of `ServerConnectionConfig` agrees across them.
 
-### [`ServerConfigLoader`](./config.ts#L104)
+### [`ServerConfigLoader`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/config.ts#L104)
 
 _Variable_
 
@@ -1506,7 +1506,7 @@ missing/invalid values surface as typed `ConfigError` instead of thrown
 `Error`. Callers already inside an Effect program `yield*` this; the one
 sync entrypoint (`loadCoreConfig`) bridges via `Effect.runSync`.
 
-### [`ServicesLive`](./layers.ts#L401)
+### [`ServicesLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L401)
 
 _Variable_
 
@@ -1517,7 +1517,7 @@ export const ServicesLive = Tier6
 All service Layers merged, with cross-layer deps resolved. Still requires
 `DbTag | EncryptionTag` from a base Layer.
 
-### [`SessionValidatorTag`](./layers.ts#L141)
+### [`SessionValidatorTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L141)
 
 _Class_
 
@@ -1529,7 +1529,7 @@ export class SessionValidatorTag extends Context.Tag(
 
 Optional bearer-token session validator. `null` → bearer auth disabled.
 
-### [`TaskServiceLive`](./layers.ts#L386)
+### [`TaskServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L386)
 
 _Variable_
 
@@ -1539,7 +1539,7 @@ export const TaskServiceLive = Layer.effect(
   Effect.gen(function* ()
 ```
 
-### [`TaskServiceTag`](./layers.ts#L135)
+### [`TaskServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L135)
 
 _Class_
 
@@ -1550,7 +1550,7 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 >() {}
 ```
 
-### [`WebhookClientTag`](./layers.ts#L151)
+### [`WebhookClientTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/layers.ts#L151)
 
 _Class_
 

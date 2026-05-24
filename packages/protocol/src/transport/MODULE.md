@@ -131,7 +131,7 @@ Build the server-side dispatcher. Wires the inbound static-table
 dispatch loop + the outbound originator (TM-callback path) into a
 single `ServerConnection` value.
 
-### [`buildTaskMasterDispatcher`](./dispatch.ts#L159)
+### [`buildTaskMasterDispatcher`](./dispatch.ts#L158)
 
 _Function_
 
@@ -146,10 +146,9 @@ export function buildTaskMasterDispatcher<
 
 Build the TM dispatcher. Wires both the inbound dispatch loop
 (against `taskCallbackMethods`) and the outbound originator (against
-`serverRpcMethods`). Both TM-inbound slots are OPTIONAL with fail-CLOSED
-`ForbiddenError` defaults; an empty `{ handlers: {} }` literal
-produces a TM that responds `Forbidden -32001` to every inbound
-auth check (Spec F R2).
+`serverRpcMethods`). Spec D3 R14b made every TM-inbound slot
+REQUIRED: callers must register a handler for each catalog method;
+vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
 ### [`CapabilitiesOf`](./capabilities.ts#L76)
 
@@ -313,7 +312,7 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](./method.ts#L209)
+### [`decodeRpcParams`](./method.ts#L206)
 
 _Function_
 
@@ -344,7 +343,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L222)
+### [`decodeRpcResult`](./method.ts#L219)
 
 _Function_
 
@@ -359,7 +358,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Static<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L180)
+### [`defineNotification`](./method.ts#L177)
 
 _Function_
 
@@ -374,7 +373,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L99)
+### [`defineRpc`](./method.ts#L96)
 
 _Function_
 
@@ -395,7 +394,7 @@ runtime never re-parses schemas.
 
 ```mermaid
 flowchart TD
-  A["domain layer call site:<br>defineRpc{ name, params, result, optional?, capabilities? }"]
+  A["domain layer call site:<br>defineRpc{ name, params, result, capabilities? }"]
   A --> B["ajv.compile(params)<br>→ validateParams"]
   A --> C["ajv.compile(result)<br>→ validateResult"]
   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
@@ -404,11 +403,8 @@ flowchart TD
   E --> F["aggregated into rpcMethods"]
 ```
 
-- `optional` absent → REQUIRED slot in the handler table; missing
-  key fails compilation with TS2741 at the factory call.
-- `optional` present → OPTIONAL slot carrying the fail-CLOSED
-  default the dispatcher synthesizes when the slot value equals
-  the sentinel.
+- Every slot is REQUIRED in the handler table (Spec D3 R14b);
+  omitting any key fails TS2741 at the factory call.
 - `capabilities` absent → no auto-provision; the dispatcher reads
   `definition.capabilities` per frame and threads
   `Effect.provideServiceEffect` for each entry.
@@ -729,7 +725,7 @@ export type NotificationDecodeError =
   | InvalidNotificationParamsError;
 ```
 
-### [`NotificationDefinition`](./method.ts#L160)
+### [`NotificationDefinition`](./method.ts#L157)
 
 _Interface_
 
@@ -791,7 +787,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L171)
+### [`NotificationParamsOf`](./method.ts#L168)
 
 _TypeAlias_
 
@@ -1008,7 +1004,7 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](./method.ts#L195)
+### [`RpcParamsDecodeError`](./method.ts#L192)
 
 _Class_
 
@@ -1031,7 +1027,7 @@ export type RpcRequestDecodeError =
   | InvalidRpcParamsError;
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L202)
+### [`RpcResultDecodeError`](./method.ts#L199)
 
 _Class_
 
@@ -1248,7 +1244,7 @@ export const validateResponseFrame = ajv.compile(ResponseFrameSchema) as (
 )
 ```
 
-### [`wireErrorFromInstance`](./dispatch.ts#L483)
+### [`wireErrorFromInstance`](./dispatch.ts#L482)
 
 _Function_
 

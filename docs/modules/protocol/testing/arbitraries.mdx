@@ -13,7 +13,7 @@ Public barrel for schema-derived protocol arbitraries used by tests.
 
 ## Public surface
 
-### [`allRpcMethods`](./rpc.ts#L41)
+### [`allRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L41)
 
 _Variable_
 
@@ -26,7 +26,7 @@ Ordered list of every wire method name. Exposed so properties can
 assert "every method exercised at least once" without going through
 `RpcMap` directly.
 
-### [`arbitraryAnyCall`](./rpc.ts#L74)
+### [`arbitraryAnyCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L74)
 
 _Function_
 
@@ -37,7 +37,7 @@ export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall>
 Arbitrary that draws any method name + matching params. Used by Tier A
 A5 and by Tier E E2's cross-RPC fuzz.
 
-### [`arbitraryCallFor`](./rpc.ts#L51)
+### [`arbitraryCallFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L51)
 
 _Function_
 
@@ -49,7 +49,7 @@ export function arbitraryCallFor(
 
 Arbitrary of a valid params tree for a single, fixed RPC.
 
-### [`arbitraryConfidentCall`](./rpc.ts#L130)
+### [`arbitraryConfidentCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L130)
 
 _Function_
 
@@ -72,7 +72,7 @@ K > 1 samples and keep only methods where every probe predicts ok)
 per the architect's contract. Single-probe is sufficient when
 `applyCall` is method-only (today).
 
-### [`arbitraryForParams`](./from-typebox.ts#L266)
+### [`arbitraryForParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/from-typebox.ts#L266)
 
 _Function_
 
@@ -91,7 +91,7 @@ For now the narrowing strategy is identical to `arbitraryFromSchema` with
 smaller default string/array bounds (handled inside `walk`). Exposed as a
 distinct export so call sites document their intent.
 
-### [`arbitraryFromSchema`](./from-typebox.ts#L62)
+### [`arbitraryFromSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/from-typebox.ts#L62)
 
 _Function_
 
@@ -105,7 +105,7 @@ Derive an `Arbitrary&lt;Static&lt;S>>` for any TypeBox schema. The derivation
 is pure: given the same schema + fast-check seed, it yields the same
 value tree (AC10 reproducibility).
 
-### [`arbitraryMalformedFrame`](./frames.ts#L77)
+### [`arbitraryMalformedFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/frames.ts#L77)
 
 _Function_
 
@@ -113,7 +113,7 @@ _Function_
 export function arbitraryMalformedFrame(): fc.Arbitrary<ArbitraryMalformedFrame>
 ```
 
-### [`ArbitraryMalformedFrame`](./frames.ts#L71)
+### [`ArbitraryMalformedFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/frames.ts#L71)
 
 _Interface_
 
@@ -128,7 +128,7 @@ export interface ArbitraryMalformedFrame {
 Arbitrary of a `(baseFrame, MalformedFrameKind, seed)` tuple so Tier A /
 D can replay a specific mutation on shrink.
 
-### [`arbitraryNotificationFrame`](./frames.ts#L48)
+### [`arbitraryNotificationFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/frames.ts#L48)
 
 _Function_
 
@@ -136,7 +136,7 @@ _Function_
 export function arbitraryNotificationFrame(): fc.Arbitrary<NotificationFrame>
 ```
 
-### [`arbitraryRequestFrame`](./frames.ts#L38)
+### [`arbitraryRequestFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/frames.ts#L38)
 
 _Function_
 
@@ -144,7 +144,7 @@ _Function_
 export function arbitraryRequestFrame(): fc.Arbitrary<RequestFrame>
 ```
 
-### [`arbitraryResponseFrame`](./frames.ts#L42)
+### [`arbitraryResponseFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/frames.ts#L42)
 
 _Function_
 
@@ -152,7 +152,7 @@ _Function_
 export function arbitraryResponseFrame(): fc.Arbitrary<ResponseFrame>
 ```
 
-### [`ArbitraryRpcCall`](./rpc.ts#L30)
+### [`ArbitraryRpcCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L30)
 
 _Interface_
 
@@ -167,7 +167,7 @@ export interface ArbitraryRpcCall {
 A single drawn RPC invocation: the method name carries through to the
 reference model so it can pick the matching reducer.
 
-### [`confidentOracleMethods`](./rpc.ts#L100)
+### [`confidentOracleMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L100)
 
 _Variable_
 

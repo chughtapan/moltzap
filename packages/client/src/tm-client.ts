@@ -202,9 +202,9 @@ export interface TaskCallbackContext {
 /**
  * Public handler-table type for `TMClientOptions.handlers`.
  * Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
- * client's per-frame context. Slots are OPTIONAL (Spec F R2 fail-CLOSED
- * `ForbiddenError -32001` defaults), so `{}` is a well-typed table for
- * agents that don't register TM-callback responders.
+ * client's per-frame context. Spec D3 R14b made every slot REQUIRED;
+ * vacuous-deny moderators bind an explicit `ForbiddenError -32001`
+ * handler.
  */
 export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
 
@@ -747,12 +747,11 @@ export class MoltZapTMClient {
 
   /**
    * Dispatch one inbound appCallback request through the typed Spec F
-   * dispatcher and write its wire response back to the server. The
-   * dispatcher synthesises the protocol's fail-CLOSED `ForbiddenError
-   * -32001` response for any TM-callback slot the client did not bind at
-   * construction (Spec F R2). Handler defects collapse to a generic
-   * InternalError reply so the server's `Deferred.await` always settles
-   * deterministically.
+   * dispatcher and write its wire response back to the server. Spec D3
+   * R14b made every TM-callback slot REQUIRED at construction, so the
+   * dispatcher always finds a bound handler. Handler defects collapse
+   * to a generic InternalError reply so the server's `Deferred.await`
+   * always settles deterministically.
    */
   private dispatchInboundServerRequest(
     request: DecodedServerRequest,

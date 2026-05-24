@@ -13,7 +13,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`AgentClientOptions`](./agent-client.ts#L110)
+### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/agent-client.ts#L110)
 
 _Interface_
 
@@ -24,7 +24,7 @@ export interface AgentClientOptions {
   onDisconnect?: (close: CloseInfo) => void;
 ```
 
-### [`ChannelCoreOptions`](./channel-core.ts#L209)
+### [`ChannelCoreOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L209)
 
 _Interface_
 
@@ -35,7 +35,7 @@ export interface ChannelCoreOptions {
 }
 ```
 
-### [`ChannelService`](./channel-core.ts#L138)
+### [`ChannelService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L138)
 
 _Interface_
 
@@ -50,7 +50,7 @@ export interface ChannelService {
 
 The subset of MoltZapService that MoltZapChannelCore needs.
 
-### [`ContextBlocks`](./channel-core.ts#L38)
+### [`ContextBlocks`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L38)
 
 _Interface_
 
@@ -62,7 +62,7 @@ export interface ContextBlocks {
 }
 ```
 
-### [`ContextOptions`](./service.ts#L158)
+### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L158)
 
 _Interface_
 
@@ -74,7 +74,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L151)
+### [`ConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L151)
 
 _Interface_
 
@@ -87,7 +87,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`CrossConversationEntry`](./service.ts#L165)
+### [`CrossConversationEntry`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L165)
 
 _Interface_
 
@@ -105,7 +105,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](./service.ts#L240)
+### [`CrossConvMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L240)
 
 _Interface_
 
@@ -122,7 +122,7 @@ export interface CrossConvMessage {
 
 Full message from another conversation, used by peekFullMessages().
 
-### [`DispatchAdmissionDecision`](./channel-core.ts#L92)
+### [`DispatchAdmissionDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L92)
 
 _TypeAlias_
 
@@ -136,7 +136,7 @@ export type DispatchAdmissionDecision =
     }
 ```
 
-### [`DispatchAdmissionRequest`](./channel-core.ts#L82)
+### [`DispatchAdmissionRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L82)
 
 _Interface_
 
@@ -152,7 +152,7 @@ export interface DispatchAdmissionRequest {
 }
 ```
 
-### [`DispatchReleaseFrame`](./channel-core.ts#L122)
+### [`DispatchReleaseFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L122)
 
 _Interface_
 
@@ -179,7 +179,7 @@ the protocol, kept structurally typed here so this module does not
 need a direct protocol descriptor import (the channel core stays
 descriptor-free; the wire shape is asserted by the service module).
 
-### [`EnrichedConversationMeta`](./channel-core.ts#L31)
+### [`EnrichedConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L31)
 
 _Interface_
 
@@ -192,7 +192,7 @@ export interface EnrichedConversationMeta {
 }
 ```
 
-### [`EnrichedInboundMessage`](./channel-core.ts#L44)
+### [`EnrichedInboundMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L44)
 
 _Interface_
 
@@ -226,7 +226,7 @@ export interface EnrichedInboundMessage {
 }
 ```
 
-### [`EnrichedSender`](./channel-core.ts#L26)
+### [`EnrichedSender`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L26)
 
 _Interface_
 
@@ -237,7 +237,7 @@ export interface EnrichedSender {
 }
 ```
 
-### [`formatCrossConversationBlock`](./service.ts#L185)
+### [`formatCrossConversationBlock`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L185)
 
 _Function_
 
@@ -251,7 +251,7 @@ Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
 that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
 share this formatter so sanitization and line shape stay in one place.
 
-### [`InboundHandler`](./channel-core.ts#L220)
+### [`InboundHandler`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L220)
 
 _TypeAlias_
 
@@ -266,7 +266,7 @@ error channel is part of the type — callers fail with a tagged error and the
 consumer fiber logs it instead of dropping it on the floor like a Promise
 rejection would.
 
-### [`MoltZapAgentClient`](./agent-client.ts#L122)
+### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/agent-client.ts#L122)
 
 _Class_
 
@@ -308,7 +308,7 @@ MoltZap agent client — outbound RPC only, no TM-callback inbound
 dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; TM-only
 methods are unreachable at compile time (Spec D3 R11/R13).
 
-### [`MoltZapChannelCore`](./channel-core.ts#L324)
+### [`MoltZapChannelCore`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L324)
 
 _Class_
 
@@ -413,7 +413,7 @@ Parking semantics: `hold` re-enters at `parked[convId]` FRONT.
 `takeDispatchCandidate` prefers the parked queue for the next pull
 so backpressure within one conversation does not starve others.
 
-### [`MoltZapService`](./service.ts#L292)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L292)
 
 _Class_
 
@@ -530,7 +530,7 @@ callers compose failures and cancellation explicitly. (Phase -1
 vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
 to arena; consumers wanting Promise wrappers maintain their own.)
 
-### [`MoltZapTMClient`](./tm-client.ts#L284)
+### [`MoltZapTMClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/tm-client.ts#L284)
 
 _Class_
 
@@ -631,7 +631,7 @@ escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
 a `NotConnectedError` error channel. Consume via `Stream.runForEach`
 (long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
 
-### [`PendingDispatchMessage`](./channel-core.ts#L72)
+### [`PendingDispatchMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/channel-core.ts#L72)
 
 _Interface_
 
@@ -647,7 +647,7 @@ export interface PendingDispatchMessage {
 }
 ```
 
-### [`registerAgent`](./auth.ts#L56)
+### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/auth.ts#L56)
 
 _Function_
 
@@ -666,7 +666,7 @@ Routes to `/api/v1/admin/register-agent` when `ownerUserId` is provided
 (admin path pre-claims the agent for the given owner); otherwise routes
 to the public `/api/v1/auth/register` endpoint.
 
-### [`RegisterAgentOptions`](./auth.ts#L21)
+### [`RegisterAgentOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/auth.ts#L21)
 
 _Interface_
 
@@ -685,7 +685,7 @@ export interface RegisterAgentOptions {
 
 Options for registerAgent.
 
-### [`RegisterResponse`](./auth.ts#L13)
+### [`RegisterResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/auth.ts#L13)
 
 _Interface_
 
@@ -701,7 +701,7 @@ export interface RegisterResponse {
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register` and `/api/v1/admin/register-agent`).
 
-### [`RpcCallOptions`](./tm-client.ts#L63)
+### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/tm-client.ts#L63)
 
 _Interface_
 
@@ -711,7 +711,7 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`sanitizeForSystemReminder`](./service.ts#L176)
+### [`sanitizeForSystemReminder`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L176)
 
 _Function_
 
@@ -721,7 +721,7 @@ export function sanitizeForSystemReminder(s: string): string
 
 Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block.
 
-### [`ServiceOptions`](./service.ts#L205)
+### [`ServiceOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L205)
 
 _Interface_
 
@@ -732,7 +732,7 @@ export interface ServiceOptions {
 }
 ```
 
-### [`ServiceRpcError`](./service.ts#L149)
+### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L149)
 
 _TypeAlias_
 
@@ -743,7 +743,7 @@ export type ServiceRpcError = RpcCallError | RpcTimeoutError;
 Errors that can surface from the Effect-based service API. Matches the
 failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
 
-### [`TaskCallbackContext`](./tm-client.ts#L198)
+### [`TaskCallbackContext`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/tm-client.ts#L198)
 
 _Interface_
 
@@ -761,7 +761,7 @@ passthrough is intentional: when the wire frame carries an OTel
 traceparent header, the surrounding transport may layer it on; the
 typed-dispatcher does not encode tracing into the type.
 
-### [`TMClientOptions`](./tm-client.ts#L211)
+### [`TMClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/tm-client.ts#L211)
 
 _Interface_
 
@@ -784,7 +784,7 @@ export interface TMClientOptions {
   onDisconnect?: (close: CloseInfo) => void;
 ```
 
-### [`TMHandlers`](./tm-client.ts#L209)
+### [`TMHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/tm-client.ts#L209)
 
 _TypeAlias_
 
@@ -794,9 +794,9 @@ export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
 
 Public handler-table type for `TMClientOptions.handlers`.
 Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
-client's per-frame context. Slots are OPTIONAL (Spec F R2 fail-CLOSED
-`ForbiddenError -32001` defaults), so `{}` is a well-typed table for
-agents that don't register TM-callback responders.
+client's per-frame context. Spec D3 R14b made every slot REQUIRED;
+vacuous-deny moderators bind an explicit `ForbiddenError -32001`
+handler.
 
 ## Files
 

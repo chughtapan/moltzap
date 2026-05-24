@@ -13,7 +13,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`_TypedDispatcherCanarySink`](./typed-dispatcher.types-check.ts#L204)
+### [`_TypedDispatcherCanarySink`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/typed-dispatcher.types-check.ts#L204)
 
 _TypeAlias_
 
@@ -38,7 +38,7 @@ export type _TypedDispatcherCanarySink =
   | _TaskMasterConnection;
 ```
 
-### [`AgentClientConnection`](./connection.ts#L158)
+### [`AgentClientConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L158)
 
 _Interface_
 
@@ -54,7 +54,7 @@ the full `serverRpcMethods` catalog. Outbound notifications: none
 `notify` method is typed `never`, which fails any call site. No
 inbound surface (the AgentClient kind's inbound catalog is empty).
 
-### [`AgentClientConnectionConfig`](./connection.ts#L223)
+### [`AgentClientConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L223)
 
 _Interface_
 
@@ -73,7 +73,7 @@ empty table; the factory accepts it for forward compatibility (if a
 future spec adds AgentClient-inbound RPCs, the type system demands
 coverage).
 
-### [`AgentClientHandlers`](./handlers.ts#L116)
+### [`AgentClientHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L116)
 
 _TypeAlias_
 
@@ -96,7 +96,7 @@ AgentClient-inbound RPC additions get the same Ctx/Caps threading
 as Server and TM. The mapped type evaluates to `{}` when the
 catalog union is `never`, satisfying both knip and the type's intent.
 
-### [`ajv`](./wire.ts#L19)
+### [`ajv`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L19)
 
 _Variable_
 
@@ -104,7 +104,7 @@ _Variable_
 export const ajv:
 ```
 
-### [`buildAgentClientDispatcher`](./dispatch.ts#L127)
+### [`buildAgentClientDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L127)
 
 _Function_
 
@@ -122,7 +122,7 @@ inbound dispatch — the AgentClient kind's inbound catalog is empty).
 The empty `notify` shape is `never`-typed at the type level (no
 call site can satisfy the constraint).
 
-### [`buildServerDispatcher`](./dispatch.ts#L98)
+### [`buildServerDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L98)
 
 _Function_
 
@@ -136,7 +136,7 @@ Build the server-side dispatcher. Wires the inbound static-table
 dispatch loop + the outbound originator (TM-callback path) into a
 single `ServerConnection` value.
 
-### [`buildTaskMasterDispatcher`](./dispatch.ts#L159)
+### [`buildTaskMasterDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L158)
 
 _Function_
 
@@ -151,12 +151,11 @@ export function buildTaskMasterDispatcher<
 
 Build the TM dispatcher. Wires both the inbound dispatch loop
 (against `taskCallbackMethods`) and the outbound originator (against
-`serverRpcMethods`). Both TM-inbound slots are OPTIONAL with fail-CLOSED
-`ForbiddenError` defaults; an empty `{ handlers: {} }` literal
-produces a TM that responds `Forbidden -32001` to every inbound
-auth check (Spec F R2).
+`serverRpcMethods`). Spec D3 R14b made every TM-inbound slot
+REQUIRED: callers must register a handler for each catalog method;
+vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
-### [`CapabilitiesOf`](./capabilities.ts#L76)
+### [`CapabilitiesOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L76)
 
 _TypeAlias_
 
@@ -171,7 +170,7 @@ via `D["capabilities"][number]["tag"]`. When `D["capabilities"]` is
 absent (the spec F stub state, before impl-staff per-method updates),
 resolves to `never` — the slot contributes no capability requirements.
 
-### [`CapabilityDescriptor`](./capabilities.ts#L35)
+### [`CapabilityDescriptor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L35)
 
 _Interface_
 
@@ -181,7 +180,7 @@ export interface CapabilityDescriptor {
   readonly argsOf: (params: unknown, ctx: unknown) => unknown;
 ```
 
-### [`CapabilityProviderTable`](./capabilities.ts#L56)
+### [`CapabilityProviderTable`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L56)
 
 _TypeAlias_
 
@@ -215,7 +214,7 @@ Parameter `Caps` is the union of `Context.Tag` instances referenced
 across all slots in the handler table; the factory rejects (TS2741) a
 provider table missing any tag in `Caps`.
 
-### [`CapsUnionOf`](./handlers.ts#L147)
+### [`CapsUnionOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L147)
 
 _TypeAlias_
 
@@ -229,7 +228,7 @@ Capability-union extractor: union of every capability tag referenced
 across all real `HandlerSlot` arms in the table. The factory's
 signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
 
-### [`ConflictError`](./wire-errors.ts#L123)
+### [`ConflictError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L123)
 
 _Class_
 
@@ -244,7 +243,7 @@ export class ConflictError extends Data.TaggedError(
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
 
-### [`DecodedFrame`](./wire.ts#L139)
+### [`DecodedFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L139)
 
 _TypeAlias_
 
@@ -253,7 +252,7 @@ export type DecodedFrame =
   | { readonly _tag: "Request"; readonly frame: RequestFrame }
 ```
 
-### [`DecodedNotification`](./rpc-groups.ts#L47)
+### [`DecodedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-groups.ts#L47)
 
 _TypeAlias_
 
@@ -284,7 +283,7 @@ union and break per-branch params narrowing for `D` unions like
 resolving inside the conditional keeps the original `params` shape per
 distribution branch when the one-arg form is used.
 
-### [`DecodedRpcRequest`](./rpc-groups.ts#L16)
+### [`DecodedRpcRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-groups.ts#L16)
 
 _TypeAlias_
 
@@ -292,7 +291,7 @@ _TypeAlias_
 export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
 ```
 
-### [`decodeFrame`](./wire.ts#L149)
+### [`decodeFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L149)
 
 _Function_
 
@@ -302,7 +301,7 @@ export function decodeFrame(
 ): Effect.Effect<DecodedFrame, FrameDecodeError>
 ```
 
-### [`decodeNotification`](./rpc-groups.ts#L117)
+### [`decodeNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-groups.ts#L117)
 
 _Function_
 
@@ -318,7 +317,7 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](./method.ts#L209)
+### [`decodeRpcParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L206)
 
 _Function_
 
@@ -333,7 +332,7 @@ export function decodeRpcParams<
 ): Effect.Effect<Static<P>, RpcParamsDecodeError>
 ```
 
-### [`decodeRpcRequest`](./rpc-groups.ts#L92)
+### [`decodeRpcRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-groups.ts#L92)
 
 _Function_
 
@@ -349,7 +348,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L222)
+### [`decodeRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L219)
 
 _Function_
 
@@ -364,7 +363,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Static<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L180)
+### [`defineNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L177)
 
 _Function_
 
@@ -379,7 +378,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L99)
+### [`defineRpc`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L96)
 
 _Function_
 
@@ -400,7 +399,7 @@ runtime never re-parses schemas.
 
 ```mermaid
 flowchart TD
-  A["domain layer call site:<br>defineRpc{ name, params, result, optional?, capabilities? }"]
+  A["domain layer call site:<br>defineRpc{ name, params, result, capabilities? }"]
   A --> B["ajv.compile(params)<br>→ validateParams"]
   A --> C["ajv.compile(result)<br>→ validateResult"]
   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
@@ -409,11 +408,8 @@ flowchart TD
   E --> F["aggregated into rpcMethods"]
 ```
 
-- `optional` absent → REQUIRED slot in the handler table; missing
-  key fails compilation with TS2741 at the factory call.
-- `optional` present → OPTIONAL slot carrying the fail-CLOSED
-  default the dispatcher synthesizes when the slot value equals
-  the sentinel.
+- Every slot is REQUIRED in the handler table (Spec D3 R14b);
+  omitting any key fails TS2741 at the factory call.
 - `capabilities` absent → no auto-provision; the dispatcher reads
   `definition.capabilities` per frame and threads
   `Effect.provideServiceEffect` for each entry.
@@ -425,7 +421,7 @@ string can never accidentally type-fit a method position. See
 Sibling: defineNotification — same pipeline minus the
 result schema and response encoder.
 
-### [`encodeErrorResponse`](./wire.ts#L225)
+### [`encodeErrorResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L225)
 
 _Function_
 
@@ -440,7 +436,7 @@ Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
 
-### [`errorClassFor`](./wire-errors.ts#L73)
+### [`errorClassFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L73)
 
 _Function_
 
@@ -450,7 +446,7 @@ export function errorClassFor(code: number): RpcErrorClass | undefined
 
 Returns the registered class for a wire code, or `undefined`.
 
-### [`ForbiddenError`](./wire-errors.ts#L105)
+### [`ForbiddenError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L105)
 
 _Class_
 
@@ -465,7 +461,7 @@ export class ForbiddenError extends Data.TaggedError(
 
 Authenticated but not authorized for this resource.
 
-### [`FrameDecodeError`](./wire.ts#L144)
+### [`FrameDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L144)
 
 _Class_
 
@@ -476,7 +472,7 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
 }> {}
 ```
 
-### [`HandlerSlot`](./handlers.ts#L33)
+### [`HandlerSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L33)
 
 _Interface_
 
@@ -503,7 +499,7 @@ lives in `typed-dispatcher.types-check.ts`. The impl-staff PR
 populates per-definition `capabilities` and the gate becomes
 exercisable.
 
-### [`HandlerTable`](./handlers.ts#L73)
+### [`HandlerTable`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L73)
 
 _TypeAlias_
 
@@ -527,7 +523,7 @@ concrete `RpcDefinition&lt;"identity/register", ...>` etc. arms; the
 mapped type preserves each arm's `name` literal so the resulting
 table has named keys.
 
-### [`InvalidParamsError`](./wire-errors.ts#L137)
+### [`InvalidParamsError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L137)
 
 _Class_
 
@@ -545,7 +541,7 @@ protocol- and server-layer handlers when params fail schema validation;
 registered with the wire-error registry so handler-raised instances map
 to a `-32602 InvalidParams` wire response via `wireErrorFromInstance`.
 
-### [`isDecodedNotification`](./rpc-groups.ts#L147)
+### [`isDecodedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-groups.ts#L147)
 
 _Function_
 
@@ -556,7 +552,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`isRegisteredErrorInstance`](./wire-errors.ts#L78)
+### [`isRegisteredErrorInstance`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L78)
 
 _Function_
 
@@ -566,7 +562,7 @@ export function isRegisteredErrorInstance(value: object): boolean
 
 Returns true iff `value`'s constructor is in the registered class set.
 
-### [`JSON_RPC_RESERVED_CODES`](./wire-errors.ts#L6)
+### [`JSON_RPC_RESERVED_CODES`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L6)
 
 _Variable_
 
@@ -576,7 +572,7 @@ export const JSON_RPC_RESERVED_CODES =
 
 JSON-RPC 2.0 reserved codes. Emitted by TypedDispatcher; never raised by handlers.
 
-### [`JSON_RPC_VERSION`](./wire.ts#L34)
+### [`JSON_RPC_VERSION`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L34)
 
 _Variable_
 
@@ -584,7 +580,7 @@ _Variable_
 export const JSON_RPC_VERSION = "2.0" as const
 ```
 
-### [`JsonRpcId`](./wire.ts#L41)
+### [`JsonRpcId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L41)
 
 _TypeAlias_
 
@@ -592,7 +588,7 @@ _TypeAlias_
 export type JsonRpcId = Static<typeof JsonRpcIdSchema>;
 ```
 
-### [`jsonRpcMethod`](./wire.ts#L52)
+### [`jsonRpcMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L52)
 
 _Function_
 
@@ -606,7 +602,7 @@ Internal factory for descriptor construction (`defineRpc`,
 `defineNotification`). Not on the package barrel — callers pass plain
 strings to frame builders, which brand internally.
 
-### [`JsonRpcMethod`](./wire.ts#L42)
+### [`JsonRpcMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L42)
 
 _TypeAlias_
 
@@ -614,7 +610,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeAgentClientConnection`](./connection.ts#L274)
+### [`makeAgentClientConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L274)
 
 _Function_
 
@@ -631,7 +627,7 @@ Factory — agent client. Delegates to `buildAgentClientDispatcher`
 which wires the originator only (no inbound dispatch — the AgentClient
 kind's inbound catalog is empty).
 
-### [`makeOriginator`](./originator.ts#L227)
+### [`makeOriginator`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/originator.ts#L227)
 
 _Function_
 
@@ -639,7 +635,7 @@ _Function_
 export const makeOriginator = (config:
 ```
 
-### [`makeServerConnection`](./connection.ts#L263)
+### [`makeServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L263)
 
 _Function_
 
@@ -661,7 +657,7 @@ Factory — server side. Delegates to `buildServerDispatcher`
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
-### [`makeTaskMasterConnection`](./connection.ts#L292)
+### [`makeTaskMasterConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L292)
 
 _Function_
 
@@ -682,7 +678,7 @@ defaults per Spec F R2); the empty literal `{ handlers: {} }` is
 well-typed and produces a TM that responds to every inbound auth
 check with `Forbidden`.
 
-### [`MalformedFrameError`](./wire-errors.ts#L146)
+### [`MalformedFrameError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L146)
 
 _Class_
 
@@ -697,7 +693,7 @@ export class MalformedFrameError extends Data.TaggedError(
 
 Inbound frame failed to parse as JSON or did not match the expected shape.
 
-### [`NotConnectedError`](./rpc-errors.ts#L17)
+### [`NotConnectedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-errors.ts#L17)
 
 _Class_
 
@@ -709,7 +705,7 @@ export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
 
 The socket is not in the OPEN state when an RPC was attempted.
 
-### [`NotFoundError`](./wire-errors.ts#L114)
+### [`NotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L114)
 
 _Class_
 
@@ -724,7 +720,7 @@ export class NotFoundError extends Data.TaggedError(
 
 Resource not found (cross-cutting variant; domain-specific NotFound errors live with their domain).
 
-### [`NotificationDecodeError`](./rpc-groups.ts#L88)
+### [`NotificationDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-groups.ts#L88)
 
 _TypeAlias_
 
@@ -734,7 +730,7 @@ export type NotificationDecodeError =
   | InvalidNotificationParamsError;
 ```
 
-### [`NotificationDefinition`](./method.ts#L160)
+### [`NotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L157)
 
 _Interface_
 
@@ -769,7 +765,7 @@ Descriptor role at the transport layer: encode + decode + schema
 validation. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`notificationFrame`](./wire.ts#L233)
+### [`notificationFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L233)
 
 _Function_
 
@@ -780,7 +776,7 @@ export function notificationFrame<Name extends string, P extends TSchema>(
 ): NotificationFrame &
 ```
 
-### [`NotificationFrame`](./wire.ts#L113)
+### [`NotificationFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L113)
 
 _TypeAlias_
 
@@ -788,7 +784,7 @@ _TypeAlias_
 export type NotificationFrame = Static<typeof NotificationFrameSchema>;
 ```
 
-### [`notificationFrameSchema`](./wire.ts#L123)
+### [`notificationFrameSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L123)
 
 _Function_
 
@@ -796,7 +792,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L171)
+### [`NotificationParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L168)
 
 _TypeAlias_
 
@@ -808,7 +804,7 @@ export type NotificationParamsOf<
 
 Type-only accessor for a notification's params payload.
 
-### [`Originator`](./originator.ts#L32)
+### [`Originator`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/originator.ts#L32)
 
 _Interface_
 
@@ -823,7 +819,7 @@ export interface Originator {
 Originator side of a JSON-RPC connection. Scope-bound: closing the
 scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
 
-### [`ParamsOf`](./method.ts#L58)
+### [`ParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L58)
 
 _TypeAlias_
 
@@ -833,7 +829,7 @@ export type ParamsOf<D extends RpcDefinition<string, TSchema, TSchema>> =
 
 Type-only accessor for a definition's params payload.
 
-### [`registerErrorClass`](./wire-errors.ts#L61)
+### [`registerErrorClass`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L61)
 
 _Function_
 
@@ -864,7 +860,7 @@ lives in the runtime registry, not in a central table. The
 registered classes and must be hand-kept in sync — the TS type
 system cannot enumerate the static-side registry into a union.
 
-### [`requestFrame`](./wire.ts#L169)
+### [`requestFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L169)
 
 _Function_
 
@@ -880,7 +876,7 @@ export function requestFrame<
 ): RequestFrame &
 ```
 
-### [`RequestFrame`](./wire.ts#L111)
+### [`RequestFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L111)
 
 _TypeAlias_
 
@@ -888,7 +884,7 @@ _TypeAlias_
 export type RequestFrame = Static<typeof RequestFrameSchema>;
 ```
 
-### [`requestFrameSchema`](./wire.ts#L115)
+### [`requestFrameSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L115)
 
 _Function_
 
@@ -896,7 +892,7 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`responseFrame`](./wire.ts#L201)
+### [`responseFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L201)
 
 _Function_
 
@@ -907,7 +903,7 @@ export function responseFrame(
 ): ResponseFrame
 ```
 
-### [`ResponseFrame`](./wire.ts#L112)
+### [`ResponseFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L112)
 
 _TypeAlias_
 
@@ -915,7 +911,7 @@ _TypeAlias_
 export type ResponseFrame = Static<typeof ResponseFrameSchema>;
 ```
 
-### [`ResponseFrameBody`](./wire.ts#L197)
+### [`ResponseFrameBody`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L197)
 
 _TypeAlias_
 
@@ -924,7 +920,7 @@ export type ResponseFrameBody =
   | { result: unknown }
 ```
 
-### [`responseFrameSchema`](./wire.ts#L119)
+### [`responseFrameSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L119)
 
 _Function_
 
@@ -932,7 +928,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L62)
+### [`ResultOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L62)
 
 _TypeAlias_
 
@@ -942,7 +938,7 @@ export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
 
 Type-only accessor for a definition's result payload.
 
-### [`RpcCallError`](./originator.ts#L23)
+### [`RpcCallError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/originator.ts#L23)
 
 _TypeAlias_
 
@@ -953,7 +949,7 @@ export type RpcCallError =
   | RegisteredTaggedError;
 ```
 
-### [`RpcDefinition`](./method.ts#L29)
+### [`RpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L29)
 
 _Interface_
 
@@ -979,7 +975,7 @@ of capability descriptors the dispatcher iterates to thread
 plus an `argsOf` resolver that derives the obtain helper's args from
 `params` + `ctx`. Absent → no capabilities.
 
-### [`RpcErrorClass`](./wire-errors.ts#L21)
+### [`RpcErrorClass`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L21)
 
 _TypeAlias_
 
@@ -997,7 +993,7 @@ A `Data.TaggedError`-derived class with static wire metadata
 originator looks up the class by code via `errorClassFor` for inbound
 response decode.
 
-### [`RpcErrorPayload`](./wire-errors.ts#L88)
+### [`RpcErrorPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L88)
 
 _Interface_
 
@@ -1013,7 +1009,7 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](./method.ts#L195)
+### [`RpcParamsDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L192)
 
 _Class_
 
@@ -1026,7 +1022,7 @@ export class RpcParamsDecodeError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcRequestDecodeError`](./rpc-groups.ts#L71)
+### [`RpcRequestDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-groups.ts#L71)
 
 _TypeAlias_
 
@@ -1036,7 +1032,7 @@ export type RpcRequestDecodeError =
   | InvalidRpcParamsError;
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L202)
+### [`RpcResultDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L199)
 
 _Class_
 
@@ -1049,7 +1045,7 @@ export class RpcResultDecodeError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcServerError`](./rpc-errors.ts#L28)
+### [`RpcServerError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-errors.ts#L28)
 
 _Class_
 
@@ -1063,7 +1059,7 @@ export class RpcServerError extends Data.TaggedError("RpcServerError")<{
 
 The peer returned an `error` response frame.
 
-### [`RpcTimeoutError`](./rpc-errors.ts#L22)
+### [`RpcTimeoutError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-errors.ts#L22)
 
 _Class_
 
@@ -1076,7 +1072,7 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`ServerConnection`](./connection.ts#L145)
+### [`ServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L145)
 
 _Interface_
 
@@ -1091,7 +1087,7 @@ are the full `AnyNotificationDefinition` set (the server originates
 delivery + lifecycle notifications). Inbound surface is the closed
 `serverRpcMethods` catalog, dispatched via the static `ServerHandlers` table.
 
-### [`ServerConnectionConfig`](./connection.ts#L204)
+### [`ServerConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L204)
 
 _Interface_
 
@@ -1117,7 +1113,7 @@ and TypeScript reconstructs `Caps` from the slots' definitions.
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound TM-callback path.
 
-### [`ServerHandlers`](./handlers.ts#L98)
+### [`ServerHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L98)
 
 _TypeAlias_
 
@@ -1134,7 +1130,7 @@ to the dispatch context the server's `defineMethod` wrapper exposes
 `Caps` is the union of `Context.Tag` instances the table's slots
 declare; the factory infers it from the literal.
 
-### [`ServerInboundRpcDefinition`](./handlers.ts#L88)
+### [`ServerInboundRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L88)
 
 _TypeAlias_
 
@@ -1148,7 +1144,7 @@ call into the server. LSP-anchored: the catalog is `serverRpcMethods` from
 `networkRpcMethods`, `taskRpcMethods`, and `appRpcMethods`. 42
 members at `227c398`.
 
-### [`TaskMasterConnection`](./connection.ts#L178)
+### [`TaskMasterConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L178)
 
 _Interface_
 
@@ -1163,7 +1159,7 @@ type level). Outbound notifications: none. Inbound surface is the
 `TaskMasterHandlers` table (both slots optional with fail-CLOSED
 `ForbiddenError` defaults per Spec F R2).
 
-### [`TaskMasterConnectionConfig`](./connection.ts#L237)
+### [`TaskMasterConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L237)
 
 _Interface_
 
@@ -1183,7 +1179,7 @@ export interface TaskMasterConnectionConfig<
 Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
 catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
 
-### [`TaskMasterHandlers`](./handlers.ts#L132)
+### [`TaskMasterHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L132)
 
 _TypeAlias_
 
@@ -1194,7 +1190,7 @@ export type TaskMasterHandlers<
 > = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 ```
 
-### [`TaskMasterInboundRpcDefinition`](./handlers.ts#L130)
+### [`TaskMasterInboundRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L130)
 
 _TypeAlias_
 
@@ -1210,7 +1206,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the TM's typed
 verdict drives the lifecycle transition.
 
-### [`UnauthorizedError`](./wire-errors.ts#L96)
+### [`UnauthorizedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L96)
 
 _Class_
 
@@ -1223,7 +1219,7 @@ export class UnauthorizedError extends Data.TaggedError(
 }
 ```
 
-### [`validateNotificationFrame`](./wire.ts#L133)
+### [`validateNotificationFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L133)
 
 _Variable_
 
@@ -1233,7 +1229,7 @@ export const validateNotificationFrame = ajv.compile(
 ) as (v: unknown)
 ```
 
-### [`validateRequestFrame`](./wire.ts#L127)
+### [`validateRequestFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L127)
 
 _Variable_
 
@@ -1243,7 +1239,7 @@ export const validateRequestFrame = ajv.compile(RequestFrameSchema) as (
 )
 ```
 
-### [`validateResponseFrame`](./wire.ts#L130)
+### [`validateResponseFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L130)
 
 _Variable_
 
@@ -1253,7 +1249,7 @@ export const validateResponseFrame = ajv.compile(ResponseFrameSchema) as (
 )
 ```
 
-### [`wireErrorFromInstance`](./dispatch.ts#L483)
+### [`wireErrorFromInstance`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L482)
 
 _Function_
 

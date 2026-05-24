@@ -14,15 +14,15 @@ task-manager dispatch.
 
 ### Handlers
 - `handlers/connect.handlers.ts` — `network/connect` post-auth wiring.
-- `handlers/conversations.handlers.ts` — legacy `conversations/*`
-  RPCs.
 - `handlers/messages.handlers.ts` — `messages/send`, `messages/get`,
   `messages/list`.
 - `handlers/presence.handlers.ts` — `presence/*` (routes via TM
   message bus).
 - `handlers/contacts.handlers.ts` — `contacts/*`.
-- `handlers/tasks.handlers.ts` — `tasks/*` legacy family plus the
-  Spec D1 singular `task/*` + `task/conversation/*` family.
+- `handlers/tasks.handlers.ts` — `task/*` + `task/conversation/*`
+  admin family. `task/request` lives in
+  `app/handlers/task-request.handler.ts` because its handler binds
+  via `defineAppMethod`.
 - `handlers/notification-broadcast.ts` — shared best-effort fan-out
   helper (forks socket writes via `Effect.runFork`).
 
@@ -32,12 +32,10 @@ task-manager dispatch.
 - `services/message.service.ts` + `message-service-types.ts` —
   message insert (`sendInsert` + `sendCommit`), delivery webhook
   fan-out, trace capture wiring.
-- `services/task.service.ts` — task lifecycle, the Spec D1
+- `services/task.service.ts` — task lifecycle plus the
   `TaskConversation*` administrative methods.
-- `services/default-tm.ts` — built-in TM that backs default DM /
-  Group conversations (no custom moderator).
-- `services/conversation-admin-authority.ts` — `assertTmAuthority` /
-  `loadTaskAsTmAuthority` gates that obtain helpers consume.
+- `services/conversation/list-pagination.ts` — shared cursor +
+  page-shape helpers consumed by `conversation.service.ts`.
 
 ## Handler shape
 

@@ -13,7 +13,7 @@ Public barrel for network and presence protocol descriptors.
 
 ## Public surface
 
-### [`_ActorModelBarrelCanary`](./actor-model.types-check.ts#L11)
+### [`_ActorModelBarrelCanary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/actor-model.types-check.ts#L11)
 
 _TypeAlias_
 
@@ -21,7 +21,7 @@ _TypeAlias_
 export type _ActorModelBarrelCanary = _AuthenticatedIdentity;
 ```
 
-### [`agentId`](./actor-model.ts#L41)
+### [`agentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/actor-model.ts#L41)
 
 _Property_
 
@@ -29,7 +29,7 @@ _Property_
   readonly agentId: AgentId;
 ```
 
-### [`AuthenticatedIdentity`](./actor-model.ts#L40)
+### [`AuthenticatedIdentity`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/actor-model.ts#L40)
 
 _TypeAlias_
 
@@ -48,7 +48,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so the
 optionality is collapsed here.
 
-### [`Connect`](./methods.ts#L54)
+### [`Connect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L54)
 
 _Variable_
 
@@ -60,7 +60,7 @@ Authenticate a WebSocket connection. Must be the first message on a new connecti
 
 **Returns:** Connection metadata including agent ID, protocol version, conversations, and server policy.
 
-### [`ConnectionId`](./actor-model.ts#L28)
+### [`ConnectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/actor-model.ts#L28)
 
 _TypeAlias_
 
@@ -82,7 +82,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`ConnectionId`](./actor-model.ts#L28)
+### [`ConnectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/actor-model.ts#L28)
 
 _Variable_
 
@@ -104,7 +104,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L77)
+### [`HelloOk`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L77)
 
 _TypeAlias_
 
@@ -112,7 +112,7 @@ _TypeAlias_
 export type HelloOk = Static<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L145)
+### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L145)
 
 _Variable_
 
@@ -122,7 +122,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L84)
+### [`NetworkPing`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L84)
 
 _Variable_
 
@@ -132,7 +132,7 @@ export const NetworkPing = defineRpc(
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L138)
+### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L138)
 
 _Variable_
 
@@ -145,7 +145,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L133)
+### [`PresenceChangedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L133)
 
 _Variable_
 
@@ -155,7 +155,7 @@ export const PresenceChangedNotificationDefinition = defineNotification(
 
 Pushed when a subscribed participant's presence status changes.
 
-### [`PresenceSubscribe`](./methods.ts#L109)
+### [`PresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L109)
 
 _Variable_
 
@@ -166,7 +166,7 @@ export const PresenceSubscribe = defineRpc(
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`PresenceUpdate`](./methods.ts#L96)
+### [`PresenceUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L96)
 
 _Variable_
 
@@ -176,7 +176,7 @@ export const PresenceUpdate = defineRpc(
 
 Update your presence status (online, offline, away).
 
-### [`userId`](./actor-model.ts#L42)
+### [`userId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/actor-model.ts#L42)
 
 _Property_
 

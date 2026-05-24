@@ -13,7 +13,7 @@ Public barrel for protocol reference-model helpers.
 
 ## Public surface
 
-### [`applyCall`](./dispatch.ts#L188)
+### [`applyCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/dispatch.ts#L188)
 
 _Function_
 
@@ -35,7 +35,7 @@ server's *observable* outcome (success vs typed error), not its full
 result shape. Tier B canonicalizers downgrade server responses to the
 same projection before comparing.
 
-### [`authorizationOutcome`](./dispatch.ts#L141)
+### [`authorizationOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/dispatch.ts#L141)
 
 _Function_
 
@@ -56,7 +56,7 @@ Rules (mirrored from `packages/server/src/app/authz.ts` contract):
   - Conversation-scoped method + `authz` entry "denied" → deny-forbidden.
   - Otherwise allow.
 
-### [`initialReferenceState`](./state.ts#L53)
+### [`initialReferenceState`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/state.ts#L53)
 
 _Variable_
 
@@ -64,7 +64,7 @@ _Variable_
 export const initialReferenceState: ReferenceState =
 ```
 
-### [`isIdempotent`](./dispatch.ts#L94)
+### [`isIdempotent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/dispatch.ts#L94)
 
 _Function_
 
@@ -72,7 +72,7 @@ _Function_
 export function isIdempotent(method: string): boolean
 ```
 
-### [`LogicalTick`](./state.ts#L22)
+### [`LogicalTick`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/state.ts#L22)
 
 _TypeAlias_
 
@@ -82,7 +82,7 @@ export type LogicalTick = number & Brand.Brand<"LogicalTick">;
 
 Monotonic logical clock — the model does not read wall time.
 
-### [`mkTick`](./state.ts#L26)
+### [`mkTick`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/state.ts#L26)
 
 _Function_
 
@@ -92,7 +92,7 @@ export function mkTick(n: number): LogicalTick
 
 Construct a `LogicalTick` from a raw number. Only call in this module.
 
-### [`ReferenceState`](./state.ts#L31)
+### [`ReferenceState`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/state.ts#L31)
 
 _Interface_
 
@@ -122,7 +122,7 @@ export interface ReferenceState {
 
 Every kind of entity the model tracks.
 
-### [`RpcModelResult`](./dispatch.ts#L65)
+### [`RpcModelResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/models/dispatch.ts#L65)
 
 _TypeAlias_
 

@@ -13,7 +13,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AwaitNotificationError`](./helpers.ts#L70)
+### [`AwaitNotificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L70)
 
 _TypeAlias_
 
@@ -23,7 +23,7 @@ export type AwaitNotificationError =
   | AwaitNotificationClosedError;
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L81)
+### [`awaitOneNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L81)
 
 _Function_
 
@@ -44,7 +44,7 @@ exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
 at integration-test call sites; preserves the `yield* …` ergonomic but
 runs entirely on the new `Stream.async`-backed subscription API.
 
-### [`closeAllClients`](./helpers.ts#L177)
+### [`closeAllClients`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L177)
 
 _Function_
 
@@ -52,7 +52,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`ConnectedAgent`](./helpers.ts#L113)
+### [`ConnectedAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L113)
 
 _Interface_
 
@@ -65,7 +65,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L275)
+### [`connectTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L275)
 
 _Function_
 
@@ -73,7 +73,7 @@ _Function_
 export function connectTestClient(opts:
 ```
 
-### [`CoreSchemaSqlLoadError`](./core-schema-sql.ts#L24)
+### [`CoreSchemaSqlLoadError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/core-schema-sql.ts#L24)
 
 _TypeAlias_
 
@@ -83,7 +83,7 @@ export type CoreSchemaSqlLoadError =
   | CoreSchemaSqlReadError;
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L51)
+### [`CoreTestRuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L51)
 
 _Interface_
 
@@ -96,7 +96,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L102)
+### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L102)
 
 _Interface_
 
@@ -118,7 +118,7 @@ export interface CoreTestServer {
 }
 ```
 
-### [`expectRpcFailure`](./rpc-error.ts#L23)
+### [`expectRpcFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/rpc-error.ts#L23)
 
 _Function_
 
@@ -133,7 +133,7 @@ Asserts the RPC effect fails with `RpcServerError(code)` and returns the
 narrowed error for follow-up assertions. `catchTags` routes by tag name
 declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](./server.ts#L359)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L359)
 
 _Function_
 
@@ -141,7 +141,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L351)
+### [`getCoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L351)
 
 _Function_
 
@@ -149,7 +149,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](./server.ts#L336)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L336)
 
 _Function_
 
@@ -157,7 +157,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L344)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L344)
 
 _Function_
 
@@ -165,7 +165,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L364)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L364)
 
 _Function_
 
@@ -173,7 +173,7 @@ _Function_
 export function getWsUrl(): string
 ```
 
-### [`loadCoreSchemaSql`](./core-schema-sql.ts#L88)
+### [`loadCoreSchemaSql`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/core-schema-sql.ts#L88)
 
 _Function_
 
@@ -184,7 +184,7 @@ export function loadCoreSchemaSql(): Effect.Effect<
 >
 ```
 
-### [`makeFakeService`](./fakes.ts#L42)
+### [`makeFakeService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/fakes.ts#L42)
 
 _Function_
 
@@ -204,7 +204,7 @@ the compile-time contract-drift insurance. Adding a field to the real
 interface does NOT fail compilation (tests are a Partial), but changing an
 existing field's signature does.
 
-### [`makePgliteHarness`](./pglite-harness.ts#L72)
+### [`makePgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L72)
 
 _Function_
 
@@ -217,7 +217,7 @@ export function makePgliteHarness(): Effect.Effect<
 
 Spin up a fresh PGlite instance with the core schema loaded.
 
-### [`PGLITE_HOOK_TIMEOUT_MS`](./pglite-harness.ts#L27)
+### [`PGLITE_HOOK_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L27)
 
 _Variable_
 
@@ -227,7 +227,7 @@ export const PGLITE_HOOK_TIMEOUT_MS = 30_000
 
 Suggested timeout for pglite-backed beforeEach/afterEach hooks.
 
-### [`PgliteHarness`](./pglite-harness.ts#L57)
+### [`PgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L57)
 
 _Interface_
 
@@ -243,7 +243,7 @@ export interface PgliteHarness {
   readonly exec: (sql: string) => Effect.Effect<unknown, PgliteExecError>;
 ```
 
-### [`PgliteHarnessError`](./pglite-harness.ts#L45)
+### [`PgliteHarnessError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L45)
 
 _TypeAlias_
 
@@ -255,7 +255,7 @@ export type PgliteHarnessError =
   | PgliteCloseError;
 ```
 
-### [`postJson`](./helpers.ts#L337)
+### [`postJson`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L337)
 
 _Function_
 
@@ -273,7 +273,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 same wire envelope, so each integration test importing this helper
 can drop the repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L184)
+### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L184)
 
 _Function_
 
@@ -284,7 +284,7 @@ export function registerAgent(
   opts?:
 ```
 
-### [`registerAndConnect`](./helpers.ts#L319)
+### [`registerAndConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L319)
 
 _Function_
 
@@ -296,7 +296,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerOnly`](./helpers.ts#L421)
+### [`registerOnly`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L421)
 
 _Function_
 
@@ -306,7 +306,7 @@ export function registerOnly(name: string): Effect.Effect<
 
 Register an agent without connecting (for tests that need the raw client).
 
-### [`resetCoreTestDb`](./server.ts#L310)
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L310)
 
 _Function_
 
@@ -314,7 +314,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`ServerTestClient`](./helpers.ts#L44)
+### [`ServerTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L44)
 
 _Interface_
 
@@ -335,7 +335,7 @@ wrappers were deleted. Consumers reach typed-payload Streams via
 Ergonomic one-shot test sites use the top-level `awaitOneNotification`
 helper below.
 
-### [`setupAgentGroup`](./helpers.ts#L460)
+### [`setupAgentGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L460)
 
 _Function_
 
@@ -347,7 +347,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L448)
+### [`setupAgentPair`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L448)
 
 _Function_
 
@@ -357,7 +357,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L272)
+### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L272)
 
 _Function_
 
@@ -365,7 +365,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions =
 ```
 
-### [`stopCoreTestServer`](./server.ts#L285)
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L285)
 
 _Function_
 
@@ -373,7 +373,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L173)
+### [`trackClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L173)
 
 _Function_
 

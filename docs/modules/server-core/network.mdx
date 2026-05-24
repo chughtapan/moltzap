@@ -17,7 +17,7 @@ import kernels, transport, and identity, but not task or app.
 
 ## Public surface
 
-### [`AgentEndpointResolver`](./agent-endpoint-resolver.ts#L65)
+### [`AgentEndpointResolver`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L65)
 
 _Class_
 
@@ -37,7 +37,7 @@ reverse views never disagree, even under concurrent add /
 remove calls from independent `network/connect` and disconnect
 fibers.
 
-### [`connectionId`](./agent-endpoint-resolver.ts#L39)
+### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L39)
 
 _Function_
 
@@ -52,7 +52,7 @@ with synthetic strings. `ConnectionId` itself lives at
 acceptable production construction since `crypto.randomUUID()` returns
 `string` and `ConnectionId` is a `brandedString` (no UUID predicate).
 
-### [`DeliveryAck`](./network-send.ts#L46)
+### [`DeliveryAck`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L46)
 
 _Class_
 
@@ -66,7 +66,7 @@ Successful single-recipient write. The fan-out variant
 NetworkSendService.broadcast returns the delivered agent ids
 in its success channel and absorbs `DeliveryError` cases.
 
-### [`DeliveryError`](./network-send.ts#L70)
+### [`DeliveryError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L70)
 
 _TypeAlias_
 
@@ -74,7 +74,7 @@ _TypeAlias_
 export type DeliveryError = RecipientNotResolved | WriteFailed;
 ```
 
-### [`NetworkSendService`](./network-send.ts#L93)
+### [`NetworkSendService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L93)
 
 _Class_
 
@@ -120,7 +120,7 @@ export class NetworkSendService {
 Outbound-routing primitive. Use the constructor directly in code;
 route through `NetworkSendServiceTag` in DI-aware code.
 
-### [`opaquePayload`](./network-send.ts#L34)
+### [`opaquePayload`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L34)
 
 _Function_
 
@@ -130,7 +130,7 @@ export const opaquePayload = (raw: string): OpaquePayload
 
 Brand a raw string as an OpaquePayload.
 
-### [`OpaquePayload`](./network-send.ts#L30)
+### [`OpaquePayload`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L30)
 
 _TypeAlias_
 
@@ -144,7 +144,7 @@ The nominal brand prevents an unwitting caller from passing an
 arbitrary `string` where a wire-ready frame is expected; construct
 via opaquePayload.
 
-### [`RecipientNotResolved`](./network-send.ts#L54)
+### [`RecipientNotResolved`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L54)
 
 _Class_
 
@@ -159,7 +159,7 @@ export class RecipientNotResolved extends Data.TaggedError(
 Recipient agent has no live connection. Caller-recoverable —
 usually drop or queue rather than retry.
 
-### [`WriteFailed`](./network-send.ts#L65)
+### [`WriteFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L65)
 
 _Class_
 

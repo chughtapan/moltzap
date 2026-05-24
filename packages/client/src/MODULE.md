@@ -789,9 +789,9 @@ export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
 
 Public handler-table type for `TMClientOptions.handlers`.
 Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
-client's per-frame context. Slots are OPTIONAL (Spec F R2 fail-CLOSED
-`ForbiddenError -32001` defaults), so `{}` is a well-typed table for
-agents that don't register TM-callback responders.
+client's per-frame context. Spec D3 R14b made every slot REQUIRED;
+vacuous-deny moderators bind an explicit `ForbiddenError -32001`
+handler.
 
 ## Files
 
