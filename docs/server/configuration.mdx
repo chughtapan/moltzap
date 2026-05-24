@@ -7,17 +7,27 @@ description: Environment variables and server options
 
 ## CoreConfig
 
-The server accepts a `CoreConfig` object:
+`createCoreApp(config)` accepts a `CoreConfig` object. The full type lives in
+`packages/server/src/config.ts`; the load-bearing fields are:
 
 ```typescript
 interface CoreConfig {
-  databaseUrl: string;
-  encryptionMasterSecret: string;
+  db: Db;                          // live Kysely database handle
   port: number;
-  corsOrigins: string[];
+  corsOrigins: string[];           // exact-match allowed origins ("*" allows all)
+  encryptionMasterSecret?: string; // unset → messages stored as plaintext
+  registrationSecret?: string;
   devMode?: boolean;
+  // ...plus optional sessionValidator, webhookClient, deliveryWebhook,
+  // spanProcessor, devModeUserId, skipDefaultRegisterRoute, dbCleanup
 }
 ```
+
+Standalone deployments do not construct `CoreConfig` by hand. The bin entry
+(`startServer(configPath?)`) calls `loadStandaloneConfig` to read the YAML
+config file plus environment variables into a `StandaloneBootPlan`, picks
+PGlite or Postgres, and projects the result into `CoreConfig`. `corsOrigins`
+is exact-match only.
 
 ## Environment variables
 
