@@ -20,7 +20,6 @@ import {
   type ClaimAgentResult,
 } from "../identity/services/auth.service.js";
 import type { CoreConfig } from "./types.js";
-import { logError, logWarning } from "./logging.js";
 
 const HTTP_OK = 200;
 const HTTP_CREATED = 201;
@@ -175,7 +174,11 @@ function makeWsRoute(handleSocket: CoreHttpAppOptions["handleSocket"]) {
       return HttpServerResponse.empty();
     }).pipe(
       Effect.catchAll((err) => {
-        Effect.runFork(logWarning("WS upgrade failed", { err }));
+        Effect.runFork(
+          Effect.logWarning("WS upgrade failed").pipe(
+            Effect.annotateLogs({ err }),
+          ),
+        );
         return HttpServerResponse.empty({ status: HTTP_BAD_REQUEST });
       }),
       Effect.withSpan("http.ws"),
@@ -287,7 +290,9 @@ function registerAgent(
     );
     if (Exit.isSuccess(exit))
       return registerSuccessResponse(request, exit.value);
-    yield* logError("Registration failed", { cause: Cause.pretty(exit.cause) });
+    yield* Effect.logError("Registration failed").pipe(
+      Effect.annotateLogs({ cause: Cause.pretty(exit.cause) }),
+    );
     return registrationFailedResponse();
   }).pipe(Effect.withSpan("http.registerAgent"));
 }
@@ -298,7 +303,9 @@ function handleClaimExit(
 ) {
   return Effect.gen(function* () {
     if (Exit.isFailure(exit)) {
-      yield* logError("Claim failed", { cause: Cause.pretty(exit.cause) });
+      yield* Effect.logError("Claim failed").pipe(
+        Effect.annotateLogs({ cause: Cause.pretty(exit.cause) }),
+      );
       return jsonResponse(
         { error: "Claim failed" },
         HTTP_INTERNAL_SERVER_ERROR,
@@ -349,9 +356,9 @@ function upsertAdminAgent(
       options.authService.upsertAgent(payload.registerBody, ownerUserId),
     );
     if (Exit.isFailure(exit)) {
-      yield* logError("Admin upsert failed", {
-        cause: Cause.pretty(exit.cause),
-      });
+      yield* Effect.logError("Admin upsert failed").pipe(
+        Effect.annotateLogs({ cause: Cause.pretty(exit.cause) }),
+      );
       return registrationFailedResponse();
     }
     const result = exit.value;
@@ -453,7 +460,11 @@ function makeAllowedOriginsPredicate(corsOrigins: readonly string[]) {
   return (origin: string): boolean => {
     if (corsOrigins.includes("*")) return true;
     if (corsOrigins.includes(origin)) return true;
-    Effect.runFork(logWarning("CORS origin rejected", { origin }));
+    Effect.runFork(
+      Effect.logWarning("CORS origin rejected").pipe(
+        Effect.annotateLogs({ origin }),
+      ),
+    );
     return false;
   };
 }
