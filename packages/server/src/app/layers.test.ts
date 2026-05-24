@@ -2,7 +2,6 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { expect } from "vitest";
 import type { Db } from "../db/client.js";
-import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
@@ -24,7 +23,6 @@ import {
 } from "./layers.js";
 
 const it = effectIt.effect;
-const FUNCTION_TYPE = "function";
 
 /**
  * Minimal Kysely stub. None of the constructors under test execute queries
@@ -40,7 +38,6 @@ const BaseLive = Layer.mergeAll(
   Layer.succeed(SessionValidatorTag, null),
   Layer.succeed(WebhookClientTag, new WebhookClient()),
   Layer.succeed(DeliveryWebhookTag, null),
-  NoopTraceCaptureLive,
 );
 
 /** Full composition — Base provides inputs to ServicesLive's requirements. */
@@ -69,7 +66,6 @@ it("ServicesLive resolves every service via resolveServices", () =>
     expect(services.presenceService).toBeInstanceOf(PresenceService);
     expect(services.appHost).toBeInstanceOf(AppHost);
     expect(services.messageService).toBeInstanceOf(MessageService);
-    expect(typeof services.traceCapture.record).toBe(FUNCTION_TYPE);
 
     // Every slot is populated — `null` counts for encryption.
     for (const k of Object.keys(services)) {
