@@ -124,6 +124,11 @@ _TypeAlias_
 
 ```ts
 export type PresenceStatus = "online" | "offline" | "away";
+
+export interface PresenceChangedPayload {
+  readonly agentId: string;
+  readonly status: PresenceStatus;
+}
 ```
 
 ### [`presenceStatusesFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L198)

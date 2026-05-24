@@ -16,6 +16,45 @@ _TypeAlias_
 export type AwaitNotificationError =
   | AwaitNotificationTimeoutError
   | AwaitNotificationClosedError;
+
+/**
+ * Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
+ * `Stream.runHead`, failing with a tagged error on timeout or stream
+ * exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
+ * at integration-test call sites; preserves the `yield* …` ergonomic but
+ * runs entirely on the new `Stream.async`-backed subscription API.
+ */
+export function awaitOneNotification<D extends AnyNotificationDefinition>(
+  client: Pick<ServerTestClient, "subscribeTo">,
+  definition: D,
+  timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
+): Effect.Effect<
+  DecodedNotification<D>,
+  AwaitNotificationError | TransportClosedError
+> {
+  return client.subscribeTo(definition).pipe(
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: Duration.millis(timeoutMs),
+      onTimeout: () =>
+        new AwaitNotificationTimeoutError({
+          definition: definition.name,
+          durationMs: timeoutMs,
+        }),
+    }),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new AwaitNotificationClosedError({
+              definition: definition.name,
+            }),
+          ),
+        onSome: (notification) => Effect.succeed(notification),
+      }),
+    ),
+  );
+}
 ```
 
 ### [`awaitOneNotification`](./helpers.ts#L81)
@@ -81,6 +120,8 @@ _TypeAlias_
 export type CoreSchemaSqlLoadError =
   | CoreSchemaSqlAccessError
   | CoreSchemaSqlReadError;
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
 ### [`CoreTestRuntimeServerHandle`](./server.ts#L51)
@@ -241,6 +282,10 @@ export interface PgliteHarness {
    * to seed extra rows after `make()` returns.
    */
   readonly exec: (sql: string) => Effect.Effect<unknown, PgliteExecError>;
+
+  /** Tear down the in-memory instance. Call from `afterEach`. */
+  readonly close: Effect.Effect<void, PgliteCloseError>;
+}
 ```
 
 ### [`PgliteHarnessError`](./pglite-harness.ts#L45)
@@ -253,6 +298,12 @@ export type PgliteHarnessError =
   | PgliteCreateError
   | PgliteExecError
   | PgliteCloseError;
+
+const SQL_PREVIEW_MAX_CHARS = 160;
+
+function sqlPreview(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim().slice(0, SQL_PREVIEW_MAX_CHARS);
+}
 ```
 
 ### [`postJson`](./helpers.ts#L337)

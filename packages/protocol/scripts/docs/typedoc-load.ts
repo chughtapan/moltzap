@@ -193,7 +193,7 @@ function isStructuralLeaf(node: RawReflection): boolean {
 
 function toExport(node: RawReflection, packageName: string): TypeDocExport {
   const sources: TypeDocSource[] = (node.sources ?? []).map((s) => ({
-    fileName: normalizeSourcePath(s.fileName ?? ""),
+    fileName: normalizeSourcePath(s.fileName ?? "", s.url),
     line: s.line ?? 0,
     character: s.character ?? 0,
     url: s.url,
@@ -217,12 +217,22 @@ function extractReturnTypeName(node: RawReflection): string | null {
   return null;
 }
 
-function normalizeSourcePath(p: string): string {
-  // TypeDoc sometimes emits absolute paths via workspace symlinks.
-  // Trim anything above `packages/` so we get workspace-relative
-  // paths.
+function normalizeSourcePath(p: string, url: string | undefined): string {
+  // TypeDoc sometimes emits absolute paths via workspace symlinks —
+  // trim anything above `packages/` for workspace-relative output.
   const ix = p.indexOf("packages/");
-  return ix === -1 ? p : p.slice(ix);
+  if (ix !== -1) return p.slice(ix);
+  // Some packages surface a bare package-relative `fileName` (e.g.
+  // `entry.ts` instead of `packages/foo/src/entry.ts`). Reconstruct
+  // from the source URL, which carries the full repo-relative path
+  // after the SHA. Without this, `discoverFolders` skips the export
+  // on the `packages/`-prefix check and the package is silently
+  // dropped from generated MODULE docs.
+  if (url) {
+    const m = url.match(/\/blob\/[^/]+\/(packages\/[^#?]+)/);
+    if (m && m[1]) return m[1];
+  }
+  return p;
 }
 
 function extractComment(node: RawReflection): TypeDocComment | null {

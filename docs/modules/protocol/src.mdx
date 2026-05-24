@@ -370,6 +370,19 @@ export type RegisteredTaggedError =
   | ConversationArchivedError
   | ConversationFullError
   | HookBlockedError;
+
+// Spec D3 R11 — per-kind outbound catalogs.
+//   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.
+//   `taskMasterRpcMethods`  — superset; adds TM-only operations.
+//   `serverRpcMethods`      — server inbound; full union (still
+//     includes the legacy `Conversations*` / plural `Tasks*` that
+//     retire across Commits 6-10).
+export const agentClientRpcMethods = [
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...nonTmAuthorityTaskRpcMethods,
+  ...appRpcMethods,
+] as const;
 ```
 
 Closed union of every wire-registered tagged-error class instance.

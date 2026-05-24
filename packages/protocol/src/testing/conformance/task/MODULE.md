@@ -60,6 +60,36 @@ _Property_
 
 ```ts
   readonly agent: TestAgent;
+  readonly client: TestClient;
+
+  /**
+   * Per-client historical notification buffer (#645): the consolidated
+   * `TestClient.subscribe` only emits frames arriving AFTER
+   * materialisation, so a sequential `send → awaitOneNotification` races
+   * the response frame. The buffer is fed by a long-lived
+   * `subscribeAll()` pump installed at `acquireClient` time;
+   * `awaitOneNotification` consumes the buffer so frames that arrived
+   * between the triggering RPC and the wait are still observable. This
+   * mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
+   * `makeNotificationBuffer` JSDoc below covers the design).
+   */
+  readonly notifications: NotificationBuffer;
+};
+
+/**
+ * Historical notification buffer used by `awaitOneNotification`. Holds
+ * every inbound notification arriving on a single `TestClient`'s
+ * `subscribeAll()` Stream until a consumer pulls a matching frame.
+ *
+ * The `snapshot` and `closed` fields are the only public surfaces;
+ * the pump fiber that feeds them is interrupted by the enclosing
+ * Scope finalizer installed by `makeNotificationBuffer`. `closed` is
+ * set to true when the transport-side stream terminates (either via
+ * `TransportClosedError` or normal exhaustion); `awaitOneNotification`
+ * consumes it to surface "Connection closed" rather than masquerading
+ * a missing notification as a timeout.
+ */
+export interface NotificationBuffer {
 ```
 
 ### [`archiveConversation`](./_helpers.ts#L319)
@@ -132,6 +162,35 @@ _Property_
 
 ```ts
   readonly client: TestClient;
+
+  /**
+   * Per-client historical notification buffer (#645): the consolidated
+   * `TestClient.subscribe` only emits frames arriving AFTER
+   * materialisation, so a sequential `send → awaitOneNotification` races
+   * the response frame. The buffer is fed by a long-lived
+   * `subscribeAll()` pump installed at `acquireClient` time;
+   * `awaitOneNotification` consumes the buffer so frames that arrived
+   * between the triggering RPC and the wait are still observable. This
+   * mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
+   * `makeNotificationBuffer` JSDoc below covers the design).
+   */
+  readonly notifications: NotificationBuffer;
+};
+
+/**
+ * Historical notification buffer used by `awaitOneNotification`. Holds
+ * every inbound notification arriving on a single `TestClient`'s
+ * `subscribeAll()` Stream until a consumer pulls a matching frame.
+ *
+ * The `snapshot` and `closed` fields are the only public surfaces;
+ * the pump fiber that feeds them is interrupted by the enclosing
+ * Scope finalizer installed by `makeNotificationBuffer`. `closed` is
+ * set to true when the transport-side stream terminates (either via
+ * `TransportClosedError` or normal exhaustion); `awaitOneNotification`
+ * consumes it to surface "Connection closed" rather than masquerading
+ * a missing notification as a timeout.
+ */
+export interface NotificationBuffer {
 ```
 
 ### [`ConversationActor`](./_helpers.ts#L73)
@@ -263,6 +322,7 @@ export interface ModeratedHandle {
     conversationId: ConversationId,
     expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
   ) => Effect.Effect<void, string>;
+}
 ```
 
 ### [`NotificationBuffer`](./_helpers.ts#L104)
@@ -296,6 +356,22 @@ _Property_
 
 ```ts
   readonly notifications: NotificationBuffer;
+};
+
+/**
+ * Historical notification buffer used by `awaitOneNotification`. Holds
+ * every inbound notification arriving on a single `TestClient`'s
+ * `subscribeAll()` Stream until a consumer pulls a matching frame.
+ *
+ * The `snapshot` and `closed` fields are the only public surfaces;
+ * the pump fiber that feeds them is interrupted by the enclosing
+ * Scope finalizer installed by `makeNotificationBuffer`. `closed` is
+ * set to true when the transport-side stream terminates (either via
+ * `TransportClosedError` or normal exhaustion); `awaitOneNotification`
+ * consumes it to surface "Connection closed" rather than masquerading
+ * a missing notification as a timeout.
+ */
+export interface NotificationBuffer {
 ```
 
 Per-client historical notification buffer (#645): the consolidated

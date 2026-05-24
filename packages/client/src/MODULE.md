@@ -17,6 +17,8 @@ export interface AgentClientOptions {
   serverUrl: string;
   agentKey: string;
   onDisconnect?: (close: CloseInfo) => void;
+  onReconnect?: (helloOk: ConnectResult) => void;
+}
 ```
 
 ### [`ChannelCoreOptions`](./channel-core.ts#L209)
@@ -41,6 +43,70 @@ export interface ChannelService {
     event: "message",
     handler: (payload: { taskId: TaskId; message: Message }) => void,
   ): void;
+  on(event: "disconnect", handler: () => void): void;
+  on(event: "reconnect", handler: () => void): void;
+  on(
+    event: "conversationArchived",
+    handler: (data: { conversationId: string }) => void,
+  ): void;
+  on(
+    event: "conversationUnarchived",
+    handler: (data: { conversationId: string }) => void,
+  ): void;
+  on(
+    event: "dispatchRelease",
+    handler: (frame: DispatchReleaseFrame) => void,
+  ): void;
+  connect(): Effect.Effect<unknown, ServiceRpcError>;
+  close(): void;
+  send(
+    taskId: TaskId,
+    conversationId: ConversationId,
+    text: string,
+    opts?: { replyTo?: MessageId; dispatchLeaseId?: LeaseId },
+  ): Effect.Effect<void, ServiceRpcError>;
+  isConversationArchived?(conversationId: string): boolean;
+  getConversation(
+    convId: string,
+  ): { type: string; name?: string; participants: string[] } | undefined;
+  getAgentName(agentId: string): string | undefined;
+  resolveAgentName(agentId: string): Effect.Effect<string, never>;
+  peekContextEntries(
+    currentConvId: string,
+    opts?: { maxConversations?: number; maxMessagesPerConv?: number },
+  ): { entries: CrossConversationEntry[]; commit: () => void };
+  peekFullMessages(currentConvId: string): {
+    messages: CrossConvMessage[];
+    commit: () => void;
+  };
+
+  /**
+   * Issue `dispatch/request` and receive the immediate
+   * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
+   * via the `dispatchRelease` event.
+   *
+   * The argument shape mirrors `ParamsOf&lt;DispatchRequest>` from the
+   * protocol (the channel core does not depend on the protocol
+   * descriptor, hence the structural shape duplicated here).
+   *
+   * Optional: when undefined (e.g. unauthenticated test fakes), the
+   * channel core falls back to default-grant — every inbound message
+   * dispatches without admission.
+   */
+  requestDispatch?(params: {
+    readonly conversationId: string;
+    readonly messageId: string;
+    readonly senderAgentId: string;
+    readonly parts?: ReadonlyArray<unknown>;
+    readonly receivedAt?: string;
+    readonly pending?: ReadonlyArray<unknown>;
+    readonly clock?: LogicalClock;
+    readonly attempt?: number;
+  }): Effect.Effect<
+    { readonly leaseId: LeaseId; readonly dispatchId: string },
+    ServiceRpcError
+  >;
+}
 ```
 
 The subset of MoltZapService that MoltZapChannelCore needs.
@@ -298,6 +364,95 @@ export class MoltZapAgentClient {
       Effect.provide(this.runtime),
     );
   }
+
+  /**
+   * Outbound RPC. The compile-time constraint accepts any
+   * `RpcDefinition` so generic forwarders (service.sendRpc, CLI
+   * transport) can pass through without per-method narrowing; the R11
+   * agent-client catalog narrowing applies at runtime inside
+   * `AgentClientConnection` and rejects TM-only methods.
+   */
+  sendRpc<D extends RpcDefinition<string, any, any>>(
+    definition: D,
+    params: ParamsOf<D>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<ResultOf<D>, ConnectError> {
+    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
+    return this.sendRpcEffect(definition, params, timeoutMs);
+  }
+
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never>;
+  subscribe<
+    D extends AnyNotificationDefinition,
+    R extends NotificationParamsOf<D>,
+  >(
+    definition: D,
+    refinement: (params: NotificationParamsOf<D>) => params is R,
+  ): Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never> {
+    return subscribeStream(this.subscribers, definition, refinement);
+  }
+
+  subscribeAll(
+    // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
+    refinement?: (
+      notification: DecodedNotification<AnyNotificationDefinition>,
+    ) => boolean,
+  ): Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    NotConnectedError,
+    never
+  > {
+    return subscribeAllStream(this.subscribers, refinement);
+  }
+
+  close(): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      if (this.closed) return;
+      const hasCompletedHandshake = this._helloOk !== null;
+      this.closed = true;
+      this._helloOk = null;
+      if (this.reconnectFiber !== null) {
+        const f = this.reconnectFiber;
+        this.reconnectFiber = null;
+        yield* Effect.forkDaemon(Fiber.interrupt(f));
+      }
+      yield* this.failAllPending(MSG_NOT_CONNECTED);
+      yield* this.subscribers.closeAll;
+      const state = yield* Ref.getAndSet(this.stateRef, Option.none());
+      if (Option.isSome(state)) {
+        if (hasCompletedHandshake) {
+          yield* state.value
+            .write(new Socket.CloseEvent(NORMAL_CLOSE_CODE, "normal"))
+            .pipe(Effect.orDie);
+          yield* Scope.close(state.value.scope, Exit.void);
+        } else {
+          this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
+        }
+      }
+    }).pipe(
+      Effect.asVoid,
+      Effect.ensuring(
+        Effect.sync(() => {
+          this.runtime.dispose();
+        }),
+      ),
+    );
+  }
+
+  disconnect(): Effect.Effect<void, never> {
+    return Effect.sync(() => this.disconnectSync());
+  }
+
+  private disconnectSync(): void {
+    const state = this.runtime.runSync(Ref.get(this.stateRef));
 ```
 
 MoltZap agent client — outbound RPC only, no TM-callback inbound
@@ -365,6 +520,70 @@ export class MoltZapChannelCore {
     Effect.runSync(Queue.unbounded<InboundDispatchWork>());
   private readonly consumerFiber: Fiber.RuntimeFiber<void, never>;
   private disconnectHandlers: Array<() => void> = [];
+  private reconnectHandlers: Array<() => void> = [];
+
+  constructor(opts: ChannelCoreOptions) {
+    this.service = opts.service;
+    this.dispatchAdmissionTimeoutMs =
+      opts.dispatchAdmissionTimeoutMs ?? DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS;
+
+    this.registerMessageListener();
+    this.consumerFiber = this.startConsumerFiber();
+    this.registerConnectionListeners();
+    this.registerConversationLifecycleListeners();
+    this.registerDispatchReleaseListener();
+  }
+
+  private registerMessageListener(): void {
+    this.service.on("message", ({ taskId, message }) => {
+      if (this.closedConversationIds.has(message.conversationId)) {
+        runBackgroundLog(
+          effectLogInfo(
+            "MoltZapChannelCore: dropping inbound message for closed conversation",
+            {
+              messageId: message.id,
+              conversationId: message.conversationId,
+            },
+          ),
+        );
+        return;
+      }
+      Queue.unsafeOffer(this.inboundQueue, {
+        taskId,
+        message,
+        attempt: 0,
+        receivedAtMs: Date.now(),
+        clock: this.observeMessage(message),
+      });
+    });
+  }
+
+  private startConsumerFiber(): Fiber.RuntimeFiber<void, never> {
+    const consumer = Effect.forever(
+      Queue.take(this.inboundQueue).pipe(
+        Effect.flatMap((work) =>
+          this.dispatchInboundWork(work).pipe(
+            Effect.catchAllCause((cause) =>
+              this.logInboundFailure(work, cause),
+            ),
+          ),
+        ),
+      ),
+    );
+    return Effect.runFork(consumer);
+  }
+
+  private logInboundFailure(
+    work: InboundDispatchWork,
+    cause: Cause.Cause<unknown>,
+  ): Effect.Effect<void, never> {
+    return effectLogError("MoltZapChannelCore: inbound handler failed", {
+      messageId: work.message.id,
+      conversationId: work.message.conversationId,
+      causePretty: Cause.pretty(cause),
+      ...errorSummary(Cause.squash(cause)),
+    });
+  }
 ```
 
 Wraps a `MoltZapService` with message enrichment, dispatch-chain ordering,
@@ -514,6 +733,26 @@ export class MoltZapService {
           notification.params as TaskConversationArchivedNotification,
         ),
     ],
+    [
+      TaskConversationUnarchivedNotificationDefinition,
+      (notification) =>
+        this.handleConversationUnarchivedNotification(
+          notification.params as TaskConversationUnarchivedNotification,
+        ),
+    ],
+    [
+      DispatchRelease,
+      (notification) =>
+        fanout(
+          this.handlers.dispatchRelease,
+          notification.params as NotificationParamsOf<typeof DispatchRelease>,
+        ),
+    ],
+    [
+      DispatchesConsumed,
+      (notification) =>
+        fanout(
+          this.handlers.dispatchesConsumed,
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -581,6 +820,76 @@ export class MoltZapTMClient {
    *   participant server
    *
    *   caller->>client: new MoltZapTMClient(options)
+   *   Note over client: stateRef = None, subscribers, ManagedRuntime
+   *   caller->>client: subscribe(filter, handler)
+   *   Note over client: SubscriberRegistry.register — survives reconnect
+   *   caller->>client: connect()
+   *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startTaskCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
+   *   client->>server: TCP open + WS upgrade
+   *   client->>server: network/connect {agentKey, minProtocol, maxProtocol}
+   *   server-->>client: HelloOk
+   *   Note over client: stateRef = Some(connState), _helloOk = value
+   *   client-->>caller: HelloOk
+   *   Note over client,server: steady state — reader fiber loops on socket.runRaw
+   * ```
+   *
+   * Reconnect arm fires from `handleReaderExit` when the reader fiber
+   * exits with `closed === false`. `failAllPending` settles every
+   * in-flight Deferred with `NotConnectedError`, `notifyDisconnect`
+   * surfaces the close info, then `scheduleReconnect` forks an
+   * exponential-backoff retry (`1s × 2^n, cap 30s, +jitter`).
+   *
+   * State that SURVIVES reconnect: `SubscriberRegistry` entries,
+   * `appCallbackHandlers` (immutable, value-captured at construction),
+   * `ManagedRuntime`.
+   *
+   * State that does NOT survive reconnect: in-flight RPC Deferreds
+   * (failed via `failAllPending`), the prior `ConnState` (scope,
+   * reader fiber, callback queue, dispatcher scope) — rebuilt fresh.
+   */
+  connect(): Effect.Effect<ConnectResult, ConnectError> {
+    return Effect.suspend(() => {
+      if (this.closed) {
+        return Effect.fail(makeNotConnectedError());
+      }
+      return this.connectEffect().pipe(
+        // `makeWebSocket` requires `Socket.WebSocketConstructor`; our
+        // internal Node layer provides it so callers' Effects stay
+        // requirement-free (same public shape the legacy client had).
+        Effect.provide(NodeSocket.layerWebSocketConstructor),
+      );
+    });
+  }
+
+  /**
+   * Send an RPC. Fails with a typed error:
+   *   - `NotConnectedError` if the socket isn't OPEN or closes mid-RPC
+   *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
+   *   - a registered tagged error for known protocol error codes
+   *   - `RpcServerError` for unknown protocol error codes
+   *
+   * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
+   * client extracts the wire method only inside the encoder path.
+   */
+  sendRpc<D extends RpcDefinition<string, any, any>>(
+    definition: D,
+    params: ParamsOf<D>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<ResultOf<D>, ConnectError> {
+    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
+    return this.sendRpcEffect(definition, params, timeoutMs);
+  }
+
+  /**
+   * Typed-payload subscribe (spec #596 Goal #1). Returns a Stream of
+   * `DecodedNotification<D>` whose error channel is `NotConnectedError`
+   * and whose requirement set is `never`.
+   *
+   * `refinement` is a typed predicate over the definition's params shape.
+   * The user-defined-type-guard overload (signature below) narrows the
+   * Stream's payload to `DecodedNotification<D, R>`.
+   *
+   * Lifecycle (spec §"Stream lifecycle contract"):
 ```
 
 WebSocket lifecycle: open → network/connect → active. On disconnect,
@@ -735,6 +1044,13 @@ _TypeAlias_
 
 ```ts
 export type ServiceRpcError = RpcCallError | RpcTimeoutError;
+
+export interface ConversationMeta {
+  id: string;
+  type: string;
+  name?: string;
+  participants: string[];
+}
 ```
 
 Errors that can surface from the Effect-based service API. Matches the
@@ -779,6 +1095,17 @@ export interface TMClientOptions {
    * escape hatch.
    */
   onDisconnect?: (close: CloseInfo) => void;
+  onReconnect?: (helloOk: ConnectResult) => void;
+
+  /**
+   * Spec D3 R14b — REQUIRED. TM-callback handler table immutable at
+   * construction (Spec F I1). Keys are catalog method names
+   * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
+   * the matching `defineRpc` descriptor and its handler effect.
+   * Vacuous-deny moderators write the explicit ForbiddenError handler.
+   */
+  handlers: TMHandlers;
+}
 ```
 
 ### [`TMHandlers`](./tm-client.ts#L209)

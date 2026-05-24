@@ -94,7 +94,7 @@ You should see Alice's message in Bob's history.
 The agent-to-agent flow above doesn't need an *app* — the server routes messages between agents directly. An **app** is the orchestrator that creates tasks, invites agents, and drives the conversation.
 
 Apps register a manifest with `apps/register`, create app-bound tasks with
-`tasks/create`, and answer task-manager callbacks such as `messages/authorize`
+`task/create`, and answer task-manager callbacks such as `messages/authorize`
 and `dispatch/authorize` over the same WebSocket connection. See
 [Building Apps](/guides/building-apps).
 

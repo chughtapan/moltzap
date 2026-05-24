@@ -343,6 +343,13 @@ export interface Claim {
   readonly finalize: (
     messageId: MessageId,
   ) => Effect.Effect<void, LeaseInvalidError, never>;
+
+  /**
+   * CLAIMED → GRANTED. Used by the `Effect.acquireUseRelease` release path
+   * when `sendInsert` fails after `claim` succeeded but before `finalize`.
+   */
+  readonly rollback: Effect.Effect<void, LeaseInvalidError, never>;
+}
 ```
 
 Active claim handle returned by `claim`. Implements
@@ -545,6 +552,52 @@ _Interface_
 export interface CoreApp {
   readonly port: number;
   onConnection: (hook: ConnectionHook) => void;
+
+  /**
+   * Fires when a WebSocket closes, after auth was established. Use for
+   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
+   * connections that never authenticated.
+   */
+  onDisconnection: (hook: DisconnectionHook) => void;
+
+  /**
+   * Outbound-routing primitive. Apps emit events out-of-band via
+   * `networkSendService.send(to, payload)` (directed) or
+   * `networkSendService.broadcast(agentIds, payload, opts?)` (fan-out
+   * across participants). Stable identity across the server lifetime.
+   *
+   * The backing `AgentEndpointResolver` is intentionally not exposed —
+   * its mutable add/remove surface is server-internal lifecycle, not a
+   * CoreApp consumer concern. Tests assert resolver state indirectly
+   * via `networkSendService.send` outcomes.
+   */
+  readonly networkSendService: NetworkSendService;
+  readonly traceCapture: TraceCapture;
+
+  /**
+   * Live ConnectionManager instance. Apps can query `getByParticipant` to
+   * check whether an agent has any live connections (for presence-gated
+   * push decisions, etc.). Stable identity.
+   */
+  readonly connections: ConnectionManager;
+
+  /**
+   * Wire a contact-policy gate for app-session admission and
+   * conversation-creation paths. The default policy (set by AppHost's
+   * constructor) is "allow all" — operators that need real policy
+   * decisions inject their resolver here.
+   */
+  setContactService: (checker: ContactService) => void;
+
+  /**
+   * #529 reshape additive — server-local lease registry for the
+   * `dispatch/{request, authorize, release}` admission surface.
+   * Stable identity across the server lifetime. Tests + advanced
+   * consumers can read lease state directly via this handle.
+   */
+  readonly leaseRegistry: LeaseRegistry;
+  close: () => PromiseLike<void>;
+}
 ```
 
 ### [`CoreConfig`](./types.ts#L19)
@@ -555,6 +608,62 @@ _Interface_
 export interface CoreConfig {
   db: Db;
   dbCleanup?: () => PromiseLike<void>;
+  encryptionMasterSecret?: string;
+  port: number;
+  corsOrigins: string[];
+  registrationSecret?: string;
+  devMode?: boolean;
+
+  /**
+   * When set, agents registered via the default `/api/v1/auth/register`
+   * route are given this user id as their `owner_user_id`, skipping the
+   * claim step. Intended for local dev / quickstart. Production MUST
+   * leave this unset and perform claim through an external auth
+   * provider (see docs/guides/custom-identity-provider.mdx).
+   */
+  devModeUserId?: string;
+
+  /**
+   * Optional bearer-token session validator (called from `network/connect`
+   * when the caller authenticates with a `sessionToken`). Unset → bearer-
+   * token auth is unsupported; only `agentKey` auth works.
+   */
+  sessionValidator?: SessionValidator;
+
+  /**
+   * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
+   * fanout and user-side adapters (contact/user services). If unset,
+   * `createCoreApp` constructs a default `new WebhookClient()`. Tests may
+   * inject a fake to intercept outbound HTTP.
+   */
+  webhookClient?: WebhookClient;
+
+  /**
+   * When true, core does not mount its default `/api/v1/auth/register`
+   * route. Apps that want their own invite-gated / rate-limited register
+   * flow set this and mount their own handler.
+   */
+  skipDefaultRegisterRoute?: boolean;
+
+  /**
+   * Fire-and-forget HTTP webhook after message delivery with the list of
+   * offline recipient agent IDs. Use to drive push notifications or analytics
+   * out of band. Body is signed with HMAC-SHA256 in the
+   * `X-MoltZap-Signature: sha256=&lt;hex>` header using `secret`.
+   *
+   * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
+   *
+   * Dispatched on a detached daemon fiber with a 3-attempt exponential backoff
+   * (1s base, jittered). Failures log and drop — never block `messages/send`.
+   */
+  deliveryWebhook?: { url: string; secret: string };
+
+  /**
+   * Optional trace-capture layer override. When unset, the server runs with
+   * the default no-op capture and emits no trace artifacts.
+   */
+  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
+}
 ```
 
 ### [`createCoreApp`](./server.ts#L96)
@@ -917,6 +1026,123 @@ _Interface_
 export interface LeaseRegistry {
   /**
    * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
+   * registry is in-process. Records the binding tuple for audit,
+   * `dispatches/get`, and connection-close cleanup.
+   *
+   * Both ids are minted via `crypto.randomUUID()`; the brand on
+   * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
+   */
+  mint(ctx: LeaseMintContext): Effect.Effect<LeaseMintResult, never, never>;
+
+  /**
+   * Settle a PENDING lease into a terminal-or-near-terminal state via
+   * the moderator's verdict (or a synthesized verdict for default-
+   * grant / moderator-unavailable / moderator-timeout). First writer
+   * wins via `Ref.modify`; second `resolve` against the same lease
+   * fails with `LeaseInvalidError`. Internally calls
+   * {@link emitRelease} so `dispatch/release` fires on every
+   * resolution path uniformly.
+   */
+  resolve(
+    leaseId: LeaseId,
+    verdict: LeaseVerdict,
+  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
+
+  /**
+   * Atomic GRANTED → CLAIMED. Called from the messages handler
+   * BEFORE `messageService.sendInsert`. CLAIMED is the in-flight
+   * state — the lease is reserved by this caller but the durable
+   * insert has not yet committed.
+   *
+   * Two transitions out of CLAIMED only: `finalize` (success) or
+   * `rollback` (insert failure). The TTL transition skips CLAIMED
+   * (load-bearing rule 1); the connection-close transition skips
+   * CLAIMED (load-bearing rule 2).
+   */
+  claim(
+    leaseId: LeaseId,
+  ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never>;
+
+  /**
+   * Snapshot read for `dispatches/get`. Includes live `leaseId` —
+   * the moderator IS the authority for the lease (#11), live-id
+   * visibility is in-scope.
+   *
+   * Lookup by either id flavor; the `kind` discriminator on the
+   * error tells the caller which key was used. Scope enforcement
+   * (caller must be the lease's bound moderator) is the handler's
+   * responsibility, not the registry's.
+   */
+  read(
+    id:
+      | { readonly _tag: "leaseId"; readonly value: LeaseId }
+      | {
+          readonly _tag: "dispatchId";
+          readonly value: DispatchId;
+        },
+  ): Effect.Effect<LeaseRecord, LeaseNotFoundError, never>;
+
+  /**
+   * Update the lease's recipient-connection binding. Called when the
+   * recipient reconnects (rare — on disconnect the lease normally
+   * transitions to ABANDONED or EXPIRED-on-disconnect via the
+   * close finalizer). Idempotent for the same `connId`; rejects the
+   * binding update if the lease is already terminal.
+   */
+  bindToConnection(
+    leaseId: LeaseId,
+    connId: ConnectionId,
+  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
+
+  /**
+   * Connection-close cleanup. Called from the WS disconnect-hook chain
+   * with the closing connection id. Iterates leases bound to that
+   * recipientConnectionId and applies the architect §3 transitions:
+   *
+   * - **PENDING → ABANDONED**: cancels the forked moderator round-trip
+   *   (its `resolve` call against the now-ABANDONED lease will return
+   *   `LeaseInvalidError(state=ABANDONED, expected=PENDING)`, which the
+   *   forked fiber catches and discards). No `dispatch/release`
+   *   notification fires (the recipient is gone). Architect §3 + §8 #15.
+   *
+   * - **GRANTED → EXPIRED-on-disconnect**: terminal state; emits
+   *   `dispatches/expired` to the moderator. Cancels the post-grant TTL
+   *   fiber. The recipient won't observe; the moderator's view stays
+   *   consistent. Architect §3.
+   *
+   * - **CLAIMED → no-op (load-bearing rule 2)**: a CLAIMED lease has an
+   *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
+   *   Disconnecting mid-insert MUST NOT roll back the lease — the
+   *   release-arm of the acquireUseRelease is responsible. Otherwise a
+   *   committed durable row could be retried into a duplicate.
+   *
+   * - **HOLD / DENIED / EXPIRED / ABANDONED / CONSUMED**: no-op (already
+   *   terminal-or-near-terminal; no recipient-binding work to do).
+   *
+   * Errors are absorbed: connection-close cleanup is fire-and-forget;
+   * any per-lease transition failure is logged-and-dropped (the
+   * disconnect path must complete even if a single lease's state is
+   * unexpected). Public error channel is `never`.
+   */
+  abandon(connId: ConnectionId): Effect.Effect<void, never, never>;
+
+  /**
+   * Internal — record the forked moderator round-trip fiber so
+   * {@link abandon} can interrupt it on recipient disconnect. The
+   * caller forks the round-trip immediately after `mint`; the registry
+   * interrupts the fiber when the binding's recipient connection
+   * closes (PENDING → ABANDONED transition). No-op if the lease is no
+   * longer in PENDING when the fiber is attached. Idempotent.
+   */
+  attachRoundTripFiber(
+    leaseId: LeaseId,
+    fiber: Fiber.RuntimeFiber<unknown, unknown>,
+  ): Effect.Effect<void, never, never>;
+
+  /**
+   * Internal-but-exported emission helper. Single point of truth for
+   * `dispatch/release` notifications: `resolve` calls this; nothing
+   * else does. The `mint` path for default-grant calls `resolve`
 ```
 
 Public contract of the lease registry. One instance per server
@@ -1051,6 +1277,10 @@ export type LeaseState =
   | "EXPIRED"
   | "ABANDONED"
   | "HOLD";
+
+/** Verdict shapes accepted by `resolve` — mirrors the wire decision. */
+export type LeaseVerdict =
+  | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
 ```
 
 Discriminated state of a lease. The registry's `Ref.modify`

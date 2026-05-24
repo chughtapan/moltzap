@@ -138,6 +138,43 @@ export class ConnectionManager {
       (conn) => conn.auth && conn.auth.agentId === agentId,
     );
   }
+
+  /**
+   * Subscribe all currently-connected sockets of the given agents to a
+   * conversation. Adds `conversationId` to each matching connection's
+   * `conversationIds` set. Idempotent: a connection already subscribed is
+   * a no-op (Set semantics). Returns the list of connection ids that were
+   * subscribed (for observability + tests).
+   *
+   * Exposed for downstream apps that create conversations via
+   * `ConversationService.create` directly (rather than the `conversations/
+   * create` RPC handler, which already does this work internally). Without
+   * this helper, every consumer re-implements the same loop and drifts when
+   * the subscription shape changes.
+   */
+  subscribeAgentsToConversation(
+    agentIds: readonly string[],
+    conversationId: string,
+  ): ConnectionId[] {
+    const subscribed: ConnectionId[] = [];
+    const agentSet = new Set(agentIds);
+    for (const conn of this.connections.values()) {
+      if (conn.auth && agentSet.has(conn.auth.agentId)) {
+        conn.conversationIds.add(conversationId);
+        subscribed.push(conn.id);
+      }
+    }
+    return subscribed;
+  }
+
+  entries(): IterableIterator<[ConnectionId, MoltZapConnection]> {
+    return this.connections.entries();
+  }
+
+  get size(): number {
+    return this.connections.size;
+  }
+}
 ```
 
 ### [`defineAppMethod`](./define-layered-method.ts#L106)
@@ -314,6 +351,27 @@ export interface MoltZapConnection {
    * failure or if the socket is already closed.
    */
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+
+  /** Close this connection's scope, tearing down the underlying socket. */
+  shutdown: Effect.Effect<void>;
+  auth: AuthenticatedContext | null;
+  lastPong: number;
+  conversationIds: Set<string>;
+  mutedConversations: Set<string>;
+
+  /**
+   * Per-socket Spec F (#617) typed-dispatcher `ServerConnection`. Carries
+   * BOTH the inbound dispatcher (`handle` over the static
+   * `ServerHandlers&lt;DispatchContext>` table) AND the outbound originator
+   * (`call` / `notify` / `resolve` / `failAllPending`) for the
+   * server→client appCallback channel. Mints `srv-${connId}-N` request
+   * ids, tracks pending Deferreds, and fails every still-pending call
+   * with `NotConnectedError` when the surrounding scope closes. The
+   * per-conversation `sendRpcToClient` wrapper narrows the outbound call
+   * to `AnyTaskCallbackRpcDefinition`.
+   */
+  readonly originator: ServerConnection<DispatchContext>;
+}
 ```
 
 ### [`NetworkLayerScope`](./layer-scopes.ts#L3)
