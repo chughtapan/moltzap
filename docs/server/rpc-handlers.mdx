@@ -80,6 +80,6 @@ runtime that carries `FullLive` to resolve service Tags at request time.
 - `appHandlers` — `apps/register`, `dispatch/request`, `dispatches/get`.
 
 Each binding is bound by the matching `defineXMethod` wrapper from
-`@moltzap/server-core/transport` (`defineNetworkMethod`,
+`transport/define-layered-method.ts` (`defineNetworkMethod`,
 `defineTaskMethod`, `defineAppMethod`), which constrains the handler's
 R-channel to the per-layer Tag allowlist.

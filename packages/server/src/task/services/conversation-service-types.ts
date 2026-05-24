@@ -1,5 +1,5 @@
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { Effect } from "effect";
 
 type ContactPolicyCheck = (
@@ -26,16 +26,6 @@ export interface ConversationColumns {
   readonly created_at: Date;
   readonly updated_at: Date;
   readonly archived_at: Date | null;
-}
-
-export interface ParticipantRow {
-  readonly conversation_id: ConversationId;
-  readonly agent_id: AgentId;
-  readonly joined_at: Date;
-  readonly last_read_seq: string;
-  readonly agent_name?: string | null;
-  readonly agent_display_name?: string | null;
-  readonly last_read_message_id?: MessageId | null;
 }
 
 export interface CreateConversationOptions<TaskMintError = never> {
