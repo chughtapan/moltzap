@@ -70,7 +70,9 @@ const lintAll = (
 ): Effect.Effect<
   ReadonlyArray<MermaidFailure>,
   never,
-  FileSystem.FileSystem | Path.Path | import("@effect/platform").Command.CommandExecutor
+  | FileSystem.FileSystem
+  | Path.Path
+  | import("@effect/platform").Command.CommandExecutor
 > =>
   Effect.gen(function* () {
     const results = yield* Effect.forEach(

@@ -11,7 +11,7 @@
  * from the call-site, not the file path).
  */
 import { Effect } from "effect";
-import { TasksCreate } from "../../../task/methods.js";
+import { TaskRequest } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyDeferred, registerProperty } from "../_shared/registry.js";
 
@@ -30,7 +30,7 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
           new PropertyDeferred({
             category: CATEGORY,
             name: PROPERTY,
-            followUp: `deny/patch/attach assertions need TM-topology hook routing; reactivate alongside #554 (${TasksCreate.name} bootstrap)`,
+            followUp: `deny/patch/attach assertions need TM-topology hook routing; reactivate alongside #554 (${TaskRequest.name} bootstrap)`,
           }),
         );
       }).pipe(Effect.withSpan("registerHookGatedDelivery")),

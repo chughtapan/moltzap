@@ -14,7 +14,10 @@ import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { computeFlowCoverage, printFlowCoverage } from "./docs/flow-coverage.js";
+import {
+  computeFlowCoverage,
+  printFlowCoverage,
+} from "./docs/flow-coverage.js";
 import { writeModulesNav } from "./docs/mintlify-nav.js";
 import { generateModuleDocs } from "./docs/modules.js";
 import { loadTypeDoc } from "./docs/typedoc-load.js";

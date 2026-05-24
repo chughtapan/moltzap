@@ -3,7 +3,7 @@
 /**
  * Per-`TestClient` subscriber registry + Stream constructors.
  *
- * Mirrors the production `MoltZapWsClient` shape established by Spec B
+ * Mirrors the production `MoltZapAgentClient` shape established by Spec B
  * (#596): a typed callback registry that fans each inbound notification
  * out to every live `Stream.async`-backed consumer. The test driver's
  * registry is the protocol-side analog of

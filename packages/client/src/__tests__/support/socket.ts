@@ -26,6 +26,7 @@ export const socketRequest = (
 };
 
 export const socketHistory = (
+  taskId: string,
   conversationId: string,
   sessionKey?: string,
   limit = SOCKET_HISTORY_LIMIT,
@@ -33,10 +34,12 @@ export const socketHistory = (
   const params: HistoryRequestInput =
     sessionKey === undefined
       ? {
+          taskId,
           conversationId,
           limit,
         }
       : {
+          taskId,
           conversationId,
           sessionKey,
           limit,

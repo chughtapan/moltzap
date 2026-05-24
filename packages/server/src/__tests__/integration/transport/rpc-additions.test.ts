@@ -12,18 +12,20 @@ import {
 
 import {
   AppsRegister,
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessagesSend,
   NetworkPing,
+  TaskRequest,
 } from "@moltzap/protocol";
+import { messageId } from "@moltzap/protocol/testing";
 
 const NETWORK_PING_MAX_CLOCK_SKEW_MS = 60_000;
 const PROPERTY_RUNS = 25;
-const APP_ID = "my-test-app";
+const APP_ID = "00000000-0000-4000-8000-000000010008";
 const QUESTION_TEXT = "question";
 const ANSWER_TEXT = "answer";
 const ORPHAN_REPLY_TEXT = "orphan";
-const UNKNOWN_MESSAGE_ID = "00000000-0000-0000-0000-000000000000";
+const UNKNOWN_MESSAGE_ID = messageId("00000000-0000-0000-0000-000000000000");
 const ISO8601_UTC_MILLISECONDS_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -53,9 +55,7 @@ it(`${NetworkPing.name}: returns an ISO8601 timestamp`, () =>
   Effect.gen(function* () {
     const agent = yield* registerAndConnect("alice");
 
-    const result = (yield* agent.client.sendRpc(NetworkPing, {})) as {
-      ts: string;
-    };
+    const result = yield* agent.client.sendRpc(NetworkPing, {});
 
     expect(result.ts).toEqual(expect.any(String));
     expect(result.ts).toMatch(ISO8601_UTC_MILLISECONDS_PATTERN);
@@ -66,7 +66,7 @@ it(`${AppsRegister.name}: registers a valid manifest and returns the appId`, () 
   Effect.gen(function* () {
     const agent = yield* registerAndConnect("alice");
 
-    const result = (yield* agent.client.sendRpc(AppsRegister, {
+    const result = yield* agent.client.sendRpc(AppsRegister, {
       manifest: {
         appId: APP_ID,
         name: "My Test App",
@@ -74,7 +74,7 @@ it(`${AppsRegister.name}: registers a valid manifest and returns the appId`, () 
           { key: "main", name: "Main", participantFilter: "all" },
         ],
       },
-    })) as { appId: string };
+    });
 
     expect(result.appId).toBe(APP_ID);
   }));
@@ -99,27 +99,30 @@ it(`${AppsRegister.name}: rejects calls missing the manifest param`, () =>
     expectExitFailure(exit);
   }));
 
-it("messages/send resolves conversationId from replyToId", () =>
+it("messages/send preserves replyToId on the persisted message", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { conversation: { id: string } };
-    const conversationId = conv.conversation.id;
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
+    const taskId = conv.task.id;
+    const conversationId = conv.conversation!.id;
 
-    const sent = (yield* alice.client.sendRpc(MessagesSend, {
+    const sent = yield* alice.client.sendRpc(MessagesSend, {
+      taskId,
       conversationId,
       parts: [{ type: "text", text: QUESTION_TEXT }],
-    })) as { message: { id: string } };
+    });
 
-    const replied = (yield* bob.client.sendRpc(MessagesSend, {
+    const replied = yield* bob.client.sendRpc(MessagesSend, {
+      taskId,
+      conversationId,
       replyToId: sent.message.id,
       parts: [{ type: "text", text: ANSWER_TEXT }],
-    })) as {
-      message: { conversationId: string; replyToId?: string };
-    };
+    });
 
     expect(replied.message.conversationId).toBe(conversationId);
     expect(replied.message.replyToId).toBe(sent.message.id);
@@ -127,10 +130,18 @@ it("messages/send resolves conversationId from replyToId", () =>
 
 it("messages/send rejects replyToId that points to an unknown message", () =>
   Effect.gen(function* () {
-    const agent = yield* registerAndConnect("alice");
+    const { alice, bob } = yield* setupAgentPair();
+
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
 
     const exit = yield* Effect.exit(
-      agent.client.sendRpc(MessagesSend, {
+      alice.client.sendRpc(MessagesSend, {
+        taskId: conv.task.id,
+        conversationId: conv.conversation!.id,
         replyToId: UNKNOWN_MESSAGE_ID,
         parts: [{ type: "text", text: ORPHAN_REPLY_TEXT }],
       }),

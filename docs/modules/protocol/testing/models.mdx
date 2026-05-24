@@ -18,10 +18,9 @@ Public barrel for protocol reference-model helpers.
 _Function_
 
 ```ts
-export function applyCall(
-  state: ReferenceState,
-  call: ArbitraryRpcCall,
-):
+}
+
+function modelOutcome(kind: ModelMethodOutcome): RpcModelResult
 ```
 
 Pure reducer: given state + call, yield the next state and the
@@ -40,11 +39,7 @@ same projection before comparing.
 _Function_
 
 ```ts
-export function authorizationOutcome(
-  state: ReferenceState,
-  call: ArbitraryRpcCall,
-  agentId: AgentId,
-): "allow" | "deny-unauthenticated" | "deny-forbidden"
+      return "deny-forbidden"
 ```
 
 Authorization oracle (B2 / B3). Returns the expected typed outcome for a
@@ -69,7 +64,34 @@ export const initialReferenceState: ReferenceState =
 _Function_
 
 ```ts
-export function isIdempotent(method: string): boolean
+  [Register.name]: "uncertain",
+  [InviteAgent.name]: "uncertain",
+  [AgentsList.name]: "ok",
+  [NetworkPing.name]: "ok",
+  [AgentsLookup.name]: "uncertain",
+  [AgentsLookupByName.name]: "uncertain",
+  [TaskConversationList.name]: "uncertain",
+  [TaskConversationCreate.name]: "uncertain",
+  [TaskConversationArchive.name]: "uncertain",
+  [TaskConversationUnarchive.name]: "uncertain",
+  [TaskAddParticipant.name]: "uncertain",
+  [TaskLeave.name]: "uncertain",
+  [MessagesSend.name]: "uncertain",
+  [MessagesList.name]: "uncertain",
+  [ContactsList.name]: "uncertain",
+  [ContactsAdd.name]: "uncertain",
+  [ContactsAccept.name]: "uncertain",
+  [ContactsById.name]: "uncertain",
+  [InvitesCreateAgent.name]: "uncertain",
+  [PresenceUpdate.name]: "uncertain",
+  [PresenceSubscribe.name]: "uncertain",
+  [AppsRegister.name]: "uncertain",
+  [DispatchRequest.name]: "uncertain",
+  [DispatchesGet.name]: "uncertain",
+  [TaskRequest.name]: "uncertain",
+  [TaskList.name]: "uncertain",
+  [TaskClose.name]: "uncertain",
+} as const satisfies Readonly<Record<MethodName, ModelMethodOutcome>>
 ```
 
 ### [`LogicalTick`](./state.ts#L22)
@@ -127,12 +149,12 @@ Every kind of entity the model tracks.
 _TypeAlias_
 
 ```ts
-export type RpcModelResult =
   | {
-      readonly _tag: "ok";
-      readonly result: unknown;
+      readonly _tag: "error";
+      readonly code: number;
+      readonly message: string;
       readonly events: ReadonlyArray<NotificationFrame>;
-    }
+    };
 ```
 
 Observable outcome of one RPC against the model, in the same shape the

@@ -22,7 +22,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_REQUEST_CONCURRENCY,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createDispatchFlowFixture,
   requestDispatch,
   startDispatchFlowServer,
@@ -33,7 +34,7 @@ import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const EXPECTED_HOOK_CALLS = 2;
 
 const TEST_APP_MANIFEST: AppManifest = {
@@ -85,12 +86,21 @@ function forkTwoReleaseFibers(recipient: ConnectedAgent) {
 function crossConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conv1 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
-    const conv2 = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const conv1 = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
+    const conv2 = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
-      conv1,
-      conv2,
+      conv1.conversationId,
+      conv2.conversationId,
     ]);
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
@@ -106,11 +116,16 @@ function crossConversationRequestsRunConcurrently() {
 function sameConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conv = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const conv = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
-      conv,
-      conv,
+      conv.conversationId,
+      conv.conversationId,
     ]);
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);

@@ -4,12 +4,11 @@
  * that token verbatim.
  */
 import { Effect } from "effect";
-import type { Static } from "@sinclair/typebox";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import type { TestClient } from "../_shared/driver/test-client.js";
-import { ConversationId, MessagesSend } from "../../../task/methods.js";
+import { ConversationId, MessagesSend, TaskId } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -22,7 +21,6 @@ import {
 
 const ID_RADIX = 36;
 const SLICER_CLIENT_TIMEOUT_MS = 8_000;
-type ConversationIdValue = Static<typeof ConversationId>;
 
 export function registerSlicerFraming(ctx: ConformanceRunContext): void {
   withToxicProxy({
@@ -42,18 +40,19 @@ function runSlicerFraming(ctx: ConformanceRunContext, params: ToxicBodyParams) {
   return Effect.gen(function* () {
     const owner = yield* acquireSlicerClient(ctx, params, "o");
     const participant = yield* acquireSlicerClient(ctx, params, "p");
-    const conversationId = yield* createOneOnOneConversation(
+    const { taskId, conversationId } = yield* createOneOnOneConversation(
       owner,
       participant,
       "slicer-framing",
     );
     const token = `sli-token-${ctx.seed}-${Date.now().toString(ID_RADIX)}`;
-    yield* sendSlicedMessage(
-      params.attachToxic,
-      owner.client,
+    yield* sendSlicedMessage({
+      attachToxic: params.attachToxic,
+      client: owner.client,
+      taskId,
       conversationId,
       token,
-    );
+    });
     const snap = yield* participant.client.snapshot;
     if (!snap.some((frame) => containsToken(frame, token))) {
       return yield* Effect.fail(
@@ -80,19 +79,23 @@ function acquireSlicerClient(
   });
 }
 
-function sendSlicedMessage(
-  attachToxic: ToxicBodyParams["attachToxic"],
-  client: TestClient,
-  conversationId: ConversationIdValue,
-  token: string,
-) {
+interface SendSlicedMessageInput {
+  readonly attachToxic: ToxicBodyParams["attachToxic"];
+  readonly client: TestClient;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly token: string;
+}
+
+function sendSlicedMessage(input: SendSlicedMessageInput) {
   return Effect.scoped(
     Effect.gen(function* () {
-      yield* attachToxic;
-      yield* client
+      yield* input.attachToxic;
+      yield* input.client
         .sendRpc(MessagesSend, {
-          conversationId,
-          parts: [{ type: "text", text: token }],
+          taskId: input.taskId,
+          conversationId: input.conversationId,
+          parts: [{ type: "text", text: input.token }],
         })
         .pipe(Effect.either);
       yield* Effect.sleep("1200 millis");

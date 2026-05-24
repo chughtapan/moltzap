@@ -15,32 +15,36 @@ it("markers are per-viewing-conversation", () =>
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const convB = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
-    const convC = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regC.agentId }],
-    });
+    const convB = yield* H.createDm(service, regB.agentId);
+    const convC = yield* H.createDm(service, regC.agentId);
 
     // Send message in conv C
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.SHARED_UPDATE);
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      H.SHARED_UPDATE,
+    );
 
     // Conv B views — sees the update, marker advances
-    const fromB = service.getContext(convB.conversation.id);
+    const fromB = service.getContext(convB.conversation!.id);
     expect(fromB).not.toBeNull();
     expect(fromB).toContain(H.SHARED_UPDATE);
 
     // Conv B's marker advanced, so second call returns null
-    expect(service.getContext(convB.conversation.id)).toBeNull();
+    expect(service.getContext(convB.conversation!.id)).toBeNull();
 
     // Send message in conv B
-    yield* H.sendAndSettle(regB.client, convB.conversation.id, H.B_UPDATE);
+    yield* H.sendAndSettle(
+      regB.client,
+      convB.task.id,
+      convB.conversation!.id,
+      H.B_UPDATE,
+    );
 
     // Conv C views — should see BOTH conv C's message hasn't been "seen" from C's perspective
     // AND conv B's new message
-    const fromC = service.getContext(convC.conversation.id);
+    const fromC = service.getContext(convC.conversation!.id);
     expect(fromC).not.toBeNull();
     expect(fromC).toContain(H.B_UPDATE);
 
@@ -62,23 +66,24 @@ it("multiple other conversations appear in context", () =>
     yield* regD.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const convB = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
-    const convC = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regC.agentId }],
-    });
-    const convD = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regD.agentId }],
-    });
+    const convB = yield* H.createDm(service, regB.agentId);
+    const convC = yield* H.createDm(service, regC.agentId);
+    const convD = yield* H.createDm(service, regD.agentId);
 
-    yield* H.sendAndSettle(regC.client, convC.conversation.id, H.FROM_C);
-    yield* H.sendAndSettle(regD.client, convD.conversation.id, H.FROM_D);
+    yield* H.sendAndSettle(
+      regC.client,
+      convC.task.id,
+      convC.conversation!.id,
+      H.FROM_C,
+    );
+    yield* H.sendAndSettle(
+      regD.client,
+      convD.task.id,
+      convD.conversation!.id,
+      H.FROM_D,
+    );
 
-    const ctx = service.getContext(convB.conversation.id)!;
+    const ctx = service.getContext(convB.conversation!.id)!;
     expect(ctx).toContain(H.FROM_C);
     expect(ctx).toContain(H.FROM_D);
 
@@ -103,20 +108,25 @@ it("maxConversations limits output", () =>
 
     const convs = [];
     for (const a of agents) {
-      const conv = yield* service.sendRpc(H.ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: a.agentId }],
+      const conv = yield* H.createDm(service, a.agentId);
+      convs.push({
+        taskId: conv.task.id,
+        conversationId: conv.conversation!.id,
       });
-      convs.push(conv.conversation.id);
     }
 
     // Send messages in all 4 other conversations
     for (let i = 0; i < agents.length; i++) {
-      yield* H.sendAndSettle(agents[i]!.client, convs[i]!, `Msg from ${i}`);
+      yield* H.sendAndSettle(
+        agents[i]!.client,
+        convs[i]!.taskId,
+        convs[i]!.conversationId,
+        `Msg from ${i}`,
+      );
     }
 
     // Limit to 2 conversations
-    const ctx = service.getContext(convs[0]!, {
+    const ctx = service.getContext(convs[0]!.conversationId, {
       type: "cross-conversation",
       maxConversations: 2,
     })!;

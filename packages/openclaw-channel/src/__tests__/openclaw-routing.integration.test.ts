@@ -8,22 +8,24 @@
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
-import { Data, Duration, Effect, Exit, Fiber, Option, Stream } from "effect";
-import { MoltZapWsClient } from "@moltzap/client";
+import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
+import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
   registerAndClaim,
   extractMessage,
-  extractConvId,
+  extractTaskBinding,
   extractText,
+  type TaskBinding,
 } from "./test-helpers.js";
 
 import {
   AgentsLookupByName,
-  ConversationsCreate,
+  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesSend,
+  TaskRequest,
   type Message,
 } from "@moltzap/protocol";
 
@@ -129,18 +131,15 @@ function gatewayStarts(containerAId: string) {
 function dmEchoReplyArrives(containerAAgentId: string) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-dm");
-    const convId = yield* createConversation(aliceClient, {
-      type: "dm",
-      participants: [{ type: "agent", id: containerAAgentId }],
-    });
+    const binding = yield* createDm(aliceClient, containerAAgentId);
     // Fork the response-listener BEFORE the trigger send (Spec B P2-5
     // r1 fix). Stream-based subscribe has no historical buffer; the echo
     // reply can arrive in the gap between `sendText` returning and the
     // listener registering, so the listener must be in place first.
     const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
-    yield* sendText(aliceClient, convId, DM_HELLO_TEXT);
+    yield* sendText(aliceClient, binding, DM_HELLO_TEXT);
     const reply = yield* Fiber.join(replyFiber);
-    expectEchoReply(reply, convId, containerAAgentId);
+    expectEchoReply(reply, binding.conversationId, containerAAgentId);
     yield* aliceClient.close();
   });
 }
@@ -149,22 +148,18 @@ function groupMessageDispatches(containerAAgentId: string) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-grp");
     const eve = yield* registerAgent("a2a-eve-grp");
-    const convId = yield* createConversation(aliceClient, {
-      type: "group",
-      name: INTEGRATION_GROUP_NAME,
-      participants: [
-        { type: "agent", id: containerAAgentId },
-        { type: "agent", id: eve.agentId },
-      ],
-    });
+    const binding = yield* createGroup(aliceClient, INTEGRATION_GROUP_NAME, [
+      containerAAgentId,
+      eve.agentId,
+    ]);
     yield* Effect.sleep(`${CONVERSATION_EVENT_SETTLE_MS} millis`);
     // Fork-before-trigger (Spec B P2-5 r1): listener must be in place
     // before sendText, since Stream subscribe has no historical buffer.
     const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
-    yield* sendText(aliceClient, convId, GROUP_HELLO_TEXT);
+    yield* sendText(aliceClient, binding, GROUP_HELLO_TEXT);
     const reply = yield* Fiber.join(replyFiber);
     expect(reply.parts.length).toBeGreaterThan(0);
-    expect(reply.conversationId).toBe(convId);
+    expect(reply.conversationId).toBe(binding.conversationId);
     expect(extractText(reply)).toContain(ECHO_PREFIX);
     yield* aliceClient.close();
   });
@@ -173,10 +168,7 @@ function groupMessageDispatches(containerAAgentId: string) {
 function rapidMessagesGetReplies(containerAAgentId: string) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-rapid");
-    const convId = yield* createConversation(aliceClient, {
-      type: "dm",
-      participants: [{ type: "agent", id: containerAAgentId }],
-    });
+    const binding = yield* createDm(aliceClient, containerAAgentId);
     // Fork-before-trigger (Spec B P2-5 r1): subscribe for N replies before
     // emitting any sends, so no echo can arrive in the gap between the
     // final send and the listener registering.
@@ -184,11 +176,15 @@ function rapidMessagesGetReplies(containerAAgentId: string) {
       waitForReceivedMessages(aliceClient, RAPID_MESSAGE_COUNT),
     );
     for (let index = 0; index < RAPID_MESSAGE_COUNT; index++) {
-      yield* sendText(aliceClient, convId, `Message ${index}`);
+      yield* sendText(aliceClient, binding, `Message ${index}`);
     }
     const replies = yield* Fiber.join(repliesFiber);
     for (const reply of replies) {
-      expectEchoReply(extractMessage(reply), convId, containerAAgentId);
+      expectEchoReply(
+        extractMessage(reply),
+        binding.conversationId,
+        containerAAgentId,
+      );
     }
     yield* aliceClient.close();
   });
@@ -197,19 +193,27 @@ function rapidMessagesGetReplies(containerAAgentId: string) {
 function twoAgentsReplyFromOwnContainers(harness: GatewayHarness) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("2a-alice");
-    const convAId = yield* createDm(aliceClient, harness.containerAAgentId);
-    const convBId = yield* createDm(aliceClient, harness.containerBAgentId);
+    const bindingA = yield* createDm(aliceClient, harness.containerAAgentId);
+    const bindingB = yield* createDm(aliceClient, harness.containerBAgentId);
     // Fork-before-trigger (Spec B P2-5 r1): wait for the 2 echo replies
     // is registered before any send.
     const eventsFiber = yield* Effect.fork(
       waitForReceivedMessages(aliceClient, TWO_CONTAINER_COUNT),
     );
-    yield* sendText(aliceClient, convAId, CONTAINER_A_TEXT);
-    yield* sendText(aliceClient, convBId, CONTAINER_B_TEXT);
+    yield* sendText(aliceClient, bindingA, CONTAINER_A_TEXT);
+    yield* sendText(aliceClient, bindingB, CONTAINER_B_TEXT);
     const events = yield* Fiber.join(eventsFiber);
     const messages = events.map(extractMessage);
-    expectConversationMessageFrom(messages, convAId, harness.containerAAgentId);
-    expectConversationMessageFrom(messages, convBId, harness.containerBAgentId);
+    expectConversationMessageFrom(
+      messages,
+      bindingA.conversationId,
+      harness.containerAAgentId,
+    );
+    expectConversationMessageFrom(
+      messages,
+      bindingB.conversationId,
+      harness.containerBAgentId,
+    );
     yield* aliceClient.close();
   });
 }
@@ -221,7 +225,7 @@ function proactiveMessageArrives(containerAAgentId: string) {
     yield* receiverClient.connect();
     const senderClient = connectedClient(inject("containerAApiKey"));
     yield* senderClient.connect();
-    const convId = yield* createDm(
+    const binding = yield* createDm(
       senderClient,
       yield* lookupAgentId(senderClient, PROACTIVE_RECEIVER_NAME),
     );
@@ -229,11 +233,11 @@ function proactiveMessageArrives(containerAAgentId: string) {
     const receivedFiber = yield* Effect.fork(
       waitForReceivedMessage(receiverClient),
     );
-    yield* sendText(senderClient, convId, PROACTIVE_TEXT);
+    yield* sendText(senderClient, binding, PROACTIVE_TEXT);
     const received = yield* Fiber.join(receivedFiber);
     expect(received.senderId).toBe(containerAAgentId);
     expect(extractText(received)).toBe(PROACTIVE_TEXT);
-    expect(received.conversationId).toBe(convId);
+    expect(received.conversationId).toBe(binding.conversationId);
     yield* senderClient.close();
     yield* receiverClient.close();
   });
@@ -250,20 +254,20 @@ function duplicateTargetReusesConversation() {
       senderClient,
       DUPLICATE_RECEIVER_NAME,
     );
-    const convId = yield* createDm(senderClient, receiverId);
+    const binding = yield* createDm(senderClient, receiverId);
     // Fork-before-trigger per message (Spec B P2-5 r1).
     const msg1Fiber = yield* Effect.fork(
       waitForReceivedMessage(receiverClient),
     );
-    yield* sendText(senderClient, convId, FIRST_TEXT);
+    yield* sendText(senderClient, binding, FIRST_TEXT);
     const msg1 = yield* Fiber.join(msg1Fiber);
     const msg2Fiber = yield* Effect.fork(
       waitForReceivedMessage(receiverClient),
     );
-    yield* sendText(senderClient, convId, SECOND_TEXT);
+    yield* sendText(senderClient, binding, SECOND_TEXT);
     const msg2 = yield* Fiber.join(msg2Fiber);
-    expect(msg1.conversationId).toBe(convId);
-    expect(msg2.conversationId).toBe(convId);
+    expect(msg1.conversationId).toBe(binding.conversationId);
+    expect(msg2.conversationId).toBe(binding.conversationId);
     yield* senderClient.close();
     yield* receiverClient.close();
   });
@@ -272,10 +276,10 @@ function duplicateTargetReusesConversation() {
 function missingAgentLookupFails() {
   return Effect.gen(function* () {
     const agentClient = yield* connectedClaimedClient("err-sender");
-    const result = yield* Effect.exit(
-      agentClient.sendRpc(AgentsLookupByName, { name: MISSING_AGENT_NAME }),
-    );
-    expect(Exit.isFailure(result)).toBe(true);
+    const result = yield* agentClient.sendRpc(AgentsLookupByName, {
+      names: [MISSING_AGENT_NAME],
+    });
+    expect(result.agents).toEqual([]);
     yield* agentClient.close();
   });
 }
@@ -283,13 +287,13 @@ function missingAgentLookupFails() {
 function largeMessageDelivered(containerAAgentId: string) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("lg-alice");
-    const convId = yield* createDm(aliceClient, containerAAgentId);
+    const binding = yield* createDm(aliceClient, containerAAgentId);
     const largeText = LARGE_MESSAGE_CHARACTER.repeat(LARGE_MESSAGE_CHARS);
     // Fork-before-trigger (Spec B P2-5 r1).
     const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
-    yield* sendText(aliceClient, convId, largeText);
+    yield* sendText(aliceClient, binding, largeText);
     const reply = yield* Fiber.join(replyFiber);
-    expect(reply.conversationId).toBe(convId);
+    expect(reply.conversationId).toBe(binding.conversationId);
     expect(reply.senderId).toBe(containerAAgentId);
     const replyText = extractText(reply);
     expect(replyText).toContain(ECHO_PREFIX);
@@ -303,10 +307,10 @@ function reconnectDuringDispatchRecovers(containerAAgentId: string) {
     const alice = yield* registerAgent("rd-alice");
     const aliceClient = connectedClient(alice.apiKey);
     yield* aliceClient.connect();
-    const convId = yield* createDm(aliceClient, containerAAgentId);
+    const binding = yield* createDm(aliceClient, containerAAgentId);
     // Fork-before-trigger for each leg (Spec B P2-5 r1).
     const replyFiber1 = yield* Effect.fork(waitForReceivedMessage(aliceClient));
-    yield* sendText(aliceClient, convId, BEFORE_DROP_TEXT);
+    yield* sendText(aliceClient, binding, BEFORE_DROP_TEXT);
     expect(extractText(yield* Fiber.join(replyFiber1))).toContain(ECHO_PREFIX);
     yield* aliceClient.close();
     yield* Effect.sleep(`${RECONNECT_SETTLE_MS} millis`);
@@ -315,10 +319,10 @@ function reconnectDuringDispatchRecovers(containerAAgentId: string) {
     const replyFiber2 = yield* Effect.fork(
       waitForReceivedMessage(aliceClient2),
     );
-    yield* sendText(aliceClient2, convId, AFTER_RECONNECT_TEXT);
+    yield* sendText(aliceClient2, binding, AFTER_RECONNECT_TEXT);
     const reply2 = yield* Fiber.join(replyFiber2);
     expect(extractText(reply2)).toContain(ECHO_PREFIX);
-    expect(reply2.conversationId).toBe(convId);
+    expect(reply2.conversationId).toBe(binding.conversationId);
     yield* aliceClient2.close();
   });
 }
@@ -341,35 +345,48 @@ function connectedClaimedClient(name: string) {
 }
 
 function connectedClient(agentKey: string) {
-  return new MoltZapWsClient({
+  return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
   });
 }
 
-function createDm(client: MoltZapWsClient, agentId: string) {
-  return createConversation(client, {
-    type: "dm",
-    participants: [{ type: "agent", id: agentId }],
-  });
+function createDm(
+  client: MoltZapAgentClient,
+  agentId: string,
+): Effect.Effect<TaskBinding, unknown> {
+  return client
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [agentId],
+      initialConversation: { participants: [agentId] },
+    })
+    .pipe(Effect.map(extractTaskBinding));
 }
 
-function createConversation(
-  client: MoltZapWsClient,
-  params: Parameters<typeof ConversationsCreate.validateParams>[0],
-) {
+function createGroup(
+  client: MoltZapAgentClient,
+  name: string,
+  agentIds: ReadonlyArray<string>,
+): Effect.Effect<TaskBinding, unknown> {
+  const ids = agentIds.map((id) => id);
   return client
-    .sendRpc(ConversationsCreate, params)
-    .pipe(Effect.map(extractConvId));
+    .sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: ids,
+      initialConversation: { name, participants: ids },
+    })
+    .pipe(Effect.map(extractTaskBinding));
 }
 
 function sendText(
-  client: MoltZapWsClient,
-  conversationId: string,
+  client: MoltZapAgentClient,
+  binding: TaskBinding,
   text: string,
 ) {
   return client.sendRpc(MessagesSend, {
-    conversationId,
+    taskId: binding.taskId,
+    conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
   });
 }
@@ -380,7 +397,7 @@ function sendText(
  * Effect.timeoutFail)`. `extractMessage` continues to read the same
  * notification shape.
  */
-function waitForReceivedMessage(client: MoltZapWsClient) {
+function waitForReceivedMessage(client: MoltZapAgentClient) {
   return client.subscribe(MessageReceivedNotificationDefinition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
@@ -405,7 +422,7 @@ function waitForReceivedMessage(client: MoltZapWsClient) {
   );
 }
 
-function waitForReceivedMessages(client: MoltZapWsClient, count: number) {
+function waitForReceivedMessages(client: MoltZapAgentClient, count: number) {
   return client.subscribe(MessageReceivedNotificationDefinition).pipe(
     Stream.take(count),
     Stream.runCollect,
@@ -449,7 +466,7 @@ function expectConversationMessageFrom(
   expectEchoReply(message, conversationId, senderId);
 }
 
-function lookupAgentId(client: MoltZapWsClient, name: string) {
+function lookupAgentId(client: MoltZapAgentClient, name: string) {
   return client
     .sendRpc(AgentsLookupByName, { names: [name] })
     .pipe(Effect.map((result) => result.agents[0]?.id ?? ""));

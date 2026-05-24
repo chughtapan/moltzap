@@ -7,13 +7,18 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { NotInContactsError } from "@moltzap/protocol";
-import { userId, wireErrorFromInstance } from "@moltzap/protocol/testing";
+import {
+  connectionId as makeConnectionId,
+  userId,
+  wireErrorFromInstance,
+} from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AgentId } from "../../app/types.js";
 import { takeFirstOrFail } from "../../db/effect-kysely-toolkit.js";
 import { PresenceService } from "../../network/services/presence.service.js";
 import type { PresenceEventSink } from "../../network/services/presence-event-sink.js";
-import { ConnIdTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
+import { ConnectionTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
+import { makeStubConnection } from "../../app/loopback-connection.js";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -23,7 +28,8 @@ import { presenceHandlers } from "./presence.handlers.js";
 
 const ALICE_OWNER = userId("00000000-0000-4000-8000-00000000a11c") as UserId;
 const CAROL_OWNER = userId("00000000-0000-4000-8000-00000000ca20") as UserId;
-const TEST_CONNECTION_ID = "test-conn-1";
+const TEST_CONNECTION_ID = makeConnectionId("test-conn-1");
+const TEST_CONNECTION = makeStubConnection({ id: TEST_CONNECTION_ID });
 const PRESENCE_SUBSCRIBE = "presence/subscribe";
 
 const noopSink: PresenceEventSink = { publish: () => {} };
@@ -77,7 +83,7 @@ function runSubscribe(opts: {
       agentStatus: "active",
       ownerUserId: opts.callerOwnerUserId,
     },
-    connId: TEST_CONNECTION_ID,
+    connection: TEST_CONNECTION,
   };
   const testServices = Layer.mergeAll(
     Layer.succeed(DbTag, harness.db),
@@ -96,7 +102,7 @@ function runSubscribe(opts: {
   const narrowed = rawHandle as unknown as NarrowedSubscribe; // #ignore-sloppy-code[as-unknown-as]: test boundary re-narrows the post-Spec-F HandlerSlot R-channel widening to the specific tag union the test provides via `testServices`.
   return Effect.exit(
     narrowed.pipe(
-      Effect.provideService(ConnIdTag, TEST_CONNECTION_ID),
+      Effect.provideService(ConnectionTag, TEST_CONNECTION),
       Effect.provide(testServices),
     ),
   );

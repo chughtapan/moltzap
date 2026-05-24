@@ -17,8 +17,9 @@ kernels only; identity, network, task, and app compose on top of transport.
 _Function_
 
 ```ts
+ */
 export function acquireConnectionRpcClient(
-  connectionId: string,
+  connectionId: ConnectionId,
   write: (raw: string)
 ```
 
@@ -48,7 +49,10 @@ export class AppLayerScope extends Context.Tag("@moltzap/server/AppLayerScope")<
 _TypeAlias_
 
 ```ts
-export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
+ *
+ * **Why a sibling.** Capability tags are value-carrying authority
+ * proofs (`TmAuthority`, `TaskReadAccess`, …, composite
+ * `MessageSendPermission`) that handler bodies MUST drain via
 ```
 
 App-layer allowlist: `apps.handlers.ts` (registration + dispatch
@@ -61,6 +65,7 @@ yields it directly.
 _Interface_
 
 ```ts
+
 export interface AuthenticatedContext {
   agentId: AgentId;
   agentStatus: string;
@@ -73,12 +78,6 @@ export interface AuthenticatedContext {
 _TypeAlias_
 
 ```ts
-export type CapabilityTags =
-  | TmAuthority
-  | TaskReadAccess
-  | ConversationParticipantAccess
-  | ConversationInTask
-  | AgentExists
   | AgentInTaskParticipants
   | ContactPolicyAllowsReach
   | TaskActive
@@ -87,8 +86,7 @@ export type CapabilityTags =
   | NoReplyTarget
   | GroupCapacityForCreate
   | MessageSendPermission
-  | ConversationCreateAuthorization
-  | AddParticipantPermission;
+  | ConversationCreateAuthorization;
 ```
 
 Concrete capability-tag union (Phase 1, Spec E #601). The thirteen
@@ -105,18 +103,19 @@ to drain it would slip past the type system.
 _Class_
 
 ```ts
+
 export class ConnectionManager {
-  private connections = new Map<string, MoltZapConnection>();
+  private connections = new Map<ConnectionId, MoltZapConnection>();
 
   add(conn: MoltZapConnection): void {
     this.connections.set(conn.id, conn);
   }
 
-  remove(id: string): void {
+  remove(id: ConnectionId): void {
     this.connections.delete(id);
   }
 
-  get(id: string): MoltZapConnection | undefined {
+  get(id: ConnectionId): MoltZapConnection | undefined {
     return this.connections.get(id);
   }
 
@@ -164,6 +163,7 @@ See `defineNetworkMethod` for the maintenance contract.
 _Function_
 
 ```ts
+ */
 export function defineMethod<
   Name extends string,
   P extends TSchema,
@@ -261,7 +261,7 @@ _Interface_
 ```ts
 export interface DispatchContext {
   readonly auth: AuthenticatedContext;
-  readonly connId: string;
+  readonly connection: MoltZapConnection;
 }
 ```
 
@@ -272,7 +272,10 @@ Per-request dispatch context handed to every RPC handler by the typed dispatcher
 _TypeAlias_
 
 ```ts
-export type IdentityTags = TransportTags | AuthServiceTag;
+ * Network-layer allowlist: Connect, presence, outbound routing.
+ * `ping.handlers.ts` lives here. The `agentEndpointResolver` is the
+ * `AgentId → ConnectionId` multimap (network-conceptual — endpoint
+ * resolution is what the network layer DOES, not who owns it). The
 ```
 
 Identity-layer allowlist: registration, claim, login, contacts,
@@ -285,8 +288,9 @@ three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
 _Interface_
 
 ```ts
+
 export interface MoltZapConnection {
-  id: string;
+  id: ConnectionId;
 
   /**
    * Write a raw frame to this connection. Fails with SocketError on send
@@ -310,9 +314,6 @@ export class NetworkLayerScope extends Context.Tag(
 _TypeAlias_
 
 ```ts
-export type NetworkTags =
-  | IdentityTags
-  | AgentEndpointResolverTag
   | ConnectionManagerTag
   | NetworkSendServiceTag
   | PresenceServiceTag;
@@ -331,6 +332,7 @@ through the TM bus from `task/handlers/`).
 _TypeAlias_
 
 ```ts
+ */
 export type RpcMethodBinding = HandlerSlot<
   RpcDefinition<string, TSchema, TSchema>,
   DispatchContext,
@@ -354,6 +356,7 @@ against `FullLive` post-`asNeverR` in
 _TypeAlias_
 
 ```ts
+
 export type RpcMethodRegistry = RpcMethodBinding[];
 ```
 
@@ -362,6 +365,7 @@ export type RpcMethodRegistry = RpcMethodBinding[];
 _Function_
 
 ```ts
+ */
 export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   connection: MoltZapConnection,
   definition: D,
@@ -392,9 +396,6 @@ export class TaskLayerScope extends Context.Tag(
 _TypeAlias_
 
 ```ts
-export type TaskTags =
-  | NetworkTags
-  | MessageServiceTag
   | ConversationServiceTag
   | ParticipantServiceTag
   | TaskServiceTag
@@ -417,7 +418,10 @@ resolution for presence fan-out).
 _TypeAlias_
 
 ```ts
-export type TransportTags = ConnIdTag | DbTag;
+ * Identity-layer allowlist: registration, claim, login, contacts,
+ * agent-visibility lookups. Yielded by `agents-lookup.handlers.ts` (the
+ * three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
+ * `AgentsList` after the auth-handlers split).
 ```
 
 Bottom kernel — per-request connection id plus the database handle.

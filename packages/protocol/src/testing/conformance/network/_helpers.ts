@@ -5,7 +5,6 @@
  * unchanged; import paths shift to the new layer location.
  */
 import { Effect, Option, Stream, Duration, type Scope } from "effect";
-import type { Static } from "@sinclair/typebox";
 
 import { PresenceChangedNotificationDefinition } from "../../../network/methods.js";
 import { notificationDefinitions } from "../../../rpc-registry.js";
@@ -32,7 +31,6 @@ export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000;
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256;
 
 export type PresenceStatus = "online" | "offline" | "away";
-type AgentIdValue = Static<typeof AgentId>;
 
 export interface PresenceChangedPayload {
   readonly agentId: string;
@@ -130,7 +128,7 @@ export function acquireCloseableClient(
 
 export function subscribePresence(
   subscriber: TestClient,
-  agentId: AgentIdValue,
+  agentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return subscriber.sendRpc(PresenceSubscribe, { agentIds: [agentId] }).pipe(
@@ -199,7 +197,7 @@ export function waitForPresenceWithStatus(
 
 export function presenceStatusesFor(
   client: TestClient,
-  agentId: AgentIdValue,
+  agentId: AgentId,
 ): Effect.Effect<ReadonlyArray<PresenceStatus>> {
   return Effect.gen(function* () {
     const snap = yield* client.snapshot;
@@ -216,7 +214,7 @@ export function presenceStatusesFor(
 
 function presenceStatusFromCapture(
   entry: CapturedFrame,
-  agentId: AgentIdValue,
+  agentId: AgentId,
 ): Effect.Effect<PresenceStatus | null> {
   return Effect.gen(function* () {
     if (entry.kind !== "inbound") return null;
@@ -236,7 +234,7 @@ function presenceStatusFromCapture(
 
 export function countPresenceChangedFor(
   client: TestClient,
-  agentId: AgentIdValue,
+  agentId: AgentId,
 ): Effect.Effect<number> {
   return presenceStatusesFor(client, agentId).pipe(Effect.map((s) => s.length));
 }

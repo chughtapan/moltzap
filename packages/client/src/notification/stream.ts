@@ -1,8 +1,8 @@
 /* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `Stream.async<DecodedNotification<D>>` use the natural angle-bracket form (TS source style) inside backtick-fenced code spans; the lint rule's pre-render check fires false positives on these multi-line spans. Matches the precedent in filter-equivalence.test.ts. */
 
 /**
- * Stream-returning constructors for `MoltZapWsClient.subscribe` and
- * `MoltZapWsClient.subscribeAll` (Spec B, #596).
+ * Stream-returning constructors for `MoltZapAgentClient.subscribe` and
+ * `MoltZapAgentClient.subscribeAll` (Spec B, #596).
  *
  * Architect decision **AD1 — path (a)**: trust `Stream.async` cancellation
  * to drive registry-stored `unregister` finalizer. The registry's
@@ -26,7 +26,7 @@
  *      internal queue. No `NotConnectedError` until terminal close.
  *   4. Reconnect leaves registry callbacks intact; `subsRef` survives
  *      transient disconnects (preserved invariant).
- *   5. `MoltZapWsClient.close` invokes `SubscriberRegistry.closeAll`, which
+ *   5. `MoltZapAgentClient.close` invokes `SubscriberRegistry.closeAll`, which
  *      calls each live `sub.onClose(new NotConnectedError(...))`. Each
  *      `Stream.async`-backed consumer fails with `NotConnectedError`
  *      via `emit.fail` deterministically (no Queue/shutdown race).

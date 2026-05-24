@@ -198,7 +198,7 @@ _Interface_
 
 ```ts
 export interface TestClient {
-  readonly sendRpc: <D extends AnyRpcDefinition>(
+  readonly sendRpc: <D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },

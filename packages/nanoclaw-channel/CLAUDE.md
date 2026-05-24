@@ -35,7 +35,7 @@ Nanoclaw depends on `@moltzap/client/channel-base` for:
   claude-code's prefixed convention)
 - `src/__tests__/echo.integration.test.ts` (echo round-trip; ~300 LOC)
 - `src/__tests__/reconnection.integration.test.ts` (reconnection + missed
-  message catch-up; trigger via `MoltZapWsClient.disconnect()`; ~200 LOC)
+  message catch-up; trigger via `MoltZapAgentClient.close()`; ~200 LOC)
 
 ## Commands
 

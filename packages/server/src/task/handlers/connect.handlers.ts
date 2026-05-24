@@ -14,14 +14,14 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   AgentEndpointResolverTag,
   AuthServiceTag,
-  ConnIdTag,
+  ConnectionTag,
   ConnectionManagerTag,
   ConversationServiceTag,
   DbTag,
   PresenceServiceTag,
   SessionValidatorTag,
 } from "../../app/layers.js";
-import { connectionId as brandConnectionId } from "../../network/agent-endpoint-resolver.js";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
@@ -33,7 +33,6 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
-import { sql } from "../../db/sql.js";
 import type {
   ConnectionManager,
   MoltZapConnection,
@@ -153,32 +152,23 @@ function hydrateConnectionState(
   conn: MoltZapConnection,
   auth: AuthenticatedContext,
   conversationService: ConversationService,
-  db: Db,
+  _db: Db,
 ) {
   return Effect.gen(function* () {
     const convIds = yield* conversationService.getConversationIds(auth.agentId);
     for (const id of convIds) conn.conversationIds.add(id);
-    const mutedRows = yield* db
-      .selectFrom("conversation_participants")
-      .select("conversation_id")
-      .where("agent_id", "=", auth.agentId)
-      .where("muted_until", "is not", null)
-      .where("muted_until", ">", sql<Date>`now()`);
-    for (const row of mutedRows) {
-      conn.mutedConversations.add(row.conversation_id);
-    }
   }).pipe(Effect.withSpan("connect.hydrateConnectionState"));
 }
 
 function registerEndpointIfStillConnected(
   connections: ConnectionManager,
   resolver: AgentEndpointResolver,
-  connId: string,
+  connId: ConnectionId,
   auth: AuthenticatedContext,
 ) {
   return Effect.gen(function* () {
     if (connections.get(connId)) {
-      yield* resolver.add(auth.agentId, brandConnectionId(connId));
+      yield* resolver.add(auth.agentId, connId);
     }
   }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
 }
@@ -193,14 +183,8 @@ function handleConnect(params: ConnectParams) {
       const agentEndpointResolver = yield* AgentEndpointResolverTag;
       const db = yield* DbTag;
       const sessionValidator = yield* SessionValidatorTag;
-      const connId = yield* ConnIdTag;
-      const conn = connections.get(connId);
+      const conn = yield* ConnectionTag;
 
-      if (!conn) {
-        return yield* Effect.fail(
-          new UnauthorizedError({ message: "Connection not found" }),
-        );
-      }
       if (conn.auth) {
         return yield* buildHelloOk(conn.auth, presenceService);
       }
@@ -216,7 +200,7 @@ function handleConnect(params: ConnectParams) {
       yield* registerEndpointIfStillConnected(
         connections,
         agentEndpointResolver,
-        connId,
+        conn.id,
         auth,
       );
       return yield* buildHelloOk(auth, presenceService);

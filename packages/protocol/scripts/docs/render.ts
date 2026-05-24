@@ -101,9 +101,7 @@ export function generateMethodPage(
   const method = def.name;
   const description = jsdoc?.description ?? `Call \`${method}\`.`;
   const subtitle = firstSentence(description);
-  const body = jsdoc?.body
-    ? `${description}\n\n${jsdoc.body}`
-    : description;
+  const body = jsdoc?.body ? `${description}\n\n${jsdoc.body}` : description;
   return [
     renderMethodHeader(method, subtitle, body),
     renderParametersSection(extractProperties(def.paramsSchema)),

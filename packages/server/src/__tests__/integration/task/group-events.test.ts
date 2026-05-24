@@ -11,11 +11,11 @@ import {
 import type { ConnectedAgent } from "../helpers.js";
 
 import {
-  ConversationsCreate,
-  ConversationCreatedNotificationDefinition,
+  DEFAULT_APP_ID,
+  TaskConversationCreatedNotificationDefinition,
+  TaskRequest,
 } from "@moltzap/protocol";
 
-const GROUP_TYPE = "group";
 const GROUP_NAME = "Eval Group";
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
@@ -24,7 +24,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("group creation notifies all participants with conversations/created event", () =>
+it("group creation notifies all participants with task/conversation/created event", () =>
   Effect.gen(function* () {
     const { agents } = yield* setupAgentGroup(3);
     const [alice, bob, eve] = agents as [
@@ -35,34 +35,26 @@ it("group creation notifies all participants with conversations/created event", 
 
     // Set up event waiters on Bob and Eve BEFORE creating the group
 
-    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-      type: GROUP_TYPE,
-      name: GROUP_NAME,
-      participants: [
-        { type: "agent", id: bob.agentId },
-        { type: "agent", id: eve.agentId },
-      ],
-    })) as {
-      conversation: { id: string; type: string; name: string };
-    };
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId, eve.agentId],
+      initialConversation: {
+        name: GROUP_NAME,
+        participants: [bob.agentId, eve.agentId],
+      },
+    });
 
-    expect(conv.conversation.type).toBe(GROUP_TYPE);
-    expect(conv.conversation.name).toBe(GROUP_NAME);
+    expect(conv.conversation!.name).toBe(GROUP_NAME);
 
     const bobCreated = yield* awaitOneNotification(
       bob.client,
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
     );
     const eveCreated = yield* awaitOneNotification(
       eve.client,
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
     );
 
-    const bobConv = (bobCreated.params as { conversation: { id: string } })
-      .conversation;
-    const eveConv = (eveCreated.params as { conversation: { id: string } })
-      .conversation;
-
-    expect(bobConv.id).toBe(conv.conversation.id);
-    expect(eveConv.id).toBe(conv.conversation.id);
+    expect(bobCreated.params.conversationId).toBe(conv.conversation!.id);
+    expect(eveCreated.params.conversationId).toBe(conv.conversation!.id);
   }));

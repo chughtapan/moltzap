@@ -1,32 +1,11 @@
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import {
-  stringEnum,
-  dateTimeStringSchema,
-  brandedId,
-} from "../schema-primitives.js";
+import { dateTimeStringSchema, brandedId } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
-import { defineRpc, defineNotification } from "../transport/method.js";
 import {
   registerErrorClass,
   type RpcErrorPayload,
 } from "../transport/wire-errors.js";
-// Direct per-file imports (NOT via `./capabilities/index.js`) to keep
-// the runtime dep graph one-way: the barrel re-exports
-// `conversation-not-archived.js` which value-imports
-// `ConversationArchivedError` from THIS file, so going via the barrel
-// closes a runtime cycle. The capability files this descriptor needs
-// only consume conversations.ts as type imports — direct paths skip the
-// barrel and the cycle.
-import {
-  AddParticipantPermission,
-  type ObtainAddParticipantPermissionInput,
-} from "./capabilities/add-participant-permission.js";
-import {
-  ConversationCreateAuthorization,
-  type ObtainConversationCreateAuthorizationInput,
-} from "./capabilities/conversation-create-authorization.js";
-import { ConversationParticipantAccess } from "./capabilities/conversation-participant-access.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -56,11 +35,9 @@ export class ConversationFullError extends Data.TaggedError(
 }
 registerErrorClass(ConversationFullError);
 
-export const ConversationTypeEnum = stringEnum(["dm", "group"]);
-
 const AgentParticipantRefSchema = Type.Object(
   {
-    type: stringEnum(["agent"]),
+    type: Type.Literal("agent"),
     id: Type.String({ format: "uuid" }),
   },
   { additionalProperties: false },
@@ -76,7 +53,6 @@ const ConversationMetadataSchema = Type.Object(
 const ConversationSchema = Type.Object(
   {
     id: ConversationId,
-    type: ConversationTypeEnum,
     name: Type.Optional(Type.String()),
     createdBy: AgentId,
     metadata: Type.Optional(ConversationMetadataSchema),
@@ -100,7 +76,6 @@ const ConversationParticipantSchema = Type.Object(
     participant: AgentParticipantRefSchema,
     joinedAt: DateTimeString,
     lastReadMessageId: Type.Optional(MessageId),
-    mutedUntil: Type.Optional(DateTimeString),
     agentName: Type.Optional(Type.String()),
     agentDisplayName: Type.Optional(Type.String()),
   },
@@ -110,7 +85,6 @@ const ConversationParticipantSchema = Type.Object(
 const ConversationSummarySchema = Type.Object(
   {
     id: ConversationId,
-    type: ConversationTypeEnum,
     name: Type.Optional(Type.String()),
     lastMessagePreview: Type.Optional(Type.String()),
     lastMessageTimestamp: Type.Optional(DateTimeString),
@@ -127,375 +101,6 @@ export type ConversationParticipant = Static<
 >;
 export type ConversationSummary = Static<typeof ConversationSummarySchema>;
 
-export function agentParticipantRefSchema(): typeof AgentParticipantRefSchema {
-  return AgentParticipantRefSchema;
-}
-
 export function conversationSchema(): typeof ConversationSchema {
   return ConversationSchema;
 }
-
-/**
- * Create a new group conversation with participants.
- * @relatedNotification conversations/created
- */
-export const ConversationsCreate = defineRpc({
-  name: "conversations/create",
-  params: Type.Object(
-    {
-      type: ConversationTypeEnum,
-      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      participants: Type.Array(AgentParticipantRefSchema, { minItems: 1 }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { conversation: ConversationSchema },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: ConversationCreateAuthorization,
-      argsOf: (
-        params: unknown,
-        ctx: unknown,
-      ): ObtainConversationCreateAuthorizationInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly type: "dm" | "group";
-          readonly participants: ReadonlyArray<{ readonly id: string }>;
-        };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return {
-          type: p.type,
-          agentIds: p.participants.map((x) => x.id as AgentId),
-          creatorAgentId: c.auth.agentId,
-        };
-      },
-    },
-  ] as const,
-});
-
-/**
- * List your conversations with message previews and unread counts.
- */
-export const ConversationsList = defineRpc({
-  name: "conversations/list",
-  params: Type.Object(
-    {
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
-      cursor: Type.Optional(Type.String()),
-      archived: Type.Optional(stringEnum(["exclude", "include", "only"])),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      conversations: Type.Array(ConversationSummarySchema),
-      cursor: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-});
-
-/**
- * Get conversation details including the full participant list.
- */
-export const ConversationsGet = defineRpc({
-  name: "conversations/get",
-  params: Type.Object(
-    { conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      conversation: ConversationSchema,
-      participants: Type.Array(ConversationParticipantSchema),
-    },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: ConversationParticipantAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly conversationId: ConversationId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return {
-          conversationId: p.conversationId,
-          callerAgentId: c.auth.agentId,
-        };
-      },
-    },
-  ] as const,
-});
-
-/**
- * Update conversation metadata (name).
- * @relatedNotification conversations/updated
- */
-export const ConversationsUpdate = defineRpc({
-  name: "conversations/update",
-  params: Type.Object(
-    {
-      conversationId: ConversationId,
-      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { conversation: ConversationSchema },
-    { additionalProperties: false },
-  ),
-});
-
-/**
- * Mute notifications for a conversation, optionally until a specific time.
- */
-export const ConversationsMute = defineRpc({
-  name: "conversations/mute",
-  params: Type.Object(
-    {
-      conversationId: ConversationId,
-      until: Type.Optional(DateTimeString),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-/**
- * Unmute notifications for a conversation.
- */
-export const ConversationsUnmute = defineRpc({
-  name: "conversations/unmute",
-  params: Type.Object(
-    { conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-/**
- * Add a participant to a group conversation. Requires admin or owner role.
- * @error ForbiddenError when Caller is not admin or owner
- * @error ConversationFullError when Max participants reached
- */
-export const ConversationsAddParticipant = defineRpc({
-  name: "conversations/addParticipant",
-  params: Type.Object(
-    {
-      conversationId: ConversationId,
-      participant: AgentParticipantRefSchema,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { participant: ConversationParticipantSchema },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: AddParticipantPermission,
-      argsOf: (
-        params: unknown,
-        ctx: unknown,
-      ): ObtainAddParticipantPermissionInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly conversationId: ConversationId;
-          readonly participant: { readonly id: string };
-        };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return {
-          conversationId: p.conversationId,
-          requesterAgentId: c.auth.agentId,
-          targetAgentId: p.participant.id as AgentId,
-        };
-      },
-    },
-  ] as const,
-});
-
-/**
- * Remove a participant from a group conversation.
- */
-export const ConversationsRemoveParticipant = defineRpc({
-  name: "conversations/removeParticipant",
-  params: Type.Object(
-    {
-      conversationId: ConversationId,
-      participant: AgentParticipantRefSchema,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-/**
- * Leave a group conversation.
- */
-export const ConversationsLeave = defineRpc({
-  name: "conversations/leave",
-  params: Type.Object(
-    { conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-/**
- * Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.
- * @error ForbiddenError when Caller is not owner or admin
- * @error ConflictError when Conversation is attached to an active app session; close the session to archive
- * @relatedNotification conversations/archived
- */
-export const ConversationsArchive = defineRpc({
-  name: "conversations/archive",
-  params: Type.Object(
-    { conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-/**
- * Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.
- * @error ForbiddenError when Caller is not owner or admin
- * @relatedNotification conversations/unarchived
- */
-export const ConversationsUnarchive = defineRpc({
-  name: "conversations/unarchive",
-  params: Type.Object(
-    { conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-const ConversationCreatedNotificationSchema = Type.Object(
-  { conversation: ConversationSchema },
-  { additionalProperties: false },
-);
-
-const ConversationUpdatedNotificationSchema = Type.Object(
-  { conversation: ConversationSchema },
-  { additionalProperties: false },
-);
-
-const ConversationArchivedNotificationSchema = Type.Object(
-  {
-    conversationId: ConversationId,
-    archivedAt: DateTimeString,
-    by: AgentId,
-  },
-  { additionalProperties: false },
-);
-
-const ConversationUnarchivedNotificationSchema = Type.Object(
-  {
-    conversationId: ConversationId,
-    by: AgentId,
-  },
-  { additionalProperties: false },
-);
-
-// Server fan-out when a participant is added (today: `conversations/
-// addParticipant` user RPC). Broadcast targets: post-insert participants
-// list of the conversation. The added agent's connections are subscribed
-// to the conversation in the same operation so the broadcast reaches
-// them through the standard `forConversation` gate.
-const ParticipantsAddedNotificationSchema = Type.Object(
-  {
-    conversationId: ConversationId,
-    agentId: AgentId,
-    addedBy: AgentId,
-    addedAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
-
-// Server fan-out when a participant is removed (today: `conversations/
-// removeParticipant` user RPC; future: lease-registry DENY paths).
-// Broadcast targets: pre-delete participants list (so the just-removed
-// agent receives the notification) WITHOUT the per-conversation
-// subscription gate — the removed agent's `conn.conversationIds` is
-// cleared in the same operation, so the gate would suppress the event
-// for that very recipient.
-const ParticipantsRemovedNotificationSchema = Type.Object(
-  {
-    conversationId: ConversationId,
-    agentId: AgentId,
-    removedBy: AgentId,
-    removedAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
-
-export type ConversationCreatedNotification = Static<
-  typeof ConversationCreatedNotificationSchema
->;
-export type ConversationUpdatedNotification = Static<
-  typeof ConversationUpdatedNotificationSchema
->;
-export type ConversationArchivedNotification = Static<
-  typeof ConversationArchivedNotificationSchema
->;
-export type ConversationUnarchivedNotification = Static<
-  typeof ConversationUnarchivedNotificationSchema
->;
-export type ParticipantsAddedNotification = Static<
-  typeof ParticipantsAddedNotificationSchema
->;
-export type ParticipantsRemovedNotification = Static<
-  typeof ParticipantsRemovedNotificationSchema
->;
-
-/**
- * Pushed when you are added to a new conversation.
- * @triggeredBy conversations/create
- * @triggeredBy messages/send
- */
-export const ConversationCreatedNotificationDefinition = defineNotification({
-  name: "conversations/created",
-  params: ConversationCreatedNotificationSchema,
-});
-
-/**
- * Pushed when a conversation's metadata changes (name, participants).
- * @triggeredBy conversations/update
- * @triggeredBy conversations/addParticipant
- * @triggeredBy conversations/removeParticipant
- */
-export const ConversationUpdatedNotificationDefinition = defineNotification({
-  name: "conversations/updated",
-  params: ConversationUpdatedNotificationSchema,
-});
-
-/**
- * Pushed when a conversation is archived (explicit archive call or app-session close).
- * @triggeredBy conversations/archive
- */
-export const ConversationArchivedNotificationDefinition = defineNotification({
-  name: "conversations/archived",
-  params: ConversationArchivedNotificationSchema,
-});
-
-/**
- * Pushed when a conversation is unarchived.
- * @triggeredBy conversations/unarchive
- */
-export const ConversationUnarchivedNotificationDefinition = defineNotification({
-  name: "conversations/unarchived",
-  params: ConversationUnarchivedNotificationSchema,
-});
-
-export const ParticipantsAddedNotificationDefinition = defineNotification({
-  name: "participants/added",
-  params: ParticipantsAddedNotificationSchema,
-});
-
-export const ParticipantsRemovedNotificationDefinition = defineNotification({
-  name: "participants/removed",
-  params: ParticipantsRemovedNotificationSchema,
-});

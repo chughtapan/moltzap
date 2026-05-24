@@ -4,12 +4,8 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type HelloOk,
-  ConversationsCreate,
-  ConversationsGet,
-  type ConversationCreatedNotification,
-  type ConversationUpdatedNotification,
   type AnyNotificationDefinition,
-  type AnyRpcDefinition,
+  type AnyServerRpcDefinition,
   type DecodedNotification,
   DispatchRequest,
   DispatchRelease,
@@ -19,18 +15,21 @@ import {
   type DispatchId,
   type Message,
   type MessageReceivedNotification,
-  type ConversationArchivedNotification,
-  type ConversationUnarchivedNotification,
+  type TaskConversationCreatedNotification,
+  type TaskConversationArchivedNotification,
+  type TaskConversationUnarchivedNotification,
   MessageReceivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
   ConversationArchivedError,
+  DEFAULT_APP_ID,
   MessagesList,
   MessagesSend,
+  TaskRequest,
+  TaskConversationList,
   NotConnectedError,
-  rpcMethods,
+  serverRpcMethods,
   type RpcCallError,
   RpcServerError,
   RpcTimeoutError,
@@ -40,7 +39,12 @@ import {
   type RpcDefinition,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId } from "@moltzap/protocol/task";
+import type {
+  ConversationId,
+  LeaseId,
+  MessageId,
+  TaskId,
+} from "@moltzap/protocol/task";
 import {
   Config,
   ConfigProvider,
@@ -51,7 +55,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { MoltZapWsClient, type RpcCallOptions } from "./ws-client.js";
+import { MoltZapAgentClient, type RpcCallOptions } from "./agent-client.js";
 import { AgentNotFoundError } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
 import { LocalServiceCommands } from "./runtime/local-service-commands.js";
@@ -83,11 +87,18 @@ import {
   lastReadIdsForSession,
 } from "./runtime/local-history.js";
 import { composeServiceTeardown } from "./runtime/service-teardown.js";
+import {
+  purgeAgentCacheEntries,
+  purgeLastNotified,
+  purgeLastRead,
+} from "./service-archive-purge.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
 const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const HISTORY_LOOKUP_CONCURRENCY = 2;
+const SEND_TO_AGENT_LOOKUP_PAGE_SIZE = 50;
+const SEND_TO_AGENT_LOOKUP_MAX_PAGES = 20;
 
 const ClientEventLogDir = Config.option(
   Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
@@ -132,7 +143,7 @@ function appendClientEventTrace(
 
 /**
  * Errors that can surface from the Effect-based service API. Matches the
- * failure channel of `MoltZapWsClient.sendRpc` / `connect`.
+ * failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
  */
 export type ServiceRpcError = RpcCallError | RpcTimeoutError;
 
@@ -201,7 +212,7 @@ type NotificationDispatcher = (
 ) => void;
 
 interface ServiceHandlerPayloads {
-  readonly message: Message;
+  readonly message: { readonly taskId: TaskId; readonly message: Message };
 
   /**
    * The "raw notification" surface receives the wire decoder's
@@ -215,8 +226,8 @@ interface ServiceHandlerPayloads {
   readonly rawNotification: DecodedNotification<AnyNotificationDefinition>;
   readonly disconnect: void;
   readonly reconnect: HelloOk;
-  readonly conversationArchived: ConversationArchivedNotification;
-  readonly conversationUnarchived: ConversationUnarchivedNotification;
+  readonly conversationArchived: TaskConversationArchivedNotification;
+  readonly conversationUnarchived: TaskConversationUnarchivedNotification;
   readonly dispatchRelease: NotificationParamsOf<typeof DispatchRelease>;
   readonly dispatchesConsumed: NotificationParamsOf<typeof DispatchesConsumed>;
   readonly dispatchesExpired: NotificationParamsOf<typeof DispatchesExpired>;
@@ -278,7 +289,7 @@ function fanout<T>(
  * to arena; consumers wanting Promise wrappers maintain their own.)
  */
 export class MoltZapService {
-  private client: MoltZapWsClient | null = null;
+  private client: MoltZapAgentClient | null = null;
   private _connected = false;
 
   /**
@@ -301,8 +312,18 @@ export class MoltZapService {
   private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
     Effect.runSync(Ref.make(HashMap.empty<string, string>()));
   private readonly agentConversationCacheRef: Ref.Ref<
-    HashMap.HashMap<string, string>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+    HashMap.HashMap<
+      string,
+      { readonly taskId: TaskId; readonly conversationId: ConversationId }
+    >
+  > = Effect.runSync(
+    Ref.make(
+      HashMap.empty<
+        string,
+        { readonly taskId: TaskId; readonly conversationId: ConversationId }
+      >(),
+    ),
+  );
   private readonly lastNotifiedRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, string>>
   > = Effect.runSync(
@@ -354,31 +375,24 @@ export class MoltZapService {
         ),
     ],
     [
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
       (notification) =>
         this.handleConversationCreatedNotification(
-          notification.params as ConversationCreatedNotification,
+          notification.params as TaskConversationCreatedNotification,
         ),
     ],
     [
-      ConversationUpdatedNotificationDefinition,
-      (notification) =>
-        this.handleConversationUpdatedNotification(
-          notification.params as ConversationUpdatedNotification,
-        ),
-    ],
-    [
-      ConversationArchivedNotificationDefinition,
+      TaskConversationArchivedNotificationDefinition,
       (notification) =>
         this.handleConversationArchivedNotification(
-          notification.params as ConversationArchivedNotification,
+          notification.params as TaskConversationArchivedNotification,
         ),
     ],
     [
-      ConversationUnarchivedNotificationDefinition,
+      TaskConversationUnarchivedNotificationDefinition,
       (notification) =>
         this.handleConversationUnarchivedNotification(
-          notification.params as ConversationUnarchivedNotification,
+          notification.params as TaskConversationUnarchivedNotification,
         ),
     ],
     [
@@ -424,7 +438,7 @@ export class MoltZapService {
   /** Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`. */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(this, function* () {
-      const client = new MoltZapWsClient({
+      const client = new MoltZapAgentClient({
         serverUrl: this.opts.serverUrl,
         agentKey: this.opts.agentKey,
         // Spec #222 OQ-6: arg required. The body doesn't branch on
@@ -608,8 +622,8 @@ export class MoltZapService {
             return this.handleHistoryRequest(params);
 
           default: {
-            const definition = rpcMethods.find(
-              (d): d is AnyRpcDefinition => d.name === method,
+            const definition = serverRpcMethods.find(
+              (d): d is AnyServerRpcDefinition => d.name === method,
             );
             if (
               definition === undefined ||
@@ -640,6 +654,7 @@ export class MoltZapService {
     return Effect.gen(this, function* () {
       const request = yield* decodeHistoryRequest(params);
       const result = yield* this.sendRpc(MessagesList, {
+        taskId: request.taskId as TaskId,
         conversationId: request.conversationId as ConversationId,
         limit: request.limit,
       });
@@ -712,10 +727,15 @@ export class MoltZapService {
   }
 
   private fetchHistoryConversationMeta(convId: string) {
-    return this.sendRpc(ConversationsGet, {
-      conversationId: convId as ConversationId,
-    }).pipe(
-      Effect.map((result) => result.conversation),
+    // Spec D3 D10: ConversationsGet retires; client filters
+    // TaskConversationList output for the matching conversation id.
+    return this.sendRpc(TaskConversationList, {}).pipe(
+      Effect.map((result) => {
+        const hit = result.items.find(
+          (item) => item.conversation.id === (convId as ConversationId),
+        );
+        return hit?.conversation;
+      }),
       Effect.catchAll(() => Effect.succeed(undefined)),
     );
   }
@@ -853,11 +873,12 @@ export class MoltZapService {
    * `leaseIdInFlight` automatically when the caller omits it.
    */
   send(
-    convId: string,
+    taskId: TaskId,
+    conversationId: ConversationId,
     text: string,
-    opts?: { replyTo?: string; dispatchLeaseId?: string },
+    opts?: { replyTo?: MessageId; dispatchLeaseId?: LeaseId },
   ): Effect.Effect<void, ServiceRpcError> {
-    if (this.isConversationArchived(convId)) {
+    if (this.isConversationArchived(conversationId)) {
       return Effect.fail(
         new RpcServerError({
           code: ConversationArchivedError.code,
@@ -867,10 +888,11 @@ export class MoltZapService {
     }
     return Effect.asVoid(
       this.sendRpc(MessagesSend, {
-        conversationId: convId as ConversationId,
+        taskId,
+        conversationId,
         parts: [{ type: "text", text }],
-        ...(opts?.replyTo ? { replyToId: opts.replyTo as MessageId } : {}),
-        ...(opts?.dispatchLeaseId
+        ...(opts?.replyTo !== undefined ? { replyToId: opts.replyTo } : {}),
+        ...(opts?.dispatchLeaseId !== undefined
           ? { dispatchLeaseId: opts.dispatchLeaseId }
           : {}),
       }),
@@ -902,12 +924,12 @@ export class MoltZapService {
   sendToAgent(
     agentName: string,
     text: string,
-    opts?: { replyTo?: string },
+    opts?: { replyTo?: MessageId },
   ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
     return Effect.gen(this, function* () {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
-      let conversationId = Option.getOrUndefined(HashMap.get(cache, agentName));
-      if (!conversationId) {
+      let entry = Option.getOrUndefined(HashMap.get(cache, agentName));
+      if (entry === undefined) {
         const lookupResult = yield* this.sendRpc(AgentsLookupByName, {
           names: [agentName],
         });
@@ -915,17 +937,54 @@ export class MoltZapService {
         if (!agent) {
           return yield* Effect.fail(new AgentNotFoundError({ agentName }));
         }
-        const createResult = yield* this.sendRpc(ConversationsCreate, {
-          type: "dm",
-          participants: [{ type: "agent", id: agent.id as AgentId }],
+        const createResult = yield* this.sendRpc(TaskRequest, {
+          appId: DEFAULT_APP_ID,
+          invitedAgentIds: [agent.id as AgentId],
+          initialConversation: { participants: [agent.id as AgentId] },
         });
-        conversationId = createResult.conversation.id;
-        const newId = conversationId;
+        // `conversation: null` is the documented dedup-hit shape under
+        // `DEFAULT_APP_ID`. Resolve the reusable conversation under the
+        // returned task; if none exists (task closed / all archived),
+        // fail rather than die.
+        const conversationId =
+          createResult.conversation !== null
+            ? createResult.conversation.id
+            : yield* this.resolveReusableConversationId(
+                createResult.task.id,
+                agentName,
+              );
+        entry = { taskId: createResult.task.id, conversationId };
+        const cached = entry;
         yield* Ref.update(this.agentConversationCacheRef, (m) =>
-          HashMap.set(m, agentName, newId),
+          HashMap.set(m, agentName, cached),
         );
       }
-      yield* this.send(conversationId, text, opts);
+      yield* this.send(entry.taskId, entry.conversationId, text, opts);
+    });
+  }
+
+  private resolveReusableConversationId(
+    taskId: TaskId,
+    agentName: string,
+  ): Effect.Effect<ConversationId, ServiceRpcError | AgentNotFoundError> {
+    return Effect.gen(this, function* () {
+      let cursor: string | undefined = undefined;
+      for (let page = 0; page < SEND_TO_AGENT_LOOKUP_MAX_PAGES; page++) {
+        const params: { limit: number; cursor?: string } = {
+          limit: SEND_TO_AGENT_LOOKUP_PAGE_SIZE,
+        };
+        if (cursor !== undefined) params.cursor = cursor;
+        const result = yield* this.sendRpc(TaskConversationList, params);
+        const hit = result.items.find(
+          (item) =>
+            item.taskId === taskId &&
+            item.conversation.archivedAt === undefined,
+        );
+        if (hit !== undefined) return hit.conversation.id;
+        if (result.nextCursor === undefined) break;
+        cursor = result.nextCursor;
+      }
+      return yield* Effect.fail(new AgentNotFoundError({ agentName }));
     });
   }
 
@@ -1111,42 +1170,6 @@ export class MoltZapService {
 
   // --- Internals ---
 
-  /**
-   * Fetch full conversation details (including participants) via RPC and merge
-   * into the local cache. Called on ConversationCreated notifications because
-   * the notification schema omits the participants list — see
-   * protocol/notifications.ts.
-   */
-  private refreshConversationParticipants(
-    conversationId: string,
-  ): Effect.Effect<void, never> {
-    return this.sendRpc(ConversationsGet, {
-      conversationId: conversationId as ConversationId,
-    }).pipe(
-      Effect.tap((res) => {
-        const meta: ConversationMeta = {
-          id: res.conversation.id,
-          type: res.conversation.type,
-          participants: res.participants.map(
-            (p) => `${p.participant.type}:${p.participant.id}`,
-          ),
-          ...(res.conversation.name !== undefined
-            ? { name: res.conversation.name }
-            : {}),
-        };
-        if (this.archivedConversationIds.has(conversationId)) {
-          return Effect.void;
-        }
-        return Ref.update(this.conversationsRef, (m) =>
-          HashMap.set(m, conversationId, meta),
-        );
-      }),
-      Effect.asVoid,
-      // Best-effort refresh. Leave the existing entry in place on failure.
-      Effect.catchAll(() => Effect.void),
-    );
-  }
-
   protected handleNotification(
     notification: DecodedNotification<AnyNotificationDefinition>,
   ): void {
@@ -1222,59 +1245,44 @@ export class MoltZapService {
     // via resolveAgentName(), which populates agentNamesRef on first miss and
     // hits the cache on every subsequent message.
     if (msg.senderId !== this._ownAgentId) {
-      fanout(this.handlers.message, msg);
+      fanout(this.handlers.message, {
+        taskId: notification.taskId,
+        message: msg,
+      });
     }
   }
 
   private handleConversationCreatedNotification(
-    notification: ConversationCreatedNotification,
+    notification: TaskConversationCreatedNotification,
   ): void {
-    this.upsertConversationNotification(notification);
-    Effect.runFork(
-      this.refreshConversationParticipants(notification.conversation.id),
+    const { conversationId, name, participants } = notification;
+    this.archivedConversationIds.delete(conversationId);
+    Effect.runSync(
+      Ref.update(this.conversationsRef, (m) => {
+        const inferredType: "dm" | "group" =
+          participants.length === 1 ? "dm" : "group";
+        return HashMap.set(m, conversationId, {
+          id: conversationId,
+          type: inferredType,
+          participants: participants.map((p) => `agent:${p}`),
+          ...(name !== undefined ? { name } : {}),
+        });
+      }),
     );
   }
 
-  private handleConversationUpdatedNotification(
-    notification: ConversationUpdatedNotification,
-  ): void {
-    this.upsertConversationNotification(notification);
-  }
-
   private handleConversationArchivedNotification(
-    notification: ConversationArchivedNotification,
+    notification: TaskConversationArchivedNotification,
   ): void {
     this.markConversationArchived(notification.conversationId);
     fanout(this.handlers.conversationArchived, notification);
   }
 
   private handleConversationUnarchivedNotification(
-    notification: ConversationUnarchivedNotification,
+    notification: TaskConversationUnarchivedNotification,
   ): void {
     this.archivedConversationIds.delete(notification.conversationId);
     fanout(this.handlers.conversationUnarchived, notification);
-  }
-
-  private upsertConversationNotification(
-    notification:
-      | ConversationCreatedNotification
-      | ConversationUpdatedNotification,
-  ): void {
-    const { conversation } = notification;
-    this.archivedConversationIds.delete(conversation.id);
-    Effect.runSync(
-      Ref.update(this.conversationsRef, (m) => {
-        const existing = Option.getOrUndefined(HashMap.get(m, conversation.id));
-        return HashMap.set(m, conversation.id, {
-          id: conversation.id,
-          type: conversation.type,
-          participants: existing?.participants ?? [],
-          ...(conversation.name !== undefined
-            ? { name: conversation.name }
-            : {}),
-        });
-      }),
-    );
   }
 
   private markConversationArchived(conversationId: ConversationId): void {
@@ -1286,42 +1294,15 @@ export class MoltZapService {
           HashMap.remove(m, conversationId),
         ),
         Ref.update(this.messagesRef, (m) => HashMap.remove(m, conversationId)),
-        Ref.update(this.agentConversationCacheRef, (m) => {
-          let next = HashMap.empty<string, string>();
-          for (const [agentName, convId] of HashMap.entries(m)) {
-            if (convId !== conversationId) {
-              next = HashMap.set(next, agentName, convId);
-            }
-          }
-          return next;
-        }),
-        Ref.update(this.lastNotifiedRef, (outer) => {
-          let next = HashMap.empty<string, HashMap.HashMap<string, string>>();
-          for (const [viewConvId, markers] of HashMap.entries(outer)) {
-            if (viewConvId !== conversationId) {
-              next = HashMap.set(
-                next,
-                viewConvId,
-                HashMap.remove(markers, conversationId),
-              );
-            }
-          }
-          return next;
-        }),
-        Ref.update(this.lastReadRef, (outer) => {
-          let next = HashMap.empty<
-            string,
-            HashMap.HashMap<string, ReadonlySet<string>>
-          >();
-          for (const [sessionKey, perConv] of HashMap.entries(outer)) {
-            next = HashMap.set(
-              next,
-              sessionKey,
-              HashMap.remove(perConv, conversationId),
-            );
-          }
-          return next;
-        }),
+        Ref.update(this.agentConversationCacheRef, (m) =>
+          purgeAgentCacheEntries(m, conversationId),
+        ),
+        Ref.update(this.lastNotifiedRef, (outer) =>
+          purgeLastNotified(outer, conversationId),
+        ),
+        Ref.update(this.lastReadRef, (outer) =>
+          purgeLastRead(outer, conversationId),
+        ),
       ]),
     );
   }

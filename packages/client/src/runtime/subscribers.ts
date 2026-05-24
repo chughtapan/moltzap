@@ -1,7 +1,7 @@
 /* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `NotificationParamsOf<D>` use the natural angle-bracket form (TS source style) inside backtick-fenced code spans; the lint rule's pre-render check fires false positives on these multi-line spans. Matches the precedent in filter-equivalence.test.ts. */
 
 /**
- * Per-subscription notification registry for `MoltZapWsClient`.
+ * Per-subscription notification registry for `MoltZapAgentClient`.
  *
  * Responsibility: own the list of live subscriptions and fan each inbound
  * JSON-RPC notification out to every subscription whose definition (and
@@ -98,7 +98,7 @@ interface SubscriptionHandle {
 }
 
 /**
- * Subscriber registry. One instance per `MoltZapWsClient`, created at
+ * Subscriber registry. One instance per `MoltZapAgentClient`, created at
  * construction time and owned by the client.
  *
  * `register<D>` accepts typed `onFrame` / `onClose` callbacks for the
@@ -123,7 +123,7 @@ interface SubscriptionHandle {
  *   Note over ws: pure — returns Stream value, no I/O
  *   ws-->>caller: Stream<DecodedNotification<D>, NotConnectedError>
  *   caller->>caller: Stream.runForEach / runHead
- *   Note over stream: materialization runs Stream.async register synchronously
+ *   Note over stream: materialization runs `Stream.async`'s register synchronously
  *   stream->>registry: register(def, refinement, {onFrame, onClose})
  *   Note over registry: Ref.update(subsRef, append live)<br>return {unregister}
  *   Note over stream: onFrame → emit.single<br>onClose → emit.fail<br>finalizer → handle.unregister
@@ -191,7 +191,7 @@ export interface SubscriberRegistry {
 
   /**
    * Fan an inbound notification out to every matching subscription. Called
-   * from `MoltZapWsClient.handleDecodedNotification`. Snapshot semantic:
+   * from `MoltZapAgentClient.handleDecodedNotification`. Snapshot semantic:
    * unsubscribes that commit mid-dispatch observe NEXT-frame semantics
    * (AD1 path-(a) contract).
    */
@@ -263,7 +263,7 @@ function closeSubscriber(
 }
 
 /**
- * Construct an empty registry. Called once from the `MoltZapWsClient`
+ * Construct an empty registry. Called once from the `MoltZapAgentClient`
  * constructor.
  *
  * Implementation notes:

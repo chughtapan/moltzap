@@ -13,7 +13,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 _TypeAlias_
 
 ```ts
-export type AppManifest = Static<typeof AppManifestSchema>;
+          message_authorize: Type.Optional(HookEntrySchema),
 ```
 
 ### [`AppManifestValidationResult`](./methods.ts#L103)
@@ -21,10 +21,10 @@ export type AppManifest = Static<typeof AppManifestSchema>;
 _TypeAlias_
 
 ```ts
-export type AppManifestValidationResult = Either.Either<
-  AppManifest,
-  AppManifestInvalid
->;
+const formatAppManifestError = (error: {
+  readonly instancePath?: string;
+  readonly message?: string;
+}): string =>
 ```
 
 ### [`appNotifications`](./methods.ts#L507)
@@ -32,11 +32,8 @@ export type AppManifestValidationResult = Either.Either<
 _Variable_
 
 ```ts
-export const appNotifications = [
-  DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
-] as const
+    initialConversation: Type.Optional(
+      Type.Object(
 ```
 
 ### [`appRpcMethods`](./methods.ts#L496)
@@ -44,11 +41,13 @@ export const appNotifications = [
 _Variable_
 
 ```ts
-export const appRpcMethods = [
-  AppsRegister,
-  DispatchRequest,
-  DispatchesGet,
-] as const
+// task transitions to `"active"` and the TM is responsible for
+// creating any conversations (via the TM-only
+// `task/conversation/create`). The verdict shape mirrors the rest
+// of the wire-callback family — same fail-closed envelope, same
+// timeout-synthesizes-reject posture.
+
+const TaskCreateContextSchema = Type.Object(
 ```
 
 ### [`AppsRegister`](./methods.ts#L131)
@@ -56,7 +55,8 @@ export const appRpcMethods = [
 _Variable_
 
 ```ts
-export const AppsRegister = defineRpc(
+  value: unknown,
+): AppManifestValidationResult
 ```
 
 Register an app manifest for the current connection.
@@ -66,7 +66,12 @@ Register an app manifest for the current connection.
 _Variable_
 
 ```ts
-export const DispatchAuthorize = defineRpc(
+ * round-trip synthesizes a fail-closed `deny` verdict at
+ * `LeaseRegistry.resolve`. Manifests opt in by declaring
+ * `hooks.dispatch_authorize`.
+ */
+// Spec D3 R14b — REQUIRED slot. `MoltZapTMClient` constructor demands a
+// handler at type level
 ```
 
 Server → moderator request asking for the admission verdict. Carried
@@ -80,6 +85,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 _Variable_
 
 ```ts
+ */
 export const DispatchesConsumed = defineNotification(
 ```
 
@@ -94,6 +100,7 @@ the durable insert lands, scoped to the moderator's connection only
 _Variable_
 
 ```ts
+ */
 export const DispatchesExpired = defineNotification(
 ```
 
@@ -120,6 +127,10 @@ non-moderator callers fail with `ForbiddenError`.
 _TypeAlias_
 
 ```ts
+ * `dispatches/consumed`, `dispatches/expired`) can reference an
+ * admission attempt by a stable handle whose lease may have been
+ * rolled back-and-re-granted within the same dispatch.
+ */
 export const DispatchId = brandedId("DispatchId");
 ```
 
@@ -134,6 +145,10 @@ rolled back-and-re-granted within the same dispatch.
 _Variable_
 
 ```ts
+ * `dispatches/consumed`, `dispatches/expired`) can reference an
+ * admission attempt by a stable handle whose lease may have been
+ * rolled back-and-re-granted within the same dispatch.
+ */
 export const DispatchId = brandedId("DispatchId")
 ```
 
@@ -148,6 +163,7 @@ rolled back-and-re-granted within the same dispatch.
 _Variable_
 
 ```ts
+ */
 export const DispatchRelease = defineNotification(
 ```
 
@@ -167,6 +183,10 @@ never reached GRANTED).
 _Variable_
 
 ```ts
+ * Wire ordering: the ack and `dispatch/release` may race — the
+ * recipient absorbs the race via a client-side ring buffer + per-
+ * lease `Deferred` (see `packages/client/src/channel-core.ts`).
+ */
 export const DispatchRequest = defineRpc(
 ```
 
@@ -183,7 +203,10 @@ lease `Deferred` (see `packages/client/src/channel-core.ts`).
 _TypeAlias_
 
 ```ts
-export const LeaseId = brandedId("LeaseId");
+//
+// Naming and shape constraints come from the parent plan's Final
+// Decisions §1-§12 (see `/home/tapanc/.claude/plans/okay-now-look-that-
+// swirling-snail.md`).
 ```
 
 Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
@@ -195,7 +218,66 @@ Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
 _Variable_
 
 ```ts
-export const LeaseId = brandedId("LeaseId")
+//
+// Naming and shape constraints come from the parent plan's Final
+// Decisions §1-§12 (see `/home/tapanc/.claude/plans/okay-now-look-that-
+// swirling-snail.md`).
+
+import { LeaseId } from "../task/messages.js";
+
+/**
+ * Branded dispatch identifier minted alongside the lease. Distinct from
+ * the lease id so observability surfaces (`dispatches/get`,
+ * `dispatches/consumed`, `dispatches/expired`) can reference an
+ * admission attempt by a stable handle whose lease may have been
+ * rolled back-and-re-granted within the same dispatch.
+ */
+export const DispatchId = brandedId("DispatchId");
+export type DispatchId = Static<typeof DispatchId>;
+
+/**
+ * Recipient → server admission request. The server returns an
+ * immediate ack carrying `{leaseId, dispatchId}` and emits an out-of-
+ * band `dispatch/release` notification carrying the verdict.
+ *
+ * Wire ordering: the ack and `dispatch/release` may race — the
+ * recipient absorbs the race via a client-side ring buffer + per-
+ * lease `Deferred` (see `packages/client/src/channel-core.ts`).
+ */
+export const DispatchRequest = defineRpc({
+  name: "dispatch/request",
+  params: Type.Object(
+    {
+      conversationId: ConversationId,
+      messageId: MessageId,
+      senderAgentId: AgentId,
+      parts: Type.Optional(MessagePartsSchema),
+      receivedAt: Type.Optional(DateTimeString),
+      pending: Type.Optional(PendingMessageArraySchema),
+      clock: Type.Optional(LogicalClockSchema),
+      attempt: Type.Optional(Type.Integer({ minimum: 0 })),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { leaseId: LeaseId, dispatchId: DispatchId },
+    { additionalProperties: false },
+  ),
+});
+
+/**
+ * Server → moderator request asking for the admission verdict. Carried
+ * inside the forked moderator round-trip; failure / timeout in the
+ * round-trip synthesizes a fail-closed `deny` verdict at
+ * `LeaseRegistry.resolve`. Manifests opt in by declaring
+ * `hooks.dispatch_authorize`.
+ */
+// Spec D3 R14b — REQUIRED slot. `MoltZapTMClient` constructor demands a
+// handler at type level; vacuous-deny moderators must wire it explicitly.
+export const DispatchAuthorize = defineRpc({
+  name: "dispatch/authorize",
+  params: DispatchAuthorizeContextSchema,
+  result: Type.Object(
 ```
 
 Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
@@ -207,6 +289,7 @@ Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
 _Variable_
 
 ```ts
+// Spec D3 R14b — REQUIRED slot. Symmetric with DispatchAuthorize.
 export const MessagesAuthorize = defineRpc(
 ```
 
@@ -228,10 +311,7 @@ sender's transcript but is delivered to no one else.
 _Variable_
 
 ```ts
-export const taskCallbackMethods = [
-  DispatchAuthorize,
-  MessagesAuthorize,
-] as const
+const TaskCreateContextSchema = Type.Object(
 ```
 
 ### [`validateAppManifest`](./methods.ts#L120)
@@ -239,9 +319,8 @@ export const taskCallbackMethods = [
 _Function_
 
 ```ts
-export function validateAppManifest(
-  value: unknown,
-): AppManifestValidationResult
+    formatAppManifestError,
+  )
 ```
 
 ## Files

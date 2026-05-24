@@ -57,12 +57,17 @@ export class TypeDocCacheMalformedError extends Data.TaggedError(
   "TypeDocCacheMalformedError",
 )<{ readonly path: string; readonly reason: string }> {}
 
-
 interface RawComment {
-  readonly summary?: ReadonlyArray<{ readonly kind?: string; readonly text?: string }>;
+  readonly summary?: ReadonlyArray<{
+    readonly kind?: string;
+    readonly text?: string;
+  }>;
   readonly blockTags?: ReadonlyArray<{
     readonly tag?: string;
-    readonly content?: ReadonlyArray<{ readonly kind?: string; readonly text?: string }>;
+    readonly content?: ReadonlyArray<{
+      readonly kind?: string;
+      readonly text?: string;
+    }>;
   }>;
 }
 
@@ -244,7 +249,10 @@ function toTag(t: {
   return { tag: t.tag ?? "", content: joinParts(t.content) };
 }
 
-function renderInline(part: { readonly kind?: string; readonly text?: string }): string {
+function renderInline(part: {
+  readonly kind?: string;
+  readonly text?: string;
+}): string {
   return part.text ?? "";
 }
 

@@ -37,7 +37,6 @@ import {
 import { getBaseUrl } from "../../../test-utils/index.js";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
-import { makeEndpointAddress } from "@moltzap/protocol/network";
 import {
   DeliveryAck,
   opaquePayload,
@@ -69,11 +68,9 @@ it("network.send delivers a real notification to a durable address", () =>
     const alice = yield* registerAndConnect("alice-resolver");
     const [connId] = connIdsForAgent(alice.agentId);
     if (!connId) throw new Error("expected one live connection");
-    // Phase 9b consumer-migration (sub-issue #460 amendment):
-    // `agent-conn` retired. Sends use the durable
-    // `tm:agent:<agentId>` form; the resolver picks one of the
+    // Sends are keyed by AgentId; the resolver picks one of the
     // agent's live ConnectionIds internally.
-    const address = makeEndpointAddress("agent", alice.agentId);
+    const address = protocolAgentId(alice.agentId);
 
     // Real notification frame so the client's typed-bridge accepts it.
     // Asserts end-to-end wire delivery, not just the server-side write
@@ -103,7 +100,7 @@ it("network.send delivers a real notification to a durable address", () =>
 it("disconnect drains the resolver before subsequent send", () =>
   Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-drain");
-    const address = makeEndpointAddress("agent", alice.agentId);
+    const address = protocolAgentId(alice.agentId);
 
     yield* alice.client.close();
     // The WS finalizer that calls `agentEndpointResolver.remove`
@@ -139,11 +136,11 @@ it("two connections of the same agent share durable address routing", () =>
     const ids = connIdsForAgent(aId);
     expect(ids).toHaveLength(2);
 
-    // Phase 9b: durable address fans out to one of the agent's live
-    // connections (pick-one routing). The send always succeeds when
-    // at least one connection is live; both connections register
-    // under the same agent in the resolver's forward map.
-    const address = makeEndpointAddress("agent", aId);
+    // Durable agent fan-out picks one of the agent's live connections
+    // (pick-one routing). The send always succeeds when at least one
+    // connection is live; both connections register under the same
+    // agent in the resolver's forward map.
+    const address = protocolAgentId(aId);
     const frame = PresenceChangedNotificationDefinition.encode({
       agentId: protocolAgentId(aId),
       status: "online",

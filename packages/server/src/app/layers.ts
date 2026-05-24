@@ -11,15 +11,12 @@ import {
   TraceCaptureTag,
   type TraceCapture,
 } from "../runtime-surface/trace-capture.js";
-import { ConnectionManager } from "../transport/connection.js";
-import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import {
-  AppTmRegistry,
-  DEFAULT_DM_TM_ADDRESS,
-  DEFAULT_GROUP_TM_ADDRESS,
-} from "../network/app-tm-registry.js";
+  ConnectionManager,
+  type MoltZapConnection,
+} from "../transport/connection.js";
+import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
-import { makeDefaultTmHandler } from "../task/services/default-tm.js";
 import { AuthService } from "../identity/services/auth.service.js";
 import { ParticipantService } from "../identity/services/participant.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
@@ -36,45 +33,6 @@ import { AppHost } from "./app-host.js";
 import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { WebhookClient } from "../adapters/webhook.js";
-
-import type { MessageAuthorizeHook } from "./hooks.js";
-import type { AgentId } from "@moltzap/protocol/identity";
-
-/**
- * Default `messageAuthorize` hook used by default-DM and default-group TMs.
- *
- * Issue #560 keeps the pre-cutover broadcast behavior by returning Forward
- * with every participant except the sender. Reads `conversation_participants`
- * directly to avoid a circular import on ConversationService.
- *
- * The hook returns a Promise to match the `Hook&lt;TContext, TResult>`
- * sync-or-promise SDK ergonomic; internally builds the value via Effect
- * + `Effect.runPromise` so the project's no-async/no-then guards stay
- * honoured.
- */
-function makeDefaultMessageAuthorizeHook(db: Db): MessageAuthorizeHook {
-  return (ctx) =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const rows = yield* Effect.tryPromise({
-          try: () =>
-            db
-              .selectFrom("conversation_participants")
-              .select("agent_id")
-              .where("conversation_id", "=", ctx.conversationId)
-              .execute(),
-          catch: (cause) => cause,
-        });
-        const recipients = rows
-          .map((r) => r.agent_id as AgentId)
-          .filter((a) => a !== ctx.message.senderAgentId);
-        return {
-          decision: "Forward" as const,
-          recipients,
-        };
-      }),
-    );
-}
 
 /** Default retention window for terminal lease records: 5 minutes. */
 const LEASE_RETENTION_MINUTES = 5;
@@ -97,13 +55,16 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 >() {}
 
 /**
- * Request-scoped connection id. Provided per WebSocket RPC dispatch by the
- * router; read by handlers via `yield* ConnIdTag`. Replaces the previous
- * `AsyncLocalStorage&lt;string>` + `getConnId` prop threading.
+ * Request-scoped connection. Provided per WebSocket RPC dispatch by the
+ * router; read by handlers via `yield* ConnectionTag`. Handlers that
+ * only need the id read `.id` on the connection. Replaces the
+ * previous `ConnectionTag` — carrying the connection directly eliminates
+ * the lookup-by-id-and-maybe-fail step (and its associated defect
+ * path) every handler that wanted the connection object had to do.
  */
-export class ConnIdTag extends Context.Tag("moltzap/ConnId")<
-  ConnIdTag,
-  string
+export class ConnectionTag extends Context.Tag("moltzap/Connection")<
+  ConnectionTag,
+  MoltZapConnection
 >() {}
 
 export class ConnectionManagerTag extends Context.Tag(
@@ -118,16 +79,6 @@ export class ConnectionManagerTag extends Context.Tag(
 export class AgentEndpointResolverTag extends Context.Tag(
   "moltzap/AgentEndpointResolver",
 )<AgentEndpointResolverTag, AgentEndpointResolver>() {}
-
-/**
- * In-process app-TM handler registry. `tm:app:&lt;id>` addresses
- * dispatch through here; default DM / group TMs register at boot via
- * {@link AppTmRegistryLive}.
- */
-export class AppTmRegistryTag extends Context.Tag("moltzap/AppTmRegistry")<
-  AppTmRegistryTag,
-  AppTmRegistry
->() {}
 
 /**
  * Single outbound surface: `send` (directed) and `broadcast`
@@ -230,35 +181,16 @@ export const AgentEndpointResolverLive = Layer.effect(
 );
 
 /**
- * Build the app-TM registry and seed the default DM + group TMs at
- * boot. `tasks.tm_endpoint_address` is NOT NULL — every task needs a
- * registered TM at insert time, and non-app DMs/groups bind here.
- */
-export const AppTmRegistryLive = Layer.effect(
-  AppTmRegistryTag,
-  Effect.gen(function* () {
-    const registry = yield* AppTmRegistry.make;
-    yield* registry.register(DEFAULT_DM_TM_ADDRESS, makeDefaultTmHandler("dm"));
-    yield* registry.register(
-      DEFAULT_GROUP_TM_ADDRESS,
-      makeDefaultTmHandler("group"),
-    );
-    return registry;
-  }).pipe(Effect.withSpan("AppTmRegistryLive")),
-);
-
-/**
- * `network.send` Layer. Composes the resolver, the connection manager,
- * and the app-TM registry into the {@link NetworkSendService} instance
- * the rest of the server holds via {@link NetworkSendServiceTag}.
+ * `network.send` Layer. Composes the resolver and the connection
+ * manager into the {@link NetworkSendService} instance the rest of the
+ * server holds via {@link NetworkSendServiceTag}.
  */
 export const NetworkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
   Effect.gen(function* () {
     const resolver = yield* AgentEndpointResolverTag;
     const connections = yield* ConnectionManagerTag;
-    const appTmRegistry = yield* AppTmRegistryTag;
-    return new NetworkSendService(resolver, connections, appTmRegistry);
+    return new NetworkSendService(resolver, connections);
   }).pipe(Effect.withSpan("NetworkSendServiceLive")),
 );
 
@@ -340,19 +272,6 @@ export const AppHostLive = Layer.effect(
     const leaseRegistry = yield* LeaseRegistryTag;
     const host = new AppHost(db, connections);
     host.setLeaseRegistry(leaseRegistry);
-    // #560: register default-DM and default-group `messageAuthorize`
-    // hooks. Each returns Forward { recipients: participants \
-    // sender }, preserving today's broadcast for non-app
-    // conversations. AppHost reads `conversation_participants`
-    // directly so no ConversationService dependency.
-    host.registerMessageAuthorize(
-      DEFAULT_DM_TM_ADDRESS,
-      makeDefaultMessageAuthorizeHook(db),
-    );
-    host.registerMessageAuthorize(
-      DEFAULT_GROUP_TM_ADDRESS,
-      makeDefaultMessageAuthorizeHook(db),
-    );
     return host;
   }).pipe(Effect.withSpan("AppHostLive")),
 );
@@ -429,17 +348,12 @@ const Tier1 = Layer.mergeAll(
 );
 
 /**
- * Tier 2 — Presence + resolver + AppTmRegistry above Tier 1's
- * ConnectionManager. The resolver has no upstream deps (in-memory
- * `Ref`); it joins this tier so NetworkSendServiceLive can pick it
- * up at Tier 2.5.
+ * Tier 2 — Presence + resolver above Tier 1's ConnectionManager. The
+ * resolver has no upstream deps (in-memory `Ref`); it joins this tier
+ * so NetworkSendServiceLive can pick it up at Tier 2.5.
  */
 const Tier2 = Layer.provideMerge(
-  Layer.mergeAll(
-    PresenceServiceLive,
-    AgentEndpointResolverLive,
-    AppTmRegistryLive,
-  ),
+  Layer.mergeAll(PresenceServiceLive, AgentEndpointResolverLive),
   Tier1,
 );
 
@@ -494,7 +408,6 @@ export interface ResolvedServices {
   readonly db: Db;
   readonly connections: ConnectionManager;
   readonly agentEndpointResolver: AgentEndpointResolver;
-  readonly appTmRegistry: AppTmRegistry;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
   readonly participantService: ParticipantService;
@@ -519,7 +432,6 @@ export const resolveServices = Effect.all({
   encryption: EncryptionTag,
   connections: ConnectionManagerTag,
   agentEndpointResolver: AgentEndpointResolverTag,
-  appTmRegistry: AppTmRegistryTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
   participantService: ParticipantServiceTag,

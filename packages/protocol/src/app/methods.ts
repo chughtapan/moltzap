@@ -11,7 +11,6 @@ import {
   stringEnum,
 } from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
-import { forbidden } from "../transport/defaults.js";
 
 const DateTimeString = dateTimeStringSchema();
 const AgentOwnershipSchema = agentOwnershipSchema();
@@ -28,7 +27,7 @@ const AppManifestConversationSchema = Type.Object(
 );
 
 /**
- * Per-hook configuration entry. `dispatch_authorize` accepts the
+ * Per-hook configuration entry. Every hook key accepts the same
  * shape — only `timeout_ms` is configurable.
  */
 const HookEntrySchema = Type.Object(
@@ -39,7 +38,7 @@ const HookEntrySchema = Type.Object(
 );
 
 /**
- * Manifest hook map. Two hook keys:
+ * Manifest hook map. Three hook keys:
  *
  * - `dispatch_authorize` (receive-side) — selects the moderator round-
  *   trip target for per-recipient admission verdicts; emits the
@@ -51,11 +50,21 @@ const HookEntrySchema = Type.Object(
  *   without an equivalent on the new wire surface. Verdict is the
  *   minimum-viable subset of #142's 5-arm `TaskManagerAction`:
  *   `Forward { recipients } | Block { reason }`.
+ * - `task_create` (task-creation gate) — selects the TM round-trip
+ *   target for the per-task-request accept/reject verdict; emits the
+ *   matching `task/create` S→C RPC. Distinct from the two per-message
+ *   hooks: it gates the `waiting → active | failed` lifecycle
+ *   transition, so it carries its own `timeout_ms` rather than
+ *   borrowing the per-message tuning.
  *
- * Both hook keys are optional. Default policy when `message_authorize`
- * is absent: `Forward { participants \ sender }`. Default policy when
- * `dispatch_authorize` is absent: `grant`. See #560 for the send-side
- * design and #538/#536 for the receive-side history.
+ * All hook keys are optional. Default policy when `message_authorize`
+ * is absent: `Forward { participants \ sender }`. When
+ * `dispatch_authorize` is absent: `grant`. When `task_create` is
+ * absent: the server uses the default app-hook timeout and the bound
+ * app's registered `task/create` handler decides the verdict (the
+ * boot-installed default app auto-accepts). See #560 for the
+ * send-side design, #538/#536 for the receive-side history, and #683
+ * for the task-creation gate.
  */
 const AppManifestSchema = Type.Object(
   {
@@ -76,6 +85,7 @@ const AppManifestSchema = Type.Object(
         {
           dispatch_authorize: Type.Optional(HookEntrySchema),
           message_authorize: Type.Optional(HookEntrySchema),
+          task_create: Type.Optional(HookEntrySchema),
         },
         { additionalProperties: false },
       ),
@@ -144,7 +154,7 @@ const DispatchAdmissionDecisionSchema = Type.Union([
   Type.Object(
     {
       decision: Type.Literal("grant"),
-      leaseId: Type.Optional(Type.String()),
+      leaseId: Type.Optional(LeaseId),
       leaseTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
       dispatchMessageId: Type.Optional(MessageId),
     },
@@ -217,13 +227,7 @@ const DispatchAuthorizeContextSchema = Type.Object(
 // Decisions §1-§12 (see `/home/tapanc/.claude/plans/okay-now-look-that-
 // swirling-snail.md`).
 
-/**
- * Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
- * ≥122 bits entropy; the brand keeps it from being confused with
- * `MessageId` / `DispatchId` at type sites that consume both.
- */
-export const LeaseId = brandedId("LeaseId");
-export type LeaseId = Static<typeof LeaseId>;
+import { LeaseId } from "../task/messages.js";
 
 /**
  * Branded dispatch identifier minted alongside the lease. Distinct from
@@ -272,6 +276,8 @@ export const DispatchRequest = defineRpc({
  * `LeaseRegistry.resolve`. Manifests opt in by declaring
  * `hooks.dispatch_authorize`.
  */
+// Spec D3 R14b — REQUIRED slot. `MoltZapTMClient` constructor demands a
+// handler at type level; vacuous-deny moderators must wire it explicitly.
 export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
@@ -279,11 +285,6 @@ export const DispatchAuthorize = defineRpc({
     { admission: DispatchAdmissionDecisionSchema },
     { additionalProperties: false },
   ),
-  // Spec F G4 / R2 — OPTIONAL slot with fail-CLOSED `ForbiddenError`
-  // (-32001) default. A TM that doesn't wire this handler implicitly
-  // declines authorization for every dispatch; the dispatcher synthesizes
-  // the wire response without invoking a handler.
-  optional: forbidden,
 });
 
 /**
@@ -382,7 +383,6 @@ const LeaseRecordSchema = Type.Object(
     appId: Type.String(),
     recipientAgentId: AgentId,
     moderatorConnectionId: Type.String(),
-    tmEndpointAddress: Type.String(),
     state: LeaseStateSchema,
     verdict: Type.Union([DispatchAdmissionDecisionSchema, Type.Null()]),
     mintedAt: DateTimeString,
@@ -478,6 +478,7 @@ const MessagesAuthorizeVerdictSchema = Type.Union([
  * `Forward { recipients: [] }` is legal — message lands in the
  * sender's transcript but is delivered to no one else.
  */
+// Spec D3 R14b — REQUIRED slot. Symmetric with DispatchAuthorize.
 export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
@@ -485,10 +486,95 @@ export const MessagesAuthorize = defineRpc({
     { verdict: MessagesAuthorizeVerdictSchema },
     { additionalProperties: false },
   ),
-  // Spec F G4 / R2 — OPTIONAL slot with fail-CLOSED `ForbiddenError`
-  // (-32001) default. Symmetric with `DispatchAuthorize`: both
-  // TM-callback auth hooks fail-CLOSED when the TM omits the slot.
-  optional: forbidden,
+});
+
+// ── task/create (TM recruitment) ────────────────────────────────────
+//
+// Issue #683: agent-driven `task/request` creates a task in
+// `"waiting"` state and forks this wire callback to the registered
+// TM. The TM responds with an accept/reject verdict; on accept the
+// task transitions to `"active"` and the TM is responsible for
+// creating any conversations (via the TM-only
+// `task/conversation/create`). The verdict shape mirrors the rest
+// of the wire-callback family — same fail-closed envelope, same
+// timeout-synthesizes-reject posture.
+
+const TaskCreateContextSchema = Type.Object(
+  {
+    taskId: TaskId,
+    initiatorAgentId: AgentId,
+    invitedAgentIds: Type.Array(AgentId),
+    initialConversation: Type.Optional(
+      Type.Object(
+        {
+          name: Type.Optional(Type.String()),
+          participants: Type.Optional(Type.Array(AgentId)),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    receivedAt: Type.Optional(DateTimeString),
+  },
+  { additionalProperties: false },
+);
+
+const TaskCreateVerdictSchema = Type.Union([
+  Type.Object(
+    { decision: Type.Literal("accept") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      decision: Type.Literal("reject"),
+      // Bound matches `TaskFailedNotificationDefinition.reason`
+      // (1..256). The server forwards this verdict reason verbatim
+      // into the `task/failed` notification; an unbounded or empty
+      // reason here would produce a `task/failed` frame the client
+      // decoder rejects (the notification would silently never
+      // decode at subscribers). Keeping the two schemas in lockstep
+      // makes that mismatch unrepresentable.
+      reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+/**
+ * Server → TM round-trip asking whether the TM accepts a newly
+ * requested task. Triggered from the `task/request` handler after
+ * the task row is inserted (status `"waiting"`) and before the
+ * requester observes any state.
+ *
+ * The TM owns the post-accept lifecycle:
+ *   - On `accept` the server transitions the task to `"active"`
+ *     and fires `task/created` to the requester. The TM SHOULD
+ *     then call `task/conversation/create` to honor the
+ *     requester's `initialConversation` hint if it chose to.
+ *   - On `reject` (or timeout / RPC error / decode failure) the
+ *     server transitions the task to `"failed"` and fires
+ *     `task/failed` to the requester.
+ *
+ * Fail-closed envelope mirrors `DispatchAuthorize` /
+ * `MessagesAuthorize`: timeout synthesizes
+ * `{ decision: "reject", reason: "timeout" }`; an unknown app or
+ * RPC/decode failure synthesizes `reason: "tm_unreachable"`.
+ *
+ * Durability note: the `task/request` handler inserts the task row
+ * (`waiting`) BEFORE this callback's network round-trip, and the
+ * terminal `setStatus` runs AFTER it. The sequence is not atomic
+ * (the callback is a network call, not a DB op), so a crash or fiber
+ * interrupt in that window can strand a task in `waiting`. Stranded
+ * waiting tasks are invisible to delivery (no conversation, no
+ * participants observe them) and are reaped by follow-up work (the
+ * stale-waiting-task sweep, #684).
+ */
+export const TaskCreate = defineRpc({
+  name: "task/create",
+  params: TaskCreateContextSchema,
+  result: Type.Object(
+    { verdict: TaskCreateVerdictSchema },
+    { additionalProperties: false },
+  ),
 });
 
 // ── Aggregators ─────────────────────────────────────────────────────
@@ -502,6 +588,7 @@ export const appRpcMethods = [
 export const taskCallbackMethods = [
   DispatchAuthorize,
   MessagesAuthorize,
+  TaskCreate,
 ] as const;
 
 export const appNotifications = [

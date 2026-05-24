@@ -9,8 +9,16 @@ List messages in a conversation with cursor-based pagination using sequence numb
 
 ## Parameters
 
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
 <ParamField path="conversationId" type="string (UUID)" required>
   Branded ConversationId
+</ParamField>
+
+<ParamField path="sinceSeq" type="string">
+  Snowflake seq cursor (string-encoded BIGINT)
 </ParamField>
 
 <ParamField path="limit" type="integer">

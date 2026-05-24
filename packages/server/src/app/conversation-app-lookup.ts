@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { AppId, ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import {
   catchSqlErrorAsDefect,
@@ -13,9 +13,9 @@ import {
  *
  * - `NoAppSession` — parent task has `app_id IS NULL` and the conversation
  *   is not archived. Caller default-grants (no moderator to consult).
- * - `AppBound` — parent task has `app_id IS NOT NULL`. Caller routes to
- *   the in-process hook (`AppHost.hooks` map) or remote registration
- *   (`AppHost.remoteRegistrations` map) for that `appId`.
+ * - `AppBound` — parent task has `app_id IS NOT NULL`. Caller looks the
+ *   `AppRegistration` up in `AppHost.apps` and routes to the bundled
+ *   InProcess or Remote hook for that `appId`.
  * - `ConversationArchived` — `conversations.archived_at IS NOT NULL`.
  *   Caller denies with reason `"conversation_archived"`. The archive
  *   check fires before the app discriminator so an archived app-bound
@@ -33,7 +33,7 @@ export type ConversationAppLookup =
   | {
       readonly _tag: "AppBound";
       readonly taskId: TaskId;
-      readonly appId: string;
+      readonly appId: AppId;
     }
   | { readonly _tag: "ConversationArchived" }
   | { readonly _tag: "ConversationNotFound" };
@@ -103,7 +103,9 @@ export function lookupAppForConversation(
       return {
         _tag: "AppBound",
         taskId: row.task_id,
-        appId: row.app_id,
+        // Single boundary cast: Kysely returns `app_id` as `string`; the
+        // brand boundary is the type system, not a format check.
+        appId: row.app_id as AppId,
       } as const;
     }).pipe(Effect.withSpan("lookupAppForConversation")),
   );

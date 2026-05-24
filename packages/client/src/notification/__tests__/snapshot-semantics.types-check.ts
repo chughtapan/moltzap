@@ -13,7 +13,7 @@
  * **Architect stub** (Spec B): canaries probe the architect-stubbed
  * `subscribe` / `subscribeAll` signatures in `../stream.ts`. Impl-staff
  * preserves the canary shapes and re-targets them at
- * `MoltZapWsClient.prototype.subscribe` / `.subscribeAll` once the
+ * `MoltZapAgentClient.prototype.subscribe` / `.subscribeAll` once the
  * methods are wired.
  */
 import { Stream } from "effect";

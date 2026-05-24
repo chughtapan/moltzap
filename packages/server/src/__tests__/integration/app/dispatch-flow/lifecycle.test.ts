@@ -10,10 +10,9 @@ import {
   DISPATCH_STATE_CONSUMED,
   DISPATCH_STATE_EXPIRED,
   DISPATCH_STATE_GRANTED,
-  DISPATCH_VERDICT_HOLD,
-  MODERATOR_UNAVAILABLE_REASON,
   createDispatchFlowFixture,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createUnmoderatedDm,
   readLeaseByDispatchId,
   readLeaseByLeaseId,
@@ -22,10 +21,8 @@ import {
   startDispatchFlowServer,
   stopDispatchFlowServer,
   waitForDispatchRelease,
-  waitForParticipantsRemoved,
 } from "./fixture.js";
 import {
-  expectEitherLeft,
   registerAndConnect,
   setupAgentPair,
   type ConnectedAgent,
@@ -33,10 +30,8 @@ import {
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
-const UNKNOWN_APP_ID = "no-hook-dispatch-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const SHORT_LEASE_TIMEOUT_MS = 100;
-const PARTICIPANT_REMOVED_NEGATIVE_WAIT_MS = 500;
 const DISCONNECT_FINALIZER_WAIT = "300 millis";
 const TTL_WAIT = "400 millis";
 
@@ -57,13 +52,19 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 function requestModeratedDispatch(
   alice: ConnectedAgent,
   bob: ConnectedAgent,
-  appId: string,
+  manifest: AppManifest,
   text: string,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createModeratedDm(alice, bob, appId);
-    const ack = yield* requestDispatch(bob, conversationId, alice, text);
-    return { ack, conversationId };
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const binding = yield* createTaskConversationOnApp(alice, bob, manifest);
+    const ack = yield* requestDispatch(
+      bob,
+      binding.conversationId,
+      alice,
+      text,
+    );
+    return { ack, binding, conversationId: binding.conversationId };
   }).pipe(Effect.withSpan("requestModeratedLifecycleDispatch"));
 }
 
@@ -73,40 +74,15 @@ function requestUnmoderatedDispatch(
   text: string,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
-    const ack = yield* requestDispatch(bob, conversationId, alice, text);
-    return { ack, conversationId };
-  }).pipe(Effect.withSpan("requestUnmoderatedLifecycleDispatch"));
-}
-
-function synthesizedInfraHoldDoesNotRemoveRecipient() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    // Fork-before-trigger (Spec B #596 r2 fix): subscribe before the
-    // dispatch RPC fires. The participants/removed listener is also
-    // forked up-front so a stray event would still be captured; the
-    // assertion is `expectEitherLeft` (timeout) since infra-hold must
-    // NOT remove the recipient.
-    const releaseFiber = yield* waitForDispatchRelease(bob);
-    const removedFiber = yield* waitForParticipantsRemoved(
+    const binding = yield* createUnmoderatedDm(alice, bob);
+    const ack = yield* requestDispatch(
       bob,
-      PARTICIPANT_REMOVED_NEGATIVE_WAIT_MS,
-    );
-    const { ack } = yield* requestModeratedDispatch(
+      binding.conversationId,
       alice,
-      bob,
-      UNKNOWN_APP_ID,
-      "probe",
+      text,
     );
-    const release = yield* Fiber.join(releaseFiber);
-
-    expect(release.leaseId).toBe(ack.leaseId);
-    expect(release.verdict.decision).toBe(DISPATCH_VERDICT_HOLD);
-    expect(release.verdict.reason).toBe(MODERATOR_UNAVAILABLE_REASON);
-
-    const removed = yield* Effect.either(Fiber.join(removedFiber));
-    expectEitherLeft(removed);
-  });
+    return { ack, binding, conversationId: binding.conversationId };
+  }).pipe(Effect.withSpan("requestUnmoderatedLifecycleDispatch"));
 }
 
 function grantedLeaseExpiresAfterTtl() {
@@ -120,7 +96,7 @@ function grantedLeaseExpiresAfterTtl() {
     const { ack } = yield* requestModeratedDispatch(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "probe",
     );
 
@@ -139,7 +115,7 @@ function pendingDisconnectAbandonsLease() {
     const { ack } = yield* requestModeratedDispatch(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "abandon",
     );
 
@@ -173,7 +149,7 @@ function consumedDisconnectKeepsLeaseConsumed() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const { ack, conversationId } = yield* requestUnmoderatedDispatch(
+    const { ack, binding } = yield* requestUnmoderatedDispatch(
       alice,
       bob,
       "first",
@@ -181,7 +157,7 @@ function consumedDisconnectKeepsLeaseConsumed() {
     yield* Fiber.join(releaseFiber);
     const sent = yield* sendMessageWithLease(
       bob,
-      conversationId,
+      binding,
       ack.leaseId,
       "first",
     );
@@ -209,7 +185,7 @@ function expiredReconnectMintsNewLease() {
     const first = yield* requestModeratedDispatch(
       alice,
       bob,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "first",
     );
     yield* Fiber.join(releaseFiber);
@@ -224,7 +200,7 @@ function expiredReconnectMintsNewLease() {
     const second = yield* requestModeratedDispatch(
       alice,
       bob2,
-      TEST_APP_ID,
+      TEST_APP_MANIFEST,
       "second",
     );
 
@@ -234,12 +210,6 @@ function expiredReconnectMintsNewLease() {
 }
 
 describe("dispatch/* - lifecycle verdict and ttl", () => {
-  it(
-    "does not remove the recipient for synthesized infra hold",
-    synthesizedInfraHoldDoesNotRemoveRecipient,
-    20_000,
-  );
-
   it(
     "expires a granted lease after leaseTimeoutMs",
     grantedLeaseExpiresAfterTtl,

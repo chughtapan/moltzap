@@ -111,6 +111,7 @@ function observeFanOutCounts(
 
 function sendFanOutMessage(fixture: ConversationFixture) {
   return fixture.owner.client.sendRpc(MessagesSend, {
+    taskId: fixture.taskId,
     conversationId: fixture.conversationId,
     parts: [{ type: "text", text: "fan-out-ping" }],
   });

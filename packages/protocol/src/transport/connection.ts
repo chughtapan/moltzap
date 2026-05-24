@@ -14,7 +14,8 @@ import { Effect, type Context, type Scope } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 
 import type {
-  AnyRpcDefinition,
+  AnyAgentClientRpcDefinition,
+  AnyTaskMasterRpcDefinition,
   AnyTaskCallbackRpcDefinition,
   AnyNotificationDefinition,
 } from "../rpc-registry.js";
@@ -139,7 +140,7 @@ interface ConnectionIdentity {
  * for `DispatchAuthorize` and `MessagesAuthorize`. Outbound notifications
  * are the full `AnyNotificationDefinition` set (the server originates
  * delivery + lifecycle notifications). Inbound surface is the closed
- * `rpcMethods` catalog, dispatched via the static `ServerHandlers` table.
+ * `serverRpcMethods` catalog, dispatched via the static `ServerHandlers` table.
  */
 export interface ServerConnection<Ctx = unknown, R = never>
   extends ConnectionIdentity,
@@ -149,14 +150,14 @@ export interface ServerConnection<Ctx = unknown, R = never>
 
 /**
  * `AgentClientConnection` — plain agent client. Outbound surface is
- * the full `rpcMethods` catalog. Outbound notifications: none
+ * the full `serverRpcMethods` catalog. Outbound notifications: none
  * (clients consume notifications; they do not originate them) — the
  * `notify` method is typed `never`, which fails any call site. No
  * inbound surface (the AgentClient kind's inbound catalog is empty).
  */
 export interface AgentClientConnection
   extends ConnectionIdentity,
-    OutboundCall<AnyRpcDefinition>,
+    OutboundCall<AnyAgentClientRpcDefinition>,
     OutboundNotify<never> {
   /**
    * Resolve one inbound response frame against the originator's
@@ -168,7 +169,7 @@ export interface AgentClientConnection
 
 /**
  * `TaskMasterConnection` — agent acting as TM. Outbound surface is the
- * full `rpcMethods` catalog (a TM is a superset of an AgentClient at the
+ * full `serverRpcMethods` catalog (a TM is a superset of an AgentClient at the
  * type level). Outbound notifications: none. Inbound surface is the
  * `taskCallbackMethods` catalog, dispatched via the static
  * `TaskMasterHandlers` table (both slots optional with fail-CLOSED
@@ -177,7 +178,7 @@ export interface AgentClientConnection
 export interface TaskMasterConnection<Ctx = unknown, R = never>
   extends ConnectionIdentity,
     InboundDispatch<Ctx, R>,
-    OutboundCall<AnyRpcDefinition>,
+    OutboundCall<AnyTaskMasterRpcDefinition>,
     OutboundNotify<never> {}
 
 /**
@@ -231,7 +232,7 @@ export interface AgentClientConnectionConfig<
 
 /**
  * Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
- * catalog inbound; its outbound surface is the full `rpcMethods` catalog.
+ * catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
  */
 export interface TaskMasterConnectionConfig<
   Ctx,
@@ -282,7 +283,7 @@ export function makeAgentClientConnection<
 /**
  * Factory — TaskMaster. Delegates to `buildTaskMasterDispatcher` which
  * wires both the inbound dispatch loop (against `taskCallbackMethods`)
- * and the outbound originator (against the full `rpcMethods` catalog).
+ * and the outbound originator (against the full `serverRpcMethods` catalog).
  * Both inbound slots are OPTIONAL (fail-CLOSED `ForbiddenError` -32001
  * defaults per Spec F R2); the empty literal `{ handlers: {} }` is
  * well-typed and produces a TM that responds to every inbound auth

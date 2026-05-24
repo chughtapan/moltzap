@@ -104,7 +104,7 @@ const queryConversationListRows = (
   rawQuery(
     db,
     sql<ListRow>`
-      SELECT c.id, c.type, c.name, c.updated_at,
+      SELECT c.id, c.name, c.updated_at,
              m.parts_encrypted IS NOT NULL as has_last_message,
              m.created_at as last_message_at,
              COALESCE(
@@ -150,7 +150,6 @@ const conversationSummariesFromRows = (
 ): ConversationSummary[] =>
   rows.map((row) => ({
     id: row.id,
-    type: row.type,
     name: row.name ?? undefined,
     lastMessagePreview: previewCache.get(row.id),
     lastMessageTimestamp: row.last_message_at?.toISOString(),

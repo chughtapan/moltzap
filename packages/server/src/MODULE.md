@@ -13,10 +13,7 @@ Public exports for `@moltzap/server-core`.
 _Function_
 
 ```ts
-export function decodeAppManifest(
-  json: string,
-  path: string,
-): Either.Either<AppManifest, InvalidAppManifest>
+    try: ()
 ```
 
 ### [`InvalidAppManifest`](./standalone.ts#L51)
@@ -24,11 +21,10 @@ export function decodeAppManifest(
 _Class_
 
 ```ts
-export class InvalidAppManifest extends Data.TaggedError("InvalidAppManifest")<{
-  readonly kind: "parse" | "schema";
-  readonly path: string;
-  readonly errors: readonly string[];
-}> {}
+  operation: string,
+  cause: unknown,
+): StandaloneOperationFailed =>
+  new StandaloneOperationFailed({
 ```
 
 Decode failure for an on-disk app manifest. `kind` discriminates JSON
@@ -40,9 +36,7 @@ specific edge that fired without re-inspecting the cause.
 _Class_
 
 ```ts
-export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
   readonly message: string;
-}> {}
 ```
 
 ### [`StandaloneOperationFailed`](./standalone.ts#L34)
@@ -50,7 +44,6 @@ export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
 _Class_
 
 ```ts
-export class StandaloneOperationFailed extends Data.TaggedError(
   "StandaloneOperationFailed",
 )<{
   readonly cause: unknown;
@@ -64,7 +57,7 @@ export class StandaloneOperationFailed extends Data.TaggedError(
 _Function_
 
 ```ts
-export function startServer(configPath?: string)
+  if (!usePgLite) return Effect.void
 ```
 
 ## Files

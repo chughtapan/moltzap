@@ -7,7 +7,11 @@
  * report is the visible todo queue, not a gate.
  */
 import { Effect } from "effect";
-import { ReflectionKind, type TypeDocCache, type TypeDocExport } from "./typedoc-load.js";
+import {
+  ReflectionKind,
+  type TypeDocCache,
+  type TypeDocExport,
+} from "./typedoc-load.js";
 
 export interface FlowCoverageGap {
   readonly file: string;
@@ -123,7 +127,9 @@ export const printFlowCoverage = (
 ): Effect.Effect<number, never, never> =>
   Effect.sync(() => {
     if (gaps.length === 0) {
-      process.stderr.write("Flow coverage: every behavioral export documented.\n");
+      process.stderr.write(
+        "Flow coverage: every behavioral export documented.\n",
+      );
       return 0;
     }
     process.stderr.write(

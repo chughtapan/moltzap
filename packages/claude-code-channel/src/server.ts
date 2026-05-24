@@ -26,7 +26,7 @@ import {
   type PushError,
   type ReplyError,
 } from "./errors.js";
-import type { RoutingState } from "./routing.js";
+import type { RoutingState, RoutingTarget } from "./routing.js";
 import { stringifyCause } from "./utils.js";
 
 const REPLY_TOOL_NAME = "reply";
@@ -50,7 +50,7 @@ function toMcpNotificationParams(
  */
 export interface ServerDeps {
   readonly sendReply: (
-    conversationId: string,
+    target: RoutingTarget,
     text: string,
   ) => Effect.Effect<void, ReplyError>;
   readonly routing: RoutingState;
@@ -246,16 +246,16 @@ function sendFailureResult(error: ReplyError): CallToolResult {
 
 function sendResolvedReply(
   deps: ServerDeps,
-  conversationId: string,
+  target: RoutingTarget,
   decoded: DecodedReplyArgs,
 ): Effect.Effect<CallToolResult> {
   return Effect.gen(function* () {
     const sendResult = yield* Effect.either(
-      deps.sendReply(conversationId, decoded.text),
+      deps.sendReply(target, decoded.text),
     );
     return Either.match(sendResult, {
       onLeft: sendFailureResult,
-      onRight: () => toolOkResult(`Reply sent to ${conversationId}.`),
+      onRight: () => toolOkResult(`Reply sent to ${target.conversationId}.`),
     });
   });
 }
@@ -271,7 +271,7 @@ function handleDecodedReplyCall(
   const resolution = deps.routing.resolveTarget(decoded.replyTo);
   switch (resolution._tag) {
     case "Resolved":
-      return sendResolvedReply(deps, resolution.conversationId, decoded);
+      return sendResolvedReply(deps, resolution.target, decoded);
     case "NoActiveConversation":
       return Effect.succeed(
         toolErrorResult(

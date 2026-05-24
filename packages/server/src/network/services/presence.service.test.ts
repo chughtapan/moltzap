@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { connectionId as makeConnectionId } from "@moltzap/protocol/testing";
 import type {
   PresenceEventSink,
   PresencePublishInput,
@@ -10,10 +11,10 @@ import { PresenceService } from "./presence.service.js";
 const AGENT_A = "agent-a";
 const AGENT_B = "agent-b";
 const AGENT_C = "agent-c";
-const CONN_SENDER = "c-sender";
-const CONN_WATCHER = "c-watcher";
-const CONN_W1 = "c-w1";
-const CONN_W2 = "c-w2";
+const CONN_SENDER = makeConnectionId("c-sender");
+const CONN_WATCHER = makeConnectionId("c-watcher");
+const CONN_W1 = makeConnectionId("c-w1");
+const CONN_W2 = makeConnectionId("c-w2");
 const STATUS_ONLINE = "online";
 const STATUS_OFFLINE = "offline";
 const STATUS_AWAY = "away";

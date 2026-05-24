@@ -1,6 +1,6 @@
 /**
  * Unauthenticated caller → typed denial on an auth-gated RPC. Opens a
- * TestClient with `autoConnect: false` and calls `conversations/list`
+ * TestClient with `autoConnect: false` and calls `task/list`
  * without first completing `network/connect`; asserts the server replies
  * with a typed error (not a success, not a crash).
  */
@@ -9,7 +9,7 @@ import {
   ForbiddenError,
   UnauthorizedError,
 } from "../../../transport/wire-errors.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { TaskList } from "../../../task/methods.js";
 import { authorizationOutcome } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";
 import { agentId } from "../_shared/test-fixtures.js";
@@ -42,7 +42,7 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     PROPERTY,
-    "unauthenticated agent → typed denial on conversations/list",
+    "unauthenticated agent → typed denial on task/list",
     assertAuthorityNegative(ctx).pipe(
       Effect.withSpan("registerAuthorityNegative"),
     ),
@@ -53,7 +53,7 @@ function assertAuthorityNegative(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
       const client = yield* acquirePreHandshakeClient(ctx);
-      yield* assertConversationsListDenied(client);
+      yield* assertTaskListDenied(client);
       yield* assertModelDeniesUnauthenticated();
     }),
   );
@@ -80,17 +80,15 @@ function acquirePreHandshakeClient(ctx: ConformanceRunContext) {
   });
 }
 
-function assertConversationsListDenied(client: TestClient) {
+function assertTaskListDenied(client: TestClient) {
   return Effect.gen(function* () {
-    const outcome = yield* client
-      .sendRpc(ConversationsList, {})
-      .pipe(Effect.either);
+    const outcome = yield* client.sendRpc(TaskList, {}).pipe(Effect.either);
     const error = yield* Either.match(outcome, {
       onLeft: (failure) => Effect.succeed(failure),
       onRight: () =>
         Effect.fail(
           invariant(
-            "pre-handshake conversations/list returned success — expected typed denial",
+            "pre-handshake task/list returned success — expected typed denial",
           ),
         ),
     });
@@ -119,8 +117,8 @@ function assertModelDeniesUnauthenticated() {
   const modelVerdict = authorizationOutcome(
     initialReferenceState,
     {
-      definition: ConversationsList,
-      method: ConversationsList.name,
+      definition: TaskList,
+      method: TaskList.name,
       params: {},
     },
     agentId("00000000-0000-4000-8000-000000000000"),

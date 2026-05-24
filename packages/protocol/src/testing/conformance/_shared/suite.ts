@@ -48,7 +48,7 @@ import {
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 
-import { TasksCreate } from "../../../task/methods.js";
+import { TaskRequest } from "../../../task/methods.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
@@ -66,17 +66,17 @@ const BASE_ALLOWED_SERVER_COVERAGE_GAPS: ReadonlyArray<AllowedCoverageGap> = [
   {
     kind: "deferred",
     id: "delivery/hook-gated-delivery",
-    reasonIncludes: TasksCreate.name,
+    reasonIncludes: TaskRequest.name,
   },
   {
     kind: "deferred",
     id: "delivery/multi-app-fifo-short-circuit",
-    reasonIncludes: TasksCreate.name,
+    reasonIncludes: TaskRequest.name,
   },
   {
     kind: "unavailable",
     id: "boundary/app-disconnect-fail-policy",
-    reasonIncludes: TasksCreate.name,
+    reasonIncludes: TaskRequest.name,
   },
   {
     kind: "deferred",

@@ -15,7 +15,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
-import { ConversationsCreate } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
 import { bootClaudeCodeChannel } from "../entry.js";
 import type { Handle } from "../types.js";
 import { CLAUDE_CHANNEL_NOTIFICATION_METHOD } from "../types.js";
@@ -41,6 +41,7 @@ interface Harness {
   readonly peerAgentId: string;
   readonly notifications: Notification[];
   readonly peerInbox: Message[];
+  readonly taskId: string;
   readonly conversationId: string;
 }
 
@@ -133,8 +134,8 @@ function makePeerService(
     serverUrl: config.wsUrl,
     agentKey: config.agentBApiKey,
   });
-  peerService.on("message", (msg) => {
-    peerInbox.push(msg);
+  peerService.on("message", ({ message }) => {
+    peerInbox.push(message);
   });
   return peerService;
 }
@@ -142,13 +143,20 @@ function makePeerService(
 function createPeerConversation(
   peerService: MoltZapService,
   channelAgentId: string,
-): Effect.Effect<string, EchoIntegrationError> {
+): Effect.Effect<
+  { readonly taskId: string; readonly conversationId: string },
+  EchoIntegrationError
+> {
   return Effect.gen(function* () {
-    const response = yield* peerService.sendRpc(ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: channelAgentId }],
+    const response = yield* peerService.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [channelAgentId],
+      initialConversation: { participants: [channelAgentId] },
     });
-    return response.conversation.id;
+    return {
+      taskId: response.task.id,
+      conversationId: response.conversation!.id,
+    };
   });
 }
 
@@ -168,7 +176,7 @@ function bootHarness(): Effect.Effect<Harness, EchoIntegrationError> {
 
     const peerService = makePeerService(config, peerInbox);
     yield* peerService.connect();
-    const conversationId = yield* createPeerConversation(
+    const { taskId, conversationId } = yield* createPeerConversation(
       peerService,
       config.channelAgentId,
     );
@@ -181,6 +189,7 @@ function bootHarness(): Effect.Effect<Harness, EchoIntegrationError> {
       peerAgentId: config.peerAgentId,
       notifications,
       peerInbox,
+      taskId,
       conversationId,
     };
   });
@@ -244,7 +253,7 @@ function findNotificationByContent(content: string): Notification | undefined {
 
 function peerSendsPingEmitsNotification() {
   return Effect.gen(function* () {
-    yield* h.peerService.send(h.conversationId, PING_ONE);
+    yield* h.peerService.send(h.taskId, h.conversationId, PING_ONE);
     yield* waitFor(
       () => h.notifications.some(isChannelContent(PING_ONE)),
       INBOUND_NOTIFICATION_TIMEOUT_MS,

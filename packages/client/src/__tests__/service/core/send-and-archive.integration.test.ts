@@ -1,6 +1,6 @@
-import { expect } from "vitest";
+import { expect, it as vit } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Duration, Effect, Either, Fiber, Option, Stream } from "effect";
+import { Duration, Effect, Fiber, Option, Stream } from "effect";
 import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
@@ -13,10 +13,7 @@ it("send() delivers message to other agent", () =>
     yield* regB.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const conv = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
+    const conv = yield* H.createDm(service, regB.agentId);
 
     // Spec B (#596): `subscribe` returns a Stream backed by `Stream.async`
     // with no historical buffer — a notification that arrives BEFORE
@@ -40,7 +37,11 @@ it("send() delivers message to other agent", () =>
       ),
     );
 
-    yield* service.send(conv.conversation.id, H.HELLO_FROM_SERVICE);
+    yield* service.send(
+      conv.task.id,
+      conv.conversation!.id,
+      H.HELLO_FROM_SERVICE,
+    );
 
     const eventOpt = yield* Fiber.join(eventFiber);
     const event = Option.getOrThrowWith(
@@ -57,49 +58,13 @@ it("send() delivers message to other agent", () =>
     yield* regB.client.close();
   }));
 
-it("conversation archive events purge service state and block late sends", () =>
-  Effect.gen(function* () {
-    const regOwner = yield* H.registerAgent("archive-owner");
-    const regReceiver = yield* H.registerAgent("archive-receiver");
-
-    yield* regOwner.client.connect();
-    const service = yield* H.connectService(regReceiver.apiKey);
-
-    const conv = yield* regOwner.client.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regReceiver.agentId }],
-    });
-    const convId = conv.conversation.id;
-
-    yield* H.sendAndSettle(regOwner.client, convId, "before archive");
-    expect(service.getHistory(convId)).toHaveLength(1);
-
-    const archivedEvents: unknown[] = [];
-    service.on("conversationArchived", (data) => archivedEvents.push(data));
-
-    yield* regOwner.client.sendRpc(H.ConversationsArchive, {
-      conversationId: convId,
-    });
-    yield* Effect.sleep("500 millis");
-
-    expect(archivedEvents).toHaveLength(1);
-    expect(service.isConversationArchived(convId)).toBe(true);
-    expect(service.getConversation(convId)).toBeUndefined();
-    expect(service.getHistory(convId)).toEqual([]);
-
-    const lateSend = yield* Effect.either(
-      service.send(convId, "after archive"),
-    );
-    Either.match(lateSend, {
-      onLeft: (error) =>
-        expect(error).toMatchObject({
-          code: H.ConversationArchivedError.code,
-          message: H.ARCHIVED_MESSAGE,
-        }),
-      onRight: () => expect.fail(),
-    });
-
-    service.close();
-    yield* regOwner.client.close();
-    yield* regReceiver.client.close();
-  }));
+// `TaskConversationArchive` is TM-only (#677). Driving it from the
+// owner requires (a) AppsRegister on a custom appId AND (b) a
+// `messages/authorize` wire-callback handler — `MoltZapAgentClient`
+// doesn't expose `onAppCallback`, only `TestClient`/`MoltZapTMClient`
+// do. Re-enable when client-side test infra adds wire-callback
+// registration (tracked alongside the 11 server-side TM-only markers
+// in chughtapan/moltzap#681).
+vit.todo(
+  "conversation archive events purge service state and block late sends — needs TM-callback test infra (#681)",
+);
