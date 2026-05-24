@@ -85,13 +85,6 @@ export class WebhookDecodeError extends Data.TaggedError("WebhookDecodeError")<{
   }
 }
 
-/** Union of every tagged error the webhook adapters can emit. */
-export type WebhookError =
-  | WebhookHttpError
-  | WebhookTimeoutError
-  | WebhookNetworkError
-  | WebhookDecodeError;
-
 // -- Sync webhook client (Users, Contacts) ------------------------------------
 
 /** Options for a single sync webhook call. */
