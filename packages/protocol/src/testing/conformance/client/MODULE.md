@@ -83,6 +83,12 @@ export interface ClientConformanceRunContext {
   readonly realClientFactory: (
     args: RealClientFactoryArgs,
   ) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
+  readonly handshakeWindow: ClientHandshakeWindow;
+  readonly toxiproxy: ToxiproxyClient | null;
+  readonly opts: ClientConformanceRunOptions;
+  readonly seed: number;
+  readonly artifacts: Ref.Ref<ReadonlyArray<ConformanceArtifact>>;
+}
 ```
 
 ### [`ClientConformanceRunOptions`](./runner.ts#L285)
@@ -95,6 +101,19 @@ export interface ClientConformanceRunOptions {
   readonly realClient: (
     args: RealClientFactoryArgs,
   ) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
+  readonly replaySeed?: number;
+  readonly numRuns?: number;
+  readonly manageToxiproxy?: boolean;
+  readonly toxiproxyUrl?: string;
+  readonly artifactDir?: string;
+
+  /**
+   * If `true`, TestServer binds behind a Toxiproxy upstream matching the
+   * adversity-tier `downstream` port; otherwise a direct bind. Default:
+   * `true` when `tiers` includes `"D"`.
+   */
+  readonly bindThroughToxiproxy?: boolean;
+}
 ```
 
 ### [`ClientConformanceSuiteOptions`](./suite.ts#L78)
@@ -111,6 +130,24 @@ export interface ClientConformanceSuiteOptions {
   readonly realClient: (args: {
     readonly testServerUrl: string;
   }) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
+
+  /**
+   * Toxiproxy control-plane URL. When `null`, adversity properties are
+   * registered and surface `PropertyUnavailable`. Mirrors server-side
+   * behavior.
+   */
+  readonly toxiproxyUrl?: string | null;
+  readonly replaySeed?: number;
+  readonly numRuns?: number;
+  readonly artifactDir?: string;
+
+  /**
+   * Default `true`. When `true`, TestServer binds behind Toxiproxy so
+   * adversity toxics shape the wire between TestServer and the real
+   * client. Set to `false` only for debugging.
+   */
+  readonly bindThroughToxiproxy?: boolean;
+}
 ```
 
 Consumer-facing options. Mirror of `ConformanceSuiteOptions` on the
@@ -143,6 +180,16 @@ export interface ClientHandshakeWindow {
     readonly base: NotificationFrame;
     readonly emissionTag: string;
   }) => Effect.Effect<string>;
+  readonly emitTaggedResponse: (opts: {
+    readonly connection: TestServerConnection;
+    readonly base: ResponseFrame;
+    readonly emissionTag: string;
+  }) => Effect.Effect<string>;
+  readonly awaitHandshakeComplete: Effect.Effect<
+    void,
+    RealClientLifecycleError
+  >;
+}
 ```
 
 Handshake-noise guard window (O7 resolution).
@@ -419,6 +466,8 @@ export interface RealClientNotificationSubscriber {
   readonly subscribe: (
     filter?: RealClientNotificationFilter,
   ) => Effect.Effect<RealClientSubscription, RealClientLifecycleError>;
+  readonly snapshot: Effect.Effect<ReadonlyArray<ObservedNotification>>;
+}
 ```
 
 Real client's public notification-subscriber surface. Property bodies
@@ -442,6 +491,7 @@ export interface RealClientRpcCaller {
     method: string,
     params: unknown,
   ) => Effect.Effect<ResponseFrame | NotificationFrame, RealClientRpcError>;
+}
 ```
 
 Real client's RPC caller. Takes the raw JSON-RPC method + params;

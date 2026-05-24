@@ -93,6 +93,7 @@ _Property_
 
 ```ts
   readonly proxy: ToxiproxyProxy;
+  readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
 ### [`proxyName`](./_helpers.ts#L52)
@@ -223,6 +224,8 @@ _TypeAlias_
 export type ToxicBodyParams = {
   readonly proxy: ToxiproxyProxy;
   readonly unavailable: (reason: string) => PropertyUnavailable;
+  readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
+};
 ```
 
 Body params — `attachToxic` attaches the toxic inside the caller's

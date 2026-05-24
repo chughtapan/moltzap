@@ -58,6 +58,26 @@ export type DeliveryInvariantName =
   | "store-and-replay"
   | "payload-opacity"
   | "task-boundary-isolation";
+
+/** Selects the delivery invariant for a toxic profile. */
+export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName {
+  switch (toxic) {
+    case "latency":
+    case "bandwidth":
+    case "timeout":
+      return "fan-out-cardinality";
+    case "reset_peer":
+      return "store-and-replay";
+    case "slicer":
+      return "payload-opacity";
+    case "slow_close":
+      return "task-boundary-isolation";
+    default: {
+      const _exhaustive: never = toxic;
+      return absurdToxicTag(_exhaustive);
+    }
+  }
+}
 ```
 
 Every delivery-layer property one toxic is expected to re-exercise.
@@ -152,6 +172,9 @@ export interface ToxiproxyClient {
     readonly name: string;
     readonly upstream: string;
   }) => Effect.Effect<ToxiproxyProxy, ToxicControlError, Scope.Scope>;
+  /** Probe: control plane reachable. */
+  readonly ping: Effect.Effect<void, ToxicControlError>;
+}
 ```
 
 ### [`ToxiproxyConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L25)
@@ -174,6 +197,12 @@ export interface ToxiproxyProxy {
   /** Upstream (real server) address the proxy forwards to. */
   readonly upstream: string;
   /** Client-facing URL (`ws://127.0.0.1:&lt;ephemeralPort>`). */
+  readonly listenUrl: string;
+  /** Attach a toxic inside a Scope; removed on release. */
+  readonly withToxic: (
+    profile: ToxicProfile,
+  ) => Effect.Effect<ToxicHandle, ToxicControlError, Scope.Scope>;
+}
 ```
 
 A live proxy that sits between TestClient and the real server (or

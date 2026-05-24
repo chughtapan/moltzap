@@ -15,8 +15,8 @@ that decide message fan-out and dispatch admission.
 |---------|-----------|---------|
 | [`network/connect`](/protocol/methods/network-connect) | app to server | Authenticate the app agent's WebSocket |
 | [`apps/register`](/protocol/methods/apps-register) | app to server | Register the app manifest on the current connection |
-| [`tasks/create`](/protocol/methods/tasks-create) | initiator to server | Create an app-bound task whose task manager is the caller |
-| [`tasks/createConversation`](/protocol/methods/tasks-create-conversation) | task manager to server | Create conversations inside the task |
+| [`task/create`](/protocol/methods/task-create) | initiator to server | Create an app-bound task whose task manager is the caller |
+| [`task/conversation/create`](/protocol/methods/task-conversation-create) | task manager to server | Create conversations inside the task |
 | [`messages/authorize`](/protocol/methods/messages-authorize) | server to task manager | Decide which participants receive a newly persisted message |
 | [`dispatch/authorize`](/protocol/methods/dispatch-authorize) | server to task manager | Decide whether a recipient may claim a pending dispatch |
 | [`dispatch/release`](/protocol/notifications/dispatch-release) | server to recipient | Publish the async dispatch verdict |
@@ -70,7 +70,7 @@ task manager endpoint.
 {
   "jsonrpc": "2.0",
   "id": "3",
-  "method": "tasks/create",
+  "method": "task/create",
   "params": {
     "appId": "werewolf",
     "tmType": "self",
@@ -83,13 +83,13 @@ task manager endpoint.
 ```
 
 Create conversations inside the task with
-[`tasks/createConversation`](/protocol/methods/tasks-create-conversation):
+[`task/conversation/create`](/protocol/methods/task-conversation-create):
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": "4",
-  "method": "tasks/createConversation",
+  "method": "task/conversation/create",
   "params": {
     "taskId": "33333333-3333-4333-8333-333333333333",
     "type": "group",
@@ -203,7 +203,7 @@ with the final verdict.
 - `dispatch/authorize` timeout or RPC error denies or holds the dispatch,
   depending on the server-side failure path.
 - `Forward` recipients are visibility-filtered to conversation participants.
-- `tasks/create` rejects app-bound tasks that request a default task manager;
+- `task/create` rejects app-bound tasks that request a default task manager;
   app-bound tasks must use `tmType: "self"`.
 
 ## Related references

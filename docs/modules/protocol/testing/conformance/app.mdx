@@ -131,6 +131,39 @@ export interface DispatchTestDriver {
   readonly addRecipient: (opts: {
     readonly agentName?: string;
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
+
+  /**
+   * Issue `dispatches/get` from a NON-moderator connection (the
+   * recipient or a third-party client). Used by the negative scope
+   * property `dispatches-get-non-moderator-rejected`. Returns the
+   * server's typed error rather than the lease record.
+   */
+  readonly getLeaseFromNonModerator: (
+    dispatchId: Static<typeof DispatchId>,
+  ) => Effect.Effect<{ readonly errorCode: number }, PropertyFailure>;
+
+  /**
+   * Poll `dispatches/get` until the lease reaches `expected` or the
+   * bound elapses. Returns the final record. Used by every property
+   * that asserts a state transition (PENDING→GRANTED, GRANTED→EXPIRED,
+   * CLAIMED→CONSUMED, etc.). Implementation polls every 25 ms; bound
+   * defaults to 5 s.
+   */
+  readonly assertLeaseState: (
+    dispatchId: Static<typeof DispatchId>,
+    expected: LeaseState,
+    opts?: { readonly timeoutMs?: number },
+  ) => Effect.Effect<void, PropertyFailure>;
+
+  /**
+   * Advance the test clock by `durationMs`. If the conformance harness
+   * is running against `TestClock`, this fast-forwards TTLs; otherwise
+   * (real-time mode) it is a `Effect.sleep`. Property authors call this
+   * for `dispatches-expired-fires-on-ttl` and the moderator-response
+   * timeout property.
+   */
+  readonly advanceTime: (durationMs: number) => Effect.Effect<void>;
+}
 ```
 
 Cross-impl driver. One `DispatchTestDriver` instance per property,
@@ -228,6 +261,9 @@ _Property_
 
 ```ts
   readonly leaseId: string;
+};
+
+export function freshMessageId(): Static<typeof MessageId> {
 ```
 
 ### [`leaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L70)
@@ -244,6 +280,7 @@ _Property_
 
 ```ts
   readonly leaseId: string;
+  readonly verdict: { decision: string; reason?: string };
 ```
 
 ### [`LeaseIdOnlyView`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L70)
@@ -268,6 +305,81 @@ export type LeaseState =
   | "EXPIRED"
   | "ABANDONED"
   | "HOLD";
+
+// ── Recipient handle ──────────────────────────────────────────────────
+
+/**
+ * Recipient-side surface. Owns one TestClient connected to the real
+ * server under a recipient agent identity. All methods return Effects
+ * scoped to the surrounding `Scope`; releasing the scope closes the
+ * underlying TestClient.
+ */
+export interface RecipientHandle {
+  readonly agentId: Static<typeof AgentId>;
+
+  /**
+   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * payload `{leaseId, dispatchId}`. Single recipient may issue many
+   * concurrent requests; the property is responsible for ordering its
+   * own assertions.
+   */
+  readonly requestDispatch: (params: {
+    readonly conversationId: Static<typeof ConversationId>;
+    readonly messageId: Static<typeof MessageId>;
+    readonly senderAgentId: Static<typeof AgentId>;
+    readonly attempt?: number;
+  }) => Effect.Effect<
+    {
+      readonly leaseId: Static<typeof LeaseId>;
+      readonly dispatchId: Static<typeof DispatchId>;
+    },
+    PropertyFailure
+  >;
+
+  /**
+   * Park until a `dispatch/release` notification arrives that matches
+   * `predicate` (default: any). Used by every property in the
+   * `DispatchRelease` group + every property that asserts a verdict
+   * delivery.
+   */
+  readonly waitForRelease: (
+    predicate?: (frame: DecodedNotification<typeof DispatchRelease>) => boolean,
+    timeoutMs?: number,
+  ) => Effect.Effect<
+    DecodedNotification<typeof DispatchRelease>,
+    PropertyFailure
+  >;
+
+  /**
+   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * GRANTED lease + assert the consumed/duplicate behavior. Returns the
+   * minted message id on success; on the lease-already-CONSUMED path,
+   * fails with a `PropertyInvariantViolation` whose `reason` carries
+   * the wire-error code + `LeaseInvalid` data tag the server returned.
+   */
+  readonly sendWithLease: (params: {
+    readonly taskId: Static<typeof TaskId>;
+    readonly conversationId: Static<typeof ConversationId>;
+    readonly leaseId: Static<typeof LeaseId>;
+    readonly text: string;
+  }) => Effect.Effect<
+    {
+      readonly messageId: Static<typeof MessageId>;
+      readonly errorCode?: number;
+      readonly errorState?: string;
+    },
+    PropertyFailure
+  >;
+
+  /**
+   * Disconnect the recipient's WS without graceful shutdown.
+   * Drives ABANDONED + EXPIRED-on-disconnect transitions for every
+   * `*-disconnect-*` property. The returned Effect resolves once the
+   * server has observed the close (registry's connection-close
+   * finalizer fired).
+   */
+  readonly hardClose: Effect.Effect<void, PropertyFailure>;
+}
 ```
 
 Closed lease-state union mirroring `LeaseStateSchema`. The driver's
@@ -299,6 +411,10 @@ _Property_
 
 ```ts
   readonly messageId: string;
+  readonly leaseId: string;
+};
+
+export function freshMessageId(): Static<typeof MessageId> {
 ```
 
 ### [`ModeratorHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L198)
@@ -329,6 +445,45 @@ export interface ModeratorHandle {
     }) => boolean;
     readonly holdResponseFor?: number;
   }) => Effect.Effect<void, PropertyFailure>;
+
+  /**
+   * Drop the next inbound `dispatch/authorize` S→C request — install no
+   * handler. Forces moderator-response TTL elapse. Used by
+   * `dispatch-authorize-timeout-synthesizes-deny`.
+   */
+  readonly silenceAuthorize: Effect.Effect<void, PropertyFailure>;
+
+  /**
+   * Park until a `dispatches/consumed` or `dispatches/expired`
+   * notification arrives matching `kind` and (optionally) `dispatchId`.
+   */
+  readonly waitForObservability: <K extends "consumed" | "expired">(
+    kind: K,
+    opts: {
+      readonly dispatchId?: Static<typeof DispatchId>;
+      readonly timeoutMs?: number;
+    },
+  ) => Effect.Effect<
+    K extends "consumed"
+      ? DecodedNotification<typeof DispatchesConsumed>
+      : DecodedNotification<typeof DispatchesExpired>,
+    PropertyFailure
+  >;
+
+  /**
+   * Issue `dispatches/get` from the moderator's connection. Used by the
+   * positive `dispatches-get-moderator-sees-record` property + every
+   * `assertLeaseState` poll.
+   */
+  readonly getLease: (dispatchId: Static<typeof DispatchId>) => Effect.Effect<
+    {
+      readonly state: LeaseState;
+      readonly verdict: DispatchVerdict | null;
+      readonly leaseId: Static<typeof LeaseId>;
+    },
+    PropertyFailure
+  >;
+}
 ```
 
 Moderator-side surface. Owns one TestClient connected to the real
@@ -378,6 +533,51 @@ export interface RecipientHandle {
     },
     PropertyFailure
   >;
+
+  /**
+   * Park until a `dispatch/release` notification arrives that matches
+   * `predicate` (default: any). Used by every property in the
+   * `DispatchRelease` group + every property that asserts a verdict
+   * delivery.
+   */
+  readonly waitForRelease: (
+    predicate?: (frame: DecodedNotification<typeof DispatchRelease>) => boolean,
+    timeoutMs?: number,
+  ) => Effect.Effect<
+    DecodedNotification<typeof DispatchRelease>,
+    PropertyFailure
+  >;
+
+  /**
+   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * GRANTED lease + assert the consumed/duplicate behavior. Returns the
+   * minted message id on success; on the lease-already-CONSUMED path,
+   * fails with a `PropertyInvariantViolation` whose `reason` carries
+   * the wire-error code + `LeaseInvalid` data tag the server returned.
+   */
+  readonly sendWithLease: (params: {
+    readonly taskId: Static<typeof TaskId>;
+    readonly conversationId: Static<typeof ConversationId>;
+    readonly leaseId: Static<typeof LeaseId>;
+    readonly text: string;
+  }) => Effect.Effect<
+    {
+      readonly messageId: Static<typeof MessageId>;
+      readonly errorCode?: number;
+      readonly errorState?: string;
+    },
+    PropertyFailure
+  >;
+
+  /**
+   * Disconnect the recipient's WS without graceful shutdown.
+   * Drives ABANDONED + EXPIRED-on-disconnect transitions for every
+   * `*-disconnect-*` property. The returned Effect resolves once the
+   * server has observed the close (registry's connection-close
+   * finalizer fired).
+   */
+  readonly hardClose: Effect.Effect<void, PropertyFailure>;
+}
 ```
 
 Recipient-side surface. Owns one TestClient connected to the real

@@ -124,6 +124,11 @@ _TypeAlias_
 
 ```ts
 export type ServerRpcDefinition = AnyTaskCallbackRpcDefinition;
+
+/**
+ * Inbound params type for an app-callback method.
+ */
+export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 ```
 
 Descriptor constraint for app-callback RPC test surface.
@@ -218,6 +223,113 @@ export interface TestClient {
     | TransportIoError
     | FrameSchemaError
   >;
+
+  readonly sendMalformed: <D extends AnyServerRpcDefinition>(opts: {
+    readonly baseDefinition: D;
+    readonly baseParams: ParamsOf<D>;
+    readonly kind: MalformedFrameKind;
+    readonly seed: number;
+  }) => Effect.Effect<
+    RpcResponseError | null,
+    TransportClosedError | TransportIoError | FrameSchemaError
+  >;
+
+  readonly sendResponseFrame: (
+    frame: ResponseFrame,
+  ) => Effect.Effect<void, TransportClosedError | TransportIoError>;
+
+  readonly captures: CaptureBuffer;
+  readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
+
+  /**
+   * Typed-payload subscribe (Spec B parity — #645). Returns a Stream of
+   * `DecodedNotification<D>` whose error channel is `TransportClosedError`
+   * and requirement set is `never`. Optional `refinement` is a typed
+   * predicate over the definition's params; the type-guard overload
+   * narrows the Stream's payload to `DecodedNotification<D, R>`.
+   *
+   * Lifecycle: construction is pure (no I/O, no scope); first pull
+   * suspends inside `Stream.async` until dispatch fires `emit.single`;
+   * terminal `TestClient.close` fires `emit.fail(TransportClosedError)`
+   * via the registry's `closeAll`.
+   */
+  readonly subscribe: {
+    <D extends AnyNotificationDefinition>(
+      definition: D,
+      refinement?: (params: NotificationParamsOf<D>) => boolean,
+    ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+    <D extends AnyNotificationDefinition, R extends NotificationParamsOf<D>>(
+      definition: D,
+      refinement: (params: NotificationParamsOf<D>) => params is R,
+    ): Stream.Stream<DecodedNotification<D, R>, TransportClosedError>;
+  };
+
+  /**
+   * Broad-union subscribe (Spec B parity — #645). Returns a Stream of
+   * every inbound notification regardless of definition. Used by
+   * conformance helpers that need to filter on params-shaped predicates
+   * (e.g. presence/changed by agentId+status). Payload narrowing is
+   * intentionally lost; callers wanting typed payloads use `subscribe`.
+   */
+  readonly subscribeAll: (
+    refinement?: (
+      notification: DecodedNotification<AnyNotificationDefinition>,
+    ) => boolean,
+  ) => Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    TransportClosedError
+  >;
+
+  /**
+   * Register a handler for an app-callback RPC (test-driver-local;
+   * distinct from the production `MoltZapAgentClient`'s static handler
+   * table, which is immutable per Spec F I1).
+   *
+   * When `handleInbound` sees a request frame whose method matches,
+   * the handler runs and its outcome is encoded as the JSON-RPC
+   * response:
+   *   - `Effect.succeed(value)` → `{ result: value }`
+   *   - `Effect.fail(err: RpcResponseError)` → `{ error: { code, message, data? } }`
+   *   - defects collapse to a generic `-32603 InternalError` reply so the
+   *     server's `Deferred.await` cannot hang on a crashing handler.
+   *
+   * Re-registration replaces the prior handler (later wins) — mirrors
+   * `HashMap.set`. The TestClient does NOT raise on duplicates; tests
+   * routinely swap behaviour mid-scenario. This is the deliberate
+   * driver-side relaxation that lets conformance tests exercise
+   * scenarios the static production table cannot express.
+   *
+   * `M` constrains to the registered app-callback method names and
+   * `params`/`result` bind to the matching descriptor.
+   */
+  readonly onAppCallback: <D extends ServerRpcDefinition>(
+    definition: D,
+    handler: (
+      params: ServerRpcParams<D>,
+      ctx: ServerRpcContext,
+    ) => Effect.Effect<ServerRpcResult<D>, RpcResponseError>,
+  ) => Effect.Effect<void>;
+
+  /**
+   * Park until the server sends an app-callback request for `method`. The handler
+   * registered via {@link onAppCallback} (if any) still runs and replies;
+   * `awaitServerRequest` is an OBSERVATION primitive — it lets a test
+   * assert the request payload before the response goes back without
+   * stealing the dispatch.
+   *
+   * `predicate` narrows to the first request whose params satisfy it.
+   * Multiple awaiters per method form a FIFO queue (registration order).
+   *
+   * `timeoutMs` defaults to 5_000; callers wanting to drive timing
+   * themselves can pass a generous value here and gate the returned
+   * Effect with `Effect.timeout` at the call site (architect plan §3.6
+   * "Effect.timeout at call site, not schema cap").
+   */
+  readonly awaitServerRequest: <D extends ServerRpcDefinition>(
+    definition: D,
+    predicate?: (params: ServerRpcParams<D>) => boolean,
+    timeoutMs?: number,
+  ) => Effect.Effect<ServerRpcParams<D>, ServerRequestWaitError>;
 ```
 
 Handle surface. Scoped: acquiring the handle opens the WS; releasing the
@@ -309,6 +421,19 @@ export interface TestServerConnection {
   readonly emitNotification: (
     notification: NotificationFrame,
   ) => Effect.Effect<void, TransportIoError | FrameSchemaError>;
+  readonly emitResponse: (
+    response: ResponseFrame,
+  ) => Effect.Effect<void, TransportIoError | FrameSchemaError>;
+  readonly emitMalformed: (opts: {
+    readonly baseNotification: NotificationFrame;
+    readonly kind: MalformedFrameKind;
+    readonly seed: number;
+  }) => Effect.Effect<void, TransportIoError>;
+  readonly close: (opts: {
+    readonly code: number;
+    readonly reason: string;
+  }) => Effect.Effect<void, TransportClosedError>;
+}
 ```
 
 A single live client connection accepted by TestServer. Identity is by
@@ -330,6 +455,26 @@ export interface TestSubscriberRegistry {
       ) => Effect.Effect<void, never>;
       readonly onClose: SubscriberCloseCallback;
     },
+  ) => Effect.Effect<TestSubscriptionHandle, never>;
+
+  readonly registerAll: (
+    refinement:
+      | ((
+          notification: DecodedNotification<AnyNotificationDefinition>,
+        ) => boolean)
+      | undefined,
+    callbacks: {
+      readonly onFrame: SubscriberFrameCallback;
+      readonly onClose: SubscriberCloseCallback;
+    },
+  ) => Effect.Effect<TestSubscriptionHandle, never>;
+
+  readonly dispatch: (
+    frame: DecodedNotification<AnyNotificationDefinition>,
+  ) => Effect.Effect<void, never>;
+
+  readonly closeAll: Effect.Effect<void, never>;
+}
 ```
 
 Subscriber registry. One instance per `TestClientRuntime`.

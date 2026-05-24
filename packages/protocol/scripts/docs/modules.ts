@@ -570,39 +570,45 @@ function extractFunctionSignature(
 /**
  * Accumulate lines from `startIx` until the running token depth
  * (parens, brackets, angles, braces) returns to zero after at least
- * one opening token. For one-line declarations with no brace block
- * (e.g. `export type Foo = string;`) falls back to cutting at the
- * first top-level `;` outside strings.
+ * one opening token, checked at line boundaries so a single-line
+ * declaration like `class X extends Y()&lt;...&gt;() {}` whose depth dips
+ * through zero mid-line stays intact. For one-line declarations with
+ * no brace block (e.g. `export type Foo = string;`) falls back to
+ * cutting at the first top-level `;` outside strings/comments.
+ *
+ * Tokenization (string/line-comment/block-comment skipping plus the
+ * `=>`/`&lt;=`/`&gt;=`/`==`/`!=` digraph carve-out) is shared with
+ * `pickFirstCut` via `scanTopLevel`. Without the arrow carve-out,
+ * the `>` in a callback type like `(close: CloseInfo) => void`
+ * decrements depth to zero one line early and truncates the body.
  */
 function extractBalancedBody(
   lines: ReadonlyArray<string>,
   startIx: number,
 ): string {
-  const collected: string[] = [];
+  const slice = lines.slice(startIx, Math.min(lines.length, startIx + 120));
+  const text = slice.join("\n");
   let depth = 0;
   let opened = false;
-  for (let i = startIx; i < lines.length && i < startIx + 120; i++) {
-    const line = lines[i] ?? "";
-    collected.push(line);
-    for (const ch of line) {
-      if (ch === "(" || ch === "[" || ch === "<" || ch === "{") {
-        depth++;
-        opened = true;
-      } else if (ch === ")" || ch === "]" || ch === ">" || ch === "}") {
-        depth--;
-      }
+  let returnIx = -1;
+  scanTopLevel(text, (ch, i) => {
+    if (ch === "(" || ch === "[" || ch === "<" || ch === "{") {
+      depth++;
+      opened = true;
+    } else if (ch === ")" || ch === "]" || ch === ">" || ch === "}") {
+      depth--;
+    } else if (ch === "\n" && opened && depth <= 0) {
+      returnIx = i;
+      return "stop";
     }
-    if (opened && depth <= 0) return collected.join("\n").trimEnd();
-    if (!opened) {
-      const semi = findOutsideStrings(collected.join("\n"), ";");
-      if (semi >= 0)
-        return collected
-          .join("\n")
-          .slice(0, semi + 1)
-          .trimEnd();
-    }
+    return "continue";
+  });
+  if (returnIx >= 0) return text.slice(0, returnIx).trimEnd();
+  if (!opened) {
+    const semi = findOutsideStrings(text, ";");
+    if (semi >= 0) return text.slice(0, semi + 1).trimEnd();
   }
-  return collected.join("\n").trimEnd();
+  return text.trimEnd();
 }
 
 /**
@@ -614,19 +620,72 @@ function extractBalancedBody(
  * the params, not the body opener; a depth-blind cut truncates the
  * signature inside the parameter object.
  *
- * Comment skipping is required because inline JSDoc on a param-object
- * member commonly contains HTML-encoded open-angle paired with a
- * literal close-angle (the Mintlify generator escapes the open angle
- * to keep markdown-in-MDX happy). A naive depth tracker would
- * decrement the angle counter into a negative state on the lone
- * close-angle and lose the top-level detection that triggers the
- * body-opener cut.
+ * Tokenization (string/comment/digraph skipping) is shared with
+ * `extractBalancedBody` via `scanTopLevel`. Comment skipping is
+ * required because inline JSDoc on a param-object member commonly
+ * contains HTML-encoded open-angle paired with a literal close-angle
+ * (the Mintlify generator escapes the open angle to keep markdown-in-
+ * MDX happy). A naive depth tracker would decrement the angle counter
+ * into a negative state on the lone close-angle and lose the top-
+ * level detection that triggers the body-opener cut.
  */
 function pickFirstCut(text: string, needles: ReadonlyArray<string>): number {
   let parenDepth = 0;
   let bracketDepth = 0;
   let angleDepth = 0;
   let braceDepth = 0;
+  return scanTopLevel(text, (ch, i) => {
+    const atTopLevel =
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      angleDepth === 0 &&
+      braceDepth === 0;
+    if (atTopLevel) {
+      for (const needle of needles) {
+        if (text.startsWith(needle, i)) return "stop";
+      }
+    }
+    if (ch === "(") parenDepth++;
+    else if (ch === ")") parenDepth--;
+    else if (ch === "[") bracketDepth++;
+    else if (ch === "]") bracketDepth--;
+    else if (ch === "<") angleDepth++;
+    else if (ch === ">") angleDepth--;
+    else if (ch === "{") braceDepth++;
+    else if (ch === "}") braceDepth--;
+    return "continue";
+  });
+}
+
+function findOutsideStrings(text: string, needle: string): number {
+  let result = -1;
+  scanTopLevel(text, (_ch, i) => {
+    if (text.startsWith(needle, i)) {
+      result = i;
+      return "stop";
+    }
+    return "continue";
+  });
+  return result;
+}
+
+/**
+ * Walk `text` invoking `cb(ch, ix)` for each character at syntactic
+ * top level — outside string literals, line comments, and block
+ * comments. The callback runs BEFORE the scanner advances past
+ * digraphs so a caller looking for `=>` as a needle still sees the
+ * `=` and can stop on it. After the callback returns "continue", the
+ * scanner skips the second char of `=>`, `&lt;=`, `&gt;=`, `==`, and `!=`
+ * so depth trackers do not mistake `&gt;` for a generic-close or `=`
+ * pair members for assignment.
+ *
+ * Returns the index where the callback returned "stop", or -1 on
+ * exhaustion.
+ */
+function scanTopLevel(
+  text: string,
+  cb: (ch: string, ix: number) => "stop" | "continue",
+): number {
   let inSingle = false;
   let inDouble = false;
   let inBacktick = false;
@@ -672,20 +731,7 @@ function pickFirstCut(text: string, needles: ReadonlyArray<string>): number {
       i++;
       continue;
     }
-    const atTopLevel =
-      parenDepth === 0 &&
-      bracketDepth === 0 &&
-      angleDepth === 0 &&
-      braceDepth === 0;
-    if (atTopLevel) {
-      for (const needle of needles) {
-        if (text.startsWith(needle, i)) return i;
-      }
-    }
-    // `=>` (arrow) and `<=` / `>=` (comparison) carry a `>` that is
-    // NOT a generic-close. Skip the trailing char so it does not bias
-    // angleDepth into a non-zero state and break top-level detection
-    // for everything that follows.
+    if (cb(ch, i) === "stop") return i;
     if (ch === "=" && text[i + 1] === ">") {
       i++;
       continue;
@@ -695,35 +741,6 @@ function pickFirstCut(text: string, needles: ReadonlyArray<string>): number {
       text[i + 1] === "="
     ) {
       i++;
-      continue;
-    }
-    if (ch === "(") parenDepth++;
-    else if (ch === ")") parenDepth--;
-    else if (ch === "[") bracketDepth++;
-    else if (ch === "]") bracketDepth--;
-    else if (ch === "<") angleDepth++;
-    else if (ch === ">") angleDepth--;
-    else if (ch === "{") braceDepth++;
-    else if (ch === "}") braceDepth--;
-  }
-  return -1;
-}
-
-function findOutsideStrings(text: string, needle: string): number {
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  for (let i = 0; i <= text.length - needle.length; i++) {
-    const ch = text[i] ?? "";
-    if (ch === "\\" && (inSingle || inDouble || inBacktick)) {
-      i++;
-      continue;
-    }
-    if (!inDouble && !inBacktick && ch === "'") inSingle = !inSingle;
-    else if (!inSingle && !inBacktick && ch === '"') inDouble = !inDouble;
-    else if (!inSingle && !inDouble && ch === "`") inBacktick = !inBacktick;
-    if (!inSingle && !inDouble && !inBacktick && text.startsWith(needle, i)) {
-      return i;
     }
   }
   return -1;

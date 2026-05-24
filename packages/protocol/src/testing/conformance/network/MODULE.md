@@ -119,6 +119,11 @@ _TypeAlias_
 
 ```ts
 export type PresenceStatus = "online" | "offline" | "away";
+
+export interface PresenceChangedPayload {
+  readonly agentId: string;
+  readonly status: PresenceStatus;
+}
 ```
 
 ### [`presenceStatusesFor`](./_helpers.ts#L198)

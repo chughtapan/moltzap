@@ -1,6 +1,7 @@
 {
   "group": "Modules",
   "pages": [
+    "modules/claude-code-channel/src",
     "modules/client/runtime",
     "modules/client/src",
     "modules/protocol/app",

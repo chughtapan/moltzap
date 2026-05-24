@@ -61,6 +61,8 @@ export interface AgentClientConnectionConfig<
   readonly id: string;
   readonly handlers: AgentClientHandlers<Ctx, Caps>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
+  readonly idPrefix: string;
+}
 ```
 
 Equivalent config for the AgentClient factory. `handlers` is the
@@ -173,6 +175,7 @@ _Interface_
 export interface CapabilityDescriptor {
   readonly tag: AnyContextTag;
   readonly argsOf: (params: unknown, ctx: unknown) => unknown;
+}
 ```
 
 ### [`CapabilityProviderTable`](./capabilities.ts#L56)
@@ -192,6 +195,7 @@ export type CapabilityProviderTable<Caps extends Context.Tag<any, any>> = {
     unknown,
     unknown
   >;
+};
 ```
 
 Provider-table type alias (Spec F G5). Keys are the capability tag's
@@ -496,6 +500,7 @@ export interface HandlerSlot<
     params: ParamsOf<D>,
     ctx: Ctx,
   ) => Effect.Effect<ResultOf<D>, unknown, Caps>;
+}
 ```
 
 Per-definition handler slot. `Ctx` is the dispatch context the
@@ -743,6 +748,31 @@ _TypeAlias_
 export type NotificationDecodeError =
   | UnknownNotificationMethodError
   | InvalidNotificationParamsError;
+
+export function decodeRpcRequest<
+  const Definitions extends readonly AnyServerRpcDefinition[],
+>(
+  definitions: Definitions,
+  frame: RequestFrame,
+): Effect.Effect<
+  DecodedRpcRequest<Definitions[number]>,
+  RpcRequestDecodeError
+> {
+  const definition = definitions.find((d) => d.name === frame.method);
+  if (definition === undefined) {
+    return Effect.fail(new UnknownRpcMethodError({ frame }));
+  }
+  const params = frame.params ?? {};
+  if (!definition.validateParams(params)) {
+    return Effect.fail(new InvalidRpcParamsError({ frame, definition }));
+  }
+  return Effect.succeed({
+    frame,
+    id: frame.id,
+    definition,
+    params,
+  } as DecodedRpcRequest<Definitions[number]>);
+}
 ```
 
 ### [`NotificationDefinition`](./method.ts#L157)
@@ -757,6 +787,8 @@ export interface NotificationDefinition<
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
   readonly validateParams: (data: unknown) => data is Static<P>;
+  readonly encode: (params: unknown) => NotificationFrame;
+}
 ```
 
 A frozen descriptor for one server-to-client notification.
@@ -829,6 +861,9 @@ export interface Originator {
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+  readonly resolve: (frame: ResponseFrame) => Effect.Effect<boolean>;
+  readonly failAllPending: (error: NotConnectedError) => Effect.Effect<void>;
+}
 ```
 
 Originator side of a JSON-RPC connection. Scope-bound: closing the
@@ -962,6 +997,19 @@ export type RpcCallError =
   | NotConnectedError
   | RpcServerError
   | RegisteredTaggedError;
+
+/**
+ * Originator side of a JSON-RPC connection. Scope-bound: closing the
+ * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
+ */
+export interface Originator {
+  readonly call: <D extends AnyServerRpcDefinition>(
+    definition: D,
+    params: ParamsOf<D>,
+  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+  readonly resolve: (frame: ResponseFrame) => Effect.Effect<boolean>;
+  readonly failAllPending: (error: NotConnectedError) => Effect.Effect<void>;
+}
 ```
 
 ### [`RpcDefinition`](./method.ts#L29)
@@ -978,6 +1026,24 @@ export interface RpcDefinition<
   readonly paramsSchema: P;
   readonly resultSchema: R;
   readonly validateParams: (data: unknown) => data is Static<P>;
+  readonly validateResult: (data: unknown) => data is Static<R>;
+  // `unknown` for variance compatibility with the `<string, TSchema, TSchema>`
+  // supertype; concrete call sites pass typed values.
+  readonly encodeRequest: (id: string, params: unknown) => RequestFrame;
+  readonly encodeResponse: (
+    id: JsonRpcId | null,
+    result: unknown,
+  ) => ResponseFrame;
+
+  /**
+   * Spec F G5/G6: per-definition capability descriptors. Each entry's
+   * `tag` is a Spec E `Context.Tag` the handler will `yield*`; `argsOf`
+   * is the synchronous resolver that derives the obtain helper's args
+   * from `params` + `ctx`. The dispatcher reads this list at runtime
+   * (not from the handler's R channel — TypeScript erases it).
+   */
+  readonly capabilities?: ReadonlyArray<CapabilityDescriptor>;
+}
 ```
 
 Typed manifest for one RPC method: wire name + schemas + validators.
@@ -1000,6 +1066,9 @@ export type RpcErrorClass = (new (
 ) => {
   readonly _tag: string;
 }) & {
+  readonly code: number;
+  readonly message: string;
+};
 ```
 
 A `Data.TaggedError`-derived class with static wire metadata
@@ -1045,6 +1114,12 @@ _TypeAlias_
 export type RpcRequestDecodeError =
   | UnknownRpcMethodError
   | InvalidRpcParamsError;
+
+class UnknownNotificationMethodError extends Data.TaggedError(
+  "UnknownNotificationMethodError",
+)<{
+  readonly frame: NotificationFrame;
+}> {}
 ```
 
 ### [`RpcResultDecodeError`](./method.ts#L199)
@@ -1117,6 +1192,8 @@ export interface ServerConnectionConfig<
     CapsArg<ServerHandlers<Ctx, Caps>>
   >;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
+  readonly idPrefix: string;
+}
 ```
 
 Config record consumed by `makeServerConnection`. `Caps` is inferred
@@ -1191,6 +1268,8 @@ export interface TaskMasterConnectionConfig<
     CapsArg<TaskMasterHandlers<Ctx, Caps>>
   >;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
+  readonly idPrefix: string;
+}
 ```
 
 Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
@@ -1213,6 +1292,11 @@ _TypeAlias_
 
 ```ts
 export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
+
+export type TaskMasterHandlers<
+  Ctx,
+  Caps extends Context.Tag<any, any> = never,
+> = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 ```
 
 `TaskMasterHandlers` — handler table for an agent acting as TM for
