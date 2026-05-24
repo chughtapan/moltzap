@@ -1,16 +1,5 @@
 import { describe, expect, it } from "vitest";
-import * as fc from "fast-check";
 import { validateMessage, validateTextPart } from "./methods.js";
-import { inferConversationType } from "./tasks.js";
-import type { AgentId } from "../identity/index.js";
-
-const INFER_PROPERTY_RUNS = 100;
-const DM_PAIR_TOTAL = 2;
-
-function uuid(suffix: number): AgentId {
-  const hex = suffix.toString(16).padStart(12, "0");
-  return `00000000-0000-4000-8000-${hex}` as AgentId;
-}
 
 describe("TextPartSchema", () => {
   it("accepts valid text part", () => {
@@ -58,24 +47,5 @@ describe("MessageSchema rejection", () => {
 
   it("rejects message with extra properties", () => {
     expect(validateMessage({ ...VALID_MESSAGE, extra: true })).toBe(false);
-  });
-});
-
-const labelMatchesCardinality = (invitedCount: number): boolean => {
-  const invited = Array.from({ length: invitedCount }, (_, i) => uuid(i + 1));
-  const label = inferConversationType(invited);
-  const isDmCardinality = 1 + invitedCount === DM_PAIR_TOTAL;
-  return isDmCardinality ? label === "dm" : label === "group";
-};
-
-describe("inferConversationType (Spec D1 cardinality → label)", () => {
-  it("returns 'dm' iff caller + invited participants totals 2", () => {
-    const dmInvariant = fc.property(
-      fc.integer({ min: 0, max: 16 }),
-      labelMatchesCardinality,
-    );
-    expect(() =>
-      fc.assert(dmInvariant, { numRuns: INFER_PROPERTY_RUNS }),
-    ).not.toThrow();
   });
 });

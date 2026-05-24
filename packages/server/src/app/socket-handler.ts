@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import * as Socket from "@effect/platform/Socket";
 import { Cause, Deferred, Effect, Exit, Match, type Scope } from "effect";
 import type {
@@ -75,15 +76,15 @@ interface SocketSession {
  *
  *   C->>WS: GET /ws Upgrade
  *   WS->>HS: socket
- *   Note over HS: connId = randomUUID&lt;br>writer + closeRequested Deferred
+ *   Note over HS: connId = randomUUID<br>writer + closeRequested Deferred
  *   HS->>RPC: acquireConnectionRpcClient(connId, write)
- *   Note over RPC: per-connection originator&lt;br>scope-bound finalizer fails pending Deferreds with NotConnectedError
+ *   Note over RPC: per-connection originator<br>scope-bound finalizer fails pending Deferreds with NotConnectedError
  *   RPC-->>HS: originator
  *   HS->>CM: connections.add{id, write, shutdown, auth null, originator, ...}
  *   HS->>R: socket.runRaw — handleFrame
- *   Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))&lt;br>raceFirst, not race — abrupt close still runs onExit
+ *   Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))<br>raceFirst, not race — abrupt close still runs onExit
  *   R-->>Cleanup: socket closes
- *   Note over Cleanup: if authCtx → presenceService.setOffline&lt;br>for hook of disconnectionHooks — runUserHook sequentially&lt;br>agentEndpointResolver.remove(agentId, connId)&lt;br>leaseRegistry.abandon(connId)&lt;br>presenceService.removeConnection&lt;br>connections.remove(connId)
+ *   Note over Cleanup: if authCtx → presenceService.setOffline<br>for hook of disconnectionHooks — runUserHook sequentially<br>agentEndpointResolver.remove(agentId, connId)<br>leaseRegistry.abandon(connId)<br>presenceService.removeConnection<br>connections.remove(connId)
  * ```
  *
  * `Effect.raceFirst` (vs plain `race`) is load-bearing: an abrupt
@@ -186,17 +187,17 @@ function handleSocketData(
  * ```mermaid
  * flowchart TD
  *   A[raw string from socket] -->|JSON.parse| B{parse ok?}
- *   B -- fail --> Bx[handleParseFailure rate-limited log&lt;br>+ sendFrame ParseError -32700]
+ *   B -- fail --> Bx[handleParseFailure rate-limited log<br>+ sendFrame ParseError -32700]
  *   B -- ok --> C[decodeClientInbound]
  *   C -- MalformedFrameError --> Cx[sendInvalidRequest null]
  *   C -- ok --> D[Match.value decoded]
- *   D -- ResponseSuccess or ResponseError --> E[conn.originator.resolve frame&lt;br>matches pending Deferred from prior call out]
+ *   D -- ResponseSuccess or ResponseError --> E[conn.originator.resolve frame<br>matches pending Deferred from prior call out]
  *   D -- Notification --> Dx[sendInvalidRequest null — server rejects notifications]
  *   D -- ClientRequest --> F{conn found?}
  *   F -- no --> Fx[return]
  *   F -- yes --> Fa{isConnect or conn.auth?}
  *   Fa -- not authenticated --> FaX[sendFrame Unauthorized -32001]
- *   Fa -- ok --> G[conn.originator.handle frame {auth, connId}&lt;br>delegates to buildServerDispatcher]
+ *   Fa -- ok --> G[conn.originator.handle frame {auth, connId}<br>delegates to buildServerDispatcher]
  *   G --> H{Exit?}
  *   H -- success --> Hs[successResponse → sendFrame]
  *   H -- tagged failure --> Ht[knownWireErrorResponse → sendFrame]
@@ -204,7 +205,7 @@ function handleSocketData(
  *   Hs --> I{isConnect?}
  *   Ht --> I
  *   Hu --> I
- *   I -- yes --> J[fireConnectionHooks — agentName lookup&lt;br>USER_HOOK_TIMEOUT_MS 2_000 per hook]
+ *   I -- yes --> J[fireConnectionHooks — agentName lookup<br>USER_HOOK_TIMEOUT_MS 2_000 per hook]
  *   I -- no --> Done[done]
  * ```
  *

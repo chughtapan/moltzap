@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Effect } from "effect";
 
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
@@ -34,7 +35,7 @@ export interface PresenceEventSink {
  * ```mermaid
  * flowchart LR
  *   svc[PresenceService.setOnline / setOffline] --> sink[publish PresenceChanged]
- *   sink --> mgr["for conn of subscriberConnIds&lt;br>conn.write(PresenceChanged frame)"]
+ *   sink --> mgr["for conn of subscriberConnIds<br>conn.write(PresenceChanged frame)"]
  *   mgr --> fnf[fire-and-forget, errors logged]
  * ```
  *

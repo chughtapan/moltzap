@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * types — public types for `@moltzap/claude-code-channel`.
  *
@@ -94,7 +96,7 @@ export interface ClaudeChannelNotification {
  *   B -->|NO| D["gated = Success(enriched)"]
  *   C --> E{gated._tag}
  *   D --> E
- *   E -->|Failure| F["logGateDropped(error)&lt;br>return — no push, no routing update"]
+ *   E -->|Failure| F["logGateDropped(error)<br>return — no push, no routing update"]
  *   E -->|Success| G["continue to toClaudeChannelNotification(gated.value)"]
  * ```
  *

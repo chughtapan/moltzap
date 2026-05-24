@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Config, ConfigProvider, Data, Effect, Option, Redacted } from "effect";
 import {
   MoltZapChannelCore,
@@ -100,11 +101,11 @@ function loadMoltZapChannelEnv(): {
  *   participant Core as MoltZapChannelCore (@moltzap/client)
  *   participant Handler as handleInbound (this class)
  *   participant Router as nanoclaw router
- *   Core->>Handler: onInbound(enriched)&lt;br>WS frame decoded + enriched
- *   note over Handler: Step 1 — jidFromConversationId&lt;br>chatJid = "mz:" + conversationId
- *   note over Handler: Step 2 — rememberDispatchLease&lt;br>leaseStore.remember(chatJid, leaseId) if present
+ *   Core->>Handler: onInbound(enriched)<br>WS frame decoded + enriched
+ *   note over Handler: Step 1 — jidFromConversationId<br>chatJid = "mz:" + conversationId
+ *   note over Handler: Step 2 — rememberDispatchLease<br>leaseStore.remember(chatJid, leaseId) if present
  *   note over Handler: Step 3 — maybeAutoRegister (eval mode only)
- *   Handler->>Router: Step 4 — opts.onChatMetadata({ chatJid, name, ... })&lt;br>nanoclaw receives ChatMetadata BEFORE message
+ *   Handler->>Router: Step 4 — opts.onChatMetadata({ chatJid, name, ... })<br>nanoclaw receives ChatMetadata BEFORE message
  *   Handler->>Router: Step 5 — opts.onMessage(chatJid, toNewMessage(enriched))
  * ```
  *

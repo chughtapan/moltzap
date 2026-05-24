@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Args, Command, Options } from "@effect/cli";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -268,7 +269,7 @@ function persistRegistration({
  *   participant fs
  *
  *   shell->>cli: moltzap register &lt;name> &lt;code>
- *   Note over cli: parse args + NAME_PATTERN test&lt;br>fail → console.error + process.exit(1)
+ *   Note over cli: parse args + NAME_PATTERN test<br>fail → console.error + process.exit(1)
  *   cli->>reg: handler({name, inviteCode, ...})
  *   reg->>http: registerAgent(name, inviteCode, desc)
  *   http->>server: POST /api/v1/auth/register
@@ -277,7 +278,7 @@ function persistRegistration({
  *   alt --no-persist
  *     reg-->>shell: stdout — print response
  *   else default
- *     reg->>fs: persistRegistration&lt;br>profile? writeProfile : updateConfig&lt;br>+ writeOpenClawChannelConfig
+ *     reg->>fs: persistRegistration<br>profile? writeProfile : updateConfig<br>+ writeOpenClawChannelConfig
  *     reg-->>shell: stdout — Agent registered
  *   end
  * ```

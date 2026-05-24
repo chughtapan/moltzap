@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import {
@@ -857,7 +858,7 @@ export class MoltZapService {
    *     svc-->>caller: fail(RpcServerError ConversationArchived)
    *   else
    *     svc->>ws: sendRpc(MessagesSend, params)
-   *     Note over ws: stateRef None → fail NotConnectedError&lt;br>otherwise allocate JsonRpcId, encode frame
+   *     Note over ws: stateRef None → fail NotConnectedError<br>otherwise allocate JsonRpcId, encode frame
    *     ws->>server: {jsonrpc, method messages/send, id, params}
    *     Note over ws: Deferred raced against 30s timeout
    *     server-->>ws: {result, id} or {error, id}

@@ -42,7 +42,7 @@ export class AgentEndpointResolverTag extends Context.Tag(
 `network/connect` success path and the WS disconnect finalizer. Read by
 NetworkSendServiceTag for O(1) outbound routing.
 
-### [`AppHost`](./app-host.ts#L202)
+### [`AppHost`](./app-host.ts#L203)
 
 _Class_
 
@@ -179,20 +179,20 @@ uniform.
 ```mermaid
 flowchart TD
   subgraph Registries
-    RegA[appId-keyed hooks&lt;br>AppHooks slot taskAuthorizeDispatch]
-    RegB[EndpointAddress-keyed messageAuthorizeHooks&lt;br>seeded for DEFAULT_DM_TM / DEFAULT_GROUP_TM]
-    Remote[remoteRegistrations&lt;br>appId → connectionId&lt;br>set by registerRemoteApp on apps/register success]
+    RegA[appId-keyed hooks<br>AppHooks slot taskAuthorizeDispatch]
+    RegB[EndpointAddress-keyed messageAuthorizeHooks<br>seeded for DEFAULT_DM_TM / DEFAULT_GROUP_TM]
+    Remote[remoteRegistrations<br>appId → connectionId<br>set by registerRemoteApp on apps/register success]
   end
 
   Call[hook runner — dispatchAuthorizeHook or runMessageAuthorize] --> Step1{lookup in-process registry by primary key}
   Step1 -- found --> InProc[runInProcessHookEffect]
   Step1 -- miss --> Step2{derive appId, lookup remoteRegistrations}
-  Step2 -- found --> RemoteRun[runRemoteHookEffect — RPC to {connectionId, definition, params}]
-  Step2 -- miss --> Default[synthetic default&lt;br>messageAuthorize Forward — recipients participants minus sender&lt;br>authorizeDispatch grant]
-  InProc --> Envelope[wrapHookEffectWithEnvelope&lt;br>raw, timeoutMs, onTimeout, onError, log contexts]
+  Step2 -- found --> RemoteRun[runRemoteHookEffect — RPC via connectionId+definition+params]
+  Step2 -- miss --> Default[synthetic default<br>messageAuthorize Forward — recipients participants minus sender<br>authorizeDispatch grant]
+  InProc --> Envelope[wrapHookEffectWithEnvelope<br>raw, timeoutMs, onTimeout, onError, log contexts]
   RemoteRun --> Envelope
   Default --> Envelope
-  Envelope --> FailClosed[timeout, handler throw, RPC failure, decode failure&lt;br>collapse to onTimeout / onError&lt;br>e.g. messageAuthorize Block reason tm_unreachable]
+  Envelope --> FailClosed[timeout, handler throw, RPC failure, decode failure<br>collapse to onTimeout / onError<br>e.g. messageAuthorize Block reason tm_unreachable]
 ```
 
 Every fail-mode collapses to a deny-shaped verdict so callers
@@ -316,7 +316,7 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
 >() {}
 ```
 
-### [`Claim`](./lease-registry.ts#L221)
+### [`Claim`](./lease-registry.ts#L222)
 
 _Interface_
 
@@ -391,7 +391,7 @@ previous `ConnectionTag` — carrying the connection directly eliminates
 the lookup-by-id-and-maybe-fail step (and its associated defect
 path) every handler that wanted the connection object had to do.
 
-### [`ContactService`](./app-host.ts#L61)
+### [`ContactService`](./app-host.ts#L62)
 
 _Interface_
 
@@ -452,7 +452,7 @@ archived flag — encodes exhaustiveness at the type level: every caller
 `switch` ends with a `never` assignment and a future fifth case
 becomes a compile error at every call site (Principle 4).
 
-### [`ConversationServiceForAppHost`](./app-host.ts#L77)
+### [`ConversationServiceForAppHost`](./app-host.ts#L78)
 
 _Interface_
 
@@ -728,7 +728,7 @@ TM-only RPCs remain unreachable on DEFAULT_APP_ID tasks because
 `isAppConnection` compares the caller's connection id against the
 loopback's — no client connection can ever match.
 
-### [`LeaseBindingTuple`](./lease-registry.ts#L101)
+### [`LeaseBindingTuple`](./lease-registry.ts#L102)
 
 _Interface_
 
@@ -747,7 +747,7 @@ Audit binding tuple recorded at `mint` time. Used by `dispatches/get`
 scope-enforcement and connection-close cleanup. Once recorded, the
 tuple is immutable for the lease's lifetime.
 
-### [`LeaseInvalidError`](./lease-registry.ts#L181)
+### [`LeaseInvalidError`](./lease-registry.ts#L182)
 
 _Class_
 
@@ -776,7 +776,7 @@ surface a precise wire-error code per #529's typed-CONSUMED /
 typed-EXPIRED requirements) and `expected` carries the set of
 states the operation would have accepted.
 
-### [`LeaseMintContext`](./lease-registry.ts#L155)
+### [`LeaseMintContext`](./lease-registry.ts#L156)
 
 _Interface_
 
@@ -795,7 +795,7 @@ Inputs to `mint`. Captured into the binding tuple plus mint
 timestamp; the registry generates `leaseId` and `dispatchId`
 internally via `crypto.randomUUID()` (≥122 bits entropy per spec).
 
-### [`LeaseMintResult`](./lease-registry.ts#L169)
+### [`LeaseMintResult`](./lease-registry.ts#L170)
 
 _Interface_
 
@@ -810,7 +810,7 @@ Lease mint result. Both ids are branded — calling code cannot
 accidentally confuse them with `MessageId` / `TaskId` / generic
 strings.
 
-### [`LeaseNotFoundError`](./lease-registry.ts#L205)
+### [`LeaseNotFoundError`](./lease-registry.ts#L206)
 
 _Class_
 
@@ -831,7 +831,7 @@ lease exists but is in the wrong state. `LeaseNotFoundError` fires
 when the id is unknown (caller forged it, or it aged out of the
 retention window).
 
-### [`LeaseRecord`](./lease-registry.ts#L136)
+### [`LeaseRecord`](./lease-registry.ts#L137)
 
 _Interface_
 
@@ -855,7 +855,7 @@ Snapshot of a lease for `dispatches/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L512)
+### [`leaseRecordToWire`](./lease-registry.ts#L513)
 
 _Function_
 
@@ -872,7 +872,7 @@ ergonomics on the moderator client side.
 
 Advisory carry-over from review-senior-arch529 #2.
 
-### [`LeaseRegistry`](./lease-registry.ts#L306)
+### [`LeaseRegistry`](./lease-registry.ts#L307)
 
 _Interface_
 
@@ -929,7 +929,7 @@ sequenceDiagram
   AH->>Recv: dispatch/release {verdict}
   Recv->>MS: messages/send with dispatchLeaseId
   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
-  Note over MS: Effect.acquireUseRelease&lt;br>use sendInsert returns carrier&lt;br>release Exit success → claim.finalize CLAIMED → CONSUMED&lt;br>release Exit failure → claim.rollback CLAIMED → GRANTED
+  Note over MS: Effect.acquireUseRelease<br>use sendInsert returns carrier<br>release Exit success → claim.finalize CLAIMED → CONSUMED<br>release Exit failure → claim.rollback CLAIMED → GRANTED
   MS->>MS: sendCommit — post-insert side effects
 ```
 
@@ -948,7 +948,7 @@ scheduler fibers are forbidden. Manifest TTLs come from
 `manifest.hooks.dispatch_authorize.timeout_ms` (moderator response)
 and the verdict's `leaseTimeoutMs` (post-grant lease).
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L450)
+### [`LeaseRegistryDeps`](./lease-registry.ts#L451)
 
 _Interface_
 
@@ -993,7 +993,7 @@ surface. In-process state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
 TTL fibers); no DB. Constructed once per server lifetime via
 LeaseRegistryLive.
 
-### [`LeaseState`](./lease-registry.ts#L115)
+### [`LeaseState`](./lease-registry.ts#L116)
 
 _TypeAlias_
 
@@ -1013,7 +1013,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L126)
+### [`LeaseVerdict`](./lease-registry.ts#L127)
 
 _TypeAlias_
 
@@ -1184,7 +1184,7 @@ The `/api/v1/auth/claim` success path refreshes
 just-claimed agent so subsequent owner-gated RPCs see fresh state
 without forcing a reconnect.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1209)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1210)
 
 _Function_
 
@@ -1241,7 +1241,7 @@ _Function_
 export function makeNodeHttpServer()
 ```
 
-### [`makeSocketHandler`](./socket-handler.ts#L96)
+### [`makeSocketHandler`](./socket-handler.ts#L97)
 
 _Function_
 
@@ -1266,15 +1266,15 @@ sequenceDiagram
 
   C->>WS: GET /ws Upgrade
   WS->>HS: socket
-  Note over HS: connId = randomUUID&lt;br>writer + closeRequested Deferred
+  Note over HS: connId = randomUUID<br>writer + closeRequested Deferred
   HS->>RPC: acquireConnectionRpcClient(connId, write)
-  Note over RPC: per-connection originator&lt;br>scope-bound finalizer fails pending Deferreds with NotConnectedError
+  Note over RPC: per-connection originator<br>scope-bound finalizer fails pending Deferreds with NotConnectedError
   RPC-->>HS: originator
   HS->>CM: connections.add{id, write, shutdown, auth null, originator, ...}
   HS->>R: socket.runRaw — handleFrame
-  Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))&lt;br>raceFirst, not race — abrupt close still runs onExit
+  Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))<br>raceFirst, not race — abrupt close still runs onExit
   R-->>Cleanup: socket closes
-  Note over Cleanup: if authCtx → presenceService.setOffline&lt;br>for hook of disconnectionHooks — runUserHook sequentially&lt;br>agentEndpointResolver.remove(agentId, connId)&lt;br>leaseRegistry.abandon(connId)&lt;br>presenceService.removeConnection&lt;br>connections.remove(connId)
+  Note over Cleanup: if authCtx → presenceService.setOffline<br>for hook of disconnectionHooks — runUserHook sequentially<br>agentEndpointResolver.remove(agentId, connId)<br>leaseRegistry.abandon(connId)<br>presenceService.removeConnection<br>connections.remove(connId)
 ```
 
 `Effect.raceFirst` (vs plain `race`) is load-bearing: an abrupt

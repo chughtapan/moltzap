@@ -224,7 +224,7 @@ Capability-union extractor: union of every capability tag referenced
 across all real `HandlerSlot` arms in the table. The factory's
 signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
 
-### [`ConflictError`](./wire-errors.ts#L122)
+### [`ConflictError`](./wire-errors.ts#L123)
 
 _Class_
 
@@ -313,7 +313,7 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](./method.ts#L208)
+### [`decodeRpcParams`](./method.ts#L209)
 
 _Function_
 
@@ -344,7 +344,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L221)
+### [`decodeRpcResult`](./method.ts#L222)
 
 _Function_
 
@@ -359,7 +359,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Static<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L179)
+### [`defineNotification`](./method.ts#L180)
 
 _Function_
 
@@ -374,7 +374,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L98)
+### [`defineRpc`](./method.ts#L99)
 
 _Function_
 
@@ -395,9 +395,9 @@ runtime never re-parses schemas.
 
 ```mermaid
 flowchart TD
-  A["domain layer call site:&lt;br>defineRpc{ name, params, result, optional?, capabilities? }"]
-  A --> B["ajv.compile(params)&lt;br>→ validateParams"]
-  A --> C["ajv.compile(result)&lt;br>→ validateResult"]
+  A["domain layer call site:<br>defineRpc{ name, params, result, optional?, capabilities? }"]
+  A --> B["ajv.compile(params)<br>→ validateParams"]
+  A --> C["ajv.compile(result)<br>→ validateResult"]
   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
   C --> D
   D --> E["pushed into per-layer *RpcMethods const"]
@@ -435,7 +435,7 @@ Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
 
-### [`errorClassFor`](./wire-errors.ts#L72)
+### [`errorClassFor`](./wire-errors.ts#L73)
 
 _Function_
 
@@ -445,7 +445,7 @@ export function errorClassFor(code: number): RpcErrorClass | undefined
 
 Returns the registered class for a wire code, or `undefined`.
 
-### [`ForbiddenError`](./wire-errors.ts#L104)
+### [`ForbiddenError`](./wire-errors.ts#L105)
 
 _Class_
 
@@ -522,7 +522,7 @@ concrete `RpcDefinition&lt;"identity/register", ...>` etc. arms; the
 mapped type preserves each arm's `name` literal so the resulting
 table has named keys.
 
-### [`InvalidParamsError`](./wire-errors.ts#L136)
+### [`InvalidParamsError`](./wire-errors.ts#L137)
 
 _Class_
 
@@ -551,7 +551,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`isRegisteredErrorInstance`](./wire-errors.ts#L77)
+### [`isRegisteredErrorInstance`](./wire-errors.ts#L78)
 
 _Function_
 
@@ -561,7 +561,7 @@ export function isRegisteredErrorInstance(value: object): boolean
 
 Returns true iff `value`'s constructor is in the registered class set.
 
-### [`JSON_RPC_RESERVED_CODES`](./wire-errors.ts#L5)
+### [`JSON_RPC_RESERVED_CODES`](./wire-errors.ts#L6)
 
 _Variable_
 
@@ -677,7 +677,7 @@ defaults per Spec F R2); the empty literal `{ handlers: {} }` is
 well-typed and produces a TM that responds to every inbound auth
 check with `Forbidden`.
 
-### [`MalformedFrameError`](./wire-errors.ts#L145)
+### [`MalformedFrameError`](./wire-errors.ts#L146)
 
 _Class_
 
@@ -704,7 +704,7 @@ export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
 
 The socket is not in the OPEN state when an RPC was attempted.
 
-### [`NotFoundError`](./wire-errors.ts#L113)
+### [`NotFoundError`](./wire-errors.ts#L114)
 
 _Class_
 
@@ -729,7 +729,7 @@ export type NotificationDecodeError =
   | InvalidNotificationParamsError;
 ```
 
-### [`NotificationDefinition`](./method.ts#L159)
+### [`NotificationDefinition`](./method.ts#L160)
 
 _Interface_
 
@@ -756,7 +756,7 @@ sequenceDiagram
   Server->>Server: NotificationDefinition.encode(params)
   Server->>Wire: {jsonrpc, method, params}
   Wire->>Client: frame arrives
-  Client->>Client: decodeServerInbound&lt;br>→ tag Notification, definition, params
+  Client->>Client: decodeServerInbound<br>→ tag Notification, definition, params
   Client->>Client: subscriber dispatcher routes to handler
 ```
 
@@ -791,7 +791,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L170)
+### [`NotificationParamsOf`](./method.ts#L171)
 
 _TypeAlias_
 
@@ -818,7 +818,7 @@ export interface Originator {
 Originator side of a JSON-RPC connection. Scope-bound: closing the
 scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
 
-### [`ParamsOf`](./method.ts#L57)
+### [`ParamsOf`](./method.ts#L58)
 
 _TypeAlias_
 
@@ -828,7 +828,7 @@ export type ParamsOf<D extends RpcDefinition<string, TSchema, TSchema>> =
 
 Type-only accessor for a definition's params payload.
 
-### [`registerErrorClass`](./wire-errors.ts#L60)
+### [`registerErrorClass`](./wire-errors.ts#L61)
 
 _Function_
 
@@ -845,11 +845,11 @@ same code.
 
 ```mermaid
 flowchart LR
-  A["domain module load:&lt;br>class FooError extends Data.TaggedError(...)&lt;br>static code = -32019&lt;br>registerErrorClass(FooError)"]
+  A["domain module load:<br>class FooError extends Data.TaggedError(...)<br>static code = -32019<br>registerErrorClass(FooError)"]
   A --> B["codeToClass.set(-32019, FooError)"]
-  B --> C["client side: errorClassFor(code)&lt;br>→ FooError instance | undefined"]
+  B --> C["client side: errorClassFor(code)<br>→ FooError instance | undefined"]
   C --> D["caller: Effect.catchTag('Foo', ...)"]
-  B --> E["server side: wireErrorFromInstance&lt;br>→ wire 'error' sub-object"]
+  B --> E["server side: wireErrorFromInstance<br>→ wire 'error' sub-object"]
 ```
 
 `JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec
@@ -927,7 +927,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L61)
+### [`ResultOf`](./method.ts#L62)
 
 _TypeAlias_
 
@@ -948,7 +948,7 @@ export type RpcCallError =
   | RegisteredTaggedError;
 ```
 
-### [`RpcDefinition`](./method.ts#L28)
+### [`RpcDefinition`](./method.ts#L29)
 
 _Interface_
 
@@ -974,7 +974,7 @@ of capability descriptors the dispatcher iterates to thread
 plus an `argsOf` resolver that derives the obtain helper's args from
 `params` + `ctx`. Absent → no capabilities.
 
-### [`RpcErrorClass`](./wire-errors.ts#L20)
+### [`RpcErrorClass`](./wire-errors.ts#L21)
 
 _TypeAlias_
 
@@ -992,7 +992,7 @@ A `Data.TaggedError`-derived class with static wire metadata
 originator looks up the class by code via `errorClassFor` for inbound
 response decode.
 
-### [`RpcErrorPayload`](./wire-errors.ts#L87)
+### [`RpcErrorPayload`](./wire-errors.ts#L88)
 
 _Interface_
 
@@ -1008,7 +1008,7 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](./method.ts#L194)
+### [`RpcParamsDecodeError`](./method.ts#L195)
 
 _Class_
 
@@ -1031,7 +1031,7 @@ export type RpcRequestDecodeError =
   | InvalidRpcParamsError;
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L201)
+### [`RpcResultDecodeError`](./method.ts#L202)
 
 _Class_
 
@@ -1205,7 +1205,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the TM's typed
 verdict drives the lifecycle transition.
 
-### [`UnauthorizedError`](./wire-errors.ts#L95)
+### [`UnauthorizedError`](./wire-errors.ts#L96)
 
 _Class_
 

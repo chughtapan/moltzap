@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect } from "effect";
 import {
   identityRpcMethods,
@@ -196,12 +197,12 @@ function decodeResponseFrame(
  *
  * ```mermaid
  * flowchart TD
- *   A["raw socket payload&lt;br>(JSON.parse happens before this call)"]
+ *   A["raw socket payload<br>(JSON.parse happens before this call)"]
  *   A --> B["decodeFrame(parsed)"]
  *   B --> C{tag?}
- *   C -->|Request| D["decodeRpcRequest(taskCallbackMethods)&lt;br>→ ServerRequest"]
- *   C -->|Response| E["decodeResponseFrame&lt;br>→ ResponseSuccess | ResponseError"]
- *   C -->|Notification| F["decodeNotification(notificationDefs)&lt;br>→ Notification"]
+ *   C -->|Request| D["decodeRpcRequest(taskCallbackMethods)<br>→ ServerRequest"]
+ *   C -->|Response| E["decodeResponseFrame<br>→ ResponseSuccess | ResponseError"]
+ *   C -->|Notification| F["decodeNotification(notificationDefs)<br>→ Notification"]
  *   D --> G[DecodedServerInbound]
  *   E --> G
  *   F --> G

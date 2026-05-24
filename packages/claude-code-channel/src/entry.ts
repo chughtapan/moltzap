@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * entry — public boot entry point for `@moltzap/claude-code-channel`.
  *
@@ -183,9 +185,9 @@ function bootMcpServerHandle(
  *   participant CC as Claude Code
  *   WS-->>client: WS frame → MoltZapChannelCore
  *   client->>H: onInbound(enriched)
- *   H->>H: [A] opts.gateInbound (if present)&lt;br>Failure → logGateDropped, return
+ *   H->>H: [A] opts.gateInbound (if present)<br>Failure → logGateDropped, return
  *   H->>ev: [B] toClaudeChannelNotification
- *   ev-->>H: Err ContentEmpty | MetaInvalid → log, return&lt;br>Ok notification
+ *   ev-->>H: Err ContentEmpty | MetaInvalid → log, return<br>Ok notification
  *   H->>H: [C] routing.recordInbound(message_id, chat_id)
  *   H->>srv: [D] serverHandle.push(notification)
  *   alt initialized
@@ -245,9 +247,9 @@ function connectCore(
  *   participant cli as moltzap-client
  *   participant srv as server.ts
  *   Caller->>H: Handle.stop()
- *   H->>cli: [1] core.disconnect()&lt;br>WS close, deregister onInbound
+ *   H->>cli: [1] core.disconnect()<br>WS close, deregister onInbound
  *   cli-->>H: done
- *   H->>srv: [2] serverHandle.stop()&lt;br>closeMcpServer → server.close()&lt;br>MCP SDK closes stdio transport
+ *   H->>srv: [2] serverHandle.stop()<br>closeMcpServer → server.close()<br>MCP SDK closes stdio transport
  *   srv-->>H: done (close failure → log, never propagate)
  *   H-->>Caller: Effect&lt;void> (infallible)
  * ```
@@ -302,9 +304,9 @@ function makeHandle(
  *   note over entry: [4] createRoutingState
  *   note over entry: [5] makeSendReply(core)
  *   entry->>server: [6] bootChannelMcpServer
- *   note over server: [6a] makeMcpServer&lt;br>capabilities: tools + experimental claude/channel
- *   note over server: [6b] registerServerHandlers&lt;br>(ListTools, CallTool)
- *   note over server: [6c] connectServer&lt;br>StdioServerTransport.connect
+ *   note over server: [6a] makeMcpServer<br>capabilities: tools + experimental claude/channel
+ *   note over server: [6b] registerServerHandlers<br>(ListTools, CallTool)
+ *   note over server: [6c] connectServer<br>StdioServerTransport.connect
  *   note over server: [6d] server.oninitialized → flush pending buffer
  *   server-->>entry: [6e] ServerHandle { push, stop }
  *   note over entry: [7] core.onInbound(handleInboundMessage)

@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data } from "effect";
 import type { JsonValue } from "../schema-primitives.js";
 
@@ -43,11 +44,11 @@ class DuplicateErrorCodeError extends Error {
  *
  * ```mermaid
  * flowchart LR
- *   A["domain module load:&lt;br>class FooError extends Data.TaggedError(...)&lt;br>static code = -32019&lt;br>registerErrorClass(FooError)"]
+ *   A["domain module load:<br>class FooError extends Data.TaggedError(...)<br>static code = -32019<br>registerErrorClass(FooError)"]
  *   A --> B["codeToClass.set(-32019, FooError)"]
- *   B --> C["client side: errorClassFor(code)&lt;br>→ FooError instance | undefined"]
+ *   B --> C["client side: errorClassFor(code)<br>→ FooError instance | undefined"]
  *   C --> D["caller: Effect.catchTag('Foo', ...)"]
- *   B --> E["server side: wireErrorFromInstance&lt;br>→ wire 'error' sub-object"]
+ *   B --> E["server side: wireErrorFromInstance<br>→ wire 'error' sub-object"]
  * ```
  *
  * `JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec

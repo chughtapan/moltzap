@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * @file `@moltzap/client/channel-base` — shared scaffolding for channel
  * adapters (`@moltzap/openclaw-channel`, `@moltzap/claude-code-channel`,
@@ -30,7 +32,7 @@
  *   Channel->>Core: sendReply(conv, text, {dispatchLeaseId})
  *   Core->>Server: messages/send
  *   Server-->>Core: ForbiddenError data.reason LeaseInvalid
- *   Note over Channel,Core: catchLeaseInvalid reads Clock.currentTimeMillis&lt;br>then projectLeaseInvalid stamps LeaseAlreadyConsumed
+ *   Note over Channel,Core: catchLeaseInvalid reads Clock.currentTimeMillis<br>then projectLeaseInvalid stamps LeaseAlreadyConsumed
  *   Core-->>Channel: Effect.fail(LeaseAlreadyConsumed)
  *   alt claude-code
  *     Channel->>Host: toolErrorResult
