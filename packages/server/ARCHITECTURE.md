@@ -16,9 +16,9 @@ packages/server/src/
 │   ├── app-host.ts           # AppHost — dispatch/* + hook fan-out
 │   ├── capability-providers.ts # serverCapabilityProviders obtain table
 │   ├── handlers/             # apps.handlers, dispatches.handlers, task-request
-│   ├── hooks.ts              # Hook context types derived from ParamsOf<>
+│   ├── config.ts             # CoreConfig boot input + ServerConfigLoader (env)
 │   ├── layers.ts             # Tag definitions + Live composition (Tier 1-6)
-│   └── types.ts              # CoreConfig, CoreApp, branded IDs
+│   └── types.ts              # CoreApp, hook context types (ParamsOf<>), branded IDs
 ├── identity/           # Auth, agents, sessions, participants
 ├── network/            # Ping, presence, connection liveness, send routing
 │   ├── agent-endpoint-resolver.ts  # AgentId → HashSet<ConnId> multimap
@@ -35,7 +35,6 @@ packages/server/src/
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── adapters/           # webhook client + typed errors
 ├── config/             # YAML config loader + schema validation
-├── runtime/            # InvalidParamsError, validateParams, coalesce helpers
 ├── runtime-surface/    # Public host-runtime API (logging, tracing, config)
 ├── test-utils/         # PGlite boot + test drivers
 ├── standalone.ts       # startServer(configPath) — CLI/binary entry
