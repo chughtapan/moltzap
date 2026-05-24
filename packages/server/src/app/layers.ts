@@ -8,10 +8,6 @@ import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
 import {
-  TraceCaptureTag,
-  type TraceCapture,
-} from "../runtime-surface/trace-capture.js";
-import {
   ConnectionManager,
   type MoltZapConnection,
 } from "../transport/connection.js";
@@ -273,7 +269,6 @@ const MessageServiceLive = Layer.effect(
     const encryption = yield* EncryptionTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
-    const traceCapture = yield* TraceCaptureTag;
     const appHost = yield* AppHostTag;
     return new MessageService({
       db,
@@ -282,7 +277,6 @@ const MessageServiceLive = Layer.effect(
       encryption,
       deliveryWebhook,
       webhookClient,
-      traceCapture,
       appHost,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
@@ -405,7 +399,6 @@ export interface ResolvedServices {
   readonly messageService: MessageService;
   readonly taskService: TaskService;
   readonly encryption: EnvelopeEncryption | null;
-  readonly traceCapture: TraceCapture;
 }
 
 /**
@@ -427,5 +420,4 @@ export const resolveServices = Effect.all({
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
   taskService: TaskServiceTag,
-  traceCapture: TraceCaptureTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;

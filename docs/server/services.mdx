@@ -12,7 +12,7 @@ The server uses a service layer pattern. Each service encapsulates a domain and 
 ```
 AuthService(db)
 ConversationService(db, connections, resolveContactPolicy?)
-MessageService({ db, conversations, networkSend, encryption, deliveryWebhook, webhookClient, traceCapture, appHost })
+MessageService({ db, conversations, networkSend, encryption, deliveryWebhook, webhookClient, appHost })
 TaskService(db, conversations, messages)
 PresenceService()
 NetworkSendService(agentEndpointResolver)

@@ -1,12 +1,16 @@
 /** Test infrastructure — PGlite-based, no external Postgres needed. */
 
 import { randomBytes } from "node:crypto";
-import { Effect, pipe, type Layer } from "effect";
+import { Effect, pipe } from "effect";
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+  type SpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
 import { createCoreApp } from "../app/server.js";
 import { seedInitialKek } from "../crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { CoreApp } from "../app/types.js";
-import type { TraceCaptureTag } from "../runtime-surface/trace-capture.js";
 import type { Database } from "../db/database.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
 import {
@@ -98,6 +102,7 @@ let pgliteClient: {
 let _masterSecret: string | null = null;
 let _baseUrl: string | null = null;
 let _wsUrl: string | null = null;
+let spanExporter: InMemorySpanExporter | null = null;
 
 export interface CoreTestServer {
   baseUrl: string;
@@ -113,6 +118,14 @@ export interface CoreTestServer {
    * orchestrator) construct their own handle over WebSocket presence.
    */
   runtimeServer: CoreTestRuntimeServerHandle;
+
+  /**
+   * The auto-wired `InMemorySpanExporter`, or `null` when the caller
+   * supplied a custom `spanProcessor`. Tests that want to inspect OTel
+   * spans call `getFinishedSpans()` on this exporter and map them via
+   * their own shim (see `runtimes/` for arena's mapping).
+   */
+  readonly spanExporter: InMemorySpanExporter | null;
 }
 
 type StartCoreTestServerOptions = {
@@ -136,7 +149,7 @@ type StartCoreTestServerOptions = {
    */
   registrationSecret?: string;
   devModeUserId?: string;
-  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
+  spanProcessor?: SpanProcessor;
 };
 
 function importPglite() {
@@ -223,6 +236,14 @@ function configureEncryption(
   return seedEncryptionKey(db, masterSecret).pipe(Effect.as(masterSecret));
 }
 
+function resolveTestSpanProcessor(
+  opts: StartCoreTestServerOptions,
+): SpanProcessor | undefined {
+  if (opts.spanProcessor !== undefined) return opts.spanProcessor;
+  spanExporter = new InMemorySpanExporter();
+  return new SimpleSpanProcessor(spanExporter);
+}
+
 function createCoreTestApp(
   db: EffectKysely<Database>,
   opts: StartCoreTestServerOptions,
@@ -238,7 +259,7 @@ function createCoreTestApp(
     devModeUserId: opts.devModeUserId,
     sessionValidator: opts.sessionValidator,
     registrationSecret: opts.registrationSecret,
-    traceCaptureLayer: opts.traceCaptureLayer,
+    spanProcessor: resolveTestSpanProcessor(opts),
   });
 }
 
@@ -266,6 +287,7 @@ function buildCoreTestServer(
     db,
     coreApp: app,
     runtimeServer: makeRuntimeServer(app),
+    spanExporter,
   };
 }
 
@@ -294,6 +316,7 @@ export function stopCoreTestServer() {
       _masterSecret = null;
       _baseUrl = null;
       _wsUrl = null;
+      spanExporter = null;
 
       yield* Effect.tryPromise({
         try: () => app?.close() ?? Promise.resolve(),

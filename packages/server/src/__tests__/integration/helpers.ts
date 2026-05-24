@@ -11,7 +11,7 @@ import {
   getCoreEncryptionEnvelope,
 } from "../../test-utils/index.js";
 import type { SessionValidator } from "../../identity/services/session-validator.js";
-import type { TraceCaptureTag } from "../../runtime-surface/trace-capture.js";
+import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { NotificationFrame } from "@moltzap/protocol";
 import type { JsonRpcMethod } from "@moltzap/protocol/testing";
 import {
@@ -28,7 +28,7 @@ import {
   type ServerTestClient,
 } from "../../test-utils/helpers.js";
 import type { CoreApp } from "../../app/types.js";
-import { Data, Effect, Either, type Layer } from "effect";
+import { Data, Effect, Either } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { inject } from "vitest";
 
@@ -93,7 +93,7 @@ type StartTestServerOptions = {
    * bind owners.
    */
   devModeUserId?: string;
-  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
+  spanProcessor?: SpanProcessor;
 };
 
 class IntegrationTestHelperError extends Error {
@@ -152,7 +152,7 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
         sessionValidator: opts.sessionValidator,
         registrationSecret: opts.registrationSecret,
         devModeUserId: opts.devModeUserId,
-        traceCaptureLayer: opts.traceCaptureLayer,
+        spanProcessor: opts.spanProcessor,
       }),
     catch: (cause) =>
       new IntegrationTestHelperError("Core test server failed to start", cause),
@@ -166,6 +166,7 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
       baseUrl: server.baseUrl,
       wsUrl: server.wsUrl,
       coreApp: server.coreApp,
+      spanExporter: server.spanExporter,
     })),
     Effect.withSpan("startTestServer"),
   );
