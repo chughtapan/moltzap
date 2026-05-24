@@ -28,7 +28,10 @@ const wrap = <A>(
 
 const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
   wrap(
-    request(ContactsList, {}) as Effect.Effect<{ contacts: Contact[] }, Error>,
+    request(ContactsList, {}) as Effect.Effect<
+      { contacts: Contact[]; nextCursor?: string },
+      Error
+    >,
     (r) => {
       if (json) {
         console.log(JSON.stringify(r.contacts, null, JSON_INDENT_SPACES));
@@ -41,6 +44,14 @@ const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
       for (const c of r.contacts) {
         const rel = c.relationship ? ` (${c.relationship})` : "";
         console.log(`  ${c.id}  ${c.contactUserId}${rel}`);
+      }
+      // First-page indicator (spec #696 approval): a truncated page
+      // carries `nextCursor`; surface that so users don't mistake it
+      // for the full list.
+      if (r.nextCursor !== undefined) {
+        console.log(
+          `Showing first ${r.contacts.length} — more results available.`,
+        );
       }
     },
   ),

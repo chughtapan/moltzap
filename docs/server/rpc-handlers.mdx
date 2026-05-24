@@ -70,7 +70,8 @@ runtime that carries `FullLive` to resolve service Tags at request time.
 - `connectHandlers` — `network/connect` (task-tier, cross-cutting auth +
   presence + endpoint registration).
 - `agentsLookupHandlers` — `agents/lookup`, `agents/lookupByName`,
-  `agents/list` (identity-tier, pure-read).
+  `agents/list` (identity-tier, pure-read; `agents/list` returns an
+  `AgentCard[]` and is cursor-paginated).
 - `pingHandlers` — `network/ping`.
 - `conversationHandlers` — `conversations/*`.
 - `messageHandlers` — `messages/*`.

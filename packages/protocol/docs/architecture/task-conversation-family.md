@@ -219,7 +219,10 @@ conversation notification (no conversation row created).
   schema-decode failure, authority denial, happy path, participant
   invariant (where applicable), task/conversation mismatch,
   idempotency, transaction rollback, notification payload shape,
-  pagination + visibility (`task/conversation/list`).
+  pagination + visibility (`task/conversation/list`). `task/conversation/list`
+  predates the unified list-RPC cursor convention; see
+  [List pagination](list-pagination.md) for the `(sortKey, id)` model
+  the convention standardizes on.
 - **Integration suite** — per-handler test file under
   `packages/server/src/__tests__/integration/task/` mirrors the
   existing `tasks.*.test.ts` shape; new tests cover the dedup

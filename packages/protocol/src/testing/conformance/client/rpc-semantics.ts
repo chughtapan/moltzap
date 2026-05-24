@@ -81,7 +81,7 @@ function runModelEquivalenceClient(
 
 /**
  * B4 client half — TestServer emits a spurious response with marker payload
- * `{ __spurious: true }`, then a matching-id response with `{ agents: {} }`.
+ * `{ __spurious: true }`, then a matching-id response with `{ agents: [] }`.
  * A correctly correlating client returns the matching payload.
  */
 export function registerRequestIdUniquenessClient(
@@ -181,7 +181,7 @@ function emitTaggedAgentsListResponse(
   fx: ClientFixture,
   id: JsonRpcId,
 ): Effect.Effect<void> {
-  const response = responseFrame(id, { result: { agents: {} } });
+  const response = responseFrame(id, { result: { agents: [] } });
   return fx.window
     .emitTaggedResponse({
       connection: fx.connection,
@@ -196,7 +196,7 @@ function emitPlainAgentsListResponse(
   id: JsonRpcId,
 ): Effect.Effect<void> {
   return fx.connection
-    .emitResponse(responseFrame(id, { result: { agents: {} } }))
+    .emitResponse(responseFrame(id, { result: { agents: [] } }))
     .pipe(Effect.orElseSucceed(() => undefined));
 }
 

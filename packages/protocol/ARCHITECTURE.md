@@ -98,6 +98,7 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 | Conformance suite mechanics | [Conformance suite](docs/architecture/conformance-suite.md) |
 | TestClient Stream consolidation | [TestClient Stream consolidation](docs/architecture/test-client-stream-consolidation.md) |
 | Task / TaskConversation family (Spec D1) | [Task / TaskConversation family](docs/architecture/task-conversation-family.md) |
+| List-RPC cursor pagination | [List pagination](docs/architecture/list-pagination.md) |
 
 The typed dispatcher, originator lifecycle, and worked end-to-end RPC
 flow (request handling + server-initiated callbacks) are documented in

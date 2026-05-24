@@ -31,7 +31,8 @@ packages/server/src/
 │                          #   message-send-permission, conversation-create-authorization
 ├── transport/          # WS connection acquisition, dispatch context, layer-tags (Tag-allowlist hierarchy used by handler R-channel)
 ├── crypto/             # Envelope encryption, key rotation
-├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
+├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit,
+│                        #   list-cursor (opaque (sortKey,id) keyset cursor codec)
 ├── adapters/           # webhook client + typed errors
 ├── test-utils/         # PGlite boot + test drivers
 ├── config.ts           # CoreConfig boot input + StandaloneBootPlan + loadStandaloneConfig (YAML + env)

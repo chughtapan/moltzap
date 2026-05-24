@@ -19,14 +19,17 @@
  * circuiting; the fix is to widen the derivation (probe with K > 1
  * samples), not extend this property.
  *
- * Current K = 1 (agents/list only). Architect #197 §2.3 notes that
- * "when K ≤ 2, the property is operating as a small number of hand-
+ * Current K = 1 (`network/ping` only). `agents/list` left the confident
+ * set when Track A (#692) gave it a server-validated `cursor` param: a
+ * schema-valid-but-undecodable cursor yields `InvalidParamsError`, so the
+ * outcome is no longer param-invariantly ok. Architect #197 §2.3 notes
+ * that "when K ≤ 2, the property is operating as a small number of hand-
  * picked examples; document it in JSDoc, don't pretend it's a fuzz
  * property." Widening K requires either teaching `applyCall` per-
- * method param filters (e.g. `conversations/list` confident only
- * when cursor is undefined/valid) or fixing server-side parsers that
- * error on pathological schema-valid params (e.g. `cursor: " "` →
- * SqlError on pglite cursor parsing).
+ * method param filters (e.g. a list RPC confident only when `cursor`
+ * is undefined/valid) or fixing server-side parsers that error on
+ * pathological schema-valid params (e.g. `cursor: " "` → InvalidParams
+ * on cursor decode).
  *
  * numRuns floor: `max(10, 2K)` = 10 today.
  */

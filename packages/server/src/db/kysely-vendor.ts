@@ -17,4 +17,12 @@ export {
   WheneableMergeQueryBuilder,
 } from "kysely";
 
-export type { KyselyConfig, RawBuilder, Transaction } from "kysely";
+export type {
+  Expression,
+  ExpressionBuilder,
+  KyselyConfig,
+  RawBuilder,
+  ReferenceExpression,
+  SqlBool,
+  Transaction,
+} from "kysely";
