@@ -1,6 +1,12 @@
 import type { Layer } from "effect";
+import type {
+  ParamsOf,
+  DispatchAuthorize,
+  MessagesAuthorize,
+} from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
+import type { LeaseId, MessageId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import type { ContactService } from "./app-host.js";
 import type { SessionValidator } from "../identity/services/session-validator.js";
@@ -88,6 +94,46 @@ export type DisconnectionHook = (params: {
   ownerUserId: string | null;
   connId: ConnectionId;
 }) => PromiseLike<void> | void;
+
+/**
+ * Server-side hook context for the `dispatch/authorize` and
+ * `messages/authorize` server-to-client RPCs. Context shapes are
+ * derived from the protocol's wire schemas via `ParamsOf` — the
+ * hook context IS the wire param shape, so a drift between the
+ * server-side type and the descriptor is impossible by construction.
+ */
+export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
+
+export type DispatchAdmissionResult =
+  | {
+      decision: "grant";
+      leaseId?: LeaseId;
+      leaseTimeoutMs?: number;
+      dispatchMessageId?: MessageId;
+    }
+  | { decision: "deny"; reason?: string }
+  | { decision: "hold"; reason?: string };
+
+/**
+ * Server-side message-fan-out authorization hook context. Equals the
+ * `messages/authorize` wire param shape. Symmetric to
+ * `DispatchAuthorizeContext` — same fail-closed posture, different
+ * verdict union.
+ */
+export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
+
+/**
+ * 2-arm verdict the TM declares for fan-out. `Forward { recipients }`
+ * names the agents the server SHALL deliver to; `Block { reason }`
+ * suppresses fan-out and surfaces `RpcFailure(HookBlocked)` to the
+ * sender. `recipients` MUST be a subset of the conversation's
+ * participants; the server does not re-fan to non-participants.
+ * Empty `recipients` is legal — message lands in the sender's
+ * transcript but is delivered to no one else.
+ */
+export type MessageAuthorizeResult =
+  | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
+  | { decision: "Block"; reason?: string };
 
 export interface CoreApp {
   readonly port: number;

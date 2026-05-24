@@ -17,7 +17,7 @@ import type { Db } from "../db/client.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
-import type { MessageAuthorizeContext } from "./hooks.js";
+import type { MessageAuthorizeContext } from "./types.js";
 import { makeLoopbackConnection } from "./loopback-connection.js";
 
 const liveIt = effectIt.live;
