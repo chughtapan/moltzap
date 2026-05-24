@@ -1470,7 +1470,7 @@ Resolves every service via Context into a plain-object view (matches the
 shape handler factories already expect). Context requirements inferred
 from the tag record.
 
-### [`serverCapabilityProviders`](./capability-providers.ts#L127)
+### [`serverCapabilityProviders`](./capability-providers.ts#L126)
 
 _Variable_
 

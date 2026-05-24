@@ -27,7 +27,7 @@ from legacy `conformance/test-server-driver.ts`).
 
 ## Public surface
 
-### [`ABANDON_OBSERVATION_BUFFER_MS`](./_helpers.ts#L24)
+### [`ABANDON_OBSERVATION_BUFFER_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L24)
 
 _Variable_
 
@@ -35,7 +35,7 @@ _Variable_
 export const ABANDON_OBSERVATION_BUFFER_MS = 1_000
 ```
 
-### [`ABANDON_POLL_EXTRA_MS`](./_helpers.ts#L31)
+### [`ABANDON_POLL_EXTRA_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L31)
 
 _Variable_
 
@@ -43,7 +43,7 @@ _Variable_
 export const ABANDON_POLL_EXTRA_MS = 2_000
 ```
 
-### [`APP_PROPERTIES`](./index.ts#L70)
+### [`APP_PROPERTIES`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/index.ts#L70)
 
 _Variable_
 
@@ -57,7 +57,7 @@ All app-layer property registrars, ordered per architect plan §2:
 registrars (delivery tombstones, boundary unavailable, rpc-semantics
 spurious-callback tombstone, rpc-semantics idempotence).
 
-### [`ConsumedFrameView`](./_helpers.ts#L71)
+### [`ConsumedFrameView`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L71)
 
 _TypeAlias_
 
@@ -68,7 +68,7 @@ export type ConsumedFrameView = {
 };
 ```
 
-### [`DISPATCH_ADMISSION_CATEGORY`](./_helpers.ts#L19)
+### [`DISPATCH_ADMISSION_CATEGORY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L19)
 
 _Variable_
 
@@ -76,7 +76,7 @@ _Variable_
 export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission" as const
 ```
 
-### [`dispatchAdmissionViolation`](./_helpers.ts#L53)
+### [`dispatchAdmissionViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L53)
 
 _Function_
 
@@ -87,7 +87,7 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L269)
+### [`DispatchTestDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L269)
 
 _Interface_
 
@@ -116,7 +116,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchTestDriverConfig`](./_driver.ts#L333)
+### [`DispatchTestDriverConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L333)
 
 _Interface_
 
@@ -138,7 +138,7 @@ via `taskAppId: "conformance-test-app"`. The `default-grant` properties
 moderator-response TTL pass a small value (e.g., 200 ms); properties
 that don't care pass the default 5_000 ms.
 
-### [`DispatchVerdict`](./_driver.ts#L94)
+### [`DispatchVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L94)
 
 _TypeAlias_
 
@@ -152,7 +152,7 @@ Properties that need to script a moderator's reply pass a
 `DispatchVerdict` value to `recipient.expectAuthorize` /
 `respondWith`; the driver encodes it to the wire shape internally.
 
-### [`FAST_ACK_THRESHOLD_MS`](./_helpers.ts#L44)
+### [`FAST_ACK_THRESHOLD_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L44)
 
 _Variable_
 
@@ -160,7 +160,7 @@ _Variable_
 export const FAST_ACK_THRESHOLD_MS = 1_000
 ```
 
-### [`FORBIDDEN_ERROR_CODE`](./_helpers.ts#L26)
+### [`FORBIDDEN_ERROR_CODE`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L26)
 
 _Variable_
 
@@ -168,7 +168,7 @@ _Variable_
 export const FORBIDDEN_ERROR_CODE = -32001
 ```
 
-### [`freshMessageId`](./_helpers.ts#L76)
+### [`freshMessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L76)
 
 _Function_
 
@@ -176,7 +176,7 @@ _Function_
 export function freshMessageId(): Static<typeof MessageId>
 ```
 
-### [`HOLD_DRAIN_BUFFER_MS`](./_helpers.ts#L51)
+### [`HOLD_DRAIN_BUFFER_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L51)
 
 _Variable_
 
@@ -184,7 +184,7 @@ _Variable_
 export const HOLD_DRAIN_BUFFER_MS = 2_000
 ```
 
-### [`HOLD_RELEASE_MARGIN_MS`](./_helpers.ts#L48)
+### [`HOLD_RELEASE_MARGIN_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L48)
 
 _Variable_
 
@@ -192,7 +192,7 @@ _Variable_
 export const HOLD_RELEASE_MARGIN_MS = 500
 ```
 
-### [`isUuidV4`](./_helpers.ts#L85)
+### [`isUuidV4`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L85)
 
 _Function_
 
@@ -200,7 +200,7 @@ _Function_
 export function isUuidV4(s: string): boolean
 ```
 
-### [`leaseId`](./_helpers.ts#L73)
+### [`leaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L73)
 
 _Property_
 
@@ -208,7 +208,7 @@ _Property_
   readonly leaseId: string;
 ```
 
-### [`leaseId`](./_helpers.ts#L70)
+### [`leaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L70)
 
 _Property_
 
@@ -216,7 +216,7 @@ _Property_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`leaseId`](./_helpers.ts#L67)
+### [`leaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L67)
 
 _Property_
 
@@ -224,7 +224,7 @@ _Property_
   readonly leaseId: string;
 ```
 
-### [`LeaseIdOnlyView`](./_helpers.ts#L70)
+### [`LeaseIdOnlyView`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L70)
 
 _TypeAlias_
 
@@ -232,7 +232,7 @@ _TypeAlias_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`LeaseState`](./_driver.ts#L105)
+### [`LeaseState`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L105)
 
 _TypeAlias_
 
@@ -253,7 +253,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (impl-staff picks the bound
 per-property; default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L941)
+### [`makeDispatchTestDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L941)
 
 _Function_
 
@@ -271,7 +271,7 @@ Property authors call this from inside their property body; the driver
 is per-property, never shared. Cross-property state leakage is the
 exact failure mode the per-property scope prevents.
 
-### [`messageId`](./_helpers.ts#L72)
+### [`messageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L72)
 
 _Property_
 
@@ -279,7 +279,7 @@ _Property_
   readonly messageId: string;
 ```
 
-### [`ModeratorHandle`](./_driver.ts#L198)
+### [`ModeratorHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L198)
 
 _Interface_
 
@@ -314,7 +314,7 @@ server under a moderator agent identity, with `apps/register` already
 driven to install a `dispatch_authorize` hook for the test app. Holds
 the registered `appId` for `dispatches/get` scope assertions.
 
-### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L25)
+### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L25)
 
 _Variable_
 
@@ -322,7 +322,7 @@ _Variable_
 export const NEGATIVE_OBSERVABILITY_WINDOW_MS = 750
 ```
 
-### [`NO_SECOND_RELEASE_WINDOW_MS`](./_helpers.ts#L40)
+### [`NO_SECOND_RELEASE_WINDOW_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L40)
 
 _Variable_
 
@@ -330,7 +330,7 @@ _Variable_
 export const NO_SECOND_RELEASE_WINDOW_MS = 250
 ```
 
-### [`RecipientHandle`](./_driver.ts#L123)
+### [`RecipientHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L123)
 
 _Interface_
 
@@ -363,7 +363,7 @@ server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
 underlying TestClient.
 
-### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L56)
+### [`registerAppDisconnectFailPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/app-disconnect-fail-policy.ts#L56)
 
 _Function_
 
@@ -373,7 +373,7 @@ export function registerAppDisconnectFailPolicy(
 ): void
 ```
 
-### [`registerDispatchAuthorizeTimeoutSynthesizesDeny`](./dispatch-authorize-timeout.ts#L14)
+### [`registerDispatchAuthorizeTimeoutSynthesizesDeny`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatch-authorize-timeout.ts#L14)
 
 _Function_
 
@@ -383,7 +383,7 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
 ): void
 ```
 
-### [`registerDispatchAuthorizeVerdictResolves`](./dispatch-authorize-verdict.ts#L24)
+### [`registerDispatchAuthorizeVerdictResolves`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatch-authorize-verdict.ts#L24)
 
 _Function_
 
@@ -393,7 +393,7 @@ export function registerDispatchAuthorizeVerdictResolves(
 ): void
 ```
 
-### [`registerDispatchesConsumedFiresOnFirstSend`](./dispatches-consumed-fires-on-first-send.ts#L14)
+### [`registerDispatchesConsumedFiresOnFirstSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatches-consumed-fires-on-first-send.ts#L14)
 
 _Function_
 
@@ -403,7 +403,7 @@ export function registerDispatchesConsumedFiresOnFirstSend(
 ): void
 ```
 
-### [`registerDispatchesConsumedSuppressedOnSecondSend`](./dispatches-consumed-suppressed-on-second.ts#L14)
+### [`registerDispatchesConsumedSuppressedOnSecondSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatches-consumed-suppressed-on-second.ts#L14)
 
 _Function_
 
@@ -413,7 +413,7 @@ export function registerDispatchesConsumedSuppressedOnSecondSend(
 ): void
 ```
 
-### [`registerDispatchesExpiredFiresOnTtl`](./dispatches-expired-fires-on-ttl.ts#L14)
+### [`registerDispatchesExpiredFiresOnTtl`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatches-expired-fires-on-ttl.ts#L14)
 
 _Function_
 
@@ -423,7 +423,7 @@ export function registerDispatchesExpiredFiresOnTtl(
 ): void
 ```
 
-### [`registerDispatchesExpiredSuppressedOnConsumeBeforeTtl`](./dispatches-expired-suppressed-on-consume.ts#L15)
+### [`registerDispatchesExpiredSuppressedOnConsumeBeforeTtl`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatches-expired-suppressed-on-consume.ts#L15)
 
 _Function_
 
@@ -433,7 +433,7 @@ export function registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(
 ): void
 ```
 
-### [`registerDispatchesGetModeratorSeesRecord`](./dispatches-get-moderator-sees.ts#L15)
+### [`registerDispatchesGetModeratorSeesRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatches-get-moderator-sees.ts#L15)
 
 _Function_
 
@@ -443,7 +443,7 @@ export function registerDispatchesGetModeratorSeesRecord(
 ): void
 ```
 
-### [`registerDispatchesGetNonModeratorRejected`](./dispatches-get-non-moderator-rejected.ts#L12)
+### [`registerDispatchesGetNonModeratorRejected`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatches-get-non-moderator-rejected.ts#L12)
 
 _Function_
 
@@ -453,7 +453,7 @@ export function registerDispatchesGetNonModeratorRejected(
 ): void
 ```
 
-### [`registerDispatchReleaseFiresAfterResolve`](./dispatch-release-after-resolve.ts#L33)
+### [`registerDispatchReleaseFiresAfterResolve`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatch-release-after-resolve.ts#L33)
 
 _Function_
 
@@ -463,7 +463,7 @@ export function registerDispatchReleaseFiresAfterResolve(
 ): void
 ```
 
-### [`registerDispatchReleaseSkippedOnAbandoned`](./dispatch-release-skipped-on-abandoned.ts#L12)
+### [`registerDispatchReleaseSkippedOnAbandoned`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatch-release-skipped-on-abandoned.ts#L12)
 
 _Function_
 
@@ -473,7 +473,7 @@ export function registerDispatchReleaseSkippedOnAbandoned(
 ): void
 ```
 
-### [`registerDispatchRequestAckMintsLease`](./dispatch-request-ack.ts#L12)
+### [`registerDispatchRequestAckMintsLease`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatch-request-ack.ts#L12)
 
 _Function_
 
@@ -483,7 +483,7 @@ export function registerDispatchRequestAckMintsLease(
 ): void
 ```
 
-### [`registerDispatchRequestRecipientDisconnectAbandons`](./dispatch-request-recipient-disconnect.ts#L12)
+### [`registerDispatchRequestRecipientDisconnectAbandons`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/dispatch-request-recipient-disconnect.ts#L12)
 
 _Function_
 
@@ -493,7 +493,7 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
 ): void
 ```
 
-### [`registerHookGatedDelivery`](./hook-gated-delivery.ts#L21)
+### [`registerHookGatedDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/hook-gated-delivery.ts#L21)
 
 _Function_
 
@@ -501,7 +501,7 @@ _Function_
 export function registerHookGatedDelivery(ctx: ConformanceRunContext): void
 ```
 
-### [`registerIdempotence`](./idempotence.ts#L56)
+### [`registerIdempotence`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/idempotence.ts#L56)
 
 _Function_
 
@@ -509,7 +509,7 @@ _Function_
 export function registerIdempotence(ctx: ConformanceRunContext): void
 ```
 
-### [`registerMultiAppFifoShortCircuit`](./multi-app-fifo-short-circuit.ts#L18)
+### [`registerMultiAppFifoShortCircuit`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/multi-app-fifo-short-circuit.ts#L18)
 
 _Function_
 
@@ -519,7 +519,7 @@ export function registerMultiAppFifoShortCircuit(
 ): void
 ```
 
-### [`registerReleaseForOneLeaseDoesNotWaitOnAnother`](./release-for-one-lease-does-not-wait.ts#L17)
+### [`registerReleaseForOneLeaseDoesNotWaitOnAnother`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/release-for-one-lease-does-not-wait.ts#L17)
 
 _Function_
 
@@ -529,7 +529,7 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 ): void
 ```
 
-### [`registerSameConversationDispatchesConcurrent`](./same-conv-dispatches-concurrent.ts#L15)
+### [`registerSameConversationDispatchesConcurrent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/same-conv-dispatches-concurrent.ts#L15)
 
 _Function_
 
@@ -539,7 +539,7 @@ export function registerSameConversationDispatchesConcurrent(
 ): void
 ```
 
-### [`registerSlowFirstDoesNotDelaySecondAck`](./slow-first-does-not-delay-second-ack.ts#L12)
+### [`registerSlowFirstDoesNotDelaySecondAck`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/slow-first-does-not-delay-second-ack.ts#L12)
 
 _Function_
 
@@ -549,7 +549,7 @@ export function registerSlowFirstDoesNotDelaySecondAck(
 ): void
 ```
 
-### [`registerSpuriousAppCallbackFrameHandling`](./spurious-app-callback-frame.ts#L27)
+### [`registerSpuriousAppCallbackFrameHandling`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/spurious-app-callback-frame.ts#L27)
 
 _Function_
 
@@ -559,7 +559,7 @@ export function registerSpuriousAppCallbackFrameHandling(
 ): void
 ```
 
-### [`ReleaseFrameView`](./_helpers.ts#L66)
+### [`ReleaseFrameView`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L66)
 
 _TypeAlias_
 
@@ -570,7 +570,7 @@ export type ReleaseFrameView = {
 };
 ```
 
-### [`SHORT_LEASE_TIMEOUT_MS`](./_helpers.ts#L21)
+### [`SHORT_LEASE_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L21)
 
 _Variable_
 
@@ -578,7 +578,7 @@ _Variable_
 export const SHORT_LEASE_TIMEOUT_MS = 250
 ```
 
-### [`TIMEOUT_RELEASE_WAIT_MS`](./_helpers.ts#L36)
+### [`TIMEOUT_RELEASE_WAIT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L36)
 
 _Variable_
 
@@ -586,7 +586,7 @@ _Variable_
 export const TIMEOUT_RELEASE_WAIT_MS = 3_000
 ```
 
-### [`TINY_MODERATOR_TIMEOUT_MS`](./_helpers.ts#L22)
+### [`TINY_MODERATOR_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L22)
 
 _Variable_
 
@@ -594,7 +594,7 @@ _Variable_
 export const TINY_MODERATOR_TIMEOUT_MS = 200
 ```
 
-### [`TTL_OBSERVATION_BUFFER_MS`](./_helpers.ts#L23)
+### [`TTL_OBSERVATION_BUFFER_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L23)
 
 _Variable_
 
@@ -602,7 +602,7 @@ _Variable_
 export const TTL_OBSERVATION_BUFFER_MS = 1_500
 ```
 
-### [`verdict`](./_helpers.ts#L68)
+### [`verdict`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L68)
 
 _Property_
 
@@ -610,7 +610,7 @@ _Property_
   readonly verdict: { decision: string; reason?: string };
 ```
 
-### [`withDriver`](./_helpers.ts#L93)
+### [`withDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L93)
 
 _Function_
 

@@ -17,7 +17,7 @@ kernels only; identity, network, task, and app compose on top of transport.
 
 ## Public surface
 
-### [`acquireConnectionRpcClient`](./connection.ts#L60)
+### [`acquireConnectionRpcClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/connection.ts#L60)
 
 _Function_
 
@@ -37,7 +37,7 @@ Test-only: `handlers` defaults to the empty record (no inbound
 dispatch). Production code passes the application's
 `ServerHandlers&lt;DispatchContext>` table via `socket-handler.ts → openSocketSession`.
 
-### [`AppLayerScope`](./layer-scopes.ts#L11)
+### [`AppLayerScope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-scopes.ts#L11)
 
 _Class_
 
@@ -48,7 +48,7 @@ export class AppLayerScope extends Context.Tag("@moltzap/server/AppLayerScope")<
 >() {}
 ```
 
-### [`AppTags`](./layer-tags.ts#L123)
+### [`AppTags`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-tags.ts#L123)
 
 _TypeAlias_
 
@@ -59,7 +59,7 @@ export type AppTags = TaskTags | AppHostTag;
 App-layer allowlist: `apps.handlers.ts` (registration + dispatch
 authorize).
 
-### [`AuthenticatedContext`](./context.ts#L13)
+### [`AuthenticatedContext`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/context.ts#L13)
 
 _Interface_
 
@@ -71,7 +71,7 @@ export interface AuthenticatedContext {
 }
 ```
 
-### [`CapabilityTags`](./layer-tags.ts#L175)
+### [`CapabilityTags`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-tags.ts#L175)
 
 _TypeAlias_
 
@@ -101,7 +101,7 @@ the `defineTaskMethod` wrapper boundary check cannot recognize the
 new tag as part of the capability surface, and a handler that fails
 to drain it would slip past the type system.
 
-### [`ConnectionManager`](./connection.ts#L112)
+### [`ConnectionManager`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/connection.ts#L112)
 
 _Class_
 
@@ -132,7 +132,7 @@ export class ConnectionManager {
   }
 ```
 
-### [`defineAppMethod`](./define-layered-method.ts#L106)
+### [`defineAppMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/define-layered-method.ts#L106)
 
 _Function_
 
@@ -160,7 +160,7 @@ scopes structurally. Capability tags admit auto-provision.
 
 See `defineNetworkMethod` for the maintenance contract.
 
-### [`defineMethod`](./context.ts#L63)
+### [`defineMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/context.ts#L63)
 
 _Function_
 
@@ -194,7 +194,7 @@ body doesn't pull `ConnectionTag` (the `R` channel of `Effect` excludes
 the tag if absent), so `Reqs` widening doesn't lie about
 requirements.
 
-### [`defineNetworkMethod`](./define-layered-method.ts#L47)
+### [`defineNetworkMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/define-layered-method.ts#L47)
 
 _Function_
 
@@ -228,7 +228,7 @@ maintenance contract: update `layer-tags.ts` AND
 `architectureOptions.layers` in the root `eslint.config.js` so the
 structural lint and the type system agree.
 
-### [`defineTaskMethod`](./define-layered-method.ts#L77)
+### [`defineTaskMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/define-layered-method.ts#L77)
 
 _Function_
 
@@ -255,7 +255,7 @@ descriptor's `capabilities` array. The cross-package lockstep
 
 See `defineNetworkMethod` for the maintenance contract.
 
-### [`DispatchContext`](./context.ts#L20)
+### [`DispatchContext`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/context.ts#L20)
 
 _Interface_
 
@@ -268,7 +268,7 @@ export interface DispatchContext {
 
 Per-request dispatch context handed to every RPC handler by the typed dispatcher.
 
-### [`IdentityTags`](./layer-tags.ts#L81)
+### [`IdentityTags`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-tags.ts#L81)
 
 _TypeAlias_
 
@@ -281,7 +281,7 @@ agent-visibility lookups. Yielded by `agents-lookup.handlers.ts` (the
 three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
 `AgentsList` after the auth-handlers split).
 
-### [`MoltZapConnection`](./connection.ts#L19)
+### [`MoltZapConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/connection.ts#L19)
 
 _Interface_
 
@@ -296,7 +296,7 @@ export interface MoltZapConnection {
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
 ```
 
-### [`NetworkLayerScope`](./layer-scopes.ts#L3)
+### [`NetworkLayerScope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-scopes.ts#L3)
 
 _Class_
 
@@ -306,7 +306,7 @@ export class NetworkLayerScope extends Context.Tag(
 )<NetworkLayerScope, void>() {}
 ```
 
-### [`NetworkTags`](./layer-tags.ts#L92)
+### [`NetworkTags`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-tags.ts#L92)
 
 _TypeAlias_
 
@@ -327,7 +327,7 @@ presence service lives in `network/services/` post-2A.2 reshape; its
 Tag is yielded by handlers in higher layers (presence handler routes
 through the TM bus from `task/handlers/`).
 
-### [`RpcMethodBinding`](./context.ts#L37)
+### [`RpcMethodBinding`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/context.ts#L37)
 
 _TypeAlias_
 
@@ -350,7 +350,7 @@ generic `Context.Tag` union for storage; the runtime resolves R
 against `FullLive` post-`asNeverR` in
 `transport/dispatch.ts → makeInboundDispatch`.
 
-### [`RpcMethodRegistry`](./context.ts#L43)
+### [`RpcMethodRegistry`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/context.ts#L43)
 
 _TypeAlias_
 
@@ -358,7 +358,7 @@ _TypeAlias_
 export type RpcMethodRegistry = RpcMethodBinding[];
 ```
 
-### [`sendRpcToClient`](./connection.ts#L94)
+### [`sendRpcToClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/connection.ts#L94)
 
 _Function_
 
@@ -378,7 +378,7 @@ dispatch of a client→server method on the appCallback channel.
 
 Caller controls timeout via `Effect.timeout` at the call site.
 
-### [`TaskLayerScope`](./layer-scopes.ts#L7)
+### [`TaskLayerScope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-scopes.ts#L7)
 
 _Class_
 
@@ -388,7 +388,7 @@ export class TaskLayerScope extends Context.Tag(
 )<TaskLayerScope, void>() {}
 ```
 
-### [`TaskTags`](./layer-tags.ts#L109)
+### [`TaskTags`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-tags.ts#L109)
 
 _TypeAlias_
 
@@ -413,7 +413,7 @@ handler is task-tier because its body pulls cross-cutting services
 spanning network (connections, presence) AND task (conversation
 resolution for presence fan-out).
 
-### [`TransportTags`](./layer-tags.ts#L73)
+### [`TransportTags`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/layer-tags.ts#L73)
 
 _TypeAlias_
 
@@ -427,7 +427,7 @@ is provided by `defineMethod` from the dispatch context; DbTag is
 provided by the dispatcher's `ManagedRuntime` from the configured
 database `Layer.succeed(DbTag, db)`.
 
-### [`unusedOriginator`](./connection.test-utils.ts#L12)
+### [`unusedOriginator`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/transport/connection.test-utils.ts#L12)
 
 _Function_
 

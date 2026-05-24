@@ -37,7 +37,7 @@ own home layer.
 
 ## Public surface
 
-### [`agentClientRpcMethods`](./rpc-registry.ts#L74)
+### [`agentClientRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L74)
 
 _Variable_
 
@@ -50,7 +50,7 @@ export const agentClientRpcMethods = [
 ] as const
 ```
 
-### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L102)
+### [`AnyAgentClientRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L102)
 
 _TypeAlias_
 
@@ -59,7 +59,7 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
-### [`AnyNotificationDefinition`](./rpc-registry.ts#L109)
+### [`AnyNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L109)
 
 _TypeAlias_
 
@@ -68,7 +68,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-registry.ts#L100)
+### [`AnyServerRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L100)
 
 _TypeAlias_
 
@@ -76,7 +76,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
 ```
 
-### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L107)
+### [`AnyTaskCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L107)
 
 _TypeAlias_
 
@@ -84,7 +84,7 @@ _TypeAlias_
 export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
 ```
 
-### [`AnyTaskMasterRpcDefinition`](./rpc-registry.ts#L104)
+### [`AnyTaskMasterRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L104)
 
 _TypeAlias_
 
@@ -92,7 +92,7 @@ _TypeAlias_
 export type AnyTaskMasterRpcDefinition = (typeof taskMasterRpcMethods)[number] &
 ```
 
-### [`brandedId`](./schema-primitives.ts#L85)
+### [`brandedId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L85)
 
 _Function_
 
@@ -106,7 +106,7 @@ canonical way to define wire id types in this package
 etc.). The format check runs against the FormatRegistry's UUID
 regex registered at module load.
 
-### [`brandedNumber`](./schema-primitives.ts#L68)
+### [`brandedNumber`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L68)
 
 _Function_
 
@@ -120,7 +120,7 @@ Build a `TNumber` TypeBox schema whose static type is
 `BrandedNumber&lt;BrandName>`. Same shape as `brandedString` for the
 numeric case.
 
-### [`BrandedNumber`](./schema-primitives.ts#L43)
+### [`BrandedNumber`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L43)
 
 _TypeAlias_
 
@@ -130,7 +130,7 @@ export type BrandedNumber<BrandName extends string> = number &
 
 A `number` carrying a nominal `Brand.Brand&lt;BrandName>` tag.
 
-### [`brandedString`](./schema-primitives.ts#L53)
+### [`brandedString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L53)
 
 _Function_
 
@@ -146,7 +146,7 @@ the AJV validator runs against the underlying string. Passes
 `options` through to `Type.String` so callers can add `format`,
 `minLength`, `maxLength`, `pattern`, etc.
 
-### [`BrandedString`](./schema-primitives.ts#L39)
+### [`BrandedString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L39)
 
 _TypeAlias_
 
@@ -157,7 +157,7 @@ export type BrandedString<BrandName extends string> = string &
 A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
 a `string` from accidentally type-fitting a slot expecting the brand.
 
-### [`DateTimeString`](./schema-primitives.ts#L107)
+### [`DateTimeString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L107)
 
 _TypeAlias_
 
@@ -168,7 +168,7 @@ export type DateTimeString = Static<typeof DateTimeStringSchema>;
 ISO-8601 date-time string. Validated by the FormatRegistry `date-time`
 checker registered at module load (regex plus `Date.parse` finiteness).
 
-### [`dateTimeStringSchema`](./schema-primitives.ts#L114)
+### [`dateTimeStringSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L114)
 
 _Function_
 
@@ -180,7 +180,7 @@ Returns the shared `DateTimeStringSchema` singleton. Functioned so
 callers can keep `as const` references stable while the schema body
 is owned here.
 
-### [`decodeClientInbound`](./rpc-registry.ts#L254)
+### [`decodeClientInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L254)
 
 _Function_
 
@@ -198,7 +198,7 @@ on the request arm.
 Fails closed with `MalformedFrameError` on any mismatch, including
 a response frame whose `id` is `null` (no pending call to settle).
 
-### [`DecodedClientInbound`](./rpc-registry.ts#L152)
+### [`DecodedClientInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L152)
 
 _TypeAlias_
 
@@ -213,7 +213,7 @@ Decoded shape of a frame inbound to the server (from client):
 a client RPC request, a response (success XOR error) to a
 server-initiated callback, or a notification.
 
-### [`DecodedResponseError`](./rpc-registry.ts#L126)
+### [`DecodedResponseError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L126)
 
 _Class_
 
@@ -229,7 +229,7 @@ Discriminated error arm of a decoded JSON-RPC response — wire-frame
 decoder discriminator, not an Effect tagged error (the wire `error`
 sub-object carries `code`/`message`/`data`, no Effect machinery).
 
-### [`DecodedResponseSuccess`](./rpc-registry.ts#L113)
+### [`DecodedResponseSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L113)
 
 _Class_
 
@@ -245,7 +245,7 @@ export class DecodedResponseSuccess extends Data.TaggedClass(
 
 Discriminated success arm of a decoded JSON-RPC response.
 
-### [`DecodedServerInbound`](./rpc-registry.ts#L137)
+### [`DecodedServerInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L137)
 
 _TypeAlias_
 
@@ -262,7 +262,7 @@ Decoded shape of a frame inbound to the client (from server):
 a response (success XOR error), a server-initiated task-callback
 request, or a notification.
 
-### [`decodeServerInbound`](./rpc-registry.ts#L220)
+### [`decodeServerInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L220)
 
 _Function_
 
@@ -298,7 +298,7 @@ pending call to resolve.
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
 
-### [`JsonValue`](./schema-primitives.ts#L135)
+### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L135)
 
 _TypeAlias_
 
@@ -311,7 +311,7 @@ export type JsonValue =
   | ReadonlyArray<JsonValue>
 ```
 
-### [`JsonValueSchema`](./schema-primitives.ts#L123)
+### [`JsonValueSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L123)
 
 _Variable_
 
@@ -320,7 +320,7 @@ export const JsonValueSchema = Type.Recursive(
   (Self)
 ```
 
-### [`notificationDefinitions`](./rpc-registry.ts#L93)
+### [`notificationDefinitions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L93)
 
 _Variable_
 
@@ -333,7 +333,7 @@ export const notificationDefinitions = [
 ] as const
 ```
 
-### [`PROTOCOL_VERSION`](./version.ts#L2)
+### [`PROTOCOL_VERSION`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/version.ts#L2)
 
 _Variable_
 
@@ -341,7 +341,7 @@ _Variable_
 export const PROTOCOL_VERSION = "2026.524.0"
 ```
 
-### [`RegisteredTaggedError`](./rpc-registry.ts#L55)
+### [`RegisteredTaggedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L55)
 
 _TypeAlias_
 
@@ -366,7 +366,7 @@ concrete tags (e.g. "Forbidden", "NotInContacts"). Mirrors the static
 registry built by `registerErrorClass` — keep in sync if a new class
 lands.
 
-### [`serverRpcMethods`](./rpc-registry.ts#L86)
+### [`serverRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L86)
 
 _Variable_
 
@@ -379,7 +379,7 @@ export const serverRpcMethods = [
 ] as const
 ```
 
-### [`stringEnum`](./schema-primitives.ts#L97)
+### [`stringEnum`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L97)
 
 _Function_
 
@@ -391,7 +391,7 @@ export function stringEnum<T extends string[]>(values: [...T])
 values. Use instead of `Type.Union([Type.Literal("a"), Type.Literal("b")])`
 — same wire shape, simpler schema, single AJV `enum` keyword.
 
-### [`taskMasterRpcMethods`](./rpc-registry.ts#L81)
+### [`taskMasterRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L81)
 
 _Variable_
 

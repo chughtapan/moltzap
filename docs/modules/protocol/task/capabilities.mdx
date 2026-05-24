@@ -16,7 +16,7 @@ server-side services live in `@moltzap/server-core/app/capabilities`.
 
 ## Public surface
 
-### [`AgentExists`](./agent-exists.ts#L15)
+### [`AgentExists`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/agent-exists.ts#L15)
 
 _Class_
 
@@ -27,7 +27,7 @@ export class AgentExists extends Context.Tag("@moltzap/protocol/AgentExists")<
 >() {}
 ```
 
-### [`AgentExistsValue`](./agent-exists.ts#L10)
+### [`AgentExistsValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/agent-exists.ts#L10)
 
 _Interface_
 
@@ -43,7 +43,7 @@ Tier 2 capability — `agentId` resolves to a real, active `agents` row.
 Value payload carries `ownerUserId` (nullable, since unclaimed agents
 are valid existence proofs but have no owner).
 
-### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L17)
+### [`AgentInTaskParticipants`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/agent-in-task-participants.ts#L17)
 
 _Class_
 
@@ -53,7 +53,7 @@ export class AgentInTaskParticipants extends Context.Tag(
 )<AgentInTaskParticipants, AgentInTaskParticipantsValue>() {}
 ```
 
-### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L12)
+### [`AgentInTaskParticipantsValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/agent-in-task-participants.ts#L12)
 
 _Interface_
 
@@ -70,7 +70,7 @@ the agent being added to a conversation already participates in the
 parent task — today's inline `task_participants` query becomes the
 capability obtain.
 
-### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L61)
+### [`assertConversationInTaskMatches`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/assert-capability-matches-task.ts#L61)
 
 _Function_
 
@@ -87,7 +87,7 @@ equals the expected pair. Fails with `ForbiddenError` on the first
 mismatch; runs both comparisons in one Effect for handler-side
 symmetry with `assertTmAuthorityMatchesTask`.
 
-### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L49)
+### [`assertTaskReadAccessMatchesTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/assert-capability-matches-task.ts#L49)
 
 _Function_
 
@@ -102,7 +102,7 @@ Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. The
 value shape mirrors `TmAuthorityValue`; a separate overload keeps the
 type narrowed at the call site.
 
-### [`assertTmAuthorityMatchesTask`](./assert-capability-matches-task.ts#L38)
+### [`assertTmAuthorityMatchesTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/assert-capability-matches-task.ts#L38)
 
 _Function_
 
@@ -117,7 +117,7 @@ Verifies `cap.task.id === expectedTaskId`. Fails with
 `ForbiddenError` when the handler obtained a capability for one task
 but passed a different `taskId` argument to the service method.
 
-### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L9)
+### [`ContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L9)
 
 _Class_
 
@@ -127,7 +127,7 @@ export class ContactPolicyAllowsReach extends Context.Tag(
 )<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {}
 ```
 
-### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L4)
+### [`ContactPolicyAllowsReachValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L4)
 
 _Interface_
 
@@ -138,7 +138,7 @@ export interface ContactPolicyAllowsReachValue {
 }
 ```
 
-### [`ConversationCreateAuthorization`](./conversation-create-authorization.ts#L8)
+### [`ConversationCreateAuthorization`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-create-authorization.ts#L8)
 
 _Class_
 
@@ -148,7 +148,7 @@ export class ConversationCreateAuthorization extends Context.Tag(
 )<ConversationCreateAuthorization, ConversationCreateAuthorizationValue>() {}
 ```
 
-### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L4)
+### [`ConversationCreateAuthorizationValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-create-authorization.ts#L4)
 
 _Interface_
 
@@ -158,7 +158,7 @@ export interface ConversationCreateAuthorizationValue {
 }
 ```
 
-### [`ConversationInTask`](./conversation-in-task.ts#L18)
+### [`ConversationInTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L18)
 
 _Class_
 
@@ -168,7 +168,7 @@ export class ConversationInTask extends Context.Tag(
 )<ConversationInTask, ConversationInTaskValue>() {}
 ```
 
-### [`ConversationInTaskValue`](./conversation-in-task.ts#L13)
+### [`ConversationInTaskValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L13)
 
 _Interface_
 
@@ -186,7 +186,7 @@ verifies the carried `taskId` matches the handler-input `taskId` at
 call time — the one-line runtime check that catches "handler passed
 a different taskId than the obtain proved".
 
-### [`ConversationNotArchived`](./conversation-not-archived.ts#L19)
+### [`ConversationNotArchived`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-not-archived.ts#L19)
 
 _Class_
 
@@ -196,7 +196,7 @@ export class ConversationNotArchived extends Context.Tag(
 )<ConversationNotArchived, ConversationNotArchivedValue>() {}
 ```
 
-### [`ConversationNotArchivedValue`](./conversation-not-archived.ts#L15)
+### [`ConversationNotArchivedValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-not-archived.ts#L15)
 
 _Interface_
 
@@ -213,7 +213,7 @@ caller. Folded into the composite `MessageSendPermission` value
 for the MessagesSend path (every constructor verifies the
 conversation is open).
 
-### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
+### [`GroupCapacityForCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/group-capacity-for-create.ts#L18)
 
 _Class_
 
@@ -223,7 +223,7 @@ export class GroupCapacityForCreate extends Context.Tag(
 )<GroupCapacityForCreate, GroupCapacityForCreateValue>() {}
 ```
 
-### [`GroupCapacityForCreateValue`](./group-capacity-for-create.ts#L13)
+### [`GroupCapacityForCreateValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/group-capacity-for-create.ts#L13)
 
 _Interface_
 
@@ -242,7 +242,7 @@ Value payload carries `(creatorAgentId, invitedAgentIds)` to match
 the obtain-time argument set; service methods consuming the capability
 verify the count matches handler input.
 
-### [`MessageSendPermission`](./message-send-permission.ts#L40)
+### [`MessageSendPermission`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L40)
 
 _Class_
 
@@ -252,7 +252,7 @@ export class MessageSendPermission extends Context.Tag(
 )<MessageSendPermission, MessageSendPermissionValue>() {}
 ```
 
-### [`MessageSendPermissionValue`](./message-send-permission.ts#L24)
+### [`MessageSendPermissionValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L24)
 
 _Interface_
 
@@ -291,7 +291,7 @@ and the TM gate is now proved at obtain time via app-ownership of
 the calling WS connection rather than a per-variant bypass flag.
 The bypass mechanism was removed in the #673 follow-up.
 
-### [`noReplyTarget`](./reply-target.ts#L40)
+### [`noReplyTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/reply-target.ts#L40)
 
 _Function_
 
@@ -301,7 +301,7 @@ export const noReplyTarget = (): NoReplyTargetValue
 
 Synchronous constructor — no runtime check needed.
 
-### [`NoReplyTarget`](./reply-target.ts#L35)
+### [`NoReplyTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/reply-target.ts#L35)
 
 _Class_
 
@@ -311,7 +311,7 @@ export class NoReplyTarget extends Context.Tag(
 )<NoReplyTarget, NoReplyTargetValue>() {}
 ```
 
-### [`NoReplyTargetValue`](./reply-target.ts#L31)
+### [`NoReplyTargetValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/reply-target.ts#L31)
 
 _Interface_
 
@@ -323,7 +323,7 @@ export interface NoReplyTargetValue {
 
 Zero-payload tag: declared when the send has no reply target.
 
-### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L12)
+### [`ObtainConversationCreateAuthorizationInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-create-authorization.ts#L12)
 
 _Interface_
 
@@ -334,7 +334,7 @@ export interface ObtainConversationCreateAuthorizationInput {
 }
 ```
 
-### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L51)
+### [`ObtainMessageSendPermissionInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L51)
 
 _Interface_
 
@@ -361,7 +361,7 @@ handler passes the raw `MessagesSend` params + the authenticated
 participant check, task-active refinement, reply-target check, and
 returns the populated value.
 
-### [`refineConversationNotArchived`](./conversation-not-archived.ts#L28)
+### [`refineConversationNotArchived`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-not-archived.ts#L28)
 
 _Function_
 
@@ -376,7 +376,7 @@ Refine constructor. Fails with `ConversationArchivedError` when
 `archivedAt` is non-null. Consumed by `obtainMessageSendPermission`
 after the conversation projection lookup.
 
-### [`refineTaskActive`](./task-active.ts#L39)
+### [`refineTaskActive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-active.ts#L39)
 
 _Function_
 
@@ -391,7 +391,7 @@ Refine constructor. Fails with `TaskClosedError` when status is
 `closed` / `failed`. Consumed by `obtainMessageSendPermission` on
 the non-TM-bypass branch.
 
-### [`TaskActive`](./task-active.ts#L29)
+### [`TaskActive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-active.ts#L29)
 
 _Class_
 
@@ -402,7 +402,7 @@ export class TaskActive extends Context.Tag("@moltzap/protocol/TaskActive")<
 >() {}
 ```
 
-### [`TaskActiveValue`](./task-active.ts#L24)
+### [`TaskActiveValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-active.ts#L24)
 
 _Interface_
 
@@ -432,7 +432,7 @@ to call inside the same transaction that reads the task row;
 cross-transaction reuse is a defect (re-obtain by re-reading the
 column).
 
-### [`TaskReadAccess`](./task-read-access.ts#L21)
+### [`TaskReadAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L21)
 
 _Class_
 
@@ -442,7 +442,7 @@ export class TaskReadAccess extends Context.Tag(
 )<TaskReadAccess, TaskReadAccessValue>() {}
 ```
 
-### [`TaskReadAccessValue`](./task-read-access.ts#L16)
+### [`TaskReadAccessValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L16)
 
 _Interface_
 
@@ -463,7 +463,7 @@ Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
 `getMessagesSince`) via the R-channel; handlers wire the value with
 `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
 
-### [`TmAuthority`](./tm-authority.ts#L18)
+### [`TmAuthority`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/tm-authority.ts#L18)
 
 _Class_
 
@@ -474,7 +474,7 @@ export class TmAuthority extends Context.Tag("@moltzap/protocol/TmAuthority")<
 >() {}
 ```
 
-### [`TmAuthorityValue`](./tm-authority.ts#L14)
+### [`TmAuthorityValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/tm-authority.ts#L14)
 
 _Interface_
 
@@ -493,7 +493,7 @@ connection's Scope finalizer.
 Value payload carries the `task` row already fetched by the obtain
 helper so consumers don't re-query.
 
-### [`ValidReplyTarget`](./reply-target.ts#L26)
+### [`ValidReplyTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/reply-target.ts#L26)
 
 _Class_
 
@@ -503,7 +503,7 @@ export class ValidReplyTarget extends Context.Tag(
 )<ValidReplyTarget, ValidReplyTargetValue>() {}
 ```
 
-### [`ValidReplyTargetValue`](./reply-target.ts#L21)
+### [`ValidReplyTargetValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/reply-target.ts#L21)
 
 _Interface_
 

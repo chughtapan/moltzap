@@ -13,7 +13,7 @@ Public barrel for Toxiproxy toxic profiles and control helpers.
 
 ## Public surface
 
-### [`allToxicTags`](./profile.ts#L51)
+### [`allToxicTags`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L51)
 
 _Variable_
 
@@ -30,7 +30,7 @@ export const allToxicTags = [
 
 All six toxic tags, enumerated for coverage assertions in Tier D.
 
-### [`defaultToxicProfile`](./defaults.ts#L24)
+### [`defaultToxicProfile`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/defaults.ts#L24)
 
 _Variable_
 
@@ -38,7 +38,7 @@ _Variable_
 export const defaultToxicProfile:
 ```
 
-### [`deliveryInvariantFor`](./profile.ts#L75)
+### [`deliveryInvariantFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L75)
 
 _Function_
 
@@ -48,7 +48,7 @@ export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName
 
 Selects the delivery invariant for a toxic profile.
 
-### [`DeliveryInvariantName`](./profile.ts#L68)
+### [`DeliveryInvariantName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L68)
 
 _TypeAlias_
 
@@ -65,7 +65,7 @@ Keyed by the property's semantic name (matches the register-function
 names in `conformance/task/{fan-out-cardinality,store-and-replay,
 payload-opacity,task-boundary-isolation}.ts`).
 
-### [`makeToxiproxyClient`](./client.ts#L231)
+### [`makeToxiproxyClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L231)
 
 _Function_
 
@@ -75,7 +75,7 @@ export function makeToxiproxyClient(
 ): Effect.Effect<ToxiproxyClient, ToxicControlError>
 ```
 
-### [`ToxicControlError`](./errors.ts#L8)
+### [`ToxicControlError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/errors.ts#L8)
 
 _Class_
 
@@ -91,7 +91,7 @@ export class ToxicControlError extends Data.TaggedError(
 
 Toxiproxy HTTP API returned a non-2xx, or the control endpoint is down.
 
-### [`ToxicHandle`](./client.ts#L36)
+### [`ToxicHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L36)
 
 _Interface_
 
@@ -107,7 +107,7 @@ releasing the scope removes it. Tier D properties acquire a
 `ToxicHandle` inside `Effect.scoped` so a crashed property still cleans
 up.
 
-### [`ToxicProfile`](./profile.ts#L14)
+### [`ToxicProfile`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L14)
 
 _TypeAlias_
 
@@ -133,7 +133,7 @@ attached.
 Exhaustiveness: the `_tag` union covers every toxic named in §5 Tier D
 (D1–D6) so the implementer cannot forget a branch in the client dispatch.
 
-### [`ToxicTag`](./profile.ts#L60)
+### [`ToxicTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/profile.ts#L60)
 
 _TypeAlias_
 
@@ -141,7 +141,7 @@ _TypeAlias_
 export type ToxicTag = (typeof allToxicTags)[number];
 ```
 
-### [`ToxiproxyClient`](./client.ts#L57)
+### [`ToxiproxyClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L57)
 
 _Interface_
 
@@ -154,7 +154,7 @@ export interface ToxiproxyClient {
   }) => Effect.Effect<ToxiproxyProxy, ToxicControlError, Scope.Scope>;
 ```
 
-### [`ToxiproxyConfig`](./client.ts#L25)
+### [`ToxiproxyConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L25)
 
 _Interface_
 
@@ -165,7 +165,7 @@ export interface ToxiproxyConfig {
 }
 ```
 
-### [`ToxiproxyProxy`](./client.ts#L46)
+### [`ToxiproxyProxy`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/toxics/client.ts#L46)
 
 _Interface_
 

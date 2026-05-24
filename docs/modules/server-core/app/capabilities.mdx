@@ -16,7 +16,7 @@ JSDoc) for the migration recipe.
 
 ## Public surface
 
-### [`obtainAgentExists`](./agent-exists.ts#L17)
+### [`obtainAgentExists`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/agent-exists.ts#L17)
 
 _Function_
 
@@ -36,7 +36,7 @@ the service helper.
 
 - `NotFoundError` — the `agents` row is absent
 
-### [`obtainAgentInTaskParticipants`](./agent-in-task-participants.ts#L22)
+### [`obtainAgentInTaskParticipants`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/agent-in-task-participants.ts#L22)
 
 _Function_
 
@@ -62,7 +62,7 @@ stays in the service layer.
 
 - `ForbiddenError` — the agent is not in `task_participants` for the given task
 
-### [`obtainContactPolicyForCreate`](./contact-policy-allows-reach.ts#L13)
+### [`obtainContactPolicyForCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/contact-policy-allows-reach.ts#L13)
 
 _Function_
 
@@ -77,7 +77,7 @@ export const obtainContactPolicyForCreate = (
 >
 ```
 
-### [`obtainConversationCreateAuthorization`](./conversation-create-authorization.ts#L17)
+### [`obtainConversationCreateAuthorization`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/conversation-create-authorization.ts#L17)
 
 _Function_
 
@@ -91,7 +91,7 @@ export const obtainConversationCreateAuthorization = (
 >
 ```
 
-### [`obtainConversationInTask`](./conversation-in-task.ts#L22)
+### [`obtainConversationInTask`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/conversation-in-task.ts#L22)
 
 _Function_
 
@@ -113,7 +113,7 @@ inside the service helper.
 - `ForbiddenError` — the conversation does not belong to the specified task
 - `NotFoundError` — the conversation does not exist
 
-### [`obtainGroupCapacityForCreate`](./group-capacity-for-create.ts#L12)
+### [`obtainGroupCapacityForCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/group-capacity-for-create.ts#L12)
 
 _Function_
 
@@ -128,7 +128,7 @@ export const obtainGroupCapacityForCreate = (
 >
 ```
 
-### [`obtainMessageSendPermission`](./message-send-permission.ts#L131)
+### [`obtainMessageSendPermission`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/message-send-permission.ts#L131)
 
 _Function_
 
@@ -146,7 +146,7 @@ export const obtainMessageSendPermission = (
 >
 ```
 
-### [`obtainTaskReadAccess`](./task-read-access.ts#L20)
+### [`obtainTaskReadAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/task-read-access.ts#L20)
 
 _Function_
 
@@ -166,7 +166,7 @@ from pre-Spec-E.
 - `ForbiddenError` — caller is neither initiator nor admitted participant
 - `NotFoundError` — the task does not exist
 
-### [`obtainTmAuthority`](./tm-authority.ts#L25)
+### [`obtainTmAuthority`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/tm-authority.ts#L25)
 
 _Function_
 
@@ -187,7 +187,7 @@ WS connection IS the registered remote-app connection for
 connection (e.g. the unmoderated default app) have no TM — TM-only
 RPCs are unreachable on them by design.
 
-### [`obtainValidReplyTarget`](./reply-target.ts#L34)
+### [`obtainValidReplyTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/app/capabilities/reply-target.ts#L34)
 
 _Function_
 

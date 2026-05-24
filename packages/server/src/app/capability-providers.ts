@@ -18,19 +18,18 @@
  *
  * ```ts
  * // Descriptor declares capabilities.
- * export const TasksStoreMessage = defineRpc({
- *   name: "tasks/storeMessage",
- *   params: TasksStoreMessageParams,
- *   result: TasksStoreMessageResult,
+ * export const TaskConversationCreate = defineRpc({
+ *   name: "task/conversation/create",
+ *   params: TaskConversationCreateParams,
+ *   result: TaskConversationCreateResult,
  *   capabilities: [
- *     { tag: TmAuthority,            argsOf: (p, ctx) => ({ taskId: p.taskId, callerAgentId: ctx.auth.agentId }) },
- *     { tag: ConversationInTask,     argsOf: (p)      => ({ taskId: p.taskId, conversationId: p.conversationId }) },
- *     { tag: MessageSendPermission,  argsOf: (p, ctx) => ({ ... }) },
+ *     { tag: TmAuthority,                     argsOf: (p, ctx) => ({ taskId: p.taskId, callerAgentId: ctx.auth.agentId }) },
+ *     { tag: ConversationCreateAuthorization, argsOf: (p, ctx) => ({ agentIds: [...p.participants], creatorAgentId: ctx.auth.agentId }) },
  *   ],
  * });
  *
  * // Service method R channel encodes the preconditions.
- * storeMessage(...): Effect.Effect&lt;void, MessageServiceError, TmAuthority | ConversationInTask | MessageSendPermission>;
+ * create(...): Effect.Effect&lt;Conversation, ConversationServiceError, ConversationCreateAuthorization>;
  *
  * // Handler body just yields the tags — no Effect.provideServiceEffect chain.
  * ```

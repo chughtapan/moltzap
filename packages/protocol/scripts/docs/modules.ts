@@ -25,6 +25,18 @@ export interface ModuleRenderConfig {
   readonly docsModulesDir: string;
 }
 
+/**
+ * Base URL for source links emitted in the published MDX twin. MODULE.md
+ * uses in-tree relative paths; the MDX lives under `docs/modules/` and
+ * needs an absolute permalink so the rendered page resolves under
+ * Mintlify. Pinned to `main` so generated links survive branch renames.
+ */
+const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob/main";
+
+interface LinkContext {
+  readonly mode: "module-md" | "mdx";
+}
+
 interface EnrichedExport extends TypeDocExport {
   readonly signatureText: string | null;
 }
@@ -42,7 +54,10 @@ const MissingJsDoc = (folder: string): MissingJsDoc => ({
 /**
  * Render MODULE.md + Mintlify MDX for every folder whose `index.ts`
  * has a leading file-level JSDoc block. Folders without that block
- * print a warning and are skipped (loud, not silent).
+ * print a warning and are skipped (loud, not silent). After rendering,
+ * orphan MDX twins (slugs no longer produced by the generator) and
+ * orphan MODULE.md files (folders whose `index.ts` is gone) are
+ * deleted so the published docs tree matches the source tree.
  */
 export const generateModuleDocs = (
   cache: TypeDocCache,
@@ -67,8 +82,83 @@ export const generateModuleDocs = (
       if (result !== null) rendered.push(result);
     }
     if (warnings.length > 0) yield* emitWarnings(warnings);
+    yield* pruneOrphans(rendered, config, path);
     return rendered;
   }).pipe(Effect.withSpan("generateModuleDocs"));
+
+/**
+ * Delete docs/modules MDX files whose slug is not produced by this
+ * pass, and delete `MODULE.md` siblings whose folder is no longer in
+ * the rendered set. A stale flat-layout `docs/modules/protocol/foo.mdx`
+ * left behind by a previous generator shape stays referenced from no
+ * `_nav.json` entry and confuses `docs:check:drift`; pruning closes
+ * the loop.
+ */
+const pruneOrphans = (
+  rendered: ReadonlyArray<ModuleRenderResult>,
+  config: ModuleRenderConfig,
+  path: Path.Path,
+): Effect.Effect<void, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const liveSlugs = new Set(rendered.map((r) => r.pageSlug));
+    const liveFolders = new Set(rendered.map((r) => r.folder));
+    const mdxPaths = yield* listFilesWithSuffix(
+      fs,
+      config.docsModulesDir,
+      ".mdx",
+    );
+    for (const abs of mdxPaths) {
+      const rel = path.relative(config.docsModulesDir, abs);
+      const slug = rel.replace(/\.mdx$/, "");
+      if (liveSlugs.has(slug)) continue;
+      yield* fs.remove(abs).pipe(Effect.catchAll(() => Effect.void));
+      process.stdout.write(`  pruned orphan MDX: ${rel}\n`);
+    }
+    const modulePaths = yield* listFilesWithSuffix(
+      fs,
+      path.resolve(config.workspaceRoot, "packages"),
+      "MODULE.md",
+    );
+    for (const abs of modulePaths) {
+      const folder = path.relative(config.workspaceRoot, path.dirname(abs));
+      if (liveFolders.has(folder)) continue;
+      yield* fs.remove(abs).pipe(Effect.catchAll(() => Effect.void));
+      process.stdout.write(`  pruned orphan MODULE.md: ${folder}\n`);
+    }
+  });
+
+const listFilesWithSuffix = (
+  fs: FileSystem.FileSystem,
+  root: string,
+  suffix: string,
+): Effect.Effect<ReadonlyArray<string>, never, never> =>
+  Effect.gen(function* () {
+    const out: string[] = [];
+    const stack = [root];
+    while (stack.length > 0) {
+      const dir = stack.pop()!;
+      const entries = yield* fs
+        .readDirectory(dir)
+        .pipe(
+          Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
+        );
+      for (const name of entries) {
+        if (name === "node_modules" || name === "dist") continue;
+        const abs = `${dir}/${name}`;
+        const stat = yield* fs
+          .stat(abs)
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
+        if (stat === null) continue;
+        if (stat.type === "Directory") {
+          stack.push(abs);
+        } else if (name.endsWith(suffix)) {
+          out.push(abs);
+        }
+      }
+    }
+    return out;
+  });
 
 const emitWarnings = (
   folders: ReadonlyArray<string>,
@@ -128,23 +218,33 @@ const renderFolder = (
     const pkg = packageSlugFor(folder, path);
     const pageSlug = `${pkg}/${pathFromPackageSrc(folder, path) || path.basename(folder)}`;
     const h1 = `# ${pageSlug}`;
-    const body = renderMarkdown({
+    const moduleMdBody = renderMarkdown({
       h1,
       subtitle: `_\`${folder}\`_`,
       purpose,
       exports: enriched,
       folder,
       path,
+      linkContext: { mode: "module-md" },
+    });
+    const mdxBody = renderMarkdown({
+      h1,
+      subtitle: `_\`${folder}\`_`,
+      purpose,
+      exports: enriched,
+      folder,
+      path,
+      linkContext: { mode: "mdx" },
     });
     yield* writeAtomic(
       fs,
       path.resolve(config.workspaceRoot, folder, "MODULE.md"),
-      body,
+      moduleMdBody,
     );
     yield* writeAtomic(
       fs,
       path.resolve(config.docsModulesDir, `${pageSlug}.mdx`),
-      `${renderFrontmatter({ title: pageSlug, description: firstSentence(purpose) })}\n${body}`,
+      `${renderFrontmatter({ title: pageSlug, description: firstSentence(purpose) })}\n${mdxBody}`,
     );
     return { folder, h1, pageSlug };
   });
@@ -206,13 +306,14 @@ interface RenderArgs {
   readonly exports: ReadonlyArray<EnrichedExport>;
   readonly folder: string;
   readonly path: Path.Path;
+  readonly linkContext: LinkContext;
 }
 
 function renderMarkdown(args: RenderArgs): string {
   const sorted = [...args.exports].sort((a, b) => a.name.localeCompare(b.name));
   const sections: string[][] = [
     renderHeader(args),
-    renderPublicSurface(sorted, args.folder, args.path),
+    renderPublicSurface(sorted, args.folder, args.path, args.linkContext),
     renderFilesSection(args.exports, args.folder, args.path),
   ];
   return sections.flat().join("\n");
@@ -235,13 +336,14 @@ function renderPublicSurface(
   sorted: ReadonlyArray<EnrichedExport>,
   folder: string,
   path: Path.Path,
+  link: LinkContext,
 ): string[] {
   const lines: string[] = ["## Public surface", ""];
   if (sorted.length === 0) {
     lines.push("_No exports surfaced from this folder._", "");
     return lines;
   }
-  for (const ex of sorted) lines.push(...renderExport(ex, folder, path));
+  for (const ex of sorted) lines.push(...renderExport(ex, folder, path, link));
   return lines;
 }
 
@@ -249,9 +351,10 @@ function renderExport(
   ex: EnrichedExport,
   folder: string,
   path: Path.Path,
+  link: LinkContext,
 ): string[] {
   const lines: string[] = [
-    `### ${exportLink(ex, folder, path)}`,
+    `### ${exportLink(ex, folder, path, link)}`,
     "",
     `_${ex.kindString}_`,
     "",
@@ -269,10 +372,16 @@ function exportLink(
   ex: EnrichedExport,
   folder: string,
   path: Path.Path,
+  link: LinkContext,
 ): string {
   const src = ex.sources[0];
   if (!src) return `\`${ex.name}\``;
-  return `[\`${ex.name}\`](./${path.relative(folder, src.fileName)}#L${src.line})`;
+  if (link.mode === "module-md") {
+    return `[\`${ex.name}\`](./${path.relative(folder, src.fileName)}#L${src.line})`;
+  }
+  // MDX twin lives outside the source tree; emit a GitHub permalink so
+  // the rendered Mintlify page resolves to a real source location.
+  return `[\`${ex.name}\`](${SOURCE_LINK_BASE}/${src.fileName}#L${src.line})`;
 }
 
 function renderFailures(ex: EnrichedExport): string[] {
