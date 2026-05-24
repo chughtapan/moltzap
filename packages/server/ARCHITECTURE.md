@@ -50,7 +50,7 @@ packages/server/src/
 | Services | `AuthService`, `ConversationService`, `MessageService`, `PresenceService`, `AppHost` |
 | Adapters | `WebhookClient` (+ typed errors), `WebhookSessionValidator` |
 | Config | `loadConfigFromFile`, `validateConfig`, `loadRuntimeProcessConfig` |
-| Observability | `createRuntimeObservability`, `withRuntimeLogContext`, `withRuntimeTraceSpan`, `TraceCaptureTag` |
+| Observability | OpenTelemetry spans via Effect's `withSpan`; `CoreConfig.spanProcessor` (in-memory `InMemorySpanExporter` in tests, batch OTLP in production via `OTEL_EXPORTER_OTLP_ENDPOINT`); `CoreTestServer.spanExporter` for span inspection |
 | Crypto | `EnvelopeEncryption`, `seedInitialKek`, `generateApiKey`, `parseApiKey`, `hashSecret` |
 | DB | `createDb`, `makeEffectKysely`, `transaction`, `nextSnowflakeId`, Kysely toolkit |
 | Types | `AgentId`, `UserId`, `ConversationId` (branded), `Database`, `MoltZapConnection`, `RpcMethodRegistry` |

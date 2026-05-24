@@ -17,7 +17,6 @@ flowchart TD
         B3["SessionValidatorTag"]
         B4["WebhookClientTag"]
         B5["DeliveryWebhookTag"]
-        B6["TraceCaptureLayer"]
     end
 
     subgraph ServicesLive["ServicesLive — Tier 1-6 (provideMerge chain) · app/layers.ts"]
@@ -50,7 +49,7 @@ flowchart TD
         end
 
         subgraph Tier5["Tier 5"]
-            T5["MessageServiceLive<br/>(needs every upstream +<br/>Encryption + DeliveryWebhook + Webhook + TraceCapture + AppHost)"]
+            T5["MessageServiceLive<br/>(needs every upstream +<br/>Encryption + DeliveryWebhook + Webhook + AppHost)"]
         end
 
         subgraph Tier6["Tier 6"]
@@ -72,11 +71,11 @@ flowchart TD
 
     FullLive["FullLive = Layer.provideMerge(<br/>WireConvIntoAppHost, ServicesWithBase)<br/><i>app/server.ts</i>"]
 
-    dispatchRuntime["dispatchRuntime = ManagedRuntime.make(<br/>Layer.mergeAll(NodeHttpServer.layerContext, FullLive))<br/><i>app/server.ts</i>"]
+    dispatchRuntime["dispatchRuntime = ManagedRuntime.make(<br/>Layer.mergeAll(NodeHttpServer.layerContext, FullLive, TracingLive))<br/>TracingLive = makeTracingLayer(spanProcessor) or Layer.empty<br/>(OTel span export; InMemorySpanExporter in tests, batch OTLP in prod)<br/><i>app/server.ts · app/tracing.ts</i>"]
 
     resolveServices["services = dispatchRuntime.runSync(resolveServices)<br/>resolveServices = Effect.all({tag…})<br/>produces a plain-object view for non-Effect call sites<br/><i>app/server.ts</i>"]
 
-    CoreApp["Returned CoreApp exposes:<br/>port · onConnection / onDisconnection<br/>registerApp / registerRemoteApp<br/>registerMessageAuthorize / onTaskAuth…<br/>setContactService<br/>networkSendService · traceCapture · leases<br/>close()<br/>(RPC handler table baked at construction;<br/>no post-construction method registration)"]
+    CoreApp["Returned CoreApp exposes:<br/>port · onConnection / onDisconnection<br/>registerApp / registerRemoteApp<br/>registerMessageAuthorize / onTaskAuth…<br/>setContactService<br/>networkSendService · leases<br/>close()<br/>(RPC handler table baked at construction;<br/>no post-construction method registration)"]
 
     createCoreApp --> BaseLive
     createCoreApp --> ServicesLive
