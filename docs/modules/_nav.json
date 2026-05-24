@@ -27,7 +27,6 @@
     "modules/server-core/app/capabilities",
     "modules/server-core/identity",
     "modules/server-core/network",
-    "modules/server-core/runtime",
     "modules/server-core/src",
     "modules/server-core/task",
     "modules/server-core/test-utils",

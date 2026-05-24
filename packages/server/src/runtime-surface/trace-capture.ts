@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Ref } from "effect";
 import type { Message, Part } from "@moltzap/protocol";
 
-export interface TraceMessageEvent {
+interface TraceMessageEvent {
   readonly _tag: "Message";
   readonly message: Message;
   readonly channelKey: string;
@@ -10,7 +10,7 @@ export interface TraceMessageEvent {
   readonly deliveredAgentIds: readonly string[];
 }
 
-export interface TraceHookBlockedEvent {
+interface TraceHookBlockedEvent {
   readonly _tag: "HookBlocked";
   readonly hookName: "before_message_delivery";
   readonly conversationId: string;

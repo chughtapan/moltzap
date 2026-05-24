@@ -101,7 +101,7 @@ const MoltZapConfigSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export type MoltZapConfig = Static<typeof MoltZapConfigSchema>;
+type MoltZapConfig = Static<typeof MoltZapConfigSchema>;
 
 // -- Validation ---------------------------------------------------------------
 

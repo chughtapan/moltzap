@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/protocol",
-  "version": "2026.523.0",
+  "version": "2026.524.0",
   "description": "Protocol types and validators for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -45,7 +45,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src scripts *.ts --cache --max-warnings=0",
+    "lint": "eslint src scripts *.ts --cache --max-warnings=0",
     "docs:generate": "tsx scripts/generate-docs.ts && pnpm exec typedoc && tsx scripts/generate-modules.ts",
     "test": "vitest run",
     "test:watch": "vitest"

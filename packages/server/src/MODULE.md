@@ -4,7 +4,7 @@ _`packages/server/src`_
 
 ## Purpose
 
-Public exports for `@moltzap/server-core`.
+`@moltzap/server-core` main entry — consumed via the bin and the `./test-utils` subpath.
 
 ## Public surface
 
