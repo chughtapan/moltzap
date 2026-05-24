@@ -12,7 +12,7 @@ lower layers must not import it because app is the composition root.
 
 ## Public surface
 
-### [`AgentEndpointResolverLive`](./layers.ts#L178)
+### [`AgentEndpointResolverLive`](./layers.ts#L181)
 
 _Variable_
 
@@ -28,7 +28,7 @@ a `Ref`-backed in-memory data structure with no upstream deps; the
 Layer exists to register it under AgentEndpointResolverTag so
 downstream layers (and `network.send`) can pick it up via Context.
 
-### [`AgentEndpointResolverTag`](./layers.ts#L79)
+### [`AgentEndpointResolverTag`](./layers.ts#L82)
 
 _Class_
 
@@ -42,7 +42,7 @@ export class AgentEndpointResolverTag extends Context.Tag(
 `network/connect` success path and the WS disconnect finalizer. Read by
 NetworkSendServiceTag for O(1) outbound routing.
 
-### [`AppHost`](./app-host.ts#L203)
+### [`AppHost`](./app-host.ts#L206)
 
 _Class_
 
@@ -199,7 +199,7 @@ Every fail-mode collapses to a deny-shaped verdict so callers
 never see an Effect failure on the hook channel — the envelope IS
 the contract.
 
-### [`AppHostLive`](./layers.ts#L267)
+### [`AppHostLive`](./layers.ts#L270)
 
 _Variable_
 
@@ -217,7 +217,7 @@ export const AppHostLive = Layer.effect(
 )
 ```
 
-### [`AppHostTag`](./layers.ts#L114)
+### [`AppHostTag`](./layers.ts#L117)
 
 _Class_
 
@@ -303,7 +303,7 @@ Callers (the `apps/register` handler, `installDefaultApp`) map a
 `false` return to whatever surfacing they need — typed
 `ForbiddenError` for the wire path, an exception for boot.
 
-### [`AuthServiceLive`](./layers.ts#L199)
+### [`AuthServiceLive`](./layers.ts#L202)
 
 _Variable_
 
@@ -317,7 +317,7 @@ export const AuthServiceLive = Layer.effect(
 )
 ```
 
-### [`AuthServiceTag`](./layers.ts#L91)
+### [`AuthServiceTag`](./layers.ts#L94)
 
 _Class_
 
@@ -327,36 +327,6 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
   AuthService
 >() {}
 ```
-
-### [`Claim`](./lease-registry.ts#L222)
-
-_Interface_
-
-```ts
-export interface Claim {
-  readonly leaseId: LeaseId;
-
-  /**
-   * CLAIMED → CONSUMED. Idempotent with respect to a successful durable
-   * insert — calling twice on the same handle is a typed defect.
-   */
-  readonly finalize: (
-    messageId: MessageId,
-  ) => Effect.Effect<void, LeaseInvalidError, never>;
-
-  /**
-   * CLAIMED → GRANTED. Used by the `Effect.acquireUseRelease` release path
-   * when `sendInsert` fails after `claim` succeeded but before `finalize`.
-   */
-  readonly rollback: Effect.Effect<void, LeaseInvalidError, never>;
-}
-```
-
-Active claim handle returned by `claim`. Implements
-acquire-use-release: the wrapping `Effect.acquireUseRelease` MUST
-call exactly one of `finalize` or `rollback` on the release path.
-The handle carries the lease id privately so callers cannot forge a
-finalize against a different lease.
 
 ### [`ConnectionHook`](./types.ts#L79)
 
@@ -372,7 +342,7 @@ export type ConnectionHook = (params: {
 }) => PromiseLike<void> | void;
 ```
 
-### [`ConnectionManagerLive`](./layers.ts#L167)
+### [`ConnectionManagerLive`](./layers.ts#L170)
 
 _Variable_
 
@@ -383,7 +353,7 @@ export const ConnectionManagerLive = Layer.sync(
 )
 ```
 
-### [`ConnectionManagerTag`](./layers.ts#L70)
+### [`ConnectionManagerTag`](./layers.ts#L73)
 
 _Class_
 
@@ -393,7 +363,7 @@ export class ConnectionManagerTag extends Context.Tag(
 )<ConnectionManagerTag, ConnectionManager>() {}
 ```
 
-### [`ConnectionTag`](./layers.ts#L65)
+### [`ConnectionTag`](./layers.ts#L68)
 
 _Class_
 
@@ -411,7 +381,7 @@ previous `ConnectionTag` — carrying the connection directly eliminates
 the lookup-by-id-and-maybe-fail step (and its associated defect
 path) every handler that wanted the connection object had to do.
 
-### [`ContactService`](./app-host.ts#L62)
+### [`ContactService`](./app-host.ts#L65)
 
 _Interface_
 
@@ -421,7 +391,7 @@ export interface ContactService {
 }
 ```
 
-### [`ContactsServiceLive`](./layers.ts#L239)
+### [`ContactsServiceLive`](./layers.ts#L242)
 
 _Variable_
 
@@ -435,7 +405,7 @@ export const ContactsServiceLive = Layer.effect(
 )
 ```
 
-### [`ContactsServiceTag`](./layers.ts#L104)
+### [`ContactsServiceTag`](./layers.ts#L107)
 
 _Class_
 
@@ -476,7 +446,7 @@ archived flag — encodes exhaustiveness at the type level: every caller
 `switch` ends with a `never` assignment and a future fifth case
 becomes a compile error at every call site (Principle 4).
 
-### [`ConversationServiceForAppHost`](./app-host.ts#L78)
+### [`ConversationServiceForAppHost`](./app-host.ts#L81)
 
 _Interface_
 
@@ -504,7 +474,7 @@ layer order has ConversationService depending on AppHost.
    forward-all policy reads the conversation's participant set
    here instead of re-implementing the SQL.
 
-### [`ConversationServiceLive`](./layers.ts#L215)
+### [`ConversationServiceLive`](./layers.ts#L218)
 
 _Variable_
 
@@ -534,7 +504,7 @@ export const ConversationServiceLive = Layer.effect(
 )
 ```
 
-### [`ConversationServiceTag`](./layers.ts#L100)
+### [`ConversationServiceTag`](./layers.ts#L103)
 
 _Class_
 
@@ -674,7 +644,7 @@ _Function_
 export function createCoreApp(config: CoreConfig): CoreApp
 ```
 
-### [`DbTag`](./layers.ts#L49)
+### [`DbTag`](./layers.ts#L52)
 
 _Class_
 
@@ -684,7 +654,7 @@ export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
 
 Postgres/PGlite database handle (Kysely&lt;Database>).
 
-### [`DeliveryWebhookTag`](./layers.ts#L160)
+### [`DeliveryWebhookTag`](./layers.ts#L163)
 
 _Class_
 
@@ -710,7 +680,7 @@ export type DisconnectionHook = (params: {
 }) => PromiseLike<void> | void;
 ```
 
-### [`DispatchAdmissionResult`](./hooks.ts#L32)
+### [`DispatchAdmissionResult`](./hooks.ts#L22)
 
 _TypeAlias_
 
@@ -718,45 +688,24 @@ _TypeAlias_
 export type DispatchAdmissionResult =
   | {
       decision: "grant";
-      leaseId?: string;
+      leaseId?: LeaseId;
       leaseTimeoutMs?: number;
       dispatchMessageId?: MessageId;
     }
 ```
 
-### [`DispatchAuthorizeContext`](./hooks.ts#L11)
+### [`DispatchAuthorizeContext`](./hooks.ts#L20)
 
-_Interface_
+_TypeAlias_
 
 ```ts
-export interface DispatchAuthorizeContext {
-  conversationId: ConversationId;
-  recipient: { agentId: AgentId; ownerId: string };
-  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
-  taskId: TaskId;
-  appId: string;
-  attempt: number;
-  receivedAt?: string;
-  clock?: LogicalClock;
-  pending?: ReadonlyArray<{
-    messageId: MessageId;
-    conversationId: ConversationId;
-    senderAgentId: AgentId;
-    createdAt: string;
-    receivedAt: string;
-    clock?: LogicalClock;
-    parts?: Part[];
-  }>;
-  signal: AbortSignal;
-}
+export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
 ```
 
-Server-side dispatch admission hook context. Wire shape mirrors
-the protocol's `DispatchAuthorizeContextSchema`. Consumed by
-`AppHost.callAppRpc` to construct the params for the
-`dispatch/authorize` server→app call.
+Server-side dispatch admission hook context. Equals the
+`dispatch/authorize` wire param shape.
 
-### [`EncryptionTag`](./layers.ts#L52)
+### [`EncryptionTag`](./layers.ts#L55)
 
 _Class_
 
@@ -874,363 +823,7 @@ TM-only RPCs remain unreachable on DEFAULT_APP_ID tasks because
 `isAppConnection` compares the caller's connection id against the
 loopback's — no client connection can ever match.
 
-### [`LeaseBindingTuple`](./lease-registry.ts#L102)
-
-_Interface_
-
-```ts
-export interface LeaseBindingTuple {
-  readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: ConnectionId;
-  readonly moderatorConnectionId: ConnectionId;
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-  readonly appId: AppId;
-}
-```
-
-Audit binding tuple recorded at `mint` time. Used by `dispatches/get`
-scope-enforcement and connection-close cleanup. Once recorded, the
-tuple is immutable for the lease's lifetime.
-
-### [`LeaseInvalidError`](./lease-registry.ts#L182)
-
-_Class_
-
-```ts
-export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
-  readonly leaseId: LeaseId;
-  readonly state: LeaseState;
-  readonly expected: ReadonlyArray<LeaseState>;
-  readonly operation:
-    | "resolve"
-    | "claim"
-    | "finalize"
-    | "rollback"
-    | "read"
-    | "bindToConnection";
-}> {
-  override get message(): string {
-    return `lease ${this.leaseId} in state ${this.state} cannot ${this.operation} (expected one of ${this.expected.join(", ")})`;
-  }
-}
-```
-
-Tagged error channel for the registry's transition-rejecting paths.
-The `state` carries the lease's CURRENT state (so callers can
-surface a precise wire-error code per #529's typed-CONSUMED /
-typed-EXPIRED requirements) and `expected` carries the set of
-states the operation would have accepted.
-
-### [`LeaseMintContext`](./lease-registry.ts#L156)
-
-_Interface_
-
-```ts
-export interface LeaseMintContext {
-  readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: ConnectionId;
-  readonly moderatorConnectionId: ConnectionId;
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-  readonly appId: AppId;
-}
-```
-
-Inputs to `mint`. Captured into the binding tuple plus mint
-timestamp; the registry generates `leaseId` and `dispatchId`
-internally via `crypto.randomUUID()` (≥122 bits entropy per spec).
-
-### [`LeaseMintResult`](./lease-registry.ts#L170)
-
-_Interface_
-
-```ts
-export interface LeaseMintResult {
-  readonly leaseId: LeaseId;
-  readonly dispatchId: DispatchId;
-}
-```
-
-Lease mint result. Both ids are branded — calling code cannot
-accidentally confuse them with `MessageId` / `TaskId` / generic
-strings.
-
-### [`LeaseNotFoundError`](./lease-registry.ts#L206)
-
-_Class_
-
-```ts
-export class LeaseNotFoundError extends Data.TaggedError("LeaseNotFoundError")<{
-  readonly id: LeaseId | DispatchId;
-  readonly kind: "leaseId" | "dispatchId";
-}> {
-  override get message(): string {
-    return `no lease record for ${this.kind}=${this.id}`;
-  }
-}
-```
-
-Lookup-by-id failure when the registry has no entry for the supplied
-id. Distinct from `LeaseInvalidError` — that error fires when the
-lease exists but is in the wrong state. `LeaseNotFoundError` fires
-when the id is unknown (caller forged it, or it aged out of the
-retention window).
-
-### [`LeaseRecord`](./lease-registry.ts#L137)
-
-_Interface_
-
-```ts
-export interface LeaseRecord {
-  readonly dispatchId: DispatchId;
-  readonly leaseId: LeaseId;
-  readonly binding: LeaseBindingTuple;
-  readonly state: LeaseState;
-  readonly verdict: LeaseVerdict | null;
-  readonly mintedAt: string;
-  readonly resolvedAt: string | null;
-  readonly consumedAt: string | null;
-  readonly consumedMessageId: MessageId | null;
-  readonly expiredAt: string | null;
-  readonly leaseTimeoutMs: number | null;
-}
-```
-
-Snapshot of a lease for `dispatches/get` and observability tests.
-Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
-cross-boundary stability.
-
-### [`leaseRecordToWire`](./lease-registry.ts#L513)
-
-_Function_
-
-```ts
-export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire
-```
-
-Translation point between the in-process nested `LeaseRecord`
-(binding field carries the full audit tuple) and the wire
-`LeaseRecordSchema` shape (flat fields). Centralizing this keeps the
-in-process representation as the single source of truth for the
-authoritative tuple while the wire schema stays flat for simple
-ergonomics on the moderator client side.
-
-Advisory carry-over from review-senior-arch529 #2.
-
-### [`LeaseRegistry`](./lease-registry.ts#L307)
-
-_Interface_
-
-```ts
-export interface LeaseRegistry {
-  /**
-   * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
-   * registry is in-process. Records the binding tuple for audit,
-   * `dispatches/get`, and connection-close cleanup.
-   *
-   * Both ids are minted via `crypto.randomUUID()`; the brand on
-   * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
-   */
-  mint(ctx: LeaseMintContext): Effect.Effect<LeaseMintResult, never, never>;
-
-  /**
-   * Settle a PENDING lease into a terminal-or-near-terminal state via
-   * the moderator's verdict (or a synthesized verdict for default-
-   * grant / moderator-unavailable / moderator-timeout). First writer
-   * wins via `Ref.modify`; second `resolve` against the same lease
-   * fails with `LeaseInvalidError`. Internally calls
-   * {@link emitRelease} so `dispatch/release` fires on every
-   * resolution path uniformly.
-   */
-  resolve(
-    leaseId: LeaseId,
-    verdict: LeaseVerdict,
-  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
-
-  /**
-   * Atomic GRANTED → CLAIMED. Called from the messages handler
-   * BEFORE `messageService.sendInsert`. CLAIMED is the in-flight
-   * state — the lease is reserved by this caller but the durable
-   * insert has not yet committed.
-   *
-   * Two transitions out of CLAIMED only: `finalize` (success) or
-   * `rollback` (insert failure). The TTL transition skips CLAIMED
-   * (load-bearing rule 1); the connection-close transition skips
-   * CLAIMED (load-bearing rule 2).
-   */
-  claim(
-    leaseId: LeaseId,
-  ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never>;
-
-  /**
-   * Snapshot read for `dispatches/get`. Includes live `leaseId` —
-   * the moderator IS the authority for the lease (#11), live-id
-   * visibility is in-scope.
-   *
-   * Lookup by either id flavor; the `kind` discriminator on the
-   * error tells the caller which key was used. Scope enforcement
-   * (caller must be the lease's bound moderator) is the handler's
-   * responsibility, not the registry's.
-   */
-  read(
-    id:
-      | { readonly _tag: "leaseId"; readonly value: LeaseId }
-      | {
-          readonly _tag: "dispatchId";
-          readonly value: DispatchId;
-        },
-  ): Effect.Effect<LeaseRecord, LeaseNotFoundError, never>;
-
-  /**
-   * Update the lease's recipient-connection binding. Called when the
-   * recipient reconnects (rare — on disconnect the lease normally
-   * transitions to ABANDONED or EXPIRED-on-disconnect via the
-   * close finalizer). Idempotent for the same `connId`; rejects the
-   * binding update if the lease is already terminal.
-   */
-  bindToConnection(
-    leaseId: LeaseId,
-    connId: ConnectionId,
-  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
-
-  /**
-   * Connection-close cleanup. Called from the WS disconnect-hook chain
-   * with the closing connection id. Iterates leases bound to that
-   * recipientConnectionId and applies the architect §3 transitions:
-   *
-   * - **PENDING → ABANDONED**: cancels the forked moderator round-trip
-   *   (its `resolve` call against the now-ABANDONED lease will return
-   *   `LeaseInvalidError(state=ABANDONED, expected=PENDING)`, which the
-   *   forked fiber catches and discards). No `dispatch/release`
-   *   notification fires (the recipient is gone). Architect §3 + §8 #15.
-   *
-   * - **GRANTED → EXPIRED-on-disconnect**: terminal state; emits
-   *   `dispatches/expired` to the moderator. Cancels the post-grant TTL
-   *   fiber. The recipient won't observe; the moderator's view stays
-   *   consistent. Architect §3.
-   *
-   * - **CLAIMED → no-op (load-bearing rule 2)**: a CLAIMED lease has an
-   *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
-   *   Disconnecting mid-insert MUST NOT roll back the lease — the
-   *   release-arm of the acquireUseRelease is responsible. Otherwise a
-   *   committed durable row could be retried into a duplicate.
-   *
-   * - **HOLD / DENIED / EXPIRED / ABANDONED / CONSUMED**: no-op (already
-   *   terminal-or-near-terminal; no recipient-binding work to do).
-   *
-   * Errors are absorbed: connection-close cleanup is fire-and-forget;
-   * any per-lease transition failure is logged-and-dropped (the
-   * disconnect path must complete even if a single lease's state is
-   * unexpected). Public error channel is `never`.
-   */
-  abandon(connId: ConnectionId): Effect.Effect<void, never, never>;
-
-  /**
-   * Internal — record the forked moderator round-trip fiber so
-   * {@link abandon} can interrupt it on recipient disconnect. The
-   * caller forks the round-trip immediately after `mint`; the registry
-   * interrupts the fiber when the binding's recipient connection
-   * closes (PENDING → ABANDONED transition). No-op if the lease is no
-   * longer in PENDING when the fiber is attached. Idempotent.
-   */
-  attachRoundTripFiber(
-    leaseId: LeaseId,
-    fiber: Fiber.RuntimeFiber<unknown, unknown>,
-  ): Effect.Effect<void, never, never>;
-
-  /**
-   * Internal-but-exported emission helper. Single point of truth for
-   * `dispatch/release` notifications: `resolve` calls this; nothing
-   * else does. The `mint` path for default-grant calls `resolve`
-```
-
-Public contract of the lease registry. One instance per server
-lifetime; held by `AppHost` and the messages handler. Backed by an
-in-process `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` with per-lease TTL
-fibers — no DB row. State transitions are atomic via `Ref.modify`.
-
-Lease state machine (eight states; `LeaseState` in this file is the
-normative enumeration):
-
-```mermaid
-stateDiagram-v2
-  [*] --> PENDING
-  PENDING --> GRANTED : verdict grant
-  PENDING --> DENIED : verdict deny
-  PENDING --> HOLD : verdict hold
-  PENDING --> ABANDONED : conn close
-  HOLD --> PENDING : retry on next inbound message in same conv
-  GRANTED --> CLAIMED : messages/send claim
-  GRANTED --> EXPIRED : TTL fires OR conn close
-  HOLD --> EXPIRED : conn close
-  CLAIMED --> CONSUMED : insert ok — finalize(messageId)
-  CLAIMED --> GRANTED : insert fail — rollback
-  CONSUMED --> [*]
-  DENIED --> [*]
-  ABANDONED --> [*]
-  EXPIRED --> [*]
-```
-
-Mint + claim + finalize sequence (recipient + moderator round-trip):
-
-```mermaid
-sequenceDiagram
-  participant Recv as Recipient (client)
-  participant AH as apps.handlers
-  participant LR as LeaseRegistry
-  participant Mod as Moderator
-  participant MS as MessageService
-
-  Recv->>AH: dispatch/request (C→S)
-  AH->>LR: mint(ctx) — PENDING
-  LR-->>AH: {leaseId, dispatchId}
-  AH-->>Recv: ack returned immediately
-  AH->>Mod: Effect.fork — dispatchAuthorizeHook
-  Mod-->>AH: verdict
-  AH->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
-  AH->>Recv: dispatch/release {verdict}
-  Recv->>MS: messages/send with dispatchLeaseId
-  MS->>LR: claim(leaseId) — GRANTED → CLAIMED
-  Note over MS: Effect.acquireUseRelease<br>use sendInsert returns carrier<br>release Exit success → claim.finalize CLAIMED → CONSUMED<br>release Exit failure → claim.rollback CLAIMED → GRANTED
-  MS->>MS: sendCommit — post-insert side effects
-```
-
-Post-insert side effects (`sendCommit`) DO NOT affect lease state:
-a failure there leaves the lease CONSUMED and the durable row
-intact. Callers must not retry.
-
-Connection-close cleanup runs `abandon(connId)` from the disconnect
-finalizer: PENDING → ABANDONED, GRANTED/HOLD → EXPIRED, CLAIMED →
-no-op. The CLAIMED no-op is load-bearing — without it, a recipient
-disconnect mid-insert could roll back a committed durable row,
-permitting a duplicate retry.
-
-Timer wheel / min-heap for TTLs runs on a single fiber; per-lease
-scheduler fibers are forbidden. Manifest TTLs come from
-`manifest.hooks.dispatch_authorize.timeout_ms` (moderator response)
-and the verdict's `leaseTimeoutMs` (post-grant lease).
-
-### [`LeaseRegistryDeps`](./lease-registry.ts#L451)
-
-_Interface_
-
-```ts
-export interface LeaseRegistryDeps {
-  readonly connections: ConnectionManager;
-  readonly leaseRetentionMs: number;
-}
-```
-
-Constructor dependencies for the lease registry.
-- `connections`: looked up at `emitRelease` time to find the
-  recipient and at `dispatches/consumed` / `dispatches/expired`
-  emission to find the moderator's connection.
-- `leaseRetentionMs`: terminal-state retention window (CONSUMED /
-  DENIED / EXPIRED / ABANDONED). Live states (PENDING / GRANTED /
-  HOLD / CLAIMED) age out on their own TTLs.
-
-### [`LeaseRegistryLive`](./layers.ts#L256)
+### [`LeaseRegistryLive`](./layers.ts#L259)
 
 _Variable_
 
@@ -1247,7 +840,7 @@ export const LeaseRegistryLive = Layer.effect(
 )
 ```
 
-### [`LeaseRegistryTag`](./layers.ts#L125)
+### [`LeaseRegistryTag`](./layers.ts#L128)
 
 _Class_
 
@@ -1262,41 +855,6 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
 surface. In-process state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
 TTL fibers); no DB. Constructed once per server lifetime via
 LeaseRegistryLive.
-
-### [`LeaseState`](./lease-registry.ts#L116)
-
-_TypeAlias_
-
-```ts
-export type LeaseState =
-  | "PENDING"
-  | "CLAIMED"
-  | "GRANTED"
-  | "CONSUMED"
-  | "DENIED"
-  | "EXPIRED"
-  | "ABANDONED"
-  | "HOLD";
-
-/** Verdict shapes accepted by `resolve` — mirrors the wire decision. */
-export type LeaseVerdict =
-  | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
-```
-
-Discriminated state of a lease. The registry's `Ref.modify`
-transitions read this discriminator and reject illegal transitions
-with a typed error (see LeaseInvalidError).
-
-### [`LeaseVerdict`](./lease-registry.ts#L127)
-
-_TypeAlias_
-
-```ts
-export type LeaseVerdict =
-  | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
-```
-
-Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
 ### [`loadCoreConfig`](./config.ts#L155)
 
@@ -1461,27 +1019,6 @@ The `/api/v1/auth/claim` success path refreshes
 just-claimed agent so subsequent owner-gated RPCs see fresh state
 without forcing a reconnect.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1210)
-
-_Function_
-
-```ts
-export function makeLeaseRegistry(
-  deps: LeaseRegistryDeps,
-): Effect.Effect<LeaseRegistry, never, never>
-```
-
-Construct the registry. The constructor is the only public factory
-— `LeaseRegistry` is referenced as an interface from call sites.
-
-Implementation: a `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` plus a per-lease
-scheduled TTL fiber (Effect-managed; safe to interrupt). Every state
-transition is a `Ref.modify` predicate that returns the new entry +
-a description of the side-effect (notification to emit, fiber to
-cancel). The side-effects run AFTER the predicate commits — so the
-state change is visible to concurrent readers before the
-notification fires, satisfying the "first writer wins" invariant.
-
 ### [`makeLoopbackConnection`](./loopback-connection.ts#L71)
 
 _Function_
@@ -1590,28 +1127,20 @@ Optional `originatorCall` override lets a test mock the outbound
 RPC channel (e.g., to simulate a stale-connection
 `NotConnectedError` without spinning up a real socket).
 
-### [`MessageAuthorizeContext`](./hooks.ts#L48)
+### [`MessageAuthorizeContext`](./hooks.ts#L38)
 
-_Interface_
+_TypeAlias_
 
 ```ts
-export interface MessageAuthorizeContext {
-  conversationId: ConversationId;
-  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
-  taskId: TaskId;
-  appId: string;
-  receivedAt?: string;
-  clock?: LogicalClock;
-  signal: AbortSignal;
-}
+export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
 ```
 
-Server-side message-fan-out authorization hook context. Wire shape
-mirrors the protocol's `MessagesAuthorizeContextSchema`. Symmetric
-to `DispatchAuthorizeContext` — same fields, same fail-closed
-posture, different verdict union.
+Server-side message-fan-out authorization hook context. Equals the
+`messages/authorize` wire param shape. Symmetric to
+`DispatchAuthorizeContext` — same fail-closed posture, different
+verdict union.
 
-### [`MessageAuthorizeResult`](./hooks.ts#L67)
+### [`MessageAuthorizeResult`](./hooks.ts#L49)
 
 _TypeAlias_
 
@@ -1628,7 +1157,7 @@ participants; the server does not re-fan to non-participants.
 Empty `recipients` is legal — message lands in the sender's
 transcript but is delivered to no one else.
 
-### [`MessageServiceLive`](./layers.ts#L279)
+### [`MessageServiceLive`](./layers.ts#L282)
 
 _Variable_
 
@@ -1658,7 +1187,7 @@ export const MessageServiceLive = Layer.effect(
 )
 ```
 
-### [`MessageServiceTag`](./layers.ts#L130)
+### [`MessageServiceTag`](./layers.ts#L133)
 
 _Class_
 
@@ -1669,7 +1198,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 >() {}
 ```
 
-### [`NetworkSendServiceLive`](./layers.ts#L188)
+### [`NetworkSendServiceLive`](./layers.ts#L191)
 
 _Variable_
 
@@ -1688,7 +1217,7 @@ export const NetworkSendServiceLive = Layer.effect(
 manager into the NetworkSendService instance the rest of the
 server holds via NetworkSendServiceTag.
 
-### [`NetworkSendServiceTag`](./layers.ts#L87)
+### [`NetworkSendServiceTag`](./layers.ts#L90)
 
 _Class_
 
@@ -1701,7 +1230,7 @@ export class NetworkSendServiceTag extends Context.Tag(
 Single outbound surface: `send` (directed) and `broadcast`
 (fan-out).
 
-### [`ParticipantServiceLive`](./layers.ts#L207)
+### [`ParticipantServiceLive`](./layers.ts#L210)
 
 _Variable_
 
@@ -1715,7 +1244,7 @@ export const ParticipantServiceLive = Layer.effect(
 )
 ```
 
-### [`ParticipantServiceTag`](./layers.ts#L96)
+### [`ParticipantServiceTag`](./layers.ts#L99)
 
 _Class_
 
@@ -1725,7 +1254,7 @@ export class ParticipantServiceTag extends Context.Tag(
 )<ParticipantServiceTag, ParticipantService>() {}
 ```
 
-### [`PresenceServiceLive`](./layers.ts#L247)
+### [`PresenceServiceLive`](./layers.ts#L250)
 
 _Variable_
 
@@ -1740,7 +1269,7 @@ export const PresenceServiceLive = Layer.effect(
 )
 ```
 
-### [`PresenceServiceTag`](./layers.ts#L109)
+### [`PresenceServiceTag`](./layers.ts#L112)
 
 _Class_
 
@@ -1751,7 +1280,7 @@ export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
 >() {}
 ```
 
-### [`ResolvedServices`](./layers.ts#L407)
+### [`ResolvedServices`](./layers.ts#L410)
 
 _Interface_
 
@@ -1778,7 +1307,7 @@ export interface ResolvedServices {
 Shape of the fully-resolved services. Handler factories consume this
 plain-object view rather than reading each tag individually.
 
-### [`resolveServices`](./layers.ts#L430)
+### [`resolveServices`](./layers.ts#L433)
 
 _Variable_
 
@@ -1806,7 +1335,7 @@ Resolves every service via Context into a plain-object view (matches the
 shape handler factories already expect). Context requirements inferred
 from the tag record.
 
-### [`serverCapabilityProviders`](./capability-providers.ts#L126)
+### [`serverCapabilityProviders`](./capability-providers.ts#L147)
 
 _Variable_
 
@@ -1816,7 +1345,7 @@ export const serverCapabilityProviders =
 
 Provider table keyed by `Context.Tag.key`. Each entry receives the
 dispatcher-derived args (built by the descriptor's `argsOf`), narrows
-via a single-level `as` cast, and returns the obtain helper's effect.
+via a single-level `as` cast, and returns the capability's effect.
 
 Both `makeServerConnection` call sites pass this same constant so the
 `Caps` generic of `ServerConnectionConfig` agrees across them.
@@ -1877,7 +1406,7 @@ missing/invalid values surface as typed `ConfigError` instead of thrown
 `Error`. Callers already inside an Effect program `yield*` this; the one
 sync entrypoint (`loadCoreConfig`) bridges via `Effect.runSync`.
 
-### [`ServicesLive`](./layers.ts#L401)
+### [`ServicesLive`](./layers.ts#L404)
 
 _Variable_
 
@@ -1888,7 +1417,7 @@ export const ServicesLive = Tier6
 All service Layers merged, with cross-layer deps resolved. Still requires
 `DbTag | EncryptionTag` from a base Layer.
 
-### [`SessionValidatorTag`](./layers.ts#L141)
+### [`SessionValidatorTag`](./layers.ts#L144)
 
 _Class_
 
@@ -1900,7 +1429,7 @@ export class SessionValidatorTag extends Context.Tag(
 
 Optional bearer-token session validator. `null` → bearer auth disabled.
 
-### [`TaskServiceLive`](./layers.ts#L386)
+### [`TaskServiceLive`](./layers.ts#L389)
 
 _Variable_
 
@@ -1916,7 +1445,7 @@ export const TaskServiceLive = Layer.effect(
 )
 ```
 
-### [`TaskServiceTag`](./layers.ts#L135)
+### [`TaskServiceTag`](./layers.ts#L138)
 
 _Class_
 
@@ -1927,7 +1456,7 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 >() {}
 ```
 
-### [`WebhookClientTag`](./layers.ts#L151)
+### [`WebhookClientTag`](./layers.ts#L154)
 
 _Class_
 
@@ -1954,7 +1483,6 @@ one place.
 - `hooks.ts`
 - `http-routes.ts`
 - `layers.ts`
-- `lease-registry.ts`
 - `logging.ts`
 - `loopback-connection.ts`
 - `node-http-server.ts`

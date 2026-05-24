@@ -8,8 +8,12 @@
  * call sites pass an IDENTICAL provider table, extracted here.
  *
  * Each provider unwraps the dispatcher-supplied `args` (built by the
- * descriptor's `argsOf(params, ctx)` resolver) and invokes the
- * matching obtain helper from `app/capabilities/*`.
+ * descriptor's `argsOf(params, ctx)` resolver) via a single-level `as`
+ * cast and runs the capability composition. Simple obtains live INLINE
+ * here (each has exactly one consumer — this table); composites with
+ * their own direct consumers live as named functions next to the
+ * services they compose (`obtainMessageSendPermission` and
+ * `obtainConversationCreateAuthorization` in `task/services/`).
  *
  * The pattern this table closes the loop on: privileged service
  * preconditions live in the method's *type signature* (its `R`
@@ -65,15 +69,15 @@
  * Gate-helper visibility (`@internal` exported, not `private`): TS
  * `private` blocks obtain helpers from reaching service checks via
  * the service Tag regardless of DI path. Gates stay on the service
- * class as `@internal` exported instance methods; the directory's
- * `app/capabilities/README.md` is the package-internal boundary
- * convention.
+ * class as `@internal` exported instance methods.
  *
  * Adding a new capability:
  *
  *   1. Tag + value type in `@moltzap/protocol/task/capabilities/&lt;name>.ts`
  *      (pure protocol types, no server deps).
- *   2. Obtain helper in `app/capabilities/&lt;name>.ts`.
+ *   2. Obtain logic: inline in this file for a simple obtain, or as
+ *      a named function in `task/services/&lt;name>.ts` for a composite
+ *      that has its own direct consumer.
  *   3. Service method R channel gains the tag; body yields it.
  *   4. Descriptor's `capabilities: [...]` array adds
  *      `{ tag, argsOf }`.
@@ -83,22 +87,32 @@
  * rejects any handler whose R channel yields a tag NOT declared on
  * its descriptor.
  */
-import type { AgentId, ConversationId, TaskId } from "@moltzap/protocol";
+import { Effect } from "effect";
+import { ForbiddenError } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import {
+  AppId,
+  ContactPolicyAllowsReach,
   ConversationCreateAuthorization,
   ConversationInTask,
   MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
-  obtainConversationCreateAuthorization,
-  obtainConversationInTask,
-  obtainMessageSendPermission,
-  obtainTaskReadAccess,
-  obtainTmAuthority,
+  type ConversationId,
+  type TaskId,
   type ObtainConversationCreateAuthorizationInput,
   type ObtainMessageSendPermissionInput,
-} from "./capabilities/index.js";
+} from "@moltzap/protocol/task";
+import { Value } from "@sinclair/typebox/value";
+import {
+  AppHostTag,
+  ConversationServiceTag,
+  TaskServiceTag,
+} from "./layers.js";
+import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
+import { obtainMessageSendPermission } from "../task/services/message-send-permission.js";
+import { obtainConversationCreateAuthorization } from "../task/services/conversation-create-authorization.js";
 
 interface TaskAndAgent {
   readonly taskId: TaskId;
@@ -115,10 +129,17 @@ interface TaskAndConversation {
   readonly conversationId: ConversationId;
 }
 
+interface CreatorAndTargets {
+  readonly creatorAgentId: AgentId;
+  readonly targetAgentIds: readonly AgentId[];
+}
+
+const ERR_NOT_TM = "Caller is not the registered task manager for this task";
+
 /**
  * Provider table keyed by `Context.Tag.key`. Each entry receives the
  * dispatcher-derived args (built by the descriptor's `argsOf`), narrows
- * via a single-level `as` cast, and returns the obtain helper's effect.
+ * via a single-level `as` cast, and returns the capability's effect.
  *
  * Both `makeServerConnection` call sites pass this same constant so the
  * `Caps` generic of `ServerConnectionConfig` agrees across them.
@@ -126,15 +147,51 @@ interface TaskAndConversation {
 export const serverCapabilityProviders = {
   [TmAuthority.key]: (args: unknown) => {
     const { taskId, callerConnId } = args as TaskAndConn;
-    return obtainTmAuthority(taskId, callerConnId);
+    return Effect.gen(function* () {
+      const taskService = yield* TaskServiceTag;
+      const appHost = yield* AppHostTag;
+      const task = yield* taskService.loadOpenTask(taskId);
+      const taskAppId = Value.Decode(AppId, task.appId);
+      if (!appHost.isAppConnection(taskAppId, callerConnId)) {
+        return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
+      }
+      return { task };
+    }).pipe(Effect.withSpan("obtainTmAuthority"));
   },
   [TaskReadAccess.key]: (args: unknown) => {
     const { taskId, callerAgentId } = args as TaskAndAgent;
-    return obtainTaskReadAccess(taskId, callerAgentId);
+    return Effect.gen(function* () {
+      const taskService = yield* TaskServiceTag;
+      const task = yield* taskService.loadTaskWithReadAccess(
+        taskId,
+        callerAgentId,
+      );
+      return { task, callerAgentId };
+    }).pipe(Effect.withSpan("obtainTaskReadAccess"));
   },
   [ConversationInTask.key]: (args: unknown) => {
     const { taskId, conversationId } = args as TaskAndConversation;
-    return obtainConversationInTask(taskId, conversationId);
+    return Effect.gen(function* () {
+      const taskService = yield* TaskServiceTag;
+      yield* taskService.assertConversationInTask(taskId, conversationId);
+      return { taskId, conversationId };
+    }).pipe(Effect.withSpan("obtainConversationInTask"));
+  },
+  [ContactPolicyAllowsReach.key]: (args: unknown) => {
+    const { creatorAgentId, targetAgentIds } = args as CreatorAndTargets;
+    return catchSqlErrorAsDefect(
+      Effect.gen(function* () {
+        const conversations = yield* ConversationServiceTag;
+        const ownerByAgentId =
+          yield* conversations.loadAgentOwners(targetAgentIds);
+        yield* conversations.assertContactPolicyForCreate(
+          creatorAgentId,
+          targetAgentIds,
+          ownerByAgentId,
+        );
+        return { creatorAgentId, targetAgentIds };
+      }),
+    ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
   },
   [ConversationCreateAuthorization.key]: (args: unknown) =>
     obtainConversationCreateAuthorization(

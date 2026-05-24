@@ -8,7 +8,7 @@ import type { SessionValidator } from "../identity/services/session-validator.js
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
-import type { LeaseRegistry } from "./lease-registry.js";
+import type { LeaseRegistry } from "../task/leases/lease-registry.js";
 import type {
   TraceCapture,
   TraceCaptureTag,

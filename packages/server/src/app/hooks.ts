@@ -1,38 +1,28 @@
-import type { LogicalClock, Part } from "@moltzap/protocol";
+/**
+ * @file Server-side hook types for the `dispatch/authorize` and
+ * `messages/authorize` server-to-client RPCs. Context shapes are
+ * derived from the protocol's wire schemas via `ParamsOf` — the
+ * hook context IS the wire param shape, so a drift between the
+ * server-side type and the descriptor is impossible by construction.
+ */
+import type {
+  ParamsOf,
+  DispatchAuthorize,
+  MessagesAuthorize,
+} from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { LeaseId, MessageId } from "@moltzap/protocol/task";
 
 /**
- * Server-side dispatch admission hook context. Wire shape mirrors
- * the protocol's `DispatchAuthorizeContextSchema`. Consumed by
- * `AppHost.callAppRpc` to construct the params for the
- * `dispatch/authorize` server→app call.
+ * Server-side dispatch admission hook context. Equals the
+ * `dispatch/authorize` wire param shape.
  */
-export interface DispatchAuthorizeContext {
-  conversationId: ConversationId;
-  recipient: { agentId: AgentId; ownerId: string };
-  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
-  taskId: TaskId;
-  appId: string;
-  attempt: number;
-  receivedAt?: string;
-  clock?: LogicalClock;
-  pending?: ReadonlyArray<{
-    messageId: MessageId;
-    conversationId: ConversationId;
-    senderAgentId: AgentId;
-    createdAt: string;
-    receivedAt: string;
-    clock?: LogicalClock;
-    parts?: Part[];
-  }>;
-  signal: AbortSignal;
-}
+export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
 
 export type DispatchAdmissionResult =
   | {
       decision: "grant";
-      leaseId?: string;
+      leaseId?: LeaseId;
       leaseTimeoutMs?: number;
       dispatchMessageId?: MessageId;
     }
@@ -40,20 +30,12 @@ export type DispatchAdmissionResult =
   | { decision: "hold"; reason?: string };
 
 /**
- * Server-side message-fan-out authorization hook context. Wire shape
- * mirrors the protocol's `MessagesAuthorizeContextSchema`. Symmetric
- * to `DispatchAuthorizeContext` — same fields, same fail-closed
- * posture, different verdict union.
+ * Server-side message-fan-out authorization hook context. Equals the
+ * `messages/authorize` wire param shape. Symmetric to
+ * `DispatchAuthorizeContext` — same fail-closed posture, different
+ * verdict union.
  */
-export interface MessageAuthorizeContext {
-  conversationId: ConversationId;
-  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
-  taskId: TaskId;
-  appId: string;
-  receivedAt?: string;
-  clock?: LogicalClock;
-  signal: AbortSignal;
-}
+export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
 
 /**
  * 2-arm verdict the TM declares for fan-out. `Forward { recipients }`

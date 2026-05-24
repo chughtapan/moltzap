@@ -75,7 +75,6 @@
         "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "src/**/__tests__/**/*.ts",
-        "src/app/capabilities/index.ts",
         "vitest*.config.ts"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],

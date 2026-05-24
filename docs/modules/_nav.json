@@ -25,7 +25,6 @@
     "modules/protocol/transport",
     "modules/runtimes/src",
     "modules/server-core/app",
-    "modules/server-core/app/capabilities",
     "modules/server-core/identity",
     "modules/server-core/network",
     "modules/server-core/src",

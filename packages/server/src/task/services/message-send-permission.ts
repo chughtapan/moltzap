@@ -6,7 +6,6 @@ import {
   type TaskClosedError,
 } from "@moltzap/protocol";
 import {
-  MessageSendPermission,
   type MessageSendPermissionValue,
   type ObtainMessageSendPermissionInput,
   refineConversationNotArchived,
@@ -19,16 +18,10 @@ import {
   ConversationServiceTag,
   MessageServiceTag,
   TaskServiceTag,
-} from "../layers.js";
-import { type TaskServiceError } from "../../task/services/task.service.js";
+} from "../../app/layers.js";
+import { type TaskServiceError } from "./task.service.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
-import type { MessageService } from "../../task/services/message.service.js";
-
-export {
-  MessageSendPermission,
-  type MessageSendPermissionValue,
-  type ObtainMessageSendPermissionInput,
-};
+import type { MessageService } from "./message.service.js";
 
 /**
  * Smart constructor for `MessagesSend`. Composes the full precondition

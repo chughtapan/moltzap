@@ -21,6 +21,7 @@ type CallerConnIdCtx = {
 };
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
+import { ContactPolicyAllowsReach } from "./capabilities/contact-policy-allows-reach.js";
 import {
   ConversationCreateAuthorization,
   type ObtainConversationCreateAuthorizationInput,
@@ -397,6 +398,28 @@ export const TaskRequest = defineRpc({
     },
     { additionalProperties: false },
   ),
+  // Contact-policy gate. The dispatcher auto-provisions this before the
+  // app-layer handler runs; the handler drains it as a precondition of
+  // creating the task. Empty `invitedAgentIds` provisions a no-op proof
+  // (zero targets short-circuit the obtain helper). The descriptor
+  // declares the gate so the wire surface reflects the authorization
+  // need even though `task/request` is bound via `defineAppMethod`.
+  capabilities: [
+    {
+      tag: ContactPolicyAllowsReach,
+      argsOf: (params: unknown, ctx: unknown) => {
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
+        const p = params as {
+          readonly invitedAgentIds: ReadonlyArray<AgentId>;
+        };
+        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        return {
+          creatorAgentId: c.auth.agentId,
+          targetAgentIds: [...p.invitedAgentIds],
+        };
+      },
+    },
+  ] as const,
 });
 
 /**

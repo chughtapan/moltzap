@@ -34,12 +34,13 @@ import {
   assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
   assertTmAuthorityMatchesTask,
-} from "../../app/capabilities/index.js";
+} from "@moltzap/protocol/task";
 
 /**
  * Public-but-package-scoped error union. Spec E (#601) needs this
- * exported so capability obtain helpers in `app/capabilities/` can
- * declare matching error channels without over-narrowing.
+ * exported so the capability obtain helpers (inline in
+ * `app/capability-providers.ts` and the composites in `task/services/`)
+ * can declare matching error channels without over-narrowing.
  * @internal
  */
 export type TaskServiceError =

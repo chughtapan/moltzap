@@ -43,7 +43,10 @@ import {
   type ConversationAppLookup,
 } from "./conversation-app-lookup.js";
 import { NetworkSendServiceTag } from "./layers.js";
-import type { LeaseRegistry, LeaseVerdict } from "./lease-registry.js";
+import type {
+  LeaseRegistry,
+  LeaseVerdict,
+} from "../task/leases/lease-registry.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -326,10 +329,6 @@ export class AppHost {
     return entry !== undefined && entry.connection.id === callerConnId;
   }
 
-  getManifest(appId: AppId): AppManifest | undefined {
-    return this.apps.get(appId)?.manifest;
-  }
-
   setContactService(checker: ContactService): void {
     this.contactService = checker;
   }
@@ -549,8 +548,11 @@ export class AppHost {
         attempt: params.attempt ?? 0,
         receivedAt: params.receivedAt,
         clock: params.clock,
-        pending: params.pending,
-        signal: new AbortController().signal,
+        // `DispatchAuthorizeContext` derives from the wire schema, whose
+        // `pending` array is mutable; the round-trip params carry it as
+        // `ReadonlyArray`. Copy into a fresh mutable array so the derived
+        // type accepts it without widening the source.
+        pending: params.pending === undefined ? undefined : [...params.pending],
       };
     });
   }
@@ -841,27 +843,26 @@ export class AppHost {
 
   /**
    * Wire-shape params for `messages/authorize`. Mirrors
-   * {@link authorizeDispatchParamsForWire}: strip `signal`, then
-   * conditionally include optional fields so the TypeBox schema's
-   * `additionalProperties: false` doesn't reject `undefined`.
+   * {@link authorizeDispatchParamsForWire}: conditionally include
+   * optional fields so the TypeBox schema's `additionalProperties:
+   * false` doesn't reject an explicit `undefined`.
    */
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,
   ): ParamsOf<typeof MessagesAuthorize> {
-    const wire = this.contextForWire(ctx);
     return {
-      taskId: wire.taskId,
-      appId: wire.appId,
-      conversationId: wire.conversationId,
+      taskId: ctx.taskId,
+      appId: ctx.appId,
+      conversationId: ctx.conversationId,
       message: {
-        id: wire.message.id,
-        senderAgentId: wire.message.senderAgentId,
-        ...(wire.message.parts !== undefined
-          ? { parts: wire.message.parts }
+        id: ctx.message.id,
+        senderAgentId: ctx.message.senderAgentId,
+        ...(ctx.message.parts !== undefined
+          ? { parts: ctx.message.parts }
           : {}),
       },
-      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
-      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
+      ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
+      ...(ctx.clock !== undefined ? { clock: ctx.clock } : {}),
     };
   }
 
@@ -882,45 +883,27 @@ export class AppHost {
   // modes (timeout, throw, RPC error, NotConnectedError, decode failure)
   // collapse into fail-closed verdicts (`deny`).
 
-  /**
-   * Strip non-wire-safe fields from a hook context so it can be sent over
-   * the task-callback RPC. Currently the only such field is
-   * `signal: AbortSignal`, which has meaning only in-process. Returns a
-   * new object — does not mutate `ctx`.
-   */
-  private contextForWire<C extends { signal?: AbortSignal }>(
-    ctx: C,
-  ): Omit<C, "signal"> {
-    // Type-checker insists we elide `signal` explicitly rather than using
-    // a destructure-discard, because `signal` is optional in the constraint
-    // but always present in the concrete contexts.
-    const out = { ...ctx } as { signal?: AbortSignal } & Omit<C, "signal">;
-    delete out.signal;
-    return out;
-  }
-
   private authorizeDispatchParamsForWire(
     ctx: DispatchAuthorizeContext,
   ): ParamsOf<typeof DispatchAuthorize> {
-    const wire = this.contextForWire(ctx);
     return {
-      taskId: wire.taskId,
-      appId: wire.appId,
-      conversationId: wire.conversationId,
-      recipient: wire.recipient,
+      taskId: ctx.taskId,
+      appId: ctx.appId,
+      conversationId: ctx.conversationId,
+      recipient: ctx.recipient,
       message: {
-        id: wire.message.id,
-        senderAgentId: wire.message.senderAgentId,
-        ...(wire.message.parts !== undefined
-          ? { parts: wire.message.parts }
+        id: ctx.message.id,
+        senderAgentId: ctx.message.senderAgentId,
+        ...(ctx.message.parts !== undefined
+          ? { parts: ctx.message.parts }
           : {}),
       },
-      attempt: wire.attempt,
-      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
-      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
-      ...(wire.pending !== undefined
+      attempt: ctx.attempt,
+      ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
+      ...(ctx.clock !== undefined ? { clock: ctx.clock } : {}),
+      ...(ctx.pending !== undefined
         ? {
-            pending: wire.pending.map((pending) => ({
+            pending: ctx.pending.map((pending) => ({
               messageId: pending.messageId,
               conversationId: pending.conversationId,
               senderAgentId: pending.senderAgentId,
