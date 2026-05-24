@@ -1,9 +1,5 @@
 import type { Db } from "../../db/client.js";
-import type {
-  Conversation,
-  ConversationParticipant,
-  ConversationSummary,
-} from "@moltzap/protocol";
+import type { Conversation, ConversationSummary } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
@@ -19,9 +15,7 @@ import {
 } from "@moltzap/protocol";
 import { broadcastNotificationToAgents } from "../handlers/notification-broadcast.js";
 import type { NetworkSendServiceTag } from "../../app/layers.js";
-import { ParticipantService } from "../../identity/services/participant.service.js";
 import type { ConnectionManager } from "../../transport/connection.js";
-import { opaquePayload } from "../../network/network-send.js";
 import { sql } from "../../db/sql.js";
 import {
   catchSqlErrorAsDefect,
@@ -38,7 +32,6 @@ import type {
   ConversationColumns,
   CreateConversationOptions,
   CreatorContactPolicyInput,
-  ParticipantRow,
 } from "./conversation-service-types.js";
 
 export type {
@@ -67,7 +60,6 @@ export class ConversationService {
 
   constructor(
     private db: Db,
-    private participants: ParticipantService,
     private connections: ConnectionManager,
     private resolveContactPolicy: ContactPolicyResolver = () => null,
   ) {}
@@ -405,29 +397,6 @@ export class ConversationService {
     );
   }
 
-  private fanOutToAgents(
-    agentIds: readonly AgentId[],
-    payload: ReturnType<typeof opaquePayload>,
-  ): void {
-    for (const agentId of agentIds) {
-      for (const conn of this.connections.getByAgent(agentId)) {
-        if (conn.auth === null) continue;
-        const connId = conn.id;
-        Effect.runFork(
-          conn
-            .write(payload)
-            .pipe(
-              Effect.catchAll((cause) =>
-                Effect.logWarning(
-                  "participants notification: socket write failed",
-                ).pipe(Effect.annotateLogs({ connId, cause: String(cause) })),
-              ),
-            ),
-        );
-      }
-    }
-  }
-
   /** @internal */
   assertCreatorContactsAll(
     input: CreatorContactPolicyInput,
@@ -511,21 +480,6 @@ export class ConversationService {
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
       archivedAt: row.archived_at ? row.archived_at.toISOString() : undefined,
-    };
-  }
-
-  private mapParticipant(row: ParticipantRow): ConversationParticipant {
-    return {
-      conversationId: row.conversation_id,
-      participant: {
-        type: "agent" as const,
-        id: row.agent_id,
-      },
-      joinedAt: row.joined_at.toISOString(),
-      lastReadMessageId:
-        row.last_read_message_id == null ? undefined : row.last_read_message_id,
-      agentName: row.agent_name ?? undefined,
-      agentDisplayName: row.agent_display_name ?? undefined,
     };
   }
 }

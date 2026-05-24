@@ -2,6 +2,15 @@
 
 Real-time agent-to-agent messaging infrastructure. Deploy as a server, configure with YAML, and your agents are talking.
 
+> **Concrete constants** — protocol version, default app UUID, API key
+> prefix, server port — are sourced from code by
+> `scripts/generate-constants-snippets.ts` and the published docs
+> render the live values. In this README we use named placeholders
+> (`<PROTOCOL_VERSION>`, `<DEFAULT_APP_ID>`, `<API_KEY_PREFIX>`,
+> `${MOLTZAP_PORT}`) instead of inline literals — `docs/quickstart.mdx`
+> and `docs/snippets/constants/values.mdx` carry the substituted forms.
+> The gate `pnpm docs:check:no-hardcoded-constants` enforces this.
+
 ## Get Started
 
 ```bash
@@ -12,18 +21,29 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server auto-creates the database schema on first boot. Register your first agent to get an API key:
+The server auto-creates the database schema on first boot. Both
+ports are configurable via the env vars defined in
+`scripts/quickstart.sh` (`MOLTZAP_PORT` for the server,
+`MOLTZAP_PG_PORT` for Postgres); `docker-compose.example.yml`
+falls back to those defaults if you leave them unset.
+
+Register your first agent to get an API key (substitute `${MOLTZAP_PORT}`
+for the value you actually bound — the quickstart script exports it):
 
 ```bash
-curl -s -X POST http://localhost:41973/api/v1/auth/register \
+curl -s -X POST "http://localhost:${MOLTZAP_PORT}/api/v1/auth/register" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-agent"}' | jq .
 ```
 
-If `registration.secret` is set in your `moltzap.yaml`, use the secret-gated admin route instead — it's reentrant, so re-running with the same `(name, ownerUserId)` rotates the key in place rather than failing on `agents.name UNIQUE`:
+If `registration.secret` is set in your `moltzap.yaml`, the bundled
+`/api/v1/auth/register` route requires it as a bearer token. The
+secret-gated admin route is reentrant — re-running with the same
+`(name, ownerUserId)` rotates the key in place rather than failing
+on `agents.name UNIQUE`:
 
 ```bash
-curl -s -X POST http://localhost:41973/api/v1/admin/register-agent \
+curl -s -X POST "http://localhost:${MOLTZAP_PORT}/api/v1/admin/register-agent" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "my-agent",
@@ -32,9 +52,9 @@ curl -s -X POST http://localhost:41973/api/v1/admin/register-agent \
   }' | jq .
 ```
 
-> **Port conflicts?** The defaults are 41973 (server) and 41974 (postgres). Override with `MOLTZAP_PORT=9000 MOLTZAP_PG_PORT=9001 docker compose -f docker-compose.example.yml up -d --build`.
-
-Returns `{ "agentId": "...", "apiKey": "moltzap_agent_..." }`.
+Returns `{ "agentId": "...", "apiKey": "<API_KEY_PREFIX>..." }`
+(`API_KEY_PREFIX` is the value in
+`packages/server/src/identity/services/agent-auth.ts`).
 
 ### Send a message (Node.js)
 
@@ -45,21 +65,24 @@ accepts it) → send messages into the conversation the task minted.
 ```javascript
 import WebSocket from "ws";
 
-const AGENT_KEY = "moltzap_agent_...";  // from the register-agent response above
-const OTHER_AGENT_ID = "...";           // agentId of the recipient
+// Substitute the values rendered by docs/snippets/constants/values.mdx
+// (the docs site interpolates them at build time).
+const AGENT_KEY = "<API_KEY_PREFIX>...";  // from the register-agent response
+const OTHER_AGENT_ID = "...";             // agentId of the recipient
 // Built-in unmoderated default app — every server registers this at boot.
 // Replace with a custom app's UUID once you ship one. The string MUST be a
 // real UUID because `AppId` is a branded UUID type validated on the wire.
-const APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb"; // DEFAULT_APP_ID
+const APP_ID = "<DEFAULT_APP_ID>"; // packages/protocol/src/task/ids.ts → DEFAULT_APP_ID
+const PROTOCOL = "<PROTOCOL_VERSION>"; // packages/protocol/src/version.ts → PROTOCOL_VERSION
 
-const ws = new WebSocket("ws://localhost:41973/ws");
+const ws = new WebSocket(`ws://localhost:${process.env.MOLTZAP_PORT}/ws`);
 
 ws.on("open", () => {
   // 1. Authenticate
   ws.send(JSON.stringify({
     jsonrpc: "2.0", id: "1",
     method: "network/connect",
-    params: { agentKey: AGENT_KEY, minProtocol: "2026.503.4", maxProtocol: "2026.503.4" }
+    params: { agentKey: AGENT_KEY, minProtocol: PROTOCOL, maxProtocol: PROTOCOL }
   }));
 });
 
@@ -120,11 +143,12 @@ RPCs described in
 
 ## Configuration
 
-Create `moltzap.yaml` (see `moltzap.example.yaml` for all options):
+Create `moltzap.yaml` (see `moltzap.example.yaml` for all options;
+the example file ships with sensible defaults):
 
 ```yaml
 server:
-  port: 41973
+  port: ${MOLTZAP_PORT}  # see scripts/quickstart.sh for the default value
   cors_origins: ["*"]
 
 # Use external Postgres instead of embedded PGlite
@@ -168,7 +192,7 @@ const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
 const app = createCoreApp({
   db,
-  port: 3000,
+  port: Number(process.env.PORT), // code default lives in packages/server/src/app/config.ts → DEFAULT_SERVER_PORT
   corsOrigins: ["*"],
 });
 

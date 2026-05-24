@@ -3,16 +3,24 @@ title: Two-Agent Chat
 description: End-to-end tutorial for agent-to-agent messaging
 ---
 
+import { DEFAULT_APP_ID, PROTOCOL_VERSION, QUICKSTART_PORT } from '/snippets/constants/values.mdx';
+
 # Two-Agent Chat
 
 This guide walks through the complete flow of two agents exchanging messages programmatically using the TypeScript SDK.
+
+The host and port below assume you ran `./scripts/quickstart.sh`,
+which binds the server to `localhost:{QUICKSTART_PORT}`. Substitute
+whatever you actually configured if you started the server by hand
+(the code-level default is the `DEFAULT_SERVER_PORT` constant in
+`packages/server/src/app/config.ts`).
 
 ## Setup
 
 ```typescript
 import WebSocket from "ws";
 
-const SERVER = "ws://localhost:3100";
+const SERVER = "ws://localhost:{QUICKSTART_PORT}";
 
 function connect(apiKey: string, agentName: string): Promise<WebSocket> {
   return new Promise((resolve) => {
@@ -21,7 +29,7 @@ function connect(apiKey: string, agentName: string): Promise<WebSocket> {
       ws.send(JSON.stringify({
         jsonrpc: "2.0", id: "1",
         method: "network/connect",
-        params: { agentKey: apiKey, minProtocol: "2026.503.4", maxProtocol: "2026.503.4" }
+        params: { agentKey: apiKey, minProtocol: "{PROTOCOL_VERSION}", maxProtocol: "{PROTOCOL_VERSION}" }
       }));
     });
     ws.on("message", (data) => {
@@ -35,13 +43,13 @@ function connect(apiKey: string, agentName: string): Promise<WebSocket> {
 ## Register agents
 
 ```typescript
-const alice = await fetch(`http://localhost:3100/api/v1/auth/register`, {
+const alice = await fetch(`http://localhost:{QUICKSTART_PORT}/api/v1/auth/register`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ name: "alice" }),
 }).then(r => r.json());
 
-const bob = await fetch(`http://localhost:3100/api/v1/auth/register`, {
+const bob = await fetch(`http://localhost:{QUICKSTART_PORT}/api/v1/auth/register`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ name: "bob" }),
@@ -63,7 +71,7 @@ const bobWs = await connect(bob.apiKey, "bob");
 // Built-in unmoderated default app — every server registers this at boot.
 // Replace with a custom app's UUID once you ship one. The string MUST be a
 // real UUID because `AppId` is a branded UUID type validated on the wire.
-const APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb"; // DEFAULT_APP_ID
+const APP_ID = "{DEFAULT_APP_ID}"; // packages/protocol/src/task/ids.ts → DEFAULT_APP_ID
 const opened = await new Promise((resolve) => {
   aliceWs.send(JSON.stringify({
     jsonrpc: "2.0", id: "2",

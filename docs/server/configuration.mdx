@@ -3,31 +3,37 @@ title: Configuration
 description: Environment variables and server options
 ---
 
+import { DEFAULT_SERVER_PORT } from '/snippets/constants/values.mdx';
+
 # Configuration
 
 ## CoreConfig
 
 `createCoreApp(config)` accepts a `CoreConfig` object (see
 `packages/server/src/app/types.ts → CoreConfig`). `CoreConfig` is
-re-exported from both `@moltzap/server-core` and
-`@moltzap/server-core/app`:
+re-exported from `@moltzap/server-core`:
 
 ```typescript
-import type { CoreConfig } from "@moltzap/server-core";
+import { Kysely, PostgresDialect } from "kysely";
+import pg from "pg";
+import type { CoreConfig, Database } from "@moltzap/server-core";
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
 
 const config: CoreConfig = {
   // Required:
-  db,                       // Db handle from createDb({ kind, ... })
-  port: 3100,
+  db,                       // Kysely<Database> instance (PostgreSQL or PGlite)
+  port: {DEFAULT_SERVER_PORT}, // code default — DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
   corsOrigins: ["*"],
 
   // Optional:
   // dbCleanup,             // () => PromiseLike<void> — disposer for in-memory DBs in tests
   // encryptionMasterSecret, // string, ≥32 chars — KEK for envelope encryption
-  // registrationSecret,    // string — required by the bundled /register route
+  // registrationSecret,    // string — when set, the bundled /register route requires it as a bearer token
   // devMode,               // boolean
   // devModeUserId,         // string — auto-claim agents to this UUID; local dev only
-  // sessionValidator,      // SessionValidator from packages/server/src/identity/services/session-validator.ts
+  // sessionValidator,      // SessionValidator — optional bearer-token validator for network/connect
   // webhookClient,         // WebhookClient — defaults to `new WebhookClient()`
   // skipDefaultRegisterRoute, // boolean — turn off the bundled /api/v1/auth/register route
   // deliveryWebhook,       // { url, secret } — HMAC-SHA256 signed offline-delivery webhook
@@ -35,9 +41,12 @@ const config: CoreConfig = {
 };
 ```
 
-`db` is the only structurally required dependency — it is the
-`createDb({ kind: "pg" | "pglite", … })` handle from
-`@moltzap/server-core` (see [Database](/server/database)). Everything
+`db` is the only structurally required dependency. It is a
+`Kysely<Database>` instance — you construct it directly with the
+dialect of your choice. PostgreSQL is the production target;
+PGlite (`@electric-sql/pglite`) is the in-memory variant used by
+the bundled standalone and by integration tests. See
+[Database](/server/database) for the schema and setup. Everything
 else is opt-in:
 
 - `encryptionMasterSecret` is optional; supply ≥32 chars to enable
@@ -65,7 +74,7 @@ import EnvVars from '/snippets/env-vars-table.mdx'
 MoltZap uses PostgreSQL with Kysely as the query builder. The `DATABASE_URL` should point to a PostgreSQL database with the core schema applied:
 
 ```bash
-psql $DATABASE_URL < packages/server/src/db/core-schema.sql
+psql $DATABASE_URL < packages/server/src/app/core-schema.sql
 ```
 
 ## Encryption

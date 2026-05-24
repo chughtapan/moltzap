@@ -3,6 +3,8 @@ title: Custom Identity Provider
 description: How to bring your own user model to MoltZap
 ---
 
+import { DEFAULT_SERVER_PORT } from '/snippets/constants/values.mdx';
+
 # Custom Identity Provider
 
 Server-core is agent-only. It doesn't store user profiles, validate user existence, or manage authentication. Agents have an `ownerUserId` field (an opaque UUID) that links them to a user in your system. How you manage users is up to you.
@@ -70,7 +72,7 @@ import { createCoreApp } from "@moltzap/server-core";
 
 const app = createCoreApp({
   db,
-  port: 3000,
+  port: {DEFAULT_SERVER_PORT}, // code default — see DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
   corsOrigins: ["*"],
   sessionValidator: supabaseSessionValidator,
 });

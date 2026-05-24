@@ -18,7 +18,6 @@ import {
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
-import { ParticipantService } from "../identity/services/participant.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
@@ -96,10 +95,6 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
   AuthService
 >() {}
 
-export class ParticipantServiceTag extends Context.Tag(
-  "moltzap/ParticipantService",
-)<ParticipantServiceTag, ParticipantService>() {}
-
 export class ConversationServiceTag extends Context.Tag(
   "moltzap/ConversationService",
 )<ConversationServiceTag, ConversationService>() {}
@@ -167,7 +162,7 @@ export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
 
 // ── Infrastructure Layers (no app deps) ───────────────────────────────────
 
-export const ConnectionManagerLive = Layer.sync(
+const ConnectionManagerLive = Layer.sync(
   ConnectionManagerTag,
   () => new ConnectionManager(),
 );
@@ -178,7 +173,7 @@ export const ConnectionManagerLive = Layer.sync(
  * Layer exists to register it under {@link AgentEndpointResolverTag} so
  * downstream layers (and `network.send`) can pick it up via Context.
  */
-export const AgentEndpointResolverLive = Layer.effect(
+const AgentEndpointResolverLive = Layer.effect(
   AgentEndpointResolverTag,
   AgentEndpointResolver.make,
 );
@@ -188,7 +183,7 @@ export const AgentEndpointResolverLive = Layer.effect(
  * manager into the {@link NetworkSendService} instance the rest of the
  * server holds via {@link NetworkSendServiceTag}.
  */
-export const NetworkSendServiceLive = Layer.effect(
+const NetworkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
   Effect.gen(function* () {
     const resolver = yield* AgentEndpointResolverTag;
@@ -199,7 +194,7 @@ export const NetworkSendServiceLive = Layer.effect(
 
 // ── Service Layers ────────────────────────────────────────────────────────
 
-export const AuthServiceLive = Layer.effect(
+const AuthServiceLive = Layer.effect(
   AuthServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -207,24 +202,14 @@ export const AuthServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("AuthServiceLive")),
 );
 
-export const ParticipantServiceLive = Layer.effect(
-  ParticipantServiceTag,
-  Effect.gen(function* () {
-    const db = yield* DbTag;
-    return new ParticipantService(db);
-  }).pipe(Effect.withSpan("ParticipantServiceLive")),
-);
-
-export const ConversationServiceLive = Layer.effect(
+const ConversationServiceLive = Layer.effect(
   ConversationServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
-    const participants = yield* ParticipantServiceTag;
     const connections = yield* ConnectionManagerTag;
     const appHost = yield* AppHostTag;
     return new ConversationService(
       db,
-      participants,
       connections,
       // Lazy: AppHost.contactService is wired post-construction in
       // standalone.ts (`app.setContactService(...)`) AFTER this Layer has
@@ -239,7 +224,7 @@ export const ConversationServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("ConversationServiceLive")),
 );
 
-export const ContactsServiceLive = Layer.effect(
+const ContactsServiceLive = Layer.effect(
   ContactsServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -247,7 +232,7 @@ export const ContactsServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("ContactsServiceLive")),
 );
 
-export const PresenceServiceLive = Layer.effect(
+const PresenceServiceLive = Layer.effect(
   PresenceServiceTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
@@ -256,7 +241,7 @@ export const PresenceServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("PresenceServiceLive")),
 );
 
-export const LeaseRegistryLive = Layer.effect(
+const LeaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
@@ -267,7 +252,7 @@ export const LeaseRegistryLive = Layer.effect(
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );
 
-export const AppHostLive = Layer.effect(
+const AppHostLive = Layer.effect(
   AppHostTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -279,7 +264,7 @@ export const AppHostLive = Layer.effect(
   }).pipe(Effect.withSpan("AppHostLive")),
 );
 
-export const MessageServiceLive = Layer.effect(
+const MessageServiceLive = Layer.effect(
   MessageServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -346,7 +331,6 @@ export const MessageServiceLive = Layer.effect(
 const Tier1 = Layer.mergeAll(
   ConnectionManagerLive,
   AuthServiceLive,
-  ParticipantServiceLive,
   ContactsServiceLive,
 );
 
@@ -386,7 +370,7 @@ const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
 /** Tier 5 — MessageService needs ConversationService + AppHost + upstream. */
 const Tier5 = Layer.provideMerge(MessageServiceLive, Tier4);
 
-export const TaskServiceLive = Layer.effect(
+const TaskServiceLive = Layer.effect(
   TaskServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -413,7 +397,6 @@ export interface ResolvedServices {
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
-  readonly participantService: ParticipantService;
   readonly conversationService: ConversationService;
   readonly contactService: ContactsService;
   readonly presenceService: PresenceService;
@@ -437,7 +420,6 @@ export const resolveServices = Effect.all({
   agentEndpointResolver: AgentEndpointResolverTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
-  participantService: ParticipantServiceTag,
   conversationService: ConversationServiceTag,
   contactService: ContactsServiceTag,
   presenceService: PresenceServiceTag,

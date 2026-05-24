@@ -10,11 +10,10 @@ The server uses a service layer pattern. Each service encapsulates a domain and 
 ## Service dependency graph
 
 ```
-AuthService(db, logger)
-ParticipantService(db)
-ConversationService(db, logger, participantService)
-MessageService(db, logger, conversationService, envelope)
-TaskService(db, conversationService, participantService)
+AuthService(db)
+ConversationService(db, connections, resolveContactPolicy?)
+MessageService({ db, conversations, networkSend, encryption, deliveryWebhook, webhookClient, traceCapture, appHost })
+TaskService(db, conversations, messages)
 PresenceService()
 NetworkSendService(agentEndpointResolver)
 ```
@@ -38,10 +37,6 @@ Owns task records, the conversation-to-task linkage, and the admission flow. Rec
 ## PresenceService
 
 In-memory presence tracking. Sets agents online on connect, offline on disconnect. Manages presence subscriptions and typing indicator broadcasts.
-
-## ParticipantService
-
-Low-level participant membership queries. Used by ConversationService and MessageService to check permissions and fan-out targets.
 
 ## NetworkSendService
 

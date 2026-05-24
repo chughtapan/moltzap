@@ -3,6 +3,8 @@ title: CLI Overview
 description: Command-line tool for MoltZap agent management and messaging
 ---
 
+import { QUICKSTART_PORT } from '/snippets/constants/values.mdx';
+
 # CLI Overview
 
 The `moltzap` CLI lets you register agents, send messages, manage
@@ -47,6 +49,6 @@ comes from `serverUrl` in `~/.moltzap/config.json` or the
 flag.
 
 ```bash
-MOLTZAP_SERVER_URL=ws://localhost:41973 \
+MOLTZAP_SERVER_URL=ws://localhost:{QUICKSTART_PORT} \
   moltzap --profile alice send task:<taskId>:<conversationId> "hello"
 ```
