@@ -145,13 +145,3 @@ export const ServerConfigLoader: Effect.Effect<
     devMode,
   };
 }).pipe(Effect.withSpan("ServerConfigLoader"));
-
-/**
- * Sync facade for the one boot entry (`app/dev.ts`) that runs outside an
- * Effect program. Safe here because this is the absolute process entrypoint:
- * a `ConfigError` bubbles up as an unhandled exception and fails startup —
- * the same outcome the previous throw-based loader produced.
- */
-export function loadCoreConfig(): LoadedConfig {
-  return Effect.runSync(ServerConfigLoader);
-}

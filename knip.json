@@ -68,7 +68,6 @@
     },
     "packages/server": {
       "entry": [
-        "src/standalone.ts",
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
