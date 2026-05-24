@@ -345,7 +345,7 @@ export const notificationDefinitions = [
 _Variable_
 
 ```ts
-export const PROTOCOL_VERSION = "2026.524.0"
+export const PROTOCOL_VERSION = "2026.524.1"
 ```
 
 ### [`RegisteredTaggedError`](./rpc-registry.ts#L55)

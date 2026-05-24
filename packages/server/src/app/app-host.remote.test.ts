@@ -148,7 +148,6 @@ const FIXTURE_AGENT_SENDER = agentId("00000000-0000-4000-8000-000000000a02");
 const FIXTURE_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000201");
 const MESSAGE_APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
 const APP_R = makeAppId("00000000-0000-4000-8000-000000000570");
-const APP_M = makeAppId("00000000-0000-4000-8000-000000000571");
 const APP_NEVER = makeAppId("00000000-0000-4000-8000-000000000572");
 const CONN_NO_SUCH = makeConnectionId("no-such-conn");
 const CONN_1 = makeConnectionId("conn-1");
@@ -159,7 +158,6 @@ const CONN_RD_1 = makeConnectionId("conn-rd-1");
 const CONN_RD_DENY = makeConnectionId("conn-rd-deny");
 const CONN_RD_DROP = makeConnectionId("conn-rd-drop");
 const CONN_RD_DECODE = makeConnectionId("conn-rd-decode");
-const MANIFEST_DISPATCH_TIMEOUT_MS = 1234;
 
 const baseAuthorizeDispatchCtx = (
   appId: string,
@@ -171,7 +169,6 @@ const baseAuthorizeDispatchCtx = (
   taskId,
   appId,
   attempt: 0,
-  signal: new AbortController().signal,
 });
 
 const baseMessageAuthorizeCtx = (
@@ -187,7 +184,6 @@ const baseMessageAuthorizeCtx = (
   taskId,
   appId,
   receivedAt: "2026-05-12T00:00:00.000Z",
-  signal: new AbortController().signal,
 });
 
 /** Decode the most recently captured outbound frame from a fake connection. */
@@ -536,13 +532,6 @@ describe("AppHost.registerApp", () => {
     expect(host.isAppConnection(APP_R, CONN_1)).toBe(true);
   });
 
-  it("stores the manifest verbatim (so dispatch can read timeout_ms)", () => {
-    const { host } = makeAppHostFixture();
-    const manifest = baseManifest(APP_M, MANIFEST_DISPATCH_TIMEOUT_MS);
-    host.registerApp(manifest, stubConnection(CONN_1));
-    expect(host.getManifest(APP_M)).toBe(manifest);
-  });
-
   it("rejects re-registration: registry is strict, no overwrites", () => {
     const { host } = makeAppHostFixture();
     const first = host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
@@ -586,7 +575,6 @@ describe("AppHost.unregisterApp", () => {
     host.unregisterApp(APP_R);
 
     expect(host.isAppConnection(APP_R, CONN_1)).toBe(false);
-    expect(host.getManifest(APP_R)).toBeUndefined();
   });
 
   it("is idempotent for unknown appIds", () => {

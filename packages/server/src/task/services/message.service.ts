@@ -8,7 +8,10 @@ import type {
   MessageId,
   TmDecision,
 } from "@moltzap/protocol/task";
-import { validateTmDecision } from "@moltzap/protocol/task";
+import {
+  MessageSendPermission,
+  validateTmDecision,
+} from "@moltzap/protocol/task";
 import type { AppHost } from "../../app/app-host.js";
 import {
   ConversationArchivedError,
@@ -61,7 +64,6 @@ import {
   takeFirstOption,
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
-import { MessageSendPermission } from "../../app/capabilities/index.js";
 import type {
   ActiveKekRow,
   ConversationDek,
@@ -646,7 +648,6 @@ export class MessageService {
         },
         taskId: input.taskId,
         appId: input.appId,
-        signal: new AbortController().signal,
       });
       switch (result.decision) {
         case "Forward":

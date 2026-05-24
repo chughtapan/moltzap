@@ -6,8 +6,11 @@ _`packages/protocol/src/task/capabilities`_
 
 Public barrel for R-channel capability tag classes.
 
-Tag classes + value types only. Obtain/refine helpers that depend on
-server-side services live in `@moltzap/server-core/app/capabilities`.
+Tag classes + value types, plus the `refine*` helpers (which validate
+an already-fetched row and need no server service). The `obtain*`
+helpers that depend on server-side services live in
+`@moltzap/server-core` — inline in `app/capability-providers.ts`, with
+the composites in `task/services/`.
 
 ## Public surface
 

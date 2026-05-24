@@ -19,7 +19,7 @@ import {
   DispatchesConsumed,
   DispatchesExpired,
 } from "@moltzap/protocol";
-import type { ConnectionManager } from "../transport/connection.js";
+import type { ConnectionManager } from "../../transport/connection.js";
 
 /** Wire-side LeaseRecord shape (flat). */
 type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];

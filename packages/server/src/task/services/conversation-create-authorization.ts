@@ -1,18 +1,11 @@
 import { Effect } from "effect";
-import {
-  ConversationCreateAuthorization,
-  type ConversationCreateAuthorizationValue,
-  type ObtainConversationCreateAuthorizationInput,
+import type {
+  ConversationCreateAuthorizationValue,
+  ObtainConversationCreateAuthorizationInput,
 } from "@moltzap/protocol/task";
-import { ConversationServiceTag } from "../layers.js";
-import type { ConversationServiceError } from "../../task/services/conversation.service.js";
+import { ConversationServiceTag } from "../../app/layers.js";
+import type { ConversationServiceError } from "./conversation.service.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
-
-export {
-  ConversationCreateAuthorization,
-  type ConversationCreateAuthorizationValue,
-  type ObtainConversationCreateAuthorizationInput,
-};
 
 export const obtainConversationCreateAuthorization = (
   input: ObtainConversationCreateAuthorizationInput,
