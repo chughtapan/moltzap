@@ -10,7 +10,6 @@ import { AuthService } from "../identity/services/auth.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { MessageService } from "../task/services/message.service.js";
-import { ParticipantService } from "../identity/services/participant.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
 import { AppHost } from "./app-host.js";
 import { WebhookClient } from "../adapters/webhook.js";
@@ -65,7 +64,6 @@ it("ServicesLive resolves every service via resolveServices", () =>
     );
     expect(services.networkSendService).toBeInstanceOf(NetworkSendService);
     expect(services.authService).toBeInstanceOf(AuthService);
-    expect(services.participantService).toBeInstanceOf(ParticipantService);
     expect(services.conversationService).toBeInstanceOf(ConversationService);
     expect(services.contactService).toBeInstanceOf(ContactsService);
     expect(services.presenceService).toBeInstanceOf(PresenceService);

@@ -18,7 +18,6 @@ import {
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
-import { ParticipantService } from "../identity/services/participant.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
@@ -95,10 +94,6 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
   AuthServiceTag,
   AuthService
 >() {}
-
-export class ParticipantServiceTag extends Context.Tag(
-  "moltzap/ParticipantService",
-)<ParticipantServiceTag, ParticipantService>() {}
 
 export class ConversationServiceTag extends Context.Tag(
   "moltzap/ConversationService",
@@ -207,24 +202,14 @@ const AuthServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("AuthServiceLive")),
 );
 
-const ParticipantServiceLive = Layer.effect(
-  ParticipantServiceTag,
-  Effect.gen(function* () {
-    const db = yield* DbTag;
-    return new ParticipantService(db);
-  }).pipe(Effect.withSpan("ParticipantServiceLive")),
-);
-
 const ConversationServiceLive = Layer.effect(
   ConversationServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
-    const participants = yield* ParticipantServiceTag;
     const connections = yield* ConnectionManagerTag;
     const appHost = yield* AppHostTag;
     return new ConversationService(
       db,
-      participants,
       connections,
       // Lazy: AppHost.contactService is wired post-construction in
       // standalone.ts (`app.setContactService(...)`) AFTER this Layer has
@@ -320,7 +305,6 @@ const MessageServiceLive = Layer.effect(
 const Tier1 = Layer.mergeAll(
   ConnectionManagerLive,
   AuthServiceLive,
-  ParticipantServiceLive,
   ContactsServiceLive,
 );
 
@@ -387,7 +371,6 @@ export interface ResolvedServices {
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
-  readonly participantService: ParticipantService;
   readonly conversationService: ConversationService;
   readonly contactService: ContactsService;
   readonly presenceService: PresenceService;
@@ -411,7 +394,6 @@ export const resolveServices = Effect.all({
   agentEndpointResolver: AgentEndpointResolverTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
-  participantService: ParticipantServiceTag,
   conversationService: ConversationServiceTag,
   contactService: ContactsServiceTag,
   presenceService: PresenceServiceTag,

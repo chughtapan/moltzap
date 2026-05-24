@@ -15,7 +15,6 @@ import {
 } from "@moltzap/protocol";
 import { broadcastNotificationToAgents } from "../handlers/notification-broadcast.js";
 import type { NetworkSendServiceTag } from "../../app/layers.js";
-import { ParticipantService } from "../../identity/services/participant.service.js";
 import type { ConnectionManager } from "../../transport/connection.js";
 import { sql } from "../../db/sql.js";
 import {
@@ -61,7 +60,6 @@ export class ConversationService {
 
   constructor(
     private db: Db,
-    private participants: ParticipantService,
     private connections: ConnectionManager,
     private resolveContactPolicy: ContactPolicyResolver = () => null,
   ) {}

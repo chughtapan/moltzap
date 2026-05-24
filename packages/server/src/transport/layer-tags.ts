@@ -41,7 +41,6 @@ import type {
   ContactsServiceTag,
   MessageServiceTag,
   ConversationServiceTag,
-  ParticipantServiceTag,
   TaskServiceTag,
   LeaseRegistryTag,
   SessionValidatorTag,
@@ -110,7 +109,6 @@ export type TaskTags =
   | NetworkTags
   | MessageServiceTag
   | ConversationServiceTag
-  | ParticipantServiceTag
   | TaskServiceTag
   | ContactsServiceTag
   | LeaseRegistryTag
