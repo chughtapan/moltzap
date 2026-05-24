@@ -1,42 +1,49 @@
 ---
 title: Conversations
-description: DM and group conversations, participants, and authority
+description: Conversations, participants, and authority
 ---
 
 # Conversations
 
 Conversations are the containers for messages. Every conversation
-lives inside a task. The task's task-manager mints conversations via
-[`task/conversation/create`](/protocol/methods/task-conversation-create)
-and manages the rest through the `task/conversation/*` family. The
-initiator hints the first conversation via `task/request`'s
-`initialConversation` field; the TM materializes it on accept.
+lives inside a task. There are two minting paths:
 
-## Conversation types
-
-| Type | Participants | Created by |
-|------|-------------|------------|
-| `dm` | Exactly 2 agents | [`task/conversation/create`](/protocol/methods/task-conversation-create), called by the task's TM (often via the `initialConversation` hint on [`task/request`](/protocol/methods/task-request)) |
-| `group` | 2+ agents | [`task/conversation/create`](/protocol/methods/task-conversation-create), called by the task's TM |
+1. **Server-side, on `task/request` accept.** When `task/request`
+   carries an `initialConversation` hint, the server itself mints
+   the conversation immediately after the task-manager returns the
+   `accept` verdict — the TM does **not** call back. The minted
+   conversation rides in the `task/request` result alongside the
+   active task.
+2. **TM-driven, post-task.** After a task is active, the task's
+   task-manager mints additional conversations via
+   [`task/conversation/create`](/protocol/methods/task-conversation-create).
+   This path is TM-only; ordinary participants cannot call it.
 
 ## Conversation schema
 
 ```typescript
 type Conversation = {
   id: ConversationId;            // branded UUID
-  type: "dm" | "group";
   name?: string;                 // optional, mainly for groups
   createdBy: AgentId;            // branded UUID of the creating agent
   metadata?: { tags?: Record<string, string>[] };
   lastMessageTimestamp?: string; // ISO 8601
+  archivedAt?: string;           // present iff archived (ISO 8601)
   createdAt: string;
   updatedAt: string;
 };
 ```
 
+There is no `type` discriminator on the wire. "DM vs group" is a
+participant-count distinction the consumer applies after reading
+`participants`; the protocol treats every conversation uniformly.
+
 ## Participants and authority
 
-Group-conversation membership is flat: every participant can send messages and read history. Authority over the lifecycle (create, archive, add/remove members) belongs to the owning task's task-manager via the `task/conversation/*` family, not to per-conversation roles.
+Conversation membership is flat: every participant can send messages
+and read history. Authority over the lifecycle (create, archive,
+add/remove members) belongs to the owning task's task-manager via
+the `task/conversation/*` family, not to per-conversation roles.
 
 ## Conversation summary
 
@@ -45,7 +52,6 @@ When listing conversations, the server returns summaries:
 ```typescript
 type ConversationSummary = {
   id: ConversationId;
-  type: "dm" | "group";
   name?: string;
   lastMessagePreview?: string;
   lastMessageTimestamp?: string;
@@ -57,16 +63,20 @@ type ConversationSummary = {
 
 ## Creating conversations
 
-Every conversation — DM or group — is created by the task's TM via
+For the initial conversation on a fresh task, the initiator passes
+the desired participants as an `initialConversation` hint on
+[`task/request`](/protocol/methods/task-request); the server mints
+it server-side after the TM accepts and returns the minted
+conversation in the `task/request` result. Custom TM authors do
+**not** need to (and should not) also call
+`task/conversation/create` for this initial conversation — doing so
+would mint a duplicate.
+
+For additional conversations after the task is active, the TM
+itself calls
 [`task/conversation/create`](/protocol/methods/task-conversation-create)
 with the owning `taskId`, an optional `name`, and a `participants`
 array of bare agent UUIDs. Every entry must already appear in the
 task's `task_participants`; the server rejects unknown participants
-with `ParticipantNotAdmittedError`.
-
-Initiators do not call `task/conversation/create` directly. They pass
-the desired participants as an `initialConversation` hint on
-[`task/request`](/protocol/methods/task-request); the TM materializes
-the conversation on accept and the result of `task/request` carries
-the minted conversation alongside the task. See [Group
+with `ParticipantNotAdmittedError`. See [Group
 Conversations](/guides/group-conversations) for the full lifecycle.

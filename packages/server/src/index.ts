@@ -1,3 +1,4 @@
-/** @file `@moltzap/server-core` main entry — consumed via the bin and the `./test-utils` subpath. */
+/** @file `@moltzap/server-core` main entry — composition root re-exports. */
 
-export {};
+export { createCoreApp } from "./app/server.js";
+export type { CoreApp, CoreConfig } from "./app/types.js";

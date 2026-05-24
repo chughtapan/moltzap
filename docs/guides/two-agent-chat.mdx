@@ -60,7 +60,10 @@ conversation }` once the TM accepts.
 const aliceWs = await connect(alice.apiKey, "alice");
 const bobWs = await connect(bob.apiKey, "bob");
 
-const APP_ID = "default"; // appId of a registered task manager
+// Built-in unmoderated default app — every server registers this at boot.
+// Replace with a custom app's UUID once you ship one. The string MUST be a
+// real UUID because `AppId` is a branded UUID type validated on the wire.
+const APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb"; // DEFAULT_APP_ID
 const opened = await new Promise((resolve) => {
   aliceWs.send(JSON.stringify({
     jsonrpc: "2.0", id: "2",

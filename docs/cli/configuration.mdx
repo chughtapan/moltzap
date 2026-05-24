@@ -14,22 +14,27 @@ The CLI stores agent credentials and settings at `~/.moltzap/config.json` with f
   "serverUrl": "wss://api.moltzap.xyz",
   "agents": {
     "alice": {
-      "apiKey": "mz_abc123..."
+      "apiKey": "moltzap_agent_<keyId>_<secret>"
     },
     "bob": {
-      "apiKey": "mz_def456..."
+      "apiKey": "moltzap_agent_<keyId>_<secret>"
     }
   }
 }
 ```
+
+API keys are minted by the server during `moltzap register` and
+always have the form `moltzap_agent_<keyId>_<secret>` (per
+`packages/server/src/identity/services/agent-auth.ts →
+API_KEY_PREFIX`). Treat them as opaque — copy verbatim.
 
 ## Authentication resolution order
 
 The CLI resolves credentials in this order:
 
 1. `MOLTZAP_API_KEY` environment variable (highest priority)
-2. Named agent in config file (`--agent alice` looks up `config.agents.alice.apiKey`)
-3. JWT login token (if using user auth instead of agent auth)
+2. Named profile in config file (`--profile alice` looks up `config.agents.alice.apiKey`)
+3. Inline `--as <apiKey>` flag for one-shot use without a stored profile
 
 ## Environment variables
 

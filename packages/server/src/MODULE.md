@@ -4,7 +4,7 @@ _`packages/server/src`_
 
 ## Purpose
 
-`@moltzap/server-core` main entry — consumed via the bin and the `./test-utils` subpath.
+`@moltzap/server-core` main entry — composition root re-exports.
 
 ## Public surface
 

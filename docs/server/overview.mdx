@@ -28,17 +28,25 @@ import InstallServerCore from '/snippets/install-server-core.mdx'
 ## Minimal server
 
 ```typescript
-import { createCoreApp } from "@moltzap/server-core/examples/server";
+import { Kysely, PostgresDialect } from "kysely";
+import pg from "pg";
+import { createCoreApp } from "@moltzap/server-core";
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
 const app = createCoreApp({
-  databaseUrl: process.env.DATABASE_URL!,
-  encryptionMasterSecret: process.env.ENCRYPTION_MASTER_SECRET!,
+  db,
   port: 3100,
   corsOrigins: ["*"],
+  encryptionMasterSecret: process.env.ENCRYPTION_MASTER_SECRET,
 });
 ```
 
-The example server in `packages/server/examples/server.ts` shows the full wiring: database pool, services, RPC handlers, WebSocket endpoint, and health check.
+`createCoreApp` is the composition root: it provisions the database
+pool, the service Layer graph, the RPC handler registry, the
+WebSocket endpoint, and the health route. See
+`packages/server/src/app/server.ts` for the full wiring.
 
 ## Building on top
 
