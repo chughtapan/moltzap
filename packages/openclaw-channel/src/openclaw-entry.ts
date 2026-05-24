@@ -623,6 +623,66 @@ function getActiveService(
   return activeClients.get(accountId ?? DEFAULT_ACCOUNT_ID);
 }
 
+// Track A (#692) bounded `contacts/list` / `agents/list` / `task/list` to
+// a server-default page (max 200). A directory consumer that needs the
+// COMPLETE set must page through `nextCursor` itself — the RPC default
+// stays bounded (spec #693 Decision 1). This drains every page of a
+// cursor-paginated list RPC whose result is `{ [K]: T[], nextCursor? }`,
+// echoing the opaque `nextCursor` back as the next page's `cursor`
+// (Invariant 2). Typed errors propagate; no `any`.
+function drainPaginatedList<
+  D extends RpcDefinition<string, any, any>,
+  K extends keyof ResultOf<D>,
+>(
+  sendRpc: NonNullable<OpenClawClientService["sendRpc"]>,
+  definition: D,
+  collectionKey: K,
+): Effect.Effect<ResultOf<D>[K], ServiceRpcError> {
+  return Effect.gen(function* () {
+    const acc: Array<
+      ResultOf<D>[K] extends ReadonlyArray<infer E> ? E : never
+    > = [];
+    let cursor: string | undefined;
+    let more = true;
+    while (more) {
+      // `cursor` is the opaque token echoed back from the prior page's
+      // `nextCursor`; absent on the first page.
+      const params = (cursor !== undefined ? { cursor } : {}) as ParamsOf<D>;
+      const page = yield* sendRpc(definition, params);
+      const rows = page[collectionKey] as ReadonlyArray<
+        ResultOf<D>[K] extends ReadonlyArray<infer E> ? E : never
+      >;
+      acc.push(...rows);
+      const nextCursor = (page as { readonly nextCursor?: string }).nextCursor;
+      cursor = nextCursor;
+      more = nextCursor !== undefined;
+    }
+    return acc as ResultOf<D>[K];
+  });
+}
+
+// `agents/lookup` caps `agentIds` at `maxItems: 100`. Resolve a larger
+// id set in <=100-id chunks and concatenate, so a fully-drained contact
+// directory (which can exceed 100 peers) does not trip the wire cap.
+const AGENTS_LOOKUP_MAX_IDS = 100;
+
+function lookupAgentsInChunks(
+  sendRpc: NonNullable<OpenClawClientService["sendRpc"]>,
+  agentIds: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<AgentDirectoryEntry>, ServiceRpcError> {
+  return Effect.gen(function* () {
+    const out: AgentDirectoryEntry[] = [];
+    for (let i = 0; i < agentIds.length; i += AGENTS_LOOKUP_MAX_IDS) {
+      const chunk = agentIds.slice(i, i + AGENTS_LOOKUP_MAX_IDS);
+      const { agents } = (yield* sendRpc(AgentsLookup, {
+        agentIds: chunk,
+      })) as { agents: AgentDirectoryEntry[] };
+      out.push(...agents);
+    }
+    return out;
+  });
+}
+
 function listPeersEffect(
   activeClients: Map<string, OpenClawClientService>,
   params: OpenClawDirectoryParams,
@@ -630,14 +690,18 @@ function listPeersEffect(
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
     if (!service?.sendRpc) return [];
-    const { contacts } = (yield* service.sendRpc(ContactsList, {})) as {
-      contacts: ContactDirectoryEntry[];
-    };
+    // Drain ALL contact pages — a user with >50 contacts (the server
+    // default page) must still resolve every peer in the directory.
+    const contacts = (yield* drainPaginatedList(
+      service.sendRpc,
+      ContactsList,
+      "contacts",
+    )) as ReadonlyArray<ContactDirectoryEntry>;
     const agentIds = contacts.flatMap(contactAgentIds);
     if (agentIds.length === 0) return [];
-    const { agents } = (yield* service.sendRpc(AgentsLookup, { agentIds })) as {
-      agents: AgentDirectoryEntry[];
-    };
+    // `agents/lookup` is request-bounded at `maxItems: 100` — draining
+    // every contact page can exceed that, so resolve in <=100 chunks.
+    const agents = yield* lookupAgentsInChunks(service.sendRpc, agentIds);
     return agents.map((agent) => ({
       id: `agent:${agent.name}`,
       name: agent.displayName ?? agent.name,

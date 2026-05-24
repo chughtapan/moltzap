@@ -26,7 +26,10 @@ const listAgents = Command.make("list", { json: jsonOption }, ({ json }) =>
         const r = result as AgentsListResult;
         const entries = r.agents;
         if (json) {
-          console.log(JSON.stringify(r.agents, null, JSON_INDENT_SPACES));
+          // Serialize the full result (agents + nextCursor) so a machine
+          // consumer can detect a truncated page and fetch the next one —
+          // dumping only `agents` would hide the truncation signal.
+          console.log(JSON.stringify(r, null, JSON_INDENT_SPACES));
           return;
         }
         if (entries.length === 0) {
