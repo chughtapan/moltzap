@@ -111,6 +111,35 @@ identified server-side; no wire flag), and folds
   return in the D3 ADD slice once typed `Task*` /
   `TaskConversation*` CLI helpers land at the transport boundary.
 
+### Orphan cleanup (#676) — `@moltzap/server-core` internal-surface sweep
+
+Behavior-preserving cleanup of dead and redundant internal surface in
+`@moltzap/server-core`. No wire-surface, public-API, or runtime-behavior
+delta. The `pnpm dev` script is the only operator-visible change.
+
+- **Internal (`@moltzap/server-core`):** Five unused `package.json`
+  `exports` subpaths (`./app`, `./transport`, `./identity`,
+  `./network`, `./task`) drop, along with the five dead layer-barrel
+  files that backed them. Only `.` and `./test-utils` (the sole subpath
+  with in-repo consumers) remain.
+- **Internal (`@moltzap/server-core`):** Single-use indirection
+  collapses — `server-constants.ts`, `logging.ts`, and
+  `runtime/direct-run.ts` inline at their call sites and delete (the
+  `runtime/` folder goes entirely, finishing #674); `hooks.ts` folds
+  its four derived context types into `types.ts`; `dev.ts` merges into
+  `standalone.ts`.
+- **Internal (`@moltzap/server-core`):** `CoreConfig` moves from
+  `app/types.ts` to `app/config.ts`, next to the other boot-input
+  config types.
+- **Internal (`@moltzap/server-core`):** Dead code swept — the private
+  `fanOutToAgents` / `mapParticipant` methods and the entire
+  `ParticipantService` chain (orphaned by spec-E #601 Decision D when
+  agent-resolution moved into the `AddParticipantPermission` composite).
+- **Operator (`@moltzap/server-core`):** `pnpm dev` now runs
+  `standalone.ts` instead of the removed `app/dev.ts`. When
+  `DATABASE_URL` is unset it boots embedded PGlite (the old `dev.ts`
+  always required Postgres); set `DATABASE_URL` to keep using Postgres.
+
 ### Spec D1 (#598) — Additive `task/*` + `task/conversation/*` family
 
 - **Additive (`@moltzap/protocol`):** New singular `task/*` namespace
