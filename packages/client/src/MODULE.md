@@ -12,10 +12,6 @@ Public barrel for the MoltZap client package.
 
 _TypeAlias_
 
-```ts
-export type AppCallbackHandlers = TaskMasterHandlers<TaskCallbackContext>;
-```
-
 Public handler-table type for `MoltZapWsClientOptions.appCallbackHandlers`.
 Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
 client's per-frame context. Slots are OPTIONAL (Spec F R2 fail-CLOSED
@@ -27,10 +23,7 @@ agents that don't register TM-callback responders.
 _Interface_
 
 ```ts
-export interface ChannelCoreOptions {
-  service: ChannelService;
-  dispatchAdmissionTimeoutMs?: number;
-}
+    readonly parts?: ReadonlyArray<unknown>;
 ```
 
 ### [`ChannelService`](./channel-core.ts#L129)
@@ -38,9 +31,8 @@ export interface ChannelCoreOptions {
 _Interface_
 
 ```ts
-export interface ChannelService {
-  readonly ownAgentId: string | undefined;
-  on(event: "message", handler: (msg: Message) => void): void;
+      }
+    | { readonly decision: "deny"; readonly reason?: string }
 ```
 
 The subset of MoltZapService that MoltZapChannelCore needs.
@@ -50,11 +42,7 @@ The subset of MoltZapService that MoltZapChannelCore needs.
 _Interface_
 
 ```ts
-export interface ContextBlocks {
-  groupMetadata?: EnrichedConversationMeta;
-  crossConversation?: CrossConversationEntry[];
-  crossConversationMessages?: CrossConvMessage[];
-}
+  type: "dm" | "group";
 ```
 
 ### [`ContextOptions`](./service.ts#L146)
@@ -62,11 +50,9 @@ export interface ContextBlocks {
 _Interface_
 
 ```ts
-export interface ContextOptions {
-  type: "cross-conversation";
-  maxConversations?: number;
-  maxMessagesPerConv?: number;
-}
+ * failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
+ */
+export type ServiceRpcError = RpcCallError | RpcTimeoutError;
 ```
 
 ### [`ConversationMeta`](./service.ts#L139)
@@ -74,12 +60,7 @@ export interface ContextOptions {
 _Interface_
 
 ```ts
-export interface ConversationMeta {
-  id: string;
-  type: string;
-  name?: string;
-  participants: string[];
-}
+      Effect.logWarning("moltzap client event trace write failed", err),
 ```
 
 ### [`CrossConversationEntry`](./service.ts#L153)
@@ -87,15 +68,7 @@ export interface ConversationMeta {
 _Interface_
 
 ```ts
-export interface CrossConversationEntry {
-  conversationId: string;
-  conversationName?: string;
-  senderName: string;
-  text: string;
-  minutesAgo: number;
-  /** Messages in this summary (capped by maxMessagesPerConv). */
-  count: number;
-}
+  name?: string;
 ```
 
 Structured summary of recent activity in one other conversation.
@@ -105,14 +78,7 @@ Structured summary of recent activity in one other conversation.
 _Interface_
 
 ```ts
-export interface CrossConvMessage {
-  conversationId: string;
-  conversationName?: string;
-  senderName: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-}
+  readonly reconnect: HelloOk;
 ```
 
 Full message from another conversation, used by peekFullMessages().
@@ -122,13 +88,7 @@ Full message from another conversation, used by peekFullMessages().
 _TypeAlias_
 
 ```ts
-export type DispatchAdmissionDecision =
-  | {
-      _tag: "grant";
-      leaseId?: string;
-      leaseTimeoutMs?: number;
-      dispatchMessageId?: string;
-    }
+  senderAgentId: string;
 ```
 
 ### [`DispatchAdmissionRequest`](./channel-core.ts#L73)
@@ -136,15 +96,7 @@ export type DispatchAdmissionDecision =
 _Interface_
 
 ```ts
-export interface DispatchAdmissionRequest {
-  message: Message;
-  conversationId: string;
   senderAgentId: string;
-  attempt: number;
-  receivedAt: string;
-  clock: LogicalClock;
-  pending: ReadonlyArray<PendingDispatchMessage>;
-}
 ```
 
 ### [`DispatchReleaseFrame`](./channel-core.ts#L113)
@@ -154,11 +106,11 @@ _Interface_
 ```ts
 export interface DispatchReleaseFrame {
   readonly dispatchId: string;
-  readonly leaseId: string;
+  readonly leaseId: LeaseId;
   readonly verdict:
     | {
         readonly decision: "grant";
-        readonly leaseId?: string;
+        readonly leaseId?: LeaseId;
         readonly leaseTimeoutMs?: number;
         readonly dispatchMessageId?: string;
       }
@@ -179,11 +131,10 @@ descriptor-free; the wire shape is asserted by the service module).
 _Interface_
 
 ```ts
-export interface EnrichedConversationMeta {
-  type: "dm" | "group";
-  name?: string;
-  /** "type:id" strings (e.g. "agent:uuid"). */
-  participants: string[];
+
+export interface EnrichedSender {
+  id: string;
+  name: string;
 }
 ```
 
@@ -192,31 +143,10 @@ export interface EnrichedConversationMeta {
 _Interface_
 
 ```ts
-export interface EnrichedInboundMessage {
-  id: string;
-  conversationId: string;
-  sender: EnrichedSender;
-  /** Text parts joined with newlines. Non-text parts dropped. */
-  text: string;
-  isFromMe: boolean;
-  createdAt: string;
-  replyToId?: string;
-  conversationMeta?: EnrichedConversationMeta;
-  contextBlocks: ContextBlocks;
-
-  /**
-   * Present when multiple queued messages from the same conversation were
-   * coalesced into this single dispatch. Includes the primary message first.
-   */
-  coalescedMessages?: ReadonlyArray<{
-    id: string;
-    sender: EnrichedSender;
-    text: string;
-    createdAt: string;
-    replyToId?: string;
-  }>;
-  /** Lease that authorizes a runtime reply for this dispatch, when present. */
-  dispatchLeaseId?: string;
+export interface ContextBlocks {
+  groupMetadata?: EnrichedConversationMeta;
+  crossConversation?: CrossConversationEntry[];
+  crossConversationMessages?: CrossConvMessage[];
 }
 ```
 
@@ -225,10 +155,10 @@ export interface EnrichedInboundMessage {
 _Interface_
 
 ```ts
-export interface EnrichedSender {
-  id: string;
-  name: string;
-}
+import {
+  DispatchAdmissionTimedOut,
+  DispatchLeaseExpired,
+} from "./channel-core-errors.js";
 ```
 
 ### [`formatCrossConversationBlock`](./service.ts#L173)
@@ -236,9 +166,66 @@ export interface EnrichedSender {
 _Function_
 
 ```ts
+
+/** Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block. */
+export function sanitizeForSystemReminder(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
+ * that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
+ * share this formatter so sanitization and line shape stay in one place.
+ */
 export function formatCrossConversationBlock(
   entries: CrossConversationEntry[],
-  opts:
+  opts: { header: string },
+): string | null {
+  if (entries.length === 0) return null;
+  const lines = entries.map((e) => {
+    const safeSender = sanitizeForSystemReminder(e.senderName);
+    const safeText = sanitizeForSystemReminder(
+      e.text.slice(0, CROSS_CONTEXT_TEXT_LIMIT),
+    );
+    return `@${safeSender} (${e.minutesAgo}m ago): (${e.count} new) "${safeText}"`;
+  });
+  return [
+    "<system-reminder>",
+    opts.header,
+    ...lines,
+    "</system-reminder>",
+  ].join("\n");
+}
+
+export interface ServiceOptions {
+  serverUrl: string;
+  agentKey: string;
+}
+
+type NotificationHandler<T> = (data: T) => void;
+type NotificationDispatcher = (
+  notification: DecodedNotification<AnyNotificationDefinition>,
+) => void;
+
+interface ServiceHandlerPayloads {
+  readonly message: { readonly taskId: TaskId; readonly message: Message };
+
+  /**
+   * The "raw notification" surface receives the wire decoder's
+   * `DecodedNotification&lt;AnyNotificationDefinition>` union — known methods carry the
+   * descriptor and a raw `params: unknown` payload (validation hasn't
+   * happened yet); unknown methods carry no descriptor at all.
+   * Subscribers that want validated payloads register specific typed
+   * `on(...)` handlers (e.g. `conversationArchived`) which run behind
+   * the typed-bridge lift in `handleNotification`.
+   */
+  readonly rawNotification: DecodedNotification<AnyNotificationDefinition>;
+  readonly disconnect: void;
+  readonly reconnect: HelloOk;
+  readonly conversationArchived: TaskConversationArchivedNotification;
+  readonly conversationUnarchived: TaskConversationUnarchivedNotification;
+  readonly dispatchRelease: NotificationParamsOf<typeof DispatchRelease>;
+  readonly dispatchesConsumed: NotificationParamsOf<typeof DispatchesConsumed>;
 ```
 
 Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
@@ -250,9 +237,10 @@ share this formatter so sanitization and line shape stay in one place.
 _TypeAlias_
 
 ```ts
-export type InboundHandler<E = unknown> = (
-  msg: EnrichedInboundMessage,
-) => Effect.Effect<void, E>;
+export interface ChannelCoreOptions {
+  service: ChannelService;
+  dispatchAdmissionTimeoutMs?: number;
+}
 ```
 
 Handler invoked for every enriched inbound message. Returns an Effect so the
@@ -265,16 +253,7 @@ rejection would.
 _Class_
 
 ```ts
- * ```mermaid
- * sequenceDiagram
- *   participant server
- *   participant ws as MoltZapWsClient
- *   participant svc as MoltZapService
- *   participant core as MoltZapChannelCore
- *   participant handler as InboundHandler
- *
- *   server->>ws: messages/received notification
- *   ws->>svc: subscribers.dispatch — fanout(message)
+  receivedAtMs: number;
 ```
 
 Wraps a MoltZapService with message enrichment, dispatch-chain ordering,
@@ -290,7 +269,7 @@ _Class_
 
 ```ts
 export class MoltZapService {
-  private client: MoltZapWsClient | null = null;
+  private client: MoltZapAgentClient | null = null;
   private _connected = false;
 
   /**
@@ -313,8 +292,18 @@ export class MoltZapService {
   private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
     Effect.runSync(Ref.make(HashMap.empty<string, string>()));
   private readonly agentConversationCacheRef: Ref.Ref<
-    HashMap.HashMap<string, string>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+    HashMap.HashMap<
+      string,
+      { readonly taskId: TaskId; readonly conversationId: ConversationId }
+    >
+  > = Effect.runSync(
+    Ref.make(
+      HashMap.empty<
+        string,
+        { readonly taskId: TaskId; readonly conversationId: ConversationId }
+      >(),
+    ),
+  );
   private readonly lastNotifiedRef: Ref.Ref<
     HashMap.HashMap<string, HashMap.HashMap<string, string>>
   > = Effect.runSync(
@@ -366,17 +355,17 @@ export class MoltZapService {
         ),
     ],
     [
-      ConversationCreatedNotificationDefinition,
+      TaskConversationCreatedNotificationDefinition,
       (notification) =>
         this.handleConversationCreatedNotification(
-          notification.params as ConversationCreatedNotification,
+          notification.params as TaskConversationCreatedNotification,
         ),
     ],
     [
-      ConversationUpdatedNotificationDefinition,
+      TaskConversationArchivedNotificationDefinition,
       (notification) =>
-        this.handleConversationUpdatedNotification(
-          notification.params as ConversationUpdatedNotification,
+        this.handleConversationArchivedNotification(
+          notification.params as TaskConversationArchivedNotification,
         ),
     ],
 ```
@@ -394,10 +383,6 @@ to arena; consumers wanting Promise wrappers maintain their own.)
 ### [`MoltZapWsClient`](./ws-client.ts#L261)
 
 _Class_
-
-```ts
- *   CONNECTED --> DISCONNECTED : reader fiber exit<br>failAllPending, stateRef = None<br>onDisconnect(closeInfo)
-```
 
 WebSocket lifecycle: open → network/connect → active. On disconnect,
 exponential backoff (1s base, 30s cap, jittered) retries the handshake via
@@ -420,39 +405,12 @@ Consume via `Stream.runForEach` (long-lived) or `Stream.runHead` + `Effect.timeo
 
 _Interface_
 
-```ts
-export interface MoltZapWsClientOptions {
-  serverUrl: string;
-  agentKey: string;
-
-  /**
-   * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
-   * `close` is the typed close metadata — real WebSocket `{code, reason}`
-   * when the transport surfaces them, OQ-5 defaults otherwise.
-   *
-   * Migration note (spec #596): the previous `subscribe(filter, handler)` /
-   * `waitForNotification` / `notificationsBufferRef` surface was deleted in
-   * Spec B. Callers consume notifications via `subscribe(def, refinement?)`
-   * returning a `Stream`, or `subscribeAll(refinement?)` for the broad-union
-   * escape hatch.
-   */
-  onDisconnect?: (close: CloseInfo) => void;
-```
-
 ### [`PendingDispatchMessage`](./channel-core.ts#L63)
 
 _Interface_
 
 ```ts
-export interface PendingDispatchMessage {
-  messageId: string;
-  conversationId: string;
-  senderAgentId: string;
-  createdAt: string;
-  receivedAt: string;
-  clock?: LogicalClock;
-  parts?: Message["parts"];
-}
+    createdAt: string;
 ```
 
 ### [`registerAgent`](./auth.ts#L56)
@@ -513,18 +471,12 @@ HTTP response from the agent registration endpoints
 
 _Interface_
 
-```ts
-export interface RpcCallOptions {
-  readonly timeoutMs?: number;
-}
-```
-
 ### [`sanitizeForSystemReminder`](./service.ts#L164)
 
 _Function_
 
 ```ts
-export function sanitizeForSystemReminder(s: string): string
+export interface CrossConversationEntry
 ```
 
 Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block.
@@ -534,10 +486,7 @@ Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminde
 _Interface_
 
 ```ts
-export interface ServiceOptions {
-  serverUrl: string;
-  agentKey: string;
-}
+    );
 ```
 
 ### [`ServiceRpcError`](./service.ts#L137)
@@ -545,7 +494,7 @@ export interface ServiceOptions {
 _TypeAlias_
 
 ```ts
-export type ServiceRpcError = RpcCallError | RpcTimeoutError;
+    Effect.provide(NodeContext.layer),
 ```
 
 Errors that can surface from the Effect-based service API. Matches the
@@ -554,12 +503,6 @@ failure channel of `MoltZapWsClient.sendRpc` / `connect`.
 ### [`TaskCallbackContext`](./ws-client.ts#L199)
 
 _Interface_
-
-```ts
-export interface TaskCallbackContext {
-  readonly requestId: JsonRpcId;
-}
-```
 
 Per-frame context the WS client threads through the Spec F typed
 dispatcher when invoking a TM-callback handler. The dispatcher reads

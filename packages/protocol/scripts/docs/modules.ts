@@ -250,7 +250,12 @@ function renderExport(
   folder: string,
   path: Path.Path,
 ): string[] {
-  const lines: string[] = [`### ${exportLink(ex, folder, path)}`, "", `_${ex.kindString}_`, ""];
+  const lines: string[] = [
+    `### ${exportLink(ex, folder, path)}`,
+    "",
+    `_${ex.kindString}_`,
+    "",
+  ];
   if (ex.signatureText) lines.push("```ts", ex.signatureText, "```", "");
   const summary = ex.comment?.summary.trim();
   if (summary && summary.length > 0) lines.push(summary, "");
@@ -489,7 +494,11 @@ function extractBalancedBody(
     if (opened && depth <= 0) return collected.join("\n").trimEnd();
     if (!opened) {
       const semi = findOutsideStrings(collected.join("\n"), ";");
-      if (semi >= 0) return collected.join("\n").slice(0, semi + 1).trimEnd();
+      if (semi >= 0)
+        return collected
+          .join("\n")
+          .slice(0, semi + 1)
+          .trimEnd();
     }
   }
   return collected.join("\n").trimEnd();

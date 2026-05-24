@@ -7,12 +7,15 @@
  */
 import * as fc from "fast-check";
 import { Data } from "effect";
-import { rpcMethods, type AnyRpcDefinition } from "../../rpc-registry.js";
+import {
+  serverRpcMethods,
+  type AnyServerRpcDefinition,
+} from "../../rpc-registry.js";
 import { applyCall } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
 import { arbitraryForParams } from "./from-typebox.js";
 
-type MethodName = (typeof rpcMethods)[number]["name"];
+type MethodName = (typeof serverRpcMethods)[number]["name"];
 
 class RpcArbitraryInvariantError extends Data.TaggedError(
   "RpcArbitraryInvariantError",
@@ -25,7 +28,7 @@ class RpcArbitraryInvariantError extends Data.TaggedError(
  * reference model so it can pick the matching reducer.
  */
 export interface ArbitraryRpcCall {
-  readonly definition: AnyRpcDefinition;
+  readonly definition: AnyServerRpcDefinition;
   readonly method: MethodName;
   readonly params: unknown;
 }
@@ -35,13 +38,13 @@ export interface ArbitraryRpcCall {
  * assert "every method exercised at least once" without going through
  * `RpcMap` directly.
  */
-export const allRpcMethods: ReadonlyArray<MethodName> = rpcMethods.map(
+export const allRpcMethods: ReadonlyArray<MethodName> = serverRpcMethods.map(
   (m) => m.name,
 );
 
 // Precomputed lookup from wire name → manifest, so `arbitraryCallFor` is O(1).
-const methodByName = new Map<MethodName, AnyRpcDefinition>(
-  rpcMethods.map((m) => [m.name, m as AnyRpcDefinition]),
+const methodByName = new Map<MethodName, AnyServerRpcDefinition>(
+  serverRpcMethods.map((m) => [m.name, m as AnyServerRpcDefinition]),
 );
 
 /** Arbitrary of a valid params tree for a single, fixed RPC. */
@@ -71,7 +74,7 @@ export function arbitraryCallFor(
 export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
   if (allRpcMethods.length === 0) {
     throw new RpcArbitraryInvariantError({
-      message: "arbitraryAnyCall: rpcMethods empty",
+      message: "arbitraryAnyCall: serverRpcMethods empty",
     });
   }
   return fc.constantFrom(...allRpcMethods).chain((m) => arbitraryCallFor(m));

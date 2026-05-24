@@ -2,7 +2,7 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { Message } from "@moltzap/protocol";
 import {
-  ConversationArchivedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
@@ -11,11 +11,13 @@ import {
   testAgentId,
   testConversationId,
   testMessageId,
+  testTaskId,
 } from "../../../test-utils/index.js";
 
 const CONV_A = testConversationId("dedup-conv-a");
 const CONV_B = testConversationId("dedup-conv-b");
 const SENDER = testAgentId("dedup-sender");
+const TASK_DEDUP = testTaskId("dedup-task");
 const ARCHIVED_AT = "2026-05-01T00:00:00.000Z";
 const DEDUP_WINDOW_SIZE = 1000;
 const DEDUP_OVERFLOW_COUNT = DEDUP_WINDOW_SIZE + 1;
@@ -122,7 +124,7 @@ function makeObservedService(): {
 } {
   const service = new FakeMoltZapService();
   const seen: Message[] = [];
-  service.on("message", (message) => seen.push(message));
+  service.on("message", ({ message }) => seen.push(message));
   return { seen, service };
 }
 
@@ -137,7 +139,10 @@ function emitMessage(
     senderId: SENDER,
   });
   service.emitEvent(
-    MessageReceivedNotificationDefinition.encode({ message: msg }),
+    MessageReceivedNotificationDefinition.encode({
+      taskId: TASK_DEDUP,
+      message: msg,
+    }),
   );
   return msg;
 }
@@ -150,10 +155,10 @@ function saturateDedupWindow(service: FakeMoltZapService): void {
 
 function archiveConversation(service: FakeMoltZapService): void {
   service.emitEvent(
-    ConversationArchivedNotificationDefinition.encode({
+    TaskConversationArchivedNotificationDefinition.encode({
+      taskId: TASK_DEDUP,
       conversationId: CONV_A,
       archivedAt: ARCHIVED_AT,
-      by: SENDER,
     }),
   );
 }

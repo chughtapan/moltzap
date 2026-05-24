@@ -1,5 +1,5 @@
 /**
- * @file Public barrel for network, presence, and endpoint-address protocol descriptors.
+ * @file Public barrel for network and presence protocol descriptors.
  */
 export {
   Connect,
@@ -11,11 +11,7 @@ export {
 
 export type { HelloOk } from "./methods.js";
 
-export {
-  isEndpointAddress,
-  endpointAddress,
-  endpointAddressKind,
-  makeEndpointAddress,
-} from "./actor-model.js";
-
-export type { EndpointAddress, EndpointAddressKind } from "./actor-model.js";
+// Server-internal WebSocket connection id brand (#673 follow-up).
+// Lives in the protocol layer so service signatures can be brand-typed
+// across the server boundary without a server-internal import.
+export { ConnectionId } from "./actor-model.js";

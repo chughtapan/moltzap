@@ -42,7 +42,7 @@ import {
   TaskConversationRemoveParticipant,
   TaskConversationUnarchive,
   TaskConversationUnarchivedNotificationDefinition,
-  TaskCreate,
+  TaskRequest,
   TaskLeave,
 } from "../index.js";
 
@@ -62,7 +62,9 @@ type Equal<A, B> =
 // All RPC + notification `name` fields are branded
 // `JsonRpcMethod<Name>` (nominal brand from `transport/wire.ts`); the
 // canary compares against the same branded shape.
-type _N1 = Expect<Equal<typeof TaskCreate.name, JsonRpcMethod<"task/create">>>;
+type _N1 = Expect<
+  Equal<typeof TaskRequest.name, JsonRpcMethod<"task/request">>
+>;
 type _N2 = Expect<Equal<typeof TaskLeave.name, JsonRpcMethod<"task/leave">>>;
 type _N3 = Expect<
   Equal<
@@ -146,14 +148,14 @@ export type _D1WireNameCanary =
   | _N12
   | _N13;
 
-// ── Canary 2: TaskCreate params shape (appId-only, no tmType) ────────
+// ── Canary 2: TaskRequest params shape (appId-only, no tmType) ────────
 //
 // Locks: `appId` REQUIRED + branded (`AppId` not `string`); `tmType`
 // ELIMINATED; `initialConversation` optional. A regression that
 // re-introduces `tmType` or downgrades `appId` to `string` fails the
 // `Expect<Equal<...>>` below.
 
-type TaskCreateParams = Static<typeof TaskCreate.paramsSchema>;
+type TaskCreateParams = Static<typeof TaskRequest.paramsSchema>;
 type _C1 = Expect<Equal<TaskCreateParams["appId"], AppId>>;
 type _C2 = Expect<Equal<TaskCreateParams["invitedAgentIds"], AgentId[]>>;
 type _C3 = Expect<
@@ -163,7 +165,7 @@ type _C3 = Expect<
   >
 >;
 
-type TaskCreateResult = Static<typeof TaskCreate.resultSchema>;
+type TaskCreateResult = Static<typeof TaskRequest.resultSchema>;
 type _C4 = Expect<Equal<keyof TaskCreateResult, "task" | "conversation">>;
 // Spec body Goal 3 fixes `conversation: Conversation | null` (NOT
 // optional `conversation?`); the AC text uses shorthand `conversation?`

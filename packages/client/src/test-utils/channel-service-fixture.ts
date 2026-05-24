@@ -2,7 +2,8 @@
 
 import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
-import { testAgentId, testConversationId } from "./ids.js";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import { testAgentId, testConversationId, testTaskId } from "./ids.js";
 import type {
   ChannelService,
   CrossConversationEntry,
@@ -10,7 +11,7 @@ import type {
   DispatchReleaseFrame,
 } from "@moltzap/client";
 
-type MessageHandler = (msg: Message) => void;
+type MessageHandler = (payload: { taskId: TaskId; message: Message }) => void;
 type VoidHandler = () => void;
 type ConversationArchivedHandler = (data: { conversationId: string }) => void;
 type ConversationUnarchivedHandler = (data: { conversationId: string }) => void;
@@ -30,6 +31,7 @@ type ServiceHandler =
   | DispatchReleaseHandler;
 
 interface SentReply {
+  taskId: string;
   convId: string;
   text: string;
   replyTo?: string;
@@ -37,9 +39,10 @@ interface SentReply {
 }
 
 interface SendFixtureReplyInput {
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
   readonly text: string;
-  readonly replyTo: string | undefined;
+  readonly replyTo: MessageId | undefined;
   readonly dispatchLeaseId: string | undefined;
 }
 
@@ -68,6 +71,7 @@ interface ChannelServiceFixtureStore {
   readonly closeCalls: { count: number };
   connectResult: unknown;
   ownAgentId: string | undefined;
+  fallbackTaskId: TaskId;
 }
 
 const agentKey = (id: string): string => testAgentId(id);
@@ -83,7 +87,7 @@ function participantKey(participant: string): string {
 
 /** Fire events on the fixture service. */
 export interface ChannelServiceEmit {
-  message(msg: Message): void;
+  message(msg: Message, taskId?: TaskId): void;
   disconnect(): void;
   reconnect(): void;
   conversationArchived(data: { conversationId: string }): void;
@@ -146,6 +150,7 @@ function createFixtureStore(
     closeCalls: { count: 0 },
     connectResult: {},
     ownAgentId,
+    fallbackTaskId: testTaskId("fixture-task"),
   };
 }
 
@@ -188,10 +193,11 @@ function sendFixtureReply(
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     store.sent.push({
+      taskId: input.taskId,
       convId: input.conversationId,
       text: input.text,
-      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
-      ...(input.dispatchLeaseId
+      ...(input.replyTo !== undefined ? { replyTo: input.replyTo } : {}),
+      ...(input.dispatchLeaseId !== undefined
         ? { dispatchLeaseId: input.dispatchLeaseId }
         : {}),
     });
@@ -201,10 +207,11 @@ function sendFixtureReply(
 function makeFixtureSend(
   store: ChannelServiceFixtureStore,
 ): ChannelService["send"] {
-  return (conversationId, text, opts) => {
+  return (taskId, conversationId, text, opts) => {
     const replyTo = opts?.replyTo;
     const dispatchLeaseId = opts?.dispatchLeaseId;
     return sendFixtureReply(store, {
+      taskId,
       conversationId,
       text,
       replyTo,
@@ -290,8 +297,10 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
 
 function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
   const emit: ChannelServiceEmit = {
-    message(msg) {
-      for (const h of store.messageHandlers) h(msg);
+    message(msg, taskId) {
+      const fallback = store.fallbackTaskId;
+      const tid = taskId ?? fallback;
+      for (const h of store.messageHandlers) h({ taskId: tid, message: msg });
     },
     disconnect() {
       for (const h of store.disconnectHandlers) h();

@@ -15,7 +15,11 @@
         "eslint.shared.mjs",
         "vitest.workspace-aliases.ts"
       ],
-      "project": ["*.mjs", "*.ts"]
+      "project": ["*.mjs", "*.ts"],
+      "ignoreDependencies": [
+        "@mermaid-js/mermaid-cli",
+        "typedoc"
+      ]
     }
   }
 }

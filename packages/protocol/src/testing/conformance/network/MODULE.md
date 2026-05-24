@@ -23,8 +23,6 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 _Function_
 
 ```ts
-export function acquireClient(
-  ctx: ConformanceRunContext,
   propertyName: string,
   name: string,
 ): Effect.Effect<
@@ -35,8 +33,6 @@ export function acquireClient(
 _Function_
 
 ```ts
-export function acquireCloseableClient(
-  ctx: ConformanceRunContext,
   propertyName: string,
   agent: TestAgent,
   label: string,
@@ -48,9 +44,7 @@ export function acquireCloseableClient(
 _Function_
 
 ```ts
-export function countPresenceChangedFor(
-  client: TestClient,
-  agentId: AgentIdValue,
+  agentId: AgentId,
 ): Effect.Effect<number>
 ```
 
@@ -71,7 +65,7 @@ All network-layer property registrars in legacy walk order
 _Variable_
 
 ```ts
-export const PRESENCE_CATEGORY = "presence" as const
+export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
 ### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L32)
@@ -79,7 +73,8 @@ export const PRESENCE_CATEGORY = "presence" as const
 _Variable_
 
 ```ts
-export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
+
+export type PresenceStatus = "online" | "offline" | "away"
 ```
 
 ### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L31)
@@ -87,7 +82,7 @@ export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
 _Variable_
 
 ```ts
-export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
+export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
 ```
 
 ### [`PresenceChangedPayload`](./_helpers.ts#L37)
@@ -95,10 +90,7 @@ export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 _Interface_
 
 ```ts
-export interface PresenceChangedPayload {
-  readonly agentId: string;
   readonly status: PresenceStatus;
-}
 ```
 
 ### [`PresenceStatus`](./_helpers.ts#L34)
@@ -106,7 +98,11 @@ export interface PresenceChangedPayload {
 _TypeAlias_
 
 ```ts
-export type PresenceStatus = "online" | "offline" | "away";
+
+export interface PresenceChangedPayload {
+  readonly agentId: string;
+  readonly status: PresenceStatus;
+}
 ```
 
 ### [`presenceStatusesFor`](./_helpers.ts#L200)
@@ -114,9 +110,7 @@ export type PresenceStatus = "online" | "offline" | "away";
 _Function_
 
 ```ts
-export function presenceStatusesFor(
-  client: TestClient,
-  agentId: AgentIdValue,
+  agentId: AgentId,
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
@@ -125,8 +119,6 @@ export function presenceStatusesFor(
 _Function_
 
 ```ts
-export function presenceViolation(
-  name: string,
   reason: string,
 ): PropertyInvariantViolation
 ```
@@ -136,8 +128,6 @@ export function presenceViolation(
 _Function_
 
 ```ts
-export function registerAgent(
-  ctx: ConformanceRunContext,
   propertyName: string,
   name: string,
 ): Effect.Effect<TestAgent, PropertyInvariantViolation>
@@ -202,9 +192,7 @@ export function registerSubscribeAfterConnect(
 _Function_
 
 ```ts
-export function subscribePresence(
-  subscriber: TestClient,
-  agentId: AgentIdValue,
+  agentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
@@ -214,8 +202,6 @@ export function subscribePresence(
 _Function_
 
 ```ts
-export function waitForPresenceWithStatus(
-  client: TestClient,
   expected: PresenceChangedPayload,
   propertyName: string,
   timeoutMs: number = PRESENCE_DEFAULT_TIMEOUT_MS,

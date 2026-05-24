@@ -11,6 +11,7 @@ const HistoryLimit = Schema.Number.pipe(
 );
 
 const HistoryRequestSchema = Schema.Struct({
+  taskId: Schema.String.pipe(Schema.minLength(1)),
   conversationId: Schema.String.pipe(Schema.minLength(1)),
   limit: Schema.optionalWith(HistoryLimit, {
     default: () => DEFAULT_HISTORY_LIMIT,
@@ -41,7 +42,6 @@ const ConversationMetadataSchema = Schema.Struct({
 
 const HistoryConversationMetaSchema = Schema.Struct({
   id: Schema.String,
-  type: Schema.Literal("dm", "group"),
   name: Schema.optional(Schema.String),
   createdBy: Schema.String,
   metadata: Schema.optional(ConversationMetadataSchema),

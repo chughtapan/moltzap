@@ -15,24 +15,9 @@ server-side services live in `@moltzap/server-core/app/capabilities`.
 
 _Class_
 
-```ts
-export class AddParticipantPermission extends Context.Tag(
-  "@moltzap/protocol/AddParticipantPermission",
-)<AddParticipantPermission, AddParticipantPermissionValue>() {}
-```
-
 ### [`AddParticipantPermissionValue`](./add-participant-permission.ts#L13)
 
 _Interface_
-
-```ts
-export interface AddParticipantPermissionValue {
-  readonly conversationId: ConversationId;
-  readonly requesterAgentId: AgentId;
-  readonly targetAgentId: AgentId;
-  readonly targetOwnerUserId: string | null;
-}
-```
 
 Single-arm composite capability for `ConversationService.addParticipant`
 — Architect plan #606 r3 Decision D.
@@ -146,22 +131,9 @@ but passed a different `taskId` argument to the service method.
 
 _Class_
 
-```ts
-export class ContactPolicyAllowsReach extends Context.Tag(
-  "@moltzap/protocol/ContactPolicyAllowsReach",
-)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {}
-```
-
 ### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L14)
 
 _Interface_
-
-```ts
-export interface ContactPolicyAllowsReachValue {
-  readonly creatorAgentId: AgentId;
-  readonly targetAgentIds: readonly AgentId[];
-}
-```
 
 Tier 3 capability — caller-side contact policy permits creator →
 targets reach. Single capability covering the family of policy checks
@@ -176,23 +148,9 @@ against.
 
 _Class_
 
-```ts
-export class ConversationCreateAuthorization extends Context.Tag(
-  "@moltzap/protocol/ConversationCreateAuthorization",
-)<ConversationCreateAuthorization, ConversationCreateAuthorizationValue>() {}
-```
-
 ### [`ConversationCreateAuthorizationValue`](./conversation-create-authorization.ts#L16)
 
 _TypeAlias_
-
-```ts
-export type ConversationCreateAuthorizationValue =
-  | {
-      readonly _tag: "ExistingDm";
-      readonly conversation: Conversation;
-    }
-```
 
 Composite capability for `ConversationService.create` — Architect
 plan #606 r3 Decision C.
@@ -263,22 +221,9 @@ conversation is open).
 
 _Class_
 
-```ts
-export class ConversationParticipantAccess extends Context.Tag(
-  "@moltzap/protocol/ConversationParticipantAccess",
-)<ConversationParticipantAccess, ConversationParticipantAccessValue>() {}
-```
-
 ### [`ConversationParticipantAccessValue`](./conversation-participant-access.ts#L13)
 
 _Interface_
-
-```ts
-export interface ConversationParticipantAccessValue {
-  readonly conversationId: ConversationId;
-  readonly callerAgentId: AgentId;
-}
-```
 
 Tier 1 capability — caller is a member of `conversation_participants`
 for `conversationId`.
@@ -321,9 +266,7 @@ verify the count matches handler input.
 _Class_
 
 ```ts
-export class MessageSendPermission extends Context.Tag(
-  "@moltzap/protocol/MessageSendPermission",
-)<MessageSendPermission, MessageSendPermissionValue>() {}
+  readonly conversationId: ConversationId;
 ```
 
 ### [`MessageSendPermissionValue`](./message-send-permission.ts#L33)
@@ -331,16 +274,10 @@ export class MessageSendPermission extends Context.Tag(
 _TypeAlias_
 
 ```ts
-export type MessageSendPermissionValue =
-  | {
-      readonly _tag: "forParticipantOnActiveTask";
-      readonly task: Task;
-      readonly conversationId: ConversationId;
-      readonly senderAgentId: AgentId;
-      readonly replyTarget:
-        | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
-        | { readonly _tag: "NoReply" };
-    }
+   * from message-send admission.
+   */
+  readonly replyTarget:
+    | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
 ```
 
 Composite capability for `MessageService.send` — Architect Decision A
@@ -405,46 +342,13 @@ Zero-payload tag: declared when the send has no reply target.
 
 _Interface_
 
-```ts
-export interface ObtainAddParticipantPermissionInput {
-  readonly conversationId: ConversationId;
-  readonly requesterAgentId: AgentId;
-  readonly targetAgentId: AgentId;
-}
-```
-
 ### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L30)
 
 _Interface_
 
-```ts
-export interface ObtainConversationCreateAuthorizationInput {
-  readonly type: "dm" | "group";
-  readonly agentIds: ReadonlyArray<AgentId>;
-  readonly creatorAgentId: AgentId;
-}
-```
-
 ### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L72)
 
 _Interface_
-
-```ts
-export interface ObtainMessageSendPermissionInput {
-  /**
-   * Optional defensive cross-check. When supplied (e.g. by D1's
-   * `TaskConversation*` handlers whose wire shape names `taskId`
-   * independently of the conversation), `obtainMessageSendPermission`
-   * runs an `assertConvBelongsToTask` defense against the conv lookup.
-   * `MessagesSend` omits the field; when omitted the obtain helper
-   * uses `conv.task_id` directly.
-   */
-  readonly taskId?: TaskId;
-  readonly conversationId: ConversationId;
-  readonly senderAgentId: AgentId;
-  readonly replyToId?: MessageId;
-}
-```
 
 Input shape consumed by the dispatch-time smart constructor. The
 handler passes the raw `MessagesSend` params + the authenticated
@@ -558,22 +462,13 @@ Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
 
 _Class_
 
-```ts
-export class TmAuthority extends Context.Tag("@moltzap/protocol/TmAuthority")<
-  TmAuthority,
-  TmAuthorityValue
->() {}
-```
-
 ### [`TmAuthorityValue`](./tm-authority.ts#L20)
 
 _Interface_
 
 ```ts
-export interface TmAuthorityValue {
-  readonly task: Task;
-  readonly callerAgentId: AgentId;
-}
+  TmAuthorityValue
+>() {}
 ```
 
 Tier 1 capability — caller is the registered task manager for `task.id`.

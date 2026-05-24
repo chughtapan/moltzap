@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -13,16 +14,13 @@ it("on('message') skips own agent's messages", () =>
     yield* regB.client.connect();
     const service = yield* H.connectService(regA.apiKey);
 
-    const conv = yield* service.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regB.agentId }],
-    });
+    const conv = yield* H.createDm(service, regB.agentId);
 
     const received: unknown[] = [];
     service.on("message", (msg) => received.push(msg));
 
     // Send from the service (own agent) — should NOT fire on("message")
-    yield* service.send(conv.conversation.id, "Self message");
+    yield* service.send(conv.task.id, conv.conversation!.id, "Self message");
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     expect(received.length).toBe(0);
@@ -40,15 +38,26 @@ it("getHistory() stores received messages", () =>
     yield* regSender.client.connect();
     const service = yield* H.connectService(regReceiver.apiKey);
 
-    const conv = yield* regSender.client.sendRpc(H.ConversationsCreate, {
-      type: "dm",
-      participants: [{ type: "agent", id: regReceiver.agentId }],
+    const conv = yield* regSender.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [regReceiver.agentId],
+      initialConversation: { participants: [regReceiver.agentId] },
     });
 
-    yield* H.sendAndSettle(regSender.client, conv.conversation.id, "msg 1");
-    yield* H.sendAndSettle(regSender.client, conv.conversation.id, "msg 2");
+    yield* H.sendAndSettle(
+      regSender.client,
+      conv.task.id,
+      conv.conversation!.id,
+      "msg 1",
+    );
+    yield* H.sendAndSettle(
+      regSender.client,
+      conv.task.id,
+      conv.conversation!.id,
+      "msg 2",
+    );
 
-    const history = service.getHistory(conv.conversation.id);
+    const history = service.getHistory(conv.conversation!.id);
     expect(history.length).toBe(2);
 
     service.close();

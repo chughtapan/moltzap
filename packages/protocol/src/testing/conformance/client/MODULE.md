@@ -491,6 +491,9 @@ single call site.
 _Function_
 
 ```ts
+ * lifecycle events. The real client subscriber must surface both in
+ * emission order.
+ */
 export function registerArchiveLifecycleClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -518,6 +521,7 @@ registry as the real adapter.
 _Function_
 
 ```ts
+ */
 export function registerFanOutCardinalityClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -541,6 +545,7 @@ drops one, or reorders the sequence fails.
 _Function_
 
 ```ts
+ */
 export function registerLatencyResilienceClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -613,6 +618,8 @@ fields when surfacing notifications fails.
 _Function_
 
 ```ts
+ * stringify) fails.
+ */
 export function registerPayloadOpacityClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -647,6 +654,8 @@ A correctly correlating client returns the matching payload.
 _Function_
 
 ```ts
+ * delivery. Live-delivery-only per spec #200 §5 revision.
+ */
 export function registerResetPeerRecoveryClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -678,7 +687,60 @@ Predicate (both must hold):
 _Function_
 
 ```ts
+ * fragmentation that TestServer alone can't produce.
+ */
 export function registerSlicerFramingClient(
+  ctx: ClientConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "slicer-framing-client",
+    "partial-frame splits preserve subscriber-level framing",
+    Effect.fail(
+      unavailable(
+        "slicer-framing-client",
+        ctx.toxiproxy === null
+          ? "Toxiproxy not provisioned; slicer toxic unavailable"
+          : "slicer toxic property deferred pending TCP-level fragmentation harness integration",
+      ),
+    ).pipe(Effect.withSpan("registerSlicerFramingClient")),
+  );
+}
+
+/**
+ * D4 client half — `reset_peer` mid-flight, post-reconnect exactly-once
+ * delivery. Live-delivery-only per spec #200 §5 revision.
+ */
+export function registerResetPeerRecoveryClient(
+  ctx: ClientConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "reset-peer-recovery-client",
+    "real client auto-reconnects and delivers post-reconnect events exactly once",
+    Effect.fail(
+      unavailable(
+        "reset-peer-recovery-client",
+        ctx.toxiproxy === null
+          ? "Toxiproxy not provisioned; reset_peer toxic unavailable"
+          : "reset_peer property deferred pending auto-reconnect observability wiring",
+      ),
+    ).pipe(Effect.withSpan("registerResetPeerRecoveryClient")),
+  );
+}
+
+/**
+ * D5 client half — TestServer accepts a sampled RPC but never responds;
+ * real client's documented typed-error surface (`RpcTimeoutError`)
+ * fires within its own timeout budget.
+ *
+ * Predicate (strict, per O6):
+ *   - `RealClientRpcError.documentedErrorTag === "RpcTimeoutError"`
+ *   - `RealClientRpcError.kind === "timeout"`
+ */
+export function registerTimeoutSurfaceClient(
   ctx: ClientConformanceRunContext,
 ): void
 ```
@@ -692,9 +754,7 @@ fragmentation that TestServer alone can't produce.
 _Function_
 
 ```ts
-export function registerSlowCloseCleanupClient(
-  ctx: ClientConformanceRunContext,
-): void
+ * resolves within budget
 ```
 
 D6 client half — TestServer initiates a slow close; real client's
@@ -709,6 +769,9 @@ resolves within budget; Scope teardown completes.
 _Function_
 
 ```ts
+ *
+ * Predicate: `observedCampaignB.length === 0`.
+ */
 export function registerTaskBoundaryIsolationClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -726,6 +789,8 @@ Predicate: `observedCampaignB.length === 0`.
 _Function_
 
 ```ts
+ *   - `RealClientRpcError.kind === "timeout"`
+ */
 export function registerTimeoutSurfaceClient(
   ctx: ClientConformanceRunContext,
 ): void

@@ -1,6 +1,6 @@
 import type { Layer } from "effect";
-import type { AppManifest } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConversationId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import type { ContactService } from "./app-host.js";
@@ -8,11 +8,6 @@ import type { SessionValidator } from "../identity/services/session-validator.js
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
-import type {
-  MessageAuthorizeHook,
-  TaskAuthorizeDispatchHook,
-} from "./hooks.js";
-import type { EndpointAddress } from "@moltzap/protocol/network";
 import type { LeaseRegistry } from "./lease-registry.js";
 import type {
   TraceCapture,
@@ -86,13 +81,13 @@ export type ConnectionHook = (params: {
   agentName: string;
   /** Owner user ID resolved at network/connect time. Null for unclaimed agents. */
   ownerUserId: string | null;
-  connId: string;
+  connId: ConnectionId;
 }) => PromiseLike<void> | void;
 
 export type DisconnectionHook = (params: {
   agentId: string;
   ownerUserId: string | null;
-  connId: string;
+  connId: ConnectionId;
 }) => PromiseLike<void> | void;
 
 export interface CoreApp {
@@ -126,43 +121,14 @@ export interface CoreApp {
    * push decisions, etc.). Stable identity.
    */
   readonly connections: ConnectionManager;
-  registerApp: (manifest: AppManifest) => void;
 
   /**
-   * Register an app whose `dispatch/authorize` admission round-trips
-   * run in a remote process over WebSocket. The verb routes to
-   * `connectionId` via the server-initiated awaitable RPC primitive;
-   * verdicts decode at the WS edge into the same typed shapes as
-   * in-process hooks. Fail-closed on disconnect / timeout / RPC error.
-   *
-   * Promotes any prior in-process registration for the same `appId`.
-   * Use {@link unregisterRemoteApp} to drop the routing entry eagerly
-   * when a connection is known to be gone (operator-driven cleanup;
-   * the disconnect-finalizer handles in-flight Deferreds either way).
+   * Wire a contact-policy gate for app-session admission and
+   * conversation-creation paths. The default policy (set by AppHost's
+   * constructor) is "allow all" — operators that need real policy
+   * decisions inject their resolver here.
    */
-  registerRemoteApp: (manifest: AppManifest, connectionId: string) => void;
-
-  /**
-   * Drop a remote-app registration. Idempotent. Does NOT remove the
-   * manifest; only the routing entry. See {@link AppHost.unregisterRemoteApp}.
-   */
-  unregisterRemoteApp: (appId: string) => void;
   setContactService: (checker: ContactService) => void;
-  onTaskAuthorizeDispatch: (
-    appId: string,
-    handler: TaskAuthorizeDispatchHook,
-  ) => void;
-
-  /**
-   * #560: register an in-process `messages/authorize` handler keyed by
-   * `EndpointAddress`. Default-DM and default-group register at boot
-   * to preserve today's broadcast; apps register their custom TM hook
-   * via this surface. Idempotent — repeat calls overwrite the entry.
-   */
-  registerMessageAuthorize: (
-    address: EndpointAddress,
-    handler: MessageAuthorizeHook,
-  ) => void;
 
   /**
    * #529 reshape additive — server-local lease registry for the

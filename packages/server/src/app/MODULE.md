@@ -17,10 +17,10 @@ lower layers must not import it because app is the composition root.
 _Variable_
 
 ```ts
-export const AgentEndpointResolverLive = Layer.effect(
-  AgentEndpointResolverTag,
-  AgentEndpointResolver.make,
-)
+      // standalone.ts (`app.setContactService(...)`) AFTER this Layer has
+      // already produced its ConversationService instance, so capturing
+      // a snapshot here would always be `null`.
+      ()
 ```
 
 Build the resolver from its `Effect.make` constructor. The resolver is
@@ -33,9 +33,10 @@ downstream layers (and `network.send`) can pick it up via Context.
 _Class_
 
 ```ts
-export class AgentEndpointResolverTag extends Context.Tag(
-  "moltzap/AgentEndpointResolver",
-)<AgentEndpointResolverTag, AgentEndpointResolver>() {}
+
+/**
+ * `LeaseRegistry` for the #529 reshape additive `dispatch/*` admission
+ * surface. In-process state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
 ```
 
 `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
@@ -45,12 +46,6 @@ NetworkSendServiceTag for O(1) outbound routing.
 ### [`AppHooks`](./hooks.ts#L126)
 
 _Interface_
-
-```ts
-export interface AppHooks {
-  taskAuthorizeDispatch?: TaskAuthorizeDispatchHook;
-}
-```
 
 `AppHooks` continues to key per-appId — `taskAuthorizeDispatch`
 runs against the recipient's bound app, found via
@@ -66,18 +61,7 @@ so an address-keyed registry is the right shape.
 _Class_
 
 ```ts
-export class AppHost {
-  private manifests = new Map<string, AppManifest>();
-  private contactService: ContactService | null = null;
-  private hooks = new Map<string, AppHooks>();
-
-  /**
-   * #560: send-side fan-out hooks keyed by `EndpointAddress`. The
-   * lookup key for `messages/authorize` is the parent task's
-   * `tm_endpoint_address` (always populated post-#461 R12), NOT an
-   * appId. Default-DM and default-group register at boot under
-   * `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`; app TMs
-   * register under their `tm:app:&lt;uuid>` address; future custom TMs
+   * via the connection uniformly;
 ```
 
 ### [`AppHostLive`](./layers.ts#L335)
@@ -85,9 +69,20 @@ export class AppHost {
 _Variable_
 
 ```ts
-export const AppHostLive = Layer.effect(
-  AppHostTag,
-  Effect.gen(function* ()
+// `appHost.setConversationService(conv)` wire-up — see
+// `WireConvIntoAppHost` in `server.ts`.
+//
+// The composition below is bottom-up by dependency order. Each stage merges
+// a new service Layer on top of the lower tier, with the lower tier's
+// outputs wired as the upper tier's inputs.
+
+/** Tier 1 — zero cross-layer deps beyond Db. */
+const Tier1 = Layer.mergeAll(
+  ConnectionManagerLive,
+  AuthServiceLive,
+  ParticipantServiceLive,
+  ContactsServiceLive,
+)
 ```
 
 ### [`AppHostTag`](./layers.ts#L163)
@@ -95,9 +90,6 @@ export const AppHostLive = Layer.effect(
 _Class_
 
 ```ts
-export class AppHostTag extends Context.Tag("moltzap/AppHost")<
-  AppHostTag,
-  AppHost
 >() {}
 ```
 
@@ -106,9 +98,7 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 _Variable_
 
 ```ts
-export const AppTmRegistryLive = Layer.effect(
-  AppTmRegistryTag,
-  Effect.gen(function* ()
+)
 ```
 
 Build the app-TM registry and seed the default DM + group TMs at
@@ -120,9 +110,7 @@ registered TM at insert time, and non-app DMs/groups bind here.
 _Class_
 
 ```ts
-export class AppTmRegistryTag extends Context.Tag("moltzap/AppTmRegistry")<
-  AppTmRegistryTag,
-  AppTmRegistry
+  LeaseRegistry
 >() {}
 ```
 
@@ -135,8 +123,8 @@ AppTmRegistryLive.
 _Variable_
 
 ```ts
-export const AuthServiceLive = Layer.effect(
-  AuthServiceTag,
+export const AppHostLive = Layer.effect(
+  AppHostTag,
   Effect.gen(function* ()
 ```
 
@@ -145,10 +133,9 @@ export const AuthServiceLive = Layer.effect(
 _Class_
 
 ```ts
-export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
-  AuthServiceTag,
-  AuthService
->() {}
+export class SessionValidatorTag extends Context.Tag(
+  "moltzap/SessionValidator",
+)<SessionValidatorTag, SessionValidator | null>() {}
 ```
 
 ### [`Claim`](./lease-registry.ts#L217)
@@ -156,6 +143,10 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
 _Interface_
 
 ```ts
+ * call exactly one of `finalize` or `rollback` on the release path.
+ * The handle carries the lease id privately so callers cannot forge a
+ * finalize against a different lease.
+ */
 export interface Claim {
   readonly leaseId: LeaseId;
 
@@ -179,13 +170,7 @@ finalize against a different lease.
 _TypeAlias_
 
 ```ts
-export type ConnectionHook = (params: {
-  agentId: string;
-  agentName: string;
-  /** Owner user ID resolved at network/connect time. Null for unclaimed agents. */
-  ownerUserId: string | null;
-  connId: string;
-}) => PromiseLike<void> | void;
+  connId: ConnectionId;
 ```
 
 ### [`ConnectionManagerLive`](./layers.ts#L216)
@@ -193,9 +178,8 @@ export type ConnectionHook = (params: {
 _Variable_
 
 ```ts
-export const ConnectionManagerLive = Layer.sync(
-  ConnectionManagerTag,
-  ()
+  ConversationServiceTag,
+  Effect.gen(function* ()
 ```
 
 ### [`ConnectionManagerTag`](./layers.ts#L109)
@@ -203,9 +187,10 @@ export const ConnectionManagerLive = Layer.sync(
 _Class_
 
 ```ts
-export class ConnectionManagerTag extends Context.Tag(
-  "moltzap/ConnectionManager",
-)<ConnectionManagerTag, ConnectionManager>() {}
+export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
+  PresenceServiceTag,
+  PresenceService
+>() {}
 ```
 
 ### [`ConnIdTag`](./layers.ts#L104)
@@ -213,9 +198,9 @@ export class ConnectionManagerTag extends Context.Tag(
 _Class_
 
 ```ts
-export class ConnIdTag extends Context.Tag("moltzap/ConnId")<
-  ConnIdTag,
-  string
+export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
+  ContactsServiceTag,
+  ContactsService
 >() {}
 ```
 
@@ -228,9 +213,7 @@ router; read by handlers via `yield* ConnIdTag`. Replaces the previous
 _Interface_
 
 ```ts
-export interface ContactService {
-  areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
-}
+    return this.reason;
 ```
 
 ### [`ContactsServiceLive`](./layers.ts#L307)
@@ -238,9 +221,48 @@ export interface ContactService {
 _Variable_
 
 ```ts
-export const ContactsServiceLive = Layer.effect(
-  ContactsServiceTag,
-  Effect.gen(function* ()
+// requirements — a layer that depends on a sibling's output still shows that
+// tag in RIn. `Layer.provideMerge(consumer, provider)` *does* wire them: it
+// feeds `provider`'s outputs into `consumer`'s inputs AND keeps both sets of
+// outputs visible to downstream layers.
+//
+// Service tier graph:
+//
+//   Tier 1 — ConnectionManager, AuthService, ParticipantService,
+//            ContactsService.
+//   Tier 2 — Presence, AgentEndpointResolver, AppTmRegistry (provideMerge over T1).
+//   Tier 2.5 — NetworkSendService.
+//   Tier 2.6 — LeaseRegistry.
+//   Tier 3 — AppHost (db + connections + leases; seeds default
+//            messageAuthorize hooks for the DM/Group TM addresses).
+//   Tier 4 — ConversationService (db + participants + connections + AppHost).
+//   Tier 5 — MessageService (every upstream + Encryption + DeliveryWebhook +
+//            Webhook + TraceCapture + AppHost).
+//   Tier 6 — TaskService (db + Conversation + Message).
+//
+// `Layer.provideMerge` (not `Layer.provide`) is load-bearing: every
+// downstream tier sees ALL upstream Tags in its R-channel resolution,
+// not just the immediately-above tier. RPC handler bodies can `yield*
+// XServiceTag` for any service and have it resolved by the shared
+// `dispatchRuntime` without a per-frame `Effect.provide`.
+//
+// `ConversationService` is built ABOVE `AppHost` but `AppHost` carries
+// a backref into it (for the dispatch-deny path's removeParticipant
+// call). The cycle is broken with a post-construction
+// `appHost.setConversationService(conv)` wire-up — see
+// `WireConvIntoAppHost` in `server.ts`.
+//
+// The composition below is bottom-up by dependency order. Each stage merges
+// a new service Layer on top of the lower tier, with the lower tier's
+// outputs wired as the upper tier's inputs.
+
+/** Tier 1 — zero cross-layer deps beyond Db. */
+const Tier1 = Layer.mergeAll(
+  ConnectionManagerLive,
+  AuthServiceLive,
+  ParticipantServiceLive,
+  ContactsServiceLive,
+)
 ```
 
 ### [`ContactsServiceTag`](./layers.ts#L153)
@@ -248,9 +270,7 @@ export const ContactsServiceLive = Layer.effect(
 _Class_
 
 ```ts
-export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
-  ContactsServiceTag,
-  ContactsService
+  WebhookClient
 >() {}
 ```
 
@@ -289,9 +309,7 @@ becomes a compile error at every call site (Principle 4).
 _Variable_
 
 ```ts
-export const ConversationServiceLive = Layer.effect(
-  ConversationServiceTag,
-  Effect.gen(function* ()
+    const conversations = yield* ConversationServiceTag
 ```
 
 ### [`ConversationServiceTag`](./layers.ts#L149)
@@ -299,9 +317,12 @@ export const ConversationServiceLive = Layer.effect(
 _Class_
 
 ```ts
-export class ConversationServiceTag extends Context.Tag(
-  "moltzap/ConversationService",
-)<ConversationServiceTag, ConversationService>() {}
+ * one place.
+ */
+export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
+  WebhookClientTag,
+  WebhookClient
+>() {}
 ```
 
 ### [`CoreApp`](./types.ts#L98)
@@ -309,9 +330,8 @@ export class ConversationServiceTag extends Context.Tag(
 _Interface_
 
 ```ts
-export interface CoreApp {
-  readonly port: number;
-  onConnection: (hook: ConnectionHook) => void;
+   * Fires when a WebSocket closes, after auth was established. Use for
+   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
 ```
 
 ### [`CoreConfig`](./types.ts#L24)
@@ -319,9 +339,7 @@ export interface CoreApp {
 _Interface_
 
 ```ts
-export interface CoreConfig {
-  db: Db;
-  dbCleanup?: () => PromiseLike<void>;
+  corsOrigins: string[];
 ```
 
 ### [`createCoreApp`](./server.ts#L94)
@@ -329,6 +347,8 @@ export interface CoreConfig {
 _Function_
 
 ```ts
+}
+
 export function createCoreApp(config: CoreConfig): CoreApp
 ```
 
@@ -337,7 +357,10 @@ export function createCoreApp(config: CoreConfig): CoreApp
 _Class_
 
 ```ts
-export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
+export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
+  AuthServiceTag,
+  AuthService
+>() {}
 ```
 
 Postgres/PGlite database handle (Kysely&lt;Database>).
@@ -347,10 +370,10 @@ Postgres/PGlite database handle (Kysely&lt;Database>).
 _Class_
 
 ```ts
-export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
-  DeliveryWebhookTag,
-  DeliveryWebhookConfig | null
->() {}
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new ParticipantService(db);
+  }).pipe(Effect.withSpan("ParticipantServiceLive")),
 ```
 
 Optional fire-and-forget message-delivery webhook. `null` means no
@@ -361,11 +384,10 @@ webhook — the fanout is skipped entirely.
 _TypeAlias_
 
 ```ts
-export type DisconnectionHook = (params: {
-  agentId: string;
-  ownerUserId: string | null;
-  connId: string;
-}) => PromiseLike<void> | void;
+
+export interface CoreApp {
+  readonly port: number;
+  onConnection: (hook: ConnectionHook) => void;
 ```
 
 ### [`DispatchAdmissionResult`](./hooks.ts#L55)
@@ -373,13 +395,7 @@ export type DisconnectionHook = (params: {
 _TypeAlias_
 
 ```ts
-export type DispatchAdmissionResult =
-  | {
-      decision: "grant";
-      leaseId?: string;
-      leaseTimeoutMs?: number;
-      dispatchMessageId?: MessageId;
-    }
+  signal: AbortSignal;
 ```
 
 ### [`EncryptionTag`](./layers.ts#L94)
@@ -387,9 +403,6 @@ export type DispatchAdmissionResult =
 _Class_
 
 ```ts
-export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
-  EncryptionTag,
-  EnvelopeEncryption | null
 >() {}
 ```
 
@@ -480,14 +493,19 @@ export const HTTP_UNAUTHORIZED = 401
 _Interface_
 
 ```ts
+
+/**
+ * Audit binding tuple recorded at `mint` time. Used by `dispatches/get`
+ * scope-enforcement and connection-close cleanup. Once recorded, the
+ * tuple is immutable for the lease's lifetime.
+ */
 export interface LeaseBindingTuple {
   readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: string;
-  readonly moderatorConnectionId: string;
+  readonly recipientConnectionId: ConnectionId;
+  readonly moderatorConnectionId: ConnectionId;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly tmEndpointAddress: string;
-  readonly appId: string;
+  readonly appId: AppId;
 }
 ```
 
@@ -500,6 +518,10 @@ tuple is immutable for the lease's lifetime.
 _Class_
 
 ```ts
+ * surface a precise wire-error code per #529's typed-CONSUMED /
+ * typed-EXPIRED requirements) and `expected` carries the set of
+ * states the operation would have accepted.
+ */
 export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
   readonly leaseId: LeaseId;
   readonly state: LeaseState;
@@ -512,10 +534,6 @@ export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
     | "read"
     | "bindToConnection";
 }> {
-  override get message(): string {
-    return `lease ${this.leaseId} in state ${this.state} cannot ${this.operation} (expected one of ${this.expected.join(", ")})`;
-  }
-}
 ```
 
 Tagged error channel for the registry's transition-rejecting paths.
@@ -531,12 +549,11 @@ _Interface_
 ```ts
 export interface LeaseMintContext {
   readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: string;
-  readonly moderatorConnectionId: string;
+  readonly recipientConnectionId: ConnectionId;
+  readonly moderatorConnectionId: ConnectionId;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly tmEndpointAddress: string;
-  readonly appId: string;
+  readonly appId: AppId;
 }
 ```
 
@@ -549,6 +566,10 @@ internally via `crypto.randomUUID()` (≥122 bits entropy per spec).
 _Interface_
 
 ```ts
+ * Lease mint result. Both ids are branded — calling code cannot
+ * accidentally confuse them with `MessageId` / `TaskId` / generic
+ * strings.
+ */
 export interface LeaseMintResult {
   readonly leaseId: LeaseId;
   readonly dispatchId: DispatchId;
@@ -564,14 +585,9 @@ strings.
 _Class_
 
 ```ts
-export class LeaseNotFoundError extends Data.TaggedError("LeaseNotFoundError")<{
-  readonly id: LeaseId | DispatchId;
-  readonly kind: "leaseId" | "dispatchId";
-}> {
-  override get message(): string {
-    return `no lease record for ${this.kind}=${this.id}`;
-  }
-}
+ * lease exists but is in the wrong state. `LeaseNotFoundError` fires
+ * when the id is unknown (caller forged it, or it aged out of the
+ * retention window).
 ```
 
 Lookup-by-id failure when the registry has no entry for the supplied
@@ -609,11 +625,7 @@ cross-boundary stability.
 _Function_
 
 ```ts
- * Internal entry — wraps the public `LeaseRecord` plus the recipient-
- * connection binding needed for `dispatch/release` fan-out and the
- * scheduled fiber for the post-grant TTL.
- */
-interface LeaseEntry
+  readonly leaseRetentionMs: number
 ```
 
 Translation point between the in-process nested `LeaseRecord`
@@ -630,6 +642,10 @@ Advisory carry-over from review-senior-arch529 #2.
 _Interface_
 
 ```ts
+ * normative enumeration):
+ *
+ * ```mermaid
+ * stateDiagram-v2
  *   [*] --> PENDING
 ```
 
@@ -648,13 +664,10 @@ timeout_ms` (moderator response) and the verdict's `leaseTimeoutMs`
 _Interface_
 
 ```ts
-   *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
-   *   Disconnecting mid-insert MUST NOT roll back the lease — the
-   *   release-arm of the acquireUseRelease is responsible. Otherwise a
-   *   committed durable row could be retried into a duplicate.
+   *   fiber. The recipient won't observe; the moderator's view stays
+   *   consistent. Architect §3.
    *
-   * - **HOLD / DENIED / EXPIRED / ABANDONED / CONSUMED**: no-op (already
-   *   terminal-or-near-terminal; no recipient-binding work to do).
+   * - **CLAIMED → no-op (load-bearing rule 2)**: a CLAIMED lease has an
 ```
 
 Constructor dependencies for the lease registry.
@@ -670,9 +683,35 @@ Constructor dependencies for the lease registry.
 _Variable_
 
 ```ts
-export const LeaseRegistryLive = Layer.effect(
-  LeaseRegistryTag,
-  Effect.gen(function* ()
+//   Tier 6 — TaskService (db + Conversation + Message).
+//
+// `Layer.provideMerge` (not `Layer.provide`) is load-bearing: every
+// downstream tier sees ALL upstream Tags in its R-channel resolution,
+// not just the immediately-above tier. RPC handler bodies can `yield*
+// XServiceTag` for any service and have it resolved by the shared
+// `dispatchRuntime` without a per-frame `Effect.provide`.
+//
+// `ConversationService` is built ABOVE `AppHost` but `AppHost` carries
+// a backref into it (for the dispatch-deny path's removeParticipant
+// call). The cycle is broken with a post-construction
+// `appHost.setConversationService(conv)` wire-up — see
+// `WireConvIntoAppHost` in `server.ts`.
+//
+// The composition below is bottom-up by dependency order. Each stage merges
+// a new service Layer on top of the lower tier, with the lower tier's
+// outputs wired as the upper tier's inputs.
+
+/** Tier 1 — zero cross-layer deps beyond Db. */
+const Tier1 = Layer.mergeAll(
+  ConnectionManagerLive,
+  AuthServiceLive,
+  ParticipantServiceLive,
+  ContactsServiceLive,
+);
+
+/**
+ * Tier 2 — Presence + resolver above Tier 1's ConnectionManager. The
+ * resolver has no upstream deps (in-memory `Ref`)
 ```
 
 ### [`LeaseRegistryTag`](./layers.ts#L174)
@@ -680,10 +719,7 @@ export const LeaseRegistryLive = Layer.effect(
 _Class_
 
 ```ts
-export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
-  LeaseRegistryTag,
-  LeaseRegistry
->() {}
+ * a `Ref`-backed in-memory data structure with no upstream deps;
 ```
 
 `LeaseRegistry` for the #529 reshape additive `dispatch/*` admission
@@ -716,8 +752,9 @@ with a typed error (see LeaseInvalidError).
 _TypeAlias_
 
 ```ts
-export type LeaseVerdict =
-  | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
+  | "EXPIRED"
+  | "ABANDONED"
+  | "HOLD";
 ```
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
@@ -847,11 +884,7 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions)
 _Function_
 
 ```ts
-
-function abandonLeaseForConnection(
-  state: LeaseRegistryState,
-  target: LeaseConnectionTarget,
-): Effect.Effect<void, never, never>
+  })
 ```
 
 Construct the registry. The constructor is the only public factory
@@ -878,24 +911,71 @@ export function makeNodeHttpServer()
 _Function_
 
 ```ts
-export function makeSocketHandler(options: SocketHandlerOptions)
+}
+
+/**
+ * Build the handler that the `/ws` route hands the upgraded socket
+ * to. Each connection runs as one scoped Effect: the connection
+ * scope owns the per-connection RPC originator, the
+ * `ConnectionManager` entry, and every cleanup hook.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant C as Client
+ *   participant WS as /ws route
+ *   participant HS as handleSocket (this)
+ *   participant RPC as acquireConnectionRpcClient
+ *   participant CM as ConnectionManager
+ *   participant R as socket reader fiber
+ *   participant Cleanup as onExit
+ *
+ *   C->>WS: GET /ws Upgrade
+ *   WS->>HS: socket
+ *   Note over HS: connId = randomUUID&lt;br>writer + closeRequested Deferred
+ *   HS->>RPC: acquireConnectionRpcClient(connId, write)
+ *   Note over RPC: per-connection originator&lt;br>scope-bound finalizer fails pending Deferreds with NotConnectedError
+ *   RPC-->>HS: originator
+ *   HS->>CM: connections.add{id, write, shutdown, auth null, originator, ...}
+ *   HS->>R: socket.runRaw — handleFrame
+ *   Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))&lt;br>raceFirst, not race — abrupt close still runs onExit
+ *   R-->>Cleanup: socket closes
+ *   Note over Cleanup: if authCtx → presenceService.setOffline&lt;br>for hook of disconnectionHooks — runUserHook sequentially&lt;br>agentEndpointResolver.remove(agentId, connId)&lt;br>leaseRegistry.abandon(connId)&lt;br>presenceService.removeConnection&lt;br>connections.remove(connId)
+ * ```
+ *
+ * `Effect.raceFirst` (vs plain `race`) is load-bearing: an abrupt
+ * disconnect still propagates as an interruption that triggers
+ * `onExit`. Plain `race` would leak resources on abnormal close.
+ *
+ * Disconnection hooks run SEQUENTIALLY so each hook's cleanup
+ * completes before the next observes post-close state.
+ */
+export function makeSocketHandler(options: SocketHandlerOptions) {
+  return (
+    socket: Socket.Socket,
+  ): Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnectionTag>> =>
+    Effect.scoped(openSocketSession(socket, options));
+}
+
+function openSocketSession(
+  socket: Socket.Socket,
+  options: SocketHandlerOptions,
+) {
+  return Effect.gen(function* () {
+    const session = yield* makeSocketSession(socket);
+    // Spec F (#617) §6 FRI cutover: one `ServerConnection` per socket.
+    // Carries BOTH the inbound dispatcher (the static handler table from
+    // `createCoreApp`) AND the outbound originator (server→client
+    // appCallback path). The `id` mirrors the connId so logs trace
+    // request ids back to the originating socket.
+    const serverConn = yield* makeServerConnection({
+      id: session.connId,
+      handlers: options.handlers,
+      capabilities: serverCapabilityProviders,
 ```
 
 ### [`MessageAuthorizeContext`](./hooks.ts#L84)
 
 _Interface_
-
-```ts
-export interface MessageAuthorizeContext {
-  conversationId: ConversationId;
-  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
-  taskId: TaskId;
-  appId: string;
-  receivedAt?: string;
-  clock?: LogicalClock;
-  signal: AbortSignal;
-}
-```
 
 Server-side message-fan-out authorization hook surface (#560). The
 hook (`messageAuthorize`) services the `messages/authorize` S→C RPC;
@@ -914,21 +994,9 @@ Symmetric to `TaskAuthorizeDispatchHook`: same context fields
 
 _TypeAlias_
 
-```ts
-export type MessageAuthorizeHook = Hook<
-  MessageAuthorizeContext,
-  MessageAuthorizeResult
->;
-```
-
 ### [`MessageAuthorizeResult`](./hooks.ts#L107)
 
 _TypeAlias_
-
-```ts
-export type MessageAuthorizeResult =
-  | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
-```
 
 2-arm verdict the TM declares for fan-out. `Forward { recipients }`
 names the agents the server SHALL deliver to; `Block { reason }`
@@ -947,9 +1015,7 @@ The remaining `Modify | Close | AttachConversation` arms from
 _Variable_
 
 ```ts
-export const MessageServiceLive = Layer.effect(
-  MessageServiceTag,
-  Effect.gen(function* ()
+const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2)
 ```
 
 ### [`MessageServiceTag`](./layers.ts#L179)
@@ -957,10 +1023,9 @@ export const MessageServiceLive = Layer.effect(
 _Class_
 
 ```ts
-export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
-  MessageServiceTag,
-  MessageService
->() {}
+  AgentEndpointResolverTag,
+  AgentEndpointResolver.make,
+);
 ```
 
 ### [`NetworkSendServiceLive`](./layers.ts#L255)
@@ -968,8 +1033,9 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 _Variable_
 
 ```ts
-export const NetworkSendServiceLive = Layer.effect(
-  NetworkSendServiceTag,
+
+export const LeaseRegistryLive = Layer.effect(
+  LeaseRegistryTag,
   Effect.gen(function* ()
 ```
 
@@ -982,9 +1048,9 @@ the rest of the server holds via NetworkSendServiceTag.
 _Class_
 
 ```ts
-export class NetworkSendServiceTag extends Context.Tag(
-  "moltzap/NetworkSendService",
-)<NetworkSendServiceTag, NetworkSendService>() {}
+  TaskServiceTag,
+  TaskService
+>() {}
 ```
 
 Single outbound surface: `send` (directed) and `broadcast`
@@ -995,9 +1061,7 @@ Single outbound surface: `send` (directed) and `broadcast`
 _Variable_
 
 ```ts
-export const ParticipantServiceLive = Layer.effect(
-  ParticipantServiceTag,
-  Effect.gen(function* ()
+    return host
 ```
 
 ### [`ParticipantServiceTag`](./layers.ts#L145)
@@ -1005,9 +1069,10 @@ export const ParticipantServiceLive = Layer.effect(
 _Class_
 
 ```ts
-export class ParticipantServiceTag extends Context.Tag(
-  "moltzap/ParticipantService",
-)<ParticipantServiceTag, ParticipantService>() {}
+export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
+  WebhookClientTag,
+  WebhookClient
+>() {}
 ```
 
 ### [`PresenceServiceLive`](./layers.ts#L315)
@@ -1015,9 +1080,11 @@ export class ParticipantServiceTag extends Context.Tag(
 _Variable_
 
 ```ts
-export const PresenceServiceLive = Layer.effect(
-  PresenceServiceTag,
-  Effect.gen(function* ()
+//            ContactsService.
+//   Tier 2 — Presence, AgentEndpointResolver, AppTmRegistry (provideMerge over T1).
+//   Tier 2.5 — NetworkSendService.
+//   Tier 2.6 — LeaseRegistry.
+//   Tier 3 — AppHost (db + connections + leases
 ```
 
 ### [`PresenceServiceTag`](./layers.ts#L158)
@@ -1025,9 +1092,11 @@ export const PresenceServiceLive = Layer.effect(
 _Class_
 
 ```ts
-export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
-  PresenceServiceTag,
-  PresenceService
+ * webhook — the fanout is skipped entirely.
+ */
+export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
+  DeliveryWebhookTag,
+  DeliveryWebhookConfig | null
 >() {}
 ```
 
@@ -1035,22 +1104,12 @@ export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
 
 _Interface_
 
-```ts
-const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
-```
-
 Shape of the fully-resolved services. Handler factories consume this
 plain-object view rather than reading each tag individually.
 
 ### [`resolveServices`](./layers.ts#L491)
 
 _Variable_
-
-```ts
- * plain-object view rather than reading each tag individually.
- */
-export interface ResolvedServices
-```
 
 Resolves every service via Context into a plain-object view (matches the
 shape handler factories already expect). Context requirements inferred
@@ -1100,10 +1159,6 @@ sync entrypoint (`loadCoreConfig`) bridges via `Effect.runSync`.
 
 _Variable_
 
-```ts
-)
-```
-
 All service Layers merged, with cross-layer deps resolved. Still requires
 `DbTag | EncryptionTag` from a base Layer.
 
@@ -1112,9 +1167,11 @@ All service Layers merged, with cross-layer deps resolved. Still requires
 _Class_
 
 ```ts
-export class SessionValidatorTag extends Context.Tag(
-  "moltzap/SessionValidator",
-)<SessionValidatorTag, SessionValidator | null>() {}
+  Effect.gen(function* () {
+    const resolver = yield* AgentEndpointResolverTag;
+    const connections = yield* ConnectionManagerTag;
+    return new NetworkSendService(resolver, connections);
+  }).pipe(Effect.withSpan("NetworkSendServiceLive")),
 ```
 
 Optional bearer-token session validator. `null` → bearer auth disabled.
@@ -1124,26 +1181,7 @@ Optional bearer-token session validator. `null` → bearer auth disabled.
 _Interface_
 
 ```ts
-export interface TaskAuthorizeDispatchContext {
-  conversationId: ConversationId;
-  recipient: { agentId: AgentId; ownerId: string };
-  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
-  taskId: TaskId;
-  appId: string;
-  attempt: number;
-  receivedAt?: string;
-  clock?: LogicalClock;
-  pending?: ReadonlyArray<{
-    messageId: MessageId;
-    conversationId: ConversationId;
-    senderAgentId: AgentId;
-    createdAt: string;
-    receivedAt: string;
-    clock?: LogicalClock;
-    parts?: Part[];
-  }>;
-  signal: AbortSignal;
-}
+      decision: "grant";
 ```
 
 Server-side dispatch admission hook surface. The single hook
@@ -1158,10 +1196,10 @@ server consumers (in-process moderator registrations).
 _TypeAlias_
 
 ```ts
-export type TaskAuthorizeDispatchHook = Hook<
-  TaskAuthorizeDispatchContext,
-  DispatchAdmissionResult
->;
+ * transcript but is delivered to no one else.
+ */
+export type MessageAuthorizeResult =
+  | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
 ```
 
 ### [`TaskServiceLive`](./layers.ts#L446)
@@ -1169,7 +1207,7 @@ export type TaskAuthorizeDispatchHook = Hook<
 _Variable_
 
 ```ts
-const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2)
+}) satisfies Effect.Effect<ResolvedServices, never, unknown>
 ```
 
 ### [`TaskServiceTag`](./layers.ts#L184)
@@ -1177,10 +1215,8 @@ const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2)
 _Class_
 
 ```ts
-export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
-  TaskServiceTag,
-  TaskService
->() {}
+ * `network.send` Layer. Composes the resolver and the connection
+ * manager into the {@link NetworkSendService} instance the rest of the
 ```
 
 ### [`WebhookClientTag`](./layers.ts#L200)
@@ -1188,10 +1224,11 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 _Class_
 
 ```ts
-export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
-  WebhookClientTag,
-  WebhookClient
->() {}
+  AuthServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new AuthService(db);
+  }).pipe(Effect.withSpan("AuthServiceLive")),
 ```
 
 Shared outbound HTTP client used by MessageService.deliveryWebhook

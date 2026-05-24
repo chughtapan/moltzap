@@ -85,22 +85,18 @@
  * its descriptor.
  */
 import type { AgentId, ConversationId, TaskId } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import {
-  AddParticipantPermission,
   ConversationCreateAuthorization,
   ConversationInTask,
-  ConversationParticipantAccess,
   MessageSendPermission,
   TaskReadAccess,
   TmAuthority,
-  obtainAddParticipantPermission,
   obtainConversationCreateAuthorization,
   obtainConversationInTask,
-  obtainConversationParticipantAccess,
   obtainMessageSendPermission,
   obtainTaskReadAccess,
   obtainTmAuthority,
-  type ObtainAddParticipantPermissionInput,
   type ObtainConversationCreateAuthorizationInput,
   type ObtainMessageSendPermissionInput,
 } from "./capabilities/index.js";
@@ -110,9 +106,9 @@ interface TaskAndAgent {
   readonly callerAgentId: AgentId;
 }
 
-interface ConversationAndAgent {
-  readonly conversationId: ConversationId;
-  readonly callerAgentId: AgentId;
+interface TaskAndConn {
+  readonly taskId: TaskId;
+  readonly callerConnId: ConnectionId;
 }
 
 interface TaskAndConversation {
@@ -130,8 +126,8 @@ interface TaskAndConversation {
  */
 export const serverCapabilityProviders = {
   [TmAuthority.key]: (args: unknown) => {
-    const { taskId, callerAgentId } = args as TaskAndAgent;
-    return obtainTmAuthority(taskId, callerAgentId);
+    const { taskId, callerConnId } = args as TaskAndConn;
+    return obtainTmAuthority(taskId, callerConnId);
   },
   [TaskReadAccess.key]: (args: unknown) => {
     const { taskId, callerAgentId } = args as TaskAndAgent;
@@ -141,16 +137,10 @@ export const serverCapabilityProviders = {
     const { taskId, conversationId } = args as TaskAndConversation;
     return obtainConversationInTask(taskId, conversationId);
   },
-  [ConversationParticipantAccess.key]: (args: unknown) => {
-    const { conversationId, callerAgentId } = args as ConversationAndAgent;
-    return obtainConversationParticipantAccess(conversationId, callerAgentId);
-  },
   [ConversationCreateAuthorization.key]: (args: unknown) =>
     obtainConversationCreateAuthorization(
       args as ObtainConversationCreateAuthorizationInput,
     ),
-  [AddParticipantPermission.key]: (args: unknown) =>
-    obtainAddParticipantPermission(args as ObtainAddParticipantPermissionInput),
   [MessageSendPermission.key]: (args: unknown) =>
     obtainMessageSendPermission(args as ObtainMessageSendPermissionInput),
 } as const;

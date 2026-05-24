@@ -18,10 +18,7 @@ const ORPHAN_TASK_ID = taskId("00000000-0000-4000-8000-0000000d3ad0");
 const API_KEY_SECRET_HASH_LENGTH = 64;
 const STATUS_WAITING = "waiting";
 const WEREWOLF_APP_ID = "werewolf";
-const WEREWOLF_HOST_ENDPOINT = "tm://werewolf/host-1";
-const AGENT_ENDPOINT = "tm:agent:00000000-0000-4000-8000-0000000a9e47";
-const GROUP_CONVERSATION_TYPE = "group";
-const DM_CONVERSATION_TYPE = "dm";
+const DEFAULT_APP_ID = "default";
 const MESSAGE_SEQ = "1";
 const LEGACY_TABLES = [
   "app_sessions",
@@ -37,14 +34,14 @@ const LEGACY_ENUMS = [
 
 describe("tasks schema task constraints", () => {
   it(
-    "creates a task with default status and TM endpoint",
+    "creates a task with default status",
     createsTaskWithDefaults,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 
   it(
-    "rejects a task insert that omits tm_endpoint_address",
-    rejectsTaskWithoutTmEndpoint,
+    "rejects a task insert that omits app_id",
+    rejectsTaskWithoutAppId,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 });
@@ -84,23 +81,23 @@ describe("tasks schema destructive migration guard", () => {
 function createsTaskWithDefaults() {
   return withTaskSchemaHarness((harness) =>
     Effect.gen(function* () {
-      yield* insertTask(harness, WEREWOLF_HOST_ENDPOINT, WEREWOLF_APP_ID);
+      yield* insertTask(harness, WEREWOLF_APP_ID);
 
       const task = yield* takeFirstOrFail(
         harness.db
           .selectFrom("tasks")
-          .select(["status", "tm_endpoint_address", "started_at", "ended_at"])
+          .select(["status", "app_id", "started_at", "ended_at"])
           .where("id", "=", TASK_ID),
       );
       expect(task.status).toBe(STATUS_WAITING);
-      expect(task.tm_endpoint_address).toBe(WEREWOLF_HOST_ENDPOINT);
+      expect(task.app_id).toBe(WEREWOLF_APP_ID);
       expect(task.started_at).toBeNull();
       expect(task.ended_at).toBeNull();
     }),
   );
 }
 
-function rejectsTaskWithoutTmEndpoint() {
+function rejectsTaskWithoutAppId() {
   return withTaskSchemaHarness((harness) =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
@@ -116,7 +113,7 @@ function rejectsTaskWithoutTmEndpoint() {
 function linksConversationAndMessageToTask() {
   return withTaskSchemaHarness((harness) =>
     Effect.gen(function* () {
-      yield* insertTask(harness, AGENT_ENDPOINT);
+      yield* insertTask(harness, DEFAULT_APP_ID);
       yield* admitAgentToTask(harness);
       yield* insertConversation(harness, TASK_ID);
       yield* insertMessage(harness);
@@ -130,7 +127,7 @@ function rejectsConversationWithoutTask() {
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
         harness.exec(
-          `INSERT INTO conversations (id, type, created_by_id) VALUES ('${CONV_ID}', '${DM_CONVERSATION_TYPE}', '${AGENT_ID}')`,
+          `INSERT INTO conversations (id, created_by_id) VALUES ('${CONV_ID}', '${AGENT_ID}')`,
         ),
       );
       expect(Exit.isFailure(exit)).toBe(true);
@@ -144,7 +141,6 @@ function rejectsConversationWithOrphanTask() {
       const exit = yield* Effect.exit(
         harness.db.insertInto("conversations").values({
           id: CONV_ID,
-          type: GROUP_CONVERSATION_TYPE,
           created_by_id: AGENT_ID,
           task_id: ORPHAN_TASK_ID,
         }),
@@ -242,16 +238,11 @@ function seedTaskSchemaHarness(
   `);
 }
 
-function insertTask(
-  harness: PgliteHarness,
-  tmEndpointAddress: string,
-  appId?: string,
-) {
+function insertTask(harness: PgliteHarness, appId: string) {
   return harness.db.insertInto("tasks").values({
     id: TASK_ID,
     app_id: appId,
     initiator_agent_id: AGENT_ID,
-    tm_endpoint_address: tmEndpointAddress,
   });
 }
 
@@ -264,7 +255,6 @@ function admitAgentToTask(harness: PgliteHarness) {
 function insertConversation(harness: PgliteHarness, task: typeof TASK_ID) {
   return harness.db.insertInto("conversations").values({
     id: CONV_ID,
-    type: GROUP_CONVERSATION_TYPE,
     created_by_id: AGENT_ID,
     task_id: task,
   });

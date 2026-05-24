@@ -4,7 +4,7 @@ _`packages/protocol/src/network`_
 
 ## Purpose
 
-Public barrel for network, presence, and endpoint-address protocol descriptors.
+Public barrel for network and presence protocol descriptors.
 
 ## Public surface
 
@@ -12,31 +12,13 @@ Public barrel for network, presence, and endpoint-address protocol descriptors.
 
 _TypeAlias_
 
-```ts
-export type _ActorModelBarrelCanary =
-  | _EndpointKind
-  | _EndpointRegistration
-  | _AuthenticatedIdentity;
-```
-
 ### [`agentId`](./actor-model.ts#L194)
 
 _Property_
 
-```ts
-  readonly agentId: AgentId;
-```
-
 ### [`AuthenticatedIdentity`](./actor-model.ts#L193)
 
 _TypeAlias_
-
-```ts
-export type AuthenticatedIdentity = {
-  readonly agentId: AgentId;
-  readonly userId: UserId;
-};
-```
 
 The principal behind a connected agent — the post-`network/connect` view.
 
@@ -62,10 +44,6 @@ Authenticate a WebSocket connection. Must be the first message on a new connecti
 
 _Function_
 
-```ts
-export const endpointAddress = (value: string): EndpointAddress
-```
-
 Brand a raw string as an EndpointAddress. Throws if the value
  fails isEndpointAddress.
 
@@ -74,7 +52,9 @@ Brand a raw string as an EndpointAddress. Throws if the value
 _TypeAlias_
 
 ```ts
-export type EndpointAddress = BrandedString<"EndpointAddress">;
+ * Both fields required: an authenticated identity names the owning user by
+ * definition. The wire-layer `AgentSchema.ownerUserId` is `Optional` to
+ * accommodate the un-claimed `pending_claim` storage state;
 ```
 
 A reachable address in the actor-model network.
@@ -92,12 +72,6 @@ never accepted from any client) and has been removed.
 ### [`endpointAddressKind`](./actor-model.ts#L110)
 
 _Function_
-
-```ts
-export const endpointAddressKind = (
-  address: EndpointAddress,
-): EndpointAddressKind
-```
 
 Read the `kind` segment out of a branded EndpointAddress.
 
@@ -118,17 +92,9 @@ non-empty result. The brand's own tests cover the malformed case.
 
 _TypeAlias_
 
-```ts
-export type EndpointAddressKind = (typeof ENDPOINT_ADDRESS_KINDS)[number];
-```
-
 ### [`EndpointKind`](./actor-model.ts#L159)
 
 _TypeAlias_
-
-```ts
-export type EndpointKind = "agent" | "taskManager";
-```
 
 The kinds of endpoints the actor-model network resolves.
 
@@ -153,15 +119,6 @@ handle it.
 
 _TypeAlias_
 
-```ts
-export type EndpointRegistration =
-  | {
-      readonly kind: "agent";
-      readonly address: EndpointAddress;
-      readonly agentId: AgentId;
-    }
-```
-
 A registered endpoint as observed by the network layer. Discriminated by
 EndpointKind:
 - `agent` arms carry the resolved AgentId so the resolver can
@@ -181,23 +138,12 @@ export type HelloOk = Static<typeof HelloOkSchema>;
 
 _Function_
 
-```ts
-export const isEndpointAddress = (value: unknown): value is EndpointAddress
-```
-
 Predicate that an endpoint address has the canonical wire shape
 `tm:&lt;kind&gt;:&lt;uuid&gt;`. Exported for tests and reviewers.
 
 ### [`makeEndpointAddress`](./actor-model.ts#L129)
 
 _Function_
-
-```ts
-export const makeEndpointAddress = (
-  kind: EndpointAddressKind,
-  uuid: string,
-): EndpointAddress
-```
 
 Mint an `EndpointAddress` from a kind and a UUID. The single
 construction site for `tm:&lt;kind>:&lt;uuid>` strings — every other
@@ -273,10 +219,6 @@ Update your presence status (online, offline, away).
 ### [`userId`](./actor-model.ts#L195)
 
 _Property_
-
-```ts
-  readonly userId: UserId;
-```
 
 ## Files
 

@@ -8,6 +8,7 @@ import {
 } from "@moltzap/protocol";
 import {
   agentId as makeAgentId,
+  connectionId as makeConnectionId,
   decodeFrame,
   type AnyFrame,
 } from "@moltzap/protocol/testing";
@@ -25,12 +26,12 @@ import {
 const it = effectIt.effect;
 
 const AGENT_A_UUID = makeAgentId("00000000-0000-4000-8000-00000000a9e7");
-const CONN_A = "c-a";
-const CONN_B = "c-b";
-const CONN_SENDER = "c-sender";
-const CONN_WATCHER = "c-watcher";
-const CONN_LIVE = "c-live";
-const CONN_STALE = "c-stale";
+const CONN_A = makeConnectionId("c-a");
+const CONN_B = makeConnectionId("c-b");
+const CONN_SENDER = makeConnectionId("c-sender");
+const CONN_WATCHER = makeConnectionId("c-watcher");
+const CONN_LIVE = makeConnectionId("c-live");
+const CONN_STALE = makeConnectionId("c-stale");
 const STATUS_ONLINE = "online";
 const STATUS_AWAY = "away";
 const STATUS_OFFLINE = "offline";
@@ -44,7 +45,9 @@ interface Capture {
   writes: string[];
 }
 
-function makeConn(connId: string): Capture {
+function makeConn(
+  connId: import("@moltzap/protocol/network").ConnectionId,
+): Capture {
   const writes: string[] = [];
   const conn: MoltZapConnection = {
     id: connId,
@@ -101,8 +104,8 @@ const flushFibers: Effect.Effect<void> = Effect.async((resume) => {
 function publishInput(opts: {
   agentId: PresencePublishInput["agentId"];
   status: PresencePublishInput["status"];
-  subscriberConnIds: Iterable<string>;
-  excludeConnId?: string;
+  subscriberConnIds: Iterable<import("@moltzap/protocol/network").ConnectionId>;
+  excludeConnId?: import("@moltzap/protocol/network").ConnectionId;
 }): PresencePublishInput {
   return {
     agentId: opts.agentId,

@@ -5,7 +5,7 @@
  *
  * Exercises the full live-broadcast stack:
  *   - in-process `@effect/platform` WS server
- *   - `MoltZapService` connected through `MoltZapWsClient` (no fake)
+ *   - `MoltZapService` connected through `MoltZapAgentClient` (no fake)
  *   - the service-level `on("message", ...)` handler is the
  *     observation surface, downstream of the per-conversation
  *     `seenMessageIds` window
@@ -30,11 +30,12 @@ import {
   agentId,
   conversationId,
   messageId,
+  taskId,
   validateRequestFrame,
 } from "@moltzap/protocol/testing";
 import { MoltZapService } from "../../../service.js";
 import type { Message } from "@moltzap/protocol";
-import { realSleep, waitFor } from "../../../ws-client-test-support.js";
+import { realSleep, waitFor } from "../../../tm-client-test-support.js";
 
 const it = effectIt.scoped;
 const LOCALHOST_HOST = "127.0.0.1";
@@ -43,6 +44,7 @@ const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const SENDER_AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const TEST_CONV_ID = conversationId("33333333-3333-4333-8333-333333333333");
 const TEST_MSG_ID = messageId("44444444-4444-4444-8444-444444444444");
+const TEST_TASK_ID = taskId("66666666-6666-4666-8666-666666666666");
 
 const TEST_POLICY = {
   maxMessageBytes: 1_000_000,
@@ -64,6 +66,7 @@ const helloOk = () => ({
 
 const messageReceivedFrame = () =>
   MessageReceivedNotificationDefinition.encode({
+    taskId: TEST_TASK_ID,
     message: {
       id: TEST_MSG_ID,
       conversationId: TEST_CONV_ID,
@@ -166,7 +169,7 @@ function connectService(
       agentKey: "test-key",
     });
     const seen: Message[] = [];
-    service.on("message", (message) => seen.push(message));
+    service.on("message", ({ message }) => seen.push(message));
     yield* service.connect();
     const conn = yield* Deferred.await(server.firstConn);
     return { service, conn, seen };
@@ -184,6 +187,7 @@ function messageIds(messages: readonly Message[]) {
 function freshMessageFrame(): string {
   return JSON.stringify(
     MessageReceivedNotificationDefinition.encode({
+      taskId: TEST_TASK_ID,
       message: {
         id: messageId("55555555-5555-4555-8555-555555555555"),
         conversationId: TEST_CONV_ID,

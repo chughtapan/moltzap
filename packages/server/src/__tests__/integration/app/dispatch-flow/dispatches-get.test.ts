@@ -17,9 +17,9 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import {
-  AppsRegister,
   DispatchAuthorize,
   DispatchesGet,
+  TaskCreate,
   type AppManifest,
   type DispatchId,
 } from "@moltzap/protocol";
@@ -28,7 +28,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_STATE_GRANTED,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createUnmoderatedDm,
   createDispatchFlowFixture,
   readLeaseByDispatchId,
@@ -39,7 +40,6 @@ import {
 } from "./fixture.js";
 import {
   expectEitherLeft,
-  getTestCoreApp,
   registerAndConnect,
   setupAgentPair,
   type ConnectedAgent,
@@ -47,8 +47,8 @@ import {
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
-const WIRE_APP_ID = "wire-moderator-dispatch-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
+const WIRE_APP_ID = "00000000-0000-4000-8000-000000010003";
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
@@ -82,14 +82,16 @@ function grantDispatchAuthorize() {
 function registerWireModerator() {
   return Effect.gen(function* () {
     const moderator = yield* registerAndConnect("wire-moderator");
-    getTestCoreApp().registerApp(WIRE_APP_MANIFEST);
-    yield* moderator.client.sendRpc(AppsRegister, {
-      manifest: WIRE_APP_MANIFEST,
-    });
     yield* moderator.client.onAppCallback(
       DispatchAuthorize,
       grantDispatchAuthorize,
     );
+    yield* moderator.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
+    // AppsRegister is driven by `createTaskConversationOnApp`'s
+    // idempotent `ensureModeratorAppRegistered` — calling it here
+    // would double-register, which the server now strictly rejects.
     return moderator;
   });
 }
@@ -99,10 +101,10 @@ function requestWireModeratedDispatch(
   recipient: ConnectedAgent,
 ) {
   return Effect.gen(function* () {
-    const conversationId = yield* createModeratedDm(
+    const { conversationId } = yield* createTaskConversationOnApp(
       moderator,
       recipient,
-      WIRE_APP_ID,
+      WIRE_APP_MANIFEST,
     );
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(
@@ -125,7 +127,12 @@ function registryDirectReadShowsGrantedLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const { conversationId } = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
       DISPATCH_RELEASE_TIMEOUT_MS,
@@ -143,7 +150,7 @@ function registryDirectReadShowsGrantedLease() {
 function nonModeratorCannotReadDispatch() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
+    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
     const ack = yield* requestDispatch(bob, conversationId, alice);
     const result = yield* Effect.either(
       bob.client.sendRpc(DispatchesGet, {

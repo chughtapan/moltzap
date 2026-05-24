@@ -5,18 +5,9 @@ description: "TM-only: mint a new conversation under an existing task."
 
 # task/conversation/create
 
-TM-only: mint a new conversation under an existing task.
-Renamed/reshaped from legacy `tasks/createConversation`. NEW
-invariant: every entry in `participants` MUST already appear in
-`task_participants` for `taskId`; violations return
-`ParticipantNotAdmittedError`. Spec body Goal 1.
-
-Schema diff vs. legacy `TasksCreateConversation`:
-  - removes `type: ConversationTypeEnum` (DM/Group collapse — D3
-    retires the `conversation_type` enum column entirely)
-  - participants typed as `AgentId[]` (was `agentParticipantRefSchema`)
-    reflecting "agents only" — `tm:agent:*` shape is internal-only
-    per spec body Non-goal 6
+TM-only: mint a new conversation under an existing task. Every
+entry in `participants` MUST already appear in `task_participants`
+for `taskId`; violations return `ParticipantNotAdmittedError`.
 
 ## Parameters
 

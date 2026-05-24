@@ -22,7 +22,7 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 _Function_
 
 ```ts
-export function acquireProxiedClient(opts:
+  readonly ctx: ConformanceRunContext
 ```
 
 Acquire a TestClient that routes through the Toxiproxy proxy.
@@ -40,7 +40,6 @@ export const ADVERSITY_CATEGORY = "adversity" as const
 _Function_
 
 ```ts
-export function adversityViolation(
   name: string,
   reason: string,
 ): PropertyInvariantViolation
@@ -51,7 +50,7 @@ export function adversityViolation(
 _Property_
 
 ```ts
-  readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
+};
 ```
 
 ### [`createOneOnOneConversation`](./_helpers.ts#L221)
@@ -59,7 +58,6 @@ _Property_
 _Function_
 
 ```ts
-export function createOneOnOneConversation(
   owner:
 ```
 
@@ -76,7 +74,7 @@ export const DEFAULT_CAPTURE_CAPACITY = 128
 _Property_
 
 ```ts
-  readonly proxy: ToxiproxyProxy;
+  readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
 ### [`proxyName`](./_helpers.ts#L53)
@@ -84,7 +82,7 @@ _Property_
 _Function_
 
 ```ts
-export function proxyName(prefix: string, seed: number): string
+  return `${prefix}-${seed}-${randomIdSuffix()}`
 ```
 
 ### [`registerCallerControlledAppCallbackTimeout`](./caller-controlled-app-callback-timeout.ts#L41)
@@ -102,7 +100,12 @@ export function registerCallerControlledAppCallbackTimeout(
 _Function_
 
 ```ts
-export function registerLatencyResilience(ctx: ConformanceRunContext): void
+    ctx,
+    propertyName: "latency-resilience",
+    description: "fan-out delivery survives added latency + jitter",
+    proxyName: proxyName("lat", ctx.seed),
+    profile: defaultToxicProfile.latency,
+    body: (params)
 ```
 
 ### [`registerMalformedFrameHandling`](./malformed-frame-handling.ts#L26)
@@ -180,7 +183,12 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void
 _Function_
 
 ```ts
-export function registerSlicerFraming(ctx: ConformanceRunContext): void
+    ctx,
+    propertyName: "slicer-framing",
+    description: "partial-frame slicing preserves payload byte-identity",
+    proxyName: proxyName("sli", ctx.seed),
+    profile: defaultToxicProfile.slicer,
+    body: (params)
 ```
 
 ### [`registerSlowCloseCleanup`](./adversity-slow-close-cleanup.ts#L20)
@@ -204,9 +212,7 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 _TypeAlias_
 
 ```ts
-export type ToxicBodyParams = {
   readonly proxy: ToxiproxyProxy;
-  readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
 Body params — `attachToxic` attaches the toxic inside the caller's
@@ -244,7 +250,7 @@ adversity (5) → boundary subset (1).
 _Property_
 
 ```ts
-  readonly unavailable: (reason: string) => PropertyUnavailable;
+  readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
 ```
 
 ### [`withToxicProxy`](./_helpers.ts#L125)
@@ -252,7 +258,7 @@ _Property_
 _Function_
 
 ```ts
-export function withToxicProxy(opts:
+  readonly ctx: ConformanceRunContext
 ```
 
 Factory — wire a Toxiproxy proxy + attach the toxic; hand a body the

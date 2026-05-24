@@ -88,15 +88,13 @@ describe("extractSignatureText", () => {
     expect(
       extractSignatureText(source, 99, ReflectionKind.Function),
     ).toBeNull();
-    expect(
-      extractSignatureText(source, 0, ReflectionKind.Function),
-    ).toBeNull();
+    expect(extractSignatureText(source, 0, ReflectionKind.Function)).toBeNull();
   });
 
   it("does not cut on punctuation inside string literals", () => {
     const source = [
       "export const greet = (name: string): string =>",
-      '  `hello { ${name} } ; goodbye`;',
+      "  `hello { ${name} } ; goodbye`;",
       "",
     ].join("\n");
     const sig = extractSignatureText(source, 1, ReflectionKind.Variable);

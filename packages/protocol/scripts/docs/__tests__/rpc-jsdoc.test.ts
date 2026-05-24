@@ -7,9 +7,7 @@ describe("parseErrorTag", () => {
   });
 
   it("rejects type names containing whitespace", () => {
-    expect(
-      parseErrorTag("Conflict Error when something happens"),
-    ).toBeNull();
+    expect(parseErrorTag("Conflict Error when something happens")).toBeNull();
   });
 
   it("returns name + when prose for a valid tag", () => {

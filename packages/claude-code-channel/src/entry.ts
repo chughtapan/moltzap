@@ -15,7 +15,7 @@ import {
 } from "@moltzap/client";
 import { Effect, Either } from "effect";
 import { toClaudeChannelNotification } from "./event.js";
-import { createRoutingState } from "./routing.js";
+import { createRoutingState, type RoutingTarget } from "./routing.js";
 import {
   bootChannelMcpServer,
   type ServerBootResult,
@@ -64,8 +64,8 @@ function validateBootOptions(opts: BootOptions): BootError | null {
 }
 
 function makeSendReply(core: MoltZapChannelCore) {
-  return (conversationId: string, text: string) =>
-    core.sendReply(conversationId, text).pipe(
+  return (target: RoutingTarget, text: string) =>
+    core.sendReply(target.taskId, target.conversationId, text).pipe(
       // Cutover #533 single-use lease semantics: the server returns
       // a typed `RpcServerError` whose `data.reason === "LeaseInvalid"`
       // when the recipient tries to consume an already-consumed lease
@@ -219,10 +219,10 @@ function handleInboundMessage(
       yield* logTranslationFailed(translated.error, enriched.id);
       return;
     }
-    routing.recordInbound(
-      translated.value.params.meta.message_id,
-      translated.value.params.meta.chat_id,
-    );
+    routing.recordInbound(translated.value.params.meta.message_id, {
+      taskId: enriched.taskId,
+      conversationId: translated.value.params.meta.chat_id,
+    });
     yield* pushInboundNotification(serverHandle, translated.value, enriched.id);
   });
 }

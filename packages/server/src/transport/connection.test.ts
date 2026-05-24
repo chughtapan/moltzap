@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
+import {
+  agentId as makeAgentId,
+  connectionId as makeConnectionId,
+} from "@moltzap/protocol/testing";
 import type { AuthenticatedContext } from "../transport/context.js";
 import type { AgentId } from "../app/types.js";
 import { ConnectionManager, type MoltZapConnection } from "./connection.js";
@@ -7,26 +11,21 @@ import { unusedOriginator } from "./connection.test-utils.js";
 
 /**
  * Pure-unit coverage for ConnectionManager.subscribeAgentsToConversation.
- *
- * The helper exists so downstream apps (e.g. moltzap-arena's Werewolf) can
- * create conversations via ConversationService.create and still reach the
- * same state the `conversations/create` RPC handler reaches — without
- * duplicating the subscription loop in every caller.
  */
 
 const noopWrite: MoltZapConnection["write"] = () => Effect.void;
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
 
-function makeConn(id: string, agentId: string | null): MoltZapConnection {
+const ALICE: AgentId = makeAgentId("00000000-0000-4000-8000-00000000a11c");
+const BOB: AgentId = makeAgentId("00000000-0000-4000-8000-000000000b0b");
+const CAROL: AgentId = makeAgentId("00000000-0000-4000-8000-0000000ca201");
+
+function makeConn(id: string, agentId: AgentId | null): MoltZapConnection {
   const auth: AuthenticatedContext | null = agentId
-    ? {
-        agentId: agentId as AgentId,
-        agentStatus: "active",
-        ownerUserId: null,
-      }
+    ? { agentId, agentStatus: "active", ownerUserId: null }
     : null;
   return {
-    id,
+    id: makeConnectionId(id),
     write: noopWrite,
     shutdown: noopShutdown,
     auth,
@@ -40,17 +39,17 @@ function makeConn(id: string, agentId: string | null): MoltZapConnection {
 describe("ConnectionManager.subscribeAgentsToConversation matching", () => {
   it("subscribes every matching connection to the conversation", () => {
     const manager = new ConnectionManager();
-    const a1 = makeConn("c-alice-1", "alice");
-    const a2 = makeConn("c-alice-2", "alice");
-    const b1 = makeConn("c-bob-1", "bob");
-    const c1 = makeConn("c-carol-1", "carol");
+    const a1 = makeConn("c-alice-1", ALICE);
+    const a2 = makeConn("c-alice-2", ALICE);
+    const b1 = makeConn("c-bob-1", BOB);
+    const c1 = makeConn("c-carol-1", CAROL);
     manager.add(a1);
     manager.add(a2);
     manager.add(b1);
     manager.add(c1);
 
     const subscribed = manager.subscribeAgentsToConversation(
-      ["alice", "bob"],
+      [ALICE, BOB],
       "conv-1",
     );
 
@@ -65,15 +64,12 @@ describe("ConnectionManager.subscribeAgentsToConversation matching", () => {
 
   it("skips connections that have not authenticated", () => {
     const manager = new ConnectionManager();
-    const authed = makeConn("c-authed", "alice");
+    const authed = makeConn("c-authed", ALICE);
     const unauthed = makeConn("c-unauthed", null);
     manager.add(authed);
     manager.add(unauthed);
 
-    const subscribed = manager.subscribeAgentsToConversation(
-      ["alice"],
-      "conv-1",
-    );
+    const subscribed = manager.subscribeAgentsToConversation([ALICE], "conv-1");
 
     expect(subscribed).toEqual(["c-authed"]);
     expect(unauthed.conversationIds.has("conv-1")).toBe(false);
@@ -83,11 +79,11 @@ describe("ConnectionManager.subscribeAgentsToConversation matching", () => {
 describe("ConnectionManager.subscribeAgentsToConversation no-op cases", () => {
   it("is idempotent — repeated calls do not double-subscribe", () => {
     const manager = new ConnectionManager();
-    const conn = makeConn("c-1", "alice");
+    const conn = makeConn("c-1", ALICE);
     manager.add(conn);
 
-    manager.subscribeAgentsToConversation(["alice"], "conv-1");
-    manager.subscribeAgentsToConversation(["alice"], "conv-1");
+    manager.subscribeAgentsToConversation([ALICE], "conv-1");
+    manager.subscribeAgentsToConversation([ALICE], "conv-1");
 
     expect(conn.conversationIds.size).toBe(1);
     expect(conn.conversationIds.has("conv-1")).toBe(true);
@@ -95,10 +91,10 @@ describe("ConnectionManager.subscribeAgentsToConversation no-op cases", () => {
 
   it("returns empty when no connections match", () => {
     const manager = new ConnectionManager();
-    manager.add(makeConn("c-1", "alice"));
+    manager.add(makeConn("c-1", ALICE));
 
     const subscribed = manager.subscribeAgentsToConversation(
-      ["bob", "carol"],
+      [BOB, CAROL],
       "conv-1",
     );
 
@@ -107,7 +103,7 @@ describe("ConnectionManager.subscribeAgentsToConversation no-op cases", () => {
 
   it("handles an empty agentIds list", () => {
     const manager = new ConnectionManager();
-    const conn = makeConn("c-1", "alice");
+    const conn = makeConn("c-1", ALICE);
     manager.add(conn);
 
     const subscribed = manager.subscribeAgentsToConversation([], "conv-1");

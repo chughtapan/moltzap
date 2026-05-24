@@ -16,19 +16,17 @@ app at the top — see `src/index.ts` file-level JSDoc for the diagram):
 - `src/identity/` — agents, users, sessions, contact policy.
 - `src/network/` — `network/connect`, ping, presence, endpoint
   actor-model types (`tm:agent:<uuid>`, `tm:app:<uuid>`).
-- `src/task/` — conversations, messages, tasks, dispatch lease wire
-  surface. Two families coexist today:
-  - **Legacy** (`tasks/*`, `conversations/*` wire names) — the
-    pre-D1 task + conversation surface.
-  - **Spec D1** (`task/*`, `task/conversation/*` wire names, singular
-    namespace) — the new admission-explicit surface. Adds
-    `TaskCreate`, `TaskLeave`, six `TaskConversation*` admin methods,
-    `AppId` brand, `DEFAULT_APP_ID` constant,
-    `ParticipantNotAdmittedError`, and five `task/conversation/*`
-    notifications. Both coexist during the transitional window;
-    Spec D3 deletes the legacy family. Family overview lives in the
-    header block above the descriptors in `src/task/tasks.ts`. Type
-    canaries: `src/task/task-conversation-family.types-check.ts`.
+- `src/task/` — singular `task/*` + `task/conversation/*` namespace:
+  `TaskCreate`, `TaskLeave`, `TaskList`, `TaskClose`,
+  `TaskAddParticipant`, `TaskRemoveParticipant`, the six
+  `TaskConversation*` admin methods, the `Messages*` family
+  (`MessagesSend` / `MessagesList` — both require `taskId`),
+  dispatch lease wire surface, `AppId` brand, `DEFAULT_APP_ID`
+  constant, `ParticipantNotAdmittedError`. Branded `TaskId` /
+  `LeaseId` ids live in `src/task/ids.ts`. Family overview lives
+  in the header block above the descriptors in `src/task/tasks.ts`.
+  Type canaries: `src/task/task-conversation-family.types-check.ts`
+  + `src/task/task-d3-cutover.types-check.ts`.
 - `src/app/` — app registration + task-callback RPCs (server-initiated
   calls into the client). Top of the DAG.
 
@@ -36,8 +34,10 @@ Aggregates and entry points:
 
 - `src/index.ts` — public barrel; re-exports the layers in DAG order.
 - `src/rpc-registry.ts` — canonical `rpcMethods` +
-  `notificationDefinitions` arrays + `taskCallbackMethods` group;
-  exposes `decodeServerInbound` / `decodeClientInbound`.
+  `notificationDefinitions` arrays + `taskCallbackMethods` group +
+  per-kind partitions (`agentClientRpcMethods`,
+  `taskMasterRpcMethods`, `serverRpcMethods`); exposes
+  `decodeServerInbound` / `decodeClientInbound`.
 - `src/schema-primitives.ts` — `stringEnum`, `brandedId`,
   `brandedString`, `brandedNumber`, `DateTimeString`.
 - `src/version.ts` — `PROTOCOL_VERSION` constant.
@@ -88,7 +88,7 @@ The recipe; every new RPC follows it:
    `Type.Object({ ... }, { additionalProperties: false })`. Branded
    ids via `brandedId("FooId")`. Enums via `stringEnum(["a", "b"])`.
 3. **Define the descriptor** with `defineRpc({ name, params, result,
-   capabilities?, optional? })`. Add it to the layer's
+   capabilities? })`. Add it to the layer's
    `<layer>RpcMethods` array (e.g., `taskRpcMethods` in
    `task/methods.ts`). The root `rpc-registry.ts` re-aggregates.
 4. **Add JSDoc above the `defineRpc` call** describing the method
@@ -222,18 +222,14 @@ Arena (v2 per spec amendment #200 N8) copies this template directly.
 - **Descriptor** — A frozen `RpcDefinition` or
   `NotificationDefinition` produced by `defineRpc` /
   `defineNotification`. Carries the schema, validators, encoders,
-  optional `capabilities` array, and optional fail-closed default
-  for one wire method.
+  and optional `capabilities` array for one wire method. Every
+  RPC slot is required; the dispatcher fails closed when no
+  handler is bound.
 - **Capability tag** — A `Context.Tag` declared on a descriptor's
   `capabilities` array. The server dispatcher auto-provisions each
   tag per frame so handler bodies just `yield* TagName` instead of
   hand-piping `Effect.provideServiceEffect`. Pattern documented in
   `@moltzap/server-core/src/app/capability-providers.ts`.
-- **Optional slot** — A descriptor that declares a
-  `FailClosedDefault` (e.g. `forbidden`, `noOpNotification`). The
-  handler table still requires the slot key but accepts the
-  sentinel; the dispatcher synthesizes the fail-closed response
-  without invoking a handler.
 - **Originator** — The outbound half of a `Connection`. Owns the
   per-connection pending-request map and the request-id counter for
   outbound `call(...)` invocations. Used in both directions — for

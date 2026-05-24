@@ -23,7 +23,8 @@ import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_VERDICT_GRANT,
   EXPECTED_TYPE_STRING,
-  createModeratedDm,
+  attachDispatchAuthorizeHook,
+  createTaskConversationOnApp,
   createUnmoderatedDm,
   createDispatchFlowFixture,
   requestDispatch,
@@ -35,7 +36,7 @@ import { setupAgentPair } from "../../helpers.js";
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "moderator-dispatch-test-app";
+const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const EXPECTED_MODERATED_HOOK_CALLS = 1;
 const EXPECTED_UNMODERATED_HOOK_CALLS = 0;
 
@@ -71,7 +72,12 @@ function moderatedDispatchReleasesGrant() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
-    const conversationId = yield* createModeratedDm(alice, bob, TEST_APP_ID);
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const { conversationId } = yield* createTaskConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
     // Fork-before-trigger (Spec B #596 r2 fix).
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
@@ -89,7 +95,7 @@ function moderatedDispatchReleasesGrant() {
 function unmoderatedDispatchDefaultGrants() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
+    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
       DISPATCH_RELEASE_TIMEOUT_MS,
@@ -105,7 +111,7 @@ function unmoderatedDispatchDefaultGrants() {
 function dispatchRequestDescriptorIsRegistered() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const conversationId = yield* createUnmoderatedDm(alice, bob);
+    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
     const ack = yield* requestDispatch(bob, conversationId, alice, "canary");
 
     expectAckShape(ack);

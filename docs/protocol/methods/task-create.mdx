@@ -1,28 +1,46 @@
 ---
 title: "task/create"
-description: "Reshaped task-create: `appId` REQUIRED (branded), `tmType` ELIMINATED at the wire, optional `initialConversation` for atomic task + first-conversation creation."
+description: "Server → TM round-trip asking whether the TM accepts a newly requested task."
 ---
 
 # task/create
 
-Reshaped task-create: `appId` REQUIRED (branded), `tmType`
-ELIMINATED at the wire, optional `initialConversation` for atomic
-task + first-conversation creation.
+Server → TM round-trip asking whether the TM accepts a newly
+requested task. Triggered from the `task/request` handler after
+the task row is inserted (status `"waiting"`) and before the
+requester observes any state.
 
-Dedup: when `appId === DEFAULT_APP_ID`, the server returns any
-existing task whose `task_participants` set is exactly
-`{callerAgentId} ∪ invitedAgentIds`. Single-invitee dedup
-generalizes today's `conversationService.existingDmForCreate` (the
-DM case is the `invitedAgentIds.length === 1` instance of the
-same exact-participant-set match query).
+The TM owns the post-accept lifecycle:
+  - On `accept` the server transitions the task to `"active"`
+    and fires `task/created` to the requester. The TM SHOULD
+    then call `task/conversation/create` to honor the
+    requester's `initialConversation` hint if it chose to.
+  - On `reject` (or timeout / RPC error / decode failure) the
+    server transitions the task to `"failed"` and fires
+    `task/failed` to the requester.
 
-Returns `{ task, conversation }` where `conversation` is `null`
-when `initialConversation` is omitted.
+Fail-closed envelope mirrors `DispatchAuthorize` /
+`MessagesAuthorize`: timeout synthesizes
+`{ decision: "reject", reason: "timeout" }`; an unknown app or
+RPC/decode failure synthesizes `reason: "tm_unreachable"`.
+
+Durability note: the `task/request` handler inserts the task row
+(`waiting`) BEFORE this callback's network round-trip, and the
+terminal `setStatus` runs AFTER it. The sequence is not atomic
+(the callback is a network call, not a DB op), so a crash or fiber
+interrupt in that window can strand a task in `waiting`. Stranded
+waiting tasks are invisible to delivery (no conversation, no
+participants observe them) and are reaped by follow-up work (the
+stale-waiting-task sweep, #684).
 
 ## Parameters
 
-<ParamField path="appId" type="string (UUID)" required>
-  Branded AppId
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
+<ParamField path="initiatorAgentId" type="string (UUID)" required>
+  Branded AgentId
 </ParamField>
 
 <ParamField path="invitedAgentIds" type="array" required>
@@ -33,12 +51,12 @@ when `initialConversation` is omitted.
   The initialConversation field.
 </ParamField>
 
+<ParamField path="receivedAt" type="string (ISO 8601)">
+  The receivedAt field.
+</ParamField>
+
 ## Response
 
-<ResponseField name="task" type="object">
-  The task field.
-</ResponseField>
-
-<ResponseField name="conversation" type="union">
-  The conversation field.
+<ResponseField name="verdict" type="union">
+  The verdict field.
 </ResponseField>

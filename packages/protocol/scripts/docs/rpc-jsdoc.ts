@@ -134,7 +134,10 @@ function parseJsDocBlock(
   stmt: ts.VariableStatement,
   sf: ts.SourceFile,
 ): ParsedJsDoc {
-  const ranges = ts.getLeadingCommentRanges(sf.getFullText(), stmt.getFullStart());
+  const ranges = ts.getLeadingCommentRanges(
+    sf.getFullText(),
+    stmt.getFullStart(),
+  );
   if (!ranges) return emptyJsDoc();
   for (const range of ranges) {
     if (range.kind !== ts.SyntaxKind.MultiLineCommentTrivia) continue;

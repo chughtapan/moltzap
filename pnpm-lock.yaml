@@ -105,6 +105,9 @@ importers:
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@sinclair/typebox':
+        specifier: ^0.34.0
+        version: 0.34.49
       effect:
         specifier: 3.21.2
         version: 3.21.2
@@ -139,6 +142,9 @@ importers:
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@sinclair/typebox':
+        specifier: ^0.34.0
+        version: 0.34.49
       effect:
         specifier: 3.21.2
         version: 3.21.2
@@ -179,6 +185,9 @@ importers:
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@sinclair/typebox':
+        specifier: ^0.34.0
+        version: 0.34.49
       effect:
         specifier: 3.21.2
         version: 3.21.2

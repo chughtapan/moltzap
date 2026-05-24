@@ -18,7 +18,7 @@
  *
  * | Method | Cases |
  * |---|---|
- * | TaskCreate | happy-path + participants + dedup (DEFAULT_APP) + atomic initial conv + dual-emit |
+ * | TaskRequest | happy-path + participants + dedup (DEFAULT_APP) + atomic initial conv + dual-emit |
  * | TaskLeave | self-only + idempotent no-op + last-participant closure + per-cid removal |
  * | TaskConversationCreate | TM-only + participant-admitted invariant + dual-emit |
  * | TaskConversationList | self only + items shape + archived-included |
@@ -27,7 +27,7 @@
  * | TaskConversationRemoveParticipant | TM-only + idempotency + dual-emit |
  */
 
-import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
 import * as fc from "fast-check";
 import { Effect, Exit } from "effect";
 import {
@@ -35,14 +35,15 @@ import {
   ParticipantNotAdmittedError,
   TaskConversationAddParticipant,
   TaskConversationArchive,
+  AppsRegister,
   TaskConversationCreate,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationList,
   TaskConversationRemoveParticipant,
   TaskCreate,
+  TaskRequest,
   TaskLeave,
   TaskClosedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
   type AgentId,
 } from "@moltzap/protocol";
 import {
@@ -66,7 +67,7 @@ const NOTIF_TIMEOUT_MS = 2_500;
 
 // Surface invariants that the spec body pins; pulling these into
 // named constants keeps the assertions grep-able + lints clean.
-const STATUS_WAITING = "waiting" as const;
+const STATUS_ACTIVE = "active" as const;
 const STATUS_CLOSED = "closed" as const;
 const INITIAL_CONV_NAME = "kickoff" as const;
 
@@ -120,7 +121,7 @@ function registerAndConnect(
       apiKey: reg.apiKey,
     });
     trackClient(client);
-    return { client, agentId: reg.agentId as AgentId };
+    return { client, agentId: reg.agentId };
   });
 }
 
@@ -134,58 +135,55 @@ function setupThreeAgents(): Effect.Effect<ThreeAgentFixture, Error> {
   });
 }
 
-// ─── TaskCreate ──────────────────────────────────────────────────────
+// ─── TaskRequest ──────────────────────────────────────────────────────
 
-it("TaskCreate (DEFAULT_APP, multi-invitee) mints a fresh task with all participants", () =>
+it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all participants", () =>
   Effect.gen(function* () {
     const { alice, bob, carol } = yield* setupThreeAgents();
-    const result = yield* alice.client.sendRpc(TaskCreate, {
+    const result = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
     });
-    expect(result.task.status).toBe(STATUS_WAITING);
+    // DEFAULT_APP auto-accepts the task/create TM callback, so the
+    // task transitions waiting → active before task/request returns.
+    expect(result.task.status).toBe(STATUS_ACTIVE);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
     expect(result.task.initiatorAgentId).toBe(alice.agentId);
     // No initialConversation supplied -> null per spec body Goal 3.
     expect(result.conversation).toBeNull();
   }));
 
-it("TaskCreate (DEFAULT_APP, same participants) dedup returns the extant task", () =>
-  Effect.gen(function* () {
-    const { alice, bob } = yield* setupThreeAgents();
-    const first = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-    });
-    const second = yield* alice.client.sendRpc(TaskCreate, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-    });
-    // Dedup hit: same participant set -> same task id.
-    expect(second.task.id).toBe(first.task.id);
-    // Dedup is task-level; no fresh conversation even if requested.
-    expect(second.conversation).toBeNull();
-  }));
+// Server-side TaskRequest dedup retired in #677. Re-add coverage as a
+// client-side test once the SDK helper for "list + filter + create-or-use"
+// lands.
+vit.todo("client-side DEFAULT_APP dedup — list + match");
 
-it("TaskCreate (different appId) does NOT dedup across apps", () =>
+it("TaskRequest (different appId) does NOT dedup across apps", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const first = yield* alice.client.sendRpc(TaskCreate, {
+    const first = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
-    // Non-default app: dedup only fires under DEFAULT_APP per
-    // spec body Goal 3.
+    // Non-default app: register alice as its TM so the task/create
+    // callback resolves. Dedup is retired (#677); two requests under
+    // different apps always mint distinct tasks.
     const other =
       "11111111-2222-4333-8444-555555555555" as typeof DEFAULT_APP_ID;
-    const second = yield* alice.client.sendRpc(TaskCreate, {
+    yield* alice.client.sendRpc(AppsRegister, {
+      manifest: { appId: other, name: "other-app" },
+    });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
+    const second = yield* alice.client.sendRpc(TaskRequest, {
       appId: other,
       invitedAgentIds: [bob.agentId],
     });
     expect(second.task.id).not.toBe(first.task.id);
   }));
 
-it("TaskCreate (initialConversation) mints a conversation + dual-emits notifications", () =>
+it("TaskRequest (initialConversation) mints a conversation + emits task/conversation/created", () =>
   Effect.gen(function* () {
     const { alice, bob, carol } = yield* setupThreeAgents();
     // Subscribe BEFORE sending so the stream-based waiter has the
@@ -197,16 +195,8 @@ it("TaskCreate (initialConversation) mints a conversation + dual-emits notificat
         NOTIF_TIMEOUT_MS,
       ),
     );
-    const legacyNotif = Effect.fork(
-      awaitOneNotification(
-        alice.client,
-        ConversationCreatedNotificationDefinition,
-        NOTIF_TIMEOUT_MS,
-      ),
-    );
     const newFib = yield* newNotif;
-    const legacyFib = yield* legacyNotif;
-    const result = yield* alice.client.sendRpc(TaskCreate, {
+    const result = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
       initialConversation: {
@@ -217,10 +207,7 @@ it("TaskCreate (initialConversation) mints a conversation + dual-emits notificat
     expect(result.conversation).not.toBeNull();
     expect(result.conversation?.name).toBe(INITIAL_CONV_NAME);
     expect(result.conversation?.createdBy).toBe(alice.agentId);
-    // Dual-emit: BOTH `task/conversation/created` AND
-    // `conversations/created` fan out to the initial participants.
     yield* newFib.await;
-    yield* legacyFib.await;
   }));
 
 // ─── TaskLeave ───────────────────────────────────────────────────────
@@ -228,7 +215,7 @@ it("TaskCreate (initialConversation) mints a conversation + dual-emits notificat
 it("TaskLeave (idempotent, non-participant) returns ok with zero notifications", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
@@ -245,7 +232,7 @@ it("TaskLeave (idempotent, non-participant) returns ok with zero notifications",
 it("TaskLeave (last admitted participant) transitions task to closed + emits task/closed", () =>
   Effect.gen(function* () {
     const { alice } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
@@ -279,7 +266,7 @@ it("TaskConversationCreate (admitted participants) mints + dual-emits", () =>
     // the caller to BE the TM. Alice's task here has tm =
     // tm:app:<DEFAULT_APP_ID>, NOT tm:agent:<alice>, so the authority
     // gate will deny. This test verifies the deny path.
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
     });
@@ -306,7 +293,7 @@ it("TaskConversationCreate denies non-TM caller BEFORE the participant invariant
     // an info-disclosure regression (codex review finding 2) would
     // surface `ParticipantNotAdmitted` and let alice probe task
     // membership without authority.
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
@@ -334,7 +321,7 @@ it("TaskConversationCreate denies non-TM caller BEFORE the participant invariant
 it("TaskConversationList returns items with { taskId, conversation, participants }", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: {
@@ -360,13 +347,13 @@ it("TaskConversationList respects limit + returns nextCursor when more rows exis
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     // Two task-conversations under one umbrella task.
-    yield* alice.client.sendRpc(TaskCreate, {
+    yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { name: "first", participants: [bob.agentId] },
     });
     const { carol } = yield* setupThreeAgents();
-    yield* alice.client.sendRpc(TaskCreate, {
+    yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [carol.agentId],
       initialConversation: { name: "second", participants: [carol.agentId] },
@@ -385,7 +372,7 @@ it("TaskConversationList respects limit + returns nextCursor when more rows exis
 it("TaskConversationArchive (non-TM caller) is denied by authority gate", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -407,7 +394,7 @@ it("TaskConversationAddParticipant: non-TM caller denied BEFORE the participant 
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     const { carol } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -432,7 +419,7 @@ it("TaskConversationRemoveParticipant on absent agent is idempotent", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     const { carol } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskCreate, {
+    const created = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -453,15 +440,15 @@ it("TaskConversationRemoveParticipant on absent agent is idempotent", () =>
 
 // ─── Negative-canary sanity ──────────────────────────────────────────
 
-it("dual-emit suppression: a rolled-back TaskCreate emits zero notifications", () =>
+it("dual-emit suppression: a rolled-back TaskRequest emits zero notifications", () =>
   Effect.gen(function* () {
     const { alice } = yield* setupThreeAgents();
     // Empty invitedAgentIds + bad shape -> schema decode fails AT THE
     // WIRE (not inside the handler), so no notifications.
     const result = yield* Effect.either(
-      alice.client.sendRpc(TaskCreate, {
+      alice.client.sendRpc(TaskRequest, {
         appId: DEFAULT_APP_ID,
-        invitedAgentIds: ["not-a-uuid" as AgentId],
+        invitedAgentIds: ["not-a-uuid"],
       }),
     );
     expect(expectEitherLeft(result)).toBeDefined();

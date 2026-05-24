@@ -13,7 +13,8 @@ Public barrel for task, conversation, message, and task-manager protocol descrip
 _TypeAlias_
 
 ```ts
-export type _D1DefaultAppIdCanary = Expect<Equal<typeof DEFAULT_APP_ID, AppId>>;
+// conformance test in `packages/protocol/src/testing/conformance/task/`
+// (see plan §9); here we only encode the brand.
 ```
 
 ### [`_D1ListItemCanary`](./task-conversation-family.types-check.ts#L208)
@@ -21,7 +22,7 @@ export type _D1DefaultAppIdCanary = Expect<Equal<typeof DEFAULT_APP_ID, AppId>>;
 _TypeAlias_
 
 ```ts
-export type _D1ListItemCanary = _L1 | _L2 | _L3 | _L4;
+type _L4 = Expect<Equal<Conversation["archivedAt"], string | undefined>>;
 ```
 
 ### [`_D1NegativeCanary`](./task-conversation-family.types-check.ts#L257)
@@ -29,13 +30,7 @@ export type _D1ListItemCanary = _L1 | _L2 | _L3 | _L4;
 _TypeAlias_
 
 ```ts
-export type _D1NegativeCanary =
-  | _NoUpdate
-  | _NoGet
-  | _NoMute
-  | _NoUnmute
-  | _NoConvLeave
-  | _NoUpdatedNotif;
+import type { TaskConversationUpdatedNotificationDefinition as _NoUpdatedNotif } from "../index.js";
 ```
 
 ### [`_D1RemovedReasonCanary`](./task-conversation-family.types-check.ts#L235)
@@ -43,7 +38,7 @@ export type _D1NegativeCanary =
 _TypeAlias_
 
 ```ts
-export type _D1RemovedReasonCanary = _R1 | _R2 | _R3;
+>;
 ```
 
 ### [`_D1TaskCreateShapeCanary`](./task-conversation-family.types-check.ts#L174)
@@ -51,7 +46,7 @@ export type _D1RemovedReasonCanary = _R1 | _R2 | _R3;
 _TypeAlias_
 
 ```ts
-export type _D1TaskCreateShapeCanary = _C1 | _C2 | _C3 | _C4 | _C5;
+type _C5 = Expect<Equal<TaskCreateResult["conversation"], Conversation | null>>;
 ```
 
 ### [`_D1WireNameCanary`](./task-conversation-family.types-check.ts#L134)
@@ -59,36 +54,24 @@ export type _D1TaskCreateShapeCanary = _C1 | _C2 | _C3 | _C4 | _C5;
 _TypeAlias_
 
 ```ts
-export type _D1WireNameCanary =
-  | _N1
-  | _N2
-  | _N3
-  | _N4
-  | _N5
-  | _N6
-  | _N7
-  | _N8
-  | _N9
-  | _N10
-  | _N11
-  | _N12
-  | _N13;
+>;
 ```
 
 ### [`agentParticipantRefSchema`](./conversations.ts#L130)
 
 _Function_
 
-```ts
-export function agentParticipantRefSchema(): typeof AgentParticipantRefSchema
-```
-
 ### [`AppId`](./tasks.ts#L45)
 
 _TypeAlias_
 
 ```ts
-export const AppId = brandedId("AppId");
+
+/**
+ * `task/request` failed because the bound TM rejected the
+ * server-initiated `task/create` callback (or the fail-closed
+ * envelope synthesized a reject on timeout / RPC error / decode
+ * failure). The tag lets a requester distinguish "my task was
 ```
 
 Branded UUID for the per-app identifier. Introduced by Spec D1
@@ -104,7 +87,65 @@ every remaining call site.
 _Variable_
 
 ```ts
-export const AppId = brandedId("AppId")
+
+/**
+ * `task/request` failed because the bound TM rejected the
+ * server-initiated `task/create` callback (or the fail-closed
+ * envelope synthesized a reject on timeout / RPC error / decode
+ * failure). The tag lets a requester distinguish "my task was
+ * rejected by the moderator" — an expected, actionable outcome —
+ * from an opaque internal error. The TM's reason rides in the
+ * `data` arm when present.
+ */
+export class TaskRejectedError extends Data.TaggedError(
+  "TaskRejected",
+)<RpcErrorPayload> {
+  static readonly code = -32024;
+  static readonly message = "Task request was rejected by the task manager";
+}
+registerErrorClass(TaskRejectedError);
+
+export class HookBlockedError extends Data.TaggedError(
+  "HookBlocked",
+)<RpcErrorPayload> {
+  static readonly code = -32019;
+  static readonly message = "Hook blocked the dispatch";
+}
+registerErrorClass(HookBlockedError);
+
+/**
+ * `task/conversation/create` and `task/conversation/participants/add`
+ * reject agents who are not already in `task_participants`. The error
+ * tag lets clients distinguish "wrong agentId shape" (InvalidParams)
+ * from "agent exists but is not admitted to this task" (this tag)
+ * without parsing message strings.
+ */
+export class ParticipantNotAdmittedError extends Data.TaggedError(
+  "ParticipantNotAdmitted",
+)<RpcErrorPayload> {
+  static readonly code = -32023;
+  static readonly message = "Agent is not admitted to the task";
+}
+registerErrorClass(ParticipantNotAdmittedError);
+
+/**
+ * Logical time frontier per delivery domain (usually a conversation):
+ * monotonic `epoch` + per-participant observed counts in `vector`.
+ */
+const LogicalClockSchema = Type.Object(
+  {
+    domainId: Type.String({ minLength: 1 }),
+    epoch: Type.Integer({ minimum: 0 }),
+    vector: Type.Record(Type.String(), Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false },
+);
+
+export type LogicalClock = Static<typeof LogicalClockSchema>;
+
+export function logicalClockSchema(): typeof LogicalClockSchema {
+  return LogicalClockSchema;
+}
 ```
 
 Branded UUID for the per-app identifier. Introduced by Spec D1
@@ -119,40 +160,21 @@ every remaining call site.
 
 _TypeAlias_
 
-```ts
-export type Conversation = Static<typeof ConversationSchema>;
-```
-
 ### [`ConversationArchivedError`](./conversations.ts#L43)
 
 _Class_
 
 ```ts
-export class ConversationArchivedError extends Data.TaggedError(
-  "ConversationArchived",
-)<RpcErrorPayload> {
-  static readonly code = -32022;
-  static readonly message = "Conversation is archived";
-}
+  { additionalProperties: false },
 ```
 
 ### [`ConversationArchivedNotification`](./conversations.ts#L441)
 
 _TypeAlias_
 
-```ts
-export type ConversationArchivedNotification = Static<
-  typeof ConversationArchivedNotificationSchema
->;
-```
-
 ### [`ConversationArchivedNotificationDefinition`](./conversations.ts#L479)
 
 _Variable_
-
-```ts
-export const ConversationArchivedNotificationDefinition = defineNotification(
-```
 
 Pushed when a conversation is archived (explicit archive call or app-session close).
 
@@ -160,19 +182,9 @@ Pushed when a conversation is archived (explicit archive call or app-session clo
 
 _TypeAlias_
 
-```ts
-export type ConversationCreatedNotification = Static<
-  typeof ConversationCreatedNotificationSchema
->;
-```
-
 ### [`ConversationCreatedNotificationDefinition`](./conversations.ts#L459)
 
 _Variable_
-
-```ts
-export const ConversationCreatedNotificationDefinition = defineNotification(
-```
 
 Pushed when you are added to a new conversation.
 
@@ -181,12 +193,7 @@ Pushed when you are added to a new conversation.
 _Class_
 
 ```ts
-export class ConversationFullError extends Data.TaggedError(
-  "ConversationFull",
-)<RpcErrorPayload> {
-  static readonly code = -32007;
-  static readonly message = "Conversation is full";
-}
+);
 ```
 
 ### [`ConversationId`](./conversations.ts#L33)
@@ -194,7 +201,7 @@ export class ConversationFullError extends Data.TaggedError(
 _TypeAlias_
 
 ```ts
-export const ConversationId = brandedId("ConversationId");
+  static readonly code = -32007;
 ```
 
 ### [`ConversationId`](./conversations.ts#L33)
@@ -202,26 +209,16 @@ export const ConversationId = brandedId("ConversationId");
 _Variable_
 
 ```ts
-export const ConversationId = brandedId("ConversationId")
+  static readonly code = -32007
 ```
 
 ### [`ConversationParticipant`](./conversations.ts#L125)
 
 _TypeAlias_
 
-```ts
-export type ConversationParticipant = Static<
-  typeof ConversationParticipantSchema
->;
-```
-
 ### [`ConversationsAddParticipant`](./conversations.ts#L284)
 
 _Variable_
-
-```ts
-export const ConversationsAddParticipant = defineRpc(
-```
 
 Add a participant to a group conversation. Requires admin or owner role.
 
@@ -229,27 +226,15 @@ Add a participant to a group conversation. Requires admin or owner role.
 
 _Variable_
 
-```ts
-export const ConversationsArchive = defineRpc(
-```
-
 Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.
 
 ### [`conversationSchema`](./conversations.ts#L134)
 
 _Function_
 
-```ts
-export function conversationSchema(): typeof ConversationSchema
-```
-
 ### [`ConversationsCreate`](./conversations.ts#L142)
 
 _Variable_
-
-```ts
-export const ConversationsCreate = defineRpc(
-```
 
 Create a new group conversation with participants.
 
@@ -257,19 +242,11 @@ Create a new group conversation with participants.
 
 _Variable_
 
-```ts
-export const ConversationsGet = defineRpc(
-```
-
 Get conversation details including the full participant list.
 
 ### [`ConversationsLeave`](./conversations.ts#L338)
 
 _Variable_
-
-```ts
-export const ConversationsLeave = defineRpc(
-```
 
 Leave a group conversation.
 
@@ -277,19 +254,11 @@ Leave a group conversation.
 
 _Variable_
 
-```ts
-export const ConversationsList = defineRpc(
-```
-
 List your conversations with message previews and unread counts.
 
 ### [`ConversationsMute`](./conversations.ts#L255)
 
 _Variable_
-
-```ts
-export const ConversationsMute = defineRpc(
-```
 
 Mute notifications for a conversation, optionally until a specific time.
 
@@ -297,27 +266,15 @@ Mute notifications for a conversation, optionally until a specific time.
 
 _Variable_
 
-```ts
-export const ConversationsRemoveParticipant = defineRpc(
-```
-
 Remove a participant from a group conversation.
 
 ### [`ConversationSummary`](./conversations.ts#L128)
 
 _TypeAlias_
 
-```ts
-export type ConversationSummary = Static<typeof ConversationSummarySchema>;
-```
-
 ### [`ConversationsUnarchive`](./conversations.ts#L367)
 
 _Variable_
-
-```ts
-export const ConversationsUnarchive = defineRpc(
-```
 
 Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.
 
@@ -325,19 +282,11 @@ Unarchive a conversation (clears archived_at). Idempotent — unarchiving an act
 
 _Variable_
 
-```ts
-export const ConversationsUnmute = defineRpc(
-```
-
 Unmute notifications for a conversation.
 
 ### [`ConversationsUpdate`](./conversations.ts#L237)
 
 _Variable_
-
-```ts
-export const ConversationsUpdate = defineRpc(
-```
 
 Update conversation metadata (name).
 
@@ -346,26 +295,22 @@ Update conversation metadata (name).
 _Variable_
 
 ```ts
-export const ConversationTypeEnum = stringEnum(["dm", "group"])
+    lastMessageTimestamp: Type.Optional(DateTimeString),
+    createdAt: DateTimeString,
+    updatedAt: DateTimeString,
+    // Spec D1 (#598) — additive field. Present iff the conversation
+    // is archived. Clients filter `archivedAt !== undefined` to
+    // exclude archived rows from a `TaskConversationList` response
+    // (the server returns archived rows unfiltered
 ```
 
 ### [`ConversationUnarchivedNotification`](./conversations.ts#L444)
 
 _TypeAlias_
 
-```ts
-export type ConversationUnarchivedNotification = Static<
-  typeof ConversationUnarchivedNotificationSchema
->;
-```
-
 ### [`ConversationUnarchivedNotificationDefinition`](./conversations.ts#L488)
 
 _Variable_
-
-```ts
-export const ConversationUnarchivedNotificationDefinition = defineNotification(
-```
 
 Pushed when a conversation is unarchived.
 
@@ -373,19 +318,9 @@ Pushed when a conversation is unarchived.
 
 _TypeAlias_
 
-```ts
-export type ConversationUpdatedNotification = Static<
-  typeof ConversationUpdatedNotificationSchema
->;
-```
-
 ### [`ConversationUpdatedNotificationDefinition`](./conversations.ts#L470)
 
 _Variable_
-
-```ts
-export const ConversationUpdatedNotificationDefinition = defineNotification(
-```
 
 Pushed when a conversation's metadata changes (name, participants).
 
@@ -394,7 +329,7 @@ Pushed when a conversation's metadata changes (name, participants).
 _Variable_
 
 ```ts
-export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
+)<RpcErrorPayload>
 ```
 
 The single server-bundled default app. Every DM and Group lives
@@ -418,22 +353,12 @@ created under `DEFAULT_APP_ID` from D1 forward.
 _Class_
 
 ```ts
-export class HookBlockedError extends Data.TaggedError(
-  "HookBlocked",
-)<RpcErrorPayload> {
-  static readonly code = -32019;
-  static readonly message = "Hook blocked the dispatch";
-}
+registerErrorClass(ParticipantNotAdmittedError);
 ```
 
 ### [`inferConversationType`](./tasks.ts#L593)
 
 _Function_
-
-```ts
-
-const InitialConversationSchema = Type.Object(
-```
 
 Spec D1 (#598) cardinality → label mapping for the legacy
 `conversations.type` enum column. D1 retires the wire-level
@@ -459,10 +384,9 @@ at that point this helper retires alongside.
 _TypeAlias_
 
 ```ts
-// check ahead of any participant probe. A non-TM caller sees
-// `ForbiddenError` rather than leaking task-membership existence
-// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
-// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
+  // `requireAgentsAreInTaskParticipants` to force the obtain helper to
+  // run early (lazy provideServiceEffect would otherwise defer it past
+  // the participant-admitted probe).
 ```
 
 ### [`LogicalClock`](./tasks.ts#L121)
@@ -470,7 +394,7 @@ _TypeAlias_
 _TypeAlias_
 
 ```ts
-export type LogicalClock = Static<typeof LogicalClockSchema>;
+);
 ```
 
 ### [`logicalClockSchema`](./tasks.ts#L123)
@@ -478,7 +402,7 @@ export type LogicalClock = Static<typeof LogicalClockSchema>;
 _Function_
 
 ```ts
-export function logicalClockSchema(): typeof LogicalClockSchema
+export type Task = Static<typeof TaskSchema>
 ```
 
 ### [`Message`](./messages.ts#L65)
@@ -486,7 +410,8 @@ export function logicalClockSchema(): typeof LogicalClockSchema
 _TypeAlias_
 
 ```ts
-export type Message = Static<typeof MessageSchema>;
+    senderId: AgentId,
+    replyToId: Type.Optional(MessageId),
 ```
 
 ### [`MessageId`](./conversations.ts#L40)
@@ -494,7 +419,7 @@ export type Message = Static<typeof MessageSchema>;
 _TypeAlias_
 
 ```ts
-export const MessageId = brandedId("MessageId");
+    type: Type.Literal("agent"),
 ```
 
 ### [`MessageId`](./conversations.ts#L40)
@@ -502,7 +427,8 @@ export const MessageId = brandedId("MessageId");
 _Variable_
 
 ```ts
-export const MessageId = brandedId("MessageId")
+    type: Type.Literal("agent"),
+    id: Type.String(
 ```
 
 ### [`messagePartsSchema`](./messages.ts#L74)
@@ -510,7 +436,8 @@ export const MessageId = brandedId("MessageId")
 _Function_
 
 ```ts
-export function messagePartsSchema(): typeof MessagePartsSchema
+
+export type Message = Static<typeof MessageSchema>
 ```
 
 ### [`MessageReceivedNotification`](./messages.ts#L209)
@@ -518,9 +445,9 @@ export function messagePartsSchema(): typeof MessagePartsSchema
 _TypeAlias_
 
 ```ts
-export type MessageReceivedNotification = Static<
-  typeof MessageReceivedNotificationSchema
->;
+    },
+  ] as const,
+});
 ```
 
 ### [`MessageReceivedNotificationDefinition`](./messages.ts#L217)
@@ -528,7 +455,8 @@ export type MessageReceivedNotification = Static<
 _Variable_
 
 ```ts
-export const MessageReceivedNotificationDefinition = defineNotification(
+ */
+export const MessagesList = defineRpc(
 ```
 
 Pushed when a new message is delivered to your WebSocket connection.
@@ -538,7 +466,8 @@ Pushed when a new message is delivered to your WebSocket connection.
 _Function_
 
 ```ts
-export function messageSchema(): typeof MessageSchema
+  value: unknown,
+)
 ```
 
 ### [`MessagesList`](./messages.ts#L186)
@@ -546,7 +475,7 @@ export function messageSchema(): typeof MessageSchema
 _Variable_
 
 ```ts
-export const MessagesList = defineRpc(
+    },
 ```
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
@@ -556,6 +485,12 @@ List messages in a conversation with cursor-based pagination using sequence numb
 _Variable_
 
 ```ts
+ * @returns The created message with ID, sequence number, and timestamp.
+ * @error NotFoundError when Conversation or target agent not found
+ * @error ForbiddenError when Not a participant in the conversation
+ * @error RateLimitedError when Message rate limit exceeded
+ * @relatedNotification messages/received
+ */
 export const MessagesSend = defineRpc(
 ```
 
@@ -568,7 +503,10 @@ Send a message to a conversation or agent. Creates a DM automatically when using
 _TypeAlias_
 
 ```ts
-export type MessageWithTmDecision = Static<typeof MessageWithTmDecisionSchema>;
+  Type.Object(
+    { tmDecision: TmDecisionSchema },
+    { additionalProperties: false },
+  ),
 ```
 
 ### [`messageWithTmDecisionSchema`](./messages.ts#L141)
@@ -576,7 +514,7 @@ export type MessageWithTmDecision = Static<typeof MessageWithTmDecisionSchema>;
 _Function_
 
 ```ts
-export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema
+export type MessageWithTmDecision = Static<typeof MessageWithTmDecisionSchema>
 ```
 
 ### [`Part`](./messages.ts#L44)
@@ -584,7 +522,8 @@ export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchem
 _TypeAlias_
 
 ```ts
-export type Part = Static<typeof PartSchema>;
+  },
+  { additionalProperties: false },
 ```
 
 ### [`ParticipantNotAdmittedError`](./tasks.ts#L100)
@@ -592,11 +531,9 @@ export type Part = Static<typeof PartSchema>;
 _Class_
 
 ```ts
-export class ParticipantNotAdmittedError extends Data.TaggedError(
-  "ParticipantNotAdmitted",
-)<RpcErrorPayload> {
-  static readonly code = -32023;
-  static readonly message = "Agent is not admitted to the task";
+
+export function logicalClockSchema(): typeof LogicalClockSchema {
+  return LogicalClockSchema;
 }
 ```
 
@@ -611,44 +548,24 @@ parsing message strings.
 
 _TypeAlias_
 
-```ts
-export type ParticipantsAddedNotification = Static<
-  typeof ParticipantsAddedNotificationSchema
->;
-```
-
 ### [`ParticipantsAddedNotificationDefinition`](./conversations.ts#L493)
 
 _Variable_
-
-```ts
-export const ParticipantsAddedNotificationDefinition = defineNotification(
-```
 
 ### [`ParticipantsRemovedNotification`](./conversations.ts#L450)
 
 _TypeAlias_
 
-```ts
-export type ParticipantsRemovedNotification = Static<
-  typeof ParticipantsRemovedNotificationSchema
->;
-```
-
 ### [`ParticipantsRemovedNotificationDefinition`](./conversations.ts#L498)
 
 _Variable_
-
-```ts
-export const ParticipantsRemovedNotificationDefinition = defineNotification(
-```
 
 ### [`Task`](./tasks.ts#L153)
 
 _TypeAlias_
 
 ```ts
-export type Task = Static<typeof TaskSchema>;
+    { additionalProperties: false },
 ```
 
 ### [`TaskClosedError`](./tasks.ts#L76)
@@ -656,11 +573,13 @@ export type Task = Static<typeof TaskSchema>;
 _Class_
 
 ```ts
-export class TaskClosedError extends Data.TaggedError(
-  "TaskClosed",
+ * without parsing message strings.
+ */
+export class ParticipantNotAdmittedError extends Data.TaggedError(
+  "ParticipantNotAdmitted",
 )<RpcErrorPayload> {
-  static readonly code = -32020;
-  static readonly message = "Task is closed";
+  static readonly code = -32023;
+  static readonly message = "Agent is not admitted to the task";
 }
 ```
 
@@ -669,7 +588,7 @@ export class TaskClosedError extends Data.TaggedError(
 _Variable_
 
 ```ts
-export const TaskClosedNotificationDefinition = defineNotification(
+  result: Type.Object(
 ```
 
 Pushed when a task closes.
@@ -677,11 +596,6 @@ Pushed when a task closes.
 ### [`TaskConversationAddParticipant`](./tasks.ts#L813)
 
 _Variable_
-
-```ts
-  name: "task/conversation/archive",
-  params: Type.Object(
-```
 
 TM-only: add an agent to one conversation. The agent MUST already
 appear in `task_participants` for `taskId`; otherwise
@@ -691,55 +605,19 @@ appear in `task_participants` for `taskId`; otherwise
 
 _Variable_
 
-```ts
-  ),
-  result: Type.Object(
-```
-
 TM-only: archive one conversation. Task stays open.
 
 ### [`TaskConversationArchivedNotification`](./tasks.ts#L920)
 
 _TypeAlias_
 
-```ts
-
-const TaskConversationUnarchivedNotificationSchema = Type.Object(
-  { taskId: TaskId, conversationId: ConversationId },
-  { additionalProperties: false },
-);
-```
-
 ### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L940)
 
 _Variable_
 
-```ts
-    taskId: TaskId,
-    conversationId: ConversationId,
-    removedAgentId: AgentId,
-    reason: stringEnum(["tm_remove", "task_leave"]),
-  },
-```
-
 ### [`TaskConversationCreate`](./tasks.ts#L679)
 
 _Variable_
-
-```ts
- * every `conversation_participants` row under the task. See spec
- * body Goal 2 for the atomicity, idempotency, and
- * last-participant-task-closure contract.
- *
- * Notification emission for each conversation the caller leaves uses
- * `TaskConversationParticipantsRemovedNotificationDefinition` with
- * `reason: "task_leave"`. If removal empties `task_participants`
- * the task transitions to `status = 'closed'` and
- * `TaskClosedNotificationDefinition` fires alongside in the same
- * transaction.
- */
-export const TaskLeave = defineRpc(
-```
 
 TM-only: mint a new conversation under an existing task.
 Renamed/reshaped from legacy `tasks/createConversation`. NEW
@@ -758,31 +636,13 @@ Schema diff vs. legacy `TasksCreateConversation`:
 
 _TypeAlias_
 
-```ts
-  },
-  { additionalProperties: false },
-```
-
 ### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L933)
 
 _Variable_
 
-```ts
-    byAgentOrTm: stringEnum(["tm"]),
-  },
-```
-
 ### [`TaskConversationList`](./tasks.ts#L742)
 
 _Variable_
-
-```ts
-      tag: ConversationCreateAuthorization,
-      argsOf: (
-        params: unknown,
-        ctx: unknown,
-      ): ObtainConversationCreateAuthorizationInput
-```
 
 Self-only listing of every conversation the caller participates
 in (across all tasks). No filter params; archived rows are
@@ -794,65 +654,31 @@ Goal 1 for the full pagination + visibility contract.
 _TypeAlias_
 
 ```ts
- * participant cardinality (caller + targets totals 2 ⇒ `"dm"`,
- * otherwise `"group"`).
+// Recipient fan-out:
+//   - `created` → initial `participants` list
+//   - `archived` / `unarchived` → post-mutation `conversation_participants`
+//   - `participants/added` → post-mutation membership (newcomer included)
 ```
 
 ### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L926)
 
 _TypeAlias_
 
-```ts
-const TaskConversationParticipantsAddedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    addedAgentId: AgentId,
-    // Spec body Goal 5 declares this enum literal. Only `"tm"` for
-    // now (D1 narrows authority to TM-only); D3 may widen.
-    byAgentOrTm: stringEnum(["tm"]),
-  },
-  { additionalProperties: false },
-);
-```
-
 ### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L952)
 
 _Variable_
-
-```ts
-  typeof TaskConversationArchivedNotificationSchema
->
-```
 
 ### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L929)
 
 _TypeAlias_
 
-```ts
-    conversationId: ConversationId,
-    addedAgentId: AgentId,
-    // Spec body Goal 5 declares this enum literal. Only `"tm"` for
-    // now (D1 narrows authority to TM-only); D3 may widen.
-```
-
 ### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L958)
 
 _Variable_
 
-```ts
-  typeof TaskConversationParticipantsAddedNotificationSchema
->
-```
-
 ### [`TaskConversationRemoveParticipant`](./tasks.ts#L840)
 
 _Variable_
-
-```ts
- * TM-only: add an agent to one conversation. The agent MUST already
- * appear in `task_participants` for `taskId`
-```
 
 TM-only: remove an agent from one conversation. The agent stays
 in `task_participants` (so they may still receive messages on
@@ -862,36 +688,19 @@ other conversations within the task).
 
 _Variable_
 
-```ts
-// drift between siblings.
-const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown)
-```
-
 TM-only: reverse of `task/conversation/archive`.
 
 ### [`TaskConversationUnarchivedNotification`](./tasks.ts#L923)
 
 _TypeAlias_
 
-```ts
-  { additionalProperties: false },
-```
-
 ### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L946)
 
 _Variable_
 
-```ts
-)
-```
-
 ### [`TaskCreate`](./tasks.ts#L627)
 
 _Variable_
-
-```ts
-  return 1 + participantAgentIds.length === 2 ? "dm" : "group"
-```
 
 Reshaped task-create: `appId` REQUIRED (branded), `tmType`
 ELIMINATED at the wire, optional `initialConversation` for atomic
@@ -912,7 +721,7 @@ when `initialConversation` is omitted.
 _Variable_
 
 ```ts
-export const TaskFailedNotificationDefinition = defineNotification(
+}
 ```
 
 Pushed when a task fails before becoming ready.
@@ -922,7 +731,8 @@ Pushed when a task fails before becoming ready.
 _TypeAlias_
 
 ```ts
-export const TaskId = brandedId("TaskId");
+ * reject agents who are not already in `task_participants`. The error
+ * tag lets clients distinguish "wrong agentId shape" (InvalidParams)
 ```
 
 ### [`TaskId`](./tasks.ts#L73)
@@ -930,17 +740,19 @@ export const TaskId = brandedId("TaskId");
 _Variable_
 
 ```ts
-export const TaskId = brandedId("TaskId")
+ * reject agents who are not already in `task_participants`. The error
+ * tag lets clients distinguish "wrong agentId shape" (InvalidParams)
+ * from "agent exists but is not admitted to this task" (this tag)
+ * without parsing message strings.
+ */
+export class ParticipantNotAdmittedError extends Data.TaggedError(
+  "ParticipantNotAdmitted",
+)<RpcErrorPayload>
 ```
 
 ### [`TaskLeave`](./tasks.ts#L659)
 
 _Variable_
-
-```ts
-  name: "task/create",
-  params: Type.Object(
-```
 
 Self-only: caller removes themselves from `task_participants` AND
 every `conversation_participants` row under the task. See spec
@@ -958,27 +770,12 @@ transaction.
 
 _Variable_
 
-```ts
-export const taskNotifications = [
-  ConversationCreatedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ParticipantsAddedNotificationDefinition,
-  ParticipantsRemovedNotificationDefinition,
-  MessageReceivedNotificationDefinition,
-  TaskClosedNotificationDefinition,
-  TaskFailedNotificationDefinition,
-  // Spec D1: dual-emit alongside the legacy `conversations/*` set.
-  // D3 deletes the legacy entries
-```
-
 ### [`TaskParticipant`](./tasks.ts#L165)
 
 _TypeAlias_
 
 ```ts
-export type TaskParticipant = Static<typeof TaskParticipantSchema>;
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
 ```
 
 ### [`taskRpcMethods`](./methods.ts#L61)
@@ -986,37 +783,7 @@ export type TaskParticipant = Static<typeof TaskParticipantSchema>;
 _Variable_
 
 ```ts
-export const taskRpcMethods = [
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
-  MessagesSend,
-  MessagesList,
-  TasksCreate,
-  TasksGet,
-  TasksList,
-  TasksClose,
-  TasksCreateConversation,
-  TasksCloseConversation,
-  TasksAddParticipant,
-  TasksRemoveParticipant,
-  TasksStoreMessage,
-  TasksGetMessages,
-  TasksGetMessagesSince,
-  // Spec D1 additions. Order: TaskCreate / TaskLeave first (task-level
-  // operations), then the `task/conversation/*` admin set.
-  TaskCreate,
-  TaskLeave,
   TaskConversationCreate,
-  TaskConversationList,
   TaskConversationArchive,
   TaskConversationUnarchive,
   TaskConversationAddParticipant,
@@ -1029,7 +796,66 @@ export const taskRpcMethods = [
 _Variable_
 
 ```ts
-export const TasksAddParticipant = defineRpc(
+// `TmAuthority` first so the lazy `provideServiceEffect` runs the TM
+// check ahead of any participant probe. A non-TM caller sees
+// `ForbiddenError` rather than leaking task-membership existence
+// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
+// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
+// four descriptors' capability shapes from drifting.
+//
+// Atomicity: `task/create` with `initialConversation` commits the
+// task row, then opens a separate transaction for the conversation
+// insert. A conversation failure leaves the task row in place. Strict
+// cross-call atomicity (single commit covering both rows) is not
+// guaranteed.
+//
+// Notification emission: each mutating op enqueues notifications
+// AFTER the row mutation returns. `task/create` with
+// `initialConversation` emits one `task/conversation/created`.
+// `task/leave` emits one
+// `task/conversation/participants/removed { reason: "task_leave" }`
+// per conversation the leaver was in, plus `task/closed` if the leave
+// empties `task_participants`. Broadcast is best-effort: socket
+// writes fork via `Effect.runFork` and do not roll back the DB write
+// on delivery failure.
+// ─────────────────────────────────────────────────────────────────────
+
+const InitialConversationSchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+    participants: Type.Optional(Type.Array(AgentId, { minItems: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+export type InitialConversationInput = Static<typeof InitialConversationSchema>;
+
+const TaskConversationListItemSchema = Type.Object(
+  {
+    taskId: TaskId,
+    conversation: ConversationSchema,
+    participants: Type.Array(AgentId),
+  },
+  { additionalProperties: false },
+);
+
+export type TaskConversationListItem = Static<
+  typeof TaskConversationListItemSchema
+>;
+
+/**
+ * Open to any authenticated agent. Returns `{ task, conversation }`
+ * where `conversation` is `null` when `initialConversation` is omitted.
+ *
+ * Dedup is a client-side concern: clients that want "one DM per
+ * participant set" semantics list their tasks and filter locally
+ * before creating a new one.
+ *
+ * NOTE (#683): the agent-facing entry RPC is `task/request`; the
+ * TM-facing wire callback `task/create` lives in
+ * `packages/protocol/src/app/methods.ts`. The server forks
+ * `task/create` to the bound TM after inserting the task in
+ * `waiting`; the TM's verdict drives the lifecycle (accept → active
 ```
 
 ### [`TasksClose`](./tasks.ts#L219)
@@ -1037,7 +863,7 @@ export const TasksAddParticipant = defineRpc(
 _Variable_
 
 ```ts
-export const TasksClose = defineRpc(
+      argsOf: (params: unknown, ctx: unknown)
 ```
 
 ### [`TasksCloseConversation`](./tasks.ts#L283)
@@ -1045,7 +871,66 @@ export const TasksClose = defineRpc(
 _Variable_
 
 ```ts
-export const TasksCloseConversation = defineRpc(
+
+// ─────────────────────────────────────────────────────────────────────
+// `task/*` + `task/conversation/*` — the task-scoped admin surface.
+//
+// A task is the unit of admission: every conversation under a task
+// draws its participant pool from `task_participants`, and the task's
+// owning app's TM (task manager) is the gatekeeper for membership
+// changes.
+//
+// Layout:
+//   - `task/create` / `task/leave` — task-level lifecycle.
+//   - `task/conversation/*` — conversation lifecycle under a task.
+//   - `task/conversation/participants/*` — membership inside a
+//     specific conversation.
+//
+// Authority gates:
+//
+// | Method                                  | Authority                                |
+// |-----------------------------------------|------------------------------------------|
+// | TaskCreate                              | any authenticated agent + contact-policy |
+// | TaskLeave                               | self only                                |
+// | TaskConversationCreate                  | TM + participant-admitted invariant      |
+// | TaskConversationList                    | self only (caller in conversation)       |
+// | TaskConversationArchive / Unarchive     | TM only                                  |
+// | TaskConversationAddParticipant          | TM + participant-admitted invariant      |
+// | TaskConversationRemoveParticipant       | TM only                                  |
+//
+// Participant-admitted invariant (`TaskConversationCreate`,
+// `TaskConversationAddParticipant`): every agent listed in
+// `participants` MUST already appear in `task_participants` for
+// `taskId`. Conversations are scoped strictly within their task's
+// admission set; missing rows fail with `ParticipantNotAdmittedError`.
+//
+// Capability tags on the four TM-gated admin methods declare
+// `TmAuthority` first so the lazy `provideServiceEffect` runs the TM
+// check ahead of any participant probe. A non-TM caller sees
+// `ForbiddenError` rather than leaking task-membership existence
+// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
+// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
+// four descriptors' capability shapes from drifting.
+//
+// Atomicity: `task/create` with `initialConversation` commits the
+// task row, then opens a separate transaction for the conversation
+// insert. A conversation failure leaves the task row in place. Strict
+// cross-call atomicity (single commit covering both rows) is not
+// guaranteed.
+//
+// Notification emission: each mutating op enqueues notifications
+// AFTER the row mutation returns. `task/create` with
+// `initialConversation` emits one `task/conversation/created`.
+// `task/leave` emits one
+// `task/conversation/participants/removed { reason: "task_leave" }`
+// per conversation the leaver was in, plus `task/closed` if the leave
+// empties `task_participants`. Broadcast is best-effort: socket
+// writes fork via `Effect.runFork` and do not roll back the DB write
+// on delivery failure.
+// ─────────────────────────────────────────────────────────────────────
+
+const InitialConversationSchema = Type.Object(
+  {
 ```
 
 ### [`TasksCreate`](./tasks.ts#L167)
@@ -1053,7 +938,7 @@ export const TasksCloseConversation = defineRpc(
 _Variable_
 
 ```ts
-export const TasksCreate = defineRpc(
+        const c = ctx as CallerConnIdCtx
 ```
 
 ### [`TasksCreateConversation`](./tasks.ts#L236)
@@ -1061,23 +946,22 @@ export const TasksCreate = defineRpc(
 _Variable_
 
 ```ts
-export const TasksCreateConversation = defineRpc(
+    // `reject.reason`, the synthesized `"tm_unreachable"` /
+    // `"timeout"` strings from the fail-closed envelope, and any
+    // future caller-supplied failure reason all flow through here.
+    reason: Type.Optional(Type.String(
 ```
 
 ### [`TasksGet`](./tasks.ts#L180)
 
 _Variable_
 
-```ts
-export const TasksGet = defineRpc(
-```
-
 ### [`TasksGetMessages`](./tasks.ts#L424)
 
 _Variable_
 
 ```ts
-export const TasksGetMessages = defineRpc(
+ * for `taskId`
 ```
 
 ### [`TasksGetMessagesSince`](./tasks.ts#L465)
@@ -1085,7 +969,7 @@ export const TasksGetMessages = defineRpc(
 _Variable_
 
 ```ts
-export const TasksGetMessagesSince = defineRpc(
+        const p = params as
 ```
 
 ### [`TasksList`](./tasks.ts#L203)
@@ -1093,7 +977,8 @@ export const TasksGetMessagesSince = defineRpc(
 _Variable_
 
 ```ts
-export const TasksList = defineRpc(
+  ] as const,
+})
 ```
 
 ### [`TasksRemoveParticipant`](./tasks.ts#L343)
@@ -1101,7 +986,7 @@ export const TasksList = defineRpc(
 _Variable_
 
 ```ts
-export const TasksRemoveParticipant = defineRpc(
+    name: Type.Optional(Type.String(
 ```
 
 ### [`TasksStoreMessage`](./tasks.ts#L366)
@@ -1109,7 +994,13 @@ export const TasksRemoveParticipant = defineRpc(
 _Variable_
 
 ```ts
-export const TasksStoreMessage = defineRpc(
+ * where `conversation` is `null` when `initialConversation` is omitted.
+ *
+ * Dedup is a client-side concern: clients that want "one DM per
+ * participant set" semantics list their tasks and filter locally
+ * before creating a new one.
+ *
+ * NOTE (#683): the agent-facing entry RPC is `task/request`
 ```
 
 ### [`TaskStatus`](./tasks.ts#L133)
@@ -1117,7 +1008,9 @@ export const TasksStoreMessage = defineRpc(
 _TypeAlias_
 
 ```ts
-export type TaskStatus = Static<typeof TaskStatusEnum>;
+    taskId: TaskId,
+    agentId: AgentId,
+    admittedAt: Type.Union([DateTimeString, Type.Null()]),
 ```
 
 ### [`TmDecision`](./messages.ts#L122)
@@ -1125,23 +1018,29 @@ export type TaskStatus = Static<typeof TaskStatusEnum>;
 _TypeAlias_
 
 ```ts
-export type TmDecision = Static<typeof TmDecisionSchema>;
+      reason: Type.Optional(Type.String()),
 ```
 
 ### [`tmDecisionSchema`](./messages.ts#L137)
 
 _Function_
 
-```ts
-export function tmDecisionSchema(): typeof TmDecisionSchema
-```
-
 ### [`TmType`](./tasks.ts#L128)
 
 _TypeAlias_
 
 ```ts
-export type TmType = (typeof TmTypeEnum)["static"];
+// nullable + the `WHERE admitted_at IS NOT NULL` filters in read
+// paths stay in place so the future flow drops in without
+// re-engineering the gating.
+const TaskParticipantSchema = Type.Object(
+  {
+    taskId: TaskId,
+    agentId: AgentId,
+    admittedAt: Type.Union([DateTimeString, Type.Null()]),
+  },
+  { additionalProperties: false },
+);
 ```
 
 ### [`validateMessage`](./messages.ts#L70)
@@ -1149,9 +1048,8 @@ export type TmType = (typeof TmTypeEnum)["static"];
 _Variable_
 
 ```ts
-export const validateMessage = ajv.compile(MessageSchema) as (
-  value: unknown,
-)
+    createdAt: DateTimeString,
+  },
 ```
 
 ### [`validateTextPart`](./messages.ts#L67)
@@ -1159,9 +1057,11 @@ export const validateMessage = ajv.compile(MessageSchema) as (
 _Variable_
 
 ```ts
-export const validateTextPart = ajv.compile(TextPartSchema) as (
-  value: unknown,
-)
+    parts: MessagePartsSchema,
+    taggedEntities: Type.Optional(Type.Array(AgentId)),
+    patchedBy: Type.Optional(Type.String()),
+    createdAt: DateTimeString,
+  },
 ```
 
 ### [`validateTmDecision`](./messages.ts#L123)
@@ -1169,9 +1069,7 @@ export const validateTextPart = ajv.compile(TextPartSchema) as (
 _Variable_
 
 ```ts
-export const validateTmDecision = ajv.compile(TmDecisionSchema) as (
-  value: unknown,
-)
+    },
 ```
 
 ## Files

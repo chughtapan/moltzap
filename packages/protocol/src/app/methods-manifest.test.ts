@@ -122,6 +122,17 @@ describe("AppManifestSchema hooks", () => {
     expect(manifestIsValid(manifest)).toBe(true);
   });
 
+  it("accepts manifest with task_create timeout", () => {
+    const manifest = {
+      appId: "werewolf",
+      name: "Werewolf",
+      hooks: {
+        task_create: { timeout_ms: 3000 },
+      },
+    };
+    expect(manifestIsValid(manifest)).toBe(true);
+  });
+
   it("accepts hook timeouts above 30s (no upper cap)", () => {
     // Werewolf Phase 2 declares `dispatch_authorize: 900_000ms` (15 min)
     // for the player-input waiter pattern; AppHost enforces the declared
@@ -198,7 +209,7 @@ describe("DispatchAuthorize verdict union", () => {
       validateAuthorizeResult({
         admission: {
           decision: "grant",
-          leaseId: "lease-1",
+          leaseId: "550e8400-e29b-41d4-a716-446655440011",
           leaseTimeoutMs: 90_000,
           dispatchMessageId: "550e8400-e29b-41d4-a716-446655440010",
         },

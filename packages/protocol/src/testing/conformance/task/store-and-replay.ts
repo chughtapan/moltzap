@@ -84,6 +84,7 @@ function sendReplayMessages(fixture: StoreFixture, sent: number) {
     for (let i = 0; i < sent; i++) {
       yield* fixture.owner.client
         .sendRpc(MessagesSend, {
+          taskId: fixture.taskId,
           conversationId: fixture.conversationId,
           parts: [{ type: "text", text: `sr-${i}` }],
         })

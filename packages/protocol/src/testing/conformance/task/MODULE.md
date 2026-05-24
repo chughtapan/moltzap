@@ -24,11 +24,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 _Function_
 
 ```ts
-
-export function acquireClient(
-  ctx: ConformanceRunContext,
-  name: string,
-): Effect.Effect<ConversationActor, string, Scope.Scope>
+function freshConformanceAppId(): string
 ```
 
 ### [`acquireConversation`](./_helpers.ts#L556)
@@ -36,12 +32,8 @@ export function acquireClient(
 _Function_
 
 ```ts
-
-export function acquireConversation(
-  ctx: ConformanceRunContext,
-  n: number,
-  namePrefix: string,
-): Effect.Effect<ConversationFixture, string, Scope.Scope>
+ */
+function freshConformanceAppId(): string
 ```
 
 ### [`acquirePropertyConversation`](./_helpers.ts#L288)
@@ -49,11 +41,6 @@ export function acquireConversation(
 _Function_
 
 ```ts
-
-export function acquirePropertyConversation(
-  ctx: ConformanceRunContext,
-  propertyName: string,
-  namePrefix: string,
 ): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
 ```
 
@@ -62,7 +49,7 @@ export function acquirePropertyConversation(
 _Property_
 
 ```ts
-  readonly agent: TestAgent;
+export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000;
 ```
 
 ### [`AgentIdValue`](./_helpers.ts#L51)
@@ -70,7 +57,10 @@ _Property_
 _TypeAlias_
 
 ```ts
-export type AgentIdValue = Static<typeof AgentId>;
+import {
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
 ```
 
 ### [`archiveConversation`](./_helpers.ts#L321)
@@ -78,10 +68,8 @@ export type AgentIdValue = Static<typeof AgentId>;
 _Function_
 
 ```ts
-
-export function archiveConversation(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
+  taskId: TaskId,
+  conversationId: ConversationId,
 )
 ```
 
@@ -90,12 +78,7 @@ export function archiveConversation(
 _Function_
 
 ```ts
-
-export function assertConversationRejectsMessages(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-  expectedError:
+      onLeft: (error)
 ```
 
 ### [`awaitOneNotification`](./_helpers.ts#L256)
@@ -103,11 +86,6 @@ export function assertConversationRejectsMessages(
 _Function_
 
 ```ts
- */
-export function awaitOneNotification<D extends AnyNotificationDefinition>(
-  buffer: NotificationBuffer,
-  definition: D,
-  timeoutMs: number,
 ): Effect.Effect<DecodedNotification<D>, string>
 ```
 
@@ -134,7 +112,7 @@ mapper without re-deriving a tagged error type per definition.
 _Property_
 
 ```ts
-  readonly client: TestClient;
+export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256;
 ```
 
 ### [`ConversationActor`](./_helpers.ts#L60)
@@ -142,23 +120,7 @@ _Property_
 _TypeAlias_
 
 ```ts
-export type ConversationActor = {
-  readonly agent: TestAgent;
-  readonly client: TestClient;
-
-  /**
-   * Per-client historical notification buffer (#645): the consolidated
-   * `TestClient.subscribe` only emits frames arriving AFTER
-   * materialisation, so a sequential `send → awaitOneNotification` races
-   * the response frame. The buffer is fed by a long-lived
-   * `subscribeAll()` pump installed at `acquireClient` time;
-   * `awaitOneNotification` consumes the buffer so frames that arrived
-   * between the triggering RPC and the wait are still observable. This
-   * mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
-   * `makeNotificationBuffer` JSDoc below covers the design).
-   */
-  readonly notifications: NotificationBuffer;
-};
+export const DELIVERY_CATEGORY = "delivery" as const;
 ```
 
 ### [`ConversationFixture`](./_helpers.ts#L54)
@@ -166,11 +128,7 @@ export type ConversationActor = {
 _Interface_
 
 ```ts
-export interface ConversationFixture {
-  readonly owner: ConversationActor;
-  readonly participants: ReadonlyArray<ConversationActor>;
-  readonly conversationId: ConversationIdValue;
-}
+} from "../_shared/driver/test-client.js";
 ```
 
 ### [`ConversationIdValue`](./_helpers.ts#L52)
@@ -178,7 +136,9 @@ export interface ConversationFixture {
 _TypeAlias_
 
 ```ts
-export type ConversationIdValue = Static<typeof ConversationId>;
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
 ```
 
 ### [`DELIVERY_CATEGORY`](./_helpers.ts#L45)
@@ -186,7 +146,7 @@ export type ConversationIdValue = Static<typeof ConversationId>;
 _Variable_
 
 ```ts
-export const DELIVERY_CATEGORY = "delivery" as const
+import
 ```
 
 ### [`DELIVERY_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L47)
@@ -194,7 +154,9 @@ export const DELIVERY_CATEGORY = "delivery" as const
 _Variable_
 
 ```ts
-export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256
+  conversationId as makeConversationId,
+  taskId as makeTaskId,
+} from "../_shared/test-fixtures.js"
 ```
 
 ### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L48)
@@ -202,7 +164,8 @@ export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256
 _Variable_
 
 ```ts
-export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
+  taskId as makeTaskId,
+} from "../_shared/test-fixtures.js"
 ```
 
 ### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L46)
@@ -210,7 +173,7 @@ export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 _Variable_
 
 ```ts
-export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
+import
 ```
 
 ### [`deliveryViolation`](./_helpers.ts#L226)
@@ -218,7 +181,8 @@ export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 _Function_
 
 ```ts
-  readonly by?: unknown
+  reason: string,
+): PropertyInvariantViolation
 ```
 
 ### [`firstParticipant`](./_helpers.ts#L298)
@@ -226,11 +190,7 @@ _Function_
 _Function_
 
 ```ts
-
-export function firstParticipant(
-  fixture: ConversationFixture,
-  propertyName: string,
-): Effect.Effect<ConversationActor, PropertyInvariantViolation>
+  const participant = fixture.participants[0]
 ```
 
 ### [`fixtureN`](./_helpers.ts#L284)
@@ -238,8 +198,11 @@ export function firstParticipant(
 _Function_
 
 ```ts
-
-export function fixtureN(requested: number): number
+export function acquirePropertyConversation(
+  ctx: ConformanceRunContext,
+  propertyName: string,
+  namePrefix: string,
+): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
 ```
 
 ### [`NotificationBuffer`](./_helpers.ts#L92)
@@ -247,9 +210,9 @@ export function fixtureN(requested: number): number
 _Interface_
 
 ```ts
-  readonly snapshot: Ref.Ref<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
-  >;
+ * Historical notification buffer used by `awaitOneNotification`. Holds
+ * every inbound notification arriving on a single `TestClient`'s
+ * `subscribeAll()` Stream until a consumer pulls a matching frame.
 ```
 
 Historical notification buffer used by `awaitOneNotification`. Holds
@@ -269,7 +232,9 @@ a missing notification as a timeout.
 _Property_
 
 ```ts
-};
+
+  /**
+   * Per-client historical notification buffer (#645): the consolidated
 ```
 
 Per-client historical notification buffer (#645): the consolidated
@@ -296,8 +261,6 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void
 _Function_
 
 ```ts
-export function registerConversationLifecycle(
-  ctx: ConformanceRunContext,
 ): void
 ```
 
@@ -348,7 +311,7 @@ export function registerTaskBoundaryIsolation(
 _Function_
 
 ```ts
-export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
+const PROPERTY = "task-close-lifecycle"
 ```
 
 ### [`registerTaskConversationAddParticipant`](./task-conversation-family.ts#L391)
@@ -356,9 +319,7 @@ export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
 _Function_
 
 ```ts
-export function registerTaskConversationAddParticipant(
-  ctx: ConformanceRunContext,
-): void
+    )
 ```
 
 ### [`registerTaskConversationArchiveDenied`](./task-conversation-family.ts#L375)
@@ -366,9 +327,8 @@ export function registerTaskConversationAddParticipant(
 _Function_
 
 ```ts
-export function registerTaskConversationArchiveDenied(
-  ctx: ConformanceRunContext,
-): void
+  alice.client
+    .sendRpc(TaskRequest,
 ```
 
 ### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L275)
@@ -376,9 +336,10 @@ export function registerTaskConversationArchiveDenied(
 _Function_
 
 ```ts
-export function registerTaskConversationCreateAndList(
-  ctx: ConformanceRunContext,
-): void
+    TASK_REQUEST_REJECT_PROPERTY,
+    "task/request fails and fires task/failed when the bound TM rejects via the task/create callback",
+    Effect.scoped(
+      Effect.gen(function* ()
 ```
 
 ### [`registerTaskConversationCreateDenied`](./task-conversation-family.ts#L474)
@@ -386,9 +347,13 @@ export function registerTaskConversationCreateAndList(
 _Function_
 
 ```ts
-export function registerTaskConversationCreateDenied(
-  ctx: ConformanceRunContext,
-): void
+// `packages/server/src/__tests__/integration/task/`.
+
+const expectRpcDenial = <Result>(
+  send: Effect.Effect<Result, unknown>,
+  property: string,
+  context: string,
+): Effect.Effect<void, FixtureError>
 ```
 
 ### [`registerTaskConversationRemoveParticipant`](./task-conversation-family.ts#L434)
@@ -396,7 +361,8 @@ export function registerTaskConversationCreateDenied(
 _Function_
 
 ```ts
-export function registerTaskConversationRemoveParticipant(
+
+export function registerTaskConversationCreateAndList(
   ctx: ConformanceRunContext,
 ): void
 ```
@@ -406,7 +372,8 @@ export function registerTaskConversationRemoveParticipant(
 _Function_
 
 ```ts
-export function registerTaskCreate(ctx: ConformanceRunContext): void
+      ),
+    )
 ```
 
 ### [`registerTaskLeave`](./task-conversation-family.ts#L183)
@@ -414,7 +381,9 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void
 _Function_
 
 ```ts
-export function registerTaskLeave(ctx: ConformanceRunContext): void
+      deliveryViolation(property, `task/created missing: ${reason}`),
+    ),
+  )
 ```
 
 ### [`sendText`](./_helpers.ts#L310)
@@ -422,10 +391,6 @@ export function registerTaskLeave(ctx: ConformanceRunContext): void
 _Function_
 
 ```ts
-
-export function sendText(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
   text: string,
 )
 ```
@@ -435,8 +400,8 @@ export function sendText(
 _Variable_
 
 ```ts
-export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext)
+        "task/conversation/archive",
+      )
 ```
 
 ### [`TASK_PROPERTIES`](./index.ts#L63)
@@ -444,6 +409,8 @@ export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
 _Variable_
 
 ```ts
+ * Spec D1 additions append to the delivery subset.
+ */
 export const TASK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext)
 ```
@@ -457,11 +424,13 @@ Spec D1 additions append to the delivery subset.
 _Function_
 
 ```ts
+}
 
-export function unarchiveConversation(
-  actor: ConversationActor,
-  conversationId: ConversationIdValue,
-)
+export function waitForConversationCreatedNotification(
+  observer: ConversationActor,
+  conversationId: ConversationId,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
 ### [`updateConversationName`](./_helpers.ts#L328)
@@ -469,11 +438,12 @@ export function unarchiveConversation(
 _Function_
 
 ```ts
+}
 
-export function updateConversationName(
+export function unarchiveConversation(
   actor: ConversationActor,
-  conversationId: ConversationIdValue,
-  name: string,
+  taskId: TaskId,
+  conversationId: ConversationId,
 )
 ```
 
@@ -482,11 +452,12 @@ export function updateConversationName(
 _Function_
 
 ```ts
+}
 
-export function waitForArchivedEvent(
+export function waitForUnarchivedEvent(
   observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
+  conversationId: ConversationId,
+  _byAgentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
@@ -496,12 +467,7 @@ export function waitForArchivedEvent(
 _Function_
 
 ```ts
-
-export function waitForConversationCreatedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+  return Effect.gen(function* ()
 ```
 
 ### [`waitForConversationUpdatedNotification`](./_helpers.ts#L373)
@@ -509,12 +475,6 @@ export function waitForConversationCreatedNotification(
 _Function_
 
 ```ts
-
-export function waitForConversationUpdatedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  name: string,
-  propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
@@ -523,12 +483,11 @@ export function waitForConversationUpdatedNotification(
 _Function_
 
 ```ts
-
-export function waitForMessageReceivedNotification(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+      observer.notifications,
+      TaskConversationArchivedNotificationDefinition,
+      DELIVERY_DEFAULT_TIMEOUT_MS,
+    ).pipe(
+      Effect.mapError((reason)
 ```
 
 ### [`waitForUnarchivedEvent`](./_helpers.ts#L463)
@@ -536,13 +495,7 @@ export function waitForMessageReceivedNotification(
 _Function_
 
 ```ts
-
-export function waitForUnarchivedEvent(
-  observer: ConversationActor,
-  conversationId: ConversationIdValue,
-  byAgentId: AgentIdValue,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation>
+  readonly actor: ConversationActor
 ```
 
 ## Files

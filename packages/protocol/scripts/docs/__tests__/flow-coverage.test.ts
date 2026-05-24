@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";
-import {
-  computeFlowCoverage,
-  isBehavioralExport,
-} from "../flow-coverage.js";
+import { computeFlowCoverage, isBehavioralExport } from "../flow-coverage.js";
 import type { TypeDocCache, TypeDocExport } from "../typedoc-load.js";
 
 function makeExport(overrides: Partial<TypeDocExport>): TypeDocExport {
@@ -85,9 +82,9 @@ describe("isBehavioralExport", () => {
   });
 
   it("returns false for Class / Interface / TypeAlias", () => {
-    expect(
-      isBehavioralExport(makeExport({ kind: ReflectionKind.Class })),
-    ).toBe(false);
+    expect(isBehavioralExport(makeExport({ kind: ReflectionKind.Class }))).toBe(
+      false,
+    );
     expect(
       isBehavioralExport(makeExport({ kind: ReflectionKind.Interface })),
     ).toBe(false);

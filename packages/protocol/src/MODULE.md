@@ -37,8 +37,8 @@ own home layer.
 _TypeAlias_
 
 ```ts
-export type AnyNotificationDefinition =
-  (typeof notificationDefinitions)[number];
+  ...tmOnlyTaskRpcMethods,
+] as const;
 ```
 
 ### [`AnyRpcDefinition`](./rpc-registry.ts#L77)
@@ -46,7 +46,8 @@ export type AnyNotificationDefinition =
 _TypeAlias_
 
 ```ts
-export type AnyRpcDefinition = (typeof rpcMethods)[number] &
+  ...appRpcMethods,
+] as const;
 ```
 
 ### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L80)
@@ -54,7 +55,10 @@ export type AnyRpcDefinition = (typeof rpcMethods)[number] &
 _TypeAlias_
 
 ```ts
-export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
+export const taskMasterRpcMethods = [
+  ...agentClientRpcMethods,
+  ...tmOnlyTaskRpcMethods,
+] as const;
 ```
 
 ### [`brandedId`](./schema-primitives.ts#L60)
@@ -126,82 +130,6 @@ _Function_
 _Function_
 
 ```ts
-    Effect.mapError(wrap),
-    Effect.flatMap(
-      (decoded): Effect.Effect<DecodedServerInbound, MalformedFrameError>
-```
-
-Typed entry point for server-inbound frames. Fails closed with
-`MalformedFrameError` on any wire-level mismatch.
-
-### [`DecodedClientInbound`](./rpc-registry.ts#L125)
-
-_TypeAlias_
-
-```ts
-export type DecodedClientInbound =
-  | ({ readonly _tag: "ClientRequest" } & DecodedRpcRequest<AnyRpcDefinition>)
-```
-
-Decoded shape of a frame inbound to the server (from client):
-a client RPC request, a response (success XOR error) to a
-server-initiated callback, or a notification.
-
-### [`DecodedResponseError`](./rpc-registry.ts#L99)
-
-_Class_
-
-```ts
-export class DecodedResponseError extends Data.TaggedClass("ResponseError")<{
-  readonly frame: ResponseFrame;
-  readonly id: JsonRpcId;
-  readonly error: Extract<ResponseFrame, { error: unknown }>["error"];
-}> {}
-```
-
-Discriminated error arm of a decoded JSON-RPC response — wire-frame
-decoder discriminator, not an Effect tagged error (the wire `error`
-sub-object carries `code`/`message`/`data`, no Effect machinery).
-
-### [`DecodedResponseSuccess`](./rpc-registry.ts#L86)
-
-_Class_
-
-```ts
-export class DecodedResponseSuccess extends Data.TaggedClass(
-  "ResponseSuccess",
-)<{
-  readonly frame: ResponseFrame;
-  readonly id: JsonRpcId;
-  readonly result: unknown;
-}> {}
-```
-
-Discriminated success arm of a decoded JSON-RPC response.
-
-### [`DecodedServerInbound`](./rpc-registry.ts#L110)
-
-_TypeAlias_
-
-```ts
-export type DecodedServerInbound =
-  | DecodedResponseSuccess
-  | DecodedResponseError
-  | ({
-      readonly _tag: "ServerRequest";
-    } & DecodedRpcRequest<AnyTaskCallbackRpcDefinition>)
-```
-
-Decoded shape of a frame inbound to the client (from server):
-a response (success XOR error), a server-initiated task-callback
-request, or a notification.
-
-### [`decodeServerInbound`](./rpc-registry.ts#L168)
-
-_Function_
-
-```ts
- *
  * ```mermaid
  * flowchart TD
  *   A["raw socket payload&lt;br>(JSON.parse happens before this call)"]
@@ -224,6 +152,79 @@ _Function_
  * Sibling:
 ```
 
+Typed entry point for server-inbound frames. Fails closed with
+`MalformedFrameError` on any wire-level mismatch.
+
+### [`DecodedClientInbound`](./rpc-registry.ts#L125)
+
+_TypeAlias_
+
+```ts
+export class DecodedResponseError extends Data.TaggedClass("ResponseError")<{
+  readonly frame: ResponseFrame;
+  readonly id: JsonRpcId;
+  readonly error: Extract<ResponseFrame, { error: unknown }>["error"];
+}> {}
+```
+
+Decoded shape of a frame inbound to the server (from client):
+a client RPC request, a response (success XOR error) to a
+server-initiated callback, or a notification.
+
+### [`DecodedResponseError`](./rpc-registry.ts#L99)
+
+_Class_
+
+```ts
+export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
+```
+
+Discriminated error arm of a decoded JSON-RPC response — wire-frame
+decoder discriminator, not an Effect tagged error (the wire `error`
+sub-object carries `code`/`message`/`data`, no Effect machinery).
+
+### [`DecodedResponseSuccess`](./rpc-registry.ts#L86)
+
+_Class_
+
+```ts
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...taskRpcMethods,
+  ...appRpcMethods,
+] as const;
+```
+
+Discriminated success arm of a decoded JSON-RPC response.
+
+### [`DecodedServerInbound`](./rpc-registry.ts#L110)
+
+_TypeAlias_
+
+```ts
+
+/** Discriminated success arm of a decoded JSON-RPC response. */
+export class DecodedResponseSuccess extends Data.TaggedClass(
+  "ResponseSuccess",
+)<{
+  readonly frame: ResponseFrame;
+  readonly id: JsonRpcId;
+  readonly result: unknown;
+}> {}
+```
+
+Decoded shape of a frame inbound to the client (from server):
+a response (success XOR error), a server-initiated task-callback
+request, or a notification.
+
+### [`decodeServerInbound`](./rpc-registry.ts#L168)
+
+_Function_
+
+```ts
+  if (frame.id === null)
+```
+
 Typed entry point for client-inbound frames. Fails closed with
 `MalformedFrameError` on any wire-level mismatch.
 
@@ -232,12 +233,7 @@ Typed entry point for client-inbound frames. Fails closed with
 _Variable_
 
 ```ts
-export const notificationDefinitions = [
-  ...networkNotifications,
-  ...identityNotifications,
-  ...taskNotifications,
-  ...appNotifications,
-] as const
+//   `serverRpcMethods`      — server inbound
 ```
 
 ### [`PROTOCOL_VERSION`](./version.ts#L2)
@@ -245,7 +241,7 @@ export const notificationDefinitions = [
 _Variable_
 
 ```ts
-export const PROTOCOL_VERSION = "2026.520.1"
+export const PROTOCOL_VERSION = "2026.523.0"
 ```
 
 ### [`RegisteredTaggedError`](./rpc-registry.ts#L51)
@@ -253,6 +249,9 @@ export const PROTOCOL_VERSION = "2026.520.1"
 _TypeAlias_
 
 ```ts
+ * registry built by `registerErrorClass` — keep in sync if a new class
+ * lands.
+ */
 export type RegisteredTaggedError =
   | UnauthorizedError
   | ForbiddenError
@@ -261,6 +260,7 @@ export type RegisteredTaggedError =
   | InvalidParamsError
   | NotInContactsError
   | TaskClosedError
+  | TaskRejectedError
   | ConversationArchivedError
   | ConversationFullError
   | HookBlockedError;
@@ -277,12 +277,9 @@ lands.
 _Variable_
 
 ```ts
-export const rpcMethods = [
-  ...identityRpcMethods,
-  ...networkRpcMethods,
-  ...taskRpcMethods,
-  ...appRpcMethods,
-] as const
+  | ConversationArchivedError
+  | ConversationFullError
+  | HookBlockedError
 ```
 
 ### [`stringEnum`](./schema-primitives.ts#L67)

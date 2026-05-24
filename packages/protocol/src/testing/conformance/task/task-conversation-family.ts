@@ -34,22 +34,32 @@ import {
   TaskConversationList,
   TaskConversationRemoveParticipant,
   TaskConversationUnarchive,
-  TaskCreate,
+  TaskCreatedNotificationDefinition,
+  TaskFailedNotificationDefinition,
+  TaskRejectedError,
+  TaskRequest,
   TaskLeave,
   type Conversation,
   type Task,
   type TaskConversationListItem,
   type TaskId,
 } from "../../../task/methods.js";
+import { AppsRegister, TaskCreate } from "../../../app/methods.js";
 import type { TestClient } from "../_shared/driver/test-client.js";
-import type { TestAgent } from "../_shared/test-fixtures.js";
+import {
+  appId as makeAppId,
+  type TestAgent,
+} from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
 import {
   DELIVERY_CATEGORY,
+  DELIVERY_DEFAULT_TIMEOUT_MS,
   acquireClient,
+  awaitOneNotification,
   deliveryViolation,
+  type NotificationBuffer,
 } from "./_helpers.js";
 
 const CATEGORY = DELIVERY_CATEGORY;
@@ -57,6 +67,7 @@ type FixtureError = ReturnType<typeof deliveryViolation>;
 interface Actor {
   readonly agent: TestAgent;
   readonly client: TestClient;
+  readonly notifications: NotificationBuffer;
 }
 
 const fixtureMap =
@@ -70,7 +81,7 @@ const acquireActor = (
   name: string,
 ) => acquireClient(ctx, name).pipe(Effect.mapError(fixtureMap(property)));
 
-// ─── TaskCreate ──────────────────────────────────────────────────────
+// ─── TaskRequest ──────────────────────────────────────────────────────
 
 const TASK_CREATE_PROPERTY = "task-create";
 
@@ -82,7 +93,7 @@ const createTaskCreate = (
   FixtureError
 > =>
   alice.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agent.agentId as AgentId],
     })
@@ -102,11 +113,14 @@ const assertTaskCreateShape = (payload: {
   task: { status: string };
   conversation: Conversation | null;
 }): Effect.Effect<void, FixtureError> => {
-  if (payload.task.status !== "waiting") {
+  // The conformance moderator auto-accepts the task/create TM
+  // callback, so task/request returns an `active` task (waiting →
+  // active transition completes before the RPC resolves).
+  if (payload.task.status !== "active") {
     return Effect.fail(
       deliveryViolation(
         TASK_CREATE_PROPERTY,
-        `task.status was ${payload.task.status}, expected waiting`,
+        `task.status was ${payload.task.status}, expected active`,
       ),
     );
   }
@@ -126,7 +140,7 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     TASK_CREATE_PROPERTY,
-    "TaskCreate accepts appId-only payload and returns task + null conversation",
+    "task/request under an accepting TM transitions waiting → active and fires task/created to the initiator",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(
@@ -137,8 +151,154 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
         const bob = yield* acquireActor(ctx, TASK_CREATE_PROPERTY, "tcf-tc-b");
         const payload = yield* createTaskCreate(alice, bob);
         yield* assertTaskCreateShape(payload);
+        const event = yield* awaitTaskCreated(alice, TASK_CREATE_PROPERTY);
+        if (event.params.task.id !== payload.task.id) {
+          return yield* Effect.fail(
+            deliveryViolation(
+              TASK_CREATE_PROPERTY,
+              `task/created carried task.id ${event.params.task.id}, expected ${payload.task.id}`,
+            ),
+          );
+        }
+        if (event.params.task.status !== "active") {
+          return yield* Effect.fail(
+            deliveryViolation(
+              TASK_CREATE_PROPERTY,
+              `task/created carried status ${event.params.task.status}, expected active`,
+            ),
+          );
+        }
       }),
     ).pipe(Effect.withSpan("registerTaskCreate")),
+  );
+}
+
+const awaitTaskCreated = (actor: Actor, property: string) =>
+  awaitOneNotification(
+    actor.notifications,
+    TaskCreatedNotificationDefinition,
+    DELIVERY_DEFAULT_TIMEOUT_MS,
+  ).pipe(
+    Effect.mapError((reason) =>
+      deliveryViolation(property, `task/created missing: ${reason}`),
+    ),
+  );
+
+// ─── TaskRequest — TM reject path ────────────────────────────────────
+
+const TASK_REQUEST_REJECT_PROPERTY = "task-request-tm-reject";
+const REJECT_REASON = "tm_policy";
+
+// Register `tm` as the moderator for a fresh app id with a
+// task/create handler that always rejects. Returns the bound appId.
+const registerRejectingTm = (tm: Actor) =>
+  Effect.gen(function* () {
+    const appId = makeAppId(crypto.randomUUID());
+    yield* tm.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({
+        verdict: { decision: "reject" as const, reason: REJECT_REASON },
+      }),
+    );
+    yield* tm.client
+      .sendRpc(AppsRegister, { manifest: { appId, name: "rejecting-tm" } })
+      .pipe(
+        Effect.either,
+        Effect.flatMap((res) =>
+          requireRight(res, (e) =>
+            deliveryViolation(
+              TASK_REQUEST_REJECT_PROPERTY,
+              `apps/register: ${e._tag ?? String(e)}`,
+            ),
+          ),
+        ),
+      );
+    return appId;
+  });
+
+const assertTaskRequestFailed = (
+  outcome: Either.Either<unknown, unknown>,
+): Effect.Effect<void, FixtureError> =>
+  Either.match(outcome, {
+    // The reject surfaces as the typed `TaskRejected` wire error
+    // (-32024), NOT a generic internal error — that is the contract
+    // a requester discriminates on. Asserting the specific code keeps
+    // this non-vacuous: any-Left would also pass for an unrelated
+    // transport failure, which would not prove the TM-reject path.
+    onLeft: (error) => {
+      const code = (error as { readonly code?: unknown }).code;
+      return code === TaskRejectedError.code
+        ? Effect.void
+        : Effect.fail(
+            deliveryViolation(
+              TASK_REQUEST_REJECT_PROPERTY,
+              `task/request failed with code ${String(code)}, expected TaskRejected (${TaskRejectedError.code})`,
+            ),
+          );
+    },
+    onRight: () =>
+      Effect.fail(
+        deliveryViolation(
+          TASK_REQUEST_REJECT_PROPERTY,
+          "task/request resolved OK; expected an RPC error on TM reject",
+        ),
+      ),
+  });
+
+const assertTaskFailedReason = (actor: Actor) =>
+  awaitOneNotification(
+    actor.notifications,
+    TaskFailedNotificationDefinition,
+    DELIVERY_DEFAULT_TIMEOUT_MS,
+  ).pipe(
+    Effect.mapError((reason) =>
+      deliveryViolation(
+        TASK_REQUEST_REJECT_PROPERTY,
+        `task/failed missing: ${reason}`,
+      ),
+    ),
+    Effect.flatMap((failed) =>
+      failed.params.reason === REJECT_REASON
+        ? Effect.void
+        : Effect.fail(
+            deliveryViolation(
+              TASK_REQUEST_REJECT_PROPERTY,
+              `task/failed carried reason ${String(failed.params.reason)}, expected ${REJECT_REASON}`,
+            ),
+          ),
+    ),
+  );
+
+export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    TASK_REQUEST_REJECT_PROPERTY,
+    "task/request fails and fires task/failed when the bound TM rejects via the task/create callback",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const alice = yield* acquireActor(
+          ctx,
+          TASK_REQUEST_REJECT_PROPERTY,
+          "tcf-rej-a",
+        );
+        const bob = yield* acquireActor(
+          ctx,
+          TASK_REQUEST_REJECT_PROPERTY,
+          "tcf-rej-b",
+        );
+        const appId = yield* registerRejectingTm(alice);
+        const outcome = yield* alice.client
+          .sendRpc(TaskRequest, {
+            appId,
+            invitedAgentIds: [bob.agent.agentId as AgentId],
+          })
+          .pipe(Effect.either);
+        yield* assertTaskRequestFailed(outcome);
+        // The initiator observes `task/failed` on the waiting → failed
+        // transition, carrying the TM's reject reason.
+        yield* assertTaskFailedReason(alice);
+      }),
+    ).pipe(Effect.withSpan("registerTaskRequestReject")),
   );
 }
 
@@ -169,7 +329,7 @@ const createSelfOnlyTask = (
   property: string,
 ): Effect.Effect<Task, FixtureError> =>
   alice.client
-    .sendRpc(TaskCreate, { appId: DEFAULT_APP_ID, invitedAgentIds: [] })
+    .sendRpc(TaskRequest, { appId: DEFAULT_APP_ID, invitedAgentIds: [] })
     .pipe(
       Effect.either,
       Effect.flatMap((res) =>
@@ -213,7 +373,7 @@ const createTaskWithInitialConversation = (
   FixtureError
 > =>
   alice.client
-    .sendRpc(TaskCreate, {
+    .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agent.agentId as AgentId],
       initialConversation: {
@@ -279,7 +439,7 @@ export function registerTaskConversationCreateAndList(
     ctx,
     CATEGORY,
     TCC_LIST_PROPERTY,
-    "TaskCreate(initialConversation) + TaskConversationList surface the new conversation",
+    "TaskRequest(initialConversation) + TaskConversationList surface the new conversation",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(ctx, TCC_LIST_PROPERTY, "tcf-tcl-a");
@@ -488,7 +648,7 @@ export function registerTaskConversationCreateDenied(
         );
         const bob = yield* acquireActor(ctx, TCC_DENIED_PROPERTY, "tcf-tccd-b");
         const payload = yield* alice.client
-          .sendRpc(TaskCreate, {
+          .sendRpc(TaskRequest, {
             appId: DEFAULT_APP_ID,
             invitedAgentIds: [bob.agent.agentId as AgentId],
           })
@@ -523,6 +683,7 @@ export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
 > = [
   registerTaskCreate,
+  registerTaskRequestReject,
   registerTaskLeave,
   registerTaskConversationCreateAndList,
   registerTaskConversationCreateDenied,

@@ -16,12 +16,10 @@ import {
 } from "../runtime/local-service-commands.js";
 
 import {
-  AgentsLookupByName,
   type ParamsOf,
   type ResultOf,
   type RpcDefinition,
 } from "@moltzap/protocol";
-import type { AgentId } from "@moltzap/protocol/identity";
 
 const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -33,16 +31,6 @@ export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}
-
-class ParticipantResolveError extends Data.TaggedError(
-  "ParticipantResolveError",
-)<{
-  readonly input: string;
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
-
-export type SocketClientError = SocketRequestError | ParticipantResolveError;
 
 const socketRequestError = (
   method: string,
@@ -181,57 +169,3 @@ export const sendSocketRequest = (
       );
     }),
   ).pipe(Effect.withSpan("sendSocketRequest"));
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-type ResolvedAgentParticipant = {
-  readonly type: "agent";
-  readonly id: AgentId;
-};
-
-const resolvedAgentParticipant = (id: AgentId): ResolvedAgentParticipant => ({
-  type: "agent",
-  id,
-});
-
-/** Resolve "agent:name" or "agent:&lt;uuid>" to { type, id }. */
-export const resolveParticipant = (
-  raw: string,
-): Effect.Effect<ResolvedAgentParticipant, SocketClientError> =>
-  Effect.gen(function* () {
-    const colon = raw.indexOf(":");
-    if (colon === -1) {
-      return yield* Effect.fail(
-        new ParticipantResolveError({
-          input: raw,
-          message: `Invalid: "${raw}". Use agent:name`,
-        }),
-      );
-    }
-    const type = raw.slice(0, colon);
-    const value = raw.slice(colon + 1);
-    if (type !== "agent") {
-      return yield* Effect.fail(
-        new ParticipantResolveError({
-          input: raw,
-          message: `Cannot resolve "${raw}"`,
-        }),
-      );
-    }
-    if (UUID_RE.test(value)) {
-      return resolvedAgentParticipant(value as AgentId);
-    }
-    const result = yield* request(AgentsLookupByName, {
-      names: [value],
-    });
-    if (result.agents.length === 0) {
-      return yield* Effect.fail(
-        new ParticipantResolveError({
-          input: raw,
-          message: `Agent "${value}" not found`,
-        }),
-      );
-    }
-    return resolvedAgentParticipant(result.agents[0]!.id);
-  }).pipe(Effect.withSpan("resolveParticipant"));

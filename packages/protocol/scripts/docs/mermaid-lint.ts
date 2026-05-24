@@ -168,8 +168,6 @@ function interpretResult(
   return Either.match(result, {
     onLeft: (e) => ({ block, message: `mmdc launch failed: ${String(e)}` }),
     onRight: (code) =>
-      code === 0
-        ? null
-        : { block, message: `mmdc exited ${String(code)}` },
+      code === 0 ? null : { block, message: `mmdc exited ${String(code)}` },
   });
 }

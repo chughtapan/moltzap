@@ -25,7 +25,7 @@ import {
   type TransportOptions,
 } from "./transport.js";
 
-import { TasksList } from "@moltzap/protocol";
+import { TaskList, TaskRejectedError } from "@moltzap/protocol";
 
 const it = effectIt.effect;
 const SESSION_NOT_FOUND_CODE = -32001;
@@ -68,13 +68,13 @@ function makeMockWsClient() {
 }
 
 /**
- * Module-level mock so transport.ts's `new MoltZapWsClient(...)` call is
+ * Module-level mock so transport.ts's `new MoltZapAgentClient(...)` call is
  * intercepted for the composed-rpc test below. Existing tests (decideTransport,
  * tagWsError, resolveTransportInputs) do not exercise the ws-client path, so
  * the mock is a no-op for them.
  */
-vi.mock("../ws-client.js", () => ({
-  MoltZapWsClient: vi.fn().mockImplementation(makeMockWsClient),
+vi.mock("../agent-client.js", () => ({
+  MoltZapAgentClient: vi.fn().mockImplementation(makeMockWsClient),
 }));
 
 const makeOpts = (over: Partial<TransportOptions> = {}): TransportOptions => ({
@@ -229,8 +229,8 @@ describe("decideTransport", () => {
 
 function expectTimeoutForwarded(timeoutMs: number): void {
   const err = tagWsError(
-    TasksList.name,
-    new RpcTimeoutError({ method: TasksList.name, timeoutMs }),
+    TaskList.name,
+    new RpcTimeoutError({ method: TaskList.name, timeoutMs }),
   );
   expect(err).toBeInstanceOf(TransportTimeoutError);
   if (err instanceof TransportTimeoutError) {
@@ -249,7 +249,7 @@ function timeoutErrorForwardsGeneratedTimeouts() {
 function rpcServerErrorMapsToTransportRpcError() {
   return Effect.sync(() => {
     const err = tagWsError(
-      TasksList.name,
+      TaskList.name,
       new RpcServerError({
         code: SESSION_NOT_FOUND_CODE,
         message: SESSION_NOT_FOUND_MESSAGE,
@@ -264,10 +264,32 @@ function rpcServerErrorMapsToTransportRpcError() {
   });
 }
 
+function registeredWireErrorMapsToTransportRpcError() {
+  return Effect.sync(() => {
+    // A registered domain wire error (decoded from a -32024 frame) carries its
+    // numeric code on the constructor, not the instance. It must map to
+    // TransportRpcError preserving code/reason — not fall through to decode.
+    const err = tagWsError(
+      TaskList.name,
+      new TaskRejectedError({
+        message: TaskRejectedError.message,
+        data: { taskId: "task-1" },
+      }),
+    );
+    expect(err).toBeInstanceOf(TransportRpcError);
+    expect(err._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
+    if (err instanceof TransportRpcError) {
+      expect(err.code).toBe(TaskRejectedError.code);
+      expect(err.message).toBe(TaskRejectedError.message);
+      expect(err.data).toEqual({ taskId: "task-1" });
+    }
+  });
+}
+
 function notConnectedMapsToServiceUnreachable() {
   return Effect.sync(() => {
     const err = tagWsError(
-      TasksList.name,
+      TaskList.name,
       new NotConnectedError({ message: NOT_CONNECTED_MESSAGE }),
     );
     expect(err).toBeInstanceOf(ServiceUnreachableError);
@@ -278,9 +300,9 @@ function notConnectedMapsToServiceUnreachable() {
 function rpcTimeoutMapsToTransportTimeout() {
   return Effect.sync(() => {
     const err = tagWsError(
-      TasksList.name,
+      TaskList.name,
       new RpcTimeoutError({
-        method: TasksList.name,
+        method: TaskList.name,
         timeoutMs: RPC_TIMEOUT_MS,
       }),
     );
@@ -293,7 +315,7 @@ function rpcTimeoutMapsToTransportTimeout() {
 
 function unknownErrorMapsToTransportDecode() {
   return Effect.sync(() => {
-    const err = tagWsError(TasksList.name, {
+    const err = tagWsError(TaskList.name, {
       message: UNKNOWN_ERROR_MESSAGE,
     });
     expect(err).toBeInstanceOf(TransportDecodeError);
@@ -321,6 +343,11 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
   it(
     "RpcServerError maps to TransportRpcError (not TransportDecodeError)",
     rpcServerErrorMapsToTransportRpcError,
+  );
+
+  it(
+    "registered wire error (TaskRejected) maps to TransportRpcError with its static code",
+    registeredWireErrorMapsToTransportRpcError,
   );
 
   it(
@@ -374,7 +401,7 @@ function directRpcFailurePropagates() {
       serverUrl: DIRECT_TEST_SERVER_URL,
     };
     const exit = yield* Transport.pipe(
-      Effect.flatMap((transport) => transport.rpc(TasksList, {})),
+      Effect.flatMap((transport) => transport.rpc(TaskList, {})),
       Effect.exit,
       Effect.provide(makeTransportLayer(opts)),
     );
@@ -419,7 +446,7 @@ describe("resolveTransportInputs (composition-boundary gate)", () => {
  * regression to `Effect.runPromise(sendRpc)` inside `Effect.tryPromise`
  * is caught here, not just in the isolated `tagWsError` suite above.
  *
- * The ws-client mock (module-level `vi.mock("../ws-client.js")`) makes
+ * The ws-client mock (module-level `vi.mock("../agent-client.js")`) makes
  * `sendRpc` return `Effect.fail(new RpcServerError(...))` so the test
  * exercises: connect (success) → sendRpc (RpcServerError) → tagWsError
  * → TransportRpcError. A runPromise bridge would wrap RpcServerError in

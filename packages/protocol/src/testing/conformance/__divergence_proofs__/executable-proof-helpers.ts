@@ -51,7 +51,7 @@ export function expectInvariant(
       `expected invariant failure, got ${failure._tag}: ${describeFailure(failure)}`,
     );
   }
-  expect(failure.name).toBe(propertyName);
+  expect(failure.name, failure.reason).toBe(propertyName);
 }
 
 /**

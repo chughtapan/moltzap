@@ -21,14 +21,15 @@
 import { Effect, type Scope } from "effect";
 import { notificationFrame } from "../../../transport/wire.js";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
 } from "../../../task/methods.js";
-import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
 import {
   agentId,
   conversationId as toConversationId,
   messageId,
+  taskId,
 } from "../_shared/test-fixtures.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../_shared/registry.js";
@@ -143,6 +144,7 @@ function emitFanOutNotifications(
 
 function fanOutNotification(senderId: AgentId, slot: number, text: string) {
   return notificationFrame(MessageReceivedNotificationDefinition, {
+    taskId: taskId("00000000-0000-4000-8000-fa0c0a0fa0c0"),
     message: {
       id: messageId(`00000000-0000-4000-8000-${fanOutSlot(slot)}`),
       conversationId: toConversationId("00000000-0000-4000-8000-fa0c0a0fa0c0"),
@@ -280,6 +282,7 @@ function emitPayloadOpacityNotification(
 
 function payloadOpacityNotification(fx: ClientFixture, token: string) {
   return notificationFrame(MessageReceivedNotificationDefinition, {
+    taskId: taskId("00000000-0000-4000-8000-00000000c1de"),
     message: {
       id: messageId("00000000-0000-4000-8000-00000000c0de"),
       conversationId: toConversationId("00000000-0000-4000-8000-00000000c1de"),
@@ -486,18 +489,18 @@ function emitArchiveLifecycle(
   });
 }
 
-function archiveNotification(conversationId: ConversationId, by: AgentId) {
-  return notificationFrame(ConversationArchivedNotificationDefinition, {
+function archiveNotification(conversationId: ConversationId, _by: AgentId) {
+  return notificationFrame(TaskConversationArchivedNotificationDefinition, {
+    taskId: taskId("00000000-0000-4000-8000-fa0c0a0fa0c0"),
     conversationId,
     archivedAt: new Date(0).toISOString(),
-    by,
   });
 }
 
-function unarchiveNotification(conversationId: ConversationId, by: AgentId) {
-  return notificationFrame(ConversationUnarchivedNotificationDefinition, {
+function unarchiveNotification(conversationId: ConversationId, _by: AgentId) {
+  return notificationFrame(TaskConversationUnarchivedNotificationDefinition, {
+    taskId: taskId("00000000-0000-4000-8000-fa0c0a0fa0c0"),
     conversationId,
-    by,
   });
 }
 
@@ -530,8 +533,8 @@ function archiveLifecycleInOrder(
 ): boolean {
   return (
     observed[0]?.notificationName ===
-      ConversationArchivedNotificationDefinition.name &&
+      TaskConversationArchivedNotificationDefinition.name &&
     observed[1]?.notificationName ===
-      ConversationUnarchivedNotificationDefinition.name
+      TaskConversationUnarchivedNotificationDefinition.name
   );
 }

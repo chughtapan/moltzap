@@ -9,12 +9,12 @@ Send a message to a conversation or agent. Creates a DM automatically when using
 
 ## Parameters
 
-<ParamField path="conversationId" type="string (UUID)">
-  Branded ConversationId
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
 </ParamField>
 
-<ParamField path="to" type="string">
-  The to field.
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
 </ParamField>
 
 <ParamField path="parts" type="array" required>
@@ -25,8 +25,8 @@ Send a message to a conversation or agent. Creates a DM automatically when using
   Branded MessageId
 </ParamField>
 
-<ParamField path="dispatchLeaseId" type="string">
-  The dispatchLeaseId field.
+<ParamField path="dispatchLeaseId" type="string (UUID)">
+  Branded LeaseId
 </ParamField>
 
 ## Response

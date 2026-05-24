@@ -13,21 +13,11 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 _TypeAlias_
 
 ```ts
-export type _TypedDispatcherCanarySink =
-  | typeof _shouldFailEmptyServer
-  | typeof _shouldFailCtx
-  | typeof _ctxBSlot
-  | typeof _serverOutboundReject
-  | typeof _serverOutboundOk1
-  | typeof _serverOutboundOk2
-  | typeof _agentClientEmpty
-  | typeof _tmHandlersSink
   | typeof _tmEmpty
-  | typeof _tmAllDeclined
   | typeof _directReject
-  | typeof _tasksGetSlotWithExtraCap
+  | typeof _messagesListSlotWithExtraCap
   | typeof _capLockstepReject
-  | typeof _tasksGetSlotProper
+  | typeof _messagesListSlotProper
   | typeof _capLockstepAccept
   | _ServerConnection
   | _AgentClientConnection
@@ -39,9 +29,10 @@ export type _TypedDispatcherCanarySink =
 _Interface_
 
 ```ts
+ */
 export interface AgentClientConnection
   extends ConnectionIdentity,
-    OutboundCall<AnyRpcDefinition>,
+    OutboundCall<AnyAgentClientRpcDefinition>,
 ```
 
 `AgentClientConnection` — plain agent client. Outbound surface is
@@ -55,6 +46,7 @@ inbound surface (the AgentClient kind's inbound catalog is empty).
 _Interface_
 
 ```ts
+ */
 export interface AgentClientConnectionConfig<
   Ctx,
   Caps extends Context.Tag<any, any>,
@@ -74,10 +66,9 @@ coverage).
 _TypeAlias_
 
 ```ts
-export type AgentClientHandlers<
-  Ctx,
-  Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<never, Ctx, Caps>;
+export type CapsUnionOf<T> = {
+  [K in keyof T]: SlotCaps<T[K]>;
+}[keyof T];
 ```
 
 `AgentClientHandlers` — handler table for a plain agent client. The
@@ -105,12 +96,7 @@ export const ajv:
 _Function_
 
 ```ts
-export function buildAgentClientDispatcher<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: AgentClientConnectionConfig<Ctx, Caps>,
-): Effect.Effect<AgentClientConnection, never, Scope.Scope>
+ * `ForbiddenError` defaults
 ```
 
 Build the agent-client dispatcher. Wires the originator only (no
@@ -123,9 +109,13 @@ call site can satisfy the constraint).
 _Function_
 
 ```ts
-export function buildServerDispatcher<Ctx, Caps extends Context.Tag<any, any>>(
-  config: ServerConnectionConfig<Ctx, Caps>,
-): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope>
+ */
+export function buildAgentClientDispatcher<
+  Ctx,
+  Caps extends Context.Tag<any, any>,
+>(
+  config: AgentClientConnectionConfig<Ctx, Caps>,
+): Effect.Effect<AgentClientConnection, never, Scope.Scope>
 ```
 
 Build the server-side dispatcher. Wires the inbound static-table
@@ -137,12 +127,12 @@ single `ServerConnection` value.
 _Function_
 
 ```ts
-export function buildTaskMasterDispatcher<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: TaskMasterConnectionConfig<Ctx, Caps>,
-): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope>
+
+// ── Notify (outbound notifications) ─────────────────────────────────
+
+/**
+ * Outbound notification — server kind only. Encodes the frame and
+ * delegates to `write`
 ```
 
 Build the TM dispatcher. Wires both the inbound dispatch loop
@@ -215,12 +205,6 @@ provider table missing any tag in `Caps`.
 
 _TypeAlias_
 
-```ts
-export type CapsUnionOf<T> = {
-  [K in keyof T]: SlotCaps<T[K]>;
-}[keyof T];
-```
-
 Capability-union extractor: union of every capability tag referenced
 across all real `HandlerSlot` arms in the table. The factory's
 signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
@@ -230,7 +214,7 @@ signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
 _Class_
 
 ```ts
-  static readonly message = "Not authenticated. Send network/connect first.";
+  static readonly code = -32000;
 ```
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
@@ -280,7 +264,7 @@ distribution branch when the one-arg form is used.
 _TypeAlias_
 
 ```ts
-export type DecodedRpcRequest<D extends AnyRpcDefinition> =
+export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
 ```
 
 ### [`decodeFrame`](./wire.ts#L149)
@@ -314,9 +298,9 @@ export function decodeNotification<
 _Function_
 
 ```ts
- *   participant Client
- *   Server->>Server: NotificationDefinition.encode(params)
- *   Server->>Wire:
+    paramsSchema: def.params,
+    validateParams: ajv.compile(def.params),
+    encode: (params)
 ```
 
 ### [`decodeRpcRequest`](./rpc-groups.ts#L92)
@@ -325,7 +309,7 @@ _Function_
 
 ```ts
 export function decodeRpcRequest<
-  const Definitions extends readonly AnyRpcDefinition[],
+  const Definitions extends readonly AnyServerRpcDefinition[],
 >(
   definitions: Definitions,
   frame: RequestFrame,
@@ -340,9 +324,7 @@ export function decodeRpcRequest<
 _Function_
 
 ```ts
-  Name extends string,
-  P extends TSchema,
->
+  readonly data: unknown
 ```
 
 ### [`defineNotification`](./method.ts#L156)
@@ -350,7 +332,13 @@ _Function_
 _Function_
 
 ```ts
-  const d: RpcDefinition<Name, P, R> =
+ * validation. Routing semantics live in consumers (e.g.
+ * `@moltzap/client/runtime/subscribers.ts`).
+ */
+export interface NotificationDefinition<
+  Name extends string,
+  P extends TSchema,
+>
 ```
 
 ### [`defineRpc`](./method.ts#L80)
@@ -358,13 +346,18 @@ _Function_
 _Function_
 
 ```ts
-export function defineRpc<
-  Name extends string,
-  P extends TSchema,
-  R extends TSchema,
-  Opt extends FailClosedDefault | undefined = undefined,
-  Caps extends ReadonlyArray<CapabilityDescriptor> = readonly [],
->(def:
+ * ```
+ *
+ * - `optional` absent → REQUIRED slot in the handler table; missing
+ *   key fails compilation with TS2741 at the factory call.
+ * - `optional` present → OPTIONAL slot carrying the fail-CLOSED
+ *   default the dispatcher synthesizes when the slot value equals
+ *   the sentinel.
+ * - `capabilities` absent → no auto-provision; the dispatcher reads
+ *   `definition.capabilities` per frame and threads
+ *   `Effect.provideServiceEffect` for each entry.
+ *
+ * Method names are branded `JsonRpcMethod&lt
 ```
 
 ### [`encodeErrorResponse`](./wire.ts#L225)
@@ -387,6 +380,7 @@ responses go through `RpcDefinition.encodeResponse`.
 _Function_
 
 ```ts
+ *   B --> C["client side: errorClassFor(code)&lt;br>→ FooError instance | undefined"]
  *   C --> D["caller: Effect.catchTag('Foo', ...)"]
  *   B --> E["server side: wireErrorFromInstance&lt;br>→ wire 'error' sub-object"]
  * ```
@@ -411,13 +405,6 @@ Returns the registered class for a wire code, or `undefined`.
 
 _TypeAlias_
 
-```ts
-export type FailClosedDefault = Data.TaggedEnum<{
-  readonly Forbidden: {};
-  readonly NoOpNotification: {};
-}>;
-```
-
 Closed union of fail-CLOSED outcomes the dispatcher synthesizes
 when a slot value is the matching sentinel.
 
@@ -431,10 +418,6 @@ when a slot value is the matching sentinel.
 
 _Variable_
 
-```ts
-export type FailClosedDefault = Data.TaggedEnum<
-```
-
 Constructor + type-guard companion. Use `FailClosedDefault.$is("Forbidden")(value)`
 for runtime discrimination, or `Match.tag("Forbidden", ...)` inside an
 `Effect.Match` pipeline. The dispatcher's slot-read path is the
@@ -444,20 +427,12 @@ sole consumer.
 
 _TypeAlias_
 
-```ts
-export type FailClosedForbidden = ForbiddenError;
-```
-
 Marker — re-exported so handler-table consumers don't import the
 concrete error class for type-only use.
 
 ### [`forbidden`](./defaults.ts#L54)
 
 _Variable_
-
-```ts
-export const forbidden: Forbidden = FailClosedDefault.Forbidden() as Forbidden
-```
 
 Slot sentinels — singletons descriptor authors put on
 `optional:` AND that handler-table call sites pass for declined
@@ -468,22 +443,15 @@ the workspace.
 
 _TypeAlias_
 
-```ts
-export type Forbidden = Extract<
-  FailClosedDefault,
-  { readonly _tag: "Forbidden" }
->;
-```
-
 ### [`ForbiddenError`](./wire-errors.ts#L80)
 
 _Class_
 
 ```ts
-export interface RpcErrorPayload {
-  readonly message?: string;
-  readonly data?: unknown;
-}
+
+/**
+ * Optional per-instance overrides for tagged-error classes. The static
+ * `message` on the class is the default;
 ```
 
 Authenticated but not authorized for this resource.
@@ -504,15 +472,6 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
 _Interface_
 
 ```ts
-export interface HandlerSlot<
-  D extends RpcDefinition<string, TSchema, TSchema>,
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> {
-  readonly definition: D;
-  readonly handle: (
-    params: ParamsOf<D>,
-    ctx: Ctx,
   ) => Effect.Effect<ResultOf<D>, unknown, Caps>;
 ```
 
@@ -531,13 +490,8 @@ exercisable.
 _TypeAlias_
 
 ```ts
-export type HandlerTable<
-  Defs extends RpcDefinition<string, TSchema, TSchema>,
   Ctx,
-  Caps extends Context.Tag<any, any>,
-> = {
-  readonly [D in Defs as NameOf<D>]: SlotValue<D, Ctx, Caps>;
-};
+  Caps extends Context.Tag<any, any> = never,
 ```
 
 Closed handler-table type generated from a definition union. Every
@@ -583,12 +537,6 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 
 _TypeAlias_
 
-```ts
-export type IsOptionalSlot<D> = D extends {
-  readonly optional: FailClosedDefault;
-}
-```
-
 Type-level boolean: `true` iff `D`'s `optional` field is present and
 carries a `FailClosedDefault`. The handlers-table mapped type uses
 this to choose `HandlerSlot | Forbidden` (or `NoOpNotification`) vs
@@ -599,6 +547,7 @@ plain `HandlerSlot` for the slot's value type.
 _Function_
 
 ```ts
+ * `JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec
  * codes (-32700, -32600, -32601, -32602, -32603). Every other code
  * lives in the runtime registry, not in a central table. The
  * `RegisteredTaggedError` union in `rpc-registry.ts` mirrors the
@@ -663,6 +612,7 @@ export type JsonRpcMethod<Name extends string = string> = Name &
 _Function_
 
 ```ts
+ */
 export function makeAgentClientConnection<
   Ctx,
   Caps extends Context.Tag<any, any>,
@@ -680,7 +630,7 @@ kind's inbound catalog is empty).
 _Function_
 
 ```ts
-export const makeOriginator = (config:
+    )
 ```
 
 ### [`makeServerConnection`](./connection.ts#L262)
@@ -688,6 +638,7 @@ export const makeOriginator = (config:
 _Function_
 
 ```ts
+ */
 export function makeServerConnection<Ctx, Caps extends Context.Tag<any, any>>(
   config: ServerConnectionConfig<Ctx, Caps>,
 ): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope>
@@ -710,6 +661,7 @@ Factory — server side. Delegates to `buildServerDispatcher`
 _Function_
 
 ```ts
+ */
 export function makeTaskMasterConnection<
   Ctx,
   Caps extends Context.Tag<any, any>,
@@ -745,21 +697,9 @@ Inbound frame failed to parse as JSON or did not match the expected shape.
 
 _Variable_
 
-```ts
-export const noOpNotification: NoOpNotification =
-  FailClosedDefault.NoOpNotification() as NoOpNotification
-```
-
 ### [`NoOpNotification`](./defaults.ts#L62)
 
 _TypeAlias_
-
-```ts
-export type NoOpNotification = Extract<
-  FailClosedDefault,
-  { readonly _tag: "NoOpNotification" }
->;
-```
 
 ### [`NotConnectedError`](./rpc-errors.ts#L17)
 
@@ -778,12 +718,7 @@ The socket is not in the OPEN state when an RPC was attempted.
 _Class_
 
 ```ts
-}
-
-// Transport-layer cross-cutting tagged errors. Domain errors live in their
-// owning layer's `errors.ts`.
-
-export class UnauthorizedError extends Data.TaggedError(
+  readonly data?: JsonValue;
 ```
 
 Resource not found (cross-cutting variant; domain-specific NotFound errors live with their domain).
@@ -803,9 +738,7 @@ export type NotificationDecodeError =
 _Interface_
 
 ```ts
-   * synchronous `argsOf` resolver that derives the obtain helper's
-   * arguments from wire `params` + dispatcher `ctx`. The dispatcher
-   * reads this list at runtime (TypeScript erases R channels).
+ * them;
 ```
 
 ### [`notificationFrame`](./wire.ts#L233)
@@ -840,7 +773,11 @@ export function notificationFrameSchema(): typeof NotificationFrameSchema
 _TypeAlias_
 
 ```ts
-}): RpcDefinition<Name, P, R> & {
+ *   Client->>Client: subscriber dispatcher routes to handler
+ * ```
+ *
+ * Descriptor role at the transport layer: encode + decode + schema
+ * validation. Routing semantics live in consumers (e.g.
 ```
 
 Type-only accessor for a notification's params payload.
@@ -851,7 +788,7 @@ _Interface_
 
 ```ts
 export interface Originator {
-  readonly call: <D extends AnyRpcDefinition>(
+  readonly call: <D extends AnyServerRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, RpcCallError>;
@@ -865,7 +802,7 @@ scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
 _TypeAlias_
 
 ```ts
-export type ParamsOf<D extends RpcDefinition<string, TSchema, TSchema>> =
+ *   A["domain layer call site:&lt;br>defineRpc{ name, params, result, optional?, capabilities? }"]
 ```
 
 Type-only accessor for a definition's params payload.
@@ -875,10 +812,7 @@ Type-only accessor for a definition's params payload.
 _Function_
 
 ```ts
- * Register a tagged-error class so the originator can resurrect it
- * from a wire `error` payload by code. Each registered class carries
- * `static readonly code: number` and `static readonly message:
- * string`
+export function registerErrorClass(cls: RpcErrorClass): void
 ```
 
 Throws at module-load time on duplicate code registration.
@@ -956,7 +890,8 @@ export function responseFrameSchema(): typeof ResponseFrameSchema
 _TypeAlias_
 
 ```ts
-export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
+ *   C --> D
+ *   D --> E["pushed into per-layer *RpcMethods const"]
 ```
 
 Type-only accessor for a definition's result payload.
@@ -977,15 +912,7 @@ export type RpcCallError =
 _Interface_
 
 ```ts
-export interface RpcDefinition<
-  Name extends string,
-  P extends TSchema,
-  R extends TSchema,
-> {
-  readonly name: JsonRpcMethod<Name>;
-  readonly paramsSchema: P;
-  readonly resultSchema: R;
-  readonly validateParams: (data: unknown) => data is Static<P>;
+  readonly validateResult: (data: unknown) => data is Static<R>;
 ```
 
 Typed manifest for one RPC method: wire name + schemas + validators.
@@ -1011,6 +938,7 @@ Two OPTIONAL per-definition metadata fields shape dispatcher behavior:
 _TypeAlias_
 
 ```ts
+ */
 export type RpcErrorClass = (new (
   ...args: never[]
 ) => {
@@ -1029,7 +957,9 @@ response decode.
 _Interface_
 
 ```ts
+    throw new DuplicateErrorCodeError(
       `Duplicate wire error code ${cls.code}: ${cls.name} conflicts with ${existing.name}`,
+    );
 ```
 
 Optional per-instance overrides for tagged-error classes. The static
@@ -1042,7 +972,7 @@ forwards to the wire response.
 _Class_
 
 ```ts
-    readonly capabilities: Caps;
+  D extends NotificationDefinition<string, TSchema>,
 ```
 
 ### [`RpcRequestDecodeError`](./rpc-groups.ts#L71)
@@ -1060,15 +990,17 @@ export type RpcRequestDecodeError =
 _Class_
 
 ```ts
- * pending-call registry. The transport-side runtimes don't track
- * them; consumers subscribe externally via per-method handlers.
- *
- * ```mermaid
- * sequenceDiagram
- *   participant Server
- *   participant Wire as WebSocket
- *   participant Client
- *   Server->>Server: NotificationDefinition.encode(params)
+ */
+export function defineNotification<
+  Name extends string,
+  P extends TSchema,
+>(def: { name: Name; params: P }): NotificationDefinition<Name, P> {
+  const d: NotificationDefinition<Name, P> = {
+    name: jsonRpcMethod(def.name),
+    paramsSchema: def.params,
+    validateParams: ajv.compile(def.params),
+    encode: (params) => notificationFrame(d, params as Static<P>),
+  };
 ```
 
 ### [`RpcServerError`](./rpc-errors.ts#L28)
@@ -1103,6 +1035,7 @@ The RPC exceeded the per-call timeout without a response frame.
 _Interface_
 
 ```ts
+ */
 export interface ServerConnection<Ctx = unknown, R = never>
 ```
 
@@ -1118,6 +1051,7 @@ delivery + lifecycle notifications). Inbound surface is the closed
 _Interface_
 
 ```ts
+ */
 export interface ServerConnectionConfig<
   Ctx,
   Caps extends Context.Tag<any, any>,
@@ -1144,10 +1078,8 @@ for the outbound TM-callback path.
 _TypeAlias_
 
 ```ts
-export type ServerHandlers<
-  Ctx,
-  Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<ServerInboundRpcDefinition, Ctx, Caps>;
+ * `DispatchAuthorize`, `MessagesAuthorize`, `TaskCreate`. All three
+ * REQUIRED (R14b); vacuous-deny moderators must write the handler
 ```
 
 `ServerHandlers` — handler table for the server side. `Ctx` defaults
@@ -1161,7 +1093,12 @@ declare; the factory infers it from the literal.
 _TypeAlias_
 
 ```ts
-export type ServerInboundRpcDefinition = (typeof rpcMethods)[number] &
+ * catalog union is `never`, satisfying both knip and the type's intent.
+ */
+export type AgentClientHandlers<
+  Ctx,
+  Caps extends Context.Tag<any, any> = never,
+> = HandlerTable<never, Ctx, Caps>;
 ```
 
 Server-side inbound RPC catalog — every method an agent client may
@@ -1175,6 +1112,7 @@ members at `227c398`.
 _Interface_
 
 ```ts
+ */
 export interface TaskMasterConnection<Ctx = unknown, R = never>
 ```
 
@@ -1190,6 +1128,7 @@ type level). Outbound notifications: none. Inbound surface is the
 _Interface_
 
 ```ts
+ */
 export interface TaskMasterConnectionConfig<
   Ctx,
   Caps extends Context.Tag<any, any>,
@@ -1209,20 +1148,9 @@ catalog inbound; its outbound surface is the full `rpcMethods` catalog.
 
 _TypeAlias_
 
-```ts
-export type TaskMasterHandlers<
-  Ctx,
-  Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
-```
-
 ### [`TaskMasterInboundRpcDefinition`](./handlers.ts#L155)
 
 _TypeAlias_
-
-```ts
-export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
-```
 
 `TaskMasterHandlers` — handler table for an agent acting as TM for
 one or more tasks. Catalog: `taskCallbackMethods` —
@@ -1274,10 +1202,6 @@ export const validateResponseFrame = ajv.compile(ResponseFrameSchema) as (
 ### [`wireErrorFromInstance`](./dispatch.ts#L546)
 
 _Function_
-
-```ts
-export function wireErrorFromInstance(value: unknown): WireError | null
-```
 
 Reads wire metadata (code/message/data) off an `RpcErrorClass` instance.
 Returns `null` when the failure isn't a registered wire-error class
