@@ -169,8 +169,7 @@ const parseCorsOrigins = (
 /**
  * Effect-native server config loader. Reads env vars through `Config` so
  * missing/invalid values surface as typed `ConfigError` instead of thrown
- * `Error`. Callers already inside an Effect program `yield*` this; the one
- * sync entrypoint (`loadCoreConfig`) bridges via `Effect.runSync`.
+ * `Error`. Callers already inside an Effect program `yield*` this.
  */
 export const ServerConfigLoader: Effect.Effect<
   LoadedConfig,
