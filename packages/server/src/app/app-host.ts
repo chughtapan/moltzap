@@ -28,7 +28,7 @@ import {
   type MessageAuthorizeContext,
   type MessageAuthorizeResult,
   type DispatchAuthorizeContext,
-} from "./hooks.js";
+} from "./types.js";
 import { AppRegistry, type AppRegistration } from "./app-registration.js";
 import { MessagesAuthorize } from "@moltzap/protocol";
 import type { SqlError } from "@effect/sql/SqlError";
