@@ -3,6 +3,11 @@
  */
 export { PROTOCOL_VERSION } from "./version.js";
 
+// Opaque pagination token for the cursor-paginated list RPCs. The
+// server's `list-cursor` codec is the only producer; clients echo it.
+export { listCursorSchema } from "./schema-primitives.js";
+export type { ListCursor } from "./schema-primitives.js";
+
 export * from "./transport/index.js";
 export * from "./identity/index.js";
 export * from "./network/index.js";

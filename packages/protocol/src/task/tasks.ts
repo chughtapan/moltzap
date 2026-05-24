@@ -1,6 +1,10 @@
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import { stringEnum, dateTimeStringSchema } from "../schema-primitives.js";
+import {
+  stringEnum,
+  dateTimeStringSchema,
+  listCursorSchema,
+} from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
@@ -145,12 +149,18 @@ export const TaskList = defineRpc({
   params: Type.Object(
     {
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-      cursor: Type.Optional(Type.String()),
+      // Track A brands the cursor (opacity nicety). The `tasks` item
+      // type stays `TaskSchema` — Track B reshapes the item to
+      // `TaskListItem` on rebase; it does NOT re-touch this envelope.
+      cursor: Type.Optional(listCursorSchema()),
     },
     { additionalProperties: false },
   ),
   result: Type.Object(
-    { tasks: Type.Array(TaskSchema) },
+    {
+      tasks: Type.Array(TaskSchema),
+      nextCursor: Type.Optional(listCursorSchema()),
+    },
     { additionalProperties: false },
   ),
 });

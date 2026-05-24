@@ -74,8 +74,8 @@ function acceptsPendingContact() {
     const result = yield* svc.accept(BOB, requested.id);
     expect(result.transitioned).toBe(true);
     expect(result.requesterUserId).toBe(ALICE);
-    const bobContacts = yield* svc.list(BOB);
-    expect(bobContacts.map((c) => c.contactUserId)).toContain(ALICE);
+    const bobContacts = yield* svc.list(BOB, {});
+    expect(bobContacts.contacts.map((c) => c.contactUserId)).toContain(ALICE);
   });
 }
 
@@ -159,12 +159,12 @@ function listsOnlyCallerRows() {
     yield* svc.add(ALICE, { contactUserId: BOB });
     yield* svc.add(ALICE, { contactUserId: CAROL });
     yield* svc.add(BOB, { contactUserId: CAROL });
-    const aliceList = yield* svc.list(ALICE);
-    const bobList = yield* svc.list(BOB);
-    expect(aliceList.map((c) => c.contactUserId).sort()).toEqual(
+    const aliceList = yield* svc.list(ALICE, {});
+    const bobList = yield* svc.list(BOB, {});
+    expect(aliceList.contacts.map((c) => c.contactUserId).sort()).toEqual(
       [BOB, CAROL].sort(),
     );
-    expect(bobList.map((c) => c.contactUserId)).toEqual([CAROL]);
+    expect(bobList.contacts.map((c) => c.contactUserId)).toEqual([CAROL]);
   });
 }
 
@@ -178,8 +178,8 @@ function roundTripsRelationship() {
       relationship: COLLEAGUE_RELATIONSHIP,
     });
     expect(created.relationship).toBe(COLLEAGUE_RELATIONSHIP);
-    const list = yield* svc.list(ALICE);
-    expect(list[0]!.relationship).toBe(COLLEAGUE_RELATIONSHIP);
+    const list = yield* svc.list(ALICE, {});
+    expect(list.contacts[0]!.relationship).toBe(COLLEAGUE_RELATIONSHIP);
   });
 }
 

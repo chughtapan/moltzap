@@ -2,6 +2,7 @@ import { Cause, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import type {
   Conversation,
+  ListCursor,
   Task,
   TaskParticipant,
   TaskStatus,
@@ -16,6 +17,13 @@ import {
   takeFirstOrFail,
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
+import {
+  decodeListCursor,
+  keysetWhere,
+  paginate,
+  sortKeyExpr,
+  type InvalidCursorError,
+} from "../../db/list-cursor.js";
 import type { Transaction } from "../../db/kysely-vendor.js";
 import {
   ForbiddenError,
@@ -84,6 +92,13 @@ function rowToTask(row: TaskRow): Task {
   };
 }
 
+function positionOfTaskRow(row: TaskRow): {
+  readonly sortKey: string;
+  readonly id: string;
+} {
+  return { sortKey: row.created_at.toISOString(), id: row.id };
+}
+
 function rowToParticipant(row: {
   readonly task_id: TaskId;
   readonly agent_id: AgentId;
@@ -103,6 +118,12 @@ export interface TaskCreateInput {
 
 export interface TaskListInput {
   readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface TaskListPage {
+  readonly tasks: readonly Task[];
+  readonly nextCursor?: ListCursor;
 }
 
 export interface TaskCloseLifecycle {
@@ -300,24 +321,52 @@ export class TaskService {
   list(
     caller: AgentId,
     input: TaskListInput,
-  ): Effect.Effect<readonly Task[], never> {
+  ): Effect.Effect<TaskListPage, InvalidCursorError> {
     const limit = input.limit ?? DEFAULT_TASK_LIST_LIMIT;
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rows = yield* this.db
-          .selectFrom("tasks")
-          .innerJoin(
-            "task_participants",
-            "task_participants.task_id",
-            "tasks.id",
-          )
-          .where("task_participants.agent_id", "=", caller)
-          .selectAll("tasks")
-          .orderBy("tasks.created_at", "desc")
-          .limit(limit);
-        return rows.map((row) => rowToTask(row as TaskRow));
-      }),
-    );
+    return Effect.gen(this, function* () {
+      const pos =
+        input.cursor === undefined
+          ? undefined
+          : yield* decodeListCursor(input.cursor);
+      return yield* catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          let query = this.db
+            .selectFrom("tasks")
+            .innerJoin(
+              "task_participants",
+              "task_participants.task_id",
+              "tasks.id",
+            )
+            .where("task_participants.agent_id", "=", caller);
+          if (pos !== undefined) {
+            query = query.where((eb) =>
+              keysetWhere(
+                eb,
+                {
+                  sortKey: sortKeyExpr(eb, "tasks.created_at"),
+                  id: "tasks.id",
+                },
+                pos,
+              ),
+            );
+          }
+          const rows = yield* query
+            .selectAll("tasks")
+            .orderBy((eb) => sortKeyExpr(eb, "tasks.created_at"), "desc")
+            .orderBy("tasks.id", "asc")
+            .limit(limit + 1);
+          const { page, nextCursor } = paginate(
+            rows as readonly TaskRow[],
+            limit,
+            positionOfTaskRow,
+          );
+          return {
+            tasks: page.map(rowToTask),
+            ...(nextCursor !== undefined ? { nextCursor } : {}),
+          };
+        }),
+      );
+    });
   }
 
   close(

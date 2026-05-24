@@ -6,7 +6,8 @@ import { request } from "../socket-client.js";
 import { AgentsList, AgentsLookupByName } from "@moltzap/protocol";
 
 interface AgentsListResult {
-  agents: Record<string, AgentCard>;
+  agents: AgentCard[];
+  nextCursor?: string;
 }
 
 interface LookupResult {
@@ -23,7 +24,7 @@ const listAgents = Command.make("list", { json: jsonOption }, ({ json }) =>
     Effect.tap((result) =>
       Effect.sync(() => {
         const r = result as AgentsListResult;
-        const entries = Object.values(r.agents);
+        const entries = r.agents;
         if (json) {
           console.log(JSON.stringify(r.agents, null, JSON_INDENT_SPACES));
           return;
@@ -39,6 +40,14 @@ const listAgents = Command.make("list", { json: jsonOption }, ({ json }) =>
           if (agent.description)
             line += `\n  Description: ${agent.description}`;
           console.log(line + "\n");
+        }
+        // First-page indicator (spec #696 approval): a truncated page
+        // carries `nextCursor`; surface that so users don't mistake it
+        // for the full list.
+        if (r.nextCursor !== undefined) {
+          console.log(
+            `Showing first ${entries.length} — more results available.`,
+          );
         }
       }),
     ),

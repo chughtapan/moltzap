@@ -35,6 +35,38 @@ malformed config file now produces a slightly less polished error message.
   parsing is removed (the compiled-patterns array was never read).
   `corsOrigins` is exact-match only.
 
+### Track A (#692) — cursor-paginate the list-RPC surface
+
+One cursor-pagination convention now covers the list-RPC surface:
+`{ limit?, cursor? } → { <collection>, nextCursor? }` with an opaque
+`(created_at, id)` keyset cursor (Decision 1 of spec #693). The cursor
+encodes the last emitted row's millisecond-truncated `created_at` plus
+its UUID tie-break, so pages never skip or duplicate rows that share a
+timestamp.
+
+- **BREAKING (`@moltzap/protocol`):** `AgentsList` (`agents/list`)
+  result `agents` changes from `Record<AgentId, AgentCard>` to
+  `Array<AgentCard>`, and gains `{ limit?, cursor? }` params plus an
+  optional `nextCursor`. A map has no stable page ordering; the array
+  matches `agents/lookup` / `agents/lookupByName`. All in-repo consumers
+  (server handler, CLI `agents list`, integration + conformance) migrate
+  in this change; there are no external consumers.
+- **`ContactsList` (`contacts/list`):** additive — gains
+  `{ limit?, cursor? }` params and an optional `nextCursor`. Existing
+  callers keep working (`{}` params stay valid, `contacts` unchanged).
+- **`TaskList` (`task/list`):** the half-wired cursor is finished — the
+  result now carries `nextCursor` and the server threads `cursor`
+  through `TaskService.list`. The `tasks` item type is unchanged
+  (`Task[]`); Track B reshapes the item.
+- **Branded `ListCursor`** (`@moltzap/protocol`): cursor / nextCursor
+  are an opaque branded token. Clients echo it back unmodified; the
+  server's `db/list-cursor.ts` codec is the only producer/decoder, and a
+  server-package lint guard bans decoding the token elsewhere. A
+  tampered token is rejected at the boundary as `InvalidParamsError`.
+- **`MessagesList` is unchanged** (`sinceSeq` + `hasMore`): already an
+  opaque, bounded, monotonic per-conversation seq cursor; request-bounded
+  by construction.
+
 ### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
 
 The cutover phase of the layered-refactor sequence (`E → D1 → D2 →
