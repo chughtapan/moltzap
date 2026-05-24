@@ -1,0 +1,197 @@
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { Effect, Either } from "effect";
+import type { InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
+
+import {
+  awaitOneNotification,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
+  registerAndConnect,
+  type ConnectedAgent,
+} from "../helpers.js";
+import {
+  AppsRegister,
+  DEFAULT_APP_ID,
+  HookBlockedError,
+  MessagesAuthorize,
+  MessagesSend,
+  MessageReceivedNotificationDefinition,
+  TaskConversationCreate,
+  TaskCreate,
+  TaskRequest,
+  type AppId,
+  type AppManifest,
+} from "@moltzap/protocol";
+
+let spanExporter: InMemorySpanExporter;
+const TRACE_APP_ID = "00000000-0000-4000-8000-000000010006" as AppId;
+const TRACE_BLOCK_REASON = "trace-block";
+const TRACE_BLOCKED_TEXT = "blocked trace span";
+const TRACE_APP_MANIFEST: AppManifest = {
+  appId: TRACE_APP_ID,
+  name: "Trace Span Test App",
+  hooks: {
+    message_authorize: { timeout_ms: 5_000 },
+  },
+};
+
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const server = yield* startTestServerEffect();
+      // The default test wiring auto-provisions an InMemorySpanExporter; a
+      // null handle would mean a caller passed a custom processor, which
+      // these tests do not.
+      if (server.spanExporter === null) {
+        return yield* Effect.die(
+          new Error("expected auto-wired InMemorySpanExporter"),
+        );
+      }
+      spanExporter = server.spanExporter;
+    }),
+  ),
+);
+
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
+
+beforeEach(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      yield* resetTestDbEffect();
+      yield* Effect.sync(() => spanExporter.reset());
+    }),
+  ),
+);
+
+function findSpanAttributes(name: string): Record<string, unknown> | undefined {
+  const span = spanExporter.getFinishedSpans().find((s) => s.name === name);
+  return span?.attributes;
+}
+
+// Effect's `withSpan` JSON-encodes array/object attribute values into strings
+// (OTel's native AttributeValue array support is bypassed by the Effect
+// bridge), so array attributes arrive as JSON text. Parse back to compare the
+// content without coupling the test to Effect's exact JSON formatting.
+function parseArrayAttribute(value: unknown): unknown {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
+function attachBlockingMessageAuthorize(alice: ConnectedAgent) {
+  return alice.client.onAppCallback(MessagesAuthorize, () =>
+    Effect.succeed({
+      verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
+    }),
+  );
+}
+
+function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
+  Either.match(outcome, {
+    onLeft: (error) => {
+      expect((error as { code?: number }).code).toBe(HookBlockedError.code);
+    },
+    onRight: () => expect.fail("expected HookBlockedError"),
+  });
+}
+
+function emitDeliveredMessageSpan(): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-trace-span");
+    const bob = yield* registerAndConnect("bob-trace-span");
+
+    const conv = yield* alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: { participants: [bob.agentId] },
+    });
+    const conversationId = conv.conversation!.id;
+
+    yield* alice.client.sendRpc(MessagesSend, {
+      taskId: conv.task.id,
+      conversationId,
+      parts: [{ type: "text", text: "hello from trace span test" }],
+    });
+    yield* awaitOneNotification(
+      bob.client,
+      MessageReceivedNotificationDefinition,
+    );
+
+    const attributes = findSpanAttributes("moltzap.message.delivered");
+    expect(attributes).toBeDefined();
+    expect(attributes).toMatchObject({
+      "moltzap.message.conversation_id": conversationId,
+      "moltzap.message.sender_id": alice.agentId,
+      "moltzap.channel.key": conversationId,
+      "moltzap.sender.display_name": alice.name,
+    });
+    expect(
+      parseArrayAttribute(attributes?.["moltzap.message.text_parts"]),
+    ).toEqual(["hello from trace span test"]);
+    expect(parseArrayAttribute(attributes?.["moltzap.recipients"])).toEqual([
+      bob.agentId,
+    ]);
+    expect(parseArrayAttribute(attributes?.["moltzap.delivered"])).toEqual([
+      bob.agentId,
+    ]);
+
+    yield* alice.client.close();
+    yield* bob.client.close();
+  });
+}
+
+function emitBlockedHookSpan(): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-trace-span-blocked");
+    const bob = yield* registerAndConnect("bob-trace-span-blocked");
+    // Wire the message-authorize callback BEFORE AppsRegister so the
+    // server's forked round-trip lands on a live handler.
+    yield* attachBlockingMessageAuthorize(alice);
+    yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });
+    yield* alice.client.onAppCallback(TaskCreate, () =>
+      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    );
+
+    const task = yield* alice.client.sendRpc(TaskRequest, {
+      appId: TRACE_APP_ID,
+      invitedAgentIds: [bob.agentId],
+    });
+    const conv = yield* alice.client.sendRpc(TaskConversationCreate, {
+      taskId: task.task.id,
+      participants: [bob.agentId],
+    });
+    const outcome = yield* Effect.either(
+      alice.client.sendRpc(MessagesSend, {
+        taskId: task.task.id,
+        conversationId: conv.conversation.id,
+        parts: [{ type: "text", text: TRACE_BLOCKED_TEXT }],
+      }),
+    );
+    expectHookBlocked(outcome);
+
+    const attributes = findSpanAttributes("moltzap.message.blocked");
+    expect(attributes).toBeDefined();
+    expect(attributes).toMatchObject({
+      "moltzap.hook.name": "before_message_delivery",
+      "moltzap.message.conversation_id": conv.conversation.id,
+      "moltzap.message.sender_id": alice.agentId,
+      "moltzap.channel.key": conv.conversation.id,
+      "moltzap.sender.display_name": alice.name,
+      "moltzap.block.reason": TRACE_BLOCK_REASON,
+    });
+    expect(
+      parseArrayAttribute(attributes?.["moltzap.message.text_parts"]),
+    ).toEqual([TRACE_BLOCKED_TEXT]);
+
+    yield* alice.client.close();
+    yield* bob.client.close();
+  });
+}
+
+describe("trace spans", () => {
+  it("emits a moltzap.message.delivered span for delivered messages", () =>
+    emitDeliveredMessageSpan());
+
+  it("emits a moltzap.message.blocked span for blocked before_message_delivery hooks", () =>
+    emitBlockedHookSpan());
+});
