@@ -70,7 +70,7 @@ import type {
  * provided by the dispatcher's `ManagedRuntime` from the configured
  * database `Layer.succeed(DbTag, db)`.
  */
-export type TransportTags = ConnectionTag | DbTag;
+type TransportTags = ConnectionTag | DbTag;
 
 /**
  * Identity-layer allowlist: registration, claim, login, contacts,
@@ -78,7 +78,7 @@ export type TransportTags = ConnectionTag | DbTag;
  * three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
  * `AgentsList` after the auth-handlers split).
  */
-export type IdentityTags = TransportTags | AuthServiceTag;
+type IdentityTags = TransportTags | AuthServiceTag;
 
 /**
  * Network-layer allowlist: Connect, presence, outbound routing.
