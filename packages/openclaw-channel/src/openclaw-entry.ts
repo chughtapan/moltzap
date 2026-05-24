@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * OpenClaw plugin entry point for MoltZap.
  *
@@ -1206,7 +1208,7 @@ function sendTextEffect(
  *   Plugin->>Server: core.sendReply(conversationId, text)
  *   alt LeaseInvalid wire error
  *     Server-->>Plugin: RpcServerError reason=LeaseInvalid
- *     Plugin->>Plugin: catchLeaseInvalid → LeaseAlreadyConsumed&lt;br>onLeaseConsumed callback, return false
+ *     Plugin->>Plugin: catchLeaseInvalid → LeaseAlreadyConsumed<br>onLeaseConsumed callback, return false
  *   end
  *   OC->>Plugin: stopAccount(ctx)
  *   Plugin->>Core: core.disconnect()

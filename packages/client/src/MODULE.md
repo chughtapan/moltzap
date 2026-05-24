@@ -19,7 +19,7 @@ export interface AgentClientOptions {
   onDisconnect?: (close: CloseInfo) => void;
 ```
 
-### [`ChannelCoreOptions`](./channel-core.ts#L207)
+### [`ChannelCoreOptions`](./channel-core.ts#L209)
 
 _Interface_
 
@@ -30,7 +30,7 @@ export interface ChannelCoreOptions {
 }
 ```
 
-### [`ChannelService`](./channel-core.ts#L136)
+### [`ChannelService`](./channel-core.ts#L138)
 
 _Interface_
 
@@ -45,7 +45,7 @@ export interface ChannelService {
 
 The subset of MoltZapService that MoltZapChannelCore needs.
 
-### [`ContextBlocks`](./channel-core.ts#L36)
+### [`ContextBlocks`](./channel-core.ts#L38)
 
 _Interface_
 
@@ -57,7 +57,7 @@ export interface ContextBlocks {
 }
 ```
 
-### [`ContextOptions`](./service.ts#L157)
+### [`ContextOptions`](./service.ts#L158)
 
 _Interface_
 
@@ -69,7 +69,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L150)
+### [`ConversationMeta`](./service.ts#L151)
 
 _Interface_
 
@@ -82,7 +82,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`CrossConversationEntry`](./service.ts#L164)
+### [`CrossConversationEntry`](./service.ts#L165)
 
 _Interface_
 
@@ -100,7 +100,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](./service.ts#L239)
+### [`CrossConvMessage`](./service.ts#L240)
 
 _Interface_
 
@@ -117,7 +117,7 @@ export interface CrossConvMessage {
 
 Full message from another conversation, used by peekFullMessages().
 
-### [`DispatchAdmissionDecision`](./channel-core.ts#L90)
+### [`DispatchAdmissionDecision`](./channel-core.ts#L92)
 
 _TypeAlias_
 
@@ -131,7 +131,7 @@ export type DispatchAdmissionDecision =
     }
 ```
 
-### [`DispatchAdmissionRequest`](./channel-core.ts#L80)
+### [`DispatchAdmissionRequest`](./channel-core.ts#L82)
 
 _Interface_
 
@@ -147,7 +147,7 @@ export interface DispatchAdmissionRequest {
 }
 ```
 
-### [`DispatchReleaseFrame`](./channel-core.ts#L120)
+### [`DispatchReleaseFrame`](./channel-core.ts#L122)
 
 _Interface_
 
@@ -174,7 +174,7 @@ the protocol, kept structurally typed here so this module does not
 need a direct protocol descriptor import (the channel core stays
 descriptor-free; the wire shape is asserted by the service module).
 
-### [`EnrichedConversationMeta`](./channel-core.ts#L29)
+### [`EnrichedConversationMeta`](./channel-core.ts#L31)
 
 _Interface_
 
@@ -187,7 +187,7 @@ export interface EnrichedConversationMeta {
 }
 ```
 
-### [`EnrichedInboundMessage`](./channel-core.ts#L42)
+### [`EnrichedInboundMessage`](./channel-core.ts#L44)
 
 _Interface_
 
@@ -221,7 +221,7 @@ export interface EnrichedInboundMessage {
 }
 ```
 
-### [`EnrichedSender`](./channel-core.ts#L24)
+### [`EnrichedSender`](./channel-core.ts#L26)
 
 _Interface_
 
@@ -232,7 +232,7 @@ export interface EnrichedSender {
 }
 ```
 
-### [`formatCrossConversationBlock`](./service.ts#L184)
+### [`formatCrossConversationBlock`](./service.ts#L185)
 
 _Function_
 
@@ -246,7 +246,7 @@ Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
 that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
 share this formatter so sanitization and line shape stay in one place.
 
-### [`InboundHandler`](./channel-core.ts#L218)
+### [`InboundHandler`](./channel-core.ts#L220)
 
 _TypeAlias_
 
@@ -303,7 +303,7 @@ MoltZap agent client — outbound RPC only, no TM-callback inbound
 dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; TM-only
 methods are unreachable at compile time (Spec D3 R11/R13).
 
-### [`MoltZapChannelCore`](./channel-core.ts#L322)
+### [`MoltZapChannelCore`](./channel-core.ts#L324)
 
 _Class_
 
@@ -384,11 +384,11 @@ sequenceDiagram
   server->>ws: messages/received notification
   ws->>svc: subscribers.dispatch — fanout(message)
   svc->>core: message listener
-  Note over core: dedup via recordMessageIdIfNew&lt;br>Queue.unsafeOffer(inboundQueue, work)
-  Note over core: consumer fiber — Queue.take&lt;br>takeDispatchCandidate prefers parked[convId]
+  Note over core: dedup via recordMessageIdIfNew<br>Queue.unsafeOffer(inboundQueue, work)
+  Note over core: consumer fiber — Queue.take<br>takeDispatchCandidate prefers parked[convId]
   core->>server: dispatch/request — dispatchAdmission
   server-->>core: ack {leaseId, dispatchId}
-  Note over server,core: ack/release race absorbed via&lt;br>pendingDispatchesByLease (Deferred)&lt;br>pendingReleasesByLease (ring 256, soft-TTL 30s)
+  Note over server,core: ack/release race absorbed via<br>pendingDispatchesByLease (Deferred)<br>pendingReleasesByLease (ring 256, soft-TTL 30s)
   server->>ws: dispatch/release notification
   ws->>core: recordDispatchRelease — settles Deferred or buffers
   alt verdict deny
@@ -396,8 +396,8 @@ sequenceDiagram
   else verdict hold
     Note over core: parkDispatchWork — front of parked[convId]
   else verdict grant
-    Note over core: takeCoalescedConversationMessages&lt;br>drains same-conv from queue + parked
-    Note over core: dispatchWithLease&lt;br>leaseIdInFlight = leaseId&lt;br>enrichMessage — sender name, conversation, context entries
+    Note over core: takeCoalescedConversationMessages<br>drains same-conv from queue + parked
+    Note over core: dispatchWithLease<br>leaseIdInFlight = leaseId<br>enrichMessage — sender name, conversation, context entries
     core->>handler: inboundHandler(enriched)
     handler-->>core: Effect.void
     Note over core: handler exceeds leaseTimeoutMs (90s) → DispatchLeaseExpired
@@ -408,7 +408,7 @@ Parking semantics: `hold` re-enters at `parked[convId]` FRONT.
 `takeDispatchCandidate` prefers the parked queue for the next pull
 so backpressure within one conversation does not starve others.
 
-### [`MoltZapService`](./service.ts#L291)
+### [`MoltZapService`](./service.ts#L292)
 
 _Class_
 
@@ -626,7 +626,7 @@ escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
 a `NotConnectedError` error channel. Consume via `Stream.runForEach`
 (long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
 
-### [`PendingDispatchMessage`](./channel-core.ts#L70)
+### [`PendingDispatchMessage`](./channel-core.ts#L72)
 
 _Interface_
 
@@ -706,7 +706,7 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`sanitizeForSystemReminder`](./service.ts#L175)
+### [`sanitizeForSystemReminder`](./service.ts#L176)
 
 _Function_
 
@@ -716,7 +716,7 @@ export function sanitizeForSystemReminder(s: string): string
 
 Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block.
 
-### [`ServiceOptions`](./service.ts#L204)
+### [`ServiceOptions`](./service.ts#L205)
 
 _Interface_
 
@@ -727,7 +727,7 @@ export interface ServiceOptions {
 }
 ```
 
-### [`ServiceRpcError`](./service.ts#L148)
+### [`ServiceRpcError`](./service.ts#L149)
 
 _TypeAlias_
 

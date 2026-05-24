@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { NodeContext } from "@effect/platform-node";
 import { Effect, Exit, Fiber, Option, pipe } from "effect";
 
@@ -55,20 +56,20 @@ function pollNanoclawExitCode(
  *   NS["NanoclawAdapter.spawn(input)"]
  *   subgraph P1["Phase 1 — ensureNanoclawRuntimeInstalledEffect"]
  *     P1C{".ready exists?"}
- *     P1WARM["syncChannelFileIntoCache&lt;br>(diff channel + client/dist; rebuild if drifted)"]
- *     P1COLD["preflightDocker → downloadTarball&lt;br>→ copy channel + barrel + skill&lt;br>→ buildNanoclawRuntimeCache&lt;br>→ promoteRuntimeCache"]
+ *     P1WARM["syncChannelFileIntoCache<br>(diff channel + client/dist; rebuild if drifted)"]
+ *     P1COLD["preflightDocker → downloadTarball<br>→ copy channel + barrel + skill<br>→ buildNanoclawRuntimeCache<br>→ promoteRuntimeCache"]
  *     P1C -->|warm| P1WARM
  *     P1C -->|cold| P1COLD
  *   end
  *   subgraph P2["Phase 2 — startNanoclawRuntimeEffect"]
  *     P2DIR[createNanoclawDataDir]
- *     P2OC["ensureOnecliRunning&lt;br>(probe 10254; up if unreachable)"]
+ *     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
  *     P2WS[writeRuntimeWorkspaceFiles]
- *     P2SP["startNanoclawProcess&lt;br>(node dist/index.js + ONECLI_URL env)"]
- *     P2WAIT["waitForNanoclawConnection&lt;br>(scan logs for CONNECTED_MARKER)"]
+ *     P2SP["startNanoclawProcess<br>(node dist/index.js + ONECLI_URL env)"]
+ *     P2WAIT["waitForNanoclawConnection<br>(scan logs for CONNECTED_MARKER)"]
  *     P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
  *   end
- *   NCR["waitUntilReady — TWO gates:&lt;br>1. inner: waitForNanoclawConnection (stdout marker)&lt;br>2. outer: server.awaitAgentReady (WS auth)"]
+ *   NCR["waitUntilReady — TWO gates:<br>1. inner: waitForNanoclawConnection (stdout marker)<br>2. outer: server.awaitAgentReady (WS auth)"]
  *   NS --> P1 --> P2 --> NCR
  * ```
  *

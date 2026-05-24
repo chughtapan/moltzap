@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * Client-side conformance suite entry point.
  *
@@ -166,7 +168,7 @@ export function registerAllClientProperties(
  * flowchart TD
  *   A["src/testing/conformance/{layer}/&lt;property>.ts"]
  *   A --> B["property body — Effect that asserts the invariant"]
- *   A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts&lt;br>(server intentionally violates invariant)"]
+ *   A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts<br>(server intentionally violates invariant)"]
  *   C --> D[vitest runs the proof: failure-of-failure = pass]
  * ```
  *

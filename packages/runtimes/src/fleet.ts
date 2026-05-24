@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Exit, Fiber } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import {
@@ -289,7 +290,7 @@ function startPendingRuntimeAgent(options: RuntimeStartOptions) {
  * ```mermaid
  * flowchart TD
  *   A["startRuntimeAgent(options)"]
- *   A --> B["Effect.scoped:&lt;br>startPendingRuntimeAgent → PendingAgent"]
+ *   A --> B["Effect.scoped:<br>startPendingRuntimeAgent → PendingAgent"]
  *   B --> C[releaseStartupCleanup]
  *   C --> D["Runtime { stop, getLogs }"]
  *   B -->|Spawn fails| E[SpawnFailed]
@@ -322,10 +323,10 @@ export function startRuntimeAgent(
  *
  * ```mermaid
  * flowchart TD
- *   FL["launchRuntimeFleet(options)&lt;br>Effect.scoped, withSpan"]
- *   FL --> SEQ["Effect.forEach(options.agents, startFleetAgent,&lt;br>{ concurrency: options.concurrency ?? 1 })"]
- *   SEQ -->|One fails| TD["onExit: teardownStartedAgents&lt;br>in REVERSE insertion order"]
- *   SEQ -->|All succeed| RF["toRuntimeFleet(started)&lt;br>→ RuntimeFleet { agents, stopAll, getLogs }"]
+ *   FL["launchRuntimeFleet(options)<br>Effect.scoped, withSpan"]
+ *   FL --> SEQ["Effect.forEach(options.agents, startFleetAgent,<br>{ concurrency: options.concurrency ?? 1 })"]
+ *   SEQ -->|One fails| TD["onExit: teardownStartedAgents<br>in REVERSE insertion order"]
+ *   SEQ -->|All succeed| RF["toRuntimeFleet(started)<br>→ RuntimeFleet { agents, stopAll, getLogs }"]
  * ```
  *
  * Sibling: {@link launchRuntimeFleetWithProcessSignals} adds SIGINT
@@ -425,10 +426,10 @@ function interruptedStartup(signal: Signal) {
  * flowchart TD
  *   LRFPS["launchRuntimeFleetWithProcessSignals(options)"]
  *   LRFPS --> FORK["Effect.runFork(launchRuntimeFleet) → fiber"]
- *   FORK --> SIGS["installProcessSignalHandlers&lt;br>(SIGINT, SIGTERM by default)&lt;br>first signal: shutdownSignal.value = signal&lt;br>Fiber.interrupt(fiber)"]
- *   SIGS --> OBS["observeFleetLaunchFiber&lt;br>routes by exit shape"]
+ *   FORK --> SIGS["installProcessSignalHandlers<br>(SIGINT, SIGTERM by default)<br>first signal: shutdownSignal.value = signal<br>Fiber.interrupt(fiber)"]
+ *   SIGS --> OBS["observeFleetLaunchFiber<br>routes by exit shape"]
  *   OBS -->|Success| OK["resume(Effect.succeed(fleet))"]
- *   OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))&lt;br>→ RuntimeFleetStartupInterrupted"]
+ *   OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ RuntimeFleetStartupInterrupted"]
  *   OBS -->|Other failure| ERR["resume(Effect.failCause(...))"]
  * ```
  * @failure RuntimeFleetStartupInterrupted when a signal arrives during fleet startup

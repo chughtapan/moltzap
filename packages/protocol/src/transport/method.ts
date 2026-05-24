@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect } from "effect";
 import { type Static, type TSchema } from "@sinclair/typebox";
 import {
@@ -70,9 +71,9 @@ export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
  *
  * ```mermaid
  * flowchart TD
- *   A["domain layer call site:&lt;br>defineRpc{ name, params, result, optional?, capabilities? }"]
- *   A --> B["ajv.compile(params)&lt;br>→ validateParams"]
- *   A --> C["ajv.compile(result)&lt;br>→ validateResult"]
+ *   A["domain layer call site:<br>defineRpc{ name, params, result, optional?, capabilities? }"]
+ *   A --> B["ajv.compile(params)<br>→ validateParams"]
+ *   A --> C["ajv.compile(result)<br>→ validateResult"]
  *   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
  *   C --> D
  *   D --> E["pushed into per-layer *RpcMethods const"]
@@ -148,7 +149,7 @@ export function defineRpc<
  *   Server->>Server: NotificationDefinition.encode(params)
  *   Server->>Wire: {jsonrpc, method, params}
  *   Wire->>Client: frame arrives
- *   Client->>Client: decodeServerInbound&lt;br>→ tag Notification, definition, params
+ *   Client->>Client: decodeServerInbound<br>→ tag Notification, definition, params
  *   Client->>Client: subscriber dispatcher routes to handler
  * ```
  *

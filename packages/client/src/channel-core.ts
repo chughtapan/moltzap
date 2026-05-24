@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * Shared message-enrichment helper for MoltZap channel adapters.
  */
@@ -295,11 +297,11 @@ interface InboundDispatchWork {
  *   server->>ws: messages/received notification
  *   ws->>svc: subscribers.dispatch — fanout(message)
  *   svc->>core: message listener
- *   Note over core: dedup via recordMessageIdIfNew&lt;br>Queue.unsafeOffer(inboundQueue, work)
- *   Note over core: consumer fiber — Queue.take&lt;br>takeDispatchCandidate prefers parked[convId]
+ *   Note over core: dedup via recordMessageIdIfNew<br>Queue.unsafeOffer(inboundQueue, work)
+ *   Note over core: consumer fiber — Queue.take<br>takeDispatchCandidate prefers parked[convId]
  *   core->>server: dispatch/request — dispatchAdmission
  *   server-->>core: ack {leaseId, dispatchId}
- *   Note over server,core: ack/release race absorbed via&lt;br>pendingDispatchesByLease (Deferred)&lt;br>pendingReleasesByLease (ring 256, soft-TTL 30s)
+ *   Note over server,core: ack/release race absorbed via<br>pendingDispatchesByLease (Deferred)<br>pendingReleasesByLease (ring 256, soft-TTL 30s)
  *   server->>ws: dispatch/release notification
  *   ws->>core: recordDispatchRelease — settles Deferred or buffers
  *   alt verdict deny
@@ -307,8 +309,8 @@ interface InboundDispatchWork {
  *   else verdict hold
  *     Note over core: parkDispatchWork — front of parked[convId]
  *   else verdict grant
- *     Note over core: takeCoalescedConversationMessages&lt;br>drains same-conv from queue + parked
- *     Note over core: dispatchWithLease&lt;br>leaseIdInFlight = leaseId&lt;br>enrichMessage — sender name, conversation, context entries
+ *     Note over core: takeCoalescedConversationMessages<br>drains same-conv from queue + parked
+ *     Note over core: dispatchWithLease<br>leaseIdInFlight = leaseId<br>enrichMessage — sender name, conversation, context entries
  *     core->>handler: inboundHandler(enriched)
  *     handler-->>core: Effect.void
  *     Note over core: handler exceeds leaseTimeoutMs (90s) → DispatchLeaseExpired
@@ -698,9 +700,9 @@ export class MoltZapChannelCore {
    * ```mermaid
    * stateDiagram-v2
    *   [*] --> PENDING
-   *   PENDING : dispatch/request sent&lt;br>server minting lease
+   *   PENDING : dispatch/request sent<br>server minting lease
    *   PENDING --> AWAITING_RELEASE : ack returns leaseId
-   *   AWAITING_RELEASE : Deferred registered&lt;br>or buffered release consumed
+   *   AWAITING_RELEASE : Deferred registered<br>or buffered release consumed
    *   AWAITING_RELEASE --> GRANTED : verdict grant
    *   AWAITING_RELEASE --> DENIED : verdict deny
    *   AWAITING_RELEASE --> HELD : verdict hold
@@ -708,9 +710,9 @@ export class MoltZapChannelCore {
    *   GRANTED : proceed to enrichment
    *   DENIED : drop message — consumer fiber continues
    *   GRANTED --> IN_FLIGHT : dispatchWithLease
-   *   IN_FLIGHT : leaseIdInFlight set&lt;br>handler executing&lt;br>lease authorizes one messages/send
-   *   IN_FLIGHT --> CONSUMED : handler returns within leaseTimeoutMs&lt;br>server marks via dispatchLeaseId
-   *   IN_FLIGHT --> EXPIRED : handler exceeds leaseTimeoutMs&lt;br>DispatchLeaseExpired logged
+   *   IN_FLIGHT : leaseIdInFlight set<br>handler executing<br>lease authorizes one messages/send
+   *   IN_FLIGHT --> CONSUMED : handler returns within leaseTimeoutMs<br>server marks via dispatchLeaseId
+   *   IN_FLIGHT --> EXPIRED : handler exceeds leaseTimeoutMs<br>DispatchLeaseExpired logged
    *   CONSUMED --> [*]
    *   DENIED --> [*]
    *   EXPIRED --> [*]

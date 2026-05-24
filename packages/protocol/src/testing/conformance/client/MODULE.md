@@ -97,7 +97,7 @@ export interface ClientConformanceRunOptions {
   ) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
 ```
 
-### [`ClientConformanceSuiteOptions`](./suite.ts#L76)
+### [`ClientConformanceSuiteOptions`](./suite.ts#L78)
 
 _Interface_
 
@@ -207,7 +207,7 @@ Build a `PropertyInvariantViolation` for the current property.
 Convenience so property bodies don't repeat the tagged-error
 construction.
 
-### [`JointConformanceSuiteOptions`](./suite.ts#L481)
+### [`JointConformanceSuiteOptions`](./suite.ts#L483)
 
 _Interface_
 
@@ -480,7 +480,7 @@ export interface RealClientSubscription {
 }
 ```
 
-### [`registerAllClientProperties`](./suite.ts#L136)
+### [`registerAllClientProperties`](./suite.ts#L138)
 
 _Function_
 
@@ -770,7 +770,7 @@ Exposed as a helper so each property body can choose whether to run
 the auto-responder or assert directly against the raw inbound stream
 (e.g., B4 spurious-id test wants to observe the inbound ids).
 
-### [`runClientConformanceSuite`](./suite.ts#L178)
+### [`runClientConformanceSuite`](./suite.ts#L180)
 
 _Function_
 
@@ -796,7 +796,7 @@ property to prove the assertion has teeth.
 flowchart TD
   A["src/testing/conformance/{layer}/&lt;property>.ts"]
   A --> B["property body — Effect that asserts the invariant"]
-  A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts&lt;br>(server intentionally violates invariant)"]
+  A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts<br>(server intentionally violates invariant)"]
   C --> D[vitest runs the proof: failure-of-failure = pass]
 ```
 

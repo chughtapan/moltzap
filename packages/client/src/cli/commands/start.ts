@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * `moltzap start &lt;name> &lt;participant>... [--message &lt;text>] [--app-id &lt;uuid>]`
  *
@@ -17,7 +19,7 @@
  *   shell->>cli: moltzap start &lt;name> agent:bob ... [--message] [--app-id]
  *   cli->>start: StartCommandArgs
  *   Note over start: 1. validateAppId — bad UUID → exit 64
- *   Note over start: 2. resolveAgentTokens — classify each token&lt;br>UUID short-circuits, names batch into ONE AgentsLookupByName call
+ *   Note over start: 2. resolveAgentTokens — classify each token<br>UUID short-circuits, names batch into ONE AgentsLookupByName call
  *   start->>tx: rpc(AgentsLookupByName, {names})
  *   tx-->>start: {agents}
  *   Note over start: unresolved → exit 64

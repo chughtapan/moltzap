@@ -53,7 +53,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`ClaudeCodeAdapter`](./claude-code-adapter.ts#L417)
+### [`ClaudeCodeAdapter`](./claude-code-adapter.ts#L419)
 
 _Class_
 
@@ -112,11 +112,11 @@ process with the moltzap channel installed as a stdio MCP server.
 ```mermaid
 flowchart TD
   CCS["ClaudeCodeAdapter.spawn(input)"]
-  CC1["1. prepareClaudeCodeStateDir&lt;br>makeTempDirectory, seedWorkspaceFiles,&lt;br>installClaudeCodeChannelPlugin&lt;br>(resolves modelcontextprotocol/sdk + effect)"]
-  CC2["2. writeClaudeCodeMcpConfig&lt;br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
-  CC3["3. spawnConfiguredClaude&lt;br>buildClaudeArgs:&lt;br>--strict-mcp-config --mcp-config&lt;br>--print --input-format stream-json&lt;br>--output-format stream-json --verbose&lt;br>--dangerously-skip-permissions&lt;br>--add-dir stateDir/workspace&lt;br>env: CLAUDE_CODE_HOME=stateDir"]
+  CC1["1. prepareClaudeCodeStateDir<br>makeTempDirectory, seedWorkspaceFiles,<br>installClaudeCodeChannelPlugin<br>(resolves modelcontextprotocol/sdk + effect)"]
+  CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
+  CC3["3. spawnConfiguredClaude<br>buildClaudeArgs:<br>--strict-mcp-config --mcp-config<br>--print --input-format stream-json<br>--output-format stream-json --verbose<br>--dangerously-skip-permissions<br>--add-dir stateDir/workspace<br>env: CLAUDE_CODE_HOME=stateDir"]
   CC4["4. state = { process, stateDir, logBuffer, ... }"]
-  CCR["waitUntilReady&lt;br>race(server.awaitAgentReady, processExitLoop)&lt;br>(cc-channel MCP stdio server authenticates on start)"]
+  CCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>(cc-channel MCP stdio server authenticates on start)"]
   CCS --> CC1 --> CC2 --> CC3 --> CC4 --> CCR
 ```
 
@@ -126,7 +126,7 @@ is visible in claude's `--verbose` stream-json output. Shutdown
 via SIGTERM on the claude process propagates to the MCP stdio
 child naturally — no process-group kill needed (unlike OpenClaw).
 
-### [`ClaudeCodeAdapterDeps`](./claude-code-adapter.ts#L60)
+### [`ClaudeCodeAdapterDeps`](./claude-code-adapter.ts#L62)
 
 _Interface_
 
@@ -157,7 +157,7 @@ export interface ClaudeCodeAdapterDeps {
 }
 ```
 
-### [`createWorkspaceClaudeCodeAdapter`](./claude-code-adapter.ts#L573)
+### [`createWorkspaceClaudeCodeAdapter`](./claude-code-adapter.ts#L575)
 
 _Function_
 
@@ -174,9 +174,9 @@ createWorkspaceOpenClawAdapter. Resolves `claudeBin` and
 ```mermaid
 flowchart TD
   CCWF["createWorkspaceClaudeCodeAdapter(input)"]
-  CCBIN["claudeBin = input.claudeBin ??&lt;br>resolveWorkspaceClaudeBin&lt;br>(resolveWorkspaceBin binName='claude', packageName='@anthropic-ai/claude-code')"]
-  CCROOT["resolveClaudeCodePackageRoot&lt;br>(requireFromHere.resolve('@anthropic-ai/claude-code/package.json'))"]
-  CCCH["channelDistDir = input.channelDistDir ??&lt;br>resolveClaudeCodeChannelDistDir"]
+  CCBIN["claudeBin = input.claudeBin ??<br>resolveWorkspaceClaudeBin<br>(resolveWorkspaceBin binName='claude', packageName='@anthropic-ai/claude-code')"]
+  CCROOT["resolveClaudeCodePackageRoot<br>(requireFromHere.resolve('@anthropic-ai/claude-code/package.json'))"]
+  CCCH["channelDistDir = input.channelDistDir ??<br>resolveClaudeCodeChannelDistDir"]
   CCCHTRY["Try: requireFromHere.resolve('@moltzap/claude-code-channel') → dirname/dist"]
   CCCHFALL["Fallback: repoRoot/packages/claude-code-channel/dist (logs warning)"]
   CCWF --> CCBIN --> CCROOT --> CCCH
@@ -184,7 +184,7 @@ flowchart TD
   CCCH --> CCCHFALL
 ```
 
-### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L406)
+### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L407)
 
 _Function_
 
@@ -202,10 +202,10 @@ OpenClawAdapter.
 ```mermaid
 flowchart TD
   OCWF["createWorkspaceOpenClawAdapter(input)"]
-  OCPR["resolveWorkspacePackageRoot&lt;br>(walk import.meta.url ancestors to 'packages' segment)"]
+  OCPR["resolveWorkspacePackageRoot<br>(walk import.meta.url ancestors to 'packages' segment)"]
   OCRR["repoRoot = input.repoRoot ?? two-dirs-up-from-packageRoot"]
-  OCBIN["openclawBin = input.openclawBin ??&lt;br>resolveWorkspaceOpenClawBin&lt;br>(createRequire(packages/runtimes/package.json).resolve('openclaw') → walk back to package root → read package.json bin)"]
-  OCCH["channelDistDir = input.channelDistDir ??&lt;br>repoRoot/packages/openclaw-channel/dist"]
+  OCBIN["openclawBin = input.openclawBin ??<br>resolveWorkspaceOpenClawBin<br>(createRequire(packages/runtimes/package.json).resolve('openclaw') → walk back to package root → read package.json bin)"]
+  OCCH["channelDistDir = input.channelDistDir ??<br>repoRoot/packages/openclaw-channel/dist"]
   OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir, repoRoot })"]
   OCWF --> OCPR --> OCRR --> OCBIN --> OCCH --> OCOUT
 ```
@@ -214,7 +214,7 @@ Non-workspace usage: pass explicit `openclawBin` /
 `channelDistDir` to OpenClawAdapter's constructor
 directly. This factory is a convenience for monorepo callers.
 
-### [`launchRuntimeFleet`](./fleet.ts#L335)
+### [`launchRuntimeFleet`](./fleet.ts#L336)
 
 _Function_
 
@@ -229,17 +229,17 @@ tearing down all already-started agents if any one fails.
 
 ```mermaid
 flowchart TD
-  FL["launchRuntimeFleet(options)&lt;br>Effect.scoped, withSpan"]
-  FL --> SEQ["Effect.forEach(options.agents, startFleetAgent,&lt;br>{ concurrency: options.concurrency ?? 1 })"]
-  SEQ -->|One fails| TD["onExit: teardownStartedAgents&lt;br>in REVERSE insertion order"]
-  SEQ -->|All succeed| RF["toRuntimeFleet(started)&lt;br>→ RuntimeFleet { agents, stopAll, getLogs }"]
+  FL["launchRuntimeFleet(options)<br>Effect.scoped, withSpan"]
+  FL --> SEQ["Effect.forEach(options.agents, startFleetAgent,<br>{ concurrency: options.concurrency ?? 1 })"]
+  SEQ -->|One fails| TD["onExit: teardownStartedAgents<br>in REVERSE insertion order"]
+  SEQ -->|All succeed| RF["toRuntimeFleet(started)<br>→ RuntimeFleet { agents, stopAll, getLogs }"]
 ```
 
 Sibling: launchRuntimeFleetWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `RuntimeFleetStartupInterrupted`.
 
-### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L436)
+### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L437)
 
 _Function_
 
@@ -261,10 +261,10 @@ a fleet.
 flowchart TD
   LRFPS["launchRuntimeFleetWithProcessSignals(options)"]
   LRFPS --> FORK["Effect.runFork(launchRuntimeFleet) → fiber"]
-  FORK --> SIGS["installProcessSignalHandlers&lt;br>(SIGINT, SIGTERM by default)&lt;br>first signal: shutdownSignal.value = signal&lt;br>Fiber.interrupt(fiber)"]
-  SIGS --> OBS["observeFleetLaunchFiber&lt;br>routes by exit shape"]
+  FORK --> SIGS["installProcessSignalHandlers<br>(SIGINT, SIGTERM by default)<br>first signal: shutdownSignal.value = signal<br>Fiber.interrupt(fiber)"]
+  SIGS --> OBS["observeFleetLaunchFiber<br>routes by exit shape"]
   OBS -->|Success| OK["resume(Effect.succeed(fleet))"]
-  OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))&lt;br>→ RuntimeFleetStartupInterrupted"]
+  OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ RuntimeFleetStartupInterrupted"]
   OBS -->|Other failure| ERR["resume(Effect.failCause(...))"]
 ```
 
@@ -285,7 +285,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L79)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L80)
 
 _Class_
 
@@ -329,20 +329,20 @@ flowchart TD
   NS["NanoclawAdapter.spawn(input)"]
   subgraph P1["Phase 1 — ensureNanoclawRuntimeInstalledEffect"]
     P1C{".ready exists?"}
-    P1WARM["syncChannelFileIntoCache&lt;br>(diff channel + client/dist; rebuild if drifted)"]
-    P1COLD["preflightDocker → downloadTarball&lt;br>→ copy channel + barrel + skill&lt;br>→ buildNanoclawRuntimeCache&lt;br>→ promoteRuntimeCache"]
+    P1WARM["syncChannelFileIntoCache<br>(diff channel + client/dist; rebuild if drifted)"]
+    P1COLD["preflightDocker → downloadTarball<br>→ copy channel + barrel + skill<br>→ buildNanoclawRuntimeCache<br>→ promoteRuntimeCache"]
     P1C -->|warm| P1WARM
     P1C -->|cold| P1COLD
   end
   subgraph P2["Phase 2 — startNanoclawRuntimeEffect"]
     P2DIR[createNanoclawDataDir]
-    P2OC["ensureOnecliRunning&lt;br>(probe 10254; up if unreachable)"]
+    P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
     P2WS[writeRuntimeWorkspaceFiles]
-    P2SP["startNanoclawProcess&lt;br>(node dist/index.js + ONECLI_URL env)"]
-    P2WAIT["waitForNanoclawConnection&lt;br>(scan logs for CONNECTED_MARKER)"]
+    P2SP["startNanoclawProcess<br>(node dist/index.js + ONECLI_URL env)"]
+    P2WAIT["waitForNanoclawConnection<br>(scan logs for CONNECTED_MARKER)"]
     P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
   end
-  NCR["waitUntilReady — TWO gates:&lt;br>1. inner: waitForNanoclawConnection (stdout marker)&lt;br>2. outer: server.awaitAgentReady (WS auth)"]
+  NCR["waitUntilReady — TWO gates:<br>1. inner: waitForNanoclawConnection (stdout marker)<br>2. outer: server.awaitAgentReady (WS auth)"]
   NS --> P1 --> P2 --> NCR
 ```
 
@@ -350,7 +350,7 @@ Inbound marker: `New messages`. Cache lives at
 `NANOCLAW_RUNTIME_CACHE`; the channel-file sync detects drift in
 the moltzap channel + client-dist files and rebuilds.
 
-### [`NanoclawAdapterDeps`](./nanoclaw-adapter.ts#L24)
+### [`NanoclawAdapterDeps`](./nanoclaw-adapter.ts#L25)
 
 _Interface_
 
@@ -361,7 +361,7 @@ export interface NanoclawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L267)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L268)
 
 _Class_
 
@@ -413,12 +413,12 @@ readiness via the server-side WS authentication event.
 ```mermaid
 flowchart TD
   OCS["OpenClawAdapter.spawn(input)"]
-  OC1["1. allocateFreePort()&lt;br>NodeSocketServer.make({ port: 0 })"]
-  OC2["2. prepareOpenClawStateDir&lt;br>makeTempDirectory, writeOpenClawConfig,&lt;br>seedWorkspaceFiles, installChannelPlugin"]
-  OC3["3. buildOpenClawProcessPlan(openclawBin, port)&lt;br>(handles .mjs vs binary entry)"]
-  OC4["4. spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,&lt;br>OPENCLAW_CONFIG_PATH)&lt;br>scope-bound; exitFiber + log buffer"]
+  OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
+  OC2["2. prepareOpenClawStateDir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
+  OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
+  OC4["4. spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>scope-bound; exitFiber + log buffer"]
   OC5["5. state = { process, stateDir, logBuffer, ... }"]
-  OCR["waitUntilReady&lt;br>race(server.awaitAgentReady, processExitLoop)&lt;br>inbound marker: 'inbound from agent:'"]
+  OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
   OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
 ```
 
@@ -428,7 +428,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L144)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L145)
 
 _Interface_
 
@@ -486,7 +486,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeAgentSpec`](./fleet.ts#L34)
+### [`RuntimeAgentSpec`](./fleet.ts#L35)
 
 _Interface_
 
@@ -523,7 +523,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeFleet`](./fleet.ts#L74)
+### [`RuntimeFleet`](./fleet.ts#L75)
 
 _Interface_
 
@@ -535,7 +535,7 @@ export interface RuntimeFleet {
 }
 ```
 
-### [`RuntimeFleetAgent`](./fleet.ts#L69)
+### [`RuntimeFleetAgent`](./fleet.ts#L70)
 
 _Interface_
 
@@ -546,7 +546,7 @@ export interface RuntimeFleetAgent {
 }
 ```
 
-### [`RuntimeFleetLaunchOptions`](./fleet.ts#L53)
+### [`RuntimeFleetLaunchOptions`](./fleet.ts#L54)
 
 _Interface_
 
@@ -563,7 +563,7 @@ export interface RuntimeFleetLaunchOptions {
 }
 ```
 
-### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L64)
+### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L65)
 
 _Interface_
 
@@ -574,7 +574,7 @@ export interface RuntimeFleetProcessSignalOptions
 }
 ```
 
-### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L80)
+### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L81)
 
 _Class_
 
@@ -587,7 +587,7 @@ export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
 }> {}
 ```
 
-### [`RuntimeKind`](./fleet.ts#L30)
+### [`RuntimeKind`](./fleet.ts#L31)
 
 _TypeAlias_
 
@@ -661,7 +661,7 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](./fleet.ts#L43)
+### [`RuntimeStartOptions`](./fleet.ts#L44)
 
 _Interface_
 
@@ -727,7 +727,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](./fleet.ts#L307)
+### [`startRuntimeAgent`](./fleet.ts#L308)
 
 _Function_
 
@@ -743,7 +743,7 @@ scope and hand a long-lived `Runtime` back to the caller.
 ```mermaid
 flowchart TD
   A["startRuntimeAgent(options)"]
-  A --> B["Effect.scoped:&lt;br>startPendingRuntimeAgent → PendingAgent"]
+  A --> B["Effect.scoped:<br>startPendingRuntimeAgent → PendingAgent"]
   B --> C[releaseStartupCleanup]
   C --> D["Runtime { stop, getLogs }"]
   B -->|Spawn fails| E[SpawnFailed]
@@ -761,7 +761,7 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L85)
+### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L87)
 
 _Interface_
 
@@ -785,7 +785,7 @@ export interface WorkspaceFile {
 }
 ```
 
-### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L151)
+### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L152)
 
 _Interface_
 
