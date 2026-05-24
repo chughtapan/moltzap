@@ -2,15 +2,15 @@
 
 ← Back to [package ARCHITECTURE](../../ARCHITECTURE.md)
 
-The `Hook<TContext, TResult>` abstraction (`app/hooks.ts`) lets every
-"send context, get verdict" S→C interaction use the same registry +
-resolution + envelope shape:
+The `Hook<TContext, TResult>` abstraction (hook context types in
+`app/types.ts`) lets every "send context, get verdict" S→C interaction
+use the same registry + resolution + envelope shape:
 
 ```mermaid
 flowchart TD
-    Hook["Hook&lt;TContext, TResult&gt;<br/>(app/hooks.ts)"]
+    Hook["Hook&lt;TContext, TResult&gt;<br/>(app/types.ts)"]
 
-    Hook --> RegA["appId-keyed registry<br/>hooks: Map&lt;AppId, AppHooks&gt;<br/>AppHooks = { taskAuthorizeDispatch? }<br/>(one slot today; future hook slots<br/>(close, contactPolicy, invalidContacts)<br/>are not implemented — see app/hooks.ts)"]
+    Hook --> RegA["appId-keyed registry<br/>hooks: Map&lt;AppId, AppHooks&gt;<br/>AppHooks = { taskAuthorizeDispatch? }<br/>(one slot today; future hook slots<br/>(close, contactPolicy, invalidContacts)<br/>are not implemented — see app/types.ts)"]
 
     Hook --> RegB["appId-keyed registry<br/>messageAuthorizeHooks:<br/>Map&lt;AppId, MessageAuthorizeHook&gt;<br/>(app/app-host.ts)"]
 
