@@ -65,6 +65,10 @@ const BAD_WEBHOOK_URL_YAML = `services:\n  sessions:\n    type: webhook\n    web
 const SMALL_TIMEOUT_YAML = `services:\n  sessions:\n    type: webhook\n    webhook_url: ${SESSION_URL}\n    timeout_ms: 50\n`;
 const BAD_LOG_LEVEL_YAML = `log_level: verbose\n`;
 const BAD_SERVICE_TYPE_YAML = `services:\n  sessions:\n    type: grpc\n`;
+// Empty database.url must FAIL (minLength: 1) rather than be read as a
+// blank URL — main's Ajv rejected it; an empty string here is a typo, not
+// a request for the PGlite fallback (that path is "no database.url at all").
+const EMPTY_DB_URL_YAML = `database:\n  url: ""\n`;
 
 const CONTACTS_YAML = `services:
   contacts:
@@ -364,4 +368,6 @@ describe("loadStandaloneConfig validation parity", () => {
     expectValidationRejection(BAD_LOG_LEVEL_YAML));
   it("rejects an unknown service type", () =>
     expectValidationRejection(BAD_SERVICE_TYPE_YAML));
+  it("rejects an empty database.url string", () =>
+    expectValidationRejection(EMPTY_DB_URL_YAML));
 });

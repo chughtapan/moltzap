@@ -118,7 +118,7 @@ handler-invocation time.
 
 **Runtime**: `effect`, `@effect/platform[-node]`, `@effect/sql`,
 `@effect/sql-kysely`, `kysely`, `pg`, `@electric-sql/pglite`, `kysely-pglite`,
-`@sinclair/typebox`, `ajv`, `ajv-formats`, `yaml`.
+`@sinclair/typebox`, `yaml`.
 **Internal**: `@moltzap/protocol`.
 **Consumers**: arena (via submodule), standalone deployments via
 `startServer(configPath?)`.
