@@ -12,12 +12,11 @@ kernels only; identity, network, task, and app compose on top of transport.
 
 ## Public surface
 
-### [`acquireConnectionRpcClient`](./connection.ts#L59)
+### [`acquireConnectionRpcClient`](./connection.ts#L60)
 
 _Function_
 
 ```ts
- */
 export function acquireConnectionRpcClient(
   connectionId: ConnectionId,
   write: (raw: string)
@@ -44,28 +43,22 @@ export class AppLayerScope extends Context.Tag("@moltzap/server/AppLayerScope")<
 >() {}
 ```
 
-### [`AppTags`](./layer-tags.ts#L128)
+### [`AppTags`](./layer-tags.ts#L123)
 
 _TypeAlias_
 
 ```ts
- *
- * **Why a sibling.** Capability tags are value-carrying authority
- * proofs (`TmAuthority`, `TaskReadAccess`, …, composite
- * `MessageSendPermission`) that handler bodies MUST drain via
+export type AppTags = TaskTags | AppHostTag;
 ```
 
 App-layer allowlist: `apps.handlers.ts` (registration + dispatch
-authorize). `AppTmRegistryTag` is yielded by the app-host construction
-path; included here for completeness even though no current handler
-yields it directly.
+authorize).
 
-### [`AuthenticatedContext`](./context.ts#L12)
+### [`AuthenticatedContext`](./context.ts#L13)
 
 _Interface_
 
 ```ts
-
 export interface AuthenticatedContext {
   agentId: AgentId;
   agentStatus: string;
@@ -73,11 +66,16 @@ export interface AuthenticatedContext {
 }
 ```
 
-### [`CapabilityTags`](./layer-tags.ts#L180)
+### [`CapabilityTags`](./layer-tags.ts#L175)
 
 _TypeAlias_
 
 ```ts
+export type CapabilityTags =
+  | TmAuthority
+  | TaskReadAccess
+  | ConversationInTask
+  | AgentExists
   | AgentInTaskParticipants
   | ContactPolicyAllowsReach
   | TaskActive
@@ -98,12 +96,11 @@ the `defineTaskMethod` wrapper boundary check cannot recognize the
 new tag as part of the capability surface, and a handler that fails
 to drain it would slip past the type system.
 
-### [`ConnectionManager`](./connection.ts#L111)
+### [`ConnectionManager`](./connection.ts#L112)
 
 _Class_
 
 ```ts
-
 export class ConnectionManager {
   private connections = new Map<ConnectionId, MoltZapConnection>();
 
@@ -158,12 +155,11 @@ scopes structurally. Capability tags admit auto-provision.
 
 See `defineNetworkMethod` for the maintenance contract.
 
-### [`defineMethod`](./context.ts#L62)
+### [`defineMethod`](./context.ts#L63)
 
 _Function_
 
 ```ts
- */
 export function defineMethod<
   Name extends string,
   P extends TSchema,
@@ -178,18 +174,18 @@ export function defineMethod<
 
 Type-safe RPC method definition driven by a protocol manifest.
 Wraps the user's handler with `requiresActive` enforcement and
-provides `ConnIdTag` from the dispatch context.
+provides `ConnectionTag` from the dispatch context.
 
 `Reqs` is the handler body's R-channel — the union of service Tags it
-`yield*`s plus `ConnIdTag` if the body reads it. Defaults to
-`ConnIdTag` so existing handlers (which yield no service Tags)
+`yield*`s plus `ConnectionTag` if the body reads it. Defaults to
+`ConnectionTag` so existing handlers (which yield no service Tags)
 continue to compile against this signature. Per the Phase 2A r2 plan
 §3, the `defineXMethod` variants in `define-layered-method.ts` add
 per-layer upper bounds on `Reqs` via constrained generics; this base
 `defineMethod` is unconstrained.
 
-`Effect.provideService(ConnIdTag, ctx.connId)` is a no-op when the
-body doesn't pull `ConnIdTag` (the `R` channel of `Effect` excludes
+`Effect.provideService(ConnectionTag, ctx.connId)` is a no-op when the
+body doesn't pull `ConnectionTag` (the `R` channel of `Effect` excludes
 the tag if absent), so `Reqs` widening doesn't lie about
 requirements.
 
@@ -254,7 +250,7 @@ descriptor's `capabilities` array. The cross-package lockstep
 
 See `defineNetworkMethod` for the maintenance contract.
 
-### [`DispatchContext`](./context.ts#L19)
+### [`DispatchContext`](./context.ts#L20)
 
 _Interface_
 
@@ -267,15 +263,12 @@ export interface DispatchContext {
 
 Per-request dispatch context handed to every RPC handler by the typed dispatcher.
 
-### [`IdentityTags`](./layer-tags.ts#L84)
+### [`IdentityTags`](./layer-tags.ts#L81)
 
 _TypeAlias_
 
 ```ts
- * Network-layer allowlist: Connect, presence, outbound routing.
- * `ping.handlers.ts` lives here. The `agentEndpointResolver` is the
- * `AgentId → ConnectionId` multimap (network-conceptual — endpoint
- * resolution is what the network layer DOES, not who owns it). The
+export type IdentityTags = TransportTags | AuthServiceTag;
 ```
 
 Identity-layer allowlist: registration, claim, login, contacts,
@@ -283,12 +276,11 @@ agent-visibility lookups. Yielded by `agents-lookup.handlers.ts` (the
 three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
 `AgentsList` after the auth-handlers split).
 
-### [`MoltZapConnection`](./connection.ts#L18)
+### [`MoltZapConnection`](./connection.ts#L19)
 
 _Interface_
 
 ```ts
-
 export interface MoltZapConnection {
   id: ConnectionId;
 
@@ -309,17 +301,20 @@ export class NetworkLayerScope extends Context.Tag(
 )<NetworkLayerScope, void>() {}
 ```
 
-### [`NetworkTags`](./layer-tags.ts#L95)
+### [`NetworkTags`](./layer-tags.ts#L92)
 
 _TypeAlias_
 
 ```ts
+export type NetworkTags =
+  | IdentityTags
+  | AgentEndpointResolverTag
   | ConnectionManagerTag
   | NetworkSendServiceTag
   | PresenceServiceTag;
 ```
 
-Network-layer allowlist: Connect, presence, app-TM dispatch surface.
+Network-layer allowlist: Connect, presence, outbound routing.
 `ping.handlers.ts` lives here. The `agentEndpointResolver` is the
 `AgentId → ConnectionId` multimap (network-conceptual — endpoint
 resolution is what the network layer DOES, not who owns it). The
@@ -327,12 +322,11 @@ presence service lives in `network/services/` post-2A.2 reshape; its
 Tag is yielded by handlers in higher layers (presence handler routes
 through the TM bus from `task/handlers/`).
 
-### [`RpcMethodBinding`](./context.ts#L36)
+### [`RpcMethodBinding`](./context.ts#L37)
 
 _TypeAlias_
 
 ```ts
- */
 export type RpcMethodBinding = HandlerSlot<
   RpcDefinition<string, TSchema, TSchema>,
   DispatchContext,
@@ -342,7 +336,7 @@ export type RpcMethodBinding = HandlerSlot<
 
 RPC binding stored in the registry. Each binding carries a method
 definition and a Spec F (#617) typed-dispatcher `HandlerSlot`-shaped
-handler that already provides `ConnIdTag` from the dispatch context.
+handler that already provides `ConnectionTag` from the dispatch context.
 
 The remaining R-channel tags (the rest of `AppTags`) are provided by
 the dispatcher's `FullLive` Layer at request time via the surrounding
@@ -351,21 +345,19 @@ generic `Context.Tag` union for storage; the runtime resolves R
 against `FullLive` post-`asNeverR` in
 `transport/dispatch.ts → makeInboundDispatch`.
 
-### [`RpcMethodRegistry`](./context.ts#L42)
+### [`RpcMethodRegistry`](./context.ts#L43)
 
 _TypeAlias_
 
 ```ts
-
 export type RpcMethodRegistry = RpcMethodBinding[];
 ```
 
-### [`sendRpcToClient`](./connection.ts#L93)
+### [`sendRpcToClient`](./connection.ts#L94)
 
 _Function_
 
 ```ts
- */
 export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   connection: MoltZapConnection,
   definition: D,
@@ -391,11 +383,14 @@ export class TaskLayerScope extends Context.Tag(
 )<TaskLayerScope, void>() {}
 ```
 
-### [`TaskTags`](./layer-tags.ts#L112)
+### [`TaskTags`](./layer-tags.ts#L109)
 
 _TypeAlias_
 
 ```ts
+export type TaskTags =
+  | NetworkTags
+  | MessageServiceTag
   | ConversationServiceTag
   | ParticipantServiceTag
   | TaskServiceTag
@@ -413,19 +408,16 @@ handler is task-tier because its body pulls cross-cutting services
 spanning network (connections, presence) AND task (conversation
 resolution for presence fan-out).
 
-### [`TransportTags`](./layer-tags.ts#L76)
+### [`TransportTags`](./layer-tags.ts#L73)
 
 _TypeAlias_
 
 ```ts
- * Identity-layer allowlist: registration, claim, login, contacts,
- * agent-visibility lookups. Yielded by `agents-lookup.handlers.ts` (the
- * three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
- * `AgentsList` after the auth-handlers split).
+export type TransportTags = ConnectionTag | DbTag;
 ```
 
 Bottom kernel — per-request connection id plus the database handle.
-Both are infrastructure that every protocol layer may pull. ConnIdTag
+Both are infrastructure that every protocol layer may pull. ConnectionTag
 is provided by `defineMethod` from the dispatch context; DbTag is
 provided by the dispatcher's `ManagedRuntime` from the configured
 database `Layer.succeed(DbTag, db)`.

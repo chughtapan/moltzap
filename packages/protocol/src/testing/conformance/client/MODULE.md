@@ -207,12 +207,22 @@ Build a `PropertyInvariantViolation` for the current property.
 Convenience so property bodies don't repeat the tagged-error
 construction.
 
-### [`JointConformanceSuiteOptions`](./suite.ts#L463)
+### [`JointConformanceSuiteOptions`](./suite.ts#L481)
 
 _Interface_
 
 ```ts
-  }).pipe(
+export interface JointConformanceSuiteOptions {
+  readonly realServer?: ClientConformanceSuiteOptions["realClient"] extends never
+    ? never
+    : unknown;
+  readonly realClient?: ClientConformanceSuiteOptions["realClient"];
+  readonly toxiproxyUrl?: string | null;
+  readonly replaySeed?: number;
+  readonly numRuns?: number;
+  readonly artifactDir?: string;
+  readonly bindThroughToxiproxy?: boolean;
+}
 ```
 
 Joint-run entry — passed both `realServer?` and `realClient?`.
@@ -395,7 +405,7 @@ export type RealClientNotificationFilter = (
 ```
 
 Predicate over a decoded notification frame. The conformance adapter
-plumbs this directly to `MoltZapWsClient.subscribeAll(refinement)` —
+plumbs this directly to `MoltZapAgentClient.subscribeAll(refinement)` —
 no inline grammar reconstruction. Absent = match-all (#645).
 
 ### [`RealClientNotificationSubscriber`](./runner.ts#L136)
@@ -486,14 +496,11 @@ D3, D4, D5, D6, E2 plus archive lifecycle — 14 total) against
 `registerXxxClient` per spec-amendment registrar; this helper is the
 single call site.
 
-### [`registerArchiveLifecycleClient`](./delivery.ts#L435)
+### [`registerArchiveLifecycleClient`](./delivery.ts#L438)
 
 _Function_
 
 ```ts
- * lifecycle events. The real client subscriber must surface both in
- * emission order.
- */
 export function registerArchiveLifecycleClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -516,12 +523,11 @@ harnesses (and any other test scaffold that wraps notification
 emission outside `emitTaggedNotificationDefault`) share the same
 registry as the real adapter.
 
-### [`registerFanOutCardinalityClient`](./delivery.ts#L90)
+### [`registerFanOutCardinalityClient`](./delivery.ts#L91)
 
 _Function_
 
 ```ts
- */
 export function registerFanOutCardinalityClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -540,12 +546,11 @@ Predicate (conjunction):
 Discriminates: a client that coalesces duplicate fan-out frames,
 drops one, or reorders the sequence fails.
 
-### [`registerLatencyResilienceClient`](./adversity.ts#L65)
+### [`registerLatencyResilienceClient`](./adversity.ts#L66)
 
 _Function_
 
 ```ts
- */
 export function registerLatencyResilienceClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -613,13 +618,11 @@ AND `params.__emissionTag === emissionTag`.
 Discriminates: a client that strips or reorders required schema
 fields when surfacing notifications fails.
 
-### [`registerPayloadOpacityClient`](./delivery.ts#L230)
+### [`registerPayloadOpacityClient`](./delivery.ts#L232)
 
 _Function_
 
 ```ts
- * stringify) fails.
- */
 export function registerPayloadOpacityClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -649,13 +652,11 @@ B4 client half — TestServer emits a spurious response with marker payload
 `{ __spurious: true }`, then a matching-id response with `{ agents: {} }`.
 A correctly correlating client returns the matching payload.
 
-### [`registerResetPeerRecoveryClient`](./adversity.ts#L202)
+### [`registerResetPeerRecoveryClient`](./adversity.ts#L204)
 
 _Function_
 
 ```ts
- * delivery. Live-delivery-only per spec #200 §5 revision.
- */
 export function registerResetPeerRecoveryClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -682,65 +683,12 @@ Predicate (both must hold):
   1. No crash — real client stays `ready`; no spurious closeSignal.
   2. Liveness probe — a valid tagged notification emitted post-fuzz surfaces.
 
-### [`registerSlicerFramingClient`](./adversity.ts#L179)
+### [`registerSlicerFramingClient`](./adversity.ts#L181)
 
 _Function_
 
 ```ts
- * fragmentation that TestServer alone can't produce.
- */
 export function registerSlicerFramingClient(
-  ctx: ClientConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "slicer-framing-client",
-    "partial-frame splits preserve subscriber-level framing",
-    Effect.fail(
-      unavailable(
-        "slicer-framing-client",
-        ctx.toxiproxy === null
-          ? "Toxiproxy not provisioned; slicer toxic unavailable"
-          : "slicer toxic property deferred pending TCP-level fragmentation harness integration",
-      ),
-    ).pipe(Effect.withSpan("registerSlicerFramingClient")),
-  );
-}
-
-/**
- * D4 client half — `reset_peer` mid-flight, post-reconnect exactly-once
- * delivery. Live-delivery-only per spec #200 §5 revision.
- */
-export function registerResetPeerRecoveryClient(
-  ctx: ClientConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "reset-peer-recovery-client",
-    "real client auto-reconnects and delivers post-reconnect events exactly once",
-    Effect.fail(
-      unavailable(
-        "reset-peer-recovery-client",
-        ctx.toxiproxy === null
-          ? "Toxiproxy not provisioned; reset_peer toxic unavailable"
-          : "reset_peer property deferred pending auto-reconnect observability wiring",
-      ),
-    ).pipe(Effect.withSpan("registerResetPeerRecoveryClient")),
-  );
-}
-
-/**
- * D5 client half — TestServer accepts a sampled RPC but never responds;
- * real client's documented typed-error surface (`RpcTimeoutError`)
- * fires within its own timeout budget.
- *
- * Predicate (strict, per O6):
- *   - `RealClientRpcError.documentedErrorTag === "RpcTimeoutError"`
- *   - `RealClientRpcError.kind === "timeout"`
- */
-export function registerTimeoutSurfaceClient(
   ctx: ClientConformanceRunContext,
 ): void
 ```
@@ -749,12 +697,14 @@ D3 client half — partial-frame splitting under slicer. Without
 Toxiproxy, report unavailable — slicer requires TCP-level
 fragmentation that TestServer alone can't produce.
 
-### [`registerSlowCloseCleanupClient`](./adversity.ts#L318)
+### [`registerSlowCloseCleanupClient`](./adversity.ts#L320)
 
 _Function_
 
 ```ts
- * resolves within budget
+export function registerSlowCloseCleanupClient(
+  ctx: ClientConformanceRunContext,
+): void
 ```
 
 D6 client half — TestServer initiates a slow close; real client's
@@ -764,14 +714,11 @@ Scope releases cleanly.
 Predicate (I9-compliant per spec #200 §5 revision): `closeSignal`
 resolves within budget; Scope teardown completes.
 
-### [`registerTaskBoundaryIsolationClient`](./delivery.ts#L328)
+### [`registerTaskBoundaryIsolationClient`](./delivery.ts#L331)
 
 _Function_
 
 ```ts
- *
- * Predicate: `observedCampaignB.length === 0`.
- */
 export function registerTaskBoundaryIsolationClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -784,13 +731,11 @@ subscriber surfaces zero campaignB events.
 
 Predicate: `observedCampaignB.length === 0`.
 
-### [`registerTimeoutSurfaceClient`](./adversity.ts#L230)
+### [`registerTimeoutSurfaceClient`](./adversity.ts#L232)
 
 _Function_
 
 ```ts
- *   - `RealClientRpcError.kind === "timeout"`
- */
 export function registerTimeoutSurfaceClient(
   ctx: ClientConformanceRunContext,
 ): void
@@ -818,36 +763,18 @@ export function runAutoHandshakeResponder(
 Auto-handshake responder. Spawned as a background fiber by property
 bodies; watches a TestServer connection's inbound capture buffer for
 `network/connect` RPC requests and responds with a minimal valid
-`HelloOkSchema`. Required because `MoltZapWsClient.connect()` blocks
+`HelloOkSchema`. Required because `MoltZapAgentClient.connect()` blocks
 on the network/connect response before `ready` resolves.
 
 Exposed as a helper so each property body can choose whether to run
 the auto-responder or assert directly against the raw inbound stream
 (e.g., B4 spurious-id test wants to observe the inbound ids).
 
-### [`runClientConformanceSuite`](./suite.ts#L160)
+### [`runClientConformanceSuite`](./suite.ts#L178)
 
 _Function_
 
 ```ts
- * The conformance suite defines properties any compliant
- * client/server pair must satisfy. Each property ships an
- * **executable** (a divergence proof) that intentionally fails the
- * property to prove the assertion has teeth.
- *
- * ```mermaid
- * flowchart TD
- *   A["src/testing/conformance/{layer}/&lt;property>.ts"]
- *   A --> B["property body — Effect that asserts the invariant"]
- *   A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts&lt;br>(server intentionally violates invariant)"]
- *   C --> D[vitest runs the proof: failure-of-failure = pass]
- * ```
- *
- * External consumers (e.g. `moltzap-arena`) drop a ~20-line vitest
- * wrapper matching the AC22 template (see
- * `packages/protocol/CLAUDE.md`) and the suite runs against their
- * real WS client.
- */
 export function runClientConformanceSuite(
   opts: ClientConformanceSuiteOptions,
 ): Effect.Effect<
@@ -859,6 +786,24 @@ export function runClientConformanceSuite(
 End-to-end client-side library entry. Acquires context, registers
 every client-side property, runs them, closes Scope. Returns a
 typed `SuiteResult` (reused from server-side — same failure shape).
+
+The conformance suite defines properties any compliant
+client/server pair must satisfy. Each property ships an
+**executable** (a divergence proof) that intentionally fails the
+property to prove the assertion has teeth.
+
+```mermaid
+flowchart TD
+  A["src/testing/conformance/{layer}/&lt;property>.ts"]
+  A --> B["property body — Effect that asserts the invariant"]
+  A --> C["__divergence_proofs__/&lt;property>.proofs.test.ts&lt;br>(server intentionally violates invariant)"]
+  C --> D[vitest runs the proof: failure-of-failure = pass]
+```
+
+External consumers (e.g. `moltzap-arena`) drop a ~20-line vitest
+wrapper matching the AC22 template (see
+`packages/protocol/CLAUDE.md`) and the suite runs against their
+real WS client.
 
 ### [`subscribeAll`](./_fixtures.ts#L200)
 

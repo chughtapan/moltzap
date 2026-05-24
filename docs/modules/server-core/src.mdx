@@ -13,42 +13,22 @@ Public exports for `@moltzap/server-core`.
 
 ## Public surface
 
-### [`decodeAppManifest`](./standalone.ts#L130)
-
-_Function_
-
-```ts
-    try: ()
-```
-
-### [`InvalidAppManifest`](./standalone.ts#L51)
+### [`SchemaFileNotFound`](./standalone.ts#L41)
 
 _Class_
 
 ```ts
-  operation: string,
-  cause: unknown,
-): StandaloneOperationFailed =>
-  new StandaloneOperationFailed({
-```
-
-Decode failure for an on-disk app manifest. `kind` discriminates JSON
-parse failures from schema-validation failures so callers can log the
-specific edge that fired without re-inspecting the cause.
-
-### [`SchemaFileNotFound`](./standalone.ts#L42)
-
-_Class_
-
-```ts
+export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
   readonly message: string;
+}> {}
 ```
 
-### [`StandaloneOperationFailed`](./standalone.ts#L34)
+### [`StandaloneOperationFailed`](./standalone.ts#L33)
 
 _Class_
 
 ```ts
+export class StandaloneOperationFailed extends Data.TaggedError(
   "StandaloneOperationFailed",
 )<{
   readonly cause: unknown;
@@ -57,12 +37,12 @@ _Class_
 }> {}
 ```
 
-### [`startServer`](./standalone.ts#L334)
+### [`startServer`](./standalone.ts#L257)
 
 _Function_
 
 ```ts
-  if (!usePgLite) return Effect.void
+export function startServer(configPath?: string)
 ```
 
 ## Files

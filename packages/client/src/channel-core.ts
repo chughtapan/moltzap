@@ -287,7 +287,7 @@ interface InboundDispatchWork {
  * ```mermaid
  * sequenceDiagram
  *   participant server
- *   participant ws as MoltZapWsClient
+ *   participant ws as MoltZapAgentClient
  *   participant svc as MoltZapService
  *   participant core as MoltZapChannelCore
  *   participant handler as InboundHandler

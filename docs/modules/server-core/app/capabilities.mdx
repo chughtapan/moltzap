@@ -16,27 +16,12 @@ JSDoc) for the migration recipe.
 
 ## Public surface
 
-### [`obtainAddParticipantPermission`](./add-participant-permission.ts#L28)
-
-_Function_
-
-Smart constructor. Runs the four gates in their pre-Spec-E order;
-carries the resolved `targetOwnerUserId` so the service body and
-any downstream auditing can read it without an extra round-trip.
-
-**Fails with:**
-
-- `ForbiddenError` — the requester lacks add-participant authority on the conversation
-- `NotFoundError` — the target `agents` row is missing
-- `NotInContactsError` — contact policy rejects the requester→target reach
-- `ConversationFullError` — the conversation already has the maximum participants
-- `InvalidParamsError` — the conversation is a DM (DMs cannot grow participants)
-
-### [`obtainAgentExists`](./agent-exists.ts#L18)
+### [`obtainAgentExists`](./agent-exists.ts#L17)
 
 _Function_
 
 ```ts
+export const obtainAgentExists = (
   agentId: AgentId,
 ): Effect.Effect<AgentExistsValue, NotFoundError, ParticipantServiceTag>
 ```
@@ -51,11 +36,12 @@ the service helper.
 
 - `NotFoundError` — the `agents` row is absent
 
-### [`obtainAgentInTaskParticipants`](./agent-in-task-participants.ts#L23)
+### [`obtainAgentInTaskParticipants`](./agent-in-task-participants.ts#L22)
 
 _Function_
 
 ```ts
+export const obtainAgentInTaskParticipants = (
   taskId: TaskId,
   agentId: AgentId,
 ): Effect.Effect<
@@ -76,86 +62,41 @@ stays in the service layer.
 
 - `ForbiddenError` — the agent is not in `task_participants` for the given task
 
-### [`obtainContactPolicyForAdd`](./contact-policy-allows-reach.ts#L72)
-
-_Function_
-
-Smart constructor for `TaskConversationAddParticipant` (D1) /
-`ConversationAddParticipant` flows.
-
-Wraps the existing named service gate
-`ConversationService.assertAddParticipantContactPolicy` — Phase 1
-narrows the gate's signature to `(requesterAgentId, targetAgentId,
-targetOwnerUserId)` so the obtain helper delegates without
-synthesizing an `AddParticipantOptions` shim with a placeholder
-`conversationId`. Single source of truth: the service caller inside
-`addParticipantEffect` and the obtain helper both call this method.
-
-**Fails with:**
-
-- `NotInContactsError` — caller's contact policy rejects the target
-- `NotFoundError` — a referenced `agents` row is missing
-- `ForbiddenError` — generic policy denies the path
-- `InvalidParamsError` — shape mismatch
-
-### [`obtainContactPolicyForCreate`](./contact-policy-allows-reach.ts#L31)
+### [`obtainContactPolicyForCreate`](./contact-policy-allows-reach.ts#L13)
 
 _Function_
 
 ```ts
-      return
+export const obtainContactPolicyForCreate = (
+  creatorAgentId: AgentId,
+  targetAgentIds: readonly AgentId[],
+): Effect.Effect<
+  ContactPolicyAllowsReachValue,
+  ConversationServiceError,
+  ConversationServiceTag
+>
 ```
 
-Smart constructor for `TaskCreate` / `ConversationCreate` flows.
-
-Wraps (does not re-implement) the existing named service gate
-`ConversationService.assertContactPolicyForCreate` — Phase 1
-narrows the gate's signature to `(creatorAgentId, targetAgentIds,
-pathType, ownerByAgentId)` so the obtain helper delegates without a
-`mintTask: Effect.never as never` synthesis shim. Single source of
-truth for the create-side contact-policy fan-out: the service caller
-inside `createConversationEffect` and the obtain helper both call
-this method. `SqlError` from the underlying contact-edge lookups is
-caught defectively inside the service helpers.
-
-**Fails with:**
-
-- `NotInContactsError` — caller's contact policy rejects a target
-- `NotFoundError` — a referenced `agents` row is missing
-- `ForbiddenError` — generic policy denies the path
-- `InvalidParamsError` — DM-arity / shape mismatch
-
-### [`obtainConversationCreateAuthorization`](./conversation-create-authorization.ts#L34)
+### [`obtainConversationCreateAuthorization`](./conversation-create-authorization.ts#L17)
 
 _Function_
 
 ```ts
-      )
+export const obtainConversationCreateAuthorization = (
+  input: ObtainConversationCreateAuthorizationInput,
+): Effect.Effect<
+  ConversationCreateAuthorizationValue,
+  ConversationServiceError,
+  ConversationServiceTag
+>
 ```
 
-Smart constructor for `ConversationsCreate`. Reaches into
-`ConversationService` via the service Tag to:
- 1. Load `ownerByAgentId` via `loadAgentOwners` (NotFound if any
-    agent missing).
- 2. Check for an existing DM via `existingDmForCreate` (DM-arity
-    invariants enforced inside the helper). Returns `ExistingDm`
-    when found; this is the short-circuit branch.
- 3. Otherwise: run the contact-policy and group-capacity gates and
-    return `PermittedToCreate { ownerByAgentId }`.
-
-**Fails with:**
-
-- `NotFoundError` — a referenced `agents` row is missing
-- `InvalidParamsError` — DM-arity invariants are violated
-- `NotInContactsError` — caller's contact policy rejects a target
-- `ForbiddenError` — policy denies the create
-- `ConversationFullError` — participant count exceeds the policy limit
-
-### [`obtainConversationInTask`](./conversation-in-task.ts#L23)
+### [`obtainConversationInTask`](./conversation-in-task.ts#L22)
 
 _Function_
 
 ```ts
+export const obtainConversationInTask = (
   taskId: TaskId,
   conversationId: ConversationId,
 ): Effect.Effect<ConversationInTaskValue, TaskServiceError, TaskServiceTag>
@@ -172,69 +113,45 @@ inside the service helper.
 - `ForbiddenError` — the conversation does not belong to the specified task
 - `NotFoundError` — the conversation does not exist
 
-### [`obtainConversationParticipantAccess`](./conversation-participant-access.ts#L25)
-
-_Function_
-
-Smart constructor. Delegates to
-`ConversationService.assertConversationParticipant` (already public
-on the service class pre-Spec-E). The `SqlError` from the
-underlying `conversation_participants` lookup is caught defectively
-inside the service helper, so it does NOT appear in E.
-
-**Fails with:**
-
-- `ForbiddenError` — caller is not a participant in this conversation
-
-### [`obtainGroupCapacityForCreate`](./group-capacity-for-create.ts#L22)
+### [`obtainGroupCapacityForCreate`](./group-capacity-for-create.ts#L12)
 
 _Function_
 
 ```ts
-    yield* conversations.assertGroupCapacityForCreate(invitedAgentIds)
+export const obtainGroupCapacityForCreate = (
+  creatorAgentId: AgentId,
+  invitedAgentIds: readonly AgentId[],
+): Effect.Effect<
+  GroupCapacityForCreateValue,
+  ConversationFullError,
+  ConversationServiceTag
+>
 ```
 
-Smart constructor. Phase 1 promotes
-`ConversationService.assertGroupCapacityForCreate` to `@internal`
-exported per Decision B / Option A and narrows its signature to
-`(pathType, targetAgentIds)` so the obtain helper consumes it
-without a `mintTask: Effect.never as never` synthesis shim. Pure
-capacity check; no DB read; no `SqlError` in E.
-
-**Fails with:**
-
-- `ConversationFullError` — proposed participant count exceeds the policy limit
-
-### [`obtainMessageSendPermission`](./message-send-permission.ts#L157)
+### [`obtainMessageSendPermission`](./message-send-permission.ts#L131)
 
 _Function_
 
 ```ts
-    // auto-archive's ConversationArchived (-32022).
-    yield* refineTaskActive(input.taskId ?? conv.task_id, conv.task_status);
-    yield* refineConversationNotArchived(
-      input.conversationId,
-      conv.archived_at,
-    );
-    const task = yield* taskService.fetchTask(input.taskId ?? conv.task_id);
-    const replyTarget = yield* resolveReplyTarget(
-      input.conversationId,
-      input.replyToId,
-    );
-    return {
-      task,
-      conversationId: input.conversationId,
-      senderAgentId: input.senderAgentId,
-      replyTarget,
-    };
-  }).pipe(Effect.withSpan("obtainMessageSendPermission"));
+export const obtainMessageSendPermission = (
+  input: ObtainMessageSendPermissionInput,
+): Effect.Effect<
+  MessageSendPermissionValue,
+  | ForbiddenError
+  | NotFoundError
+  | ConversationArchivedError
+  | TaskClosedError
+  | TaskServiceError,
+  TaskServiceTag | ConversationServiceTag | MessageServiceTag
+>
 ```
 
-### [`obtainTaskReadAccess`](./task-read-access.ts#L21)
+### [`obtainTaskReadAccess`](./task-read-access.ts#L20)
 
 _Function_
 
 ```ts
+export const obtainTaskReadAccess = (
   taskId: TaskId,
   caller: AgentId,
 ): Effect.Effect<TaskReadAccessValue, TaskServiceError, TaskServiceTag>
@@ -264,24 +181,18 @@ export const obtainTmAuthority = (
 >
 ```
 
-Smart constructor: wraps today's runtime check exactly once per
-request. Body delegates to `TaskService.loadTaskAsTmAuthority`, which
-still performs the same SQL lookup + status branch + endpoint
-equality check it did pre-Spec-E. `SqlError` is caught defectively
-by `fetchTask`. The error channel is carried as the full
-`TaskServiceError` union so impl-staff cannot accidentally
-over-narrow when the underlying helper widens.
+Smart constructor for the TM-authority capability. Proves the calling
+WS connection IS the registered remote-app connection for
+`task.appId`. Tasks bound to an app with no registered remote-app
+connection (e.g. the unmoderated default app) have no TM — TM-only
+RPCs are unreachable on them by design.
 
-**Fails with:**
-
-- `ForbiddenError` — the caller is not the TM, or the task is closed/failed
-- `NotFoundError` — the task does not exist
-
-### [`obtainValidReplyTarget`](./reply-target.ts#L35)
+### [`obtainValidReplyTarget`](./reply-target.ts#L34)
 
 _Function_
 
 ```ts
+export const obtainValidReplyTarget = (
   conversationId: ConversationId,
   replyToId: MessageId,
 ): Effect.Effect<ValidReplyTargetValue, NotFoundError, MessageServiceTag>
@@ -302,13 +213,11 @@ dereferences the (Phase-1-promoted-to-`@internal`)
 
 ## Files
 
-- `add-participant-permission.ts`
 - `agent-exists.ts`
 - `agent-in-task-participants.ts`
 - `contact-policy-allows-reach.ts`
 - `conversation-create-authorization.ts`
 - `conversation-in-task.ts`
-- `conversation-participant-access.ts`
 - `group-capacity-for-create.ts`
 - `message-send-permission.ts`
 - `reply-target.ts`

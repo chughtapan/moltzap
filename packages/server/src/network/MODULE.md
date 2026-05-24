@@ -12,27 +12,16 @@ import kernels, transport, and identity, but not task or app.
 
 ## Public surface
 
-### [`_ConnectionIdLeakCanaryAssertion`](./agent-endpoint-resolver.types-check.ts#L42)
-
-_TypeAlias_
-
-### [`AgentEndpointResolver`](./agent-endpoint-resolver.ts#L89)
+### [`AgentEndpointResolver`](./agent-endpoint-resolver.ts#L65)
 
 _Class_
 
 ```ts
-  add(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
-    return Ref.update(this.state, (s) => {
-      const prior = HashMap.get(s.byConnection, connId);
-      let byAgent = s.byAgent;
-      if (Option.isSome(prior) && prior.value !== agentId) {
-        byAgent = HashMap.modifyAt(byAgent, prior.value, (existing) =>
-          Option.flatMap(existing, (set) => {
-            const next = HashSet.remove(set, connId);
-            return HashSet.size(next) === 0 ? Option.none() : Option.some(next);
-          }),
-        );
-      }
+export class AgentEndpointResolver {
+  static readonly make: Effect.Effect<AgentEndpointResolver> = Effect.map(
+    Ref.make<ResolverState>(emptyState),
+    (state) => new AgentEndpointResolver(state),
+  );
 ```
 
 Multimap of agent → connection ids, plus a reverse index from
@@ -43,104 +32,28 @@ reverse views never disagree, even under concurrent add /
 remove calls from independent `network/connect` and disconnect
 fibers.
 
-### [`AppTmHandler`](./app-tm-registry.ts#L76)
-
-_TypeAlias_
-
-In-process app-TM handler. Receives the opaque wire frame
-`network.send` would have written to a remote TM and runs on the
-server's Effect runtime. Phase 9b's default handlers are no-op
-observers (the existing `MessageService.send` insert+broadcast flow
-runs regardless); future Phase 11+ arena cutover may wire richer
-TM-driven storage authority.
-
-The error channel is `never`: the handler must absorb its own
-failures (log + drop) rather than propagating them to the
-`messages/send` caller. `network.send`'s caller-facing error tags
-cover delivery liveness only; application-level handler errors are
-the TM's own concern.
-
-### [`AppTmRegistry`](./app-tm-registry.ts#L86)
-
-_Class_
-
-Map-backed registry. `Ref` rather than a plain `Map` so the resolver
-stays consistent under concurrent boot-time `register` calls (none
-today, but the contract holds for future). Lookups are read-only
-snapshots.
-
-### [`connectionId`](./agent-endpoint-resolver.ts#L63)
+### [`connectionId`](./agent-endpoint-resolver.ts#L39)
 
 _Function_
 
 ```ts
- * fibers.
- */
-export class AgentEndpointResolver
+export const connectionId = (raw: string): ConnectionId
 ```
 
-Brand a raw connection-id string. Used by the resolver and its callers
-(`auth.handlers.ts`, `app/server.ts`) so the maps stay strongly typed.
+Brand a raw connection-id string. Used by call sites that mint a fresh
+id (`socket-handler.ts` at WS accept) or in tests that name connections
+with synthetic strings. `ConnectionId` itself lives at
+`@moltzap/protocol/network`; the boundary cast here is the only
+acceptable production construction since `crypto.randomUUID()` returns
+`string` and `ConnectionId` is a `brandedString` (no UUID predicate).
 
-### [`ConnectionId`](./agent-endpoint-resolver.ts#L57)
-
-_TypeAlias_
-
-```ts
- * Multimap of agent → connection ids, plus a reverse index from
- * connection → agent.
- *
- * All mutators run inside a single {@link Ref.update} so the forward and
-```
-
-Branded type alias for a WebSocket connection id. Resolver internals
-are pure `ConnectionId → AgentId` lookups; the brand exists so the
-negative type-test canary at `agent-endpoint-resolver.types-check.ts`
-can assert that `ConnectionId` is NOT assignable to `EndpointAddress`
-— closing the surface that pre-Phase-9b leaked the per-connection
-address through the resolver's public API.
-
-The brand is nominal (string-shaped, no UUID predicate) because the
-caller is `app/server.ts` minting the id via `crypto.randomUUID()`;
-runtime validation would be redundant. Type-only friction prevents an
-accidental confusion with `EndpointAddress`.
-
-### [`DEFAULT_DM_TM_ADDRESS`](./app-tm-registry.ts#L30)
-
-_Variable_
-
-Stable `EndpointAddress` for the default DM TM. Used by
-`conversations/create` when the caller does not own a TM and the
-conversation type is `dm`. Phase 9b consumer-migration (sub-issue
-#460 round 3 R12 + R14): every conversation now belongs to a task
-with a registered TM; non-app DMs route through this stable address.
-
-### [`DEFAULT_GROUP_TM_ADDRESS`](./app-tm-registry.ts#L38)
-
-_Variable_
-
-Stable `EndpointAddress` for the default group TM. Same role as
-DEFAULT_DM_TM_ADDRESS for `type: "group"` conversations.
-
-### [`defaultTmAddressForType`](./app-tm-registry.ts#L49)
-
-_Function_
-
-Pick the default TM endpoint for a conversation type. The DM/group
-split is preserved as separate addresses (rather than one shared
-default) so future differentiation (display semantics, rate limits)
-can land without rewiring `tasks.tm_endpoint_address` for existing
-rows.
-
-### [`DeliveryAck`](./network-send.ts#L64)
+### [`DeliveryAck`](./network-send.ts#L46)
 
 _Class_
 
 ```ts
- */
-export class WriteFailed extends Data.TaggedError("WriteFailed")<{
+export class DeliveryAck extends Data.TaggedClass("DeliveryAck")<{
   readonly to: AgentId;
-  readonly cause: Socket.SocketError;
 }> {}
 ```
 
@@ -148,21 +61,37 @@ Successful single-recipient write. The fan-out variant
 NetworkSendService.broadcast returns the delivered agent ids
 in its success channel and absorbs `DeliveryError` cases.
 
-### [`DeliveryError`](./network-send.ts#L88)
+### [`DeliveryError`](./network-send.ts#L70)
 
 _TypeAlias_
 
 ```ts
-
-/**
- * Outbound-routing primitive. Use the constructor directly in code;
+export type DeliveryError = RecipientNotResolved | WriteFailed;
 ```
 
-### [`NetworkSendService`](./network-send.ts#L111)
+### [`NetworkSendService`](./network-send.ts#L93)
 
 _Class_
 
 ```ts
+export class NetworkSendService {
+  constructor(
+    private readonly resolver: AgentEndpointResolver,
+    private readonly connections: ConnectionManager,
+  ) {}
+
+  /**
+   * Route `payload` to one live connection of `agentId`. Iterates the
+   * resolver set so a stale entry does not poison the send when a
+   * sibling connection is still live. {@link RecipientNotResolved}
+   * folds "no resolver entry" and "every resolved connection has gone
+   * away" — callers can't act on the distinction without poking
+   * internal state.
+   */
+  send(
+    to: AgentId,
+    payload: OpaquePayload,
+  ): Effect.Effect<DeliveryAck, DeliveryError, never> {
     return Effect.gen(this, function* () {
       const conns = yield* this.resolver.resolveAll(to);
       for (const candidate of HashSet.values(conns)) {
@@ -179,31 +108,29 @@ _Class_
         );
         return new DeliveryAck({ to });
       }
+      return yield* Effect.fail(new RecipientNotResolved({ to }));
+    });
 ```
 
-The outbound-routing primitive. Use the constructor directly in code;
+Outbound-routing primitive. Use the constructor directly in code;
 route through `NetworkSendServiceTag` in DI-aware code.
 
-### [`opaquePayload`](./network-send.ts#L52)
+### [`opaquePayload`](./network-send.ts#L34)
 
 _Function_
 
 ```ts
- * usually drop or queue rather than retry.
- */
-export class RecipientNotResolved extends Data.TaggedError(
-  "RecipientNotResolved",
-)<
+export const opaquePayload = (raw: string): OpaquePayload
 ```
 
 Brand a raw string as an OpaquePayload.
 
-### [`OpaquePayload`](./network-send.ts#L48)
+### [`OpaquePayload`](./network-send.ts#L30)
 
 _TypeAlias_
 
 ```ts
-}> {}
+export type OpaquePayload = string & Brand.Brand<"OpaquePayload">;
 ```
 
 Branded raw-string payload. The send primitive writes the exact
@@ -212,31 +139,30 @@ The nominal brand prevents an unwitting caller from passing an
 arbitrary `string` where a wire-ready frame is expected; construct
 via opaquePayload.
 
-### [`RecipientNotResolved`](./network-send.ts#L72)
+### [`RecipientNotResolved`](./network-send.ts#L54)
 
 _Class_
 
 ```ts
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
-
-interface BroadcastOptions {
-  readonly forConversation?: ConversationId;
-  readonly excludeConnectionId?: ConnectionId;
-  readonly messageId?: MessageId;
-}
+export class RecipientNotResolved extends Data.TaggedError(
+  "RecipientNotResolved",
+)<{
+  readonly to: AgentId;
+}> {}
 ```
 
-Recipient address has no live connection. Caller-recoverable —
+Recipient agent has no live connection. Caller-recoverable —
 usually drop or queue rather than retry.
 
-### [`WriteFailed`](./network-send.ts#L83)
+### [`WriteFailed`](./network-send.ts#L65)
 
 _Class_
 
 ```ts
-  readonly cid: ConnectionId;
+export class WriteFailed extends Data.TaggedError("WriteFailed")<{
+  readonly to: AgentId;
+  readonly cause: Socket.SocketError;
+}> {}
 ```
 
 Socket write failed. The inner Socket.SocketError cause is
@@ -246,6 +172,4 @@ resolution failure without re-running the lookup.
 ## Files
 
 - `agent-endpoint-resolver.ts`
-- `agent-endpoint-resolver.types-check.ts`
-- `app-tm-registry.ts`
 - `network-send.ts`

@@ -1196,7 +1196,7 @@ function sendTextEffect(
  *   participant Core as MoltZapChannelCore
  *   participant Server as MoltZap server
  *   OC->>Plugin: startAccount(ctx)
- *   Plugin->>Core: new MoltZapWsClient → MoltZapChannelCore
+ *   Plugin->>Core: new MoltZapAgentClient → MoltZapChannelCore
  *   Plugin->>Core: core.connect() — WS auth
  *   Plugin->>Core: core.onInbound(handler) — register dispatch
  *   Core->>Plugin: enriched message arrives

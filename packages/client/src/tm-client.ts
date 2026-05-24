@@ -327,10 +327,10 @@ export class MoltZapTMClient {
    * ```mermaid
    * sequenceDiagram
    *   participant caller
-   *   participant client as MoltZapWsClient
+   *   participant client as MoltZapTMClient
    *   participant server
    *
-   *   caller->>client: new MoltZapWsClient(options)
+   *   caller->>client: new MoltZapTMClient(options)
    *   Note over client: stateRef = None, subscribers, ManagedRuntime
    *   caller->>client: subscribe(filter, handler)
    *   Note over client: SubscriberRegistry.register — survives reconnect

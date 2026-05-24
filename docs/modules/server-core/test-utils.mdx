@@ -13,21 +13,21 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AwaitNotificationError`](./helpers.ts#L68)
+### [`AwaitNotificationError`](./helpers.ts#L70)
 
 _TypeAlias_
 
 ```ts
-}> {}
+export type AwaitNotificationError =
+  | AwaitNotificationTimeoutError
+  | AwaitNotificationClosedError;
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L79)
+### [`awaitOneNotification`](./helpers.ts#L81)
 
 _Function_
 
 ```ts
- * runs entirely on the new `Stream.async`-backed subscription API.
- */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   client: Pick<ServerTestClient, "subscribeTo">,
   definition: D,
@@ -44,33 +44,32 @@ exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
 at integration-test call sites; preserves the `yield* …` ergonomic but
 runs entirely on the new `Stream.async`-backed subscription API.
 
-### [`closeAllClients`](./helpers.ts#L175)
+### [`closeAllClients`](./helpers.ts#L177)
 
 _Function_
 
 ```ts
-}
-
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`ConnectedAgent`](./helpers.ts#L111)
+### [`ConnectedAgent`](./helpers.ts#L113)
 
 _Interface_
 
 ```ts
-}
-
 export interface ConnectedAgent {
+  client: ServerTestClient;
+  agentId: ProtocolAgentId;
+  apiKey: string;
+  name: string;
+}
 ```
 
-### [`connectTestClient`](./helpers.ts#L273)
+### [`connectTestClient`](./helpers.ts#L275)
 
 _Function_
 
 ```ts
-}
-
 export function connectTestClient(opts:
 ```
 
@@ -256,13 +255,11 @@ export type PgliteHarnessError =
   | PgliteCloseError;
 ```
 
-### [`postJson`](./helpers.ts#L335)
+### [`postJson`](./helpers.ts#L337)
 
 _Function_
 
 ```ts
- * can drop the repeated request/JSON boilerplate.
- */
 export function postJson(
   baseUrl: string,
   path: string,
@@ -276,26 +273,22 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 same wire envelope, so each integration test importing this helper
 can drop the repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L182)
+### [`registerAgent`](./helpers.ts#L184)
 
 _Function_
 
 ```ts
-}
-
 export function registerAgent(
   baseUrl: string,
   name: string,
   opts?:
 ```
 
-### [`registerAndConnect`](./helpers.ts#L317)
+### [`registerAndConnect`](./helpers.ts#L319)
 
 _Function_
 
 ```ts
-
-/** Register and connect an agent. Tracked for automatic cleanup. */
 export function registerAndConnect(
   name: string,
 ): Effect.Effect<ConnectedAgent, Error>
@@ -303,13 +296,11 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerOnly`](./helpers.ts#L419)
+### [`registerOnly`](./helpers.ts#L421)
 
 _Function_
 
 ```ts
-
-/** Register an agent without connecting (for tests that need the raw client). */
 export function registerOnly(name: string): Effect.Effect<
 ```
 
@@ -323,13 +314,11 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`ServerTestClient`](./helpers.ts#L42)
+### [`ServerTestClient`](./helpers.ts#L44)
 
 _Interface_
 
 ```ts
- * helper below.
- */
 export interface ServerTestClient extends Omit<CloseableTestClient, "close"> {
   close(): Effect.Effect<void, never>;
   subscribeTo<D extends AnyNotificationDefinition>(
@@ -346,13 +335,11 @@ wrappers were deleted. Consumers reach typed-payload Streams via
 Ergonomic one-shot test sites use the top-level `awaitOneNotification`
 helper below.
 
-### [`setupAgentGroup`](./helpers.ts#L458)
+### [`setupAgentGroup`](./helpers.ts#L460)
 
 _Function_
 
 ```ts
-
-/** Create N agents, all connected. Optionally create a group conversation. */
 export function setupAgentGroup(
   count: number,
   opts?:
@@ -360,13 +347,11 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L446)
+### [`setupAgentPair`](./helpers.ts#L448)
 
 _Function_
 
 ```ts
-
-/** Create two agents, both connected. No contacts needed (core has open access). */
 export function setupAgentPair(): Effect.Effect<
 ```
 
@@ -388,12 +373,12 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L171)
+### [`trackClient`](./helpers.ts#L173)
 
 _Function_
 
 ```ts
->
+export function trackClient(client: ServerTestClient): void
 ```
 
 ## Files

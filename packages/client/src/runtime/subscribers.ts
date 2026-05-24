@@ -113,7 +113,7 @@ interface SubscriptionHandle {
  * ```mermaid
  * sequenceDiagram
  *   participant caller
- *   participant ws as MoltZapWsClient
+ *   participant ws as MoltZapAgentClient
  *   participant stream as notification/stream.ts
  *   participant registry as SubscriberRegistry
  *   participant reader as WS reader fiber
