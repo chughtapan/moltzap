@@ -29,6 +29,8 @@ import {
   Redacted,
   Schema,
 } from "effect";
+import { FormatRegistry, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import type { ConfigError } from "effect/ConfigError";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Db } from "./db/client.js";
@@ -279,6 +281,151 @@ const YamlConfigSchema: Config.Config<YamlConfig> = Config.all({
     Config.array(Config.all({ manifest: nonEmptyString("manifest") }), "apps"),
   ),
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Private: structural YAML validation (TypeBox Value.Check)
+//
+// Effect `Config` (above) is lenient by design — it relaxes
+// `encryption.master_secret` to optional and silently ignores keys it
+// does not read. Both gaps are dangerous: a camelCase typo
+// (`masterSecret`) or `encryption: {}` would pass Config validation and
+// silently disable at-rest encryption (plaintext storage). This TypeBox
+// schema runs first and rejects everything the prior Ajv schema rejected:
+// unknown keys (`additionalProperties: false`), missing required
+// `master_secret`, malformed `webhook_url`, sub-100ms `timeout_ms`, and
+// invalid `log_level`. Ajv itself is gone; the project's own schema lib
+// supplies the same structural guarantees.
+// ─────────────────────────────────────────────────────────────────────
+
+// TypeBox `Value.Check` ignores `format` unless the format name is
+// registered. ajv-formats `uri` requires an absolute URI (a scheme);
+// `URL.canParse` enforces exactly that, so `not-a-url` is rejected while
+// `https://hooks.example.com/x` passes — matching the prior Ajv behavior.
+FormatRegistry.Set("uri", (value: string): boolean => URL.canParse(value));
+
+const WebhookServiceShape = Type.Object(
+  {
+    type: Type.Literal("webhook"),
+    webhook_url: Type.String({ format: "uri" }),
+    timeout_ms: Type.Optional(Type.Integer({ minimum: 100 })),
+    callback_token: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+const InProcessServiceShape = Type.Object(
+  { type: Type.Literal("in_process") },
+  { additionalProperties: false },
+);
+
+const ServiceShape = Type.Union([WebhookServiceShape, InProcessServiceShape]);
+
+const AppRefShape = Type.Object(
+  { manifest: Type.String({ minLength: 1 }) },
+  { additionalProperties: false },
+);
+
+const MoltZapConfigShape = Type.Object(
+  {
+    server: Type.Optional(
+      Type.Object(
+        {
+          port: Type.Optional(Type.Integer({ minimum: 1, maximum: 65_535 })),
+          cors_origins: Type.Optional(Type.Array(Type.String())),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    database: Type.Optional(
+      Type.Object(
+        {
+          url: Type.Optional(Type.String({ minLength: 1 })),
+          data_dir: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    encryption: Type.Optional(
+      Type.Object(
+        { master_secret: Type.String({ minLength: 1 }) },
+        { additionalProperties: false },
+      ),
+    ),
+    services: Type.Optional(
+      Type.Object(
+        {
+          sessions: Type.Optional(ServiceShape),
+          contacts: Type.Optional(ServiceShape),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    registration: Type.Optional(
+      Type.Object(
+        { secret: Type.Optional(Type.String({ minLength: 1 })) },
+        { additionalProperties: false },
+      ),
+    ),
+    dev_mode: Type.Optional(
+      Type.Object(
+        {
+          enabled: Type.Boolean(),
+          user_id: Type.Optional(Type.String({ minLength: 1 })),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    apps: Type.Optional(Type.Array(AppRefShape)),
+    log_level: Type.Optional(
+      Type.Union([
+        Type.Literal("debug"),
+        Type.Literal("info"),
+        Type.Literal("warn"),
+        Type.Literal("error"),
+      ]),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Structural validation of the interpolated YAML before the lenient
+ * Effect `Config` decode. Surfaces every `Value.Errors` leaf (path +
+ * message) as a single `ConfigLoadError`. Softer messages than Ajv's
+ * keyword-by-keyword formatter, identical structural rejections.
+ */
+function validateYamlShape(
+  value: unknown,
+  configPath: string,
+): Effect.Effect<unknown, ConfigLoadError> {
+  return Effect.sync(() => Value.Check(MoltZapConfigShape, value)).pipe(
+    Effect.flatMap((ok) =>
+      ok
+        ? Effect.succeed(value)
+        : Effect.fail(
+            new ConfigLoadError({
+              kind: "validation",
+              path: configPath,
+              message: `Invalid config in "${configPath}":${formatValueErrors(value)}`,
+            }),
+          ),
+    ),
+    Effect.withSpan("validateYamlShape"),
+  );
+}
+
+function formatValueErrors(value: unknown): string {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const error of Value.Errors(MoltZapConfigShape, value)) {
+    const line = `  ${error.path || "/"}: ${error.message}`;
+    if (!seen.has(line)) {
+      seen.add(line);
+      lines.push(line);
+    }
+  }
+  return "\n" + lines.join("\n");
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Internal: YAML file loader pipeline
@@ -826,7 +973,8 @@ function loadYamlFromDisk(
       configPath,
       processEnv,
     );
-    const yaml = yield* decodeYaml(interpolated, configPath);
+    const validated = yield* validateYamlShape(interpolated, configPath);
+    const yaml = yield* decodeYaml(validated, configPath);
     const configDirectory = yield* resolveConfigDir(configPath);
     return { yaml, configDirectory };
   });
