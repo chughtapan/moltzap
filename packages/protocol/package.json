@@ -46,7 +46,7 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint src scripts *.ts --cache --max-warnings=0",
-    "docs:generate": "tsx scripts/generate-docs.ts && pnpm exec typedoc && tsx scripts/generate-modules.ts",
+    "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
