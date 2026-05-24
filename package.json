@@ -15,9 +15,9 @@
     "test:conformance:toxiproxy": "bash scripts/conformance-toxiproxy.sh",
     "test:conformance:stress": "CONFORMANCE_STRESS=1 bash scripts/conformance-toxiproxy.sh",
     "docs": "cd docs && mint dev",
-    "docs:generate": "pnpm --filter @moltzap/protocol docs:generate",
+    "docs:generate": "pnpm --filter @moltzap/protocol docs:generate && pnpm --filter @moltzap/client docs:generate",
     "docs:check": "cd docs && mint broken-links",
-    "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/protocol/ docs/modules/ 'packages/**/MODULE.md'",
+    "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/protocol/ docs/modules/ 'packages/**/MODULE.md' docs/cli/reference.mdx docs/snippets/cli-commands-table.mdx docs/snippets/cli-global-flags.mdx docs/snippets/ws-connect-example.mdx",
     "docs:check:mermaid": "pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
     "prepare": "husky"
   },
