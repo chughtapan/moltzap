@@ -27,7 +27,7 @@
  * | TaskConversationRemoveParticipant | TM-only + idempotency + dual-emit |
  */
 
-import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import * as fc from "fast-check";
 import { Effect, Exit } from "effect";
 import {
@@ -153,10 +153,11 @@ it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all partici
     expect(result.conversation).toBeNull();
   }));
 
-// Server-side TaskRequest dedup retired in #677. Re-add coverage as a
-// client-side test once the SDK helper for "list + filter + create-or-use"
-// lands.
-vit.todo("client-side DEFAULT_APP dedup — list + match");
+// Server-side TaskRequest dedup retired in #677; the "one DM per pair" UX is
+// now purely client-side (list active tasks for the app + match the participant
+// set + reuse-or-create). It has no server behavior to assert here — coverage
+// lives in `packages/client/src/cli/commands/start.test.ts` →
+// "moltzap start — proactive DM dedup (#685)".
 
 it("TaskRequest (different appId) does NOT dedup across apps", () =>
   Effect.gen(function* () {

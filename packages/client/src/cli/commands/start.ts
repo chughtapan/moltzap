@@ -32,6 +32,7 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   TaskConversationList,
+  TaskList,
   TaskRequest,
   type AgentId,
   type AppId,
@@ -315,26 +316,13 @@ const printTaskCreated = (
   });
 
 const printTaskReused = (
-  task: Task,
+  taskId: TaskId,
   conversation: Conversation,
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     console.log(
-      `Task started: ${task.id} (reusing existing conversation: ${conversation.id})`,
+      `Task started: ${taskId} (reusing existing conversation: ${conversation.id})`,
     );
-  });
-
-const printTaskAlreadyClosed = (taskId: TaskId): Effect.Effect<void> =>
-  Effect.sync(() => {
-    // WHY this single message covers two distinct conditions:
-    // (a) the existing task has no non-archived conversation, OR
-    // (b) the dedup-lookup window (1000 rows) did not surface one.
-    // (b) is rare per the activity-desc server ordering; if a heavy
-    // user trips it on an active task, the spec D2 amendment N6
-    // diagnostic is intentionally conservative ("closed") rather than
-    // claiming false freshness. The follow-up `moltzap conversations
-    // list` invocation surfaces the real state.
-    console.error(`Task already exists but is closed: ${taskId}`);
   });
 
 const printMessageSent = (messageId: string): Effect.Effect<void> =>
@@ -366,30 +354,15 @@ const sendFirstMessage = (
     ),
   );
 
-/**
- * Outcome of the atomic `TaskRequest` call. The dedup branch fires when
- * `appId === DEFAULT_APP_ID` AND the caller already owns a task with
- * the exact same `{caller} ∪ invitedAgentIds` participant set (see
- * `packages/server/src/task/handlers/tasks.handlers.ts → maybeTaskCreateDedup`
- * and protocol per-flow doc 12 §3). The server returns
- * `{ task: existing, conversation: null }` even when
- * `initialConversation` was supplied — dedup is task-level, not
- * conversation-level — so the CLI MUST treat `conversation === null`
- * as a legitimate outcome rather than a decode error.
- */
-type CreateTaskOutcome =
-  | {
-      readonly kind: "created";
-      readonly task: Task;
-      readonly conversation: Conversation;
-    }
-  | { readonly kind: "dedup"; readonly task: Task };
-
 const createTaskAtomic = (
   appId: AppId,
   invitedAgentIds: readonly AgentId[],
   name: string,
-): Effect.Effect<CreateTaskOutcome, TransportError, Transport> =>
+): Effect.Effect<
+  { readonly task: Task; readonly conversation: Conversation },
+  TransportError,
+  Transport
+> =>
   Effect.gen(function* () {
     // Defensive copies: TaskRequest's params type expects mutable arrays
     // (TypeBox's Static<Array> resolves to T[], not readonly T[]); pass
@@ -412,137 +385,143 @@ const createTaskAtomic = (
       initialConversation,
     });
     if (result.conversation === null) {
-      // Dedup hit (per `tasks.handlers.ts → maybeTaskCreateDedup`): the
-      // server matched an existing task by `{caller} ∪ invitedAgentIds`
-      // and returned it with `conversation: null`. Handler resolves a
-      // reusable conversation via `findReusableConversation` instead of
-      // failing.
-      return { kind: "dedup", task: result.task } as const;
+      // `start` always supplies `initialConversation`, and the D3 server
+      // mints + returns that conversation on accept (it only returns
+      // `conversation: null` when no `initialConversation` was sent). A null
+      // here is therefore a server-contract violation, not a normal outcome —
+      // surface it loudly rather than print a bogus conversation id.
+      return yield* Effect.dieMessage(
+        "task/request returned a null conversation despite an initialConversation request",
+      );
     }
-    return {
-      kind: "created",
-      task: result.task,
-      conversation: result.conversation,
-    } as const;
+    return { task: result.task, conversation: result.conversation };
   });
 
-// ─── Dedup-hit conversation lookup (spec D2 amendment N6) ─────────────────
+// ─── Proactive "one DM per pair" dedup (issue #685) ───────────────────────
+//
+// Server-side `DEFAULT_APP_ID` dedup was retired in #677; the "one DM per
+// pair" UX now lives here. Before creating a task we look for an existing live
+// conversation under this `appId` whose task participant set is exactly the
+// requested pair/group, and reuse it instead of minting a duplicate.
 
 /**
- * Page size + safety cap on `TaskConversationList` follow-up calls. The
- * dedup-hit conversation should appear in the first page for any
- * recently-touched task (server orders by activity desc, see
- * `packages/server/src/task/services/conversation/list-pagination.ts →
- * queryConversationListRows`). The cap protects against pathological
- * cases where the caller has a very long list and the target task is
- * older than the window can see — in which case we surface the closed-
- * task diagnostic rather than spin indefinitely.
+ * Page-count cap on the conversation-list scan. Conversations are returned
+ * activity-desc, so a recently-touched match sits near the top; the cap bounds
+ * work on pathological long lists. A miss degrades to creating a fresh task —
+ * never to incorrectness — so a conservative window is safe.
  */
-const DEDUP_LOOKUP_PAGE_SIZE = 100;
-const DEDUP_LOOKUP_MAX_PAGES = 10;
+const DEDUP_SCAN_PAGE_SIZE = 100;
+const DEDUP_SCAN_MAX_PAGES = 10;
 
 /**
- * P2-A (spec D2 amendment N6) — locate a reusable conversation under a
- * dedup-hit task. Tie-break rule: "first match in server iteration
- * order" — server sorts by activity desc, so this is equivalent to
- * most-recently-active. WHY a small page-count cap: a freshly-touched
- * dedup-hit task lives near the top of the activity-sorted list; the
- * 1000-row ceiling protects against pathological lists where the
- * target is older than the lookup window can see (the closed-task
- * diagnostic is the correct fallback per spec D2 amendment N6).
+ * `task/list` returns at most `limit` (≤ 200) tasks and no continuation
+ * cursor, so the app-scoping window is a single page of the caller's most
+ * recent tasks. Adequate for dedup: a pair you're actively messaging is recent.
  */
+const TASK_LIST_SCAN_LIMIT = 200;
 
 /**
- * Filter rule for the dedup-hit lookup: (a) the item's `taskId` must
- * match the existing task we are reusing (the list is caller-scoped
- * across ALL of the caller's tasks, not task-scoped); (b) the
- * conversation must be non-archived (server includes archived rows
- * unfiltered per `TaskConversationList`'s contract — clients filter
- * `archivedAt !== undefined` locally; archived strings are absent
- * on the wire when the row is active, never `null`, per
- * `ConversationSchema.archivedAt: Type.Optional(DateTimeString)`).
+ * Whether a task's participant set is exactly `{caller} ∪ invited`. The
+ * caller is implicitly a participant of every task the caller-scoped list
+ * returns, so the match is `invited ⊆ participants` and
+ * `|participants| === |unique(invited)| + 1` — no need for the client to know
+ * its own agent id. A degenerate self-invite (caller ∈ invited) simply fails to
+ * match and falls through to create, which is acceptable.
  */
-const pickReusableFromPage = (
-  items: ReadonlyArray<TaskConversationListItem>,
-  taskId: TaskId,
-): Conversation | null => {
-  const match = items.find(
-    (item) =>
-      item.taskId === taskId && item.conversation.archivedAt === undefined,
-  );
-  return match === undefined ? null : match.conversation;
+const participantSetMatchesInvited = (
+  participants: readonly AgentId[],
+  invited: readonly AgentId[],
+): boolean => {
+  const uniqueInvited = new Set(invited);
+  if (participants.length !== uniqueInvited.size + 1) return false;
+  const present = new Set(participants);
+  for (const id of uniqueInvited) {
+    if (!present.has(id)) return false;
+  }
+  return true;
 };
 
-const findReusableConversation = (
-  taskId: TaskId,
-): Effect.Effect<Conversation | null, TransportError, Transport> =>
+/**
+ * First non-archived, in-app-scope conversation in `items` whose task
+ * participant set matches `{caller} ∪ invited`, or `null`. Pulled out of
+ * {@link findReusableDmConversation} to keep that generator's complexity low.
+ */
+const conversationListParams = (
+  cursor: string | undefined,
+): { limit: number; cursor?: string } =>
+  cursor === undefined
+    ? { limit: DEDUP_SCAN_PAGE_SIZE }
+    : { limit: DEDUP_SCAN_PAGE_SIZE, cursor };
+
+const pickReusableFromPage = (
+  items: ReadonlyArray<TaskConversationListItem>,
+  appTaskIds: ReadonlySet<TaskId>,
+  invited: readonly AgentId[],
+): { readonly taskId: TaskId; readonly conversation: Conversation } | null => {
+  for (const item of items) {
+    if (
+      appTaskIds.has(item.taskId) &&
+      item.conversation.archivedAt === undefined &&
+      participantSetMatchesInvited(item.participants, invited)
+    ) {
+      return { taskId: item.taskId, conversation: item.conversation };
+    }
+  }
+  return null;
+};
+
+/**
+ * Caller's ACTIVE task ids under `appId`. `TaskConversationListItem` carries
+ * no `appId`, so we scope the dedup to the requested app via `task/list` and
+ * intersect by `taskId` in {@link findReusableDmConversation}. Only `active`
+ * tasks are reuse targets (a `closed`/`failed` task's conversations are dead).
+ */
+const collectActiveTaskIdsForApp = (
+  appId: AppId,
+): Effect.Effect<ReadonlySet<TaskId>, TransportError, Transport> =>
+  rpc(TaskList, { limit: TASK_LIST_SCAN_LIMIT }).pipe(
+    Effect.map(
+      ({ tasks }) =>
+        new Set(
+          tasks
+            .filter((task) => task.appId === appId && task.status === "active")
+            .map((task) => task.id),
+        ),
+    ),
+  );
+
+/**
+ * Locate a reusable conversation for `{caller} ∪ invited` under `appId`, or
+ * `null` if none. Zero-participant (solo) `start`s are carved out — they never
+ * dedup (mirrors Spec D2 amendment N7). Tie-break: first match in the
+ * activity-desc list order (most-recently-active). The conversation must be
+ * non-archived; archived rows are surfaced unfiltered by `TaskConversationList`
+ * and filtered locally (`archivedAt === undefined`).
+ */
+const findReusableDmConversation = (
+  appId: AppId,
+  invited: readonly AgentId[],
+): Effect.Effect<
+  { readonly taskId: TaskId; readonly conversation: Conversation } | null,
+  TransportError,
+  Transport
+> =>
   Effect.gen(function* () {
+    if (invited.length === 0) return null;
+    const appTaskIds = yield* collectActiveTaskIdsForApp(appId);
+    if (appTaskIds.size === 0) return null;
     let cursor: string | undefined = undefined;
-    for (let page = 0; page < DEDUP_LOOKUP_MAX_PAGES; page++) {
-      const params: { limit: number; cursor?: string } = {
-        limit: DEDUP_LOOKUP_PAGE_SIZE,
-      };
-      if (cursor !== undefined) params.cursor = cursor;
+    for (let page = 0; page < DEDUP_SCAN_MAX_PAGES; page++) {
+      const params: { limit: number; cursor?: string } =
+        conversationListParams(cursor);
       const result = yield* rpc(TaskConversationList, params);
-      const hit = pickReusableFromPage(result.items, taskId);
+      const hit = pickReusableFromPage(result.items, appTaskIds, invited);
       if (hit !== null) return hit;
       if (result.nextCursor === undefined) return null;
       cursor = result.nextCursor;
     }
     return null;
   });
-
-/**
- * Spec D2 amendment N6 — dedup-hit branch. `TaskConversationList`
- * wire failures are captured inline via `Effect.either` (same pattern
- * + same reason as `sendFirstMessage`'s partial-success handling)
- * because `TaskRequest` already succeeded server-side; routing the
- * list error through `runStartCommand`'s `catchAll` would print
- * `Failed: &lt;list-error>`, misleading the user into thinking the
- * create failed.
- */
-const onReuseFound = (
-  task: Task,
-  reuse: Conversation,
-  message: Option.Option<string>,
-): Effect.Effect<void, never, Transport> =>
-  Effect.zipRight(
-    printTaskReused(task, reuse),
-    Option.match(message, {
-      onNone: () => Effect.void,
-      onSome: (m) => sendFirstMessage(task.id, reuse.id, m),
-    }),
-  );
-
-const onReuseNull = (task: Task): Effect.Effect<void, never, Transport> =>
-  Effect.zipRight(
-    printTaskAlreadyClosed(task.id),
-    Effect.sync(() => {
-      process.exit(EXIT_CODES.TASK_CREATE_FAILED);
-    }),
-  );
-
-const handleDedupOutcome = (
-  task: Task,
-  message: Option.Option<string>,
-): Effect.Effect<void, never, Transport> =>
-  Effect.either(findReusableConversation(task.id)).pipe(
-    Effect.flatMap(
-      Either.match({
-        onLeft: (err) =>
-          Effect.sync(() => {
-            console.error(
-              `Task ${task.id} already exists but reusable-conversation lookup failed: ${err.message}`,
-            );
-            process.exit(EXIT_CODES.TASK_CREATE_FAILED);
-          }),
-        onRight: (reuse) =>
-          reuse === null
-            ? onReuseNull(task)
-            : onReuseFound(task, reuse, message),
-      }),
-    ),
-  );
 
 // ─── Handler body ─────────────────────────────────────────────────────────
 
@@ -555,30 +534,26 @@ const handleDedupOutcome = (
  *      batched `AgentsLookupByName` RPC for name-shaped tokens;
  *      UUID-shaped tokens short-circuit). Any token failure ->
  *      `UnresolvedParticipantError` -> exit 64.
- *   3. `rpc(TaskRequest, { appId, invitedAgentIds, initialConversation })`
- *      where `initialConversation` carries `participants` ONLY when
- *      `invitedAgentIds.length > 0` (P2-B). Two success outcomes:
- *      - `created`: server returned a fresh `conversation`. Print
- *        `Task started: &lt;taskId> (conversation: &lt;convId>)`.
- *      - `dedup`: server returned `conversation: null` because
- *        `{caller} ∪ invitedAgentIds` already owned a task on this
- *        appId (P2-A). Auto-fetch the most-recently-active non-
- *        archived conversation under the existing task via
- *        `findReusableConversation` and print
- *        `Task started: &lt;taskId> (reusing existing conversation: &lt;convId>)`.
- *        If no usable conversation exists (closed task, all archived,
- *        or out of dedup-lookup window), print
- *        `Task already exists but is closed: &lt;taskId>` to stderr and
- *        exit 1.
+ *   3. Proactive "one DM per pair" dedup (#685): scan the caller's active
+ *      tasks under `appId` (`task/list`) + their conversations
+ *      (`task/conversation/list`) for a non-archived conversation whose task
+ *      participant set is exactly `{caller} ∪ invitedAgentIds`. If found,
+ *      reuse it — print `Task started: &lt;taskId> (reusing existing
+ *      conversation: &lt;convId>)` — and skip task creation. Solo
+ *      (zero-participant) `start`s never dedup. The scan is best-effort: a
+ *      transient list failure falls through to create rather than aborting.
+ *   4. Otherwise `rpc(TaskRequest, { appId, invitedAgentIds,
+ *      initialConversation })` where `initialConversation` carries
+ *      `participants` ONLY when `invitedAgentIds.length > 0` (P2-B). On
+ *      success print `Task started: &lt;taskId> (conversation: &lt;convId>)`.
  *      `TaskRequest` wire failure -> `TransportError` -> exit 1 via
  *      `runStartCommand`, no stdout.
- *   4. If `args.message` is set AND a conversation was produced (either
- *      kind), call `rpc(MessagesSend, { conversationId, parts: [{ type:
- *      "text", text }] })` wrapped in `Effect.either`. Success -> print
- *      `Message sent: &lt;msgId>`, exit 0. Failure -> print
+ *   5. If `args.message` is set AND a conversation was produced (reuse or
+ *      create), call `rpc(MessagesSend, ...)` wrapped in `Effect.either`.
+ *      Success -> print `Message sent: &lt;msgId>`, exit 0. Failure -> print
  *      `Error sending message: &lt;err>` to stderr, exit 2 via inline
- *      `process.exit` (preserves the already-printed stdout line;
- *      cannot route through `runStartCommand`).
+ *      `process.exit` (preserves the already-printed stdout line; cannot
+ *      route through `runStartCommand`).
  */
 const startCommandHandler = (
   args: StartCommandArgs,
@@ -586,17 +561,32 @@ const startCommandHandler = (
   Effect.gen(function* () {
     const appId = yield* resolveAppId(args.appId);
     const invitedAgentIds = yield* resolveAgentTokens(args.participants);
-    const outcome = yield* createTaskAtomic(appId, invitedAgentIds, args.name);
     const messageOpt = Option.fromNullable(args.message);
-    if (outcome.kind === "dedup") {
-      yield* handleDedupOutcome(outcome.task, messageOpt);
+
+    // Best-effort dedup: a transient list-scan failure must not block creating
+    // the task, so swallow scan errors and fall through to create.
+    const reuse = yield* findReusableDmConversation(
+      appId,
+      invitedAgentIds,
+    ).pipe(Effect.orElseSucceed(() => null));
+    if (reuse !== null) {
+      yield* printTaskReused(reuse.taskId, reuse.conversation);
+      yield* Option.match(messageOpt, {
+        onNone: () => Effect.void,
+        onSome: (m) => sendFirstMessage(reuse.taskId, reuse.conversation.id, m),
+      });
       return;
     }
-    yield* printTaskCreated(outcome.task, outcome.conversation);
+
+    const { task, conversation } = yield* createTaskAtomic(
+      appId,
+      invitedAgentIds,
+      args.name,
+    );
+    yield* printTaskCreated(task, conversation);
     yield* Option.match(messageOpt, {
       onNone: () => Effect.void,
-      onSome: (m) =>
-        sendFirstMessage(outcome.task.id, outcome.conversation.id, m),
+      onSome: (m) => sendFirstMessage(task.id, conversation.id, m),
     });
   }).pipe(Effect.withSpan("startCommandHandler"));
 

@@ -22,6 +22,7 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   TaskConversationList,
+  TaskList,
   TaskRequest,
 } from "@moltzap/protocol";
 import { Transport } from "../transport.js";
@@ -97,6 +98,7 @@ interface RespondConfig {
   readonly taskCreate?: () => unknown | Error;
   readonly messagesSend?: () => unknown | Error;
   readonly taskConversationList?: (call: TestTransportCall) => unknown | Error;
+  readonly taskList?: (call: TestTransportCall) => unknown | Error;
 }
 
 const respondLookup = (call: TestTransportCall, config: RespondConfig) => {
@@ -111,21 +113,20 @@ const respondLookup = (call: TestTransportCall, config: RespondConfig) => {
 
 const respondFromConfig =
   (config: RespondConfig) => (call: TestTransportCall) => {
-    if (call.method === AgentsLookupByName.name) {
-      return respondLookup(call, config);
-    }
-    if (call.method === TaskRequest.name) {
-      return (config.taskCreate ?? TASK_CREATE_OK)();
-    }
-    if (call.method === MessagesSend.name) {
-      return (config.messagesSend ?? MESSAGES_SEND_OK)();
-    }
-    if (call.method === TaskConversationList.name) {
-      return (
-        config.taskConversationList ?? (() => ({ items: [] as unknown[] }))
-      )(call);
-    }
-    return new Error(`Unexpected RPC: ${call.method}`);
+    const handlers: Record<string, (c: TestTransportCall) => unknown | Error> =
+      {
+        [AgentsLookupByName.name]: (c) => respondLookup(c, config),
+        [TaskRequest.name]: () => (config.taskCreate ?? TASK_CREATE_OK)(),
+        [MessagesSend.name]: () => (config.messagesSend ?? MESSAGES_SEND_OK)(),
+        [TaskConversationList.name]:
+          config.taskConversationList ?? (() => ({ items: [] as unknown[] })),
+        [TaskList.name]:
+          config.taskList ?? (() => ({ tasks: [] as unknown[] })),
+      };
+    const handler = handlers[call.method];
+    return handler === undefined
+      ? new Error(`Unexpected RPC: ${call.method}`)
+      : handler(call);
   };
 
 const makeTransportWith = (config: RespondConfig) =>
@@ -545,25 +546,25 @@ describe("moltzap start — failure paths", () => {
   );
 });
 
-// ─── Test bodies: dedup hit (P2-A, spec D2 amendment N6) ─────────────────
+// ─── Test bodies: proactive "one DM per pair" dedup (issue #685) ──────────
 
 const EXISTING_TASK_ID = "00000000-0000-4000-8000-0000000000d1";
 const EXISTING_CONV_ID_ACTIVE = "00000000-0000-4000-8000-0000000000d2";
 const EXISTING_CONV_ID_OLDER = "00000000-0000-4000-8000-0000000000d3";
 const OTHER_TASK_ID = "00000000-0000-4000-8000-0000000000e9";
 
-// Widened-status type so active/closed fixtures share a common shape
-// (default + override into `TASK_CREATE_DEDUP` without an `unknown` cast).
-// `satisfies` would be tighter but `taskFixture` itself is loose-typed
-// upstream (string id, no `as Task` cast) — adding a strict satisfies
-// here would propagate that brittleness without the corresponding
-// upstream fix. The widened alias is the local lower bound that the
-// dedup tests need; protocol-schema drift is caught by the protocol
-// type canaries (`task-conversation-family.types-check.ts`), not by
-// fixture site checks.
-type TaskLikeFixture = Omit<typeof taskFixture, "status" | "endedAt"> & {
+// Widened-status type so active/closed/other-app fixtures share a common
+// shape. `taskFixture` is loose-typed upstream (string id, no `as Task`
+// cast); the widened alias is the local lower bound these tests need.
+// Protocol-schema drift is caught by the protocol type canaries
+// (`task-conversation-family.types-check.ts`), not by fixture site checks.
+type TaskLikeFixture = Omit<
+  typeof taskFixture,
+  "status" | "endedAt" | "appId"
+> & {
   status: "active" | "closed";
   endedAt: string | null;
+  appId: string;
 };
 
 const existingTaskFixture: TaskLikeFixture = {
@@ -571,10 +572,10 @@ const existingTaskFixture: TaskLikeFixture = {
   id: EXISTING_TASK_ID,
 };
 
-const existingTaskClosedFixture: TaskLikeFixture = {
+const existingTaskOtherAppFixture: TaskLikeFixture = {
   ...existingTaskFixture,
-  status: "closed",
-  endedAt: NOW_ISO,
+  id: OTHER_TASK_ID,
+  appId: VALID_APP_ID_OVERRIDE,
 };
 
 const conversationFixtureActive = {
@@ -589,27 +590,25 @@ const conversationFixtureOlder = {
   createdAt: "2026-05-18T00:00:00Z",
 };
 
-const TASK_CREATE_DEDUP =
-  (task: TaskLikeFixture = existingTaskFixture) =>
-  () => ({
-    task,
-    conversation: null,
-  });
+const taskListWith =
+  (...tasks: TaskLikeFixture[]) =>
+  () => ({ tasks });
 
 const taskConvListItem = (
   taskId: string,
   conversation: typeof conversationFixture,
+  participants: readonly string[] = [INITIATOR_ID, BOB_AGENT_ID],
 ) => ({
   taskId,
   conversation,
-  participants: [INITIATOR_ID, BOB_AGENT_ID],
+  participants: [...participants],
 });
 
-const dedupHitSingleConversation = () =>
+const dedupReusesActiveDm = () =>
   Effect.gen(function* () {
     const { calls, transport } = makeTransportWith({
       ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(),
+      taskList: taskListWith(existingTaskFixture),
       taskConversationList: () => ({
         items: [taskConvListItem(EXISTING_TASK_ID, conversationFixtureActive)],
       }),
@@ -619,25 +618,24 @@ const dedupHitSingleConversation = () =>
       `Task started: ${EXISTING_TASK_ID} (reusing existing conversation: ${EXISTING_CONV_ID_ACTIVE})`,
     );
     expect(exitSpy).not.toHaveBeenCalled();
-    // Must have called TaskConversationList exactly once (single page,
-    // single match). Cursor MUST NOT be passed on first page.
-    const listCall = findCallOf(calls, TaskConversationList.name);
-    expect(listCall).toBeDefined();
-    expect(listCall!.params).toEqual({ limit: 100 });
+    // Reuse path MUST NOT create a task. App-scoping list uses limit 200;
+    // the conversation list first page MUST NOT pass a cursor.
+    expect(findCallOf(calls, TaskRequest.name)).toBeUndefined();
+    expect(findCallOf(calls, TaskList.name)!.params).toEqual({ limit: 200 });
+    expect(findCallOf(calls, TaskConversationList.name)!.params).toEqual({
+      limit: 100,
+    });
   });
 
-const dedupHitMultipleConversations = () =>
+const dedupPicksFirstActivityOrder = () =>
   Effect.gen(function* () {
-    // Server-side ordering is activity-desc, so the FIRST item under
-    // the target task is the most-recently-active. The handler picks
-    // it without re-sorting (per spec D2 amendment N6 tie-break: "first
-    // match in server iteration order").
+    // Conversations are activity-desc; the handler reuses the FIRST match
+    // under the target task without re-sorting.
     const { transport } = makeTransportWith({
       ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(),
+      taskList: taskListWith(existingTaskFixture),
       taskConversationList: () => ({
         items: [
-          // Server order: active first, older second.
           taskConvListItem(EXISTING_TASK_ID, conversationFixtureActive),
           taskConvListItem(EXISTING_TASK_ID, conversationFixtureOlder),
         ],
@@ -650,11 +648,11 @@ const dedupHitMultipleConversations = () =>
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
-const dedupHitWithMessage = () =>
+const dedupReuseWithMessage = () =>
   Effect.gen(function* () {
     const { calls, transport } = makeTransportWith({
       ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(),
+      taskList: taskListWith(existingTaskFixture),
       taskConversationList: () => ({
         items: [taskConvListItem(EXISTING_TASK_ID, conversationFixtureActive)],
       }),
@@ -667,6 +665,8 @@ const dedupHitWithMessage = () =>
       `Task started: ${EXISTING_TASK_ID} (reusing existing conversation: ${EXISTING_CONV_ID_ACTIVE})`,
     );
     expect(stdoutSpy).toHaveBeenCalledWith(`Message sent: ${MESSAGE_ID}`);
+    expect(findCallOf(calls, TaskRequest.name)).toBeUndefined();
+    expect(findCallOf(calls, MessagesSend.name)).toBeDefined();
     // The MessagesSend payload MUST route to the REUSED conversation,
     // not the (null) freshly-created one.
     const sendCall = findCallOf(calls, MessagesSend.name);
@@ -676,18 +676,15 @@ const dedupHitWithMessage = () =>
     ).toBe(EXISTING_CONV_ID_ACTIVE);
   });
 
-const dedupHitFiltersOtherTaskAndArchived = () =>
+const dedupFiltersArchivedAndOtherTask = () =>
   Effect.gen(function* () {
-    // The list mixes items from other tasks AND archived rows under
-    // our task — the handler must skip both and find the lone non-
-    // archived match.
-    const archivedConv = {
-      ...conversationFixtureOlder,
-      archivedAt: NOW_ISO,
-    };
+    // The conversation list mixes an OTHER task (not in the app-scoped
+    // active set) and an archived row under our task — both skipped; the
+    // lone non-archived match under the in-scope task is reused.
+    const archivedConv = { ...conversationFixtureOlder, archivedAt: NOW_ISO };
     const { transport } = makeTransportWith({
       ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(),
+      taskList: taskListWith(existingTaskFixture),
       taskConversationList: () => ({
         items: [
           taskConvListItem(OTHER_TASK_ID, conversationFixtureActive),
@@ -700,54 +697,106 @@ const dedupHitFiltersOtherTaskAndArchived = () =>
     expect(stdoutSpy).toHaveBeenCalledWith(
       `Task started: ${EXISTING_TASK_ID} (reusing existing conversation: ${EXISTING_CONV_ID_ACTIVE})`,
     );
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
-const dedupHitTaskClosedNoUsableConversation = () =>
+const dedupScopesToRequestedApp = () =>
   Effect.gen(function* () {
-    // Existing task is reported by the dedup query but all
-    // conversations under it are archived → `findReusableConversation`
-    // returns null → handler emits closed-task diagnostic + exit 1.
-    const archivedConv = {
-      ...conversationFixtureActive,
-      archivedAt: NOW_ISO,
-    };
-    const { transport } = makeTransportWith({
+    // A conversation under a DIFFERENT-app task with a matching participant
+    // set MUST NOT be reused: `task/list` scopes the active set to the
+    // requested app, and the join drops the other-app task id.
+    const { calls, transport } = makeTransportWith({
       ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(existingTaskClosedFixture),
+      taskList: taskListWith(existingTaskOtherAppFixture),
       taskConversationList: () => ({
-        items: [taskConvListItem(EXISTING_TASK_ID, archivedConv)],
+        items: [taskConvListItem(OTHER_TASK_ID, conversationFixtureActive)],
       }),
     });
     yield* runWith(transport, standardArgs(["agent:bob"]));
-    expect(stderrLines()).toContain(
-      `Task already exists but is closed: ${EXISTING_TASK_ID}`,
+    // No in-scope match → create a fresh task.
+    expect(findCallOf(calls, TaskRequest.name)).toBeDefined();
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      `Task started: ${TASK_ID} (conversation: ${CONVERSATION_ID})`,
     );
-    expect(stdoutSpy).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-const dedupHitPaginatesUntilFound = () =>
+const dedupParticipantSetMustMatchExactly = () =>
   Effect.gen(function* () {
-    // First page is full of OTHER tasks → handler must follow
-    // `nextCursor` to find the target on page two. Pin both calls so a
-    // regression that drops pagination support fails the test.
+    // Group request {bob, carol} must NOT reuse a {bob}-only DM: the task
+    // participant set differs in size, so it fails to match → create.
+    const { calls, transport } = makeTransportWith({
+      ...bobCarolLookup(),
+      taskList: taskListWith(existingTaskFixture),
+      taskConversationList: () => ({
+        items: [
+          taskConvListItem(EXISTING_TASK_ID, conversationFixtureActive, [
+            INITIATOR_ID,
+            BOB_AGENT_ID,
+          ]),
+        ],
+      }),
+    });
+    yield* runWith(transport, standardArgs(["agent:bob", "agent:carol"]));
+    expect(findCallOf(calls, TaskRequest.name)).toBeDefined();
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      `Task started: ${TASK_ID} (conversation: ${CONVERSATION_ID})`,
+    );
+  });
+
+const dedupSkippedForZeroParticipants = () =>
+  Effect.gen(function* () {
+    // Solo (zero-participant) start: dedup is carved out entirely — no
+    // list scan happens and a fresh task is created.
+    const { calls, transport } = makeTransportWith({
+      taskList: taskListWith(existingTaskFixture),
+    });
+    yield* runWith(transport, standardArgs([]));
+    expect(findCallOf(calls, TaskList.name)).toBeUndefined();
+    expect(findCallOf(calls, TaskConversationList.name)).toBeUndefined();
+    expect(findCallOf(calls, TaskRequest.name)).toBeDefined();
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      `Task started: ${TASK_ID} (conversation: ${CONVERSATION_ID})`,
+    );
+  });
+
+const dedupBestEffortOnScanFailure = () =>
+  Effect.gen(function* () {
+    // A transient `task/list` failure MUST NOT block creation: the scan is
+    // best-effort, so the handler falls through to create a fresh task.
+    const { calls, transport } = makeTransportWith({
+      ...onlyBobLookup(),
+      taskList: () => new Error("list temporarily unavailable"),
+    });
+    yield* runWith(transport, standardArgs(["agent:bob"]));
+    expect(findCallOf(calls, TaskRequest.name)).toBeDefined();
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      `Task started: ${TASK_ID} (conversation: ${CONVERSATION_ID})`,
+    );
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+const dedupPaginatesConversationList = () =>
+  Effect.gen(function* () {
+    // First conversation page misses (OTHER task) → follow `nextCursor` to
+    // page two where the in-scope match lives. Pins cursor forwarding.
     let callCount = 0;
     const { calls, transport } = makeTransportWith({
       ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(),
+      taskList: taskListWith(existingTaskFixture),
       taskConversationList: () => {
         callCount += 1;
-        if (callCount === 1) {
-          return {
-            items: [taskConvListItem(OTHER_TASK_ID, conversationFixtureOlder)],
-            nextCursor: "2026-05-18T12:00:00Z",
-          };
-        }
-        return {
-          items: [
-            taskConvListItem(EXISTING_TASK_ID, conversationFixtureActive),
-          ],
-        };
+        return callCount === 1
+          ? {
+              items: [
+                taskConvListItem(OTHER_TASK_ID, conversationFixtureOlder),
+              ],
+              nextCursor: "2026-05-18T12:00:00Z",
+            }
+          : {
+              items: [
+                taskConvListItem(EXISTING_TASK_ID, conversationFixtureActive),
+              ],
+            };
       },
     });
     yield* runWith(transport, standardArgs(["agent:bob"]));
@@ -755,27 +804,24 @@ const dedupHitPaginatesUntilFound = () =>
     expect(stdoutSpy).toHaveBeenCalledWith(
       `Task started: ${EXISTING_TASK_ID} (reusing existing conversation: ${EXISTING_CONV_ID_ACTIVE})`,
     );
-    // Second call MUST forward the cursor returned by the first page.
     const listCalls = calls.filter(
       (c) => c.method === TaskConversationList.name,
     );
-    expect(listCalls).toHaveLength(2);
     expect(listCalls[1]!.params).toEqual({
       limit: 100,
       cursor: "2026-05-18T12:00:00Z",
     });
   });
 
-const dedupHitCapsAtMaxPages = () =>
+const dedupCapsScanAndFallsThroughToCreate = () =>
   Effect.gen(function* () {
-    // Adversarial server that NEVER returns nextCursor: undefined. The
-    // handler MUST stop at `DEDUP_LOOKUP_MAX_PAGES = 10` and surface
-    // the closed-task diagnostic; without the cap this loops forever
-    // and the test times out. Pins the cap value as a contract.
+    // Adversarial server that never returns `nextCursor: undefined`. The
+    // scan MUST stop at `DEDUP_SCAN_MAX_PAGES = 10`; with no match it falls
+    // through to create rather than looping forever.
     let pageCount = 0;
     const { calls, transport } = makeTransportWith({
       ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(),
+      taskList: taskListWith(existingTaskFixture),
       taskConversationList: () => {
         pageCount += 1;
         return {
@@ -788,102 +834,53 @@ const dedupHitCapsAtMaxPages = () =>
     const listCalls = calls.filter(
       (c) => c.method === TaskConversationList.name,
     );
-    expect(listCalls).toHaveLength(10); // DEDUP_LOOKUP_MAX_PAGES
-    expect(stderrLines()).toContain(
-      `Task already exists but is closed: ${EXISTING_TASK_ID}`,
+    expect(listCalls).toHaveLength(10); // DEDUP_SCAN_MAX_PAGES
+    expect(findCallOf(calls, TaskRequest.name)).toBeDefined();
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      `Task started: ${TASK_ID} (conversation: ${CONVERSATION_ID})`,
     );
-    expect(stdoutSpy).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-const dedupHitClosedTaskWithMessage = () =>
-  Effect.gen(function* () {
-    // Partial-failure: TaskRequest dedup-hit + closed-task + --message.
-    // The user's message is intentionally DROPPED — handler exits 1
-    // before reaching `sendFirstMessage`. Pinned so any future change
-    // to add a separate diagnostic ('Message NOT sent: ...') has to
-    // update this test, preventing silent regression.
-    const archivedConv = {
-      ...conversationFixtureActive,
-      archivedAt: NOW_ISO,
-    };
-    const { calls, transport } = makeTransportWith({
-      ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(existingTaskClosedFixture),
-      taskConversationList: () => ({
-        items: [taskConvListItem(EXISTING_TASK_ID, archivedConv)],
-      }),
-    });
-    yield* runWith(
-      transport,
-      standardArgs(["agent:bob"], { message: "hello" }),
-    );
-    expect(calls.filter((c) => c.method === MessagesSend.name)).toEqual([]);
-    expect(stderrLines()).toContain(
-      `Task already exists but is closed: ${EXISTING_TASK_ID}`,
-    );
-    expect(stdoutSpy).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-const dedupHitListRpcFailure = () =>
-  Effect.gen(function* () {
-    // TaskRequest succeeds (dedup hit). TaskConversationList fails with
-    // a wire error (e.g. cursor-format drift). Without the
-    // `DedupListFailedError` remap, the user would see
-    // `Failed: <list-error>` and assume TaskRequest failed → retry →
-    // re-dedup forever. The remap surfaces the existing taskId so the
-    // user knows the task is real.
-    const { transport } = makeTransportWith({
-      ...onlyBobLookup(),
-      taskCreate: TASK_CREATE_DEDUP(),
-      taskConversationList: () => new Error("cursor server-rejected"),
-    });
-    yield* runWith(transport, standardArgs(["agent:bob"]));
-    expect(
-      stderrLines().some(
-        (s) =>
-          s.startsWith(`Task ${EXISTING_TASK_ID} already exists`) &&
-          s.includes("reusable-conversation lookup failed"),
-      ),
-    ).toBe(true);
-    expect(stdoutSpy).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-describe("moltzap start — dedup hit (P2-A / spec D2 amendment N6)", () => {
+describe("moltzap start — proactive DM dedup (#685)", () => {
   beforeEach(installHarness);
   afterEach(restoreHarness);
 
-  it("single existing conversation -> reuses it", dedupHitSingleConversation);
+  it("reuses an existing active DM conversation", dedupReusesActiveDm);
   it(
-    "multiple conversations -> picks first in server iteration order",
-    dedupHitMultipleConversations,
-  );
-  it("with --message -> sends to reused conversation", dedupHitWithMessage);
-  it(
-    "filters items from other tasks and archived rows",
-    dedupHitFiltersOtherTaskAndArchived,
+    "picks the first match in activity-desc order",
+    dedupPicksFirstActivityOrder,
   );
   it(
-    "task closed / all archived -> exit 1 with stderr diagnostic",
-    dedupHitTaskClosedNoUsableConversation,
+    "with --message -> sends to the reused conversation",
+    dedupReuseWithMessage,
   );
   it(
-    "paginates via nextCursor when first page misses",
-    dedupHitPaginatesUntilFound,
+    "filters archived rows and out-of-app-scope tasks",
+    dedupFiltersArchivedAndOtherTask,
   );
   it(
-    "caps at DEDUP_LOOKUP_MAX_PAGES when server never returns final page",
-    dedupHitCapsAtMaxPages,
+    "does not reuse a conversation under another app",
+    dedupScopesToRequestedApp,
   );
   it(
-    "closed task + --message -> message dropped, exit 1",
-    dedupHitClosedTaskWithMessage,
+    "does not reuse when the participant set differs",
+    dedupParticipantSetMustMatchExactly,
   );
   it(
-    "TaskConversationList wire failure -> distinct diagnostic, NOT 'Failed: ...'",
-    dedupHitListRpcFailure,
+    "skips dedup entirely for zero-participant starts",
+    dedupSkippedForZeroParticipants,
+  );
+  it(
+    "falls through to create when the list scan fails",
+    dedupBestEffortOnScanFailure,
+  );
+  it(
+    "paginates the conversation list via nextCursor",
+    dedupPaginatesConversationList,
+  );
+  it(
+    "caps the scan and creates when no match is found",
+    dedupCapsScanAndFallsThroughToCreate,
   );
 });
 
