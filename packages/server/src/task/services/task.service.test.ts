@@ -18,12 +18,8 @@ import {
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
 } from "../../test-utils/index.js";
-import {
-  TaskReadAccess,
-  TmAuthority,
-  obtainTaskReadAccess,
-  obtainTmAuthority,
-} from "../../app/capabilities/index.js";
+import { TaskReadAccess, TmAuthority } from "@moltzap/protocol/task";
+import { serverCapabilityProviders } from "../../app/capability-providers.js";
 import { AppHostTag, TaskServiceTag } from "../../app/layers.js";
 import type { AppHost } from "../../app/app-host.js";
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -140,7 +136,7 @@ function withTmAuth(
     eff.pipe(
       Effect.provideServiceEffect(
         TmAuthority,
-        obtainTmAuthority(taskId, callerConnId),
+        serverCapabilityProviders[TmAuthority.key]({ taskId, callerConnId }),
       ),
       Effect.provideService(TaskServiceTag, svc),
       Effect.provide(app),
@@ -152,7 +148,10 @@ function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
     eff.pipe(
       Effect.provideServiceEffect(
         TaskReadAccess,
-        obtainTaskReadAccess(taskId, caller),
+        serverCapabilityProviders[TaskReadAccess.key]({
+          taskId,
+          callerAgentId: caller,
+        }),
       ),
       Effect.provideService(TaskServiceTag, svc),
     ) as Effect.Effect<A, E, Exclude<R, TaskReadAccess>>;

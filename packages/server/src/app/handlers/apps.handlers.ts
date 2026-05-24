@@ -8,7 +8,7 @@ import {
 import { Effect } from "effect";
 import { AppHostTag, ConnectionTag } from "../layers.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
-import { leaseRecordToWire } from "../lease-registry.js";
+import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
 
 export const appHandlers: RpcMethodRegistry = [
   defineAppMethod(AppsRegister, {
