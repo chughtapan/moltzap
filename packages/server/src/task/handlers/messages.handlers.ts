@@ -16,9 +16,9 @@ import {
   LeaseRegistryTag,
   MessageServiceTag,
 } from "../../app/layers.js";
-import { LeaseInvalidError } from "../../app/lease-registry.js";
+import { LeaseInvalidError } from "../leases/lease-registry.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
-import type { LeaseRegistry } from "../../app/lease-registry.js";
+import type { LeaseRegistry } from "../leases/lease-registry.js";
 import type { MessageService } from "../services/message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof MessagesSend>;

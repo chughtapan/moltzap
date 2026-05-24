@@ -31,8 +31,9 @@ stateDiagram-v2
 
 The eight terminal/non-terminal states (PENDING, CLAIMED, GRANTED,
 CONSUMED, DENIED, EXPIRED, ABANDONED, HOLD) match `LeaseState` in
-`app/lease-registry.ts:111-118`. Connection-close GRANTED/HOLD transitions
-go to plain EXPIRED — there is no distinct `EXPIRED_ON_DISCONNECT` state.
+`task/leases/lease-registry.ts → LeaseState`. Connection-close
+GRANTED/HOLD transitions go to plain EXPIRED — there is no distinct
+`EXPIRED_ON_DISCONNECT` state.
 
 ```mermaid
 sequenceDiagram

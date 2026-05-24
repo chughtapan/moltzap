@@ -61,7 +61,7 @@ import type {
   GroupCapacityForCreate,
   MessageSendPermission,
   ConversationCreateAuthorization,
-} from "../app/capabilities/index.js";
+} from "@moltzap/protocol/task";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.
@@ -165,12 +165,13 @@ export type AppTags = TaskTags | AppHostTag;
 /**
  * Concrete capability-tag union (Phase 1, Spec E #601). The thirteen
  * tags enumerated below cover every capability that
- * `packages/server/src/app/capabilities/` exports. New capability tags
- * MUST be added to this union AND to `app/capabilities/index.ts`;
- * absent that, the canary (`capability-r-channel.types-check.ts`) and
- * the `defineTaskMethod` wrapper boundary check cannot recognize the
- * new tag as part of the capability surface, and a handler that fails
- * to drain it would slip past the type system.
+ * `@moltzap/protocol/task/capabilities` exports. New capability tags
+ * MUST be added to this union; absent that, the `defineTaskMethod`
+ * wrapper boundary check cannot recognize the new tag as part of the
+ * capability surface, and a handler that fails to drain it would slip
+ * past the type system. The dispatcher-side lockstep gate
+ * (`typed-dispatcher.types-check.ts` Canary 7) enforces that a handler's
+ * R channel is a subset of its descriptor's declared `capabilities`.
  */
 export type CapabilityTags =
   | TmAuthority

@@ -31,18 +31,18 @@ import {
   type Conversation,
   type Task,
 } from "@moltzap/protocol";
-import type { TaskId } from "@moltzap/protocol/task";
+import {
+  ContactPolicyAllowsReach,
+  ConversationCreateAuthorization,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import type { AgentId } from "../types.js";
 import {
   AppHostTag,
   ConversationServiceTag,
   TaskServiceTag,
 } from "../layers.js";
-import {
-  ConversationCreateAuthorization,
-  obtainContactPolicyForCreate,
-  obtainConversationCreateAuthorization,
-} from "../capabilities/index.js";
+import { obtainConversationCreateAuthorization } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
@@ -57,14 +57,6 @@ type TaskRequestParams = {
 };
 
 type TaskRequestCtx = { readonly agentId: AgentId };
-
-function maybeRunContactPolicyForTaskRequest(
-  params: TaskRequestParams,
-  ctx: TaskRequestCtx,
-) {
-  if (params.invitedAgentIds.length === 0) return Effect.void;
-  return obtainContactPolicyForCreate(ctx.agentId, params.invitedAgentIds);
-}
 
 interface MintInitialInput {
   readonly task: Task;
@@ -185,7 +177,13 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const appHost = yield* AppHostTag;
-    yield* maybeRunContactPolicyForTaskRequest(params, ctx);
+    // Contact-policy gate. The dispatcher auto-provisions
+    // `ContactPolicyAllowsReach` from the descriptor's `capabilities`
+    // array before this body runs; draining the tag here makes the
+    // gate a precondition of `taskService.create`. Empty
+    // `invitedAgentIds` provisions a no-op proof (the obtain helper
+    // short-circuits on zero targets).
+    yield* ContactPolicyAllowsReach;
     const waitingTask = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
       invitedAgentIds: params.invitedAgentIds,

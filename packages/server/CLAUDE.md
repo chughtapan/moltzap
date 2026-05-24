@@ -42,10 +42,29 @@ create(
   /* ... */
 ): Effect.Effect<Conversation, ConversationServiceError, ConversationCreateAuthorization>;
 
-// server/src/app/capability-providers.ts — single source of truth for obtain helpers
+// server/src/app/capability-providers.ts — single source of truth.
+// Simple obtains are INLINE here (each has exactly one consumer: this
+// table). TmAuthority keys off the WS connection id (#673 app-ownership
+// model), not the agent id.
 export const serverCapabilityProviders = {
-  [TmAuthority.key]: (args) => obtainTmAuthority(args.taskId, args.callerAgentId),
-  /* ... 6 more entries ... */
+  [TmAuthority.key]: (args) =>
+    Effect.gen(function* () {
+      const taskService = yield* TaskServiceTag;
+      const appHost = yield* AppHostTag;
+      const { taskId, callerConnId } = args as TaskAndConn;
+      const task = yield* taskService.loadOpenTask(taskId);
+      if (!appHost.isAppConnection(Value.Decode(AppId, task.appId), callerConnId)) {
+        return yield* Effect.fail(new ForbiddenError({ message: "..." }));
+      }
+      return { task };
+    }),
+  /* ...TaskReadAccess, ConversationInTask, ContactPolicyAllowsReach inline... */
+  // Composites with their own direct consumers live as named functions
+  // next to the services they compose:
+  [ConversationCreateAuthorization.key]: (args) =>
+    obtainConversationCreateAuthorization(args), // task/services/conversation-create-authorization.ts
+  [MessageSendPermission.key]: (args) =>
+    obtainMessageSendPermission(args), // task/services/message-send-permission.ts
 } as const;
 ```
 
@@ -63,22 +82,37 @@ resolve `conversationId` via DB lookup before `MessageSendPermission`
 can be obtained, so it stays hand-piped at the handler call site.
 See `protocol/task/messages.ts → MessagesSend` for the rationale.
 
-- **`packages/server/src/app/capabilities/README.md`** — capability
-  pattern overview, when to add a capability, refine-shape vs
-  obtain-shape, composite vs union-of-tags, type-canary discipline.
 - **`packages/server/docs/architecture/r-channel-capabilities.md`**
-  — migration recipe + bug-class explainer.
+  — pattern overview, when to add a capability, refine-shape vs
+  obtain-shape, composite vs union-of-tags, migration recipe, and
+  bug-class explainer.
+
+Capability shapes:
+
+- **Obtain** — queries the DB, produces the capability value + payload
+  row. `obtainXxx(...)` returns `Effect<Xxx["Type"], ServiceError, ServiceTag>`.
+- **Refine** — validates an already-fetched row (no DB read).
+  `refineXxx(row)` returns `Effect<Xxx["Type"], ValidationError>`. The
+  refine helpers (`refineTaskActive`, `refineConversationNotArchived`)
+  live in `@moltzap/protocol/task/capabilities`.
+- **Composite** — collapses an intersection-with-alternative
+  authorization set into one tag whose value is a discriminated union,
+  because Effect's R channel cannot express "exactly one of N
+  alternative tags must be provided" (architect Decision A, #606).
+  `MessageSendPermission` is the canonical composite.
 
 When you add a new capability tag, the tag class + value type live in
-`packages/protocol/src/task/capabilities/<name>.ts` (so descriptors
-can reference them without a layering violation), and the obtain
-helper + provider-table entry live in
-`packages/server/src/app/capabilities/<name>.ts` and
-`server/src/app/capability-providers.ts`. Capability tags are
-collected by the `CapabilityTags` alias in
-`transport/layer-tags.ts`; `defineTaskMethod`'s constraint
-`Reqs extends TaskTags | CapabilityTags` accepts them in the handler
-R channel.
+`packages/protocol/src/task/capabilities/<name>.ts` (so descriptors can
+reference them without a layering violation). The obtain logic lives in
+`server/src/app/capability-providers.ts`: inline in the provider-table
+entry for a simple obtain, or as a named function in
+`server/src/task/services/<name>.ts` for a composite that has its own
+direct consumer (currently `obtainMessageSendPermission` and
+`obtainConversationCreateAuthorization`). Capability tags are collected
+by the `CapabilityTags` alias in `transport/layer-tags.ts`;
+`defineTaskMethod` / `defineAppMethod` accept them in the handler R
+channel so the dispatcher's auto-provision path can fill them from the
+descriptor's `capabilities` array.
 
 ## Layered RPC method wrappers
 

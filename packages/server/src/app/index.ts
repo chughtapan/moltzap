@@ -32,7 +32,7 @@ export {
   LeaseNotFoundError,
   leaseRecordToWire,
   makeLeaseRegistry,
-} from "./lease-registry.js";
+} from "../task/leases/lease-registry.js";
 export type {
   LeaseBindingTuple,
   LeaseState,
@@ -43,7 +43,7 @@ export type {
   Claim,
   LeaseRegistry,
   LeaseRegistryDeps,
-} from "./lease-registry.js";
+} from "../task/leases/lease-registry.js";
 
 export {
   // Tags

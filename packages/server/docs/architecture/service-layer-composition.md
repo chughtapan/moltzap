@@ -103,12 +103,13 @@ Each service class exposes a thin SQL gate per privileged operation
 `assertConversationInTask`, `assertConversationParticipant`, etc. These
 are **NOT** part of the service's exported public surface. They are
 `@internal` exported methods (the TS `private` modifier was dropped per
-Architect Decision B / Option A — `private` would block `obtain*`
-helpers in `app/capabilities/` from reaching the underlying check via
-the service Tag, regardless of DI path). The JSDoc `@internal` tag plus
-the directory-level boundary note in
-`packages/server/src/app/capabilities/README.md` are the
+Architect Decision B / Option A — `private` would block the obtain
+logic in `app/capability-providers.ts` (and the composite helpers in
+`task/services/`) from reaching the underlying check via the service
+Tag, regardless of DI path). The JSDoc `@internal` tag is the
 package-internal convention; lint enforcement is not currently wired.
+See [r-channel-capabilities.md](./r-channel-capabilities.md) for the
+capability pattern overview.
 
 Naming convention: gate methods use the `assert*` / `load*` prefix, not
 `require*` (Spec E #601 rename — the `require[A-Z]` prefix was reserved
