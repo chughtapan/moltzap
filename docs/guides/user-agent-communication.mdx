@@ -81,10 +81,13 @@ async onMessage(evt, ws) {
 
   const { text } = JSON.parse(evt.data);
 
-  // Relay via the agent's MoltZap connection
+  // Relay via the agent's MoltZap connection. `messages/send` is
+  // task-scoped: pass the relay task + conversation IDs your app
+  // minted up-front (one per user×agent pair is the common shape).
   await Effect.runPromise(
     moltzapService.sendRpc("messages/send", {
-      conversationId: conn.agentId, // or a dedicated relay conversation
+      taskId: conn.relayTaskId,
+      conversationId: conn.relayConversationId,
       parts: [{ type: "text", text }],
     }),
   );

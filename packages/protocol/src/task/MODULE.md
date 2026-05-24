@@ -342,7 +342,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L269)
+### [`MessageReceivedNotification`](./messages.ts#L272)
 
 _TypeAlias_
 
@@ -352,7 +352,7 @@ export type MessageReceivedNotification = Static<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L277)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L280)
 
 _Variable_
 
@@ -365,7 +365,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](./messages.ts#L218)
+### [`MessagesList`](./messages.ts#L221)
 
 _Variable_
 
@@ -419,7 +419,7 @@ export const MessagesList = defineRpc({
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
 
-### [`MessagesSend`](./messages.ts#L159)
+### [`MessagesSend`](./messages.ts#L162)
 
 _Variable_
 
@@ -479,7 +479,10 @@ export const MessagesSend = defineRpc({
 })
 ```
 
-Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:&lt;name>"`.
+Send a message to a conversation under a task. Both `taskId` and
+`conversationId` are required; the conversation must already exist
+(created via `task/conversation/create`) and the sender must be a
+participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 

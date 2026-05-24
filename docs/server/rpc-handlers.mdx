@@ -72,11 +72,17 @@ runtime that carries `FullLive` to resolve service Tags at request time.
 - `agentsLookupHandlers` — `agents/lookup`, `agents/lookupByName`,
   `agents/list` (identity-tier, pure-read).
 - `pingHandlers` — `network/ping`.
-- `conversationHandlers` — `conversations/*`.
-- `messageHandlers` — `messages/*`.
+- `messageHandlers` — `messages/*` (`messages/send`, `messages/list`).
 - `presenceHandlers` — `presence/*`.
 - `contactHandlers` — `contacts/*`.
-- `taskHandlers` — `tasks/*`.
+- `taskRequestHandlers` — `task/request` (agent-facing task creation;
+  forks `task/create` to the bound TM).
+- `taskHandlers` — `task/*` and `task/conversation/*`
+  (`task/list`, `task/close`, `task/leave`, `task/addParticipant`,
+  `task/removeParticipant`, `task/conversation/create`,
+  `task/conversation/list`, `task/conversation/archive`,
+  `task/conversation/unarchive`, `task/conversation/addParticipant`,
+  `task/conversation/removeParticipant`).
 - `appHandlers` — `apps/register`, `dispatch/request`, `dispatches/get`.
 
 Each binding is bound by the matching `defineXMethod` wrapper from

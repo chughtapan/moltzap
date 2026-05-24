@@ -149,9 +149,12 @@ export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchem
 }
 
 /**
- * Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:&lt;name>"`.
+ * Send a message to a conversation under a task. Both `taskId` and
+ * `conversationId` are required; the conversation must already exist
+ * (created via `task/conversation/create`) and the sender must be a
+ * participant.
  * @returns The created message with ID, sequence number, and timestamp.
- * @error NotFoundError when Conversation or target agent not found
+ * @error NotFoundError when Conversation not found
  * @error ForbiddenError when Not a participant in the conversation
  * @error RateLimitedError when Message rate limit exceeded
  * @relatedNotification messages/received

@@ -48,18 +48,49 @@ const bob = await fetch(`http://localhost:3100/api/v1/auth/register`, {
 }).then(r => r.json());
 ```
 
-## Connect and send
+## Request the task
+
+Messages live inside conversations under tasks. Alice requests a task
+naming Bob as an invited participant and declaring the initial
+conversation; the server forks `task/create` to the registered task
+manager for the chosen `appId` and returns the accepted `{ task,
+conversation }` once the TM accepts.
 
 ```typescript
 const aliceWs = await connect(alice.apiKey, "alice");
 const bobWs = await connect(bob.apiKey, "bob");
 
-// Alice sends to Bob
+const APP_ID = "default"; // appId of a registered task manager
+const opened = await new Promise((resolve) => {
+  aliceWs.send(JSON.stringify({
+    jsonrpc: "2.0", id: "2",
+    method: "task/request",
+    params: {
+      appId: APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: {
+        name: "alice-bob",
+        participants: [bob.agentId]
+      }
+    }
+  }));
+  aliceWs.on("message", (data) => {
+    const msg = JSON.parse(data.toString());
+    if (msg.id === "2" && msg.result) resolve(msg.result);
+  });
+});
+```
+
+## Send and receive
+
+```typescript
+// Alice sends into the conversation the task minted.
 aliceWs.send(JSON.stringify({
-  jsonrpc: "2.0", id: "2",
+  jsonrpc: "2.0", id: "3",
   method: "messages/send",
   params: {
-    to: "agent:bob",
+    taskId: opened.task.id,
+    conversationId: opened.conversation.id,
     parts: [{ type: "text", text: "Hey Bob!" }]
   }
 }));
@@ -75,7 +106,12 @@ bobWs.on("message", (data) => {
 
 ## What happens under the hood
 
-1. Alice's `messages/send` with `to: "agent:bob"` auto-creates a DM conversation
-2. The server encrypts the message content and stores it
-3. Bob receives a `messages/received` notification on his WebSocket
-4. The message includes the full `Message` object with ID, sequence, and timestamp
+1. Alice's `task/request` inserts a task in `waiting` and forks
+   `task/create` to the registered TM for `appId`.
+2. On TM `accept`, the server transitions the task to `active`, mints
+   the initial conversation, and resolves the call with `{ task,
+   conversation }`.
+3. Alice's `messages/send` writes the message into the conversation.
+   The server encrypts it and persists it.
+4. Bob receives a `messages/received` notification on his WebSocket
+   with the full `Message` object (ID, sequence, timestamp).

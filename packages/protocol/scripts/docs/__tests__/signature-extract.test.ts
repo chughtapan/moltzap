@@ -91,6 +91,62 @@ describe("extractSignatureText", () => {
     expect(extractSignatureText(source, 0, ReflectionKind.Function)).toBeNull();
   });
 
+  it("keeps a class body containing a `>=` comparison intact", () => {
+    const source = [
+      "export class Counter {",
+      "  n = 0;",
+      "  bump() {",
+      "    if (this.n >= 1) return;",
+      "    this.n++;",
+      "  }",
+      "}",
+      "",
+    ].join("\n");
+    const sig = extractSignatureText(source, 1, ReflectionKind.Class);
+    expect(sig).toBe(
+      [
+        "export class Counter {",
+        "  n = 0;",
+        "  bump() {",
+        "    if (this.n >= 1) return;",
+        "    this.n++;",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps an interface body containing a `<=` comparison intact", () => {
+    const source = [
+      "export interface Bounds {",
+      "  readonly check: (n: number) => boolean;",
+      "  readonly min: number;",
+      "}",
+      "// guard: n <= max",
+      "",
+    ].join("\n");
+    const sig = extractSignatureText(source, 1, ReflectionKind.Interface);
+    expect(sig).toBe(
+      [
+        "export interface Bounds {",
+        "  readonly check: (n: number) => boolean;",
+        "  readonly min: number;",
+        "}",
+      ].join("\n"),
+    );
+  });
+
+  it("cuts a function signature whose default-arg uses `>=`", () => {
+    const source = [
+      "export function gate(n: number = 0): number {",
+      "  return n >= 1 ? 1 : 0;",
+      "}",
+      "",
+    ].join("\n");
+    const sig = extractSignatureText(source, 1, ReflectionKind.Function);
+    expect(sig).toBe("export function gate(n: number = 0): number");
+  });
+
   it("does not cut on punctuation inside string literals", () => {
     const source = [
       "export const greet = (name: string): string =>",
