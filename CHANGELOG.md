@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Config consolidation (#680) — single `src/config.ts`, Ajv dropped
+
+Behavior-preserving consolidation of `@moltzap/server-core`'s config
+layer. Same fields parsed, same env precedence, same boot decisions
+(PGlite vs Postgres, CORS-required-outside-dev, Supabase-rejected-under-dev,
+YAML `${VAR}` interpolation). One operator-visible behavior change: a
+malformed config file now produces a slightly less polished error message.
+
+- **Internal (`@moltzap/server-core`):** Five config sources fold into
+  one `src/config.ts` — `app/config.ts` (the #676 `CoreConfig` home),
+  `config/effect-config.ts`, `config/loader.ts`, `config/schema.ts`, and
+  `runtime-surface/config.ts`. The `config/` and `runtime-surface/`
+  folders are gone. Public surface narrows to `CoreConfig`,
+  `StandaloneBootPlan`, `ConfigLoadError`, and one loader,
+  `loadStandaloneConfig`; the former `MoltZapAppConfig` export is now a
+  private `YamlConfig` type.
+- **Internal (`@moltzap/server-core`):** `ajv` and `ajv-formats` are
+  removed as dependencies. Config validation now runs through TypeBox
+  `Value.Check` (`@sinclair/typebox`, already a dependency). Validation
+  parity is preserved — the same malformed inputs are rejected
+  (`encryption` block without `master_secret`, unknown keys, malformed
+  `webhook_url`, sub-100ms `timeout_ms`, invalid `log_level`, the retired
+  `seed` block, empty `database.url`). The error messages are softer than
+  Ajv's keyword-by-keyword formatter; that is the accepted tradeoff.
+- **Internal (`@moltzap/server-core`):** Dead `regex:` CORS prefix
+  parsing is removed (the compiled-patterns array was never read).
+  `corsOrigins` is exact-match only.
+
 ### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
 
 The cutover phase of the layered-refactor sequence (`E → D1 → D2 →
