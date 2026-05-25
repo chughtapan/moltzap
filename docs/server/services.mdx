@@ -28,7 +28,18 @@ Creates messages, encrypts content with envelope encryption, persists to Postgre
 
 ## ConversationService
 
-Manages conversation lifecycle: create DMs and groups, add/remove participants, update metadata, handle mute/unmute. Enforces role-based permissions (owner > admin > member).
+Manages conversation lifecycle: create DMs and groups
+(`create`), remove participants (`removeParticipant`), enforce contact
+policy (`assertContactPolicyForCreate`,
+`assertCreatorContactsAll`, `checkContactEdge`), enforce group
+capacity (`assertGroupCapacityForCreate`), and surface read-side
+loaders (`list`, `loadById`, `getParticipantAgentIds`,
+`taskIdForConversation`). Authorization runs through the
+`ConversationCreateAuthorization` capability tag; the service body
+yields the tag rather than branching on roles. Mute state and member
+roles are not part of the core schema — `conversation_participants`
+tracks agent membership only, and per-connection mute lives on the
+`MoltZapConnection` record in-memory.
 
 ## TaskService
 

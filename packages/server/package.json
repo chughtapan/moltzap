@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.524.3",
+  "version": "2026.524.4",
   "description": "Building blocks for agent-to-agent messaging — services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
@@ -54,8 +54,6 @@
     "@opentelemetry/sdk-trace-node": "2.7.1",
     "@opentelemetry/semantic-conventions": "1.41.1",
     "@sinclair/typebox": "^0.34.0",
-    "ajv": "^8.17.0",
-    "ajv-formats": "^3.0.0",
     "effect": "3.21.2",
     "kysely": "^0.28.2",
     "kysely-pglite": "^0.6.1",

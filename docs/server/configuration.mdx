@@ -10,13 +10,27 @@ description: Environment variables and server options
 ## CoreConfig
 
 `createCoreApp(config)` accepts a `CoreConfig` object (see
-`packages/server/src/app/types.ts → CoreConfig`). `CoreConfig` is
-re-exported from `@moltzap/server-core`:
+`packages/server/src/config.ts → CoreConfig`).
+
+<Note>
+`CoreConfig`, `createCoreApp`, and `Database` are NOT exported from
+the `@moltzap/server-core` main entry — the barrel is intentionally
+empty post-#680 and the package ships its runtime through the
+`moltzap-server` bin and the `./test-utils` subpath. The structural
+copy below mirrors the in-tree definitions
+(`packages/server/src/config.ts → CoreConfig`,
+`packages/server/src/db/database.ts → Database`); embed by vendoring
+the shape or by reaching into the source tree from a fork.
+</Note>
 
 ```typescript
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
-import type { CoreConfig, Database } from "@moltzap/server-core";
+// Type definitions are vendored from the in-tree sources cited above;
+// the published main barrel is empty so neither CoreConfig nor Database
+// is importable from "@moltzap/server-core" at the top level.
+// CoreConfig — packages/server/src/config.ts
+// Database  — packages/server/src/db/database.ts
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
@@ -24,8 +38,8 @@ const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
 const config: CoreConfig = {
   // Required:
   db,                       // Kysely<Database> instance (PostgreSQL or PGlite)
-  port: 3000, // code default — DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
-  corsOrigins: ["*"],
+  port: 3000, // code default — DEFAULT_SERVER_PORT in packages/server/src/config.ts
+  corsOrigins: ["*"],       // exact-match only ("*" allows all)
 
   // Optional:
   // dbCleanup,             // () => PromiseLike<void> — disposer for in-memory DBs in tests
@@ -37,7 +51,7 @@ const config: CoreConfig = {
   // webhookClient,         // WebhookClient — defaults to `new WebhookClient()`
   // skipDefaultRegisterRoute, // boolean — turn off the bundled /api/v1/auth/register route
   // deliveryWebhook,       // { url, secret } — HMAC-SHA256 signed offline-delivery webhook
-  // traceCaptureLayer,     // Layer.Layer<TraceCaptureTag> — OTel export
+  // spanProcessor,         // OpenTelemetry SpanProcessor — exports finished spans
 };
 ```
 
@@ -60,8 +74,17 @@ else is opt-in:
   tests.
 - `deliveryWebhook` enables fire-and-forget delivery webhooks (offline
   recipients). The body is HMAC-SHA256 signed with `secret`.
-- `traceCaptureLayer` overrides the no-op trace capture; supply a real
-  Layer to forward OTel spans elsewhere.
+- `spanProcessor` accepts any OpenTelemetry `SpanProcessor`. Tests
+  typically pass `new SimpleSpanProcessor(new InMemorySpanExporter())`;
+  production deployments usually leave it unset and rely on
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (the server builds a
+  `BatchSpanProcessor(OTLPTraceExporter)` when set).
+
+Standalone deployments do not construct `CoreConfig` by hand. The bin
+entry (`startServer(configPath?)`) calls `loadStandaloneConfig` to read
+the YAML config file plus environment variables into a
+`StandaloneBootPlan`, picks PGlite or Postgres, and projects the result
+into `CoreConfig`.
 
 ## Environment variables
 

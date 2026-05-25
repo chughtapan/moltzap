@@ -184,7 +184,7 @@ const collect = (): readonly Constant[] => {
     "DEFAULT_APP_ID",
   );
   const defaultServerPort = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/server/src/app/config.ts"),
+    resolve(workspaceRoot, "packages/server/src/config.ts"),
     "DEFAULT_SERVER_PORT",
   );
   const apiKeyPrefix = readTopLevelLiteral(
@@ -251,7 +251,7 @@ const collect = (): readonly Constant[] => {
     ),
     requireNumber(
       "DEFAULT_SERVER_PORT",
-      "packages/server/src/app/config.ts",
+      "packages/server/src/config.ts",
       defaultServerPort,
       "Code-level fallback port used by ServerConfigLoader when PORT is unset.",
     ),
@@ -387,6 +387,17 @@ interface BakeRecord {
   readonly newValue: string | number;
 }
 
+interface BakeFailure {
+  readonly file: string;
+  readonly constant: string;
+  readonly reason: string;
+}
+
+interface BakeFileResult {
+  readonly records: readonly BakeRecord[];
+  readonly failures: readonly BakeFailure[];
+}
+
 const literalForReplace = (value: string | number): string =>
   typeof value === "string" ? value : String(value);
 
@@ -442,23 +453,27 @@ const bakeFile = (
   absPath: string,
   constants: ReadonlyMap<string, Constant>,
   previousValues: ReadonlyMap<string, string | number>,
-): readonly BakeRecord[] => {
+): BakeFileResult => {
   const original = readFileSync(absPath, "utf8");
   const m = BAKE_MARKER_RE.exec(original);
-  if (m === null) return [];
+  if (m === null) return { records: [], failures: [] };
   const names = (m[1] ?? "")
     .split(/\s+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-  if (names.length === 0) return [];
+  if (names.length === 0) return { records: [], failures: [] };
   let body = original;
   const records: BakeRecord[] = [];
+  const failures: BakeFailure[] = [];
+  const fileLabel = relative(workspaceRoot, absPath);
   for (const name of names) {
     const c = constants.get(name);
     if (!c) {
-      console.error(
-        `[generate-constants-snippets] WARN: ${relative(workspaceRoot, absPath)} marker lists unknown constant '${name}'`,
-      );
+      failures.push({
+        file: fileLabel,
+        constant: name,
+        reason: "marker lists unknown constant",
+      });
       continue;
     }
     const previous = previousValues.get(name);
@@ -468,7 +483,7 @@ const bakeFile = (
     if (replacement.count > 0) {
       body = replacement.body;
       records.push({
-        file: relative(workspaceRoot, absPath),
+        file: fileLabel,
         constant: name,
         previousValue: previous,
         newValue: next,
@@ -476,7 +491,7 @@ const bakeFile = (
     }
   }
   if (body !== original) writeFileSync(absPath, body);
-  return records;
+  return { records, failures };
 };
 
 const loadPreviousValues = (
@@ -526,8 +541,20 @@ const main = (): void => {
   const allFiles = [...docFiles, readmePath];
 
   const allBakes: BakeRecord[] = [];
+  const allFailures: BakeFailure[] = [];
   for (const f of allFiles) {
-    allBakes.push(...bakeFile(f, constantsByName, previousValues));
+    const result = bakeFile(f, constantsByName, previousValues);
+    allBakes.push(...result.records);
+    allFailures.push(...result.failures);
+  }
+
+  if (allFailures.length > 0) {
+    for (const f of allFailures) {
+      console.error(
+        `[generate-constants-snippets] FAIL ${f.file}: ${f.reason} '${f.constant}'`,
+      );
+    }
+    process.exit(1);
   }
 
   const headlines = constants

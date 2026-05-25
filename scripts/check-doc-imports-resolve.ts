@@ -228,17 +228,70 @@ interface DocImport {
 
 // Matches `import [<clause>] from "@moltzap/<pkg>[/<sub>]"`. Captures
 // the raw clause text + the full module specifier so we can split the
-// package name from the subpath downstream.
+// package name from the subpath downstream. The `[\s\S]` inside the
+// named-clause groups lets the regex span multiple lines after the
+// statement has been folded by `joinMultiLineImports` below — supports
+// the common `import {\n  Foo,\n  Bar,\n} from "@moltzap/..."` shape.
 const IMPORT_RE =
-  /^\s*import\s+(?:type\s+)?(?:(\{[^}]*\}|\w+|\*\s+as\s+\w+)(?:\s*,\s*(\{[^}]*\}|\w+|\*\s+as\s+\w+))?\s+from\s+)?["'](@moltzap\/[^"']+)["']/;
+  /^\s*import\s+(?:type\s+)?(?:(\{[\s\S]*?\}|\w+|\*\s+as\s+\w+)(?:\s*,\s*(\{[\s\S]*?\}|\w+|\*\s+as\s+\w+))?\s+from\s+)?["'](@moltzap\/[^"']+)["']/;
+
+interface FoldedLine {
+  readonly text: string;
+  readonly startLine: number;
+}
+
+/**
+ * Pre-fold multi-line `import { ... } from "..."` statements onto one
+ * logical line so the single-line `IMPORT_RE` can match them. Detection:
+ * a line starts with `import` AND opens a `{` that isn't closed on the
+ * same line AND has no `from "..."` clause yet. Accumulates following
+ * lines (joined with spaces) until the matching `}` appears with a
+ * `from "..."` clause on the same line, capping at 50 lines to bound
+ * pathological input. Non-import lines pass through unchanged. Returns
+ * the start line of each folded statement for accurate error citations.
+ */
+const MULTI_LINE_FOLD_CAP = 50;
+const joinMultiLineImports = (
+  rawLines: readonly string[],
+): readonly FoldedLine[] => {
+  const out: FoldedLine[] = [];
+  let i = 0;
+  while (i < rawLines.length) {
+    const line = rawLines[i] ?? "";
+    const opens = /^\s*import\b/.test(line) && line.includes("{");
+    const closesSameLine =
+      opens && line.includes("}") && /\bfrom\s+["']/.test(line);
+    if (opens && !closesSameLine) {
+      let buf = line;
+      let j = i + 1;
+      const stop = Math.min(rawLines.length, i + 1 + MULTI_LINE_FOLD_CAP);
+      while (j < stop) {
+        buf += ` ${rawLines[j] ?? ""}`;
+        if (
+          (rawLines[j] ?? "").includes("}") &&
+          /\bfrom\s+["'][^"']+["']/.test(buf)
+        ) {
+          j++;
+          break;
+        }
+        j++;
+      }
+      out.push({ text: buf, startLine: i + 1 });
+      i = j;
+      continue;
+    }
+    out.push({ text: line, startLine: i + 1 });
+    i++;
+  }
+  return out;
+};
 
 const collectImports = (absPath: string): readonly DocImport[] => {
   const text = safeRead(absPath);
   if (text === null) return [];
   const out: DocImport[] = [];
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? "";
+  const folded = joinMultiLineImports(text.split("\n"));
+  for (const { text: line, startLine } of folded) {
     const m = IMPORT_RE.exec(line);
     if (m === null) continue;
     const specifier = m[3] ?? "";
@@ -263,7 +316,7 @@ const collectImports = (absPath: string): readonly DocImport[] => {
       .filter((s) => s.length > 0);
     out.push({
       absFile: absPath,
-      line: i + 1,
+      line: startLine,
       raw: line.trim(),
       packageName,
       subpath,

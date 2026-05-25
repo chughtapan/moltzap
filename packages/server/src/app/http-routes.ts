@@ -19,7 +19,7 @@ import {
   CLAIM_SUCCESS,
   type ClaimAgentResult,
 } from "../identity/services/auth.service.js";
-import type { CoreConfig } from "./config.js";
+import type { CoreConfig } from "../config.js";
 
 const HTTP_OK = 200;
 const HTTP_CREATED = 201;

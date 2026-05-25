@@ -32,7 +32,7 @@ import { taskRequestHandlers } from "./handlers/task-request.handler.js";
 import { WebhookClient } from "../adapters/webhook.js";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
-import type { CoreConfig } from "./config.js";
+import type { CoreConfig } from "../config.js";
 import {
   AppHostTag,
   ConversationServiceTag,
