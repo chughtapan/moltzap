@@ -24,8 +24,10 @@ public post-construction extension API.
 `defineMethod` and the layered wrappers `defineNetworkMethod` /
 `defineTaskMethod` / `defineAppMethod` are NOT exported from
 `@moltzap/server-core`. The `@moltzap/server-core` main barrel is
-intentionally empty post-#680; these symbols are package-internal and
-live in `packages/server/src/transport/define-layered-method.ts`. The
+intentionally empty post-#680; these symbols are package-internal.
+`defineMethod` lives in `packages/server/src/transport/context.ts`;
+the layered wrappers live in
+`packages/server/src/transport/define-layered-method.ts`. The
 patterns below show how core itself binds handlers — reproduce them in
 a fork or upstream PR, not by importing from the published package.
 </Note>

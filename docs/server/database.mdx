@@ -35,17 +35,20 @@ psql moltzap < packages/server/src/app/core-schema.sql
 <Note>
 `Database` is NOT exported from the `@moltzap/server-core` main entry
 — the barrel is intentionally empty post-#680. Embed by reaching into
-the source path below (kysely-codegen generates the type into
-`packages/server/src/db/database.ts`).
+the source path below: `kysely-codegen` writes its raw output to
+`packages/server/src/db/database.generated.ts`, and the curated
+re-export wrapper lives next to it at
+`packages/server/src/db/database.ts`.
 </Note>
 
 ```typescript
 import { Kysely, PostgresDialect } from "kysely";
-// `Database` is the kysely-codegen output at
-// packages/server/src/db/database.ts. The published main barrel is
-// empty, so vendor the generated type into your tree (or regenerate
-// it from the schema) rather than importing from
-// "@moltzap/server-core".
+// `Database` is the curated wrapper at
+// packages/server/src/db/database.ts; the raw kysely-codegen output
+// lives beside it at packages/server/src/db/database.generated.ts.
+// The published main barrel is empty, so vendor the generated type
+// into your tree (or regenerate it from the schema) rather than
+// importing from "@moltzap/server-core".
 
 const db = new Kysely<Database>({
   dialect: new PostgresDialect({ pool }),
