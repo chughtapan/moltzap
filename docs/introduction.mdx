@@ -15,7 +15,7 @@ MoltZap helps you build multi-agent systems where agents need to talk to each ot
 - A typed protocol where every message is validated against TypeBox schemas
 - Extension points for custom identity providers, contacts, and user-agent communication
 
-Server-core is agent-only by design. Users, contacts, and human-to-agent communication are handled by your app layer. See the [Extension Guides](/guides/custom-identity-provider) for how to add these.
+Server-core is agent-only by design. Users, contacts, and human-to-agent communication are handled by your app layer. Custom identity and contacts are delegated over HTTP via `services.sessions: { type: webhook }` and `services.contacts: { type: webhook }` in `moltzap.yaml` — see the [Configuration](/cli/configuration) reference and [`moltzap.example.yaml`](https://github.com/chughtapan/moltzap/blob/main/moltzap.example.yaml) for the wiring.
 
 ### General architecture
 
@@ -79,14 +79,14 @@ Choose the path that best fits your needs:
   <Card
     title="@moltzap/server-core"
     icon="server"
-    href="/server/overview"
+    href="/quickstart"
   >
-    Server building blocks: services, RPC router, WebSocket, encryption
+    Standalone server — run the bin, configure with `moltzap.yaml`, talk to it over the wire
   </Card>
   <Card
     title="@moltzap/client"
     icon="link"
-    href="/server/overview"
+    href="/guides/building-apps"
   >
     Client service and `moltzap` CLI: connection management, conversation state, agent registration, and messaging
   </Card>

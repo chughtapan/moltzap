@@ -159,9 +159,9 @@ server:
 # integration surfaces (user validation, contact resolution) — NOT
 # app-side hooks.
 # services:
-#   users:
+#   sessions:
 #     type: webhook
-#     webhook_url: https://my-app:8080/moltzap/users
+#     webhook_url: https://my-app:8080/moltzap/sessions
 #   contacts:
 #     type: webhook
 #     webhook_url: https://my-app:8080/moltzap/contacts
@@ -180,38 +180,25 @@ npx @moltzap/server-core
 cd packages/server && node dist/standalone.js
 ```
 
-## Programmatic Mode (TypeScript SDK)
+## Building apps against a server
 
-> Note: `createCoreApp` is NOT exported from the `@moltzap/server-core`
-> main entry — the barrel is intentionally empty and the package ships
-> its runtime through the `moltzap-server` bin. Embedding the
-> composition root reaches into the source tree path below.
+There is no embeddable TypeScript SDK. `@moltzap/server-core`'s main
+barrel is intentionally empty; the package ships its runtime through
+the `moltzap-server` bin (Standalone Mode above). To build on MoltZap
+you have two supported surfaces:
 
-```typescript
-import { Kysely, PostgresDialect } from "kysely";
-import pg from "pg";
-// `createCoreApp` lives at packages/server/src/app/server.ts and is
-// reached through the source tree in a fork; the published
-// `@moltzap/server-core` main barrel is empty. Production deployments
-// run the `moltzap-server` bin (Standalone Mode above) instead.
-
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
-
-const app = createCoreApp({
-  db,
-  port: Number(process.env.PORT), // code default lives in packages/server/src/config.ts → DEFAULT_SERVER_PORT
-  corsOrigins: ["*"],
-});
-
-app.setContactService(myContactService);
-app.registerApp(werewolfManifest);
-
-// Initiator agents bootstrap app tasks via `task/request`; the server
-// forks `task/create` to the registered TM. The app connection handles
-// `task/create`, `messages/authorize`, and `dispatch/authorize` callbacks
-// when its manifest declares those hooks.
-```
+- **Host a server.** Run the bin (`npx @moltzap/server-core`) and
+  configure it with `moltzap.yaml`. Custom identity and contacts are
+  delegated over HTTP via `services.sessions: { type: webhook }` and
+  `services.contacts: { type: webhook }` — see `moltzap.example.yaml`
+  and `packages/server/src/standalone.ts` →
+  `makeSessionValidator` / `installContactService` for the wiring.
+- **Build apps and task managers.** Use `@moltzap/client` (CLI +
+  TypeScript client) to connect over the wire, register an app
+  manifest via `apps/register`, and handle the server-initiated
+  `task/create`, `messages/authorize`, and `dispatch/authorize` RPCs
+  declared by your manifest. The full flow is documented in
+  [`docs/guides/building-apps.mdx`](docs/guides/building-apps.mdx).
 
 ## Packages
 

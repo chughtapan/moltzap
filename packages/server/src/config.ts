@@ -55,7 +55,9 @@ export interface CoreConfig {
    * route are given this user id as their `owner_user_id`, skipping the
    * claim step. Intended for local dev / quickstart. Production MUST
    * leave this unset and perform claim through an external auth
-   * provider (see docs/guides/custom-identity-provider.mdx).
+   * provider — wire it via `services.sessions: { type: webhook }` in
+   * `moltzap.yaml` (see `moltzap.example.yaml` and
+   * `packages/server/src/standalone.ts → makeSessionValidator`).
    */
   devModeUserId?: string;
 
@@ -68,9 +70,9 @@ export interface CoreConfig {
 
   /**
    * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
-   * fanout and user-side adapters (contact/user services). If unset,
-   * `createCoreApp` constructs a default `new WebhookClient()`. Tests may
-   * inject a fake to intercept outbound HTTP.
+   * fanout and user-side adapters (contact/session services). If unset,
+   * the composition root constructs a default `new WebhookClient()`.
+   * Tests may inject a fake to intercept outbound HTTP.
    */
   webhookClient?: WebhookClient;
 

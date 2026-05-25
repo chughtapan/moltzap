@@ -33,11 +33,26 @@ stateDiagram-v2
 | `accepted` | Both parties can communicate |
 
 If your product needs blocking or other states, layer a custom verb on
-top — see [Custom Contacts](/guides/custom-contacts).
+top by handling contact lookups in your own service (see below).
 
-## Getting started
+## Plugging in a custom ContactService
 
-See the [Custom Contacts guide](/guides/custom-contacts) for a complete implementation walkthrough, including:
+Custom contact storage is delegated over HTTP — there is no in-process
+injection. Point `services.contacts` at your endpoint in
+`moltzap.yaml`:
 
-- Wiring a ContactService into your server via `app.setContactService(...)`
-- Defining your contacts table schema
+```yaml
+services:
+  contacts:
+    type: webhook
+    webhook_url: https://my-app.example.com/moltzap/contacts
+```
+
+On boot, `packages/server/src/standalone.ts → installContactService`
+wires `WebhookContactService` into AppHost so every contact RPC
+(`contacts/add`, `contacts/accept`, `contacts/list`, `contacts/byId`)
+and every `areInContact` check during session creation calls your
+service. Your endpoint owns the contacts table schema. If you leave
+`services.contacts` unset, the built-in in-process implementation
+runs against the server's own database, and `areInContact` returns
+`true` by default (all agents may communicate).
