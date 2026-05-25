@@ -20,6 +20,8 @@ Presence, ping, app-TM registry, agent-endpoint resolution, outbound
 - `network-send.ts` — `NetworkSendService` (the sole outbound
   routing surface; consumes the resolver + connection manager).
 - `handlers/ping.handlers.ts` — `network/ping` RPC handler.
+- `handlers/presence.handlers.ts` — `presence/*` (routes via TM
+  message bus).
 - `services/presence.service.ts` — `PresenceService` (online /
   offline / away transitions + subscriber set).
 - `services/presence-event-sink.ts` —

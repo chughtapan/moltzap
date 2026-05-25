@@ -1,5 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import type { Db } from "../db/client.js";
+import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type {
   ConnectionManager,
@@ -61,10 +62,6 @@ const EMPTY_TASK_ID = "" as TaskId;
 // below — see `dispatchBindingForLookup`.
 const EMPTY_APP_ID = "" as AppId;
 const EMPTY_CONNECTION_ID = "" as ConnectionId;
-
-export interface ContactService {
-  areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
-}
 
 /**
  * Structural slice of {@link ConversationService} that AppHost +
