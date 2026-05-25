@@ -1,5 +1,10 @@
 ```typescript
+import { Effect } from "effect";
+
 export interface ContactService {
-  areInContact(userIdA: string, userIdB: string): Promise<boolean>;
+  areInContact(
+    userIdA: string,
+    userIdB: string,
+  ): Effect.Effect<boolean, never>;
 }
 ```

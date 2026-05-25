@@ -510,6 +510,10 @@ function pathFromPackageSrc(folder: string, path: Path.Path): string {
 function isBehavioral(ex: TypeDocExport): boolean {
   if (ex.kind === ReflectionKind.Module) return false;
   if (ex.kind === ReflectionKind.Reference) return false;
+  // Drop dunder / canary symbols (e.g. `_TypedDispatcherCanarySink`,
+  // `_D1NegativeCanary`) — they live in `*.types-check.ts` files as
+  // compile-time gates, not intentional exports.
+  if (ex.name.startsWith("_")) return false;
   return true;
 }
 

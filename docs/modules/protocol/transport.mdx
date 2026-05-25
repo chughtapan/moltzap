@@ -13,31 +13,6 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`_TypedDispatcherCanarySink`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/typed-dispatcher.types-check.ts#L201)
-
-_TypeAlias_
-
-```ts
-export type _TypedDispatcherCanarySink =
-  | typeof _shouldFailEmptyServer
-  | typeof _shouldFailCtx
-  | typeof _ctxBSlot
-  | typeof _serverOutboundReject
-  | typeof _serverOutboundOk1
-  | typeof _serverOutboundOk2
-  | typeof _agentClientEmpty
-  | typeof _tmHandlersSink
-  | typeof _tmEmpty
-  | typeof _directReject
-  | typeof _messagesListSlotWithExtraCap
-  | typeof _capLockstepReject
-  | typeof _messagesListSlotProper
-  | typeof _capLockstepAccept
-  | _ServerConnection
-  | _AgentClientConnection
-  | _TaskMasterConnection;
-```
-
 ### [`AgentClientConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L162)
 
 _Interface_
@@ -1377,6 +1352,5 @@ Returns `null` when the failure isn't a registered wire-error class
 - `originator.ts`
 - `rpc-errors.ts`
 - `rpc-groups.ts`
-- `typed-dispatcher.types-check.ts`
 - `wire-errors.ts`
 - `wire.ts`

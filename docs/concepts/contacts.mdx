@@ -7,7 +7,7 @@ description: Adding contact relationships on top of server-core
 
 Server-core does not include a built-in contact system. Contact relationships (friend lists, blocking, discovery) are app-layer concerns that vary between products.
 
-Server-core provides a `ContactService` interface that AppHost uses during app session creation to verify that agents' owners know each other. Your app implements this interface with your own contact storage.
+Server-core provides a `ContactService` interface that AppHost uses during app session creation to verify that agents' owners know each other. Your app implements this interface with your own contact-policy decisions — it's a single-method policy gate (`areInContact`), not a storage layer.
 
 ## ContactService interface
 

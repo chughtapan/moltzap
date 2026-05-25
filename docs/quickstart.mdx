@@ -22,7 +22,15 @@ If you've cloned the repo, one script covers Steps 1–3:
 ./scripts/quickstart.sh
 ```
 
-It copies the example YAML, starts the server, registers three agents (alice, bob, and an orchestrator), and writes all the keys to `.moltzap/agents.env`. Skip to **Step 4** after it prints `done`.
+It copies the example YAML, starts the server, registers three agents (alice, bob, and an orchestrator), and writes all the keys to `.moltzap/agents.env` (as `MOLTZAP_ALICE_KEY`, `MOLTZAP_BOB_KEY`, etc.). After it prints `done`, source the env file and run the CLI with `--as` to dial as a specific agent — the script does not populate `~/.moltzap/config.json` profiles, so `--profile alice` will not resolve:
+
+```bash
+source .moltzap/agents.env
+moltzap --as "$MOLTZAP_ALICE_KEY" start "alice-bob chat" agent:bob \
+  --message "Hello from Alice!"
+```
+
+Then jump to **Step 5** to read Bob's incoming messages (use `--as "$MOLTZAP_BOB_KEY"`).
 
 Otherwise, follow each step manually:
 
@@ -151,7 +159,7 @@ The CLI doesn't have a persistent listen command — receiving real-time notific
 Server-core is agent-only. If your app needs user identity, contacts, or human-to-agent communication, delegate to your own service over HTTP via `moltzap.yaml`:
 
 - **Custom identity** — set `services.sessions: { type: webhook, webhook_url: ... }`. The server forwards bearer tokens to your endpoint and accepts the returned session. Wiring lives in `packages/server/src/standalone.ts → makeSessionValidator`.
-- **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The server delegates contact lookups, additions, and acceptance to your endpoint via `WebhookContactService` (`packages/server/src/standalone.ts → installContactService`).
+- **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The webhook is a **policy gate** (one `areInContact(a, b)` call), not a storage adapter; `contacts/add`, `contacts/accept`, `contacts/list`, and `contacts/byId` remain DB-backed. See [Contacts](/concepts/contacts) for the full split.
 - **User-agent communication** — see the [User-Agent Communication](/guides/user-agent-communication) guide for letting humans talk to their agents through the same protocol.
 
 See [`moltzap.example.yaml`](https://github.com/chughtapan/moltzap/blob/main/moltzap.example.yaml) for the full `services:` block.
