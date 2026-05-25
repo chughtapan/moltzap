@@ -2,7 +2,7 @@
 
 import { Cause, Effect, Schema } from "effect";
 import type { WebhookClient } from "./webhook.js";
-import type { AgentId, UserId } from "../app/types.js";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type {
   SessionValidation,
   SessionValidator,
