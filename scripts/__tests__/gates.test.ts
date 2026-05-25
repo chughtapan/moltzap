@@ -221,6 +221,87 @@ const testDocImportsResolve = (): void => {
     `expected unknown-package. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
+
+  // Positive case: multi-line `import { ... } from "..."` block whose
+  // bindings are unknown must still be flagged as missing-export. Locks
+  // in that the joinMultiLineImports fold feeds IMPORT_RE rather than
+  // silently skipping multi-line statements. Uses the main barrel
+  // (`@moltzap/server-core`) because `./test-utils` re-exports through
+  // `export *` and the resolver skips named-binding checks when the
+  // target entry has a star export.
+  plantFile(
+    target1,
+    (s) =>
+      `${s}\n\`\`\`typescript\nimport {\n  ThisSymbolDoesNotExist,\n  AlsoNotExported,\n} from "@moltzap/server-core";\n\`\`\`\n`,
+  );
+  const r4 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  assert(
+    "multi-line import with unknown binding flagged as missing-export (joinMultiLineImports regression)",
+    r4.code !== 0 &&
+      /missing-export/.test(r4.stderr) &&
+      /ThisSymbolDoesNotExist/.test(r4.stderr),
+    `expected missing-export from folded multi-line import. exit=${r4.code}, stderr=${r4.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  // Positive case: multi-line `import { ... } from "..."` block whose
+  // bindings ARE valid must NOT be flagged — confirms the fold doesn't
+  // false-positive on legitimate multi-line imports.
+  plantFile(
+    target1,
+    (s) =>
+      `${s}\n\`\`\`typescript\nimport {\n  makePgliteHarness,\n  PGLITE_HOOK_TIMEOUT_MS,\n} from "@moltzap/server-core/test-utils";\n\`\`\`\n`,
+  );
+  const r5 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  assert(
+    "multi-line import with valid bindings still passes (joinMultiLineImports positive)",
+    r5.code === 0,
+    `expected clean pass, got exit=${r5.code}, stderr=${r5.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+};
+
+// ─── Tests: generate-constants-snippets fail-closed on bake failures ──────
+//
+// Locks in that an unknown constant name inside a `@bake-constants:` marker
+// makes the generator collect a `BakeFileResult.failures` entry and exit
+// non-zero — protects against silent-skip regressions where a typo'd
+// constant name in a baked doc would be a no-op.
+
+const testBakeFailureFailClosed = (): void => {
+  console.log("\n# generate-constants-snippets bake-failure fail-closed");
+
+  // Positive case: clean tree generates without failures.
+  const clean = runGenerate(workspaceRoot);
+  assert(
+    "clean tree: generator exits 0",
+    clean.code === 0,
+    `expected exit 0, got ${clean.code}. stderr: ${clean.stderr.slice(0, 300)}`,
+  );
+
+  // Regression: plant an unknown constant name into an existing bake
+  // marker. The bake step should see no matching constant and push a
+  // BakeFailure, which trips the fail-closed exit.
+  const target = "docs/quickstart.mdx";
+  plantFile(target, (s) =>
+    s.replace(
+      /\{\/\*\s*@bake-constants:\s*([^*]+?)\s*\*\/\}/,
+      "{/* @bake-constants: $1 NOT_A_REAL_CONSTANT */}",
+    ),
+  );
+  const r = runGenerate(workspaceRoot);
+  assert(
+    "unknown constant in bake marker triggers non-zero exit",
+    r.code !== 0,
+    `expected non-zero exit on unknown bake constant. exit=${r.code}, stderr=${r.stderr.slice(0, 300)}`,
+  );
+  assert(
+    "bake-failure stderr names the unknown constant",
+    /NOT_A_REAL_CONSTANT/.test(r.stderr) &&
+      /marker lists unknown constant/.test(r.stderr),
+    `expected NOT_A_REAL_CONSTANT + 'unknown constant' in stderr. stderr=${r.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
 };
 
 // ─── Tests: generate-constants-snippets idempotence ───────────────────────
@@ -286,6 +367,7 @@ const main = (): void => {
   try {
     testNoHardcodedConstants();
     testDocImportsResolve();
+    testBakeFailureFailClosed();
     testGeneratorIdempotence();
   } finally {
     restoreAllPlants();

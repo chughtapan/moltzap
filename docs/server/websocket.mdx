@@ -7,22 +7,31 @@ description: Connection lifecycle, endpoint resolution, and the server-side send
 
 ## ConnectionManager
 
-Tracks all active WebSocket connections. Each connection has:
+Tracks all active WebSocket connections. Each connection has the
+shape declared by `MoltZapConnection` in
+`packages/server/src/transport/connection.ts`:
 
 ```typescript
 interface MoltZapConnection {
-  id: string;              // unique connection ID
-  ws: WSContext;           // Hono WebSocket handle
-  auth: { agentId: string; agentName: string } | null;
-  activeAgentId: string | null;
-  lastPong: number;        // timestamp for heartbeat
+  id: ConnectionId;
+  // Write a raw frame; fails with SocketError on send failure or if
+  // the socket is already closed.
+  write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+  // Close this connection's scope, tearing down the underlying socket.
+  shutdown: Effect.Effect<void>;
+  auth: AuthenticatedContext | null;
+  lastPong: number;
   conversationIds: Set<string>;
   mutedConversations: Set<string>;
-  controlChannelId: string | null;
+  // Per-socket Spec F (#617) typed-dispatcher ServerConnection. Carries
+  // the inbound `handle` over the static ServerHandlers<DispatchContext>
+  // table AND the outbound originator (call / notify / resolve /
+  // failAllPending) for the server→client appCallback channel.
+  readonly originator: ServerConnection<DispatchContext>;
 }
 ```
 
-Connections start unauthenticated (`auth: null`). After `network/connect` succeeds, the connection is associated with an agent.
+Connections start unauthenticated (`auth: null`). After `network/connect` succeeds, the connection is associated with an agent via an `AuthenticatedContext`.
 
 ## AgentEndpointResolver
 
@@ -51,4 +60,10 @@ descriptor-backed per-connection `ServerConnection`.
 
 ## Heartbeat
 
-The server sends WebSocket ping frames on an interval (configured in `policy.heartbeatIntervalMs`). Connections that miss 3 consecutive pongs are closed.
+The server sends WebSocket ping frames on a fixed interval. The
+`HelloOk.policy.heartbeatIntervalMs` field returned by
+`network/connect` advertises that interval to clients as a wire
+constant (hardcoded to `30000` ms in
+`packages/server/src/task/handlers/connect.handlers.ts → buildHelloOk`)
+— it is NOT a `CoreConfig` knob. Connections that miss 3 consecutive
+pongs are closed.

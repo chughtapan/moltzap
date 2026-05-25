@@ -31,11 +31,10 @@ packages/server/src/
 ├── crypto/             # Envelope encryption, key rotation
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── adapters/           # webhook client + typed errors
-├── config/             # YAML config loader + schema validation
-├── runtime/            # InvalidParamsError, validateParams, coalesce helpers
-├── runtime-surface/    # Public host-runtime API (logging, tracing, config)
+├── config.ts           # YAML config loader + TypeBox schema validation (consolidated post-#680)
 ├── test-utils/         # PGlite boot + test drivers
 ├── standalone.ts       # startServer(configPath) — CLI/binary entry
+├── index.ts            # `export {}` — root barrel intentionally empty post-#680
 └── __tests__/          # unit, integration, conformance
 ```
 
