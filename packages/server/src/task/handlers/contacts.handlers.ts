@@ -58,8 +58,7 @@ export const contactHandlers: RpcMethodRegistry = [
         const { contacts, nextCursor } = yield* contactService
           .list(owner, { limit: params.limit, cursor: params.cursor })
           .pipe(
-            // A garbage cursor token is an invalid client-supplied param
-            // (spec #693 Invariant 2), not an internal defect.
+            // A bad cursor is an invalid client param, not an internal defect.
             Effect.catchTag("InvalidCursor", (err) =>
               Effect.fail(new InvalidParamsError({ message: err.message })),
             ),

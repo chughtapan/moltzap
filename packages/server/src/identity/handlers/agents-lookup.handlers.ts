@@ -41,8 +41,7 @@ function toAgentCard(row: {
   };
 }
 
-// `created_at` is the keyset ordering column only — never projected onto
-// `AgentCard` (the card omits `createdAt` by construction).
+// `created_at` is the keyset ordering column only; never projected onto `AgentCard`.
 function positionOfAgentRow(row: { id: AgentId; created_at: Date }): {
   readonly sortKey: string;
   readonly id: string;
@@ -177,11 +176,9 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
   }),
   defineNetworkMethod(AgentsList, {
     requiresActive: true,
-    // Contact-scoped per #481. Keyset-paginated over `(created_at DESC,
-    // id ASC)` (spec #693 Decision 1). `visibleAgentIds` is the
-    // entitlement filter (Invariant 4); the cursor + limit run on the
-    // `agents` row query restricted to that visible set, so page order
-    // is stable and independent of the visibility query's row order.
+    // Contact-scoped per #481. `visibleAgentIds` is the entitlement
+    // filter; the cursor + limit then run on the `agents` row query so
+    // page order is stable regardless of the visibility query's order.
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const pos =

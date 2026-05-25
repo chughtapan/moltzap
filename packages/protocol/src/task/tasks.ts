@@ -149,9 +149,6 @@ export const TaskList = defineRpc({
   params: Type.Object(
     {
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-      // Track A brands the cursor (opacity nicety). The `tasks` item
-      // type stays `TaskSchema` — Track B reshapes the item to
-      // `TaskListItem` on rebase; it does NOT re-touch this envelope.
       cursor: Type.Optional(listCursorSchema()),
     },
     { additionalProperties: false },

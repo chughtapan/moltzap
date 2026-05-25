@@ -226,8 +226,7 @@ export const taskHandlers: RpcMethodRegistry = [
             cursor: params.cursor,
           })
           .pipe(
-            // A garbage cursor token is an invalid client-supplied param,
-            // not an internal defect (spec #693 Invariant 2).
+            // A bad cursor is an invalid client param, not an internal defect.
             Effect.catchTag("InvalidCursor", (err) =>
               Effect.fail(new InvalidParamsError({ message: err.message })),
             ),

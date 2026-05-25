@@ -1,10 +1,8 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
-// Cursor-opacity guard (spec #693 Invariant 2 / Invariant 3): an opaque
-// `ListCursor` token is decoded ONLY by the `db/list-cursor.ts` codec.
-// No other module may `atob(...)` it or `Buffer.from(token, "base64url")`
-// it — a consumer that hand-parses the token couples to the encoding the
-// server owns. The codec file itself is the single sanctioned decoder.
+// Cursor-opacity guard: only `db/list-cursor.ts` may decode a cursor
+// token. Banning `atob` / base64url `Buffer.from` elsewhere stops
+// consumers from coupling to the encoding the server owns.
 const cursorOpacityGuard = {
   files: ["src/**/*.ts"],
   ignores: ["src/db/list-cursor.ts", "**/*.test.ts", "**/*.spec.ts"],

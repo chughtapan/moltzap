@@ -231,8 +231,7 @@ function rowToContact(row: ContactRow): Contact {
   };
 }
 
-// `created_at` is the ordering column only — never projected onto the
-// `Contact` wire shape (the wire item stays byte-identical).
+// `created_at` is the ordering column only; never projected onto `Contact`.
 function positionOfContactRow(row: ContactRow): {
   readonly sortKey: string;
   readonly id: string;
