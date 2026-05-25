@@ -89,11 +89,9 @@ class MoltZapClientNotConnectedError extends Data.TaggedError(
   }
 }
 
-// A cursor-paginated drain must terminate. A byzantine / buggy server
-// that returns a `nextCursor` which does not strictly advance (repeats a
-// cursor already seen) would otherwise loop forever inside an
-// uninterruptible `while`. Fail typed instead — the directory caller's
-// `catchAll` then degrades to an empty list rather than hanging.
+// A server that returns a non-advancing `nextCursor` (one already seen)
+// would loop the drain forever; fail typed so the caller's `catchAll`
+// degrades to an empty list instead of hanging.
 class MoltZapNonAdvancingCursorError extends Data.TaggedError(
   "MoltZapNonAdvancingCursorError",
 )<{
@@ -638,13 +636,11 @@ function getActiveService(
   return activeClients.get(accountId ?? DEFAULT_ACCOUNT_ID);
 }
 
-// Track A (#692) bounded `contacts/list` / `agents/list` / `task/list` to
-// a server-default page (max 200). A directory consumer that needs the
-// COMPLETE set must page through `nextCursor` itself — the RPC default
-// stays bounded (spec #693 Decision 1). This drains every page of a
-// cursor-paginated list RPC whose result is `{ [K]: T[], nextCursor? }`,
-// echoing the opaque `nextCursor` back as the next page's `cursor`
-// (Invariant 2). Typed errors propagate; no `any`.
+// Drain every page of a cursor-paginated list RPC whose result is
+// `{ [K]: T[], nextCursor? }`, echoing the opaque `nextCursor` back as
+// the next page's `cursor`. The list RPCs return a bounded page by
+// default, so a directory consumer that needs the complete set must page
+// through here.
 function drainPaginatedList<
   D extends RpcDefinition<string, any, any>,
   K extends keyof ResultOf<D>,
@@ -660,16 +656,12 @@ function drainPaginatedList<
     const acc: Array<
       ResultOf<D>[K] extends ReadonlyArray<infer E> ? E : never
     > = [];
-    // Cursor-cycle guard: a server that returns a non-advancing
-    // `nextCursor` (one already seen) is byzantine; fail typed rather
-    // than loop forever. NOT a page cap — that would silently truncate a
-    // legitimately large directory.
+    // Cycle guard, not a page cap: a repeated cursor means the server is
+    // not advancing, so fail typed rather than loop forever.
     const seenCursors = new Set<string>();
     let cursor: string | undefined;
     let more = true;
     while (more) {
-      // `cursor` is the opaque token echoed back from the prior page's
-      // `nextCursor`; absent on the first page.
       const params = (cursor !== undefined ? { cursor } : {}) as ParamsOf<D>;
       const page = yield* sendRpc(definition, params);
       const rows = page[collectionKey] as ReadonlyArray<
@@ -690,9 +682,8 @@ function drainPaginatedList<
   });
 }
 
-// `agents/lookup` caps `agentIds` at `maxItems: 100`. Resolve a larger
-// id set in <=100-id chunks and concatenate, so a fully-drained contact
-// directory (which can exceed 100 peers) does not trip the wire cap.
+// `agents/lookup` caps `agentIds` at `maxItems: 100`, so resolve a larger
+// id set in <=100-id chunks to stay under the wire cap.
 const AGENTS_LOOKUP_MAX_IDS = 100;
 
 function lookupAgentsInChunks(
@@ -719,8 +710,7 @@ function listPeersEffect(
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
     if (!service?.sendRpc) return [];
-    // Drain ALL contact pages — a user with >50 contacts (the server
-    // default page) must still resolve every peer in the directory.
+    // Drain ALL contact pages so every peer in the directory resolves.
     const contacts = (yield* drainPaginatedList(
       service.sendRpc,
       ContactsList,
@@ -728,8 +718,6 @@ function listPeersEffect(
     )) as ReadonlyArray<ContactDirectoryEntry>;
     const agentIds = contacts.flatMap(contactAgentIds);
     if (agentIds.length === 0) return [];
-    // `agents/lookup` is request-bounded at `maxItems: 100` — draining
-    // every contact page can exceed that, so resolve in <=100 chunks.
     const agents = yield* lookupAgentsInChunks(service.sendRpc, agentIds);
     return agents.map((agent) => ({
       id: `agent:${agent.name}`,

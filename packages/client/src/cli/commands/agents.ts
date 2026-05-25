@@ -26,9 +26,8 @@ const listAgents = Command.make("list", { json: jsonOption }, ({ json }) =>
         const r = result as AgentsListResult;
         const entries = r.agents;
         if (json) {
-          // Serialize the full result (agents + nextCursor) so a machine
-          // consumer can detect a truncated page and fetch the next one —
-          // dumping only `agents` would hide the truncation signal.
+          // Emit the full result (incl. nextCursor) so a machine consumer
+          // can detect a truncated page; `r.agents` alone would hide it.
           console.log(JSON.stringify(r, null, JSON_INDENT_SPACES));
           return;
         }
@@ -44,9 +43,7 @@ const listAgents = Command.make("list", { json: jsonOption }, ({ json }) =>
             line += `\n  Description: ${agent.description}`;
           console.log(line + "\n");
         }
-        // First-page indicator (spec #696 approval): a truncated page
-        // carries `nextCursor`; surface that so users don't mistake it
-        // for the full list.
+        // Signal a truncated page so users don't mistake it for the full list.
         if (r.nextCursor !== undefined) {
           console.log(
             `Showing first ${entries.length} — more results available.`,

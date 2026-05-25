@@ -1,19 +1,11 @@
 /**
  * Cursor codec for the cursor-paginated list RPCs (`agents/list`,
- * `contacts/list`, `task/list`) — spec #693 Decision 1, Invariants 1-3.
+ * `contacts/list`, `task/list`). A `ListCursor` is base64url of the last
+ * emitted row's `(sortKey, id)` tuple, ordered `(created_at DESC, id ASC)`.
  *
- * A `ListCursor` is the opaque wire token for keyset pagination. It
- * encodes the last emitted row's `(sortKey, id)` tuple — `sortKey` is
- * the ISO-8601 `created_at`, `id` is the row UUID (the tie-break). The
- * pair is a strict total order under `(created_at DESC, id ASC)`, which
- * eliminates the skip/dup a bare-timestamp cursor causes on equal-key
- * ties (Invariant 3).
- *
- * This module is the SINGLE sanctioned decoder of a cursor token
- * (Invariant 2 opacity; the server eslint config bans `atob` /
- * base64url `Buffer.from` everywhere else under `src/`). The encoding is
- * base64url of a canonical `sortKey id` payload so the token is
- * opaque on the wire and parses unambiguously server-side.
+ * This module is the only sanctioned decoder of a cursor token; the
+ * server eslint config bans `atob` / base64url `Buffer.from` elsewhere
+ * under `src/` so consumers cannot couple to the encoding.
  */
 import { Data, Effect } from "effect";
 import type { ListCursor } from "@moltzap/protocol";
@@ -24,10 +16,7 @@ import type {
   SqlBool,
 } from "./kysely-vendor.js";
 
-/**
- * Decoded cursor position. `sortKey` is the ISO-8601 of the ordering
- * column (`created_at`); `id` is the tie-break primary key (UUID).
- */
+/** `sortKey` is the ISO-8601 `created_at`; `id` is the tie-break UUID. */
 export interface ListCursorPosition {
   readonly sortKey: string;
   readonly id: string;
@@ -35,8 +24,6 @@ export interface ListCursorPosition {
 
 /**
  * A cursor token that does not decode to a `(sortKey, id)` pair. The
- * cursor is opaque to clients (Invariant 2), but a tampered or garbage
- * token is rejected at the boundary, never silently coerced. The
  * handler layer maps this to `InvalidParamsError` on the wire — a bad
  * cursor is an invalid client-supplied param, not an internal defect.
  */
@@ -44,16 +31,12 @@ export class InvalidCursorError extends Data.TaggedError("InvalidCursor")<{
   readonly message: string;
 }> {}
 
-// Field separator inside the canonical payload. A space cannot appear in
-// the canonical ISO-8601 string Date.toISOString() emits (always
-// T-separated, Z-suffixed) nor in a UUID, so the single split is
-// unambiguous.
+// A space cannot appear in a canonical ISO-8601 string nor a UUID, so the
+// single split is unambiguous.
 const CURSOR_FIELD_SEP = " ";
 
-// A `sortKey` is valid iff it is the canonical ISO-8601 string for some
-// instant — i.e. `Date(sortKey).toISOString()` round-trips to itself.
-// This is exactly the form `created_at.toISOString()` emits server-side,
-// and it rejects any tampered or non-canonical timestamp.
+// Canonical iff `new Date(sortKey).toISOString()` round-trips — the form
+// `created_at.toISOString()` emits; rejects any non-canonical timestamp.
 function isCanonicalIso8601(sortKey: string): boolean {
   const parsed = Date.parse(sortKey);
   return !Number.isNaN(parsed) && new Date(parsed).toISOString() === sortKey;
@@ -67,10 +50,7 @@ export function encodeListCursor(pos: ListCursorPosition): ListCursor {
   return Buffer.from(payload, "utf8").toString("base64url") as ListCursor;
 }
 
-/**
- * Decode an opaque token. Fails (typed) on any token that is not the
- * base64url of a canonical `(ISO-8601 sortKey, UUID id)` payload.
- */
+/** Decode a token, failing typed on anything but a canonical payload. */
 export function decodeListCursor(
   cursor: ListCursor | string,
 ): Effect.Effect<ListCursorPosition, InvalidCursorError> {
@@ -78,11 +58,9 @@ export function decodeListCursor(
     try: () => Buffer.from(cursor, "base64url"),
     catch: () => new InvalidCursorError({ message: "Cursor is not base64url" }),
   }).pipe(
-    // Node's base64url decoder is permissive — it silently ignores
-    // non-alphabet bytes, so `encodeListCursor(pos) + "!"` decodes to the
-    // same payload. Reject any token that is not its own canonical
-    // base64url re-encoding, so malformed cursors fail closed as
-    // InvalidParamsError at the boundary instead of being accepted.
+    // Node's base64url decoder ignores non-alphabet bytes (so `cursor + "!"`
+    // would decode fine); reject any token that is not its own canonical
+    // re-encoding so malformed cursors fail closed at the boundary.
     Effect.flatMap((buf) =>
       buf.toString("base64url") === cursor
         ? Effect.succeed(buf.toString("utf8"))
@@ -122,20 +100,13 @@ function parseDecodedPayload(
 }
 
 /**
- * Millisecond-truncated sort-key expression for the `created_at` column.
+ * Millisecond-truncated `created_at` sort-key expression.
  *
- * The cursor's `sortKey` is `created_at.toISOString()` — millisecond
- * resolution, because node-postgres hands JS a `Date` (ms) for a
- * `timestamptz` column that Postgres stores at microsecond resolution.
- * Comparing the full-precision column against that ms cursor skips rows
- * that share a millisecond but differ in microseconds. Truncating the
- * column to milliseconds in BOTH the order-by and the keyset predicate
- * makes the column's resolution match the cursor's, so `(sortKey, id)`
- * is a clean total order with no skip/dup (Invariant 3).
- *
- * Builder composition via `eb.fn` — not a raw `sql` template (Invariant
- * 6). Callers pass this same expression to `.orderBy(...)` and to
- * `keysetWhere` so the page boundary and the predicate agree.
+ * The cursor's `sortKey` is ms-resolution (node-postgres hands JS a
+ * `Date`), but Postgres stores `timestamptz` at microsecond resolution —
+ * comparing full-precision column against the ms cursor would skip rows
+ * sharing a millisecond. Truncating to ms in BOTH the order-by and
+ * `keysetWhere` predicate keeps `(sortKey, id)` a clean total order.
  */
 export function sortKeyExpr<DB, TB extends keyof DB>(
   eb: ExpressionBuilder<DB, TB>,
@@ -145,16 +116,10 @@ export function sortKeyExpr<DB, TB extends keyof DB>(
 }
 
 /**
- * Keyset predicate for `(sortKey DESC, id ASC)` order: the WHERE that
- * keeps only rows strictly "after" the cursor position. Pure Kysely
- * builder composition (no raw SQL, Invariant 6):
- *
- *   `(sortKey, id) < (cursorSortKey, cursorId)` under DESC,id-ASC
- *   ⇒ sortKey < k OR (sortKey = k AND id > cursorId)
- *
- * `cols.sortKey` is the millisecond-truncated `created_at` expression
- * (see `sortKeyExpr`) — the SAME expression the query orders by —
- * and `cols.id` is the tie-break id column.
+ * Keyset predicate keeping only rows strictly after the cursor under
+ * `(sortKey DESC, id ASC)`: `sortKey < k OR (sortKey = k AND id > id)`.
+ * `cols.sortKey` MUST be the same expression the query orders by
+ * (`sortKeyExpr`).
  */
 export function keysetWhere<DB, TB extends keyof DB>(
   eb: ExpressionBuilder<DB, TB>,
@@ -171,11 +136,9 @@ export function keysetWhere<DB, TB extends keyof DB>(
 }
 
 /**
- * Split a `limit + 1` row batch into the emitted page plus the
- * nextCursor. When the batch overflowed (`rows.length > limit`), the
- * page is the first `limit` rows and `nextCursor` encodes the
- * `limit`-th row's position; otherwise this is the last page and
- * `nextCursor` is absent (Invariant 1).
+ * Split a `limit + 1` batch into the emitted page plus `nextCursor`.
+ * An overflowed batch (`rows.length > limit`) yields the first `limit`
+ * rows and a `nextCursor`; otherwise it is the last page (no cursor).
  */
 export function paginate<Row>(
   rows: ReadonlyArray<Row>,

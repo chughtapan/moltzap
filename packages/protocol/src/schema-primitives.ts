@@ -76,13 +76,9 @@ export function dateTimeStringSchema(): typeof DateTimeStringSchema {
   return DateTimeStringSchema;
 }
 
-// Opaque pagination token for the cursor-paginated list RPCs
-// (`agents/list`, `contacts/list`, `task/list`). NOT a uuid: the server
-// encodes the last emitted row's `(sortKey, id)` tuple as base64url and
-// owns the encoding. Clients echo `nextCursor` back unmodified as the
-// next page's `cursor` and never parse, compare, or construct it. The
-// brand makes that opacity structural: only the server's `list-cursor`
-// codec produces a value of this type.
+// Opaque pagination token for the cursor-paginated list RPCs. The brand
+// makes opacity structural: only the server's `list-cursor` codec
+// produces this type; clients echo `nextCursor` back unmodified.
 export type ListCursor = BrandedString<"ListCursor">;
 
 export function listCursorSchema(): TString & { static: ListCursor } {

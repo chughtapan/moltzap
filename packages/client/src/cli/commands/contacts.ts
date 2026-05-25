@@ -34,9 +34,8 @@ const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
     >,
     (r) => {
       if (json) {
-        // Serialize the full result (contacts + nextCursor) so a machine
-        // consumer can detect a truncated page and fetch the next one —
-        // dumping only `contacts` would hide the truncation signal.
+        // Emit the full result (incl. nextCursor) so a machine consumer
+        // can detect a truncated page; `r.contacts` alone would hide it.
         console.log(JSON.stringify(r, null, JSON_INDENT_SPACES));
         return;
       }
@@ -48,9 +47,7 @@ const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
         const rel = c.relationship ? ` (${c.relationship})` : "";
         console.log(`  ${c.id}  ${c.contactUserId}${rel}`);
       }
-      // First-page indicator (spec #696 approval): a truncated page
-      // carries `nextCursor`; surface that so users don't mistake it
-      // for the full list.
+      // Signal a truncated page so users don't mistake it for the full list.
       if (r.nextCursor !== undefined) {
         console.log(
           `Showing first ${r.contacts.length} — more results available.`,
