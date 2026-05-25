@@ -5,6 +5,7 @@ import {
   brandedId,
   listCursorSchema,
 } from "../schema-primitives.js";
+import { ListLimitSchema } from "../pagination.js";
 import { defineRpc } from "../transport/method.js";
 import { ajv } from "../transport/wire.js";
 
@@ -185,7 +186,7 @@ export const AgentsList = defineRpc({
   name: "agents/list",
   params: Type.Object(
     {
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      limit: ListLimitSchema,
       cursor: Type.Optional(listCursorSchema()),
     },
     { additionalProperties: false },

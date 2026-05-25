@@ -13,8 +13,14 @@ params: { limit?: integer (1..200), cursor?: ListCursor }
 result: { <collection>: Array<Item>, nextCursor?: ListCursor }
 ```
 
-- `limit` is optional with a server default and a hard wire maximum of
-  200. `agents/list`, `contacts/list`, and `task/list` all cap at 200.
+- `limit` is optional with a server default (`DEFAULT_PAGE_LIMIT` = 50)
+  and a hard wire maximum (`MAX_PAGE_LIMIT` = 200). Both constants and the
+  shared `ListLimitSchema` live in `pagination.ts` and are the single
+  source of truth — every list-RPC `limit` param imports the schema and
+  every server default/clamp imports the constants, so the wire cap and
+  the server clamp cannot drift. `agents/list`, `contacts/list`,
+  `task/list`, `task/conversation/list`, and `messages/list` all cap at
+  200.
 - `cursor` is optional and opaque. First page omits it; each subsequent
   page echoes the prior response's `nextCursor`.
 - `nextCursor` is present iff more rows exist past this page; it is

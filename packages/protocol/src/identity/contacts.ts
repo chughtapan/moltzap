@@ -1,6 +1,7 @@
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
 import { brandedId, listCursorSchema } from "../schema-primitives.js";
+import { ListLimitSchema } from "../pagination.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
   registerErrorClass,
@@ -46,7 +47,7 @@ export const ContactsList = defineRpc({
   name: "contacts/list",
   params: Type.Object(
     {
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      limit: ListLimitSchema,
       cursor: Type.Optional(listCursorSchema()),
     },
     { additionalProperties: false },

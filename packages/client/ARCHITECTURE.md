@@ -15,6 +15,7 @@ packages/client/src/
 ├── channel-core-enrichment.ts  # enrichMessage — agent-name / conversation / cross-conv context
 ├── channel-core-errors.ts      # DispatchAdmissionTimedOut, DispatchLeaseExpired
 ├── auth.ts                     # registerAgent, invite/claim token flows
+├── pagination.ts               # drainPaginatedList — generic cursor-list drainer + NonAdvancingCursorError
 ├── local-paths.ts              # service-socket path resolution (XDG-aware)
 ├── local-daemon-rpc.ts         # local-socket RPC for cross-process service handoff
 ├── notification/               # Stream-shaped subscribe/subscribeAll + tagged errors
@@ -40,7 +41,10 @@ Three layered entry points; pick the lowest level that meets your need.
 
 Plus `registerAgent` for auth bootstrap, the `NotificationConsumerError` /
 `TimeoutError` / `StreamClosedError` tagged errors from
-`./src/notification/errors.ts`, and the published CLI bin.
+`./src/notification/errors.ts`, `drainPaginatedList` (the generic
+cursor-list drainer + its `NonAdvancingCursorError` cycle guard, reused
+by any channel/CLI that needs the complete result set of a list RPC), and
+the published CLI bin.
 
 ## Communication Flows
 

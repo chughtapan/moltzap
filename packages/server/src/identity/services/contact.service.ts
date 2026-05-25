@@ -4,6 +4,7 @@ import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type { ContactRow } from "../../db/database.js";
 import {
   ConflictError,
+  DEFAULT_PAGE_LIMIT,
   ForbiddenError,
   NotFoundError,
   type Contact,
@@ -33,8 +34,6 @@ export interface ContactsListPage {
   readonly nextCursor?: ListCursor;
 }
 
-const DEFAULT_CONTACTS_LIST_LIMIT = 50;
-
 export interface ContactCreateInput {
   readonly contactUserId: UserId;
   readonly relationship?: string;
@@ -58,7 +57,7 @@ export class ContactsService {
     owner: UserId,
     input: ContactsListInput,
   ): Effect.Effect<ContactsListPage, InvalidCursorError> {
-    const limit = input.limit ?? DEFAULT_CONTACTS_LIST_LIMIT;
+    const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
     return Effect.gen(this, function* () {
       const pos =
         input.cursor === undefined
