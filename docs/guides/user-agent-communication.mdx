@@ -102,8 +102,11 @@ async onMessage(evt, ws) {
   const { text } = JSON.parse(evt.data);
 
   // On a user's first message, mint the relay pair once and stash the
-  // IDs on `conn`: one `task/request` (server returns `TaskId`) plus
-  // one `task/conversation/create` (server returns `ConversationId`).
+  // IDs on `conn`:
+  //   - one `task/request` (returns `{ task, conversation }`; stash
+  //     `task.taskId`)
+  //   - one `task/conversation/create` (returns `{ conversation }`;
+  //     stash `conversation.conversationId`)
   // Subsequent messages reuse the same task + conversation. Until
   // those IDs exist, there's nothing to relay against — bail out.
   if (!conn.relayTaskId || !conn.relayConversationId) {
