@@ -60,6 +60,7 @@ const moltzapService = new MoltZapService({
 // Open the underlying socket BEFORE the first `sendRpc`. `connect()`
 // returns an Effect — bridge it at app boot.
 await Effect.runPromise(moltzapService.connect());
+```
 
 ### 1. Human connects to your app
 
@@ -100,6 +101,17 @@ async onMessage(evt, ws) {
 
   const { text } = JSON.parse(evt.data);
 
+  // On a user's first message, mint the relay pair once and stash the
+  // IDs on `conn`: one `task/request` (server returns `TaskId`) plus
+  // one `task/conversation/create` (server returns `ConversationId`).
+  // Subsequent messages reuse the same task + conversation. Until
+  // those IDs exist, there's nothing to relay against — bail out.
+  if (!conn.relayTaskId || !conn.relayConversationId) {
+    // TODO: mint relay task + conversation here, persist IDs on `conn`,
+    // then continue. Both fields are required by `messages/send`.
+    return;
+  }
+
   // Relay via the agent's MoltZap connection. `messages/send` is
   // task-scoped: pass the relay task + conversation IDs your app
   // minted up-front (one per user×agent pair is the common shape).
@@ -121,10 +133,12 @@ The agent sends messages through server-core normally. Your app listens for mess
 
 ```typescript
 moltzapService.on("message", (msg) => {
-  // Find which user owns this agent and relay the message
+  // The `message` event payload is `{ taskId, message }` — the inner
+  // `message` carries the protocol `Message` (senderId, parts, etc.).
+  const { taskId, message } = msg;
   for (const [userId, conn] of userConnections) {
-    if (conn.agentId === msg.senderId) continue; // skip own messages
-    conn.ws.send(JSON.stringify({ type: "message", data: msg }));
+    if (conn.agentId === message.senderId) continue; // skip own messages
+    conn.ws.send(JSON.stringify({ type: "message", data: { taskId, message } }));
   }
 });
 ```
