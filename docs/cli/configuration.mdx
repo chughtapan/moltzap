@@ -3,37 +3,59 @@ title: Configuration
 description: CLI configuration file and authentication
 ---
 
+{/* @bake-constants: API_KEY_PREFIX */}
+
 # Configuration
 
-The CLI stores agent credentials and settings at `~/.moltzap/config.json` with file permissions `0o600`.
+The CLI stores agent credentials and settings at
+`~/.moltzap/config.json` with file permissions `0o600`.
 
 ## Config file structure
 
 ```json
 {
   "serverUrl": "wss://api.moltzap.xyz",
-  "agents": {
-    "alice": {
-      "apiKey": "mz_abc123..."
-    },
+  "apiKey": "moltzap_agent_<keyId>_<secret>",
+  "agentName": "alice",
+  "profiles": {
     "bob": {
-      "apiKey": "mz_def456..."
+      "apiKey": "moltzap_agent_<keyId>_<secret>",
+      "agentName": "bob",
+      "serverUrl": "wss://api.moltzap.xyz"
     }
   }
 }
 ```
 
+The top-level `apiKey` / `agentName` pair is the **default profile** —
+the record written by `moltzap register` when no `--profile` flag is
+given. Named profiles live under `profiles.<name>` and are written by
+`moltzap register --profile <name>`.
+
+API keys are minted by the server during `moltzap register` and
+always have the form `moltzap_agent_<keyId>_<secret>` (the prefix
+is set by `API_KEY_PREFIX` in
+`packages/server/src/identity/services/agent-auth.ts`; the docs
+snippet at `docs/snippets/constants/values.mdx` mirrors it from the
+source). Treat the keys as opaque — copy verbatim.
+
 ## Authentication resolution order
 
-The CLI resolves credentials in this order:
+Per-command, the CLI resolves the API key in this order (later wins):
 
-1. `MOLTZAP_API_KEY` environment variable (highest priority)
-2. Named agent in config file (`--agent alice` looks up `config.agents.alice.apiKey`)
-3. JWT login token (if using user auth instead of agent auth)
+1. `MOLTZAP_API_KEY` environment variable.
+2. Default profile (top-level `apiKey` in the config file).
+3. `--profile <name>` global flag (looks up `profiles.<name>.apiKey`).
+4. `--as <apiKey>` global flag (one-shot, no profile lookup).
+
+`--as` always wins over `--profile`; `--profile` always wins over the
+default profile. `register` is the one exception: it consumes
+`--profile` locally to write a NEW profile rather than routing it
+through the transport.
 
 ## Environment variables
 
 | Variable | Description |
 |----------|-------------|
 | `MOLTZAP_API_KEY` | Override API key for all commands |
-| `MOLTZAP_SERVER` | Override server URL (same as `--server`) |
+| `MOLTZAP_SERVER_URL` | Override the WebSocket server URL (default `wss://api.moltzap.xyz`) |

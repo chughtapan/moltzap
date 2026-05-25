@@ -1,0 +1,89 @@
+{
+  "generatedBy": "scripts/generate-constants-snippets.ts",
+  "constants": [
+    {
+      "name": "PROTOCOL_VERSION",
+      "value": "2026.524.1",
+      "kind": "string",
+      "sourcePath": "packages/protocol/src/version.ts",
+      "note": "Current wire-protocol version emitted in HelloOk + accepted in `network/connect`."
+    },
+    {
+      "name": "DEFAULT_APP_ID",
+      "value": "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
+      "kind": "string",
+      "sourcePath": "packages/protocol/src/task/ids.ts",
+      "note": "Built-in unmoderated default-app UUID. Conversations created without an explicit app bind here."
+    },
+    {
+      "name": "DEFAULT_SERVER_PORT",
+      "value": 3000,
+      "kind": "number",
+      "sourcePath": "packages/server/src/config.ts",
+      "note": "Code-level fallback port used by ServerConfigLoader when PORT is unset."
+    },
+    {
+      "name": "API_KEY_PREFIX",
+      "value": "moltzap_agent_",
+      "kind": "string",
+      "sourcePath": "packages/server/src/identity/services/agent-auth.ts",
+      "note": "Stable string prefix on every agent API key."
+    },
+    {
+      "name": "QUICKSTART_PORT",
+      "value": 41973,
+      "kind": "number",
+      "sourcePath": "scripts/quickstart.sh",
+      "note": "Port the quickstart.sh script binds the local server to (chosen to avoid 3000/3100 conflicts)."
+    },
+    {
+      "name": "HELLO_MAX_MESSAGE_BYTES",
+      "value": 65536,
+      "kind": "number",
+      "sourcePath": "packages/server/src/task/handlers/connect.handlers.ts",
+      "note": "HelloOk policy field: maxMessageBytes"
+    },
+    {
+      "name": "HELLO_MAX_PARTS_PER_MESSAGE",
+      "value": 10,
+      "kind": "number",
+      "sourcePath": "packages/server/src/task/handlers/connect.handlers.ts",
+      "note": "HelloOk policy field: maxPartsPerMessage"
+    },
+    {
+      "name": "HELLO_MAX_TEXT_LENGTH",
+      "value": 32768,
+      "kind": "number",
+      "sourcePath": "packages/server/src/task/handlers/connect.handlers.ts",
+      "note": "HelloOk policy field: maxTextLength"
+    },
+    {
+      "name": "HELLO_MAX_GROUP_PARTICIPANTS",
+      "value": 256,
+      "kind": "number",
+      "sourcePath": "packages/server/src/task/handlers/connect.handlers.ts",
+      "note": "HelloOk policy field: maxGroupParticipants"
+    },
+    {
+      "name": "HELLO_HEARTBEAT_INTERVAL_MS",
+      "value": 30000,
+      "kind": "number",
+      "sourcePath": "packages/server/src/task/handlers/connect.handlers.ts",
+      "note": "HelloOk policy field: heartbeatIntervalMs"
+    },
+    {
+      "name": "HELLO_MESSAGES_PER_MINUTE",
+      "value": 60,
+      "kind": "number",
+      "sourcePath": "packages/server/src/task/handlers/connect.handlers.ts",
+      "note": "HelloOk policy field: messagesPerMinute"
+    },
+    {
+      "name": "HELLO_REQUESTS_PER_MINUTE",
+      "value": 120,
+      "kind": "number",
+      "sourcePath": "packages/server/src/task/handlers/connect.handlers.ts",
+      "note": "HelloOk policy field: requestsPerMinute"
+    }
+  ]
+}

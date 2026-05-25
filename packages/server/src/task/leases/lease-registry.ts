@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Fiber, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
@@ -237,15 +238,71 @@ interface Claim {
 }
 
 /**
- * Public contract of the lease registry. Constructed once per server
- * lifetime; held by `AppHost` and the messages handler.
+ * Public contract of the lease registry. One instance per server
+ * lifetime; held by `AppHost` and the messages handler. Backed by an
+ * in-process `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` with per-lease TTL
+ * fibers — no DB row. State transitions are atomic via `Ref.modify`.
  *
- * Implementation hint for impl-staff (#529 §3 stub-comment marker):
- * the timer wheel / min-heap for TTLs runs on a single fiber;
- * per-lease scheduler fibers are forbidden (Final Decision #9).
- * Manifest-driven TTLs come from `manifest.hooks.dispatch_authorize.
- * timeout_ms` (moderator response) and the verdict's `leaseTimeoutMs`
- * (post-grant lease).
+ * Lease state machine (eight states; `LeaseState` in this file is the
+ * normative enumeration):
+ *
+ * ```mermaid
+ * stateDiagram-v2
+ *   [*] --> PENDING
+ *   PENDING --> GRANTED : verdict grant
+ *   PENDING --> DENIED : verdict deny
+ *   PENDING --> HOLD : verdict hold
+ *   PENDING --> ABANDONED : conn close
+ *   HOLD --> PENDING : retry on next inbound message in same conv
+ *   GRANTED --> CLAIMED : messages/send claim
+ *   GRANTED --> EXPIRED : TTL fires OR conn close
+ *   HOLD --> EXPIRED : conn close
+ *   CLAIMED --> CONSUMED : insert ok — finalize(messageId)
+ *   CLAIMED --> GRANTED : insert fail — rollback
+ *   CONSUMED --> [*]
+ *   DENIED --> [*]
+ *   ABANDONED --> [*]
+ *   EXPIRED --> [*]
+ * ```
+ *
+ * Mint + claim + finalize sequence (recipient + moderator round-trip):
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant Recv as Recipient (client)
+ *   participant AH as apps.handlers
+ *   participant LR as LeaseRegistry
+ *   participant Mod as Moderator
+ *   participant MS as MessageService
+ *
+ *   Recv->>AH: dispatch/request (C→S)
+ *   AH->>LR: mint(ctx) — PENDING
+ *   LR-->>AH: {leaseId, dispatchId}
+ *   AH-->>Recv: ack returned immediately
+ *   AH->>Mod: Effect.fork — dispatchAuthorizeHook
+ *   Mod-->>AH: verdict
+ *   AH->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
+ *   AH->>Recv: dispatch/release {verdict}
+ *   Recv->>MS: messages/send with dispatchLeaseId
+ *   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
+ *   Note over MS: Effect.acquireUseRelease<br>use sendInsert returns carrier<br>release Exit success → claim.finalize CLAIMED → CONSUMED<br>release Exit failure → claim.rollback CLAIMED → GRANTED
+ *   MS->>MS: sendCommit — post-insert side effects
+ * ```
+ *
+ * Post-insert side effects (`sendCommit`) DO NOT affect lease state:
+ * a failure there leaves the lease CONSUMED and the durable row
+ * intact. Callers must not retry.
+ *
+ * Connection-close cleanup runs `abandon(connId)` from the disconnect
+ * finalizer: PENDING → ABANDONED, GRANTED/HOLD → EXPIRED, CLAIMED →
+ * no-op. The CLAIMED no-op is load-bearing — without it, a recipient
+ * disconnect mid-insert could roll back a committed durable row,
+ * permitting a duplicate retry.
+ *
+ * Timer wheel / min-heap for TTLs runs on a single fiber; per-lease
+ * scheduler fibers are forbidden. Manifest TTLs come from
+ * `manifest.hooks.dispatch_authorize.timeout_ms` (moderator response)
+ * and the verdict's `leaseTimeoutMs` (post-grant lease).
  */
 export interface LeaseRegistry {
   /**

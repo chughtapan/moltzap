@@ -1,84 +1,116 @@
 /**
- * Generates Mintlify MDX documentation pages from TypeBox protocol schemas.
- *
- * Run from the package or repository root with `pnpm docs:generate`.
+ * @file Generates Mintlify MDX documentation pages from TypeBox
+ * schemas + JSDoc on the matching `defineRpc` / `defineNotification`
+ * call sites. Run from the package or repository root with
+ * `pnpm docs:generate`.
  */
-import { readdirSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { FileSystem, Path } from "@effect/platform";
+import { NodeContext, NodeRuntime } from "@effect/platform-node";
+import { Effect } from "effect";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { notificationDefinitions } from "../src/rpc-registry.js";
-import { notificationDocs } from "./docs/metadata.js";
 import {
   generateMethodPage,
   generateNotificationPage,
   slugify,
 } from "./docs/render.js";
+import { collectRpcJsDoc, type RpcJsDoc } from "./docs/rpc-jsdoc.js";
 import { protocolRpcDefinitions } from "./docs/schema.js";
 import { JSON_INDENT } from "./docs/types.js";
 
-const orderedRpcDefinitions = protocolRpcDefinitions();
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const docsRoot = join(scriptDir, "..", "..", "..", "docs");
-const methodsDir = join(docsRoot, "protocol", "methods");
-const notificationsDir = join(docsRoot, "protocol", "notifications");
+const workspaceRoot = resolve(scriptDir, "..", "..", "..");
 
-mkdirSync(methodsDir, { recursive: true });
-mkdirSync(notificationsDir, { recursive: true });
-
-const methodFileNames = new Set(
-  orderedRpcDefinitions.map((definition) => `${slugify(definition.name)}.mdx`),
-);
-const notificationFileNames = new Set([
-  "overview.mdx",
-  ...notificationDefinitions.map(
-    (definition) => `${slugify(definition.name)}.mdx`,
-  ),
-]);
-
-deleteStaleGeneratedPages(methodsDir, methodFileNames);
-deleteStaleGeneratedPages(notificationsDir, notificationFileNames);
-
-for (const def of orderedRpcDefinitions) {
-  const slug = slugify(def.name);
-  const content = generateMethodPage(def);
-  writeGeneratedPage(join(methodsDir, `${slug}.mdx`), content);
-}
-
-for (const def of notificationDefinitions) {
-  const slug = slugify(def.name);
-  const content = generateNotificationPage(def);
-  writeGeneratedPage(join(notificationsDir, `${slug}.mdx`), content);
-}
-
-writeGeneratedPage(
-  join(notificationsDir, "overview.mdx"),
-  renderNotificationsOverview(),
-);
-
-const methodPages = orderedRpcDefinitions.map(
-  (m) => `protocol/methods/${slugify(m.name)}`,
-);
-const notificationPages = [
-  "protocol/notifications/overview",
-  ...notificationDefinitions.map(
-    (definition) => `protocol/notifications/${slugify(definition.name)}`,
-  ),
+const PROTOCOL_SOURCE_FILES = [
+  "packages/protocol/src/app/methods.ts",
+  "packages/protocol/src/identity/agents.ts",
+  "packages/protocol/src/identity/contacts.ts",
+  "packages/protocol/src/identity/invites.ts",
+  "packages/protocol/src/network/methods.ts",
+  "packages/protocol/src/task/conversations.ts",
+  "packages/protocol/src/task/messages.ts",
+  "packages/protocol/src/task/tasks.ts",
 ];
 
-console.log(
-  `Generated ${orderedRpcDefinitions.length} method pages in ${methodsDir}`,
-);
-console.log(
-  `Generated ${notificationDefinitions.length + 1} notification pages in ${notificationsDir}`,
-);
-console.log(
-  `\nMethod nav entries:\n${JSON.stringify(methodPages, null, JSON_INDENT)}`,
-);
-console.log(
-  `\nNotification nav entries:\n${JSON.stringify(notificationPages, null, JSON_INDENT)}`,
-);
+const program = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const docsRoot = path.resolve(workspaceRoot, "docs");
+  const methodsDir = path.resolve(docsRoot, "protocol", "methods");
+  const notificationsDir = path.resolve(docsRoot, "protocol", "notifications");
 
-function renderNotificationsOverview(): string {
+  const jsdocMap = yield* collectRpcJsDoc(workspaceRoot, PROTOCOL_SOURCE_FILES);
+  const orderedRpcDefinitions = protocolRpcDefinitions();
+  yield* fs.makeDirectory(methodsDir, { recursive: true });
+  yield* fs.makeDirectory(notificationsDir, { recursive: true });
+
+  const methodFileNames = new Set(
+    orderedRpcDefinitions.map((d) => `${slugify(d.name)}.mdx`),
+  );
+  const notificationFileNames = new Set([
+    "overview.mdx",
+    ...notificationDefinitions.map((d) => `${slugify(d.name)}.mdx`),
+  ]);
+  yield* deleteStaleGeneratedPages(fs, path, methodsDir, methodFileNames);
+  yield* deleteStaleGeneratedPages(
+    fs,
+    path,
+    notificationsDir,
+    notificationFileNames,
+  );
+
+  for (const def of orderedRpcDefinitions) {
+    const slug = slugify(def.name);
+    const content = generateMethodPage(def, jsdocMap.get(def.name));
+    yield* writeGeneratedPage(
+      fs,
+      path.resolve(methodsDir, `${slug}.mdx`),
+      content,
+    );
+  }
+  for (const def of notificationDefinitions) {
+    const slug = slugify(def.name);
+    const content = generateNotificationPage(def, jsdocMap.get(def.name));
+    yield* writeGeneratedPage(
+      fs,
+      path.resolve(notificationsDir, `${slug}.mdx`),
+      content,
+    );
+  }
+  yield* writeGeneratedPage(
+    fs,
+    path.resolve(notificationsDir, "overview.mdx"),
+    renderNotificationsOverview(jsdocMap),
+  );
+
+  const methodPages = orderedRpcDefinitions.map(
+    (m) => `protocol/methods/${slugify(m.name)}`,
+  );
+  const notificationPages = [
+    "protocol/notifications/overview",
+    ...notificationDefinitions.map(
+      (d) => `protocol/notifications/${slugify(d.name)}`,
+    ),
+  ];
+
+  yield* Effect.log(
+    `Generated ${orderedRpcDefinitions.length} method pages in ${methodsDir}`,
+  );
+  yield* Effect.log(
+    `Generated ${notificationDefinitions.length + 1} notification pages in ${notificationsDir}`,
+  );
+  yield* Effect.log(
+    `Method nav entries: ${JSON.stringify(methodPages, null, JSON_INDENT)}`,
+  );
+  yield* Effect.log(
+    `Notification nav entries: ${JSON.stringify(notificationPages, null, JSON_INDENT)}`,
+  );
+}).pipe(Effect.withSpan("generate-docs"));
+
+function renderNotificationsOverview(
+  jsdocMap: ReadonlyMap<string, RpcJsDoc>,
+): string {
   return [
     "---",
     "title: Notifications Overview",
@@ -93,36 +125,52 @@ function renderNotificationsOverview(): string {
     "",
     "| Notification | Description |",
     "|--------------|-------------|",
-    ...notificationDefinitions.map(renderNotificationOverviewRow),
+    ...notificationDefinitions.map((d) =>
+      renderNotificationOverviewRow(d, jsdocMap),
+    ),
     "",
   ].join("\n");
 }
 
-function renderNotificationOverviewRow(definition: {
-  readonly name: string;
-}): string {
+function renderNotificationOverviewRow(
+  definition: { readonly name: string },
+  jsdocMap: ReadonlyMap<string, RpcJsDoc>,
+): string {
   const name = definition.name;
   const description =
-    notificationDocs[name]?.description ??
+    jsdocMap.get(name)?.description ??
     `Pushed as the \`${name}\` notification.`;
-  return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${description} |`;
+  const oneLine = description.replace(/\s+/g, " ").trim();
+  const summary = oneLine.split(". ")[0] + (oneLine.includes(". ") ? "." : "");
+  return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${summary} |`;
 }
 
-function deleteStaleGeneratedPages(
+const deleteStaleGeneratedPages = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
   dir: string,
   expectedFileNames: ReadonlySet<string>,
-): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (
-      entry.isFile() &&
-      entry.name.endsWith(".mdx") &&
-      !expectedFileNames.has(entry.name)
-    ) {
-      unlinkSync(join(dir, entry.name));
+): Effect.Effect<void, never, never> =>
+  Effect.gen(function* () {
+    const entries = yield* fs
+      .readDirectory(dir)
+      .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)));
+    for (const name of entries) {
+      if (!name.endsWith(".mdx")) continue;
+      if (expectedFileNames.has(name)) continue;
+      yield* fs
+        .remove(path.resolve(dir, name))
+        .pipe(Effect.catchAll(() => Effect.void));
     }
-  }
-}
+  });
 
-function writeGeneratedPage(file: string, content: string): void {
-  writeFileSync(file, `${content.trimEnd()}\n`);
-}
+const writeGeneratedPage = (
+  fs: FileSystem.FileSystem,
+  file: string,
+  content: string,
+): Effect.Effect<void, never, never> =>
+  fs
+    .writeFileString(file, `${content.trimEnd()}\n`)
+    .pipe(Effect.catchAll(() => Effect.void));
+
+NodeRuntime.runMain(program.pipe(Effect.provide(NodeContext.layer)));

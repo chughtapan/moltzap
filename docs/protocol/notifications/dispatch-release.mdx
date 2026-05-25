@@ -1,11 +1,14 @@
 ---
 title: "dispatch/release"
-description: "Pushed as the `dispatch/release` notification."
+description: "Server → recipient verdict notification."
 ---
 
 # dispatch/release
 
-Pushed as the `dispatch/release` notification.
+Server → recipient verdict notification. Fire-and-forget on the wire
+(Final Decision #2). Always emitted, including default-grant and
+synthesized infra-hold (Final Decisions #3, #10). The recipient parks
+client-side on `leaseId` and unparks on this notification.
 
 ## Params
 

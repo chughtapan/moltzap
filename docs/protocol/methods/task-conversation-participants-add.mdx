@@ -1,11 +1,13 @@
 ---
 title: "task/conversation/participants/add"
-description: "TM only — add a participant to one conversation. The agent must already be in task_participants."
+description: "TM-only: add an agent to one conversation."
 ---
 
 # task/conversation/participants/add
 
-TM only — add a participant to one conversation. The agent must already be in task_participants.
+TM-only: add an agent to one conversation. The agent MUST already
+appear in `task_participants` for `taskId`; otherwise
+`ParticipantNotAdmittedError`. Spec body Goal 1.
 
 ## Parameters
 
@@ -24,13 +26,3 @@ TM only — add a participant to one conversation. The agent must already be in 
 ## Response
 
 This method returns an empty object.
-
-## Errors
-
-| Code | Name | When |
-|------|------|------|
-| -32023 | ParticipantNotAdmitted | Agent is not admitted to the task |
-
-## Related Notifications
-
-- [`task/conversation/participants/added`](/protocol/notifications/task-conversation-participants-added)

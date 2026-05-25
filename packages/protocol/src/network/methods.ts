@@ -45,6 +45,12 @@ const HelloOkSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Authenticate a WebSocket connection. Must be the first message on a new connection.
+ * @returns Connection metadata including agent ID, protocol version, conversations, and server policy.
+ * @error UnauthorizedError when Invalid API key or JWT
+ * @error ProtocolMismatchError when Client protocol version not supported
+ */
 export const Connect = defineRpc({
   name: "network/connect",
   params: Type.Union([
@@ -72,6 +78,9 @@ export type HelloOk = Static<typeof HelloOkSchema>;
 
 // ── network/ping ─────────────────────────────────────────────────────
 
+/**
+ * Liveness probe. Returns server timestamp.
+ */
 export const NetworkPing = defineRpc({
   name: "network/ping",
   params: Type.Object({}, { additionalProperties: false }),
@@ -80,6 +89,10 @@ export const NetworkPing = defineRpc({
 
 // ── presence/* ───────────────────────────────────────────────────────
 
+/**
+ * Update your presence status (online, offline, away).
+ * @relatedNotification presence/changed
+ */
 export const PresenceUpdate = defineRpc({
   name: "presence/update",
   params: Type.Object(
@@ -113,6 +126,10 @@ const PresenceChangedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Pushed when a subscribed participant's presence status changes.
+ * @triggeredBy presence/update
+ */
 export const PresenceChangedNotificationDefinition = defineNotification({
   name: "presence/changed",
   params: PresenceChangedNotificationSchema,

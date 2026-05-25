@@ -216,6 +216,26 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
   };
 }
 
+/**
+ * Tear down a `CoreApp` in dependency order so in-flight work has a
+ * chance to finish before its dependencies vanish.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   A[messageService.close — interrupt webhook retries] --> B[appHost.destroy — clears manifests + hook registries]
+ *   B --> C[for each conn — conn.shutdown signals closeRequested]
+ *   C --> D[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
+ *   D --> E[Scope.close appScope — NodeHttpServer + upgrade wiring]
+ *   E --> F[dispatchRuntime.dispose — finalize service Layers]
+ *   F --> G[config.dbCleanup — optional caller hook]
+ * ```
+ *
+ * `messageService.close()` runs FIRST so pending delivery-webhook
+ * POSTs do not race the HTTP server teardown. `appHost.destroy()`
+ * runs BEFORE per-connection shutdown: in-flight RPCs may observe
+ * cleared manifests, and the `SHUTDOWN_DRAIN_MS` sleep is the only
+ * mitigation today.
+ */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;
   return Effect.gen(function* () {

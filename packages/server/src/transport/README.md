@@ -7,6 +7,28 @@ Wire-level dispatch.
 - Per-request `DispatchContext` and the layer-scope tags that gate handler placement.
 - Per-layer Tag allowlist hierarchy (`layer-tags.ts`).
 
+## Layer-tag hierarchy
+
+```mermaid
+flowchart LR
+  T["TransportTags<br>ConnId, Db, Encryption, WebhookClient, …"]
+  I["IdentityTags<br>+ Auth, ParticipantSvc"]
+  N["NetworkTags<br>+ Presence, ResolverSvc, NetworkSend, ContactsSvc"]
+  K["TaskTags<br>+ Message, Conv, TaskSvc"]
+  A["AppTags<br>+ AppHost, LeaseRegistry"]
+
+  T -->|"subset of"| I -->|"subset of"| N -->|"subset of"| K -->|"subset of"| A
+```
+
+A handler bound at the `task` layer can pull `MessageService`,
+`ConversationService`, plus everything from network/identity/transport
+— but NOT `AppHost`. This matches the protocol layer DAG; an RPC that
+is notionally a "task" method cannot pull `AppHost`. The `R` channel
+of the handler's `Effect` is the enforcement mechanism —
+`Exclude<AppTags, ConnIdTag>` on the dispatcher leaves `ConnIdTag`
+unresolved until the per-request `Effect.provide` at handler-invocation
+time.
+
 ## Layer rules
 
 | Direction | Allowed |

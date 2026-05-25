@@ -46,7 +46,7 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint src scripts *.ts --cache --max-warnings=0",
-    "docs:generate": "tsx scripts/generate-docs.ts",
+    "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -63,6 +63,7 @@
     "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^4.6.0",
     "tsx": "^4.19.0",
+    "typedoc": "^0.28.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

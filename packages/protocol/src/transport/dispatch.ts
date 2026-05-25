@@ -151,10 +151,9 @@ export function buildAgentClientDispatcher<
 /**
  * Build the TM dispatcher. Wires both the inbound dispatch loop
  * (against `taskCallbackMethods`) and the outbound originator (against
- * `serverRpcMethods`). Both TM-inbound slots are OPTIONAL with fail-CLOSED
- * `ForbiddenError` defaults; an empty `{ handlers: {} }` literal
- * produces a TM that responds `Forbidden -32001` to every inbound
- * auth check (Spec F R2).
+ * `serverRpcMethods`). Spec D3 R14b made every TM-inbound slot
+ * REQUIRED: callers must register a handler for each catalog method;
+ * vacuous-deny moderators bind an explicit `ForbiddenError` handler.
  */
 export function buildTaskMasterDispatcher<
   Ctx,

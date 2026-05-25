@@ -1,11 +1,14 @@
 ---
 title: "task/conversation/list"
-description: "Self-only listing of every conversation the caller participates in."
+description: "Self-only listing of every conversation the caller participates in (across all tasks)."
 ---
 
 # task/conversation/list
 
-Self-only listing of every conversation the caller participates in.
+Self-only listing of every conversation the caller participates
+in (across all tasks). No filter params; archived rows are
+included; callers filter `archivedAt` locally. See spec body
+Goal 1 for the full pagination + visibility contract.
 
 ## Parameters
 

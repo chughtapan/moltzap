@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation restructure — JSDoc as canonical home for flow diagrams
+
+- **Changed:** Per-flow architecture diagrams now live in JSDoc next
+  to the symbol that owns each flow (Mermaid blocks inside the source
+  file), not in sibling `packages/*/docs/architecture/*.md` files.
+  The diagrams travel with the code; CI catches drift via
+  `pnpm docs:check:mermaid` (validates every fenced ```mermaid block
+  across `.md` / `.mdx`).
+- **Removed:** Every `packages/*/docs/architecture/` folder (52 arch
+  docs across 7 packages) and every per-package `ARCHITECTURE.md`
+  index file. Load-bearing cold-reader content (project structure,
+  data stores, glossary) folded into each package's `CLAUDE.md` and
+  the existing `src/<folder>/README.md` files. Workspace-root
+  `CLAUDE.md` documents the new policy once.
+- **Changed:** Per-folder server READMEs
+  (`src/{app,identity,network,task,transport}/README.md`) rewritten
+  from mid-refactor "2A.0 / 2A.2 phase" language to describe the
+  current file inventory and module purpose.
+- **Changed:** Root `README.md` Documentation section now describes
+  the full `pnpm docs:generate` pipeline (protocol reference MDX +
+  per-folder `MODULE.md` + Mintlify mirror + coverage report +
+  Mermaid lint). Added `@moltzap/claude-code-channel` to the
+  packages table (was missing).
+- **Changed:** `@failure` JSDoc tag defaulted in `eslint.shared.mjs`
+  so packages don't each opt in; per-package
+  `customJsDocTags` extends the list (server adds `internal`,
+  protocol adds the RPC migration tags `error` /
+  `relatedNotification` / `triggeredBy` / `file`).
+- **Changed:** Spec D2 (#599) `moltzap start` flow diagram + exit-code
+  contract + dedup branch inlined as JSDoc on
+  `packages/client/src/cli/commands/start.ts` to match the new
+  pattern.
+
 ### Config consolidation (#680) — single `src/config.ts`, Ajv dropped
 
 Behavior-preserving consolidation of `@moltzap/server-core`'s config
@@ -34,6 +67,7 @@ malformed config file now produces a slightly less polished error message.
 - **Internal (`@moltzap/server-core`):** Dead `regex:` CORS prefix
   parsing is removed (the compiled-patterns array was never read).
   `corsOrigins` is exact-match only.
+
 
 ### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
 

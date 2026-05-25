@@ -5,22 +5,26 @@ under `packages/*/` extend these.
 
 ## Architecture documentation
 
-Every published package has an `ARCHITECTURE.md` index and per-flow
-detail docs under `docs/architecture/`. Keep them in sync with code
-changes:
+Flow diagrams live in JSDoc next to the symbol they describe, NOT in
+sibling `ARCHITECTURE.md` / `docs/architecture/*.md` files. The
+auto-generated module pages (`packages/*/src/**/MODULE.md`) surface
+the JSDoc-borne diagrams for the published surface; the diagram is
+wrong the moment the code drifts.
 
 - **When you change a flow** (request routing, state machine,
   dispatcher logic, lifecycle, error handling, etc.), update the
-  corresponding `packages/<pkg>/docs/architecture/NN-<topic>.md` in
-  the same PR. The doc is wrong the moment the code drifts from it.
-- **When you add a new flow** that warrants its own diagram, create
-  a new `docs/architecture/NN-<topic>.md`, link it from the package's
-  top-level `ARCHITECTURE.md` index table, and cross-link from any
-  sibling docs that reference it.
-- **When you add a new published package**, mirror the structure:
-  package-level `ARCHITECTURE.md` index (§1 Project Structure, §2
-  Public Surface, §3 link table, §4 Dependencies, §5 Tests,
-  §6 Glossary) plus per-flow detail docs.
+  Mermaid block in the JSDoc above the symbol that owns the flow in
+  the same PR. Cite by symbol name, not line number — the citation
+  rule below applies.
+- **When you add a new flow** that warrants its own diagram, write
+  it as a Mermaid block in the JSDoc above the entry-point symbol
+  for that flow. Cross-package flows (e.g., lease handoff between
+  server and channels) live ONCE in the canonical owner's JSDoc;
+  every other site links by symbol name.
+- **Cold-reader content** (project structure, glossary, conventions,
+  data stores) lives in the package's `CLAUDE.md` and matching
+  folder-level `README.md` files (`src/<folder>/README.md`) — wherever
+  a newcomer naturally lands when reading the source.
 
 ### Code analysis — prefer LSP over Explore for tracing
 
@@ -72,10 +76,12 @@ pinned to a specific commit.
 
 ### Cross-package DRY
 
-If a flow lives canonically in another package, **link to it**, don't
-re-explain it. Example: the dispatch lease FSM lives in `server/06-lease-lifecycle.md`;
-channel docs that touch the lease should link there and describe only
-their channel-local concerns (projection logic, local state).
+If a flow lives canonically in another package, **link by symbol
+name**, don't re-explain it. Example: the dispatch lease FSM lives
+canonically in `@moltzap/server-core` on `LeaseRegistry`
+(`packages/server/src/task/leases/lease-registry.ts → LeaseRegistry`); channel
+JSDoc that touches the lease should link there and describe only its
+channel-local concerns (projection logic, local state).
 
 ### Mermaid diagrams
 

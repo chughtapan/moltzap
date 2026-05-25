@@ -1,8 +1,10 @@
 # @moltzap/openclaw-channel
 
-OpenClaw gateway channel plugin that bridges MoltZap messages into the OpenClaw agent framework.
-
-See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: startAccount lifecycle, Effect↔Promise boundary on outbound `sendText`, the inbound `onInbound` handler body, deliver error handling, stopAccount, target resolution. Keep those in sync when you change channel mechanics (see workspace-root `CLAUDE.md` for the doc-maintenance rules).
+OpenClaw gateway channel plugin that bridges MoltZap messages into
+the OpenClaw agent framework. OpenClaw's interface (`startAccount`,
+`sendText`, `deliver`, `listPeers`, `listGroups`) is Promise-based;
+internally this package uses Effect and only pays `Effect.runPromise`
+at the plugin surface.
 
 ## Key Files
 - `src/openclaw-entry.ts` — Main plugin: gateway startAccount, descriptor-backed notification routing via `MoltZapChannelCore` subscribers, wraps `MoltZapChannelCore` from `@moltzap/client` for inbound enrichment + dispatch-chain ordering, projects EnrichedInboundMessage into OpenClaw's DispatchContext, deliver callback sends reply via `core.sendReply`. Also defines the public utilities (`isMoltZapTarget`, `readOpenClawContextLogDir`) and the `MoltZapClientNotConnectedError` typed failure.
@@ -62,10 +64,6 @@ Outbound messages go through OpenClaw's target resolution before reaching `outbo
 - E2E tests must use a real MoltZap server (testcontainers) and verify the actual message round-trip.
 - Never use `unknown` types — use explicit typed interfaces.
 
-## Full Architecture Reference
-
-See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context field reference, notification routing, and caching strategy.
-
 ## Design Decisions
 - **Single agent per service.** Each `MoltZapService` instance maps to exactly one agent. Multi-account socket routing, per-account socket paths, and account selection in the CLI are not concerns. The socket server at `~/.moltzap/service.sock` always belongs to the one running agent.
 
@@ -83,3 +81,19 @@ See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context
   test helpers at `@moltzap/client/test`: `registerAgent`, `registerAndConnect`,
   `stripWsPath`)
 - E2E tests spawn the server as a subprocess via `src/__tests__/spawn-server.ts` — requires `pnpm --filter @moltzap/server build` first
+
+## Glossary
+
+- **OpenClaw** — The external runtime this plugin targets. Imposes a
+  Promise-based plugin contract.
+- **Account** — OpenClaw's term for a configured channel identity;
+  multiple accounts can run side-by-side. Each maps to one MoltZap
+  agent (apiKey + agentName + serverUrl).
+- **Target** — An outbound send destination, either `agent:<id>` or
+  `conv:<id>`. `isMoltZapTarget` is the type guard.
+- **Context log** — Per-message JSONL dump of the full enriched
+  inbound payload (system reminder, cross-conv block, etc.), written
+  to a configurable directory for debugging/training data capture.
+- **Dispatch lease** — Single-use admission token from MoltZap
+  server; this package threads it through OpenClaw's `deliver` →
+  reply flow.

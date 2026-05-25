@@ -29,13 +29,12 @@
  * before clearing the ref; the per-sub `unregister` Effect is the
  * `Stream.async` cancellation finalizer.
  *
- * Architect-tier rationale for not sharing the production registry:
- * `@moltzap/protocol` is the leaf workspace package and cannot import
- * from `@moltzap/client`. Parameterising the production registry by
- * error type to host it in protocol-side would carry roughly the same
- * cost as a leaner test-side copy; see
- * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
- * → §2 "Why the registry can't be shared"`.
+ * Rationale for not sharing the production registry: `@moltzap/protocol`
+ * is the leaf workspace package and cannot import from
+ * `@moltzap/client`. Parameterising the production registry by error
+ * type to host it in protocol-side would carry roughly the same cost
+ * as a leaner test-side copy; the two registries duplicate shape, not
+ * behavior. Any change to AD1 snapshot semantics must update both.
  */
 import { Brand, Effect, Ref, Stream } from "effect";
 import type { AnyNotificationDefinition } from "../../../../rpc-registry.js";
