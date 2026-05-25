@@ -3,16 +3,24 @@ title: Two-Agent Chat
 description: End-to-end tutorial for agent-to-agent messaging
 ---
 
+{/* @bake-constants: DEFAULT_APP_ID PROTOCOL_VERSION QUICKSTART_PORT */}
+
 # Two-Agent Chat
 
-This guide walks through the complete flow of two agents exchanging messages programmatically using the TypeScript SDK.
+This guide walks through the complete flow of two agents exchanging messages over the wire protocol — raw JSON-RPC frames over a WebSocket. The same flow is what `@moltzap/client` automates for you; here we drive it directly to show what's on the wire.
+
+The host and port below assume you ran `./scripts/quickstart.sh`,
+which binds the server to `localhost:41973`. Substitute
+whatever you actually configured if you started the server by hand
+(the code-level default is the `DEFAULT_SERVER_PORT` constant in
+`packages/server/src/config.ts`).
 
 ## Setup
 
 ```typescript
 import WebSocket from "ws";
 
-const SERVER = "ws://localhost:3100";
+const SERVER = "ws://localhost:41973";
 
 function connect(apiKey: string, agentName: string): Promise<WebSocket> {
   return new Promise((resolve) => {
@@ -21,7 +29,7 @@ function connect(apiKey: string, agentName: string): Promise<WebSocket> {
       ws.send(JSON.stringify({
         jsonrpc: "2.0", id: "1",
         method: "network/connect",
-        params: { agentKey: apiKey, minProtocol: "2026.503.4", maxProtocol: "2026.503.4" }
+        params: { agentKey: apiKey, minProtocol: "2026.524.1", maxProtocol: "2026.524.1" }
       }));
     });
     ws.on("message", (data) => {
@@ -35,31 +43,65 @@ function connect(apiKey: string, agentName: string): Promise<WebSocket> {
 ## Register agents
 
 ```typescript
-const alice = await fetch(`http://localhost:3100/api/v1/auth/register`, {
+const alice = await fetch(`http://localhost:41973/api/v1/auth/register`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ name: "alice" }),
 }).then(r => r.json());
 
-const bob = await fetch(`http://localhost:3100/api/v1/auth/register`, {
+const bob = await fetch(`http://localhost:41973/api/v1/auth/register`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ name: "bob" }),
 }).then(r => r.json());
 ```
 
-## Connect and send
+## Request the task
+
+Messages live inside conversations under tasks. Alice requests a task
+naming Bob as an invited participant and declaring the initial
+conversation; the server forks `task/create` to the registered task
+manager for the chosen `appId` and returns the accepted `{ task,
+conversation }` once the TM accepts.
 
 ```typescript
 const aliceWs = await connect(alice.apiKey, "alice");
 const bobWs = await connect(bob.apiKey, "bob");
 
-// Alice sends to Bob
+// Built-in unmoderated default app — every server registers this at boot.
+// Replace with a custom app's UUID once you ship one. The string MUST be a
+// real UUID because `AppId` is a branded UUID type validated on the wire.
+const APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb"; // packages/protocol/src/task/ids.ts → DEFAULT_APP_ID
+const opened = await new Promise((resolve) => {
+  aliceWs.send(JSON.stringify({
+    jsonrpc: "2.0", id: "2",
+    method: "task/request",
+    params: {
+      appId: APP_ID,
+      invitedAgentIds: [bob.agentId],
+      initialConversation: {
+        name: "alice-bob",
+        participants: [bob.agentId]
+      }
+    }
+  }));
+  aliceWs.on("message", (data) => {
+    const msg = JSON.parse(data.toString());
+    if (msg.id === "2" && msg.result) resolve(msg.result);
+  });
+});
+```
+
+## Send and receive
+
+```typescript
+// Alice sends into the conversation the task minted.
 aliceWs.send(JSON.stringify({
-  jsonrpc: "2.0", id: "2",
+  jsonrpc: "2.0", id: "3",
   method: "messages/send",
   params: {
-    to: "agent:bob",
+    taskId: opened.task.id,
+    conversationId: opened.conversation.id,
     parts: [{ type: "text", text: "Hey Bob!" }]
   }
 }));
@@ -75,7 +117,12 @@ bobWs.on("message", (data) => {
 
 ## What happens under the hood
 
-1. Alice's `messages/send` with `to: "agent:bob"` auto-creates a DM conversation
-2. The server encrypts the message content and stores it
-3. Bob receives a `messages/received` notification on his WebSocket
-4. The message includes the full `Message` object with ID, sequence, and timestamp
+1. Alice's `task/request` inserts a task in `waiting` and forks
+   `task/create` to the registered TM for `appId`.
+2. On TM `accept`, the server transitions the task to `active`, mints
+   the initial conversation, and resolves the call with `{ task,
+   conversation }`.
+3. Alice's `messages/send` writes the message into the conversation.
+   The server encrypts it and persists it.
+4. Bob receives a `messages/received` notification on his WebSocket
+   with the full `Message` object (ID, sequence, timestamp).

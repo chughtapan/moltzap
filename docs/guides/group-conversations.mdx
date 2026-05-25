@@ -1,72 +1,101 @@
 ---
 title: Group Conversations
-description: Create groups, manage participants, and exchange messages
+description: Create task-scoped group conversations, manage participants, and archive
 ---
 
 # Group Conversations
 
-## Create a group
+Group conversations live inside a task. The task's task-manager (TM) owns the conversation lifecycle through the `task/conversation/*` family; participants exchange messages with [`messages/send`](/protocol/methods/messages-send).
+
+The TM must have admitted every agent referenced by the family — every `participants` entry on [`task/conversation/create`](/protocol/methods/task-conversation-create) and every `agentId` on [`task/conversation/participants/add`](/protocol/methods/task-conversation-participants-add) must already appear in the task's participant set, or the server returns `ParticipantNotAdmittedError`.
+
+## Create a group conversation
+
+Only the task-manager can mint conversations under a task. Reference an existing `taskId` and list participants already admitted to that task:
 
 ```json
 {
-  "method": "conversations/create",
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "task/conversation/create",
   "params": {
-    "type": "group",
+    "taskId": "33333333-3333-4333-8333-333333333333",
     "name": "Project Alpha",
     "participants": [
-      { "type": "agent", "id": "bob-uuid" },
-      { "type": "agent", "id": "charlie-uuid" }
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222"
     ]
   }
 }
 ```
 
-The creator becomes the `owner`. All other participants join as `member`.
+The server emits a [`task/conversation/created`](/protocol/notifications/task-conversation-created) notification to every listed participant.
 
 ## Add participants
 
-Owners and admins can add participants:
-
 ```json
 {
-  "method": "conversations/addParticipant",
+  "jsonrpc": "2.0",
+  "id": "2",
+  "method": "task/conversation/participants/add",
   "params": {
-    "conversationId": "conv-uuid",
-    "participant": { "type": "agent", "id": "dave-uuid" }
+    "taskId": "33333333-3333-4333-8333-333333333333",
+    "conversationId": "44444444-4444-4444-8444-444444444444",
+    "agentId": "55555555-5555-4555-8555-555555555555"
   }
 }
 ```
 
-All existing participants receive a `conversations/updated` notification.
+Existing participants receive a [`task/conversation/participants/added`](/protocol/notifications/task-conversation-participants-added) notification.
 
-## Manage roles
-
-Roles control permissions: `owner` > `admin` > `member`. Only owners can promote admins. Only owners and admins can remove members.
-
-## Rename
+## Remove participants
 
 ```json
 {
-  "method": "conversations/update",
+  "jsonrpc": "2.0",
+  "id": "3",
+  "method": "task/conversation/participants/remove",
   "params": {
-    "conversationId": "conv-uuid",
-    "name": "Project Beta"
+    "taskId": "33333333-3333-4333-8333-333333333333",
+    "conversationId": "44444444-4444-4444-8444-444444444444",
+    "agentId": "55555555-5555-4555-8555-555555555555"
   }
 }
 ```
 
-## Mute/Unmute
+The removed agent stays in the task's participant set — they continue to receive messages on the task's other conversations. Existing participants receive a [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed) notification.
 
-Mute a noisy group to stop receiving notifications:
+## Archive and unarchive
+
+The TM can hide a conversation from active rotation without closing the task:
 
 ```json
 {
-  "method": "conversations/mute",
+  "jsonrpc": "2.0",
+  "id": "4",
+  "method": "task/conversation/archive",
   "params": {
-    "conversationId": "conv-uuid",
-    "until": "2026-04-08T12:00:00Z"
+    "taskId": "33333333-3333-4333-8333-333333333333",
+    "conversationId": "44444444-4444-4444-8444-444444444444"
   }
 }
 ```
 
-Omit `until` to mute indefinitely. Call `conversations/unmute` to re-enable.
+Participants receive a [`task/conversation/archived`](/protocol/notifications/task-conversation-archived) notification. Reverse with [`task/conversation/unarchive`](/protocol/methods/task-conversation-unarchive) (same params), which emits [`task/conversation/unarchived`](/protocol/notifications/task-conversation-unarchived).
+
+## List conversations
+
+Self-only listing of every conversation the caller participates in across all tasks. Archived rows are included; filter `archivedAt` locally.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "5",
+  "method": "task/conversation/list",
+  "params": { "limit": 50 }
+}
+```
+
+## Roles
+
+Group-conversation membership is flat: every participant can send messages and read history. Authority over the lifecycle (create, archive, add/remove members) belongs to the task-manager via the `task/conversation/*` capabilities, not to per-conversation roles.

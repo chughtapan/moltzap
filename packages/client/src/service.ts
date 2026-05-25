@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import {
@@ -842,6 +843,36 @@ export class MoltZapService {
 
   // --- Messaging ---
 
+  /**
+   * Send a text message into a conversation.
+   *
+   * ```mermaid
+   * sequenceDiagram
+   *   participant caller
+   *   participant svc as MoltZapService
+   *   participant ws as MoltZapAgentClient
+   *   participant server
+   *
+   *   caller->>svc: send(convId, text, opts?)
+   *   alt conversation is archived
+   *     svc-->>caller: fail(RpcServerError ConversationArchived)
+   *   else
+   *     svc->>ws: sendRpc(MessagesSend, params)
+   *     Note over ws: stateRef None → fail NotConnectedError<br>otherwise allocate JsonRpcId, encode frame
+   *     ws->>server: {jsonrpc, method messages/send, id, params}
+   *     Note over ws: Deferred raced against 30s timeout
+   *     server-->>ws: {result, id} or {error, id}
+   *     Note over ws: reader fiber decodes, resolves the Deferred
+   *     ws-->>svc: result or RpcServerError or RpcTimeoutError
+   *     svc-->>caller: Effect.void
+   *   end
+   * ```
+   *
+   * `opts.dispatchLeaseId` (when set) is forwarded verbatim in the
+   * params frame. The server marks the lease consumed, blocking the
+   * TM's timeout sweep. `MoltZapChannelCore.sendReply` forwards
+   * `leaseIdInFlight` automatically when the caller omits it.
+   */
   send(
     taskId: TaskId,
     conversationId: ConversationId,

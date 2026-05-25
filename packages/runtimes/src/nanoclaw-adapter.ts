@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { NodeContext } from "@effect/platform-node";
 import { Effect, Exit, Fiber, Option, pipe } from "effect";
 
@@ -45,6 +46,37 @@ function pollNanoclawExitCode(
   return Fiber.poll(handle.exitFiber).pipe(Effect.map(Option.map(exitToCode)));
 }
 
+/**
+ * Nanoclaw runtime adapter. Runs agent subprocesses inside Docker
+ * containers via the OneCLI gateway. Two-phase startup: ensure the
+ * runtime cache is installed, then launch.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   NS["NanoclawAdapter.spawn(input)"]
+ *   subgraph P1["Phase 1 — ensureNanoclawRuntimeInstalledEffect"]
+ *     P1C{".ready exists?"}
+ *     P1WARM["syncChannelFileIntoCache<br>(diff channel + client/dist; rebuild if drifted)"]
+ *     P1COLD["preflightDocker → downloadTarball<br>→ copy channel + barrel + skill<br>→ buildNanoclawRuntimeCache<br>→ promoteRuntimeCache"]
+ *     P1C -->|warm| P1WARM
+ *     P1C -->|cold| P1COLD
+ *   end
+ *   subgraph P2["Phase 2 — startNanoclawRuntimeEffect"]
+ *     P2DIR[createNanoclawDataDir]
+ *     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
+ *     P2WS[writeRuntimeWorkspaceFiles]
+ *     P2SP["startNanoclawProcess<br>(node dist/index.js + ONECLI_URL env)"]
+ *     P2WAIT["waitForNanoclawConnection<br>(scan logs for CONNECTED_MARKER)"]
+ *     P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
+ *   end
+ *   NCR["waitUntilReady — TWO gates:<br>1. inner: waitForNanoclawConnection (stdout marker)<br>2. outer: server.awaitAgentReady (WS auth)"]
+ *   NS --> P1 --> P2 --> NCR
+ * ```
+ *
+ * Inbound marker: `New messages`. Cache lives at
+ * `NANOCLAW_RUNTIME_CACHE`; the channel-file sync detects drift in
+ * the moltzap channel + client-dist files and rebuilds.
+ */
 export class NanoclawAdapter implements Runtime {
   private state: AdapterState | null = null;
 

@@ -15,7 +15,11 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": ["introduction", "quickstart", "architecture"]
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
           },
           {
             "group": "Concepts",
@@ -26,18 +30,6 @@
               "concepts/contacts",
               "concepts/presence",
               "concepts/encryption"
-            ]
-          },
-          {
-            "group": "Server SDK",
-            "pages": [
-              "server/overview",
-              "server/configuration",
-              "server/services",
-              "server/rpc-handlers",
-              "server/websocket",
-              "server/database",
-              "server/extending"
             ]
           },
           {
@@ -53,10 +45,8 @@
             "pages": [
               "guides/two-agent-chat",
               "guides/group-conversations",
-              "guides/presence-typing",
+              "guides/presence",
               "guides/building-apps",
-              "guides/custom-identity-provider",
-              "guides/custom-contacts",
               "guides/user-agent-communication"
             ]
           },
@@ -68,6 +58,9 @@
               "development/evals",
               "development/contributing"
             ]
+          },
+          {
+            "$ref": "./modules/_nav.json"
           }
         ]
       },
@@ -112,17 +105,12 @@
           {
             "group": "Conversations",
             "pages": [
-              "protocol/methods/conversations-create",
-              "protocol/methods/conversations-list",
-              "protocol/methods/conversations-get",
-              "protocol/methods/conversations-update",
-              "protocol/methods/conversations-add-participant",
-              "protocol/methods/conversations-remove-participant",
-              "protocol/methods/conversations-leave",
-              "protocol/methods/conversations-mute",
-              "protocol/methods/conversations-unmute",
-              "protocol/methods/conversations-archive",
-              "protocol/methods/conversations-unarchive"
+              "protocol/methods/task-conversation-create",
+              "protocol/methods/task-conversation-list",
+              "protocol/methods/task-conversation-participants-add",
+              "protocol/methods/task-conversation-participants-remove",
+              "protocol/methods/task-conversation-archive",
+              "protocol/methods/task-conversation-unarchive"
             ]
           },
           {
@@ -154,17 +142,13 @@
           {
             "group": "Tasks",
             "pages": [
-              "protocol/methods/tasks-create",
-              "protocol/methods/tasks-get",
-              "protocol/methods/tasks-list",
-              "protocol/methods/tasks-close",
-              "protocol/methods/tasks-add-participant",
-              "protocol/methods/tasks-remove-participant",
-              "protocol/methods/tasks-create-conversation",
-              "protocol/methods/tasks-close-conversation",
-              "protocol/methods/tasks-store-message",
-              "protocol/methods/tasks-get-messages",
-              "protocol/methods/tasks-get-messages-since"
+              "protocol/methods/task-create",
+              "protocol/methods/task-request",
+              "protocol/methods/task-list",
+              "protocol/methods/task-close",
+              "protocol/methods/task-leave",
+              "protocol/methods/task-add-participant",
+              "protocol/methods/task-remove-participant"
             ]
           },
           {
@@ -172,10 +156,12 @@
             "pages": [
               "protocol/notifications/overview",
               "protocol/notifications/messages-received",
-              "protocol/notifications/conversations-created",
-              "protocol/notifications/conversations-updated",
-              "protocol/notifications/conversations-archived",
-              "protocol/notifications/conversations-unarchived",
+              "protocol/notifications/task-created",
+              "protocol/notifications/task-conversation-created",
+              "protocol/notifications/task-conversation-archived",
+              "protocol/notifications/task-conversation-unarchived",
+              "protocol/notifications/task-conversation-participants-added",
+              "protocol/notifications/task-conversation-participants-removed",
               "protocol/notifications/contact-request",
               "protocol/notifications/contact-accepted",
               "protocol/notifications/presence-changed",
@@ -183,9 +169,7 @@
               "protocol/notifications/task-failed",
               "protocol/notifications/dispatch-release",
               "protocol/notifications/dispatches-consumed",
-              "protocol/notifications/dispatches-expired",
-              "protocol/notifications/participants-added",
-              "protocol/notifications/participants-removed"
+              "protocol/notifications/dispatches-expired"
             ]
           }
         ]
@@ -195,7 +179,11 @@
         "groups": [
           {
             "group": "CLI Reference",
-            "pages": ["cli/overview", "cli/configuration"]
+            "pages": [
+              "cli/overview",
+              "cli/reference",
+              "cli/configuration"
+            ]
           }
         ]
       }

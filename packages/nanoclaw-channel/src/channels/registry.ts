@@ -20,6 +20,20 @@ type ChannelFactory = (opts: ChannelOpts) => Channel | null;
 
 const registeredChannelFactories = new Map<string, ChannelFactory>();
 
+/**
+ * Register a `ChannelFactory` under a name so the nanoclaw runtime
+ * can construct channel instances by name at boot. The moltzap
+ * channel registers itself at module load via
+ * `registerChannel("moltzap", channelFactory)`.
+ *
+ * Idempotent: re-registering the same factory under the same name
+ * is a no-op (avoids double-registration warnings when this module
+ * is loaded twice in a hot-reload environment).
+ *
+ * The factory returns `Channel | null` — null signals the factory
+ * declined to construct (e.g. missing env config). Nanoclaw's
+ * router treats null as "channel disabled for this account".
+ */
 export function registerChannel(name: string, factory: ChannelFactory): void {
   if (registeredChannelFactories.get(name) === factory) return;
   registeredChannelFactories.set(name, factory);

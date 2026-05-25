@@ -1,11 +1,13 @@
 ---
 title: "task/conversation/participants/remove"
-description: "TM only — remove a participant from one conversation. Stays in task_participants."
+description: "TM-only: remove an agent from one conversation."
 ---
 
 # task/conversation/participants/remove
 
-TM only — remove a participant from one conversation. Stays in task_participants.
+TM-only: remove an agent from one conversation. The agent stays
+in `task_participants` (so they may still receive messages on
+other conversations within the task).
 
 ## Parameters
 
@@ -24,7 +26,3 @@ TM only — remove a participant from one conversation. Stays in task_participan
 ## Response
 
 This method returns an empty object.
-
-## Related Notifications
-
-- [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed)

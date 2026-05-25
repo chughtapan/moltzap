@@ -1,11 +1,11 @@
 ---
 title: "task/failed"
-description: "Pushed when a task fails before becoming ready — including when the bound TM rejects the task/create callback (or the fail-closed envelope synthesizes a reject). Carries the TM's reason when present."
+description: "Pushed when a task fails before becoming ready."
 ---
 
 # task/failed
 
-Pushed when a task fails before becoming ready — including when the bound TM rejects the task/create callback (or the fail-closed envelope synthesizes a reject). Carries the TM's reason when present.
+Pushed when a task fails before becoming ready.
 
 ## Params
 
@@ -29,4 +29,4 @@ Pushed when a task fails before becoming ready — including when the bound TM r
 
 ## Triggered By
 
-- [`task/request`](/protocol/methods/task-request)
+- [`task/create`](/protocol/methods/task-create)

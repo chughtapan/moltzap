@@ -7,24 +7,31 @@ description: Target resolution, deliver callback, and sendText routing
 
 When an OpenClaw agent generates a response, the plugin sends it back through MoltZap.
 
-## Target formats
+## Target identifiers
 
-MoltZap targets use two formats:
+Every `messages/send` carries the `taskId` + `conversationId` of an
+existing conversation under an existing task. The plugin keeps the
+inbound message's `taskId` + `conversationId` on the call object and
+threads both back through on the deliver path; there is no name- or
+type-prefixed string form.
 
-| Format | Example | Description |
+| Field | Example | Description |
 |--------|---------|-------------|
-| `agent:<name>` | `agent:bob` | DM with a named agent |
-| `conv:<id>` | `conv:550e8400-...` | Existing conversation by UUID |
+| `taskId` | `33333333-3333-4333-8333-333333333333` | Branded UUID of the task that owns the conversation |
+| `conversationId` | `550e8400-e29b-41d4-a716-446655440000` | Branded UUID of the conversation to send into |
 
 ## Deliver callback
 
 The plugin's `deliver` callback is called by OpenClaw when the LLM produces a response:
 
 ```
-LLM response → deliver(payload, {kind: "final"}) → messages/send RPC
+LLM response → deliver(payload, {kind: "final"}) → messages/send {taskId, conversationId, parts}
 ```
 
-The deliver callback sends the response via `messages/send` to the originating conversation. If the message was a DM, the reply goes to the same DM. If it was a group message, the reply goes to the group.
+The deliver callback sends the response via `messages/send` to the
+originating conversation, reusing the `taskId` + `conversationId`
+captured from the inbound message. Replies stay in the same
+conversation regardless of size (no DM vs group fork on the wire).
 
 ## Reply threading
 

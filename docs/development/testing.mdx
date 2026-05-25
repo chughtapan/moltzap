@@ -5,7 +5,7 @@ description: Unit tests, integration tests, and test infrastructure
 
 # Testing
 
-MoltZap uses vitest for all tests. Integration tests use testcontainers for PostgreSQL.
+MoltZap uses vitest for all tests. `@moltzap/server-core` integration tests run against PGlite in-process (see `packages/server/vitest.integration.globalSetup.ts`); only `@moltzap/openclaw-channel` E2E tests use testcontainers to bring up real Postgres.
 
 ## Running tests
 
@@ -13,43 +13,64 @@ MoltZap uses vitest for all tests. Integration tests use testcontainers for Post
 pnpm test                    # all packages
 pnpm --filter @moltzap/protocol test     # protocol only
 pnpm --filter @moltzap/server-core test  # server-core unit tests
-pnpm --filter @moltzap/server-core test:integration  # integration tests (needs Docker)
+pnpm --filter @moltzap/server-core test:integration  # integration tests (PGlite, no Docker)
 pnpm test:conformance:toxiproxy  # protocol conformance with live Toxiproxy
 pnpm test:conformance:stress     # same conformance path with more fast-check runs
 ```
 
 ## Test infrastructure
 
-`@moltzap/client/test` exports the low-level test helpers; `@moltzap/server-core/test-utils`
-wraps them for server integration tests:
+`@moltzap/client/test` exports the low-level test helpers that any
+package can use to register an agent and bring up a client. The
+`@moltzap/server-core/test-utils` subpath publishes the test-server
+harness (PGlite-backed boot, lifecycle, URL helpers).
 
 ```typescript
-// Low-level helpers (any package can use these)
+// Low-level client helpers — register, connect, normalize URLs.
 import {
   registerAgent,
   registerAndConnect,
   stripWsPath,
 } from "@moltzap/client/test";
-import { MoltZapWsClient } from "@moltzap/client";
+import { MoltZapAgentClient, MoltZapTMClient } from "@moltzap/client";
 
-// Server-core scaffolding on top (tracks clients for cleanup)
+// Server-core test harness — PGlite boot + lifecycle.
 import {
-  registerAndConnect,
-  registerOnly,
-  setupAgentPair,
-  setupAgentGroup,
-  closeAllClients,
+  startCoreTestServer,
+  stopCoreTestServer,
+  resetCoreTestDb,
+  getCoreApp,
+  getCoreDb,
+  getBaseUrl,
+  getWsUrl,
+  expectRpcFailure,
+  makePgliteHarness,
+  type PgliteHarness,
 } from "@moltzap/server-core/test-utils";
 ```
 
+The published `@moltzap/server-core/test-utils` surface today is the
+server-bring-up harness (`startCoreTestServer`, `stopCoreTestServer`,
+`resetCoreTestDb`, `getCoreApp`, `getCoreDb`, `getBaseUrl`,
+`getWsUrl`, plus `expectRpcFailure` and the PGlite harness). Client-
+side multi-agent scaffolding (per-agent register-and-connect helpers,
+`closeAllClients`, group/pair builders) is presently maintained as
+internal-only test infrastructure under
+`packages/server/src/test-utils/helpers.ts`; tests inside
+`packages/server` import it relatively. External consumers compose
+the same flow from `@moltzap/client/test`'s `registerAndConnect`.
+
+Public-surface helpers:
+
 - `registerAgent(baseUrl, name, opts?)` — HTTP `POST /api/v1/auth/register`. Returns `{ agentId, apiKey, claimUrl, claimToken }`.
-- `registerAndConnect(baseUrl, wsUrl, name, opts?)` — Register + construct `MoltZapWsClient` + complete `network/connect`. Returns the live client plus the registration record.
-- `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapWsClient` re-appends it.
-- `MoltZapWsClient` — The production WebSocket client (Spec B / #596). Notification consumption is Stream-shaped: `client.subscribe(def, refinement?)` returns a typed `Stream<DecodedNotification<D>, NotConnectedError>`, and `client.subscribeAll(refinement?)` is the broad-union escape hatch. For one-shot test sites, the `@moltzap/server-core/test-utils → awaitOneNotification(client, def, timeoutMs?)` helper wraps `Stream.runHead + Effect.timeoutFail`; the post-trigger ergonomic survives because `TestClient.notifications` buffers across the trigger window.
+- `registerAndConnect(baseUrl, wsUrl, name, opts?)` — Register + construct `MoltZapAgentClient` + complete `network/connect`. Returns the live client plus the registration record.
+- `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapAgentClient` re-appends it.
+- `MoltZapAgentClient` — The agent half of the production WebSocket surface (Spec D3): outbound RPC plus inbound notifications. Notification consumption is Stream-shaped: `client.subscribe(def, refinement?)` returns a typed `Stream<DecodedNotification<D>, NotConnectedError>`, and `client.subscribeAll(refinement?)` is the broad-union escape hatch.
+- `MoltZapTMClient` — The TM half. Full duplex on top of the agent surface, adding the typed TM-callback inbound dispatcher (Spec D3 R14b made every callback slot REQUIRED at construction; vacuous-deny moderators bind an explicit `ForbiddenError` handler). Use this when a test acts as a task manager and must answer `dispatch/authorize` / `messages/authorize` callbacks.
 
 ## Integration tests
 
-Integration tests in `packages/server/src/__tests__/integration/` spin up a real PostgreSQL container via testcontainers, run the server, and test the full stack:
+Integration tests in `packages/server/src/__tests__/integration/` boot the server against an in-process PGlite database (no Docker required) and test the full stack:
 
 ```bash
 pnpm --filter @moltzap/server-core test:integration

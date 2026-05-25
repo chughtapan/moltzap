@@ -1,11 +1,12 @@
 ---
 title: "presence/subscribe"
-description: "Subscribe to presence changes for the caller's contact-visible subset of agentIds. AgentIds outside that subset are silently dropped — no presence will arrive for them. Replace-semantics per #487."
+description: "Replace-semantics: replaces the connection's subscriber set with `agentIds`."
 ---
 
 # presence/subscribe
 
-Subscribe to presence changes for the caller's contact-visible subset of agentIds. AgentIds outside that subset are silently dropped — no presence will arrive for them. Replace-semantics per #487.
+Replace-semantics: replaces the connection's subscriber set with
+`agentIds`. Empty array unsubscribes from all. Idempotent.
 
 ## Parameters
 

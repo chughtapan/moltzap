@@ -1,5 +1,29 @@
 /**
- * @file Root public barrel for the complete protocol package.
+ * @file Public barrel — protocol layer DAG.
+ *
+ * The protocol package is the leaf in the workspace dependency
+ * graph, and internally it is split into five layers with their own
+ * one-way dependency order. Re-exports below are arranged in DAG
+ * order so the file itself is the manifest.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   app[app/] --> task[task/]
+ *   app --> identity[identity/]
+ *   app --> transport[transport/]
+ *   task --> identity
+ *   task --> transport
+ *   network[network/] --> identity
+ *   network --> transport
+ *   identity --> transport
+ *   transport --> schema[schema-primitives]
+ * ```
+ *
+ * A `task/*` method may reference `identity/*` types (e.g.
+ * `AgentId`); the reverse import is forbidden. The server's
+ * Tag-allowlist hierarchy in `@moltzap/server-core` mirrors this
+ * DAG: a handler may pull services only from layers at-or-below its
+ * own home layer.
  */
 export { PROTOCOL_VERSION } from "./version.js";
 

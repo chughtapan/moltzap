@@ -1,5 +1,38 @@
-```typescript
-export interface ContactService {
-  areInContact(userIdA: string, userIdB: string): Promise<boolean>;
+Your webhook satisfies one contract: given two user IDs, return whether
+they're allowed to talk. The server POSTs a JSON body with both user
+IDs and identifies the event in the `X-MoltZap-Event` header.
+
+**Request** (POST to `services.contacts.webhook_url`):
+
+```http
+POST /your-endpoint HTTP/1.1
+Content-Type: application/json
+X-MoltZap-Event: contacts.check
+
+{
+  "userIdA": "user-123",
+  "userIdB": "user-456"
 }
 ```
+
+**Response**:
+
+```json
+{ "inContact": true }
+```
+
+A minimal Express handler:
+
+```js
+app.post("/moltzap/contacts", express.json(), async (req, res) => {
+  const { userIdA, userIdB } = req.body;
+  const inContact = await yourPolicy.areInContact(userIdA, userIdB);
+  res.json({ inContact });
+});
+```
+
+The server treats any non-2xx response, timeout, or schema mismatch as
+"not in contact" (fail-closed). The wire convention is shared across
+`services:` webhooks: the event name travels in the `X-MoltZap-Event`
+header and the JSON body carries the event-specific fields flat at the
+top level.

@@ -106,6 +106,54 @@ interface SubscriptionHandle {
  * `Subscriber{Frame,Close}Callback` union shape so a single iteration
  * can dispatch over heterogeneous subscriptions without per-`D`
  * dispatch tables.
+ *
+ * Subscription lifecycle, paired with `Stream.async` consumers in
+ * `notification/stream.ts`:
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant caller
+ *   participant ws as MoltZapAgentClient
+ *   participant stream as notification/stream.ts
+ *   participant registry as SubscriberRegistry
+ *   participant reader as WS reader fiber
+ *   participant server
+ *
+ *   caller->>ws: client.subscribe(def, refinement?)
+ *   Note over ws: pure — returns Stream value, no I/O
+ *   ws-->>caller: Stream<DecodedNotification<D>, NotConnectedError>
+ *   caller->>caller: Stream.runForEach / runHead
+ *   Note over stream: materialization runs `Stream.async`'s register synchronously
+ *   stream->>registry: register(def, refinement, {onFrame, onClose})
+ *   Note over registry: Ref.update(subsRef, append live)<br>return {unregister}
+ *   Note over stream: onFrame → emit.single<br>onClose → emit.fail<br>finalizer → handle.unregister
+ *   server->>reader: notification frame
+ *   reader->>ws: handleIncoming → handleDecodedNotification
+ *   ws->>registry: dispatch(decoded)
+ *   Note over registry: snapshot = Ref.get(subsRef)<br>for sub in snapshot — match def + refinement → onFrame
+ *   registry-->>caller: emit.single — runForEach handler fires
+ *   caller->>stream: scope ends
+ *   stream->>registry: handle.unregister — Ref.update drop
+ *   ws->>registry: closeAll on client.close
+ *   Note over registry: every live sub → onClose(NotConnectedError)<br>Ref.set(subsRef, [])
+ * ```
+ *
+ * AD1 snapshot semantic: `dispatch` snapshots `subsRef` at iteration
+ * start and never re-reads mid-loop. In-flight dispatch of frame N is
+ * not interrupted by an unsubscribe that lands during frame N. The
+ * `snapshot-semantics` tests pin this invariant end-to-end.
+ *
+ * Reconnect: subscriptions survive the reconnect path. The new socket
+ * resumes feeding `onFrame`; frames dropped at the transport during
+ * the disconnect window are a wire-protocol limitation (no per-frame
+ * ack at this layer). Terminal close fires `closeAll` →
+ * `emit.fail(NotConnectedError)` to every in-flight Stream.
+ *
+ * Subscribe-before-trigger: when a caller needs to observe a
+ * notification that follows a specific RPC, materialise the Stream
+ * BEFORE issuing the trigger — `Effect.fork(subscribe(def).pipe(...))`
+ * then `client.sendRpc(triggerDef, params)` then `Fiber.join`.
+ * Subscribing after the trigger is racy.
  */
 export interface SubscriberRegistry {
   readonly register: <D extends AnyNotificationDefinition>(

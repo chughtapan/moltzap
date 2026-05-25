@@ -97,17 +97,21 @@ interface OutboundNotify<OutNotify> {
  * kind's static handler table. The surrounding transport (socket reader
  * fiber, mock harness, etc.) calls `handle(frame, ctx)` per inbound
  * client-request frame; the dispatcher resolves the slot by
- * `frame.method`, runs the handler (or synthesizes the fail-CLOSED
- * default), and returns the `ResponseFrame` ready for the wire.
+ * `frame.method`, runs the handler, and returns the `ResponseFrame`
+ * ready for the wire. Every catalog slot is a real handler post-R14b;
+ * the only dispatcher-synthesized response is `MethodNotFound -32601`
+ * for an out-of-catalog `frame.method`.
  */
 interface InboundDispatch<Ctx, R = never> {
   /**
    * Dispatch one inbound request frame. Returns the wire-ready
-   * `ResponseFrame` (success, registered tagged error, fail-CLOSED
-   * default, or MethodNotFound). The Effect's `R` channel surfaces
-   * any unresolved capability tags the handler's body still requires
-   * (with full Spec F Shape-B metadata threaded, this collapses to
-   * `never`; stub state retains `R` for ergonomic generic propagation).
+   * `ResponseFrame` (success, registered tagged error, `InvalidParams`
+   * when params fail schema decode, `InternalError` for an unmapped
+   * defect, or `MethodNotFound` when `frame.method` is not in the
+   * kind's catalog). The Effect's `R` channel surfaces any unresolved
+   * capability tags the handler's body still requires (with full Spec F
+   * Shape-B metadata threaded, this collapses to `never`; stub state
+   * retains `R` for ergonomic generic propagation).
    */
   readonly handle: (
     frame: RequestFrame,
@@ -172,8 +176,10 @@ export interface AgentClientConnection
  * full `serverRpcMethods` catalog (a TM is a superset of an AgentClient at the
  * type level). Outbound notifications: none. Inbound surface is the
  * `taskCallbackMethods` catalog, dispatched via the static
- * `TaskMasterHandlers` table (both slots optional with fail-CLOSED
- * `ForbiddenError` defaults per Spec F R2).
+ * `TaskMasterHandlers` table; every slot is a REQUIRED real handler
+ * (Spec D3 R14b retired the optional `forbidden` / `noOpNotification`
+ * sentinels), so vacuous-deny moderators must bind an explicit
+ * `ForbiddenError`-returning handler per catalog method.
  */
 export interface TaskMasterConnection<Ctx = unknown, R = never>
   extends ConnectionIdentity,
@@ -284,10 +290,12 @@ export function makeAgentClientConnection<
  * Factory — TaskMaster. Delegates to `buildTaskMasterDispatcher` which
  * wires both the inbound dispatch loop (against `taskCallbackMethods`)
  * and the outbound originator (against the full `serverRpcMethods` catalog).
- * Both inbound slots are OPTIONAL (fail-CLOSED `ForbiddenError` -32001
- * defaults per Spec F R2); the empty literal `{ handlers: {} }` is
- * well-typed and produces a TM that responds to every inbound auth
- * check with `Forbidden`.
+ * Every TM-inbound slot is REQUIRED. Spec D3 R14b retired the optional
+ * sentinel defaults the prior shape carried; the empty literal
+ * `{ handlers: {} }` is REJECTED at the type level (TS2741 — see
+ * Canary 6 in `typed-dispatcher.types-check.ts`). Vacuous-deny
+ * moderators bind an explicit `ForbiddenError`-returning handler for
+ * each catalog method.
  */
 export function makeTaskMasterConnection<
   Ctx,

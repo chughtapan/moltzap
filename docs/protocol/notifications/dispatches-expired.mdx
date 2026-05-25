@@ -1,11 +1,14 @@
 ---
 title: "dispatches/expired"
-description: "Pushed as the `dispatches/expired` notification."
+description: "Server → moderator notification: a granted lease aged out via post- grant TTL without being consumed."
 ---
 
 # dispatches/expired
 
-Pushed as the `dispatches/expired` notification.
+Server → moderator notification: a granted lease aged out via post-
+grant TTL without being consumed. Scoped to the moderator's
+connection only. Distinct from DENIED (verdict-deny) and ABANDONED
+(recipient disconnect) — EXPIRED is the inactivity outcome.
 
 ## Params
 

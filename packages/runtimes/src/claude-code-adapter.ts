@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * Claude Code runtime adapter (issue #255).
  *
@@ -393,6 +395,27 @@ function pollClaudeExitCode(
   return Fiber.poll(proc.exitFiber).pipe(Effect.map(Option.map(exitToCode)));
 }
 
+/**
+ * Claude Code runtime adapter. Spawns the `claude` CLI as the host
+ * process with the moltzap channel installed as a stdio MCP server.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   CCS["ClaudeCodeAdapter.spawn(input)"]
+ *   CC1["1. prepareClaudeCodeStateDir<br>makeTempDirectory, seedWorkspaceFiles,<br>installClaudeCodeChannelPlugin<br>(resolves modelcontextprotocol/sdk + effect)"]
+ *   CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
+ *   CC3["3. spawnConfiguredClaude<br>buildClaudeArgs:<br>--strict-mcp-config --mcp-config<br>--print --input-format stream-json<br>--output-format stream-json --verbose<br>--dangerously-skip-permissions<br>--add-dir stateDir/workspace<br>env: CLAUDE_CODE_HOME=stateDir"]
+ *   CC4["4. state = { process, stateDir, logBuffer, ... }"]
+ *   CCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>(cc-channel MCP stdio server authenticates on start)"]
+ *   CCS --> CC1 --> CC2 --> CC3 --> CC4 --> CCR
+ * ```
+ *
+ * Inbound marker: `notifications/claude/channel`. The cc-channel
+ * sends MCP `notifications/claude/channel` per inbound message; this
+ * is visible in claude's `--verbose` stream-json output. Shutdown
+ * via SIGTERM on the claude process propagates to the MCP stdio
+ * child naturally — no process-group kill needed (unlike OpenClaw).
+ */
 export class ClaudeCodeAdapter implements Runtime {
   private state: AdapterState | null = null;
 
@@ -531,6 +554,24 @@ export class ClaudeCodeAdapter implements Runtime {
   }
 }
 
+/**
+ * Workspace-aware factory mirroring
+ * {@link createWorkspaceOpenClawAdapter}. Resolves `claudeBin` and
+ * `channelDistDir` from the monorepo at construction time.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   CCWF["createWorkspaceClaudeCodeAdapter(input)"]
+ *   CCBIN["claudeBin = input.claudeBin ??<br>resolveWorkspaceClaudeBin<br>(resolveWorkspaceBin binName='claude', packageName='@anthropic-ai/claude-code')"]
+ *   CCROOT["resolveClaudeCodePackageRoot<br>(requireFromHere.resolve('@anthropic-ai/claude-code/package.json'))"]
+ *   CCCH["channelDistDir = input.channelDistDir ??<br>resolveClaudeCodeChannelDistDir"]
+ *   CCCHTRY["Try: requireFromHere.resolve('@moltzap/claude-code-channel') → dirname/dist"]
+ *   CCCHFALL["Fallback: repoRoot/packages/claude-code-channel/dist (logs warning)"]
+ *   CCWF --> CCBIN --> CCROOT --> CCCH
+ *   CCCH --> CCCHTRY
+ *   CCCH --> CCCHFALL
+ * ```
+ */
 export function createWorkspaceClaudeCodeAdapter(
   input: WorkspaceClaudeCodeAdapterInput,
 ): ClaudeCodeAdapter {

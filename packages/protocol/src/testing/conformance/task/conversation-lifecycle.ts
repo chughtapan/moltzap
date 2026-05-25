@@ -1,9 +1,9 @@
 /**
  * Conversation lifecycle — the supported reversible path is observable
  * and enforced:
- *   - conversations/create broadcasts conversations/created
+ *   - task/conversation/create broadcasts task/conversation/created
  *   - messages/send broadcasts messages/received
- *   - conversations/update broadcasts conversations/updated
+ *   - task/conversation/update broadcasts task/conversation/updated
  *   - archive/unarchive form the only reversible terminal state
  *   - archived conversations reject messages/send
  *   - messages/send succeeds again after unarchive

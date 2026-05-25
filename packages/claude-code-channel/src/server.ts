@@ -293,6 +293,37 @@ function handleDecodedReplyCall(
   }
 }
 
+/**
+ * Claude → MoltZap outbound reply flow. Claude invokes the `reply`
+ * MCP tool; the SDK deserializes the JSON-RPC call here.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant CC as Claude Code
+ *   participant mcp as MCP SDK (stdio)
+ *   participant srv as server.ts
+ *   participant ent as entry.ts
+ *   participant cli as moltzap-client
+ *   CC->>mcp: tool call reply { text, reply_to? }
+ *   mcp->>srv: CallToolRequest
+ *   srv-->>mcp: name != reply → toolErrorResult
+ *   srv->>srv: decodeReplyArgs (text non-empty)
+ *   srv-->>mcp: ReplyArgsInvalid → toolErrorResult
+ *   srv->>srv: decoded.files non-empty → filesUnsupportedResult (v1)
+ *   srv->>srv: routing.resolveTarget(reply_to)
+ *   srv-->>mcp: NoActiveConversation | ReplyToUnknown → toolErrorResult
+ *   srv->>ent: deps.sendReply(conversationId, text)
+ *   ent->>cli: messages/send with lease
+ *   alt LeaseInvalid wire error
+ *     cli-->>ent: LeaseAlreadyConsumed (via catchLeaseInvalid)
+ *   end
+ * ```
+ *
+ * Files attachments unsupported in v1 — open follow-up.
+ * `LeaseAlreadyConsumed` is surfaced via the host's
+ * `onLeaseConsumed` callback (channel-base contract); the tool itself
+ * returns `toolErrorResult` so Claude's run continues.
+ */
 function handleCallToolRequest(
   request: CallToolRequest,
   deps: ServerDeps,

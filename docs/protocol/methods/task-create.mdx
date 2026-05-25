@@ -1,11 +1,37 @@
 ---
 title: "task/create"
-description: "Server-initiated TM callback for a newly requested task. The TM returns a typed verdict — `{ accept }` to promote the waiting task to active (the TM then owns conversation creation), or `{ reject, reason? }` to fail it. Timeout / RPC failure / decode failure synthesizes a `reject` verdict server-side (fail-closed)."
+description: "Server → TM round-trip asking whether the TM accepts a newly requested task."
 ---
 
 # task/create
 
-Server-initiated TM callback for a newly requested task. The TM returns a typed verdict — `{ accept }` to promote the waiting task to active (the TM then owns conversation creation), or `{ reject, reason? }` to fail it. Timeout / RPC failure / decode failure synthesizes a `reject` verdict server-side (fail-closed).
+Server → TM round-trip asking whether the TM accepts a newly
+requested task. Triggered from the `task/request` handler after
+the task row is inserted (status `"waiting"`) and before the
+requester observes any state.
+
+The TM owns the post-accept lifecycle:
+  - On `accept` the server transitions the task to `"active"`
+    and fires `task/created` to the requester. The TM SHOULD
+    then call `task/conversation/create` to honor the
+    requester's `initialConversation` hint if it chose to.
+  - On `reject` (or timeout / RPC error / decode failure) the
+    server transitions the task to `"failed"` and fires
+    `task/failed` to the requester.
+
+Fail-closed envelope mirrors `DispatchAuthorize` /
+`MessagesAuthorize`: timeout synthesizes
+`{ decision: "reject", reason: "timeout" }`; an unknown app or
+RPC/decode failure synthesizes `reason: "tm_unreachable"`.
+
+Durability note: the `task/request` handler inserts the task row
+(`waiting`) BEFORE this callback's network round-trip, and the
+terminal `setStatus` runs AFTER it. The sequence is not atomic
+(the callback is a network call, not a DB op), so a crash or fiber
+interrupt in that window can strand a task in `waiting`. Stranded
+waiting tasks are invisible to delivery (no conversation, no
+participants observe them) and are reaped by follow-up work (the
+stale-waiting-task sweep, #684).
 
 ## Parameters
 
@@ -34,7 +60,3 @@ Server-initiated TM callback for a newly requested task. The TM returns a typed 
 <ResponseField name="verdict" type="union">
   The verdict field.
 </ResponseField>
-
-## Related Notifications
-
-- [`task/conversation/created`](/protocol/notifications/task-conversation-created)

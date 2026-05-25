@@ -1,3 +1,4 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Exit, Fiber } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import {
@@ -142,6 +143,21 @@ function toSpawnInput(agent: RuntimeAgentSpec): SpawnInput {
   };
 }
 
+/**
+ * Tear down every started agent in REVERSE insertion order. Last
+ * spawned is torn down first so cleanup mirrors startup.
+ *
+ * Per-adapter teardown does (in order): poll exit; if not exited,
+ * SIGTERM with timeout; if still running, SIGKILL with timeout;
+ * close the process Scope; recursively remove the temp state-dir.
+ *
+ * - OpenClaw: `OPENCLAW_TERM_WAIT_MS = 10_000`, `OPENCLAW_KILL_WAIT_MS = 5_000`.
+ * - ClaudeCode: same shape, single 10s wait window; no explicit
+ *   process-group kill because SIGTERM on claude propagates to the
+ *   cc-channel MCP child naturally via the process hierarchy.
+ * - Nanoclaw: stops the runtime via OneCLI gateway, then removes
+ *   data dir.
+ */
 function teardownStartedAgents(
   startedAgents: ReadonlyArray<StartedRuntimeAgent>,
 ): Effect.Effect<void, never, never> {
@@ -267,6 +283,28 @@ function startPendingRuntimeAgent(options: RuntimeStartOptions) {
   });
 }
 
+/**
+ * Spawn one runtime agent, wait for ready, release the startup cleanup
+ * scope and hand a long-lived `Runtime` back to the caller.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A["startRuntimeAgent(options)"]
+ *   A --> B["Effect.scoped:<br>startPendingRuntimeAgent → PendingAgent"]
+ *   B --> C[releaseStartupCleanup]
+ *   C --> D["Runtime { stop, getLogs }"]
+ *   B -->|Spawn fails| E[SpawnFailed]
+ *   B -->|Process exits early| F[RuntimeExitedBeforeReady]
+ *   B -->|Ready signal times out| G[RuntimeReadyTimedOut]
+ * ```
+ *
+ * Error channel is the union `RuntimeLaunchFailed` of the three
+ * shapes above. Sibling: {@link launchRuntimeFleet} for multi-agent
+ * coordinated startup.
+ * @failure SpawnFailed when the child process cannot be started (exec error, bad binary, port allocation failure, state-dir error)
+ * @failure RuntimeReadyTimedOut when `waitUntilReady` exceeds `readyTimeoutMs`
+ * @failure RuntimeExitedBeforeReady when the process exits before signaling ready (inspect `stderr`)
+ */
 export function startRuntimeAgent(
   options: RuntimeStartOptions,
 ): Effect.Effect<Runtime, RuntimeLaunchFailed, never> {
@@ -279,6 +317,22 @@ export function startRuntimeAgent(
   ).pipe(Effect.withSpan("startRuntimeAgent"));
 }
 
+/**
+ * Launch N agents (sequentially by default; concurrency is opt-in),
+ * tearing down all already-started agents if any one fails.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   FL["launchRuntimeFleet(options)<br>Effect.scoped, withSpan"]
+ *   FL --> SEQ["Effect.forEach(options.agents, startFleetAgent,<br>{ concurrency: options.concurrency ?? 1 })"]
+ *   SEQ -->|One fails| TD["onExit: teardownStartedAgents<br>in REVERSE insertion order"]
+ *   SEQ -->|All succeed| RF["toRuntimeFleet(started)<br>→ RuntimeFleet { agents, stopAll, getLogs }"]
+ * ```
+ *
+ * Sibling: {@link launchRuntimeFleetWithProcessSignals} adds SIGINT
+ * / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
+ * `RuntimeFleetStartupInterrupted`.
+ */
 export function launchRuntimeFleet(
   options: RuntimeFleetLaunchOptions,
 ): Effect.Effect<RuntimeFleet, RuntimeLaunchFailed, never> {
@@ -363,6 +417,23 @@ function interruptedStartup(signal: Signal) {
   );
 }
 
+/**
+ * Wraps {@link launchRuntimeFleet} with OS-signal handlers so user
+ * Ctrl-C during startup interrupts cleanly instead of half-launching
+ * a fleet.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   LRFPS["launchRuntimeFleetWithProcessSignals(options)"]
+ *   LRFPS --> FORK["Effect.runFork(launchRuntimeFleet) → fiber"]
+ *   FORK --> SIGS["installProcessSignalHandlers<br>(SIGINT, SIGTERM by default)<br>first signal: shutdownSignal.value = signal<br>Fiber.interrupt(fiber)"]
+ *   SIGS --> OBS["observeFleetLaunchFiber<br>routes by exit shape"]
+ *   OBS -->|Success| OK["resume(Effect.succeed(fleet))"]
+ *   OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ RuntimeFleetStartupInterrupted"]
+ *   OBS -->|Other failure| ERR["resume(Effect.failCause(...))"]
+ * ```
+ * @failure RuntimeFleetStartupInterrupted when a signal arrives during fleet startup
+ */
 export function launchRuntimeFleetWithProcessSignals(
   options: RuntimeFleetProcessSignalOptions,
 ): Effect.Effect<

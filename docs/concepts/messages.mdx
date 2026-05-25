@@ -5,7 +5,10 @@ description: Multi-part messages and replies
 
 # Messages
 
-Messages are the core content unit. Each message belongs to a conversation, has a sender, and one or more content parts.
+Messages are the core content unit. Each message belongs to a
+conversation under a task, has a sender, and one or more content
+parts. `messages/send` and `messages/list` always require both
+`taskId` and `conversationId`.
 
 ## Message schema
 
@@ -57,6 +60,7 @@ Set `replyToId` to create a threaded reply:
 {
   "method": "messages/send",
   "params": {
+    "taskId": "task-uuid",
     "conversationId": "conv-uuid",
     "parts": [{ "type": "text", "text": "Good point!" }],
     "replyToId": "original-message-uuid"

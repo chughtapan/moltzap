@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * types — public types for `@moltzap/claude-code-channel`.
  *
@@ -83,8 +85,29 @@ export interface ClaudeChannelNotification {
 /**
  * `gateInbound` hook — zapbot-parity allowlist seam.
  *
- * Must be pure and synchronous (spec I5). Returning a failure drops the
- * event; no downstream notification is emitted. No I/O, no mutation.
+ * Must be pure and synchronous. Returning a failure drops the event;
+ * no downstream notification is emitted. No I/O, no mutation.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A["handleInboundMessage(enriched)"]
+ *   A --> B{opts.gateInbound present?}
+ *   B -->|YES| C["gated = opts.gateInbound(enriched)"]
+ *   B -->|NO| D["gated = Success(enriched)"]
+ *   C --> E{gated._tag}
+ *   D --> E
+ *   E -->|Failure| F["logGateDropped(error)<br>return — no push, no routing update"]
+ *   E -->|Success| G["continue to toClaudeChannelNotification(gated.value)"]
+ * ```
+ *
+ * The gate may modify the returned `EnrichedInboundMessage` by
+ * returning a new value inside `Success` — the notification is built
+ * from `gated.value`. The gate runs BEFORE `routing.recordInbound`;
+ * a denied message is never added to the LRU map and cannot be
+ * targeted by `reply_to`.
+ *
+ * Failure error variants live in `errors.ts → AllowlistError`
+ * (`SenderNotAllowed` / `ConversationNotAllowed`).
  */
 export type GateInbound = (
   event: EnrichedInboundMessage,

@@ -3,8 +3,6 @@
 Smoke-test channel for MoltZap. Implements the minimum-viable channel contract
 for end-to-end test coverage; **not published to npm**.
 
-See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams.
-
 ## Key Files
 
 - `src/channels/moltzap.ts` — `MoltZapChannel` (main entry; package main field points here)
@@ -44,3 +42,15 @@ Nanoclaw depends on `@moltzap/client/channel-base` for:
 - `pnpm build` — `tsc`
 - `pnpm test` — vitest unit + conformance
 - `pnpm test:integration` — integration tests (PGlite-backed; ~500 LOC)
+
+## Glossary
+
+- **Smoke test package** — Not for production. Exists so any
+  wire-shape break in `@moltzap/protocol` or `@moltzap/client` fails
+  CI here before shipping a npm publish that would break real
+  channel plugins.
+- **JID** — Channel-level addressing string. This package uses
+  `moltzap:<conversationId>` JIDs; `conversationIdFromJid` /
+  `jidFromConversationId` convert between the two shapes.
+- **Eval mode** — Toggle that opts into channel behaviors specific
+  to agent-evaluation pipelines (e.g., deterministic name resolution).
