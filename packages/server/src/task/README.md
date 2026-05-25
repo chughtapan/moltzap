@@ -1,7 +1,6 @@
 # task/
 
-Conversations, messages, tasks, contacts (handler-routing),
-task-manager dispatch.
+Conversations, messages, tasks, task-manager dispatch.
 
 ## Layer rules
 
@@ -13,12 +12,8 @@ task-manager dispatch.
 ## Files
 
 ### Handlers
-- `handlers/connect.handlers.ts` — `network/connect` post-auth wiring.
 - `handlers/messages.handlers.ts` — `messages/send`, `messages/get`,
   `messages/list`.
-- `handlers/presence.handlers.ts` — `presence/*` (routes via TM
-  message bus).
-- `handlers/contacts.handlers.ts` — `contacts/*`.
 - `handlers/tasks.handlers.ts` — `task/*` + `task/conversation/*`
   admin family. `task/request` lives in
   `app/handlers/task-request.handler.ts` because its handler binds
