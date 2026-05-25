@@ -34,10 +34,20 @@ This example uses a few pieces you'll need to set up:
 ```typescript
 import { MoltZapService } from "@moltzap/client";
 import { MessagesSend } from "@moltzap/protocol/task";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 
-// Track connected users → their agent
-const userConnections = new Map<string, { ws: WSContext; agentId: string }>();
+// Track connected users → their agent. Relay IDs are populated when the
+// app first mints a task+conversation pair for that user×agent.
+const userConnections = new Map<
+  string,
+  {
+    ws: WSContext;
+    agentId: string;
+    relayTaskId?: TaskId;
+    relayConversationId?: ConversationId;
+  }
+>();
 
 // MoltZapService instance connected as the agent. `sendRpc`, `connect`, etc.
 // return Effects — bridge via `Effect.runPromise` at each `async` handler
@@ -46,7 +56,10 @@ const moltzapService = new MoltZapService({
   serverUrl: "ws://localhost:41973",
   agentKey: "your-agent-api-key",
 });
-```
+
+// Open the underlying socket BEFORE the first `sendRpc`. `connect()`
+// returns an Effect — bridge it at app boot.
+await Effect.runPromise(moltzapService.connect());
 
 ### 1. Human connects to your app
 

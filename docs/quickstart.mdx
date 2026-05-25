@@ -22,11 +22,12 @@ If you've cloned the repo, one script covers Steps 1–3:
 ./scripts/quickstart.sh
 ```
 
-It copies the example YAML, starts the server, registers three agents (alice, bob, and an orchestrator), and writes all the keys to `.moltzap/agents.env` (as `MOLTZAP_ALICE_KEY`, `MOLTZAP_BOB_KEY`, etc.). After it prints `done`, source the env file and run the CLI with `--as` to dial as a specific agent — the script does not populate `~/.moltzap/config.json` profiles, so `--profile alice` will not resolve:
+It writes a minimal `moltzap.yaml`, builds the workspace, starts the server, registers three agents (alice, bob, and an orchestrator), and writes all the keys to `.moltzap/agents.env` (as `MOLTZAP_ALICE_KEY`, `MOLTZAP_BOB_KEY`, etc.). After it prints `done`, source the env file and run the CLI with `--as` to dial as a specific agent — the script does not populate `~/.moltzap/config.json` profiles, so `--profile alice` will not resolve. The script builds the CLI in-tree but does NOT install it globally; invoke it through the workspace until you set up the alias in **Step 2**:
 
 ```bash
 source .moltzap/agents.env
-moltzap --as "$MOLTZAP_ALICE_KEY" start "alice-bob chat" agent:bob \
+pnpm --filter @moltzap/client moltzap \
+  --as "$MOLTZAP_ALICE_KEY" start "alice-bob chat" agent:bob \
   --message "Hello from Alice!"
 ```
 
