@@ -15,17 +15,7 @@ The current split is:
 4. `@moltzap/runtimes` owns the runtime adapters and the compiled `trace-capture-harness` module loaded by `cc-judge`.
 5. External `cc-judge` runners own scenario loading, harness dispatch, scoring, and report emission.
 
-## What Changed
-
-Deleted from the old eval package:
-
-- local `eval:e2e` orchestration
-- local YAML loading
-- local `llm-judge` / report / bundle helpers
-- local runtime logger
-- old eval-agent Docker build scripts
-
-Trace emission in `@moltzap/server-core`:
+## Trace emission
 
 - `MessageService` emits `moltzap.message.delivered` and `moltzap.message.blocked` OTel spans (Effect `withSpan`). Spans carry message-shape **metadata only**, never message body content: message id, conversation id, sender id, created-at, part count, text-part count, total text length, channel key, sender display name, recipients/delivered (delivered) or block reason (blocked). Message body plaintext is deliberately redacted from telemetry — the envelope is encrypted at rest and spans can egress to an operator OTLP collector, so the body never belongs on a span.
 - `app/tracing.ts` wires the OTel SDK Layer; production exports via batch OTLP when an OTLP endpoint env var is set (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` used verbatim, else `OTEL_EXPORTER_OTLP_ENDPOINT` suffixed with `/v1/traces`), otherwise spans stay in-process.
