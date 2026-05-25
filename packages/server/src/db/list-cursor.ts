@@ -75,9 +75,25 @@ export function decodeListCursor(
   cursor: ListCursor | string,
 ): Effect.Effect<ListCursorPosition, InvalidCursorError> {
   return Effect.try({
-    try: () => Buffer.from(cursor, "base64url").toString("utf8"),
+    try: () => Buffer.from(cursor, "base64url"),
     catch: () => new InvalidCursorError({ message: "Cursor is not base64url" }),
-  }).pipe(Effect.flatMap(parseDecodedPayload));
+  }).pipe(
+    // Node's base64url decoder is permissive — it silently ignores
+    // non-alphabet bytes, so `encodeListCursor(pos) + "!"` decodes to the
+    // same payload. Reject any token that is not its own canonical
+    // base64url re-encoding, so malformed cursors fail closed as
+    // InvalidParamsError at the boundary instead of being accepted.
+    Effect.flatMap((buf) =>
+      buf.toString("base64url") === cursor
+        ? Effect.succeed(buf.toString("utf8"))
+        : Effect.fail(
+            new InvalidCursorError({
+              message: "Cursor is not canonical base64url",
+            }),
+          ),
+    ),
+    Effect.flatMap(parseDecodedPayload),
+  );
 }
 
 function parseDecodedPayload(

@@ -99,6 +99,17 @@ describe("list-cursor codec", () => {
     ).toString("base64url");
     expect(decodeFailure(bad)).toBeInstanceOf(InvalidCursorError);
   });
+
+  it("rejects a valid payload with trailing non-base64url junk", () => {
+    // Node's base64url decoder is permissive: it silently drops the
+    // trailing "!", so without the canonical re-encode check this would
+    // decode to the same payload and be wrongly ACCEPTED. Must fail typed.
+    const valid = encodeListCursor({
+      sortKey: "2026-01-01T00:00:00.000Z",
+      id: "00000000-0000-4000-8000-000000000000",
+    });
+    expect(decodeFailure(`${valid}!`)).toBeInstanceOf(InvalidCursorError);
+  });
 });
 
 describe("paginate", () => {
