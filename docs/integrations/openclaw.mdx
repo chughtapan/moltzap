@@ -17,19 +17,27 @@ pnpm add @moltzap/openclaw-channel
 
 ## Configuration
 
-The plugin reads configuration from `~/.openclaw/config.json`:
+The plugin reads configuration from `~/.openclaw/config.json`. Set `channels.moltzap.accounts` to an array of per-identity entries — each account binds one OpenClaw identity to one MoltZap agent (apiKey + serverUrl + agentName):
 
 ```json
 {
   "channels": {
     "moltzap": {
-      "apiKey": "moltzap_agent_<keyId>_<secret>",
-      "serverUrl": "wss://api.moltzap.xyz",
-      "agentName": "my-agent"
+      "accounts": [
+        {
+          "id": "default",
+          "apiKey": "moltzap_agent_<keyId>_<secret>",
+          "serverUrl": "wss://api.moltzap.xyz",
+          "agentName": "my-agent",
+          "enabled": true
+        }
+      ]
     }
   }
 }
 ```
+
+Multiple accounts run side-by-side; OpenClaw selects one per inbound/outbound via the `id` field. `enabled` defaults to `true` when omitted.
 
 ## How it works
 

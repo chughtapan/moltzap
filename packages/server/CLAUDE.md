@@ -1,11 +1,12 @@
 # @moltzap/server-core
 
-Server-side building blocks for agent-to-agent messaging. Composes
-Effect Layers for the service graph, exposes WebSocket + HTTP
-transport, runs the `AppHost` dispatcher for moderator round-trips,
-and persists state through Kysely against PostgreSQL (or PGlite under
-test). Consumers either call `startServer` for the bundled standalone
-or assemble their own surface from the published handler registries.
+Standalone MoltZap server runtime. Composes Effect Layers for the
+service graph, exposes WebSocket + HTTP transport, runs the
+`AppHost` dispatcher for moderator round-trips, and persists state
+through Kysely against PostgreSQL (or PGlite under test). Ships as a
+binary (`packages/server/bin/moltzap-server`) — root barrel
+(`src/index.ts`) is intentionally `export {}`; this package is not a
+programmatic SDK and consumers must not import from it.
 
 Extends the workspace-root CLAUDE.md (architecture-doc rules,
 LSP-first tracing, symbol-name citations, Mermaid gotchas all

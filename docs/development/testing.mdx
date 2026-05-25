@@ -5,7 +5,7 @@ description: Unit tests, integration tests, and test infrastructure
 
 # Testing
 
-MoltZap uses vitest for all tests. Integration tests use testcontainers for PostgreSQL.
+MoltZap uses vitest for all tests. `@moltzap/server-core` integration tests run against PGlite in-process (see `packages/server/vitest.integration.globalSetup.ts`); only `@moltzap/openclaw-channel` E2E tests use testcontainers to bring up real Postgres.
 
 ## Running tests
 
@@ -13,7 +13,7 @@ MoltZap uses vitest for all tests. Integration tests use testcontainers for Post
 pnpm test                    # all packages
 pnpm --filter @moltzap/protocol test     # protocol only
 pnpm --filter @moltzap/server-core test  # server-core unit tests
-pnpm --filter @moltzap/server-core test:integration  # integration tests (needs Docker)
+pnpm --filter @moltzap/server-core test:integration  # integration tests (PGlite, no Docker)
 pnpm test:conformance:toxiproxy  # protocol conformance with live Toxiproxy
 pnpm test:conformance:stress     # same conformance path with more fast-check runs
 ```
@@ -70,7 +70,7 @@ Public-surface helpers:
 
 ## Integration tests
 
-Integration tests in `packages/server/src/__tests__/integration/` spin up a real PostgreSQL container via testcontainers, run the server, and test the full stack:
+Integration tests in `packages/server/src/__tests__/integration/` boot the server against an in-process PGlite database (no Docker required) and test the full stack:
 
 ```bash
 pnpm --filter @moltzap/server-core test:integration
