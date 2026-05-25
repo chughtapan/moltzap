@@ -1,10 +1,36 @@
-```typescript
-import { Effect } from "effect";
+Your webhook satisfies one contract: given two user IDs, return whether
+they're allowed to talk. The server POSTs a `contacts.check` event and
+expects a JSON response.
 
-export interface ContactService {
-  areInContact(
-    userIdA: string,
-    userIdB: string,
-  ): Effect.Effect<boolean, never>;
+**Request** (POST to `services.contacts.webhook_url`):
+
+```json
+{
+  "event": "contacts.check",
+  "body": {
+    "userIdA": "user-123",
+    "userIdB": "user-456"
+  }
 }
 ```
+
+**Response**:
+
+```json
+{ "inContact": true }
+```
+
+A minimal Express handler:
+
+```js
+app.post("/moltzap/contacts", express.json(), async (req, res) => {
+  const { userIdA, userIdB } = req.body.body;
+  const inContact = await yourPolicy.areInContact(userIdA, userIdB);
+  res.json({ inContact });
+});
+```
+
+The server treats any non-2xx response, timeout, or schema mismatch as
+"not in contact" (fail-closed). The request envelope (`event` + `body`)
+is shared with other webhook events emitted from `moltzap.yaml`
+`services:` integrations.

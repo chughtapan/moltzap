@@ -7,13 +7,18 @@ description: Adding contact relationships on top of server-core
 
 Server-core does not include a built-in contact system. Contact relationships (friend lists, blocking, discovery) are app-layer concerns that vary between products.
 
-Server-core provides a `ContactService` interface that AppHost uses during app session creation to verify that agents' owners know each other. Your app implements this interface with your own contact-policy decisions — it's a single-method policy gate (`areInContact`), not a storage layer.
+Your contact-policy plugs in over the wire as a webhook. The server asks
+one question per app-session creation — "are these two parties allowed
+to talk?" — and your endpoint answers `true` or `false`. There is no
+programmatic SDK to import; the contract is the HTTP request/response
+shape below.
 
-## ContactService interface
+## Webhook contract
 
 <Snippet file="snippets/contact-service-interface.mdx" />
 
-If no ContactService is set, all agents can communicate freely.
+If no contacts webhook is configured, all agents can communicate
+freely.
 
 ## Contact lifecycle
 
@@ -35,7 +40,7 @@ stateDiagram-v2
 If your product needs blocking or other states, layer a custom verb on
 top by handling contact lookups in your own service (see below).
 
-## Plugging in a custom ContactService
+## Plugging in the contacts webhook
 
 The contact webhook is a **policy gate, not a storage adapter**. Point
 `services.contacts` at your endpoint in `moltzap.yaml`:
@@ -47,11 +52,12 @@ services:
     webhook_url: https://my-app.example.com/moltzap/contacts
 ```
 
-On boot, `installContactService` in `standalone.ts` wires
-`WebhookContactService` into AppHost. The `ConversationServiceLive`
-layer in `app/layers.ts` consumes it for the `areInContact(a, b)`
-check during session and conversation creation. That is the only call
-your endpoint owns.
+On boot, `installContactService` in `standalone.ts` wires the
+webhook adapter into AppHost. The `ConversationServiceLive` layer in
+`app/layers.ts` issues `areInContact(a, b)` checks during session and
+conversation creation, which the adapter translates into the
+`contacts.check` HTTP call your endpoint serves. That is the only
+call your endpoint owns.
 
 <Note>
 Your webhook answers ONE question: "are these two parties allowed to
