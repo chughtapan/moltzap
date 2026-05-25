@@ -29,28 +29,41 @@ Kysely instance. Test utilities live on a separate subpath:
 `CoreConfig` and it builds the full Effect Layer graph
 (services, encryption, RPC handler registry, WebSocket transport,
 HTTP routes) and returns the running `CoreApp`. Service handles
-(`ConnectionManager`, the lease registry, the network-send service,
-the trace capture) are reachable from the returned `CoreApp` value —
-they are NOT individually importable from the package's public
-surface. To plug in custom behavior, use `CoreConfig` fields like
-`sessionValidator`, `webhookClient`, `deliveryWebhook`, or
-`traceCaptureLayer`, and the post-construction hooks
-(`onConnection`, `onDisconnection`, `setContactService`) exposed
-by the returned `CoreApp`.
+(`ConnectionManager`, the lease registry, the network-send service)
+are reachable from the returned `CoreApp` value — they are NOT
+individually importable from the package's public surface. To plug
+in custom behavior, use `CoreConfig` fields like `sessionValidator`,
+`webhookClient`, `deliveryWebhook`, or `spanProcessor`, and the
+post-construction hooks (`onConnection`, `onDisconnection`,
+`setContactService`) exposed by the returned `CoreApp`.
 
 ## Minimal server
+
+<Note>
+`createCoreApp` is NOT exported from the `@moltzap/server-core` main
+entry — the barrel is intentionally empty post-#680 and the package
+ships its runtime through the `moltzap-server` bin and the
+`./test-utils` subpath. The example below uses the in-tree source
+path. Production deployments usually run the bin instead of
+embedding the composition root.
+</Note>
 
 ```typescript
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
-import { createCoreApp } from "@moltzap/server-core";
+// `createCoreApp` lives at packages/server/src/app/server.ts and is
+// reached through the source tree in a fork; the published main
+// barrel is empty so this binding is NOT available from
+// "@moltzap/server-core". The example treats it as in-scope by
+// convention; production deployments run the `moltzap-server` bin
+// (see Standalone) instead.
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
 const app = createCoreApp({
   db,
-  port: 3000, // code default — see `DEFAULT_SERVER_PORT` in packages/server/src/app/config.ts
+  port: 3000, // code default — see `DEFAULT_SERVER_PORT` in packages/server/src/config.ts
   corsOrigins: ["*"],
   encryptionMasterSecret: process.env.ENCRYPTION_MASTER_SECRET,
 });

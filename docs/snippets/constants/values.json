@@ -19,7 +19,7 @@
       "name": "DEFAULT_SERVER_PORT",
       "value": 3000,
       "kind": "number",
-      "sourcePath": "packages/server/src/app/config.ts",
+      "sourcePath": "packages/server/src/config.ts",
       "note": "Code-level fallback port used by ServerConfigLoader when PORT is unset."
     },
     {

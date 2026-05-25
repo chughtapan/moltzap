@@ -35,28 +35,51 @@ threads those through the connection.
 
 ### 1. Implement `SessionValidator`
 
-The `SessionValidator` interface is currently internal to
-`@moltzap/server-core` and is consumed via `CoreConfig.sessionValidator`
-(the field IS exported on the public `CoreConfig` type). Inline the
-shape into your code; it's a single method whose return type matches
-`CoreConfig.sessionValidator`'s parameter (see
+<Note>
+`SessionValidator`, `SessionValidation`, `CoreConfig`, `createCoreApp`,
+and the `AgentId` / `UserId` branded UUIDs are NOT exported from the
+`@moltzap/server-core` main entry. The `@moltzap/server-core` main
+barrel is intentionally empty post-#680; the package ships its
+runtime through the `moltzap-server` bin and the `./test-utils`
+subpath. Apps that need to embed a custom `SessionValidator` either
+vendor the structural copy below (verified against the source on every
+docs-drift run) or import the symbols from the in-tree source files
+cited inline. The canonical definitions live in
 `packages/server/src/identity/services/session-validator.ts →
-SessionValidator`):
+SessionValidator`, `packages/server/src/config.ts → CoreConfig`, and
+`packages/protocol/src/identity → AgentId, UserId`.
+</Note>
+
+The runtime shape: `validateSession` returns an Effect whose success
+channel is a discriminated union — `{ valid: false }` or `{ valid:
+true, agentId, ownerUserId, agentStatus? }`. `agentId` and
+`ownerUserId` are branded UUIDs (`AgentId` and `UserId` from
+`@moltzap/protocol/identity`); cast at the boundary where the
+external auth provider's plain string crosses into server-core.
 
 ```typescript
 import { Effect } from "effect";
 import { createClient } from "@supabase/supabase-js";
+// Branded UUID types — sourced from @moltzap/protocol so the cast
+// below preserves CoreConfig["sessionValidator"]'s discriminated-union
+// shape. The branding is structural; the cast happens once, at the
+// auth-provider boundary.
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 
-// Inline structural copy of server-core's internal SessionValidator.
-// Match `CoreConfig["sessionValidator"]` exactly; server-core consumes
-// this via the public CoreConfig field, so any drift is caught at the
-// `createCoreApp({ sessionValidator })` call site below.
-interface SessionValidation {
-  readonly valid: boolean;
-  readonly agentId?: string;
-  readonly ownerUserId?: string;
-  readonly agentStatus?: string;
-}
+// Structural copy of the internal SessionValidator interface (the
+// definition lives in
+// `packages/server/src/identity/services/session-validator.ts`).
+// CoreConfig.sessionValidator is typed against the in-tree interface,
+// so drift between this copy and the real one shows up at the
+// `createCoreApp({ sessionValidator })` call site as a type error.
+type SessionValidation =
+  | { readonly valid: false }
+  | {
+      readonly valid: true;
+      readonly agentId: AgentId;
+      readonly ownerUserId: UserId;
+      readonly agentStatus?: string;
+    };
 
 interface SessionValidator {
   validateSession(token: string): Effect.Effect<SessionValidation, never>;
@@ -70,31 +93,44 @@ export const supabaseSessionValidator: SessionValidator = {
       try: () => supabase.auth.getUser(token),
       catch: () => null,
     }).pipe(
-      Effect.map((result) => {
+      Effect.map((result): SessionValidation => {
         if (!result || result.error || !result.data?.user) {
-          return { valid: false } as const;
+          return { valid: false };
         }
-        // Resolve user → primary agent. Apps that mint per-user agents on
-        // first sign-in own this lookup and return the resolved agent ID.
+        // Resolve user → primary agent. Apps that mint per-user agents
+        // on first sign-in own this lookup. The two casts to AgentId /
+        // UserId happen at the trust boundary: the external auth
+        // provider returns plain strings, server-core consumes branded
+        // UUIDs.
         return {
           valid: true,
-          agentId: lookupAgentForUser(result.data.user.id),
-          ownerUserId: result.data.user.id,
-        } as const;
+          agentId: lookupAgentForUser(result.data.user.id) as AgentId,
+          ownerUserId: result.data.user.id as UserId,
+        };
       }),
-      Effect.orElse(() => Effect.succeed({ valid: false } as const)),
+      Effect.orElse(() => Effect.succeed<SessionValidation>({ valid: false })),
     ),
 };
 ```
 
 ### 2. Wire it into `createCoreApp`
 
+`createCoreApp` is internal to `@moltzap/server-core` and is consumed
+through the `moltzap-server` bin in standalone deployments. Apps that
+embed it directly today reach into the package's source tree
+(`packages/server/src/app/server.ts → createCoreApp`); the wiring
+below stays valid against that signature.
+
 ```typescript
-import { createCoreApp } from "@moltzap/server-core";
+// `createCoreApp` lives at packages/server/src/app/server.ts and is
+// reached through the source tree in a fork; the published main
+// barrel is empty so this binding is NOT importable from
+// "@moltzap/server-core". The example treats it as in-scope by
+// convention.
 
 const app = createCoreApp({
   db,
-  port: 3000, // code default — see DEFAULT_SERVER_PORT in packages/server/src/app/config.ts
+  port: 3000, // code default — see DEFAULT_SERVER_PORT in packages/server/src/config.ts
   corsOrigins: ["*"],
   sessionValidator: supabaseSessionValidator,
 });

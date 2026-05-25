@@ -182,17 +182,25 @@ cd packages/server && node dist/standalone.js
 
 ## Programmatic Mode (TypeScript SDK)
 
+> Note: `createCoreApp` is NOT exported from the `@moltzap/server-core`
+> main entry — the barrel is intentionally empty and the package ships
+> its runtime through the `moltzap-server` bin. Embedding the
+> composition root reaches into the source tree path below.
+
 ```typescript
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
-import { createCoreApp } from "@moltzap/server-core";
+// `createCoreApp` lives at packages/server/src/app/server.ts and is
+// reached through the source tree in a fork; the published
+// `@moltzap/server-core` main barrel is empty. Production deployments
+// run the `moltzap-server` bin (Standalone Mode above) instead.
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
 const app = createCoreApp({
   db,
-  port: Number(process.env.PORT), // code default lives in packages/server/src/app/config.ts → DEFAULT_SERVER_PORT
+  port: Number(process.env.PORT), // code default lives in packages/server/src/config.ts → DEFAULT_SERVER_PORT
   corsOrigins: ["*"],
 });
 

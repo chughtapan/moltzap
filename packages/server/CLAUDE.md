@@ -161,11 +161,12 @@ both. The `createDb` factory (`db/client.ts`) dispatches on config —
 returns the in-memory variant. Handlers and services never branch on
 `db.kind`.
 
-`tasks` carries `app_id` (nullable) and `tm_endpoint_address` (not
-null). The `app_id IS NULL` discriminator drives the "is this
-app-bound?" behavior across `AppHost.runMessageAuthorize`,
-`conversation.service` authority checks, and the dispatch admission
-path.
+`tasks.app_id` is `TEXT NOT NULL` — every task binds to a registered
+app, and TM authority is proved per-frame via app-ownership of the
+caller's WS connection (`AppHost.isAppConnection`, see
+`packages/server/src/app/app-host.ts`). The schema does not carry a
+separate `tm_endpoint_address` column; TM endpoint identity is
+derived from `app_id` at routing time.
 
 ## Tests
 
@@ -185,10 +186,10 @@ path.
   registries; emits `dispatch/release` and `participants/removed`
   notifications post-verdict.
 - **TM (Task Manager)** — Authority for a task's conversation set.
-  Default-TM (UUID-bound `DEFAULT_DM_TM_ADDRESS` /
-  `DEFAULT_GROUP_TM_ADDRESS`) for ordinary DMs/groups; app-bound
-  `tm:app:<uuid>` for app-moderated tasks. The `tm_endpoint_address`
-  column on `tasks` is the routing key.
+  The default-app UUID (`DEFAULT_APP_ID`) covers ordinary DMs/groups
+  (no moderator); a registered app's UUID covers app-moderated
+  tasks. `tasks.app_id` is the routing key; per-frame TM-authority
+  checks run through `AppHost.isAppConnection`.
 - **Dispatch lease** — Single-use token gating inbound message
   processing. In-memory state in `LeaseRegistry`; states PENDING →
   GRANTED / DENIED / HOLD → CLAIMED → CONSUMED / EXPIRED /

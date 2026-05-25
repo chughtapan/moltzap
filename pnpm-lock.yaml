@@ -365,12 +365,6 @@ importers:
       '@sinclair/typebox':
         specifier: ^0.34.0
         version: 0.34.49
-      ajv:
-        specifier: ^8.17.0
-        version: 8.18.0
-      ajv-formats:
-        specifier: ^3.0.0
-        version: 3.0.1(ajv@8.18.0)
       effect:
         specifier: 3.21.2
         version: 3.21.2

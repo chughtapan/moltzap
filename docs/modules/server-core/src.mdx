@@ -1,6 +1,6 @@
 ---
 title: "server-core/src"
-description: "`@moltzap/server-core` main entry — composition root re-exports."
+description: "`@moltzap/server-core` main entry — consumed via the bin and the `./test-utils` subpath."
 ---
 
 # server-core/src
@@ -9,11 +9,136 @@ _`packages/server/src`_
 
 ## Purpose
 
-`@moltzap/server-core` main entry — composition root re-exports.
+`@moltzap/server-core` main entry — consumed via the bin and the `./test-utils` subpath.
 
 ## Public surface
 
-### [`SchemaFileNotFound`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/standalone.ts#L41)
+### [`ConfigLoadError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/config.ts#L153)
+
+_Class_
+
+```ts
+export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
+  readonly kind: ConfigLoadErrorKind;
+  readonly path: string;
+  readonly message: string;
+  readonly cause?: unknown;
+  /** Present when `kind === "validation"` — the raw Effect ConfigError tree. */
+  readonly configError?: ConfigError;
+}> {}
+```
+
+### [`ConfigLoadErrorKind`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/config.ts#L151)
+
+_TypeAlias_
+
+```ts
+export type ConfigLoadErrorKind = "read" | "yaml" | "env" | "validation";
+
+export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
+  readonly kind: ConfigLoadErrorKind;
+  readonly path: string;
+  readonly message: string;
+  readonly cause?: unknown;
+  /** Present when `kind === "validation"` — the raw Effect ConfigError tree. */
+  readonly configError?: ConfigError;
+}> {}
+```
+
+### [`CoreConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/config.ts#L44)
+
+_Interface_
+
+```ts
+export interface CoreConfig {
+  db: Db;
+  dbCleanup?: () => PromiseLike<void>;
+  encryptionMasterSecret?: string;
+  port: number;
+  corsOrigins: string[];
+  registrationSecret?: string;
+  devMode?: boolean;
+
+  /**
+   * When set, agents registered via the default `/api/v1/auth/register`
+   * route are given this user id as their `owner_user_id`, skipping the
+   * claim step. Intended for local dev / quickstart. Production MUST
+   * leave this unset and perform claim through an external auth
+   * provider (see docs/guides/custom-identity-provider.mdx).
+   */
+  devModeUserId?: string;
+
+  /**
+   * Optional bearer-token session validator (called from `network/connect`
+   * when the caller authenticates with a `sessionToken`). Unset → bearer-
+   * token auth is unsupported; only `agentKey` auth works.
+   */
+  sessionValidator?: SessionValidator;
+
+  /**
+   * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
+   * fanout and user-side adapters (contact/user services). If unset,
+   * `createCoreApp` constructs a default `new WebhookClient()`. Tests may
+   * inject a fake to intercept outbound HTTP.
+   */
+  webhookClient?: WebhookClient;
+
+  /**
+   * When true, core does not mount its default `/api/v1/auth/register`
+   * route. Apps that want their own invite-gated / rate-limited register
+   * flow set this and mount their own handler.
+   */
+  skipDefaultRegisterRoute?: boolean;
+
+  /**
+   * Fire-and-forget HTTP webhook after message delivery with the list of
+   * offline recipient agent IDs. Body is signed with HMAC-SHA256 in the
+   * `X-MoltZap-Signature: sha256=&lt;hex>` header using `secret`.
+   *
+   * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
+   *
+   * Dispatched on a detached daemon fiber with a 3-attempt exponential backoff
+   * (1s base, jittered). Failures log and drop — never block `messages/send`.
+   */
+  deliveryWebhook?: { url: string; secret: string };
+
+  /**
+   * Optional OpenTelemetry span processor. Tests typically pass
+   * `new SimpleSpanProcessor(new InMemorySpanExporter())` so they can
+   * read finished spans via the exporter; production deployments
+   * usually leave this unset and rely on `OTEL_EXPORTER_OTLP_ENDPOINT`
+   * env var (the server builds a `BatchSpanProcessor(OTLPTraceExporter)`
+   * when set). When neither is provided, spans live in Effect's fiber
+   * context but are not exported.
+   */
+  spanProcessor?: SpanProcessor;
+}
+```
+
+### [`loadStandaloneConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/config.ts#L923)
+
+_Function_
+
+```ts
+export function loadStandaloneConfig(
+  input: LoadStandaloneConfigInput = {},
+): Effect.Effect<StandaloneBootPlan, ConfigLoadError>
+```
+
+### [`LoadStandaloneConfigInput`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/config.ts#L914)
+
+_Interface_
+
+```ts
+export interface LoadStandaloneConfigInput {
+  /** Path to the YAML config file. Falls back to `MOLTZAP_CONFIG` env or `moltzap.yaml`. Missing file is tolerated as empty config UNLESS the path is explicit. */
+  readonly configPath?: string;
+  /** Override env reads (tests). Production omits — env comes from `process.env`. */
+  readonly processEnv?: ProcessEnvSnapshot;
+}
+```
+
+### [`SchemaFileNotFound`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/standalone.ts#L39)
 
 _Class_
 
@@ -23,7 +148,43 @@ export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
 }> {}
 ```
 
-### [`StandaloneOperationFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/standalone.ts#L33)
+### [`StandaloneBootPlan`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/config.ts#L117)
+
+_Interface_
+
+```ts
+export interface StandaloneBootPlan {
+  /** DATABASE_URL or YAML `database.url`. Empty string → embedded PGlite. */
+  readonly databaseUrl: string;
+  /** YAML `database.data_dir` for PGlite (ignored when `databaseUrl` is set). */
+  readonly pgliteDataDir: string | undefined;
+
+  readonly encryptionMasterSecret: string | undefined;
+  readonly port: number;
+  readonly corsOrigins: string[];
+
+  readonly devMode: boolean;
+  /** True when YAML `dev_mode.enabled: true` — drives `devModeUserId` minting. */
+  readonly devModeEnabled: boolean;
+  /** YAML `dev_mode.user_id`. When `devModeEnabled` and this is undefined, callers mint a random UUID. */
+  readonly devModeUserId: string | undefined;
+
+  readonly registrationSecret: string | undefined;
+
+  /** YAML `services.sessions: { type: "webhook" }` — drives `WebhookSessionValidator` wiring. */
+  readonly sessionWebhook: WebhookServiceBinding | undefined;
+  /** YAML `services.contacts: { type: "webhook" }` — drives `WebhookContactService` wiring. */
+  readonly contactWebhook: WebhookServiceBinding | undefined;
+
+  /** YAML `apps[]` — manifest references carried through from the config file. */
+  readonly apps: ReadonlyArray<{ readonly manifest: string }>;
+
+  /** Directory of the loaded YAML file (for resolving relative app manifest paths). */
+  readonly configDirectory: string;
+}
+```
+
+### [`StandaloneOperationFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/standalone.ts#L31)
 
 _Class_
 
@@ -37,7 +198,7 @@ export class StandaloneOperationFailed extends Data.TaggedError(
 }> {}
 ```
 
-### [`startServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/standalone.ts#L257)
+### [`startServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/standalone.ts#L255)
 
 _Function_
 
@@ -47,4 +208,5 @@ export function startServer(configPath?: string)
 
 ## Files
 
+- `config.ts`
 - `standalone.ts`
