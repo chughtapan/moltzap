@@ -8,7 +8,8 @@ transport, no I/O — every other package depends on this one.
 
 ```
 packages/protocol/src/
-├── schema-primitives.ts    # brandedId, brandedString, stringEnum, DateTimeString
+├── schema-primitives.ts    # brandedId, brandedString, stringEnum, DateTimeString, listCursorSchema
+├── pagination.ts           # DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, ListLimitSchema (list-RPC limit source of truth)
 ├── version.ts              # PROTOCOL_VERSION
 ├── rpc-registry.ts         # Aggregated method + notification tables; decoders
 │
@@ -48,6 +49,7 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | Export | Layer | Purpose |
 |---|---|---|
 | `PROTOCOL_VERSION` | root | Wire-format version constant |
+| `DEFAULT_PAGE_LIMIT` / `MAX_PAGE_LIMIT` / `ListLimitSchema` | pagination | List-RPC page-limit source of truth (default 50, cap 200); the shared optional `limit` param shape |
 | `rpcMethods` | rpc-registry | All C↔S request methods (frozen array) |
 | `notificationDefinitions` | rpc-registry | All S↔C notifications |
 | `decodeServerInbound` / `decodeClientInbound` | rpc-registry | Tagged-union frame decoders, fail-closed |

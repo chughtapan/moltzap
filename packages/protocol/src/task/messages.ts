@@ -1,5 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { brandedId, dateTimeStringSchema } from "../schema-primitives.js";
+import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ajv } from "../transport/wire.js";
@@ -213,7 +214,7 @@ export const MessagesList = defineRpc({
           description: "Snowflake seq cursor (string-encoded BIGINT)",
         }),
       ),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      limit: ListLimitSchema,
     },
     { additionalProperties: false },
   ),

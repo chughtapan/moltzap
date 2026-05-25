@@ -16,6 +16,7 @@
 import {
   MoltZapChannelCore,
   MoltZapService,
+  drainPaginatedList,
   type ChannelService,
   type CrossConvMessage,
   type EnrichedInboundMessage,
@@ -86,19 +87,6 @@ class MoltZapClientNotConnectedError extends Data.TaggedError(
 }> {
   override get message(): string {
     return `MoltZap client not connected for account ${this.accountId}`;
-  }
-}
-
-// A server that returns a non-advancing `nextCursor` (one already seen)
-// would loop the drain forever; fail typed so the caller's `catchAll`
-// degrades to an empty list instead of hanging.
-class MoltZapNonAdvancingCursorError extends Data.TaggedError(
-  "MoltZapNonAdvancingCursorError",
-)<{
-  readonly method: string;
-}> {
-  override get message(): string {
-    return `Pagination cursor for ${this.method} did not advance — refusing to loop`;
   }
 }
 
@@ -634,52 +622,6 @@ function getActiveService(
   accountId?: string | null,
 ) {
   return activeClients.get(accountId ?? DEFAULT_ACCOUNT_ID);
-}
-
-// Drain every page of a cursor-paginated list RPC whose result is
-// `{ [K]: T[], nextCursor? }`, echoing the opaque `nextCursor` back as
-// the next page's `cursor`. The list RPCs return a bounded page by
-// default, so a directory consumer that needs the complete set must page
-// through here.
-function drainPaginatedList<
-  D extends RpcDefinition<string, any, any>,
-  K extends keyof ResultOf<D>,
->(
-  sendRpc: NonNullable<OpenClawClientService["sendRpc"]>,
-  definition: D,
-  collectionKey: K,
-): Effect.Effect<
-  ResultOf<D>[K],
-  ServiceRpcError | MoltZapNonAdvancingCursorError
-> {
-  return Effect.gen(function* () {
-    const acc: Array<
-      ResultOf<D>[K] extends ReadonlyArray<infer E> ? E : never
-    > = [];
-    // Cycle guard, not a page cap: a repeated cursor means the server is
-    // not advancing, so fail typed rather than loop forever.
-    const seenCursors = new Set<string>();
-    let cursor: string | undefined;
-    let more = true;
-    while (more) {
-      const params = (cursor !== undefined ? { cursor } : {}) as ParamsOf<D>;
-      const page = yield* sendRpc(definition, params);
-      const rows = page[collectionKey] as ReadonlyArray<
-        ResultOf<D>[K] extends ReadonlyArray<infer E> ? E : never
-      >;
-      acc.push(...rows);
-      const nextCursor = (page as { readonly nextCursor?: string }).nextCursor;
-      if (nextCursor !== undefined && seenCursors.has(nextCursor)) {
-        return yield* Effect.fail(
-          new MoltZapNonAdvancingCursorError({ method: definition.name }),
-        );
-      }
-      if (nextCursor !== undefined) seenCursors.add(nextCursor);
-      cursor = nextCursor;
-      more = nextCursor !== undefined;
-    }
-    return acc as ResultOf<D>[K];
-  });
 }
 
 // `agents/lookup` caps `agentIds` at `maxItems: 100`, so resolve a larger

@@ -66,6 +66,28 @@ timestamp.
 - **`MessagesList` is unchanged** (`sinceSeq` + `hasMore`): already an
   opaque, bounded, monotonic per-conversation seq cursor; request-bounded
   by construction.
+- **Limit reconciliation (`@moltzap/protocol`):** Every list-RPC `limit`
+  param now shares one schema (`ListLimitSchema`) backed by two exported
+  constants, `DEFAULT_PAGE_LIMIT` (50) and `MAX_PAGE_LIMIT` (200). The
+  six copy-pasted server default/clamp constants
+  (`DEFAULT_TASK_LIST_LIMIT`, `DEFAULT_MESSAGE_HISTORY_LIMIT`,
+  `DEFAULT_CONVERSATION_LIST_LIMIT`, `DEFAULT_AGENTS_LIST_LIMIT`,
+  `DEFAULT_CONTACTS_LIST_LIMIT`, `MAX_MESSAGE_HISTORY_LIMIT`) are deleted
+  in favor of importing the protocol constants, so the wire cap and the
+  server clamp can no longer drift.
+- **Cap raise — `task/conversation/list`:** `limit` ceiling raised
+  100 → 200 to match the rest of the list surface (`MAX_PAGE_LIMIT`).
+- **Cap raise — message history (server clamp):** the message-history
+  server clamp raised 100 → 200, aligning to the protocol, which already
+  allowed `limit` up to 200 on `messages/list` — fixes a latent
+  protocol/server mismatch where the server silently truncated a
+  protocol-valid request.
+- **Internal (`@moltzap/client`):** The generic cursor-list drainer
+  `drainPaginatedList` (and its cycle-guard error, renamed
+  `MoltZapNonAdvancingCursorError` → `NonAdvancingCursorError`) moves
+  from `@moltzap/openclaw-channel` into `@moltzap/client` so any channel
+  or CLI that needs the complete result set (not just one page) can reuse
+  it. openclaw's directory re-imports it; behavior is unchanged.
 
 ### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
 

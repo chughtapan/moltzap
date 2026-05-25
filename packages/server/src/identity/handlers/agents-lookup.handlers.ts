@@ -3,6 +3,7 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
+  DEFAULT_PAGE_LIMIT,
   InvalidParamsError,
   type AgentCard,
 } from "@moltzap/protocol";
@@ -20,8 +21,6 @@ import {
   sortKeyExpr,
   type ListCursorPosition,
 } from "../../db/list-cursor.js";
-
-const DEFAULT_AGENTS_LIST_LIMIT = 50;
 
 function toAgentCard(row: {
   id: AgentId;
@@ -192,7 +191,7 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
         return yield* agentsListPage({
           callerAgentId: ctx.agentId,
           callerOwnerUserId: ctx.ownerUserId,
-          limit: params.limit ?? DEFAULT_AGENTS_LIST_LIMIT,
+          limit: params.limit ?? DEFAULT_PAGE_LIMIT,
           pos,
         });
       }).pipe(Effect.withSpan("agents.list.handler")),

@@ -26,6 +26,7 @@ import {
 } from "../../db/list-cursor.js";
 import type { Transaction } from "../../db/kysely-vendor.js";
 import {
+  DEFAULT_PAGE_LIMIT,
   ForbiddenError,
   NotFoundError,
   ParticipantNotAdmittedError,
@@ -67,8 +68,6 @@ const ERR_TASK_NOT_OPEN = "Task is not open for mutation";
 function absurdTaskStatus(status: never): never {
   throw new Error(`unreachable task status: ${JSON.stringify(status)}`);
 }
-
-const DEFAULT_TASK_LIST_LIMIT = 50;
 
 interface TaskRow {
   readonly id: TaskId;
@@ -322,7 +321,7 @@ export class TaskService {
     caller: AgentId,
     input: TaskListInput,
   ): Effect.Effect<TaskListPage, InvalidCursorError> {
-    const limit = input.limit ?? DEFAULT_TASK_LIST_LIMIT;
+    const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
     return Effect.gen(this, function* () {
       const pos =
         input.cursor === undefined
