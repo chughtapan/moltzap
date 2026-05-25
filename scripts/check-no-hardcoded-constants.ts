@@ -242,7 +242,7 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
   });
 
   // HELLO_* policy fields baked from `buildHelloOk` in
-  // `packages/server/src/task/handlers/connect.handlers.ts`. Each rule
+  // `packages/server/src/identity/handlers/connect.handlers.ts`. Each rule
   // matches `<jsonKey>": <value>` (and `<jsonKey>: <value>` for YAML
   // contexts) — anchoring on the policy key avoids false positives on
   // common numeric literals like `10` (pnpm version) or `30000`

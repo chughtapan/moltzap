@@ -1,7 +1,7 @@
 /** Webhook-backed contact service adapter. */
 
 import { Effect, Schema } from "effect";
-import type { ContactService } from "../app/app-host.js";
+import type { ContactService } from "../identity/services/contact-policy.js";
 import type { WebhookClient } from "./webhook.js";
 
 const ContactsCheckResponse = Schema.Struct({ inContact: Schema.Boolean });

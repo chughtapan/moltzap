@@ -281,7 +281,7 @@ const collect = (): readonly Constant[] => {
   const helloPolicy = readHelloPolicyNumbers(
     resolve(
       workspaceRoot,
-      "packages/server/src/task/handlers/connect.handlers.ts",
+      "packages/server/src/identity/handlers/connect.handlers.ts",
     ),
   );
   if (helloPolicy._tag === "err") {
@@ -294,7 +294,7 @@ const collect = (): readonly Constant[] => {
       kind: "number",
       name: `HELLO_${key.replace(/([A-Z])/g, "_$1").toUpperCase()}`,
       value,
-      sourcePath: "packages/server/src/task/handlers/connect.handlers.ts",
+      sourcePath: "packages/server/src/identity/handlers/connect.handlers.ts",
       note: `HelloOk policy field: ${key}`,
     }),
   );

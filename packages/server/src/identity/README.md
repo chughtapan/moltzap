@@ -17,7 +17,12 @@ Registration, claim, login, contacts, participants, agent visibility.
 - `services/agent-visibility.ts` (from `services/`)
 - `services/session-validator.ts` (from `services/`)
 - `services/agent-auth.ts` (from `auth/`)
-- `handlers/auth.handlers.ts` (from `network/handlers/` — identity-conceptual)
+- `services/contact-policy.ts` — `ContactService` policy contract
+  (the cross-user reach predicate `AppHost` asks at runtime).
+- `handlers/agents-lookup.handlers.ts` — `agents/lookup`.
+- `handlers/connect.handlers.ts` — `network/connect` post-auth wiring
+  (auth handshake is an identity concern).
+- `handlers/contacts.handlers.ts` — `contacts/*`.
 
 ## Handler shape (post-2A.0)
 

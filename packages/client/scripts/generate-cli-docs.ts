@@ -12,7 +12,7 @@
  *   - `docs/snippets/cli-global-flags.mdx` — root-command global flags block.
  *   - `docs/snippets/server-hello-policy.mdx` — HelloOk policy JSON
  *     extracted from `buildHelloOk` in
- *     `packages/server/src/task/handlers/connect.handlers.ts`.
+ *     `packages/server/src/identity/handlers/connect.handlers.ts`.
  *
  * Hook into `pnpm docs:generate`; `pnpm docs:check:drift` then catches
  * any drift between the CLI source and these files.
@@ -458,7 +458,7 @@ const HELLO_FIELDS: ReadonlySet<string> = new Set([
 const readHelloPolicy = (): ReadResult<HelloPolicy> => {
   const sourcePath = resolve(
     workspaceRoot,
-    "packages/server/src/task/handlers/connect.handlers.ts",
+    "packages/server/src/identity/handlers/connect.handlers.ts",
   );
   const found = collectNumericProperties(
     readFileSync(sourcePath, "utf8"),
