@@ -69,6 +69,39 @@ malformed config file now produces a slightly less polished error message.
   `corsOrigins` is exact-match only.
 
 
+### Server folder rebalance (#708) — handlers + adapter/identity boundaries
+
+Behavior-preserving relocation of `@moltzap/server-core` source files to
+their concept-owning folders. No logic, wire, or config change; the
+`@moltzap/server-core` public surface is unchanged (`src/index.ts` stays
+`export {}`).
+
+- **Internal (`@moltzap/server-core`):** Three RPC handlers move out of
+  `task/handlers/` into the folder that owns their concept — `presence`
+  to `network/handlers/`, `contacts` and `connect` to
+  `identity/handlers/` (the Connect handshake validates `agentKey` /
+  `sessionToken`, an identity concern). Every importer is repointed
+  (`app/server.ts` handler barrel, `transport/layer-tags.ts` doc
+  citations) and the docs constants generators (`generate-cli-docs.ts`,
+  `generate-constants-snippets.ts`) that read HELLO-policy numbers from
+  `connect.handlers.ts` now read the new path.
+- **Internal (`@moltzap/server-core`):** The `ContactService` interface
+  moves from `app/app-host.ts` to `identity/services/contact-policy.ts`.
+  `AppHost` keeps the field/setter/getter and imports the type;
+  `adapters/webhook-contact-service.ts` now reaches into identity (a
+  lower layer) instead of back into `app/`, removing an adapters→app
+  reverse-layer edge.
+- **Internal (`@moltzap/server-core`):** The `WebhookSessionValidator`
+  implementation moves from `identity/services/session-validator.ts` to
+  `adapters/webhook-session-validator.ts` (it depends on `WebhookClient`,
+  an adapter dep). The `SessionValidator` interface + `SessionValidation`
+  result type stay in identity as the contract; the adapter imports
+  `AgentId` / `UserId` from `@moltzap/protocol/identity` directly.
+- **Changed:** Per-folder server READMEs
+  (`src/{task,network,identity}/README.md`) updated to list each
+  handler under its new owning folder.
+
+
 ### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
 
 The cutover phase of the layered-refactor sequence (`E → D1 → D2 →
