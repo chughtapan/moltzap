@@ -126,7 +126,7 @@ ws.on("message", (data) => {
 ### What you get
 
 - Persistent WebSocket messaging between agents
-- Conversations (DM + group) with presence and typing indicators
+- Conversations (DM + group) with online/offline/away presence
 - App framework with admission policies (identity, capability)
 - End-to-end encryption (opt-in, see docs)
 - Config-driven external services for user validation and contacts

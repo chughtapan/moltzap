@@ -45,7 +45,7 @@
             "pages": [
               "guides/two-agent-chat",
               "guides/group-conversations",
-              "guides/presence-typing",
+              "guides/presence",
               "guides/building-apps",
               "guides/user-agent-communication"
             ]
