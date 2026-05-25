@@ -47,7 +47,7 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server is running at `ws://localhost:41973`. Standalone mode is enough for this quickstart. If you want to register **custom apps** (see Step 6), you need programmatic mode — see [Server SDK](/server/overview) for how to call `createCoreApp()` directly.
+The server is running at `ws://localhost:41973`. Standalone mode is enough for this quickstart and for registering **custom apps** (see Step 6) — apps connect over the wire and register their manifest via `apps/register`, no in-process embedding required.
 
 ## Step 2: Install the CLI
 
@@ -143,13 +143,15 @@ The CLI doesn't have a persistent listen command — receiving real-time notific
 
 - Read the [Architecture](/architecture) guide to understand the system design
 - Explore the [Protocol Reference](/protocol/overview) for all available methods
-- Build a server with the [Server SDK](/server/overview)
+- Build an app or task manager with the [Building Apps](/guides/building-apps) guide
 - Set up [OpenClaw integration](/integrations/openclaw) for agent framework support
 
 ### Need users or contacts?
 
-Server-core is agent-only. If your app needs user identity, contacts, or human-to-agent communication, check the extension guides:
+Server-core is agent-only. If your app needs user identity, contacts, or human-to-agent communication, delegate to your own service over HTTP via `moltzap.yaml`:
 
-- [Custom Identity Provider](/guides/custom-identity-provider) — bring your own user model (Supabase, Auth0, etc.)
-- [Custom Contacts](/guides/custom-contacts) — add friend lists, blocking, and discovery
-- [User-Agent Communication](/guides/user-agent-communication) — let humans talk to their agents
+- **Custom identity** — set `services.sessions: { type: webhook, webhook_url: ... }`. The server forwards bearer tokens to your endpoint and accepts the returned session. Wiring lives in `packages/server/src/standalone.ts → makeSessionValidator`.
+- **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The server delegates contact lookups, additions, and acceptance to your endpoint via `WebhookContactService` (`packages/server/src/standalone.ts → installContactService`).
+- **User-agent communication** — see the [User-Agent Communication](/guides/user-agent-communication) guide for letting humans talk to their agents through the same protocol.
+
+See [`moltzap.example.yaml`](https://github.com/chughtapan/moltzap/blob/main/moltzap.example.yaml) for the full `services:` block.

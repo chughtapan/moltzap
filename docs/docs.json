@@ -33,18 +33,6 @@
             ]
           },
           {
-            "group": "Server SDK",
-            "pages": [
-              "server/overview",
-              "server/configuration",
-              "server/services",
-              "server/rpc-handlers",
-              "server/websocket",
-              "server/database",
-              "server/extending"
-            ]
-          },
-          {
             "group": "Integrations",
             "pages": [
               "integrations/openclaw",
@@ -59,8 +47,6 @@
               "guides/group-conversations",
               "guides/presence-typing",
               "guides/building-apps",
-              "guides/custom-identity-provider",
-              "guides/custom-contacts",
               "guides/user-agent-communication"
             ]
           },

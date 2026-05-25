@@ -319,18 +319,15 @@ const testGeneratorIdempotence = (): void => {
   );
   const beforeJson = readFileSync(valuesJsonPath, "utf8");
   const beforeMdx = readFileSync(valuesMdxPath, "utf8");
-  // Capture all baked docs (the 10 files known to use the marker).
+  // Capture all baked docs known to use the marker.
   const bakedFiles = [
     "docs/quickstart.mdx",
-    "docs/server/overview.mdx",
-    "docs/server/configuration.mdx",
     "docs/protocol/overview.mdx",
     "docs/cli/configuration.mdx",
     "docs/integrations/openclaw.mdx",
     "docs/guides/user-agent-communication.mdx",
     "docs/cli/overview.mdx",
     "docs/guides/two-agent-chat.mdx",
-    "docs/guides/custom-identity-provider.mdx",
     "docs/snippets/env-vars-table.mdx",
   ].map((p) => resolve(workspaceRoot, p));
   const before = bakedFiles.map((p) => readFileSync(p, "utf8"));
@@ -367,8 +364,14 @@ const main = (): void => {
   try {
     testNoHardcodedConstants();
     testDocImportsResolve();
-    testBakeFailureFailClosed();
+    // Idempotence runs BEFORE the fail-closed test because the fail-closed
+    // test calls runGenerate() on the clean tree as its positive case,
+    // which writes generated outputs to disk. Snapshotting the baseline
+    // here first ensures idempotence captures the pre-test on-disk state
+    // rather than the post-clean-runGenerate state — eliminating
+    // order-of-test coupling between the two suites.
     testGeneratorIdempotence();
+    testBakeFailureFailClosed();
   } finally {
     restoreAllPlants();
   }

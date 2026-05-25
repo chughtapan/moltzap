@@ -8,7 +8,7 @@ _`packages/server/src`_
 
 ## Public surface
 
-### [`ConfigLoadError`](./config.ts#L153)
+### [`ConfigLoadError`](./config.ts#L155)
 
 _Class_
 
@@ -23,7 +23,7 @@ export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
 }> {}
 ```
 
-### [`ConfigLoadErrorKind`](./config.ts#L151)
+### [`ConfigLoadErrorKind`](./config.ts#L153)
 
 _TypeAlias_
 
@@ -59,7 +59,9 @@ export interface CoreConfig {
    * route are given this user id as their `owner_user_id`, skipping the
    * claim step. Intended for local dev / quickstart. Production MUST
    * leave this unset and perform claim through an external auth
-   * provider (see docs/guides/custom-identity-provider.mdx).
+   * provider — wire it via `services.sessions: { type: webhook }` in
+   * `moltzap.yaml` (see `moltzap.example.yaml` and
+   * `packages/server/src/standalone.ts → makeSessionValidator`).
    */
   devModeUserId?: string;
 
@@ -72,9 +74,9 @@ export interface CoreConfig {
 
   /**
    * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
-   * fanout and user-side adapters (contact/user services). If unset,
-   * `createCoreApp` constructs a default `new WebhookClient()`. Tests may
-   * inject a fake to intercept outbound HTTP.
+   * fanout and user-side adapters (contact/session services). If unset,
+   * the composition root constructs a default `new WebhookClient()`.
+   * Tests may inject a fake to intercept outbound HTTP.
    */
   webhookClient?: WebhookClient;
 
@@ -110,7 +112,7 @@ export interface CoreConfig {
 }
 ```
 
-### [`loadStandaloneConfig`](./config.ts#L923)
+### [`loadStandaloneConfig`](./config.ts#L925)
 
 _Function_
 
@@ -120,7 +122,7 @@ export function loadStandaloneConfig(
 ): Effect.Effect<StandaloneBootPlan, ConfigLoadError>
 ```
 
-### [`LoadStandaloneConfigInput`](./config.ts#L914)
+### [`LoadStandaloneConfigInput`](./config.ts#L916)
 
 _Interface_
 
@@ -143,7 +145,7 @@ export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
 }> {}
 ```
 
-### [`StandaloneBootPlan`](./config.ts#L117)
+### [`StandaloneBootPlan`](./config.ts#L119)
 
 _Interface_
 
