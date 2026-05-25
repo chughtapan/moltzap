@@ -194,10 +194,40 @@ const discoverFolders = (
       const hasIndex = yield* fs
         .exists(indexPath)
         .pipe(Effect.catchAll(() => Effect.succeed(false)));
-      if (hasIndex) seen.add(folder);
+      if (!hasIndex) continue;
+      if (isPackageRoot(folder, path)) {
+        const indexSource = yield* fs
+          .readFileString(indexPath)
+          .pipe(Effect.catchAll(() => Effect.succeed("")));
+        if (isEmptyBarrelSource(indexSource)) continue;
+      }
+      seen.add(folder);
     }
     return [...seen].sort();
   });
+
+/**
+ * `packages/&lt;pkg&gt;/src` is the package root. Sub-folders below `src/`
+ * keep their own opt-in via the leading-JSDoc gate in `renderFolder`.
+ */
+function isPackageRoot(folder: string, path: Path.Path): boolean {
+  const parts = folder.split(path.sep);
+  return parts.length === 3 && parts[0] === "packages" && parts[2] === "src";
+}
+
+/**
+ * True when `src/index.ts` is intentionally empty (`export {};`) — no
+ * value re-exports. Used to skip MODULE/MDX emission for packages whose
+ * public surface is the bin, not a programmatic API.
+ */
+function isEmptyBarrelSource(source: string): boolean {
+  const cleaned = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/export\s*\{\s*\}\s*;?/g, "")
+    .trim();
+  return cleaned.length === 0;
+}
 
 const renderFolder = (
   folder: string,

@@ -21,7 +21,7 @@ packages/server/src/
 │   ├── capability-providers.ts # serverCapabilityProviders obtain table
 │   ├── handlers/             # apps.handlers, task-request.handler
 │   ├── layers.ts             # Tag definitions + Live composition (Tier 1-6)
-│   └── types.ts              # CoreConfig, CoreApp, branded IDs + Hook<TContext, TResult>
+│   └── types.ts              # CoreConfig, CoreApp, branded IDs + ConnectionHook / DisconnectionHook (no generic Hook<T,R>)
 ├── identity/           # Auth, agents, sessions, participants
 ├── network/            # Ping, presence, connection liveness, send routing
 ├── task/               # Conversations, messages, dispatch lease lifecycle

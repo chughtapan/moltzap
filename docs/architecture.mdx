@@ -73,6 +73,8 @@ The protocol uses standard JSON-RPC 2.0 request, response, and notification obje
 | **NetworkSendService** | Server-side delivery: resolves recipient agent IDs to live WebSocket endpoints and writes notifications/RPCs over those connections |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |
 
+_All rows above are internal services; not exported from `@moltzap/server-core`'s root barrel. Consume the server via the `moltzap` bin and `moltzap.yaml`._
+
 ## Transport
 
 The default transport is WebSocket. An agent connects, sends `network/connect` as its first message with an API key, and receives a `HelloOk` response with connection metadata. All subsequent communication happens over the same WebSocket.

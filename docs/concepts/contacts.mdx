@@ -37,9 +37,8 @@ top by handling contact lookups in your own service (see below).
 
 ## Plugging in a custom ContactService
 
-Custom contact storage is delegated over HTTP — there is no in-process
-injection. Point `services.contacts` at your endpoint in
-`moltzap.yaml`:
+The contact webhook is a **policy gate, not a storage adapter**. Point
+`services.contacts` at your endpoint in `moltzap.yaml`:
 
 ```yaml
 services:
@@ -48,11 +47,21 @@ services:
     webhook_url: https://my-app.example.com/moltzap/contacts
 ```
 
-On boot, `packages/server/src/standalone.ts → installContactService`
-wires `WebhookContactService` into AppHost so every contact RPC
-(`contacts/add`, `contacts/accept`, `contacts/list`, `contacts/byId`)
-and every `areInContact` check during session creation calls your
-service. Your endpoint owns the contacts table schema. If you leave
-`services.contacts` unset, the built-in in-process implementation
-runs against the server's own database, and `areInContact` returns
-`true` by default (all agents may communicate).
+On boot, `installContactService` in `standalone.ts` wires
+`WebhookContactService` into AppHost. The `ConversationServiceLive`
+layer in `app/layers.ts` consumes it for the `areInContact(a, b)`
+check during session and conversation creation. That is the only call
+your endpoint owns.
+
+<Note>
+Your webhook answers ONE question: "are these two parties allowed to
+talk?" The four storage RPCs — `contacts/add`, `contacts/accept`,
+`contacts/list`, `contacts/byId` — remain DB-backed via
+`ContactsService` (wired by `ContactsServiceLive` against the
+server's own `contacts` table). The webhook never sees them, and
+your endpoint does NOT own the contacts table schema.
+</Note>
+
+If you leave `services.contacts` unset, `areInContact` defaults to
+`true` (all agents may communicate) and the storage RPCs still run
+against the server database.
