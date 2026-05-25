@@ -26,7 +26,7 @@ It writes a minimal `moltzap.yaml`, builds the workspace, starts the server, reg
 
 ```bash
 source .moltzap/agents.env
-pnpm --filter @moltzap/client moltzap \
+pnpm --filter @moltzap/client exec moltzap \
   --as "$MOLTZAP_ALICE_KEY" start "alice-bob chat" agent:bob \
   --message "Hello from Alice!"
 ```
