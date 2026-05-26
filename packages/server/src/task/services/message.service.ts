@@ -21,15 +21,7 @@ import {
   NotFoundError,
   TaskClosedError,
 } from "@moltzap/protocol";
-import {
-  Cause,
-  Duration,
-  Effect,
-  Fiber,
-  Option,
-  Schedule,
-  Schema,
-} from "effect";
+import { Cause, Duration, Effect, Fiber, Option, Schedule } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 
 export type MessageServiceError =
@@ -43,9 +35,11 @@ import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
 import { opaquePayload } from "../../network/network-send.js";
 import {
-  type WebhookClient,
-  signWebhookPayload,
-} from "../../adapters/webhook.js";
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "@effect/platform";
+import { signWebhookPayload } from "../../crypto/webhook-signature.js";
 import {
   type EnvelopeEncryption,
   generateDek,
@@ -137,7 +131,7 @@ export interface MessageServiceDeps {
   readonly networkSend: NetworkSendService;
   readonly encryption: EnvelopeEncryption | null;
   readonly deliveryWebhook: DeliveryWebhookConfig | null;
-  readonly webhookClient: WebhookClient | null;
+  readonly httpClient: HttpClient.HttpClient;
 
   /**
    * #560: AppHost owns the `messages/authorize` registry and runner.
@@ -183,7 +177,7 @@ export class MessageService {
   private readonly networkSendService: NetworkSendService;
   private readonly encryption: EnvelopeEncryption | null;
   private readonly deliveryWebhook: DeliveryWebhookConfig | null;
-  private readonly webhookClient: WebhookClient | null;
+  private readonly httpClient: HttpClient.HttpClient;
   private readonly appHost: AppHost | null;
 
   constructor(deps: MessageServiceDeps) {
@@ -192,7 +186,7 @@ export class MessageService {
     this.networkSendService = deps.networkSend;
     this.encryption = deps.encryption;
     this.deliveryWebhook = deps.deliveryWebhook;
-    this.webhookClient = deps.webhookClient;
+    this.httpClient = deps.httpClient;
     this.appHost = deps.appHost;
   }
 
@@ -623,7 +617,7 @@ export class MessageService {
     recipientList: readonly AgentId[],
     delivered: readonly AgentId[],
   ): void {
-    if (this.deliveryWebhook === null || this.webhookClient === null) return;
+    if (this.deliveryWebhook === null) return;
     const deliveredSet = new Set(delivered);
     const offlineRecipientAgentIds = recipientList.filter(
       (id) => id !== input.senderAgentId && !deliveredSet.has(id),
@@ -767,11 +761,14 @@ export class MessageService {
     offlineRecipientAgentIds: AgentId[];
   }): Effect.Effect<void, never> {
     const cfg = this.deliveryWebhook;
-    const client = this.webhookClient;
     // Defensive: TS narrowing doesn't propagate across the fork boundary
     // in `spawnDeliveryWebhook`, so we re-check here.
-    if (!cfg || !client) return Effect.void;
+    if (!cfg) return Effect.void;
 
+    // HMAC byte-exactness: the signature MUST cover the exact bytes that
+    // go on the wire. `HttpClientRequest.bodyText(payload)` writes the
+    // pre-serialized string verbatim; `bodyJson` / `bodyUnsafeJson`
+    // re-stringify the object and would drift the signature.
     const payload = JSON.stringify(body);
     const signature = signWebhookPayload(cfg.secret, payload);
 
@@ -785,31 +782,32 @@ export class MessageService {
       Schedule.recurs(DELIVERY_WEBHOOK_MAX_ATTEMPTS - 1),
     );
 
-    return client
-      .call({
-        url: cfg.url,
-        event: "messages.delivered",
-        body: null,
-        bodyJson: payload,
-        timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
-        headers: { "X-MoltZap-Signature": signature },
-        // Fire-and-forget: receivers typically reply 204/empty, and
-        // anything they do send is discarded by `Effect.asVoid` below.
-        schema: Schema.Unknown,
-      })
-      .pipe(
-        Effect.retry(retrySchedule),
-        Effect.asVoid,
-        Effect.catchAll((err) =>
-          Effect.logError("Delivery webhook dropped after retries").pipe(
-            Effect.annotateLogs({
-              err: String(err),
-              url: cfg.url,
-              messageId: body.messageId,
-            }),
-          ),
+    const request = HttpClientRequest.post(cfg.url).pipe(
+      HttpClientRequest.setHeaders({
+        "Content-Type": "application/json",
+        "X-MoltZap-Event": "messages.delivered",
+        "X-MoltZap-Signature": signature,
+      }),
+      HttpClientRequest.bodyText(payload, "application/json"),
+    );
+
+    return this.httpClient.execute(request).pipe(
+      // Fire-and-forget: receivers typically reply 204/empty. We only
+      // care that the response was 2xx; the body is dropped by `asVoid`.
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.timeout(Duration.millis(DELIVERY_WEBHOOK_TIMEOUT_MS)),
+      Effect.retry(retrySchedule),
+      Effect.asVoid,
+      Effect.catchAll((err) =>
+        Effect.logError("Delivery webhook dropped after retries").pipe(
+          Effect.annotateLogs({
+            err: String(err),
+            url: cfg.url,
+            messageId: body.messageId,
+          }),
         ),
-      );
+      ),
+    );
   }
 
   list(

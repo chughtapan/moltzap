@@ -19,8 +19,8 @@ export type SessionValidation =
 /**
  * Identity-layer contract for app-minted bearer-session validation. The
  * in-process default is unset; `standalone.ts` wires a webhook-backed
- * implementation (`adapters/webhook-session-validator.ts`) when YAML
- * config declares `services.sessions.type: webhook`.
+ * implementation (`webhook-session-validator.ts` in this folder) when
+ * YAML config declares `services.sessions.type: webhook`.
  */
 export interface SessionValidator {
   validateSession(token: string): Effect.Effect<SessionValidation, never>;

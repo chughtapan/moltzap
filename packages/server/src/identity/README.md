@@ -19,6 +19,10 @@ Registration, claim, login, contacts, participants, agent visibility.
 - `services/agent-auth.ts` (from `auth/`)
 - `services/contact-policy.ts` — `ContactService` policy contract
   (the cross-user reach predicate `AppHost` asks at runtime).
+- `services/webhook-contact-service.ts` — webhook-backed
+  `ContactService` (transport: `@effect/platform/HttpClient`).
+- `services/webhook-session-validator.ts` — webhook-backed
+  `SessionValidator` (transport: `@effect/platform/HttpClient`).
 - `handlers/agents-lookup.handlers.ts` — `agents/lookup`.
 - `handlers/connect.handlers.ts` — `network/connect` post-auth wiring
   (auth handshake is an identity concern).
