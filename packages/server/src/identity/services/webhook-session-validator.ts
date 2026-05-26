@@ -53,6 +53,12 @@ export class WebhookSessionValidator implements SessionValidator {
         ),
       )
       .pipe(
+        // Drain the response body unconditionally before `filterStatusOk`.
+        // `response.text` is `Effect.cached`, so the subsequent
+        // `schemaBodyJson` reuses the same buffer on 2xx without
+        // re-reading the socket; on non-2xx, this prevents the body
+        // from being left for the FinalizationRegistry to reap.
+        Effect.tap((response) => response.text),
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(
           HttpClientResponse.schemaBodyJson(SessionValidateResponse),

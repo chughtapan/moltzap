@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `adapters/` deleted — webhook transport unified on `@effect/platform/HttpClient` (#709)
+
+Removes the bespoke ~282-line `WebhookClient` and the entire
+`packages/server/src/adapters/` folder (5 files, ~700 lines).
+Outbound webhooks (delivery fan-out, contact checks, session
+validation) now ride on `@effect/platform/HttpClient`, matching
+the project's Effect-native transport convention.
+
+- **Removed (`@moltzap/server-core`):** `packages/server/src/adapters/`
+  in full — `webhook.ts` (`WebhookClient` class + `signWebhookPayload` +
+  4 tagged errors), `webhook.test.ts`, `fetch-client.ts`,
+  `webhook-contact-service.ts`, `webhook-session-validator.ts`.
+- **Removed (public surface, `@moltzap/server-core`):**
+  `CoreConfig.webhookClient` (no in-repo consumer set it). The standard
+  test-override path is now `Layer.succeed(HttpClient.HttpClient, mockClient)`.
+- **Removed (internal, `@moltzap/server-core`):** `WebhookClientTag` —
+  `MessageServiceLive` consumes `HttpClient.HttpClient` directly via
+  the standard Tag; `MessageServiceDeps.webhookClient` is replaced by
+  `MessageServiceDeps.httpClient`.
+- **Moved (`@moltzap/server-core`):** The two webhook-backed identity
+  adapters relocate from `adapters/` into the layer that owns the
+  contract they implement —
+  `identity/services/webhook-contact-service.ts` and
+  `identity/services/webhook-session-validator.ts`. Their bodies swap
+  the bespoke `webhookClient.call(...)` for
+  `httpClient.execute(HttpClientRequest.post(...))` piped through
+  `HttpClientResponse.filterStatusOk` and
+  `HttpClientResponse.schemaBodyJson`; fail-closed semantics
+  (`false` / `{valid: false}`) are preserved across every error path.
+- **Moved (`@moltzap/server-core`):** The HMAC helper
+  `signWebhookPayload` relocates to
+  `packages/server/src/crypto/webhook-signature.ts` next to the rest
+  of the envelope/sig kernel. The sole caller is
+  `task/services/message.service.ts → fireDeliveryWebhook`, which
+  uses `HttpClientRequest.bodyText(payload, "application/json")` so
+  the bytes that go on the wire match the bytes fed to the HMAC
+  (using `bodyJson`/`bodyUnsafeJson` would re-stringify the object
+  and silently drift the signature; an explicit comment + a new
+  regression test pin this).
+- **Changed (`@moltzap/server-core`):** The prior
+  `Effect.Semaphore(10)` outbound-concurrency cap is preserved as a
+  process-wide shared semaphore via a new
+  `packages/server/src/app/outbound-webhook-cap.ts` module exporting
+  `applyOutboundWebhookCap(client)`, backed by a module-internal
+  `Effect.Semaphore(10)` constructed once at import. Both the CoreApp's
+  `HttpClientLive` (delivery webhook) and the standalone validator
+  wiring (`standalone.ts` for the YAML-wired session/contact
+  webhooks) pull from the SAME permit pool — matching the deleted
+  `WebhookClient(10)` behavior of "one process, one cap covers
+  every outbound webhook". Semantic delta vs main: the cap now
+  scopes to `httpClient.execute(request)` (headers-arrival) rather
+  than the full body-read/decode path, slightly weaker but still
+  bounds concurrent outbound requests.
+- **Changed (`@moltzap/server-core`):** The standalone
+  HttpClient is constructed via
+  `NodeHttpClient.layerUndiciWithoutDispatcher` provided with
+  `NodeHttpClient.dispatcherLayerGlobal` (the process-global Undici
+  dispatcher) instead of `NodeHttpClient.layerUndici`. The latter
+  wraps a fresh `Undici.Agent` in `Effect.acquireRelease`; the
+  surrounding `Effect.provide` scope would close the moment the
+  yield returned the client, destroying the Agent before the
+  validators could use it. The CoreApp's `HttpClientLive` keeps
+  `layerUndici` because it is properly scoped under `ManagedRuntime`
+  and disposes cleanly on `app.close()`.
+- **Added (`@moltzap/server-core`):** Focused tests
+  `identity/services/webhook-contact-service.test.ts` (7 cases —
+  wire shape, success branches, every fail-closed branch, plus a
+  `fast-check` property asserting fail-closed across the full
+  remote-failure space) and
+  `identity/services/webhook-session-validator.test.ts` (9 cases,
+  same shape with the discriminated-union response schema). A new
+  `task/services/message-service-delivery-hmac.test.ts` pins the
+  HMAC-byte-exactness contract: the `X-MoltZap-Signature` header
+  equals `signWebhookPayload(secret, captured_body_bytes)` for the
+  exact bytes the test HttpClient saw on the wire, blocking any
+  future `bodyText` → `bodyJson` regression.
+- **Changed (`@moltzap/server-core`):** Response bodies are now
+  explicitly drained on every webhook path (`Effect.tap((response)
+  => response.text)` before `filterStatusOk`). `response.text` is
+  `Effect.cached`, so the subsequent `schemaBodyJson` reuses the
+  buffer on 2xx; on non-2xx the socket buffer no longer waits for
+  the FinalizationRegistry to reap it.
+- **Internal notes:** `packages/server/src/identity/services/{webhook-contact-service,webhook-session-validator}.ts`
+  still cast the decoded JSON `agentId` / `ownerUserId` to the
+  branded `AgentId` / `UserId` types via `as`. This pre-existed the
+  refactor — the cleanup belongs in a follow-up that introduces
+  `Schema.fromBrand` for the identity types — and is intentionally
+  out of scope here.
+
 ### Documentation restructure — JSDoc as canonical home for flow diagrams
 
 - **Changed:** Per-flow architecture diagrams now live in JSDoc next

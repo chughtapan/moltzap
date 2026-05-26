@@ -8,6 +8,7 @@ import { Data, Effect, Layer } from "effect";
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { createCoreApp } from "./app/server.js";
+import { applyOutboundWebhookCap } from "./app/outbound-webhook-cap.js";
 import {
   loadStandaloneConfig,
   type CoreConfig,
@@ -278,25 +279,35 @@ function startServerEffect(
     yield* logDatabaseSelection(database.usePgLite);
     yield* migrateStandaloneDatabase(database.handle, bootPlan);
     // The standalone HttpClient backs the YAML-wired
-    // {session,contact}-webhook validators. We use the process-global
-    // Undici dispatcher (`dispatcherLayerGlobal`) instead of
-    // `layerUndici` — the latter is `Layer.scoped` over a fresh
-    // `Undici.Agent` whose finalizer would `dispatcher.destroy()` it
-    // the moment the surrounding `Effect.provide` scope closes (the
-    // line below). The validators would then issue requests against
-    // a destroyed Agent. The process-global dispatcher has no
-    // per-instance lifecycle, matching this client's server-lifetime
-    // role. The CoreApp constructs its own scoped Undici client for
-    // delivery webhooks (see `app/server.ts → HttpClientLive`); that
-    // one IS managed by the dispatch ManagedRuntime's scope and
-    // disposes cleanly on `app.close()`.
-    const httpClient = yield* HttpClient.HttpClient.pipe(
+    // {session,contact}-webhook validators. Two wiring concerns:
+    //
+    // 1. Dispatcher lifecycle. We use the process-global Undici
+    //    dispatcher (`dispatcherLayerGlobal`) instead of `layerUndici`
+    //    — the latter is `Layer.scoped` over a fresh `Undici.Agent`
+    //    whose finalizer would `dispatcher.destroy()` it the moment
+    //    the surrounding `Effect.provide` scope closes (the line
+    //    below). The validators would then issue requests against a
+    //    destroyed Agent. The process-global dispatcher has no
+    //    per-instance lifecycle, matching this client's server-
+    //    lifetime role. The CoreApp constructs its own scoped Undici
+    //    client for delivery webhooks (see `app/server.ts →
+    //    HttpClientLive`); that one IS managed by the dispatch
+    //    ManagedRuntime's scope and disposes cleanly on `app.close()`.
+    //
+    // 2. Outbound-webhook concurrency cap. We apply
+    //    {@link applyOutboundWebhookCap} so this client pulls from the
+    //    SAME process-wide `Effect.Semaphore(10)` as the CoreApp's
+    //    `HttpClientLive`. Result: one shared cap covers all three
+    //    outbound webhook paths (delivery + contacts + sessions),
+    //    matching the prior bespoke `WebhookClient(10)` behavior.
+    const rawHttpClient = yield* HttpClient.HttpClient.pipe(
       Effect.provide(
         NodeHttpClient.layerUndiciWithoutDispatcher.pipe(
           Layer.provide(NodeHttpClient.dispatcherLayerGlobal),
         ),
       ),
     );
+    const httpClient = applyOutboundWebhookCap(rawHttpClient);
     const sessionValidator = makeSessionValidator(bootPlan, httpClient);
     const devModeUserId = resolveDevModeUserId(bootPlan);
     yield* warnDevModeUserId(devModeUserId);

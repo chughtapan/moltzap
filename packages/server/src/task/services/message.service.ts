@@ -792,8 +792,13 @@ export class MessageService {
     );
 
     return this.httpClient.execute(request).pipe(
-      // Fire-and-forget: receivers typically reply 204/empty. We only
-      // care that the response was 2xx; the body is dropped by `asVoid`.
+      // Drain the response body unconditionally before `filterStatusOk`.
+      // Fire-and-forget receivers typically reply 204/empty, but
+      // 4xx/5xx bodies still carry diagnostic text; reading + discarding
+      // here ensures the socket buffer doesn't sit pending until the
+      // FinalizationRegistry reaps it. `response.text` is `Effect.cached`,
+      // so this is a single read either way.
+      Effect.tap((response) => response.text),
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.timeout(Duration.millis(DELIVERY_WEBHOOK_TIMEOUT_MS)),
       Effect.retry(retrySchedule),
