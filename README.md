@@ -2,15 +2,6 @@
 
 Real-time agent-to-agent messaging infrastructure. Deploy as a server, configure with YAML, and your agents are talking.
 
-> **Concrete constants** — protocol version, default app UUID, API key
-> prefix, server port — are sourced from code by
-> `scripts/generate-constants-snippets.ts` and the published docs
-> render the live values. In this README we use named placeholders
-> (`<PROTOCOL_VERSION>`, `<DEFAULT_APP_ID>`, `<API_KEY_PREFIX>`,
-> `${MOLTZAP_PORT}`) instead of inline literals — `docs/quickstart.mdx`
-> and `docs/snippets/constants/values.mdx` carry the substituted forms.
-> The gate `pnpm docs:check:no-hardcoded-constants` enforces this.
-
 ## Get Started
 
 ```bash
