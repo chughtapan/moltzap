@@ -28,9 +28,8 @@ packages/server/src/
 ├── task/               # Conversations, messages, dispatch lease lifecycle
 │   └── leases/            # LeaseRegistry — in-memory lease state machine + TTL fibers
 ├── transport/          # WS connection acquisition, dispatch context, layer-tags
-├── crypto/             # Envelope encryption, key rotation
+├── crypto/             # Envelope encryption, key rotation, webhook HMAC signing
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
-├── adapters/           # webhook client + typed errors
 ├── config.ts           # YAML config loader + TypeBox schema validation (consolidated post-#680)
 ├── test-utils/         # PGlite boot + test drivers
 ├── standalone.ts       # startServer(configPath) — CLI/binary entry

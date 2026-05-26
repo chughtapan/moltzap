@@ -4,7 +4,7 @@
  *
  * Two public types:
  *   - `CoreConfig` — the programmatic input to `createCoreApp(...)`.
- *     Live instances (Db, WebhookClient, SpanProcessor) sit here.
+ *     Live instances (Db, SpanProcessor) sit here.
  *   - `StandaloneBootPlan` — the flat output of `loadStandaloneConfig`.
  *     What `standalone.ts` reads after parsing YAML + env.
  *
@@ -35,7 +35,6 @@ import type { ConfigError } from "effect/ConfigError";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Db } from "./db/client.js";
 import type { SessionValidator } from "./identity/services/session-validator.js";
-import type { WebhookClient } from "./adapters/webhook.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Public: CoreConfig — `createCoreApp` boot input
@@ -67,14 +66,6 @@ export interface CoreConfig {
    * token auth is unsupported; only `agentKey` auth works.
    */
   sessionValidator?: SessionValidator;
-
-  /**
-   * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
-   * fanout and user-side adapters (contact/session services). If unset,
-   * the composition root constructs a default `new WebhookClient()`.
-   * Tests may inject a fake to intercept outbound HTTP.
-   */
-  webhookClient?: WebhookClient;
 
   /**
    * When true, core does not mount its default `/api/v1/auth/register`

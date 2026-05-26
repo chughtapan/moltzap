@@ -1,12 +1,29 @@
-/** Webhook-backed session validator adapter. */
+/**
+ * Webhook-backed {@link SessionValidator}.
+ *
+ * POSTs `{ token }` to the configured URL with a `timeoutMs` budget,
+ * decodes either a `{ valid: true, agentId, ownerUserId, agentStatus? }`
+ * or `{ valid: false }` response, and fail-closes (`{ valid: false }`)
+ * on any HTTP / network / timeout / decode error. Defects are logged at
+ * `error`; expected failures at `warning`. Wired in
+ * `standalone.ts → makeSessionValidator` when
+ * `services.sessions: { type: "webhook" }` appears in the YAML config.
+ *
+ * The transport is the `@effect/platform/HttpClient` Tag from
+ * `app/layers.ts`; tests override it via `Layer.succeed(HttpClient.HttpClient, mock)`.
+ */
 
-import { Cause, Effect, Schema } from "effect";
-import type { WebhookClient } from "./webhook.js";
+import {
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "@effect/platform";
+import { Cause, Duration, Effect, Schema } from "effect";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type {
   SessionValidation,
   SessionValidator,
-} from "../identity/services/session-validator.js";
+} from "./session-validator.js";
 
 const SessionValidateResponse = Schema.Union(
   Schema.Struct({
@@ -18,23 +35,29 @@ const SessionValidateResponse = Schema.Union(
   Schema.Struct({ valid: Schema.Literal(false) }),
 );
 
+const EVENT_NAME = "sessions.validate";
+
 export class WebhookSessionValidator implements SessionValidator {
   constructor(
-    private client: WebhookClient,
-    private url: string,
-    private timeoutMs: number,
+    private readonly httpClient: HttpClient.HttpClient,
+    private readonly url: string,
+    private readonly timeoutMs: number,
   ) {}
 
   validateSession(token: string): Effect.Effect<SessionValidation, never> {
-    return this.client
-      .call({
-        url: this.url,
-        event: "sessions.validate",
-        body: { token },
-        timeoutMs: this.timeoutMs,
-        schema: SessionValidateResponse,
-      })
+    return this.httpClient
+      .execute(
+        HttpClientRequest.post(this.url).pipe(
+          HttpClientRequest.setHeader("X-MoltZap-Event", EVENT_NAME),
+          HttpClientRequest.bodyUnsafeJson({ token }),
+        ),
+      )
       .pipe(
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap(
+          HttpClientResponse.schemaBodyJson(SessionValidateResponse),
+        ),
+        Effect.timeout(Duration.millis(this.timeoutMs)),
         Effect.map((result): SessionValidation => {
           if (result.valid !== true) return { valid: false };
           const agentStatus = result.agentStatus;

@@ -7,8 +7,9 @@
  * `CoreApp.setContactService(...)`.
  *
  * The default in-process implementation is wired via `contact.service.ts`;
- * `adapters/webhook-contact-service.ts` provides the webhook-backed
- * variant used by `standalone.ts` when YAML config declares one.
+ * `webhook-contact-service.ts` (in this folder) provides the
+ * webhook-backed variant used by `standalone.ts` when YAML config
+ * declares one.
  */
 
 import type { Effect } from "effect";
