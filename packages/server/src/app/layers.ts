@@ -4,6 +4,7 @@
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
  * Tag string convention: `moltzap/&lt;ClassName>`.
  */
+import { HttpClient } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
@@ -30,7 +31,6 @@ import {
   type LeaseRegistry,
 } from "../task/leases/lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
-import type { WebhookClient } from "../adapters/webhook.js";
 
 /** Default retention window for terminal lease records: 5 minutes. */
 const LEASE_RETENTION_MINUTES = 5;
@@ -137,19 +137,14 @@ export class SessionValidatorTag extends Context.Tag(
 )<SessionValidatorTag, SessionValidator | null>() {}
 
 /**
- * Shared outbound HTTP client used by {@link MessageService.deliveryWebhook}
- * for the fire-and-forget post-delivery push and by `WebhookSessionValidator`.
- * Separate Tag so connection pooling / semaphore sharing is controlled in
- * one place.
- */
-export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
-  WebhookClientTag,
-  WebhookClient
->() {}
-
-/**
  * Optional fire-and-forget message-delivery webhook. `null` means no
  * webhook — the fanout is skipped entirely.
+ *
+ * The transport (`@effect/platform/HttpClient.HttpClient`) is the
+ * standard Tag from `@effect/platform`; production wiring sits in
+ * `app/server.ts` (`NodeHttpClient.layerUndici`, optionally wrapped
+ * with a concurrency-cap `HttpClient.transform`). Tests override it
+ * via `Layer.succeed(HttpClient.HttpClient, mockClient)`.
  */
 export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
   DeliveryWebhookTag,
@@ -268,7 +263,7 @@ const MessageServiceLive = Layer.effect(
     const networkSend = yield* NetworkSendServiceTag;
     const encryption = yield* EncryptionTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
-    const webhookClient = yield* WebhookClientTag;
+    const httpClient = yield* HttpClient.HttpClient;
     const appHost = yield* AppHostTag;
     return new MessageService({
       db,
@@ -276,7 +271,7 @@ const MessageServiceLive = Layer.effect(
       networkSend,
       encryption,
       deliveryWebhook,
-      webhookClient,
+      httpClient,
       appHost,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),

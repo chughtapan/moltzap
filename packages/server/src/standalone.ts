@@ -4,9 +4,9 @@ import { randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "./db/sql.js";
-import { Data, Effect } from "effect";
-import { FileSystem } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
+import { Data, Effect, Layer } from "effect";
+import { FileSystem, HttpClient } from "@effect/platform";
+import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { createCoreApp } from "./app/server.js";
 import {
   loadStandaloneConfig,
@@ -17,9 +17,8 @@ import {
 import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
-import { WebhookClient } from "./adapters/webhook.js";
-import { WebhookContactService } from "./adapters/webhook-contact-service.js";
-import { WebhookSessionValidator } from "./adapters/webhook-session-validator.js";
+import { WebhookContactService } from "./identity/services/webhook-contact-service.js";
+import { WebhookSessionValidator } from "./identity/services/webhook-session-validator.js";
 import type { CoreApp } from "./app/types.js";
 import type { Database } from "./db/database.js";
 import type { Db } from "./db/client.js";
@@ -278,8 +277,27 @@ function startServerEffect(
     const database = yield* createStandaloneDatabase(bootPlan);
     yield* logDatabaseSelection(database.usePgLite);
     yield* migrateStandaloneDatabase(database.handle, bootPlan);
-    const webhookClient = new WebhookClient();
-    const sessionValidator = makeSessionValidator(bootPlan, webhookClient);
+    // The standalone HttpClient backs the YAML-wired
+    // {session,contact}-webhook validators. We use the process-global
+    // Undici dispatcher (`dispatcherLayerGlobal`) instead of
+    // `layerUndici` — the latter is `Layer.scoped` over a fresh
+    // `Undici.Agent` whose finalizer would `dispatcher.destroy()` it
+    // the moment the surrounding `Effect.provide` scope closes (the
+    // line below). The validators would then issue requests against
+    // a destroyed Agent. The process-global dispatcher has no
+    // per-instance lifecycle, matching this client's server-lifetime
+    // role. The CoreApp constructs its own scoped Undici client for
+    // delivery webhooks (see `app/server.ts → HttpClientLive`); that
+    // one IS managed by the dispatch ManagedRuntime's scope and
+    // disposes cleanly on `app.close()`.
+    const httpClient = yield* HttpClient.HttpClient.pipe(
+      Effect.provide(
+        NodeHttpClient.layerUndiciWithoutDispatcher.pipe(
+          Layer.provide(NodeHttpClient.dispatcherLayerGlobal),
+        ),
+      ),
+    );
+    const sessionValidator = makeSessionValidator(bootPlan, httpClient);
     const devModeUserId = resolveDevModeUserId(bootPlan);
     yield* warnDevModeUserId(devModeUserId);
     const coreConfig = makeCoreConfig({
@@ -287,10 +305,9 @@ function startServerEffect(
       handle: database.handle,
       devModeUserId,
       sessionValidator,
-      webhookClient,
     });
     const app = createCoreApp(coreConfig);
-    yield* installContactService(app, bootPlan, webhookClient);
+    yield* installContactService(app, bootPlan, httpClient);
     yield* logStandaloneStarted(app, database.usePgLite);
     return { app, bootPlan, stop: () => app.close() };
   }).pipe(Effect.withSpan("startServerEffect"));
@@ -327,12 +344,12 @@ function migrateStandaloneDatabase(
 
 function makeSessionValidator(
   bootPlan: StandaloneBootPlan,
-  webhookClient: WebhookClient,
+  httpClient: HttpClient.HttpClient,
 ): CoreConfig["sessionValidator"] {
   const binding = bootPlan.sessionWebhook;
   if (binding === undefined) return undefined;
   return new WebhookSessionValidator(
-    webhookClient,
+    httpClient,
     binding.url,
     binding.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
   );
@@ -359,7 +376,6 @@ function makeCoreConfig(options: {
   readonly handle: DbHandle;
   readonly devModeUserId: string | undefined;
   readonly sessionValidator: CoreConfig["sessionValidator"];
-  readonly webhookClient: WebhookClient;
 }): CoreConfig {
   const { bootPlan, handle } = options;
   return {
@@ -372,21 +388,20 @@ function makeCoreConfig(options: {
     devMode: bootPlan.devMode,
     devModeUserId: options.devModeUserId,
     sessionValidator: options.sessionValidator,
-    webhookClient: options.webhookClient,
   };
 }
 
 function installContactService(
   app: CoreApp,
   bootPlan: StandaloneBootPlan,
-  webhookClient: WebhookClient,
+  httpClient: HttpClient.HttpClient,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     const binding = bootPlan.contactWebhook;
     if (binding === undefined) return;
     app.setContactService(
       new WebhookContactService(
-        webhookClient,
+        httpClient,
         binding.url,
         binding.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
       ),

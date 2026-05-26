@@ -1,4 +1,5 @@
-import { NodeHttpServer } from "@effect/platform-node";
+import { HttpClient } from "@effect/platform";
+import { NodeHttpClient, NodeHttpServer } from "@effect/platform-node";
 import {
   Data,
   Duration,
@@ -29,8 +30,6 @@ import { taskHandlers } from "../task/handlers/tasks.handlers.js";
 import { appHandlers } from "./handlers/apps.handlers.js";
 import { taskRequestHandlers } from "./handlers/task-request.handler.js";
 
-import { WebhookClient } from "../adapters/webhook.js";
-
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "../config.js";
 import {
@@ -41,7 +40,6 @@ import {
   EncryptionTag,
   ServicesLive,
   SessionValidatorTag,
-  WebhookClientTag,
   resolveServices,
 } from "./layers.js";
 import { installDefaultApp } from "./default-app.js";
@@ -51,6 +49,34 @@ import { makeSocketHandler } from "./socket-handler.js";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
+
+/**
+ * Outbound webhook concurrency cap. Preserves the `Effect.Semaphore(10)`
+ * behavior of the prior bespoke `WebhookClient` so a burst of
+ * delivery/contact/session webhooks cannot stampede a single configured
+ * webhook endpoint. Applied once via `HttpClient.transform` over the
+ * shared transport layer.
+ */
+const OUTBOUND_WEBHOOK_CONCURRENCY = 10;
+
+/**
+ * Production HTTP client Layer: Undici-backed `HttpClient.HttpClient`
+ * with a shared `Effect.Semaphore` bounding concurrent outbound
+ * requests. The semaphore lives inside `HttpClient.transform` so it
+ * also protects per-request bodies + retries; permits return on
+ * fiber interrupt because the inner request runs inside the
+ * `withPermits` scope.
+ */
+const HttpClientLive = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.gen(function* () {
+    const inner = yield* HttpClient.HttpClient;
+    const permits = yield* Effect.makeSemaphore(OUTBOUND_WEBHOOK_CONCURRENCY);
+    return HttpClient.transform(inner, (effect) =>
+      permits.withPermits(1)(effect),
+    );
+  }),
+).pipe(Layer.provide(NodeHttpClient.layerUndici));
 
 class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
   readonly cause: unknown;
@@ -67,7 +93,6 @@ function makeCoreRuntime(config: CoreConfig) {
   const envelope = config.encryptionMasterSecret
     ? new EnvelopeEncryption(config.encryptionMasterSecret)
     : null;
-  const webhookClient = config.webhookClient ?? new WebhookClient();
   const spanProcessor = resolveSpanProcessor(config.spanProcessor);
   const TracingLive =
     spanProcessor === null ? Layer.empty : makeTracingLayer({ spanProcessor });
@@ -75,8 +100,8 @@ function makeCoreRuntime(config: CoreConfig) {
     Layer.succeed(DbTag, config.db),
     Layer.succeed(EncryptionTag, envelope),
     Layer.succeed(SessionValidatorTag, config.sessionValidator ?? null),
-    Layer.succeed(WebhookClientTag, webhookClient),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
+    HttpClientLive,
   );
   const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
   const WireConversationIntoAppHost = Layer.effectDiscard(
