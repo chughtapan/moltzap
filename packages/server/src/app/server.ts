@@ -46,35 +46,30 @@ import { installDefaultApp } from "./default-app.js";
 import { makeNodeHttpServer } from "./node-http-server.js";
 import { makeCoreHttpApp } from "./http-routes.js";
 import { makeSocketHandler } from "./socket-handler.js";
+import { applyOutboundWebhookCap } from "./outbound-webhook-cap.js";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
 
 /**
- * Outbound webhook concurrency cap. Preserves the `Effect.Semaphore(10)`
- * behavior of the prior bespoke `WebhookClient` so a burst of
- * delivery/contact/session webhooks cannot stampede a single configured
- * webhook endpoint. Applied once via `HttpClient.transform` over the
- * shared transport layer.
- */
-const OUTBOUND_WEBHOOK_CONCURRENCY = 10;
-
-/**
  * Production HTTP client Layer: Undici-backed `HttpClient.HttpClient`
- * with a shared `Effect.Semaphore` bounding concurrent outbound
- * requests. The semaphore lives inside `HttpClient.transform` so it
- * also protects per-request bodies + retries; permits return on
- * fiber interrupt because the inner request runs inside the
+ * wrapped with the process-wide outbound-webhook semaphore from
+ * {@link applyOutboundWebhookCap}. The cap is SHARED with the standalone
+ * validator wiring in `standalone.ts` so all 3 outbound webhook paths
+ * (delivery + contacts + sessions) pull from the same permit pool —
+ * matching the prior bespoke `WebhookClient(10)` behavior where one
+ * class instance was shared across all callers.
+ *
+ * The semaphore is applied via `HttpClient.transform`, which scopes it
+ * to `httpClient.execute(request)` (bounded at headers-arrival); permits
+ * return on fiber interrupt because the inner request runs inside the
  * `withPermits` scope.
  */
 const HttpClientLive = Layer.effect(
   HttpClient.HttpClient,
   Effect.gen(function* () {
     const inner = yield* HttpClient.HttpClient;
-    const permits = yield* Effect.makeSemaphore(OUTBOUND_WEBHOOK_CONCURRENCY);
-    return HttpClient.transform(inner, (effect) =>
-      permits.withPermits(1)(effect),
-    );
+    return applyOutboundWebhookCap(inner);
   }),
 ).pipe(Layer.provide(NodeHttpClient.layerUndici));
 
