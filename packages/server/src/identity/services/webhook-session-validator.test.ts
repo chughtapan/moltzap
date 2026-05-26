@@ -23,8 +23,15 @@ const HTTP_FORBIDDEN = 403;
 const POST_METHOD = "POST";
 const SESSIONS_VALIDATE_EVENT = "sessions.validate";
 const ECONNREFUSED_DESCRIPTION = "ECONNREFUSED";
-const VALID_AGENT_ID = "agent-1";
-const VALID_OWNER_USER_ID = "user-1";
+// Real UUIDs — the canonical `AgentId` / `UserId` schemas in
+// `@moltzap/protocol/identity/agents` carry `format: "uuid"`, and the
+// validator now runs the response `agentId` / `ownerUserId` through
+// `Value.Decode(AgentId, ...)` / `Value.Decode(UserId, ...)` so they
+// MUST be valid UUIDs to land on the success path. Pre-brand-fix the
+// test used placeholder strings ("agent-1", "user-1"); the brand
+// check now rejects those (which is the whole point of the fix).
+const VALID_AGENT_ID = "00000000-0000-4000-8000-0000000000a1";
+const VALID_OWNER_USER_ID = "00000000-0000-4000-8000-0000000000b2";
 const AGENT_STATUS_ACTIVE = "active";
 
 const FAIL_CLOSED: SessionValidation = { valid: false };
@@ -229,6 +236,62 @@ function failsClosedOnTransportFailure() {
   });
 }
 
+// Brand-decode fail-closed cases. The validator runs response
+// `agentId` / `ownerUserId` through `Value.Decode(AgentId, ...)` /
+// `Value.Decode(UserId, ...)` so the static `AgentId` / `UserId` brand
+// is actually attached at runtime (i.e. the values carry the
+// `format: "uuid"` contract from the canonical TypeBox schemas).
+// Empty strings and non-UUID strings MUST collapse to `{ valid: false }`
+// rather than leak through as `{ valid: true, agentId: "" as AgentId }`.
+const BAD_AGENT_ID_EMPTY = "";
+const BAD_AGENT_ID_NOT_UUID = "not-a-uuid";
+const BAD_OWNER_USER_ID_NOT_UUID = "also-not-a-uuid";
+
+function failsClosedOnEmptyAgentId() {
+  return Effect.gen(function* () {
+    const { validator } = makeValidator(() => ({
+      kind: "ok",
+      status: HTTP_OK,
+      body: {
+        valid: true,
+        agentId: BAD_AGENT_ID_EMPTY,
+        ownerUserId: VALID_OWNER_USER_ID,
+      },
+    }));
+    expect(yield* validator.validateSession(TOKEN)).toEqual(FAIL_CLOSED);
+  });
+}
+
+function failsClosedOnNonUuidAgentId() {
+  return Effect.gen(function* () {
+    const { validator } = makeValidator(() => ({
+      kind: "ok",
+      status: HTTP_OK,
+      body: {
+        valid: true,
+        agentId: BAD_AGENT_ID_NOT_UUID,
+        ownerUserId: VALID_OWNER_USER_ID,
+      },
+    }));
+    expect(yield* validator.validateSession(TOKEN)).toEqual(FAIL_CLOSED);
+  });
+}
+
+function failsClosedOnNonUuidOwnerUserId() {
+  return Effect.gen(function* () {
+    const { validator } = makeValidator(() => ({
+      kind: "ok",
+      status: HTTP_OK,
+      body: {
+        valid: true,
+        agentId: VALID_AGENT_ID,
+        ownerUserId: BAD_OWNER_USER_ID_NOT_UUID,
+      },
+    }));
+    expect(yield* validator.validateSession(TOKEN)).toEqual(FAIL_CLOSED);
+  });
+}
+
 const HTTP_NON_2XX_STATUS_MIN = 300;
 const HTTP_NON_2XX_STATUS_MAX = 599;
 const FAILURE_PROPERTY_RUNS = 64;
@@ -319,6 +382,15 @@ describe("WebhookSessionValidator.validateSession fail-closed semantics", () => 
 
   it("returns invalid on transport failure", () =>
     failsClosedOnTransportFailure());
+
+  it("returns invalid when agentId is empty string", () =>
+    failsClosedOnEmptyAgentId());
+
+  it("returns invalid when agentId is not a UUID", () =>
+    failsClosedOnNonUuidAgentId());
+
+  it("returns invalid when ownerUserId is not a UUID", () =>
+    failsClosedOnNonUuidOwnerUserId());
 
   /**
    * Property: across the full universe of remote failure modes

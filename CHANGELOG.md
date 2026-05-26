@@ -89,12 +89,32 @@ the project's Effect-native transport convention.
   `Effect.cached`, so the subsequent `schemaBodyJson` reuses the
   buffer on 2xx; on non-2xx the socket buffer no longer waits for
   the FinalizationRegistry to reap it.
-- **Internal notes:** `packages/server/src/identity/services/{webhook-contact-service,webhook-session-validator}.ts`
-  still cast the decoded JSON `agentId` / `ownerUserId` to the
-  branded `AgentId` / `UserId` types via `as`. This pre-existed the
-  refactor — the cleanup belongs in a follow-up that introduces
-  `Schema.fromBrand` for the identity types — and is intentionally
-  out of scope here.
+- **Changed (`@moltzap/server-core`):** `webhook-session-validator.ts`
+  no longer reaches the `as AgentId` / `as UserId` escape hatches
+  that the original cut carried over from main. The validator now
+  runs the response `agentId` / `ownerUserId` strings through
+  `Value.Decode(AgentId, ...)` / `Value.Decode(UserId, ...)` from
+  the canonical TypeBox schemas in `@moltzap/protocol/identity`,
+  attaching the brand at runtime via the same `format: "uuid"` check
+  the wire types are defined under. A malformed id (empty string,
+  non-UUID, etc.) raises a typed
+  `SessionValidationBrandDecodeFailed` that flows into the existing
+  `catchAllCause` fail-closed handler and collapses to
+  `{ valid: false }`, matching the rest of the validator's
+  fail-closed posture. Three new tests pin the contract: empty
+  `agentId`, non-UUID `agentId`, non-UUID `ownerUserId` all return
+  `{ valid: false }`. The 5 other `as AgentId` casts in
+  `app-host.ts`, `agent-visibility.ts`, `presence.service.ts`, and
+  `message.service.ts` are unchanged here; they have their own
+  contexts and are tracked for a separate follow-up.
+- **Changed (`@moltzap/protocol`):** `@moltzap/protocol/identity`
+  now also re-exports the runtime TypeBox schemas for `AgentId` /
+  `UserId` / `ContactId` (previously the barrel exposed only the
+  static types). Matches the convention `@moltzap/protocol/task`
+  already uses for `AppId` / `ConversationId` / etc.; existing
+  `import type` consumers are unaffected. Required so consumers like
+  the session validator above can `Value.Decode(AgentId, ...)`
+  without reaching for the implementation module directly.
 
 ### Documentation restructure — JSDoc as canonical home for flow diagrams
 

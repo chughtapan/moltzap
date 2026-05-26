@@ -18,12 +18,77 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "@effect/platform";
-import { Cause, Duration, Effect, Schema } from "effect";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import { Value } from "@sinclair/typebox/value";
+import { Cause, Data, Duration, Effect, Schema } from "effect";
+import { AgentId, UserId } from "@moltzap/protocol/identity";
 import type {
   SessionValidation,
   SessionValidator,
 } from "./session-validator.js";
+
+/**
+ * Raised when the webhook response's `agentId` or `ownerUserId` field
+ * fails the TypeBox `format: "uuid"` check on the canonical
+ * {@link AgentId} / {@link UserId} schemas. Flows through the same
+ * `catchAllCause` fail-closed handler as HTTP / network / timeout /
+ * schema-decode errors, so a malformed id collapses to
+ * `{ valid: false }` rather than `{ valid: true, agentId: "" as AgentId }`.
+ */
+class SessionValidationBrandDecodeFailed extends Data.TaggedError(
+  "SessionValidationBrandDecodeFailed",
+)<{
+  readonly field: "agentId" | "ownerUserId";
+  readonly cause: unknown;
+}> {}
+
+type SessionValidateResponseDecoded =
+  | { readonly valid: false }
+  | {
+      readonly valid: true;
+      readonly agentId: string;
+      readonly ownerUserId: string;
+      readonly agentStatus?: string;
+    };
+
+/**
+ * Brand-attach `agentId` and `ownerUserId` via the canonical TypeBox
+ * schemas (`format: "uuid"` enforced at decode time). The Effect
+ * Schema upstream pins the response SHAPE; this step gives the
+ * already-shape-validated id strings their nominal `AgentId` /
+ * `UserId` brand at runtime. A malformed id (e.g. "" or
+ * "not-a-uuid") yields a typed
+ * {@link SessionValidationBrandDecodeFailed} that flows into the
+ * `catchAllCause` fail-closed handler in {@link
+ * WebhookSessionValidator.validateSession}.
+ */
+function decodeSessionValidation(
+  result: SessionValidateResponseDecoded,
+): Effect.Effect<SessionValidation, SessionValidationBrandDecodeFailed> {
+  if (result.valid !== true) return Effect.succeed({ valid: false });
+  return Effect.try({
+    try: () => Value.Decode(AgentId, result.agentId),
+    catch: (cause) =>
+      new SessionValidationBrandDecodeFailed({ field: "agentId", cause }),
+  }).pipe(
+    Effect.flatMap((agentId) =>
+      Effect.try({
+        try: () => Value.Decode(UserId, result.ownerUserId),
+        catch: (cause) =>
+          new SessionValidationBrandDecodeFailed({
+            field: "ownerUserId",
+            cause,
+          }),
+      }).pipe(
+        Effect.map((ownerUserId): SessionValidation => {
+          const agentStatus = result.agentStatus;
+          return agentStatus !== undefined
+            ? { valid: true, agentId, ownerUserId, agentStatus }
+            : { valid: true, agentId, ownerUserId };
+        }),
+      ),
+    ),
+  );
+}
 
 const SessionValidateResponse = Schema.Union(
   Schema.Struct({
@@ -64,15 +129,7 @@ export class WebhookSessionValidator implements SessionValidator {
           HttpClientResponse.schemaBodyJson(SessionValidateResponse),
         ),
         Effect.timeout(Duration.millis(this.timeoutMs)),
-        Effect.map((result): SessionValidation => {
-          if (result.valid !== true) return { valid: false };
-          const agentStatus = result.agentStatus;
-          const agentId = result.agentId as AgentId;
-          const ownerUserId = result.ownerUserId as UserId;
-          return agentStatus !== undefined
-            ? { valid: true, agentId, ownerUserId, agentStatus }
-            : { valid: true, agentId, ownerUserId };
-        }),
+        Effect.flatMap(decodeSessionValidation),
         Effect.catchAllCause((cause) =>
           this.logCauseAsFailClosed(cause, { url: this.url }).pipe(
             Effect.as({ valid: false } satisfies SessionValidation),
