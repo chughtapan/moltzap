@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/protocol",
-  "version": "2026.525.0",
+  "version": "2026.526.0",
   "description": "Protocol types and validators for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
