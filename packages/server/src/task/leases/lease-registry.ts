@@ -20,6 +20,7 @@ import {
   DispatchesExpired,
 } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../transport/connection.js";
+import type { LeaseTransitionObserver } from "../../network/services/presence-projection.js";
 
 /** Wire-side LeaseRecord shape (flat). */
 type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
@@ -447,10 +448,25 @@ export interface LeaseRegistry {
  * - `leaseRetentionMs`: terminal-state retention window (CONSUMED /
  *   DENIED / EXPIRED / ABANDONED). Live states (PENDING / GRANTED /
  *   HOLD / CLAIMED) age out on their own TTLs.
+ * - `transitionObserver`: called at every transition that crosses the
+ *   lease's "active for presence" boundary (PENDING → GRANTED, exits
+ *   from GRANTED|CLAIMED). Architect plan #706: feeds the presence
+ *   projection. **Required, not optional** — every constructor call
+ *   site supplies a value, either the real
+ *   `PresenceProjection` (production) or the
+ *   `noopLeaseTransitionObserver` constant (tests that do not exercise
+ *   presence). Required-not-default is structurally tighter: TypeScript
+ *   surfaces missing wiring at the call site, and the projection's
+ *   integration into composition root cannot silently regress to the
+ *   noop by omitting the field. See
+ *   `../../network/services/presence-projection.ts → LeaseTransitionObserver`
+ *   for the call shape; the projection's per-transition contract lives
+ *   in the same file's `PresenceProjection` JSDoc.
  */
 export interface LeaseRegistryDeps {
   readonly connections: ConnectionManager;
   readonly leaseRetentionMs: number;
+  readonly transitionObserver: LeaseTransitionObserver;
 }
 
 /**

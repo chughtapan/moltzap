@@ -30,6 +30,7 @@ import {
   makeLeaseRegistry,
   type LeaseRegistry,
 } from "../task/leases/lease-registry.js";
+import { noopLeaseTransitionObserver } from "../network/services/presence-projection.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 
 /** Default retention window for terminal lease records: 5 minutes. */
@@ -239,6 +240,13 @@ const LeaseRegistryLive = Layer.effect(
     return yield* makeLeaseRegistry({
       connections,
       leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
+      // Architect plan #706 v4: the new required field. Wired to the
+      // noop until impl-staff (sub-issue #712) introduces
+      // `PresenceProjectionLive` at Tier 2.55 and threads the
+      // projection here. Required-not-optional means dropping this
+      // line at impl-staff time would surface as a TS error rather
+      // than a silent regression to noop.
+      transitionObserver: noopLeaseTransitionObserver,
     });
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );

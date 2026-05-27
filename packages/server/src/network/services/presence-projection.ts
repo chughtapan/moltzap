@@ -406,19 +406,26 @@ export type PresenceProjectionAuditEvent =
  *   `activeLeases.size === 0` but `status = "working"`. Impossible
  *   unless the Ref.modify predicate or a manual `Ref.set` violated
  *   the invariant in {@link AgentPresenceEntry}.
- * - `connect-against-active-entry` — `onAgentConnect` fired against
- *   an entry whose `activeLeases` is non-empty (would require a
- *   lease to have been observed BEFORE the connect, violating the
- *   entry-creation invariant). Impossible if the entry-creation
- *   rule + Ref.modify linearization both hold.
+ *
+ * **v4 deletion (codex r3 P2 #1).** v3 carried a second reason,
+ * `connect-against-active-entry`, on the premise that `onAgentConnect`
+ * against an entry whose `activeLeases` was non-empty was impossible.
+ * Codex r3 caught that this is in fact reachable in normal operation:
+ * `network/connect` can run again on an already-authenticated
+ * connection (the v3 plan itself describes the connect handler's
+ * `if (conn.auth) { return yield* buildHelloOk(...) }` early-return),
+ * which produces a second `onAgentConnect` against an existing entry —
+ * possibly one whose status has already advanced to `"working"` due to
+ * intervening lease grants. A redundant connect against an entry in
+ * `online` OR `working` is now an idempotent no-op (no event, no log,
+ * no defect, no audit event); see
+ * {@link PresenceProjection.onAgentConnect} for the contract.
  */
 export class PresenceProjectionDefect extends Data.TaggedError(
   "PresenceProjectionDefect",
 )<{
   readonly agentId: AgentId;
-  readonly reason:
-    | "entry-status-size-mismatch"
-    | "connect-against-active-entry";
+  readonly reason: "entry-status-size-mismatch";
 }> {
   override get message(): string {
     return `presence projection defect for ${this.agentId}: ${this.reason}`;
@@ -512,9 +519,21 @@ export class PresenceProjectionDefect extends Data.TaggedError(
 export interface PresenceProjection extends LeaseTransitionObserver {
   /**
    * WS connect: initialize the agent's entry to `{ activeLeases:
-   * ∅, status: "online" }` and emit `online`. Idempotent: a
-   * reconnect on an agent that is still tracked is a no-op (the agent
-   * was already `online` or `working`).
+   * ∅, status: "online" }` and emit `online`.
+   *
+   * **Redundant-connect is an idempotent no-op (v4 / codex r3 P2 #1
+   * fix).** A second `onAgentConnect` against an existing entry —
+   * regardless of whether that entry's status is `"online"` (no
+   * intervening lease) OR `"working"` (lease grants landed between
+   * the first connect and this one) — produces no event, no log, no
+   * defect, no audit event. The `network/connect` handler's
+   * `if (conn.auth) { return yield* buildHelloOk(...) }` early-return
+   * makes this reachable in normal operation, so v4 deleted the
+   * `connect-against-active-entry` defect reason that v3 carried for
+   * the `"working"`-entry branch. Net behavior: the projection's
+   * `Ref.modify` predicate returns `Option.none()` whenever an entry
+   * already exists, regardless of its status; the lifecycle path
+   * publishes only on `Some`.
    *
    * THIS is the only method that creates an entry. `onLeaseActiveBegin`
    * NEVER creates entries — see the entry-creation invariant in the
@@ -589,6 +608,72 @@ export interface PresenceProjection extends LeaseTransitionObserver {
     never,
     never
   >;
+}
+
+/**
+ * Defect-boundary wrapper (v4 / codex r3 P3 #2).
+ *
+ * Every public method on {@link PresenceProjection} —
+ * `onAgentConnect`, `onAgentDisconnect`, `onLeaseActiveBegin`,
+ * `onLeaseActiveEnd`, `statusOf`, `statusMany` — MUST run through
+ * `catchProjectionDefect` so the `never` E channel is structurally
+ * preserved. The wrapper catches any `PresenceProjectionDefect`
+ * raised via `Effect.die(new PresenceProjectionDefect(...))` inside
+ * the projection's body, structured-logs it via `Effect.logError`,
+ * and resolves to a caller-appropriate fallback:
+ *
+ * - Emit methods (`onAgentConnect`, `onAgentDisconnect`,
+ *   `onLeaseActiveBegin`, `onLeaseActiveEnd`) — wrap with
+ *   `Effect.asVoid` so a defected emission is silently dropped on the
+ *   wire side. The public Effect resolves with `void`; the WS
+ *   handler / lease registry observe no failure.
+ *
+ * - Read methods (`statusOf`, `statusMany`) — substitute the
+ *   "unknown-agent" fallback: `statusOf` resolves to `"offline"`;
+ *   `statusMany` resolves to `agentIds.map((agentId) => ({ agentId,
+ *   status: "offline" as const }))`. A defected read MUST NOT
+ *   propagate through to `presence/subscribe`.
+ *
+ * Why a named wrapper: v3 said "caught at the projection's outer
+ * edge" without naming a helper. Codex r3 P3 #2 pointed out impl-staff
+ * would have to invent the pattern; naming the helper makes the
+ * boundary load-bearing in the contract and reviewable in one place.
+ *
+ * Stub-body convention: impl-staff fills only the INNER logic per
+ * method. The wrapper invocation is part of the stub surface and is
+ * verified by the type-canary: the public method's return type is
+ * `Effect<T, never, never>` and the wrapper is the only thing that
+ * can satisfy that promise once `Effect.die` is in play inside the
+ * body.
+ *
+ * Signature (impl-staff fills the body — the stub `throws "not
+ * implemented"` per architect SKILL.md):
+ *
+ *   function catchProjectionDefect<A>(
+ *     effect: Effect.Effect<A, never, never>,
+ *     fallback: A,
+ *   ): Effect.Effect<A, never, never>
+ *
+ * Recipe in the body:
+ *
+ *   return effect.pipe(
+ *     Effect.catchAllDefect((defect) =>
+ *       Effect.logError("presence projection defect", defect).pipe(
+ *         Effect.as(fallback),
+ *       ),
+ *     ),
+ *   );
+ *
+ * The recipe above is the canonical implementation path.
+ */
+export function catchProjectionDefect<A>(
+  effect: Effect.Effect<A, never, never>,
+  fallback: A,
+): Effect.Effect<A, never, never> {
+  void effect;
+  void fallback;
+  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
+  throw new Error("not implemented");
 }
 
 /**
@@ -707,12 +792,46 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  * 7. **First-writer-wins discipline** — the `Ref.modify` predicate
  *    matches `LeaseRegistry`'s own atomicity model. No second `Ref.get`
  *    + `Ref.update` pair; the predicate IS the linearization point.
+ *
+ * 8. **Defect-boundary wrapper (v4 / codex r3 P3 #2)** — every public
+ *    method on the returned `PresenceProjection` MUST be wrapped in
+ *    {@link catchProjectionDefect} with a method-appropriate fallback
+ *    (`void` for emit methods; `"offline"` / per-agent `"offline"` rows
+ *    for read methods). The wrapper is the only way the public `never`
+ *    E channels stay honest in the presence of
+ *    `Effect.die(new PresenceProjectionDefect(...))`. Recipe:
+ *
+ *    ```ts
+ *    const onAgentConnect = (agentId: AgentId) =>
+ *      catchProjectionDefect(
+ *        // ... Ref.modify + emission body ...
+ *        undefined as void,
+ *      );
+ *
+ *    const statusOf = (agentId: AgentId) =>
+ *      catchProjectionDefect(
+ *        // ... Ref.get + lookup body ...
+ *        "offline" as DerivedPresenceStatus,
+ *      );
+ *
+ *    const statusMany = (agentIds: ReadonlyArray<AgentId>) =>
+ *      catchProjectionDefect(
+ *        // ... Ref.get + iterate body ...
+ *        agentIds.map((agentId) => ({ agentId, status: "offline" as const })),
+ *      );
+ *    ```
  */
 export function makePresenceProjection(
   deps: PresenceProjectionDeps,
 ): Effect.Effect<PresenceProjection, never, never> {
   void deps;
   void createInternalFanOutEventSink;
+  // v4 (codex r3 P3 #2): keep `catchProjectionDefect` reachable from
+  // the factory closure so the canary type-checks the helper exists.
+  // Impl-staff wires every returned method through it; see this
+  // file's `catchProjectionDefect` JSDoc + the recipe block in the
+  // `makePresenceProjection` JSDoc above.
+  void catchProjectionDefect;
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
   throw new Error("not implemented");
 }
