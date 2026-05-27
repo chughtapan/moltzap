@@ -4,7 +4,7 @@
 
 /**
  * Type-canary for the presence-projection contract (architect plan
- * #706 / sub-issue #711, v3). Asserts:
+ * #706 / sub-issue #711, v4). Asserts:
  *
  * 1. **Public surface shape** — the stub module exports the symbols
  *    impl-staff is committed to fill in:
@@ -66,6 +66,7 @@ import type {
   PresenceSubscriberRegistry,
 } from "./presence-projection.js";
 import {
+  catchProjectionDefect,
   emitPresenceTransition,
   makePresenceProjection,
   noopLeaseTransitionObserver,
@@ -97,9 +98,26 @@ void (emitResult as Option.Option<DerivedPresenceStatus>);
 declare const factoryResult: ReturnType<typeof makePresenceProjection>;
 void (factoryResult as Effect.Effect<PresenceProjection, never, never>);
 
+// v4 (codex r3 P3 #2): the defect-boundary wrapper has the right
+// shape. Generic over the fallback type; output preserves `never`
+// for both E and R channels.
+declare const wrappedVoid: ReturnType<typeof catchProjectionDefect<void>>;
+void (wrappedVoid as Effect.Effect<void, never, never>);
+declare const wrappedStatus: ReturnType<
+  typeof catchProjectionDefect<DerivedPresenceStatus>
+>;
+void (wrappedStatus as Effect.Effect<DerivedPresenceStatus, never, never>);
+
 declare const defect: PresenceProjectionDefect;
 void defect.agentId;
-void defect.reason;
+// v4 (codex r3 P2 #1): the only remaining defect reason is
+// `entry-status-size-mismatch` — `connect-against-active-entry` was
+// deleted because redundant `onAgentConnect` against a tracked entry
+// is a normal idempotent no-op (the connect handler's
+// `if (conn.auth) { return ... }` early-return reaches it). If a
+// fourth reason gets added, this assignment fails and forces the
+// architect to revisit the taxonomy.
+void (defect.reason as "entry-status-size-mismatch");
 
 declare const emission: PresenceEmission;
 void emission.agentId;
