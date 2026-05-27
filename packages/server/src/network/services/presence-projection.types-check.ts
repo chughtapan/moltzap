@@ -1,25 +1,54 @@
 /* eslint-disable sonarjs/void-use -- type-canary uses `void X;` to mark const-asserted shapes consumed (mirrors message-send-permission.types-check.ts convention). */
 /* eslint-disable agent-code-guard/no-manual-enum-cast -- canary asserts the literal-union shape of `DerivedPresenceStatus`; that IS the test. */
+/* eslint-disable jsdoc/text-escaping -- the canary doc literally cites `Effect<void, never, never>` as a type expression in prose; escaping the angle brackets would render them as escape codes in rendered docs. */
 
 /**
  * Type-canary for the presence-projection contract (architect plan
- * #706 / sub-issue #711, v2). Asserts the stub module exports the
- * shape impl-staff is committed to fill in:
+ * #706 / sub-issue #711, v3). Asserts:
  *
- * - `DerivedPresenceStatus` is the narrowed three-state union.
- * - `LeaseTransitionObserver` carries the two boundary methods
- *   (begin, end), each producing `Effect&lt;void, never, never>`.
- * - `noopLeaseTransitionObserver` is a default-shaped observer
- *   (replaces v1's nullable shape).
- * - `PresenceProjection` extends `LeaseTransitionObserver` and adds
- *   the WS-lifecycle pair plus a `statusOf` read.
- * - `emitPresenceTransition` is a pure `(prev, next) => Option` of
- *   the narrowed status union.
- * - The factory's deps carry `subscribers: PresenceSubscriberRegistry`
- *   + `eventSink: PresenceProjectionEmitSink` — the capability split
- *   that makes emission projection-internal (no public `emit` on
- *   `PresenceService`).
- * - The factory returns `Effect&lt;PresenceProjection, never, never>`.
+ * 1. **Public surface shape** — the stub module exports the symbols
+ *    impl-staff is committed to fill in:
+ *    - `DerivedPresenceStatus` is the narrowed three-state union.
+ *    - `LeaseTransitionObserver` carries the two boundary methods
+ *      (begin, end), each producing `Effect<void, never, never>`.
+ *    - `noopLeaseTransitionObserver` is a default-shaped observer
+ *      (replaces v1's nullable shape).
+ *    - `PresenceProjection` extends `LeaseTransitionObserver` and
+ *      adds the WS-lifecycle pair plus `statusOf` + `statusMany`
+ *      (codex r2 P2 #1 fix — read surface migrates from
+ *      `PresenceService.get/getMany` to the projection).
+ *    - `emitPresenceTransition` is a pure
+ *      `(prev, next) => Option` of the narrowed status union.
+ *    - The factory's deps carry `subscribers: PresenceSubscriberRegistry`
+ *      + `connections: ConnectionManager` (codex r2 P2 #4 fix — the
+ *      sink is constructed INSIDE the factory body from
+ *      `connections`; deps NEVER carry a sink).
+ *    - `PresenceProjectionAuditEvent` is the discriminated union
+ *      for "expected during teardown" lease callbacks (codex r2
+ *      P2 #2 + P2 #3 fix — split from defect taxonomy).
+ *    - The factory returns
+ *      `Effect<PresenceProjection, never, never>`.
+ *
+ * 2. **Capability seal at TS-module level** (codex r2 P2 #4) —
+ *    asserts that the sink type + factory are NOT exported. The two
+ *    canary checks below at the bottom of this file are
+ *    `ts-expect-error` assertions: importing
+ *    `InternalPresenceEventSink` or
+ *    `createInternalFanOutEventSink` from the projection
+ *    module MUST fail with TS2305 "Module has no exported member".
+ *
+ * 3. **Integration surfaces** (codex r2 P2 #6) — asserts the
+ *    integration symbols the v3 plan §3 cites exist with the right
+ *    shape:
+ *    - `PresenceServiceTag` (existing) can provide a value matching
+ *      `PresenceSubscriberRegistry` (subscriber-read surface).
+ *    - `ConnectionManagerTag` (existing) can provide a value matching
+ *      `PresenceProjectionDeps.connections`.
+ *    - The lease-registry's transition-observer dep field can be
+ *      satisfied by `LeaseTransitionObserver` and defaults to
+ *      `noopLeaseTransitionObserver` (covered by surface-level
+ *      assertion above; stub-level assertion lands on
+ *      `lease-registry.ts` when impl-staff edits the file).
  *
  * No test-runner involvement; `tsc --noEmit` is the canary.
  */
@@ -31,9 +60,9 @@ import type {
   LeaseTransitionObserver,
   PresenceEmission,
   PresenceProjection,
+  PresenceProjectionAuditEvent,
   PresenceProjectionDeps,
   PresenceProjectionDefect,
-  PresenceProjectionEmitSink,
   PresenceSubscriberRegistry,
 } from "./presence-projection.js";
 import {
@@ -55,6 +84,7 @@ void observer.onLeaseActiveEnd;
 void projection.onAgentConnect;
 void projection.onAgentDisconnect;
 void projection.statusOf;
+void projection.statusMany; // v3: read surface migrated from PresenceService
 
 // noop observer satisfies the observer surface and is usable as the
 // LeaseRegistry's transitionObserver default (no nullable branch).
@@ -79,15 +109,52 @@ declare const entry: AgentPresenceEntry;
 void entry.activeLeases;
 void entry.status;
 
-// Capability split: projection deps carry the sink directly, not a
-// PresenceService. The sink is the structural gate that keeps the
-// emit capability projection-internal.
+// v3: PresenceProjectionAuditEvent discriminated union for "expected
+// during teardown" lease callbacks (codex r2 P2 #2 + P2 #3 fix).
+// Discriminator exhaustiveness — `absurdCheck` is a type-level
+// assertion that every variant has been handled; if impl-staff adds
+// a third variant, the assignment to `never` fails.
+declare const audit: PresenceProjectionAuditEvent;
+void audit.agentId;
+void audit.leaseId;
+const auditTag = audit._tag;
+declare function absurdCheck(x: never): never;
+if (
+  auditTag !== "LeaseEndAfterDisconnect" &&
+  auditTag !== "LeaseBeginAfterDisconnect"
+) {
+  absurdCheck(auditTag);
+}
+
+// v3: deps carry `subscribers` + `connections` (NOT a sink — codex
+// r2 P2 #4 capability-seal fix; the sink is constructed inside the
+// factory body from `connections`).
 declare const deps: PresenceProjectionDeps;
 void deps.subscribers;
-void deps.eventSink;
-
-declare const sink: PresenceProjectionEmitSink;
-void sink.publish;
+void deps.connections;
 
 declare const subs: PresenceSubscriberRegistry;
 void subs.getSubscribers;
+
+// ── Capability seal canary (codex r2 P2 #4) ──────────────────────────
+//
+// The following two assertions are the structural-seal proof. They
+// MUST produce `ts-expect-error` lines: the projection module
+// intentionally does NOT export the sink interface or its factory.
+// If either assertion stops failing, the sealing has been broken
+// (someone added `export` to InternalPresenceEventSink or
+// createInternalFanOutEventSink) and `tsc --build` will
+// fail with "Unused @ts-expect-error directive" until the export is
+// removed again.
+
+// @ts-expect-error — capability seal: InternalPresenceEventSink is NOT exported. If this assertion stops firing, the seal is broken.
+import type { InternalPresenceEventSink as SealCheckType } from "./presence-projection.js";
+// The type import above is the canary; consume it as a `declare const`
+// so the import is not erased by `tsc` before the @ts-expect-error
+// directive can fire.
+declare const sealCheckTypeProbe: SealCheckType;
+void sealCheckTypeProbe;
+
+// @ts-expect-error — capability seal: createInternalFanOutEventSink is NOT exported. If this assertion stops firing, the seal is broken.
+import { createInternalFanOutEventSink as sealCheckFactory } from "./presence-projection.js";
+void sealCheckFactory;

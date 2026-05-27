@@ -1,12 +1,12 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 /* eslint-disable sonarjs/void-use -- stubs `void X;` parameter to keep the public signature stable until impl-staff fills the body. */
-import { Data, Effect, Option } from "effect";
+import { Data, type Effect, type Option } from "effect";
 
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 
-import type { PresenceEventSink } from "./presence-event-sink.js";
+import type { ConnectionManager } from "../../transport/connection.js";
 
 /**
  * Derived presence status — three-state set after #706's lease-derivation
@@ -16,10 +16,16 @@ import type { PresenceEventSink } from "./presence-event-sink.js";
  * - `working`  — connected, ≥1 lease in GRANTED or CLAIMED.
  * - `offline`  — WS closed (no entry in projection state).
  *
- * `away` is gone (`PresenceStatusEnum` narrowed in
- * `@moltzap/protocol/network/methods` and the matching narrowing in
- * `presence-event-sink.ts → PresenceStatus`). `working` IS the new
- * third state.
+ * `away` is gone. `working` IS the new third state.
+ *
+ * Implement-staff narrows `@moltzap/protocol/network/methods →
+ * PresenceStatusEnum` to match this union. The legacy `PresenceStatus`
+ * type in `presence-event-sink.ts` (currently
+ * `"online" | "offline" | "away"`) is subsumed into this type when
+ * `presence-event-sink.ts` is deleted in the §8 cutover and its sink
+ * type migrates into this module as an unexported symbol — see
+ * {@link InternalPresenceEventSink} for the structural-sealing
+ * rationale.
  */
 export type DerivedPresenceStatus = "online" | "working" | "offline";
 
@@ -81,10 +87,29 @@ export interface LeaseTransitionObserver {
  * does the right thing rather than a `null` branch every call site has
  * to remember to guard. Test harnesses that DO need projection
  * observation construct `makePresenceProjection` and pass it in.
+ *
+ * Impl-staff: declared in this module (`presence-projection.ts`) and
+ * also re-exported by `task/leases/lease-registry.ts` as the default
+ * for its dep field — so the lease-registry's CLAUDE-readable
+ * documentation has the symbol in scope without forcing a cross-module
+ * import in every test file.
  */
+// architect stub convention: noop default declared inline. Bodies
+// fall through to `throw new Error("not implemented")` per
+// safer-by-default architect SKILL.md so impl-staff fills in the
+// noop behavior (each method should return `Effect.void`). The stub
+// value satisfies the LeaseTransitionObserver shape at the type
+// level so consumers can reference the constant in default-arg
+// positions; calling it would `throw` until impl-staff lands.
 export const noopLeaseTransitionObserver: LeaseTransitionObserver = {
-  onLeaseActiveBegin: () => Effect.void,
-  onLeaseActiveEnd: () => Effect.void,
+  onLeaseActiveBegin: () => {
+    // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
+    throw new Error("not implemented");
+  },
+  onLeaseActiveEnd: () => {
+    // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
+    throw new Error("not implemented");
+  },
 };
 
 /**
@@ -109,14 +134,9 @@ export const noopLeaseTransitionObserver: LeaseTransitionObserver = {
  * stop producing duplicate `working` notifications: the second GRANT
  * sees `previous = working` and elides the emission.
  *
- * Note: this function is the algebraic dedup rule, but it is NOT the
- * type-system gate that forces every emission through it. The
- * structural gate is the {@link PresenceProjectionEmitSink} dep — the
- * projection module is the only holder of an emission capability into
- * `presence/changed`, so all wire emissions originate inside the
- * projection and pass through this function on their way out. See
- * {@link PresenceProjectionEmitSink} for the capability-encapsulation
- * argument.
+ * Note: this function is the algebraic dedup rule. The structural gate
+ * is the TS-module sealing of the emission sink — see
+ * {@link InternalPresenceEventSink}. Both layers are load-bearing.
  */
 export function emitPresenceTransition(
   previous: DerivedPresenceStatus,
@@ -124,7 +144,7 @@ export function emitPresenceTransition(
 ): Option.Option<DerivedPresenceStatus> {
   void previous;
   void next;
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub; impl-staff replaces with the dedup body (Option.none when prev === next).
+  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
   throw new Error("not implemented");
 }
 
@@ -132,41 +152,101 @@ export function emitPresenceTransition(
  * Pure read interface the projection needs from `PresenceService` —
  * subscriber lookup. The projection consumes this rather than the full
  * `PresenceService` so the capability split (see
- * {@link PresenceProjectionEmitSink}) stays clean: emission is via the
- * sink the projection itself holds; subscriber registry remains owned
- * by `PresenceService` (which loses every mutation method on this
- * cutover — see §3 of the architect plan).
+ * {@link InternalPresenceEventSink}) stays clean.
+ *
+ * Snapshot rule: every read at the projection's emission site MUST
+ * snapshot the result via `new Set(...)` BEFORE iterating, so concurrent
+ * `subscribe` / `removeConnection` mutations against the live registry
+ * cannot leak into the fan-out (matches the pre-existing service
+ * snapshot discipline at `presence.service.ts → transition`,
+ * `new Set(this.getSubscribers(agentId))`). See §5 of the architect
+ * plan for the linearization argument.
  */
 export interface PresenceSubscriberRegistry {
   readonly getSubscribers: (agentId: AgentId) => ReadonlySet<ConnectionId>;
 }
 
 /**
- * Capability the projection holds to fan a status change out onto the
- * wire. Encapsulated inside the projection module — there is no Tag
- * for this in the Effect Context, and no public re-export, so the
- * compiler rejects any call to `presenceEventSink.publish(...)`
- * outside this module. That makes the dedup gate structural, not
- * advisory: the only path from "I want to emit `presence/changed`" to
- * the wire is `PresenceProjection.<observer-or-lifecycle-method>` →
- * (Ref.modify computes emission decision) → (decision is `Some`) →
- * `emitPresenceTransition` truth table → `PresenceEventSink.publish`.
+ * **TS-module-sealed emission capability — architect plan §3.**
  *
- * Rationale: the v1 plan exposed a public `PresenceService.emit`. That
- * surface meant any holder of `PresenceService` (every RPC handler
- * after Tier 2) could synthesize a `presence/changed` frame that
- * bypassed the projection's dedup and state machine. Drop that
- * surface; route emission exclusively through the projection. The
- * `PresenceEventSink` carrier already existed (sink in
- * `presence-event-sink.ts`) — we keep it; we just move ownership from
- * `PresenceService` to `PresenceProjection`.
+ * The structural gate that makes every `presence/changed` wire emission
+ * pass through the projection is THIS module's TS-level visibility
+ * rules. The sink interface is **unexported** (`InternalPresenceEventSink`
+ * has no `export` modifier). The fan-out factory
+ * ({@link createInternalFanOutEventSink}) is **unexported**.
+ * Any non-projection module attempting
  *
- * Impl-staff: at composition root in `app/layers.ts`, the same
- * `createConnectionFanOutPresenceEventSink({ connections })` factory
- * value flows into the projection now. `PresenceService` no longer
- * takes a sink — it becomes a pure subscriber registry.
+ *     import { InternalPresenceEventSink } from "./presence-projection.js";
+ *
+ * fails at TypeScript level with `Module './presence-projection.js' has
+ * no exported member 'InternalPresenceEventSink'`. The compiler is
+ * the structural gate.
+ *
+ * Why this design over v2's "alias an exported PresenceEventSink":
+ * codex r2 P2 #4 caught that v2's `PresenceProjectionEmitSink = PresenceEventSink`
+ * alias was a cosmetic split — the underlying type + factory remained
+ * publicly importable from `presence-event-sink.ts`, so any module
+ * holding `ConnectionManagerTag` could synthesize a sink and emit a
+ * `presence/changed` frame outside the projection. v3 closes that
+ * by physically co-locating the sink inside `presence-projection.ts`
+ * and dropping `presence-event-sink.ts` entirely (impl-staff cutover
+ * — see §8). Mirrors the v13 D-plan `mintLiveConnection` co-location
+ * pattern.
+ *
+ * Composition: `PresenceProjectionLive` (in `app/layers.ts`)
+ * constructs the sink via {@link createInternalFanOutEventSink}
+ * inline — no Tag, no public re-export, no second consumer. The
+ * sink value lives only inside the projection's closure.
+ *
+ * Public API: callers outside this module obtain status via
+ * {@link PresenceProjection.statusOf} / {@link PresenceProjection.statusMany};
+ * status MUTATION is the projection's monopoly (driven by
+ * {@link LeaseTransitionObserver} from `LeaseRegistry` + WS-lifecycle
+ * hooks {@link PresenceProjection.onAgentConnect} /
+ * {@link PresenceProjection.onAgentDisconnect}).
+ *
+ * Impl-staff: the `Internal*` prefix is the naming convention this
+ * module uses to mark "do not export"; the same prefix appears on
+ * {@link createInternalFanOutEventSink}. Adding the
+ * `export` keyword in front of either symbol is a P0-blocker review
+ * finding — the sealing IS the contract.
  */
-export type PresenceProjectionEmitSink = PresenceEventSink;
+interface InternalPresenceEventSink {
+  publish(input: {
+    readonly agentId: AgentId;
+    readonly status: DerivedPresenceStatus;
+    readonly subscriberConnIds: ReadonlySet<ConnectionId>;
+    readonly excludeConnId?: ConnectionId;
+  }): void;
+}
+
+/**
+ * Unexported fan-out sink factory (architect plan §3 + §8).
+ *
+ * Constructs the per-connection `presence/changed` fan-out sink used
+ * by {@link makePresenceProjection}. The factory replaces the v2
+ * `createConnectionFanOutPresenceEventSink` exported from
+ * `presence-event-sink.ts`; in the §8 cutover, impl-staff deletes
+ * `presence-event-sink.ts` (and its test) and moves the body of this
+ * factory inline into THIS module.
+ *
+ * The factory takes `ConnectionManager` (already a Tag-discoverable
+ * service in the server runtime) and produces a fire-and-forget sink:
+ * write failures are logged and dropped; disconnect races MUST NOT
+ * block the mutator.
+ *
+ * Visibility: unexported. The only call site is inside
+ * {@link makePresenceProjection}'s factory body
+ * (`PresenceProjectionLive` constructs the projection, which constructs
+ * the sink). Adding `export` is a P0 review-blocker.
+ */
+function createInternalFanOutEventSink(deps: {
+  readonly connections: ConnectionManager;
+}): InternalPresenceEventSink {
+  void deps;
+  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
+  throw new Error("not implemented");
+}
 
 /**
  * Constructor inputs for {@link makePresenceProjection}.
@@ -175,11 +255,16 @@ export type PresenceProjectionEmitSink = PresenceEventSink;
  *
  * - `subscribers` — read-only access to the subscriber registry (which
  *   conn ids care about which agent id). Sourced from `PresenceService`
- *   (the surviving non-mutating portion). The projection passes the
- *   subscriber set into the sink at emit time.
- * - `eventSink` — sole emission capability (see
- *   {@link PresenceProjectionEmitSink}). The composition root wires the
- *   same fan-out sink that `PresenceService` previously held.
+ *   (the surviving non-mutating portion). The projection snapshots the
+ *   read into a new `Set` before iterating at the emission site
+ *   (`new Set(deps.subscribers.getSubscribers(agentId))`).
+ * - `connections` — `ConnectionManager` from Tier 1. Passed through
+ *   to {@link createInternalFanOutEventSink} inside the
+ *   factory body so the sink can write per-connection
+ *   `presence/changed` frames. The factory NEVER takes a sink as a
+ *   dep — taking a sink would re-open the capability hole codex P2 #4
+ *   identified. The sink is constructed inside the factory closure
+ *   from `connections`, full stop.
  *
  * Decision (in-memory vs persisted): in-memory. Matches `LeaseRegistry`'s
  * model; restart drops the projection state and agents repopulate it on
@@ -192,7 +277,7 @@ export type PresenceProjectionEmitSink = PresenceEventSink;
  */
 export interface PresenceProjectionDeps {
   readonly subscribers: PresenceSubscriberRegistry;
-  readonly eventSink: PresenceProjectionEmitSink;
+  readonly connections: ConnectionManager;
 }
 
 /**
@@ -203,7 +288,9 @@ export interface PresenceProjectionDeps {
  *    the same lease id is a no-op against a set (`set.delete(id)` on
  *    an absent id returns false); a counter would drift into negative
  *    territory or wrongly stay positive. Set membership is the
- *    operational truth.
+ *    operational truth. The idempotent case is silent — see
+ *    {@link PresenceProjectionAuditEvent} for the "expected during
+ *    teardown" cases that DO surface as audit logs.
  * 2. **Debuggable.** The set is grep-able — operators can ask "which
  *    leases are pinning this agent to `working`?" without spelunking
  *    through the lease registry. The memory cost (≈40 bytes per lease
@@ -225,8 +312,67 @@ export interface AgentPresenceEntry {
 }
 
 /**
+ * Audit-event taxonomy for "expected during teardown" lease callbacks.
+ *
+ * Refined per codex r2 P2 #2 + P2 #3. v2 used
+ * `PresenceProjectionDefect.reason = "active-end-without-begin" |
+ * "begin-on-offline-agent" | "unknown-agent-on-end"` for ALL three
+ * cases; codex pointed out that two of those are normal WS-close
+ * cleanup paths and logging them as invariant failures produces noisy
+ * false alarms.
+ *
+ * v3 splits the cases:
+ *
+ * - **`LeaseEndAfterDisconnect`** — `onLeaseActiveEnd(leaseId, agentId)`
+ *   fires for an agent whose entry was already dropped by
+ *   `onAgentDisconnect`. EXPECTED: `closeSocketSession` runs
+ *   `onAgentDisconnect` BEFORE `leaseRegistry.abandon(connId)`, and
+ *   abandon synchronously fires `onLeaseActiveEnd` for every active
+ *   lease bound to the connection. Not a defect; logged at debug.
+ *
+ * - **`LeaseBeginAfterDisconnect`** — `onLeaseActiveBegin(leaseId, agentId)`
+ *   fires between `onAgentDisconnect` and `leaseRegistry.abandon`, when
+ *   a concurrent `resolveLease(grant)` on a different connection's
+ *   moderator verdict lands during the disconnect window. EXPECTED in
+ *   the race described in §5; the entry-creation invariant
+ *   (only `onAgentConnect` creates entries) means the begin is
+ *   correctly dropped without re-creating a ghost entry. Not a defect;
+ *   logged at debug.
+ *
+ * Idempotent set operations (double `onLeaseActiveEnd` for the same
+ * lease id on an EXISTING agent entry) are silent — the set-delete
+ * returns false, no audit, no emission, no defect. The audit class is
+ * specifically for the disconnect-window race cases.
+ *
+ * Audit events are emitted via `Effect.logDebug` (structured logging
+ * with `_tag` discrimination over the variants). The audit stream does
+ * NOT go through `Effect.die`; it is plain debug logging. The
+ * `LeaseTransitionObserver`'s `never` E channel is preserved by
+ * construction (audit logs are side effects in the `Effect.sync`
+ * channel; they do not type-leak).
+ */
+export type PresenceProjectionAuditEvent =
+  | {
+      readonly _tag: "LeaseEndAfterDisconnect";
+      readonly agentId: AgentId;
+      readonly leaseId: LeaseId;
+    }
+  | {
+      readonly _tag: "LeaseBeginAfterDisconnect";
+      readonly agentId: AgentId;
+      readonly leaseId: LeaseId;
+    };
+
+/**
  * Invariant-violation marker, surfaced through `Effect.die(new
  * PresenceProjectionDefect(...))` at the projection's outer edge.
+ *
+ * Refined per codex r2 P2 #2 + P2 #3. v3 reserves this class for
+ * **genuinely impossible** states — situations where the projection
+ * has reached a configuration the spec asserts cannot happen. The
+ * "expected during teardown" cases (lease callbacks after disconnect,
+ * double end on an existing entry) are now {@link PresenceProjectionAuditEvent}
+ * with debug-level logging; they do NOT type-leak as defects.
  *
  * Why `Effect.die` (not `Effect.fail`): a `LeaseTransitionObserver`
  * declares `Effect<void, never, never>` — that `never` is a load-bearing
@@ -238,9 +384,7 @@ export interface AgentPresenceEntry {
  * Effect.logError → Effect.void` at the projection's outer edge), but
  * does NOT type-leak through `onLeaseActiveBegin`'s `never` E channel.
  *
- * The class extends `Data.TaggedError` purely for the structural
- * `_tag`-and-fields ergonomics (a discriminated `_tag` makes the
- * downstream log handler exhaustive over `reason`). Impl-staff:
+ * Impl-staff:
  *
  *   yield* Effect.die(new PresenceProjectionDefect({ agentId, reason }))
  *
@@ -248,18 +392,33 @@ export interface AgentPresenceEntry {
  *
  *   .pipe(Effect.catchAllDefect((d) => Effect.logError(d)), Effect.asVoid)
  *
- * `reason` enumerates the three invariant violations the projection
- * actively asserts (see the `Effect.die` call sites in the
- * implementation contract on {@link makePresenceProjection}).
+ * `reason` enumerates the impossible-state cases the projection
+ * actively asserts. The taxonomy is intentionally narrow; if you find
+ * yourself adding a fourth reason in implementation, escalate to the
+ * architect — most "unexpected" cases are
+ * {@link PresenceProjectionAuditEvent}, not defects.
+ *
+ * Reasons:
+ *
+ * - `entry-status-size-mismatch` — `Ref<ReadonlyMap<AgentId,
+ *   AgentPresenceEntry>>` returned an entry with
+ *   `activeLeases.size > 0` but `status = "online"`, or
+ *   `activeLeases.size === 0` but `status = "working"`. Impossible
+ *   unless the Ref.modify predicate or a manual `Ref.set` violated
+ *   the invariant in {@link AgentPresenceEntry}.
+ * - `connect-against-active-entry` — `onAgentConnect` fired against
+ *   an entry whose `activeLeases` is non-empty (would require a
+ *   lease to have been observed BEFORE the connect, violating the
+ *   entry-creation invariant). Impossible if the entry-creation
+ *   rule + Ref.modify linearization both hold.
  */
 export class PresenceProjectionDefect extends Data.TaggedError(
   "PresenceProjectionDefect",
 )<{
   readonly agentId: AgentId;
   readonly reason:
-    | "active-end-without-begin"
-    | "active-begin-without-connect"
-    | "unknown-agent-on-end";
+    | "entry-status-size-mismatch"
+    | "connect-against-active-entry";
 }> {
   override get message(): string {
     return `presence projection defect for ${this.agentId}: ${this.reason}`;
@@ -273,9 +432,10 @@ export class PresenceProjectionDefect extends Data.TaggedError(
  *
  * - **Lease boundary** — implements {@link LeaseTransitionObserver};
  *   wired into `LeaseRegistryDeps.transitionObserver` (new dep on
- *   `LeaseRegistry`). The registry calls into these methods from its
- *   `resolveLease`, `finalizeClaim`, `expireLeaseFromTtl`, and
- *   `expireLeaseOnDisconnect` sites.
+ *   `LeaseRegistry`, defaults to {@link noopLeaseTransitionObserver}).
+ *   The registry calls into these methods from its `resolveLease`,
+ *   `finalizeClaim`, `expireLeaseFromTtl`, and `expireLeaseOnDisconnect`
+ *   sites.
  *
  * - **Connection boundary** — `onAgentConnect` and `onAgentDisconnect`
  *   are called from the WS-lifecycle hooks. Currently those sites are:
@@ -285,20 +445,30 @@ export class PresenceProjectionDefect extends Data.TaggedError(
  *   - Disconnect: `packages/server/src/app/socket-handler.ts → closeSocketSession`
  *     (replaces the existing `presenceService.setOffline(authCtx.agentId)` call).
  *
- * **Entry-creation rule (load-bearing invariant — covers the
+ * **Status read surface (codex r2 P2 #1 fix):** v2 left `PresenceService.get`
+ * + `getMany` as the read surface for status snapshots. With status
+ * truth migrating into the projection, that surface returned stale
+ * data. v3 moves the read into the projection
+ * ({@link statusOf} / {@link statusMany}). `PresenceService.get`
+ * + `getMany` delete in the §8 cutover; the only consumer
+ * (`presence.handlers.ts → presence/subscribe`) rewires to call
+ * `presenceProjection.statusMany(visibleIds)` instead.
+ *
+ * **Entry-creation rule (load-bearing — covers the
  * concurrent-grant-during-disconnect race):** entries are created
  * EXCLUSIVELY in `onAgentConnect`. `onLeaseActiveBegin` on an unknown
- * agent NEVER allocates an entry; instead it surfaces
- * `PresenceProjectionDefect{ reason: "active-begin-without-connect" }`
- * via `Effect.die`, which the projection's outer-edge defect handler
- * logs and drops. Net result: if a moderator's verdict resolves a
+ * agent NEVER allocates an entry; instead it emits a
+ * {@link PresenceProjectionAuditEvent} of `_tag:
+ * "LeaseBeginAfterDisconnect"` (logged at debug) and returns
+ * `Effect.void`. Net result: if a moderator's verdict resolves a
  * lease for an agent whose WS has already closed (a real race window:
  * `closeSocketSession` runs `onAgentDisconnect` BEFORE
  * `leaseRegistry.abandon(connId)`, but a concurrent
- * `resolveLease(grant)` on a different connection's verdict may fire
- * between the two), the projection drops it on the floor — and the
- * subsequent `leaseRegistry.abandon` `onLeaseActiveEnd` for the same
- * agent ALSO finds no entry and is also dropped.
+ * `resolveLease(grant)` on a different connection may fire between
+ * the two), the projection drops it on the floor. The subsequent
+ * `leaseRegistry.abandon` `onLeaseActiveEnd` for the same agent ALSO
+ * finds no entry and audits as `_tag: "LeaseEndAfterDisconnect"`,
+ * also dropped.
  *
  * The "always-emit-`offline`" rule for WS-close (Acceptance #4) lives
  * exclusively in `onAgentDisconnect`. Combined with the
@@ -313,7 +483,7 @@ export class PresenceProjectionDefect extends Data.TaggedError(
  * sequenceDiagram
  *   participant LR as LeaseRegistry
  *   participant PP as PresenceProjection
- *   participant Sink as PresenceEventSink
+ *   participant Sink as Sealed sink (InternalPresenceEventSink)
  *   participant Subs as Subscribers (WS clients)
  *
  *   LR->>PP: onLeaseActiveBegin(leaseId, agentId)
@@ -321,20 +491,23 @@ export class PresenceProjectionDefect extends Data.TaggedError(
  *   alt agent has entry
  *     PP->>PP: prev = entry.status<br>nextLeases = activeLeases ∪ {leaseId}<br>next = nextLeases.size > 0 ? "working" : "online"<br>decision = emitPresenceTransition(prev, next)
  *     alt decision = some(status)
- *       PP->>Sink: publish({ agentId, status, subscriberConnIds })
+ *       PP->>PP: snapshot = new Set(subscribers.getSubscribers(agentId))
+ *       PP->>Sink: publish({ agentId, status, subscriberConnIds: snapshot })
  *       Sink->>Subs: presence/changed { agentId, status }
  *     else decision = none
  *       Note over PP: dedup — concurrent GRANTED, no fan-out
  *     end
  *   else agent has no entry (disconnected)
- *     Note over PP: Effect.die(PresenceProjectionDefect) — logged + dropped at outer edge
+ *     Note over PP: audit LeaseBeginAfterDisconnect — Effect.logDebug, no emission
  *   end
  * ```
  *
  * Mirror flow for `onLeaseActiveEnd` (same dispatch — Ref.modify, then
- * Option-gated publish), `onAgentConnect` (creates entry from absent;
- * `online` is emitted iff the agent was not already tracked), and
- * `onAgentDisconnect` (drops entry; emits `offline` iff entry existed).
+ * Option-gated snapshot-then-publish; absent-entry case audits as
+ * `LeaseEndAfterDisconnect`), `onAgentConnect` (creates entry from
+ * absent; `online` is emitted iff the agent was not already tracked;
+ * existing-entry case is idempotent no-op), and `onAgentDisconnect`
+ * (drops entry; emits `offline` iff entry existed).
  */
 export interface PresenceProjection extends LeaseTransitionObserver {
   /**
@@ -364,8 +537,9 @@ export interface PresenceProjection extends LeaseTransitionObserver {
    * transitions for this agent — whether they come from
    * `leaseRegistry.abandon`'s synchronous fan-out OR from a
    * concurrent `resolveLease(grant)` on a moderator's verdict that
-   * lands during the disconnect window — find no entry and are
-   * dropped by the projection. The `offline` emission is single-source.
+   * lands during the disconnect window — find no entry and emit
+   * {@link PresenceProjectionAuditEvent} (logged at debug). The
+   * `offline` emission is single-source.
    *
    * Public error channel is `never`.
    */
@@ -374,13 +548,47 @@ export interface PresenceProjection extends LeaseTransitionObserver {
   ) => Effect.Effect<void, never, never>;
 
   /**
-   * Test/observability hook — read the agent's current projected
-   * status. Returns `"offline"` for an unknown agent. NOT used on the
-   * emission hot path; the projection reads its own `Ref` internally.
+   * Read the agent's current projected status. Returns `"offline"`
+   * for an unknown agent.
+   *
+   * Replaces `PresenceService.get` (deleted in §8). Used by
+   * `presence/subscribe` handler + tests. Snapshot consistency: each
+   * call reads the projection's `Ref` once via `Ref.get`; the result
+   * is a point-in-time snapshot, no transaction guarantee across
+   * multiple `statusOf` calls.
+   *
+   * NOT used on the emission hot path; the projection reads its own
+   * `Ref` internally during `Ref.modify`.
    */
   readonly statusOf: (
     agentId: AgentId,
   ) => Effect.Effect<DerivedPresenceStatus, never, never>;
+
+  /**
+   * Bulk read for the `presence/subscribe` handler. Returns one entry
+   * per requested `agentId` in input order; unknown agents resolve to
+   * `"offline"`.
+   *
+   * Replaces `PresenceService.getMany` (deleted in §8). The
+   * `presence.handlers.ts → presence/subscribe` rewrites from
+   * `presenceService.getMany(visibleIds)` to
+   * `yield* presenceProjection.statusMany(visibleIds)`.
+   *
+   * Snapshot consistency: one `Ref.get` is performed at the start of
+   * the call; all entries in the returned array are read from the
+   * same snapshot. Concurrent emission decisions taken DURING the
+   * iteration cannot interleave (the `Ref.get` returns the immutable
+   * `ReadonlyMap` value; `Ref.modify` publishes the NEW map
+   * atomically).
+   */
+  readonly statusMany: (agentIds: ReadonlyArray<AgentId>) => Effect.Effect<
+    ReadonlyArray<{
+      readonly agentId: AgentId;
+      readonly status: DerivedPresenceStatus;
+    }>,
+    never,
+    never
+  >;
 }
 
 /**
@@ -389,9 +597,9 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  * (`packages/server/src/app/layers.ts` — Tier 2.55, between Tier 2
  * (Presence + AgentEndpointResolver) and Tier 2.6 (LeaseRegistry); the
  * projection consumes `PresenceServiceTag` for the subscriber-registry
- * read interface plus the shared `PresenceEventSink` value, and
- * `LeaseRegistryLive` threads the projection as its
- * `transitionObserver`).
+ * read interface plus `ConnectionManagerTag` for the
+ * internally-constructed fan-out sink, and `LeaseRegistryLive` threads
+ * the projection as its `transitionObserver`).
  *
  * **Implementation contract (the bit impl-staff fills in):**
  *
@@ -406,46 +614,97 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  *    codex r1 P2 #5 asked for: the state change and the emission
  *    decision share the same atomic step, so no concurrent transition
  *    can compute a stale decision against pre-commit state and publish
- *    it after a later commit. Pseudocode:
+ *    it after a later commit.
+ *
+ *    Pseudocode (lifecycle path — `onAgentConnect` / `onAgentDisconnect`;
+ *    returns `Option.none` for already-present / already-absent
+ *    no-ops, NOT `Effect.die`):
  *
  *    ```
  *    const decision = yield* Ref.modify(entriesRef, (entries) => {
  *      const entry = entries.get(agentId);
- *      if (!entry) return [Option.none(), entries]; // see (3)
- *      const prev = entry.status;
- *      const nextLeases = entry.activeLeases.union(...); // or .delete(...) for end
- *      const nextStatus = nextLeases.size > 0 ? "working" : "online";
- *      const next = { activeLeases: nextLeases, status: nextStatus };
- *      const decision = emitPresenceTransition(prev, nextStatus);
- *      return [decision, setReadonlyMapValue(agentId, next)(entries)];
+ *      // onAgentConnect: insert if absent, else no-op
+ *      // onAgentDisconnect: drop if present, else no-op
+ *      const [nextEntries, prevStatus, nextStatus] = computeLifecycle(entries, entry);
+ *      return [emitPresenceTransition(prevStatus, nextStatus), nextEntries];
  *    });
  *    yield* Option.match(decision, {
- *      onSome: (status) => Effect.sync(() =>
- *        deps.eventSink.publish({
- *          agentId,
- *          status,
- *          subscriberConnIds: deps.subscribers.getSubscribers(agentId),
- *        })),
+ *      onSome: (status) => Effect.sync(() => {
+ *        const snapshot = new Set(deps.subscribers.getSubscribers(agentId));
+ *        sink.publish({ agentId, status, subscriberConnIds: snapshot });
+ *      }),
  *      onNone: () => Effect.void,
  *    });
  *    ```
  *
+ *    Pseudocode (lease-observer path — `onLeaseActiveBegin` /
+ *    `onLeaseActiveEnd`; absent-entry case emits an audit event, NOT
+ *    a defect):
+ *
+ *    ```
+ *    const result = yield* Ref.modify(entriesRef, (entries) => {
+ *      const entry = entries.get(agentId);
+ *      if (!entry) {
+ *        // Audit-event path — entry was dropped by onAgentDisconnect
+ *        // before this lease callback fired. Expected during teardown.
+ *        const event: PresenceProjectionAuditEvent = {
+ *          _tag: kind === "begin"
+ *            ? "LeaseBeginAfterDisconnect"
+ *            : "LeaseEndAfterDisconnect",
+ *          agentId,
+ *          leaseId,
+ *        };
+ *        return [{ _tag: "audit", event }, entries];
+ *      }
+ *      const prev = entry.status;
+ *      const nextLeases = computeLeaseSet(entry.activeLeases, leaseId); // ∪ or \
+ *      const nextStatus = nextLeases.size > 0 ? "working" : "online";
+ *      const nextEntry = { activeLeases: nextLeases, status: nextStatus };
+ *      const decision = emitPresenceTransition(prev, nextStatus);
+ *      return [
+ *        { _tag: "emit", decision },
+ *        setReadonlyMapValue(agentId, nextEntry)(entries),
+ *      ];
+ *    });
+ *    yield* result._tag === "audit"
+ *      ? Effect.logDebug("presence projection audit", result.event)
+ *      : Option.match(result.decision, {
+ *          onSome: (status) => Effect.sync(() => {
+ *            const snapshot = new Set(deps.subscribers.getSubscribers(agentId));
+ *            sink.publish({ agentId, status, subscriberConnIds: snapshot });
+ *          }),
+ *          onNone: () => Effect.void,
+ *        });
+ *    ```
+ *
  * 3. **Entry-creation invariant** — only `onAgentConnect` creates
  *    entries. `onLeaseActiveBegin`/`onLeaseActiveEnd` on an unknown
- *    agent (entry absent) fire `Effect.die(new PresenceProjectionDefect({
- *    agentId, reason: "active-begin-without-connect" | "unknown-agent-on-end"
- *    }))`. The outer-edge defect handler pipes
- *    `Effect.catchAllDefect → Effect.logError → Effect.asVoid` so the
- *    `never` error channel of the public observer surface is preserved.
+ *    agent emit {@link PresenceProjectionAuditEvent} (logged at
+ *    debug), NOT {@link PresenceProjectionDefect}. The defect class
+ *    is reserved for genuinely impossible states (see its JSDoc).
  *
  * 4. **Concurrent-grant-during-disconnect race** — combined with (3),
  *    if a `resolveLease(grant)` for `agentId=X` lands between
  *    `onAgentDisconnect(X)` and `leaseRegistry.abandon(connId)`, the
- *    grant's `onLeaseActiveBegin(X)` finds no entry → defect → log →
+ *    grant's `onLeaseActiveBegin(X)` finds no entry → audit log →
  *    drop. No ghost `working` emission. The single `offline` from
  *    `onAgentDisconnect` is canonical.
  *
- * 5. **First-writer-wins discipline** — the `Ref.modify` predicate
+ * 5. **Subscriber snapshot consistency** — at every publish site,
+ *    `new Set(deps.subscribers.getSubscribers(agentId))` snapshots
+ *    the live subscriber registry BEFORE fan-out iterates. Concurrent
+ *    `subscribe` / `removeConnection` calls against the registry cannot
+ *    leak into the iteration. Matches the pre-existing snapshot
+ *    discipline in `presence.service.ts → transition`.
+ *
+ * 6. **Sink construction** — the sink is built inside this factory's
+ *    body via `createInternalFanOutEventSink({
+ *    connections: deps.connections })` and held in the projection's
+ *    closure. The `Internal*`-prefixed symbol is **not** exported from this
+ *    module; the compiler is the structural gate (see
+ *    {@link InternalPresenceEventSink}).
+ *
+ * 7. **First-writer-wins discipline** — the `Ref.modify` predicate
  *    matches `LeaseRegistry`'s own atomicity model. No second `Ref.get`
  *    + `Ref.update` pair; the predicate IS the linearization point.
  */
@@ -453,7 +712,7 @@ export function makePresenceProjection(
   deps: PresenceProjectionDeps,
 ): Effect.Effect<PresenceProjection, never, never> {
   void deps;
-  return Effect.dieMessage(
-    "presence-projection: not implemented (architect stub)",
-  );
+  void createInternalFanOutEventSink;
+  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
+  throw new Error("not implemented");
 }
