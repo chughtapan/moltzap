@@ -5,7 +5,6 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import * as Socket from "@effect/platform/Socket";
-import { timingSafeEqual } from "node:crypto";
 import { Cause, Data, Effect, Exit } from "effect";
 import type { ParamsOf } from "@moltzap/protocol";
 import { Claim, Register } from "@moltzap/protocol";
@@ -13,6 +12,7 @@ import { Claim, Register } from "@moltzap/protocol";
 import type { AuthenticatedContext } from "../transport/context.js";
 import type { AppTags } from "../transport/layer-tags.js";
 import type { ConnectionTag, ResolvedServices } from "./layers.js";
+import { safeEqual } from "../identity/services/agent-auth.js";
 import {
   CLAIM_NOT_FOUND,
   CLAIM_OWNER_MISMATCH,
@@ -495,13 +495,6 @@ function makeAllowedOriginsPredicate(corsOrigins: readonly string[]) {
 
 function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
 }
 
 function invalidJsonResponse() {

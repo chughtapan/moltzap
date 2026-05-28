@@ -16,6 +16,10 @@ const TASK_ID = taskId("00000000-0000-4000-8000-0000000fa5c0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const ORPHAN_TASK_ID = taskId("00000000-0000-4000-8000-0000000d3ad0");
 const API_KEY_SECRET_HASH_LENGTH = 64;
+const APP_KEY_ID = "fedcba9876543210";
+const APP_MANIFEST_JSON = { name: "schema-fixture-app" };
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUS_WAITING = "waiting";
 const WEREWOLF_APP_ID = "werewolf";
 const DEFAULT_APP_ID = "default";
@@ -62,6 +66,26 @@ describe("tasks schema conversation constraints", () => {
   it(
     "rejects conversations.task_id that does not reference a real task",
     rejectsConversationWithOrphanTask,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+});
+
+describe("apps schema constraints", () => {
+  it(
+    "inserts an app with server-issued app_id + id",
+    insertsAppWithServerIssuedIds,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects an app insert that omits manifest_json",
+    rejectsAppWithoutManifest,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects a duplicate api_key_id",
+    rejectsDuplicateAppApiKeyId,
     PGLITE_HOOK_TIMEOUT_MS,
   );
 });
@@ -143,6 +167,63 @@ function rejectsConversationWithOrphanTask() {
           id: CONV_ID,
           created_by_id: AGENT_ID,
           task_id: ORPHAN_TASK_ID,
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
+
+function insertsAppWithServerIssuedIds() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      yield* harness.db.insertInto("apps").values({
+        manifest_json: APP_MANIFEST_JSON,
+        api_key_id: APP_KEY_ID,
+        api_key_secret_hash: "y".repeat(API_KEY_SECRET_HASH_LENGTH),
+      });
+
+      const app = yield* takeFirstOrFail(
+        harness.db
+          .selectFrom("apps")
+          .select(["app_id", "api_key_id", "manifest_json"])
+          .where("api_key_id", "=", APP_KEY_ID),
+      );
+      expect(app.app_id).toMatch(UUID_RE);
+      expect(app.api_key_id).toBe(APP_KEY_ID);
+      expect(app.manifest_json).toEqual(APP_MANIFEST_JSON);
+    }),
+  );
+}
+
+function rejectsAppWithoutManifest() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        harness.exec(
+          `INSERT INTO apps (api_key_id, api_key_secret_hash)
+           VALUES ('${APP_KEY_ID}', '${"y".repeat(API_KEY_SECRET_HASH_LENGTH)}')`,
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
+
+function rejectsDuplicateAppApiKeyId() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      yield* harness.db.insertInto("apps").values({
+        manifest_json: APP_MANIFEST_JSON,
+        api_key_id: APP_KEY_ID,
+        api_key_secret_hash: "y".repeat(API_KEY_SECRET_HASH_LENGTH),
+      });
+
+      const exit = yield* Effect.exit(
+        harness.db.insertInto("apps").values({
+          manifest_json: APP_MANIFEST_JSON,
+          api_key_id: APP_KEY_ID,
+          api_key_secret_hash: "z".repeat(API_KEY_SECRET_HASH_LENGTH),
         }),
       );
       expect(Exit.isFailure(exit)).toBe(true);

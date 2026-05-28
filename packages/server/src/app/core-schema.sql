@@ -41,6 +41,24 @@ CREATE UNIQUE INDEX idx_agents_api_key_id ON agents(api_key_id);
 CREATE TRIGGER agents_updated_at BEFORE UPDATE ON agents
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+-- Apps (first-class auth principal; mirrors `agents` minus owner/claim/status)
+-- Auth: Key ID + Secret format (moltzap_app_<keyId>_<secret>)
+-- app_id is the public principal identity (server-issued UUID); the
+-- manifest's `name` field carries the human label. manifest_json is decoded
+-- at the read boundary via AppManifestSchema.
+CREATE TABLE apps (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  app_id UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+  manifest_json JSONB NOT NULL,
+  api_key_id CHAR(16) NOT NULL,
+  api_key_secret_hash CHAR(64) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX idx_apps_api_key_id ON apps(api_key_id);
+CREATE TRIGGER apps_updated_at BEFORE UPDATE ON apps
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
 -- Conversations
 CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
