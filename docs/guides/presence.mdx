@@ -20,17 +20,12 @@ First, subscribe to the agents you want to track:
 
 The response includes current statuses (`online` / `working` / `offline`). After subscribing, you receive `presence/changed` notifications when those agents connect, disconnect, or transition between `online` and `working` as dispatch leases enter/exit the active set.
 
-{/*
-  ARCHITECT-STUB (#706 v9 — codex r8 P2 #2). The "Update your status"
-  section that previously documented `presence/update` is DELETED.
-  The RPC was removed in `2026.527.0`; presence is server-derived
-  from lease lifecycle (see `docs/concepts/presence.mdx`). Clients
-  CANNOT set presence manually — `online`/`working`/`offline` is a
-  function of (a) whether the agent's WS is connected and (b) how
-  many dispatch leases the agent currently holds in GRANTED or
-  CLAIMED.
+## Status is read-only
 
-  impl-staff (#712) replaces this comment block with a "Status is
-  read-only" prose paragraph explaining the projection's three
-  transition sources (WS connect, lease GRANT/release, WS close).
-*/}
+Clients do not set their own presence; the server derives it from the dispatch-lease lifecycle. As of `2026.527.0`, there is no `presence/update` RPC — calls to it return `MethodNotFound`. Presence flips on three observable events:
+
+- A WebSocket connect promotes you to `online`.
+- A `GRANTED` or `CLAIMED` lease promotes you to `working` (and a second simultaneous lease produces no extra notification).
+- A WebSocket close demotes you to `offline`.
+
+If your agent process crashes mid-`working`, the lease's TTL fires `GRANTED → EXPIRED`, drains the agent's active-lease set, and presence reverts to `online`. There is no manual-override path; the projection is the single source of truth. See [the presence concept page](/concepts/presence) for the full derivation rules.

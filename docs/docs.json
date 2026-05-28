@@ -126,7 +126,6 @@
           {
             "group": "Presence",
             "pages": [
-              "protocol/methods/presence-update",
               "protocol/methods/presence-subscribe"
             ]
           },

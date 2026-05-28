@@ -1,7 +1,7 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-/* eslint-disable sonarjs/void-use -- stubs `void X;` parameter to keep the public signature stable until impl-staff fills the body. */
-import { type Effect } from "effect";
+import { Effect, Option } from "effect";
 
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 
@@ -81,9 +81,26 @@ interface InternalPresenceEventSink {
 function createInternalFanOutEventSink(deps: {
   readonly connections: ConnectionManager;
 }): InternalPresenceEventSink {
-  void deps;
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-  throw new Error("not implemented");
+  return {
+    publish(input) {
+      if (input.subscriberConnIds.size === 0) return;
+      const raw = JSON.stringify(
+        PresenceChangedNotificationDefinition.encode({
+          agentId: input.agentId,
+          status: input.status,
+        }),
+      );
+      for (const connId of input.subscriberConnIds) {
+        if (connId === input.excludeConnId) continue;
+        const conn = deps.connections.get(connId);
+        if (conn) {
+          Effect.runFork(
+            conn.write(raw).pipe(Effect.catchAll(() => Effect.void)),
+          );
+        }
+      }
+    },
+  };
 }
 
 /**
@@ -147,14 +164,19 @@ export function createEmitIfChanged(deps: {
   readonly connections: ConnectionManager;
   readonly subscribers: PresenceSubscriberRegistry;
 }): EmitIfChanged {
-  // Both `connections` (for sink construction) and `subscribers`
-  // (for snapshot at publish time) are load-bearing here; naming each
-  // individually distinguishes this stub from the sibling
-  // `createInternalFanOutEventSink` stub for sonarjs/no-identical-functions.
-  void deps.connections;
-  void deps.subscribers;
-  void createInternalFanOutEventSink;
-  void emitPresenceTransition;
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-  throw new Error("not implemented");
+  const sink = createInternalFanOutEventSink({ connections: deps.connections });
+  return (previous, next, agentId) =>
+    Effect.sync(() => {
+      const decision = emitPresenceTransition(previous, next);
+      if (Option.isNone(decision)) return;
+      const subscriberConnIds = new Set(
+        deps.subscribers.getSubscribers(agentId),
+      );
+      if (subscriberConnIds.size === 0) return;
+      sink.publish({
+        agentId,
+        status: decision.value,
+        subscriberConnIds,
+      });
+    });
 }

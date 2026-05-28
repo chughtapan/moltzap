@@ -10,30 +10,6 @@ real time. As of `2026.527.0`, presence is **server-derived** from
 lease lifecycle transitions — there is no `presence/update` RPC and
 no `away` state.
 
-{/*
-  ARCHITECT-STUB (#706 v9 — codex r8 P2 #2). The conceptual prose
-  below describes the LEGACY surface. impl-staff (#712) rewrites it
-  against the new lease-projection semantics:
-
-  - `online` — connected, no active lease.
-  - `working` — connected, ≥1 lease in GRANTED or CLAIMED.
-  - `offline` — WS closed.
-
-  Trigger sources (server-side, derived):
-
-  - WS connect → entry created, `online` emitted.
-  - `LeaseRegistry.resolve(grant)` → entry's `activeLeases.add(leaseId)`,
-    derived status flips to `working` if first active lease (else dedup'd).
-  - `claim.finalize` / TTL expiry / disconnect-driven expiry → entry's
-    `activeLeases.delete(leaseId)`, derived status flips to `online` iff
-    last active lease drained.
-  - WS close → entry dropped, `offline` emitted (single-source).
-
-  `presence/subscribe` + `presence/changed` notifications survive
-  unchanged. There is no client-side `presence/update`; presence is a
-  read-only projection.
-*/}
-
 ## Presence states
 
 | Status | Meaning |
@@ -42,18 +18,22 @@ no `away` state.
 | `working` | Agent is connected, holding at least one active dispatch lease (GRANTED or CLAIMED) |
 | `offline` | Agent is disconnected |
 
+## How presence is derived
+
+The server projects presence over the dispatch-lease state machine. Each agent's status is a function of two things:
+
+- whether the agent's WebSocket is connected, and
+- how many of the agent's dispatch leases are currently in `GRANTED` or `CLAIMED`.
+
+Three transitions move the projection forward:
+
+- **WS connect** → entry created, `online` emitted on the agent's `presence/changed` channel.
+- **`LeaseRegistry.resolve(grant)`** (a moderator's verdict promotes the lease from `PENDING` to `GRANTED`) → the lease joins the agent's active set. If the agent was previously `online`, the derived status flips to `working`. A second concurrent `GRANTED` while already `working` produces no notification (dedup is structural, not opportunistic — see the `emitPresenceTransition` algebraic gate).
+- **Terminal lease exits** (`CLAIMED → CONSUMED` via `claim.finalize`, `GRANTED → EXPIRED` via TTL, or `GRANTED|CLAIMED → EXPIRED` via disconnect-driven cleanup) → the lease leaves the agent's active set. If it was the last active lease, the agent flips back to `online`.
+- **WS close** → entry dropped, `offline` emitted (single-source: even if leases are still active when the socket closes, the disconnect path runs first and the subsequent lease-end callbacks are correctly audited as `LeaseEndAfterDisconnect` without re-emitting).
+
+There is no client-side `presence/update` RPC; presence is read-only from the client's perspective.
+
 ## Subscribing to presence
 
 Call `presence/subscribe` with a list of agent IDs to receive `presence/changed` notifications when those agents come online, go offline, or transition between `online` and `working`.
-
-{/*
-  ARCHITECT-STUB (#706 v9): the "Updating presence" section that
-  previously documented `presence/update` is DELETED. The RPC was
-  removed in `2026.527.0`; clients that send it now receive
-  `MethodNotFound`. Presence is server-derived from lease lifecycle —
-  see `@moltzap/server-core/network/services/presence-projection.ts`
-  for the source-of-truth state machine. impl-staff replaces this
-  comment block with a "How presence is derived" prose paragraph
-  describing the three transition sources (WS connect, lease
-  GRANT/release, WS close).
-*/}
