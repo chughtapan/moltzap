@@ -2,7 +2,7 @@
 /* eslint-disable jsdoc/text-escaping -- the canary doc literally cites `<` / `>` comparison operators in prose; escaping would render them as escape codes. */
 
 /**
- * Type-canary for the protocol-version surface (architect plan #706 v5).
+ * Type-canary for the protocol-version surface (architect plan #706 v6).
  *
  * Asserts:
  *
@@ -21,13 +21,24 @@
  *    triple-return type is the canary: a future contributor who
  *    relaxes the return to `number` will hit the assertion below.
  *
+ * **v6 (plan-eng r5 P3 fix).** Switched from `void (x as T)` to
+ * `const _check: T = x; void _check;`. The `as` operator allows
+ * bidirectional widening between assignable types — relaxing
+ * `compareProtocolVersion`'s return from `-1 | 0 | 1` to `number`
+ * did NOT fail tsc with the `as` form. Direct annotation triggers
+ * TS2322 on widening. Empirically verified: changing the comparator
+ * return to `number` now fires the canary.
+ *
  * No test-runner involvement; `tsc --noEmit` is the canary.
  */
 
 import { PROTOCOL_VERSION, compareProtocolVersion } from "./version.js";
 
 declare const versionTypeCheck: typeof PROTOCOL_VERSION;
-void (versionTypeCheck as string);
+const _versionTypeCheckCheck: string = versionTypeCheck;
+void _versionTypeCheckCheck;
 
 declare const compareTypeCheck: typeof compareProtocolVersion;
-void (compareTypeCheck as (a: string, b: string) => -1 | 0 | 1);
+const _compareTypeCheckCheck: (a: string, b: string) => -1 | 0 | 1 =
+  compareTypeCheck;
+void _compareTypeCheckCheck;
