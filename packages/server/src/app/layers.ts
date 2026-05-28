@@ -30,9 +30,14 @@ import {
   type LeaseRegistry,
 } from "../task/leases/lease-registry.js";
 import {
-  makePresenceProjection,
+  // v11 (codex r10 P2 #1): `makePresenceProjection` no longer
+  // called from this file. The architect-stub Layer constructs a
+  // lazy-throw `PresenceProjection` value directly. Impl-staff
+  // (#712) restores the import + `Layer.effect(...)` body when
+  // landing the real factory.
   PresenceProjectionTag,
   type PresenceProjection,
+  type PresenceProjectionDeps,
 } from "../network/services/presence-projection.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 
@@ -245,18 +250,28 @@ const PresenceServiceLive = Layer.effect(
  * surface) + `ConnectionManagerTag` (fan-out sink construction). See
  * architect plan #706 v7 §3 + §8.
  *
- * **v7 (codex r6 P2 #3) — real runtime binding.** v6 declared this
- * as `export declare const PresenceProjectionLive` in
- * `presence-projection.ts` — a TYPE-only declaration with no runtime
- * value. Any consumer importing it would crash with `undefined`. v7
- * relocates the Layer here (where the other Live layers live; cycle-
- * friendly since `app/layers.ts` already imports from
- * `presence-projection.ts`) and binds it to a real
- * `Layer.die(...)` placeholder with the typed `R` channel narrowed
- * to `PresenceServiceTag | ConnectionManagerTag`. Impl-staff (#712)
- * replaces the `Layer.die` body with the real `Layer.effect(...)`
- * composition that calls `makePresenceProjection({ subscribers,
- * connections })`.
+ * **v11 (codex r10 P2 #1) — lazy-throw stub.** v7-v10 had this Layer
+ * call `makePresenceProjection({ subscribers, connections })` during
+ * layer resolution, but `makePresenceProjection`'s body throws "not
+ * implemented" per architect-stub convention. Result: layer
+ * resolution itself failed, which broke
+ * `layers.test.ts > ServicesLive resolves every service via
+ * resolveServices` (a structural contract test that asserts every
+ * Live layer can be constructed). v11 returns a stub
+ * `PresenceProjection` value with `Effect.die("not implemented")`
+ * bodies on every method. The LAYER resolves cleanly (the test
+ * passes); only the METHODS fail when actually called (which is
+ * the impl-staff contract). When impl-staff (#712) lands the real
+ * `makePresenceProjection` body, they replace this Layer body with
+ * the original `return yield* makePresenceProjection({...})`
+ * recipe in §3.
+ *
+ * The R channel still consumes `PresenceServiceTag` +
+ * `ConnectionManagerTag` so the typed wiring is identical between
+ * the stub and the impl-staff body — `LeaseRegistryLive` consumes
+ * `PresenceProjectionTag` regardless. Both inputs are pulled and
+ * threaded into a `void`-ack inside the stub so the typed deps
+ * stay load-bearing (dropping either would surface at tsc).
  *
  * Test harnesses that DO NOT exercise presence may continue to
  * provide `noopLeaseTransitionObserver` directly to
@@ -272,14 +287,36 @@ export const PresenceProjectionLive: Layer.Layer<
 > = Layer.effect(
   PresenceProjectionTag,
   Effect.gen(function* () {
-    const subscribers = yield* PresenceServiceTag;
-    const connections = yield* ConnectionManagerTag;
-    // Architect-stub: `makePresenceProjection`'s body throws "not
-    // implemented" until impl-staff (#712) lands it. The Layer's
-    // runtime construction will die loudly the first time something
-    // tries to use it. Impl-staff replaces THIS factory body with
-    // the real composition per §3 recipe.
-    return yield* makePresenceProjection({ subscribers, connections });
+    // v11 (codex r10 P2 #1): pull deps so the typed R channel stays
+    // load-bearing — `yield* PresenceServiceTag` + `yield*
+    // ConnectionManagerTag` keep the Layer's `RIn` signature
+    // identical to the impl-staff body's. The returned `deps`
+    // object is then discarded by the stub, but impl-staff replaces
+    // the stub return with
+    //   `return yield* makePresenceProjection(deps);`
+    const deps: PresenceProjectionDeps = {
+      subscribers: yield* PresenceServiceTag,
+      connections: yield* ConnectionManagerTag,
+    };
+    const NOT_IMPLEMENTED =
+      "PresenceProjection: not implemented (architect-stub v11)";
+    const projection: PresenceProjection = {
+      onAgentConnect: () => Effect.die(NOT_IMPLEMENTED),
+      onAgentDisconnect: () => Effect.die(NOT_IMPLEMENTED),
+      onLeaseActiveBegin: () => Effect.die(NOT_IMPLEMENTED),
+      onLeaseActiveEnd: () => Effect.die(NOT_IMPLEMENTED),
+      statusOf: () => Effect.die(NOT_IMPLEMENTED),
+      statusMany: () => Effect.die(NOT_IMPLEMENTED),
+    };
+    // Annotate the span with the dep keys so the bindings are
+    // observably used (preserves the load-bearing R channel
+    // without violating sonarjs/no-unused-vars). Impl-staff drops
+    // this line when replacing the stub with
+    //   `return yield* makePresenceProjection(deps);`
+    yield* Effect.annotateCurrentSpan({
+      presenceProjectionDeps: Object.keys(deps).join(","),
+    });
+    return projection;
   }).pipe(Effect.withSpan("PresenceProjectionLive")),
 );
 
