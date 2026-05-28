@@ -12,6 +12,7 @@ import {
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/task";
 import {
   AgentContext,
   AppContext,
@@ -175,7 +176,24 @@ class UnauthenticatedConnection extends Data.TaggedClass(
 
 // eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal (§3.3), not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
-  ConnectionBase & { readonly auth: AgentContext }
+  ConnectionBase & {
+    readonly auth: AgentContext;
+
+    /**
+     * Server-side message-delivery-routing state: the set of conversation
+     * ids this connection is subscribed to (the fan-out membership gate in
+     * `network-send.ts → connectionCanReceive`). Hydrated on connect via the
+     * Connect handler's `hydrateConnectionState`; maintained on subscribe
+     * (`ConnectionManager.subscribeAgentsToConversation`) and on
+     * `ConversationService.removeParticipant`. App-armed connections have no
+     * conversation membership, so this field lives on the agent arm only.
+     *
+     * The per-connection cache is a known denormalization smell tracked as a
+     * first-class-subscription-index redesign in chughtapan/moltzap#718 — out
+     * of scope for #705; carried forward branded here.
+     */
+    readonly conversationIds: Set<ConversationId>;
+  }
 > {
   private readonly __brand: never = undefined as never;
 }
@@ -222,7 +240,14 @@ const mintAuthedArm = (
 ): { readonly outcome: TransitionOutcome; readonly minted: Connection } =>
   Match.value(auth).pipe(
     Match.tag("AgentContext", (agentAuth) => {
-      const authed = new AgentConnection({ ...base, auth: agentAuth });
+      // `conversationIds` starts empty; the Connect handler's
+      // `hydrateConnectionState` populates it from the agent's
+      // `conversation_participants` rows after this transition commits.
+      const authed = new AgentConnection({
+        ...base,
+        auth: agentAuth,
+        conversationIds: new Set<ConversationId>(),
+      });
       return { outcome: { kind: "ok-agent", authed } as const, minted: authed };
     }),
     Match.tag("AppContext", (appAuth) => {

@@ -136,8 +136,7 @@ export class NetworkSendService {
    *
    * Filter options:
    * - `forConversation` — apply the per-connection subscription gate
-   *   (`conn.conversationIds.has(...)`) and mute gate
-   *   (`!conn.mutedConversations.has(...)`); absent, every connection
+   *   (`conn.conversationIds.has(...)`); absent, every connection
    *   of every listed agent receives.
    * - `excludeConnectionId` — skip the named connection. The
    *   `messages/send` author uses this to avoid echoing the RPC reply
@@ -194,10 +193,7 @@ export class NetworkSendService {
     if (conn === undefined || conn.auth === null) return false;
     const conversationId = options.forConversation;
     if (conversationId === undefined) return true;
-    return (
-      conn.conversationIds.has(conversationId) &&
-      !conn.mutedConversations.has(conversationId)
-    );
+    return conn.conversationIds.has(conversationId);
   }
 
   private forkBroadcastWrite(write: BroadcastWrite): void {
