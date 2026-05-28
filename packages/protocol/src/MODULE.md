@@ -154,7 +154,7 @@ export type BrandedString<BrandName extends string> = string &
 A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
 a `string` from accidentally type-fitting a slot expecting the brand.
 
-### [`checkProtocolRange`](./version.ts#L86)
+### [`checkProtocolRange`](./version.ts#L122)
 
 _Function_
 
@@ -377,6 +377,30 @@ pending call to resolve.
 
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
+
+### [`InvalidProtocolVersionError`](./version.ts#L61)
+
+_Class_
+
+```ts
+export class InvalidProtocolVersionError extends Error {
+  override readonly name = "InvalidProtocolVersionError";
+  readonly version: string;
+  readonly segment: string;
+  constructor(version: string, segment: string) {
+    super(
+      `compareProtocolVersion: non-numeric segment "${segment}" in "${version}"`,
+    );
+    this.version = version;
+    this.segment = segment;
+  }
+}
+```
+
+Thrown by compareProtocolVersion when an input string carries
+a non-numeric segment (e.g., SemVer pre-release suffix
+`2026.527.0-rc.1`). The comparator is strict; callers normalize
+before calling, or catch this synchronously.
 
 ### [`JsonValue`](./schema-primitives.ts#L135)
 

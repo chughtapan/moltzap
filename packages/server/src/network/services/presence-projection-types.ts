@@ -1,5 +1,4 @@
 /* eslint-disable jsdoc/text-escaping -- the canary doc literally cites `Effect<void, never, never>` as a type expression in prose; escaping the angle brackets would render them as escape codes in rendered docs. */
-/* eslint-disable sonarjs/void-use -- stubs `void X;` parameter to keep the public signature stable until impl-staff fills the body. */
 
 /**
  * Shared types + pure functions for the presence-projection surface
@@ -130,9 +129,7 @@ export interface AgentPresenceEntry {
 export function deriveEntryStatus(
   entry: AgentPresenceEntry,
 ): Exclude<DerivedPresenceStatus, "offline"> {
-  void entry;
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-  throw new Error("not implemented");
+  return entry.activeLeases.size === 0 ? "online" : "working";
 }
 
 /**
@@ -173,8 +170,5 @@ export function emitPresenceTransition(
   previous: DerivedPresenceStatus,
   next: DerivedPresenceStatus,
 ): Option.Option<DerivedPresenceStatus> {
-  void previous;
-  void next;
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-  throw new Error("not implemented");
+  return previous === next ? Option.none() : Option.some(next);
 }

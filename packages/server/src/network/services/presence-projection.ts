@@ -1,6 +1,5 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-/* eslint-disable sonarjs/void-use -- stubs `void X;` parameter to keep the public signature stable until impl-staff fills the body. */
-import { Context, type Effect } from "effect";
+import { Context, Effect, Ref } from "effect";
 
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol";
@@ -129,14 +128,8 @@ export interface LeaseTransitionObserver {
 // level so consumers can reference the constant in default-arg
 // positions; calling it would `throw` until impl-staff lands.
 export const noopLeaseTransitionObserver: LeaseTransitionObserver = {
-  onLeaseActiveBegin: () => {
-    // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-    throw new Error("not implemented");
-  },
-  onLeaseActiveEnd: () => {
-    // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-    throw new Error("not implemented");
-  },
+  onLeaseActiveBegin: () => Effect.void,
+  onLeaseActiveEnd: () => Effect.void,
 };
 
 /**
@@ -662,25 +655,295 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  *    unrelated programmer defects propagate up through the fiber
  *    supervisor naturally.
  */
+/** Outcome of a lifecycle CAS predicate (connect / disconnect). */
+interface LifecycleOutcome {
+  readonly prevStatus: DerivedPresenceStatus;
+  readonly nextStatus: DerivedPresenceStatus;
+}
+
+/** Outcome of a lease-observer CAS predicate (begin / end). */
+type ObserverOutcome =
+  | { readonly _tag: "audit"; readonly event: PresenceProjectionAuditEvent }
+  | {
+      readonly _tag: "transition";
+      readonly prevStatus: DerivedPresenceStatus;
+      readonly nextStatus: DerivedPresenceStatus;
+    };
+
+type EntryMap = ReadonlyMap<AgentId, AgentPresenceEntry>;
+
+function withNewEntry(
+  entries: EntryMap,
+  agentId: AgentId,
+  entry: AgentPresenceEntry,
+): EntryMap {
+  const next = new Map(entries);
+  next.set(agentId, entry);
+  return next;
+}
+
+function withoutEntry(entries: EntryMap, agentId: AgentId): EntryMap {
+  const next = new Map(entries);
+  next.delete(agentId);
+  return next;
+}
+
+/**
+ * Pure predicate for {@link PresenceProjection.onAgentConnect}.
+ * Computes the next entry map AND emission decision in one pass so
+ * the outer `Ref.modify` linearizes both.
+ */
+function computeConnectTransition(
+  entries: EntryMap,
+  agentId: AgentId,
+  connId: ConnectionId,
+): readonly [LifecycleOutcome, EntryMap] {
+  const entry = entries.get(agentId);
+  if (entry === undefined) {
+    const nextEntry: AgentPresenceEntry = { connId, activeLeases: new Set() };
+    return [
+      { prevStatus: "offline", nextStatus: "online" },
+      withNewEntry(entries, agentId, nextEntry),
+    ];
+  }
+  if (entry.connId === connId) {
+    const status = deriveEntryStatus(entry);
+    return [{ prevStatus: status, nextStatus: status }, entries];
+  }
+  // Reconnect-with-new-connId: overwrite connId, clear leases.
+  const prev = deriveEntryStatus(entry);
+  const nextEntry: AgentPresenceEntry = { connId, activeLeases: new Set() };
+  return [
+    { prevStatus: prev, nextStatus: "online" },
+    withNewEntry(entries, agentId, nextEntry),
+  ];
+}
+
+/**
+ * Pure predicate for {@link PresenceProjection.onAgentDisconnect}.
+ * Drops the entry only if `entry.connId === connId`; otherwise the
+ * disconnect is for a stale session and the predicate is a no-op.
+ */
+function computeDisconnectTransition(
+  entries: EntryMap,
+  agentId: AgentId,
+  connId: ConnectionId,
+): readonly [LifecycleOutcome, EntryMap] {
+  const entry = entries.get(agentId);
+  if (entry === undefined || entry.connId !== connId) {
+    return [{ prevStatus: "offline", nextStatus: "offline" }, entries];
+  }
+  const prev = deriveEntryStatus(entry);
+  return [
+    { prevStatus: prev, nextStatus: "offline" },
+    withoutEntry(entries, agentId),
+  ];
+}
+
+interface ObserverCallback {
+  readonly kind: "begin" | "end";
+  readonly leaseId: LeaseId;
+  readonly recipientAgentId: AgentId;
+  readonly recipientConnId: ConnectionId;
+}
+
+function auditAbsentEntry(cb: ObserverCallback): PresenceProjectionAuditEvent {
+  return cb.kind === "begin"
+    ? {
+        _tag: "LeaseBeginAfterDisconnect",
+        agentId: cb.recipientAgentId,
+        leaseId: cb.leaseId,
+      }
+    : {
+        _tag: "LeaseEndAfterDisconnect",
+        agentId: cb.recipientAgentId,
+        leaseId: cb.leaseId,
+      };
+}
+
+function auditStaleConnId(
+  cb: ObserverCallback,
+  currentConnId: ConnectionId,
+): PresenceProjectionAuditEvent {
+  return {
+    _tag: "LeaseCallbackFromStaleConnection",
+    agentId: cb.recipientAgentId,
+    leaseId: cb.leaseId,
+    kind: cb.kind,
+    staleConnId: cb.recipientConnId,
+    currentConnId,
+  };
+}
+
+function applyLeaseToEntry(
+  entry: AgentPresenceEntry,
+  kind: "begin" | "end",
+  leaseId: LeaseId,
+): AgentPresenceEntry {
+  const nextLeases = new Set<LeaseId>(entry.activeLeases);
+  if (kind === "begin") {
+    nextLeases.add(leaseId);
+  } else {
+    nextLeases.delete(leaseId);
+  }
+  return { connId: entry.connId, activeLeases: nextLeases };
+}
+
+/**
+ * Pure predicate for lease-observer transitions (begin / end). Audits
+ * absent or stale-connection entries; otherwise computes the next
+ * entry shape + derived-status pair.
+ */
+function computeObserverTransition(
+  entries: EntryMap,
+  cb: ObserverCallback,
+): readonly [ObserverOutcome, EntryMap] {
+  const entry = entries.get(cb.recipientAgentId);
+  if (entry === undefined) {
+    return [{ _tag: "audit", event: auditAbsentEntry(cb) }, entries];
+  }
+  if (entry.connId !== cb.recipientConnId) {
+    return [
+      { _tag: "audit", event: auditStaleConnId(cb, entry.connId) },
+      entries,
+    ];
+  }
+  const prev = deriveEntryStatus(entry);
+  const nextEntry = applyLeaseToEntry(entry, cb.kind, cb.leaseId);
+  const next = deriveEntryStatus(nextEntry);
+  return [
+    { _tag: "transition", prevStatus: prev, nextStatus: next },
+    withNewEntry(entries, cb.recipientAgentId, nextEntry),
+  ];
+}
+
+function applyObserverOutcome(
+  outcome: ObserverOutcome,
+  recipientAgentId: AgentId,
+  emit: EmitIfChanged,
+): Effect.Effect<void, never, never> {
+  if (outcome._tag === "audit") {
+    return Effect.logDebug("presence projection audit", outcome.event);
+  }
+  return emit(outcome.prevStatus, outcome.nextStatus, recipientAgentId);
+}
+
+function statusForAgent(
+  entries: EntryMap,
+  agentId: AgentId,
+): DerivedPresenceStatus {
+  const entry = entries.get(agentId);
+  return entry === undefined ? "offline" : deriveEntryStatus(entry);
+}
+
+function makeLifecycleMethods(
+  entriesRef: Ref.Ref<EntryMap>,
+  emit: EmitIfChanged,
+): Pick<PresenceProjection, "onAgentConnect" | "onAgentDisconnect"> {
+  const onAgentConnect: PresenceProjection["onAgentConnect"] = (
+    agentId,
+    connId,
+  ) =>
+    Ref.modify(entriesRef, (entries) =>
+      computeConnectTransition(entries, agentId, connId),
+    ).pipe(Effect.flatMap((o) => emit(o.prevStatus, o.nextStatus, agentId)));
+
+  const onAgentDisconnect: PresenceProjection["onAgentDisconnect"] = (
+    agentId,
+    connId,
+  ) =>
+    Ref.modify(entriesRef, (entries) =>
+      computeDisconnectTransition(entries, agentId, connId),
+    ).pipe(Effect.flatMap((o) => emit(o.prevStatus, o.nextStatus, agentId)));
+
+  return { onAgentConnect, onAgentDisconnect };
+}
+
+function makeObserverMethods(
+  entriesRef: Ref.Ref<EntryMap>,
+  emit: EmitIfChanged,
+): Pick<PresenceProjection, "onLeaseActiveBegin" | "onLeaseActiveEnd"> {
+  const handleObserverTransition = (
+    cb: ObserverCallback,
+  ): Effect.Effect<void, never, never> =>
+    Ref.modify(entriesRef, (entries) =>
+      computeObserverTransition(entries, cb),
+    ).pipe(
+      Effect.flatMap((outcome) =>
+        applyObserverOutcome(outcome, cb.recipientAgentId, emit),
+      ),
+    );
+
+  const onLeaseActiveBegin: PresenceProjection["onLeaseActiveBegin"] = (
+    leaseId,
+    recipientAgentId,
+    recipientConnId,
+  ) =>
+    handleObserverTransition({
+      kind: "begin",
+      leaseId,
+      recipientAgentId,
+      recipientConnId,
+    });
+
+  const onLeaseActiveEnd: PresenceProjection["onLeaseActiveEnd"] = (
+    leaseId,
+    recipientAgentId,
+    recipientConnId,
+  ) =>
+    handleObserverTransition({
+      kind: "end",
+      leaseId,
+      recipientAgentId,
+      recipientConnId,
+    });
+
+  return { onLeaseActiveBegin, onLeaseActiveEnd };
+}
+
+function makeStatusReaders(
+  entriesRef: Ref.Ref<EntryMap>,
+): Pick<PresenceProjection, "statusOf" | "statusMany"> {
+  const statusOf: PresenceProjection["statusOf"] = (agentId) =>
+    Ref.get(entriesRef).pipe(
+      Effect.map((entries) => statusForAgent(entries, agentId)),
+    );
+
+  const statusMany: PresenceProjection["statusMany"] = (agentIds) =>
+    Ref.get(entriesRef).pipe(
+      Effect.map((entries) =>
+        agentIds.map((agentId) => ({
+          agentId,
+          status: statusForAgent(entries, agentId),
+        })),
+      ),
+    );
+
+  return { statusOf, statusMany };
+}
+
+function buildProjection(
+  entriesRef: Ref.Ref<EntryMap>,
+  emit: EmitIfChanged,
+): PresenceProjection {
+  return {
+    ...makeLifecycleMethods(entriesRef, emit),
+    ...makeObserverMethods(entriesRef, emit),
+    ...makeStatusReaders(entriesRef),
+  };
+}
+
 export function makePresenceProjection(
   deps: PresenceProjectionDeps,
 ): Effect.Effect<PresenceProjection, never, never> {
-  void deps;
-  // v6 (codex r5 P2 #2): keep `createEmitIfChanged` reachable from
-  // the factory closure so the in-module seal helper is exercised
-  // by the canary. Impl-staff calls `createEmitIfChanged({ connections:
-  // deps.connections, subscribers: deps.subscribers })` once and
-  // passes the returned `EmitIfChanged` to every transition-method
-  // helper. The raw sink + sink-factory are not reachable from THIS
-  // module — they live in `_internal/presence-emit.ts`'s private
-  // scope.
-  void createEmitIfChanged;
-  // v7 (codex r6 P2 #1): `deriveEntryStatus` is the projection's
-  // single source-of-truth helper for size-derived status. Keep it
-  // reachable from the factory closure so the canary exercises it.
-  void deriveEntryStatus;
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-  throw new Error("not implemented");
+  return Effect.gen(function* () {
+    const entriesRef = yield* Ref.make<EntryMap>(new Map());
+    const emit: EmitIfChanged = createEmitIfChanged({
+      connections: deps.connections,
+      subscribers: deps.subscribers,
+    });
+    return buildProjection(entriesRef, emit);
+  }).pipe(Effect.withSpan("makePresenceProjection"));
 }
 
 /**

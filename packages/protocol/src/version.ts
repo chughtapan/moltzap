@@ -40,12 +40,48 @@ export const PROTOCOL_VERSION = "2026.526.0";
  * Stub: impl-staff fills the body per architect SKILL.md.
  */
 export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1 {
-  /* eslint-disable sonarjs/void-use -- architect stub: `void X;` references keep the named parameters reachable until impl-staff fills the body (mirrors the moltzap convention). */
-  void a;
-  void b;
-  /* eslint-enable sonarjs/void-use -- restore the rule outside the stub-body region. */
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-  throw new Error("not implemented");
+  const segmentsA = parseVersionSegments(a);
+  const segmentsB = parseVersionSegments(b);
+  const len = Math.max(segmentsA.length, segmentsB.length);
+  for (let i = 0; i < len; i++) {
+    const ai = segmentsA[i] ?? 0;
+    const bi = segmentsB[i] ?? 0;
+    if (ai < bi) return -1;
+    if (ai > bi) return 1;
+  }
+  return 0;
+}
+
+/**
+ * Thrown by {@link compareProtocolVersion} when an input string carries
+ * a non-numeric segment (e.g., SemVer pre-release suffix
+ * `2026.527.0-rc.1`). The comparator is strict; callers normalize
+ * before calling, or catch this synchronously.
+ */
+export class InvalidProtocolVersionError extends Error {
+  override readonly name = "InvalidProtocolVersionError";
+  readonly version: string;
+  readonly segment: string;
+  constructor(version: string, segment: string) {
+    super(
+      `compareProtocolVersion: non-numeric segment "${segment}" in "${version}"`,
+    );
+    this.version = version;
+    this.segment = segment;
+  }
+}
+
+function parseVersionSegments(version: string): readonly number[] {
+  const parts = version.split(".");
+  const segments: number[] = [];
+  for (const part of parts) {
+    const n = Number(part);
+    if (!Number.isFinite(n) || Number.isNaN(n)) {
+      throw new InvalidProtocolVersionError(version, part);
+    }
+    segments.push(n);
+  }
+  return segments;
 }
 
 /**
@@ -87,12 +123,6 @@ export function checkProtocolRange(
   params: { readonly minProtocol: string; readonly maxProtocol: string },
   serverVersion: string,
 ): Effect.Effect<void, ProtocolMismatchError> {
-  // sonarjs/no-use-of-empty-return-value fires because the
-  // architect-stub `compareProtocolVersion` body throws synchronously
-  // so its inferred return is `never`. Once impl-staff lands the body
-  // returning `-1 | 0 | 1`, the rule is satisfied automatically. The
-  // disable is scoped to the two call sites that consume the helper.
-  /* eslint-disable sonarjs/no-use-of-empty-return-value -- architect-stub call site; impl-staff replaces `compareProtocolVersion`'s throw with the real `-1 | 0 | 1` body. */
   if (compareProtocolVersion(serverVersion, params.maxProtocol) > 0) {
     return failProtocolMismatch(
       params,
@@ -107,7 +137,6 @@ export function checkProtocolRange(
       serverVersion,
     );
   }
-  /* eslint-enable sonarjs/no-use-of-empty-return-value -- restore the rule outside the stub-body region. */
   return Effect.void;
 }
 

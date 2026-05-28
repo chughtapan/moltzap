@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Presence projection over `LeaseRegistry` — `presence/update` RPC + `away` state deleted (#706)
+
+- **Breaking**: `presence/update` RPC removed and `away` state no
+  longer exists; presence (`online` | `working` | `offline`) is now
+  server-derived from lease lifecycle (`PENDING → GRANTED`
+  transitions yield `working`; exits from `GRANTED|CLAIMED` and
+  WS-close yield `online`/`offline`). Clients sending
+  `presence/update` will receive `MethodNotFound`; clients with
+  `maxProtocol < 2026.527.0` will be rejected with
+  `ProtocolMismatchError`.
+
 ### `adapters/` deleted — webhook transport unified on `@effect/platform/HttpClient` (#709)
 
 Removes the bespoke ~282-line `WebhookClient` and the entire
