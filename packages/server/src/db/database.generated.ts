@@ -47,6 +47,23 @@ export interface Agents {
   updated_at: Generated<Timestamp>;
 }
 
+export interface Apps {
+  api_key_id: string;
+  api_key_secret_hash: string;
+  app_id: Generated<string>;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+
+  /**
+   * jsonb column holding the app's `AppManifest`. Decoded via
+   * `AppManifestSchema` at every read site (Principle 2: schemas at
+   * boundaries); the generated type stays `unknown` via the `Json`
+   * alias so no read path trusts the persisted shape unchecked.
+   */
+  manifest_json: Json;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Contacts {
   contact_user_id: string;
   created_at: Generated<Timestamp>;
