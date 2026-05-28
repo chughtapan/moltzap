@@ -2,9 +2,12 @@ import { Effect, Option } from "effect";
 import {
   PROTOCOL_VERSION,
   Connect,
+  compareProtocolVersion,
+  ProtocolMismatchError,
   UnauthorizedError,
   type HelloOk,
   type ParamsOf,
+  type ProtocolMismatchReason,
 } from "@moltzap/protocol";
 import type {
   AuthenticatedContext,
@@ -180,9 +183,85 @@ function registerEndpointIfStillConnected(
   }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
 }
 
+/**
+ * Architect plan #706 v8 (codex r7 P2 #1) — protocol-range gate.
+ *
+ * Raised by `handleConnect` BEFORE auth resolution. When the client's
+ * `[minProtocol, maxProtocol]` interval does not bracket the server's
+ * `PROTOCOL_VERSION`, fail with a typed `ProtocolMismatchError`
+ * carrying the diagnostic triple
+ * { clientMinProtocol, clientMaxProtocol, serverVersion, reason }
+ * in the wire-error `data` payload.
+ *
+ * The check uses {@link compareProtocolVersion} (numeric segment-wise
+ * CalVer comparator from `@moltzap/protocol`) rather than raw string
+ * comparison — CalVer values of the form `YYYY.NNNN.M` with
+ * variable-digit middle components are NOT lex-sortable.
+ *
+ * Two reasons (mutually exclusive — the discriminator is in the
+ * `data.reason` field):
+ *
+ * - `server-above-client-max` —
+ *   `compareProtocolVersion(client.maxProtocol, PROTOCOL_VERSION) < 0`.
+ *   The server is newer than the client knows how to talk to.
+ * - `server-below-client-min` —
+ *   `compareProtocolVersion(client.minProtocol, PROTOCOL_VERSION) > 0`.
+ *   The client is newer than the server supports.
+ *
+ * Architect lands the real body — it's a small typed branch and the
+ * full integration contract is exercised by impl-staff's regression
+ * tests (see architect plan §8). The function lives here in
+ * `identity/handlers/connect.handlers.ts` as a private helper so the
+ * wiring decision (handler-private vs reusable utility) is closed.
+ */
+function checkProtocolRange(
+  params: ConnectParams,
+): Effect.Effect<void, ProtocolMismatchError> {
+  if (compareProtocolVersion(params.maxProtocol, PROTOCOL_VERSION) < 0) {
+    return failProtocolMismatch(params, "server-above-client-max");
+  }
+  if (compareProtocolVersion(params.minProtocol, PROTOCOL_VERSION) > 0) {
+    return failProtocolMismatch(params, "server-below-client-min");
+  }
+  return Effect.void;
+}
+
+/**
+ * Construct + raise a {@link ProtocolMismatchError} carrying the
+ * diagnostic triple in `data.reason`. Architect plan #706 v8.
+ *
+ * The wire error is registered in `@moltzap/protocol/network/methods.ts`
+ * with `static code = -32006` and self-registers via
+ * `registerErrorClass`. The discriminant `reason` lives in the
+ * `data` field per the wire-error convention (see
+ * `@moltzap/protocol/transport/wire-errors.ts → RpcErrorPayload`).
+ */
+function failProtocolMismatch(
+  params: ConnectParams,
+  reason: ProtocolMismatchReason,
+): Effect.Effect<never, ProtocolMismatchError> {
+  return Effect.fail(
+    new ProtocolMismatchError({
+      data: {
+        clientMinProtocol: params.minProtocol,
+        clientMaxProtocol: params.maxProtocol,
+        serverVersion: PROTOCOL_VERSION,
+        reason,
+      },
+    }),
+  );
+}
+
 function handleConnect(params: ConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
+      // v8 (architect plan #706 / codex r7 P2 #1): protocol-range gate
+      // BEFORE auth resolution. Old clients (and clients newer than
+      // the server supports) are rejected at the version edge — they
+      // never see the credential check, so no partial state leaks
+      // before the rejection.
+      yield* checkProtocolRange(params);
+
       const authService = yield* AuthServiceTag;
       const conversationService = yield* ConversationServiceTag;
       const presenceProjection = yield* PresenceProjectionTag;

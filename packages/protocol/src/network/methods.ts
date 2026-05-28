@@ -1,7 +1,12 @@
+import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId } from "../identity/methods.js";
 import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+import {
+  registerErrorClass,
+  type RpcErrorPayload,
+} from "../transport/wire-errors.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -82,6 +87,55 @@ export const Connect = defineRpc({
 });
 
 export type HelloOk = Static<typeof HelloOkSchema>;
+
+/**
+ * Raised by `network/connect` when the client's `[minProtocol,
+ * maxProtocol]` range does not bracket the server's `PROTOCOL_VERSION`.
+ *
+ * Architect plan #706 v4 named the error in the `Connect` descriptor's
+ * `@error` JSDoc; v8 (codex r7 P2 #1) lands the actual typed class so
+ * the JSDoc claim is backed by a registered wire error. The
+ * server-side handler (`@moltzap/server-core/identity/handlers/connect.handlers.ts
+ * → checkProtocolRange`) raises this BEFORE auth resolution so old
+ * clients are rejected at the version gate rather than after a
+ * partial credential exchange.
+ *
+ * The `data` field carries the diagnostic triple
+ * `{ clientMinProtocol, clientMaxProtocol, serverVersion, reason }`:
+ *
+ * - `reason: "server-above-client-max"` — `compareProtocolVersion(
+ *   clientMaxProtocol, serverVersion) < 0`. The server is newer than
+ *   the client knows how to talk to; the client must update.
+ * - `reason: "server-below-client-min"` — `compareProtocolVersion(
+ *   clientMinProtocol, serverVersion) > 0`. The client is newer than
+ *   the server supports; the client must accept the legacy version
+ *   or refuse to connect.
+ *
+ * Wire code `-32006` (next unclaimed in the registry; verified
+ * against `-32000..-32024` at v8 architect-stub time per
+ * `packages/protocol/CLAUDE.md` recipe step 5).
+ *
+ * The architect class body is `Effect.die("not implemented") /
+ * throw new Error("not implemented")` is NOT applicable here — the
+ * class is a `Data.TaggedError` subclass which is purely structural;
+ * no body to stub. Impl-staff fills in the `handleConnect` /
+ * `checkProtocolRange` wiring that raises this class.
+ */
+export class ProtocolMismatchError extends Data.TaggedError(
+  "ProtocolMismatchError",
+)<RpcErrorPayload> {
+  static readonly code = -32006;
+  static readonly message = "Client protocol version not supported";
+}
+registerErrorClass(ProtocolMismatchError);
+
+/**
+ * Reason discriminant carried in `ProtocolMismatchError.data.reason`.
+ * Architect plan #706 v8 (codex r7 P2 #1).
+ */
+export type ProtocolMismatchReason =
+  | "server-above-client-max"
+  | "server-below-client-min";
 
 // ── network/ping ─────────────────────────────────────────────────────
 

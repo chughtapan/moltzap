@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so the
 optionality is collapsed here.
 
-### [`Connect`](./methods.ts#L61)
+### [`Connect`](./methods.ts#L66)
 
 _Variable_
 
@@ -112,7 +112,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L84)
+### [`HelloOk`](./methods.ts#L89)
 
 _TypeAlias_
 
@@ -120,7 +120,7 @@ _TypeAlias_
 export type HelloOk = Static<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L147)
+### [`networkNotifications`](./methods.ts#L201)
 
 _Variable_
 
@@ -130,7 +130,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L91)
+### [`NetworkPing`](./methods.ts#L145)
 
 _Variable_
 
@@ -144,7 +144,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L141)
+### [`networkRpcMethods`](./methods.ts#L195)
 
 _Variable_
 
@@ -156,7 +156,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L136)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L190)
 
 _Variable_
 
@@ -172,7 +172,7 @@ v7 (architect plan #706): triggered by server-side `LeaseRegistry`
 lifecycle transitions, not by client-side `presence/update`
 (deleted in the same cutover).
 
-### [`PresenceSubscribe`](./methods.ts#L110)
+### [`PresenceSubscribe`](./methods.ts#L164)
 
 _Variable_
 
@@ -192,6 +192,75 @@ export const PresenceSubscribe = defineRpc({
 
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
+
+### [`ProtocolMismatchError`](./methods.ts#L124)
+
+_Class_
+
+```ts
+export class ProtocolMismatchError extends Data.TaggedError(
+  "ProtocolMismatchError",
+)<RpcErrorPayload> {
+  static readonly code = -32006;
+  static readonly message = "Client protocol version not supported";
+}
+```
+
+Raised by `network/connect` when the client's `[minProtocol,
+maxProtocol]` range does not bracket the server's `PROTOCOL_VERSION`.
+
+Architect plan #706 v4 named the error in the `Connect` descriptor's
+`@error` JSDoc; v8 (codex r7 P2 #1) lands the actual typed class so
+the JSDoc claim is backed by a registered wire error. The
+server-side handler (`@moltzap/server-core/identity/handlers/connect.handlers.ts
+→ checkProtocolRange`) raises this BEFORE auth resolution so old
+clients are rejected at the version gate rather than after a
+partial credential exchange.
+
+The `data` field carries the diagnostic triple
+`{ clientMinProtocol, clientMaxProtocol, serverVersion, reason }`:
+
+- `reason: "server-above-client-max"` — `compareProtocolVersion(
+  clientMaxProtocol, serverVersion) < 0`. The server is newer than
+  the client knows how to talk to; the client must update.
+- `reason: "server-below-client-min"` — `compareProtocolVersion(
+  clientMinProtocol, serverVersion) > 0`. The client is newer than
+  the server supports; the client must accept the legacy version
+  or refuse to connect.
+
+Wire code `-32006` (next unclaimed in the registry; verified
+against `-32000..-32024` at v8 architect-stub time per
+`packages/protocol/CLAUDE.md` recipe step 5).
+
+The architect class body is `Effect.die("not implemented") /
+throw new Error("not implemented")` is NOT applicable here — the
+class is a `Data.TaggedError` subclass which is purely structural;
+no body to stub. Impl-staff fills in the `handleConnect` /
+`checkProtocolRange` wiring that raises this class.
+
+### [`ProtocolMismatchReason`](./methods.ts#L136)
+
+_TypeAlias_
+
+```ts
+export type ProtocolMismatchReason =
+  | "server-above-client-max"
+  | "server-below-client-min";
+
+// ── network/ping ─────────────────────────────────────────────────────
+
+/**
+ * Liveness probe. Returns server timestamp.
+ */
+export const NetworkPing = defineRpc({
+  name: "network/ping",
+  params: Type.Object({}, { additionalProperties: false }),
+  result: Type.Object({ ts: DateTimeString }, { additionalProperties: false }),
+});
+```
+
+Reason discriminant carried in `ProtocolMismatchError.data.reason`.
+Architect plan #706 v8 (codex r7 P2 #1).
 
 ### [`userId`](./actor-model.ts#L42)
 

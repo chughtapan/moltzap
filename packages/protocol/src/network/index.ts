@@ -9,9 +9,12 @@ export {
   // manually set status.
   PresenceSubscribe,
   PresenceChangedNotificationDefinition,
+  // v8 (architect plan #706 / codex r7 P2 #1): protocol-mismatch
+  // error backs the `Connect` descriptor's `@error` JSDoc claim.
+  ProtocolMismatchError,
 } from "./methods.js";
 
-export type { HelloOk } from "./methods.js";
+export type { HelloOk, ProtocolMismatchReason } from "./methods.js";
 
 // Server-internal WebSocket connection id brand (#673 follow-up).
 // Lives in the protocol layer so service signatures can be brand-typed
