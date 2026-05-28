@@ -184,14 +184,24 @@ function registerEndpointIfStillConnected(
 }
 
 /**
- * Architect plan #706 v8 (codex r7 P2 #1) — protocol-range gate.
+ * Architect plan #706 v9 (codex r8 P2 #1) — parameterized
+ * protocol-range gate.
  *
  * Raised by `handleConnect` BEFORE auth resolution. When the client's
- * `[minProtocol, maxProtocol]` interval does not bracket the server's
- * `PROTOCOL_VERSION`, fail with a typed `ProtocolMismatchError`
- * carrying the diagnostic triple
+ * `[minProtocol, maxProtocol]` interval does not bracket the supplied
+ * `serverVersion`, fail with a typed `ProtocolMismatchError` carrying
+ * the diagnostic triple
  * { clientMinProtocol, clientMaxProtocol, serverVersion, reason }
  * in the wire-error `data` payload.
+ *
+ * **v9 parameterization (codex r8 P2 #1).** v8 closed over the
+ * `PROTOCOL_VERSION` constant directly, which broke the testability
+ * of the rejection regression cases: per the release-tooling-managed
+ * bump convention, the constant stays at `2026.526.0` on this
+ * branch, but the required "old client max `2026.526.0` vs server
+ * `2026.527.0`" regression needs to inject a future server version.
+ * v9 injects `serverVersion: string` so production passes
+ * `PROTOCOL_VERSION` and tests can substitute future versions.
  *
  * The check uses {@link compareProtocolVersion} (numeric segment-wise
  * CalVer comparator from `@moltzap/protocol`) rather than raw string
@@ -202,10 +212,10 @@ function registerEndpointIfStillConnected(
  * `data.reason` field):
  *
  * - `server-above-client-max` —
- *   `compareProtocolVersion(client.maxProtocol, PROTOCOL_VERSION) < 0`.
+ *   `compareProtocolVersion(serverVersion, client.maxProtocol) > 0`.
  *   The server is newer than the client knows how to talk to.
  * - `server-below-client-min` —
- *   `compareProtocolVersion(client.minProtocol, PROTOCOL_VERSION) > 0`.
+ *   `compareProtocolVersion(serverVersion, client.minProtocol) < 0`.
  *   The client is newer than the server supports.
  *
  * Architect lands the real body — it's a small typed branch and the
@@ -216,36 +226,52 @@ function registerEndpointIfStillConnected(
  */
 function checkProtocolRange(
   params: ConnectParams,
+  serverVersion: string,
 ): Effect.Effect<void, ProtocolMismatchError> {
-  if (compareProtocolVersion(params.maxProtocol, PROTOCOL_VERSION) < 0) {
-    return failProtocolMismatch(params, "server-above-client-max");
+  if (compareProtocolVersion(serverVersion, params.maxProtocol) > 0) {
+    return failProtocolMismatch(
+      params,
+      "server-above-client-max",
+      serverVersion,
+    );
   }
-  if (compareProtocolVersion(params.minProtocol, PROTOCOL_VERSION) > 0) {
-    return failProtocolMismatch(params, "server-below-client-min");
+  if (compareProtocolVersion(serverVersion, params.minProtocol) < 0) {
+    return failProtocolMismatch(
+      params,
+      "server-below-client-min",
+      serverVersion,
+    );
   }
   return Effect.void;
 }
 
 /**
  * Construct + raise a {@link ProtocolMismatchError} carrying the
- * diagnostic triple in `data.reason`. Architect plan #706 v8.
+ * diagnostic triple in `data.reason`. Architect plan #706 v8 + v9
+ * parameterization.
  *
  * The wire error is registered in `@moltzap/protocol/network/methods.ts`
  * with `static code = -32006` and self-registers via
  * `registerErrorClass`. The discriminant `reason` lives in the
  * `data` field per the wire-error convention (see
  * `@moltzap/protocol/transport/wire-errors.ts → RpcErrorPayload`).
+ *
+ * **v9 (codex r8 P2 #1):** `serverVersion` injected alongside
+ * `params` + `reason` so the diagnostic payload carries the
+ * caller-supplied value (production = `PROTOCOL_VERSION`, tests =
+ * substituted future version).
  */
 function failProtocolMismatch(
   params: ConnectParams,
   reason: ProtocolMismatchReason,
+  serverVersion: string,
 ): Effect.Effect<never, ProtocolMismatchError> {
   return Effect.fail(
     new ProtocolMismatchError({
       data: {
         clientMinProtocol: params.minProtocol,
         clientMaxProtocol: params.maxProtocol,
-        serverVersion: PROTOCOL_VERSION,
+        serverVersion,
         reason,
       },
     }),
@@ -260,7 +286,12 @@ function handleConnect(params: ConnectParams) {
       // the server supports) are rejected at the version edge — they
       // never see the credential check, so no partial state leaks
       // before the rejection.
-      yield* checkProtocolRange(params);
+      //
+      // v9 (codex r8 P2 #1): the helper is parameterized over
+      // `serverVersion`; production passes the live `PROTOCOL_VERSION`
+      // constant while tests inject future-version values to exercise
+      // rejection paths against an unbumped branch.
+      yield* checkProtocolRange(params, PROTOCOL_VERSION);
 
       const authService = yield* AuthServiceTag;
       const conversationService = yield* ConversationServiceTag;

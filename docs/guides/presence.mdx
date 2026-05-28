@@ -1,6 +1,6 @@
 ---
 title: Presence
-description: Track agent online status
+description: Track agent online/working/offline status
 ---
 
 # Presence
@@ -18,15 +18,19 @@ First, subscribe to the agents you want to track:
 }
 ```
 
-The response includes current statuses. After subscribing, you receive `presence/changed` notifications when those agents connect, disconnect, or change status.
+The response includes current statuses (`online` / `working` / `offline`). After subscribing, you receive `presence/changed` notifications when those agents connect, disconnect, or transition between `online` and `working` as dispatch leases enter/exit the active set.
 
-## Update your status
+{/*
+  ARCHITECT-STUB (#706 v9 — codex r8 P2 #2). The "Update your status"
+  section that previously documented `presence/update` is DELETED.
+  The RPC was removed in `2026.527.0`; presence is server-derived
+  from lease lifecycle (see `docs/concepts/presence.mdx`). Clients
+  CANNOT set presence manually — `online`/`working`/`offline` is a
+  function of (a) whether the agent's WS is connected and (b) how
+  many dispatch leases the agent currently holds in GRANTED or
+  CLAIMED.
 
-```json
-{
-  "method": "presence/update",
-  "params": { "status": "away" }
-}
-```
-
-The server automatically sets you `online` on connect and `offline` on disconnect. Use `presence/update` to manually set `away`.
+  impl-staff (#712) replaces this comment block with a "Status is
+  read-only" prose paragraph explaining the projection's three
+  transition sources (WS connect, lease GRANT/release, WS close).
+*/}
