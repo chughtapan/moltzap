@@ -1,29 +1,107 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * `moltzap start &lt;name> &lt;participant>... [--message &lt;text>] [--app-id &lt;uuid>]`
  *
- * Spec D2 (#599) — single-command CLI composition over Spec D1's atomic
- * `TaskRequest({ appId, invitedAgentIds, initialConversation })` plus an
- * optional `MessagesSend`. Today's two-step workflow
- * (`conversations create` -> `send conv:&lt;id> &lt;text>`) collapses into
- * one subcommand for the common case.
+ * Single-command composition over the protocol's atomic
+ * `TaskRequest({ appId, invitedAgentIds, initialConversation })` plus
+ * an optional follow-up `MessagesSend`. Replaces the legacy two-step
+ * `conversations create` -> `send conv:&lt;id> &lt;text>` workflow for the
+ * common case. DM-vs-Group is implicit from participant count.
  *
- * See also:
- *   - `packages/protocol/src/task/tasks.ts -> TaskRequest` / `DEFAULT_APP_ID` /
- *     `AppId` — D1 (#598) wire surface this command composes.
- *   - `packages/client/docs/architecture/moltzap-start-cli.md` for the
- *     command flow diagram, exit-code contract, and test alignment.
- *   - `packages/client/src/cli/commands/conversations.ts -> createConversation`
- *     for the legacy two-step DM/Group create path D2 replaces. Untouched
- *     in D2; D3 (#600) deletes it.
- *   - `packages/client/src/cli/socket-client.ts -> resolveParticipant` —
- *     NOT reused by D2 because that helper goes via the daemon
- *     socket (`socket-client.ts -> request`), bypassing the CLI
- *     `Transport` service that `start.ts` uses for `TaskRequest` /
- *     `MessagesSend`. Mixing the two would make `--as`-mode name lookups
- *     hit the daemon (potentially absent) and would not be testable
- *     via `makeFakeTransport`. D2 introduces a local `resolveAgentTokens`
- *     helper that goes through `transport.ts -> rpc` instead
- *     (see per-flow doc §6 + §"Why we don't reuse `resolveParticipant`").
+ * ```mermaid
+ * sequenceDiagram
+ *   participant shell
+ *   participant cli as effect-cli
+ *   participant start as startCommandHandler
+ *   participant tx as transport.rpc
+ *
+ *   shell->>cli: moltzap start &lt;name> agent:bob ... [--message] [--app-id]
+ *   cli->>start: StartCommandArgs
+ *   Note over start: 1. validateAppId — bad UUID → exit 64
+ *   Note over start: 2. resolveAgentTokens — classify each token<br>UUID short-circuits, names batch into ONE AgentsLookupByName call
+ *   start->>tx: rpc(AgentsLookupByName, {names})
+ *   tx-->>start: {agents}
+ *   Note over start: unresolved → exit 64
+ *   start->>tx: rpc(TaskRequest, {appId, invitedAgentIds, initialConversation})
+ *   tx-->>start: {task, conversation | null}
+ *   alt conversation present (fresh create)
+ *     Note over start: stdout — Task started — taskId — convId
+ *   else conversation null (dedup hit)
+ *     start->>tx: rpc(TaskConversationList) — follow nextCursor
+ *     tx-->>start: items
+ *     Note over start: findReusableConversation — first non-archived under existing taskId
+ *     alt found
+ *       Note over start: stdout — Task started — reusing existing conversation
+ *     else none usable
+ *       Note over start: stderr — task closed — exit 1
+ *     end
+ *   end
+ *   opt --message
+ *     start->>tx: rpc(MessagesSend, {conversationId, parts})
+ *     alt success
+ *       Note over start: stdout — Message sent — exit 0
+ *     else failure
+ *       Note over start: stderr — Error sending message — exit 2
+ *     end
+ *   end
+ * ```
+ *
+ * **Exit-code contract** — keyed on the stage where the error arose:
+ *
+ * | Code | Meaning                                                      | Stdout                                  | Stderr                                 |
+ * |------|--------------------------------------------------------------|-----------------------------------------|----------------------------------------|
+ * |  0   | Full success (fresh create or dedup reuse)                   | `Task started: ...` (+ `Message sent`)  | empty                                  |
+ * |  1   | `TaskRequest` wire failure OR dedup hit on closed/unreachable | empty                                   | `Failed: ...` / `Task already exists`  |
+ * |  2   | `TaskRequest` OK, `MessagesSend` failed                       | `Task started: ...`                     | `Error sending message: ...`           |
+ * |  64  | Usage error: bad `--app-id` UUID, unresolvable agent token, OR more than 100 distinct name tokens | empty | `Invalid --app-id` / `Cannot resolve "..."` |
+ *
+ * Exit 64 matches POSIX `EX_USAGE`. NO rollback on exit 2 — the task
+ * + empty conversation persist; the user can retry
+ * `moltzap send conv:&lt;id> &lt;text>`.
+ *
+ * The exit-code partition is split:
+ *
+ * - `runStartCommand` (outer `Effect.catchAll`) pattern-matches
+ *   `StartCommandError` `_tag` and dispatches to 1 or 64.
+ * - Inline `process.exit(2)` lives in the handler body for the
+ *   post-`TaskRequest` `MessagesSend` failure. This path cannot route
+ *   through `runStartCommand` because the stdout `Task started: ...`
+ *   line has already been printed; re-throwing would discard it from
+ *   the user's view. The handler uses
+ *   `Effect.either(rpc(MessagesSend, ...))` + `Effect.sync(() => { ...
+ *   process.exit(2) })`.
+ *
+ * **Dedup branch** — when `appId === DEFAULT_APP_ID` and the caller
+ * already owns a task with the exact same `{caller} ∪ invitedAgentIds`
+ * set, the server returns `{ task, conversation: null }`.
+ * `handleDedupOutcome` calls `TaskConversationList` (with cursor
+ * follow capped at `DEDUP_LOOKUP_MAX_PAGES`) and runs
+ * `findReusableConversation` to find a non-archived conversation
+ * under the existing task. Found → reuse stdout line; not found →
+ * closed-task diagnostic + exit 1.
+ *
+ * **Zero-participant carve-out** — when `invitedAgentIds === []`, the
+ * caller-only task path MUST omit `participants` from
+ * `initialConversation` entirely because
+ * `InitialConversationSchema.participants` rejects `[]`. The server
+ * adds the caller to both `task_participants` and
+ * `conversation_participants` implicitly.
+ *
+ * **Why this doesn't reuse `socket-client.ts → resolveParticipant`** —
+ * that helper hard-wires the daemon-socket path
+ * (`socket-client.ts → request`), bypassing the CLI `Transport`
+ * service that `start.ts` uses for `TaskRequest` / `MessagesSend`.
+ * Mixing the two would make `--as`-mode name lookups hit the daemon
+ * (potentially absent) and would not be testable via
+ * `makeFakeTransport`. The local `resolveAgentTokens` goes through
+ * `transport.ts → rpc` instead and coalesces all name-shaped tokens
+ * into ONE batched `AgentsLookupByName` call.
+ *
+ * Sibling: `packages/protocol/src/task/tasks.ts → TaskRequest` /
+ * `DEFAULT_APP_ID` / `AppId` — the wire surface this command
+ * composes. `commands/conversations.ts → createConversation` — the
+ * legacy two-step path D2 replaces (untouched here; D3 deletes it).
  */
 import { Args, Command, Options } from "@effect/cli";
 import { Data, Effect, Either, Option } from "effect";

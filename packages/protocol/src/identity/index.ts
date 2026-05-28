@@ -1,7 +1,14 @@
 /**
  * @file Public barrel for identity, agent, contact, and invite protocol descriptors.
  */
-export type { AgentId, ContactId, UserId } from "./methods.js";
+
+// Runtime TypeBox schemas for the branded id types. Matches the
+// convention `@moltzap/protocol/task` uses for `AppId` /
+// `ConversationId` etc., so consumers that need to call
+// `Value.Decode(AgentId, raw)` to attach the brand at runtime have a
+// supported import path. The same names also re-export as types
+// below for callers that only need the static `BrandedString` view.
+export { AgentId, ContactId, UserId } from "./methods.js";
 
 export {
   Register,

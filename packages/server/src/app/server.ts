@@ -1,4 +1,5 @@
-import { NodeHttpServer } from "@effect/platform-node";
+import { HttpClient } from "@effect/platform";
+import { NodeHttpClient, NodeHttpServer } from "@effect/platform-node";
 import {
   Data,
   Duration,
@@ -21,15 +22,13 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 // Handlers
 import { agentsLookupHandlers } from "../identity/handlers/agents-lookup.handlers.js";
 import { pingHandlers } from "../network/handlers/ping.handlers.js";
-import { connectHandlers } from "../task/handlers/connect.handlers.js";
+import { connectHandlers } from "../identity/handlers/connect.handlers.js";
 import { messageHandlers } from "../task/handlers/messages.handlers.js";
-import { presenceHandlers } from "../task/handlers/presence.handlers.js";
-import { contactHandlers } from "../task/handlers/contacts.handlers.js";
+import { presenceHandlers } from "../network/handlers/presence.handlers.js";
+import { contactHandlers } from "../identity/handlers/contacts.handlers.js";
 import { taskHandlers } from "../task/handlers/tasks.handlers.js";
 import { appHandlers } from "./handlers/apps.handlers.js";
 import { taskRequestHandlers } from "./handlers/task-request.handler.js";
-
-import { WebhookClient } from "../adapters/webhook.js";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "../config.js";
@@ -41,16 +40,38 @@ import {
   EncryptionTag,
   ServicesLive,
   SessionValidatorTag,
-  WebhookClientTag,
   resolveServices,
 } from "./layers.js";
 import { installDefaultApp } from "./default-app.js";
 import { makeNodeHttpServer } from "./node-http-server.js";
 import { makeCoreHttpApp } from "./http-routes.js";
 import { makeSocketHandler } from "./socket-handler.js";
+import { applyOutboundWebhookCap } from "./outbound-webhook-cap.js";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
+
+/**
+ * Production HTTP client Layer: Undici-backed `HttpClient.HttpClient`
+ * wrapped with the process-wide outbound-webhook semaphore from
+ * {@link applyOutboundWebhookCap}. The cap is SHARED with the standalone
+ * validator wiring in `standalone.ts` so all 3 outbound webhook paths
+ * (delivery + contacts + sessions) pull from the same permit pool —
+ * matching the prior bespoke `WebhookClient(10)` behavior where one
+ * class instance was shared across all callers.
+ *
+ * The semaphore is applied via `HttpClient.transform`, which scopes it
+ * to `httpClient.execute(request)` (bounded at headers-arrival); permits
+ * return on fiber interrupt because the inner request runs inside the
+ * `withPermits` scope.
+ */
+const HttpClientLive = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.gen(function* () {
+    const inner = yield* HttpClient.HttpClient;
+    return applyOutboundWebhookCap(inner);
+  }),
+).pipe(Layer.provide(NodeHttpClient.layerUndici));
 
 class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
   readonly cause: unknown;
@@ -67,7 +88,6 @@ function makeCoreRuntime(config: CoreConfig) {
   const envelope = config.encryptionMasterSecret
     ? new EnvelopeEncryption(config.encryptionMasterSecret)
     : null;
-  const webhookClient = config.webhookClient ?? new WebhookClient();
   const spanProcessor = resolveSpanProcessor(config.spanProcessor);
   const TracingLive =
     spanProcessor === null ? Layer.empty : makeTracingLayer({ spanProcessor });
@@ -75,8 +95,8 @@ function makeCoreRuntime(config: CoreConfig) {
     Layer.succeed(DbTag, config.db),
     Layer.succeed(EncryptionTag, envelope),
     Layer.succeed(SessionValidatorTag, config.sessionValidator ?? null),
-    Layer.succeed(WebhookClientTag, webhookClient),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
+    HttpClientLive,
   );
   const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
   const WireConversationIntoAppHost = Layer.effectDiscard(
@@ -216,6 +236,26 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
   };
 }
 
+/**
+ * Tear down a `CoreApp` in dependency order so in-flight work has a
+ * chance to finish before its dependencies vanish.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   A[messageService.close — interrupt webhook retries] --> B[appHost.destroy — clears manifests + hook registries]
+ *   B --> C[for each conn — conn.shutdown signals closeRequested]
+ *   C --> D[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
+ *   D --> E[Scope.close appScope — NodeHttpServer + upgrade wiring]
+ *   E --> F[dispatchRuntime.dispose — finalize service Layers]
+ *   F --> G[config.dbCleanup — optional caller hook]
+ * ```
+ *
+ * `messageService.close()` runs FIRST so pending delivery-webhook
+ * POSTs do not race the HTTP server teardown. `appHost.destroy()`
+ * runs BEFORE per-connection shutdown: in-flight RPCs may observe
+ * cleared manifests, and the `SHUTDOWN_DRAIN_MS` sleep is the only
+ * mitigation today.
+ */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;
   return Effect.gen(function* () {

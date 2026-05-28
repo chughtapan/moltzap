@@ -1,4 +1,6 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import type { Db } from "../db/client.js";
+import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type {
   ConnectionManager,
@@ -60,10 +62,6 @@ const EMPTY_TASK_ID = "" as TaskId;
 // below — see `dispatchBindingForLookup`.
 const EMPTY_APP_ID = "" as AppId;
 const EMPTY_CONNECTION_ID = "" as ConnectionId;
-
-export interface ContactService {
-  areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
-}
 
 /**
  * Structural slice of {@link ConversationService} that AppHost +
@@ -171,6 +169,37 @@ function dispatchVerdictToLeaseVerdict(
   }
 }
 
+/**
+ * Hook registry + fail-closed envelope for every "send context, get
+ * verdict" S→C interaction. The same `Hook&lt;TContext, TResult>`
+ * abstraction backs `dispatch/authorize` (lease verdict) and
+ * `messages/authorize` (delivery verdict). Each hook runner uses the
+ * three-step resolution and the envelope to keep the wire surface
+ * uniform.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   subgraph Registries
+ *     RegA[appId-keyed hooks<br>AppHooks slot taskAuthorizeDispatch]
+ *     RegB[EndpointAddress-keyed messageAuthorizeHooks<br>seeded for DEFAULT_DM_TM / DEFAULT_GROUP_TM]
+ *     Remote[remoteRegistrations<br>appId → connectionId<br>set by registerRemoteApp on apps/register success]
+ *   end
+ *
+ *   Call[hook runner — dispatchAuthorizeHook or runMessageAuthorize] --> Step1{lookup in-process registry by primary key}
+ *   Step1 -- found --> InProc[runInProcessHookEffect]
+ *   Step1 -- miss --> Step2{derive appId, lookup remoteRegistrations}
+ *   Step2 -- found --> RemoteRun[runRemoteHookEffect — RPC via connectionId+definition+params]
+ *   Step2 -- miss --> Default[synthetic default<br>messageAuthorize Forward — recipients participants minus sender<br>authorizeDispatch grant]
+ *   InProc --> Envelope[wrapHookEffectWithEnvelope<br>raw, timeoutMs, onTimeout, onError, log contexts]
+ *   RemoteRun --> Envelope
+ *   Default --> Envelope
+ *   Envelope --> FailClosed[timeout, handler throw, RPC failure, decode failure<br>collapse to onTimeout / onError<br>e.g. messageAuthorize Block reason tm_unreachable]
+ * ```
+ *
+ * Every fail-mode collapses to a deny-shaped verdict so callers
+ * never see an Effect failure on the hook channel — the envelope IS
+ * the contract.
+ */
 export class AppHost {
   /**
    * Single source of truth for app registrations. Each `AppId` maps to
@@ -592,11 +621,51 @@ export class AppHost {
   }
 
   /**
-   * Dispatch a `dispatch/authorize` hook. In-process / remote choice is
-   * made INSIDE the helper; callers see one signature and one return
-   * type. Returns `{ decision: "grant" }` when no hook is registered.
-   * Fail-closed on timeout / handler error / RPC failure per architect
-   * plan §3.4.
+   * Dispatch a `dispatch/authorize` hook. In-process / remote choice
+   * is made INSIDE the helper; callers see one signature and one
+   * return type. Returns `{ decision: "grant" }` when no hook is
+   * registered. Fail-closed on timeout / handler error / RPC failure.
+   *
+   * ```mermaid
+   * sequenceDiagram
+   *   participant Caller as MessageService.send
+   *   participant AH as dispatchAuthorizeHook
+   *   participant Mod as Moderator client
+   *   participant LR as LeaseRegistry
+   *   participant Recv as Recipient client
+   *
+   *   Caller->>AH: ctx {taskId, callerAgentId, conversationId, parts, ...}
+   *   alt in-process hook registered
+   *     AH->>AH: runInProcessHookEffect
+   *   else remote registration found
+   *     Note over AH: remote = remoteRegistrations.get(appId)<br>conn = connections.get(remote.connectionId)
+   *     AH->>Mod: conn.originator.call(DispatchAuthorize, params)
+   *     Note over Mod: decodeServerInbound → ServerRequest<br>client TypedDispatcher.handle<br>taskCallbackHandlers["dispatch/authorize"]
+   *     Mod-->>AH: response frame — verdict {grant|deny|hold}
+   *   else neither
+   *     AH-->>AH: synthetic grant
+   *   end
+   *   Note over AH: wrapHookEffectWithEnvelope<br>timeout → deny reason timeout<br>RPC error → deny reason "dispatch/authorize error"
+   *   AH->>LR: leaseRegistry.resolve(leaseId, verdict)
+   *   alt deny
+   *     LR-->>AH: DENIED → conversationService.removeParticipant
+   *   else grant
+   *     LR-->>AH: GRANTED
+   *   end
+   *   AH->>Recv: emit dispatch/release {verdict}
+   * ```
+   *
+   * Server→client request frames are restricted to
+   * `taskCallbackMethods` by `decodeServerInbound`; a misconfigured
+   * server cannot smuggle a non-callback method through the client's
+   * inbound path. The originator lifecycle (`pending` map, id prefix,
+   * finalizer ordering) is the same one used for client-originated
+   * RPCs — see the typed dispatcher in `@moltzap/protocol`.
+   *
+   * `runMessageAuthorize` is the sibling caller of
+   * `wrapHookEffectWithEnvelope`: keyed by `EndpointAddress` instead
+   * of `appId`, with verdicts in `Forward`/`Block` shape instead of
+   * grant/deny/hold.
    */
   private dispatchAuthorizeHook(
     appId: AppId,

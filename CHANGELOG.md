@@ -7,6 +7,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `adapters/` deleted — webhook transport unified on `@effect/platform/HttpClient` (#709)
+
+Removes the bespoke ~282-line `WebhookClient` and the entire
+`packages/server/src/adapters/` folder (5 files, ~700 lines).
+Outbound webhooks (delivery fan-out, contact checks, session
+validation) now ride on `@effect/platform/HttpClient`, matching
+the project's Effect-native transport convention.
+
+- **Removed (`@moltzap/server-core`):** `packages/server/src/adapters/`
+  in full — `webhook.ts` (`WebhookClient` class + `signWebhookPayload` +
+  4 tagged errors), `webhook.test.ts`, `fetch-client.ts`,
+  `webhook-contact-service.ts`, `webhook-session-validator.ts`.
+- **Removed (public surface, `@moltzap/server-core`):**
+  `CoreConfig.webhookClient` (no in-repo consumer set it). The standard
+  test-override path is now `Layer.succeed(HttpClient.HttpClient, mockClient)`.
+- **Removed (internal, `@moltzap/server-core`):** `WebhookClientTag` —
+  `MessageServiceLive` consumes `HttpClient.HttpClient` directly via
+  the standard Tag; `MessageServiceDeps.webhookClient` is replaced by
+  `MessageServiceDeps.httpClient`.
+- **Moved (`@moltzap/server-core`):** The two webhook-backed identity
+  adapters relocate from `adapters/` into the layer that owns the
+  contract they implement —
+  `identity/services/webhook-contact-service.ts` and
+  `identity/services/webhook-session-validator.ts`. Their bodies swap
+  the bespoke `webhookClient.call(...)` for
+  `httpClient.execute(HttpClientRequest.post(...))` piped through
+  `HttpClientResponse.filterStatusOk` and
+  `HttpClientResponse.schemaBodyJson`; fail-closed semantics
+  (`false` / `{valid: false}`) are preserved across every error path.
+- **Moved (`@moltzap/server-core`):** The HMAC helper
+  `signWebhookPayload` relocates to
+  `packages/server/src/crypto/webhook-signature.ts` next to the rest
+  of the envelope/sig kernel. The sole caller is
+  `task/services/message.service.ts → fireDeliveryWebhook`, which
+  uses `HttpClientRequest.bodyText(payload, "application/json")` so
+  the bytes that go on the wire match the bytes fed to the HMAC
+  (using `bodyJson`/`bodyUnsafeJson` would re-stringify the object
+  and silently drift the signature; an explicit comment + a new
+  regression test pin this).
+- **Changed (`@moltzap/server-core`):** The prior
+  `Effect.Semaphore(10)` outbound-concurrency cap is preserved as a
+  process-wide shared semaphore via a new
+  `packages/server/src/app/outbound-webhook-cap.ts` module exporting
+  `applyOutboundWebhookCap(client)`, backed by a module-internal
+  `Effect.Semaphore(10)` constructed once at import. Both the CoreApp's
+  `HttpClientLive` (delivery webhook) and the standalone validator
+  wiring (`standalone.ts` for the YAML-wired session/contact
+  webhooks) pull from the SAME permit pool — matching the deleted
+  `WebhookClient(10)` behavior of "one process, one cap covers
+  every outbound webhook". Semantic delta vs main: the cap now
+  scopes to `httpClient.execute(request)` (headers-arrival) rather
+  than the full body-read/decode path, slightly weaker but still
+  bounds concurrent outbound requests.
+- **Changed (`@moltzap/server-core`):** The standalone
+  HttpClient is constructed via
+  `NodeHttpClient.layerUndiciWithoutDispatcher` provided with
+  `NodeHttpClient.dispatcherLayerGlobal` (the process-global Undici
+  dispatcher) instead of `NodeHttpClient.layerUndici`. The latter
+  wraps a fresh `Undici.Agent` in `Effect.acquireRelease`; the
+  surrounding `Effect.provide` scope would close the moment the
+  yield returned the client, destroying the Agent before the
+  validators could use it. The CoreApp's `HttpClientLive` keeps
+  `layerUndici` because it is properly scoped under `ManagedRuntime`
+  and disposes cleanly on `app.close()`.
+- **Added (`@moltzap/server-core`):** Focused tests
+  `identity/services/webhook-contact-service.test.ts` (7 cases —
+  wire shape, success branches, every fail-closed branch, plus a
+  `fast-check` property asserting fail-closed across the full
+  remote-failure space) and
+  `identity/services/webhook-session-validator.test.ts` (9 cases,
+  same shape with the discriminated-union response schema). A new
+  `task/services/message-service-delivery-hmac.test.ts` pins the
+  HMAC-byte-exactness contract: the `X-MoltZap-Signature` header
+  equals `signWebhookPayload(secret, captured_body_bytes)` for the
+  exact bytes the test HttpClient saw on the wire, blocking any
+  future `bodyText` → `bodyJson` regression.
+- **Changed (`@moltzap/server-core`):** Response bodies are now
+  explicitly drained on every webhook path (`Effect.tap((response)
+  => response.text)` before `filterStatusOk`). `response.text` is
+  `Effect.cached`, so the subsequent `schemaBodyJson` reuses the
+  buffer on 2xx; on non-2xx the socket buffer no longer waits for
+  the FinalizationRegistry to reap it.
+- **Changed (`@moltzap/server-core`):** `webhook-session-validator.ts`
+  no longer reaches the `as AgentId` / `as UserId` escape hatches
+  that the original cut carried over from main. The validator now
+  runs the response `agentId` / `ownerUserId` strings through
+  `Value.Decode(AgentId, ...)` / `Value.Decode(UserId, ...)` from
+  the canonical TypeBox schemas in `@moltzap/protocol/identity`,
+  attaching the brand at runtime via the same `format: "uuid"` check
+  the wire types are defined under. A malformed id (empty string,
+  non-UUID, etc.) raises a typed
+  `SessionValidationBrandDecodeFailed` that flows into the existing
+  `catchAllCause` fail-closed handler and collapses to
+  `{ valid: false }`, matching the rest of the validator's
+  fail-closed posture. Three new tests pin the contract: empty
+  `agentId`, non-UUID `agentId`, non-UUID `ownerUserId` all return
+  `{ valid: false }`. The 5 other `as AgentId` casts in
+  `app-host.ts`, `agent-visibility.ts`, `presence.service.ts`, and
+  `message.service.ts` are unchanged here; they have their own
+  contexts and are tracked for a separate follow-up.
+- **Changed (`@moltzap/protocol`):** `@moltzap/protocol/identity`
+  now also re-exports the runtime TypeBox schemas for `AgentId` /
+  `UserId` / `ContactId` (previously the barrel exposed only the
+  static types). Matches the convention `@moltzap/protocol/task`
+  already uses for `AppId` / `ConversationId` / etc.; existing
+  `import type` consumers are unaffected. Required so consumers like
+  the session validator above can `Value.Decode(AgentId, ...)`
+  without reaching for the implementation module directly.
+
+### Documentation restructure — JSDoc as canonical home for flow diagrams
+
+- **Changed:** Per-flow architecture diagrams now live in JSDoc next
+  to the symbol that owns each flow (Mermaid blocks inside the source
+  file), not in sibling `packages/*/docs/architecture/*.md` files.
+  The diagrams travel with the code; CI catches drift via
+  `pnpm docs:check:mermaid` (validates every fenced ```mermaid block
+  across `.md` / `.mdx`).
+- **Removed:** Every `packages/*/docs/architecture/` folder (52 arch
+  docs across 7 packages) and every per-package `ARCHITECTURE.md`
+  index file. Load-bearing cold-reader content (project structure,
+  data stores, glossary) folded into each package's `CLAUDE.md` and
+  the existing `src/<folder>/README.md` files. Workspace-root
+  `CLAUDE.md` documents the new policy once.
+- **Changed:** Per-folder server READMEs
+  (`src/{app,identity,network,task,transport}/README.md`) rewritten
+  from mid-refactor "2A.0 / 2A.2 phase" language to describe the
+  current file inventory and module purpose.
+- **Changed:** Root `README.md` Documentation section now describes
+  the full `pnpm docs:generate` pipeline (protocol reference MDX +
+  per-folder `MODULE.md` + Mintlify mirror + coverage report +
+  Mermaid lint). Added `@moltzap/claude-code-channel` to the
+  packages table (was missing).
+- **Changed:** `@failure` JSDoc tag defaulted in `eslint.shared.mjs`
+  so packages don't each opt in; per-package
+  `customJsDocTags` extends the list (server adds `internal`,
+  protocol adds the RPC migration tags `error` /
+  `relatedNotification` / `triggeredBy` / `file`).
+- **Changed:** Spec D2 (#599) `moltzap start` flow diagram + exit-code
+  contract + dedup branch inlined as JSDoc on
+  `packages/client/src/cli/commands/start.ts` to match the new
+  pattern.
+
 ### Config consolidation (#680) — single `src/config.ts`, Ajv dropped
 
 Behavior-preserving consolidation of `@moltzap/server-core`'s config
@@ -88,6 +230,38 @@ timestamp.
   from `@moltzap/openclaw-channel` into `@moltzap/client` so any channel
   or CLI that needs the complete result set (not just one page) can reuse
   it. openclaw's directory re-imports it; behavior is unchanged.
+
+### Server folder rebalance (#708) — handlers + adapter/identity boundaries
+
+Behavior-preserving relocation of `@moltzap/server-core` source files to
+their concept-owning folders. No logic, wire, or config change; the
+`@moltzap/server-core` public surface is unchanged (`src/index.ts` stays
+`export {}`).
+
+- **Internal (`@moltzap/server-core`):** Three RPC handlers move out of
+  `task/handlers/` into the folder that owns their concept — `presence`
+  to `network/handlers/`, `contacts` and `connect` to
+  `identity/handlers/` (the Connect handshake validates `agentKey` /
+  `sessionToken`, an identity concern). Every importer is repointed
+  (`app/server.ts` handler barrel, `transport/layer-tags.ts` doc
+  citations) and the docs constants generators (`generate-cli-docs.ts`,
+  `generate-constants-snippets.ts`) that read HELLO-policy numbers from
+  `connect.handlers.ts` now read the new path.
+- **Internal (`@moltzap/server-core`):** The `ContactService` interface
+  moves from `app/app-host.ts` to `identity/services/contact-policy.ts`.
+  `AppHost` keeps the field/setter/getter and imports the type;
+  `adapters/webhook-contact-service.ts` now reaches into identity (a
+  lower layer) instead of back into `app/`, removing an adapters→app
+  reverse-layer edge.
+- **Internal (`@moltzap/server-core`):** The `WebhookSessionValidator`
+  implementation moves from `identity/services/session-validator.ts` to
+  `adapters/webhook-session-validator.ts` (it depends on `WebhookClient`,
+  an adapter dep). The `SessionValidator` interface + `SessionValidation`
+  result type stay in identity as the contract; the adapter imports
+  `AgentId` / `UserId` from `@moltzap/protocol/identity` directly.
+- **Changed:** Per-folder server READMEs
+  (`src/{task,network,identity}/README.md`) updated to list each
+  handler under its new owning folder.
 
 ### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
 

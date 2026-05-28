@@ -56,6 +56,65 @@ const replyToOption = Options.text("reply-to").pipe(
   Options.optional,
 );
 
+/**
+ * `moltzap send task:&lt;taskId>:&lt;convId> &lt;message> [--reply-to &lt;id>]` —
+ * socket-call into the local MoltZapService to enqueue an outbound
+ * `messages/send` against an existing (taskId, conversationId) pair.
+ * D3 (#600) made `taskId` REQUIRED on the wire, so the CLI target
+ * always carries both ids; bare `agent:` / `conv:` shortcuts retire.
+ *
+ * Identity selection is driven by the parent `@effect/cli` options
+ * wired in `cli/index.ts`:
+ *
+ *   --as &lt;apiKey>       Send as the agent owning the given API key.
+ *                       Bypasses the local daemon socket; dials the
+ *                       server directly. Useful in multi-agent
+ *                       workflows where the same host registers more
+ *                       than one agent.
+ *   --profile &lt;name>    Load the named profile from
+ *                       ~/.moltzap/config.json and send as that agent.
+ *                       Short for looking up the apiKey out of the
+ *                       profile and passing it as --as.
+ *
+ * If neither is provided, the command uses the legacy default profile
+ * (top-level apiKey in ~/.moltzap/config.json) — the identity set by
+ * the most recent `moltzap register` that did not use `--profile` or
+ * `--no-persist`.
+ *
+ * Examples:
+ *   moltzap send task:$TID:$CID "hello"                          # default identity
+ *   moltzap --profile alice send task:$TID:$CID "hello"          # send as alice
+ *   moltzap --as $BOB_API_KEY send task:$TID:$CID "ack"          # send as bob
+ *
+ * Default path delegates to the local channel daemon via a
+ * Unix-socket RPC; it does NOT mint its own `MoltZapAgentClient`.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant shell
+ *   participant cli as effect-cli
+ *   participant send as sendCommand
+ *   participant sock as socket-client
+ *   participant daemon
+ *
+ *   shell->>cli: moltzap send task:taskId:convId msg
+ *   cli->>send: handler({target, message, replyTo})
+ *   send->>sock: request(MessagesSend, {taskId, conversationId, parts})
+ *   Note over sock: NodeSocket.makeNet(~/.moltzap/service.sock, 10s) — ENOENT/ECONNREFUSED → SocketRequestError "not running"
+ *   sock->>daemon: NDJSON RPC — LocalDaemonCall — method messages/send
+ *   Note over daemon: handleSocketRequest → sendRpc(MessagesSend) → agent-client → server
+ *   daemon-->>sock: {message: {id}}
+ *   Note over sock: definition.validateResult
+ *   sock-->>send: {message: {id}}
+ *   send-->>shell: stdout — Message sent (id)
+ * ```
+ *
+ * `--as` and `--profile` bypass the daemon socket and dial the server
+ * directly. New v2 subcommands (`apps/*`, `messages list`,
+ * `conversations {get,archive,unarchive}`) honor those flags today;
+ * `moltzap send` itself is still on the daemon socket pending the v2
+ * transport rewire.
+ */
 export const sendCommand = Command.make(
   "send",
   { target: targetArg, message: messageArg, replyTo: replyToOption },

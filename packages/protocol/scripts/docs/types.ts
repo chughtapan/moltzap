@@ -1,10 +1,6 @@
 export const TypeBoxKind = Symbol.for("TypeBox.Kind");
 export const SORT_KEY_PAD_WIDTH = 2;
 export const JSON_INDENT = 2;
-// Agent-facing entry RPC that drives the bulk of the task lifecycle.
-// The TM-facing `task/create` wire callback is a separate descriptor;
-// the two should not be conflated in `triggeredBy` arrays.
-export const TASK_REQUEST_METHOD = "task/request";
 
 export interface TypeBoxSchema {
   readonly [key: symbol]: unknown;
@@ -31,32 +27,6 @@ export interface AnyRpcDocDefinition {
 export interface NotificationDocDefinition {
   readonly name: string;
   readonly paramsSchema: TypeBoxSchema;
-}
-
-export interface ErrorDoc {
-  readonly code: number;
-  readonly name: string;
-  readonly when: string;
-}
-
-export interface MethodDocMeta {
-  readonly description?: string;
-
-  /**
-   * Long-form prose emitted between the H1 and the `## Parameters`
-   * section. Use for methods where the one-line `description` cannot
-   * capture authorization model, idempotency semantics, or pairing
-   * recommendations. Markdown is supported.
-   */
-  readonly body?: string;
-  readonly resultDescription?: string;
-  readonly errors?: readonly ErrorDoc[];
-  readonly relatedNotifications?: readonly string[];
-}
-
-export interface NotificationDocMeta {
-  readonly description?: string;
-  readonly triggeredBy?: readonly string[];
 }
 
 export interface SchemaPropertyDoc {

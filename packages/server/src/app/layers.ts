@@ -4,6 +4,7 @@
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
  * Tag string convention: `moltzap/&lt;ClassName>`.
  */
+import { HttpClient } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
@@ -30,7 +31,6 @@ import {
   type LeaseRegistry,
 } from "../task/leases/lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
-import type { WebhookClient } from "../adapters/webhook.js";
 
 /** Default retention window for terminal lease records: 5 minutes. */
 const LEASE_RETENTION_MINUTES = 5;
@@ -137,19 +137,14 @@ export class SessionValidatorTag extends Context.Tag(
 )<SessionValidatorTag, SessionValidator | null>() {}
 
 /**
- * Shared outbound HTTP client used by {@link MessageService.deliveryWebhook}
- * for the fire-and-forget post-delivery push and by `WebhookSessionValidator`.
- * Separate Tag so connection pooling / semaphore sharing is controlled in
- * one place.
- */
-export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
-  WebhookClientTag,
-  WebhookClient
->() {}
-
-/**
  * Optional fire-and-forget message-delivery webhook. `null` means no
  * webhook — the fanout is skipped entirely.
+ *
+ * The transport (`@effect/platform/HttpClient.HttpClient`) is the
+ * standard Tag from `@effect/platform`; production wiring sits in
+ * `app/server.ts` (`NodeHttpClient.layerUndici`, optionally wrapped
+ * with a concurrency-cap `HttpClient.transform`). Tests override it
+ * via `Layer.succeed(HttpClient.HttpClient, mockClient)`.
  */
 export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
   DeliveryWebhookTag,
@@ -268,7 +263,7 @@ const MessageServiceLive = Layer.effect(
     const networkSend = yield* NetworkSendServiceTag;
     const encryption = yield* EncryptionTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
-    const webhookClient = yield* WebhookClientTag;
+    const httpClient = yield* HttpClient.HttpClient;
     const appHost = yield* AppHostTag;
     return new MessageService({
       db,
@@ -276,7 +271,7 @@ const MessageServiceLive = Layer.effect(
       networkSend,
       encryption,
       deliveryWebhook,
-      webhookClient,
+      httpClient,
       appHost,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
@@ -290,6 +285,32 @@ const MessageServiceLive = Layer.effect(
 // tag in RIn. `Layer.provideMerge(consumer, provider)` *does* wire them: it
 // feeds `provider`'s outputs into `consumer`'s inputs AND keeps both sets of
 // outputs visible to downstream layers.
+//
+// Service tier graph:
+//
+//   Tier 1 — ConnectionManager, AuthService, ParticipantService,
+//            ContactsService.
+//   Tier 2 — Presence, AgentEndpointResolver, AppTmRegistry (provideMerge over T1).
+//   Tier 2.5 — NetworkSendService.
+//   Tier 2.6 — LeaseRegistry.
+//   Tier 3 — AppHost (db + connections + leases; seeds default
+//            messageAuthorize hooks for the DM/Group TM addresses).
+//   Tier 4 — ConversationService (db + participants + connections + AppHost).
+//   Tier 5 — MessageService (every upstream + Encryption + DeliveryWebhook +
+//            Webhook + TraceCapture + AppHost).
+//   Tier 6 — TaskService (db + Conversation + Message).
+//
+// `Layer.provideMerge` (not `Layer.provide`) is load-bearing: every
+// downstream tier sees ALL upstream Tags in its R-channel resolution,
+// not just the immediately-above tier. RPC handler bodies can `yield*
+// XServiceTag` for any service and have it resolved by the shared
+// `dispatchRuntime` without a per-frame `Effect.provide`.
+//
+// `ConversationService` is built ABOVE `AppHost` but `AppHost` carries
+// a backref into it (for the dispatch-deny path's removeParticipant
+// call). The cycle is broken with a post-construction
+// `appHost.setConversationService(conv)` wire-up — see
+// `WireConvIntoAppHost` in `server.ts`.
 //
 // The composition below is bottom-up by dependency order. Each stage merges
 // a new service Layer on top of the lower tier, with the lower tier's

@@ -34,6 +34,40 @@ type RoutingResolution =
 
 const DEFAULT_CAPACITY = 256;
 
+/**
+ * Construct a fresh routing state. One instance per boot.
+ *
+ * Tracks message-id → `RoutingTarget` (task + conversation pair) for
+ * `reply_to` resolution. Does NOT track dispatch lease tokens — the
+ * lease FSM lives on the MoltZap server (see `messages/send`
+ * rejection projection via `catchLeaseInvalid` in the channel-base
+ * library).
+ *
+ * ```text
+ * Map&lt;MessageId, RoutingTarget>  bounded LRU, cap=256
+ * lastActive: RoutingTarget | undefined
+ *
+ * recordInbound(messageId, target):
+ *   - insert (or refresh) entry in LRU order
+ *   - update lastActive
+ *   - evict oldest if size > cap
+ *
+ * resolveTarget(replyTo: MessageId | undefined):
+ *   - undefined → lastActive ?? NoActiveConversation
+ *   - present  → map.get(replyTo) ?? ReplyToUnknown
+ * ```
+ *
+ * Bounded LRU prevents unbounded memory growth in long-running
+ * processes; eviction order is FIFO via JavaScript `Map` insertion
+ * preservation.
+ *
+ * Server-side lease rejection (`RpcServerError { data.reason:
+ * "LeaseInvalid" }`) projects into a `LeaseAlreadyConsumed` typed
+ * error via `channel-base.catchLeaseInvalid`, which the reply tool
+ * surfaces to Claude as `toolErrorResult`.
+ * @param capacity bounded LRU size (default 256). Exceeding the cap
+ * evicts the oldest. Must be a positive finite number.
+ */
 export function createRoutingState(
   capacity: number = DEFAULT_CAPACITY,
 ): RoutingState {

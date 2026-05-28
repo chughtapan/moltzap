@@ -82,9 +82,8 @@ export type ConversationActor = {
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
-   * mirrors `@moltzap/server-core/test-utils → connectTestClient` per
-   * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
-   * → §3 "Historical-buffer bridge for integration tests"`.
+   * mirrors `@moltzap/server-core/test-utils → connectTestClient` (the
+   * `makeNotificationBuffer` JSDoc below covers the design).
    */
   readonly notifications: NotificationBuffer;
 };
@@ -115,21 +114,25 @@ const PUMP_POLL_INTERVAL_MS = 5;
  * Fork a `subscribeAll()` pump that appends every inbound notification
  * to a shared snapshot Ref. The pump fiber's interrupt is registered
  * with the enclosing `Scope` so callers do not have to thread the
- * lifecycle through their own finalizers. Mirrors the equivalent
- * `@moltzap/server-core/test-utils → makeNotificationBuffer` shape;
- * conformance acquireClient sites consume via `actor.notifications`.
+ * lifecycle through their own finalizers. Conformance `acquireClient`
+ * sites consume via `actor.notifications`.
+ *
+ * Why a snapshot Ref instead of pulling the Stream directly: the
+ * `RPC → wait-for-notification` pattern needs frames that arrive
+ * BETWEEN the triggering RPC and the wait. `Stream.async` only emits
+ * frames that arrive after materialisation, so a fresh `subscribe`
+ * inside the wait loop would race-miss any frame already dispatched.
+ * The buffer pump materialises eagerly at actor acquisition time;
+ * subsequent waits poll the snapshot and remove the matched frame,
+ * preserving the historical-buffer semantic the test pattern needs.
  *
  * Registration is single-shot inside `Stream.runForEach`'s synchronous
  * setup phase, which runs as the first action of the forked fiber.
  * In practice the network round-trip of any subsequent test RPC
- * dominates the fork-scheduling delay, so the unfenced pattern is
- * sufficient for the conformance suite's `RPC → wait` workload
- * (matching the server-core integration-test bridge's design and
- * empirical reliability). Tests that genuinely need a tighter fence
- * pre-subscribe via `client.subscribe(def)` directly before the
- * triggering RPC and consume the Stream with `Stream.runHead` — the
- * pattern documented in §6 of
- * `packages/protocol/docs/architecture/test-client-stream-consolidation.md`.
+ * dominates fork-scheduling delay. Tests that genuinely need a
+ * tighter fence pre-subscribe via `client.subscribe(def)` directly
+ * before the triggering RPC and consume the Stream with
+ * `Stream.runHead`.
  */
 function makeNotificationBuffer(
   client: TestClient,
@@ -240,9 +243,7 @@ export function deliveryViolation(
  * that arrived between the triggering RPC and the wait — the legacy
  * polling semantic preserved without resurrecting the deleted
  * per-definition dedup ring. Mirrors
- * `@moltzap/server-core/test-utils → awaitOneNotification` per
- * `packages/protocol/docs/architecture/test-client-stream-consolidation.md
- * → §3 "Historical-buffer bridge for integration tests"`.
+ * `@moltzap/server-core/test-utils → awaitOneNotification`.
  *
  * Surfaces a single string message on either timeout or stream
  * exhaustion so call sites preserve the legacy `e.message`-style error

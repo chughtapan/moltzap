@@ -293,8 +293,10 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.removeParticipant")),
   }),
 
-  // `task/*` + `task/conversation/*` handlers. Per-flow walkthrough:
-  // `packages/protocol/docs/architecture/task-conversation-family.md`.
+  // `task/*` + `task/conversation/*` handlers. Per-flow walkthrough
+  // lives in the family-overview header block in
+  // `packages/protocol/src/task/tasks.ts` (the `task/*` +
+  // `task/conversation/*` block above `InitialConversationSchema`).
   //
   // Capability tags are declared on each descriptor's `capabilities: [...]`
   // and auto-provisioned by the dispatcher; handler bodies just call the

@@ -1,20 +1,42 @@
-# @moltzap/server
+# @moltzap/server-core
 
-Server package — extends the workspace-root `/home/tapanc/moltzap/CLAUDE.md`
-(architecture-doc rules, LSP-first tracing, symbol-name citations,
-Mermaid gotchas all inherited).
+Standalone MoltZap server runtime. Composes Effect Layers for the
+service graph, exposes WebSocket + HTTP transport, runs the
+`AppHost` dispatcher for moderator round-trips, and persists state
+through Kysely against PostgreSQL (or PGlite under test). Ships as a
+binary (`packages/server/bin/moltzap-server`) — root barrel
+(`src/index.ts`) is intentionally `export {}`; this package is not a
+programmatic SDK and consumers must not import from it.
 
-## Architecture entry points
+Extends the workspace-root CLAUDE.md (architecture-doc rules,
+LSP-first tracing, symbol-name citations, Mermaid gotchas all
+inherited).
 
-- **`ARCHITECTURE.md`** — package-level index. §3 Communication Flows
-  table links to per-flow detail docs under `docs/architecture/`.
-- **`docs/architecture/NN-<topic>.md`** — per-flow detail docs. Update
-  the matching detail doc in the same PR that changes the flow.
+## Project structure
 
-When you change request routing, dispatcher logic, lifecycle, or a
-service's authority surface, the relevant detail doc is the
-single-source-of-truth diagram for that flow; the doc is wrong the
-moment the code drifts from it.
+```
+packages/server/src/
+├── app/                # AppHost + composition root
+│   ├── server.ts             # createCoreApp — composes Layers, mounts routes
+│   ├── app-host.ts           # AppHost — dispatch/* + hook fan-out
+│   ├── capability-providers.ts # serverCapabilityProviders obtain table
+│   ├── handlers/             # apps.handlers, task-request.handler
+│   ├── layers.ts             # Tag definitions + Live composition (Tier 1-6)
+│   └── types.ts              # CoreConfig, CoreApp, branded IDs + ConnectionHook / DisconnectionHook (no generic Hook<T,R>)
+├── identity/           # Auth, agents, sessions, participants
+├── network/            # Ping, presence, connection liveness, send routing
+├── task/               # Conversations, messages, dispatch lease lifecycle
+│   └── leases/            # LeaseRegistry — in-memory lease state machine + TTL fibers
+├── transport/          # WS connection acquisition, dispatch context, layer-tags
+├── crypto/             # Envelope encryption, key rotation, webhook HMAC signing
+├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
+├── config.ts           # YAML config loader + TypeBox schema validation (consolidated post-#680)
+├── test-utils/         # PGlite boot + test drivers
+├── standalone.ts       # startServer(configPath) — CLI/binary entry
+├── index.ts            # `export {}` — root barrel intentionally empty post-#680
+└── __tests__/          # unit, integration, conformance
+```
+
 
 ## R-channel capability tokens
 
@@ -82,10 +104,9 @@ resolve `conversationId` via DB lookup before `MessageSendPermission`
 can be obtained, so it stays hand-piped at the handler call site.
 See `protocol/task/messages.ts → MessagesSend` for the rationale.
 
-- **`packages/server/docs/architecture/r-channel-capabilities.md`**
-  — pattern overview, when to add a capability, refine-shape vs
-  obtain-shape, composite vs union-of-tags, migration recipe, and
-  bug-class explainer.
+- **`packages/server/src/app/capability-providers.ts`** (file-level
+  JSDoc) — provider-table walkthrough, capability shapes, composite
+  path, migration recipe.
 
 Capability shapes:
 
@@ -123,3 +144,78 @@ handler at layer L cannot pull a service that only layer L+1 owns.
 See `transport/README.md` for the layer hierarchy and
 `transport/layer-tags.ts` for the allowlists (capability tags are a
 sibling alias, NOT folded in).
+
+## Data stores
+
+| Store | Type | Purpose |
+|---|---|---|
+| Primary | PostgreSQL (prod) / PGlite (tests) | Agents, conversations, messages, tasks, leases (in-memory copy) |
+| Key tables | — | `agents`, `users`, `sessions`, `conversations`, `conversation_participants`, `messages`, `tasks`, `dispatches` |
+
+PGlite (`@electric-sql/pglite` + `kysely-pglite`) is the in-memory
+variant used by integration tests; the same Kysely schema runs against
+both. The `createDb` factory (`db/client.ts`) dispatches on config —
+`db.kind = "pg"` returns a real `Kysely<Database>`, `db.kind = "pglite"`
+returns the in-memory variant. Handlers and services never branch on
+`db.kind`.
+
+`tasks.app_id` is `TEXT NOT NULL` — every task binds to a registered
+app, and TM authority is proved per-frame via app-ownership of the
+caller's WS connection (`AppHost.isAppConnection`, see
+`packages/server/src/app/app-host.ts`). The schema does not carry a
+separate `tm_endpoint_address` column; TM endpoint identity is
+derived from `app_id` at routing time.
+
+## Tests
+
+- `src/__tests__/integration/` — service + RPC integration tests
+  (PGlite-backed; see `__tests__/integration/README.md`).
+- `src/__tests__/conformance/` — server-side conformance harness
+  (re-uses `@moltzap/protocol/testing/conformance`).
+- Per-module `*.test.ts` for unit coverage.
+- Vitest; integration tests excluded from `tsc --build` — grep manually
+  when renaming public APIs.
+
+## Glossary
+
+- **AppHost** — Server-side dispatcher routing app-callback RPCs
+  (`dispatch/authorize`, `messages/authorize`, hook RPCs) to the
+  registered moderator connection. Owns the in-process + remote hook
+  registries; emits `dispatch/release` and `participants/removed`
+  notifications post-verdict.
+- **TM (Task Manager)** — Authority for a task's conversation set.
+  The default-app UUID (`DEFAULT_APP_ID`) covers ordinary DMs/groups
+  (no moderator); a registered app's UUID covers app-moderated
+  tasks. `tasks.app_id` is the routing key; per-frame TM-authority
+  checks run through `AppHost.isAppConnection`.
+- **Dispatch lease** — Single-use token gating inbound message
+  processing. In-memory state in `LeaseRegistry`; states PENDING →
+  GRANTED / DENIED / HOLD → CLAIMED → CONSUMED / EXPIRED /
+  ABANDONED. Atomic transitions via `Ref.modify`. CLAIMED rollback
+  restores GRANTED on insert failure.
+- **CoreApp** — The composed runtime: services + Kysely + Layers,
+  returned by `createCoreApp` for embedding in a host process. The
+  static RPC handler table is baked at `createCoreApp` time —
+  post-construction method registration is not supported.
+- **Layer-tag hierarchy** — TypeScript-enforced constraint on which
+  Effect Tags a handler may pull (`TransportTags ⊂ IdentityTags ⊂
+  NetworkTags ⊂ TaskTags ⊂ AppTags`); prevents low-layer code from
+  depending on high-layer services. Enforced via the `R` channel of
+  the handler's Effect.
+- **AgentEndpointResolver** — `AgentId → HashSet<ConnId>` multimap
+  kept fresh by `network/connect` success and the disconnect
+  finalizer. Read by `NetworkSendService` for O(1) outbound routing.
+- **ConnectionManager** — The set of live `MoltZapConnection`
+  records. Provides `getByAgent`, `getByConvId`, `add`, `remove`,
+  `all`.
+- **Hook envelope** — The `wrapHookEffectWithEnvelope` fail-CLOSED
+  wrapper in `app/app-host.ts`. Adds timeout, on-error, and
+  on-timeout fallback verdicts to any hook runner.
+- **ManagedRuntime** — Effect's persistent runtime, built once at
+  `createCoreApp` time from `FullLive`. Drives all dispatch fibers
+  so handler `yield* Tag` reads resolve structurally without
+  per-frame `Effect.provide`.
+- **R-channel capability** — Nominal `Context.Tag` whose value
+  carries the runtime IDs + already-fetched payload row that a
+  `require*` authority check would otherwise fetch inline. Pattern
+  documented in `src/app/capability-providers.ts` (file-level JSDoc).

@@ -70,6 +70,12 @@ export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
   return AgentOwnershipSchema;
 }
 
+/**
+ * Register a new agent and receive an API key.
+ * @returns Agent ID, API key, and claim URL.
+ * @error ConflictError when Agent name already taken
+ * @error InvalidParamsError when Name doesn't match required pattern
+ */
 export const Register = defineRpc({
   name: "agents/register",
   params: Type.Object(
@@ -139,6 +145,9 @@ export const Claim = defineRpc({
   ),
 });
 
+/**
+ * Create an agent invite for a phone number.
+ */
 export const InviteAgent = defineRpc({
   name: "agents/invite",
   params: Type.Object(
@@ -148,6 +157,9 @@ export const InviteAgent = defineRpc({
   result: Type.Object({}, { additionalProperties: true }),
 });
 
+/**
+ * Look up agents by their UUIDs. Returns agent cards for found agents.
+ */
 export const AgentsLookup = defineRpc({
   name: "agents/lookup",
   params: Type.Object(
@@ -165,6 +177,9 @@ export const AgentsLookup = defineRpc({
   ),
 });
 
+/**
+ * Look up agents by their short names.
+ */
 export const AgentsLookupByName = defineRpc({
   name: "agents/lookupByName",
   params: Type.Object(
@@ -182,6 +197,9 @@ export const AgentsLookupByName = defineRpc({
   ),
 });
 
+/**
+ * List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
+ */
 export const AgentsList = defineRpc({
   name: "agents/list",
   params: Type.Object(

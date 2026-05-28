@@ -23,15 +23,7 @@ import {
   NotFoundError,
   TaskClosedError,
 } from "@moltzap/protocol";
-import {
-  Cause,
-  Duration,
-  Effect,
-  Fiber,
-  Option,
-  Schedule,
-  Schema,
-} from "effect";
+import { Cause, Duration, Effect, Fiber, Option, Schedule } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 
 export type MessageServiceError =
@@ -45,9 +37,11 @@ import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
 import { opaquePayload } from "../../network/network-send.js";
 import {
-  type WebhookClient,
-  signWebhookPayload,
-} from "../../adapters/webhook.js";
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "@effect/platform";
+import { signWebhookPayload } from "../../crypto/webhook-signature.js";
 import {
   type EnvelopeEncryption,
   generateDek,
@@ -137,7 +131,7 @@ export interface MessageServiceDeps {
   readonly networkSend: NetworkSendService;
   readonly encryption: EnvelopeEncryption | null;
   readonly deliveryWebhook: DeliveryWebhookConfig | null;
-  readonly webhookClient: WebhookClient | null;
+  readonly httpClient: HttpClient.HttpClient;
 
   /**
    * #560: AppHost owns the `messages/authorize` registry and runner.
@@ -153,23 +147,25 @@ export interface MessageServiceDeps {
 /**
  * `messages/send` server entry point. The `send` method runs the
  * structural checks against `(conversations ⋈ tasks)`, persists the
- * message, then fires the TM-routing `network.send` and the
- * conversation broadcast (in that order, so a failed insert never
- * surfaces a notification for a `messageId` the DB never committed).
+ * message, then resolves the TM verdict via the `messages/authorize`
+ * round-trip and broadcasts per verdict.
  *
  * Branch over `task.status`:
  * - `{closed, failed}` → fail closed with `TaskClosed`; no insert.
- * - `{waiting, active}` → insert + TM dispatch + broadcast.
+ * - `{waiting, active}` → insert + `messages/authorize` verdict +
+ *   verdict-scoped broadcast.
  *
- * `network.send` is one-way: the TM observes the message and acts via
- * CRUD (`tasks/storeMessage` etc.), with no return-channel verdict.
- * Failure surfaces only liveness (TM unreachable) and the `TaskClosed`
- * structural gate.
+ * The `messages/authorize` round-trip is the TM's gate: AppHost fails
+ * closed (`Block { reason: "tm_unreachable" }`) on timeout, handler
+ * error, or RPC failure. On Forward, `network.send` broadcasts to
+ * `verdict.recipients`; on Block, the call fails with `HookBlocked`.
  *
- * `bypassTmRouting` covers the TM-authored insert at
- * `tasks/storeMessage`: without the flag, the TM would receive a
- * `messages/received` frame for the message it just persisted (a
- * self-loop on every store).
+ * `bypassTmRouting=true` skips the `messages/authorize` round-trip
+ * and synthesizes a Forward-to-all-participants-except-sender verdict.
+ * No wire handler currently sets this flag (every entry point hardcodes
+ * `false`); it is retained as the internal extension point for
+ * server-authored inserts whose authorization is already established
+ * upstream.
  */
 export class MessageService {
   private deliveryWebhookFibers = new Set<
@@ -181,7 +177,7 @@ export class MessageService {
   private readonly networkSendService: NetworkSendService;
   private readonly encryption: EnvelopeEncryption | null;
   private readonly deliveryWebhook: DeliveryWebhookConfig | null;
-  private readonly webhookClient: WebhookClient | null;
+  private readonly httpClient: HttpClient.HttpClient;
   private readonly appHost: AppHost | null;
 
   constructor(deps: MessageServiceDeps) {
@@ -190,7 +186,7 @@ export class MessageService {
     this.networkSendService = deps.networkSend;
     this.encryption = deps.encryption;
     this.deliveryWebhook = deps.deliveryWebhook;
-    this.webhookClient = deps.webhookClient;
+    this.httpClient = deps.httpClient;
     this.appHost = deps.appHost;
   }
 
@@ -415,10 +411,11 @@ export class MessageService {
    *      On Forward, broadcast to `verdict.recipients` (not all
    *      participants).
    *
-   * `bypassTmRouting=true` (TM-authored insert via `tasks/storeMessage`)
-   * skips the gate: the TM has already admitted the message; the
-   * server records a synthetic `Forward { participants \ sender }`
-   * verdict and broadcasts as usual.
+   * `bypassTmRouting=true` skips the gate: the caller has already
+   * established authorization upstream, so the server records a
+   * synthetic `Forward { participants \ sender }` verdict and
+   * broadcasts as usual. No wire handler currently sets the flag;
+   * it is the internal extension point for server-authored inserts.
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
    * were reached, `recordTrace` and `deliveryWebhook` observe the misses, and
@@ -620,7 +617,7 @@ export class MessageService {
     recipientList: readonly AgentId[],
     delivered: readonly AgentId[],
   ): void {
-    if (this.deliveryWebhook === null || this.webhookClient === null) return;
+    if (this.deliveryWebhook === null) return;
     const deliveredSet = new Set(delivered);
     const offlineRecipientAgentIds = recipientList.filter(
       (id) => id !== input.senderAgentId && !deliveredSet.has(id),
@@ -764,11 +761,14 @@ export class MessageService {
     offlineRecipientAgentIds: AgentId[];
   }): Effect.Effect<void, never> {
     const cfg = this.deliveryWebhook;
-    const client = this.webhookClient;
     // Defensive: TS narrowing doesn't propagate across the fork boundary
     // in `spawnDeliveryWebhook`, so we re-check here.
-    if (!cfg || !client) return Effect.void;
+    if (!cfg) return Effect.void;
 
+    // HMAC byte-exactness: the signature MUST cover the exact bytes that
+    // go on the wire. `HttpClientRequest.bodyText(payload)` writes the
+    // pre-serialized string verbatim; `bodyJson` / `bodyUnsafeJson`
+    // re-stringify the object and would drift the signature.
     const payload = JSON.stringify(body);
     const signature = signWebhookPayload(cfg.secret, payload);
 
@@ -782,31 +782,37 @@ export class MessageService {
       Schedule.recurs(DELIVERY_WEBHOOK_MAX_ATTEMPTS - 1),
     );
 
-    return client
-      .call({
-        url: cfg.url,
-        event: "messages.delivered",
-        body: null,
-        bodyJson: payload,
-        timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
-        headers: { "X-MoltZap-Signature": signature },
-        // Fire-and-forget: receivers typically reply 204/empty, and
-        // anything they do send is discarded by `Effect.asVoid` below.
-        schema: Schema.Unknown,
-      })
-      .pipe(
-        Effect.retry(retrySchedule),
-        Effect.asVoid,
-        Effect.catchAll((err) =>
-          Effect.logError("Delivery webhook dropped after retries").pipe(
-            Effect.annotateLogs({
-              err: String(err),
-              url: cfg.url,
-              messageId: body.messageId,
-            }),
-          ),
+    const request = HttpClientRequest.post(cfg.url).pipe(
+      HttpClientRequest.setHeaders({
+        "Content-Type": "application/json",
+        "X-MoltZap-Event": "messages.delivered",
+        "X-MoltZap-Signature": signature,
+      }),
+      HttpClientRequest.bodyText(payload, "application/json"),
+    );
+
+    return this.httpClient.execute(request).pipe(
+      // Drain the response body unconditionally before `filterStatusOk`.
+      // Fire-and-forget receivers typically reply 204/empty, but
+      // 4xx/5xx bodies still carry diagnostic text; reading + discarding
+      // here ensures the socket buffer doesn't sit pending until the
+      // FinalizationRegistry reaps it. `response.text` is `Effect.cached`,
+      // so this is a single read either way.
+      Effect.tap((response) => response.text),
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.timeout(Duration.millis(DELIVERY_WEBHOOK_TIMEOUT_MS)),
+      Effect.retry(retrySchedule),
+      Effect.asVoid,
+      Effect.catchAll((err) =>
+        Effect.logError("Delivery webhook dropped after retries").pipe(
+          Effect.annotateLogs({
+            err: String(err),
+            url: cfg.url,
+            messageId: body.messageId,
+          }),
         ),
-      );
+      ),
+    );
   }
 
   list(

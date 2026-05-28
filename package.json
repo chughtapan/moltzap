@@ -15,13 +15,18 @@
     "test:conformance:toxiproxy": "bash scripts/conformance-toxiproxy.sh",
     "test:conformance:stress": "CONFORMANCE_STRESS=1 bash scripts/conformance-toxiproxy.sh",
     "docs": "cd docs && mint dev",
-    "docs:generate": "pnpm --filter @moltzap/protocol docs:generate",
+    "docs:generate": "pnpm --filter @moltzap/protocol docs:generate && pnpm --filter @moltzap/client docs:generate && pnpm --filter @moltzap/server-core exec tsx ../../scripts/generate-constants-snippets.ts",
     "docs:check": "cd docs && mint broken-links",
-    "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/protocol/",
+    "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/ 'packages/**/MODULE.md' README.md && pnpm docs:check:no-hardcoded-constants && pnpm docs:check:doc-imports-resolve",
+    "docs:check:mermaid": "pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
+    "docs:check:no-hardcoded-constants": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts",
+    "docs:check:doc-imports-resolve": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts",
+    "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
     "prepare": "husky"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
+    "@mermaid-js/mermaid-cli": "^11.15.0",
     "@typescript-eslint/parser": "^8.58.2",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
@@ -29,6 +34,7 @@
     "mint": "^4.0.0",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.0",
+    "typedoc": "^0.28.19",
     "typescript": "^5"
   },
   "pnpm": {

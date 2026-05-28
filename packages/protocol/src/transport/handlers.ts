@@ -61,8 +61,9 @@ type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> =
 
 /**
  * Closed handler-table type generated from a definition union. Every
- * catalog member appears as a structurally-required key; OPTIONAL
- * slots widen their value type to include the matching sentinel.
+ * catalog member appears as a structurally-required key whose value is
+ * a real `HandlerSlot&lt;D, Ctx, Caps&gt;` (Spec D3 R14b retired the
+ * sentinel widening — no slot is optional).
  *
  * Type-parameter erasure note: `RpcDefinition` is variant across `Name`
  * — the catalog `typeof serverRpcMethods[number]` resolves to a union of the
