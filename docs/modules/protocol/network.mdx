@@ -125,7 +125,7 @@ _TypeAlias_
 export type HelloOk = Static<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L211)
+### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L210)
 
 _Variable_
 
@@ -149,7 +149,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L205)
+### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L204)
 
 _Variable_
 
@@ -161,7 +161,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L200)
+### [`PresenceChangedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L199)
 
 _Variable_
 
@@ -173,9 +173,8 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 ```
 
 Pushed when a subscribed participant's presence status changes.
-v7 (architect plan #706): triggered by server-side `LeaseRegistry`
-lifecycle transitions, not by client-side `presence/update`
-(deleted in the same cutover).
+Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
+connect/disconnect; there is no client-driven `presence/update`.
 
 ### [`PresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L174)
 

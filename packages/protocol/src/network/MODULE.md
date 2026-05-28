@@ -120,7 +120,7 @@ _TypeAlias_
 export type HelloOk = Static<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L211)
+### [`networkNotifications`](./methods.ts#L210)
 
 _Variable_
 
@@ -144,7 +144,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L205)
+### [`networkRpcMethods`](./methods.ts#L204)
 
 _Variable_
 
@@ -156,7 +156,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L200)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L199)
 
 _Variable_
 
@@ -168,9 +168,8 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 ```
 
 Pushed when a subscribed participant's presence status changes.
-v7 (architect plan #706): triggered by server-side `LeaseRegistry`
-lifecycle transitions, not by client-side `presence/update`
-(deleted in the same cutover).
+Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
+connect/disconnect; there is no client-driven `presence/update`.
 
 ### [`PresenceSubscribe`](./methods.ts#L174)
 

@@ -198,7 +198,7 @@ _Function_
 export function registerReconnectStorm(ctx: ConformanceRunContext): void
 ```
 
-### [`registerSameStateNoDoubleFire`](./presence-same-state-no-double-fire.ts#L28)
+### [`registerSameStateNoDoubleFire`](./presence-same-state-no-double-fire.ts#L26)
 
 _Function_
 

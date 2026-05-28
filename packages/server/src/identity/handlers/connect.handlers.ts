@@ -2,14 +2,9 @@ import { Effect, Option } from "effect";
 import {
   PROTOCOL_VERSION,
   Connect,
-  // v10 (codex r9 P2 #1): `checkProtocolRange` relocated to
-  // `@moltzap/protocol/version.ts` (alongside
-  // `compareProtocolVersion`) so regression tests can import the
-  // helper directly from `@moltzap/protocol` without an illegal
-  // seam through this server-internal handler module.
-  // `compareProtocolVersion` + `ProtocolMismatchError` +
-  // `ProtocolMismatchReason` are now closed over by the relocated
-  // helper; no longer imported here.
+  // `checkProtocolRange` lives in `@moltzap/protocol/version.ts` so
+  // regression tests can import it directly without an illegal seam
+  // through this server-internal handler module.
   checkProtocolRange,
   UnauthorizedError,
   type HelloOk,
@@ -27,13 +22,13 @@ import {
   ConnectionManagerTag,
   ConversationServiceTag,
   DbTag,
+  PresenceServiceTag,
   SessionValidatorTag,
 } from "../../app/layers.js";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
-import { PresenceProjectionTag } from "../../network/services/presence-projection.js";
-import type { PresenceProjection } from "../../network/services/presence-projection.js";
+import type { PresenceService } from "../../network/services/presence.service.js";
 import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { Db } from "../../db/client.js";
 import type { ConversationService } from "../../task/services/conversation.service.js";
@@ -124,16 +119,12 @@ function authenticateSession(
 function buildHelloOk(
   ctx: AuthenticatedContext,
   connId: ConnectionId,
-  presenceProjection: PresenceProjection,
+  presenceService: PresenceService,
 ): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
-  // v7 (codex r6 P2 #2): WS connect emits via the projection's
-  // `onAgentConnect(agentId, connId)` lifecycle method. v6 (codex
-  // r5 P2 #1) threads connId for the fast-reconnect race guard.
-  // The projection drives the wire emission through the sealed
-  // `EmitIfChanged` capability; `PresenceService` is no longer
-  // involved in status mutation.
+  // WS connect emits via `onAgentConnect(agentId, connId)`. connId is
+  // threaded for the fast-reconnect race guard.
   return Effect.gen(function* () {
-    yield* presenceProjection.onAgentConnect(ctx.agentId, connId);
+    yield* presenceService.onAgentConnect(ctx.agentId, connId);
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentId: ctx.agentId,
@@ -189,44 +180,17 @@ function registerEndpointIfStillConnected(
   }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
 }
 
-// v10 (codex r9 P2 #1): `checkProtocolRange` + `failProtocolMismatch`
-// relocated to `@moltzap/protocol/version.ts`. v8/v9 kept them here
-// as private functions, which made the v9-parameterized signature
-// testable in principle but the actual function unreachable from a
-// regression test without an illegal `import { checkProtocolRange }
-// from "../../identity/handlers/connect.handlers.js"` seam. v10
-// exports `checkProtocolRange` from `@moltzap/protocol` so tests can
-// import + inject a future `serverVersion` cleanly.
-//
-// `failProtocolMismatch` stays module-private to `version.ts`
-// (NOT exported) — its only caller is `checkProtocolRange`, and
-// making it private encodes "this is the canonical raise path for
-// ProtocolMismatchError on the server side."
-
 function handleConnect(params: ConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
-      // v8 (architect plan #706 / codex r7 P2 #1): protocol-range gate
-      // BEFORE auth resolution. Old clients (and clients newer than
-      // the server supports) are rejected at the version edge — they
-      // never see the credential check, so no partial state leaks
-      // before the rejection.
-      //
-      // v9 (codex r8 P2 #1): the helper is parameterized over
-      // `serverVersion`; production passes the live `PROTOCOL_VERSION`
-      // constant while tests inject future-version values to exercise
-      // rejection paths against an unbumped branch.
-      //
-      // P2 fix-roll (codex PR review #1 P2): map
-      // `InvalidProtocolVersionError` — raised when a client sends a
-      // malformed `min/maxProtocol` string ("abc.def", "2026..0",
-      // SemVer pre-release) — to the wire-typed
-      // `InvalidParamsError` (JSON-RPC -32602). Without this mapping
-      // the parse error would propagate as an untyped channel error,
-      // which the dispatcher would surface as a defect rather than a
-      // typed `InvalidParamsError` response. `ProtocolMismatchError`
-      // remains in the channel for the well-formed-but-out-of-range
-      // case.
+      // Protocol-range gate runs BEFORE auth resolution: clients
+      // outside the supported version range are rejected at the version
+      // edge, so no partial state leaks before the rejection. A
+      // malformed `min/maxProtocol` string raises
+      // `InvalidProtocolVersionError`, mapped here to the wire-typed
+      // `InvalidParamsError` (JSON-RPC -32602) so it surfaces as a typed
+      // response rather than an untyped defect. `ProtocolMismatchError`
+      // stays in the channel for the well-formed-but-out-of-range case.
       yield* checkProtocolRange(params, PROTOCOL_VERSION).pipe(
         Effect.catchTag("InvalidProtocolVersionError", (cause) =>
           Effect.fail(
@@ -239,7 +203,7 @@ function handleConnect(params: ConnectParams) {
 
       const authService = yield* AuthServiceTag;
       const conversationService = yield* ConversationServiceTag;
-      const presenceProjection = yield* PresenceProjectionTag;
+      const presenceService = yield* PresenceServiceTag;
       const connections = yield* ConnectionManagerTag;
       const agentEndpointResolver = yield* AgentEndpointResolverTag;
       const db = yield* DbTag;
@@ -247,7 +211,7 @@ function handleConnect(params: ConnectParams) {
       const conn = yield* ConnectionTag;
 
       if (conn.auth) {
-        return yield* buildHelloOk(conn.auth, conn.id, presenceProjection);
+        return yield* buildHelloOk(conn.auth, conn.id, presenceService);
       }
 
       const auth = yield* resolveAuthenticatedContext(
@@ -264,7 +228,7 @@ function handleConnect(params: ConnectParams) {
         conn.id,
         auth,
       );
-      return yield* buildHelloOk(auth, conn.id, presenceProjection);
+      return yield* buildHelloOk(auth, conn.id, presenceService);
     }).pipe(Effect.withSpan("network.connect")),
   );
 }

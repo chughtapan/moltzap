@@ -1,13 +1,11 @@
 /**
  * Re-sending network/connect on an already-authenticated WS short-circuits
  * to buildHelloOk in `identity/handlers/connect.handlers.ts`, which fires
- * `presenceProjection.onAgentConnect(agentId, conn.id)` again. v10
- * (architect plan #706) — the projection's redundant-connect rule
- * (codex r3 P2 #1) handles this: when the existing entry's `connId`
- * matches the incoming arg, the lifecycle predicate returns
- * `prev === next`, the `emit` dedup gate elides, and no
- * `presence/changed` is broadcast. This property asserts the
- * idempotency guard holds.
+ * `presenceService.onAgentConnect(agentId, conn.id)` again. The
+ * redundant-connect rule handles this: when the incoming connId is
+ * already in the agent's `liveConns`, the lifecycle predicate returns
+ * `prev === next`, the dedup gate elides, and no `presence/changed` is
+ * broadcast. This property asserts the idempotency guard holds.
  */
 import { Effect } from "effect";
 import { PROTOCOL_VERSION } from "../../../version.js";
