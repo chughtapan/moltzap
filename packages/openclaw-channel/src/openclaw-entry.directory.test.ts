@@ -4,7 +4,7 @@ import {
   testAgentId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
-import type { ServiceRpcError } from "@moltzap/client";
+import type { ChannelService, ServiceRpcError } from "@moltzap/client";
 import {
   AgentsLookup,
   ContactsList,
@@ -139,13 +139,43 @@ function peerNameForId(id: string): string {
   return contact?.agents[0]?.name ?? id;
 }
 
-function startDirectoryGateway(): void {
+// Production `MoltZapService.sendRpc` is a PROTOTYPE method that reads
+// `this.client` inside `Effect.suspend`. Passed as a bare reference its
+// receiver is stripped, so the suspend thunk dies with a `this`-undefined
+// TypeError that `catchAll` cannot absorb. The standalone `directorySendRpc`
+// fixture never reads `this`, so it cannot catch a receiver-stripping
+// regression. This service's `sendRpc` reads `this.live` inside the suspend
+// thunk, mirroring `this.client`: the directory code MUST bind `sendRpc` to
+// the service before handing it to its drain consumers (binding to the
+// service restores `this`), or `listPeers` rejects instead of resolving.
+interface ReceiverDependentService extends ChannelService {
+  readonly live: true;
+  sendRpc: SendRpcFn;
+}
+
+function makeReceiverDependentSendRpc(): SendRpcFn {
+  return function sendRpc<D extends RpcDefinition<string, any, any>>(
+    this: ReceiverDependentService | undefined,
+    definition: D,
+    params: ParamsOf<D>,
+  ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
+    return Effect.suspend(() => {
+      // `this.live` throws synchronously when `this` is undefined (receiver
+      // stripped), matching `MoltZapService.sendRpc` reading `this.client`.
+      if (!this?.live) {
+        throw new TypeError("Cannot read properties of undefined");
+      }
+      return directorySendRpc(definition, params);
+    });
+  };
+}
+
+function startGatewayWithService(build: () => ChannelService): void {
   vi.clearAllMocks();
   contactsCallCount = 0;
   byzantineConstantCursor = false;
   fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
-  const sendRpc: SendRpcFn = directorySendRpc;
-  const service = { ...fixture.service, sendRpc };
+  const service = build();
   plugin = createMoltzapChannelPlugin({ createService: () => service });
   plugin.gateway.startAccount({
     cfg: makeCfg(),
@@ -154,6 +184,13 @@ function startDirectoryGateway(): void {
     abortSignal: new AbortController().signal,
     setStatus: vi.fn(),
   });
+}
+
+function startDirectoryGateway(): void {
+  startGatewayWithService(() => ({
+    ...fixture.service,
+    sendRpc: directorySendRpc,
+  }));
 }
 
 beforeEach(startDirectoryGateway);
@@ -197,6 +234,31 @@ function terminatesOnNonAdvancingCursor() {
   });
 }
 
+function startReceiverDependentGateway(): void {
+  // `sendRpc` reads `this.live`, so it only works when invoked with the
+  // service as its receiver — exactly how a production `MoltZapService`
+  // instance lands in `activeClients`. The directory code must bind it to
+  // `service` before forwarding; an unbound forward dies on `this`-undefined.
+  startGatewayWithService(
+    (): ReceiverDependentService => ({
+      ...fixture.service,
+      live: true,
+      sendRpc: makeReceiverDependentSendRpc(),
+    }),
+  );
+}
+
+function resolvesWithReceiverStrippedSendRpc() {
+  return Effect.gen(function* () {
+    startReceiverDependentGateway();
+    const peers = yield* listPeers();
+    expect(peers).toHaveLength(CONTACT_COUNT);
+    const names = new Set(peers.map((p) => p.name));
+    expect(names.has("peer-0")).toBe(true);
+    expect(names.has(`peer-${CONTACT_COUNT - 1}`)).toBe(true);
+  });
+}
+
 describe("directory: contacts/list pagination (Track A #692)", () => {
   it(
     "enumerates EVERY peer across multiple contact pages",
@@ -209,6 +271,10 @@ describe("directory: contacts/list pagination (Track A #692)", () => {
   it(
     "terminates on a non-advancing nextCursor instead of looping",
     terminatesOnNonAdvancingCursor,
+  );
+  it(
+    "binds the sendRpc receiver so a prototype-method sendRpc does not die",
+    resolvesWithReceiverStrippedSendRpc,
   );
 });
 
