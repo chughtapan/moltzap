@@ -25,7 +25,7 @@
  * DAG: a handler may pull services only from layers at-or-below its
  * own home layer.
  */
-export { PROTOCOL_VERSION } from "./version.js";
+export { PROTOCOL_VERSION, compareProtocolVersion } from "./version.js";
 
 export * from "./transport/index.js";
 export * from "./identity/index.js";
