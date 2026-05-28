@@ -5,7 +5,16 @@ import {
   identityNotifications,
   NotInContactsError,
 } from "./identity/methods.js";
-import { networkRpcMethods, networkNotifications } from "./network/methods.js";
+import {
+  networkRpcMethods,
+  networkNotifications,
+  // v11 (codex r10 P2 #2): ProtocolMismatchError joins the wire-error
+  // union so clients can `catchTag("ProtocolMismatchError", ...)` on
+  // a Connect call. v10 declared the class + self-registered it via
+  // `registerErrorClass` but didn't extend `RegisteredTaggedError`;
+  // typed narrowing was missing.
+  ProtocolMismatchError,
+} from "./network/methods.js";
 import {
   taskRpcMethods,
   taskNotifications,
@@ -63,7 +72,12 @@ export type RegisteredTaggedError =
   | TaskRejectedError
   | ConversationArchivedError
   | ConversationFullError
-  | HookBlockedError;
+  | HookBlockedError
+  // v11 (codex r10 P2 #2): protocol-version mismatch on
+  // `network/connect`. Architect plan #706 v8 declared the class +
+  // self-registered the wire code; v11 closes the type-narrowing
+  // gap so `Effect.catchTag("ProtocolMismatchError", ...)` works.
+  | ProtocolMismatchError;
 
 // Spec D3 R11 — per-kind outbound catalogs.
 //   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.
