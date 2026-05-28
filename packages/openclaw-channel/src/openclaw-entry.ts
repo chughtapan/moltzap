@@ -654,15 +654,21 @@ function listPeersEffect(
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
     if (!service?.sendRpc) return [];
+    // `service.sendRpc` is a prototype method reading `this.client` inside
+    // `Effect.suspend`; passed as a bare reference its receiver is stripped,
+    // so the suspend thunk dies with a `this`-undefined TypeError that
+    // `catchAll` (a failure-channel handler) cannot absorb. Bind once so both
+    // drain consumers keep the service receiver.
+    const sendRpc = service.sendRpc.bind(service);
     // Drain ALL contact pages so every peer in the directory resolves.
     const contacts = (yield* drainPaginatedList(
-      service.sendRpc,
+      sendRpc,
       ContactsList,
       "contacts",
     )) as ReadonlyArray<ContactDirectoryEntry>;
     const agentIds = contacts.flatMap(contactAgentIds);
     if (agentIds.length === 0) return [];
-    const agents = yield* lookupAgentsInChunks(service.sendRpc, agentIds);
+    const agents = yield* lookupAgentsInChunks(sendRpc, agentIds);
     return agents.map((agent) => ({
       id: `agent:${agent.name}`,
       name: agent.displayName ?? agent.name,
