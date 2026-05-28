@@ -88,7 +88,6 @@ const COMMAND_PATHS: readonly (readonly string[])[] = [
   ["conversations", "history"],
   ["history"],
   ["invite"],
-  ["presence"],
   ["ping"],
   ["status"],
   ["agents"],

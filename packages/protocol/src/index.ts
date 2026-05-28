@@ -34,6 +34,11 @@ export {
   // `@moltzap/protocol` without an illegal seam through
   // `connect.handlers.ts`.
   checkProtocolRange,
+  // P2 fix-roll (codex PR review #1 P2): typed error class for
+  // malformed version strings. Exported so the server-side handler
+  // can `Effect.catchTag("InvalidProtocolVersionError", ...)` and
+  // map to `InvalidParamsError`.
+  InvalidProtocolVersionError,
 } from "./version.js";
 
 export * from "./transport/index.js";

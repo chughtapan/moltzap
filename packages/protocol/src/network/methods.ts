@@ -3,10 +3,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import { AgentId } from "../identity/methods.js";
 import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
-import {
-  registerErrorClass,
-  type RpcErrorPayload,
-} from "../transport/wire-errors.js";
+import { registerErrorClass } from "../transport/wire-errors.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -89,6 +86,37 @@ export const Connect = defineRpc({
 export type HelloOk = Static<typeof HelloOkSchema>;
 
 /**
+ * Reason discriminant carried in `ProtocolMismatchError.data.reason`.
+ * Architect plan #706 v8 (codex r7 P2 #1).
+ */
+export type ProtocolMismatchReason =
+  | "server-above-client-max"
+  | "server-below-client-min";
+
+/**
+ * Concrete payload shape for {@link ProtocolMismatchError}. Inlined on
+ * the class so `error.data.reason` / `error.data.serverVersion` etc.
+ * typecheck at every reader. The generic `RpcErrorPayload` shape
+ * (`data: JsonValue`) used in v8 erased these fields and forced
+ * runtime `as` casts at test + caller sites; PR review feedback
+ * landed the concrete record here so the type flows from
+ * construction site to every catchTag arm.
+ *
+ * Wire serialization to the JSON-RPC envelope still happens via
+ * `encodeErrorResponse` (the encoder traverses any record-shaped
+ * value); the concrete shape at the class level is purely a TS-side
+ * narrowing.
+ */
+export interface ProtocolMismatchErrorPayload {
+  readonly data: {
+    readonly reason: ProtocolMismatchReason;
+    readonly serverVersion: string;
+    readonly clientMinProtocol: string;
+    readonly clientMaxProtocol: string;
+  };
+}
+
+/**
  * Raised by `network/connect` when the client's `[minProtocol,
  * maxProtocol]` range does not bracket the server's `PROTOCOL_VERSION`.
  *
@@ -115,27 +143,18 @@ export type HelloOk = Static<typeof HelloOkSchema>;
  * against `-32000..-32024` at v8 architect-stub time per
  * `packages/protocol/CLAUDE.md` recipe step 5).
  *
- * The architect class body is `Effect.die("not implemented") /
- * throw new Error("not implemented")` is NOT applicable here — the
- * class is a `Data.TaggedError` subclass which is purely structural;
- * no body to stub. Impl-staff fills in the `handleConnect` /
- * `checkProtocolRange` wiring that raises this class.
+ * Payload typing: {@link ProtocolMismatchErrorPayload} — concrete
+ * shape rather than the generic `RpcErrorPayload` so `error.data.X`
+ * is typed at every reader. PR review follow-up (user directive
+ * option b).
  */
 export class ProtocolMismatchError extends Data.TaggedError(
   "ProtocolMismatchError",
-)<RpcErrorPayload> {
+)<ProtocolMismatchErrorPayload> {
   static readonly code = -32006;
   static readonly message = "Client protocol version not supported";
 }
 registerErrorClass(ProtocolMismatchError);
-
-/**
- * Reason discriminant carried in `ProtocolMismatchError.data.reason`.
- * Architect plan #706 v8 (codex r7 P2 #1).
- */
-export type ProtocolMismatchReason =
-  | "server-above-client-max"
-  | "server-below-client-min";
 
 // ── network/ping ─────────────────────────────────────────────────────
 

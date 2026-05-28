@@ -1,5 +1,5 @@
 // Auto-bumped by publish workflow
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import {
   ProtocolMismatchError,
@@ -7,6 +7,38 @@ import {
 } from "./network/methods.js";
 
 export const PROTOCOL_VERSION = "2026.526.0";
+
+/**
+ * Raised by {@link compareProtocolVersion} (and surfaced through the
+ * Effect channel of {@link checkProtocolRange}) when an input string
+ * carries a non-numeric or empty segment — e.g., SemVer pre-release
+ * suffixes like `2026.527.0-rc.1`, leading/trailing dots like
+ * `"2026..0"`, or non-digit characters like `"abc.def"`.
+ *
+ * **`Data.TaggedError` shape (codex PR review P2 + review-senior P3
+ * convergence).** Was a plain `Error` subclass in the first
+ * impl-staff drop; switched to `Data.TaggedError` so:
+ *
+ * - The error flows through Effect's typed `E` channel cleanly
+ *   (`Effect.catchTag("InvalidProtocolVersionError", ...)` works in
+ *   {@link checkProtocolRange}'s caller).
+ * - It matches the sibling {@link ProtocolMismatchError} convention
+ *   in `network/methods.ts` (both tagged, both registered if a wire
+ *   code is needed).
+ *
+ * This error is NOT a wire-protocol error — it is INPUT-VALIDATION
+ * for untrusted client-supplied version strings. The
+ * `network/connect` handler catches it and maps to
+ * `InvalidParamsError` (JSON-RPC -32602) so the client gets a typed
+ * malformed-input response, not a defect.
+ */
+export class InvalidProtocolVersionError extends Data.TaggedError(
+  "InvalidProtocolVersionError",
+)<{ readonly version: string; readonly segment: string }> {
+  override get message(): string {
+    return `compareProtocolVersion: invalid segment ${JSON.stringify(this.segment)} in ${JSON.stringify(this.version)}`;
+  }
+}
 
 /**
  * Numeric comparator for `PROTOCOL_VERSION` strings, ordered by their
@@ -33,11 +65,18 @@ export const PROTOCOL_VERSION = "2026.526.0";
  * Each input MUST be a dotted `n.n.n` (or wider) numeric string. The
  * function is intentionally strict — it does NOT accept SemVer
  * pre-release suffixes (`2026.527.0-rc.1`) or build metadata
- * (`2026.527.0+abc`). MoltZap's `PROTOCOL_VERSION` has never carried
- * those; impl-staff fails closed at parse-time if it sees a non-numeric
- * segment (regression test enumerated in the architect plan §8).
+ * (`2026.527.0+abc`). Empty segments (e.g., `"2026..0"`) and
+ * non-digit characters (`"abc"`) also reject — `Number("") === 0`
+ * would otherwise silently coerce, contradicting the
+ * "strict / fail-closed" JSDoc claim (review-senior P3 #2).
  *
- * Stub: impl-staff fills the body per architect SKILL.md.
+ * **Synchronous throw shape.** Throws
+ * {@link InvalidProtocolVersionError} (a `Data.TaggedError`) on any
+ * malformed segment. Untrusted client input MUST be funnelled
+ * through {@link checkProtocolRange}, which wraps this call in
+ * `Effect.try` so the parse error flows through the Effect channel
+ * — never as a sync throw escaping into the JSON-RPC handler
+ * (codex PR review #1 P2).
  */
 export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1 {
   const segmentsA = parseVersionSegments(a);
@@ -52,34 +91,20 @@ export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1 {
   return 0;
 }
 
-/**
- * Thrown by {@link compareProtocolVersion} when an input string carries
- * a non-numeric segment (e.g., SemVer pre-release suffix
- * `2026.527.0-rc.1`). The comparator is strict; callers normalize
- * before calling, or catch this synchronously.
- */
-export class InvalidProtocolVersionError extends Error {
-  override readonly name = "InvalidProtocolVersionError";
-  readonly version: string;
-  readonly segment: string;
-  constructor(version: string, segment: string) {
-    super(
-      `compareProtocolVersion: non-numeric segment "${segment}" in "${version}"`,
-    );
-    this.version = version;
-    this.segment = segment;
-  }
-}
+// Strict numeric-segment regex: one or more digits, nothing else. Rules
+// out empty strings (`Number("") === 0`), whitespace, signs, exponent
+// notation, and the SemVer pre-release / build-metadata shapes named
+// in the JSDoc. Anchored on both ends.
+const NUMERIC_SEGMENT_RE = /^\d+$/;
 
 function parseVersionSegments(version: string): readonly number[] {
   const parts = version.split(".");
   const segments: number[] = [];
   for (const part of parts) {
-    const n = Number(part);
-    if (!Number.isFinite(n) || Number.isNaN(n)) {
-      throw new InvalidProtocolVersionError(version, part);
+    if (!NUMERIC_SEGMENT_RE.test(part)) {
+      throw new InvalidProtocolVersionError({ version, segment: part });
     }
-    segments.push(n);
+    segments.push(Number(part));
   }
   return segments;
 }
@@ -98,17 +123,25 @@ function parseVersionSegments(version: string): readonly number[] {
  * tests can call it without an illegal test seam through the
  * server-internal handler module.
  *
- * Two reasons (mutually exclusive — the discriminator is in the
- * wire-error `data.reason` field):
+ * **Two error channels, both typed (codex PR review #1 P2).**
  *
- * - `server-above-client-max` —
- *   `compareProtocolVersion(serverVersion, params.maxProtocol) > 0`.
- *   The server is newer than the client knows how to talk to.
- * - `server-below-client-min` —
- *   `compareProtocolVersion(serverVersion, params.minProtocol) < 0`.
- *   The client is newer than the server supports.
+ * - `ProtocolMismatchError` — versions are well-formed, just outside
+ *   the supported range. Two `reason` discriminants in the wire
+ *   error's `data` field:
+ *   - `server-above-client-max` —
+ *     `compareProtocolVersion(serverVersion, params.maxProtocol) > 0`.
+ *     The server is newer than the client knows how to talk to.
+ *   - `server-below-client-min` —
+ *     `compareProtocolVersion(serverVersion, params.minProtocol) < 0`.
+ *     The client is newer than the server supports.
+ * - `InvalidProtocolVersionError` — `params.minProtocol` or
+ *   `params.maxProtocol` is not a well-formed numeric version
+ *   string. Untrusted client input crosses the boundary here, so
+ *   the sync throw in {@link compareProtocolVersion} is wrapped in
+ *   `Effect.try` and surfaces as a typed channel error. Callers
+ *   (the `network/connect` handler) catch this and map to
+ *   `InvalidParamsError` (JSON-RPC `-32602`).
  *
- * Architect lands the real body — it's a small typed branch.
  * Production callers (`handleConnect`) pass the live
  * `PROTOCOL_VERSION` constant; tests inject future-version values
  * to exercise rejection paths against an unbumped branch.
@@ -122,22 +155,58 @@ function parseVersionSegments(version: string): readonly number[] {
 export function checkProtocolRange(
   params: { readonly minProtocol: string; readonly maxProtocol: string },
   serverVersion: string,
-): Effect.Effect<void, ProtocolMismatchError> {
-  if (compareProtocolVersion(serverVersion, params.maxProtocol) > 0) {
-    return failProtocolMismatch(
-      params,
-      "server-above-client-max",
-      serverVersion,
-    );
-  }
-  if (compareProtocolVersion(serverVersion, params.minProtocol) < 0) {
-    return failProtocolMismatch(
-      params,
-      "server-below-client-min",
-      serverVersion,
-    );
-  }
-  return Effect.void;
+): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError> {
+  // Each `compareProtocolVersion` call may throw
+  // `InvalidProtocolVersionError` on malformed
+  // `params.{min,max}Protocol` — untrusted client input. Wrapping
+  // both calls in `Effect.try` keeps the parse error in the typed E
+  // channel; without this, the sync throw would escape into the
+  // JSON-RPC dispatch as a defect (codex PR review #1 P2). The
+  // `serverVersion` is server-controlled / trusted, but passing it
+  // through the same path keeps the symmetry.
+  return Effect.gen(function* () {
+    const high = yield* compareThrough(serverVersion, params.maxProtocol);
+    if (high > 0) {
+      return yield* failProtocolMismatch(
+        params,
+        "server-above-client-max",
+        serverVersion,
+      );
+    }
+    const low = yield* compareThrough(serverVersion, params.minProtocol);
+    if (low < 0) {
+      return yield* failProtocolMismatch(
+        params,
+        "server-below-client-min",
+        serverVersion,
+      );
+    }
+  }).pipe(Effect.withSpan("checkProtocolRange"));
+}
+
+/**
+ * Effect-wrapped {@link compareProtocolVersion}: routes the sync
+ * `InvalidProtocolVersionError` throw into the typed Effect E
+ * channel. Module-private; only {@link checkProtocolRange} uses it.
+ */
+function compareThrough(
+  a: string,
+  b: string,
+): Effect.Effect<-1 | 0 | 1, InvalidProtocolVersionError> {
+  return Effect.try({
+    try: () => compareProtocolVersion(a, b),
+    catch: (cause): InvalidProtocolVersionError => {
+      if (cause instanceof InvalidProtocolVersionError) return cause;
+      // Defensive: any other throw is a programming defect. Re-raise
+      // as a typed error so the channel narrowing holds. Unreachable
+      // today (`compareProtocolVersion` only throws
+      // `InvalidProtocolVersionError`).
+      return new InvalidProtocolVersionError({
+        version: `${a} vs ${b}`,
+        segment: cause instanceof Error ? cause.message : String(cause),
+      });
+    },
+  });
 }
 
 /**

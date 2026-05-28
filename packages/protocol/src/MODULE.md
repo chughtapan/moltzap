@@ -154,7 +154,7 @@ export type BrandedString<BrandName extends string> = string &
 A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
 a `string` from accidentally type-fitting a slot expecting the brand.
 
-### [`checkProtocolRange`](./version.ts#L122)
+### [`checkProtocolRange`](./version.ts#L155)
 
 _Function_
 
@@ -162,7 +162,7 @@ _Function_
 export function checkProtocolRange(
   params: { readonly minProtocol: string; readonly maxProtocol: string },
   serverVersion: string,
-): Effect.Effect<void, ProtocolMismatchError>
+): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
 ```
 
 Range-check the client's protocol-version interval against an
@@ -178,17 +178,25 @@ function itself importable from `@moltzap/protocol` so regression
 tests can call it without an illegal test seam through the
 server-internal handler module.
 
-Two reasons (mutually exclusive — the discriminator is in the
-wire-error `data.reason` field):
+**Two error channels, both typed (codex PR review #1 P2).**
 
-- `server-above-client-max` —
-  `compareProtocolVersion(serverVersion, params.maxProtocol) > 0`.
-  The server is newer than the client knows how to talk to.
-- `server-below-client-min` —
-  `compareProtocolVersion(serverVersion, params.minProtocol) < 0`.
-  The client is newer than the server supports.
+- `ProtocolMismatchError` — versions are well-formed, just outside
+  the supported range. Two `reason` discriminants in the wire
+  error's `data` field:
+  - `server-above-client-max` —
+    `compareProtocolVersion(serverVersion, params.maxProtocol) > 0`.
+    The server is newer than the client knows how to talk to.
+  - `server-below-client-min` —
+    `compareProtocolVersion(serverVersion, params.minProtocol) < 0`.
+    The client is newer than the server supports.
+- `InvalidProtocolVersionError` — `params.minProtocol` or
+  `params.maxProtocol` is not a well-formed numeric version
+  string. Untrusted client input crosses the boundary here, so
+  the sync throw in compareProtocolVersion is wrapped in
+  `Effect.try` and surfaces as a typed channel error. Callers
+  (the `network/connect` handler) catch this and map to
+  `InvalidParamsError` (JSON-RPC `-32602`).
 
-Architect lands the real body — it's a small typed branch.
 Production callers (`handleConnect`) pass the live
 `PROTOCOL_VERSION` constant; tests inject future-version values
 to exercise rejection paths against an unbumped branch.
@@ -199,7 +207,7 @@ minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
 `ProtocolMismatchError` whose `data.reason` is
 `"server-above-client-max"`.
 
-### [`compareProtocolVersion`](./version.ts#L42)
+### [`compareProtocolVersion`](./version.ts#L81)
 
 _Function_
 
@@ -231,11 +239,18 @@ Returns `-1 | 0 | 1` with conventional semantics:
 Each input MUST be a dotted `n.n.n` (or wider) numeric string. The
 function is intentionally strict — it does NOT accept SemVer
 pre-release suffixes (`2026.527.0-rc.1`) or build metadata
-(`2026.527.0+abc`). MoltZap's `PROTOCOL_VERSION` has never carried
-those; impl-staff fails closed at parse-time if it sees a non-numeric
-segment (regression test enumerated in the architect plan §8).
+(`2026.527.0+abc`). Empty segments (e.g., `"2026..0"`) and
+non-digit characters (`"abc"`) also reject — `Number("") === 0`
+would otherwise silently coerce, contradicting the
+"strict / fail-closed" JSDoc claim (review-senior P3 #2).
 
-Stub: impl-staff fills the body per architect SKILL.md.
+**Synchronous throw shape.** Throws
+InvalidProtocolVersionError (a `Data.TaggedError`) on any
+malformed segment. Untrusted client input MUST be funnelled
+through checkProtocolRange, which wraps this call in
+`Effect.try` so the parse error flows through the Effect channel
+— never as a sync throw escaping into the JSON-RPC handler
+(codex PR review #1 P2).
 
 ### [`DateTimeString`](./schema-primitives.ts#L107)
 
@@ -378,29 +393,42 @@ pending call to resolve.
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
 
-### [`InvalidProtocolVersionError`](./version.ts#L61)
+### [`InvalidProtocolVersionError`](./version.ts#L35)
 
 _Class_
 
 ```ts
-export class InvalidProtocolVersionError extends Error {
-  override readonly name = "InvalidProtocolVersionError";
-  readonly version: string;
-  readonly segment: string;
-  constructor(version: string, segment: string) {
-    super(
-      `compareProtocolVersion: non-numeric segment "${segment}" in "${version}"`,
-    );
-    this.version = version;
-    this.segment = segment;
+export class InvalidProtocolVersionError extends Data.TaggedError(
+  "InvalidProtocolVersionError",
+)<{ readonly version: string; readonly segment: string }> {
+  override get message(): string {
+    return `compareProtocolVersion: invalid segment ${JSON.stringify(this.segment)} in ${JSON.stringify(this.version)}`;
   }
 }
 ```
 
-Thrown by compareProtocolVersion when an input string carries
-a non-numeric segment (e.g., SemVer pre-release suffix
-`2026.527.0-rc.1`). The comparator is strict; callers normalize
-before calling, or catch this synchronously.
+Raised by compareProtocolVersion (and surfaced through the
+Effect channel of checkProtocolRange) when an input string
+carries a non-numeric or empty segment — e.g., SemVer pre-release
+suffixes like `2026.527.0-rc.1`, leading/trailing dots like
+`"2026..0"`, or non-digit characters like `"abc.def"`.
+
+**`Data.TaggedError` shape (codex PR review P2 + review-senior P3
+convergence).** Was a plain `Error` subclass in the first
+impl-staff drop; switched to `Data.TaggedError` so:
+
+- The error flows through Effect's typed `E` channel cleanly
+  (`Effect.catchTag("InvalidProtocolVersionError", ...)` works in
+  checkProtocolRange's caller).
+- It matches the sibling ProtocolMismatchError convention
+  in `network/methods.ts` (both tagged, both registered if a wire
+  code is needed).
+
+This error is NOT a wire-protocol error — it is INPUT-VALIDATION
+for untrusted client-supplied version strings. The
+`network/connect` handler catches it and maps to
+`InvalidParamsError` (JSON-RPC -32602) so the client gets a typed
+malformed-input response, not a defect.
 
 ### [`JsonValue`](./schema-primitives.ts#L135)
 
