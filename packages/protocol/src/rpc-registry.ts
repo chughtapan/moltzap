@@ -50,6 +50,9 @@ import {
   NotFoundError,
   ConflictError,
   InvalidParamsError,
+  AlreadyConnected,
+  AppNotReadyError,
+  AppNotFoundError,
 } from "./transport/wire-errors.js";
 
 export { taskCallbackMethods };
@@ -77,7 +80,14 @@ export type RegisteredTaggedError =
   // `network/connect`. Architect plan #706 v8 declared the class +
   // self-registered the wire code; v11 closes the type-narrowing
   // gap so `Effect.catchTag("ProtocolMismatchError", ...)` works.
-  | ProtocolMismatchError;
+  | ProtocolMismatchError
+  // D #705 §3.1 — principal-already-connected + app-registry lookup
+  // boot-state discriminator. Registered via `registerErrorClass`; added
+  // here so `Effect.catchTag("AlreadyConnected" | "AppNotReadyError" |
+  // "AppNotFoundError", ...)` narrows on the wire.
+  | AlreadyConnected
+  | AppNotReadyError
+  | AppNotFoundError;
 
 // Spec D3 R11 — per-kind outbound catalogs.
 //   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.

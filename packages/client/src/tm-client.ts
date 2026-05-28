@@ -227,6 +227,16 @@ export interface TMClientOptions {
   onReconnect?: (helloOk: ConnectResult) => void;
 
   /**
+   * D #705 §7.2 — reconnect policy. Default `"exponential-backoff"` keeps the
+   * jittered 1s..30s reconnect loop. `"none"` disables `scheduleReconnect` so
+   * the reader-fiber exit terminates the client cleanly with no retry — used
+   * by the boot orchestrator's default-app client, whose loopback connection
+   * is a server-internal singleton with no transient network failures to
+   * recover from. Wire clients keep the backoff default.
+   */
+  reconnectPolicy?: "exponential-backoff" | "none";
+
+  /**
    * Spec D3 R14b — REQUIRED. TM-callback handler table immutable at
    * construction (Spec F I1). Keys are catalog method names
    * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
@@ -666,7 +676,11 @@ export class MoltZapTMClient {
       yield* Ref.set(this.stateRef, Option.none());
       this.runtime.runFork(Scope.close(dispatcherScope, Exit.void));
       yield* this.notifyDisconnect(extractCloseInfo(exit));
-      if (!this.closed) this.scheduleReconnect();
+      // D #705 §7.2 — `"none"` suppresses reconnect; the reader-fiber exit
+      // terminates the client cleanly (default-app loopback case).
+      if (!this.closed && this.options.reconnectPolicy !== "none") {
+        this.scheduleReconnect();
+      }
     });
   }
 

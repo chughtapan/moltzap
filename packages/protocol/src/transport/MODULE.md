@@ -76,6 +76,70 @@ _Variable_
 export const ajv:
 ```
 
+### [`AlreadyConnected`](./wire-errors.ts#L164)
+
+_Class_
+
+```ts
+export class AlreadyConnected extends Data.TaggedError("AlreadyConnected")<
+  RpcErrorPayload & {
+    readonly principal: "agent" | "app";
+  }
+> {
+  static readonly code = -32010;
+  static readonly message =
+    "Principal already has an active connection. Disconnect the prior session first.";
+}
+```
+
+A principal (agent or app) already holds an active connection. Fires at
+the Connect handler's per-connection preflight/atomic gate (a socket
+already authenticated as either arm) and at the per-principal gate
+(`AgentEndpointResolver.add` / `AppRegistry.register` rejecting a second
+binding). The `principal` discriminator names which arm the conflict is
+on; the wire code is shared.
+
+### [`AppNotFoundError`](./wire-errors.ts#L198)
+
+_Class_
+
+```ts
+export class AppNotFoundError extends Data.TaggedError("AppNotFoundError")<
+  RpcErrorPayload & {
+    readonly appId: AppId;
+  }
+> {
+  static readonly code = -32012;
+  static readonly message = "App not found.";
+}
+```
+
+No app is registered under the given id, and boot has completed (so the
+absence is durable, not a boot transient). NOT retryable — surfaces
+actionable error UX rather than an infinite retry loop.
+
+### [`AppNotReadyError`](./wire-errors.ts#L182)
+
+_Class_
+
+```ts
+export class AppNotReadyError extends Data.TaggedError("AppNotReadyError")<
+  RpcErrorPayload & {
+    readonly appId: AppId;
+  }
+> {
+  static readonly code = -32011;
+  static readonly message =
+    "App is not yet ready. Retry after a short backoff.";
+}
+```
+
+The default app's registry slot is absent during the brief boot window
+before `AppRegistry.markBootComplete()` runs. Transient — the client
+SDK's retry-with-backoff finds the registered slot on the next attempt.
+Once boot completes, an absent slot is durable absence and surfaces as
+`AppNotFoundError` instead.
+
 ### [`buildAgentClientDispatcher`](./dispatch.ts#L127)
 
 _Function_
@@ -202,7 +266,7 @@ Capability-union extractor: union of every capability tag referenced
 across all real `HandlerSlot` arms in the table. The factory's
 signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
 
-### [`ConflictError`](./wire-errors.ts#L123)
+### [`ConflictError`](./wire-errors.ts#L126)
 
 _Class_
 
@@ -424,7 +488,7 @@ Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
 
-### [`errorClassFor`](./wire-errors.ts#L73)
+### [`errorClassFor`](./wire-errors.ts#L76)
 
 _Function_
 
@@ -434,7 +498,7 @@ export function errorClassFor(code: number): RpcErrorClass | undefined
 
 Returns the registered class for a wire code, or `undefined`.
 
-### [`ForbiddenError`](./wire-errors.ts#L105)
+### [`ForbiddenError`](./wire-errors.ts#L108)
 
 _Class_
 
@@ -513,7 +577,7 @@ concrete `RpcDefinition&lt;"identity/register", ...>` etc. arms; the
 mapped type preserves each arm's `name` literal so the resulting
 table has named keys.
 
-### [`InvalidParamsError`](./wire-errors.ts#L137)
+### [`InvalidParamsError`](./wire-errors.ts#L140)
 
 _Class_
 
@@ -542,7 +606,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`isRegisteredErrorInstance`](./wire-errors.ts#L78)
+### [`isRegisteredErrorInstance`](./wire-errors.ts#L81)
 
 _Function_
 
@@ -552,7 +616,7 @@ export function isRegisteredErrorInstance(value: object): boolean
 
 Returns true iff `value`'s constructor is in the registered class set.
 
-### [`JSON_RPC_RESERVED_CODES`](./wire-errors.ts#L6)
+### [`JSON_RPC_RESERVED_CODES`](./wire-errors.ts#L9)
 
 _Variable_
 
@@ -673,7 +737,7 @@ Canary 6 in `typed-dispatcher.types-check.ts`). Vacuous-deny
 moderators bind an explicit `ForbiddenError`-returning handler for
 each catalog method.
 
-### [`MalformedFrameError`](./wire-errors.ts#L146)
+### [`MalformedFrameError`](./wire-errors.ts#L149)
 
 _Class_
 
@@ -700,7 +764,7 @@ export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
 
 The socket is not in the OPEN state when an RPC was attempted.
 
-### [`NotFoundError`](./wire-errors.ts#L114)
+### [`NotFoundError`](./wire-errors.ts#L117)
 
 _Class_
 
@@ -854,7 +918,7 @@ export type ParamsOf<D extends RpcDefinition<string, TSchema, TSchema>> =
 
 Type-only accessor for a definition's params payload.
 
-### [`registerErrorClass`](./wire-errors.ts#L61)
+### [`registerErrorClass`](./wire-errors.ts#L64)
 
 _Function_
 
@@ -1031,7 +1095,7 @@ of capability descriptors the dispatcher iterates to thread
 plus an `argsOf` resolver that derives the obtain helper's args from
 `params` + `ctx`. Absent → no capabilities.
 
-### [`RpcErrorClass`](./wire-errors.ts#L21)
+### [`RpcErrorClass`](./wire-errors.ts#L24)
 
 _TypeAlias_
 
@@ -1052,7 +1116,7 @@ A `Data.TaggedError`-derived class with static wire metadata
 originator looks up the class by code via `errorClassFor` for inbound
 response decode.
 
-### [`RpcErrorPayload`](./wire-errors.ts#L88)
+### [`RpcErrorPayload`](./wire-errors.ts#L91)
 
 _Interface_
 
@@ -1282,7 +1346,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the TM's typed
 verdict drives the lifecycle transition.
 
-### [`UnauthorizedError`](./wire-errors.ts#L96)
+### [`UnauthorizedError`](./wire-errors.ts#L99)
 
 _Class_
 

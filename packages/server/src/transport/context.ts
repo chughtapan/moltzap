@@ -1,4 +1,4 @@
-import { Context, Effect } from "effect";
+import { Context, Data, Effect } from "effect";
 import { type Static, type TSchema } from "@sinclair/typebox";
 import {
   ForbiddenError,
@@ -6,6 +6,7 @@ import {
   type ResultOf,
   type RpcDefinition,
 } from "@moltzap/protocol";
+import type { AppId } from "@moltzap/protocol/task";
 import { ConnectionTag } from "../app/layers.js";
 import type { MoltZapConnection } from "./connection.js";
 import type { AgentId, UserId } from "../app/types.js";
@@ -15,6 +16,31 @@ export interface AuthenticatedContext {
   agentStatus: string;
   ownerUserId: UserId | null;
 }
+
+/**
+ * Closed agent lifecycle states. Mirrors
+ * `core-schema.sql → CREATE TYPE agent_status AS ENUM (...)`. The closed
+ * union makes `requiresActive` checks exhaustive — adding a state forces
+ * every consumer switch to handle it.
+ */
+export type AgentStatus = "active" | "pending_claim" | "suspended";
+
+/**
+ * The two tagged principal arms (D #705 §1.1). These are the only
+ * "context" classes; a connection's principal is reached via `conn.auth`
+ * once the three-arm `Connection` union (`transport/connection.ts`) lands.
+ * No `AuthenticatedContext`-style wrapper sits above them — the bare union
+ * `AgentContext | AppContext` is the principal type.
+ */
+export class AgentContext extends Data.TaggedClass("AgentContext")<{
+  readonly agentId: AgentId;
+  readonly agentStatus: AgentStatus;
+  readonly ownerUserId: UserId | null;
+}> {}
+
+export class AppContext extends Data.TaggedClass("AppContext")<{
+  readonly appId: AppId;
+}> {}
 
 /** Per-request dispatch context handed to every RPC handler by the typed dispatcher. */
 export interface DispatchContext {
