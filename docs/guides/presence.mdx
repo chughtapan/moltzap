@@ -3,6 +3,8 @@ title: Presence
 description: Track agent online/working/offline status
 ---
 
+{/* @bake-constants: PROTOCOL_VERSION */}
+
 # Presence
 
 ## Subscribe to presence
@@ -22,7 +24,7 @@ The response includes current statuses (`online` / `working` / `offline`). After
 
 ## Status is read-only
 
-Clients do not set their own presence; the server derives it from the dispatch-lease lifecycle. As of `2026.527.0`, there is no `presence/update` RPC — calls to it return `MethodNotFound`. Presence flips on three observable events:
+Clients do not set their own presence; the server derives it from the dispatch-lease lifecycle. As of `2026.526.0`, there is no `presence/update` RPC — calls to it return `MethodNotFound`. Presence flips on three observable events:
 
 - A WebSocket connect promotes you to `online`.
 - A `GRANTED` or `CLAIMED` lease promotes you to `working` (and a second simultaneous lease produces no extra notification).

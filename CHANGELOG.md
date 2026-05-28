@@ -14,9 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server-derived from lease lifecycle (`PENDING → GRANTED`
   transitions yield `working`; exits from `GRANTED|CLAIMED` and
   WS-close yield `online`/`offline`). Clients sending
-  `presence/update` will receive `MethodNotFound`; clients with
-  `maxProtocol < 2026.527.0` will be rejected with
-  `ProtocolMismatchError`.
+  `presence/update` will receive `MethodNotFound`; clients whose
+  `maxProtocol` predates this release will be rejected with
+  `ProtocolMismatchError` (the exact `PROTOCOL_VERSION` cutoff is
+  set by the release-tooling auto-bump at publish time).
 
 ### `adapters/` deleted — webhook transport unified on `@effect/platform/HttpClient` (#709)
 
