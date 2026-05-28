@@ -46,6 +46,10 @@ import type {
   SessionValidatorTag,
   AppHostTag,
 } from "../app/layers.js";
+// v7 (codex r6 P2 #2): PresenceProjectionTag joins the network-tier
+// allowlist. Network handlers (presence/subscribe) and the
+// connect-handler at identity-tier yield it.
+import type { PresenceProjectionTag } from "../network/services/presence-projection.js";
 import type {
   TmAuthority,
   TaskReadAccess,
@@ -93,7 +97,12 @@ export type NetworkTags =
   | AgentEndpointResolverTag
   | ConnectionManagerTag
   | NetworkSendServiceTag
-  | PresenceServiceTag;
+  | PresenceServiceTag
+  // v7 (codex r6 P2 #2): the projection joins the network tier — the
+  // connect-handler yields `PresenceProjectionTag` to call
+  // `onAgentConnect(agentId, connId)`, and the `presence/subscribe`
+  // handler yields it to call `statusMany(visibleIds)`.
+  | PresenceProjectionTag;
 
 /**
  * Task-layer allowlist: conversations, messages, tasks.

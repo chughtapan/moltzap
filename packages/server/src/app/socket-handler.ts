@@ -41,6 +41,10 @@ interface SocketHandlerOptions {
     | "connections"
     | "agentEndpointResolver"
     | "presenceService"
+    // v7 (codex r6 P2 #2): the projection drives the WS-disconnect
+    // emission via onAgentDisconnect(agentId, connId). PresenceService
+    // is reduced to subscriber-registry CRUD (removeConnection).
+    | "presenceProjection"
     | "leaseRegistry"
     | "appHost"
   >;
@@ -83,7 +87,7 @@ interface SocketSession {
  *   HS->>R: socket.runRaw — handleFrame
  *   Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))<br>raceFirst, not race — abrupt close still runs onExit
  *   R-->>Cleanup: socket closes
- *   Note over Cleanup: if authCtx → presenceService.setOffline<br>for hook of disconnectionHooks — runUserHook sequentially<br>agentEndpointResolver.remove(agentId, connId)<br>leaseRegistry.abandon(connId)<br>presenceService.removeConnection<br>connections.remove(connId)
+ *   Note over Cleanup: if authCtx → presenceProjection.onAgentDisconnect(agentId, connId)<br>for hook of disconnectionHooks — runUserHook sequentially<br>agentEndpointResolver.remove(agentId, connId)<br>leaseRegistry.abandon(connId)<br>presenceService.removeConnection<br>connections.remove(connId)
  * ```
  *
  * `Effect.raceFirst` (vs plain `race`) is load-bearing: an abrupt
@@ -407,7 +411,17 @@ function closeSocketSession(
     const conn = options.services.connections.get(session.connId);
     const authCtx = conn?.auth ?? null;
     if (authCtx !== null) {
-      options.services.presenceService.setOffline(authCtx.agentId);
+      // v7 (codex r6 P2 #2): emit `offline` via the projection's
+      // onAgentDisconnect(agentId, connId) lifecycle method. v6 (codex
+      // r5 P2 #1) threads connId for the fast-reconnect race guard —
+      // the projection drops the entry only if entry.connId matches
+      // the arg (else silent no-op for stale-session disconnects).
+      // Runs BEFORE leaseRegistry.abandon so subsequent lease
+      // callbacks find no entry (audit at debug, no emission).
+      yield* options.services.presenceProjection.onAgentDisconnect(
+        authCtx.agentId,
+        session.connId,
+      );
       yield* runDisconnectionHooks(authCtx, session, options);
       yield* options.services.agentEndpointResolver.remove(
         authCtx.agentId,

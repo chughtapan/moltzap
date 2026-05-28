@@ -18,13 +18,13 @@ import {
   ConnectionManagerTag,
   ConversationServiceTag,
   DbTag,
-  PresenceServiceTag,
   SessionValidatorTag,
 } from "../../app/layers.js";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
-import type { PresenceService } from "../../network/services/presence.service.js";
+import { PresenceProjectionTag } from "../../network/services/presence-projection.js";
+import type { PresenceProjection } from "../../network/services/presence-projection.js";
 import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { Db } from "../../db/client.js";
 import type { ConversationService } from "../../task/services/conversation.service.js";
@@ -114,10 +114,17 @@ function authenticateSession(
 
 function buildHelloOk(
   ctx: AuthenticatedContext,
-  presenceService: PresenceService,
+  connId: ConnectionId,
+  presenceProjection: PresenceProjection,
 ): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
-  return Effect.sync(() => {
-    presenceService.setOnline(ctx.agentId);
+  // v7 (codex r6 P2 #2): WS connect emits via the projection's
+  // `onAgentConnect(agentId, connId)` lifecycle method. v6 (codex
+  // r5 P2 #1) threads connId for the fast-reconnect race guard.
+  // The projection drives the wire emission through the sealed
+  // `EmitIfChanged` capability; `PresenceService` is no longer
+  // involved in status mutation.
+  return Effect.gen(function* () {
+    yield* presenceProjection.onAgentConnect(ctx.agentId, connId);
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentId: ctx.agentId,
@@ -178,7 +185,7 @@ function handleConnect(params: ConnectParams) {
     Effect.gen(function* () {
       const authService = yield* AuthServiceTag;
       const conversationService = yield* ConversationServiceTag;
-      const presenceService = yield* PresenceServiceTag;
+      const presenceProjection = yield* PresenceProjectionTag;
       const connections = yield* ConnectionManagerTag;
       const agentEndpointResolver = yield* AgentEndpointResolverTag;
       const db = yield* DbTag;
@@ -186,7 +193,7 @@ function handleConnect(params: ConnectParams) {
       const conn = yield* ConnectionTag;
 
       if (conn.auth) {
-        return yield* buildHelloOk(conn.auth, presenceService);
+        return yield* buildHelloOk(conn.auth, conn.id, presenceProjection);
       }
 
       const auth = yield* resolveAuthenticatedContext(
@@ -203,7 +210,7 @@ function handleConnect(params: ConnectParams) {
         conn.id,
         auth,
       );
-      return yield* buildHelloOk(auth, presenceService);
+      return yield* buildHelloOk(auth, conn.id, presenceProjection);
     }).pipe(Effect.withSpan("network.connect")),
   );
 }

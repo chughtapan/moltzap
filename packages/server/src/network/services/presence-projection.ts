@@ -1,6 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 /* eslint-disable sonarjs/void-use -- stubs `void X;` parameter to keep the public signature stable until impl-staff fills the body. */
-import { Context, Data, type Effect, type Layer } from "effect";
+import { Context, type Effect } from "effect";
 
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol";
@@ -14,40 +14,39 @@ import type { ConnectionManager } from "../../transport/connection.js";
 // inside `makePresenceProjection`'s factory) and the `EmitIfChanged`
 // type. The raw `InternalPresenceEventSink` interface +
 // `createInternalFanOutEventSink` factory are unreachable from this
-// module — the in-module dedup seal is now structural at the
-// directory boundary, not just at the TS-module-boundary level.
-//
-// The pure `emitPresenceTransition` dedup function ALSO lives in
-// `_internal/presence-emit.ts` (the `createEmitIfChanged` body calls
-// it). This module re-exports `emitPresenceTransition` so the
-// architect contract surface stays in one place — callers import
-// from `presence-projection.js`, not from `_internal/`.
-import {
-  createEmitIfChanged,
-  emitPresenceTransition,
-} from "./_internal/presence-emit.js";
+// module — the in-module dedup seal is structural at the directory
+// boundary.
+import { createEmitIfChanged } from "./_internal/presence-emit.js";
 import type { EmitIfChanged } from "./_internal/presence-emit.js";
 
-// v6: shared types moved to a sibling file to break the circular
-// dependency v6 introduced when relocating the sink + factory into
-// `_internal/`. `_internal/presence-emit.ts` imports type primitives
-// from `presence-projection-types.ts`; this module re-exports them
-// as the architect contract surface — callers import from
-// `presence-projection.js`, not from `presence-projection-types.js`.
-import type {
-  AgentPresenceEntry,
-  DerivedPresenceStatus,
-  PresenceEmission,
-  PresenceSubscriberRegistry,
+// v6: shared types in a sibling file. v7 (codex r6 P2 #4 three-canary
+// seal): `emitPresenceTransition` moved here so the @ts-expect-error
+// canary on `_internal/presence-emit.ts` is now a real TS2305 seal
+// (the pure helper is NOT exported from `_internal/`). v7 (codex r6
+// P2 #1 size-derived status): `AgentPresenceEntry.status` removed;
+// `deriveEntryStatus(entry)` exported from here as the single
+// source-of-truth helper. v7 (codex r6 P2 #1 follow-on):
+// `PresenceProjectionDefect` + `catchProjectionDefect` deleted
+// entirely — the only `reason` was `entry-status-size-mismatch`,
+// which is now structurally impossible. No projection-specific
+// defect class remains.
+import {
+  type AgentPresenceEntry,
+  deriveEntryStatus,
+  type DerivedPresenceStatus,
+  emitPresenceTransition,
+  type PresenceEmission,
+  type PresenceSubscriberRegistry,
 } from "./presence-projection-types.js";
 
-// ── Architect-contract re-exports (v6) ──────────────────────────────
+// ── Architect-contract re-exports (v6+) ─────────────────────────────
 //
-// These five names are part of the architect's public contract; they
-// were originally declared inline in this file pre-v6. v6 split the
-// implementation across `presence-projection-types.ts` (types) and
-// `_internal/presence-emit.ts` (sink + factory + dedup helper) to
-// close the in-module seal hole codex r5 P2 #2 identified. Callers
+// These names are part of the architect's public contract; they were
+// originally declared inline in this file pre-v6. v6 split the
+// implementation across `presence-projection-types.ts` (types + pure
+// fns) and `_internal/presence-emit.ts` (sink + factory + curry) to
+// close the in-module seal hole codex r5 P2 #2 identified; v7 added
+// `deriveEntryStatus` per codex r6 P2 #1 (size-derived status). Callers
 // MUST continue to import from `presence-projection.js` — the new
 // sub-files are implementation detail.
 export type {
@@ -57,7 +56,7 @@ export type {
   PresenceSubscriberRegistry,
 };
 export type { EmitIfChanged };
-export { emitPresenceTransition };
+export { deriveEntryStatus, emitPresenceTransition };
 
 /**
  * Observer surface the {@link LeaseRegistry} calls at each transition
@@ -246,48 +245,22 @@ export type PresenceProjectionAuditEvent =
       readonly currentConnId: ConnectionId;
     };
 
-/**
- * Invariant-violation marker, surfaced through `Effect.die(new
- * PresenceProjectionDefect(...))` at the projection's outer edge.
- *
- * Refined per codex r2 P2 #2 + P2 #3 (v3); narrowed per codex r3 P2 #1
- * (v4 — deleted `connect-against-active-entry` because redundant
- * `onAgentConnect` is reachable via the connect handler's
- * already-authenticated early-return). v5 left only
- * `entry-status-size-mismatch` standing as the single
- * genuinely-impossible reason.
- *
- * Why `Effect.die` (not `Effect.fail`): a `LeaseTransitionObserver`
- * declares `Effect<void, never, never>` — that `never` is a load-bearing
- * promise to `LeaseRegistry` that the projection cannot push errors
- * back through the lease mutator. `Data.TaggedError` is the right
- * shape for a typed `fail` channel, but here the channel is closed.
- * `Effect.die` carries the same tagged class as a defect: it surfaces
- * to the runtime supervisor (logged via `Effect.catchAllDefect →
- * Effect.logError → Effect.asVoid` at the projection's outer edge via
- * {@link catchProjectionDefect}, narrowed to this class only per v5
- * codex r4 P2 #3), but does NOT type-leak through `onLeaseActiveBegin`'s
- * `never` E channel.
- *
- * Reasons:
- *
- * - `entry-status-size-mismatch` — `Ref<ReadonlyMap<AgentId,
- *   AgentPresenceEntry>>` returned an entry with
- *   `activeLeases.size > 0` but `status = "online"`, or
- *   `activeLeases.size === 0` but `status = "working"`. Impossible
- *   unless the Ref.modify predicate or a manual `Ref.set` violated
- *   the invariant in {@link AgentPresenceEntry}.
- */
-export class PresenceProjectionDefect extends Data.TaggedError(
-  "PresenceProjectionDefect",
-)<{
-  readonly agentId: AgentId;
-  readonly reason: "entry-status-size-mismatch";
-}> {
-  override get message(): string {
-    return `presence projection defect for ${this.agentId}: ${this.reason}`;
-  }
-}
+// PresenceProjectionDefect — DELETED in v7 (codex r6 P2 #1).
+//
+// v3-v6 carried `PresenceProjectionDefect` as a `Data.TaggedError`
+// surfaced via `Effect.die(...)` and caught at the projection's outer
+// edge by `catchProjectionDefect` (narrowed v5). The only `reason`
+// that survived prior rounds was `entry-status-size-mismatch` — a
+// guard against `AgentPresenceEntry.status` disagreeing with
+// `activeLeases.size`. v7 deletes `AgentPresenceEntry.status` (status
+// is now derived from `set.size` via `deriveEntryStatus`), which
+// makes the mismatch structurally impossible by construction. With
+// no remaining genuinely-impossible reasons, both
+// `PresenceProjectionDefect` AND `catchProjectionDefect` are deleted
+// from the architect surface. Unrelated programmer defects propagate
+// up through the fiber supervisor naturally (the public methods'
+// `never` E channel is preserved by `Effect.void` returns on every
+// reachable path).
 
 /**
  * Public surface of the presence projection.
@@ -355,7 +328,7 @@ export class PresenceProjectionDefect extends Data.TaggedError(
  *   LR->>PP: onLeaseActiveBegin(leaseId, agentId, recipientConnId)
  *   PP->>PP: Ref.modify computes BOTH new entry AND emission decision in one CAS
  *   alt agent has entry AND entry.connId === recipientConnId
- *     PP->>PP: prev = entry.status<br>nextLeases = activeLeases ∪ {leaseId}<br>next = nextLeases.size > 0 ? "working" : "online"
+ *     PP->>PP: prev = deriveEntryStatus(entry)<br>nextLeases = activeLeases ∪ {leaseId}<br>next = nextLeases.size > 0 ? "working" : "online"
  *     PP->>Emit: emit(prev, next, agentId)
  *     Emit-->>Emit: emitPresenceTransition(prev, next) — dedup
  *     alt decision = some(status)
@@ -383,35 +356,42 @@ export class PresenceProjectionDefect extends Data.TaggedError(
  */
 export interface PresenceProjection extends LeaseTransitionObserver {
   /**
-   * WS connect: initialize the agent's entry to `{ connId, activeLeases:
-   * ∅, status: "online" }` and emit `online`.
+   * WS connect: initialize the agent's entry to `{ connId,
+   * activeLeases: ∅ }` and emit `online` (derived from the empty
+   * set via `deriveEntryStatus`).
    *
    * **v6 (codex r5 P2 #1) — `connId` parameter.** Each entry now
    * carries the originating connection's `connId`. Reconnect-with-new-connId
    * overwrites the entry's `connId` (and clears `activeLeases` since
    * the new connection has no pending leases yet).
    *
+   * **v7 (codex r6 P2 #1) — `status` field removed from the entry.**
+   * The entry stores `{ connId, activeLeases }`; status is derived
+   * via `deriveEntryStatus(entry) = entry.activeLeases.size === 0 ?
+   * "online" : "working"` everywhere.
+   *
    * **Redundant-connect is an idempotent no-op (v4 / codex r3 P2 #1
    * fix).** A second `onAgentConnect` against an existing entry WITH
-   * THE SAME `connId` — regardless of whether that entry's status is
-   * `"online"` (no intervening lease) OR `"working"` (lease grants
-   * landed between the first connect and this one) — produces no
-   * event, no log, no defect, no audit event. The `network/connect`
-   * handler's `if (conn.auth) { return yield* buildHelloOk(...) }`
-   * early-return makes this reachable in normal operation.
+   * THE SAME `connId` — regardless of whether the derived status is
+   * `"online"` (empty active set) OR `"working"` (active set non-empty
+   * from intervening lease grants) — produces no event, no log, no
+   * defect, no audit event. The `network/connect` handler's
+   * `if (conn.auth) { return yield* buildHelloOk(...) }` early-return
+   * makes this reachable in normal operation.
    *
    * **Reconnect-with-new-connId (v6 — fast reconnect after fast
    * disconnect).** A second `onAgentConnect` against an existing
    * entry with a DIFFERENT `connId` overwrites the entry to
-   * `{ connId: newConnId, activeLeases: ∅, status: "online" }`. The
-   * prior entry's `activeLeases` are dropped (they belonged to the
-   * old connection; `leaseRegistry.abandon(oldConnId)` will fire
-   * `onLeaseActiveEnd` for them, those callbacks will mismatch the
-   * new entry's `connId` and audit as `LeaseCallbackFromStaleConnection`).
-   * Emission: `Some("online")` iff the prior status was `working`
-   * (transition `working → online`); otherwise the lifecycle path
-   * dedup-elides via `emitPresenceTransition("online", "online") =
-   * none`.
+   * `{ connId: newConnId, activeLeases: ∅ }` — derived status
+   * becomes `"online"`. The prior entry's `activeLeases` are
+   * dropped (they belonged to the old connection;
+   * `leaseRegistry.abandon(oldConnId)` will fire `onLeaseActiveEnd`
+   * for them, those callbacks will mismatch the new entry's
+   * `connId` and audit as `LeaseCallbackFromStaleConnection`).
+   * Emission: `Some("online")` iff the prior derived status was
+   * `"working"` (transition `working → online`); otherwise the
+   * lifecycle path dedup-elides via
+   * `emitPresenceTransition("online", "online") = none`.
    *
    * THIS is the only method that creates an entry. `onLeaseActiveBegin`
    * NEVER creates entries — see the entry-creation invariant in the
@@ -505,73 +485,21 @@ export interface PresenceProjection extends LeaseTransitionObserver {
   >;
 }
 
-/**
- * Wrap a projection-internal Effect with the defect-boundary catch.
- *
- * Introduced in v4 per codex r3 P3 #2; narrowed in v5 per codex
- * r4 P2 #3. Every public method on {@link PresenceProjection} —
- * `onAgentConnect`, `onAgentDisconnect`, `onLeaseActiveBegin`,
- * `onLeaseActiveEnd`, `statusOf`, `statusMany` — MUST run through
- * `catchProjectionDefect` so the `never` E channel is structurally
- * preserved.
- *
- * **v5 narrowing.** v4 used a bare `Effect.catchAllDefect`, which
- * swallowed ANY defect — including genuine programmer errors like
- * `TypeError: x is not a function` — as a presence fallback. Codex
- * r4 P2 #3 caught this: an unrelated runtime defect inside a
- * projection method would resolve as `"offline"` or `void` and the
- * underlying bug would never surface. v5 narrows the catch to
- * `PresenceProjectionDefect` instances ONLY; everything else is
- * re-died as a fresh defect for the outer fiber to handle.
- *
- * Behavior:
- *
- * - Defect IS a `PresenceProjectionDefect` (caught via
- *   `defect instanceof PresenceProjectionDefect`) — log via
- *   `Effect.logError("presence projection defect", { defect })` and
- *   resolve to `fallback`:
- *
- *   - Emit methods (`onAgentConnect`, `onAgentDisconnect`,
- *     `onLeaseActiveBegin`, `onLeaseActiveEnd`) — pass
- *     `undefined as void` as fallback so a defected emission is
- *     silently dropped on the wire side. The public Effect resolves
- *     with `void`; the WS handler / lease registry observe no
- *     failure.
- *   - Read methods (`statusOf`, `statusMany`) — substitute the
- *     "unknown-agent" fallback: `statusOf` passes
- *     `"offline" as DerivedPresenceStatus`; `statusMany` passes
- *     `agentIds.map((agentId) => ({ agentId, status: "offline" as const }))`.
- *     A defected read MUST NOT propagate through to
- *     `presence/subscribe`.
- *
- * - Defect is anything else — re-die via `Effect.die(defect)` so the
- *   outer fiber's supervisor handles it normally. The wrapper MUST
- *   NOT mask unrelated programmer/runtime defects as
- *   presence-shaped fallbacks (codex r4 P2 #3 root cause).
- *
- * Stub-body convention: impl-staff fills only the INNER logic per
- * method. The wrapper invocation is part of the stub surface and is
- * verified by the type-canary.
- *
- * Recipe in the body (v5 — narrowed): pipe `effect` through
- * `Effect.catchAllDefect`; if the caught defect is `instanceof
- * PresenceProjectionDefect`, structured-log via `Effect.logError`
- * and resolve to `fallback` via `Effect.as`; otherwise re-die via
- * `Effect.die(defect)` so the outer fiber's supervisor handles
- * unrelated defects. The `instanceof` narrowing is load-bearing;
- * `Effect.catchTag` does not apply here because `Effect.die(value)`
- * raises into the defect channel, not the typed-E channel that
- * `catchTag` operates on.
- */
-export function catchProjectionDefect<A>(
-  effect: Effect.Effect<A, never, never>,
-  fallback: A,
-): Effect.Effect<A, never, never> {
-  void effect;
-  void fallback;
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
-  throw new Error("not implemented");
-}
+// catchProjectionDefect — DELETED in v7 (codex r6 P2 #1 follow-on).
+//
+// v4 (codex r3 P3 #2) introduced `catchProjectionDefect` as a named
+// defect-boundary wrapper; v5 (codex r4 P2 #3) narrowed it to
+// `instanceof PresenceProjectionDefect` so unrelated programmer
+// defects re-die. v7 deletes `PresenceProjectionDefect` entirely
+// (the only `reason` was `entry-status-size-mismatch`, which is now
+// structurally impossible because `AgentPresenceEntry.status` was
+// deleted). The wrapper had nothing left to catch.
+//
+// Unrelated programmer defects propagate up through the fiber
+// supervisor naturally. The public methods' `never` E channel is
+// preserved by `Effect.void` returns on every reachable path inside
+// the impl-staff bodies — there is no `Effect.die` call site inside
+// the projection.
 
 /**
  * Construct the projection. One instance per server lifetime; wired
@@ -655,12 +583,15 @@ export function catchProjectionDefect<A>(
  *        };
  *        return [{ _tag: "audit", event }, entries];
  *      }
- *      const prev = entry.status;
+ *      // v7 (codex r6 P2 #1): status is DERIVED from set size, not stored
+ *      // on the entry. `deriveEntryStatus(entry)` returns the size-derived
+ *      // "online"|"working"; the new entry stores ONLY connId + nextLeases.
+ *      const prev = deriveEntryStatus(entry);
  *      const nextLeases = computeLeaseSet(entry.activeLeases, leaseId); // ∪ or \
- *      const nextStatus = nextLeases.size > 0 ? "working" : "online";
- *      const nextEntry = { connId: entry.connId, activeLeases: nextLeases, status: nextStatus };
+ *      const nextEntry = { connId: entry.connId, activeLeases: nextLeases };
+ *      const next = deriveEntryStatus(nextEntry);
  *      return [
- *        { _tag: "transition", prevStatus: prev, nextStatus },
+ *        { _tag: "transition", prevStatus: prev, nextStatus: next },
  *        setReadonlyMapValue(agentId, nextEntry)(entries),
  *      ];
  *    });
@@ -678,8 +609,11 @@ export function catchProjectionDefect<A>(
  *    reconnect — see step 2 lifecycle pseudocode).
  *    `onLeaseActiveBegin`/`onLeaseActiveEnd` on an unknown agent OR
  *    on an agent whose `entry.connId !== recipientConnId` emit
- *    {@link PresenceProjectionAuditEvent} (logged at debug), NOT
- *    {@link PresenceProjectionDefect}.
+ *    {@link PresenceProjectionAuditEvent} (logged at debug). v7
+ *    deletes the `PresenceProjectionDefect` class entirely — the
+ *    only remaining `reason` (`entry-status-size-mismatch`) is
+ *    structurally impossible now that `entry.status` is derived
+ *    from `set.size` rather than stored.
  *
  * 4. **Concurrent-grant-during-disconnect + fast-reconnect races** —
  *    closed by (3) plus the connId-match guard added in v6.
@@ -702,11 +636,15 @@ export function catchProjectionDefect<A>(
  *    external-import seal (three `@ts-expect-error` canary lines at
  *    `presence-projection.types-check.ts` assert
  *    `InternalPresenceEventSink`, `createInternalFanOutEventSink`,
- *    and the pure `emitPresenceTransition` are NOT importable from
- *    `_internal/presence-emit.ts` outside this module), the dedup
- *    rule is structurally enforced:
+ *    AND `emitPresenceTransition` are NOT importable from
+ *    `_internal/presence-emit.ts`; v7 made the third canary a real
+ *    TS2305 seal by relocating `emitPresenceTransition` to
+ *    `presence-projection-types.ts`), the dedup rule is structurally
+ *    enforced:
  *    - **External:** no module outside this directory can construct
- *      or hold a sink (the sink type is unexported from `_internal/`).
+ *      or hold a sink, AND no module can call the pure dedup helper
+ *      via the `_internal/` path (the seal forces routing through
+ *      the projection's re-export — single contract surface).
  *    - **In-module (projection):** the projection module cannot
  *      construct or hold a sink either (the sink + its factory are
  *      unreachable from `presence-projection.ts` because they live
@@ -716,11 +654,13 @@ export function catchProjectionDefect<A>(
  *    matches `LeaseRegistry`'s own atomicity model. No second `Ref.get`
  *    + `Ref.update` pair; the predicate IS the linearization point.
  *
- * 8. **Defect-boundary wrapper (v4 / codex r3 P3 #2; narrowed v5)** —
- *    every public method on the returned `PresenceProjection` MUST
- *    be wrapped in {@link catchProjectionDefect} with a
- *    method-appropriate fallback (`void` for emit methods; `"offline"`
- *    / per-agent `"offline"` rows for read methods).
+ * 8. **Defect channel deleted (v7 / codex r6 P2 #1 follow-on).**
+ *    `PresenceProjectionDefect` + `catchProjectionDefect` are
+ *    deleted because the only `reason`
+ *    (`entry-status-size-mismatch`) is now structurally impossible.
+ *    Impl-staff body returns `Effect.void` on every reachable path;
+ *    unrelated programmer defects propagate up through the fiber
+ *    supervisor naturally.
  */
 export function makePresenceProjection(
   deps: PresenceProjectionDeps,
@@ -735,9 +675,10 @@ export function makePresenceProjection(
   // module — they live in `_internal/presence-emit.ts`'s private
   // scope.
   void createEmitIfChanged;
-  // v4 (codex r3 P3 #2): keep `catchProjectionDefect` reachable from
-  // the factory closure so the canary type-checks the helper exists.
-  void catchProjectionDefect;
+  // v7 (codex r6 P2 #1): `deriveEntryStatus` is the projection's
+  // single source-of-truth helper for size-derived status. Keep it
+  // reachable from the factory closure so the canary exercises it.
+  void deriveEntryStatus;
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
   throw new Error("not implemented");
 }
@@ -763,58 +704,27 @@ export class PresenceProjectionTag extends Context.Tag(
   "moltzap/PresenceProjection",
 )<PresenceProjectionTag, PresenceProjection>() {}
 
-/**
- * Effect Layer that constructs {@link PresenceProjection} at the
- * composition root (architect plan #706 v6, codex r5 P2 #3).
- *
- * Promoted from impl-staff scope (v5) to architect tier in v6 for the
- * same reason as {@link PresenceProjectionTag}: the Layer's
- * dependency declaration is the integration contract — it consumes
- * `PresenceServiceTag` (for `subscribers`) and `ConnectionManagerTag`
- * (for `connections`), and constructs the projection via
- * {@link makePresenceProjection}. The architect branch carries the
- * Layer's signature + a stub body that resolves to
- * `Effect.die("not implemented")` until impl-staff fills it.
- *
- * Tier 2.55 in the composition tree (between Tier 2 Presence +
- * AgentEndpointResolver and Tier 2.6 LeaseRegistry).
- *
- * Stub body — impl-staff replaces with the real composition:
- *
- *     export const PresenceProjectionLive = Layer.effect(
- *       PresenceProjectionTag,
- *       Effect.gen(function* () {
- *         const presenceService = yield* PresenceServiceTag;
- *         const connections = yield* ConnectionManagerTag;
- *         const projection = yield* makePresenceProjection({
- *           subscribers: presenceService,
- *           connections,
- *         });
- *         return projection;
- *       }).pipe(Effect.withSpan("PresenceProjectionLive")),
- *     );
- *
- * The architect stub here declares the typed Layer constant (`Layer<...,
- * never, ...>` — the `R` channel pulls `PresenceServiceTag` +
- * `ConnectionManagerTag` once impl-staff fills the body). At stub
- * stage the constant binds to a `Layer.die`-based placeholder so the
- * type-canary can assert the import path. The composition root in
- * `app/layers.ts` references `PresenceProjectionLive` at Tier 2.55.
- *
- * Stub: impl-staff fills the body per architect SKILL.md.
- */
-// Architect-tier stub: the Layer's `RIn` channel ties to
-// `PresenceServiceTag` + `ConnectionManagerTag` (both declared in
-// `app/layers.ts`). Importing those tags here would introduce a
-// cycle — `layers.ts` already imports `noopLeaseTransitionObserver`
-// from this file. The architect branch uses `unknown` to keep the
-// stub compileable; impl-staff lands a `Layer.effect(PresenceProjectionTag,
-// Effect.gen(...))` whose R channel surfaces the real deps narrowly.
-// The canary at `presence-projection.types-check.ts` asserts the
-// Layer's output type is `PresenceProjectionTag`; that IS the
-// architect contract.
-export declare const PresenceProjectionLive: Layer.Layer<
-  PresenceProjectionTag,
-  never,
-  unknown
->;
+// PresenceProjectionLive — declared in `app/layers.ts` (v7 / codex
+// r6 P2 #3).
+//
+// v6 declared the Layer here via `export declare const
+// PresenceProjectionLive: Layer.Layer<PresenceProjectionTag, never,
+// unknown>` — a TYPE-only declaration with no runtime binding. Codex
+// r6 P2 #3 caught the runtime gap: any consumer importing the
+// placeholder would get `undefined` and crash. v7 relocates the
+// Layer to `app/layers.ts` (cycle-friendly: that file already
+// imports from this module), where it is bound to a real
+// `Layer.die("PresenceProjectionLive: not implemented")` value with
+// the typed `R` channel narrowed to `PresenceServiceTag |
+// ConnectionManagerTag` (the deps `makePresenceProjection` will
+// consume once impl-staff fills the body). The Layer is exported
+// from `app/layers.ts` and consumed by `LeaseRegistryLive` for its
+// `transitionObserver` field — the architect-branch wiring
+// integration canary asserts that consumption (see
+// `presence-projection-integration.types-check.ts`).
+//
+// The Tag (PresenceProjectionTag above) stays declared in THIS file
+// — the Tag IS the architect contract surface. The Layer that
+// constructs the value lives next to the other Live layers in
+// `app/layers.ts`.
+// (PresenceProjectionLive declaration moved to app/layers.ts)

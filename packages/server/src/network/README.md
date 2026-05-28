@@ -20,13 +20,19 @@ Presence, ping, app-TM registry, agent-endpoint resolution, outbound
 - `network-send.ts` — `NetworkSendService` (the sole outbound
   routing surface; consumes the resolver + connection manager).
 - `handlers/ping.handlers.ts` — `network/ping` RPC handler.
-- `handlers/presence.handlers.ts` — `presence/*` (routes via TM
-  message bus).
-- `services/presence.service.ts` — `PresenceService` (online /
-  offline / away transitions + subscriber set).
-- `services/presence-event-sink.ts` —
-  `createConnectionFanOutPresenceEventSink` (the canonical
-  fan-out pattern; JSDoc shows the flow).
+- `handlers/presence.handlers.ts` — `presence/subscribe` RPC
+  handler. v7 (architect plan #706): `presence/update` deleted;
+  presence is server-derived from `LeaseRegistry` lifecycle via
+  `PresenceProjection`.
+- `services/presence.service.ts` — `PresenceService` (subscriber
+  registry only post-v7; status mutation lives in
+  `PresenceProjection`).
+- `services/presence-projection.ts` + `services/_internal/presence-emit.ts` —
+  the architect-plan #706 module group. The projection observes
+  `LeaseRegistry` transitions + WS lifecycle hooks and emits
+  `presence/changed` via a TS-module-sealed fan-out sink in the
+  `_internal/` submodule (three `@ts-expect-error` canaries at
+  `services/presence-projection.types-check.ts` assert the seal).
 
 ## Handler shape
 

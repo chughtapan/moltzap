@@ -18,7 +18,6 @@ import { AuthService } from "../identity/services/auth.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
-import { createConnectionFanOutPresenceEventSink } from "../network/services/presence-event-sink.js";
 import {
   MessageService,
   type DeliveryWebhookConfig,
@@ -30,7 +29,11 @@ import {
   makeLeaseRegistry,
   type LeaseRegistry,
 } from "../task/leases/lease-registry.js";
-import { noopLeaseTransitionObserver } from "../network/services/presence-projection.js";
+import {
+  makePresenceProjection,
+  PresenceProjectionTag,
+  type PresenceProjection,
+} from "../network/services/presence-projection.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 
 /** Default retention window for terminal lease records: 5 minutes. */
@@ -226,27 +229,75 @@ const ContactsServiceLive = Layer.effect(
 
 const PresenceServiceLive = Layer.effect(
   PresenceServiceTag,
+  // v7 (codex r6 P2 #2): PresenceService is now a pure subscriber
+  // registry — no event sink dep, no constructor args. The sink
+  // lives behind `createEmitIfChanged`'s closure in
+  // `_internal/presence-emit.ts`, constructed by
+  // `PresenceProjectionLive`.
+  Effect.sync(() => new PresenceService()).pipe(
+    Effect.withSpan("PresenceServiceLive"),
+  ),
+);
+
+/**
+ * Tier 2.55 — `PresenceProjectionLive` constructs the architect-tier
+ * `PresenceProjection` from `PresenceServiceTag` (subscriber-registry
+ * surface) + `ConnectionManagerTag` (fan-out sink construction). See
+ * architect plan #706 v7 §3 + §8.
+ *
+ * **v7 (codex r6 P2 #3) — real runtime binding.** v6 declared this
+ * as `export declare const PresenceProjectionLive` in
+ * `presence-projection.ts` — a TYPE-only declaration with no runtime
+ * value. Any consumer importing it would crash with `undefined`. v7
+ * relocates the Layer here (where the other Live layers live; cycle-
+ * friendly since `app/layers.ts` already imports from
+ * `presence-projection.ts`) and binds it to a real
+ * `Layer.die(...)` placeholder with the typed `R` channel narrowed
+ * to `PresenceServiceTag | ConnectionManagerTag`. Impl-staff (#712)
+ * replaces the `Layer.die` body with the real `Layer.effect(...)`
+ * composition that calls `makePresenceProjection({ subscribers,
+ * connections })`.
+ *
+ * Test harnesses that DO NOT exercise presence may continue to
+ * provide `noopLeaseTransitionObserver` directly to
+ * `makeLeaseRegistry`; the production `LeaseRegistryLive` (below)
+ * consumes `PresenceProjectionTag` so a stale wiring (forgetting to
+ * provide the projection in production) surfaces at `tsc --build`
+ * via the unresolved R channel.
+ */
+export const PresenceProjectionLive: Layer.Layer<
+  PresenceProjectionTag,
+  never,
+  PresenceServiceTag | ConnectionManagerTag
+> = Layer.effect(
+  PresenceProjectionTag,
   Effect.gen(function* () {
+    const subscribers = yield* PresenceServiceTag;
     const connections = yield* ConnectionManagerTag;
-    const sink = createConnectionFanOutPresenceEventSink({ connections });
-    return new PresenceService(sink);
-  }).pipe(Effect.withSpan("PresenceServiceLive")),
+    // Architect-stub: `makePresenceProjection`'s body throws "not
+    // implemented" until impl-staff (#712) lands it. The Layer's
+    // runtime construction will die loudly the first time something
+    // tries to use it. Impl-staff replaces THIS factory body with
+    // the real composition per §3 recipe.
+    return yield* makePresenceProjection({ subscribers, connections });
+  }).pipe(Effect.withSpan("PresenceProjectionLive")),
 );
 
 const LeaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
+    // v7 (codex r6 P2 #3): consume PresenceProjectionTag for the
+    // transitionObserver field. v6 wired noopLeaseTransitionObserver
+    // here as a placeholder; v7 wires the real projection (which
+    // dies at construction time via Layer.die until impl-staff
+    // fills the body). Required-not-optional means dropping this
+    // line surfaces at tsc.
+    const transitionObserver = yield* PresenceProjectionTag;
     return yield* makeLeaseRegistry({
       connections,
       leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
-      // Architect plan #706 v4: the new required field. Wired to the
-      // noop until impl-staff (sub-issue #712) introduces
-      // `PresenceProjectionLive` at Tier 2.55 and threads the
-      // projection here. Required-not-optional means dropping this
-      // line at impl-staff time would surface as a TS error rather
-      // than a silent regression to noop.
-      transitionObserver: noopLeaseTransitionObserver,
+      transitionObserver,
     });
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );
@@ -300,7 +351,8 @@ const MessageServiceLive = Layer.effect(
 //            ContactsService.
 //   Tier 2 — Presence, AgentEndpointResolver, AppTmRegistry (provideMerge over T1).
 //   Tier 2.5 — NetworkSendService.
-//   Tier 2.6 — LeaseRegistry.
+//   Tier 2.55 — PresenceProjection (architect plan #706 v7).
+//   Tier 2.6 — LeaseRegistry (consumes PresenceProjectionTag).
 //   Tier 3 — AppHost (db + connections + leases; seeds default
 //            messageAuthorize hooks for the DM/Group TM addresses).
 //   Tier 4 — ConversationService (db + participants + connections + AppHost).
@@ -349,13 +401,26 @@ const Tier2 = Layer.provideMerge(
 const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2);
 
 /**
+ * Tier 2.55 (v7 / architect plan #706) — PresenceProjectionLive
+ * consumes PresenceServiceTag (for subscribers) + ConnectionManagerTag
+ * (for the internal fan-out sink). Sits between Tier 2.5 and Tier 2.6
+ * so LeaseRegistryLive can pull the projection from its R channel as
+ * the new required `transitionObserver` dep.
+ */
+const Tier2PresenceProjection = Layer.provideMerge(
+  PresenceProjectionLive,
+  Tier2NetworkSend,
+);
+
+/**
  * Tier 2.6 — LeaseRegistryLive consumes ConnectionManager from Tier 1
- * (#529 reshape additive). Sits below AppHost so the registry is wired
- * into AppHost at construction.
+ * (#529 reshape additive) AND PresenceProjectionTag from Tier 2.55
+ * (architect plan #706 v7 codex r6 P2 #3). Sits below AppHost so the
+ * registry is wired into AppHost at construction.
  */
 const Tier2LeaseRegistry = Layer.provideMerge(
   LeaseRegistryLive,
-  Tier2NetworkSend,
+  Tier2PresenceProjection,
 );
 
 /** Tier 3 — AppHost holds db + connections + optional user validator. */
@@ -397,6 +462,11 @@ export interface ResolvedServices {
   readonly conversationService: ConversationService;
   readonly contactService: ContactsService;
   readonly presenceService: PresenceService;
+  // v7 (codex r6 P2 #2/#3): the projection joins the resolved set so
+  // socket-handler.ts can call `onAgentDisconnect(agentId, connId)`
+  // at close time. PresenceService stays for `removeConnection` +
+  // `subscribe` (subscriber registry).
+  readonly presenceProjection: PresenceProjection;
   readonly appHost: AppHost;
   readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
@@ -419,6 +489,10 @@ export const resolveServices = Effect.all({
   conversationService: ConversationServiceTag,
   contactService: ContactsServiceTag,
   presenceService: PresenceServiceTag,
+  // v7 (codex r6 P2 #3): wire the projection through resolveServices
+  // so the socket-handler closure can call onAgentDisconnect at
+  // close time. PresenceProjectionLive lives at Tier 2.55.
+  presenceProjection: PresenceProjectionTag,
   appHost: AppHostTag,
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,

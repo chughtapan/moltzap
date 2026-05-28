@@ -1,59 +1,35 @@
-import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
-import type {
-  PresenceEventSink,
-  PresenceStatus,
-} from "./presence-event-sink.js";
 
 const EMPTY_SUBSCRIBERS: ReadonlySet<ConnectionId> = new Set();
 
 /**
- * In-memory presence state + subscriber registry. Every mutating call
- * (setOnline / setOffline / update) flows through `transition`, which
- * publishes via the sink iff the status changed.
+ * In-memory subscriber registry for `presence/subscribe` fan-out.
  *
- * Out of scope: multi-connection-per-agent and concurrent close-vs-connect
- * race semantics. The `prior !== next` guard is correct for the
- * single-connection-per-agent case; tracked separately.
+ * **Architect plan #706 v7 (codex r6 P2 #2) — narrowed surface.**
+ * Pre-v7 this class also held the per-agent presence-status map and
+ * the mutation methods (`setOnline` / `setOffline` / `update` /
+ * `get` / `getMany`). Those moved into `PresenceProjection` (status
+ * derivation) + `_internal/presence-emit.ts` (sink fan-out). v7
+ * deletes the mutation + read surface from this class entirely;
+ * what remains is the subscriber registry (which conn ids care about
+ * which agent id) — the projection consumes it via the
+ * `PresenceSubscriberRegistry` interface for fan-out snapshots.
+ *
+ * Surviving surface: `subscribe / removeConnection / getSubscribers`.
+ *
+ * Constructor takes no deps (v7) — the `PresenceEventSink`
+ * constructor parameter was deleted along with the mutation methods
+ * that called it. The architect plan's structural seal (three
+ * `@ts-expect-error` canaries at
+ * `_internal/presence-emit.ts`) keeps sink construction outside this
+ * class.
  */
 export class PresenceService {
-  private statuses = new Map<string, PresenceStatus>();
   private subscribers = new Map<string, Set<ConnectionId>>();
   // Per-connection record of which agentIds the connection is subscribed
   // to. Tracked so `subscribe()` can replace the prior subscription set
   // atomically without scanning every agent's subscriber set.
   private connSubscriptions = new Map<ConnectionId, Set<string>>();
-
-  constructor(private readonly eventSink: PresenceEventSink) {}
-
-  setOnline(agentId: string): void {
-    this.transition(agentId, "online");
-  }
-
-  setOffline(agentId: string): void {
-    this.transition(agentId, "offline");
-  }
-
-  update(
-    agentId: string,
-    status: PresenceStatus,
-    options: { readonly excludeConnId?: ConnectionId } = {},
-  ): void {
-    this.transition(agentId, status, options.excludeConnId);
-  }
-
-  get(agentId: string): PresenceStatus {
-    return this.statuses.get(agentId) ?? "offline";
-  }
-
-  getMany<A extends string>(
-    agentIds: ReadonlyArray<A>,
-  ): Array<{ agentId: A; status: PresenceStatus }> {
-    return agentIds.map((agentId) => ({
-      agentId,
-      status: this.get(agentId),
-    }));
-  }
 
   /**
    * Replace the connection's subscriber set with `agentIds`.
@@ -122,24 +98,5 @@ export class PresenceService {
       subs.delete(connId);
     }
     this.connSubscriptions.delete(connId);
-  }
-
-  private transition(
-    agentId: string,
-    next: PresenceStatus,
-    excludeConnId?: ConnectionId,
-  ): void {
-    const prev = this.statuses.get(agentId) ?? "offline";
-    if (prev === next) return;
-    this.statuses.set(agentId, next);
-    // Snapshot — caller may inspect the input after publish returns
-    // (deferred sinks, tests that capture inputs for later assertion).
-    // Live registry mutations must not alter past inputs.
-    this.eventSink.publish({
-      agentId: agentId as AgentId,
-      status: next,
-      subscriberConnIds: new Set(this.getSubscribers(agentId)),
-      excludeConnId,
-    });
   }
 }

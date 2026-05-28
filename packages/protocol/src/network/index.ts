@@ -4,7 +4,9 @@
 export {
   Connect,
   NetworkPing,
-  PresenceUpdate,
+  // v7 (architect plan #706): PresenceUpdate descriptor deleted.
+  // Presence is server-derived from LeaseRegistry; clients cannot
+  // manually set status.
   PresenceSubscribe,
   PresenceChangedNotificationDefinition,
 } from "./methods.js";
