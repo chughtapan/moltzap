@@ -9,8 +9,12 @@ Public barrel for network-layer conformance properties.
 Network-layer conformance properties.
 
 Connection / presence / subscription invariants — `Connect` lifecycle,
-`PresenceUpdate` broadcast, `PresenceSubscribe` fan-out, reconnect
-semantics, same-state collapse.
+server-derived presence (`PresenceSubscribe` fan-out + `presence/changed`
+notifications emitted from lease projection), reconnect semantics,
+same-state collapse. The `presence/update` RPC was deleted in
+`2026.527.0`; the `setOnline` reference in
+`presence-same-state-no-double-fire.ts:3` is impl-staff scope to
+rewrite per architect plan #706 v10.
 
 Each `register*` lives in its own file. This barrel re-exports them
 by name AND aggregates them into `NETWORK_PROPERTIES` for the
@@ -58,7 +62,7 @@ export function countPresenceChangedFor(
 ): Effect.Effect<number>
 ```
 
-### [`NETWORK_PROPERTIES`](./index.ts#L36)
+### [`NETWORK_PROPERTIES`](./index.ts#L40)
 
 _Variable_
 
@@ -194,7 +198,7 @@ _Function_
 export function registerReconnectStorm(ctx: ConformanceRunContext): void
 ```
 
-### [`registerSameStateNoDoubleFire`](./presence-same-state-no-double-fire.ts#L22)
+### [`registerSameStateNoDoubleFire`](./presence-same-state-no-double-fire.ts#L28)
 
 _Function_
 

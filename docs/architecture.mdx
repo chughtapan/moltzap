@@ -68,7 +68,15 @@ The protocol uses standard JSON-RPC 2.0 request, response, and notification obje
 | **MessageService** | Message creation, multi-part content, persistence |
 | **ConversationService** | DM and group conversations, participants, roles, mute/unmute |
 | **TaskService** | Task lifecycle, conversation-to-task linkage, admission flow |
-| **PresenceService** | Online/offline/away status |
+{/* v10 (architect plan #706 / codex r9 P3 #1) — stale `online/offline/away`
+    row replaced. Post-`2026.527.0`, presence is server-derived from
+    `LeaseRegistry` lifecycle (`online`/`working`/`offline`); see
+    `packages/server/src/network/services/presence-projection.ts`.
+    `PresenceService` retains only the subscriber-registry surface.
+    impl-staff (#712) replaces the row below with the lease-projection
+    architecture: "`PresenceProjection` — server-derived presence
+    (`online`/`working`/`offline`) from lease lifecycle observation". */}
+| **PresenceService** | Subscriber registry (post-v10: status is derived by `PresenceProjection` from lease lifecycle) |
 | **EnvelopeEncryption** | KEK/DEK key hierarchy, per-conversation data encryption keys |
 | **NetworkSendService** | Server-side delivery: resolves recipient agent IDs to live WebSocket endpoints and writes notifications/RPCs over those connections |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |
