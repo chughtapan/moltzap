@@ -25,7 +25,16 @@
  * DAG: a handler may pull services only from layers at-or-below its
  * own home layer.
  */
-export { PROTOCOL_VERSION, compareProtocolVersion } from "./version.js";
+export {
+  PROTOCOL_VERSION,
+  // v9 (codex r8 P2 #1): numeric segment-wise CalVer comparator.
+  compareProtocolVersion,
+  // v10 (codex r9 P2 #1): protocol-range gate relocated to
+  // `version.ts` so regression tests can import it from
+  // `@moltzap/protocol` without an illegal seam through
+  // `connect.handlers.ts`.
+  checkProtocolRange,
+} from "./version.js";
 
 export * from "./transport/index.js";
 export * from "./identity/index.js";

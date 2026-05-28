@@ -1,8 +1,12 @@
 # Conformance — `network/` layer
 
 Connection / presence / subscription invariants. Every property here
-exercises `Connect`, `PresenceUpdate`, or `PresenceSubscribe`
-semantics — the layer that brokers who sees whom.
+exercises `Connect`, `PresenceSubscribe`, or server-derived
+`presence/changed` notification semantics — the layer that brokers
+who sees whom. (Note: `PresenceUpdate` RPC was deleted in
+`2026.527.0`; presence is now server-derived from `LeaseRegistry`
+lifecycle. Properties referencing the deleted RPC are impl-staff
+scope to rewrite per architect plan #706 v10.)
 
 ## Property files
 
@@ -24,5 +28,5 @@ them.
 ## Future shape
 
 Connection-level adversity (e.g., subscribe-then-disconnect race,
-slow PresenceUpdate fan-out under load) lands here when it grows
+slow `presence/changed` fan-out under load) lands here when it grows
 beyond what the transport-tier `adversity-*` properties cover.

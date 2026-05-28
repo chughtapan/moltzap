@@ -154,7 +154,52 @@ export type BrandedString<BrandName extends string> = string &
 A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
 a `string` from accidentally type-fitting a slot expecting the brand.
 
-### [`compareProtocolVersion`](./version.ts#L35)
+### [`checkProtocolRange`](./version.ts#L86)
+
+_Function_
+
+```ts
+export function checkProtocolRange(
+  params: { readonly minProtocol: string; readonly maxProtocol: string },
+  serverVersion: string,
+): Effect.Effect<void, ProtocolMismatchError>
+```
+
+Range-check the client's protocol-version interval against an
+injected server version. Raised by `network/connect` BEFORE auth
+resolution; the server-side handler in
+`@moltzap/server-core/identity/handlers/connect.handlers.ts`
+yields this Effect as the FIRST step of `handleConnect`.
+
+**Architect plan #706 v10 (codex r9 P2 #1) — relocated from
+`connect.handlers.ts` to here.** v9 made the function's signature
+testable (parameterized over `serverVersion`); v10 makes the
+function itself importable from `@moltzap/protocol` so regression
+tests can call it without an illegal test seam through the
+server-internal handler module.
+
+Two reasons (mutually exclusive — the discriminator is in the
+wire-error `data.reason` field):
+
+- `server-above-client-max` —
+  `compareProtocolVersion(serverVersion, params.maxProtocol) > 0`.
+  The server is newer than the client knows how to talk to.
+- `server-below-client-min` —
+  `compareProtocolVersion(serverVersion, params.minProtocol) < 0`.
+  The client is newer than the server supports.
+
+Architect lands the real body — it's a small typed branch.
+Production callers (`handleConnect`) pass the live
+`PROTOCOL_VERSION` constant; tests inject future-version values
+to exercise rejection paths against an unbumped branch.
+
+Example test usage: `Effect.runSync(Effect.either(checkProtocolRange({
+minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
+"2026.527.0")))` resolves to a `Left` carrying a
+`ProtocolMismatchError` whose `data.reason` is
+`"server-above-client-max"`.
+
+### [`compareProtocolVersion`](./version.ts#L42)
 
 _Function_
 
@@ -378,7 +423,7 @@ export const notificationDefinitions = [
 ] as const
 ```
 
-### [`PROTOCOL_VERSION`](./version.ts#L2)
+### [`PROTOCOL_VERSION`](./version.ts#L9)
 
 _Variable_
 

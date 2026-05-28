@@ -2,12 +2,18 @@ import { Effect, Option } from "effect";
 import {
   PROTOCOL_VERSION,
   Connect,
-  compareProtocolVersion,
-  ProtocolMismatchError,
+  // v10 (codex r9 P2 #1): `checkProtocolRange` relocated to
+  // `@moltzap/protocol/version.ts` (alongside
+  // `compareProtocolVersion`) so regression tests can import the
+  // helper directly from `@moltzap/protocol` without an illegal
+  // seam through this server-internal handler module.
+  // `compareProtocolVersion` + `ProtocolMismatchError` +
+  // `ProtocolMismatchReason` are now closed over by the relocated
+  // helper; no longer imported here.
+  checkProtocolRange,
   UnauthorizedError,
   type HelloOk,
   type ParamsOf,
-  type ProtocolMismatchReason,
 } from "@moltzap/protocol";
 import type {
   AuthenticatedContext,
@@ -183,100 +189,19 @@ function registerEndpointIfStillConnected(
   }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
 }
 
-/**
- * Architect plan #706 v9 (codex r8 P2 #1) — parameterized
- * protocol-range gate.
- *
- * Raised by `handleConnect` BEFORE auth resolution. When the client's
- * `[minProtocol, maxProtocol]` interval does not bracket the supplied
- * `serverVersion`, fail with a typed `ProtocolMismatchError` carrying
- * the diagnostic triple
- * { clientMinProtocol, clientMaxProtocol, serverVersion, reason }
- * in the wire-error `data` payload.
- *
- * **v9 parameterization (codex r8 P2 #1).** v8 closed over the
- * `PROTOCOL_VERSION` constant directly, which broke the testability
- * of the rejection regression cases: per the release-tooling-managed
- * bump convention, the constant stays at `2026.526.0` on this
- * branch, but the required "old client max `2026.526.0` vs server
- * `2026.527.0`" regression needs to inject a future server version.
- * v9 injects `serverVersion: string` so production passes
- * `PROTOCOL_VERSION` and tests can substitute future versions.
- *
- * The check uses {@link compareProtocolVersion} (numeric segment-wise
- * CalVer comparator from `@moltzap/protocol`) rather than raw string
- * comparison — CalVer values of the form `YYYY.NNNN.M` with
- * variable-digit middle components are NOT lex-sortable.
- *
- * Two reasons (mutually exclusive — the discriminator is in the
- * `data.reason` field):
- *
- * - `server-above-client-max` —
- *   `compareProtocolVersion(serverVersion, client.maxProtocol) > 0`.
- *   The server is newer than the client knows how to talk to.
- * - `server-below-client-min` —
- *   `compareProtocolVersion(serverVersion, client.minProtocol) < 0`.
- *   The client is newer than the server supports.
- *
- * Architect lands the real body — it's a small typed branch and the
- * full integration contract is exercised by impl-staff's regression
- * tests (see architect plan §8). The function lives here in
- * `identity/handlers/connect.handlers.ts` as a private helper so the
- * wiring decision (handler-private vs reusable utility) is closed.
- */
-function checkProtocolRange(
-  params: ConnectParams,
-  serverVersion: string,
-): Effect.Effect<void, ProtocolMismatchError> {
-  if (compareProtocolVersion(serverVersion, params.maxProtocol) > 0) {
-    return failProtocolMismatch(
-      params,
-      "server-above-client-max",
-      serverVersion,
-    );
-  }
-  if (compareProtocolVersion(serverVersion, params.minProtocol) < 0) {
-    return failProtocolMismatch(
-      params,
-      "server-below-client-min",
-      serverVersion,
-    );
-  }
-  return Effect.void;
-}
-
-/**
- * Construct + raise a {@link ProtocolMismatchError} carrying the
- * diagnostic triple in `data.reason`. Architect plan #706 v8 + v9
- * parameterization.
- *
- * The wire error is registered in `@moltzap/protocol/network/methods.ts`
- * with `static code = -32006` and self-registers via
- * `registerErrorClass`. The discriminant `reason` lives in the
- * `data` field per the wire-error convention (see
- * `@moltzap/protocol/transport/wire-errors.ts → RpcErrorPayload`).
- *
- * **v9 (codex r8 P2 #1):** `serverVersion` injected alongside
- * `params` + `reason` so the diagnostic payload carries the
- * caller-supplied value (production = `PROTOCOL_VERSION`, tests =
- * substituted future version).
- */
-function failProtocolMismatch(
-  params: ConnectParams,
-  reason: ProtocolMismatchReason,
-  serverVersion: string,
-): Effect.Effect<never, ProtocolMismatchError> {
-  return Effect.fail(
-    new ProtocolMismatchError({
-      data: {
-        clientMinProtocol: params.minProtocol,
-        clientMaxProtocol: params.maxProtocol,
-        serverVersion,
-        reason,
-      },
-    }),
-  );
-}
+// v10 (codex r9 P2 #1): `checkProtocolRange` + `failProtocolMismatch`
+// relocated to `@moltzap/protocol/version.ts`. v8/v9 kept them here
+// as private functions, which made the v9-parameterized signature
+// testable in principle but the actual function unreachable from a
+// regression test without an illegal `import { checkProtocolRange }
+// from "../../identity/handlers/connect.handlers.js"` seam. v10
+// exports `checkProtocolRange` from `@moltzap/protocol` so tests can
+// import + inject a future `serverVersion` cleanly.
+//
+// `failProtocolMismatch` stays module-private to `version.ts`
+// (NOT exported) — its only caller is `checkProtocolRange`, and
+// making it private encodes "this is the canonical raise path for
+// ProtocolMismatchError on the server side."
 
 function handleConnect(params: ConnectParams) {
   return catchSqlErrorAsDefect(
