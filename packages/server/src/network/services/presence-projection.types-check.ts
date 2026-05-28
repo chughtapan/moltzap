@@ -4,7 +4,7 @@
 
 /**
  * Type-canary for the presence-projection contract (architect plan
- * #706 / sub-issue #711, v4). Asserts:
+ * #706 / sub-issue #711, v5). Asserts:
  *
  * 1. **Public surface shape** — the stub module exports the symbols
  *    impl-staff is committed to fill in:
@@ -19,6 +19,9 @@
  *      `PresenceService.get/getMany` to the projection).
  *    - `emitPresenceTransition` is a pure
  *      `(prev, next) => Option` of the narrowed status union.
+ *    - `EmitIfChanged` is the in-module-curried emit capability
+ *      type (v5 / codex r4 P2 #2 — every transition method takes
+ *      a value of this shape instead of raw sink access).
  *    - The factory's deps carry `subscribers: PresenceSubscriberRegistry`
  *      + `connections: ConnectionManager` (codex r2 P2 #4 fix — the
  *      sink is constructed INSIDE the factory body from
@@ -29,13 +32,23 @@
  *    - The factory returns
  *      `Effect<PresenceProjection, never, never>`.
  *
- * 2. **Capability seal at TS-module level** (codex r2 P2 #4) —
+ * 2. **External-import seal at TS-module level** (codex r2 P2 #4) —
  *    asserts that the sink type + factory are NOT exported. The two
- *    canary checks below at the bottom of this file are
- *    `ts-expect-error` assertions: importing
- *    `InternalPresenceEventSink` or
- *    `createInternalFanOutEventSink` from the projection
- *    module MUST fail with TS2305 "Module has no exported member".
+ *    `ts-expect-error` assertions at the bottom of this file
+ *    guarantee that any external module's
+ *    `import { InternalPresenceEventSink }` /
+ *    `import { createInternalFanOutEventSink }` MUST fail with TS2305
+ *    "Module has no exported member".
+ *
+ * 2.1. **In-module emit seal** (v5 / codex r4 P2 #2) — a third
+ *    `ts-expect-error` assertion asserts that
+ *    `createEmitIfChanged` is ALSO unexported. The combination of
+ *    "raw sink unreachable from outside the module" (2) and "raw
+ *    sink unreachable from non-factory code inside the module"
+ *    (this) is what enforces the dedup gate structurally across
+ *    BOTH axes — external imports fail at the TS layer; in-module
+ *    transition helpers must take `emit: EmitIfChanged` as a
+ *    parameter rather than the raw sink.
  *
  * 3. **Integration surfaces** (codex r2 P2 #6) — asserts the
  *    integration symbols the v3 plan §3 cites exist with the right
@@ -54,9 +67,12 @@
  */
 import type { Effect, Option } from "effect";
 
+import type { AgentId } from "@moltzap/protocol/identity";
+
 import type {
   AgentPresenceEntry,
   DerivedPresenceStatus,
+  EmitIfChanged,
   LeaseTransitionObserver,
   PresenceEmission,
   PresenceProjection,
@@ -107,6 +123,21 @@ declare const wrappedStatus: ReturnType<
   typeof catchProjectionDefect<DerivedPresenceStatus>
 >;
 void (wrappedStatus as Effect.Effect<DerivedPresenceStatus, never, never>);
+
+// v5 (codex r4 P2 #2): EmitIfChanged is the in-module-curried emit
+// capability — the only emission surface the projection's transition
+// methods receive. Shape: (prev, next, agentId) => Effect<void, never, never>.
+// Dedup is folded into the helper via `emitPresenceTransition`; the
+// transition methods cannot reach the raw `sink.publish` through any
+// other in-module path.
+declare const emitter: EmitIfChanged;
+declare const someAgentId: AgentId;
+void (emitter as (
+  prev: DerivedPresenceStatus,
+  next: DerivedPresenceStatus,
+  agentId: AgentId,
+) => Effect.Effect<void, never, never>);
+void emitter("online", "working", someAgentId);
 
 declare const defect: PresenceProjectionDefect;
 void defect.agentId;
@@ -176,3 +207,16 @@ void sealCheckTypeProbe;
 // @ts-expect-error — capability seal: createInternalFanOutEventSink is NOT exported. If this assertion stops firing, the seal is broken.
 import { createInternalFanOutEventSink as sealCheckFactory } from "./presence-projection.js";
 void sealCheckFactory;
+
+// v5 (codex r4 P2 #2) — IN-MODULE seal canary. `createEmitIfChanged`
+// is the helper that closes over the raw sink to produce the
+// dedup-gated `EmitIfChanged` capability. It MUST be unexported too:
+// if a future in-module helper could call `createEmitIfChanged({ sink,
+// subscribers })` with a sink from anywhere, the seal would re-open
+// (you could pass in any `{ publish }` object satisfying the shape).
+// The external `InternalPresenceEventSink` seal (above) already makes
+// "any" hard, but the in-module canary closes the loop: ALL three
+// `Internal*` symbols stay module-private.
+// @ts-expect-error — in-module emit seal: createEmitIfChanged is NOT exported. If this assertion stops firing, the in-module seal is broken.
+import { createEmitIfChanged as sealCheckEmitter } from "./presence-projection.js";
+void sealCheckEmitter;
