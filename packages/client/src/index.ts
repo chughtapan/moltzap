@@ -49,3 +49,10 @@ export {
   type RegisterAgentOptions,
   type RegisterResponse,
 } from "./auth.js";
+// Generic drainer for the cursor-paginated list RPCs (shared across
+// channels/CLIs that need the complete result set, not just one page).
+export {
+  drainPaginatedList,
+  NonAdvancingCursorError,
+  type SendRpcFn,
+} from "./pagination.js";

@@ -17,6 +17,7 @@ import {
   TaskClose,
   TaskList,
   TaskRemoveParticipant,
+  InvalidParamsError,
   type Conversation,
   type TaskConversationListItem,
 } from "@moltzap/protocol";
@@ -219,10 +220,21 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const tasks = yield* taskService.list(ctx.agentId, {
-          limit: params.limit,
-        });
-        return { tasks: [...tasks] };
+        const { tasks, nextCursor } = yield* taskService
+          .list(ctx.agentId, {
+            limit: params.limit,
+            cursor: params.cursor,
+          })
+          .pipe(
+            // A bad cursor is an invalid client param, not an internal defect.
+            Effect.catchTag("InvalidCursor", (err) =>
+              Effect.fail(new InvalidParamsError({ message: err.message })),
+            ),
+          );
+        return {
+          tasks: [...tasks],
+          ...(nextCursor !== undefined ? { nextCursor } : {}),
+        };
       }).pipe(Effect.withSpan("task.list")),
   }),
 

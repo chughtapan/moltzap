@@ -3,7 +3,9 @@ import {
   stringEnum,
   dateTimeStringSchema,
   brandedId,
+  listCursorSchema,
 } from "../schema-primitives.js";
+import { ListLimitSchema } from "../pagination.js";
 import { defineRpc } from "../transport/method.js";
 import { ajv } from "../transport/wire.js";
 
@@ -200,9 +202,18 @@ export const AgentsLookupByName = defineRpc({
  */
 export const AgentsList = defineRpc({
   name: "agents/list",
-  params: Type.Object({}, { additionalProperties: false }),
+  params: Type.Object(
+    {
+      limit: ListLimitSchema,
+      cursor: Type.Optional(listCursorSchema()),
+    },
+    { additionalProperties: false },
+  ),
   result: Type.Object(
-    { agents: Type.Record(AgentId, AgentCardSchema) },
+    {
+      agents: Type.Array(AgentCardSchema),
+      nextCursor: Type.Optional(listCursorSchema()),
+    },
     { additionalProperties: false },
   ),
 });

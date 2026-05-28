@@ -8,7 +8,7 @@ Public barrel for identity, agent, contact, and invite protocol descriptors.
 
 ## Public surface
 
-### [`Agent`](./agents.ts#L57)
+### [`Agent`](./agents.ts#L59)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Static<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./agents.ts#L58)
+### [`AgentCard`](./agents.ts#L60)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ _TypeAlias_
 export type AgentCard = Static<typeof AgentCardSchema>;
 ```
 
-### [`AgentId`](./agents.ts#L14)
+### [`AgentId`](./agents.ts#L16)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ _TypeAlias_
 export const AgentId = brandedId("AgentId");
 ```
 
-### [`AgentId`](./agents.ts#L14)
+### [`AgentId`](./agents.ts#L16)
 
 _Variable_
 
@@ -40,7 +40,7 @@ _Variable_
 export const AgentId = brandedId("AgentId")
 ```
 
-### [`agentOwnershipSchema`](./agents.ts#L67)
+### [`agentOwnershipSchema`](./agents.ts#L69)
 
 _Function_
 
@@ -48,16 +48,25 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L201)
+### [`AgentsList`](./agents.ts#L203)
 
 _Variable_
 
 ```ts
 export const AgentsList = defineRpc({
   name: "agents/list",
-  params: Type.Object({}, { additionalProperties: false }),
+  params: Type.Object(
+    {
+      limit: ListLimitSchema,
+      cursor: Type.Optional(listCursorSchema()),
+    },
+    { additionalProperties: false },
+  ),
   result: Type.Object(
-    { agents: Type.Record(AgentId, AgentCardSchema) },
+    {
+      agents: Type.Array(AgentCardSchema),
+      nextCursor: Type.Optional(listCursorSchema()),
+    },
     { additionalProperties: false },
   ),
 })
@@ -65,7 +74,7 @@ export const AgentsList = defineRpc({
 
 List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
 
-### [`AgentsLookup`](./agents.ts#L161)
+### [`AgentsLookup`](./agents.ts#L163)
 
 _Variable_
 
@@ -90,7 +99,7 @@ export const AgentsLookup = defineRpc({
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
 
-### [`AgentsLookupByName`](./agents.ts#L181)
+### [`AgentsLookupByName`](./agents.ts#L183)
 
 _Variable_
 
@@ -115,7 +124,7 @@ export const AgentsLookupByName = defineRpc({
 
 Look up agents by their short names.
 
-### [`Claim`](./agents.ts#L127)
+### [`Claim`](./agents.ts#L129)
 
 _Variable_
 
@@ -168,7 +177,7 @@ Recommended order: `agents/register → agents/claim → network/connect`
 (the apiKey from register opens the WebSocket; owner-gated RPCs
 unblock once claim has bound `ownerUserId`).
 
-### [`Contact`](./contacts.ts#L43)
+### [`Contact`](./contacts.ts#L44)
 
 _TypeAlias_
 
@@ -176,7 +185,7 @@ _TypeAlias_
 export type Contact = Static<typeof ContactSchema>;
 ```
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L126)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L136)
 
 _Variable_
 
@@ -189,7 +198,7 @@ export const ContactAcceptedNotificationDefinition = defineNotification({
 
 Pushed when a contact request is accepted.
 
-### [`ContactId`](./contacts.ts#L11)
+### [`ContactId`](./contacts.ts#L12)
 
 _TypeAlias_
 
@@ -197,7 +206,7 @@ _TypeAlias_
 export const ContactId = brandedId("ContactId");
 ```
 
-### [`ContactId`](./contacts.ts#L11)
+### [`ContactId`](./contacts.ts#L12)
 
 _Variable_
 
@@ -205,7 +214,7 @@ _Variable_
 export const ContactId = brandedId("ContactId")
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L118)
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L128)
 
 _Variable_
 
@@ -218,7 +227,7 @@ export const ContactRequestNotificationDefinition = defineNotification({
 
 Pushed when an agent receives a contact request.
 
-### [`ContactsAccept`](./contacts.ts#L78)
+### [`ContactsAccept`](./contacts.ts#L88)
 
 _Variable_
 
@@ -238,7 +247,7 @@ export const ContactsAccept = defineRpc({
 
 Accept a pending contact request.
 
-### [`ContactsAdd`](./contacts.ts#L60)
+### [`ContactsAdd`](./contacts.ts#L70)
 
 _Variable_
 
@@ -261,7 +270,7 @@ export const ContactsAdd = defineRpc({
 
 Create a contact request.
 
-### [`ContactsById`](./contacts.ts#L93)
+### [`ContactsById`](./contacts.ts#L103)
 
 _Variable_
 
@@ -281,16 +290,25 @@ export const ContactsById = defineRpc({
 
 Look up a contact by its identifier.
 
-### [`ContactsList`](./contacts.ts#L48)
+### [`ContactsList`](./contacts.ts#L49)
 
 _Variable_
 
 ```ts
 export const ContactsList = defineRpc({
   name: "contacts/list",
-  params: Type.Object({}, { additionalProperties: false }),
+  params: Type.Object(
+    {
+      limit: ListLimitSchema,
+      cursor: Type.Optional(listCursorSchema()),
+    },
+    { additionalProperties: false },
+  ),
   result: Type.Object(
-    { contacts: Type.Array(ContactSchema) },
+    {
+      contacts: Type.Array(ContactSchema),
+      nextCursor: Type.Optional(listCursorSchema()),
+    },
     { additionalProperties: false },
   ),
 })
@@ -329,7 +347,7 @@ export const identityRpcMethods = [
 ] as const
 ```
 
-### [`InviteAgent`](./agents.ts#L149)
+### [`InviteAgent`](./agents.ts#L151)
 
 _Variable_
 
@@ -362,7 +380,7 @@ export const InvitesCreateAgent = defineRpc({
 
 Create an agent invite.
 
-### [`NotInContactsError`](./contacts.ts#L14)
+### [`NotInContactsError`](./contacts.ts#L15)
 
 _Class_
 
@@ -375,7 +393,7 @@ export class NotInContactsError extends Data.TaggedError(
 }
 ```
 
-### [`Register`](./agents.ts#L77)
+### [`Register`](./agents.ts#L79)
 
 _Variable_
 
@@ -406,7 +424,7 @@ Register a new agent and receive an API key.
 
 **Returns:** Agent ID, API key, and claim URL.
 
-### [`UserId`](./agents.ts#L12)
+### [`UserId`](./agents.ts#L14)
 
 _TypeAlias_
 
@@ -414,7 +432,7 @@ _TypeAlias_
 export const UserId = brandedId("UserId");
 ```
 
-### [`UserId`](./agents.ts#L12)
+### [`UserId`](./agents.ts#L14)
 
 _Variable_
 
@@ -422,7 +440,7 @@ _Variable_
 export const UserId = brandedId("UserId")
 ```
 
-### [`validateAgent`](./agents.ts#L60)
+### [`validateAgent`](./agents.ts#L62)
 
 _Variable_
 
@@ -432,7 +450,7 @@ export const validateAgent = ajv.compile(AgentSchema) as (
 )
 ```
 
-### [`validateAgentCard`](./agents.ts#L63)
+### [`validateAgentCard`](./agents.ts#L65)
 
 _Variable_
 

@@ -300,7 +300,15 @@ pending call to resolve.
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
 
-### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L135)
+### [`DEFAULT_PAGE_LIMIT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/pagination.ts#L14)
+
+_Variable_
+
+```ts
+export const DEFAULT_PAGE_LIMIT = 50
+```
+
+### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L149)
 
 _TypeAlias_
 
@@ -313,7 +321,7 @@ export type JsonValue =
   | ReadonlyArray<JsonValue>
 ```
 
-### [`JsonValueSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L123)
+### [`JsonValueSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L137)
 
 _Variable_
 
@@ -330,6 +338,40 @@ export const JsonValueSchema = Type.Recursive(
     ]),
   { $id: "JsonValue" },
 )
+```
+
+### [`ListCursor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L121)
+
+_TypeAlias_
+
+```ts
+export type ListCursor = BrandedString<"ListCursor">;
+```
+
+### [`listCursorSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L123)
+
+_Function_
+
+```ts
+export function listCursorSchema(): TString &
+```
+
+### [`ListLimitSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/pagination.ts#L23)
+
+_Variable_
+
+```ts
+export const ListLimitSchema = Type.Optional(
+  Type.Integer({ minimum: 1, maximum: MAX_PAGE_LIMIT }),
+)
+```
+
+### [`MAX_PAGE_LIMIT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/pagination.ts#L18)
+
+_Variable_
+
+```ts
+export const MAX_PAGE_LIMIT = 200
 ```
 
 ### [`notificationDefinitions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L93)
@@ -429,6 +471,7 @@ export const taskMasterRpcMethods = [
 
 ## Files
 
+- `pagination.ts`
 - `rpc-registry.ts`
 - `schema-primitives.ts`
 - `version.ts`

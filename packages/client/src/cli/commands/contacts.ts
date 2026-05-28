@@ -28,10 +28,15 @@ const wrap = <A>(
 
 const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
   wrap(
-    request(ContactsList, {}) as Effect.Effect<{ contacts: Contact[] }, Error>,
+    request(ContactsList, {}) as Effect.Effect<
+      { contacts: Contact[]; nextCursor?: string },
+      Error
+    >,
     (r) => {
       if (json) {
-        console.log(JSON.stringify(r.contacts, null, JSON_INDENT_SPACES));
+        // Emit the full result (incl. nextCursor) so a machine consumer
+        // can detect a truncated page; `r.contacts` alone would hide it.
+        console.log(JSON.stringify(r, null, JSON_INDENT_SPACES));
         return;
       }
       if (r.contacts.length === 0) {
@@ -41,6 +46,12 @@ const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
       for (const c of r.contacts) {
         const rel = c.relationship ? ` (${c.relationship})` : "";
         console.log(`  ${c.id}  ${c.contactUserId}${rel}`);
+      }
+      // Signal a truncated page so users don't mistake it for the full list.
+      if (r.nextCursor !== undefined) {
+        console.log(
+          `Showing first ${r.contacts.length} — more results available.`,
+        );
       }
     },
   ),

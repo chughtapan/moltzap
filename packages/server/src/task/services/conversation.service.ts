@@ -8,6 +8,7 @@ import { InvalidParamsError } from "@moltzap/protocol";
 import {
   ConversationArchivedError,
   ConversationFullError,
+  DEFAULT_PAGE_LIMIT,
   ForbiddenError,
   NotFoundError,
   NotInContactsError,
@@ -51,7 +52,6 @@ const MAX_GROUP_PARTICIPANTS = 256;
 const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;
 const PREVIEW_CACHE_MAX = 2000;
 const PREVIEW_CACHE_TEXT_CHARS = 80;
-const DEFAULT_CONVERSATION_LIST_LIMIT = 50;
 const MSG_CONVERSATION_NOT_FOUND = "Conversation not found";
 
 export class ConversationService {
@@ -277,7 +277,7 @@ export class ConversationService {
 
   list(
     agentId: AgentId,
-    limit = DEFAULT_CONVERSATION_LIST_LIMIT,
+    limit = DEFAULT_PAGE_LIMIT,
     cursor?: string,
     archived: ConversationArchiveFilter = "exclude",
   ): Effect.Effect<
