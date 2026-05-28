@@ -350,3 +350,141 @@ describe("PresenceProjection — subscriber-snapshot semantics", () => {
     );
   });
 });
+
+// Round-5 codex P2 fix — multi-connection-per-agent correctness.
+// `AgentEndpointResolver` supports an agent holding multiple
+// simultaneous WS connections (web tab + CLI + mobile). The pre-fix
+// projection treated a second simultaneous connect as a "reconnect"
+// — clearing the agent's active leases and emitting a spurious
+// `online` while the agent was still busy on the original conn.
+// These tests pin the new multi-conn semantics down.
+describe("PresenceProjection — multi-connection-per-agent (round-5 codex P2)", () => {
+  it("a second simultaneous WS connection does NOT clobber an active lease (status stays `working`, no emission)", () => {
+    const h = makeHarness();
+    h.subscribers.subscribe(SUBSCRIBER, [AGENT_A]);
+    return withHarness(h, (projection) =>
+      Effect.gen(function* () {
+        yield* projection.onAgentConnect(AGENT_A, CONN_1);
+        yield* projection.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        // Sanity: status is now `working` (subscriber has seen online
+        // + working).
+        const statusOnConn1 = yield* projection.statusOf(AGENT_A);
+        expect(statusOnConn1).toBe("working");
+        h.sent.length = 0;
+        // Agent opens a second simultaneous connection (e.g. mobile
+        // app while the CLI lease is still active).
+        yield* projection.onAgentConnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        // The new connection does not affect the agent's lease set.
+        // Status stays `working`; the dedup rule elides emission
+        // (working → working).
+        expect(h.sent).toEqual([]);
+        const statusAfterSecondConnect = yield* projection.statusOf(AGENT_A);
+        expect(statusAfterSecondConnect).toBe("working");
+      }),
+    );
+  });
+
+  it("losing a non-leased simultaneous connection leaves the agent `working` on the other conn (no emission)", () => {
+    const h = makeHarness();
+    h.subscribers.subscribe(SUBSCRIBER, [AGENT_A]);
+    return withHarness(h, (projection) =>
+      Effect.gen(function* () {
+        // Agent connects on conn1 + conn2; lease granted on conn1
+        // only.
+        yield* projection.onAgentConnect(AGENT_A, CONN_1);
+        yield* projection.onAgentConnect(AGENT_A, CONN_2);
+        yield* projection.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // conn2 disconnects; it had no leases, so no per-conn lease
+        // bucket to drop, and conn1's lease is still active.
+        yield* projection.onAgentDisconnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* projection.statusOf(AGENT_A);
+        expect(status).toBe("working");
+      }),
+    );
+  });
+
+  it("losing the leased connection while another conn is still live flips status to `online` (lease cleaned up per-conn)", () => {
+    const h = makeHarness();
+    h.subscribers.subscribe(SUBSCRIBER, [AGENT_A]);
+    return withHarness(h, (projection) =>
+      Effect.gen(function* () {
+        yield* projection.onAgentConnect(AGENT_A, CONN_1);
+        yield* projection.onAgentConnect(AGENT_A, CONN_2);
+        yield* projection.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // conn1 disconnects — its lease bucket is dropped wholesale
+        // so the agent's working count drains to zero. conn2 is
+        // still live, so the agent stays online (not offline).
+        yield* projection.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "online" },
+        ]);
+        const status = yield* projection.statusOf(AGENT_A);
+        expect(status).toBe("online");
+      }),
+    );
+  });
+
+  it("losing the last live connection flips status to `offline` (entry deleted)", () => {
+    const h = makeHarness();
+    h.subscribers.subscribe(SUBSCRIBER, [AGENT_A]);
+    return withHarness(h, (projection) =>
+      Effect.gen(function* () {
+        yield* projection.onAgentConnect(AGENT_A, CONN_1);
+        yield* projection.onAgentConnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // Disconnect conn1 first — second conn still live, no
+        // emission.
+        yield* projection.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        // Disconnect conn2 — entry is now empty, emit offline.
+        yield* projection.onAgentDisconnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "offline" },
+        ]);
+        const status = yield* projection.statusOf(AGENT_A);
+        expect(status).toBe("offline");
+      }),
+    );
+  });
+
+  it("active leases on different simultaneous conns are tracked independently", () => {
+    const h = makeHarness();
+    h.subscribers.subscribe(SUBSCRIBER, [AGENT_A]);
+    return withHarness(h, (projection) =>
+      Effect.gen(function* () {
+        yield* projection.onAgentConnect(AGENT_A, CONN_1);
+        yield* projection.onAgentConnect(AGENT_A, CONN_2);
+        yield* projection.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* projection.onLeaseActiveBegin(LEASE_Y, AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // Releasing LEASE_X on conn1 keeps the agent working (LEASE_Y
+        // is still active on conn2).
+        yield* projection.onLeaseActiveEnd(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const stillWorking = yield* projection.statusOf(AGENT_A);
+        expect(stillWorking).toBe("working");
+        // Releasing LEASE_Y drains the active set; agent flips to
+        // online.
+        yield* projection.onLeaseActiveEnd(LEASE_Y, AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "online" },
+        ]);
+      }),
+    );
+  });
+});
