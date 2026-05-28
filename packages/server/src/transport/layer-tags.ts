@@ -85,8 +85,8 @@ type IdentityTags = TransportTags | AuthServiceTag;
  * `AgentId → ConnectionId` multimap (network-conceptual — endpoint
  * resolution is what the network layer DOES, not who owns it). The
  * presence service lives in `network/services/` post-2A.2 reshape; its
- * Tag is yielded by handlers in higher layers (presence handler routes
- * through the TM bus from `task/handlers/`).
+ * Tag is yielded by the presence handler at `network/handlers/`, which
+ * routes through the TM bus.
  */
 export type NetworkTags =
   | IdentityTags
@@ -96,12 +96,12 @@ export type NetworkTags =
   | PresenceServiceTag;
 
 /**
- * Task-layer allowlist: conversations, messages, tasks, contacts.
+ * Task-layer allowlist: conversations, messages, tasks.
  * Includes `LeaseRegistryTag` (admission gate for `messages/send`
  * dispatch leases — yielded by `messages.handlers.ts`) and
- * `SessionValidatorTag` (yielded by the Connect handler post-split,
- * which lives at `task/handlers/connect.handlers.ts`). The Connect
- * handler is task-tier because its body pulls cross-cutting services
+ * `SessionValidatorTag` (yielded by the Connect handler at
+ * `identity/handlers/connect.handlers.ts`). The Connect handler runs
+ * at task-tier because its body pulls cross-cutting services
  * spanning network (connections, presence) AND task (conversation
  * resolution for presence fan-out).
  */

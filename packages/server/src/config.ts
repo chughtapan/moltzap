@@ -4,7 +4,7 @@
  *
  * Two public types:
  *   - `CoreConfig` — the programmatic input to `createCoreApp(...)`.
- *     Live instances (Db, WebhookClient, SpanProcessor) sit here.
+ *     Live instances (Db, SpanProcessor) sit here.
  *   - `StandaloneBootPlan` — the flat output of `loadStandaloneConfig`.
  *     What `standalone.ts` reads after parsing YAML + env.
  *
@@ -35,7 +35,6 @@ import type { ConfigError } from "effect/ConfigError";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Db } from "./db/client.js";
 import type { SessionValidator } from "./identity/services/session-validator.js";
-import type { WebhookClient } from "./adapters/webhook.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Public: CoreConfig — `createCoreApp` boot input
@@ -55,7 +54,9 @@ export interface CoreConfig {
    * route are given this user id as their `owner_user_id`, skipping the
    * claim step. Intended for local dev / quickstart. Production MUST
    * leave this unset and perform claim through an external auth
-   * provider (see docs/guides/custom-identity-provider.mdx).
+   * provider — wire it via `services.sessions: { type: webhook }` in
+   * `moltzap.yaml` (see `moltzap.example.yaml` and
+   * `packages/server/src/standalone.ts → makeSessionValidator`).
    */
   devModeUserId?: string;
 
@@ -65,14 +66,6 @@ export interface CoreConfig {
    * token auth is unsupported; only `agentKey` auth works.
    */
   sessionValidator?: SessionValidator;
-
-  /**
-   * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
-   * fanout and user-side adapters (contact/user services). If unset,
-   * `createCoreApp` constructs a default `new WebhookClient()`. Tests may
-   * inject a fake to intercept outbound HTTP.
-   */
-  webhookClient?: WebhookClient;
 
   /**
    * When true, core does not mount its default `/api/v1/auth/register`

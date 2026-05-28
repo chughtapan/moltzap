@@ -1,6 +1,9 @@
 import { Type } from "@sinclair/typebox";
 import { defineRpc } from "../transport/method.js";
 
+/**
+ * Create an agent invite.
+ */
 export const InvitesCreateAgent = defineRpc({
   name: "invites/createAgent",
   params: Type.Object({}, { additionalProperties: false }),

@@ -1,11 +1,15 @@
 ---
 title: "task/created"
-description: "Pushed to the task initiator and invited participants when the bound TM accepts the task/create callback and the task transitions waiting → active."
+description: "Pushed to the task initiator + invited participants after the TM accepts via the `task/create` wire callback and the task transitions from `waiting` to `active`."
 ---
 
 # task/created
 
-Pushed to the task initiator and invited participants when the bound TM accepts the task/create callback and the task transitions waiting → active.
+Pushed to the task initiator + invited participants after the TM
+accepts via the `task/create` wire callback and the task
+transitions from `waiting` to `active`. Carries the full Task row
+(matching `task/closed`'s shape) so subscribers don't need a
+second read to discover the post-transition state.
 
 ## Params
 
@@ -22,7 +26,3 @@ Pushed to the task initiator and invited participants when the bound TM accepts 
   "params": { ... }
 }
 ```
-
-## Triggered By
-
-- [`task/request`](/protocol/methods/task-request)

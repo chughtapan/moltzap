@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * Shared message-enrichment helper for MoltZap channel adapters.
  */
@@ -277,12 +279,47 @@ interface InboundDispatchWork {
 }
 
 /**
- * Wraps a MoltZapService with message enrichment, dispatch-chain ordering,
- * and a send helper.
- *
- * Do NOT construct multiple cores over the same service — getContextEntries()
- * is side-effectful (advances per-conversation markers), so a second core
+ * Wraps a `MoltZapService` with message enrichment, dispatch-chain ordering,
+ * and a send helper. One core per service — `getContextEntries()` is
+ * side-effectful (advances per-conversation markers), so a second core
  * would consume entries the first expected.
+ *
+ * Inbound path from wire bytes to user handler:
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant server
+ *   participant ws as MoltZapAgentClient
+ *   participant svc as MoltZapService
+ *   participant core as MoltZapChannelCore
+ *   participant handler as InboundHandler
+ *
+ *   server->>ws: messages/received notification
+ *   ws->>svc: subscribers.dispatch — fanout(message)
+ *   svc->>core: message listener
+ *   Note over core: dedup via recordMessageIdIfNew<br>Queue.unsafeOffer(inboundQueue, work)
+ *   Note over core: consumer fiber — Queue.take<br>takeDispatchCandidate prefers parked[convId]
+ *   core->>server: dispatch/request — dispatchAdmission
+ *   server-->>core: ack {leaseId, dispatchId}
+ *   Note over server,core: ack/release race absorbed via<br>pendingDispatchesByLease (Deferred)<br>pendingReleasesByLease (ring 256, soft-TTL 30s)
+ *   server->>ws: dispatch/release notification
+ *   ws->>core: recordDispatchRelease — settles Deferred or buffers
+ *   alt verdict deny
+ *     Note over core: log + drop
+ *   else verdict hold
+ *     Note over core: parkDispatchWork — front of parked[convId]
+ *   else verdict grant
+ *     Note over core: takeCoalescedConversationMessages<br>drains same-conv from queue + parked
+ *     Note over core: dispatchWithLease<br>leaseIdInFlight = leaseId<br>enrichMessage — sender name, conversation, context entries
+ *     core->>handler: inboundHandler(enriched)
+ *     handler-->>core: Effect.void
+ *     Note over core: handler exceeds leaseTimeoutMs (90s) → DispatchLeaseExpired
+ *   end
+ * ```
+ *
+ * Parking semantics: `hold` re-enters at `parked[convId]` FRONT.
+ * `takeDispatchCandidate` prefers the parked queue for the next pull
+ * so backpressure within one conversation does not starve others.
  */
 export class MoltZapChannelCore {
   private readonly service: ChannelService;
@@ -657,6 +694,33 @@ export class MoltZapChannelCore {
    *   - if ack arrives first, this method registers a Deferred that
    *     `recordDispatchRelease` settles when the release frame
    *     arrives.
+   *
+   * Per-message lease state machine:
+   *
+   * ```mermaid
+   * stateDiagram-v2
+   *   [*] --> PENDING
+   *   PENDING : dispatch/request sent<br>server minting lease
+   *   PENDING --> AWAITING_RELEASE : ack returns leaseId
+   *   AWAITING_RELEASE : Deferred registered<br>or buffered release consumed
+   *   AWAITING_RELEASE --> GRANTED : verdict grant
+   *   AWAITING_RELEASE --> DENIED : verdict deny
+   *   AWAITING_RELEASE --> HELD : verdict hold
+   *   HELD : parkDispatchWork — re-queued at parked[convId] front
+   *   GRANTED : proceed to enrichment
+   *   DENIED : drop message — consumer fiber continues
+   *   GRANTED --> IN_FLIGHT : dispatchWithLease
+   *   IN_FLIGHT : leaseIdInFlight set<br>handler executing<br>lease authorizes one messages/send
+   *   IN_FLIGHT --> CONSUMED : handler returns within leaseTimeoutMs<br>server marks via dispatchLeaseId
+   *   IN_FLIGHT --> EXPIRED : handler exceeds leaseTimeoutMs<br>DispatchLeaseExpired logged
+   *   CONSUMED --> [*]
+   *   DENIED --> [*]
+   *   EXPIRED --> [*]
+   * ```
+   *
+   * `HELD` re-enters the queue at the parked-front so the same
+   * conversation gets the next dispatch attempt without starving
+   * other conversations.
    *
    * When the service has no `requestDispatch` (test fakes that don't
    * exercise admission), default-grant.

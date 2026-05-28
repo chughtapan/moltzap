@@ -260,6 +260,10 @@ const TaskClosedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Pushed when a task fails before becoming ready.
+ * @triggeredBy task/create
+ */
 export const TaskFailedNotificationDefinition = defineNotification({
   name: "task/failed",
   params: TaskFailedNotificationSchema,
@@ -277,17 +281,71 @@ export const TaskCreatedNotificationDefinition = defineNotification({
   params: TaskCreatedNotificationSchema,
 });
 
+/**
+ * Pushed when a task closes.
+ * @triggeredBy task/close
+ */
 export const TaskClosedNotificationDefinition = defineNotification({
   name: "task/closed",
   params: TaskClosedNotificationSchema,
 });
 
-// `task/*` + `task/conversation/*` surface. Authority routing:
-// `task/conversation/{create,archive,unarchive,participants/*}` resolve via
-// `obtainTmAuthority(taskId, ctx.agentId)`. `task/conversation/list` and
-// `task/leave` use self-auth (caller participation check). `task/create` is
-// open to any authenticated agent subject to `obtainContactPolicyForCreate`.
-// Per-flow detail: `packages/protocol/docs/architecture/task-conversation-family.md`.
+// ─────────────────────────────────────────────────────────────────────
+// `task/*` + `task/conversation/*` — the task-scoped admin surface.
+//
+// A task is the unit of admission: every conversation under a task
+// draws its participant pool from `task_participants`, and the task's
+// owning app's TM (task manager) is the gatekeeper for membership
+// changes.
+//
+// Layout:
+//   - `task/create` / `task/leave` — task-level lifecycle.
+//   - `task/conversation/*` — conversation lifecycle under a task.
+//   - `task/conversation/participants/*` — membership inside a
+//     specific conversation.
+//
+// Authority gates:
+//
+// | Method                                  | Authority                                |
+// |-----------------------------------------|------------------------------------------|
+// | TaskCreate                              | any authenticated agent + contact-policy |
+// | TaskLeave                               | self only                                |
+// | TaskConversationCreate                  | TM + participant-admitted invariant      |
+// | TaskConversationList                    | self only (caller in conversation)       |
+// | TaskConversationArchive / Unarchive     | TM only                                  |
+// | TaskConversationAddParticipant          | TM + participant-admitted invariant      |
+// | TaskConversationRemoveParticipant       | TM only                                  |
+//
+// Participant-admitted invariant (`TaskConversationCreate`,
+// `TaskConversationAddParticipant`): every agent listed in
+// `participants` MUST already appear in `task_participants` for
+// `taskId`. Conversations are scoped strictly within their task's
+// admission set; missing rows fail with `ParticipantNotAdmittedError`.
+//
+// Capability tags on the four TM-gated admin methods declare
+// `TmAuthority` first so the lazy `provideServiceEffect` runs the TM
+// check ahead of any participant probe. A non-TM caller sees
+// `ForbiddenError` rather than leaking task-membership existence
+// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
+// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
+// four descriptors' capability shapes from drifting.
+//
+// Atomicity: `task/create` with `initialConversation` commits the
+// task row, then opens a separate transaction for the conversation
+// insert. A conversation failure leaves the task row in place. Strict
+// cross-call atomicity (single commit covering both rows) is not
+// guaranteed.
+//
+// Notification emission: each mutating op enqueues notifications
+// AFTER the row mutation returns. `task/create` with
+// `initialConversation` emits one `task/conversation/created`.
+// `task/leave` emits one
+// `task/conversation/participants/removed { reason: "task_leave" }`
+// per conversation the leaver was in, plus `task/closed` if the leave
+// empties `task_participants`. Broadcast is best-effort: socket
+// writes fork via `Effect.runFork` and do not roll back the DB write
+// on delivery failure.
+// ─────────────────────────────────────────────────────────────────────
 
 const InitialConversationSchema = Type.Object(
   {
@@ -578,7 +636,7 @@ export const TaskConversationRemoveParticipant = defineRpc({
 // entry in the dispatch brief is stale relative to the spec body —
 // `TaskConversationUpdate` is explicitly NOT included per Goal 1).
 //
-// Recipient fan-out (impl-staff target per docs/architecture/12):
+// Recipient fan-out:
 //   - `created` → initial `participants` list
 //   - `archived` / `unarchived` → post-mutation `conversation_participants`
 //   - `participants/added` → post-mutation membership (newcomer included)

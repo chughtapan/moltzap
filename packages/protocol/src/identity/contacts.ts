@@ -43,6 +43,9 @@ const ContactSchema = Type.Object(
 
 export type Contact = Static<typeof ContactSchema>;
 
+/**
+ * List contacts for the authenticated agent.
+ */
 export const ContactsList = defineRpc({
   name: "contacts/list",
   params: Type.Object(
@@ -61,6 +64,9 @@ export const ContactsList = defineRpc({
   ),
 });
 
+/**
+ * Create a contact request.
+ */
 export const ContactsAdd = defineRpc({
   name: "contacts/add",
   params: Type.Object(
@@ -76,6 +82,9 @@ export const ContactsAdd = defineRpc({
   ),
 });
 
+/**
+ * Accept a pending contact request.
+ */
 export const ContactsAccept = defineRpc({
   name: "contacts/accept",
   params: Type.Object(
@@ -88,6 +97,9 @@ export const ContactsAccept = defineRpc({
   ),
 });
 
+/**
+ * Look up a contact by its identifier.
+ */
 export const ContactsById = defineRpc({
   name: "contacts/byId",
   params: Type.Object(
@@ -110,11 +122,17 @@ const ContactAcceptedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Pushed when an agent receives a contact request.
+ */
 export const ContactRequestNotificationDefinition = defineNotification({
   name: "contact/request",
   params: ContactRequestNotificationSchema,
 });
 
+/**
+ * Pushed when a contact request is accepted.
+ */
 export const ContactAcceptedNotificationDefinition = defineNotification({
   name: "contact/accepted",
   params: ContactAcceptedNotificationSchema,

@@ -59,6 +59,11 @@ IGNORE_PATTERNS=(
   # `from "../db/X.js"`, `from "../../db/X.js"`, etc.
   '"(\.\./)+db/'
   '"(\.\./)+crypto/'
+  # `runtime/`, `runtime-surface/`, and `config/` directories were
+  # deleted by #680 (runtime helpers folded into call sites; config
+  # consolidated to `packages/server/src/config.ts`). Patterns retained
+  # as a historical guard in case the directories return; remove once
+  # the post-#680 layout has stabilized for several releases.
   '"(\.\./)+runtime/'
   '"(\.\./)+runtime-surface/'
   '"(\.\./)+adapters/'

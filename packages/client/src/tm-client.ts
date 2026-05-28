@@ -202,9 +202,9 @@ export interface TaskCallbackContext {
 /**
  * Public handler-table type for `TMClientOptions.handlers`.
  * Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
- * client's per-frame context. Slots are OPTIONAL (Spec F R2 fail-CLOSED
- * `ForbiddenError -32001` defaults), so `{}` is a well-typed table for
- * agents that don't register TM-callback responders.
+ * client's per-frame context. Spec D3 R14b made every slot REQUIRED;
+ * vacuous-deny moderators bind an explicit `ForbiddenError -32001`
+ * handler.
  */
 export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
 
@@ -243,16 +243,43 @@ export interface TMClientOptions {
  * Effect-based — consumers run the returned Effects themselves (typically at
  * a framework or CLI edge).
  *
+ * Connection state machine, driven by `stateRef` (`None` | `Some(ConnState)`)
+ * and the `closed` flag:
+ *
+ * ```mermaid
+ * stateDiagram-v2
+ *   [*] --> INIT
+ *   INIT : stateRef None, closed false
+ *   INIT --> CONNECTING : connect()
+ *   CONNECTING : openSocket 10s timeout<br>startTaskCallbackDispatcher<br>readerFiber forked<br>sendRpc(Connect) in flight
+ *   CONNECTING --> CONNECTED : HelloOk received<br>stateRef = Some(ConnState)
+ *   CONNECTED : _helloOk set, reader fiber active
+ *   CONNECTED --> DISCONNECTED : reader fiber exit<br>failAllPending, stateRef = None<br>onDisconnect(closeInfo)
+ *   DISCONNECTED : reconnectable, closed false
+ *   DISCONNECTED --> CONNECTING : scheduleReconnect<br>exponential backoff 1s..30s jittered<br>connectEffect → onReconnect(helloOk)
+ *   INIT --> CLOSED : close()
+ *   CONNECTING --> CLOSED : close()
+ *   CONNECTED --> CLOSED : close()
+ *   DISCONNECTED --> CLOSED : close()
+ *   CLOSED : terminal — closed true<br>stateRef None, reconnectFiber null<br>no further reconnects
+ *   CLOSED --> [*]
+ * ```
+ *
+ * `close()` is total from any state: interrupts the reconnect fiber,
+ * `failAllPending` + `failAllNotificationWaiters`, `subscribers.closeAll`,
+ * writes `CloseEvent(1000)` if the handshake completed, closes the
+ * connection and dispatcher scopes, disposes the `ManagedRuntime`.
+ *
  * Transport: `@effect/platform/Socket.makeWebSocket` backed by
  * `@effect/platform-node/NodeSocket.layerWebSocketConstructor`. The Node
  * `WebSocketConstructor` layer is provided internally via `ManagedRuntime`
  * so callers' `connect()` / `sendRpc()` Effects have no extra requirement.
  *
- * Notification consumption (spec #596 / Spec B): use `subscribe(def, refinement?)`
- * for typed payload Streams; `subscribeAll(refinement?)` for the broad-union
- * escape hatch. Both return `Stream.Stream` of `DecodedNotification` with a `NotConnectedError` error channel.
- * Consume via `Stream.runForEach` (long-lived) or `Stream.runHead` + `Effect.timeoutFail`
- * (one-shot).
+ * Notification consumption: use `subscribe(def, refinement?)` for typed
+ * payload Streams; `subscribeAll(refinement?)` for the broad-union
+ * escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
+ * a `NotConnectedError` error channel. Consume via `Stream.runForEach`
+ * (long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
  */
 export class MoltZapTMClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
@@ -294,8 +321,42 @@ export class MoltZapTMClient {
   }
 
   /**
-   * Open the socket, perform network/connect, resolve with HelloOk. Fails
-   * immediately on pre-open close or error.
+   * Open the socket, perform `network/connect`, resolve with HelloOk.
+   * Fails immediately on pre-open close or error.
+   *
+   * ```mermaid
+   * sequenceDiagram
+   *   participant caller
+   *   participant client as MoltZapTMClient
+   *   participant server
+   *
+   *   caller->>client: new MoltZapTMClient(options)
+   *   Note over client: stateRef = None, subscribers, ManagedRuntime
+   *   caller->>client: subscribe(filter, handler)
+   *   Note over client: SubscriberRegistry.register — survives reconnect
+   *   caller->>client: connect()
+   *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startTaskCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
+   *   client->>server: TCP open + WS upgrade
+   *   client->>server: network/connect {agentKey, minProtocol, maxProtocol}
+   *   server-->>client: HelloOk
+   *   Note over client: stateRef = Some(connState), _helloOk = value
+   *   client-->>caller: HelloOk
+   *   Note over client,server: steady state — reader fiber loops on socket.runRaw
+   * ```
+   *
+   * Reconnect arm fires from `handleReaderExit` when the reader fiber
+   * exits with `closed === false`. `failAllPending` settles every
+   * in-flight Deferred with `NotConnectedError`, `notifyDisconnect`
+   * surfaces the close info, then `scheduleReconnect` forks an
+   * exponential-backoff retry (`1s × 2^n, cap 30s, +jitter`).
+   *
+   * State that SURVIVES reconnect: `SubscriberRegistry` entries,
+   * `appCallbackHandlers` (immutable, value-captured at construction),
+   * `ManagedRuntime`.
+   *
+   * State that does NOT survive reconnect: in-flight RPC Deferreds
+   * (failed via `failAllPending`), the prior `ConnState` (scope,
+   * reader fiber, callback queue, dispatcher scope) — rebuilt fresh.
    */
   connect(): Effect.Effect<ConnectResult, ConnectError> {
     return Effect.suspend(() => {
@@ -686,12 +747,11 @@ export class MoltZapTMClient {
 
   /**
    * Dispatch one inbound appCallback request through the typed Spec F
-   * dispatcher and write its wire response back to the server. The
-   * dispatcher synthesises the protocol's fail-CLOSED `ForbiddenError
-   * -32001` response for any TM-callback slot the client did not bind at
-   * construction (Spec F R2). Handler defects collapse to a generic
-   * InternalError reply so the server's `Deferred.await` always settles
-   * deterministically.
+   * dispatcher and write its wire response back to the server. Spec D3
+   * R14b made every TM-callback slot REQUIRED at construction, so the
+   * dispatcher always finds a bound handler. Handler defects collapse
+   * to a generic InternalError reply so the server's `Deferred.await`
+   * always settles deterministically.
    */
   private dispatchInboundServerRequest(
     request: DecodedServerRequest,

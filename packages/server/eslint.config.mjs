@@ -24,4 +24,7 @@ const cursorOpacityGuard = {
   },
 };
 
-export default [...packageEslintConfig(), cursorOpacityGuard];
+export default [
+  ...packageEslintConfig({ customJsDocTags: ["internal"] }),
+  cursorOpacityGuard,
+];

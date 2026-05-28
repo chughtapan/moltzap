@@ -1,3 +1,5 @@
+/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+
 /**
  * entry — public boot entry point for `@moltzap/claude-code-channel`.
  *
@@ -167,6 +169,39 @@ function bootMcpServerHandle(
   );
 }
 
+/**
+ * Inbound MoltZap message → Claude push pipeline. Registered as a
+ * `MoltZapChannelCore.onInbound` callback at boot step 7. Drops
+ * silently on allowlist failure, schema decode failure, or MCP push
+ * failure (per Spec I5).
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant WS as MoltZap server
+ *   participant client as moltzap-client
+ *   participant H as handleInboundMessage
+ *   participant ev as event.ts
+ *   participant srv as server.ts
+ *   participant CC as Claude Code
+ *   WS-->>client: WS frame → MoltZapChannelCore
+ *   client->>H: onInbound(enriched)
+ *   H->>H: [A] opts.gateInbound (if present)<br>Failure → logGateDropped, return
+ *   H->>ev: [B] toClaudeChannelNotification
+ *   ev-->>H: Err ContentEmpty | MetaInvalid → log, return<br>Ok notification
+ *   H->>H: [C] routing.recordInbound(message_id, chat_id)
+ *   H->>srv: [D] serverHandle.push(notification)
+ *   alt initialized
+ *     srv-->>CC: MCP notifications/claude/channel frame
+ *   else pre-handshake
+ *     note over srv: state.pending.push (flushed at oninitialized)
+ *   end
+ * ```
+ *
+ * Step D is the foreign-protocol bridge: moltzap's wire shape
+ * (`EnrichedInboundMessage`) becomes an MCP
+ * `notifications/claude/channel` frame the MCP SDK serializes over
+ * stdio.
+ */
 function handleInboundMessage(
   opts: BootOptions,
   routing: ReturnType<typeof createRoutingState>,
@@ -201,6 +236,35 @@ function connectCore(
   return core.connect().pipe(Effect.tapError(() => serverHandle.stop()));
 }
 
+/**
+ * Construct the `Handle` returned to the caller on successful boot.
+ * `Handle.stop()` is the only graceful-shutdown entry point.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant Caller as Caller / OS
+ *   participant H as Handle
+ *   participant cli as moltzap-client
+ *   participant srv as server.ts
+ *   Caller->>H: Handle.stop()
+ *   H->>cli: [1] core.disconnect()<br>WS close, deregister onInbound
+ *   cli-->>H: done
+ *   H->>srv: [2] serverHandle.stop()<br>closeMcpServer → server.close()<br>MCP SDK closes stdio transport
+ *   srv-->>H: done (close failure → log, never propagate)
+ *   H-->>Caller: Effect&lt;void> (infallible)
+ * ```
+ *
+ * Boot-time connect failure path: `connectCore()` fails →
+ * `serverHandle.stop()` called via `Effect.tapError`, BootResult Err
+ * returned before any Handle is issued.
+ *
+ * CLI SIGTERM path: no explicit signal handler in v1. Node default
+ * kills the process; stdio transport closes via process exit; the
+ * server observes the WS disconnect and expires the agent's
+ * session. Pending notifications in `state.pending[]` are lost if
+ * MCP handshake hadn't completed — acceptable because Claude is
+ * closing too.
+ */
 function makeHandle(
   core: MoltZapChannelCore,
   serverHandle: ServerHandle,
@@ -220,6 +284,44 @@ function makeHandle(
  *
  * Error channel is tagged (Principle 3). Internals run on Effect; the
  * `Promise` wrapper lives only at this boundary.
+ */
+
+/**
+ * Single public entry point. In production the CLI binary
+ * (`cli.ts`) calls this; tests call it directly with an injected
+ * in-memory MCP transport.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant Caller
+ *   participant entry
+ *   participant server as server.ts
+ *   participant client as moltzap-client
+ *   Caller->>entry: bootClaudeCodeChannel(opts)
+ *   note over entry: [1] validateBootOptions (agentKey, serverUrl)
+ *   entry->>client: [2] new MoltZapService
+ *   entry->>client: [3] new MoltZapChannelCore
+ *   note over entry: [4] createRoutingState
+ *   note over entry: [5] makeSendReply(core)
+ *   entry->>server: [6] bootChannelMcpServer
+ *   note over server: [6a] makeMcpServer<br>capabilities: tools + experimental claude/channel
+ *   note over server: [6b] registerServerHandlers<br>(ListTools, CallTool)
+ *   note over server: [6c] connectServer<br>StdioServerTransport.connect
+ *   note over server: [6d] server.oninitialized → flush pending buffer
+ *   server-->>entry: [6e] ServerHandle { push, stop }
+ *   note over entry: [7] core.onInbound(handleInboundMessage)
+ *   entry->>client: [8] connectCore — WS auth handshake
+ *   note over entry: [9] makeHandle → BootResult Ok
+ * ```
+ *
+ * Foreign-protocol bridge: step 6c is where the MCP stdio transport
+ * attaches. From this point on the process owns two concurrent
+ * channels — MCP stdio (outbound to Claude) and MoltZap WS (inbound
+ * from server). They meet inside the inbound handler and the reply
+ * tool.
+ * @failure AgentKeyInvalid when opts.agentKey or opts.serverUrl is blank
+ * @failure McpTransportFailed when MCP server init or stdio connect rejects (step 6)
+ * @failure ServiceRpcError when WS connect / auth rejects (step 8)
  */
 export function bootClaudeCodeChannel(opts: BootOptions) {
   return Effect.runPromise(bootClaudeCodeChannelEffect(opts));

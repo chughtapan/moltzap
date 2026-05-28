@@ -1,3 +1,4 @@
+import { FetchHttpClient } from "@effect/platform";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { expect } from "vitest";
@@ -11,14 +12,12 @@ import { ConversationService } from "../task/services/conversation.service.js";
 import { MessageService } from "../task/services/message.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
 import { AppHost } from "./app-host.js";
-import { WebhookClient } from "../adapters/webhook.js";
 import {
   DbTag,
   DeliveryWebhookTag,
   EncryptionTag,
   ServicesLive,
   SessionValidatorTag,
-  WebhookClientTag,
   resolveServices,
 } from "./layers.js";
 
@@ -36,8 +35,11 @@ const BaseLive = Layer.mergeAll(
   Layer.succeed(DbTag, fakeDb),
   Layer.succeed(EncryptionTag, null),
   Layer.succeed(SessionValidatorTag, null),
-  Layer.succeed(WebhookClientTag, new WebhookClient()),
   Layer.succeed(DeliveryWebhookTag, null),
+  // Wiring-only test — no service body issues outbound requests during the
+  // resolveServices probe, so the fetch-backed layer is purely structural
+  // and never touches the network.
+  FetchHttpClient.layer,
 );
 
 /** Full composition — Base provides inputs to ServicesLive's requirements. */

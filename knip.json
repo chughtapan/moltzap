@@ -3,7 +3,8 @@
   "workspaces": {
     ".": {
       "entry": ["eslint.shared.mjs", "vitest.workspace-aliases.ts"],
-      "project": ["*.mjs", "*.ts"]
+      "project": ["*.mjs", "*.ts"],
+      "ignoreDependencies": ["@mermaid-js/mermaid-cli", "typedoc"]
     },
     "packages/claude-code-channel": {
       "entry": [
@@ -51,6 +52,7 @@
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
         "src/testing/conformance/**/*.ts",
+        "scripts/check-mermaid.ts",
         "vitest*.config.ts"
       ],
       "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"],

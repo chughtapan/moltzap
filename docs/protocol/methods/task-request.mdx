@@ -1,11 +1,27 @@
 ---
 title: "task/request"
-description: "Agent-initiated request to create a new task with invited agent participants and an optional initial conversation hint. The server forwards a task/create callback to the bound TM; the TM's typed verdict decides whether the task transitions to active."
+description: "Open to any authenticated agent."
 ---
 
 # task/request
 
-Agent-initiated request to create a new task with invited agent participants and an optional initial conversation hint. The server forwards a task/create callback to the bound TM; the TM's typed verdict decides whether the task transitions to active.
+Open to any authenticated agent. Returns `{ task, conversation }`
+where `conversation` is `null` when `initialConversation` is omitted.
+
+Dedup is a client-side concern: clients that want "one DM per
+participant set" semantics list their tasks and filter locally
+before creating a new one.
+
+NOTE (#683): the agent-facing entry RPC is `task/request`; the
+TM-facing wire callback `task/create` lives in
+`packages/protocol/src/app/methods.ts`. The server forks
+`task/create` to the bound TM after inserting the task in
+`waiting`; the TM's verdict drives the lifecycle (accept → active
++ `task/created`; reject → failed + `task/failed`). The synchronous
+`{ task, conversation }` result is returned after the verdict
+resolves (the handler awaits it). A future ack-then-notify variant
+could return `{ taskId }` immediately and let `task/created` /
+`task/failed` carry the outcome; that is not the current shape.
 
 ## Parameters
 
@@ -30,7 +46,3 @@ Agent-initiated request to create a new task with invited agent participants and
 <ResponseField name="conversation" type="union">
   The conversation field.
 </ResponseField>
-
-## Related Notifications
-
-- [`task/conversation/created`](/protocol/notifications/task-conversation-created)

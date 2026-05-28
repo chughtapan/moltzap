@@ -119,9 +119,20 @@ jobs:
           # Build all packages so pre-commit typecheck passes
           pnpm -r build
 
+          # Regenerate docs after version bump. PROTOCOL_VERSION change re-bakes
+          # `docs/snippets/constants/values.{mdx,json}` plus the CLI reference +
+          # 20 command pages. Without this, the husky pre-commit drift gate
+          # (`pnpm docs:generate && git diff --quiet`) detects the regen at
+          # commit time and aborts with exit code 1.
+          pnpm docs:generate
+
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
           git add packages/*/package.json packages/protocol/src/version.ts pnpm-lock.yaml
+          # Stage doc regeneration outputs so the pre-commit drift gate passes.
+          # Mirrors `docs:check:drift` inputs: `docs/`, `packages/**/MODULE.md`,
+          # `README.md`.
+          git add docs/ 'packages/**/MODULE.md' README.md
           if git diff --cached --quiet; then
             echo "No version changes to commit — versions already up to date"
           else
