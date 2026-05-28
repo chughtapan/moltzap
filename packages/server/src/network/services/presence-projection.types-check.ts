@@ -166,8 +166,12 @@ void emission.agentId;
 void emission.status;
 
 declare const entry: AgentPresenceEntry;
-void entry.connId;
-void entry.activeLeases;
+// Round-5 codex P2 fix — multi-connection-shaped entry. The
+// single-`connId` field is gone; `liveConns` carries the set of all
+// simultaneous WS connections and `leasesByConn` maps each live
+// connection to the leases bound to it.
+void entry.liveConns;
+void entry.leasesByConn;
 // v7 (codex r6 P2 #1): entry.status field deleted — status is derived
 // via deriveEntryStatus(entry). Asserting the deletion structurally:
 // any access to entry.status fails TypeScript (TS2339 "Property
@@ -177,6 +181,14 @@ void entry.activeLeases;
 // `tsc --build` fails with TS2578.
 // @ts-expect-error — v7 invariant: AgentPresenceEntry.status was deleted (codex r6 P2 #1). Status is derived via deriveEntryStatus(entry).
 void entry.status;
+// Round-5 codex P2 fix — same assertion for the deleted single-conn
+// `connId` field. If a future contributor re-adds it (regressing the
+// multi-connection model), this @ts-expect-error becomes unused and
+// `tsc --build` fails with TS2578.
+// @ts-expect-error — round-5 invariant: AgentPresenceEntry.connId was deleted. The agent now tracks a set of liveConns + per-conn lease buckets.
+void entry.connId;
+// @ts-expect-error — round-5 invariant: AgentPresenceEntry.activeLeases was deleted. Per-conn lease buckets in leasesByConn replace the flat lease set.
+void entry.activeLeases;
 
 // v3+: PresenceProjectionAuditEvent discriminated union for "expected
 // during teardown" lease callbacks (codex r2 P2 #2 + P2 #3 fix; v6

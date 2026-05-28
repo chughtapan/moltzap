@@ -80,21 +80,23 @@ export { deriveEntryStatus, emitPresenceTransition };
  * Public error channel is `never` — the projection is best-effort and
  * MUST NOT propagate failure to the lease registry mutator.
  *
- * **v6 (codex r5 P2 #1): `recipientConnId` parameter added.** The
- * fast-reconnect race — agent A disconnects on `connId-1`, the
- * disconnect handler drops A's projection entry, A reconnects fast on
- * `connId-2`, the projection re-creates A's entry, THEN the
+ * **`recipientConnId` parameter.** The fast-reconnect race — agent
+ * A disconnects on `connId-1`, the disconnect handler drops `connId-1`
+ * from A's `liveConns`, A reconnects fast on `connId-2`, the
+ * projection adds `connId-2` to `liveConns`, THEN the
  * `leaseRegistry.abandon(connId-1)` synchronously fires
- * `onLeaseActiveEnd` for each of A's old leases — would, pre-v6, see
- * A's NEW entry and mutate/emit against the new session. v6 threads
- * the lease's `binding.recipientConnectionId` through the callback so
- * the projection can compare against its current entry's `connId`;
- * mismatch produces a {@link PresenceProjectionAuditEvent} of
- * `_tag: "LeaseCallbackFromStaleConnection"` and the callback is a
- * silent no-op (no state mutation, no emission). The single `offline`
- * from the disconnect-on-`connId-1` stands; the new `online` from
- * the connect-on-`connId-2` stands; the stale lease callbacks
- * neither mutate nor emit.
+ * `onLeaseActiveEnd` for each of A's old leases — would, without
+ * connId threading, see A's entry and mutate against the surviving
+ * connection. The callback threads the lease's
+ * `binding.recipientConnectionId` so the projection can check
+ * `recipientConnId ∈ entry.liveConns`; if absent (multi-conn fix:
+ * could mean the conn fully disconnected OR the agent never had it),
+ * the callback emits a {@link PresenceProjectionAuditEvent} of
+ * `_tag: "LeaseCallbackFromStaleConnection"` and is a silent no-op
+ * (no state mutation, no emission). The single `offline` from
+ * `disconnect-on-connId-1` (when liveConns was empty) stands; the
+ * new `online` from `connect-on-connId-2` stands; the stale lease
+ * callbacks neither mutate nor emit.
  */
 export interface LeaseTransitionObserver {
   readonly onLeaseActiveBegin: (
@@ -189,24 +191,27 @@ export interface PresenceProjectionDeps {
  *   means the begin is correctly dropped without re-creating a ghost
  *   entry. Not a defect; logged at debug.
  *
- * - **`LeaseCallbackFromStaleConnection`** (v6 / codex r5 P2 #1) —
+ * - **`LeaseCallbackFromStaleConnection`** —
  *   `onLeaseActiveBegin` OR `onLeaseActiveEnd` fires with a
- *   `recipientConnId` that does NOT match the projection entry's
- *   current `connId`. EXPECTED in the fast-reconnect race: agent A
- *   disconnects on `connId-1`, A reconnects on `connId-2`, the
- *   projection's entry now carries `connId: connId-2`, and the
- *   pending `leaseRegistry.abandon(connId-1)` fires `onLeaseActiveEnd`
- *   for A's old leases — those callbacks carry `recipientConnId =
- *   connId-1`, which mismatches the entry. Not a defect; logged at
- *   debug. The callback is a silent no-op (no state mutation, no
- *   emission). The `kind` field discriminates begin-vs-end so
- *   operators can grep by callback type.
+ *   `recipientConnId` that is NOT in the projection entry's current
+ *   `liveConns` set. EXPECTED in the fast-reconnect race: agent A's
+ *   `connId-1` disconnects (the projection removed it from
+ *   `liveConns`), A reconnects on `connId-2`, and the pending
+ *   `leaseRegistry.abandon(connId-1)` fires `onLeaseActiveEnd` for
+ *   A's old leases — those callbacks carry
+ *   `recipientConnId = connId-1`, which is no longer in `liveConns`.
+ *   Not a defect; logged at debug. The callback is a silent no-op
+ *   (no state mutation, no emission). The `kind` field
+ *   discriminates begin-vs-end so operators can grep by callback
+ *   type. `currentConnId` reports an arbitrary stable witness from
+ *   `liveConns` (the first one, insertion-ordered) for diagnostic
+ *   purposes — the agent may have several simultaneous connections.
  *
  * Idempotent set operations (double `onLeaseActiveEnd` for the same
- * lease id on an EXISTING agent entry whose `connId` MATCHES) are
- * silent — the set-delete returns false, no audit, no emission, no
- * defect. The audit class is specifically for the disconnect-window
- * and fast-reconnect race cases.
+ * lease id on an EXISTING agent entry whose `recipientConnId` IS in
+ * `liveConns`) are silent — the per-conn set-delete returns false,
+ * no audit, no emission, no defect. The audit class is specifically
+ * for the disconnect-window and fast-reconnect race cases.
  *
  * Audit events are emitted via `Effect.logDebug` (structured logging
  * with `_tag` discrimination over the variants). The audit stream does
@@ -276,14 +281,14 @@ export type PresenceProjectionAuditEvent =
  *   - Disconnect: `packages/server/src/app/socket-handler.ts → closeSocketSession`
  *     (replaces the existing `presenceService.setOffline(authCtx.agentId)` call).
  *
- * **v6 (codex r5 P2 #1): WS-lifecycle methods carry `connId`.** Both
- * `onAgentConnect` and `onAgentDisconnect` take a `connId:
- * ConnectionId` second parameter so the projection can detect the
- * fast-reconnect race. `onAgentConnect(agentId, connId-2)` overwrites
- * an existing entry's `connId` to `connId-2`; `onAgentDisconnect(agentId,
- * connId-1)` only drops the entry IF its current `connId === connId-1`
- * (else the agent has already reconnected on a newer connection and
- * the disconnect is for the old session — silent no-op).
+ * **WS-lifecycle methods carry `connId`.** Both `onAgentConnect`
+ * and `onAgentDisconnect` take a `connId: ConnectionId` second
+ * parameter. Round-5 codex P2 fix — multi-connection-per-agent:
+ * `onAgentConnect(agentId, connId-2)` ADDS `connId-2` to the
+ * agent's `liveConns` set (does NOT replace the prior connId);
+ * `onAgentDisconnect(agentId, connId-1)` removes `connId-1` from
+ * `liveConns` and drops its per-conn lease bucket. The entry is
+ * deleted only when `liveConns` becomes empty.
  *
  * **Status read surface (codex r2 P2 #1 fix):** `PresenceProjection.statusOf`
  * + `statusMany` migrate the read from `PresenceService.get`/`getMany`
@@ -291,23 +296,28 @@ export type PresenceProjectionAuditEvent =
  *
  * **Entry-creation rule (load-bearing — covers the
  * concurrent-grant-during-disconnect race):** entries are created
- * EXCLUSIVELY in `onAgentConnect`. `onLeaseActiveBegin` on an unknown
- * agent NEVER allocates an entry; instead it emits a
+ * EXCLUSIVELY in `onAgentConnect` (first connection). Subsequent
+ * `onAgentConnect` calls add to `liveConns`; the entry itself is
+ * never re-created while any conn survives. `onLeaseActiveBegin`
+ * on an unknown agent NEVER allocates an entry; instead it emits a
  * {@link PresenceProjectionAuditEvent} of `_tag:
  * "LeaseBeginAfterDisconnect"` (logged at debug) and returns
- * `Effect.void`. Combined with the v6 connId-mismatch check, every
- * disconnect produces exactly one `offline` emission on the wire,
- * and stale lease callbacks across reconnect boundaries neither
- * mutate state nor emit.
+ * `Effect.void`. Combined with the `recipientConnId ∈ liveConns`
+ * check, every full disconnect (last conn) produces exactly one
+ * `offline` emission, and stale lease callbacks across reconnect /
+ * partial-disconnect boundaries neither mutate state nor emit.
  *
- * The "always-emit-`offline`" rule for WS-close (Acceptance #4) lives
- * exclusively in `onAgentDisconnect`. Combined with the
- * never-recreate rule and the v6 connId-match guard, every disconnect
- * produces exactly one `offline` emission on the wire; concurrent
- * lease transitions during the disconnect window produce zero stale
- * `online`/`working` emissions; fast reconnects produce a clean
- * `online` (from the new `onAgentConnect`) without ghost `working`
- * leaks from the old session's pending lease callbacks.
+ * The "emit `offline` on full disconnect" rule (Acceptance #4)
+ * lives exclusively in `onAgentDisconnect`. Combined with the
+ * never-recreate rule and the conn-in-liveConns guard, every
+ * full disconnect produces exactly one `offline` emission on the
+ * wire; concurrent lease transitions during the disconnect window
+ * produce zero stale `online`/`working` emissions; fast reconnects
+ * produce a clean `online` (from the new `onAgentConnect`) without
+ * ghost `working` leaks from the old session's pending lease
+ * callbacks. Multi-conn agents fire `offline` only when their
+ * LAST live connection drops; intermediate disconnects re-derive
+ * status from the surviving conns' lease buckets.
  *
  * Emission flow (the rule in code):
  *
@@ -320,8 +330,8 @@ export type PresenceProjectionAuditEvent =
  *
  *   LR->>PP: onLeaseActiveBegin(leaseId, agentId, recipientConnId)
  *   PP->>PP: Ref.modify computes BOTH new entry AND emission decision in one CAS
- *   alt agent has entry AND entry.connId === recipientConnId
- *     PP->>PP: prev = deriveEntryStatus(entry)<br>nextLeases = activeLeases ∪ {leaseId}<br>next = nextLeases.size > 0 ? "working" : "online"
+ *   alt agent has entry AND recipientConnId ∈ entry.liveConns
+ *     PP->>PP: prev = deriveEntryStatus(entry)<br>leasesByConn[recipientConnId] ∪= {leaseId}<br>next = any bucket non-empty ? "working" : "online"
  *     PP->>Emit: emit(prev, next, agentId)
  *     Emit-->>Emit: emitPresenceTransition(prev, next) — dedup
  *     alt decision = some(status)
@@ -330,7 +340,7 @@ export type PresenceProjectionAuditEvent =
  *     else decision = none
  *       Note over Emit: dedup — concurrent GRANTED, no fan-out
  *     end
- *   else entry exists but connId mismatches (v6 fast-reconnect race)
+ *   else entry exists but recipientConnId ∉ liveConns (fast-reconnect race)
  *     Note over PP: audit LeaseCallbackFromStaleConnection — Effect.logDebug, no emission
  *   else agent has no entry (disconnected)
  *     Note over PP: audit LeaseBeginAfterDisconnect — Effect.logDebug, no emission
@@ -339,56 +349,52 @@ export type PresenceProjectionAuditEvent =
  *
  * Mirror flow for `onLeaseActiveEnd` (same dispatch — Ref.modify, then
  * Option-gated emit; absent-entry case audits as
- * `LeaseEndAfterDisconnect`; connId-mismatch case audits as
- * `LeaseCallbackFromStaleConnection`), `onAgentConnect` (creates entry
- * from absent OR overwrites connId on existing entry; `online` is
- * emitted iff the agent was not already tracked OR the prior entry's
- * status was `offline`), and `onAgentDisconnect` (drops entry IFF
- * `entry.connId === connId` arg; emits `offline` iff entry was
- * actually dropped).
+ * `LeaseEndAfterDisconnect`; conn-not-in-liveConns case audits as
+ * `LeaseCallbackFromStaleConnection`), `onAgentConnect` (creates
+ * entry on first connection OR adds connId to existing entry's
+ * liveConns; `online` is emitted only on first connection — additional
+ * simultaneous conns dedup-elide), and `onAgentDisconnect` (removes
+ * connId from liveConns + drops `leasesByConn[connId]`; emits
+ * `offline` only when `liveConns` empties out, else re-derives from
+ * the surviving conns' lease buckets).
  */
 export interface PresenceProjection extends LeaseTransitionObserver {
   /**
-   * WS connect: initialize the agent's entry to `{ connId,
-   * activeLeases: ∅ }` and emit `online` (derived from the empty
-   * set via `deriveEntryStatus`).
+   * WS connect: add `connId` to the agent's `liveConns` and emit
+   * `online` on first connection. Multi-connection-shaped (round-5
+   * codex P2 fix): an agent may hold multiple simultaneous WS
+   * connections (web tab + CLI + mobile — see
+   * `AgentEndpointResolver` for the server's multi-conn model), so
+   * a second simultaneous connect ADDS to the set rather than
+   * replacing it.
    *
-   * **v6 (codex r5 P2 #1) — `connId` parameter.** Each entry now
-   * carries the originating connection's `connId`. Reconnect-with-new-connId
-   * overwrites the entry's `connId` (and clears `activeLeases` since
-   * the new connection has no pending leases yet).
+   * Three cases (single `Ref.modify` predicate):
    *
-   * **v7 (codex r6 P2 #1) — `status` field removed from the entry.**
-   * The entry stores `{ connId, activeLeases }`; status is derived
-   * via `deriveEntryStatus(entry) = entry.activeLeases.size === 0 ?
-   * "online" : "working"` everywhere.
+   * 1. **Agent was offline (no entry).** Allocate
+   *    `{ liveConns: {connId}, leasesByConn: {} }`; emit
+   *    `offline → online`.
    *
-   * **Redundant-connect is an idempotent no-op (v4 / codex r3 P2 #1
-   * fix).** A second `onAgentConnect` against an existing entry WITH
-   * THE SAME `connId` — regardless of whether the derived status is
-   * `"online"` (empty active set) OR `"working"` (active set non-empty
-   * from intervening lease grants) — produces no event, no log, no
-   * defect, no audit event. The `network/connect` handler's
-   * `if (conn.auth) { return yield* buildHelloOk(...) }` early-return
-   * makes this reachable in normal operation.
+   * 2. **`connId` already in `liveConns` (idempotent redundant connect).**
+   *    No-op; status stays at whatever the existing leases imply
+   *    (`online` or `working`). The `network/connect` handler's
+   *    `if (conn.auth) { return yield* buildHelloOk(...) }`
+   *    early-return makes this reachable in normal operation. v4
+   *    codex r3 P2 #1.
    *
-   * **Reconnect-with-new-connId (v6 — fast reconnect after fast
-   * disconnect).** A second `onAgentConnect` against an existing
-   * entry with a DIFFERENT `connId` overwrites the entry to
-   * `{ connId: newConnId, activeLeases: ∅ }` — derived status
-   * becomes `"online"`. The prior entry's `activeLeases` are
-   * dropped (they belonged to the old connection;
-   * `leaseRegistry.abandon(oldConnId)` will fire `onLeaseActiveEnd`
-   * for them, those callbacks will mismatch the new entry's
-   * `connId` and audit as `LeaseCallbackFromStaleConnection`).
-   * Emission: `Some("online")` iff the prior derived status was
-   * `"working"` (transition `working → online`); otherwise the
-   * lifecycle path dedup-elides via
-   * `emitPresenceTransition("online", "online") = none`.
+   * 3. **New simultaneous connection.** Add `connId` to `liveConns`;
+   *    do NOT touch `leasesByConn` (the existing leases stay bound
+   *    to their original conns). Status stays at `working` if any
+   *    bucket is non-empty, else `online` — either way, dedup
+   *    elides emission. This is the round-5 codex P2 fix: a second
+   *    simultaneous connection used to clobber `activeLeases` and
+   *    emit a spurious `online`. It now never does.
    *
-   * THIS is the only method that creates an entry. `onLeaseActiveBegin`
-   * NEVER creates entries — see the entry-creation invariant in the
-   * interface-level JSDoc above.
+   * **Stale-conn audit** (`LeaseCallbackFromStaleConnection`) is
+   * preserved by the fact that lease callbacks are routed by
+   * `recipientConnId ∈ liveConns?`. After a fast disconnect →
+   * reconnect-on-new-connId, the OLD conn is no longer in
+   * `liveConns`, so any pending `leaseRegistry.abandon(oldConnId)`
+   * fan-out audits.
    *
    * Public error channel is `never` — this runs inside the connect
    * handler and MUST NOT block the connect path on emission failure.
@@ -399,33 +405,36 @@ export interface PresenceProjection extends LeaseTransitionObserver {
   ) => Effect.Effect<void, never, never>;
 
   /**
-   * WS disconnect: drop the agent's entry IFF the entry's `connId`
-   * matches the `connId` arg, and emit `offline` iff the entry was
-   * actually dropped (i.e. status was previously `online` or
-   * `working`). Called BEFORE `LeaseRegistry.abandon(connId)` from
-   * the WS-close finalizer.
+   * WS disconnect: remove `connId` from the agent's `liveConns` and
+   * drop its `leasesByConn[connId]` bucket. Called BEFORE
+   * `LeaseRegistry.abandon(connId)` from the WS-close finalizer.
    *
-   * **v6 (codex r5 P2 #1) — connId-match guard.** If `entry.connId !==
-   * connId`, the agent has already reconnected on a newer connection
-   * and this disconnect is for an old session. Silent no-op: no state
-   * mutation, no emission, no log. The newer connection's
-   * `onAgentConnect` (which preceded this disconnect in
-   * close-handler ordering) is the canonical state; THIS disconnect
-   * is a stale shadow.
+   * Two cases (single `Ref.modify` predicate):
    *
-   * The pre-`abandon` ordering plus the entry-creation invariant
-   * (only `onAgentConnect` creates entries) plus the connId-match
-   * guard means subsequent lease transitions for this agent — whether
-   * they come from `leaseRegistry.abandon`'s synchronous fan-out OR
-   * from a concurrent `resolveLease(grant)` on a moderator's verdict
-   * that lands during the disconnect window — find no entry (audit
-   * as `LeaseEndAfterDisconnect` / `LeaseBeginAfterDisconnect`) OR
-   * find the new connection's entry (audit as
-   * `LeaseCallbackFromStaleConnection` because their
-   * `recipientConnId` matches the OLD connection's id, not the new
-   * entry's). All three audit paths produce no emission. The
-   * `offline` emission from THIS disconnect (when it actually fires)
-   * is single-source.
+   * 1. **Last live connection.** `liveConns` becomes empty after the
+   *    removal; drop the entry; emit `(prevStatus) → offline`.
+   *
+   * 2. **Other connections still live.** Remove `connId` from
+   *    `liveConns`; drop `leasesByConn[connId]` so leases bound to
+   *    the dead conn stop counting toward `working`. Status is
+   *    re-derived from the remaining leases on the surviving
+   *    connections — if the dead conn was the only one holding an
+   *    active lease, the agent flips `working → online`; otherwise
+   *    stays `working`.
+   *
+   * **Stale disconnect** — if `connId` is not in `liveConns` (the
+   * agent has already reconnected on a newer connection and this
+   * disconnect is for an old session that was never tracked, OR a
+   * test scenario fires disconnect for an unknown conn) — silent
+   * no-op.
+   *
+   * The pre-`abandon` ordering means the subsequent
+   * `leaseRegistry.abandon`'s `onLeaseActiveEnd` callbacks for
+   * `connId`'s leases find `connId` absent from `liveConns` and
+   * audit as `LeaseCallbackFromStaleConnection` (no emission). The
+   * projection's per-conn cleanup at disconnect time is the
+   * canonical source-of-truth; the registry-driven callbacks are
+   * defense-in-depth.
    *
    * Public error channel is `never`.
    */
@@ -509,8 +518,11 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  * **Implementation contract (the bit impl-staff fills in):**
  *
  * 1. **State store** — `Ref<ReadonlyMap<AgentId, AgentPresenceEntry>>`
- *    (in-memory; matches `LeaseRegistry`). Each entry now carries
- *    `connId: ConnectionId` per v6 (codex r5 P2 #1).
+ *    (in-memory; matches `LeaseRegistry`). Each entry carries
+ *    `liveConns: Set<ConnectionId>` (every WS conn the agent is
+ *    authed on) + `leasesByConn: Map<ConnectionId, Set<LeaseId>>`
+ *    (per-conn active-lease buckets). Round-5 codex P2 fix
+ *    multi-conn-shaped.
  *
  * 2. **One Ref.modify per transition, linearizing both state AND
  *    emission decision** — every observer/lifecycle method computes
@@ -532,11 +544,14 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  *    ```
  *    const transition = yield* Ref.modify(entriesRef, (entries) => {
  *      const entry = entries.get(agentId);
- *      // onAgentConnect: insert if absent, overwrite connId+clear leases if
- *      //                 existing entry has a different connId, else no-op
- *      //                 (same connId; redundant connect).
- *      // onAgentDisconnect: drop if entry.connId === connId, else no-op
- *      //                    (stale disconnect from an old session).
+ *      // onAgentConnect:
+ *      //   - no entry → create { liveConns: {connId}, leasesByConn: {} }
+ *      //   - entry, connId already in liveConns → idempotent no-op
+ *      //   - entry, new connId → add to liveConns; preserve leasesByConn
+ *      // onAgentDisconnect:
+ *      //   - connId not in liveConns → silent no-op
+ *      //   - liveConns becomes empty after removal → drop entry
+ *      //   - else → remove connId from liveConns; drop leasesByConn[connId]
  *      const [nextEntries, prevStatus, nextStatus] = computeLifecycle(entries, entry, connId);
  *      return [{ prevStatus, nextStatus }, nextEntries];
  *    });
@@ -553,36 +568,18 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  *      if (!entry) {
  *        // Audit-event path — entry was dropped by onAgentDisconnect
  *        // before this lease callback fired. Expected during teardown.
- *        const event: PresenceProjectionAuditEvent = {
- *          _tag: kind === "begin"
- *            ? "LeaseBeginAfterDisconnect"
- *            : "LeaseEndAfterDisconnect",
- *          agentId,
- *          leaseId,
- *        };
- *        return [{ _tag: "audit", event }, entries];
+ *        return [{ _tag: "audit", event: auditAbsentEntry(...) }, entries];
  *      }
- *      if (entry.connId !== recipientConnId) {
- *        // v6 (codex r5 P2 #1) — fast-reconnect race. The callback
- *        // belongs to a now-stale connection; the projection's entry
- *        // is for the NEW connection.
- *        const event: PresenceProjectionAuditEvent = {
- *          _tag: "LeaseCallbackFromStaleConnection",
- *          agentId,
- *          leaseId,
- *          kind,
- *          staleConnId: recipientConnId,
- *          currentConnId: entry.connId,
- *        };
- *        return [{ _tag: "audit", event }, entries];
+ *      if (!entry.liveConns.has(recipientConnId)) {
+ *        // Fast-reconnect race. The callback belongs to a now-dead
+ *        // connection; the projection has already removed it from
+ *        // liveConns.
+ *        return [{ _tag: "audit", event: auditStaleConnId(...) }, entries];
  *      }
- *      // v7 (codex r6 P2 #1): status is DERIVED from set size, not stored
- *      // on the entry. `deriveEntryStatus(entry)` returns the size-derived
- *      // "online"|"working"; the new entry stores ONLY connId + nextLeases.
  *      const prev = deriveEntryStatus(entry);
- *      const nextLeases = computeLeaseSet(entry.activeLeases, leaseId); // ∪ or \
- *      const nextEntry = { connId: entry.connId, activeLeases: nextLeases };
- *      const next = deriveEntryStatus(nextEntry);
+ *      // Bucket update: add/remove leaseId in leasesByConn[recipientConnId].
+ *      const nextEntry = applyLeaseToEntry(entry, kind, leaseId, recipientConnId);
+ *      const next = deriveEntryStatus(nextEntry);  // walks all buckets
  *      return [
  *        { _tag: "transition", prevStatus: prev, nextStatus: next },
  *        setReadonlyMapValue(agentId, nextEntry)(entries),
@@ -598,18 +595,22 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  *    at the directory boundary per v6).
  *
  * 3. **Entry-creation invariant** — only `onAgentConnect` creates
- *    entries (or overwrites an existing entry's `connId` on fast
- *    reconnect — see step 2 lifecycle pseudocode).
- *    `onLeaseActiveBegin`/`onLeaseActiveEnd` on an unknown agent OR
- *    on an agent whose `entry.connId !== recipientConnId` emit
- *    {@link PresenceProjectionAuditEvent} (logged at debug). v7
- *    deletes the `PresenceProjectionDefect` class entirely — the
- *    only remaining `reason` (`entry-status-size-mismatch`) is
- *    structurally impossible now that `entry.status` is derived
- *    from `set.size` rather than stored.
+ *    entries (and adds to `liveConns` on subsequent simultaneous
+ *    connects). `onLeaseActiveBegin`/`onLeaseActiveEnd` on an
+ *    unknown agent OR on an agent whose `recipientConnId ∉
+ *    liveConns` emit {@link PresenceProjectionAuditEvent} (logged
+ *    at debug). v7 deletes the `PresenceProjectionDefect` class
+ *    entirely — the only remaining `reason`
+ *    (`entry-status-size-mismatch`) is structurally impossible now
+ *    that `entry.status` is derived.
  *
- * 4. **Concurrent-grant-during-disconnect + fast-reconnect races** —
- *    closed by (3) plus the connId-match guard added in v6.
+ * 4. **Concurrent-grant-during-disconnect + fast-reconnect races
+ *    + multi-conn-per-agent** — all closed by (3) plus the
+ *    `recipientConnId ∈ liveConns` guard. The multi-conn case
+ *    (round-5 codex P2 fix) is correctness-by-construction: a
+ *    second simultaneous connect ADDS to `liveConns` rather than
+ *    clobbering it, so the original conn's active leases stay
+ *    accounted-for.
  *
  * 5. **Subscriber snapshot consistency** — folded INTO `EmitIfChanged`
  *    (v5+). At every publish site inside
@@ -690,8 +691,11 @@ function withoutEntry(entries: EntryMap, agentId: AgentId): EntryMap {
 
 /**
  * Pure predicate for {@link PresenceProjection.onAgentConnect}.
- * Computes the next entry map AND emission decision in one pass so
- * the outer `Ref.modify` linearizes both.
+ * Multi-connection-shaped (round-5 codex P2 fix): a second
+ * simultaneous WebSocket connection ADDS to `liveConns` rather than
+ * replacing it. Status changes only if the agent was previously
+ * offline (`entry === undefined`); subsequent additions to an
+ * already-tracked agent leave the active-lease set untouched.
  */
 function computeConnectTransition(
   entries: EntryMap,
@@ -700,29 +704,47 @@ function computeConnectTransition(
 ): readonly [LifecycleOutcome, EntryMap] {
   const entry = entries.get(agentId);
   if (entry === undefined) {
-    const nextEntry: AgentPresenceEntry = { connId, activeLeases: new Set() };
+    const nextEntry: AgentPresenceEntry = {
+      liveConns: new Set([connId]),
+      leasesByConn: new Map(),
+    };
     return [
       { prevStatus: "offline", nextStatus: "online" },
       withNewEntry(entries, agentId, nextEntry),
     ];
   }
-  if (entry.connId === connId) {
+  if (entry.liveConns.has(connId)) {
+    // Idempotent — already tracked. No-op.
     const status = deriveEntryStatus(entry);
     return [{ prevStatus: status, nextStatus: status }, entries];
   }
-  // Reconnect-with-new-connId: overwrite connId, clear leases.
-  const prev = deriveEntryStatus(entry);
-  const nextEntry: AgentPresenceEntry = { connId, activeLeases: new Set() };
+  // Additional simultaneous connection. Add to `liveConns`; leave
+  // `leasesByConn` untouched. Status is whatever the existing leases
+  // already imply.
+  const status = deriveEntryStatus(entry);
+  const nextLiveConns = new Set<ConnectionId>(entry.liveConns);
+  nextLiveConns.add(connId);
+  const nextEntry: AgentPresenceEntry = {
+    liveConns: nextLiveConns,
+    leasesByConn: entry.leasesByConn,
+  };
   return [
-    { prevStatus: prev, nextStatus: "online" },
+    { prevStatus: status, nextStatus: status },
     withNewEntry(entries, agentId, nextEntry),
   ];
 }
 
 /**
  * Pure predicate for {@link PresenceProjection.onAgentDisconnect}.
- * Drops the entry only if `entry.connId === connId`; otherwise the
- * disconnect is for a stale session and the predicate is a no-op.
+ * Multi-connection-shaped (round-5 codex P2 fix): removes the
+ * `connId` from `liveConns` and drops the per-conn lease bucket so
+ * leases bound to the dead conn stop counting toward `working`. If
+ * `liveConns` empties out, the entry is removed and status becomes
+ * `offline`; otherwise the entry stays, and status is re-derived
+ * from the remaining leases on the surviving connections.
+ *
+ * Stale disconnects (the `connId` was never in `liveConns`) are a
+ * silent no-op.
  */
 function computeDisconnectTransition(
   entries: EntryMap,
@@ -730,13 +752,28 @@ function computeDisconnectTransition(
   connId: ConnectionId,
 ): readonly [LifecycleOutcome, EntryMap] {
   const entry = entries.get(agentId);
-  if (entry === undefined || entry.connId !== connId) {
+  if (entry === undefined || !entry.liveConns.has(connId)) {
     return [{ prevStatus: "offline", nextStatus: "offline" }, entries];
   }
   const prev = deriveEntryStatus(entry);
+  const nextLiveConns = new Set<ConnectionId>(entry.liveConns);
+  nextLiveConns.delete(connId);
+  if (nextLiveConns.size === 0) {
+    return [
+      { prevStatus: prev, nextStatus: "offline" },
+      withoutEntry(entries, agentId),
+    ];
+  }
+  const nextLeasesByConn = new Map(entry.leasesByConn);
+  nextLeasesByConn.delete(connId);
+  const nextEntry: AgentPresenceEntry = {
+    liveConns: nextLiveConns,
+    leasesByConn: nextLeasesByConn,
+  };
+  const next = deriveEntryStatus(nextEntry);
   return [
-    { prevStatus: prev, nextStatus: "offline" },
-    withoutEntry(entries, agentId),
+    { prevStatus: prev, nextStatus: next },
+    withNewEntry(entries, agentId, nextEntry),
   ];
 }
 
@@ -763,15 +800,22 @@ function auditAbsentEntry(cb: ObserverCallback): PresenceProjectionAuditEvent {
 
 function auditStaleConnId(
   cb: ObserverCallback,
-  currentConnId: ConnectionId,
+  currentLiveConns: ReadonlySet<ConnectionId>,
 ): PresenceProjectionAuditEvent {
+  // Multi-conn fix: report the FIRST live connection as the "current"
+  // for diagnostic purposes. Iteration order is insertion order in
+  // ES Map/Set, which gives a stable witness when the agent has
+  // multiple live connections.
+  const firstLive = currentLiveConns.values().next();
   return {
     _tag: "LeaseCallbackFromStaleConnection",
     agentId: cb.recipientAgentId,
     leaseId: cb.leaseId,
     kind: cb.kind,
     staleConnId: cb.recipientConnId,
-    currentConnId,
+    currentConnId: firstLive.done
+      ? cb.recipientConnId
+      : (firstLive.value as ConnectionId),
   };
 }
 
@@ -779,20 +823,35 @@ function applyLeaseToEntry(
   entry: AgentPresenceEntry,
   kind: "begin" | "end",
   leaseId: LeaseId,
+  recipientConnId: ConnectionId,
 ): AgentPresenceEntry {
-  const nextLeases = new Set<LeaseId>(entry.activeLeases);
+  const nextLeasesByConn = new Map(entry.leasesByConn);
+  const existing = nextLeasesByConn.get(recipientConnId) ?? new Set<LeaseId>();
+  const nextLeases = new Set<LeaseId>(existing);
   if (kind === "begin") {
     nextLeases.add(leaseId);
   } else {
     nextLeases.delete(leaseId);
   }
-  return { connId: entry.connId, activeLeases: nextLeases };
+  if (nextLeases.size === 0) {
+    nextLeasesByConn.delete(recipientConnId);
+  } else {
+    nextLeasesByConn.set(recipientConnId, nextLeases);
+  }
+  return {
+    liveConns: entry.liveConns,
+    leasesByConn: nextLeasesByConn,
+  };
 }
 
 /**
- * Pure predicate for lease-observer transitions (begin / end). Audits
- * absent or stale-connection entries; otherwise computes the next
- * entry shape + derived-status pair.
+ * Pure predicate for lease-observer transitions (begin / end).
+ * Multi-connection-shaped (round-5 codex P2 fix): the
+ * `recipientConnId` must be one of the agent's `liveConns`,
+ * otherwise the callback is a fast-reconnect-race ghost and audits.
+ * The lease is added to / removed from the per-conn bucket
+ * `leasesByConn[recipientConnId]`; the agent's derived status is
+ * recomputed from the union of leases across ALL live connections.
  */
 function computeObserverTransition(
   entries: EntryMap,
@@ -802,14 +861,19 @@ function computeObserverTransition(
   if (entry === undefined) {
     return [{ _tag: "audit", event: auditAbsentEntry(cb) }, entries];
   }
-  if (entry.connId !== cb.recipientConnId) {
+  if (!entry.liveConns.has(cb.recipientConnId)) {
     return [
-      { _tag: "audit", event: auditStaleConnId(cb, entry.connId) },
+      { _tag: "audit", event: auditStaleConnId(cb, entry.liveConns) },
       entries,
     ];
   }
   const prev = deriveEntryStatus(entry);
-  const nextEntry = applyLeaseToEntry(entry, cb.kind, cb.leaseId);
+  const nextEntry = applyLeaseToEntry(
+    entry,
+    cb.kind,
+    cb.leaseId,
+    cb.recipientConnId,
+  );
   const next = deriveEntryStatus(nextEntry);
   return [
     { _tag: "transition", prevStatus: prev, nextStatus: next },
