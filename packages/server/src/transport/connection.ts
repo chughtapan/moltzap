@@ -1,4 +1,4 @@
-import { Effect, type Scope } from "effect";
+import { Data, Effect, HashMap, Match, Option, Ref, type Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
   makeServerConnection,
@@ -11,9 +11,12 @@ import {
   type ServerHandlers,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
-import type {
-  AuthenticatedContext,
-  DispatchContext,
+import type { AgentId } from "@moltzap/protocol/identity";
+import {
+  AgentContext,
+  AppContext,
+  type AuthenticatedContext,
+  type DispatchContext,
 } from "../transport/context.js";
 
 export interface MoltZapConnection {
@@ -109,8 +112,138 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   return call(definition, params);
 }
 
+// ===========================================================================
+// D #705 §1.1 / §3 — three-arm discriminated-union connection state.
+//
+// Added ALONGSIDE the legacy `MoltZapConnection` surface above. The full
+// cutover (handlers consuming `AgentConnection` / `AppConnection` directly,
+// the connections map switching to this union as its only entry shape) lands
+// in a later phase; this phase introduces the types + sanctioned construction
+// methods so downstream phases compile against a published contract.
+// ===========================================================================
+
+/**
+ * The outbound originator + inbound dispatcher carried by every connection.
+ * Publicly constructible (via `acquireConnectionRpcClient` above); passed to
+ * `ConnectionManager.add` as a primitive-equivalent parameter.
+ */
+export type Originator = ServerConnection<DispatchContext>;
+
+/**
+ * The per-connection socket handle. The write/shutdown surface the transport
+ * already exposes on `MoltZapConnection`; lifted to a standalone public type
+ * so `ConnectionManager.add` can take it as a constructible parameter without
+ * accepting a `Connection`-arm value.
+ */
+export interface WebSocketRef {
+  /**
+   * Write a raw frame to this connection. Fails with SocketError on send
+   * failure or if the socket is already closed.
+   */
+  readonly write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+  /** Close this connection's scope, tearing down the underlying socket. */
+  readonly shutdown: Effect.Effect<void>;
+}
+
+/**
+ * Shared base fields across all three connection arms. Module-private — not
+ * exported. Every arm intersects this; the discriminator is the class tag.
+ */
+interface ConnectionBase {
+  readonly connId: ConnectionId;
+  readonly socket: WebSocketRef;
+  readonly originator: Originator;
+}
+
+// Module-private classes — constructors NOT exported (only the `export type`
+// forms land). External modules that need an arm value go through
+// `ConnectionManager.add` / `.authenticate` / `.rollbackToUnauthenticated`,
+// which use these constructors internally.
+//
+// The `private readonly __brand: never` field is a NOMINAL seal: TypeScript is
+// structurally typed by default, so without it an external module could forge
+// an object literal matching the field shape and pass it through an
+// `import type { AgentConnection }` parameter slot. The private member is
+// unreachable from outside the class declaration (TS2741 / TS18013 at the use
+// site), so external code cannot synthesize a value of any arm.
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal (§3.3), not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+class UnauthenticatedConnection extends Data.TaggedClass(
+  "UnauthenticatedConnection",
+)<ConnectionBase> {
+  private readonly __brand: never = undefined as never;
+}
+
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal (§3.3), not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+class AgentConnection extends Data.TaggedClass("AgentConnection")<
+  ConnectionBase & { readonly auth: AgentContext }
+> {
+  private readonly __brand: never = undefined as never;
+}
+
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal (§3.3), not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+class AppConnection extends Data.TaggedClass("AppConnection")<
+  ConnectionBase & { readonly auth: AppContext }
+> {
+  private readonly __brand: never = undefined as never;
+}
+
+export type { UnauthenticatedConnection, AgentConnection, AppConnection };
+
+/** The three-arm connection state. Replaces `MoltZapConnection` at cutover. */
+export type Connection =
+  | UnauthenticatedConnection
+  | AgentConnection
+  | AppConnection;
+
+/**
+ * Outcome of `ConnectionManager.authenticate`'s atomic transition. The
+ * success arms are SPLIT per minted arm so the Connect handler's
+ * `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
+ * `authed` structurally — no `as AgentConnection` cast.
+ */
+export type TransitionOutcome =
+  | { readonly kind: "not-connected" }
+  | {
+      readonly kind: "already-connected";
+      readonly existing: AgentConnection | AppConnection;
+    }
+  | { readonly kind: "ok-agent"; readonly authed: AgentConnection }
+  | { readonly kind: "ok-app"; readonly authed: AppConnection };
+
+/**
+ * The ONE surviving site of the `auth._tag` runtime check (§1.1 v21): mint
+ * the connection arm matching the resolved principal. Module-private —
+ * `ConnectionManager.authenticate` is the only caller. Splits the success
+ * outcome per arm so the caller narrows `authed` without a cast.
+ */
+const mintAuthedArm = (
+  base: ConnectionBase,
+  auth: AgentContext | AppContext,
+): { readonly outcome: TransitionOutcome; readonly minted: Connection } =>
+  Match.value(auth).pipe(
+    Match.tag("AgentContext", (agentAuth) => {
+      const authed = new AgentConnection({ ...base, auth: agentAuth });
+      return { outcome: { kind: "ok-agent", authed } as const, minted: authed };
+    }),
+    Match.tag("AppContext", (appAuth) => {
+      const authed = new AppConnection({ ...base, auth: appAuth });
+      return { outcome: { kind: "ok-app", authed } as const, minted: authed };
+    }),
+    Match.exhaustive,
+  );
+
 export class ConnectionManager {
   private connections = new Map<ConnectionId, MoltZapConnection>();
+
+  /**
+   * D #705 §1.1 — the three-arm connections map. Module-private; the only
+   * mutators are `add` / `authenticate` / `rollbackToUnauthenticated` /
+   * `removeAndReturn` below. Lives alongside the legacy `connections` map
+   * during the additive phase; the cutover phase collapses the two.
+   */
+  private readonly connectionsRef: Ref.Ref<
+    HashMap.HashMap<ConnectionId, Connection>
+  > = Effect.runSync(Ref.make(HashMap.empty<ConnectionId, Connection>()));
 
   add(conn: MoltZapConnection): void {
     this.connections.set(conn.id, conn);
@@ -168,5 +301,169 @@ export class ConnectionManager {
 
   get size(): number {
     return this.connections.size;
+  }
+
+  // =========================================================================
+  // D #705 §5.2 — sanctioned construction + transition surface over the
+  // three-arm `connectionsRef`. Every method below accepts only primitives or
+  // publicly-constructible types (`AgentContext` / `AppContext` are exported
+  // `Data.TaggedClass`); none accept an arm value, since the arm constructors
+  // are module-private. Return types ARE the arms, since callers only READ.
+  // =========================================================================
+
+  /**
+   * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
+   * at WS-open. The ONLY construction site for the unauth arm.
+   *
+   * Named `addUnauthenticated` during the additive phase to coexist with the
+   * legacy `add(conn: MoltZapConnection)`; the cutover phase deletes the
+   * legacy method and renames this to `add` (the §5.2 contract name).
+   */
+  addUnauthenticated(
+    connId: ConnectionId,
+    socket: WebSocketRef,
+    originator: Originator,
+  ): Effect.Effect<void> {
+    return Ref.update(this.connectionsRef, (map) =>
+      HashMap.set(
+        map,
+        connId,
+        new UnauthenticatedConnection({ connId, socket, originator }),
+      ),
+    );
+  }
+
+  /** Non-mutating read. Callers discriminate on the returned arm's `_tag`. */
+  peek(connId: ConnectionId): Effect.Effect<Option.Option<Connection>> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => HashMap.get(map, connId)),
+    );
+  }
+
+  /**
+   * Atomic per-connection authentication gate (§3 STEP C). Pattern-matches on
+   * `auth._tag` ONCE to decide which arm to mint — the only surviving site of
+   * that runtime check. Returns a split-per-arm `TransitionOutcome` so the
+   * caller narrows without a cast.
+   */
+  authenticate(
+    connId: ConnectionId,
+    auth: AgentContext | AppContext,
+  ): Effect.Effect<TransitionOutcome> {
+    return Ref.modify(this.connectionsRef, (map) => {
+      const current = HashMap.get(map, connId);
+      if (Option.isNone(current)) {
+        return [{ kind: "not-connected" } as const, map];
+      }
+      return Match.value(current.value).pipe(
+        Match.tag(
+          "AgentConnection",
+          (existing): [TransitionOutcome, typeof map] => [
+            { kind: "already-connected", existing },
+            map,
+          ],
+        ),
+        Match.tag(
+          "AppConnection",
+          (existing): [TransitionOutcome, typeof map] => [
+            { kind: "already-connected", existing },
+            map,
+          ],
+        ),
+        Match.tag(
+          "UnauthenticatedConnection",
+          (unauth): [TransitionOutcome, typeof map] => {
+            const { outcome, minted } = mintAuthedArm(
+              {
+                connId: unauth.connId,
+                socket: unauth.socket,
+                originator: unauth.originator,
+              },
+              auth,
+            );
+            return [outcome, HashMap.set(map, connId, minted)];
+          },
+        ),
+        Match.exhaustive,
+      );
+    });
+  }
+
+  /**
+   * Roll an authenticated arm back to `UnauthenticatedConnection` (§3 STEP D
+   * failure). Idempotent: no-op when the entry is absent or already
+   * unauthenticated — safe against a racing close handler.
+   */
+  rollbackToUnauthenticated(connId: ConnectionId): Effect.Effect<void> {
+    return Ref.update(this.connectionsRef, (map) => {
+      const current = HashMap.get(map, connId);
+      if (Option.isNone(current)) return map;
+      return Match.value(current.value).pipe(
+        Match.tag("UnauthenticatedConnection", () => map),
+        Match.tag("AgentConnection", (authed) =>
+          HashMap.set(
+            map,
+            connId,
+            new UnauthenticatedConnection({
+              connId: authed.connId,
+              socket: authed.socket,
+              originator: authed.originator,
+            }),
+          ),
+        ),
+        Match.tag("AppConnection", (authed) =>
+          HashMap.set(
+            map,
+            connId,
+            new UnauthenticatedConnection({
+              connId: authed.connId,
+              socket: authed.socket,
+              originator: authed.originator,
+            }),
+          ),
+        ),
+        Match.exhaustive,
+      );
+    });
+  }
+
+  /**
+   * Atomic delete + return (§8.2 close handler STEP 0). Returns the removed
+   * arm (or `undefined`) so the caller `Match.tag`s for auth-gated cleanup.
+   */
+  removeAndReturn(connId: ConnectionId): Effect.Effect<Connection | undefined> {
+    return Ref.modify(this.connectionsRef, (map) => {
+      const current = HashMap.get(map, connId);
+      if (Option.isNone(current)) {
+        return [undefined, map] as [Connection | undefined, typeof map];
+      }
+      return [current.value, HashMap.remove(map, connId)] as [
+        Connection | undefined,
+        typeof map,
+      ];
+    });
+  }
+
+  /**
+   * Read-only lookup narrowed to the agent arm (§5.2). App lookups go through
+   * `AppRegistry` by `appId`; `UnauthenticatedConnection` and `AppConnection`
+   * entries are skipped structurally (no `auth.agentId` to compare).
+   */
+  getByAgentConnection(
+    agentId: AgentId,
+  ): Effect.Effect<AgentConnection | null> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => {
+        for (const conn of HashMap.values(map)) {
+          if (
+            conn._tag === "AgentConnection" &&
+            conn.auth.agentId === agentId
+          ) {
+            return conn;
+          }
+        }
+        return null;
+      }),
+    );
   }
 }

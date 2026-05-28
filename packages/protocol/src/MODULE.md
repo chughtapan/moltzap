@@ -32,7 +32,7 @@ own home layer.
 
 ## Public surface
 
-### [`agentClientRpcMethods`](./rpc-registry.ts#L88)
+### [`agentClientRpcMethods`](./rpc-registry.ts#L98)
 
 _Variable_
 
@@ -45,7 +45,7 @@ export const agentClientRpcMethods = [
 ] as const
 ```
 
-### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L116)
+### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L126)
 
 _TypeAlias_
 
@@ -54,7 +54,7 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
-### [`AnyNotificationDefinition`](./rpc-registry.ts#L123)
+### [`AnyNotificationDefinition`](./rpc-registry.ts#L133)
 
 _TypeAlias_
 
@@ -63,7 +63,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-registry.ts#L114)
+### [`AnyServerRpcDefinition`](./rpc-registry.ts#L124)
 
 _TypeAlias_
 
@@ -71,7 +71,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
 ```
 
-### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L121)
+### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L131)
 
 _TypeAlias_
 
@@ -79,7 +79,7 @@ _TypeAlias_
 export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
 ```
 
-### [`AnyTaskMasterRpcDefinition`](./rpc-registry.ts#L118)
+### [`AnyTaskMasterRpcDefinition`](./rpc-registry.ts#L128)
 
 _TypeAlias_
 
@@ -275,7 +275,7 @@ Returns the shared `DateTimeStringSchema` singleton. Functioned so
 callers can keep `as const` references stable while the schema body
 is owned here.
 
-### [`decodeClientInbound`](./rpc-registry.ts#L268)
+### [`decodeClientInbound`](./rpc-registry.ts#L278)
 
 _Function_
 
@@ -293,7 +293,7 @@ on the request arm.
 Fails closed with `MalformedFrameError` on any mismatch, including
 a response frame whose `id` is `null` (no pending call to settle).
 
-### [`DecodedClientInbound`](./rpc-registry.ts#L166)
+### [`DecodedClientInbound`](./rpc-registry.ts#L176)
 
 _TypeAlias_
 
@@ -308,7 +308,7 @@ Decoded shape of a frame inbound to the server (from client):
 a client RPC request, a response (success XOR error) to a
 server-initiated callback, or a notification.
 
-### [`DecodedResponseError`](./rpc-registry.ts#L140)
+### [`DecodedResponseError`](./rpc-registry.ts#L150)
 
 _Class_
 
@@ -324,7 +324,7 @@ Discriminated error arm of a decoded JSON-RPC response — wire-frame
 decoder discriminator, not an Effect tagged error (the wire `error`
 sub-object carries `code`/`message`/`data`, no Effect machinery).
 
-### [`DecodedResponseSuccess`](./rpc-registry.ts#L127)
+### [`DecodedResponseSuccess`](./rpc-registry.ts#L137)
 
 _Class_
 
@@ -340,7 +340,7 @@ export class DecodedResponseSuccess extends Data.TaggedClass(
 
 Discriminated success arm of a decoded JSON-RPC response.
 
-### [`DecodedServerInbound`](./rpc-registry.ts#L151)
+### [`DecodedServerInbound`](./rpc-registry.ts#L161)
 
 _TypeAlias_
 
@@ -357,7 +357,7 @@ Decoded shape of a frame inbound to the client (from server):
 a response (success XOR error), a server-initiated task-callback
 request, or a notification.
 
-### [`decodeServerInbound`](./rpc-registry.ts#L234)
+### [`decodeServerInbound`](./rpc-registry.ts#L244)
 
 _Function_
 
@@ -504,7 +504,7 @@ _Variable_
 export const MAX_PAGE_LIMIT = 200
 ```
 
-### [`notificationDefinitions`](./rpc-registry.ts#L107)
+### [`notificationDefinitions`](./rpc-registry.ts#L117)
 
 _Variable_
 
@@ -525,7 +525,7 @@ _Variable_
 export const PROTOCOL_VERSION = "2026.529.0"
 ```
 
-### [`RegisteredTaggedError`](./rpc-registry.ts#L64)
+### [`RegisteredTaggedError`](./rpc-registry.ts#L67)
 
 _TypeAlias_
 
@@ -546,7 +546,14 @@ export type RegisteredTaggedError =
   // `network/connect`. Architect plan #706 v8 declared the class +
   // self-registered the wire code; v11 closes the type-narrowing
   // gap so `Effect.catchTag("ProtocolMismatchError", ...)` works.
-  | ProtocolMismatchError;
+  | ProtocolMismatchError
+  // D #705 §3.1 — principal-already-connected + app-registry lookup
+  // boot-state discriminator. Registered via `registerErrorClass`; added
+  // here so `Effect.catchTag("AlreadyConnected" | "AppNotReadyError" |
+  // "AppNotFoundError", ...)` narrows on the wire.
+  | AlreadyConnected
+  | AppNotReadyError
+  | AppNotFoundError;
 
 // Spec D3 R11 — per-kind outbound catalogs.
 //   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.
@@ -568,7 +575,7 @@ concrete tags (e.g. "Forbidden", "NotInContacts"). Mirrors the static
 registry built by `registerErrorClass` — keep in sync if a new class
 lands.
 
-### [`serverRpcMethods`](./rpc-registry.ts#L100)
+### [`serverRpcMethods`](./rpc-registry.ts#L110)
 
 _Variable_
 
@@ -593,7 +600,7 @@ export function stringEnum<T extends string[]>(values: [...T])
 values. Use instead of `Type.Union([Type.Literal("a"), Type.Literal("b")])`
 — same wire shape, simpler schema, single AJV `enum` keyword.
 
-### [`taskMasterRpcMethods`](./rpc-registry.ts#L95)
+### [`taskMasterRpcMethods`](./rpc-registry.ts#L105)
 
 _Variable_
 

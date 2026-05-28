@@ -1,6 +1,7 @@
 import { HttpClient } from "@effect/platform";
 import { NodeHttpClient, NodeHttpServer } from "@effect/platform-node";
 import {
+  Cause,
   Data,
   Duration,
   Effect,
@@ -76,6 +77,49 @@ const HttpClientLive = Layer.effect(
 class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
   readonly cause: unknown;
 }> {}
+
+/**
+ * D #705 §2.7 — typed fatal for boot failure. The `phase` discriminator names
+ * which boot step failed:
+ * - `"http-listen"` — step 5a's `NodeHttpServer.make` / `serverSvc.serve`
+ *   typed `ServeError` (EADDRINUSE, EACCES, ...).
+ * - `"default-app-connect"` — step 5c's `startDefaultApp` `BootDefaultAppError`
+ *   (wrapping `client.connect()`'s `ConnectError`).
+ *
+ * Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
+ * and flow through the boot-failure `catchAllCause` envelope without a phase
+ * tag. Wired into the `createCoreApp` boot-failure error channel at the
+ * boot-orchestrator cutover (phase 4).
+ */
+export class ServerBootFailedError extends Data.TaggedError(
+  "ServerBootFailedError",
+)<{
+  readonly phase: "http-listen" | "default-app-connect";
+  readonly cause: unknown;
+}> {}
+
+/**
+ * D #705 §2.7 — shared cleanup-error log-and-swallow envelope. `catchAllCause`
+ * (not `catchAll`) so DEFECTS (throwing finalizers, sync exceptions,
+ * `Effect.die`) are caught alongside typed failures — `catchAll` would let
+ * them propagate through `Cause`. The resulting Effect has a `never` error
+ * channel, so the close contract is honest: nothing escapes regardless of
+ * what the cleanup step does. `Cause.pretty` provides structured diagnostics
+ * without smuggling a raw `Cause` through an `unknown`-typed channel.
+ *
+ * Module-private — wired into `createCoreApp`'s cleanup body at phase 4.
+ */
+const logAndSwallowCause =
+  (label: string) =>
+  <A, E, R>(eff: Effect.Effect<A, E, R>): Effect.Effect<void, never, R> =>
+    eff.pipe(
+      Effect.catchAllCause((cleanupCause) =>
+        Effect.logError(label).pipe(
+          Effect.annotateLogs({ cleanupCause: Cause.pretty(cleanupCause) }),
+        ),
+      ),
+      Effect.asVoid,
+    );
 
 function resolveSpanProcessor(
   configured: SpanProcessor | undefined,
@@ -266,16 +310,27 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
     }
     yield* Effect.sleep(Duration.millis(SHUTDOWN_DRAIN_MS));
     yield* Scope.close(options.appScope, Exit.void);
+    // Best-effort cleanup (D #705 §2.7 boot-resource lifecycle table): both
+    // `dispatchRuntime.dispose()` and `dbCleanup()` log-and-swallow via the
+    // shared defect-safe envelope so a failing finalizer never propagates out
+    // of `close()`. `catchAllCause` also covers a sync throw inside the
+    // promise-resolution path that a bare `catchAll` would miss.
     yield* Effect.tryPromise({
       try: () => options.dispatchRuntime.dispose(),
       catch: (cause) => new ServerCloseError({ cause }),
-    });
+    }).pipe(
+      logAndSwallowCause(
+        "CoreApp.close: dispatchRuntime.dispose failed (continuing)",
+      ),
+    );
     const dbCleanup = options.config.dbCleanup;
     if (dbCleanup !== undefined) {
       yield* Effect.tryPromise({
         try: () => dbCleanup(),
         catch: (cause) => new ServerCloseError({ cause }),
-      });
+      }).pipe(
+        logAndSwallowCause("CoreApp.close: dbCleanup failed (continuing)"),
+      );
     }
   }).pipe(Effect.withSpan("CoreApp.close"));
 }

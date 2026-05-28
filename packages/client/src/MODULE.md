@@ -786,7 +786,7 @@ callers compose failures and cancellation explicitly. (Phase -1
 vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
 to arena; consumers wanting Promise wrappers maintain their own.)
 
-### [`MoltZapTMClient`](./tm-client.ts#L284)
+### [`MoltZapTMClient`](./tm-client.ts#L294)
 
 _Class_
 
@@ -1154,6 +1154,16 @@ export interface TMClientOptions {
    */
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: ConnectResult) => void;
+
+  /**
+   * D #705 §7.2 — reconnect policy. Default `"exponential-backoff"` keeps the
+   * jittered 1s..30s reconnect loop. `"none"` disables `scheduleReconnect` so
+   * the reader-fiber exit terminates the client cleanly with no retry — used
+   * by the boot orchestrator's default-app client, whose loopback connection
+   * is a server-internal singleton with no transient network failures to
+   * recover from. Wire clients keep the backoff default.
+   */
+  reconnectPolicy?: "exponential-backoff" | "none";
 
   /**
    * Spec D3 R14b — REQUIRED. TM-callback handler table immutable at
