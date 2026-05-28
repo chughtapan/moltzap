@@ -249,6 +249,90 @@ function createInternalFanOutEventSink(deps: {
 }
 
 /**
+ * In-module emit capability the projection's transition methods
+ * receive INSTEAD of raw access to {@link InternalPresenceEventSink}
+ * (architect plan #706 v5, codex r4 P2 #2).
+ *
+ * `(previous, next, agentId) => Effect<void, never, never>` — the
+ * helper consults {@link emitPresenceTransition} for the dedup
+ * decision, snapshots the subscriber set, and publishes through the
+ * sink iff the decision is `Some`. The transition methods
+ * (`onAgentConnect`, `onAgentDisconnect`, `onLeaseActiveBegin`,
+ * `onLeaseActiveEnd`) NEVER receive or close over the raw
+ * `sink.publish` — they only receive a value of THIS shape,
+ * constructed once inside {@link makePresenceProjection}'s closure
+ * via {@link createEmitIfChanged}.
+ *
+ * Why this design: the v3 TS-module seal closed the
+ * external-import hole on `InternalPresenceEventSink`, but codex r4
+ * P2 #2 pointed out that any in-module code (a future projection
+ * method, a refactor that lifts a helper) could still call
+ * `sink.publish(...)` directly and bypass {@link emitPresenceTransition}.
+ * Routing every emission through `EmitIfChanged` makes the dedup
+ * gate enforced at the IN-MODULE call-site level too: the only
+ * value in the projection's closure that can call `sink.publish` is
+ * the closed-over function `createEmitIfChanged` produces, and that
+ * function checks the dedup `Option` first.
+ *
+ * The transition-method signatures (in the local helpers impl-staff
+ * writes inside the factory body) take `EmitIfChanged` as a parameter
+ * and the raw `InternalPresenceEventSink` is unreachable from them.
+ * Combined with the external seal, the dedup rule is structurally
+ * enforced across both axes: external callers cannot construct a
+ * sink; in-module callers cannot bypass the helper.
+ */
+export type EmitIfChanged = (
+  previous: DerivedPresenceStatus,
+  next: DerivedPresenceStatus,
+  agentId: AgentId,
+) => Effect.Effect<void, never, never>;
+
+/**
+ * Unexported factory for {@link EmitIfChanged}. Closes over the raw
+ * sink + subscriber registry so the only access path is the curried
+ * dedup-gated function. The projection's transition methods take the
+ * returned `EmitIfChanged` as their emit capability and never see
+ * the sink at all.
+ *
+ * Recipe (impl-staff fills the body):
+ *
+ *     return (previous, next, agentId) =>
+ *       Effect.sync(() => {
+ *         const decision = emitPresenceTransition(previous, next);
+ *         Option.match(decision, {
+ *           onNone: () => undefined,
+ *           onSome: (status) => {
+ *             const subscriberConnIds = new Set(
+ *               deps.subscribers.getSubscribers(agentId),
+ *             );
+ *             deps.sink.publish({ agentId, status, subscriberConnIds });
+ *           },
+ *         });
+ *       });
+ *
+ * Visibility: unexported. The only construction site is inside
+ * {@link makePresenceProjection}'s closure, just after the sink is
+ * built via {@link createInternalFanOutEventSink}. The returned
+ * `EmitIfChanged` is the value passed to every transition-method
+ * helper.
+ */
+function createEmitIfChanged(deps: {
+  readonly sink: InternalPresenceEventSink;
+  readonly subscribers: PresenceSubscriberRegistry;
+}): EmitIfChanged {
+  // architect stub: each `void` reference exists to keep the named
+  // parameters reachable from the type-canary even when impl-staff
+  // hasn't filled in the body. `deps.sink` + `deps.subscribers` are
+  // BOTH load-bearing here (the helper closes over both); naming
+  // each individually distinguishes this stub from the sibling
+  // `createInternalFanOutEventSink` stub (sonarjs/no-identical-functions).
+  void deps.sink;
+  void deps.subscribers;
+  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- architect stub body per SKILL.md "every stub body is exactly `throw new Error("not implemented")`"
+  throw new Error("not implemented");
+}
+
+/**
  * Constructor inputs for {@link makePresenceProjection}.
  *
  * Two deps:
@@ -611,33 +695,54 @@ export interface PresenceProjection extends LeaseTransitionObserver {
 }
 
 /**
- * Defect-boundary wrapper (v4 / codex r3 P3 #2).
+ * Defect-boundary wrapper (v4 / codex r3 P3 #2; narrowed v5 /
+ * codex r4 P2 #3).
  *
  * Every public method on {@link PresenceProjection} —
  * `onAgentConnect`, `onAgentDisconnect`, `onLeaseActiveBegin`,
  * `onLeaseActiveEnd`, `statusOf`, `statusMany` — MUST run through
  * `catchProjectionDefect` so the `never` E channel is structurally
- * preserved. The wrapper catches any `PresenceProjectionDefect`
- * raised via `Effect.die(new PresenceProjectionDefect(...))` inside
- * the projection's body, structured-logs it via `Effect.logError`,
- * and resolves to a caller-appropriate fallback:
+ * preserved.
  *
- * - Emit methods (`onAgentConnect`, `onAgentDisconnect`,
- *   `onLeaseActiveBegin`, `onLeaseActiveEnd`) — wrap with
- *   `Effect.asVoid` so a defected emission is silently dropped on the
- *   wire side. The public Effect resolves with `void`; the WS
- *   handler / lease registry observe no failure.
+ * **v5 narrowing.** v4 used a bare `Effect.catchAllDefect`, which
+ * swallowed ANY defect — including genuine programmer errors like
+ * `TypeError: x is not a function` — as a presence fallback. Codex
+ * r4 P2 #3 caught this: an unrelated runtime defect inside a
+ * projection method would resolve as `"offline"` or `void` and the
+ * underlying bug would never surface. v5 narrows the catch to
+ * `PresenceProjectionDefect` instances ONLY; everything else is
+ * re-died as a fresh defect for the outer fiber to handle.
  *
- * - Read methods (`statusOf`, `statusMany`) — substitute the
- *   "unknown-agent" fallback: `statusOf` resolves to `"offline"`;
- *   `statusMany` resolves to `agentIds.map((agentId) => ({ agentId,
- *   status: "offline" as const }))`. A defected read MUST NOT
- *   propagate through to `presence/subscribe`.
+ * Behavior:
+ *
+ * - Defect IS a `PresenceProjectionDefect` (caught via
+ *   `defect instanceof PresenceProjectionDefect`) — log via
+ *   `Effect.logError("presence projection defect", { defect })` and
+ *   resolve to `fallback`:
+ *
+ *   - Emit methods (`onAgentConnect`, `onAgentDisconnect`,
+ *     `onLeaseActiveBegin`, `onLeaseActiveEnd`) — pass
+ *     `undefined as void` as fallback so a defected emission is
+ *     silently dropped on the wire side. The public Effect resolves
+ *     with `void`; the WS handler / lease registry observe no
+ *     failure.
+ *   - Read methods (`statusOf`, `statusMany`) — substitute the
+ *     "unknown-agent" fallback: `statusOf` passes
+ *     `"offline" as DerivedPresenceStatus`; `statusMany` passes
+ *     `agentIds.map((agentId) => ({ agentId, status: "offline" as const }))`.
+ *     A defected read MUST NOT propagate through to
+ *     `presence/subscribe`.
+ *
+ * - Defect is anything else — re-die via `Effect.die(defect)` so the
+ *   outer fiber's supervisor handles it normally. The wrapper MUST
+ *   NOT mask unrelated programmer/runtime defects as
+ *   presence-shaped fallbacks (codex r4 P2 #3 root cause).
  *
  * Why a named wrapper: v3 said "caught at the projection's outer
  * edge" without naming a helper. Codex r3 P3 #2 pointed out impl-staff
  * would have to invent the pattern; naming the helper makes the
  * boundary load-bearing in the contract and reviewable in one place.
+ * v5 makes the tag-narrowing part of the named contract too.
  *
  * Stub-body convention: impl-staff fills only the INNER logic per
  * method. The wrapper invocation is part of the stub surface and is
@@ -649,22 +754,34 @@ export interface PresenceProjection extends LeaseTransitionObserver {
  * Signature (impl-staff fills the body — the stub `throws "not
  * implemented"` per architect SKILL.md):
  *
- *   function catchProjectionDefect<A>(
- *     effect: Effect.Effect<A, never, never>,
- *     fallback: A,
- *   ): Effect.Effect<A, never, never>
+ *     function catchProjectionDefect<A>(
+ *       effect: Effect.Effect<A, never, never>,
+ *       fallback: A,
+ *     ): Effect.Effect<A, never, never>
  *
- * Recipe in the body:
+ * Recipe in the body (v5 — narrowed):
  *
- *   return effect.pipe(
- *     Effect.catchAllDefect((defect) =>
- *       Effect.logError("presence projection defect", defect).pipe(
- *         Effect.as(fallback),
+ *     return effect.pipe(
+ *       Effect.catchAllDefect((defect) =>
+ *         defect instanceof PresenceProjectionDefect
+ *           ? Effect.logError("presence projection defect", { defect }).pipe(
+ *               Effect.as(fallback),
+ *             )
+ *           : Effect.die(defect),
  *       ),
- *     ),
- *   );
+ *     );
  *
- * The recipe above is the canonical implementation path.
+ * The `instanceof PresenceProjectionDefect` narrowing IS the
+ * load-bearing change. Using `Effect.catchTag` here is not idiomatic
+ * because `Effect.die(value)` raises `value` as a defect, not as a
+ * typed error in the E channel — `catchTag` operates on the E
+ * channel. `Effect.catchAllDefect` + `instanceof` is the canonical
+ * pattern for narrowing within the defect channel.
+ *
+ * Regression-test obligation (impl-staff §10): a projection method
+ * body that throws a `TypeError` (NOT a `PresenceProjectionDefect`)
+ * MUST propagate up as a defect, not resolve as `"offline"` / `void`.
+ * The wrapper is correct iff the test sees the fresh defect.
  */
 export function catchProjectionDefect<A>(
   effect: Effect.Effect<A, never, never>,
@@ -701,25 +818,25 @@ export function catchProjectionDefect<A>(
  *    can compute a stale decision against pre-commit state and publish
  *    it after a later commit.
  *
+ *    Every transition method takes the in-module-curried
+ *    {@link EmitIfChanged} value as its emit capability — NEVER the
+ *    raw `InternalPresenceEventSink` (architect plan v5 / codex
+ *    r4 P2 #2). Dedup + snapshot are folded into `emit(prev, next, agentId)`
+ *    so the transition methods never call `sink.publish` directly.
+ *
  *    Pseudocode (lifecycle path — `onAgentConnect` / `onAgentDisconnect`;
- *    returns `Option.none` for already-present / already-absent
- *    no-ops, NOT `Effect.die`):
+ *    `prev === next` short-circuits inside `emit` via the dedup gate,
+ *    NOT via `Effect.die`):
  *
  *    ```
- *    const decision = yield* Ref.modify(entriesRef, (entries) => {
+ *    const transition = yield* Ref.modify(entriesRef, (entries) => {
  *      const entry = entries.get(agentId);
  *      // onAgentConnect: insert if absent, else no-op
  *      // onAgentDisconnect: drop if present, else no-op
  *      const [nextEntries, prevStatus, nextStatus] = computeLifecycle(entries, entry);
- *      return [emitPresenceTransition(prevStatus, nextStatus), nextEntries];
+ *      return [{ prevStatus, nextStatus }, nextEntries];
  *    });
- *    yield* Option.match(decision, {
- *      onSome: (status) => Effect.sync(() => {
- *        const snapshot = new Set(deps.subscribers.getSubscribers(agentId));
- *        sink.publish({ agentId, status, subscriberConnIds: snapshot });
- *      }),
- *      onNone: () => Effect.void,
- *    });
+ *    yield* emit(transition.prevStatus, transition.nextStatus, agentId);
  *    ```
  *
  *    Pseudocode (lease-observer path — `onLeaseActiveBegin` /
@@ -745,22 +862,18 @@ export function catchProjectionDefect<A>(
  *      const nextLeases = computeLeaseSet(entry.activeLeases, leaseId); // ∪ or \
  *      const nextStatus = nextLeases.size > 0 ? "working" : "online";
  *      const nextEntry = { activeLeases: nextLeases, status: nextStatus };
- *      const decision = emitPresenceTransition(prev, nextStatus);
  *      return [
- *        { _tag: "emit", decision },
+ *        { _tag: "transition", prevStatus: prev, nextStatus },
  *        setReadonlyMapValue(agentId, nextEntry)(entries),
  *      ];
  *    });
  *    yield* result._tag === "audit"
  *      ? Effect.logDebug("presence projection audit", result.event)
- *      : Option.match(result.decision, {
- *          onSome: (status) => Effect.sync(() => {
- *            const snapshot = new Set(deps.subscribers.getSubscribers(agentId));
- *            sink.publish({ agentId, status, subscriberConnIds: snapshot });
- *          }),
- *          onNone: () => Effect.void,
- *        });
+ *      : emit(result.prevStatus, result.nextStatus, agentId);
  *    ```
+ *
+ *    `emit` is the only path from in-module state to wire publish —
+ *    see (6.1) below for the in-module seal rationale.
  *
  * 3. **Entry-creation invariant** — only `onAgentConnect` creates
  *    entries. `onLeaseActiveBegin`/`onLeaseActiveEnd` on an unknown
@@ -786,8 +899,21 @@ export function catchProjectionDefect<A>(
  *    body via `createInternalFanOutEventSink({
  *    connections: deps.connections })` and held in the projection's
  *    closure. The `Internal*`-prefixed symbol is **not** exported from this
- *    module; the compiler is the structural gate (see
- *    {@link InternalPresenceEventSink}).
+ *    module; the compiler is the structural gate against EXTERNAL
+ *    bypass (see {@link InternalPresenceEventSink}).
+ *
+ * 6.1. **In-module emit seal via {@link EmitIfChanged}** (v5 / codex
+ *    r4 P2 #2) — the sink is wrapped ONCE inside this factory's
+ *    closure via `createEmitIfChanged({ sink, subscribers:
+ *    deps.subscribers })`. The resulting {@link EmitIfChanged} value
+ *    is the only emission capability the per-transition local helpers
+ *    receive; the raw sink is never closed over by them. This makes
+ *    the dedup gate (and snapshot consistency in (5)) enforced at
+ *    the IN-MODULE call-site level too — a future in-module helper
+ *    that wants to emit MUST take an `emit: EmitIfChanged` parameter
+ *    and cannot reach the raw `sink.publish` through any other path
+ *    in the module. Combined with (6) (the external seal), the
+ *    dedup rule is structurally enforced across both axes.
  *
  * 7. **First-writer-wins discipline** — the `Ref.modify` predicate
  *    matches `LeaseRegistry`'s own atomicity model. No second `Ref.get`
@@ -826,6 +952,12 @@ export function makePresenceProjection(
 ): Effect.Effect<PresenceProjection, never, never> {
   void deps;
   void createInternalFanOutEventSink;
+  // v5 (codex r4 P2 #2): keep `createEmitIfChanged` reachable from
+  // the factory closure so the in-module seal helper is exercised
+  // by the canary. Impl-staff calls `createEmitIfChanged({ sink,
+  // subscribers: deps.subscribers })` once and passes the returned
+  // `EmitIfChanged` to every transition-method helper.
+  void createEmitIfChanged;
   // v4 (codex r3 P3 #2): keep `catchProjectionDefect` reachable from
   // the factory closure so the canary type-checks the helper exists.
   // Impl-staff wires every returned method through it; see this
