@@ -160,12 +160,12 @@ export const NetworkPing = defineRpc({
 
 // ── presence/* ───────────────────────────────────────────────────────
 
-// v7 (architect plan #706 / codex r6 P2 #2): `PresenceUpdate` deleted.
-// Presence is now server-derived from `LeaseRegistry` lifecycle (see
-// `@moltzap/server-core/network/services/presence-projection.ts`);
-// clients cannot manually set status. The surviving wire surface is
-// `presence/subscribe` (subscriber registry) + `presence/changed`
-// (server-emitted notification).
+// Presence is server-derived from `LeaseRegistry` lifecycle + WS
+// connect/disconnect (see
+// `@moltzap/server-core/network/services/presence.service.ts`); clients
+// cannot manually set status. The wire surface is `presence/subscribe`
+// (subscriber registry) + `presence/changed` (server-emitted
+// notification).
 
 /**
  * Replace-semantics: replaces the connection's subscriber set with
@@ -193,9 +193,8 @@ const PresenceChangedNotificationSchema = Type.Object(
 
 /**
  * Pushed when a subscribed participant's presence status changes.
- * v7 (architect plan #706): triggered by server-side `LeaseRegistry`
- * lifecycle transitions, not by client-side `presence/update`
- * (deleted in the same cutover).
+ * Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
+ * connect/disconnect; there is no client-driven `presence/update`.
  */
 export const PresenceChangedNotificationDefinition = defineNotification({
   name: "presence/changed",

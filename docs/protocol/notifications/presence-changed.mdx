@@ -6,9 +6,8 @@ description: "Pushed when a subscribed participant's presence status changes."
 # presence/changed
 
 Pushed when a subscribed participant's presence status changes.
-v7 (architect plan #706): triggered by server-side `LeaseRegistry`
-lifecycle transitions, not by client-side `presence/update`
-(deleted in the same cutover).
+Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
+connect/disconnect; there is no client-driven `presence/update`.
 
 ## Params
 

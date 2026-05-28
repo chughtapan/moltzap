@@ -21,18 +21,20 @@ Presence, ping, app-TM registry, agent-endpoint resolution, outbound
   routing surface; consumes the resolver + connection manager).
 - `handlers/ping.handlers.ts` — `network/ping` RPC handler.
 - `handlers/presence.handlers.ts` — `presence/subscribe` RPC
-  handler. v7 (architect plan #706): `presence/update` deleted;
-  presence is server-derived from `LeaseRegistry` lifecycle via
-  `PresenceProjection`.
-- `services/presence.service.ts` — `PresenceService` (subscriber
-  registry only post-v7; status mutation lives in
-  `PresenceProjection`).
-- `services/presence-projection.ts` + `services/_internal/presence-emit.ts` —
-  the architect-plan #706 module group. The projection observes
-  `LeaseRegistry` transitions + WS lifecycle hooks and emits
-  `presence/changed` via a TS-module-sealed fan-out sink in the
-  `_internal/` submodule (three `@ts-expect-error` canaries at
-  `services/presence-projection.types-check.ts` assert the seal).
+  handler. Presence is server-derived from `LeaseRegistry` lifecycle +
+  WS connect/disconnect; there is no client-driven `presence/update`.
+- `services/presence.service.ts` — `PresenceService`. One service that
+  owns the subscriber registry, the lease-derived status engine, and
+  the `presence/changed` fan-out. Implements `LeaseTransitionObserver`,
+  so `LeaseRegistry` drives lease transitions through it. The fan-out
+  sink + dedup helper are module-private (three `@ts-expect-error`
+  canaries at `services/presence.service.types-check.ts` assert the
+  seal).
+- `services/presence-types.ts` — pure helpers + types shared by the
+  service and its consumers: `DerivedPresenceStatus`,
+  `AgentPresenceEntry`, `deriveEntryStatus`, `emitPresenceTransition`,
+  the narrow `LeaseTransitionObserver` contract that `LeaseRegistry`
+  depends on, and `noopLeaseTransitionObserver`.
 
 ## Handler shape
 
