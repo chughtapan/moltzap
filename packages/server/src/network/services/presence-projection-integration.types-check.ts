@@ -108,3 +108,35 @@ void _observerField;
 const _noopSatisfiesField: LeaseTransitionObserver =
   noopLeaseTransitionObserver;
 void _noopSatisfiesField;
+
+// ── 4. PresenceProjectionLive integration (v7 / codex r6 P2 #3) ────
+//
+// v7 deletes the type-only `declare const PresenceProjectionLive` in
+// `presence-projection.ts` (it had no runtime binding — any consumer
+// would crash) and re-declares it in `app/layers.ts` as a real
+// `Layer.effect(PresenceProjectionTag, ...)` value. The canary
+// asserts:
+//
+// - `PresenceProjectionLive` is a Layer whose output type is
+//   `PresenceProjectionTag` (single source-of-truth for the
+//   integration boundary; if impl-staff degrades the output type,
+//   the assignment fails TS2322).
+// - The Layer's RIn channel consumes `PresenceServiceTag |
+//   ConnectionManagerTag` (the projection's `subscribers` +
+//   `connections` deps).
+
+import {
+  PresenceProjectionLive,
+  type PresenceServiceTag,
+  type ConnectionManagerTag,
+} from "../../app/layers.js";
+import type { PresenceProjectionTag } from "./presence-projection.js";
+import type { Layer } from "effect";
+
+declare const projectionLive: typeof PresenceProjectionLive;
+const _projectionLiveShape: Layer.Layer<
+  PresenceProjectionTag,
+  never,
+  PresenceServiceTag | ConnectionManagerTag
+> = projectionLive;
+void _projectionLiveShape;

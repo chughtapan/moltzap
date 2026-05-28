@@ -7,7 +7,14 @@ const DateTimeString = dateTimeStringSchema();
 
 // ── presence schemas ─────────────────────────────────────────────────
 
-const PresenceStatusEnum = stringEnum(["online", "offline", "away"]);
+// v7 (architect plan #706 / codex r6 P2 #2) — narrowed from
+// `["online", "offline", "away"]` to `["online", "working", "offline"]`.
+// Presence is now server-derived from `LeaseRegistry` lifecycle:
+// `online` = connected, no active lease; `working` = connected, ≥1
+// lease in GRANTED or CLAIMED; `offline` = disconnected. The `away`
+// state is gone — there is no longer a `presence/update` RPC for
+// clients to set status manually (deleted in the same cutover).
+const PresenceStatusEnum = stringEnum(["online", "working", "offline"]);
 
 const PresenceEntrySchema = Type.Object(
   { agentId: AgentId, status: PresenceStatusEnum },
@@ -89,18 +96,12 @@ export const NetworkPing = defineRpc({
 
 // ── presence/* ───────────────────────────────────────────────────────
 
-/**
- * Update your presence status (online, offline, away).
- * @relatedNotification presence/changed
- */
-export const PresenceUpdate = defineRpc({
-  name: "presence/update",
-  params: Type.Object(
-    { status: PresenceStatusEnum },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
+// v7 (architect plan #706 / codex r6 P2 #2): `PresenceUpdate` deleted.
+// Presence is now server-derived from `LeaseRegistry` lifecycle (see
+// `@moltzap/server-core/network/services/presence-projection.ts`);
+// clients cannot manually set status. The surviving wire surface is
+// `presence/subscribe` (subscriber registry) + `presence/changed`
+// (server-emitted notification).
 
 /**
  * Replace-semantics: replaces the connection's subscriber set with
@@ -128,7 +129,9 @@ const PresenceChangedNotificationSchema = Type.Object(
 
 /**
  * Pushed when a subscribed participant's presence status changes.
- * @triggeredBy presence/update
+ * v7 (architect plan #706): triggered by server-side `LeaseRegistry`
+ * lifecycle transitions, not by client-side `presence/update`
+ * (deleted in the same cutover).
  */
 export const PresenceChangedNotificationDefinition = defineNotification({
   name: "presence/changed",
@@ -138,7 +141,6 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 export const networkRpcMethods = [
   Connect,
   NetworkPing,
-  PresenceUpdate,
   PresenceSubscribe,
 ] as const;
 

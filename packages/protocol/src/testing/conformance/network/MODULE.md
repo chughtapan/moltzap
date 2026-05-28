@@ -18,7 +18,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L69)
+### [`acquireClient`](./_helpers.ts#L74)
 
 _Function_
 
@@ -34,7 +34,7 @@ export function acquireClient(
 >
 ```
 
-### [`acquireCloseableClient`](./_helpers.ts#L98)
+### [`acquireCloseableClient`](./_helpers.ts#L103)
 
 _Function_
 
@@ -47,7 +47,7 @@ export function acquireCloseableClient(
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`countPresenceChangedFor`](./_helpers.ts#L235)
+### [`countPresenceChangedFor`](./_helpers.ts#L240)
 
 _Function_
 
@@ -102,7 +102,7 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceChangedPayload`](./_helpers.ts#L35)
+### [`PresenceChangedPayload`](./_helpers.ts#L40)
 
 _Interface_
 
@@ -113,12 +113,12 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`PresenceStatus`](./_helpers.ts#L33)
+### [`PresenceStatus`](./_helpers.ts#L38)
 
 _TypeAlias_
 
 ```ts
-export type PresenceStatus = "online" | "offline" | "away";
+export type PresenceStatus = "online" | "working" | "offline";
 
 export interface PresenceChangedPayload {
   readonly agentId: string;
@@ -126,7 +126,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`presenceStatusesFor`](./_helpers.ts#L198)
+### [`presenceStatusesFor`](./_helpers.ts#L203)
 
 _Function_
 
@@ -137,7 +137,7 @@ export function presenceStatusesFor(
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
-### [`presenceViolation`](./_helpers.ts#L40)
+### [`presenceViolation`](./_helpers.ts#L45)
 
 _Function_
 
@@ -148,7 +148,7 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](./_helpers.ts#L51)
+### [`registerAgent`](./_helpers.ts#L56)
 
 _Function_
 
@@ -214,7 +214,7 @@ export function registerSubscribeAfterConnect(
 ): void
 ```
 
-### [`subscribePresence`](./_helpers.ts#L129)
+### [`subscribePresence`](./_helpers.ts#L134)
 
 _Function_
 
@@ -226,7 +226,7 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](./_helpers.ts#L154)
+### [`waitForPresenceWithStatus`](./_helpers.ts#L159)
 
 _Function_
 

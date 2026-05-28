@@ -23,7 +23,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L69)
+### [`acquireClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L74)
 
 _Function_
 
@@ -39,7 +39,7 @@ export function acquireClient(
 >
 ```
 
-### [`acquireCloseableClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L98)
+### [`acquireCloseableClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L103)
 
 _Function_
 
@@ -52,7 +52,7 @@ export function acquireCloseableClient(
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`countPresenceChangedFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L235)
+### [`countPresenceChangedFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L240)
 
 _Function_
 
@@ -107,7 +107,7 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceChangedPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L35)
+### [`PresenceChangedPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L40)
 
 _Interface_
 
@@ -118,12 +118,12 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`PresenceStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L33)
+### [`PresenceStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L38)
 
 _TypeAlias_
 
 ```ts
-export type PresenceStatus = "online" | "offline" | "away";
+export type PresenceStatus = "online" | "working" | "offline";
 
 export interface PresenceChangedPayload {
   readonly agentId: string;
@@ -131,7 +131,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`presenceStatusesFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L198)
+### [`presenceStatusesFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L203)
 
 _Function_
 
@@ -142,7 +142,7 @@ export function presenceStatusesFor(
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
-### [`presenceViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L40)
+### [`presenceViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L45)
 
 _Function_
 
@@ -153,7 +153,7 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L51)
+### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L56)
 
 _Function_
 
@@ -219,7 +219,7 @@ export function registerSubscribeAfterConnect(
 ): void
 ```
 
-### [`subscribePresence`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L129)
+### [`subscribePresence`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L134)
 
 _Function_
 
@@ -231,7 +231,7 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L154)
+### [`waitForPresenceWithStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L159)
 
 _Function_
 

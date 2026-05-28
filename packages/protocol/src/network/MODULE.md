@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so the
 optionality is collapsed here.
 
-### [`Connect`](./methods.ts#L54)
+### [`Connect`](./methods.ts#L61)
 
 _Variable_
 
@@ -112,7 +112,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L77)
+### [`HelloOk`](./methods.ts#L84)
 
 _TypeAlias_
 
@@ -120,7 +120,7 @@ _TypeAlias_
 export type HelloOk = Static<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L145)
+### [`networkNotifications`](./methods.ts#L147)
 
 _Variable_
 
@@ -130,7 +130,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L84)
+### [`NetworkPing`](./methods.ts#L91)
 
 _Variable_
 
@@ -144,7 +144,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L138)
+### [`networkRpcMethods`](./methods.ts#L141)
 
 _Variable_
 
@@ -152,12 +152,11 @@ _Variable_
 export const networkRpcMethods = [
   Connect,
   NetworkPing,
-  PresenceUpdate,
   PresenceSubscribe,
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L133)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L136)
 
 _Variable_
 
@@ -169,8 +168,11 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 ```
 
 Pushed when a subscribed participant's presence status changes.
+v7 (architect plan #706): triggered by server-side `LeaseRegistry`
+lifecycle transitions, not by client-side `presence/update`
+(deleted in the same cutover).
 
-### [`PresenceSubscribe`](./methods.ts#L109)
+### [`PresenceSubscribe`](./methods.ts#L110)
 
 _Variable_
 
@@ -190,23 +192,6 @@ export const PresenceSubscribe = defineRpc({
 
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
-
-### [`PresenceUpdate`](./methods.ts#L96)
-
-_Variable_
-
-```ts
-export const PresenceUpdate = defineRpc({
-  name: "presence/update",
-  params: Type.Object(
-    { status: PresenceStatusEnum },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-})
-```
-
-Update your presence status (online, offline, away).
 
 ### [`userId`](./actor-model.ts#L42)
 
