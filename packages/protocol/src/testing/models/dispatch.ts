@@ -101,9 +101,9 @@ const MODEL_METHOD_OUTCOMES = {
   [Connect.name]: "uncertain",
   [Register.name]: "uncertain",
   [InviteAgent.name]: "uncertain",
-  // `agents/list` now takes a server-validated `cursor` (Track A #692):
-  // a schema-valid-but-undecodable cursor yields `InvalidParamsError`, so
-  // the outcome is no longer param-invariantly ok. Marked uncertain to
+  // `agents/list` takes a server-validated `cursor`: a
+  // schema-valid-but-undecodable cursor yields `InvalidParamsError`, so
+  // the outcome is not param-invariantly ok. Marked uncertain to
   // match every other cursor-bearing list RPC (contacts/list, task/list,
   // messages/list, task/conversation/list).
   [AgentsList.name]: "uncertain",

@@ -19,10 +19,10 @@
  * circuiting; the fix is to widen the derivation (probe with K > 1
  * samples), not extend this property.
  *
- * Current K = 1 (`network/ping` only). `agents/list` left the confident
- * set when Track A (#692) gave it a server-validated `cursor` param: a
+ * Current K = 1 (`network/ping` only). `agents/list` is not in the
+ * confident set: it takes a server-validated `cursor` param, and a
  * schema-valid-but-undecodable cursor yields `InvalidParamsError`, so the
- * outcome is no longer param-invariantly ok. Architect #197 §2.3 notes
+ * outcome is not param-invariantly ok. Architect #197 §2.3 notes
  * that "when K ≤ 2, the property is operating as a small number of hand-
  * picked examples; document it in JSDoc, don't pretend it's a fuzz
  * property." Widening K requires either teaching `applyCall` per-

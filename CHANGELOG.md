@@ -177,7 +177,7 @@ malformed config file now produces a slightly less polished error message.
   parsing is removed (the compiled-patterns array was never read).
   `corsOrigins` is exact-match only.
 
-### Track A (#692) — cursor-paginate the list-RPC surface
+### Cursor-paginate the list-RPC surface (#692)
 
 One cursor-pagination convention now covers the list-RPC surface:
 `{ limit?, cursor? } → { <collection>, nextCursor? }` with an opaque
@@ -199,7 +199,7 @@ timestamp.
 - **`TaskList` (`task/list`):** the half-wired cursor is finished — the
   result now carries `nextCursor` and the server threads `cursor`
   through `TaskService.list`. The `tasks` item type is unchanged
-  (`Task[]`); Track B reshapes the item.
+  (`Task[]`); the item reshape is deferred to a later change.
 - **Branded `ListCursor`** (`@moltzap/protocol`): cursor / nextCursor
   are an opaque branded token. Clients echo it back unmodified; the
   server's `db/list-cursor.ts` codec is the only producer/decoder, and a
