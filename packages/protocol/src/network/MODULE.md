@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so the
 optionality is collapsed here.
 
-### [`Connect`](./methods.ts#L66)
+### [`Connect`](./methods.ts#L63)
 
 _Variable_
 
@@ -112,7 +112,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L89)
+### [`HelloOk`](./methods.ts#L86)
 
 _TypeAlias_
 
@@ -120,7 +120,7 @@ _TypeAlias_
 export type HelloOk = Static<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L201)
+### [`networkNotifications`](./methods.ts#L220)
 
 _Variable_
 
@@ -130,7 +130,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L145)
+### [`NetworkPing`](./methods.ts#L164)
 
 _Variable_
 
@@ -144,7 +144,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L195)
+### [`networkRpcMethods`](./methods.ts#L214)
 
 _Variable_
 
@@ -156,7 +156,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L190)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L209)
 
 _Variable_
 
@@ -172,7 +172,7 @@ v7 (architect plan #706): triggered by server-side `LeaseRegistry`
 lifecycle transitions, not by client-side `presence/update`
 (deleted in the same cutover).
 
-### [`PresenceSubscribe`](./methods.ts#L164)
+### [`PresenceSubscribe`](./methods.ts#L183)
 
 _Variable_
 
@@ -193,14 +193,14 @@ export const PresenceSubscribe = defineRpc({
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`ProtocolMismatchError`](./methods.ts#L124)
+### [`ProtocolMismatchError`](./methods.ts#L151)
 
 _Class_
 
 ```ts
 export class ProtocolMismatchError extends Data.TaggedError(
   "ProtocolMismatchError",
-)<RpcErrorPayload> {
+)<ProtocolMismatchErrorPayload> {
   static readonly code = -32006;
   static readonly message = "Client protocol version not supported";
 }
@@ -232,13 +232,40 @@ Wire code `-32006` (next unclaimed in the registry; verified
 against `-32000..-32024` at v8 architect-stub time per
 `packages/protocol/CLAUDE.md` recipe step 5).
 
-The architect class body is `Effect.die("not implemented") /
-throw new Error("not implemented")` is NOT applicable here — the
-class is a `Data.TaggedError` subclass which is purely structural;
-no body to stub. Impl-staff fills in the `handleConnect` /
-`checkProtocolRange` wiring that raises this class.
+Payload typing: ProtocolMismatchErrorPayload — concrete
+shape rather than the generic `RpcErrorPayload` so `error.data.X`
+is typed at every reader. PR review follow-up (user directive
+option b).
 
-### [`ProtocolMismatchReason`](./methods.ts#L136)
+### [`ProtocolMismatchErrorPayload`](./methods.ts#L110)
+
+_Interface_
+
+```ts
+export interface ProtocolMismatchErrorPayload {
+  readonly data: {
+    readonly reason: ProtocolMismatchReason;
+    readonly serverVersion: string;
+    readonly clientMinProtocol: string;
+    readonly clientMaxProtocol: string;
+  };
+}
+```
+
+Concrete payload shape for ProtocolMismatchError. Inlined on
+the class so `error.data.reason` / `error.data.serverVersion` etc.
+typecheck at every reader. The generic `RpcErrorPayload` shape
+(`data: JsonValue`) used in v8 erased these fields and forced
+runtime `as` casts at test + caller sites; PR review feedback
+landed the concrete record here so the type flows from
+construction site to every catchTag arm.
+
+Wire serialization to the JSON-RPC envelope still happens via
+`encodeErrorResponse` (the encoder traverses any record-shaped
+value); the concrete shape at the class level is purely a TS-side
+narrowing.
+
+### [`ProtocolMismatchReason`](./methods.ts#L92)
 
 _TypeAlias_
 
@@ -247,16 +274,28 @@ export type ProtocolMismatchReason =
   | "server-above-client-max"
   | "server-below-client-min";
 
-// ── network/ping ─────────────────────────────────────────────────────
-
 /**
- * Liveness probe. Returns server timestamp.
+ * Concrete payload shape for {@link ProtocolMismatchError}. Inlined on
+ * the class so `error.data.reason` / `error.data.serverVersion` etc.
+ * typecheck at every reader. The generic `RpcErrorPayload` shape
+ * (`data: JsonValue`) used in v8 erased these fields and forced
+ * runtime `as` casts at test + caller sites; PR review feedback
+ * landed the concrete record here so the type flows from
+ * construction site to every catchTag arm.
+ *
+ * Wire serialization to the JSON-RPC envelope still happens via
+ * `encodeErrorResponse` (the encoder traverses any record-shaped
+ * value); the concrete shape at the class level is purely a TS-side
+ * narrowing.
  */
-export const NetworkPing = defineRpc({
-  name: "network/ping",
-  params: Type.Object({}, { additionalProperties: false }),
-  result: Type.Object({ ts: DateTimeString }, { additionalProperties: false }),
-});
+export interface ProtocolMismatchErrorPayload {
+  readonly data: {
+    readonly reason: ProtocolMismatchReason;
+    readonly serverVersion: string;
+    readonly clientMinProtocol: string;
+    readonly clientMaxProtocol: string;
+  };
+}
 ```
 
 Reason discriminant carried in `ProtocolMismatchError.data.reason`.

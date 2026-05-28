@@ -5,7 +5,10 @@ import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 
-import type { ConnectionManager } from "../../../transport/connection.js";
+import type {
+  ConnectionManager,
+  MoltZapConnection,
+} from "../../../transport/connection.js";
 import {
   type DerivedPresenceStatus,
   emitPresenceTransition,
@@ -65,6 +68,52 @@ interface InternalPresenceEventSink {
 }
 
 /**
+ * Write one encoded `presence/changed` frame to a single subscriber
+ * connection. Fire-and-forget — the wire write runs in a forked
+ * fiber so the projection's `Ref.modify` mutator (synchronous,
+ * single-CAS) is never blocked on per-subscriber socket latency.
+ *
+ * **Pattern: `Effect.runFork` inside a `void`-returning sink
+ * method** (review-senior P3 #4). The projection emits presence
+ * transitions from inside `Ref.modify` predicates, which are
+ * synchronous. The wire fan-out is unbounded (one frame per
+ * subscribed conn); blocking the mutator on every subscriber's
+ * `conn.write` would couple presence throughput to the slowest
+ * subscriber's socket. Fork-and-forget keeps the mutator
+ * non-blocking; per-write failures are isolated to the forked
+ * fiber.
+ *
+ * **Silent-catch policy (review-senior P3 #3 fix).** A failed
+ * `conn.write` is EXPECTED — connection close races with the
+ * projection's emission, so SocketError is the common case.
+ * `Effect.logDebug` keeps the failure observable for triage
+ * without raising it to the mutator. `Effect.annotateLogs` carries
+ * the connection + transition context once per fork so every log
+ * inside the forked fiber inherits it
+ * (agent-code-guard/prefer-annotate-logs).
+ */
+function publishOneFrame(
+  conn: MoltZapConnection,
+  raw: string,
+  context: {
+    readonly connId: ConnectionId;
+    readonly agentId: AgentId;
+    readonly status: DerivedPresenceStatus;
+  },
+): void {
+  Effect.runFork(
+    conn.write(raw).pipe(
+      Effect.catchAll((cause) =>
+        Effect.logDebug("presence/changed fan-out write failed").pipe(
+          Effect.annotateLogs({ cause }),
+        ),
+      ),
+      Effect.annotateLogs(context),
+    ),
+  );
+}
+
+/**
  * Construct the per-connection `presence/changed` fan-out sink that
  * {@link createEmitIfChanged} wraps. Module-private to this file; no
  * other module in the tree imports this factory (the canary at
@@ -73,10 +122,11 @@ interface InternalPresenceEventSink {
  * `presence-event-sink.ts` (deleted in §8 cutover); unlike v5 (which
  * lived inside `presence-projection.ts`), v6 keeps the factory in
  * this `_internal/` module so the projection module cannot reach
- * it. Body recipe — impl-staff fills the body: for each subscriber
- * connId in `subscriberConnIds`, skip if it matches `excludeConnId`,
- * resolve the `Connection` via `deps.connections.get(connId)`, and
- * send a `presence/changed` notification with `{ agentId, status }`.
+ * it. For each subscriber `connId` in `subscriberConnIds`, skip
+ * `excludeConnId`, resolve the `Connection` via
+ * `deps.connections.get`, and send a `presence/changed`
+ * notification with `{ agentId, status }` through
+ * {@link publishOneFrame}.
  */
 function createInternalFanOutEventSink(deps: {
   readonly connections: ConnectionManager;
@@ -91,12 +141,16 @@ function createInternalFanOutEventSink(deps: {
         }),
       );
       for (const connId of input.subscriberConnIds) {
-        if (connId === input.excludeConnId) continue;
-        const conn = deps.connections.get(connId);
-        if (conn) {
-          Effect.runFork(
-            conn.write(raw).pipe(Effect.catchAll(() => Effect.void)),
-          );
+        const conn =
+          connId === input.excludeConnId
+            ? undefined
+            : deps.connections.get(connId);
+        if (conn !== undefined) {
+          publishOneFrame(conn, raw, {
+            connId,
+            agentId: input.agentId,
+            status: input.status,
+          });
         }
       }
     },

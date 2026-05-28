@@ -216,7 +216,26 @@ function handleConnect(params: ConnectParams) {
       // `serverVersion`; production passes the live `PROTOCOL_VERSION`
       // constant while tests inject future-version values to exercise
       // rejection paths against an unbumped branch.
-      yield* checkProtocolRange(params, PROTOCOL_VERSION);
+      //
+      // P2 fix-roll (codex PR review #1 P2): map
+      // `InvalidProtocolVersionError` — raised when a client sends a
+      // malformed `min/maxProtocol` string ("abc.def", "2026..0",
+      // SemVer pre-release) — to the wire-typed
+      // `InvalidParamsError` (JSON-RPC -32602). Without this mapping
+      // the parse error would propagate as an untyped channel error,
+      // which the dispatcher would surface as a defect rather than a
+      // typed `InvalidParamsError` response. `ProtocolMismatchError`
+      // remains in the channel for the well-formed-but-out-of-range
+      // case.
+      yield* checkProtocolRange(params, PROTOCOL_VERSION).pipe(
+        Effect.catchTag("InvalidProtocolVersionError", (cause) =>
+          Effect.fail(
+            new InvalidParamsError({
+              message: `Malformed protocol version ${JSON.stringify(cause.version)}: invalid segment ${JSON.stringify(cause.segment)}`,
+            }),
+          ),
+        ),
+      );
 
       const authService = yield* AuthServiceTag;
       const conversationService = yield* ConversationServiceTag;
