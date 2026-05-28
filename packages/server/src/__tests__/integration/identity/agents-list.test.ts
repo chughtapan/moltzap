@@ -25,8 +25,7 @@ import {
 
 const it = effectIt.live;
 
-type AgentsListResult = { agents: Record<string, AgentCard> };
-type AgentsArrayResult = { agents: AgentCard[] };
+type AgentsListResult = { agents: AgentCard[]; nextCursor?: string };
 
 // agents/list is contact-scoped per #481; admin-register is used to bind
 // explicit owners so the cross-owner visibility cases can be exercised.
@@ -161,13 +160,13 @@ function listAgents(agent: OwnedConnectedAgent) {
 function lookupAgents(agent: OwnedConnectedAgent, agentIds: string[]) {
   return agent.client.sendRpc(AgentsLookup, {
     agentIds,
-  }) as Effect.Effect<AgentsArrayResult>;
+  }) as Effect.Effect<AgentsListResult>;
 }
 
 function lookupAgentsByName(agent: OwnedConnectedAgent, names: string[]) {
   return agent.client.sendRpc(AgentsLookupByName, {
     names,
-  }) as Effect.Effect<AgentsArrayResult>;
+  }) as Effect.Effect<AgentsListResult>;
 }
 
 function acceptContact(
@@ -206,7 +205,11 @@ function suspendAgent(agentId: string) {
 }
 
 function agentIds(result: AgentsListResult) {
-  return Object.keys(result.agents);
+  return result.agents.map((a) => a.id);
+}
+
+function cardForAgent(result: AgentsListResult, agentId: string) {
+  return result.agents.find((a) => a.id === agentId);
 }
 
 function expectListIncludes(
@@ -230,7 +233,7 @@ function expectListExcludes(
 }
 
 function expectListHasNoCard(result: AgentsListResult, agentId: string) {
-  expect(result.agents[agentId]).toBeUndefined();
+  expect(cardForAgent(result, agentId)).toBeUndefined();
 }
 
 function returnsOwnAgents() {
@@ -250,7 +253,7 @@ function hidesOwnersWithoutContact() {
 
     const result = yield* listAgents(alice);
     expectListHasNoCard(result, carol.agentId);
-    expect(result.agents[alice.agentId]).toBeDefined();
+    expect(cardForAgent(result, alice.agentId)).toBeDefined();
   });
 }
 
@@ -295,7 +298,7 @@ function returnsContactVisibleCardFields() {
     yield* acceptContact(alice, bob, BOB_USER_ID);
 
     const result = yield* listAgents(alice);
-    const card = result.agents[bob.agentId];
+    const card = cardForAgent(result, bob.agentId);
     expect(card).toBeDefined();
     expect(card!.id).toBe(bob.agentId);
     expect(card!.description).toBe(AGENT_DESCRIPTION);

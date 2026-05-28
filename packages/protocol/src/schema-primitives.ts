@@ -115,6 +115,20 @@ export function dateTimeStringSchema(): typeof DateTimeStringSchema {
   return DateTimeStringSchema;
 }
 
+// Opaque pagination token for the cursor-paginated list RPCs. The brand
+// makes opacity structural: only the server's `list-cursor` codec
+// produces this type; clients echo `nextCursor` back unmodified.
+export type ListCursor = BrandedString<"ListCursor">;
+
+export function listCursorSchema(): TString & { static: ListCursor } {
+  return brandedString("ListCursor", {
+    description:
+      "Opaque pagination cursor. Omit for the first page; pass the prior " +
+      "response's nextCursor to fetch the next page. Treat as opaque — do " +
+      "not parse, compare, or construct it.",
+  });
+}
+
 // Recursive JSON value — pins the wire-payload shape so AJV-decoded
 // `data` fields cannot smuggle Date / Map / Symbol. The hand-written
 // type alias is broader than Static<typeof JsonValue> so producer call

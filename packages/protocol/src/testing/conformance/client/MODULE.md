@@ -701,7 +701,7 @@ export function registerRequestIdUniquenessClient(
 ```
 
 B4 client half — TestServer emits a spurious response with marker payload
-`{ __spurious: true }`, then a matching-id response with `{ agents: {} }`.
+`{ __spurious: true }`, then a matching-id response with `{ agents: [] }`.
 A correctly correlating client returns the matching payload.
 
 ### [`registerResetPeerRecoveryClient`](./adversity.ts#L204)

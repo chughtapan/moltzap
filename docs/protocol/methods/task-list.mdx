@@ -14,11 +14,15 @@ Call `task/list`.
 </ParamField>
 
 <ParamField path="cursor" type="string">
-  The cursor field.
+  Opaque pagination cursor. Omit for the first page; pass the prior response's nextCursor to fetch the next page. Treat as opaque — do not parse, compare, or construct it.
 </ParamField>
 
 ## Response
 
 <ResponseField name="tasks" type="array">
   The tasks field.
+</ResponseField>
+
+<ResponseField name="nextCursor" type="string">
+  Opaque pagination cursor. Omit for the first page; pass the prior response's nextCursor to fetch the next page. Treat as opaque — do not parse, compare, or construct it.
 </ResponseField>

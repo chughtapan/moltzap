@@ -295,7 +295,15 @@ pending call to resolve.
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
 
-### [`JsonValue`](./schema-primitives.ts#L135)
+### [`DEFAULT_PAGE_LIMIT`](./pagination.ts#L14)
+
+_Variable_
+
+```ts
+export const DEFAULT_PAGE_LIMIT = 50
+```
+
+### [`JsonValue`](./schema-primitives.ts#L149)
 
 _TypeAlias_
 
@@ -308,7 +316,7 @@ export type JsonValue =
   | ReadonlyArray<JsonValue>
 ```
 
-### [`JsonValueSchema`](./schema-primitives.ts#L123)
+### [`JsonValueSchema`](./schema-primitives.ts#L137)
 
 _Variable_
 
@@ -325,6 +333,40 @@ export const JsonValueSchema = Type.Recursive(
     ]),
   { $id: "JsonValue" },
 )
+```
+
+### [`ListCursor`](./schema-primitives.ts#L121)
+
+_TypeAlias_
+
+```ts
+export type ListCursor = BrandedString<"ListCursor">;
+```
+
+### [`listCursorSchema`](./schema-primitives.ts#L123)
+
+_Function_
+
+```ts
+export function listCursorSchema(): TString &
+```
+
+### [`ListLimitSchema`](./pagination.ts#L23)
+
+_Variable_
+
+```ts
+export const ListLimitSchema = Type.Optional(
+  Type.Integer({ minimum: 1, maximum: MAX_PAGE_LIMIT }),
+)
+```
+
+### [`MAX_PAGE_LIMIT`](./pagination.ts#L18)
+
+_Variable_
+
+```ts
+export const MAX_PAGE_LIMIT = 200
 ```
 
 ### [`notificationDefinitions`](./rpc-registry.ts#L93)
@@ -424,6 +466,7 @@ export const taskMasterRpcMethods = [
 
 ## Files
 
+- `pagination.ts`
 - `rpc-registry.ts`
 - `schema-primitives.ts`
 - `version.ts`
