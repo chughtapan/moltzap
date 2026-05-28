@@ -30,13 +30,11 @@ function listPeers() {
   });
 }
 
-// Track A (#692) bounded `contacts/list` to a server-default page. The
-// openclaw directory must page through `nextCursor` to enumerate EVERY
-// peer — a user with more contacts than one page must not silently lose
-// the tail. These tests drive `plugin.directory.listPeers` against a fake
-// `sendRpc` that paginates `contacts/list`, and assert the full set is
-// resolved. The single-page-consumer version of `listPeersEffect` fails
-// the "drains all pages" assertion below; the drain-all version passes.
+// `contacts/list` is bounded to a server-default page. The openclaw
+// directory must page through `nextCursor` to enumerate EVERY peer — a
+// user with more contacts than one page must not silently lose the tail.
+// These tests drive `plugin.directory.listPeers` against a fake `sendRpc`
+// that paginates `contacts/list`, and assert the full set is resolved.
 
 const ACCOUNT_ID = "directory-test";
 const ACCOUNT_KEY = "moltzap_agent_directory";
@@ -112,7 +110,7 @@ function directorySendRpc<D extends RpcDefinition<string, any, any>>(
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  if (definition === ContactsList) {
+  if (definition.name === ContactsList.name) {
     contactsCallCount++;
     if (byzantineConstantCursor) {
       // Always claims "more" with the same cursor — never advances.
@@ -124,7 +122,7 @@ function directorySendRpc<D extends RpcDefinition<string, any, any>>(
     const cursor = (params as { readonly cursor?: string }).cursor ?? "";
     return Effect.succeed(contactsPage(cursor) as ResultOf<D>);
   }
-  if (definition === AgentsLookup) {
+  if (definition.name === AgentsLookup.name) {
     const ids = (params as { readonly agentIds: ReadonlyArray<string> })
       .agentIds;
     return Effect.succeed({
@@ -259,7 +257,7 @@ function resolvesWithReceiverStrippedSendRpc() {
   });
 }
 
-describe("directory: contacts/list pagination (Track A #692)", () => {
+describe("directory: contacts/list pagination", () => {
   it(
     "enumerates EVERY peer across multiple contact pages",
     enumeratesEveryPeer,

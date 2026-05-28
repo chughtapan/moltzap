@@ -175,9 +175,9 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
   }),
   defineNetworkMethod(AgentsList, {
     requiresActive: true,
-    // Contact-scoped per #481. `visibleAgentIds` is the entitlement
-    // filter; the cursor + limit then run on the `agents` row query so
-    // page order is stable regardless of the visibility query's order.
+    // Contact-scoped. `visibleAgentIds` is the entitlement filter; the
+    // cursor + limit then run on the `agents` row query so page order is
+    // stable regardless of the visibility query's order.
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const pos =

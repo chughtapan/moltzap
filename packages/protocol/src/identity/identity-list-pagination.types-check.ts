@@ -1,6 +1,5 @@
 /**
- * @file Track A (#696) type-canary surface for the cursor-paginated
- * list RPCs.
+ * @file Type-canary surface for the cursor-paginated list RPCs.
  *
  * Locks the wire shapes spec #693 Decision 1 fixes:
  *   - `AgentsList` result `agents` is `AgentCard[]` (NOT a `Record`) and
@@ -8,9 +7,9 @@
  *     `cursor`.
  *   - `ContactsList` params carry optional `limit` / `cursor`; result
  *     carries optional `nextCursor`.
- *   - `TaskList` result carries optional `nextCursor` (INTERIM — Track B
- *     owns the FINAL `TaskList` canaries when it reshapes the `tasks`
- *     item to `TaskListItem`).
+ *   - `TaskList` result carries optional `nextCursor` (interim — the
+ *     final `TaskList` canaries land when the `tasks` item is reshaped
+ *     to `TaskListItem`).
  *
  * Each compile-time equality assertion locks one invariant; a future
  * edit that narrows a field, reverts the Record→Array break, or drops
@@ -56,11 +55,11 @@ type _C3 = Expect<
 
 export type _ContactsListPaginationCanary = _C1 | _C2 | _C3;
 
-// ── TaskList: nextCursor envelope (INTERIM — Track B owns final) ──────
+// ── TaskList: nextCursor envelope (interim) ──────────────────────────
 type TaskListResult = Static<typeof TaskList.resultSchema>;
 
-// interim — Track B owns final TaskList canaries when it reshapes the
-// `tasks` item to `TaskListItem`.
+// interim — the final TaskList canaries land when the `tasks` item is
+// reshaped to `TaskListItem`.
 export type _TaskListNextCursorCanary = Expect<
   Equal<TaskListResult["nextCursor"], ListCursor | undefined>
 >;
