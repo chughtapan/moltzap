@@ -948,12 +948,14 @@ function resolveLease(
       ttlFiber,
       roundTripFiber: null,
     });
-    yield* emitDispatchRelease(state, nextRecord, verdict);
-    if (nextState === "DENIED") {
-      yield* scheduleRetention(state, leaseId, nextRecord.dispatchId);
-    }
-    // GRANTED is the active-set entry transition; fire onLeaseActiveBegin
-    // so the presence service updates the recipient's status. DENIED /
+    // GRANTED enters the active set. The begin callback fires before
+    // emitDispatchRelease because that helper awaits an inline socket
+    // write, which is a suspension window the forked TTL fiber can wake
+    // inside (leaseTimeoutMs minimum is 1ms). If the TTL fiber observed
+    // GRANTED and fired onLeaseActiveEnd before begin ran, the end would
+    // no-op on a not-yet-present lease and presence would strand at
+    // working. Firing begin first — on this fiber, before any await —
+    // guarantees the active-set add precedes any TTL-driven end. DENIED /
     // HOLD do NOT enter the active set; no observer call.
     if (nextState === "GRANTED") {
       yield* state.deps.transitionObserver.onLeaseActiveBegin(
@@ -961,6 +963,10 @@ function resolveLease(
         nextRecord.binding.recipientAgentId,
         nextRecord.binding.recipientConnectionId,
       );
+    }
+    yield* emitDispatchRelease(state, nextRecord, verdict);
+    if (nextState === "DENIED") {
+      yield* scheduleRetention(state, leaseId, nextRecord.dispatchId);
     }
   });
 }
