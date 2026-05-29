@@ -101,7 +101,7 @@ export class ConversationService {
       yield* ConversationCreateAuthorization;
       const task = yield* input.mintTask;
       const created = yield* this.insertConversation(input, task.id);
-      this.subscribeCreatedConversation(input, created.id);
+      yield* this.subscribeCreatedConversation(input, created.id);
       yield* this.logConversationCreated(input, created.id);
       return created;
     });
@@ -193,9 +193,10 @@ export class ConversationService {
             new NotFoundError({ message: "Participant not found" }),
           );
         }
-        for (const conn of this.connections.getByAgent(agentId)) {
-          conn.conversationIds.delete(conversationId);
-        }
+        yield* this.connections.removeConversationFromAgent(
+          agentId,
+          conversationId,
+        );
         if (taskId !== null) {
           yield* broadcastNotificationToAgents(
             participantsSnapshot,
@@ -256,11 +257,13 @@ export class ConversationService {
   private subscribeCreatedConversation<TaskMintError>(
     input: CreateConversationOptions<TaskMintError>,
     conversationId: ConversationId,
-  ): void {
-    this.connections.subscribeAgentsToConversation(
-      [input.creatorAgentId, ...input.agentIds],
-      conversationId,
-    );
+  ): Effect.Effect<void> {
+    return this.connections
+      .addConversationToAgents(
+        [input.creatorAgentId, ...input.agentIds],
+        conversationId,
+      )
+      .pipe(Effect.asVoid);
   }
 
   private logConversationCreated<TaskMintError>(

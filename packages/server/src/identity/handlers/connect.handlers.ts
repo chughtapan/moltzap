@@ -38,10 +38,7 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
-import type {
-  ConnectionManager,
-  MoltZapConnection,
-} from "../../transport/connection.js";
+import type { ConnectionManager } from "../../transport/connection.js";
 
 type ConnectParams = ParamsOf<typeof Connect>;
 
@@ -157,14 +154,17 @@ function resolveAuthenticatedContext(
 }
 
 function hydrateConnectionState(
-  conn: MoltZapConnection,
+  connections: ConnectionManager,
+  connId: ConnectionId,
   auth: AuthenticatedContext,
   conversationService: ConversationService,
-  _db: Db,
 ) {
   return Effect.gen(function* () {
     const convIds = yield* conversationService.getConversationIds(auth.agentId);
-    for (const id of convIds) conn.conversationIds.add(id);
+    // D #705 CP4e — seed the three-arm `connectionsRef` agent arm's
+    // subscription set (the fan-out gate now reads it). The arm was minted by
+    // `mirrorAgentArmTransition` just above, so it exists for this connId.
+    yield* connections.hydrateConversationIds(connId, convIds);
   }).pipe(Effect.withSpan("connect.hydrateConnectionState"));
 }
 
@@ -250,7 +250,12 @@ function handleConnect(params: ConnectParams) {
       );
       conn.auth = auth;
       yield* mirrorAgentArmTransition(connections, conn.id, auth);
-      yield* hydrateConnectionState(conn, auth, conversationService, db);
+      yield* hydrateConnectionState(
+        connections,
+        conn.id,
+        auth,
+        conversationService,
+      );
       yield* registerEndpointIfStillConnected(
         connections,
         agentEndpointResolver,
