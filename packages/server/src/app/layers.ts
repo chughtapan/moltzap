@@ -15,6 +15,8 @@ import {
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
+import { AppAuthService } from "../identity/services/app-auth.service.js";
+import { PrincipalResolver } from "../identity/services/principal-resolver.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
@@ -88,6 +90,26 @@ export class NetworkSendServiceTag extends Context.Tag(
 export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
   AuthServiceTag,
   AuthService
+>() {}
+
+// Module-private: the resolved services (`ResolvedServices.appAuthService`,
+// `ResolvedServices.principalResolver`) are the consumer surface. The Connect
+// cutover (D #705 §3) reads those, not the Tags, so the Tags stay internal
+// to the Layer graph until a cross-module consumer needs them.
+class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
+  AppAuthServiceTag,
+  AppAuthService
+>() {}
+
+/**
+ * Prefix-dispatched credential resolution. Composes {@link AuthServiceTag}
+ * (agent path) + `AppAuthServiceTag` (app path). Constructed by the Layer
+ * graph but NOT yet consumed by the Connect handler — the Connect cutover
+ * (D #705 §3) is a held phase.
+ */
+class PrincipalResolverTag extends Context.Tag("moltzap/PrincipalResolver")<
+  PrincipalResolverTag,
+  PrincipalResolver
 >() {}
 
 export class ConversationServiceTag extends Context.Tag(
@@ -190,6 +212,28 @@ const AuthServiceLive = Layer.effect(
     const db = yield* DbTag;
     return new AuthService(db);
   }).pipe(Effect.withSpan("AuthServiceLive")),
+);
+
+const AppAuthServiceLive = Layer.effect(
+  AppAuthServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new AppAuthService(db);
+  }).pipe(Effect.withSpan("AppAuthServiceLive")),
+);
+
+/**
+ * Composes the two principal-auth services into the prefix-dispatch
+ * resolver. Sits above Tier 1 so both `AuthServiceTag` and
+ * `AppAuthServiceTag` resolve from its R channel.
+ */
+const PrincipalResolverLive = Layer.effect(
+  PrincipalResolverTag,
+  Effect.gen(function* () {
+    const authService = yield* AuthServiceTag;
+    const appAuthService = yield* AppAuthServiceTag;
+    return new PrincipalResolver(authService, appAuthService);
+  }).pipe(Effect.withSpan("PrincipalResolverLive")),
 );
 
 const ConversationServiceLive = Layer.effect(
@@ -337,8 +381,16 @@ const MessageServiceLive = Layer.effect(
 const Tier1 = Layer.mergeAll(
   ConnectionManagerLive,
   AuthServiceLive,
+  AppAuthServiceLive,
   ContactsServiceLive,
 );
+
+/**
+ * Tier 1.5 — PrincipalResolver composes AuthService + AppAuthService from
+ * Tier 1. ADDITIVE: the resolver is wired into the graph (so tsc proves
+ * the composition) but is not yet consumed by the Connect handler.
+ */
+const Tier1Principal = Layer.provideMerge(PrincipalResolverLive, Tier1);
 
 /**
  * Tier 2 — Presence + resolver above Tier 1's ConnectionManager. The
@@ -347,7 +399,7 @@ const Tier1 = Layer.mergeAll(
  */
 const Tier2 = Layer.provideMerge(
   Layer.mergeAll(PresenceServiceLive, AgentEndpointResolverLive),
-  Tier1,
+  Tier1Principal,
 );
 
 /**
@@ -404,6 +456,10 @@ export interface ResolvedServices {
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
+  readonly appAuthService: AppAuthService;
+  // ADDITIVE: resolved so the Connect cutover (held phase) can read it
+  // without re-wiring the graph; no current consumer.
+  readonly principalResolver: PrincipalResolver;
   readonly conversationService: ConversationService;
   readonly contactService: ContactsService;
   readonly presenceService: PresenceService;
@@ -426,6 +482,8 @@ export const resolveServices = Effect.all({
   agentEndpointResolver: AgentEndpointResolverTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
+  appAuthService: AppAuthServiceTag,
+  principalResolver: PrincipalResolverTag,
   conversationService: ConversationServiceTag,
   contactService: ContactsServiceTag,
   presenceService: PresenceServiceTag,
