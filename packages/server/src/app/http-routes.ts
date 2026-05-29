@@ -457,15 +457,10 @@ function refreshClaimedConnections(
   agentId: AgentId,
   ownerUserId: UserId,
 ): Effect.Effect<void> {
-  // Dual-write the claimed owner (D #705 CP4e): the three-arm `connectionsRef`
-  // arm AND the legacy `conn.auth` the RPC dispatch context still reads
-  // (`socket-handler.handleRequestFrame` sources `DispatchContext.auth` from
-  // `conn.auth`). The legacy mutation is dropped once CP4d rebinds the
-  // dispatch context to read the arm.
-  for (const conn of connections.getByAgent(agentId)) {
-    if (conn.auth === null) continue;
-    conn.auth = { ...conn.auth, ownerUserId };
-  }
+  // D #705 CP4d landed — the RPC dispatch context now sources auth from the
+  // three-arm `connectionsRef` arm, so rebuilding the agent arm's
+  // `AgentContext` is the ONLY write needed (the legacy `conn.auth`
+  // mutation that mirrored it is gone).
   return connections.setOwnerUserIdForAgent(agentId, ownerUserId);
 }
 
