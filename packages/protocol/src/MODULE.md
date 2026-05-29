@@ -393,6 +393,14 @@ pending call to resolve.
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
 
+### [`DEFAULT_PAGE_LIMIT`](./pagination.ts#L14)
+
+_Variable_
+
+```ts
+export const DEFAULT_PAGE_LIMIT = 50
+```
+
 ### [`InvalidProtocolVersionError`](./version.ts#L35)
 
 _Class_
@@ -430,7 +438,7 @@ for untrusted client-supplied version strings. The
 `InvalidParamsError` (JSON-RPC -32602) so the client gets a typed
 malformed-input response, not a defect.
 
-### [`JsonValue`](./schema-primitives.ts#L135)
+### [`JsonValue`](./schema-primitives.ts#L149)
 
 _TypeAlias_
 
@@ -443,7 +451,7 @@ export type JsonValue =
   | ReadonlyArray<JsonValue>
 ```
 
-### [`JsonValueSchema`](./schema-primitives.ts#L123)
+### [`JsonValueSchema`](./schema-primitives.ts#L137)
 
 _Variable_
 
@@ -460,6 +468,40 @@ export const JsonValueSchema = Type.Recursive(
     ]),
   { $id: "JsonValue" },
 )
+```
+
+### [`ListCursor`](./schema-primitives.ts#L121)
+
+_TypeAlias_
+
+```ts
+export type ListCursor = BrandedString<"ListCursor">;
+```
+
+### [`listCursorSchema`](./schema-primitives.ts#L123)
+
+_Function_
+
+```ts
+export function listCursorSchema(): TString &
+```
+
+### [`ListLimitSchema`](./pagination.ts#L23)
+
+_Variable_
+
+```ts
+export const ListLimitSchema = Type.Optional(
+  Type.Integer({ minimum: 1, maximum: MAX_PAGE_LIMIT }),
+)
+```
+
+### [`MAX_PAGE_LIMIT`](./pagination.ts#L18)
+
+_Variable_
+
+```ts
+export const MAX_PAGE_LIMIT = 200
 ```
 
 ### [`notificationDefinitions`](./rpc-registry.ts#L107)
@@ -480,7 +522,7 @@ export const notificationDefinitions = [
 _Variable_
 
 ```ts
-export const PROTOCOL_VERSION = "2026.526.0"
+export const PROTOCOL_VERSION = "2026.528.0"
 ```
 
 ### [`RegisteredTaggedError`](./rpc-registry.ts#L64)
@@ -564,6 +606,7 @@ export const taskMasterRpcMethods = [
 
 ## Files
 
+- `pagination.ts`
 - `rpc-registry.ts`
 - `schema-primitives.ts`
 - `version.ts`

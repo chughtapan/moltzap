@@ -4,16 +4,35 @@ import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type { ContactRow } from "../../db/database.js";
 import {
   ConflictError,
+  DEFAULT_PAGE_LIMIT,
   ForbiddenError,
   NotFoundError,
   type Contact,
+  type ListCursor,
 } from "@moltzap/protocol";
 import type { ContactId, UserId } from "@moltzap/protocol/identity";
+import {
+  decodeListCursor,
+  keysetWhere,
+  paginate,
+  sortKeyExpr,
+  type InvalidCursorError,
+} from "../../db/list-cursor.js";
 
 export type ContactsServiceError =
   | ConflictError
   | ForbiddenError
   | NotFoundError;
+
+export interface ContactsListInput {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ContactsListPage {
+  readonly contacts: readonly Contact[];
+  readonly nextCursor?: ListCursor;
+}
 
 export interface ContactCreateInput {
   readonly contactUserId: UserId;
@@ -34,16 +53,47 @@ const ERR_NOT_RECIPIENT = "Only the recipient can accept the contact request";
 export class ContactsService {
   constructor(private readonly db: Db) {}
 
-  list(owner: UserId): Effect.Effect<ReadonlyArray<Contact>, never> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rows = yield* this.db
-          .selectFrom("contacts")
-          .selectAll()
-          .where("owner_user_id", "=", owner);
-        return rows.map(rowToContact);
-      }),
-    );
+  list(
+    owner: UserId,
+    input: ContactsListInput,
+  ): Effect.Effect<ContactsListPage, InvalidCursorError> {
+    const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
+    return Effect.gen(this, function* () {
+      const pos =
+        input.cursor === undefined
+          ? undefined
+          : yield* decodeListCursor(input.cursor);
+      return yield* catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          let query = this.db
+            .selectFrom("contacts")
+            .selectAll()
+            .where("owner_user_id", "=", owner);
+          if (pos !== undefined) {
+            query = query.where((eb) =>
+              keysetWhere(
+                eb,
+                { sortKey: sortKeyExpr(eb, "created_at"), id: "id" },
+                pos,
+              ),
+            );
+          }
+          const rows = yield* query
+            .orderBy((eb) => sortKeyExpr(eb, "created_at"), "desc")
+            .orderBy("id", "asc")
+            .limit(limit + 1);
+          const { page, nextCursor } = paginate(
+            rows,
+            limit,
+            positionOfContactRow,
+          );
+          return {
+            contacts: page.map(rowToContact),
+            ...(nextCursor !== undefined ? { nextCursor } : {}),
+          };
+        }),
+      );
+    });
   }
 
   add(
@@ -178,4 +228,12 @@ function rowToContact(row: ContactRow): Contact {
     contactUserId: row.contact_user_id,
     ...(row.relationship !== null ? { relationship: row.relationship } : {}),
   };
+}
+
+// `created_at` is the ordering column only; never projected onto `Contact`.
+function positionOfContactRow(row: ContactRow): {
+  readonly sortKey: string;
+  readonly id: string;
+} {
+  return { sortKey: row.created_at.toISOString(), id: row.id };
 }

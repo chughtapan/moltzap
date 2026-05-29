@@ -545,12 +545,10 @@ function makeAgentsListBadResult(
   ordinal: number,
 ): unknown {
   if (behavior !== "drift-idempotent-result") {
-    return { agents: {} };
+    return { agents: [] };
   }
   return {
-    agents: {
-      [`agent-${ordinal}`]: { id: `agent-${ordinal}`, status: "active" },
-    },
+    agents: [{ id: `agent-${ordinal}`, status: "active" }],
   };
 }
 

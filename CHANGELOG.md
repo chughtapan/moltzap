@@ -189,6 +189,59 @@ malformed config file now produces a slightly less polished error message.
   parsing is removed (the compiled-patterns array was never read).
   `corsOrigins` is exact-match only.
 
+### Cursor-paginate the list-RPC surface (#692)
+
+One cursor-pagination convention now covers the list-RPC surface:
+`{ limit?, cursor? } → { <collection>, nextCursor? }` with an opaque
+`(created_at, id)` keyset cursor (Decision 1 of spec #693). The cursor
+encodes the last emitted row's millisecond-truncated `created_at` plus
+its UUID tie-break, so pages never skip or duplicate rows that share a
+timestamp.
+
+- **BREAKING (`@moltzap/protocol`):** `AgentsList` (`agents/list`)
+  result `agents` changes from `Record<AgentId, AgentCard>` to
+  `Array<AgentCard>`, and gains `{ limit?, cursor? }` params plus an
+  optional `nextCursor`. A map has no stable page ordering; the array
+  matches `agents/lookup` / `agents/lookupByName`. All in-repo consumers
+  (server handler, CLI `agents list`, integration + conformance) migrate
+  in this change; there are no external consumers.
+- **`ContactsList` (`contacts/list`):** additive — gains
+  `{ limit?, cursor? }` params and an optional `nextCursor`. Existing
+  callers keep working (`{}` params stay valid, `contacts` unchanged).
+- **`TaskList` (`task/list`):** the half-wired cursor is finished — the
+  result now carries `nextCursor` and the server threads `cursor`
+  through `TaskService.list`. The `tasks` item type is unchanged
+  (`Task[]`); the item reshape is deferred to a later change.
+- **Branded `ListCursor`** (`@moltzap/protocol`): cursor / nextCursor
+  are an opaque branded token. Clients echo it back unmodified; the
+  server's `db/list-cursor.ts` codec is the only producer/decoder, and a
+  server-package lint guard bans decoding the token elsewhere. A
+  tampered token is rejected at the boundary as `InvalidParamsError`.
+- **`MessagesList` is unchanged** (`sinceSeq` + `hasMore`): already an
+  opaque, bounded, monotonic per-conversation seq cursor; request-bounded
+  by construction.
+- **Limit reconciliation (`@moltzap/protocol`):** Every list-RPC `limit`
+  param now shares one schema (`ListLimitSchema`) backed by two exported
+  constants, `DEFAULT_PAGE_LIMIT` (50) and `MAX_PAGE_LIMIT` (200). The
+  six copy-pasted server default/clamp constants
+  (`DEFAULT_TASK_LIST_LIMIT`, `DEFAULT_MESSAGE_HISTORY_LIMIT`,
+  `DEFAULT_CONVERSATION_LIST_LIMIT`, `DEFAULT_AGENTS_LIST_LIMIT`,
+  `DEFAULT_CONTACTS_LIST_LIMIT`, `MAX_MESSAGE_HISTORY_LIMIT`) are deleted
+  in favor of importing the protocol constants, so the wire cap and the
+  server clamp can no longer drift.
+- **Cap raise — `task/conversation/list`:** `limit` ceiling raised
+  100 → 200 to match the rest of the list surface (`MAX_PAGE_LIMIT`).
+- **Cap raise — message history (server clamp):** the message-history
+  server clamp raised 100 → 200, aligning to the protocol, which already
+  allowed `limit` up to 200 on `messages/list` — fixes a latent
+  protocol/server mismatch where the server silently truncated a
+  protocol-valid request.
+- **Internal (`@moltzap/client`):** The generic cursor-list drainer
+  `drainPaginatedList` (and its cycle-guard error, renamed
+  `MoltZapNonAdvancingCursorError` → `NonAdvancingCursorError`) moves
+  from `@moltzap/openclaw-channel` into `@moltzap/client` so any channel
+  or CLI that needs the complete result set (not just one page) can reuse
+  it. openclaw's directory re-imports it; behavior is unchanged.
 
 ### Server folder rebalance (#708) — handlers + adapter/identity boundaries
 
@@ -221,7 +274,6 @@ their concept-owning folders. No logic, wire, or config change; the
 - **Changed:** Per-folder server READMEs
   (`src/{task,network,identity}/README.md`) updated to list each
   handler under its new owning folder.
-
 
 ### Spec D3 (#600) — Cutover: delete `Conversations*`, singular `Task*` rename, MessagesSend reshape
 

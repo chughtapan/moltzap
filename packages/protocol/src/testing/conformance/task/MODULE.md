@@ -410,7 +410,7 @@ _Function_
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void
 ```
 
-### [`registerModelEquivalence`](./model-equivalence.ts#L59)
+### [`registerModelEquivalence`](./model-equivalence.ts#L62)
 
 _Function_
 

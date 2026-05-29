@@ -240,6 +240,27 @@ the protocol, kept structurally typed here so this module does not
 need a direct protocol descriptor import (the channel core stays
 descriptor-free; the wire shape is asserted by the service module).
 
+### [`drainPaginatedList`](./pagination.ts#L50)
+
+_Function_
+
+```ts
+export function drainPaginatedList<
+  E,
+  D extends RpcDefinition<string, any, any>,
+  K extends keyof ResultOf<D>,
+>(
+  sendRpc: SendRpcFn<E>,
+  definition: D,
+  collectionKey: K,
+): Effect.Effect<ResultOf<D>[K], E | NonAdvancingCursorError>
+```
+
+Drain every page of a cursor-paginated list RPC whose result is
+`{ [K]: T[], nextCursor? }`, echoing the opaque `nextCursor` back as the
+next page's `cursor`. Fails with NonAdvancingCursorError if the
+server returns a cursor it already emitted (cycle guard).
+
 ### [`EnrichedConversationMeta`](./channel-core.ts#L31)
 
 _Interface_
@@ -936,6 +957,27 @@ escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
 a `NotConnectedError` error channel. Consume via `Stream.runForEach`
 (long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
 
+### [`NonAdvancingCursorError`](./pagination.ts#L23)
+
+_Class_
+
+```ts
+export class NonAdvancingCursorError extends Data.TaggedError(
+  "NonAdvancingCursorError",
+)<{
+  readonly method: string;
+}> {
+  override get message(): string {
+    return `Pagination cursor for ${this.method} did not advance — refusing to loop`;
+  }
+}
+```
+
+A server that returns a non-advancing `nextCursor` (one already seen)
+would loop the drain forever; fail typed so the caller's `catchAll`
+can degrade gracefully instead of hanging. This is a cycle guard, NOT
+a page cap — a well-behaved server never trips it.
+
 ### [`PendingDispatchMessage`](./channel-core.ts#L72)
 
 _Interface_
@@ -1026,6 +1068,22 @@ export function sanitizeForSystemReminder(s: string): string
 ```
 
 Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block.
+
+### [`SendRpcFn`](./pagination.ts#L39)
+
+_TypeAlias_
+
+```ts
+export type SendRpcFn<E> = <D extends RpcDefinition<string, any, any>>(
+  definition: D,
+  params: ParamsOf<D>,
+) => Effect.Effect<ResultOf<D>, E>;
+```
+
+The `sendRpc` shape every drain consumer provides: send one list-RPC
+page, decoding its typed result. Parameterized over the sender's error
+channel `E` so the helper stays decoupled from any one client's error
+union.
 
 ### [`ServiceOptions`](./service.ts#L205)
 
@@ -1127,5 +1185,6 @@ handler.
 - `agent-client.ts`
 - `auth.ts`
 - `channel-core.ts`
+- `pagination.ts`
 - `service.ts`
 - `tm-client.ts`

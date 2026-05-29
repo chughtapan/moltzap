@@ -1,6 +1,11 @@
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import { stringEnum, dateTimeStringSchema } from "../schema-primitives.js";
+import {
+  stringEnum,
+  dateTimeStringSchema,
+  listCursorSchema,
+} from "../schema-primitives.js";
+import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
@@ -144,13 +149,16 @@ export const TaskList = defineRpc({
   name: "task/list",
   params: Type.Object(
     {
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-      cursor: Type.Optional(Type.String()),
+      limit: ListLimitSchema,
+      cursor: Type.Optional(listCursorSchema()),
     },
     { additionalProperties: false },
   ),
   result: Type.Object(
-    { tasks: Type.Array(TaskSchema) },
+    {
+      tasks: Type.Array(TaskSchema),
+      nextCursor: Type.Optional(listCursorSchema()),
+    },
     { additionalProperties: false },
   ),
 });
@@ -508,7 +516,7 @@ export const TaskConversationList = defineRpc({
   name: "task/conversation/list",
   params: Type.Object(
     {
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+      limit: ListLimitSchema,
       cursor: Type.Optional(Type.String()),
     },
     { additionalProperties: false },

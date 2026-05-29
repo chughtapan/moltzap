@@ -8,7 +8,7 @@ Public barrel for protocol reference-model helpers.
 
 ## Public surface
 
-### [`applyCall`](./dispatch.ts#L189)
+### [`applyCall`](./dispatch.ts#L194)
 
 _Function_
 
@@ -30,7 +30,7 @@ server's *observable* outcome (success vs typed error), not its full
 result shape. Tier B canonicalizers downgrade server responses to the
 same projection before comparing.
 
-### [`authorizationOutcome`](./dispatch.ts#L142)
+### [`authorizationOutcome`](./dispatch.ts#L147)
 
 _Function_
 
