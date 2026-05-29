@@ -42,7 +42,7 @@
 
 import { MessagesList, MessagesSend } from "../task/messages.js";
 import { DispatchAuthorize, MessagesAuthorize } from "../app/methods.js";
-import { TmAuthority } from "../task/capabilities/tm-authority.js";
+import { MessageSendPermission } from "../task/capabilities/message-send-permission.js";
 
 import type { AnyTaskCallbackRpcDefinition } from "../rpc-registry.js";
 import type { ParamsOf } from "./method.js";
@@ -164,18 +164,19 @@ const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
 // authorization needs aren't reflected in the wire-protocol descriptor.
 //
 // The check below uses `MessagesList` whose `capabilities` array does NOT
-// include `TmAuthority`. A handler that yields `TmAuthority` should fail
-// the `Handler<D, Ctx, Caps>` constraint where
-// `Caps = CapabilitiesOf<typeof MessagesList>`. Yielding `TmAuthority`
-// widens R beyond `Caps` and the slot literal fails to assign.
+// include `MessageSendPermission`. A handler that yields
+// `MessageSendPermission` should fail the `Handler<D, Ctx, Caps>`
+// constraint where `Caps = CapabilitiesOf<typeof MessagesList>`. Yielding
+// `MessageSendPermission` widens R beyond `Caps` and the slot literal
+// fails to assign.
 // ───────────────────────────────────────────────────────────────────────
 
 declare const _messagesListSlotWithExtraCap: HandlerSlot<
   typeof MessagesList,
   unknown,
-  typeof TmAuthority
+  typeof MessageSendPermission
 >;
-// @ts-expect-error — handler R (TmAuthority) is NOT in CapabilitiesOf<MessagesList>.
+// @ts-expect-error — handler R (MessageSendPermission) is NOT in CapabilitiesOf<MessagesList>.
 const _capLockstepReject: HandlerSlot<
   typeof MessagesList,
   unknown,

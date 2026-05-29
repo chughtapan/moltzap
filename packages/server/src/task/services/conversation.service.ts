@@ -239,10 +239,16 @@ export class ConversationService {
             })
             .returningAll(),
         );
-        yield* trx.insertInto("conversation_participants").values({
-          conversation_id: conv.id,
-          agent_id: input.creatorAgentId,
-        });
+        // The creator is auto-seeded as a participant only on the agent
+        // path (D #705 R3). The app-originated `task/conversation/create`
+        // passes `seedCreatorAsParticipant: false`: membership = exactly
+        // `input.agentIds`.
+        if (input.seedCreatorAsParticipant !== false) {
+          yield* trx.insertInto("conversation_participants").values({
+            conversation_id: conv.id,
+            agent_id: input.creatorAgentId,
+          });
+        }
         for (const agentId of input.agentIds) {
           yield* trx
             .insertInto("conversation_participants")
@@ -258,11 +264,14 @@ export class ConversationService {
     input: CreateConversationOptions<TaskMintError>,
     conversationId: ConversationId,
   ): Effect.Effect<void> {
+    // Mirrors `insertConversation`'s membership set: the creator is
+    // subscribed only when it was seeded as a participant (D #705 R3).
+    const memberAgentIds =
+      input.seedCreatorAsParticipant !== false
+        ? [input.creatorAgentId, ...input.agentIds]
+        : [...input.agentIds];
     return this.connections
-      .addConversationToAgents(
-        [input.creatorAgentId, ...input.agentIds],
-        conversationId,
-      )
+      .addConversationToAgents(memberAgentIds, conversationId)
       .pipe(Effect.asVoid);
   }
 
@@ -270,10 +279,14 @@ export class ConversationService {
     input: CreateConversationOptions<TaskMintError>,
     conversationId: ConversationId,
   ): Effect.Effect<void> {
+    const participantCount =
+      input.seedCreatorAsParticipant !== false
+        ? input.agentIds.length + 1
+        : input.agentIds.length;
     return Effect.logInfo("Conversation created").pipe(
       Effect.annotateLogs({
         conversationId,
-        participantCount: input.agentIds.length + 1,
+        participantCount,
       }),
     );
   }

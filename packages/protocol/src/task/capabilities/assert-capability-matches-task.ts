@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { ForbiddenError } from "../../transport/wire-errors.js";
-import type { TaskId } from "../tasks.js";
+import type { TaskId, Task } from "../tasks.js";
+import type { AppId } from "../ids.js";
 import type { ConversationId } from "../conversations.js";
 import type { ConversationInTaskValue } from "./conversation-in-task.js";
-import type { TmAuthorityValue } from "./tm-authority.js";
 import type { TaskReadAccessValue } from "./task-read-access.js";
 
 /**
@@ -31,20 +31,8 @@ const assertTaskIdMatches = (
 };
 
 /**
- * Verifies `cap.task.id === expectedTaskId`. Fails with
- * `ForbiddenError` when the handler obtained a capability for one task
- * but passed a different `taskId` argument to the service method.
- */
-export const assertTmAuthorityMatchesTask = (
-  cap: TmAuthorityValue,
-  expectedTaskId: TaskId,
-): Effect.Effect<void, ForbiddenError> =>
-  assertTaskIdMatches(cap.task.id, expectedTaskId);
-
-/**
- * Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. The
- * value shape mirrors `TmAuthorityValue`; a separate overload keeps the
- * type narrowed at the call site.
+ * Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. A
+ * separate overload keeps the type narrowed at the call site.
  */
 export const assertTaskReadAccessMatchesTask = (
   cap: TaskReadAccessValue,
@@ -56,7 +44,7 @@ export const assertTaskReadAccessMatchesTask = (
  * Verifies the capability's carried `(taskId, conversationId)` pair
  * equals the expected pair. Fails with `ForbiddenError` on the first
  * mismatch; runs both comparisons in one Effect for handler-side
- * symmetry with `assertTmAuthorityMatchesTask`.
+ * symmetry with `assertTaskReadAccessMatchesTask`.
  */
 export const assertConversationInTaskMatches = (
   cap: ConversationInTaskValue,
@@ -68,6 +56,34 @@ export const assertConversationInTaskMatches = (
   }
   if (cap.conversationId !== expectedConversationId) {
     return Effect.fail(new ForbiddenError({ message: ERR_CAP_CONV_MISMATCH }));
+  }
+  return Effect.void;
+};
+
+const ERR_NOT_TASK_APP =
+  "Caller is not the registered task manager for this task";
+
+/**
+ * App-principal ownership gate (D #705 R6/R7). Asserts the calling app
+ * IS the app bound to `task` — i.e. the app on whose behalf the task's
+ * TM acts. Replaces the dissolved `TmAuthority` capability: the 8
+ * task-admin RPCs (`task/close`, `task/addParticipant`,
+ * `task/removeParticipant`, `task/conversation/{create,archive,
+ * unarchive,addParticipant,removeParticipant}`) load the open task in
+ * their handler and call this asserter before the service mutation.
+ *
+ * `task.appId` rides as a wire `string`; the brand boundary is the type
+ * system, so the equality check compares the branded `appId` argument to
+ * the row value directly. Fails with `ForbiddenError` (wire -32001) when
+ * the app does not own the task — preserving the pre-cutover "not the
+ * registered task manager" 403 surface.
+ */
+export const assertAppOwnsTask = (
+  appId: AppId,
+  task: Task,
+): Effect.Effect<void, ForbiddenError> => {
+  if (task.appId !== appId) {
+    return Effect.fail(new ForbiddenError({ message: ERR_NOT_TASK_APP }));
   }
   return Effect.void;
 };

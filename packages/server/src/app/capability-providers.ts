@@ -22,18 +22,17 @@
  *
  * ```ts
  * // Descriptor declares capabilities.
- * export const TaskConversationCreate = defineRpc({
- *   name: "task/conversation/create",
- *   params: TaskConversationCreateParams,
- *   result: TaskConversationCreateResult,
+ * export const TaskConversationArchive = defineRpc({
+ *   name: "task/conversation/archive",
+ *   params: TaskConversationArchiveParams,
+ *   result: TaskConversationArchiveResult,
  *   capabilities: [
- *     { tag: TmAuthority,                     argsOf: (p, ctx) => ({ taskId: p.taskId, callerAgentId: ctx.auth.agentId }) },
- *     { tag: ConversationCreateAuthorization, argsOf: (p, ctx) => ({ agentIds: [...p.participants], creatorAgentId: ctx.auth.agentId }) },
+ *     { tag: ConversationInTask, argsOf: (p) => ({ taskId: p.taskId, conversationId: p.conversationId }) },
  *   ],
  * });
  *
  * // Service method R channel encodes the preconditions.
- * create(...): Effect.Effect&lt;Conversation, ConversationServiceError, ConversationCreateAuthorization>;
+ * archiveTaskConversation(...): Effect.Effect&lt;..., ConversationServiceError, ConversationInTask>;
  *
  * // Handler body just yields the tags — no Effect.provideServiceEffect chain.
  * ```
@@ -88,28 +87,19 @@
  * its descriptor.
  */
 import { Effect } from "effect";
-import { ForbiddenError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
 import {
-  AppId,
   ContactPolicyAllowsReach,
   ConversationCreateAuthorization,
   ConversationInTask,
   MessageSendPermission,
   TaskReadAccess,
-  TmAuthority,
   type ConversationId,
   type TaskId,
   type ObtainConversationCreateAuthorizationInput,
   type ObtainMessageSendPermissionInput,
 } from "@moltzap/protocol/task";
-import { Value } from "@sinclair/typebox/value";
-import {
-  AppHostTag,
-  ConversationServiceTag,
-  TaskServiceTag,
-} from "./layers.js";
+import { ConversationServiceTag, TaskServiceTag } from "./layers.js";
 import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 import { obtainMessageSendPermission } from "../task/services/message-send-permission.js";
 import { obtainConversationCreateAuthorization } from "../task/services/conversation-create-authorization.js";
@@ -117,11 +107,6 @@ import { obtainConversationCreateAuthorization } from "../task/services/conversa
 interface TaskAndAgent {
   readonly taskId: TaskId;
   readonly callerAgentId: AgentId;
-}
-
-interface TaskAndConn {
-  readonly taskId: TaskId;
-  readonly callerConnId: ConnectionId;
 }
 
 interface TaskAndConversation {
@@ -134,8 +119,6 @@ interface CreatorAndTargets {
   readonly targetAgentIds: readonly AgentId[];
 }
 
-const ERR_NOT_TM = "Caller is not the registered task manager for this task";
-
 /**
  * Provider table keyed by `Context.Tag.key`. Each entry receives the
  * dispatcher-derived args (built by the descriptor's `argsOf`), narrows
@@ -145,19 +128,6 @@ const ERR_NOT_TM = "Caller is not the registered task manager for this task";
  * `Caps` generic of `ServerConnectionConfig` agrees across them.
  */
 export const serverCapabilityProviders = {
-  [TmAuthority.key]: (args: unknown) => {
-    const { taskId, callerConnId } = args as TaskAndConn;
-    return Effect.gen(function* () {
-      const taskService = yield* TaskServiceTag;
-      const appHost = yield* AppHostTag;
-      const task = yield* taskService.loadOpenTask(taskId);
-      const taskAppId = Value.Decode(AppId, task.appId);
-      if (!appHost.isAppConnection(taskAppId, callerConnId)) {
-        return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
-      }
-      return { task };
-    }).pipe(Effect.withSpan("obtainTmAuthority"));
-  },
   [TaskReadAccess.key]: (args: unknown) => {
     const { taskId, callerAgentId } = args as TaskAndAgent;
     return Effect.gen(function* () {

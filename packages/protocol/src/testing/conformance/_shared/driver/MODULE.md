@@ -17,7 +17,7 @@ Re-exporting keeps external consumers on the public testing entrypoint.
 
 ## Public surface
 
-### [`CloseableTestClient`](./test-client.ts#L272)
+### [`CloseableTestClient`](./test-client.ts#L283)
 
 _Interface_
 
@@ -31,7 +31,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`makeCloseableTestClient`](./test-client.ts#L1149)
+### [`makeCloseableTestClient`](./test-client.ts#L1170)
 
 _Function_
 
@@ -44,7 +44,7 @@ export function makeCloseableTestClient(
 >
 ```
 
-### [`makeTestClient`](./test-client.ts#L1136)
+### [`makeTestClient`](./test-client.ts#L1157)
 
 _Function_
 
@@ -93,7 +93,7 @@ Construct an empty registry. Called once from
 finalizer — consumers see `emit.fail(TransportClosedError)` before
 the transport tears down.
 
-### [`ServerRequestWaitError`](./test-client.ts#L244)
+### [`ServerRequestWaitError`](./test-client.ts#L255)
 
 _Class_
 
@@ -107,7 +107,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 }> {}
 ```
 
-### [`ServerRpcContext`](./test-client.ts#L267)
+### [`ServerRpcContext`](./test-client.ts#L278)
 
 _Interface_
 
@@ -118,7 +118,7 @@ export interface ServerRpcContext {
 }
 ```
 
-### [`ServerRpcDefinition`](./test-client.ts#L255)
+### [`ServerRpcDefinition`](./test-client.ts#L266)
 
 _TypeAlias_
 
@@ -133,7 +133,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Descriptor constraint for app-callback RPC test surface.
 
-### [`ServerRpcParams`](./test-client.ts#L260)
+### [`ServerRpcParams`](./test-client.ts#L271)
 
 _TypeAlias_
 
@@ -143,7 +143,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Inbound params type for an app-callback method.
 
-### [`ServerRpcResult`](./test-client.ts#L265)
+### [`ServerRpcResult`](./test-client.ts#L276)
 
 _TypeAlias_
 
@@ -205,7 +205,7 @@ notification regardless of definition. Used by conformance helpers
 that need to filter on params-shaped predicates not expressible at
 the definition level (e.g. presence/changed by agentId+status).
 
-### [`TestClient`](./test-client.ts#L122)
+### [`TestClient`](./test-client.ts#L133)
 
 _Interface_
 
@@ -336,7 +336,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`TestClient`](./test-client.ts#L122)
+### [`TestClient`](./test-client.ts#L133)
 
 _Variable_
 
@@ -358,6 +358,17 @@ export interface TestClientConfig {
   readonly defaultTimeoutMs: number;
   /** Soft cap on captured frames before the ring buffer drops oldest. */
   readonly captureCapacity: number;
+
+  /**
+   * D #705 CP5/CP7 — when set, the `network/connect` handshake uses the
+   * app-principal `appKey` arm instead of the agent `agentKey` arm, so the
+   * connection authenticates as an `AppConnection`. Used by app-arm
+   * integration tests (e.g. `app-session-scoping`) that drive the TM as a
+   * first-class app principal rather than the dead #673 agent-AppsRegisters
+   * model. Mutually exclusive with the agent path at the wire (the Connect
+   * params union is disjoint).
+   */
+  readonly appKey?: string;
 
   /**
    * When `true`, send the `network/connect` handshake automatically after the

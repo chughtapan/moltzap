@@ -1,11 +1,10 @@
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
-import { Cause, Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import {
   agentId,
   appId as makeAppId,
-  connectionId as makeConnectionId,
   taskId as makeTaskId,
   wireErrorFromInstance,
 } from "@moltzap/protocol/testing";
@@ -18,10 +17,9 @@ import {
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
 } from "../../test-utils/index.js";
-import { TaskReadAccess, TmAuthority } from "@moltzap/protocol/task";
+import { TaskReadAccess } from "@moltzap/protocol/task";
 import { serverCapabilityProviders } from "../../app/capability-providers.js";
-import { AppHostTag, TaskServiceTag } from "../../app/layers.js";
-import type { AppHost } from "../../app/app-host.js";
+import { TaskServiceTag } from "../../app/layers.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
@@ -67,9 +65,6 @@ const UNKNOWN_TASK_ID = makeTaskId("00000000-0000-4000-8000-deadbeefcafe");
 
 const ALICE_APP_ID = makeAppId("00000000-0000-4000-8000-0000000a11ce");
 const BOB_APP_ID = makeAppId("00000000-0000-4000-8000-00000000b0b0");
-const ALICE_CONN = makeConnectionId("alice-conn-1");
-const BOB_CONN = makeConnectionId("bob-conn-1");
-const CAROL_CONN = makeConnectionId("carol-conn-1");
 
 let harness: PgliteHarness;
 
@@ -94,31 +89,6 @@ function makeService() {
   return new TaskService(harness.db, STUB_CONV, STUB_MSG);
 }
 
-/**
- * Minimal AppHost stub for capability tests: `isAppConnection(appId,
- * connId)` returns true iff `(appId, connId)` is in the seeded set.
- */
-type AppHostStub = Pick<AppHost, "isAppConnection">;
-
-function makeAppHostStub(
-  bindings: ReadonlyArray<
-    readonly [string, import("@moltzap/protocol/network").ConnectionId]
-  >,
-): AppHost {
-  const seeded = new Set(bindings.map(([app, conn]) => `${app}::${conn}`));
-  const stub: AppHostStub = {
-    isAppConnection: (appId, connId) => seeded.has(`${appId}::${connId}`),
-  };
-  return stub as AppHost;
-}
-
-function aliceAppLayer() {
-  return Layer.succeed(
-    AppHostTag,
-    makeAppHostStub([[ALICE_APP_ID, ALICE_CONN]]),
-  );
-}
-
 function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
@@ -126,22 +96,14 @@ function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
   return wireErrorFromInstance(failure.value)?.code ?? null;
 }
 
-function withTmAuth(
-  taskId: TaskId,
-  callerConnId: import("@moltzap/protocol/network").ConnectionId,
-  svc: TaskService,
-  app: Layer.Layer<AppHostTag> = aliceAppLayer(),
-) {
-  return <A, E, R>(eff: Effect.Effect<A, E, R | TmAuthority>) =>
-    eff.pipe(
-      Effect.provideServiceEffect(
-        TmAuthority,
-        serverCapabilityProviders[TmAuthority.key]({ taskId, callerConnId }),
-      ),
-      Effect.provideService(TaskServiceTag, svc),
-      Effect.provide(app),
-    ) as Effect.Effect<A, E, Exclude<R, TmAuthority | AppHostTag>>;
-}
+// D #705 R7 — the `TmAuthority` capability is dissolved; the
+// task-admin SERVICE methods (`close`, `addParticipant`,
+// `removeParticipant`, `archiveTaskConversation`, …) no longer gate on
+// caller authority. App-ownership now lives in the app-arm HANDLER
+// (`assertCallerAppOwnsTask`), exercised by the integration suite
+// (e.g. `conversations-archive.test.ts` asserting the 403). These unit
+// tests cover the unguarded service mechanics + the open-status gate
+// (`loadOpenTask`).
 
 function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
   return <A, E, R>(eff: Effect.Effect<A, E, R | TaskReadAccess>) =>
@@ -293,67 +255,34 @@ function rejectsUnknownTaskGet() {
   });
 }
 
-function rejectsCloseFromNonTm() {
+function closesTask() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
-    const exit = yield* Effect.exit(
-      svc.close(task.id, BOB).pipe(withTmAuth(task.id, BOB_CONN, svc)),
-    );
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
-  });
-}
-
-function closesTaskFromRegisteredTm() {
-  return Effect.gen(function* () {
-    const svc = makeService();
-    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
-    const closed = yield* svc
-      .close(task.id, ALICE)
-      .pipe(withTmAuth(task.id, ALICE_CONN, svc));
+    const closed = yield* svc.close(task.id);
     expect(closed.status).toBe(TASK_STATUS_CLOSED);
     expect(closed.endedAt).not.toBeNull();
   });
 }
 
-function restrictsAddParticipantToRegisteredTm() {
+function addsParticipant() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
-
-    const denied = yield* Effect.exit(
-      svc
-        .addParticipant(task.id, BOB, CAROL)
-        .pipe(withTmAuth(task.id, BOB_CONN, svc)),
-    );
-    expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
-
-    const participant = yield* svc
-      .addParticipant(task.id, ALICE, CAROL)
-      .pipe(withTmAuth(task.id, ALICE_CONN, svc));
+    const participant = yield* svc.addParticipant(task.id, CAROL);
     expect(participant.agentId).toBe(CAROL);
     expect(participant.admittedAt).not.toBeNull();
   });
 }
 
-function restrictsRemoveParticipantToRegisteredTm() {
+function removesParticipant() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, {
       appId: ALICE_APP_ID,
       invitedAgentIds: [BOB],
     });
-
-    const denied = yield* Effect.exit(
-      svc
-        .removeParticipant(task.id, CAROL, BOB)
-        .pipe(withTmAuth(task.id, CAROL_CONN, svc)),
-    );
-    expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
-
-    yield* svc
-      .removeParticipant(task.id, ALICE, BOB)
-      .pipe(withTmAuth(task.id, ALICE_CONN, svc));
+    yield* svc.removeParticipant(task.id, BOB);
     const view = yield* svc
       .get(task.id, ALICE)
       .pipe(withReadAccess(task.id, ALICE, svc));
@@ -361,23 +290,17 @@ function restrictsRemoveParticipantToRegisteredTm() {
   });
 }
 
-function rejectsMutationAfterClose() {
+// The open-status gate is `loadOpenTask`, exercised directly below. The
+// app-arm handler runs it (via `assertCallerAppOwnsTask`) before any
+// mutation, so a closed task is rejected at the handler boundary; the
+// unguarded service mutation methods no longer re-check status.
+function loadOpenTaskRejectsAfterClose() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
-    yield* svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE_CONN, svc));
-
-    const addExit = yield* Effect.exit(
-      svc
-        .addParticipant(task.id, ALICE, BOB)
-        .pipe(withTmAuth(task.id, ALICE_CONN, svc)),
-    );
-    expect(rpcFailureCode(addExit)).toBe(ForbiddenError.code);
-
-    const closeExit = yield* Effect.exit(
-      svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE_CONN, svc)),
-    );
-    expect(rpcFailureCode(closeExit)).toBe(ForbiddenError.code);
+    yield* svc.close(task.id);
+    const exit = yield* Effect.exit(svc.loadOpenTask(task.id));
+    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }
 
@@ -399,16 +322,6 @@ function deniesReadAccessToPendingInvitee() {
     const exit = yield* Effect.exit(
       svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
     );
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
-  });
-}
-
-function loadOpenTaskRejectsClosed() {
-  return Effect.gen(function* () {
-    const svc = makeService();
-    const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
-    yield* svc.close(task.id, ALICE).pipe(withTmAuth(task.id, ALICE_CONN, svc));
-    const exit = yield* Effect.exit(svc.loadOpenTask(task.id));
     expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
   });
 }
@@ -445,32 +358,23 @@ function registerCreateReadListTests() {
   });
 }
 
-function registerTmAuthorityTests() {
-  describe("TmAuthority — app-ownership gate", () => {
-    it(
-      "close: rejects caller whose connection does not own the app",
-      rejectsCloseFromNonTm,
-    );
-    it(
-      "close: registered remote-app connection transitions task to closed",
-      closesTaskFromRegisteredTm,
-    );
-    it(
-      "addParticipant: only the registered app connection may add",
-      restrictsAddParticipantToRegisteredTm,
-    );
-    it(
-      "removeParticipant: only the registered app connection may remove",
-      restrictsRemoveParticipantToRegisteredTm,
-    );
+function registerTaskAdminTests() {
+  // D #705 R7 — the task-admin service methods are unguarded (auth moved
+  // to the app-arm handler `assertCallerAppOwnsTask`). These cover the
+  // mutation mechanics; the app-ownership 403 lives in the integration
+  // suite (`conversations-archive.test.ts`).
+  describe("task-admin mutations (unguarded service layer)", () => {
+    it("close: transitions task to closed", closesTask);
+    it("addParticipant: admits the target agent", addsParticipant);
+    it("removeParticipant: drops the target agent", removesParticipant);
   });
 }
 
 function registerClosedTaskTests() {
-  describe("closed-task immutability", () => {
+  describe("closed-task open-status gate (loadOpenTask)", () => {
     it(
-      "rejects mutations after close even by the registered TM",
-      rejectsMutationAfterClose,
+      "loadOpenTask rejects a closed task with ForbiddenError",
+      loadOpenTaskRejectsAfterClose,
     );
   });
 }
@@ -487,7 +391,6 @@ function registerPendingInviteeTests() {
 function registerLoadOpenTaskTests() {
   describe("loadOpenTask", () => {
     it("succeeds on waiting/active tasks", loadOpenTaskOk);
-    it("rejects closed tasks with ForbiddenError", loadOpenTaskRejectsClosed);
   });
 }
 
@@ -496,7 +399,7 @@ describe("TaskService", () => {
   afterEach(() => Effect.runPromise(harness.close), PGLITE_HOOK_TIMEOUT_MS);
 
   registerCreateReadListTests();
-  registerTmAuthorityTests();
+  registerTaskAdminTests();
   registerClosedTaskTests();
   registerPendingInviteeTests();
   registerLoadOpenTaskTests();

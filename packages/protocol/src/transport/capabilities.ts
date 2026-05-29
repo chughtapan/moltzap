@@ -53,8 +53,8 @@ export interface DispatchContext {
  *   below.
  */
 // `Context.Tag` is invariant in both type parameters, so concrete tag
-// classes (e.g. `Context.Tag<TmAuthority, TmAuthorityValue>`) are NOT
-// assignable to `Context.Tag<unknown, unknown>`. The descriptor stores
+// classes (e.g. `Context.Tag<TaskReadAccess, TaskReadAccessValue>`) are
+// NOT assignable to `Context.Tag<unknown, unknown>`. The descriptor stores
 // the tag for runtime indexing (`tag.key`) + `provideServiceEffect`
 // dispatch, both of which only need the variance-agnostic surface
 // (`{ key: string }` + `Context.Tag` brand). Widening the slot to
