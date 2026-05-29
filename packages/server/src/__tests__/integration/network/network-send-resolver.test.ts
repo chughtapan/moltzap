@@ -16,8 +16,8 @@
  *     each receive the payload through their own address.
  *
  * The resolver itself is not exposed on `CoreApp`; the test reaches the
- * `connId` it routes by via `coreApp.connections.all()`, which is the
- * existing public surface.
+ * `connId` it routes by via `coreApp.connections.agentConnections(...)`,
+ * the three-arm-map agent-arm read.
  */
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
@@ -57,10 +57,13 @@ beforeEach(() => Effect.runPromise(resetTestDbEffect()));
  */
 function connIdsForAgent(agentIdString: string): readonly string[] {
   const branded = protocolAgentId(agentIdString);
-  return getCoreApp()
-    .connections.all()
-    .filter((conn) => conn.auth?.agentId === branded)
-    .map((conn) => conn.id);
+  // D #705 CP4e — read the three-arm `connectionsRef` agent arm; the
+  // legacy `connections.all()` + `conn.auth` shape is gone.
+  return Effect.runSync(
+    getCoreApp()
+      .connections.agentConnections(branded)
+      .pipe(Effect.map((conns) => conns.map((conn) => conn.connId))),
+  );
 }
 
 it("network.send delivers a real notification to a durable address", () =>

@@ -282,52 +282,6 @@ export class ConnectionManager {
     return this.connections.get(id);
   }
 
-  all(): MoltZapConnection[] {
-    return [...this.connections.values()];
-  }
-
-  getByAgent(agentId: string): MoltZapConnection[] {
-    return Array.from(this.connections.values()).filter(
-      (conn) => conn.auth && conn.auth.agentId === agentId,
-    );
-  }
-
-  /**
-   * Subscribe all currently-connected sockets of the given agents to a
-   * conversation. Adds `conversationId` to each matching connection's
-   * `conversationIds` set. Idempotent: a connection already subscribed is
-   * a no-op (Set semantics). Returns the list of connection ids that were
-   * subscribed (for observability + tests).
-   *
-   * Exposed for downstream apps that create conversations via
-   * `ConversationService.create` directly (rather than the `conversations/
-   * create` RPC handler, which already does this work internally). Without
-   * this helper, every consumer re-implements the same loop and drifts when
-   * the subscription shape changes.
-   */
-  subscribeAgentsToConversation(
-    agentIds: readonly string[],
-    conversationId: string,
-  ): ConnectionId[] {
-    const subscribed: ConnectionId[] = [];
-    const agentSet = new Set(agentIds);
-    for (const conn of this.connections.values()) {
-      if (conn.auth && agentSet.has(conn.auth.agentId)) {
-        conn.conversationIds.add(conversationId);
-        subscribed.push(conn.id);
-      }
-    }
-    return subscribed;
-  }
-
-  entries(): IterableIterator<[ConnectionId, MoltZapConnection]> {
-    return this.connections.entries();
-  }
-
-  get size(): number {
-    return this.connections.size;
-  }
-
   // =========================================================================
   // D #705 §5.2 — sanctioned construction + transition surface over the
   // three-arm `connectionsRef`. Every method below accepts only primitives or

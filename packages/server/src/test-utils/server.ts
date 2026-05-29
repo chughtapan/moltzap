@@ -61,15 +61,19 @@ export interface CoreTestRuntimeServerHandle {
 
 function awaitAgentReadyByPolling(
   connections: {
-    getByAgent(id: string): ReadonlyArray<{ readonly auth: unknown | null }>;
+    // D #705 CP4e — read the three-arm `connectionsRef` agent arm. An arm
+    // is returned only once authenticated, so a non-empty result already
+    // means "ready" (no separate `auth !== null` check).
+    agentConnections(
+      id: string,
+    ): Effect.Effect<ReadonlyArray<unknown>, never, never>;
   },
   agentId: string,
   timeoutMs: number,
 ): Effect.Effect<CoreTestReadyOutcome, never, never> {
-  const tick = Effect.sync(() => {
-    const conns = connections.getByAgent(agentId);
-    return conns.length > 0 && conns[0]!.auth !== null;
-  });
+  const tick = connections
+    .agentConnections(agentId)
+    .pipe(Effect.map((conns) => conns.length > 0));
   const pollLoop = pipe(
     tick,
     Effect.flatMap((ready) =>

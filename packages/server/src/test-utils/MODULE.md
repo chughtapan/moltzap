@@ -137,7 +137,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L107)
+### [`CoreTestServer`](./server.ts#L111)
 
 _Interface_
 
@@ -182,7 +182,7 @@ Asserts the RPC effect fails with `RpcServerError(code)` and returns the
 narrowed error for follow-up assertions. `catchTags` routes by tag name
 declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](./server.ts#L382)
+### [`getBaseUrl`](./server.ts#L386)
 
 _Function_
 
@@ -190,7 +190,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L374)
+### [`getCoreApp`](./server.ts#L378)
 
 _Function_
 
@@ -198,7 +198,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](./server.ts#L359)
+### [`getCoreDb`](./server.ts#L363)
 
 _Function_
 
@@ -206,7 +206,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L367)
+### [`getCoreEncryptionEnvelope`](./server.ts#L371)
 
 _Function_
 
@@ -214,7 +214,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L387)
+### [`getWsUrl`](./server.ts#L391)
 
 _Function_
 
@@ -374,7 +374,7 @@ export function registerOnly(name: string): Effect.Effect<
 
 Register an agent without connecting (for tests that need the raw client).
 
-### [`resetCoreTestDb`](./server.ts#L333)
+### [`resetCoreTestDb`](./server.ts#L337)
 
 _Function_
 
@@ -436,7 +436,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L294)
+### [`startCoreTestServer`](./server.ts#L298)
 
 _Function_
 
@@ -444,7 +444,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L307)
+### [`stopCoreTestServer`](./server.ts#L311)
 
 _Function_
 
