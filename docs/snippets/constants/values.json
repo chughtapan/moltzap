@@ -3,7 +3,7 @@
   "constants": [
     {
       "name": "PROTOCOL_VERSION",
-      "value": "2026.528.0",
+      "value": "2026.529.0",
       "kind": "string",
       "sourcePath": "packages/protocol/src/version.ts",
       "note": "Current wire-protocol version emitted in HelloOk + accepted in `network/connect`."
