@@ -169,7 +169,6 @@ interface ArchiveDualEmitInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly archivedAt: string;
-  readonly by: AgentId;
 }
 
 function fanoutArchiveDualEmit(input: ArchiveDualEmitInput) {
@@ -194,7 +193,6 @@ function fanoutArchiveDualEmit(input: ArchiveDualEmitInput) {
 interface UnarchiveDualEmitInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly by: AgentId;
 }
 
 function fanoutUnarchiveDualEmit(input: UnarchiveDualEmitInput) {
@@ -368,7 +366,7 @@ export const taskHandlers: RpcMethodRegistry = [
 
   defineTaskMethod(TaskConversationArchive, {
     requiresActive: true,
-    handler: (params, ctx) =>
+    handler: (params) =>
       Effect.gen(function* () {
         // `TmAuthority` + `ConversationInTask` auto-provisioned per
         // descriptor `capabilities: [...]`; consumed inside
@@ -382,7 +380,6 @@ export const taskHandlers: RpcMethodRegistry = [
           taskId: params.taskId,
           conversationId: params.conversationId,
           archivedAt,
-          by: ctx.agentId,
         });
         return {};
       }).pipe(Effect.withSpan("task.conversation.archive")),
@@ -390,7 +387,7 @@ export const taskHandlers: RpcMethodRegistry = [
 
   defineTaskMethod(TaskConversationUnarchive, {
     requiresActive: true,
-    handler: (params, ctx) =>
+    handler: (params) =>
       Effect.gen(function* () {
         // `TmAuthority` + `ConversationInTask` auto-provisioned per
         // descriptor `capabilities: [...]`; consumed inside
@@ -403,7 +400,6 @@ export const taskHandlers: RpcMethodRegistry = [
         yield* fanoutUnarchiveDualEmit({
           taskId: params.taskId,
           conversationId: params.conversationId,
-          by: ctx.agentId,
         });
         return {};
       }).pipe(Effect.withSpan("task.conversation.unarchive")),
