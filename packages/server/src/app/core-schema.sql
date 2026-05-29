@@ -157,8 +157,9 @@ CREATE TYPE task_status AS ENUM ('waiting', 'active', 'failed', 'closed');
 CREATE TABLE tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   -- Every task is owned by a registered app. TM authority is proved at
-  -- request time via app-ownership of the caller's WS connection (see
-  -- `AppHost.isAppConnection`); there is no separate TM-endpoint column.
+  -- request time via app-ownership of the bound task (`assertAppOwnsTask`
+  -- compares the calling AppConnection's appId against `tasks.app_id`);
+  -- there is no separate TM-endpoint column.
   app_id TEXT NOT NULL,
   initiator_agent_id UUID NOT NULL REFERENCES agents(id),
   status task_status NOT NULL DEFAULT 'waiting',

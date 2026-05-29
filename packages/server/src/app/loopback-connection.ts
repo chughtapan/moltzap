@@ -87,8 +87,8 @@ export function makeLoopbackConnection(args: {
 
 /**
  * Minimal {@link AppEndpoint} for tests that only assert the
- * registration surface (id-equality via `isAppConnection`,
- * unregister-side effects, etc.). Every dispatch method defects —
+ * registration surface (connId keying, unregister-side effects, etc.).
+ * Every dispatch method defects —
  * tests that actually drive `runMessageAuthorize` /
  * `runDispatchAuthorize` MUST use {@link makeLoopbackConnection}
  * (or, in app-host integration tests, a real wire connection via

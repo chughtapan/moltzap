@@ -62,7 +62,7 @@ function messageAuthorizeContext(
 }
 
 describe("AppHost.registerApp", () => {
-  it("registers the app, exposing isAppConnection for the bound conn", () => {
+  it("registers the app, keying the registration by the bound conn", () => {
     const { host } = makeAppHost();
     const connection = makeLoopbackConnection({
       id: CONN_ID,
@@ -79,7 +79,7 @@ describe("AppHost.registerApp", () => {
       },
     });
     host.registerApp(APP_MANIFEST, connection);
-    expect(host.isAppConnection(APP_ID, CONN_ID)).toBe(true);
+    expect(host.lookupApp(APP_ID)?.endpoint.connId).toBe(CONN_ID);
   });
 });
 

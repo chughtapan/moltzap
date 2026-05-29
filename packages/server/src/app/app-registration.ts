@@ -8,7 +8,7 @@ import type { Originator } from "../transport/connection.js";
 
 /**
  * The minimal server→app dispatch surface a registration needs: the
- * connection id (for `isAppConnection` id-equality + close-time cleanup) and
+ * connection id (for close-time cleanup via `unregisterByConnection`) and
  * the outbound {@link Originator} (the `sendRpcToClient` channel). Minted from
  * the live `AppConnection` arm's `{ connId, originator }` at `apps/register`
  * (D #705 CP4d/CP5), or from a loopback originator for the boot-installed

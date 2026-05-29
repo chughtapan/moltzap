@@ -58,7 +58,7 @@ const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const EMPTY_TASK_ID = "" as TaskId;
 // Placeholder app id used by the dispatchBindingForLookup default-grant
 // branch; the binding is consumed only by the registry mint path, which
-// never re-uses it for an `isAppConnection` check. The empty-string
+// never re-uses it for an app-ownership check. The empty-string
 // sentinel mirrors `EMPTY_TASK_ID` and the moderator-conn-id default
 // below — see `dispatchBindingForLookup`.
 const EMPTY_APP_ID = "" as AppId;
@@ -315,17 +315,6 @@ export class AppHost {
    */
   lookupApp(appId: AppId): AppRegistration | undefined {
     return this.apps.get(appId);
-  }
-
-  /**
-   * TM-authority gate: returns true iff `callerConnId` IS the
-   * connection currently registered for `appId`. For the default app
-   * (loopback connection with a server-minted id), no client caller
-   * can match — always returns false.
-   */
-  isAppConnection(appId: AppId, callerConnId: ConnectionId): boolean {
-    const entry = this.apps.get(appId);
-    return entry !== undefined && entry.endpoint.connId === callerConnId;
   }
 
   setContactService(checker: ContactService): void {

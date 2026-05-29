@@ -528,11 +528,11 @@ function malformedRemoteDispatchDenies() {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("AppHost.registerApp", () => {
-  it("records the registration keyed by appId, exposing isAppConnection", () => {
+  it("records the registration keyed by appId + bound conn", () => {
     const { host } = makeAppHostFixture();
     host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
 
-    expect(host.isAppConnection(APP_R, CONN_1)).toBe(true);
+    expect(host.lookupApp(APP_R)?.endpoint.connId).toBe(CONN_1);
   });
 
   it("rejects re-registration: registry is strict, no overwrites", () => {
@@ -545,8 +545,8 @@ describe("AppHost.registerApp", () => {
 
     expect(first).toBe(true);
     expect(second).toBe(false);
-    expect(host.isAppConnection(APP_R, CONN_1)).toBe(true);
-    expect(host.isAppConnection(APP_R, CONN_2)).toBe(false);
+    // The strict registry keeps the FIRST conn — the overwrite never lands.
+    expect(host.lookupApp(APP_R)?.endpoint.connId).toBe(CONN_1);
   });
 });
 
@@ -577,7 +577,7 @@ describe("AppHost.unregisterApp", () => {
     host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
     host.unregisterApp(APP_R);
 
-    expect(host.isAppConnection(APP_R, CONN_1)).toBe(false);
+    expect(host.lookupApp(APP_R)).toBeUndefined();
   });
 
   it("is idempotent for unknown appIds", () => {

@@ -4,8 +4,8 @@
  *
  * Issue #673 cutover: the durable `EndpointAddress` brand + endpoint-kind
  * machinery were deleted. TM authority is now proved via app-ownership
- * of the calling WS connection (see `AppHost.isAppConnection`); there is
- * no wire-shaped TM-endpoint string left to brand.
+ * of the bound task (`assertAppOwnsTask`); there is no wire-shaped
+ * TM-endpoint string left to brand.
  */
 import { brandedString, type BrandedString } from "../schema-primitives.js";
 import type { UserId, AgentId } from "../identity/methods.js";
