@@ -2,10 +2,7 @@
 import type { Db } from "../db/client.js";
 import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
-import type {
-  ConnectionManager,
-  MoltZapConnection,
-} from "../transport/connection.js";
+import type { ConnectionManager } from "../transport/connection.js";
 import type {
   AnyTaskCallbackRpcDefinition,
   AppManifest,
@@ -31,7 +28,11 @@ import {
   type MessageAuthorizeResult,
   type DispatchAuthorizeContext,
 } from "./types.js";
-import { AppRegistry, type AppRegistration } from "./app-registration.js";
+import {
+  AppRegistry,
+  type AppEndpoint,
+  type AppRegistration,
+} from "./app-registration.js";
 import { MessagesAuthorize } from "@moltzap/protocol";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Data, Effect, Option } from "effect";
@@ -203,10 +204,11 @@ function dispatchVerdictToLeaseVerdict(
 export class AppHost {
   /**
    * Single source of truth for app registrations. Each `AppId` maps to
-   * one `AppRegistration` carrying its `MoltZapConnection` — a real WS
-   * connection for wire-registered apps, a loopback connection for
-   * boot-installed apps (e.g. `DEFAULT_APP_ID`). AppHost dispatches
-   * via the connection uniformly; see `./app-registration.ts`.
+   * one `AppRegistration` carrying its `AppEndpoint` (`{ connId, originator }`)
+   * — minted from the live `AppConnection` arm for wire-registered apps, or a
+   * loopback endpoint for boot-installed apps (e.g. `DEFAULT_APP_ID`). AppHost
+   * dispatches via the endpoint's `originator` uniformly; see
+   * `./app-registration.ts`.
    */
   private apps = new AppRegistry();
 
@@ -260,20 +262,20 @@ export class AppHost {
   }
 
   /**
-   * Register an app under the given connection. The registry rejects
+   * Register an app under the given endpoint. The registry rejects
    * overwrites unconditionally — returns false when `manifest.appId`
    * is already registered. Callers (the `apps/register` handler and
    * `installDefaultApp`) decide how to surface false (typed
    * `ForbiddenError` over the wire; exception at boot).
    */
-  registerApp(manifest: AppManifest, connection: MoltZapConnection): boolean {
-    const ok = this.apps.register(manifest, connection);
+  registerApp(manifest: AppManifest, endpoint: AppEndpoint): boolean {
+    const ok = this.apps.register(manifest, endpoint);
     if (ok) {
       Effect.runFork(
         Effect.logInfo("App registered").pipe(
           Effect.annotateLogs({
             appId: manifest.appId,
-            connectionId: connection.id,
+            connectionId: endpoint.connId,
           }),
         ),
       );
@@ -323,7 +325,7 @@ export class AppHost {
    */
   isAppConnection(appId: AppId, callerConnId: ConnectionId): boolean {
     const entry = this.apps.get(appId);
-    return entry !== undefined && entry.connection.id === callerConnId;
+    return entry !== undefined && entry.endpoint.connId === callerConnId;
   }
 
   setContactService(checker: ContactService): void {
@@ -442,7 +444,7 @@ export class AppHost {
     return {
       appId: lookup.appId,
       taskId: lookup.taskId,
-      moderatorConnectionId: entry?.connection.id ?? EMPTY_CONNECTION_ID,
+      moderatorConnectionId: entry?.endpoint.connId ?? EMPTY_CONNECTION_ID,
     };
   }
 
@@ -833,14 +835,14 @@ export class AppHost {
     definition: D,
     params: ParamsOf<D>,
   ): Effect.Effect<ResultOf<D>, Error> {
-    return sendRpcToClient(entry.connection, definition, params).pipe(
+    return sendRpcToClient(entry.endpoint.originator, definition, params).pipe(
       // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Upstream `wrapHookEffectWithEnvelope` collapses every Effect failure into a fail-closed verdict; per-tag handling cannot influence the outcome. The `RemoteHookError` here preserves call-context (appId, method, connectionId) in the log message and is the documented `messageAuthorizeRaw`/`dispatchAuthorizeRaw` envelope shape from #529.
       Effect.mapError(
         (cause) =>
           new RemoteHookError({
             appId: entry.appId,
             method: definition.name,
-            connectionId: entry.connection.id,
+            connectionId: entry.endpoint.connId,
             reason: `task-callback RPC failed: ${errorMessage(cause)}`,
             cause,
           }),

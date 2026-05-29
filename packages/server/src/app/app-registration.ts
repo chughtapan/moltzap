@@ -1,23 +1,38 @@
 import type { AppManifest } from "@moltzap/protocol";
 import { AppNotFoundError, AppNotReadyError } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
 import { AppId, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
-import type { MoltZapConnection } from "../transport/connection.js";
+import type { Originator } from "../transport/connection.js";
+
+/**
+ * The minimal server→app dispatch surface a registration needs: the
+ * connection id (for `isAppConnection` id-equality + close-time cleanup) and
+ * the outbound {@link Originator} (the `sendRpcToClient` channel). Minted from
+ * the live `AppConnection` arm's `{ connId, originator }` at `apps/register`
+ * (D #705 CP4d/CP5), or from a loopback originator for the boot-installed
+ * default app. Replaces the full `MoltZapConnection` the registration used to
+ * carry — AppHost never read anything else off it.
+ */
+export interface AppEndpoint {
+  readonly connId: ConnectionId;
+  readonly originator: Originator;
+}
 
 /**
  * A registered app. There is NO `InProcess` vs `Remote` distinction —
- * every app, including the boot-installed default, carries a
- * `MoltZapConnection`. Wire-registered apps hold the real WebSocket
- * connection their `apps/register` call arrived on; the default app
- * holds a loopback connection (see `loopback-connection.ts`) whose
- * `originator.call` dispatches in-process. AppHost sees ONE shape and
- * uses ONE dispatch path: `sendRpcToClient(entry.connection, …)`.
+ * every app, including the boot-installed default, carries an
+ * {@link AppEndpoint}. Wire-registered apps hold the `{ connId, originator }`
+ * minted from the `AppConnection` arm their `apps/register` call arrived on;
+ * the default app holds a loopback endpoint (see `loopback-connection.ts`)
+ * whose `originator.call` dispatches in-process. AppHost sees ONE shape and
+ * uses ONE dispatch path: `sendRpcToClient(entry.endpoint.originator, …)`.
  */
 export interface AppRegistration {
   readonly appId: AppId;
   readonly manifest: AppManifest;
-  readonly connection: MoltZapConnection;
+  readonly endpoint: AppEndpoint;
 }
 
 /**
@@ -52,10 +67,10 @@ export class AppRegistry {
    * is already present. Never overwrites — the caller MUST unregister
    * first if they want to replace.
    */
-  register(manifest: AppManifest, connection: MoltZapConnection): boolean {
+  register(manifest: AppManifest, endpoint: AppEndpoint): boolean {
     const appId = Value.Decode(AppId, manifest.appId);
     if (this.entries.has(appId)) return false;
-    this.entries.set(appId, { appId, manifest, connection });
+    this.entries.set(appId, { appId, manifest, endpoint });
     return true;
   }
 
@@ -110,7 +125,7 @@ export class AppRegistry {
    */
   unregisterByConnection(connectionId: string): void {
     for (const [appId, entry] of this.entries) {
-      if (entry.connection.id === connectionId) {
+      if (entry.endpoint.connId === connectionId) {
         this.entries.delete(appId);
       }
     }

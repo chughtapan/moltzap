@@ -232,7 +232,7 @@ function writeFailureSurfacesNotConnected() {
       const conn = makeConnection(writefailConnId, failingWrite, originator);
 
       const exit = yield* sendRpcToClient(
-        conn,
+        conn.originator,
         DispatchAuthorize,
         authorizeDispatchParams("writefail"),
       ).pipe(Effect.exit);
@@ -248,7 +248,7 @@ function callerTimeout() {
       Effect.gen(function* () {
         const start = Date.now();
         const exit = yield* sendRpcToClient(
-          conn,
+          conn.originator,
           DispatchAuthorize,
           authorizeDispatchParams("timeout", TIMEOUT_TASK_ID),
         ).pipe(Effect.timeout(Duration.millis(CALLER_TIMEOUT_MS)), Effect.exit);
@@ -310,7 +310,7 @@ function timeoutDropsLateResponse() {
     ({ conn, outbound }) =>
       Effect.gen(function* () {
         const exit = yield* sendRpcToClient(
-          conn,
+          conn.originator,
           DispatchAuthorize,
           authorizeDispatchParams("drain", TIMEOUT_TASK_ID),
         ).pipe(Effect.timeout(Duration.millis(DRAIN_TIMEOUT_MS)), Effect.exit);
@@ -382,7 +382,9 @@ function forkDispatchAuthorize(
   conn: MoltZapConnection,
   params: ReturnType<typeof authorizeDispatchParams>,
 ) {
-  return Effect.fork(sendRpcToClient(conn, DispatchAuthorize, params));
+  return Effect.fork(
+    sendRpcToClient(conn.originator, DispatchAuthorize, params),
+  );
 }
 
 function parseRequestFrame(raw: string): RequestFrame {
