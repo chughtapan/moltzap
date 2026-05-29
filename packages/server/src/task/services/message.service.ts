@@ -1,7 +1,6 @@
 import type { Db } from "../../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
 import type {
   AppId,
   ConversationId,
@@ -818,7 +817,6 @@ export class MessageService {
   list(
     conversationId: ConversationId,
     requesterAgentId: AgentId,
-    callerConnId: ConnectionId,
     options: {
       limit?: number;
       sinceSeq?: string;
@@ -837,7 +835,6 @@ export class MessageService {
         const rows = yield* this.visibleMessageRows({
           conversationId,
           requesterAgentId,
-          callerConnId,
           sinceSeq: options.sinceSeq,
           limit,
         });
@@ -852,17 +849,16 @@ export class MessageService {
   private visibleMessageRows(args: {
     readonly conversationId: ConversationId;
     readonly requesterAgentId: AgentId;
-    readonly callerConnId: ConnectionId;
     readonly sinceSeq: string | undefined;
     readonly limit: number;
   }): Effect.Effect<ReadonlyArray<MessageRow>, SqlError> {
-    const { conversationId, requesterAgentId, callerConnId, sinceSeq, limit } =
-      args;
+    const { conversationId, requesterAgentId, sinceSeq, limit } = args;
     return Effect.gen(this, function* () {
-      const isTmCaller = yield* this.isTmForAppBoundTask(
-        conversationId,
-        callerConnId,
-      );
+      // The participant-scoped `tm_decision` view always applies: a
+      // participant sees their own sends plus messages the TM forwarded
+      // to them. There is no app-moderator full-log branch — apps are
+      // never `conversation_participants` and observe via the
+      // `onBeforeMessageDelivery` hook, not `messages/list` (D #705 R5).
       let qb = this.db
         .selectFrom("messages")
         .selectAll()
@@ -871,21 +867,19 @@ export class MessageService {
       if (sinceSeq !== undefined) {
         qb = qb.where("seq", ">", sinceSeq);
       }
-      if (!isTmCaller) {
-        qb = qb.where((eb) =>
-          eb.or([
-            eb("sender_id", "=", requesterAgentId),
-            eb.and([
-              eb("tm_decision", "@>", JSON.stringify({ tag: "forward" })),
-              eb(
-                "tm_decision",
-                "@>",
-                JSON.stringify({ recipients: [requesterAgentId] }),
-              ),
-            ]),
+      qb = qb.where((eb) =>
+        eb.or([
+          eb("sender_id", "=", requesterAgentId),
+          eb.and([
+            eb("tm_decision", "@>", JSON.stringify({ tag: "forward" })),
+            eb(
+              "tm_decision",
+              "@>",
+              JSON.stringify({ recipients: [requesterAgentId] }),
+            ),
           ]),
-        );
-      }
+        ]),
+      );
       return yield* qb.orderBy("seq", "desc").limit(limit + 1);
     });
   }
@@ -903,36 +897,6 @@ export class MessageService {
       messages.reverse();
       return messages;
     });
-  }
-
-  /**
-   * Visibility helper that returns true iff the caller's WS
-   * connection IS the registered remote-app connection for the
-   * conversation's bound app (#673 app-ownership gate). Tasks whose
-   * caller is not the app moderator see the filtered-by-tm_decision
-   * view; the moderator sees every row.
-   */
-  private isTmForAppBoundTask(
-    conversationId: ConversationId,
-    callerConnId: ConnectionId,
-  ): Effect.Effect<boolean, never> {
-    const host = this.appHost;
-    if (host === null) return Effect.succeed(false);
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversations as c")
-            .innerJoin("tasks as t", "t.id", "c.task_id")
-            .select(["t.app_id"])
-            .where("c.id", "=", conversationId),
-        );
-        if (Option.isNone(rowOpt)) return false;
-        // Boundary cast: Kysely returns `app_id` as `string`; the brand
-        // boundary is the type system, not a format check.
-        return host.isAppConnection(rowOpt.value.app_id as AppId, callerConnId);
-      }),
-    );
   }
 
   private encryptParts(
