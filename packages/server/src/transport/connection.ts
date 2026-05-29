@@ -349,30 +349,23 @@ export class ConnectionManager {
     return Ref.update(this.connectionsRef, (map) => {
       const current = HashMap.get(map, connId);
       if (Option.isNone(current)) return map;
+      // Both authed arms roll back to the same unauth shape (only the shared
+      // `ConnectionBase` fields carry over — auth + agent state are dropped);
+      // the unauth arm is already at the target state.
+      const demote = (authed: AgentConnection | AppConnection) =>
+        HashMap.set(
+          map,
+          connId,
+          new UnauthenticatedConnection({
+            connId: authed.connId,
+            socket: authed.socket,
+            originator: authed.originator,
+          }),
+        );
       return Match.value(current.value).pipe(
         Match.tag("UnauthenticatedConnection", () => map),
-        Match.tag("AgentConnection", (authed) =>
-          HashMap.set(
-            map,
-            connId,
-            new UnauthenticatedConnection({
-              connId: authed.connId,
-              socket: authed.socket,
-              originator: authed.originator,
-            }),
-          ),
-        ),
-        Match.tag("AppConnection", (authed) =>
-          HashMap.set(
-            map,
-            connId,
-            new UnauthenticatedConnection({
-              connId: authed.connId,
-              socket: authed.socket,
-              originator: authed.originator,
-            }),
-          ),
-        ),
+        Match.tag("AgentConnection", demote),
+        Match.tag("AppConnection", demote),
         Match.exhaustive,
       );
     });
