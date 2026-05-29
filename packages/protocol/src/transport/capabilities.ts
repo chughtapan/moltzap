@@ -11,6 +11,37 @@
  * `typed-dispatcher.types-check.ts` (positive canary).
  */
 import type { Context, Effect } from "effect";
+import type { ConnectionId } from "../network/actor-model.js";
+import type { AgentId } from "../identity/agents.js";
+import type { AppId } from "../task/ids.js";
+
+/**
+ * Protocol-owned principal union read by `argsOf` resolvers (D #705
+ * Decision 2). Tagged so a resolver narrows app-arm vs agent-arm before
+ * reading `appId` / `agentId`. The server's `AppContext` / `AgentContext`
+ * (`@moltzap/server-core` `transport/context.ts`) satisfy this
+ * structurally — their `_tag` / `agentId` / `appId` use these same
+ * protocol-owned brands — so the descriptor type can name the principal
+ * without protocol importing server.
+ */
+export type DispatchAuth =
+  | { readonly _tag: "AgentContext"; readonly agentId: AgentId }
+  | { readonly _tag: "AppContext"; readonly appId: AppId };
+
+/**
+ * Per-request context handed to every `argsOf` resolver (D #705 Decision
+ * 2). Uniform across all methods (independent of the wire method string),
+ * so — unlike `params` — it is compiler-typeable. Replaces the prior
+ * `ctx: unknown` + per-site `ctx as ...` casts. The `connection.connId`
+ * field matches the server's three-arm `Connection` arm `connId`; the
+ * `connection.auth` tagged union mirrors the principal arms.
+ */
+export interface DispatchContext {
+  readonly connection: {
+    readonly connId: ConnectionId;
+    readonly auth: DispatchAuth;
+  };
+}
 
 /**
  * Closed shape of a per-definition capability descriptor.
