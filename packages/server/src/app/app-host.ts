@@ -683,8 +683,18 @@ export class AppHost {
         reason: "app_unavailable",
       });
     }
+    // D #705 CP8 — manifest-default fast-path. A manifest that omits
+    // `dispatch_authorize` opts out of the receive-side gate: the
+    // server synthesizes the documented default (`grant`) without an
+    // app round-trip. Realizes the schema contract in
+    // `@moltzap/protocol app/methods.ts → AppManifestSchema` JSDoc
+    // ("When `dispatch_authorize` is absent: `grant`.") and lets the
+    // boot-installed default app (no hooks) drop its loopback callback.
+    if (entry.manifest.hooks?.dispatch_authorize === undefined) {
+      return Effect.succeed({ decision: "grant" as const });
+    }
     const timeoutMs =
-      entry.manifest.hooks?.dispatch_authorize?.timeout_ms ??
+      entry.manifest.hooks.dispatch_authorize.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
 
@@ -711,10 +721,44 @@ export class AppHost {
   }
 
   /**
+   * D #705 CP8 — synthesize the manifest-default `messages/authorize`
+   * verdict for an app that declares no `message_authorize` hook:
+   * `Forward { participants ∖ sender }`, reading the conversation's
+   * participant set in-process. This is the same verdict the boot-
+   * installed default app's loopback handler computed, now produced
+   * server-side so the default app needs no callback. Fails closed
+   * (`Block { reason: "tm_unreachable" }`) when no ConversationService
+   * back-edge is wired (unit-test layer), mirroring the unknown-app
+   * posture in {@link runMessageAuthorize}.
+   */
+  private defaultMessageAuthorize(
+    ctx: MessageAuthorizeContext,
+  ): Effect.Effect<MessageAuthorizeResult, never> {
+    const svc = this.conversationService;
+    if (svc === null) {
+      return Effect.succeed({
+        decision: "Block" as const,
+        reason: "tm_unreachable",
+      });
+    }
+    return svc.getParticipantAgentIds(ctx.conversationId).pipe(
+      Effect.map((participants) => ({
+        decision: "Forward" as const,
+        recipients: participants.filter(
+          (id) => id !== ctx.message.senderAgentId,
+        ),
+      })),
+      Effect.withSpan("appHost.messageAuthorize.default"),
+    );
+  }
+
+  /**
    * Resolve the per-message fan-out verdict for a `messages/send`.
    * Dispatches `messages/authorize` over the app's connection (real
    * WS for wire apps, loopback for the boot-installed default), then
-   * applies the uniform fail-closed envelope.
+   * applies the uniform fail-closed envelope. When the manifest omits
+   * `message_authorize`, the default fast-path
+   * ({@link defaultMessageAuthorize}) synthesizes `Forward` instead.
    *
    * Unknown-app: fail-closed Block. Reaching this branch means the
    * app's WS dropped after the conversation was created; without a
@@ -735,8 +779,17 @@ export class AppHost {
       });
     }
 
+    // D #705 CP8 — manifest-default fast-path. A manifest that omits
+    // `message_authorize` opts out of the send-side gate: the server
+    // synthesizes the documented default `Forward { participants ∖
+    // sender }` without an app round-trip (see
+    // {@link defaultMessageAuthorize}).
+    if (entry.manifest.hooks?.message_authorize === undefined) {
+      return this.defaultMessageAuthorize(ctx);
+    }
+
     const timeoutMs =
-      entry.manifest.hooks?.message_authorize?.timeout_ms ??
+      entry.manifest.hooks.message_authorize.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
 
@@ -787,8 +840,17 @@ export class AppHost {
         reason: "tm_unreachable",
       });
     }
+    // D #705 CP8 — manifest-default fast-path. A manifest that omits
+    // `task_create` opts out of the task-creation gate: the server
+    // auto-accepts without an app round-trip. Realizes the schema
+    // contract in `@moltzap/protocol app/methods.ts → AppManifestSchema`
+    // JSDoc ("the boot-installed default app auto-accepts") so the
+    // default app (no hooks) needs no `task/create` callback.
+    if (entry.manifest.hooks?.task_create === undefined) {
+      return Effect.succeed({ decision: "accept" as const });
+    }
     const timeoutMs =
-      entry.manifest.hooks?.task_create?.timeout_ms ??
+      entry.manifest.hooks.task_create.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     return this.wrapHookEffectWithEnvelope<
       ResultOf<typeof TaskCreate>["verdict"]

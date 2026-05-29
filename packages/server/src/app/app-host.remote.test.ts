@@ -116,6 +116,11 @@ function makeAppHostFixture(): AppHostFixture {
   return { host, connections };
 }
 
+// Always declares `dispatch_authorize` so these tests exercise the
+// remote dispatch round-trip. D #705 CP8 added a manifest-default
+// fast-path: a manifest that OMITS `dispatch_authorize` is served the
+// synthetic `grant` server-side (no app dispatch), so a hookless
+// manifest would never reach the stub connection's originator.
 const baseManifest = (
   manifestAppId: string,
   hookTimeoutMs?: number,
@@ -123,9 +128,10 @@ const baseManifest = (
   appId: manifestAppId,
   name: `Test App ${manifestAppId}`,
   conversations: [],
-  hooks: hookTimeoutMs
-    ? { dispatch_authorize: { timeout_ms: hookTimeoutMs } }
-    : undefined,
+  hooks: {
+    dispatch_authorize:
+      hookTimeoutMs === undefined ? {} : { timeout_ms: hookTimeoutMs },
+  },
 });
 
 const messageAuthorizeManifest = (
