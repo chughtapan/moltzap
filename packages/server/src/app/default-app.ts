@@ -1,20 +1,16 @@
 import { Effect } from "effect";
-import type { ParamsOf } from "@moltzap/protocol";
-import {
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-} from "@moltzap/protocol";
+import type { AppManifest } from "@moltzap/protocol";
 import { ConnectionId } from "@moltzap/protocol/network";
 import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import { Value } from "@sinclair/typebox/value";
-import type { AppHost, ConversationServiceForAppHost } from "./app-host.js";
-import { makeLoopbackConnection } from "./loopback-connection.js";
+import type { AppHost } from "./app-host.js";
+import type { AppEndpoint } from "./app-registration.js";
+import type { Originator } from "../transport/connection.js";
 
 /**
- * Loopback connection id for the boot-installed default app —
- * server-minted so no client `crypto.randomUUID()` can ever collide
- * with the default app's registered endpoint connId.
+ * Connection id for the boot-installed default app — server-minted so
+ * no client `crypto.randomUUID()` can ever collide with the default
+ * app's registered endpoint connId.
  */
 const DEFAULT_APP_CONNECTION_ID = Value.Decode(
   ConnectionId,
@@ -22,50 +18,72 @@ const DEFAULT_APP_CONNECTION_ID = Value.Decode(
 );
 
 /**
- * Boot-time installation of the default app. Wires a loopback
- * `AppEndpoint` whose `originator.call` dispatches in-process
- * — from AppHost's perspective this is identical to a wire-registered
- * app. The two task-callback handlers:
+ * The boot-installed default app declares NO hooks. Every server→app
+ * callback (`dispatch/authorize`, `messages/authorize`, `task/create`)
+ * is served by AppHost's manifest-default fast-path (D #705 CP8):
  *
- *   - `dispatch/authorize` → always `grant`. Unmoderated semantic.
- *   - `messages/authorize` → `Forward { recipients: participants \ sender }`,
- *     reading participants via `ConversationService.getParticipantAgentIds`
- *     (same helper every other server-side participant query uses).
+ *   - `dispatch/authorize` absent → synthetic `grant` (unmoderated).
+ *   - `message_authorize` absent → synthetic
+ *     `Forward { participants ∖ sender }`, read in-process via
+ *     `ConversationService.getParticipantAgentIds`.
+ *   - `task_create` absent → synthetic `accept` (auto-accept).
+ *
+ * Because no hook is declared, `AppHost.callAppRpc` is never reached
+ * for `DEFAULT_APP_ID`, so the endpoint's `originator` is never
+ * invoked. The registration still needs an {@link AppEndpoint} for its
+ * `connId` (close-time keying), so the default app carries an inert
+ * endpoint whose outbound channel defects — any call is a wiring bug
+ * (a hook fired against a hookless manifest) that should crash the
+ * server immediately.
+ */
+const DEFAULT_APP_MANIFEST = {
+  appId: DEFAULT_APP_ID,
+  name: "Default",
+} satisfies AppManifest;
+
+function inertOriginatorOp(op: string): Effect.Effect<never> {
+  return Effect.die(
+    new Error(
+      `default app endpoint: ${op} invoked — the default app declares no hooks, so its originator must never be called`,
+    ),
+  );
+}
+
+/**
+ * Build the inert {@link AppEndpoint} for the hookless default app. The
+ * originator is never invoked (the fast-path serves every callback
+ * server-side), so every method defects.
+ */
+function makeDefaultAppEndpoint(): AppEndpoint {
+  return {
+    connId: DEFAULT_APP_CONNECTION_ID,
+    originator: {
+      id: DEFAULT_APP_CONNECTION_ID,
+      call: () => inertOriginatorOp("originator.call"),
+      notify: () => inertOriginatorOp("originator.notify"),
+      failAllPending: () => Effect.void,
+      handle: () => inertOriginatorOp("originator.handle"),
+      resolve: () => inertOriginatorOp("originator.resolve"),
+    } as Originator,
+  };
+}
+
+/**
+ * Boot-time installation of the default app. Registers a HOOKLESS
+ * manifest under {@link DEFAULT_APP_ID}; AppHost's manifest-default
+ * fast-path produces every default verdict server-side (see
+ * {@link DEFAULT_APP_MANIFEST}). No app round-trip is ever made.
  *
  * TM-admin RPCs (rebound to the app principal) remain unreachable on
- * DEFAULT_APP_ID tasks because no client `AppConnection` can ever own
- * the default app — its endpoint is a server-minted loopback, not a
- * wire-registered `apps/register`.
+ * `DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
+ * the default app — its endpoint is a server-minted inert endpoint, not
+ * a wire-registered `apps/register`.
+ *
+ * No `ConversationService` arg: the fast-path's `messages/authorize`
+ * default reads participants through the ConversationService back-edge
+ * AppHost already holds (wired by `server.ts → setConversationService`
+ * immediately before this call).
  */
-export function installDefaultApp(
-  appHost: AppHost,
-  conversation: ConversationServiceForAppHost,
-): void {
-  const endpoint = makeLoopbackConnection({
-    id: DEFAULT_APP_CONNECTION_ID,
-    handlers: {
-      [DispatchAuthorize.name]: () =>
-        Effect.succeed({ admission: { decision: "grant" as const } }),
-      [MessagesAuthorize.name]: (params: ParamsOf<typeof MessagesAuthorize>) =>
-        Effect.gen(function* () {
-          const all = yield* conversation.getParticipantAgentIds(
-            params.conversationId,
-          );
-          const recipients = all.filter(
-            (a) => a !== params.message.senderAgentId,
-          );
-          return {
-            verdict: { decision: "Forward" as const, recipients },
-          };
-        }).pipe(Effect.withSpan("defaultApp.messagesAuthorize")),
-      // DEFAULT_APP_ID is unmoderated. Every task/request bound to it
-      // is auto-accepted; the requester always sees the task land
-      // in `active` synchronously. Wire-registered apps that take
-      // over a task's TM slot replace this handler with their own
-      // verdict logic.
-      [TaskCreate.name]: () =>
-        Effect.succeed({ verdict: { decision: "accept" as const } }),
-    },
-  });
-  appHost.registerApp({ appId: DEFAULT_APP_ID, name: "Default" }, endpoint);
+export function installDefaultApp(appHost: AppHost): void {
+  appHost.registerApp(DEFAULT_APP_MANIFEST, makeDefaultAppEndpoint());
 }

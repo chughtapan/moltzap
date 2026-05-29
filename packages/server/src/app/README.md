@@ -31,8 +31,12 @@ dispatch lease registry now lives in `task/leases/`.)
   register / claim, optional admin route.
 - `socket-handler.ts` — `makeSocketHandler` + `handleFrame`; the
   per-frame wrapper that runs the typed dispatcher.
-- `loopback-connection.ts` — in-process loopback connection for the
-  default-app TM endpoint.
+- `loopback-connection.ts` — test-only in-process `AppEndpoint`
+  builders (`makeLoopbackConnection` / `makeStubConnection`) for
+  AppHost unit tests that exercise the hook-declaring dispatch path.
+  The boot-installed default app no longer uses it: its hookless
+  manifest routes every callback through AppHost's manifest-default
+  fast-path (see `default-app.ts`).
 - `conversation-app-lookup.ts` — derives a conversation's
   app-binding (the `app_id IS NULL` discriminator) for
   `messages/authorize` routing.

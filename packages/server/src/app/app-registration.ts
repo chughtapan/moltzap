@@ -11,9 +11,12 @@ import type { Originator } from "../transport/connection.js";
  * connection id (for close-time cleanup via `unregisterByConnection`) and
  * the outbound {@link Originator} (the `sendRpcToClient` channel). Minted from
  * the live `AppConnection` arm's `{ connId, originator }` at `apps/register`
- * (D #705 CP4d/CP5), or from a loopback originator for the boot-installed
- * default app. Replaces the full `MoltZapConnection` the registration used to
- * carry — AppHost never read anything else off it.
+ * (D #705 CP4d/CP5). The boot-installed default app carries an INERT endpoint
+ * (`default-app.ts → makeDefaultAppEndpoint`) whose originator defects — its
+ * hookless manifest routes every callback through AppHost's manifest-default
+ * fast-path, so the originator is never invoked. Replaces the full
+ * `MoltZapConnection` the registration used to carry — AppHost never read
+ * anything else off it.
  */
 export interface AppEndpoint {
   readonly connId: ConnectionId;
@@ -25,9 +28,11 @@ export interface AppEndpoint {
  * every app, including the boot-installed default, carries an
  * {@link AppEndpoint}. Wire-registered apps hold the `{ connId, originator }`
  * minted from the `AppConnection` arm their `apps/register` call arrived on;
- * the default app holds a loopback endpoint (see `loopback-connection.ts`)
- * whose `originator.call` dispatches in-process. AppHost sees ONE shape and
- * uses ONE dispatch path: `sendRpcToClient(entry.endpoint.originator, …)`.
+ * the default app holds an inert endpoint (see
+ * `default-app.ts → makeDefaultAppEndpoint`) and declares no hooks, so AppHost
+ * serves its callbacks via the manifest-default fast-path rather than the
+ * `sendRpcToClient(entry.endpoint.originator, …)` path used for hook-declaring
+ * apps. AppHost sees ONE registration shape regardless.
  */
 export interface AppRegistration {
   readonly appId: AppId;

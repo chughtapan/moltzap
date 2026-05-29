@@ -205,10 +205,11 @@ export class AppHost {
   /**
    * Single source of truth for app registrations. Each `AppId` maps to
    * one `AppRegistration` carrying its `AppEndpoint` (`{ connId, originator }`)
-   * — minted from the live `AppConnection` arm for wire-registered apps, or a
-   * loopback endpoint for boot-installed apps (e.g. `DEFAULT_APP_ID`). AppHost
-   * dispatches via the endpoint's `originator` uniformly; see
-   * `./app-registration.ts`.
+   * — minted from the live `AppConnection` arm for wire-registered apps, or an
+   * inert endpoint for the boot-installed default app (`DEFAULT_APP_ID`).
+   * AppHost dispatches via the endpoint's `originator` for hook-declaring apps;
+   * the hookless default app is served entirely by the manifest-default
+   * fast-path (its originator is never invoked). See `./app-registration.ts`.
    */
   private apps = new AppRegistry();
 
@@ -286,8 +287,8 @@ export class AppHost {
   /**
    * Drop a registration. Idempotent (no-op if absent). The
    * boot-installed default app is never unregistered in production —
-   * its loopback connection has a stable id no client caller can
-   * match, so {@link unregisterAppsForConnection} never targets it.
+   * its inert endpoint has a stable server-minted id no client caller
+   * can match, so {@link unregisterAppsForConnection} never targets it.
    */
   unregisterApp(appId: AppId): void {
     if (this.apps.unregister(appId)) {
@@ -300,7 +301,7 @@ export class AppHost {
   /**
    * Drop every registration whose connection matches `connId`. Called
    * by `socket-handler.ts → closeSession` on WS disconnect. The
-   * default app's loopback connection has a server-minted id that no
+   * default app's inert endpoint has a server-minted id that no
    * client connection can ever match, so this method never targets
    * boot-installed apps.
    */
@@ -688,8 +689,8 @@ export class AppHost {
     // server synthesizes the documented default (`grant`) without an
     // app round-trip. Realizes the schema contract in
     // `@moltzap/protocol app/methods.ts → AppManifestSchema` JSDoc
-    // ("When `dispatch_authorize` is absent: `grant`.") and lets the
-    // boot-installed default app (no hooks) drop its loopback callback.
+    // ("When `dispatch_authorize` is absent: `grant`.") — the
+    // boot-installed default app (no hooks) is served entirely here.
     if (entry.manifest.hooks?.dispatch_authorize === undefined) {
       return Effect.succeed({ decision: "grant" as const });
     }
@@ -724,9 +725,9 @@ export class AppHost {
    * D #705 CP8 — synthesize the manifest-default `messages/authorize`
    * verdict for an app that declares no `message_authorize` hook:
    * `Forward { participants ∖ sender }`, reading the conversation's
-   * participant set in-process. This is the same verdict the boot-
-   * installed default app's loopback handler computed, now produced
-   * server-side so the default app needs no callback. Fails closed
+   * participant set in-process. The boot-installed default app declares
+   * no hooks, so this fast-path produces its forward-all verdict
+   * server-side (no app callback). Fails closed
    * (`Block { reason: "tm_unreachable" }`) when no ConversationService
    * back-edge is wired (unit-test layer), mirroring the unknown-app
    * posture in {@link runMessageAuthorize}.
@@ -754,10 +755,11 @@ export class AppHost {
 
   /**
    * Resolve the per-message fan-out verdict for a `messages/send`.
-   * Dispatches `messages/authorize` over the app's connection (real
-   * WS for wire apps, loopback for the boot-installed default), then
-   * applies the uniform fail-closed envelope. When the manifest omits
-   * `message_authorize`, the default fast-path
+   * Dispatches `messages/authorize` over the app's connection (the
+   * wire-registered app's WebSocket) when its manifest declares the
+   * hook, then applies the uniform fail-closed envelope. When the
+   * manifest omits `message_authorize` (the boot-installed default app
+   * declares no hooks), the default fast-path
    * ({@link defaultMessageAuthorize}) synthesizes `Forward` instead.
    *
    * Unknown-app: fail-closed Block. Reaching this branch means the
@@ -875,11 +877,12 @@ export class AppHost {
   }
 
   /**
-   * Dispatch a task-callback RPC over the app's connection. The
-   * connection knows whether it's a real WS or a loopback — AppHost
-   * doesn't care. Errors (NotConnectedError, RPC response error,
-   * socket error, decode failure) fold into the fail-closed envelope
-   * upstream via `wrapHookEffectWithEnvelope`.
+   * Dispatch a task-callback RPC over the app's connection. Reached
+   * only for hook-declaring (wire-registered) apps — the hookless
+   * default app short-circuits to the manifest-default fast-path
+   * before any hook runner calls here. Errors (NotConnectedError, RPC
+   * response error, socket error, decode failure) fold into the
+   * fail-closed envelope upstream via `wrapHookEffectWithEnvelope`.
    */
   private callAppRpc<D extends AnyTaskCallbackRpcDefinition>(
     entry: AppRegistration,
