@@ -52,6 +52,22 @@ import type { AppHost } from "../../app/app-host.js";
 
 type ConnectParams = ParamsOf<typeof Connect>;
 
+// Server policy block shared by both HelloOk shapes (agent + app arm). The
+// app arm's HelloOk differs from the agent's only by the absent `agentId`;
+// the policy is identical, so it lives once here rather than copy-pasted
+// into each builder.
+const SERVER_POLICY: HelloOk["policy"] = {
+  maxMessageBytes: 65536,
+  maxPartsPerMessage: 10,
+  maxTextLength: 32768,
+  maxGroupParticipants: 256,
+  heartbeatIntervalMs: 30000,
+  rateLimits: {
+    messagesPerMinute: 60,
+    requestsPerMinute: 120,
+  },
+};
+
 /** Agent API-key path — existing behavior, typed `never` from authService. */
 function authenticateAgentKey(
   agentKey: string,
@@ -136,17 +152,7 @@ function buildHelloOk(
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentId: ctx.agentId,
-      policy: {
-        maxMessageBytes: 65536,
-        maxPartsPerMessage: 10,
-        maxTextLength: 32768,
-        maxGroupParticipants: 256,
-        heartbeatIntervalMs: 30000,
-        rateLimits: {
-          messagesPerMinute: 60,
-          requestsPerMinute: 120,
-        },
-      },
+      policy: SERVER_POLICY,
     };
   }).pipe(Effect.withSpan("connect.buildHelloOk"));
 }
@@ -175,17 +181,7 @@ function resolveAuthenticatedContext(
 function buildAppHelloOk(): HelloOk {
   return {
     protocolVersion: PROTOCOL_VERSION,
-    policy: {
-      maxMessageBytes: 65536,
-      maxPartsPerMessage: 10,
-      maxTextLength: 32768,
-      maxGroupParticipants: 256,
-      heartbeatIntervalMs: 30000,
-      rateLimits: {
-        messagesPerMinute: 60,
-        requestsPerMinute: 120,
-      },
-    },
+    policy: SERVER_POLICY,
   };
 }
 
