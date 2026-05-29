@@ -32,7 +32,7 @@ own home layer.
 
 ## Public surface
 
-### [`agentClientRpcMethods`](./rpc-registry.ts#L74)
+### [`agentClientRpcMethods`](./rpc-registry.ts#L88)
 
 _Variable_
 
@@ -45,7 +45,7 @@ export const agentClientRpcMethods = [
 ] as const
 ```
 
-### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L102)
+### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L116)
 
 _TypeAlias_
 
@@ -54,7 +54,7 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
-### [`AnyNotificationDefinition`](./rpc-registry.ts#L109)
+### [`AnyNotificationDefinition`](./rpc-registry.ts#L123)
 
 _TypeAlias_
 
@@ -63,7 +63,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-registry.ts#L100)
+### [`AnyServerRpcDefinition`](./rpc-registry.ts#L114)
 
 _TypeAlias_
 
@@ -71,7 +71,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
 ```
 
-### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L107)
+### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L121)
 
 _TypeAlias_
 
@@ -79,7 +79,7 @@ _TypeAlias_
 export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
 ```
 
-### [`AnyTaskMasterRpcDefinition`](./rpc-registry.ts#L104)
+### [`AnyTaskMasterRpcDefinition`](./rpc-registry.ts#L118)
 
 _TypeAlias_
 
@@ -154,6 +154,104 @@ export type BrandedString<BrandName extends string> = string &
 A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
 a `string` from accidentally type-fitting a slot expecting the brand.
 
+### [`checkProtocolRange`](./version.ts#L155)
+
+_Function_
+
+```ts
+export function checkProtocolRange(
+  params: { readonly minProtocol: string; readonly maxProtocol: string },
+  serverVersion: string,
+): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
+```
+
+Range-check the client's protocol-version interval against an
+injected server version. Raised by `network/connect` BEFORE auth
+resolution; the server-side handler in
+`@moltzap/server-core/identity/handlers/connect.handlers.ts`
+yields this Effect as the FIRST step of `handleConnect`.
+
+**Architect plan #706 v10 (codex r9 P2 #1) — relocated from
+`connect.handlers.ts` to here.** v9 made the function's signature
+testable (parameterized over `serverVersion`); v10 makes the
+function itself importable from `@moltzap/protocol` so regression
+tests can call it without an illegal test seam through the
+server-internal handler module.
+
+**Two error channels, both typed (codex PR review #1 P2).**
+
+- `ProtocolMismatchError` — versions are well-formed, just outside
+  the supported range. Two `reason` discriminants in the wire
+  error's `data` field:
+  - `server-above-client-max` —
+    `compareProtocolVersion(serverVersion, params.maxProtocol) > 0`.
+    The server is newer than the client knows how to talk to.
+  - `server-below-client-min` —
+    `compareProtocolVersion(serverVersion, params.minProtocol) < 0`.
+    The client is newer than the server supports.
+- `InvalidProtocolVersionError` — `params.minProtocol` or
+  `params.maxProtocol` is not a well-formed numeric version
+  string. Untrusted client input crosses the boundary here, so
+  the sync throw in compareProtocolVersion is wrapped in
+  `Effect.try` and surfaces as a typed channel error. Callers
+  (the `network/connect` handler) catch this and map to
+  `InvalidParamsError` (JSON-RPC `-32602`).
+
+Production callers (`handleConnect`) pass the live
+`PROTOCOL_VERSION` constant; tests inject future-version values
+to exercise rejection paths against an unbumped branch.
+
+Example test usage: `Effect.runSync(Effect.either(checkProtocolRange({
+minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
+"2026.527.0")))` resolves to a `Left` carrying a
+`ProtocolMismatchError` whose `data.reason` is
+`"server-above-client-max"`.
+
+### [`compareProtocolVersion`](./version.ts#L81)
+
+_Function_
+
+```ts
+export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
+```
+
+Numeric comparator for `PROTOCOL_VERSION` strings, ordered by their
+dotted numeric segments (NOT lexicographically).
+
+Architect plan #706 v5 (codex r4 P2 #1) — required because CalVer
+values of the form `YYYY.NNNN.M` carry variable-digit middle
+components and `"2026.1001.0".localeCompare("2026.527.0") === -1`
+(lex: `1001 < 527`), opposite of the chronological/numeric truth.
+The v4 plan's `checkProtocolRange` originally compared
+`client.maxProtocol < PROTOCOL_VERSION` via raw string ordering;
+v5 routes it through this helper so the "old client rejected at
+network/connect" gate stays correct as the publish workflow rolls
+the middle component past `999`.
+
+Returns `-1 | 0 | 1` with conventional semantics:
+
+    compareProtocolVersion("2026.527.0",  "2026.527.0")  →  0
+    compareProtocolVersion("2026.526.0",  "2026.527.0")  → -1
+    compareProtocolVersion("2026.1001.0", "2026.527.0")  →  1   // numeric, NOT lex
+    compareProtocolVersion("2025.999.0",  "2026.1.0")    → -1   // year boundary
+    compareProtocolVersion("2026.527.0",  "2026.527.1")  → -1
+
+Each input MUST be a dotted `n.n.n` (or wider) numeric string. The
+function is intentionally strict — it does NOT accept SemVer
+pre-release suffixes (`2026.527.0-rc.1`) or build metadata
+(`2026.527.0+abc`). Empty segments (e.g., `"2026..0"`) and
+non-digit characters (`"abc"`) also reject — `Number("") === 0`
+would otherwise silently coerce, contradicting the
+"strict / fail-closed" JSDoc claim (review-senior P3 #2).
+
+**Synchronous throw shape.** Throws
+InvalidProtocolVersionError (a `Data.TaggedError`) on any
+malformed segment. Untrusted client input MUST be funnelled
+through checkProtocolRange, which wraps this call in
+`Effect.try` so the parse error flows through the Effect channel
+— never as a sync throw escaping into the JSON-RPC handler
+(codex PR review #1 P2).
+
 ### [`DateTimeString`](./schema-primitives.ts#L107)
 
 _TypeAlias_
@@ -177,7 +275,7 @@ Returns the shared `DateTimeStringSchema` singleton. Functioned so
 callers can keep `as const` references stable while the schema body
 is owned here.
 
-### [`decodeClientInbound`](./rpc-registry.ts#L254)
+### [`decodeClientInbound`](./rpc-registry.ts#L268)
 
 _Function_
 
@@ -195,7 +293,7 @@ on the request arm.
 Fails closed with `MalformedFrameError` on any mismatch, including
 a response frame whose `id` is `null` (no pending call to settle).
 
-### [`DecodedClientInbound`](./rpc-registry.ts#L152)
+### [`DecodedClientInbound`](./rpc-registry.ts#L166)
 
 _TypeAlias_
 
@@ -210,7 +308,7 @@ Decoded shape of a frame inbound to the server (from client):
 a client RPC request, a response (success XOR error) to a
 server-initiated callback, or a notification.
 
-### [`DecodedResponseError`](./rpc-registry.ts#L126)
+### [`DecodedResponseError`](./rpc-registry.ts#L140)
 
 _Class_
 
@@ -226,7 +324,7 @@ Discriminated error arm of a decoded JSON-RPC response — wire-frame
 decoder discriminator, not an Effect tagged error (the wire `error`
 sub-object carries `code`/`message`/`data`, no Effect machinery).
 
-### [`DecodedResponseSuccess`](./rpc-registry.ts#L113)
+### [`DecodedResponseSuccess`](./rpc-registry.ts#L127)
 
 _Class_
 
@@ -242,7 +340,7 @@ export class DecodedResponseSuccess extends Data.TaggedClass(
 
 Discriminated success arm of a decoded JSON-RPC response.
 
-### [`DecodedServerInbound`](./rpc-registry.ts#L137)
+### [`DecodedServerInbound`](./rpc-registry.ts#L151)
 
 _TypeAlias_
 
@@ -259,7 +357,7 @@ Decoded shape of a frame inbound to the client (from server):
 a response (success XOR error), a server-initiated task-callback
 request, or a notification.
 
-### [`decodeServerInbound`](./rpc-registry.ts#L220)
+### [`decodeServerInbound`](./rpc-registry.ts#L234)
 
 _Function_
 
@@ -302,6 +400,43 @@ _Variable_
 ```ts
 export const DEFAULT_PAGE_LIMIT = 50
 ```
+
+### [`InvalidProtocolVersionError`](./version.ts#L35)
+
+_Class_
+
+```ts
+export class InvalidProtocolVersionError extends Data.TaggedError(
+  "InvalidProtocolVersionError",
+)<{ readonly version: string; readonly segment: string }> {
+  override get message(): string {
+    return `compareProtocolVersion: invalid segment ${JSON.stringify(this.segment)} in ${JSON.stringify(this.version)}`;
+  }
+}
+```
+
+Raised by compareProtocolVersion (and surfaced through the
+Effect channel of checkProtocolRange) when an input string
+carries a non-numeric or empty segment — e.g., SemVer pre-release
+suffixes like `2026.527.0-rc.1`, leading/trailing dots like
+`"2026..0"`, or non-digit characters like `"abc.def"`.
+
+**`Data.TaggedError` shape (codex PR review P2 + review-senior P3
+convergence).** Was a plain `Error` subclass in the first
+impl-staff drop; switched to `Data.TaggedError` so:
+
+- The error flows through Effect's typed `E` channel cleanly
+  (`Effect.catchTag("InvalidProtocolVersionError", ...)` works in
+  checkProtocolRange's caller).
+- It matches the sibling ProtocolMismatchError convention
+  in `network/methods.ts` (both tagged, both registered if a wire
+  code is needed).
+
+This error is NOT a wire-protocol error — it is INPUT-VALIDATION
+for untrusted client-supplied version strings. The
+`network/connect` handler catches it and maps to
+`InvalidParamsError` (JSON-RPC -32602) so the client gets a typed
+malformed-input response, not a defect.
 
 ### [`JsonValue`](./schema-primitives.ts#L149)
 
@@ -369,7 +504,7 @@ _Variable_
 export const MAX_PAGE_LIMIT = 200
 ```
 
-### [`notificationDefinitions`](./rpc-registry.ts#L93)
+### [`notificationDefinitions`](./rpc-registry.ts#L107)
 
 _Variable_
 
@@ -382,7 +517,7 @@ export const notificationDefinitions = [
 ] as const
 ```
 
-### [`PROTOCOL_VERSION`](./version.ts#L2)
+### [`PROTOCOL_VERSION`](./version.ts#L9)
 
 _Variable_
 
@@ -390,7 +525,7 @@ _Variable_
 export const PROTOCOL_VERSION = "2026.528.0"
 ```
 
-### [`RegisteredTaggedError`](./rpc-registry.ts#L55)
+### [`RegisteredTaggedError`](./rpc-registry.ts#L64)
 
 _TypeAlias_
 
@@ -406,7 +541,12 @@ export type RegisteredTaggedError =
   | TaskRejectedError
   | ConversationArchivedError
   | ConversationFullError
-  | HookBlockedError;
+  | HookBlockedError
+  // v11 (codex r10 P2 #2): protocol-version mismatch on
+  // `network/connect`. Architect plan #706 v8 declared the class +
+  // self-registered the wire code; v11 closes the type-narrowing
+  // gap so `Effect.catchTag("ProtocolMismatchError", ...)` works.
+  | ProtocolMismatchError;
 
 // Spec D3 R11 — per-kind outbound catalogs.
 //   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.
@@ -428,7 +568,7 @@ concrete tags (e.g. "Forbidden", "NotInContacts"). Mirrors the static
 registry built by `registerErrorClass` — keep in sync if a new class
 lands.
 
-### [`serverRpcMethods`](./rpc-registry.ts#L86)
+### [`serverRpcMethods`](./rpc-registry.ts#L100)
 
 _Variable_
 
@@ -453,7 +593,7 @@ export function stringEnum<T extends string[]>(values: [...T])
 values. Use instead of `Type.Union([Type.Literal("a"), Type.Literal("b")])`
 — same wire shape, simpler schema, single AJV `enum` keyword.
 
-### [`taskMasterRpcMethods`](./rpc-registry.ts#L81)
+### [`taskMasterRpcMethods`](./rpc-registry.ts#L95)
 
 _Variable_
 

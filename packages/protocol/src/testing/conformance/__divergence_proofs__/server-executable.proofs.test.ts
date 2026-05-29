@@ -63,7 +63,11 @@ import { AgentsList } from "../../../identity/methods.js";
 import { Connect } from "../../../network/methods.js";
 import { ContactsList } from "../../../identity/methods.js";
 import { TaskList } from "../../../task/methods.js";
-import { PresenceSubscribe, PresenceUpdate } from "../../../network/methods.js";
+// v8 (architect plan #706 / codex r7 P2 #2): `PresenceUpdate` deleted
+// in the cutover. The `request.method === PresenceUpdate.name`
+// branch below is now unreachable; impl-staff prunes the divergence
+// proof's PresenceUpdate fixture as part of the same migration.
+import { PresenceSubscribe } from "../../../network/methods.js";
 
 type BadServerBehavior =
   | "allow-unauthenticated"
@@ -591,7 +595,11 @@ function makePresenceBadResult(
         .map((agentId) => ({ agentId, status: "offline" as const })),
     };
   }
-  return request.method === PresenceUpdate.name ? {} : undefined;
+  // v8 (architect plan #706 / codex r7 P2 #2): PresenceUpdate
+  // descriptor deleted; the previous `request.method ===
+  // PresenceUpdate.name ? {} : undefined` branch is unreachable.
+  // The function now falls through to the default `undefined`.
+  return undefined;
 }
 
 function makeConversationLifecycleBadResult(request: RequestFrame): unknown {

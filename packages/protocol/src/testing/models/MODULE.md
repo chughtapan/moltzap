@@ -8,7 +8,7 @@ Public barrel for protocol reference-model helpers.
 
 ## Public surface
 
-### [`applyCall`](./dispatch.ts#L193)
+### [`applyCall`](./dispatch.ts#L194)
 
 _Function_
 
@@ -30,7 +30,7 @@ server's *observable* outcome (success vs typed error), not its full
 result shape. Tier B canonicalizers downgrade server responses to the
 same projection before comparing.
 
-### [`authorizationOutcome`](./dispatch.ts#L146)
+### [`authorizationOutcome`](./dispatch.ts#L147)
 
 _Function_
 
@@ -59,7 +59,7 @@ _Variable_
 export const initialReferenceState: ReferenceState =
 ```
 
-### [`isIdempotent`](./dispatch.ts#L94)
+### [`isIdempotent`](./dispatch.ts#L95)
 
 _Function_
 
@@ -117,7 +117,7 @@ export interface ReferenceState {
 
 Every kind of entity the model tracks.
 
-### [`RpcModelResult`](./dispatch.ts#L65)
+### [`RpcModelResult`](./dispatch.ts#L66)
 
 _TypeAlias_
 

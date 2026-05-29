@@ -30,7 +30,12 @@ export const PRESENCE_CATEGORY = "presence" as const;
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000;
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256;
 
-export type PresenceStatus = "online" | "offline" | "away";
+// v7 (architect plan #706): narrowed from `["online", "offline",
+// "away"]` to `["online", "working", "offline"]` to match the
+// server-derived `PresenceStatusEnum`. Conformance properties
+// targeting the deleted `away` state migrate to `working` via the
+// LeaseRegistry-grant lifecycle (impl-staff §8 conformance bullet).
+export type PresenceStatus = "online" | "working" | "offline";
 
 export interface PresenceChangedPayload {
   readonly agentId: string;

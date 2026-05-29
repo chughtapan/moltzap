@@ -68,7 +68,7 @@ The protocol uses standard JSON-RPC 2.0 request, response, and notification obje
 | **MessageService** | Message creation, multi-part content, persistence |
 | **ConversationService** | DM and group conversations, participants, roles, mute/unmute |
 | **TaskService** | Task lifecycle, conversation-to-task linkage, admission flow |
-| **PresenceService** | Online/offline/away status |
+| **PresenceService** | One service owning the `presence/subscribe` subscriber registry (who watches whom), the lease-derived status engine (server-derived `online`/`working`/`offline` from `LeaseRegistry` lifecycle observations), and the `presence/changed` fan-out per subscriber; implements `LeaseTransitionObserver` so `LeaseRegistry` drives lease transitions through it |
 | **EnvelopeEncryption** | KEK/DEK key hierarchy, per-conversation data encryption keys |
 | **NetworkSendService** | Server-side delivery: resolves recipient agent IDs to live WebSocket endpoints and writes notifications/RPCs over those connections |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |
