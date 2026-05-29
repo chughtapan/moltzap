@@ -700,9 +700,8 @@ function expireLeaseFromTtl(
     const current = yield* Ref.get(state.entriesRef);
     const entry = current.get(leaseId);
     if (!entry || !isTtlExpirableState(entry.record.state)) return;
-    // v7 (architect plan #706 / codex r6 P2 #2): capture the
-    // pre-expire state so we know whether to fire the active-end
-    // observer call. GRANTED is in the active set; HOLD never
+    // Capture the pre-expire state so we know whether to fire the
+    // active-end observer call. GRANTED is in the active set; HOLD never
     // entered it.
     const wasActive = entry.record.state === "GRANTED";
     const expiredAt = new Date().toISOString();
@@ -808,10 +807,9 @@ function finalizeClaim(
     });
     yield* emitDispatchesConsumed(state, consumedRecord, messageId, consumedAt);
     yield* scheduleRetention(state, leaseId, consumedRecord.dispatchId);
-    // v7 (architect plan #706 / codex r6 P2 #2): CLAIMED → CONSUMED
-    // exits the active set; fire onLeaseActiveEnd so the presence
-    // projection re-derives the recipient's status (working → online
-    // if this was the last active lease).
+    // CLAIMED → CONSUMED exits the active set; fire onLeaseActiveEnd so
+    // the presence service re-derives the recipient's status (working →
+    // online if this was the last active lease).
     yield* state.deps.transitionObserver.onLeaseActiveEnd(
       leaseId,
       consumedRecord.binding.recipientAgentId,
@@ -954,9 +952,8 @@ function resolveLease(
     if (nextState === "DENIED") {
       yield* scheduleRetention(state, leaseId, nextRecord.dispatchId);
     }
-    // v7 (architect plan #706 / codex r6 P2 #2): GRANTED is the
-    // active-set entry transition; fire onLeaseActiveBegin so the
-    // presence projection updates the recipient's status. DENIED /
+    // GRANTED is the active-set entry transition; fire onLeaseActiveBegin
+    // so the presence service updates the recipient's status. DENIED /
     // HOLD do NOT enter the active set; no observer call.
     if (nextState === "GRANTED") {
       yield* state.deps.transitionObserver.onLeaseActiveBegin(
@@ -1085,13 +1082,12 @@ function expireLeaseOnDisconnect(
     if (ttlFiber) {
       yield* Fiber.interruptFork(ttlFiber);
     }
-    // v7 (architect plan #706 / codex r6 P2 #2): capture the
-    // pre-expire state to decide whether to fire the active-end
-    // observer call. The disconnect-driven expiry handles GRANTED
-    // (active set) AND CLAIMED (also active); the projection's
-    // connId-mismatch guard (v6 codex r5 P2 #1) handles the
-    // fast-reconnect race so this callback is safe to fire even
-    // after the agent has reconnected on a new connId.
+    // Capture the pre-expire state to decide whether to fire the
+    // active-end observer call. The disconnect-driven expiry handles
+    // GRANTED (active set) AND CLAIMED (also active); the presence
+    // service's connId-mismatch guard handles the fast-reconnect race so
+    // this callback is safe to fire even after the agent has reconnected
+    // on a new connId.
     const wasActive =
       entry.record.state === "GRANTED" || entry.record.state === "CLAIMED";
     const expiredAt = new Date().toISOString();
