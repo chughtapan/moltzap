@@ -3,7 +3,6 @@ import { AppNotFoundError, AppNotReadyError } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import { AppId, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import { Effect } from "effect";
-import { Value } from "@sinclair/typebox/value";
 import type { Originator } from "../transport/connection.js";
 
 /**
@@ -71,9 +70,19 @@ export class AppRegistry {
    * Returns true if the registration was installed, false if `appId`
    * is already present. Never overwrites — the caller MUST unregister
    * first if they want to replace.
+   *
+   * D #705 CP9 — keyed by the SERVER-MINTED `appId` (the authenticated
+   * `AppConnection.auth.appId`, or `DEFAULT_APP_ID` at boot), NOT by
+   * `manifest.appId`. The DB issues `app_id` via `gen_random_uuid()` and the
+   * manifest's `appId` field no longer participates in routing — `task/request`
+   * targets the appId the registrant received from `/api/v1/apps/register`,
+   * which is this same server-minted identity.
    */
-  register(manifest: AppManifest, endpoint: AppEndpoint): boolean {
-    const appId = Value.Decode(AppId, manifest.appId);
+  register(
+    appId: AppId,
+    manifest: AppManifest,
+    endpoint: AppEndpoint,
+  ): boolean {
     if (this.entries.has(appId)) return false;
     this.entries.set(appId, { appId, manifest, endpoint });
     return true;

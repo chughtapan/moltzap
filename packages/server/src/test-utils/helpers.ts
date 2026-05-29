@@ -20,6 +20,7 @@ import type {
 } from "@moltzap/protocol";
 import {
   agentId,
+  appId as protocolAppId,
   makeCloseableTestClient,
   registerTestAgent,
   TransportClosedError,
@@ -29,8 +30,9 @@ import {
 import { getBaseUrl, getWsUrl } from "./index.js";
 
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import type { AppManifest } from "@moltzap/protocol/app";
 import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { AppId, ConversationId, TaskId } from "@moltzap/protocol/task";
 
 /**
  * Spec B (#596) + #645: the legacy `waitForNotification(def, timeoutMs?)`,
@@ -313,6 +315,109 @@ export function connectTestClient(opts: {
       close: () => close,
     };
   }).pipe(Effect.withSpan("connectTestClient"));
+}
+
+const HTTP_CREATED = 201;
+
+export interface RegisteredApp {
+  readonly appId: AppId;
+  readonly appKey: string;
+  readonly manifest: AppManifest;
+}
+
+class AppRegistrationError extends Data.TaggedError("AppRegistrationError")<{
+  readonly message: string;
+  readonly status: number;
+  readonly json: unknown;
+}> {}
+
+function isAppRegisterResponse(
+  json: unknown,
+): json is { readonly appId: string; readonly appKey: string } {
+  if (typeof json !== "object" || json === null) return false;
+  if (!("appId" in json) || typeof json.appId !== "string") return false;
+  if (!("appKey" in json) || typeof json.appKey !== "string") return false;
+  return true;
+}
+
+/**
+ * D #705 CP9 — mint an app credential via the `/api/v1/apps/register` HTTP
+ * endpoint. The App-principal sibling of {@link registerAgent}: returns the
+ * server-minted `{ appId, appKey }` (the `appId` is `gen_random_uuid()`, NOT
+ * `manifest.appId`). The `appKey` is then handed to {@link connectAppClient}
+ * to open an `AppConnection`, whose implicit registration binds it as the
+ * app's moderator endpoint. Replaces the cross-principal WS `apps/register`
+ * RPC.
+ */
+export function registerApp(
+  baseUrl: string,
+  manifest: AppManifest,
+): Effect.Effect<RegisteredApp, PostJsonError | AppRegistrationError> {
+  return postJson(baseUrl, "/api/v1/apps/register", { manifest }).pipe(
+    Effect.flatMap(({ status, json }) => {
+      if (status !== HTTP_CREATED || !isAppRegisterResponse(json)) {
+        return Effect.fail(
+          new AppRegistrationError({
+            message: `apps/register failed: ${status}`,
+            status,
+            json,
+          }),
+        );
+      }
+      return Effect.succeed({
+        appId: protocolAppId(json.appId),
+        appKey: json.appKey,
+        manifest,
+      } satisfies RegisteredApp);
+    }),
+    Effect.withSpan("registerApp"),
+  );
+}
+
+/**
+ * D #705 CP9 — open an `AppConnection` from a minted `appKey`. The Connect
+ * handler's `appKey` arm authenticates the app principal AND implicitly
+ * registers the live connection as the app's moderator endpoint, so the
+ * returned client receives server→client `dispatch/authorize` /
+ * `messages/authorize` / `task/create` callbacks. Tracked for cleanup.
+ */
+export function connectAppClient(
+  appKey: string,
+): Effect.Effect<ServerTestClient, Error> {
+  return Effect.gen(function* () {
+    const client = yield* makeCloseableTestClient({
+      serverUrl: getWsUrl(),
+      // The agent-arm fields are unused on the appKey arm but the config
+      // shape requires `agentId` + `agentKey`; the autoConnect dispatcher
+      // selects the appKey arm when `appKey` is present.
+      agentId: agentId(crypto.randomUUID()),
+      agentKey: "unused-app-arm",
+      appKey,
+      defaultTimeoutMs: 5000,
+      captureCapacity: 1024,
+    });
+    const buffer = yield* makeNotificationBuffer(client);
+    const close: Effect.Effect<void, never> = Effect.gen(function* () {
+      yield* Fiber.interrupt(buffer.pumpFiber);
+      yield* client.close;
+    });
+    const wrapped: ServerTestClient = {
+      sendRpc: client.sendRpc.bind(client),
+      sendMalformed: client.sendMalformed.bind(client),
+      sendResponseFrame: client.sendResponseFrame.bind(client),
+      subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
+        bufferedSubscribeStream(buffer, definition),
+      subscribe: client.subscribe.bind(client),
+      subscribeAll: client.subscribeAll.bind(client),
+      onAppCallback: client.onAppCallback.bind(client),
+      awaitServerRequest: client.awaitServerRequest.bind(client),
+      captures: client.captures,
+      snapshot: client.snapshot,
+      close: () => close,
+    };
+    openClients.push(wrapped);
+    return wrapped;
+  }).pipe(Effect.withSpan("connectAppClient"));
 }
 
 /** Register and connect an agent. Tracked for automatic cleanup. */

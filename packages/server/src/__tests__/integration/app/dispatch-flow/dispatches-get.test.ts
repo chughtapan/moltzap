@@ -17,9 +17,7 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import {
-  DispatchAuthorize,
   DispatchesGet,
-  TaskCreate,
   type AppManifest,
   type DispatchId,
 } from "@moltzap/protocol";
@@ -32,6 +30,7 @@ import {
   createTaskConversationOnApp,
   createUnmoderatedDm,
   createDispatchFlowFixture,
+  moderatorAppClient,
   readLeaseByDispatchId,
   requestDispatch,
   startDispatchFlowServer,
@@ -73,36 +72,19 @@ afterAll(stopDispatchFlowServer);
 
 beforeEach(() => Effect.runPromise(fixture.reset));
 
-function grantDispatchAuthorize() {
-  return Effect.succeed({
-    admission: { decision: "grant" as const },
-  });
-}
-
-function registerWireModerator() {
-  return Effect.gen(function* () {
-    const moderator = yield* registerAndConnect("wire-moderator");
-    yield* moderator.client.onAppCallback(
-      DispatchAuthorize,
-      grantDispatchAuthorize,
-    );
-    yield* moderator.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
-    // AppsRegister is driven by `createTaskConversationOnApp`'s
-    // idempotent `ensureModeratorAppRegistered` — calling it here
-    // would double-register, which the server now strictly rejects.
-    return moderator;
-  });
-}
-
 function requestWireModeratedDispatch(
-  moderator: ConnectedAgent,
+  requester: ConnectedAgent,
   recipient: ConnectedAgent,
 ) {
   return Effect.gen(function* () {
+    // D #705 CP9 — the grant verdict is answered by the fixture's moderator
+    // `AppConnection` (a disjoint principal from `requester`), armed via the
+    // fixture hook. `WIRE_APP_MANIFEST`'s declared `dispatch_authorize` hook
+    // keeps the server off the hookless synthetic-grant fast-path.
+    fixture.setNextHookVerdict({ decision: "grant" });
+    yield* attachDispatchAuthorizeHook(requester, fixture);
     const { conversationId } = yield* createTaskConversationOnApp(
-      moderator,
+      requester,
       recipient,
       WIRE_APP_MANIFEST,
     );
@@ -114,7 +96,7 @@ function requestWireModeratedDispatch(
     const ack = yield* requestDispatch(
       recipient,
       conversationId,
-      moderator,
+      requester,
       "wire",
     );
     const release = yield* Fiber.join(releaseFiber);
@@ -163,11 +145,13 @@ function nonModeratorCannotReadDispatch() {
 
 function wireModeratorReadsGrantedLease() {
   return Effect.gen(function* () {
-    const moderator = yield* registerWireModerator();
+    const requester = yield* registerAndConnect("wire-requester");
     const recipient = yield* registerAndConnect("wire-recipient");
-    const ack = yield* requestWireModeratedDispatch(moderator, recipient);
+    const ack = yield* requestWireModeratedDispatch(requester, recipient);
 
-    const view = yield* moderator.client.sendRpc(DispatchesGet, {
+    // `dispatches/get` is moderator-scoped: only the lease's
+    // `moderatorConnectionId` (the fixture's app `AppConnection`) may read it.
+    const view = yield* moderatorAppClient().sendRpc(DispatchesGet, {
       dispatchId: ack.dispatchId as DispatchId,
     });
     expect(view.lease.dispatchId).toBe(ack.dispatchId);

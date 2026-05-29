@@ -17,6 +17,7 @@ import {
   attachDispatchAuthorizeHook,
   createTaskConversationOnApp,
   createUnmoderatedDm,
+  moderatorAppClient,
   readLeaseByLeaseId,
   requestDispatch,
   sendMessageWithLease,
@@ -169,15 +170,16 @@ function grantedLeaseIsSingleUse() {
 function insertFailureRollsBackLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    // Moderated path so alice (as the AppsRegister'd app) has
-    // TaskConversationArchive authority; archiving forces the
-    // subsequent messages/send to fail at insert time.
+    // D #705 CP9 — moderated path so the fixture's app `AppConnection` owns the
+    // task and thus has `TaskConversationArchive` authority (R7: task-admin
+    // RPCs are app-arm + `assertAppOwnsTask`). Archiving from the app client
+    // forces the subsequent messages/send to fail at insert time.
     const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "probe",
     );
-    yield* alice.client.sendRpc(TaskConversationArchive, {
+    yield* moderatorAppClient().sendRpc(TaskConversationArchive, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
@@ -233,7 +235,11 @@ function postInsertFailureKeepsLeaseConsumed() {
       "first",
     );
 
-    yield* alice.client.close();
+    // D #705 CP9 — drop the MODERATOR (the fixture's app `AppConnection`), not
+    // the requesting agent: closing it makes the post-finalize commit
+    // side-effect round-trip to the moderator fail while the lease stays
+    // CONSUMED (the insert already committed).
+    yield* moderatorAppClient().close();
     yield* Effect.sleep("300 millis");
 
     const sendResult = yield* sendWithLeaseRejected(

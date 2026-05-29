@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `taskCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L70)
+### [`AwaitNotificationError`](./helpers.ts#L72)
 
 _TypeAlias_
 
@@ -73,7 +73,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
 }
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L81)
+### [`awaitOneNotification`](./helpers.ts#L83)
 
 _Function_
 
@@ -94,7 +94,7 @@ exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
 at integration-test call sites; preserves the `yield* …` ergonomic but
 runs entirely on the new `Stream.async`-backed subscription API.
 
-### [`closeAllClients`](./helpers.ts#L177)
+### [`closeAllClients`](./helpers.ts#L179)
 
 _Function_
 
@@ -102,7 +102,23 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`ConnectedAgent`](./helpers.ts#L113)
+### [`connectAppClient`](./helpers.ts#L384)
+
+_Function_
+
+```ts
+export function connectAppClient(
+  appKey: string,
+): Effect.Effect<ServerTestClient, Error>
+```
+
+D #705 CP9 — open an `AppConnection` from a minted `appKey`. The Connect
+handler's `appKey` arm authenticates the app principal AND implicitly
+registers the live connection as the app's moderator endpoint, so the
+returned client receives server→client `dispatch/authorize` /
+`messages/authorize` / `task/create` callbacks. Tracked for cleanup.
+
+### [`ConnectedAgent`](./helpers.ts#L115)
 
 _Interface_
 
@@ -115,7 +131,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L275)
+### [`connectTestClient`](./helpers.ts#L277)
 
 _Function_
 
@@ -378,7 +394,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L337)
+### [`postJson`](./helpers.ts#L442)
 
 _Function_
 
@@ -396,7 +412,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 same wire envelope, so each integration test importing this helper
 can drop the repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L184)
+### [`registerAgent`](./helpers.ts#L186)
 
 _Function_
 
@@ -408,7 +424,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L319)
+### [`registerAndConnect`](./helpers.ts#L424)
 
 _Function_
 
@@ -420,7 +436,38 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerOnly`](./helpers.ts#L421)
+### [`registerApp`](./helpers.ts#L352)
+
+_Function_
+
+```ts
+export function registerApp(
+  baseUrl: string,
+  manifest: AppManifest,
+): Effect.Effect<RegisteredApp, PostJsonError | AppRegistrationError>
+```
+
+D #705 CP9 — mint an app credential via the `/api/v1/apps/register` HTTP
+endpoint. The App-principal sibling of registerAgent: returns the
+server-minted `{ appId, appKey }` (the `appId` is `gen_random_uuid()`, NOT
+`manifest.appId`). The `appKey` is then handed to connectAppClient
+to open an `AppConnection`, whose implicit registration binds it as the
+app's moderator endpoint. Replaces the cross-principal WS `apps/register`
+RPC.
+
+### [`RegisteredApp`](./helpers.ts#L322)
+
+_Interface_
+
+```ts
+export interface RegisteredApp {
+  readonly appId: AppId;
+  readonly appKey: string;
+  readonly manifest: AppManifest;
+}
+```
+
+### [`registerOnly`](./helpers.ts#L526)
 
 _Function_
 
@@ -446,7 +493,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`ServerTestClient`](./helpers.ts#L44)
+### [`ServerTestClient`](./helpers.ts#L46)
 
 _Interface_
 
@@ -467,7 +514,7 @@ wrappers were deleted. Consumers reach typed-payload Streams via
 Ergonomic one-shot test sites use the top-level `awaitOneNotification`
 helper below.
 
-### [`setupAgentGroup`](./helpers.ts#L460)
+### [`setupAgentGroup`](./helpers.ts#L565)
 
 _Function_
 
@@ -487,7 +534,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L448)
+### [`setupAgentPair`](./helpers.ts#L553)
 
 _Function_
 
@@ -516,7 +563,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L173)
+### [`trackClient`](./helpers.ts#L175)
 
 _Function_
 

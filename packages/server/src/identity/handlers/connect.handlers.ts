@@ -232,16 +232,20 @@ function authenticateAppKey(
 function registerAppEndpoint(args: {
   readonly connections: ConnectionManager;
   readonly appHost: AppHost;
+  readonly appId: AppContext["appId"];
   readonly manifest: AppManifest;
   readonly authed: {
     readonly connId: ConnectionId;
     readonly originator: Originator;
   };
 }): Effect.Effect<void, UnauthorizedError | NotConnectedError> {
-  const { connections, appHost, manifest, authed } = args;
+  const { connections, appHost, appId, manifest, authed } = args;
   const connId = authed.connId;
   return Effect.gen(function* () {
-    const ok = appHost.registerApp(manifest, {
+    // D #705 CP9 — register under the SERVER-MINTED `appId` (the authenticated
+    // principal), NOT `manifest.appId`. `task/request` routes to the appId the
+    // registrant received from `/api/v1/apps/register` = this identity.
+    const ok = appHost.registerApp(appId, manifest, {
       connId,
       originator: authed.originator,
     });
@@ -249,7 +253,7 @@ function registerAppEndpoint(args: {
       yield* connections.rollbackToUnauthenticated(connId);
       return yield* Effect.fail(
         new UnauthorizedError({
-          message: `App ${manifest.appId} already has an active connection`,
+          message: `App ${appId} already has an active connection`,
         }),
       );
     }
@@ -289,7 +293,13 @@ function registerAppArmTransition(args: {
     Effect.flatMap((outcome) =>
       Match.value(outcome).pipe(
         Match.when({ kind: "ok-app" }, ({ authed }) =>
-          registerAppEndpoint({ connections, appHost, manifest, authed }),
+          registerAppEndpoint({
+            connections,
+            appHost,
+            appId: auth.appId,
+            manifest,
+            authed,
+          }),
         ),
         Match.when({ kind: "ok-agent" }, () =>
           Effect.die(

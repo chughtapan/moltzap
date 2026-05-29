@@ -178,7 +178,17 @@ export function defineMethod<
         ctx.connection._tag === "AgentConnection"
           ? ctx.connection.auth
           : ({} as AuthenticatedContext);
-      if (requiresActive && auth.agentStatus !== "active") {
+      // D #705 CP9 — `requiresActive` is an AGENT-claim gate (agents must be
+      // claimed before mutating). An `AppConnection` has no agent claim status;
+      // it authenticated via its `appKey`, so the gate does not apply (an
+      // app-arm handler like `dispatches/get` is moderator-scoped, enforced by
+      // its own `moderatorConnectionId` check). The gate fires only on the
+      // agent arm whose `agentStatus` is not yet `active`.
+      if (
+        requiresActive &&
+        ctx.connection._tag === "AgentConnection" &&
+        auth.agentStatus !== "active"
+      ) {
         return yield* Effect.fail(
           new ForbiddenError({
             message: "Agent must be claimed before performing this action",

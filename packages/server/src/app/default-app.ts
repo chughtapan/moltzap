@@ -85,5 +85,9 @@ function makeDefaultAppEndpoint(): AppEndpoint {
  * immediately before this call).
  */
 export function installDefaultApp(appHost: AppHost): void {
-  appHost.registerApp(DEFAULT_APP_MANIFEST, makeDefaultAppEndpoint());
+  appHost.registerApp(
+    DEFAULT_APP_ID,
+    DEFAULT_APP_MANIFEST,
+    makeDefaultAppEndpoint(),
+  );
 }

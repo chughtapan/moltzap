@@ -303,7 +303,7 @@ function makeRemoteFixture(connectionId: ConnectionId, manifest: AppManifest) {
       makeFakeConnection(connectionId),
       scope,
     );
-    fixture.host.registerApp(manifest, {
+    fixture.host.registerApp(makeAppId(manifest.appId), manifest, {
       connId: conn.id,
       originator: conn.originator,
     });
@@ -366,6 +366,7 @@ function staleRemoteMessageBlocks() {
   return Effect.gen(function* () {
     const fixture = makeAppHostFixture();
     fixture.host.registerApp(
+      MESSAGE_APP_ID,
       messageAuthorizeManifest(MESSAGE_APP_ID),
       staleConnection(CONN_NO_SUCH),
     );
@@ -468,6 +469,7 @@ function staleRemoteDispatchDenies() {
   return Effect.gen(function* () {
     const fixture = makeAppHostFixture();
     fixture.host.registerApp(
+      APP_R,
       baseManifest(APP_R),
       staleConnection(CONN_NO_SUCH),
     );
@@ -536,15 +538,20 @@ function malformedRemoteDispatchDenies() {
 describe("AppHost.registerApp", () => {
   it("records the registration keyed by appId + bound conn", () => {
     const { host } = makeAppHostFixture();
-    host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
+    host.registerApp(APP_R, baseManifest(APP_R), stubConnection(CONN_1));
 
     expect(host.lookupApp(APP_R)?.endpoint.connId).toBe(CONN_1);
   });
 
   it("rejects re-registration: registry is strict, no overwrites", () => {
     const { host } = makeAppHostFixture();
-    const first = host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
+    const first = host.registerApp(
+      APP_R,
+      baseManifest(APP_R),
+      stubConnection(CONN_1),
+    );
     const second = host.registerApp(
+      APP_R,
       baseManifest(APP_R),
       stubConnection(CONN_2),
     );
@@ -580,7 +587,7 @@ describe("AppHost remote messages — messages/authorize", () => {
 describe("AppHost.unregisterApp", () => {
   it("drops the registration entirely (manifest + routing)", () => {
     const { host } = makeAppHostFixture();
-    host.registerApp(baseManifest(APP_R), stubConnection(CONN_1));
+    host.registerApp(APP_R, baseManifest(APP_R), stubConnection(CONN_1));
     host.unregisterApp(APP_R);
 
     expect(host.lookupApp(APP_R)).toBeUndefined();
