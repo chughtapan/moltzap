@@ -48,39 +48,45 @@ tag directly with no hand-piped `Effect.provideServiceEffect` chain
 at the call site.
 
 ```ts
-// protocol/task/tasks.ts — descriptor declares its capabilities
-export const TaskConversationCreate = defineRpc({
-  name: "task/conversation/create",
-  params: TaskConversationCreateParams,
-  result: TaskConversationCreateResult,
+// protocol/task/messages.ts — descriptor declares its capabilities
+export const MessagesSend = defineRpc({
+  name: "messages/send",
+  params: MessagesSendParams,
+  result: MessagesSendResult,
   capabilities: [
-    { tag: TmAuthority,                    argsOf: (p, ctx) => ({ taskId: p.taskId, callerAgentId: ctx.auth.agentId }) },
-    { tag: ConversationCreateAuthorization, argsOf: (p, ctx) => ({ agentIds: [...p.participants], creatorAgentId: ctx.auth.agentId }) },
+    { tag: MessageSendPermission, argsOf: (p, ctx) => ({ /* ... */ }) },
   ],
 });
 
+// App-arm RPCs (D #705 R3/R7) declare NO descriptor capabilities for
+// app-ownership: each handler loads the task and calls
+// `assertAppOwnsTask(appConn.auth.appId, task)` directly. e.g.
+// `TaskConversationCreate` carries no `capabilities` array — its
+// app-ownership + capacity proofs are inline in the handler body.
+
 // service body just yields the tag, no provideServiceEffect at the call site
-create(
+send(
   /* ... */
-): Effect.Effect<Conversation, ConversationServiceError, ConversationCreateAuthorization>;
+): Effect.Effect<MessageResult, MessageServiceError, MessageSendPermission>;
 
 // server/src/app/capability-providers.ts — single source of truth.
 // Simple obtains are INLINE here (each has exactly one consumer: this
-// table). TmAuthority keys off the WS connection id (#673 app-ownership
-// model), not the agent id.
+// table). The #673 `TmAuthority` capability is dissolved (D #705 R7):
+// the 8 task-admin RPCs are bound to `defineAppMethod` and each handler
+// loads the task + calls `assertAppOwnsTask(appConn.auth.appId, task)`
+// directly — there is no capability-provider entry for app-ownership.
 export const serverCapabilityProviders = {
-  [TmAuthority.key]: (args) =>
+  [TaskReadAccess.key]: (args) =>
     Effect.gen(function* () {
       const taskService = yield* TaskServiceTag;
-      const appHost = yield* AppHostTag;
-      const { taskId, callerConnId } = args as TaskAndConn;
-      const task = yield* taskService.loadOpenTask(taskId);
-      if (!appHost.isAppConnection(Value.Decode(AppId, task.appId), callerConnId)) {
-        return yield* Effect.fail(new ForbiddenError({ message: "..." }));
-      }
-      return { task };
+      const { taskId, callerAgentId } = args as TaskAndAgent;
+      const task = yield* taskService.loadTaskWithReadAccess(
+        taskId,
+        callerAgentId,
+      );
+      return { task, callerAgentId };
     }),
-  /* ...TaskReadAccess, ConversationInTask, ContactPolicyAllowsReach inline... */
+  /* ...ConversationInTask, ContactPolicyAllowsReach inline... */
   // Composites with their own direct consumers live as named functions
   // next to the services they compose:
   [ConversationCreateAuthorization.key]: (args) =>
@@ -161,9 +167,11 @@ returns the in-memory variant. Handlers and services never branch on
 
 `tasks.app_id` is `TEXT NOT NULL` — every task binds to a registered
 app, and TM authority is proved per-frame via app-ownership of the
-caller's WS connection (`AppHost.isAppConnection`, see
-`packages/server/src/app/app-host.ts`). The schema does not carry a
-separate `tm_endpoint_address` column; TM endpoint identity is
+bound task (`assertAppOwnsTask`, see
+`packages/protocol/src/task/capabilities/assert-capability-matches-task.ts`):
+the 8 task-admin RPCs load the task and assert the calling
+`AppConnection`'s `appId` equals `tasks.app_id`. The schema does not
+carry a separate `tm_endpoint_address` column; TM endpoint identity is
 derived from `app_id` at routing time.
 
 ## Tests
@@ -187,7 +195,7 @@ derived from `app_id` at routing time.
   The default-app UUID (`DEFAULT_APP_ID`) covers ordinary DMs/groups
   (no moderator); a registered app's UUID covers app-moderated
   tasks. `tasks.app_id` is the routing key; per-frame TM-authority
-  checks run through `AppHost.isAppConnection`.
+  checks run through `assertAppOwnsTask` on the calling `AppConnection`.
 - **Dispatch lease** — Single-use token gating inbound message
   processing. In-memory state in `LeaseRegistry`; states PENDING →
   GRANTED / DENIED / HOLD → CLAIMED → CONSUMED / EXPIRED /

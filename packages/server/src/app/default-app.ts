@@ -13,8 +13,8 @@ import { makeLoopbackConnection } from "./loopback-connection.js";
 
 /**
  * Loopback connection id for the boot-installed default app —
- * server-minted so no client `crypto.randomUUID()` can ever match in
- * `isAppConnection`.
+ * server-minted so no client `crypto.randomUUID()` can ever collide
+ * with the default app's registered endpoint connId.
  */
 const DEFAULT_APP_CONNECTION_ID = Value.Decode(
   ConnectionId,
@@ -32,9 +32,10 @@ const DEFAULT_APP_CONNECTION_ID = Value.Decode(
  *     reading participants via `ConversationService.getParticipantAgentIds`
  *     (same helper every other server-side participant query uses).
  *
- * TM-only RPCs remain unreachable on DEFAULT_APP_ID tasks because
- * `isAppConnection` compares the caller's connection id against the
- * loopback's — no client connection can ever match.
+ * TM-admin RPCs (rebound to the app principal) remain unreachable on
+ * DEFAULT_APP_ID tasks because no client `AppConnection` can ever own
+ * the default app — its endpoint is a server-minted loopback, not a
+ * wire-registered `apps/register`.
  */
 export function installDefaultApp(
   appHost: AppHost,
