@@ -9,6 +9,7 @@ import {
   getCoreDb,
   getCoreApp,
   getCoreEncryptionEnvelope,
+  getBaseUrl,
 } from "../../test-utils/index.js";
 import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
@@ -49,6 +50,7 @@ export {
   awaitOneNotification,
   connectAppClient,
   connectTestClient,
+  getBaseUrl,
   postJson,
   registerAgent,
   registerApp,
