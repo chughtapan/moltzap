@@ -118,18 +118,29 @@ function openSocketSession(
       write: session.write,
       idPrefix: `srv-${session.connId}`,
     });
+    const shutdown = Deferred.succeed(session.closeRequested, undefined).pipe(
+      Effect.asVoid,
+    );
     options.services.connections.add({
       id: session.connId,
       write: session.write,
-      shutdown: Deferred.succeed(session.closeRequested, undefined).pipe(
-        Effect.asVoid,
-      ),
+      shutdown,
       auth: null,
       lastPong: Date.now(),
       conversationIds: new Set(),
       mutedConversations: new Set(),
       originator: serverConn,
     });
+    // D #705 CP4a EXPAND — dual-populate the three-arm `connectionsRef`
+    // alongside the legacy `connections` map. The `socket: WebSocketRef`
+    // arm carries the same write/shutdown surface the legacy entry holds.
+    // Both maps are kept in sync until the cutover phase deletes the
+    // legacy map + `MoltZapConnection`.
+    yield* options.services.connections.addUnauthenticated(
+      session.connId,
+      { write: session.write, shutdown },
+      serverConn,
+    );
     yield* Effect.logInfo("WebSocket connected").pipe(
       Effect.annotateLogs({ connId: session.connId }),
     );
@@ -427,6 +438,9 @@ function closeSocketSession(
     options.services.presenceService.removeConnection(session.connId);
     options.services.appHost.unregisterAppsForConnection(session.connId);
     options.services.connections.remove(session.connId);
+    // D #705 CP4a EXPAND — dual-remove from the three-arm `connectionsRef`,
+    // mirroring the legacy `connections.remove` above.
+    yield* options.services.connections.removeAndReturn(session.connId);
     if (Exit.isFailure(exit)) {
       yield* Effect.logWarning("WebSocket error").pipe(
         Effect.annotateLogs({
