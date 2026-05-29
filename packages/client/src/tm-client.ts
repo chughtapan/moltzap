@@ -213,6 +213,19 @@ export interface TMClientOptions {
   agentKey: string;
 
   /**
+   * D #705 CP8 — app-principal credential. When set, the `network/connect`
+   * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
+   * instead of the `agentKey` arm, so the server mints an `AppConnection`
+   * and the HelloOk carries no `agentId`. Used by the boot orchestrator's
+   * self-connecting default-app client (`reconnectPolicy: "none"`); wire
+   * agent clients leave it unset and authenticate via `agentKey`. The two
+   * are mutually exclusive at the wire — the Connect params union is
+   * disjoint — so a configured `appKey` wins the handshake-credential
+   * selection in `awaitConnectAuth`.
+   */
+  appKey?: string;
+
+  /**
    * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
    * `close` is the typed close metadata — real WebSocket `{code, reason}`
    * when the transport surfaces them, OQ-5 defaults otherwise.
@@ -691,11 +704,24 @@ export class MoltZapTMClient {
   private awaitConnectAuth(
     handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
   ): Effect.Effect<ConnectResult, ConnectError> {
-    const authEffect = this.sendRpc(Connect, {
-      agentKey: this.options.agentKey,
-      minProtocol: PROTOCOL_VERSION,
-      maxProtocol: PROTOCOL_VERSION,
-    });
+    // D #705 CP8 — dispatch the disjoint Connect params union on the
+    // configured credential: an `appKey` authenticates as an `AppConnection`
+    // (no `agentId` in the HelloOk); otherwise fall back to the `agentKey`
+    // agent arm. The two arms are structurally disjoint at the wire so the
+    // server's `network/connect` handler routes on the present field.
+    const handshakeParams: ParamsOf<typeof Connect> =
+      this.options.appKey !== undefined
+        ? {
+            appKey: this.options.appKey,
+            minProtocol: PROTOCOL_VERSION,
+            maxProtocol: PROTOCOL_VERSION,
+          }
+        : {
+            agentKey: this.options.agentKey,
+            minProtocol: PROTOCOL_VERSION,
+            maxProtocol: PROTOCOL_VERSION,
+          };
+    const authEffect = this.sendRpc(Connect, handshakeParams);
     return Effect.raceFirst(authEffect, Deferred.await(handshakeSettled)).pipe(
       Effect.tap((value) =>
         Effect.sync(() => {
