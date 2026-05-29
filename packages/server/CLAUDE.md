@@ -213,9 +213,14 @@ derived from `app_id` at routing time.
 - **AgentEndpointResolver** — `AgentId → HashSet<ConnId>` multimap
   kept fresh by `network/connect` success and the disconnect
   finalizer. Read by `NetworkSendService` for O(1) outbound routing.
-- **ConnectionManager** — The set of live `MoltZapConnection`
-  records. Provides `getByAgent`, `getByConvId`, `add`, `remove`,
-  `all`.
+- **ConnectionManager** — The set of live three-arm `Connection`
+  records (`UnauthenticatedConnection` / `AgentConnection` /
+  `AppConnection`) held in a `Ref<HashMap<ConnId, Connection>>`. The
+  legacy single-shape `MoltZapConnection` map was deleted at D #705
+  CP4f. Sanctioned mutators: `addUnauthenticated`, `authenticate`,
+  `rollbackToUnauthenticated`, `removeAndReturn`. Reads: `peek`,
+  `allConnections`, `agentConnections`, `getByAgentConnection`,
+  `currentSize`.
 - **Hook envelope** — The `wrapHookEffectWithEnvelope` fail-CLOSED
   wrapper in `app/app-host.ts`. Adds timeout, on-error, and
   on-timeout fallback verdicts to any hook runner.
