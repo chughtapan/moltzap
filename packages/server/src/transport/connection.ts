@@ -11,7 +11,7 @@ import {
   type ServerHandlers,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import {
   AgentContext,
@@ -534,6 +534,43 @@ export class ConnectionManager {
         return out;
       }),
     );
+  }
+
+  /**
+   * Rebind `ownerUserId` on every connected agent arm of `agentId` after a
+   * successful claim (§5.2). The `AgentContext` arm field is immutable, so each
+   * matching `AgentConnection` is rebuilt with a fresh `AgentContext` carrying
+   * the new owner (its `conversationIds` Set + socket/originator are carried
+   * forward by reference). Replaces the legacy in-place `conn.auth` mutation in
+   * `http-routes.ts → refreshClaimedConnections`.
+   */
+  setOwnerUserIdForAgent(
+    agentId: AgentId,
+    ownerUserId: UserId,
+  ): Effect.Effect<void> {
+    return Ref.update(this.connectionsRef, (map) => {
+      let next = map;
+      for (const conn of HashMap.values(map)) {
+        if (conn._tag === "AgentConnection" && conn.auth.agentId === agentId) {
+          next = HashMap.set(
+            next,
+            conn.connId,
+            new AgentConnection({
+              connId: conn.connId,
+              socket: conn.socket,
+              originator: conn.originator,
+              conversationIds: conn.conversationIds,
+              auth: new AgentContext({
+                agentId: conn.auth.agentId,
+                agentStatus: conn.auth.agentStatus,
+                ownerUserId,
+              }),
+            }),
+          );
+        }
+      }
+      return next;
+    });
   }
 
   /**
