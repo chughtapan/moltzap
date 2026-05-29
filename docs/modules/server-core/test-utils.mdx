@@ -13,6 +13,22 @@ Shared server-core test utility exports.
 
 ## Public surface
 
+### [`AppEndpointHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L49)
+
+_TypeAlias_
+
+```ts
+export type AppEndpointHandlers = {
+  readonly [D in AnyTaskCallbackRpcDefinition as D["name"]]: AppEndpointHandler<D>;
+};
+```
+
+Mapped over the closed `AnyTaskCallbackRpcDefinition` union, keyed
+by each definition's wire name. Mandates one handler per
+task-callback RPC at construction time — adding a new entry to
+`taskCallbackMethods` becomes a compile error at every endpoint
+construction site.
+
 ### [`AwaitNotificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L70)
 
 _TypeAlias_
@@ -258,6 +274,54 @@ the compile-time contract-drift insurance. Adding a field to the real
 interface does NOT fail compilation (tests are a Partial), but changing an
 existing field's signature does.
 
+### [`makeHandlerAppEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L74)
+
+_Function_
+
+```ts
+export function makeHandlerAppEndpoint(args: {
+  readonly id: ConnectionId;
+  readonly handlers: AppEndpointHandlers;
+}): AppEndpoint
+```
+
+Build an AppEndpoint whose outbound `originator.call` dispatches to
+in-process handlers instead of going over a WebSocket. The endpoint
+satisfies the same `{ connId, originator }` shape a wire-registered app's
+arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
+
+  - `originator.call(D, params)` indexes `handlers` by `D.name`. The
+    mapped type guarantees every member of `AnyTaskCallbackRpcDefinition`
+    has a handler — no runtime "method not found" branch exists.
+  - `originator.notify` / `failAllPending` are no-ops.
+  - `originator.handle` / `originator.resolve` defect — an in-process
+    endpoint never receives inbound frames; a call here is a wiring bug.
+
+### [`makeInertAppEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L115)
+
+_Function_
+
+```ts
+export function makeInertAppEndpoint(args: {
+  readonly id: ConnectionId;
+  readonly originatorCall?: <D extends AnyTaskCallbackRpcDefinition>(
+    definition: D,
+    params: ParamsOf<D>,
+  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+}): AppEndpoint
+```
+
+Minimal AppEndpoint for tests that only assert the
+registration surface (connId keying, unregister-side effects, etc.).
+Every dispatch method defects — tests that actually drive
+`runMessageAuthorize` / `runDispatchAuthorize` against a declared hook
+MUST use makeHandlerAppEndpoint (or a real wire connection via
+`acquireConnectionRpcClient`).
+
+Optional `originatorCall` override lets a test mock the outbound
+RPC channel (e.g., to simulate a stale-connection `NotConnectedError`
+without spinning up a real socket).
+
 ### [`makePgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L72)
 
 _Function_
@@ -467,6 +531,7 @@ export function trackClient(client: ServerTestClient): void
 
 ## Files
 
+- `app-endpoint.ts`
 - `core-schema-sql.ts`
 - `fakes.ts`
 - `helpers.ts`

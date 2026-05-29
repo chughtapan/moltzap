@@ -19,7 +19,7 @@ import {
   type AppManifest,
   type JsonRpcId,
 } from "@moltzap/protocol";
-import { makeStubConnection } from "./loopback-connection.js";
+import { makeInertAppEndpoint } from "../test-utils/app-endpoint.js";
 import type { AppEndpoint } from "./app-registration.js";
 import {
   agentId,
@@ -87,7 +87,7 @@ const makeFakeConnection = (
   });
 
 const stubConnection = (connId: ConnectionId): AppEndpoint =>
-  makeStubConnection({ id: connId });
+  makeInertAppEndpoint({ id: connId });
 
 /**
  * Stub endpoint whose `originator.call` always fails with
@@ -96,7 +96,7 @@ const stubConnection = (connId: ConnectionId): AppEndpoint =>
  * succeeded but before the cleanup finalizer ran).
  */
 const staleConnection = (connId: ConnectionId): AppEndpoint =>
-  makeStubConnection({
+  makeInertAppEndpoint({
     id: connId,
     originatorCall: () =>
       Effect.fail(

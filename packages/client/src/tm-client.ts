@@ -216,12 +216,14 @@ export interface TMClientOptions {
    * D #705 CP8 — app-principal credential. When set, the `network/connect`
    * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
    * instead of the `agentKey` arm, so the server mints an `AppConnection`
-   * and the HelloOk carries no `agentId`. Used by the boot orchestrator's
-   * self-connecting default-app client (`reconnectPolicy: "none"`); wire
-   * agent clients leave it unset and authenticate via `agentKey`. The two
-   * are mutually exclusive at the wire — the Connect params union is
-   * disjoint — so a configured `appKey` wins the handshake-credential
-   * selection in `awaitConnectAuth`.
+   * and the HelloOk carries no `agentId`. Used by wire app clients (a
+   * moderator app authenticating as an app principal); wire agent clients
+   * leave it unset and authenticate via `agentKey`. The two are mutually
+   * exclusive at the wire — the Connect params union is disjoint — so a
+   * configured `appKey` wins the handshake-credential selection in
+   * `awaitConnectAuth`. (The boot-installed default app is NOT a client: it
+   * registers a hookless manifest server-side and is served by AppHost's
+   * manifest-default fast-path.)
    */
   appKey?: string;
 
@@ -242,10 +244,9 @@ export interface TMClientOptions {
   /**
    * D #705 §7.2 — reconnect policy. Default `"exponential-backoff"` keeps the
    * jittered 1s..30s reconnect loop. `"none"` disables `scheduleReconnect` so
-   * the reader-fiber exit terminates the client cleanly with no retry — used
-   * by the boot orchestrator's default-app client, whose loopback connection
-   * is a server-internal singleton with no transient network failures to
-   * recover from. Wire clients keep the backoff default.
+   * the reader-fiber exit terminates the client cleanly with no retry — for a
+   * single-shot client with no transient network failures to recover from.
+   * Wire clients keep the backoff default.
    */
   reconnectPolicy?: "exponential-backoff" | "none";
 
@@ -690,7 +691,7 @@ export class MoltZapTMClient {
       this.runtime.runFork(Scope.close(dispatcherScope, Exit.void));
       yield* this.notifyDisconnect(extractCloseInfo(exit));
       // D #705 §7.2 — `"none"` suppresses reconnect; the reader-fiber exit
-      // terminates the client cleanly (default-app loopback case).
+      // terminates the client cleanly (single-shot client case).
       if (!this.closed && this.options.reconnectPolicy !== "none") {
         this.scheduleReconnect();
       }

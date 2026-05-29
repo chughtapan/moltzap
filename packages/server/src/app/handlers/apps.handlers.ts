@@ -16,8 +16,8 @@ export const appHandlers: RpcMethodRegistry = [
     // connection as the moderator endpoint for `manifest.appId`.
     // `dispatch/authorize` and `messages/authorize` route to this
     // socket via `sendRpcToClient`. The registry rejects overwrites
-    // unconditionally (default app's loopback OR a still-alive wire
-    // connection blocks re-registration); reconnects work only after
+    // unconditionally (default app's inert endpoint OR a still-alive
+    // wire connection blocks re-registration); reconnects work only after
     // the old connection's WS-close finalizer
     // (`unregisterAppsForConnection` via `socket-handler.ts →
     // closeSession`) clears the entry.

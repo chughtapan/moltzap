@@ -18,7 +18,7 @@ import type { ConnectionManager } from "../transport/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type { MessageAuthorizeContext } from "./types.js";
-import { makeLoopbackConnection } from "./loopback-connection.js";
+import { makeHandlerAppEndpoint } from "../test-utils/app-endpoint.js";
 
 const liveIt = effectIt.live;
 
@@ -77,7 +77,7 @@ function messageAuthorizeContext(
 describe("AppHost.registerApp", () => {
   it("registers the app, keying the registration by the bound conn", () => {
     const { host } = makeAppHost();
-    const connection = makeLoopbackConnection({
+    const connection = makeHandlerAppEndpoint({
       id: CONN_ID,
       handlers: {
         [DispatchAuthorize.name]: () =>
@@ -110,7 +110,7 @@ describe("AppHost.runMessageAuthorize", () => {
 function runRegisteredMessageAuthorize() {
   return Effect.gen(function* () {
     const { host } = makeAppHost();
-    const connection = makeLoopbackConnection({
+    const connection = makeHandlerAppEndpoint({
       id: CONN_ID,
       handlers: {
         [DispatchAuthorize.name]: () =>
