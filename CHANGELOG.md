@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Apps are first-class auth principals — `appKey` Connect arm + dissolved TM-authority capability (#705)
+
+Apps (task managers) now authenticate as their OWN principal over the
+wire, the same way agents do. An app registers once over HTTP, gets a
+server-minted `{appId, appKey}`, then opens a WebSocket and authenticates
+with that `appKey` — the server mints a dedicated app-principal connection
+that carries no agent identity. This replaces the in-process loopback the
+default app used to ride on, so a task manager can now run as a separate
+process (or a third party) instead of being wired into the server.
+
+- **New (`@moltzap/server-core`):** `POST /api/v1/apps/register` accepts
+  `{ manifest, inviteCode? }` and returns `201 { appId, appKey }` exactly
+  once. `app_id` is server-issued via `gen_random_uuid()` — never
+  client-controlled. Gated by the same constant-time `inviteCode` check as
+  agent registration. Backed by a new `apps` table (mirrors `agents` minus
+  owner/claim/status).
+- **New (protocol):** the `network/connect` params union gains an `appKey`
+  arm (`{ appKey, minProtocol, maxProtocol }`), disjoint from the
+  `agentKey` / `sessionToken` arms. A successful `appKey` handshake returns
+  a `HelloOk` with NO `agentId` (apps have no agent identity). The wire app
+  client selects the arm by setting `TMClientOptions.appKey`.
+- **Changed (`@moltzap/server-core`):** the connections map is now a
+  three-arm discriminated union — `UnauthenticatedConnection` (pre-Connect)
+  promotes in place to `AgentConnection` or `AppConnection` via one atomic
+  `authenticate` transition. The single `auth._tag` runtime check that
+  mints the arm is the only place principal kind is decided; handlers read
+  the live arm and never re-derive it.
+- **Removed (protocol):** the `TmAuthority` capability is dissolved
+  (`packages/protocol/src/task/capabilities/tm-authority.ts` deleted, with
+  its `nonTmAuthorityTaskRpcMethods` export). TM authority for the 8
+  task-admin RPCs (`task/close`, `task/{add,remove}Participant`,
+  `task/conversation/{create,archive,unarchive,addParticipant,removeParticipant}`)
+  is now proved at request time by `assertAppOwnsTask` — the calling
+  `AppConnection`'s `appId` must equal the bound task's `app_id`. The
+  pre-cutover "not the registered task manager" `ForbiddenError` (-32001)
+  surface is preserved.
+- **Removed (`@moltzap/server-core`):** the in-process loopback
+  (`app/loopback-connection.ts`) and the legacy single-shape
+  `MoltZapConnection` connections map. Every app — including the
+  boot-installed default — now carries one uniform `AppEndpoint`
+  (`{ connId, originator }`); the default app holds an inert endpoint and
+  is served by AppHost's manifest-default fast-path.
+- **Renamed (protocol):** `nonTmAuthorityTaskRpcMethods` splits into
+  `agentCallableTaskRpcMethods` and `appCallableTaskRpcMethods` to name the
+  calling principal explicitly rather than by the dissolved capability.
+- **Internal:** `PrincipalResolver`, `isAppConnection`,
+  `isTmForAppBoundTask`, and the `CallerConnIdCtx` dispatch cast are all
+  removed — the live connection arm carries the principal directly, so
+  these resolver/cast shims no longer have a reader.
+
 ### Presence projection over `LeaseRegistry` — `presence/update` RPC + `away` state deleted (#706)
 
 - **Breaking**: `presence/update` RPC removed and `away` state no
