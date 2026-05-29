@@ -6,7 +6,7 @@ import {
   ForbiddenError,
 } from "@moltzap/protocol";
 import { Effect } from "effect";
-import { AppHostTag, ConnectionTag } from "../layers.js";
+import { AppHostTag, ConnectionManagerTag, ConnectionTag } from "../layers.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
 
@@ -25,7 +25,21 @@ export const appHandlers: RpcMethodRegistry = [
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
         const connection = yield* ConnectionTag;
-        const ok = appHost.registerApp(params.manifest, connection);
+        // D #705 CP4d transitional — `AppRegistration` still carries the
+        // legacy `MoltZapConnection` (its `default-app` loopback shape
+        // migrates in CP8). Resolve it from the dual-populated legacy map
+        // by the arm's `connId`; the bridge is deleted when CP5/CP8
+        // re-shape `AppRegistration` around the `Connection` arm.
+        const connections = yield* ConnectionManagerTag;
+        const legacyConn = connections.get(connection.connId);
+        if (legacyConn === undefined) {
+          return yield* Effect.fail(
+            new ForbiddenError({
+              message: `App ${params.manifest.appId} connection is no longer live`,
+            }),
+          );
+        }
+        const ok = appHost.registerApp(params.manifest, legacyConn);
         if (!ok) {
           return yield* Effect.fail(
             new ForbiddenError({
@@ -48,7 +62,7 @@ export const appHandlers: RpcMethodRegistry = [
         const minted = yield* appHost.enqueueDispatchRequest({
           conversationId: params.conversationId,
           recipientAgentId: ctx.agentId,
-          recipientConnectionId: connection.id,
+          recipientConnectionId: connection.connId,
           messageId: params.messageId,
           senderAgentId: params.senderAgentId,
           parts: params.parts,
@@ -87,7 +101,7 @@ export const appHandlers: RpcMethodRegistry = [
               ),
             ),
           );
-        if (record.binding.moderatorConnectionId !== connection.id) {
+        if (record.binding.moderatorConnectionId !== connection.connId) {
           return yield* Effect.fail(
             new ForbiddenError({
               message: "dispatches/get not authorized for this lease",

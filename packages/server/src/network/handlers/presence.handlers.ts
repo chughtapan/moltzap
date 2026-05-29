@@ -39,7 +39,7 @@ export const presenceHandlers: RpcMethodRegistry = [
             new NotInContactsError({ data: { agentIds: rejected } }),
           );
         }
-        presenceService.subscribe(connection.id, visibleIds);
+        presenceService.subscribe(connection.connId, visibleIds);
         // The status snapshot is a ReadonlyArray; the wire schema
         // expects a mutable Array, so map to a fresh array (point-in-time
         // copy).

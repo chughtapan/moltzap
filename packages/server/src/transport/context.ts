@@ -8,7 +8,7 @@ import {
 } from "@moltzap/protocol";
 import type { AppId } from "@moltzap/protocol/task";
 import { ConnectionTag } from "../app/layers.js";
-import type { MoltZapConnection } from "./connection.js";
+import type { Connection } from "./connection.js";
 import type { AgentId, UserId } from "../app/types.js";
 
 export interface AuthenticatedContext {
@@ -83,10 +83,17 @@ function narrowAgentStatus(status: string): Effect.Effect<AgentStatus> {
   }
 }
 
-/** Per-request dispatch context handed to every RPC handler by the typed dispatcher. */
+/**
+ * Per-request dispatch context handed to every RPC handler by the typed
+ * dispatcher (D #705 CP4d). Carries ONLY the live three-arm `Connection`
+ * arm — the principal (`arm.auth`) and the connId are reached off the arm,
+ * so there is no separate legacy `auth` field. Structurally satisfies the
+ * protocol-owned `DispatchContext` (`@moltzap/protocol` `capabilities.ts`):
+ * the agent/app arms expose `connId` + a tagged `auth` whose discriminant
+ * matches `DispatchAuth`.
+ */
 export interface DispatchContext {
-  readonly auth: AuthenticatedContext;
-  readonly connection: MoltZapConnection;
+  readonly connection: Connection;
 }
 
 /**
@@ -158,7 +165,20 @@ export function defineMethod<
   // dispatcher boundary.
   const slotHandle = (params: Static<P>, ctx: DispatchContext) =>
     Effect.gen(function* () {
-      if (requiresActive && ctx.auth.agentStatus !== "active") {
+      // D #705 CP4d — the handler-facing `AuthenticatedContext` is now
+      // derived from the live `Connection` arm rather than a separate
+      // legacy `conn.auth` field. The agent arm carries the closed-union
+      // `AgentContext` (a structural `AuthenticatedContext`); the
+      // unauthenticated arm (Connect) and the app arm have no agent
+      // identity, so the handler sees the empty placeholder the legacy
+      // dispatch already passed for the Connect frame (`{} as
+      // AuthenticatedContext`). Those handlers read the arm via
+      // `ConnectionTag`, never `ctx.auth`.
+      const auth =
+        ctx.connection._tag === "AgentConnection"
+          ? ctx.connection.auth
+          : ({} as AuthenticatedContext);
+      if (requiresActive && auth.agentStatus !== "active") {
         return yield* Effect.fail(
           new ForbiddenError({
             message: "Agent must be claimed before performing this action",
@@ -171,12 +191,12 @@ export function defineMethod<
       //
       // R-channel: `def.handler` returns
       // `Effect<Static<R>, E, Reqs | ConnectionTag>`.
-      // `Effect.provideService(ConnectionTag, ctx.connId)` removes ConnectionTag;
-      // remaining Reqs ride through into the `HandlerSlot.handle` R
-      // channel and are resolved by the dispatcher's `ManagedRuntime` at
-      // request time.
+      // `Effect.provideService(ConnectionTag, ctx.connection)` removes
+      // ConnectionTag; remaining Reqs ride through into the
+      // `HandlerSlot.handle` R channel and are resolved by the
+      // dispatcher's `ManagedRuntime` at request time.
       const result = yield* def
-        .handler(params, ctx.auth)
+        .handler(params, auth)
         .pipe(Effect.provideService(ConnectionTag, ctx.connection));
       return result as ResultOf<RpcDefinition<Name, P, R>>;
     }).pipe(Effect.withSpan("defineMethod"));

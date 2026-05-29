@@ -1,6 +1,14 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import * as Socket from "@effect/platform/Socket";
-import { Cause, Deferred, Effect, Exit, Match, type Scope } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Match,
+  Option,
+  type Scope,
+} from "effect";
 import type {
   JsonRpcId,
   RequestFrame,
@@ -251,7 +259,8 @@ function handleFrame(
   options: SocketHandlerOptions,
 ) {
   return Effect.gen(function* () {
-    if (!options.services.connections.get(session.connId)) return;
+    if (Option.isNone(yield* options.services.connections.peek(session.connId)))
+      return;
     const parsed = yield* parseFrame(raw, session);
     if (parsed === null) return;
     yield* decodeClientInbound(parsed).pipe(
@@ -314,9 +323,9 @@ function handleResponseFrame(
 ) {
   return Effect.gen(function* () {
     if (frame.id === null) return;
-    const conn = options.services.connections.get(session.connId);
-    if (conn === undefined) return;
-    const matched = yield* conn.originator.resolve(frame);
+    const arm = yield* options.services.connections.peek(session.connId);
+    if (Option.isNone(arm)) return;
+    const matched = yield* arm.value.originator.resolve(frame);
     if (!matched) {
       const responseId = frame.id;
       yield* Effect.logWarning(
@@ -332,20 +341,24 @@ function handleRequestFrame(
   options: SocketHandlerOptions,
 ) {
   return Effect.gen(function* () {
-    const conn = options.services.connections.get(session.connId);
-    if (conn === undefined) return;
+    // D #705 CP4d — source the dispatch context from the live three-arm
+    // `Connection` arm. The arm's `_tag` is the authentication gate
+    // (`UnauthenticatedConnection` ⇒ not yet authed); its `originator`
+    // drives the typed dispatcher.
+    const arm = yield* options.services.connections.peek(session.connId);
+    if (Option.isNone(arm)) return;
+    const conn = arm.value;
     const isConnect = frame.method === Connect.name;
-    if (!isConnect && conn.auth === null) {
+    if (!isConnect && conn._tag === "UnauthenticatedConnection") {
       yield* session.sendFrame(unauthorizedResponse(frame.id));
       return;
     }
-    const auth = conn.auth ?? ({} as AuthenticatedContext);
     // Spec F (#617) §6 FRI cutover: dispatch through the per-connection
     // typed `ServerConnection.handle`. The dispatcher casts R to `never`
     // via `asNeverR`; the surrounding `ManagedRuntime<FullLive>`
-    // provides every handler-body Tag at request time.
+    // provides every handler-body Tag at request time. The handler-facing
+    // `AuthenticatedContext` is derived from the arm inside `defineMethod`.
     const response = yield* conn.originator.handle(frame, {
-      auth,
       connection: conn,
     });
     yield* session.sendFrame(response);
@@ -358,9 +371,11 @@ function fireConnectionHooks(
   options: SocketHandlerOptions,
 ) {
   return Effect.gen(function* () {
-    const authCtx = options.services.connections.get(session.connId)?.auth;
-    if (authCtx === undefined || authCtx === null) return;
-    const { agentId, ownerUserId } = authCtx;
+    // D #705 CP4d — connection hooks fire only for an authenticated AGENT
+    // (the hooks carry `agentId`); the app arm has no agent identity.
+    const arm = yield* options.services.connections.peek(session.connId);
+    if (Option.isNone(arm) || arm.value._tag !== "AgentConnection") return;
+    const { agentId, ownerUserId } = arm.value.auth;
     const agentName = yield* readAgentName(agentId, options);
     for (const hook of options.connectionHooks) {
       yield* runConnectionHook(hook, {
@@ -415,9 +430,15 @@ function closeSocketSession(
   options: SocketHandlerOptions,
 ) {
   return Effect.gen(function* () {
-    const conn = options.services.connections.get(session.connId);
-    const authCtx = conn?.auth ?? null;
-    if (authCtx !== null) {
+    // D #705 CP4d — atomic delete + return of the live arm drives the
+    // auth-gated cleanup. The agent arm carries the `AgentContext` (a
+    // structural `AuthenticatedContext`); the app + unauthenticated arms
+    // skip the agent-disconnect path.
+    const removed = yield* options.services.connections.removeAndReturn(
+      session.connId,
+    );
+    if (removed !== undefined && removed._tag === "AgentConnection") {
+      const authCtx = removed.auth;
       // Emit `offline` via onAgentDisconnect(agentId, connId). connId
       // is threaded for the fast-reconnect race guard — the entry is
       // dropped only if connId is in liveConns (else silent no-op for
@@ -437,10 +458,10 @@ function closeSocketSession(
     yield* options.services.leaseRegistry.abandon(session.connId);
     options.services.presenceService.removeConnection(session.connId);
     options.services.appHost.unregisterAppsForConnection(session.connId);
+    // Legacy `connections.remove` mirror — kept until the legacy map is
+    // deleted in CP4f (the dual-populated map still backs `registerApp`'s
+    // `MoltZapConnection` lookup and the claim dual-write).
     options.services.connections.remove(session.connId);
-    // D #705 CP4a EXPAND — dual-remove from the three-arm `connectionsRef`,
-    // mirroring the legacy `connections.remove` above.
-    yield* options.services.connections.removeAndReturn(session.connId);
     if (Exit.isFailure(exit)) {
       yield* Effect.logWarning("WebSocket error").pipe(
         Effect.annotateLogs({
