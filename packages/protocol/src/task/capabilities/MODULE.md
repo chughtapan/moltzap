@@ -68,7 +68,32 @@ the agent being added to a conversation already participates in the
 parent task — today's inline `task_participants` query becomes the
 capability obtain.
 
-### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L61)
+### [`assertAppOwnsTask`](./assert-capability-matches-task.ts#L81)
+
+_Function_
+
+```ts
+export const assertAppOwnsTask = (
+  appId: AppId,
+  task: Task,
+): Effect.Effect<void, ForbiddenError>
+```
+
+App-principal ownership gate (D #705 R6/R7). Asserts the calling app
+IS the app bound to `task` — i.e. the app on whose behalf the task's
+TM acts. Replaces the dissolved `TmAuthority` capability: the 8
+task-admin RPCs (`task/close`, `task/addParticipant`,
+`task/removeParticipant`, `task/conversation/{create,archive,
+unarchive,addParticipant,removeParticipant}`) load the open task in
+their handler and call this asserter before the service mutation.
+
+`task.appId` rides as a wire `string`; the brand boundary is the type
+system, so the equality check compares the branded `appId` argument to
+the row value directly. Fails with `ForbiddenError` (wire -32001) when
+the app does not own the task — preserving the pre-cutover "not the
+registered task manager" 403 surface.
+
+### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L49)
 
 _Function_
 
@@ -83,9 +108,9 @@ export const assertConversationInTaskMatches = (
 Verifies the capability's carried `(taskId, conversationId)` pair
 equals the expected pair. Fails with `ForbiddenError` on the first
 mismatch; runs both comparisons in one Effect for handler-side
-symmetry with `assertTmAuthorityMatchesTask`.
+symmetry with `assertTaskReadAccessMatchesTask`.
 
-### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L49)
+### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L37)
 
 _Function_
 
@@ -96,24 +121,8 @@ export const assertTaskReadAccessMatchesTask = (
 ): Effect.Effect<void, ForbiddenError>
 ```
 
-Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. The
-value shape mirrors `TmAuthorityValue`; a separate overload keeps the
-type narrowed at the call site.
-
-### [`assertTmAuthorityMatchesTask`](./assert-capability-matches-task.ts#L38)
-
-_Function_
-
-```ts
-export const assertTmAuthorityMatchesTask = (
-  cap: TmAuthorityValue,
-  expectedTaskId: TaskId,
-): Effect.Effect<void, ForbiddenError>
-```
-
-Verifies `cap.task.id === expectedTaskId`. Fails with
-`ForbiddenError` when the handler obtained a capability for one task
-but passed a different `taskId` argument to the service method.
+Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. A
+separate overload keeps the type narrowed at the call site.
 
 ### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L9)
 
@@ -461,36 +470,6 @@ Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
 `getMessagesSince`) via the R-channel; handlers wire the value with
 `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
 
-### [`TmAuthority`](./tm-authority.ts#L18)
-
-_Class_
-
-```ts
-export class TmAuthority extends Context.Tag("@moltzap/protocol/TmAuthority")<
-  TmAuthority,
-  TmAuthorityValue
->() {}
-```
-
-### [`TmAuthorityValue`](./tm-authority.ts#L14)
-
-_Interface_
-
-```ts
-export interface TmAuthorityValue {
-  readonly task: Task;
-}
-```
-
-Capability — caller's WS connection IS the registered remote-app
-connection for `task.appId`. The obtain helper resolves the proof
-via `AppHost.isAppConnection(task.appId, callerConnId)`; the bind
-is stable across requests on the same WS and invalidated by the
-connection's Scope finalizer.
-
-Value payload carries the `task` row already fetched by the obtain
-helper so consumers don't re-query.
-
 ### [`ValidReplyTarget`](./reply-target.ts#L26)
 
 _Class_
@@ -542,4 +521,3 @@ independently if/when needed.
 - `reply-target.ts`
 - `task-active.ts`
 - `task-read-access.ts`
-- `tm-authority.ts`

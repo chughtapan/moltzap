@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import {
+  ForbiddenError,
   TaskClosedNotificationDefinition,
   TaskConversationAddParticipant,
   TaskConversationArchive,
@@ -21,13 +22,55 @@ import {
   type Conversation,
   type TaskConversationListItem,
 } from "@moltzap/protocol";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
-import { defineTaskMethod } from "../../transport/define-layered-method.js";
+import {
+  ConversationCreateAuthorization,
+  assertAppOwnsTask,
+  type ConversationId,
+  type TaskId,
+} from "@moltzap/protocol/task";
+import {
+  defineAppMethod,
+  defineTaskMethod,
+} from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
-import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-import { TmAuthority } from "@moltzap/protocol/task";
+import {
+  ConnectionTag,
+  ConversationServiceTag,
+  TaskServiceTag,
+} from "../../app/layers.js";
+import { obtainConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
+
+const ERR_NOT_APP_PRINCIPAL =
+  "Caller is not the registered task manager for this task";
+
+/**
+ * App-arm authority gate for the 8 task-admin RPCs (D #705 R7). The
+ * dissolved `TmAuthority` capability moved up to the handler: the caller
+ * must be an `AppConnection`, and that app must own the task. Loads the
+ * open task (status `waiting | active`) and asserts ownership, returning
+ * the loaded `Task` so the handler body can reuse it (e.g. the
+ * `task.initiatorAgentId` creator-of-record on `task/conversation/create`).
+ *
+ * A non-app principal (agent / unauthenticated) is rejected with the
+ * same `ForbiddenError` surface (-32001) the legacy TM gate produced, so
+ * the wire behavior is unchanged for callers.
+ */
+function assertCallerAppOwnsTask(taskId: TaskId) {
+  return Effect.gen(function* () {
+    const connection = yield* ConnectionTag;
+    if (connection._tag !== "AppConnection") {
+      return yield* Effect.fail(
+        new ForbiddenError({ message: ERR_NOT_APP_PRINCIPAL }),
+      );
+    }
+    const taskService = yield* TaskServiceTag;
+    const task = yield* taskService.loadOpenTask(taskId);
+    yield* assertAppOwnsTask(connection.auth.appId, task);
+    return task;
+  }).pipe(Effect.withSpan("task.assertCallerAppOwnsTask"));
+}
 
 // `task/request` lives in `packages/server/src/app/handlers/task-request.handler.ts`
 // — its handler binds via `defineAppMethod` because it dispatches the
@@ -35,38 +78,46 @@ import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 // service. The descriptor itself stays in `@moltzap/protocol/task`;
 // only the binding moves up a layer.
 
-function taskConversationCreateBody(
-  params: {
-    readonly taskId: TaskId;
-    readonly name?: string;
-    readonly participants: ReadonlyArray<AgentId>;
-  },
-  ctx: { readonly agentId: AgentId },
-) {
+function taskConversationCreateBody(params: {
+  readonly taskId: TaskId;
+  readonly name?: string;
+  readonly participants: ReadonlyArray<AgentId>;
+}) {
   return Effect.gen(function* () {
-    // Auth before participant-admitted check so a non-TM caller sees
-    // ForbiddenError, not ParticipantNotAdmittedError (which leaks
-    // task state). The descriptor declares the tag lazily; an
-    // explicit yield forces obtainTmAuthority to run up front.
-    yield* TmAuthority;
+    // App-ownership gate first so a non-owner sees ForbiddenError, not
+    // ParticipantNotAdmittedError (which would leak task state). The
+    // loaded task carries `initiatorAgentId` = creator-of-record (R3).
+    const task = yield* assertCallerAppOwnsTask(params.taskId);
     const taskService = yield* TaskServiceTag;
     const conversationService = yield* ConversationServiceTag;
     yield* taskService.requireAgentsAreInTaskParticipants(
       params.taskId,
       params.participants,
     );
-    const conversation = yield* conversationService.create({
-      name: params.name,
-      agentIds: [...params.participants],
-      creatorAgentId: ctx.agentId,
-      mintTask: Effect.succeed({ id: params.taskId }),
-    });
+    // D #705 R3: createdBy = task.initiatorAgentId (the agent that sent
+    // the initial task/request); membership = exactly params.participants
+    // (the initiator is NOT injected). Authorization is capacity-only —
+    // a TM minting on the task's behalf has no agent contact-edges; the
+    // targets are gated by `requireAgentsAreInTaskParticipants` above.
+    const conversation = yield* conversationService
+      .create({
+        name: params.name,
+        agentIds: [...params.participants],
+        creatorAgentId: task.initiatorAgentId,
+        seedCreatorAsParticipant: false,
+        mintTask: Effect.succeed({ id: params.taskId }),
+      })
+      .pipe(
+        Effect.provideServiceEffect(
+          ConversationCreateAuthorization,
+          obtainConversationCreateCapacityOnly([...params.participants]),
+        ),
+      );
     yield* fanoutTaskConversationCreate({
       taskId: params.taskId,
       conversation,
       participants: params.participants,
       name: params.name,
-      callerAgentId: ctx.agentId,
     });
     return { conversation };
   }).pipe(Effect.withSpan("task.conversation.create"));
@@ -77,20 +128,15 @@ interface TaskConversationCreateInput {
   readonly conversation: Conversation;
   readonly participants: ReadonlyArray<AgentId>;
   readonly name?: string;
-  readonly callerAgentId: AgentId;
 }
 
 function fanoutTaskConversationCreate(input: TaskConversationCreateInput) {
-  // Recipients = the TM caller PLUS the initial participants. The
-  // caller is the TM (the only agent authorized to call
-  // task/conversation/create); including it here matches
-  // `mintInitialConversation`'s broadcast and gives the TM a
-  // confirmation event for its own creation so it can populate
-  // moderator-side bookkeeping without a separate read path.
-  const recipientAgentIds: AgentId[] = [
-    input.callerAgentId,
-    ...input.participants,
-  ];
+  // Recipients = exactly the initial participants (D #705 R3). The app
+  // caller is NOT an agent-broadcast target — its confirmation is the
+  // RPC `{conversation}` response, and the agent-broadcast channel
+  // cannot reach an `AppConnection`. (Dropped the legacy `callerAgentId`
+  // fanout entry along with the agent-shaped ctx.)
+  const recipientAgentIds: AgentId[] = [...input.participants];
   return broadcastNotificationToAgents(
     recipientAgentIds,
     TaskConversationCreatedNotificationDefinition,
@@ -236,14 +282,12 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.list")),
   }),
 
-  defineTaskMethod(TaskClose, {
-    handler: (params, ctx) =>
+  defineAppMethod(TaskClose, {
+    handler: (params) =>
       Effect.gen(function* () {
+        yield* assertCallerAppOwnsTask(params.taskId);
         const taskService = yield* TaskServiceTag;
-        const closed = yield* taskService.closeWithLifecycle(
-          params.taskId,
-          ctx.agentId,
-        );
+        const closed = yield* taskService.closeWithLifecycle(params.taskId);
         for (const conversation of closed.archivedConversations) {
           yield* broadcastNotificationToAgents(
             conversation.participantAgentIds,
@@ -265,28 +309,25 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.close")),
   }),
 
-  defineTaskMethod(TaskAddParticipant, {
-    handler: (params, ctx) =>
+  defineAppMethod(TaskAddParticipant, {
+    handler: (params) =>
       Effect.gen(function* () {
+        yield* assertCallerAppOwnsTask(params.taskId);
         const taskService = yield* TaskServiceTag;
         const participant = yield* taskService.addParticipant(
           params.taskId,
-          ctx.agentId,
           params.agentId,
         );
         return { participant };
       }).pipe(Effect.withSpan("task.addParticipant")),
   }),
 
-  defineTaskMethod(TaskRemoveParticipant, {
-    handler: (params, ctx) =>
+  defineAppMethod(TaskRemoveParticipant, {
+    handler: (params) =>
       Effect.gen(function* () {
+        yield* assertCallerAppOwnsTask(params.taskId);
         const taskService = yield* TaskServiceTag;
-        yield* taskService.removeParticipant(
-          params.taskId,
-          ctx.agentId,
-          params.agentId,
-        );
+        yield* taskService.removeParticipant(params.taskId, params.agentId);
         return {};
       }).pipe(Effect.withSpan("task.removeParticipant")),
   }),
@@ -296,14 +337,11 @@ export const taskHandlers: RpcMethodRegistry = [
   // `packages/protocol/src/task/tasks.ts` (the `task/*` +
   // `task/conversation/*` block above `InitialConversationSchema`).
   //
-  // Capability tags are declared on each descriptor's `capabilities: [...]`
-  // and auto-provisioned by the dispatcher; handler bodies just call the
-  // service method whose R channel yields the tag.
-  //
-  // `TaskConversationCreate` and `TaskConversationAddParticipant`
-  // explicitly `yield* TmAuthority` before any inline gate so a non-TM
-  // caller sees `ForbiddenError` instead of `ParticipantNotAdmittedError`
-  // (which would leak task state).
+  // The 8 task-admin RPCs bind via `defineAppMethod` (D #705 R7): each
+  // handler runs `assertCallerAppOwnsTask` (the app-arm authority gate
+  // that replaced the dissolved `TmAuthority` capability) before any
+  // service mutation. `ConversationInTask` is still auto-provisioned per
+  // descriptor for the four conversation-targeted RPCs.
 
   // `task/request` is registered via `defineAppMethod` in
   // `packages/server/src/app/handlers/task-request.handler.ts`. The
@@ -316,9 +354,9 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) => taskLeaveBody(params, ctx),
   }),
 
-  defineTaskMethod(TaskConversationCreate, {
+  defineAppMethod(TaskConversationCreate, {
     requiresActive: true,
-    handler: (params, ctx) => taskConversationCreateBody(params, ctx),
+    handler: (params) => taskConversationCreateBody(params),
   }),
 
   defineTaskMethod(TaskConversationList, {
@@ -364,13 +402,13 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.conversation.list")),
   }),
 
-  defineTaskMethod(TaskConversationArchive, {
+  defineAppMethod(TaskConversationArchive, {
     requiresActive: true,
     handler: (params) =>
       Effect.gen(function* () {
-        // `TmAuthority` + `ConversationInTask` auto-provisioned per
-        // descriptor `capabilities: [...]`; consumed inside
-        // `archiveTaskConversation`.
+        yield* assertCallerAppOwnsTask(params.taskId);
+        // `ConversationInTask` auto-provisioned per descriptor
+        // `capabilities: [...]`; consumed inside `archiveTaskConversation`.
         const taskService = yield* TaskServiceTag;
         const { archivedAt } = yield* taskService.archiveTaskConversation(
           params.taskId,
@@ -385,13 +423,13 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.conversation.archive")),
   }),
 
-  defineTaskMethod(TaskConversationUnarchive, {
+  defineAppMethod(TaskConversationUnarchive, {
     requiresActive: true,
     handler: (params) =>
       Effect.gen(function* () {
-        // `TmAuthority` + `ConversationInTask` auto-provisioned per
-        // descriptor `capabilities: [...]`; consumed inside
-        // `unarchiveTaskConversation`.
+        yield* assertCallerAppOwnsTask(params.taskId);
+        // `ConversationInTask` auto-provisioned per descriptor
+        // `capabilities: [...]`; consumed inside `unarchiveTaskConversation`.
         const taskService = yield* TaskServiceTag;
         yield* taskService.unarchiveTaskConversation(
           params.taskId,
@@ -405,25 +443,22 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.conversation.unarchive")),
   }),
 
-  defineTaskMethod(TaskConversationAddParticipant, {
+  defineAppMethod(TaskConversationAddParticipant, {
     requiresActive: true,
     handler: (params) =>
       Effect.gen(function* () {
-        // Auth-first invariant — same rationale as
-        // `taskConversationCreateBody` (the explicit yield forces the
-        // dispatcher's lazy `provideServiceEffect` to run the obtain
-        // helper before `requireAgentsAreInTaskParticipants` can leak
-        // task-state to a non-TM caller).
-        yield* TmAuthority;
+        // App-ownership gate first — same rationale as
+        // `taskConversationCreateBody` (so a non-owner sees
+        // ForbiddenError before `requireAgentsAreInTaskParticipants`
+        // can leak task-state).
+        yield* assertCallerAppOwnsTask(params.taskId);
         const taskService = yield* TaskServiceTag;
-        // Participant-admitted invariant — runs AFTER TM auth.
+        // Participant-admitted invariant — runs AFTER app-ownership auth.
         yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
           params.agentId,
         ]);
         // `ConversationInTask` auto-provisioned per descriptor and
-        // consumed inside `addTaskConversationParticipant`. `TmAuthority`
-        // already resolved above (cached in the provisioned context, so
-        // the obtain helper does not re-run).
+        // consumed inside `addTaskConversationParticipant`.
         const { postMutationParticipants } =
           yield* taskService.addTaskConversationParticipant(
             params.taskId,
@@ -446,16 +481,14 @@ export const taskHandlers: RpcMethodRegistry = [
       }).pipe(Effect.withSpan("task.conversation.participants.add")),
   }),
 
-  defineTaskMethod(TaskConversationRemoveParticipant, {
+  defineAppMethod(TaskConversationRemoveParticipant, {
     requiresActive: true,
     handler: (params) =>
       Effect.gen(function* () {
-        // `TmAuthority` + `ConversationInTask` auto-provisioned per
-        // descriptor `capabilities: [...]`; consumed inside
-        // `removeTaskConversationParticipant`. No inline gate runs
-        // before the service call, so an explicit up-front
-        // `yield* TmAuthority` is unnecessary here (auth runs at the
-        // service body's `yield* TmAuthority`).
+        yield* assertCallerAppOwnsTask(params.taskId);
+        // `ConversationInTask` auto-provisioned per descriptor
+        // `capabilities: [...]`; consumed inside
+        // `removeTaskConversationParticipant`.
         const taskService = yield* TaskServiceTag;
         const { preMutationParticipants, wasParticipant } =
           yield* taskService.removeTaskConversationParticipant(

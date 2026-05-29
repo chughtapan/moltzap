@@ -34,12 +34,7 @@ const callerAgentIdOf = (c: DispatchContext): AgentId =>
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
 import { ContactPolicyAllowsReach } from "./capabilities/contact-policy-allows-reach.js";
-import {
-  ConversationCreateAuthorization,
-  type ObtainConversationCreateAuthorizationInput,
-} from "./capabilities/conversation-create-authorization.js";
 import { ConversationInTask } from "./capabilities/conversation-in-task.js";
-import { TmAuthority } from "./capabilities/tm-authority.js";
 
 // `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
 // re-exported here for backward compatibility of import paths.
@@ -174,20 +169,6 @@ export const TaskClose = defineRpc({
   name: "task/close",
   params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
   result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as DispatchContext;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.connId,
-        };
-      },
-    },
-  ] as const,
 });
 
 export const TaskAddParticipant = defineRpc({
@@ -203,20 +184,6 @@ export const TaskAddParticipant = defineRpc({
     { participant: TaskParticipantSchema },
     { additionalProperties: false },
   ),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as DispatchContext;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.connId,
-        };
-      },
-    },
-  ] as const,
 });
 
 export const TaskRemoveParticipant = defineRpc({
@@ -229,20 +196,6 @@ export const TaskRemoveParticipant = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as DispatchContext;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.connId,
-        };
-      },
-    },
-  ] as const,
 });
 
 const TaskFailedNotificationSchema = Type.Object(
@@ -329,13 +282,14 @@ export const TaskClosedNotificationDefinition = defineNotification({
 // `taskId`. Conversations are scoped strictly within their task's
 // admission set; missing rows fail with `ParticipantNotAdmittedError`.
 //
-// Capability tags on the four TM-gated admin methods declare
-// `TmAuthority` first so the lazy `provideServiceEffect` runs the TM
-// check ahead of any participant probe. A non-TM caller sees
-// `ForbiddenError` rather than leaking task-membership existence
-// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
-// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
-// four descriptors' capability shapes from drifting.
+// Authority (D #705 R7): the 8 task-admin RPCs bind via
+// `defineAppMethod` and gate on `assertCallerAppOwnsTask` (the app-arm
+// successor to the dissolved `TmAuthority` capability) BEFORE any
+// participant probe — so a non-owner sees `ForbiddenError` rather than
+// leaking task-membership existence through `ParticipantNotAdmittedError`.
+// The four conversation-targeted descriptors share the
+// `conversationInTaskArgsOfPair` builder for their lone surviving
+// `ConversationInTask` capability.
 //
 // Atomicity: `task/create` with `initialConversation` commits the
 // task row, then opens a separate transaction for the conversation
@@ -475,42 +429,12 @@ export const TaskConversationCreate = defineRpc({
     { conversation: ConversationSchema },
     { additionalProperties: false },
   ),
-  // Tags are declared in auth-first order. The handler must explicitly
-  // `yield* TmAuthority` before `requireAgentsAreInTaskParticipants` —
-  // the dispatcher provisions tags lazily, so a non-TM caller would
-  // otherwise see `ParticipantNotAdmittedError` (a state probe) instead
-  // of `ForbiddenError`.
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as DispatchContext;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.connId,
-        };
-      },
-    },
-    {
-      tag: ConversationCreateAuthorization,
-      argsOf: (
-        params: unknown,
-        ctx: unknown,
-      ): ObtainConversationCreateAuthorizationInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly participants: ReadonlyArray<AgentId>;
-        };
-        const c = ctx as DispatchContext;
-        return {
-          agentIds: [...p.participants],
-          creatorAgentId: callerAgentIdOf(c),
-        };
-      },
-    },
-  ] as const,
+  // No descriptor-side capabilities (D #705 R3/R7). App-ownership is
+  // gated by the app-arm handler's `assertCallerAppOwnsTask`, and
+  // `ConversationCreateAuthorization` is provided INLINE by the handler
+  // as a capacity-only proof (a TM minting on the task's behalf has no
+  // agent contact-edges; targets are gated by
+  // `requireAgentsAreInTaskParticipants`).
 });
 
 /**
@@ -537,20 +461,10 @@ export const TaskConversationList = defineRpc({
   ),
 });
 
-// Shared `argsOf` builders for the four TM-and-conversation-in-task
-// descriptors below — the four bodies use IDENTICAL capability arrays
-// `[TmAuthority, ConversationInTask]`. Inline the shape locally (not
-// exported) to keep the descriptor definitions terse and avoid
-// drift between siblings.
-const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-  const p = params as { readonly taskId: TaskId };
-  const c = ctx as DispatchContext;
-  return {
-    taskId: p.taskId,
-    callerConnId: c.connection.connId,
-  };
-};
+// Shared `argsOf` builder for the four conversation-targeted
+// descriptors below — they share the IDENTICAL `[ConversationInTask]`
+// capability array. App-ownership is gated in the app-arm handlers
+// (D #705 R7); only `ConversationInTask` rides on the descriptor.
 const conversationInTaskArgsOfPair = (params: unknown) => {
   // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
   const p = params as {
@@ -569,7 +483,6 @@ export const TaskConversationArchive = defineRpc({
   ),
   result: Type.Object({}, { additionalProperties: false }),
   capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
     { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
   ] as const,
 });
@@ -583,7 +496,6 @@ export const TaskConversationUnarchive = defineRpc({
   ),
   result: Type.Object({}, { additionalProperties: false }),
   capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
     { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
   ] as const,
 });
@@ -604,13 +516,12 @@ export const TaskConversationAddParticipant = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
-  // Auth-first per per-flow doc §"Participant invariant" — the handler
-  // also `yield* TmAuthority`s explicitly BEFORE
-  // `requireAgentsAreInTaskParticipants` to force the obtain helper to
-  // run early (lazy provideServiceEffect would otherwise defer it past
-  // the participant-admitted probe).
+  // App-ownership is gated by the app-arm handler's
+  // `assertCallerAppOwnsTask` BEFORE `requireAgentsAreInTaskParticipants`
+  // (so a non-owner sees `ForbiddenError`, not the
+  // participant-admitted state probe). `ConversationInTask` stays
+  // descriptor-provisioned.
   capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
     { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
   ] as const,
 });
@@ -632,7 +543,6 @@ export const TaskConversationRemoveParticipant = defineRpc({
   ),
   result: Type.Object({}, { additionalProperties: false }),
   capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
     { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
   ] as const,
 });

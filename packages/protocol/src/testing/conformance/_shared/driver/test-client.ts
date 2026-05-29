@@ -106,6 +106,17 @@ export interface TestClientConfig {
   readonly captureCapacity: number;
 
   /**
+   * D #705 CP5/CP7 — when set, the `network/connect` handshake uses the
+   * app-principal `appKey` arm instead of the agent `agentKey` arm, so the
+   * connection authenticates as an `AppConnection`. Used by app-arm
+   * integration tests (e.g. `app-session-scoping`) that drive the TM as a
+   * first-class app principal rather than the dead #673 agent-AppsRegisters
+   * model. Mutually exclusive with the agent path at the wire (the Connect
+   * params union is disjoint).
+   */
+  readonly appKey?: string;
+
+  /**
    * When `true`, send the `network/connect` handshake automatically after the
    * WS upgrade. Defaults to `true`.
    */
@@ -1113,11 +1124,21 @@ function awaitEntryResult(
 function autoConnect(
   runtime: TestClientRuntime,
 ): Effect.Effect<void, TransportClosedError | TransportIoError> {
-  const handshakeParams: ParamsOf<typeof Connect> = {
-    agentKey: runtime.config.agentKey,
-    minProtocol: PROTOCOL_VERSION,
-    maxProtocol: PROTOCOL_VERSION,
-  };
+  // D #705 CP5/CP7 — dispatch the disjoint Connect params union on the
+  // configured credential: an `appKey` authenticates as an `AppConnection`;
+  // otherwise the agent `agentKey` arm runs.
+  const handshakeParams: ParamsOf<typeof Connect> =
+    runtime.config.appKey !== undefined
+      ? {
+          appKey: runtime.config.appKey,
+          minProtocol: PROTOCOL_VERSION,
+          maxProtocol: PROTOCOL_VERSION,
+        }
+      : {
+          agentKey: runtime.config.agentKey,
+          minProtocol: PROTOCOL_VERSION,
+          maxProtocol: PROTOCOL_VERSION,
+        };
   return sendClientRpc(runtime, {
     definition: Connect,
     params: handshakeParams,

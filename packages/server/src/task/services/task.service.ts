@@ -39,10 +39,8 @@ import type { MessageService, MessageServiceError } from "./message.service.js";
 import {
   ConversationInTask,
   TaskReadAccess,
-  TmAuthority,
   assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
-  assertTmAuthorityMatchesTask,
 } from "@moltzap/protocol/task";
 
 /**
@@ -368,26 +366,22 @@ export class TaskService {
     });
   }
 
-  close(
-    id: TaskId,
-    caller: AgentId,
-  ): Effect.Effect<Task, TaskServiceError, TmAuthority> {
-    return this.closeWithLifecycle(id, caller).pipe(
+  close(id: TaskId): Effect.Effect<Task, TaskServiceError> {
+    return this.closeWithLifecycle(id).pipe(
       Effect.map((closed) => closed.task),
     );
   }
 
   closeWithLifecycle(
     id: TaskId,
-    _caller: AgentId,
-  ): Effect.Effect<TaskCloseLifecycle, TaskServiceError, TmAuthority> {
-    return Effect.gen(this, function* () {
-      const cap = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(cap, id);
-      return yield* catchSqlErrorAsDefect(
-        transaction(this.db, (trx) => this.closeLifecycleTransaction(trx, id)),
-      );
-    });
+  ): Effect.Effect<TaskCloseLifecycle, TaskServiceError> {
+    // App-ownership (`assertAppOwnsTask`) is enforced by the handler
+    // before this call (D #705 R7 — the dissolved `TmAuthority`
+    // capability moved up to the app-arm handler). This body assumes
+    // authority is already proven.
+    return catchSqlErrorAsDefect(
+      transaction(this.db, (trx) => this.closeLifecycleTransaction(trx, id)),
+    );
   }
 
   private closeLifecycleTransaction(trx: TaskTransaction, id: TaskId) {
@@ -516,12 +510,10 @@ export class TaskService {
 
   addParticipant(
     id: TaskId,
-    _caller: AgentId,
     target: AgentId,
-  ): Effect.Effect<TaskParticipant, TaskServiceError, TmAuthority> {
+  ): Effect.Effect<TaskParticipant, TaskServiceError> {
+    // App-ownership asserted by the handler (D #705 R7).
     return Effect.gen(this, function* () {
-      const cap = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(cap, id);
       const row = yield* catchSqlErrorAsDefect(
         takeFirstOrFail(
           this.db
@@ -545,33 +537,15 @@ export class TaskService {
 
   removeParticipant(
     id: TaskId,
-    _caller: AgentId,
     target: AgentId,
-  ): Effect.Effect<void, TaskServiceError, TmAuthority> {
-    return Effect.gen(this, function* () {
-      const cap = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(cap, id);
-      yield* catchSqlErrorAsDefect(
-        this.db
-          .deleteFrom("task_participants")
-          .where("task_id", "=", id)
-          .where("agent_id", "=", target),
-      );
-    });
-  }
-
-  closeConversation(
-    id: TaskId,
-    _caller: AgentId,
-    conversationId: ConversationId,
-  ): Effect.Effect<void, TaskServiceError, TmAuthority | ConversationInTask> {
-    return Effect.gen(this, function* () {
-      const tm = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(tm, id);
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, conversationId);
-      yield* this.archiveConversationInTask(id, conversationId);
-    });
+  ): Effect.Effect<void, TaskServiceError> {
+    // App-ownership asserted by the handler (D #705 R7).
+    return catchSqlErrorAsDefect(
+      this.db
+        .deleteFrom("task_participants")
+        .where("task_id", "=", id)
+        .where("agent_id", "=", target),
+    );
   }
 
   /**
@@ -658,24 +632,6 @@ export class TaskService {
         }
       }),
     );
-  }
-
-  private archiveConversationInTask(
-    id: TaskId,
-    conversationId: ConversationId,
-  ): Effect.Effect<void, TaskServiceError> {
-    return Effect.gen(this, function* () {
-      const updated = yield* catchSqlErrorAsDefect(
-        this.db
-          .updateTable("conversations")
-          .set({ archived_at: new Date() })
-          .where("id", "=", conversationId)
-          .where("task_id", "=", id)
-          .returning("id"),
-      );
-      if (updated.length > 0) return;
-      yield* this.assertConversationInTask(id, conversationId);
-    });
   }
 
   /**
@@ -928,8 +884,9 @@ export class TaskService {
    * Returns the updated `Conversation` (with populated `archivedAt`)
    * so the handler can fan out the legacy `conversations/archived`
    * payload alongside the new `task/conversation/archived` payload
-   * inside the dual-emit window. The caller's `TmAuthority` capability
-   * is asserted by the handler's `provideServiceEffect` chain, so this
+   * inside the dual-emit window. App-ownership (`assertAppOwnsTask`) is
+   * asserted by the app-arm handler before this call (D #705 R7 — the
+   * dissolved `TmAuthority` capability moved up to the handler), so this
    * body assumes authority is already proven.
    *
    * `ConversationInTask` is required as an R-channel proof.
@@ -941,11 +898,9 @@ export class TaskService {
   ): Effect.Effect<
     { conversation: Conversation; archivedAt: string },
     TaskServiceError,
-    TmAuthority | ConversationInTask
+    ConversationInTask
   > {
     return Effect.gen(this, function* () {
-      const tm = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(tm, id);
       const inTask = yield* ConversationInTask;
       yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(
@@ -997,11 +952,9 @@ export class TaskService {
   ): Effect.Effect<
     { conversation: Conversation },
     TaskServiceError,
-    TmAuthority | ConversationInTask
+    ConversationInTask
   > {
     return Effect.gen(this, function* () {
-      const tm = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(tm, id);
       const inTask = yield* ConversationInTask;
       yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(
@@ -1039,11 +992,9 @@ export class TaskService {
   ): Effect.Effect<
     { postMutationParticipants: ReadonlyArray<AgentId> },
     TaskServiceError,
-    TmAuthority | ConversationInTask
+    ConversationInTask
   > {
     return Effect.gen(this, function* () {
-      const tm = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(tm, id);
       const inTask = yield* ConversationInTask;
       yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(
@@ -1088,11 +1039,9 @@ export class TaskService {
       wasParticipant: boolean;
     },
     TaskServiceError,
-    TmAuthority | ConversationInTask
+    ConversationInTask
   > {
     return Effect.gen(this, function* () {
-      const tm = yield* TmAuthority;
-      yield* assertTmAuthorityMatchesTask(tm, id);
       const inTask = yield* ConversationInTask;
       yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(

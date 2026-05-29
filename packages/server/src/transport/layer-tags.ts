@@ -48,7 +48,6 @@ import type {
   AppHostTag,
 } from "../app/layers.js";
 import type {
-  TmAuthority,
   TaskReadAccess,
   ConversationInTask,
   AgentExists,
@@ -128,7 +127,7 @@ export type AppTags = TaskTags | AppHostTag;
  * alias, NOT folded into `TaskTags` / `AppTags`.
  *
  * **Why a sibling.** Capability tags are value-carrying authority
- * proofs (`TmAuthority`, `TaskReadAccess`, …, composite
+ * proofs (`TaskReadAccess`, `ConversationInTask`, …, composite
  * `MessageSendPermission`) that handler bodies MUST drain via
  * `Effect.provideServiceEffect(TAG, obtainTAG(...))` before the
  * Effect leaves the handler. Folding them into `TaskTags` would let a
@@ -154,7 +153,7 @@ export type AppTags = TaskTags | AppHostTag;
  *     that prove a handler's R is empty of capability tags.
  *
  * Phase 1 implement-staff PR adds the concrete `Context.Tag` classes
- * (`TmAuthority`, `TaskReadAccess`, `ConversationParticipantAccess`,
+ * (`TaskReadAccess`, `ConversationParticipantAccess`,
  * `ConversationInTask`, `AgentExists`, `AgentInTaskParticipants`,
  * `ContactPolicyAllowsReach`, `TaskActive`, `ConversationNotArchived`,
  * `ValidReplyTarget`, `NoReplyTarget`, `GroupCapacityForCreate`,
@@ -175,7 +174,6 @@ export type AppTags = TaskTags | AppHostTag;
  * R channel is a subset of its descriptor's declared `capabilities`.
  */
 export type CapabilityTags =
-  | TmAuthority
   | TaskReadAccess
   | ConversationInTask
   | AgentExists

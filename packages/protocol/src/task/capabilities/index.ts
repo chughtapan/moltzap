@@ -8,7 +8,6 @@
  * the composites in `task/services/`.
  */
 
-export * from "./tm-authority.js";
 export * from "./task-read-access.js";
 export * from "./conversation-in-task.js";
 export * from "./agent-exists.js";
