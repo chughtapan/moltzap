@@ -1,13 +1,22 @@
+import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId } from "../identity/methods.js";
 import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+import { registerErrorClass } from "../transport/wire-errors.js";
 
 const DateTimeString = dateTimeStringSchema();
 
 // ── presence schemas ─────────────────────────────────────────────────
 
-const PresenceStatusEnum = stringEnum(["online", "offline", "away"]);
+// v7 (architect plan #706 / codex r6 P2 #2) — narrowed from
+// `["online", "offline", "away"]` to `["online", "working", "offline"]`.
+// Presence is now server-derived from `LeaseRegistry` lifecycle:
+// `online` = connected, no active lease; `working` = connected, ≥1
+// lease in GRANTED or CLAIMED; `offline` = disconnected. The `away`
+// state is gone — there is no longer a `presence/update` RPC for
+// clients to set status manually (deleted in the same cutover).
+const PresenceStatusEnum = stringEnum(["online", "working", "offline"]);
 
 const PresenceEntrySchema = Type.Object(
   { agentId: AgentId, status: PresenceStatusEnum },
@@ -76,6 +85,68 @@ export const Connect = defineRpc({
 
 export type HelloOk = Static<typeof HelloOkSchema>;
 
+/**
+ * Reason discriminant carried in `ProtocolMismatchError.data.reason`.
+ * Architect plan #706 v8 (codex r7 P2 #1).
+ */
+export type ProtocolMismatchReason =
+  | "server-above-client-max"
+  | "server-below-client-min";
+
+/**
+ * Raised by `network/connect` when the client's `[minProtocol,
+ * maxProtocol]` range does not bracket the server's `PROTOCOL_VERSION`.
+ *
+ * Architect plan #706 v4 named the error in the `Connect` descriptor's
+ * `@error` JSDoc; v8 (codex r7 P2 #1) lands the actual typed class so
+ * the JSDoc claim is backed by a registered wire error. The
+ * server-side handler (`@moltzap/server-core/identity/handlers/connect.handlers.ts
+ * → checkProtocolRange`) raises this BEFORE auth resolution so old
+ * clients are rejected at the version gate rather than after a
+ * partial credential exchange.
+ *
+ * The `data` field carries the diagnostic triple
+ * `{ clientMinProtocol, clientMaxProtocol, serverVersion, reason }`:
+ *
+ * - `reason: "server-above-client-max"` — `compareProtocolVersion(
+ *   clientMaxProtocol, serverVersion) < 0`. The server is newer than
+ *   the client knows how to talk to; the client must update.
+ * - `reason: "server-below-client-min"` — `compareProtocolVersion(
+ *   clientMinProtocol, serverVersion) > 0`. The client is newer than
+ *   the server supports; the client must accept the legacy version
+ *   or refuse to connect.
+ *
+ * Wire code `-32006` (next unclaimed in the registry; verified
+ * against `-32000..-32024` at v8 architect-stub time per
+ * `packages/protocol/CLAUDE.md` recipe step 5).
+ *
+ * Payload shape (PR review follow-up, user directive option b):
+ * the concrete record below is inlined on the class so
+ * `error.data.reason` / `error.data.serverVersion` etc. typecheck at
+ * every reader. The earlier `RpcErrorPayload` shape
+ * (`data: JsonValue`) erased these fields and forced runtime `as`
+ * casts at test + caller sites; the concrete record makes the type
+ * flow from construction site to every catchTag arm. Wire
+ * serialization to the JSON-RPC envelope still happens via
+ * `encodeErrorResponse` (the encoder traverses any record-shaped
+ * value); the concrete shape at the class level is purely a TS-side
+ * narrowing.
+ */
+export class ProtocolMismatchError extends Data.TaggedError(
+  "ProtocolMismatchError",
+)<{
+  readonly data: {
+    readonly reason: ProtocolMismatchReason;
+    readonly serverVersion: string;
+    readonly clientMinProtocol: string;
+    readonly clientMaxProtocol: string;
+  };
+}> {
+  static readonly code = -32006;
+  static readonly message = "Client protocol version not supported";
+}
+registerErrorClass(ProtocolMismatchError);
+
 // ── network/ping ─────────────────────────────────────────────────────
 
 /**
@@ -89,18 +160,12 @@ export const NetworkPing = defineRpc({
 
 // ── presence/* ───────────────────────────────────────────────────────
 
-/**
- * Update your presence status (online, offline, away).
- * @relatedNotification presence/changed
- */
-export const PresenceUpdate = defineRpc({
-  name: "presence/update",
-  params: Type.Object(
-    { status: PresenceStatusEnum },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
+// Presence is server-derived from `LeaseRegistry` lifecycle + WS
+// connect/disconnect (see
+// `@moltzap/server-core/network/services/presence.service.ts`); clients
+// cannot manually set status. The wire surface is `presence/subscribe`
+// (subscriber registry) + `presence/changed` (server-emitted
+// notification).
 
 /**
  * Replace-semantics: replaces the connection's subscriber set with
@@ -128,7 +193,8 @@ const PresenceChangedNotificationSchema = Type.Object(
 
 /**
  * Pushed when a subscribed participant's presence status changes.
- * @triggeredBy presence/update
+ * Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
+ * connect/disconnect; there is no client-driven `presence/update`.
  */
 export const PresenceChangedNotificationDefinition = defineNotification({
   name: "presence/changed",
@@ -138,7 +204,6 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 export const networkRpcMethods = [
   Connect,
   NetworkPing,
-  PresenceUpdate,
   PresenceSubscribe,
 ] as const;
 

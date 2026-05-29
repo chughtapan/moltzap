@@ -1,237 +1,472 @@
-import { describe, expect, it } from "vitest";
+/* eslint-disable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks -- regression-only suite: each case names a contractual transition (online/working/offline, dedup, fast-reconnect race). PresenceStatus literals are contractual wire values; making them imports would lose the regression intent. Vitest `describe`/`it` + Effect.gen naturally nest 4 deep. */
 
-import { connectionId as makeConnectionId } from "@moltzap/protocol/testing";
-import type {
-  PresenceEventSink,
-  PresencePublishInput,
-  PresenceStatus,
-} from "./presence-event-sink.js";
+/**
+ * Unit tests for the `PresenceService` status engine.
+ *
+ * Covers state derivation (online / working / offline), subscriber
+ * fan-out, dedup discipline, and the named regression cases:
+ * redundant-connect-while-working, fast-reconnect-during-abandon,
+ * concurrent-grant-during-fast-reconnect, and lease callbacks on
+ * absent / stale-connection entries.
+ */
+
+import { describe, expect } from "vitest";
+import { it as effectIt } from "@effect/vitest";
+import { Effect } from "effect";
+
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConnectionId } from "@moltzap/protocol/network";
+import type { LeaseId } from "@moltzap/protocol";
+
+import {
+  ConnectionManager,
+  type MoltZapConnection,
+} from "../../transport/connection.js";
 import { PresenceService } from "./presence.service.js";
 
-const AGENT_A = "agent-a";
-const AGENT_B = "agent-b";
-const AGENT_C = "agent-c";
-const CONN_SENDER = makeConnectionId("c-sender");
-const CONN_WATCHER = makeConnectionId("c-watcher");
-const CONN_W1 = makeConnectionId("c-w1");
-const CONN_W2 = makeConnectionId("c-w2");
-const STATUS_ONLINE = "online";
-const STATUS_OFFLINE = "offline";
-const STATUS_AWAY = "away";
+const it = effectIt.live;
 
-function recordingSink(): {
-  sink: PresenceEventSink;
-  published: PresencePublishInput[];
-} {
-  const published: PresencePublishInput[] = [];
-  return {
-    sink: {
-      publish(input) {
-        published.push(input);
-      },
-    },
-    published,
+const AGENT_A = "agent-a" as AgentId;
+const AGENT_B = "agent-b" as AgentId;
+const CONN_1 = "conn-1" as ConnectionId;
+const CONN_2 = "conn-2" as ConnectionId;
+const SUBSCRIBER = "subscriber-conn" as ConnectionId;
+const LEASE_X = "lease-x" as LeaseId;
+const LEASE_Y = "lease-y" as LeaseId;
+
+interface Harness {
+  readonly connections: ConnectionManager;
+  readonly sent: string[];
+}
+
+function makeHarness(): Harness {
+  const connections = new ConnectionManager();
+  const sent: string[] = [];
+  const subscriberConn: MoltZapConnection = {
+    id: SUBSCRIBER,
+    write: (raw: string) =>
+      Effect.sync(() => {
+        sent.push(raw);
+      }),
+    shutdown: Effect.void,
+    auth: null,
+    lastPong: 0,
+    conversationIds: new Set(),
+    mutedConversations: new Set(),
+    originator: {} as MoltZapConnection["originator"],
   };
+  connections.add(subscriberConn);
+  return { connections, sent };
 }
 
-function statusesFor(
-  published: ReadonlyArray<PresencePublishInput>,
-  agentId: string,
-): ReadonlyArray<PresenceStatus> {
-  return published.filter((p) => p.agentId === agentId).map((p) => p.status);
+interface DecodedFrame {
+  readonly agentId: string;
+  readonly status: string;
 }
 
-function subscribersFor(service: PresenceService, agentId: string) {
-  return [...service.getSubscribers(agentId)];
+function decodeFrames(
+  sent: ReadonlyArray<string>,
+): ReadonlyArray<DecodedFrame> {
+  return sent.map((raw) => {
+    const parsed = JSON.parse(raw) as {
+      readonly method: string;
+      readonly params: { readonly agentId: string; readonly status: string };
+    };
+    if (parsed.method !== PresenceChangedNotificationDefinition.name) {
+      throw new Error(`unexpected wire frame method: ${parsed.method}`);
+    }
+    return { agentId: parsed.params.agentId, status: parsed.params.status };
+  });
 }
 
-function setupSubscribedService() {
-  const r = recordingSink();
-  const service = new PresenceService(r.sink);
-  service.subscribe(CONN_WATCHER, [AGENT_A]);
-  return { r, service };
-}
-
-describe("PresenceService", () => {
-  it("setOnline publishes online", publishesOnline);
-  it("setOffline publishes offline", publishesOffline);
-  it(
-    "re-asserting the same status does not publish (idempotent)",
-    ignoresSameStatus,
-  );
-  it(
-    "offline → online → offline → online publishes every transition",
-    publishesEveryTransition,
-  );
-  it("update forwards excludeConnId to the sink", forwardsExcludeConnId);
-  it("update without options omits excludeConnId", omitsExcludeConnId);
-  it(
-    "publishes even when there are no subscribers — sink decides",
-    publishesWithoutSubscribers,
-  );
-  it(
-    "subscriberConnIds reflects the registry at publish time",
-    snapshotsSubscriberRegistry,
-  );
-  it(
-    "subscribe replaces the prior set — connId removed from agents not in the new set (#487)",
-    replacesPriorSubscriptionSet,
-  );
-  it(
-    "subscribe replace-semantics does not disturb other connections' subscriptions (#487)",
-    preservesOtherConnections,
-  );
-  it(
-    "subscribe([]) unsubscribes the connection from all agents (#487)",
-    unsubscribesFromAllAgents,
-  );
-  it(
-    "subscribe is idempotent when the set is unchanged (#487)",
-    subscribeIsIdempotent,
-  );
-  it(
-    "subscribe after subscribe([]) re-establishes subscriptions cleanly (#487)",
-    resubscribesAfterUnsubscribeAll,
-  );
+/**
+ * Drain the microtask queue so the fire-and-forget `Effect.runFork`
+ * writes to the recording connection have landed before assertions
+ * read `sent`. The `Effect.yieldNow` calls relinquish the fiber so any
+ * forked writes that resolved synchronously have a chance to
+ * interleave.
+ */
+const drainMicrotasks: Effect.Effect<void> = Effect.gen(function* () {
+  yield* Effect.yieldNow();
+  yield* Effect.yieldNow();
 });
 
-function publishesOnline(): void {
-  const { r, service } = setupSubscribedService();
-  service.setOnline(AGENT_A);
-
-  expect(statusesFor(r.published, AGENT_A)).toEqual([STATUS_ONLINE]);
-  expect(r.published[0]!.subscriberConnIds.has(CONN_WATCHER)).toBe(true);
-  expect(r.published[0]!.excludeConnId).toBeUndefined();
+/**
+ * Build the service, register the given subscriber-watch sets, then run
+ * `body`. The subscriber registry and the status engine are one
+ * `PresenceService` instance, so subscriptions and transitions exercise
+ * the same object.
+ */
+function withHarness<A>(
+  h: Harness,
+  watch: ReadonlyArray<readonly [ConnectionId, ReadonlyArray<AgentId>]>,
+  body: (presence: PresenceService) => Effect.Effect<A>,
+): Effect.Effect<A> {
+  return Effect.gen(function* () {
+    const presence = yield* PresenceService.make(h.connections);
+    for (const [connId, agentIds] of watch) {
+      presence.subscribe(connId, agentIds);
+    }
+    return yield* body(presence);
+  });
 }
 
-function publishesOffline(): void {
-  const { r, service } = setupSubscribedService();
-  service.setOnline(AGENT_A);
-  r.published.length = 0;
+describe("PresenceService — state derivation", () => {
+  it("WS connect emits `online`", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "online" },
+        ]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("online");
+      }),
+    );
+  });
 
-  service.setOffline(AGENT_A);
+  it("lease GRANTED while connected emits `working`", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "working" },
+        ]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("working");
+      }),
+    );
+  });
 
-  expect(statusesFor(r.published, AGENT_A)).toEqual([STATUS_OFFLINE]);
-}
+  it("lease CONSUMED while connected emits `online`", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onLeaseActiveEnd(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "online" },
+        ]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("online");
+      }),
+    );
+  });
 
-function ignoresSameStatus(): void {
-  const { r, service } = setupSubscribedService();
-  service.setOnline(AGENT_A);
-  service.setOnline(AGENT_A);
+  it("WS close emits `offline`", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "offline" },
+        ]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("offline");
+      }),
+    );
+  });
 
-  expect(statusesFor(r.published, AGENT_A)).toEqual([STATUS_ONLINE]);
-}
+  it("`statusMany` returns per-agent snapshots; unknown agents resolve to `offline`", () => {
+    const h = makeHarness();
+    return withHarness(h, [], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        const result = yield* presence.statusMany([AGENT_A, AGENT_B]);
+        expect(result).toEqual([
+          { agentId: AGENT_A, status: "working" },
+          { agentId: AGENT_B, status: "offline" },
+        ]);
+      }),
+    );
+  });
+});
 
-function publishesEveryTransition(): void {
-  const { r, service } = setupSubscribedService();
-  service.setOnline(AGENT_A);
-  service.setOffline(AGENT_A);
-  service.setOnline(AGENT_A);
+describe("PresenceService — dedup discipline", () => {
+  it("second GRANTED lease while already `working` emits NO `presence/changed`", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onLeaseActiveBegin(LEASE_Y, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("working");
+      }),
+    );
+  });
 
-  expect(statusesFor(r.published, AGENT_A)).toEqual([
-    STATUS_ONLINE,
-    STATUS_OFFLINE,
-    STATUS_ONLINE,
-  ]);
-}
+  it("only the LAST CONSUMED lease drops the agent back to `online`", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_Y, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onLeaseActiveEnd(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        yield* presence.onLeaseActiveEnd(LEASE_Y, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "online" },
+        ]);
+      }),
+    );
+  });
+});
 
-function forwardsExcludeConnId(): void {
-  const r = recordingSink();
-  const service = new PresenceService(r.sink);
-  service.subscribe(CONN_SENDER, [AGENT_A]);
-  service.subscribe(CONN_WATCHER, [AGENT_A]);
+describe("PresenceService — regression cases", () => {
+  it("redundant-connect-while-working: second onAgentConnect with the same connId is a no-op", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("working");
+      }),
+    );
+  });
 
-  service.update(AGENT_A, STATUS_AWAY, { excludeConnId: CONN_SENDER });
+  it("fast-reconnect-during-abandon: stale lease callbacks audit without re-emitting", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onLeaseActiveEnd(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("online");
+      }),
+    );
+  });
 
-  expect(r.published).toHaveLength(1);
-  expect(r.published[0]!.status).toBe(STATUS_AWAY);
-  expect(r.published[0]!.excludeConnId).toBe(CONN_SENDER);
-  // Sink owns the filtering; it receives the full subscriber set.
-  expect([...r.published[0]!.subscriberConnIds].sort()).toEqual([
-    CONN_SENDER,
-    CONN_WATCHER,
-  ]);
-}
+  it("concurrent-grant-during-fast-reconnect: stale onLeaseActiveBegin audits without re-emitting", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onLeaseActiveBegin(LEASE_Y, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("online");
+      }),
+    );
+  });
 
-function omitsExcludeConnId(): void {
-  const { r, service } = setupSubscribedService();
-  service.update(AGENT_A, STATUS_AWAY);
+  it("lease begin / end on an absent entry audits LeaseBeginAfterDisconnect / LeaseEndAfterDisconnect", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveEnd(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("offline");
+      }),
+    );
+  });
 
-  expect(r.published).toHaveLength(1);
-  expect(r.published[0]!.excludeConnId).toBeUndefined();
-}
+  it("stale-disconnect (connId not in liveConns) is a silent no-op", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("online");
+      }),
+    );
+  });
+});
 
-function publishesWithoutSubscribers(): void {
-  const r = recordingSink();
-  const service = new PresenceService(r.sink);
-  service.setOnline(AGENT_A);
+describe("PresenceService — subscriber-snapshot semantics", () => {
+  it("only subscribed connections receive `presence/changed`", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_B]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+      }),
+    );
+  });
+});
 
-  expect(r.published).toHaveLength(1);
-  expect(r.published[0]!.subscriberConnIds.size).toBe(0);
-}
+// `AgentEndpointResolver` supports an agent holding multiple
+// simultaneous WS connections (web tab + CLI + mobile). A second
+// simultaneous connect must NOT be treated as a "reconnect" that
+// clears the agent's active leases and emits a spurious `online` while
+// the agent is still busy on the original conn. These tests pin the
+// multi-conn semantics down.
+describe("PresenceService — multi-connection-per-agent", () => {
+  it("a second simultaneous WS connection does NOT clobber an active lease (status stays `working`, no emission)", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        // Sanity: status is now `working` (subscriber has seen online
+        // + working).
+        const statusOnConn1 = yield* presence.statusOf(AGENT_A);
+        expect(statusOnConn1).toBe("working");
+        h.sent.length = 0;
+        // Agent opens a second simultaneous connection (e.g. mobile
+        // app while the CLI lease is still active).
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        // The new connection does not affect the agent's lease set.
+        // Status stays `working`; the dedup rule elides emission
+        // (working → working).
+        expect(h.sent).toEqual([]);
+        const statusAfterSecondConnect = yield* presence.statusOf(AGENT_A);
+        expect(statusAfterSecondConnect).toBe("working");
+      }),
+    );
+  });
 
-function snapshotsSubscriberRegistry(): void {
-  const r = recordingSink();
-  const service = new PresenceService(r.sink);
+  it("losing a non-leased simultaneous connection leaves the agent `working` on the other conn (no emission)", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        // Agent connects on conn1 + conn2; lease granted on conn1
+        // only.
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // conn2 disconnects; it had no leases, so no per-conn lease
+        // bucket to drop, and conn1's lease is still active.
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("working");
+      }),
+    );
+  });
 
-  service.subscribe(CONN_W1, [AGENT_A]);
-  service.setOnline(AGENT_A);
-  service.subscribe(CONN_W2, [AGENT_A]);
-  service.setOffline(AGENT_A);
+  it("losing the leased connection while another conn is still live flips status to `online` (lease cleaned up per-conn)", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // conn1 disconnects — its lease bucket is dropped wholesale
+        // so the agent's working count drains to zero. conn2 is
+        // still live, so the agent stays online (not offline).
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "online" },
+        ]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("online");
+      }),
+    );
+  });
 
-  expect(r.published).toHaveLength(2);
-  expect([...r.published[0]!.subscriberConnIds]).toEqual([CONN_W1]);
-  expect([...r.published[1]!.subscriberConnIds].sort()).toEqual([
-    CONN_W1,
-    CONN_W2,
-  ]);
-}
+  it("losing the last live connection flips status to `offline` (entry deleted)", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // Disconnect conn1 first — second conn still live, no
+        // emission.
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        // Disconnect conn2 — entry is now empty, emit offline.
+        yield* presence.onAgentDisconnect(AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "offline" },
+        ]);
+        const status = yield* presence.statusOf(AGENT_A);
+        expect(status).toBe("offline");
+      }),
+    );
+  });
 
-function replacesPriorSubscriptionSet(): void {
-  const service = new PresenceService(recordingSink().sink);
-  service.subscribe(CONN_WATCHER, [AGENT_A, AGENT_B]);
-  service.subscribe(CONN_WATCHER, [AGENT_B, AGENT_C]);
-
-  expect(subscribersFor(service, AGENT_A)).toEqual([]);
-  expect(subscribersFor(service, AGENT_B)).toEqual([CONN_WATCHER]);
-  expect(subscribersFor(service, AGENT_C)).toEqual([CONN_WATCHER]);
-}
-
-function preservesOtherConnections(): void {
-  const service = new PresenceService(recordingSink().sink);
-  service.subscribe(CONN_W1, [AGENT_A, AGENT_B]);
-  service.subscribe(CONN_W2, [AGENT_A, AGENT_B]);
-  service.subscribe(CONN_W1, [AGENT_B]);
-
-  expect(subscribersFor(service, AGENT_A)).toEqual([CONN_W2]);
-  expect(subscribersFor(service, AGENT_B).sort()).toEqual([CONN_W1, CONN_W2]);
-}
-
-function unsubscribesFromAllAgents(): void {
-  const service = new PresenceService(recordingSink().sink);
-  service.subscribe(CONN_WATCHER, [AGENT_A, AGENT_B, AGENT_C]);
-  service.subscribe(CONN_WATCHER, []);
-
-  expect(subscribersFor(service, AGENT_A)).toEqual([]);
-  expect(subscribersFor(service, AGENT_B)).toEqual([]);
-  expect(subscribersFor(service, AGENT_C)).toEqual([]);
-}
-
-function subscribeIsIdempotent(): void {
-  const service = new PresenceService(recordingSink().sink);
-  service.subscribe(CONN_WATCHER, [AGENT_A, AGENT_B]);
-  service.subscribe(CONN_WATCHER, [AGENT_B, AGENT_A]);
-
-  expect(subscribersFor(service, AGENT_A)).toEqual([CONN_WATCHER]);
-  expect(subscribersFor(service, AGENT_B)).toEqual([CONN_WATCHER]);
-}
-
-function resubscribesAfterUnsubscribeAll(): void {
-  const service = new PresenceService(recordingSink().sink);
-  service.subscribe(CONN_WATCHER, [AGENT_A]);
-  service.subscribe(CONN_WATCHER, []);
-  service.subscribe(CONN_WATCHER, [AGENT_B]);
-
-  expect(subscribersFor(service, AGENT_A)).toEqual([]);
-  expect(subscribersFor(service, AGENT_B)).toEqual([CONN_WATCHER]);
-}
+  it("active leases on different simultaneous conns are tracked independently", () => {
+    const h = makeHarness();
+    return withHarness(h, [[SUBSCRIBER, [AGENT_A]]], (presence) =>
+      Effect.gen(function* () {
+        yield* presence.onAgentConnect(AGENT_A, CONN_1);
+        yield* presence.onAgentConnect(AGENT_A, CONN_2);
+        yield* presence.onLeaseActiveBegin(LEASE_X, AGENT_A, CONN_1);
+        yield* presence.onLeaseActiveBegin(LEASE_Y, AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        h.sent.length = 0;
+        // Releasing LEASE_X on conn1 keeps the agent working (LEASE_Y
+        // is still active on conn2).
+        yield* presence.onLeaseActiveEnd(LEASE_X, AGENT_A, CONN_1);
+        yield* drainMicrotasks;
+        expect(h.sent).toEqual([]);
+        const stillWorking = yield* presence.statusOf(AGENT_A);
+        expect(stillWorking).toBe("working");
+        // Releasing LEASE_Y drains the active set; agent flips to
+        // online.
+        yield* presence.onLeaseActiveEnd(LEASE_Y, AGENT_A, CONN_2);
+        yield* drainMicrotasks;
+        expect(decodeFrames(h.sent)).toEqual([
+          { agentId: AGENT_A, status: "online" },
+        ]);
+      }),
+    );
+  });
+});

@@ -2,6 +2,10 @@ import { Effect, Option } from "effect";
 import {
   PROTOCOL_VERSION,
   Connect,
+  // `checkProtocolRange` lives in `@moltzap/protocol/version.ts` so
+  // regression tests can import it directly without an illegal seam
+  // through this server-internal handler module.
+  checkProtocolRange,
   UnauthorizedError,
   type HelloOk,
   type ParamsOf,
@@ -114,10 +118,13 @@ function authenticateSession(
 
 function buildHelloOk(
   ctx: AuthenticatedContext,
+  connId: ConnectionId,
   presenceService: PresenceService,
 ): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
-  return Effect.sync(() => {
-    presenceService.setOnline(ctx.agentId);
+  // WS connect emits via `onAgentConnect(agentId, connId)`. connId is
+  // threaded for the fast-reconnect race guard.
+  return Effect.gen(function* () {
+    yield* presenceService.onAgentConnect(ctx.agentId, connId);
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentId: ctx.agentId,
@@ -176,6 +183,24 @@ function registerEndpointIfStillConnected(
 function handleConnect(params: ConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
+      // Protocol-range gate runs BEFORE auth resolution: clients
+      // outside the supported version range are rejected at the version
+      // edge, so no partial state leaks before the rejection. A
+      // malformed `min/maxProtocol` string raises
+      // `InvalidProtocolVersionError`, mapped here to the wire-typed
+      // `InvalidParamsError` (JSON-RPC -32602) so it surfaces as a typed
+      // response rather than an untyped defect. `ProtocolMismatchError`
+      // stays in the channel for the well-formed-but-out-of-range case.
+      yield* checkProtocolRange(params, PROTOCOL_VERSION).pipe(
+        Effect.catchTag("InvalidProtocolVersionError", (cause) =>
+          Effect.fail(
+            new InvalidParamsError({
+              message: `Malformed protocol version ${JSON.stringify(cause.version)}: invalid segment ${JSON.stringify(cause.segment)}`,
+            }),
+          ),
+        ),
+      );
+
       const authService = yield* AuthServiceTag;
       const conversationService = yield* ConversationServiceTag;
       const presenceService = yield* PresenceServiceTag;
@@ -186,7 +211,7 @@ function handleConnect(params: ConnectParams) {
       const conn = yield* ConnectionTag;
 
       if (conn.auth) {
-        return yield* buildHelloOk(conn.auth, presenceService);
+        return yield* buildHelloOk(conn.auth, conn.id, presenceService);
       }
 
       const auth = yield* resolveAuthenticatedContext(
@@ -203,7 +228,7 @@ function handleConnect(params: ConnectParams) {
         conn.id,
         auth,
       );
-      return yield* buildHelloOk(auth, presenceService);
+      return yield* buildHelloOk(auth, conn.id, presenceService);
     }).pipe(Effect.withSpan("network.connect")),
   );
 }

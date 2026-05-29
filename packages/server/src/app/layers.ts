@@ -18,7 +18,6 @@ import { AuthService } from "../identity/services/auth.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
-import { createConnectionFanOutPresenceEventSink } from "../network/services/presence-event-sink.js";
 import {
   MessageService,
   type DeliveryWebhookConfig,
@@ -223,12 +222,24 @@ const ContactsServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("ContactsServiceLive")),
 );
 
-const PresenceServiceLive = Layer.effect(
+/**
+ * `PresenceServiceLive` constructs the full {@link PresenceService}
+ * (subscriber registry + lease-derived status engine + `presence/changed`
+ * fan-out). The R channel consumes `ConnectionManagerTag` — the only
+ * construction dep, used by the fan-out to resolve each subscriber's
+ * socket. `LeaseRegistryLive` consumes `PresenceServiceTag` as its
+ * `transitionObserver`, so a missing wiring surfaces at `tsc --build`
+ * via the unresolved R channel.
+ */
+export const PresenceServiceLive: Layer.Layer<
+  PresenceServiceTag,
+  never,
+  ConnectionManagerTag
+> = Layer.effect(
   PresenceServiceTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
-    const sink = createConnectionFanOutPresenceEventSink({ connections });
-    return new PresenceService(sink);
+    return yield* PresenceService.make(connections);
   }).pipe(Effect.withSpan("PresenceServiceLive")),
 );
 
@@ -236,9 +247,15 @@ const LeaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
+    // The PresenceService IS the LeaseTransitionObserver. Consuming the
+    // Tag here (rather than `noopLeaseTransitionObserver`) wires the
+    // real presence-emission path; required-not-optional means dropping
+    // this line surfaces at tsc.
+    const transitionObserver = yield* PresenceServiceTag;
     return yield* makeLeaseRegistry({
       connections,
       leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
+      transitionObserver,
     });
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );
@@ -292,7 +309,7 @@ const MessageServiceLive = Layer.effect(
 //            ContactsService.
 //   Tier 2 — Presence, AgentEndpointResolver, AppTmRegistry (provideMerge over T1).
 //   Tier 2.5 — NetworkSendService.
-//   Tier 2.6 — LeaseRegistry.
+//   Tier 2.6 — LeaseRegistry (consumes PresenceServiceTag as its transitionObserver).
 //   Tier 3 — AppHost (db + connections + leases; seeds default
 //            messageAuthorize hooks for the DM/Group TM addresses).
 //   Tier 4 — ConversationService (db + participants + connections + AppHost).
@@ -342,8 +359,9 @@ const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2);
 
 /**
  * Tier 2.6 — LeaseRegistryLive consumes ConnectionManager from Tier 1
- * (#529 reshape additive). Sits below AppHost so the registry is wired
- * into AppHost at construction.
+ * AND PresenceServiceTag from Tier 2 (the service IS the registry's
+ * required `transitionObserver`). Sits below AppHost so the registry is
+ * wired into AppHost at construction.
  */
 const Tier2LeaseRegistry = Layer.provideMerge(
   LeaseRegistryLive,

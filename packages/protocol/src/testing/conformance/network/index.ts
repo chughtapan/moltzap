@@ -4,8 +4,12 @@
  * Network-layer conformance properties.
  *
  * Connection / presence / subscription invariants — `Connect` lifecycle,
- * `PresenceUpdate` broadcast, `PresenceSubscribe` fan-out, reconnect
- * semantics, same-state collapse.
+ * server-derived presence (`PresenceSubscribe` fan-out + `presence/changed`
+ * notifications), reconnect semantics, same-state collapse. Presence is
+ * server-derived from `LeaseRegistry` lifecycle plus WS connect/disconnect;
+ * `PresenceService` implements `LeaseTransitionObserver` and broadcasts
+ * `presence/changed` to subscribers. There is no client-driven
+ * `presence/update` RPC.
  *
  * Each `register*` lives in its own file. This barrel re-exports them
  * by name AND aggregates them into `NETWORK_PROPERTIES` for the

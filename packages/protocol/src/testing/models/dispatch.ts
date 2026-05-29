@@ -53,7 +53,8 @@ import {
 } from "../../task/methods.js";
 import { InvitesCreateAgent } from "../../identity/methods.js";
 import { MessagesList, MessagesSend } from "../../task/methods.js";
-import { PresenceSubscribe, PresenceUpdate } from "../../network/methods.js";
+// v7 (architect plan #706): PresenceUpdate deleted in the cutover.
+import { PresenceSubscribe } from "../../network/methods.js";
 import { NetworkPing } from "../../network/methods.js";
 
 /**
@@ -123,7 +124,7 @@ const MODEL_METHOD_OUTCOMES = {
   [ContactsAccept.name]: "uncertain",
   [ContactsById.name]: "uncertain",
   [InvitesCreateAgent.name]: "uncertain",
-  [PresenceUpdate.name]: "uncertain",
+  // v7 (architect plan #706): PresenceUpdate row deleted alongside the descriptor.
   [PresenceSubscribe.name]: "uncertain",
   [AppsRegister.name]: "uncertain",
   [DispatchRequest.name]: "uncertain",

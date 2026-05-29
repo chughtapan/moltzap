@@ -6,6 +6,8 @@ description: "Pushed when a subscribed participant's presence status changes."
 # presence/changed
 
 Pushed when a subscribed participant's presence status changes.
+Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
+connect/disconnect; there is no client-driven `presence/update`.
 
 ## Params
 
@@ -13,7 +15,7 @@ Pushed when a subscribed participant's presence status changes.
   Branded AgentId
 </ResponseField>
 
-<ResponseField name="status" type="online | offline | away">
+<ResponseField name="status" type="online | working | offline">
   The status field.
 </ResponseField>
 
@@ -26,7 +28,3 @@ Pushed when a subscribed participant's presence status changes.
   "params": { ... }
 }
 ```
-
-## Triggered By
-
-- [`presence/update`](/protocol/methods/presence-update)

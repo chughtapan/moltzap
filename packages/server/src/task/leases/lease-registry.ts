@@ -20,6 +20,7 @@ import {
   DispatchesExpired,
 } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../transport/connection.js";
+import type { LeaseTransitionObserver } from "../../network/services/presence-types.js";
 
 /** Wire-side LeaseRecord shape (flat). */
 type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
@@ -183,13 +184,7 @@ export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
   readonly leaseId: LeaseId;
   readonly state: LeaseState;
   readonly expected: ReadonlyArray<LeaseState>;
-  readonly operation:
-    | "resolve"
-    | "claim"
-    | "finalize"
-    | "rollback"
-    | "read"
-    | "bindToConnection";
+  readonly operation: "resolve" | "claim" | "finalize" | "rollback" | "read";
 }> {
   override get message(): string {
     return `lease ${this.leaseId} in state ${this.state} cannot ${this.operation} (expected one of ${this.expected.join(", ")})`;
@@ -320,8 +315,8 @@ export interface LeaseRegistry {
    * the moderator's verdict (or a synthesized verdict for default-
    * grant / moderator-unavailable / moderator-timeout). First writer
    * wins via `Ref.modify`; second `resolve` against the same lease
-   * fails with `LeaseInvalidError`. Internally calls
-   * {@link emitRelease} so `dispatch/release` fires on every
+   * fails with `LeaseInvalidError`. Internally calls the module-local
+   * `emitDispatchRelease` helper so `dispatch/release` fires on every
    * resolution path uniformly.
    */
   resolve(
@@ -362,18 +357,6 @@ export interface LeaseRegistry {
           readonly value: DispatchId;
         },
   ): Effect.Effect<LeaseRecord, LeaseNotFoundError, never>;
-
-  /**
-   * Update the lease's recipient-connection binding. Called when the
-   * recipient reconnects (rare — on disconnect the lease normally
-   * transitions to ABANDONED or EXPIRED-on-disconnect via the
-   * close finalizer). Idempotent for the same `connId`; rejects the
-   * binding update if the lease is already terminal.
-   */
-  bindToConnection(
-    leaseId: LeaseId,
-    connId: ConnectionId,
-  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
 
   /**
    * Connection-close cleanup. Called from the WS disconnect-hook chain
@@ -419,38 +402,32 @@ export interface LeaseRegistry {
     leaseId: LeaseId,
     fiber: Fiber.RuntimeFiber<unknown, unknown>,
   ): Effect.Effect<void, never, never>;
-
-  /**
-   * Internal-but-exported emission helper. Single point of truth for
-   * `dispatch/release` notifications: `resolve` calls this; nothing
-   * else does. The `mint` path for default-grant calls `resolve`
-   * inline with a synthesized grant verdict, so `emitRelease` is
-   * still the single emission site (Final Decision #3 — always emit
-   * release).
-   *
-   * Lookup of the recipient connection runs through the registry's
-   * injected `ConnectionManager`; if the connection is gone, the
-   * notification is logged and dropped (the recipient's reconnect
-   * path replays from server state).
-   */
-  emitRelease(
-    leaseId: LeaseId,
-    verdict: LeaseVerdict,
-  ): Effect.Effect<void, never, never>;
 }
 
 /**
  * Constructor dependencies for the lease registry.
- * - `connections`: looked up at `emitRelease` time to find the
- *   recipient and at `dispatches/consumed` / `dispatches/expired`
- *   emission to find the moderator's connection.
+ * - `connections`: looked up by the internal `emitDispatchRelease`
+ *   helper to find the recipient and at `dispatches/consumed` /
+ *   `dispatches/expired` emission to find the moderator's connection.
  * - `leaseRetentionMs`: terminal-state retention window (CONSUMED /
  *   DENIED / EXPIRED / ABANDONED). Live states (PENDING / GRANTED /
  *   HOLD / CLAIMED) age out on their own TTLs.
+ * - `transitionObserver`: called at every transition that crosses the
+ *   lease's "active for presence" boundary (PENDING → GRANTED, exits
+ *   from GRANTED|CLAIMED). Feeds presence emission. **Required, not
+ *   optional** — every constructor call site supplies a value, either
+ *   the real `PresenceService` (production) or the
+ *   `noopLeaseTransitionObserver` constant (tests that do not exercise
+ *   presence). Required-not-default is structurally tighter: TypeScript
+ *   surfaces missing wiring at the call site. See
+ *   `../../network/services/presence-types.ts → LeaseTransitionObserver`
+ *   for the call shape; the per-transition contract lives in
+ *   `../../network/services/presence.service.ts → PresenceService`.
  */
 export interface LeaseRegistryDeps {
   readonly connections: ConnectionManager;
   readonly leaseRetentionMs: number;
+  readonly transitionObserver: LeaseTransitionObserver;
 }
 
 /**
@@ -569,20 +546,6 @@ interface LeaseConnectionTarget {
   readonly leaseId: LeaseId;
   readonly entry: LeaseEntry;
 }
-
-const BINDABLE_LEASE_STATES: ReadonlyArray<LeaseState> = [
-  "PENDING",
-  "GRANTED",
-  "HOLD",
-  "CLAIMED",
-];
-
-const TERMINAL_BIND_STATES: ReadonlyArray<LeaseState> = [
-  "CONSUMED",
-  "DENIED",
-  "EXPIRED",
-  "ABANDONED",
-];
 
 function leaseNotFound(
   id: LeaseId | DispatchId,
@@ -737,6 +700,10 @@ function expireLeaseFromTtl(
     const current = yield* Ref.get(state.entriesRef);
     const entry = current.get(leaseId);
     if (!entry || !isTtlExpirableState(entry.record.state)) return;
+    // Capture the pre-expire state so we know whether to fire the
+    // active-end observer call. GRANTED is in the active set; HOLD never
+    // entered it.
+    const wasActive = entry.record.state === "GRANTED";
     const expiredAt = new Date().toISOString();
     const nextRecord: LeaseRecord = {
       ...entry.record,
@@ -750,6 +717,13 @@ function expireLeaseFromTtl(
     });
     yield* emitDispatchesExpired(state, nextRecord, expiredAt);
     yield* scheduleRetention(state, leaseId, nextRecord.dispatchId);
+    if (wasActive) {
+      yield* state.deps.transitionObserver.onLeaseActiveEnd(
+        leaseId,
+        nextRecord.binding.recipientAgentId,
+        nextRecord.binding.recipientConnectionId,
+      );
+    }
   });
 }
 
@@ -833,6 +807,14 @@ function finalizeClaim(
     });
     yield* emitDispatchesConsumed(state, consumedRecord, messageId, consumedAt);
     yield* scheduleRetention(state, leaseId, consumedRecord.dispatchId);
+    // CLAIMED → CONSUMED exits the active set; fire onLeaseActiveEnd so
+    // the presence service re-derives the recipient's status (working →
+    // online if this was the last active lease).
+    yield* state.deps.transitionObserver.onLeaseActiveEnd(
+      leaseId,
+      consumedRecord.binding.recipientAgentId,
+      consumedRecord.binding.recipientConnectionId,
+    );
   });
 }
 
@@ -966,6 +948,22 @@ function resolveLease(
       ttlFiber,
       roundTripFiber: null,
     });
+    // GRANTED enters the active set. The begin callback fires before
+    // emitDispatchRelease because that helper awaits an inline socket
+    // write, which is a suspension window the forked TTL fiber can wake
+    // inside (leaseTimeoutMs minimum is 1ms). If the TTL fiber observed
+    // GRANTED and fired onLeaseActiveEnd before begin ran, the end would
+    // no-op on a not-yet-present lease and presence would strand at
+    // working. Firing begin first — on this fiber, before any await —
+    // guarantees the active-set add precedes any TTL-driven end. DENIED /
+    // HOLD do NOT enter the active set; no observer call.
+    if (nextState === "GRANTED") {
+      yield* state.deps.transitionObserver.onLeaseActiveBegin(
+        leaseId,
+        nextRecord.binding.recipientAgentId,
+        nextRecord.binding.recipientConnectionId,
+      );
+    }
     yield* emitDispatchRelease(state, nextRecord, verdict);
     if (nextState === "DENIED") {
       yield* scheduleRetention(state, leaseId, nextRecord.dispatchId);
@@ -1031,52 +1029,6 @@ function readLease(
     : readLeaseByDispatchId(state, id.value);
 }
 
-function rejectTerminalBinding(
-  leaseId: LeaseId,
-  state: LeaseState,
-): Effect.Effect<void, LeaseInvalidError, never> {
-  return TERMINAL_BIND_STATES.includes(state)
-    ? Effect.fail(
-        invalidLeaseState(
-          leaseId,
-          state,
-          BINDABLE_LEASE_STATES,
-          "bindToConnection",
-        ),
-      )
-    : Effect.void;
-}
-
-function bindLeaseToConnection(
-  state: LeaseRegistryState,
-  leaseId: LeaseId,
-  connId: ConnectionId,
-): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never> {
-  return Effect.gen(function* () {
-    const entry = yield* getExistingLeaseEntry(state, leaseId);
-    yield* rejectTerminalBinding(leaseId, entry.record.state);
-    if (entry.record.binding.recipientConnectionId === connId) return;
-    const next: LeaseRecord = {
-      ...entry.record,
-      binding: { ...entry.record.binding, recipientConnectionId: connId },
-    };
-    yield* replaceEntry(state, leaseId, { ...entry, record: next });
-  });
-}
-
-function emitReleaseForLease(
-  state: LeaseRegistryState,
-  leaseId: LeaseId,
-  verdict: LeaseVerdict,
-): Effect.Effect<void, never, never> {
-  return Effect.gen(function* () {
-    const entries = yield* Ref.get(state.entriesRef);
-    const entry = entries.get(leaseId);
-    if (!entry) return;
-    yield* emitDispatchRelease(state, entry.record, verdict);
-  });
-}
-
 function attachRoundTripFiberToLease(
   state: LeaseRegistryState,
   leaseId: LeaseId,
@@ -1136,6 +1088,14 @@ function expireLeaseOnDisconnect(
     if (ttlFiber) {
       yield* Fiber.interruptFork(ttlFiber);
     }
+    // Capture the pre-expire state to decide whether to fire the
+    // active-end observer call. The disconnect-driven expiry handles
+    // GRANTED (active set) AND CLAIMED (also active); the presence
+    // service's connId-mismatch guard handles the fast-reconnect race so
+    // this callback is safe to fire even after the agent has reconnected
+    // on a new connId.
+    const wasActive =
+      entry.record.state === "GRANTED" || entry.record.state === "CLAIMED";
     const expiredAt = new Date().toISOString();
     const expiredRecord: LeaseRecord = {
       ...entry.record,
@@ -1149,6 +1109,13 @@ function expireLeaseOnDisconnect(
     });
     yield* emitDispatchesExpired(state, expiredRecord, expiredAt);
     yield* scheduleRetention(state, leaseId, expiredRecord.dispatchId);
+    if (wasActive) {
+      yield* state.deps.transitionObserver.onLeaseActiveEnd(
+        leaseId,
+        expiredRecord.binding.recipientAgentId,
+        expiredRecord.binding.recipientConnectionId,
+      );
+    }
   });
 }
 
@@ -1185,13 +1152,9 @@ function makeLeaseRegistryFromState(state: LeaseRegistryState): LeaseRegistry {
     resolve: (leaseId, verdict) => resolveLease(state, leaseId, verdict),
     claim: (leaseId) => claimLease(state, leaseId),
     read: (id) => readLease(state, id),
-    bindToConnection: (leaseId, connId) =>
-      bindLeaseToConnection(state, leaseId, connId),
     abandon: (connId) => abandonConnectionLeases(state, connId),
     attachRoundTripFiber: (leaseId, fiber) =>
       attachRoundTripFiberToLease(state, leaseId, fiber),
-    emitRelease: (leaseId, verdict) =>
-      emitReleaseForLease(state, leaseId, verdict),
   };
 }
 
