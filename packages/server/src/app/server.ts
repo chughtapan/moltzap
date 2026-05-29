@@ -177,6 +177,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const httpApp = makeCoreHttpApp({
     config,
     authService: services.authService,
+    appAuthService: services.appAuthService,
     connections: services.connections,
     handleSocket,
   });

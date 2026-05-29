@@ -5,10 +5,11 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import * as Socket from "@effect/platform/Socket";
-import { Cause, Data, Effect, Exit } from "effect";
+import { Cause, Data, Effect, Either, Exit } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import type { ParamsOf } from "@moltzap/protocol";
 import { Claim, Register } from "@moltzap/protocol";
+import { validateAppManifest, type AppManifest } from "@moltzap/protocol/app";
 import { AgentId, UserId } from "@moltzap/protocol/identity";
 
 import type { AppTags } from "../transport/layer-tags.js";
@@ -47,6 +48,7 @@ class HttpEarlyResponse extends Data.TaggedError("HttpEarlyResponse")<{
 interface CoreHttpAppOptions {
   readonly config: CoreConfig;
   readonly authService: ResolvedServices["authService"];
+  readonly appAuthService: ResolvedServices["appAuthService"];
   readonly connections: ResolvedServices["connections"];
   readonly handleSocket: (
     socket: Socket.Socket,
@@ -76,6 +78,7 @@ interface RegisterAgentSuccess {
  * | `/ws`                              | always                 | GET    | WS Upgrade                    | 101                                                          |
  * | `/api/v1/auth/register`            | `skipDefaultRegisterRoute` | POST | `Register.params`           | 201 `{agentId, apiKey, claimToken, claimUrl}`; 400/403/500   |
  * | `/api/v1/auth/claim`               | `skipDefaultRegisterRoute` | POST | `Claim.params`              | 200 (idempotent) / 201 (first); 401/403/500                  |
+ * | `/api/v1/apps/register`            | `skipDefaultRegisterRoute` | POST | `{ manifest, inviteCode? }` | 201 `{appId, appKey}`; 400/403/500                           |
  * | `/api/v1/admin/register-agent`     | only when `skipDefaultRegisterRoute=false` AND `registrationSecret` set | POST | superset of `Register.params` + `ownerUserId` | 200 (rotated) / 201 (new); 400/403/409/500 |
  *
  * All bodied routes funnel through `readValidatedBody` for JSON
@@ -92,6 +95,7 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions) {
   const healthRoute = makeHealthRoute(options.connections);
   const registerRoute = makeRegisterRoute(options);
   const claimRoute = makeClaimRoute(options);
+  const appsRegisterRoute = makeAppsRegisterRoute(options);
   const adminRoute = makeAdminRegisterAgentRoute(options);
   const wsRoute = makeWsRoute(options.handleSocket);
   if (options.config.skipDefaultRegisterRoute) {
@@ -106,6 +110,7 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions) {
         healthRoute,
         registerRoute,
         claimRoute,
+        appsRegisterRoute,
         adminRoute,
         wsRoute,
       ),
@@ -113,7 +118,13 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions) {
     );
   }
   return withCors(
-    HttpRouter.empty.pipe(healthRoute, registerRoute, claimRoute, wsRoute),
+    HttpRouter.empty.pipe(
+      healthRoute,
+      registerRoute,
+      claimRoute,
+      appsRegisterRoute,
+      wsRoute,
+    ),
     options.config.corsOrigins,
   );
 }
@@ -169,6 +180,58 @@ function makeClaimRoute(options: CoreHttpAppOptions) {
       }).pipe(Effect.withSpan("http.auth.claim")),
     ),
   );
+}
+
+/**
+ * D #705 CP9 — app-credential minting. The App-principal sibling of
+ * `/api/v1/auth/register`: an operator POSTs an `AppManifest` and receives
+ * the server-minted `{ appId, appKey }` exactly once (the `app_id` is issued
+ * by `gen_random_uuid()`, never client-controlled). The returned `appKey` is
+ * the credential an app client presents on the third Connect arm
+ * (`connect.handlers.ts → handleConnect`'s `appKey` branch), where implicit
+ * registration binds the live `AppConnection` as the app's moderator
+ * endpoint. There is no WS `apps/register` RPC — cross-principal registration
+ * (an agent connection registering an app) is the dissolved anti-pattern.
+ */
+function makeAppsRegisterRoute(options: CoreHttpAppOptions) {
+  return HttpRouter.post(
+    "/api/v1/apps/register",
+    handleEarlyResponse(
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const body = yield* readJsonRecord(request);
+        const manifest = yield* validateManifestBody(body["manifest"]);
+        yield* authorizeInviteCode(
+          extractInviteCode(body),
+          options.config.registrationSecret,
+        );
+        return yield* registerApp(manifest, options);
+      }).pipe(Effect.withSpan("http.apps.register")),
+    ),
+  );
+}
+
+function validateManifestBody(
+  raw: unknown,
+): Effect.Effect<AppManifest, HttpEarlyResponse> {
+  return Either.match(validateAppManifest(raw), {
+    onLeft: () => failResponse<AppManifest>(invalidParametersResponse()),
+    onRight: (manifest) => Effect.succeed(manifest),
+  });
+}
+
+function extractInviteCode(body: Record<string, unknown>): string | undefined {
+  const raw = body["inviteCode"];
+  return typeof raw === "string" ? raw : undefined;
+}
+
+function registerApp(manifest: AppManifest, options: CoreHttpAppOptions) {
+  return Effect.gen(function* () {
+    const { appId, appKey } = yield* options.appAuthService.registerApp({
+      manifest,
+    });
+    return jsonResponse({ appId, appKey }, HTTP_CREATED);
+  }).pipe(Effect.withSpan("http.registerApp"));
 }
 
 function makeAdminRegisterAgentRoute(options: CoreHttpAppOptions) {
