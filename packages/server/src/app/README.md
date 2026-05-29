@@ -23,6 +23,10 @@ dispatch lease registry now lives in `task/leases/`.)
 - `app-registration.ts` — app registration + remote-app connection
   binding.
 - `default-app.ts` — built-in unmoderated default app wiring.
+  Registers a HOOKLESS manifest with an inert endpoint; AppHost's
+  manifest-default fast-path serves every callback server-side
+  (`dispatch/authorize → grant`, `messages/authorize →
+  Forward{participants∖sender}`, `task/create → accept`).
 - `capability-providers.ts` — `serverCapabilityProviders` table
   (keyed by `Context.Tag.key`). File-level JSDoc covers the full
   R-channel capability pattern and the migration recipe for new
@@ -31,12 +35,6 @@ dispatch lease registry now lives in `task/leases/`.)
   register / claim, optional admin route.
 - `socket-handler.ts` — `makeSocketHandler` + `handleFrame`; the
   per-frame wrapper that runs the typed dispatcher.
-- `loopback-connection.ts` — test-only in-process `AppEndpoint`
-  builders (`makeLoopbackConnection` / `makeStubConnection`) for
-  AppHost unit tests that exercise the hook-declaring dispatch path.
-  The boot-installed default app no longer uses it: its hookless
-  manifest routes every callback through AppHost's manifest-default
-  fast-path (see `default-app.ts`).
 - `conversation-app-lookup.ts` — derives a conversation's
   app-binding (the `app_id IS NULL` discriminator) for
   `messages/authorize` routing.
