@@ -5,14 +5,14 @@
  * relies on.
  *
  * Phase 12 S8a: server-side encapsulation. The Refs that previously
- * lived on `MoltZapConnection` (`appCallbackPending`,
+ * lived on the connection (`appCallbackPending`,
  * `appCallbackRequestCounter`) are gone; their work is done inside the
  * connection's `Originator`. Tests verify cleanup invariants through
  * observable behavior (exit shape, late-response `resolve` returning
  * `false`) rather than by reading the pending map's size.
  *
- * The tests run against `MoltZapConnection` directly: no testcontainers,
- * no real WebSocket. The connection's `write` is a mock that records
+ * The tests run against a fake `{ originator }` directly: no testcontainers,
+ * no real WebSocket. The originator's `write` is a mock that records
  * outbound frames, and inbound responses are injected by calling
  * `conn.originator.resolve` directly. This keeps the round-trip a
  * pure-Effect test of the protocol primitive; wire integration is
@@ -36,7 +36,7 @@ import * as Socket from "@effect/platform/Socket";
 import {
   acquireConnectionRpcClient,
   sendRpcToClient,
-  type MoltZapConnection,
+  type Originator,
 } from "./connection.js";
 
 import {
@@ -45,9 +45,7 @@ import {
   DispatchAuthorize,
   encodeErrorResponse,
   type RequestFrame,
-  type ServerConnection,
 } from "@moltzap/protocol";
-import type { DispatchContext } from "./context.js";
 import {
   agentId,
   connectionId as makeConnectionId,
@@ -59,7 +57,6 @@ import {
 
 const it = effectIt.live;
 
-const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
 const TASK_ID = makeTaskId("11111111-1111-4111-8111-111111111111");
 const HAPPY_TASK_ID = makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const TIMEOUT_TASK_ID = makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
@@ -103,8 +100,16 @@ const authorizeDispatchParams = (text: string, taskId = TASK_ID) => ({
   attempt: 0,
 });
 
+/**
+ * Minimal fake connection: just the `{ originator }` the round-trip drives
+ * through. The legacy `MoltZapConnection` shape was deleted at CP4f.
+ */
+interface FakeConn {
+  readonly originator: Originator;
+}
+
 interface FakeConnSetup {
-  readonly conn: MoltZapConnection;
+  readonly conn: FakeConn;
   readonly outbound: Ref.Ref<ReadonlyArray<string>>;
 }
 
@@ -222,14 +227,14 @@ function writeFailureSurfacesNotConnected() {
         reason: "Write",
         cause: "simulated",
       });
-      const failingWrite: MoltZapConnection["write"] = () =>
+      const failingWrite = (): Effect.Effect<void, Socket.SocketError> =>
         Effect.fail(failingSocket);
       const writefailConnId = makeConnectionId("conn-writefail");
       const originator = yield* acquireConnectionRpcClient(
         writefailConnId,
         failingWrite,
       );
-      const conn = makeConnection(writefailConnId, failingWrite, originator);
+      const conn: FakeConn = { originator };
 
       const exit = yield* sendRpcToClient(
         conn.originator,
@@ -328,25 +333,8 @@ function timeoutDropsLateResponse() {
   );
 }
 
-function makeConnection(
-  id: import("@moltzap/protocol/network").ConnectionId,
-  write: MoltZapConnection["write"],
-  originator: ServerConnection<DispatchContext>,
-): MoltZapConnection {
-  return {
-    id,
-    write,
-    shutdown: noopShutdown,
-    auth: null,
-    lastPong: Date.now(),
-    conversationIds: new Set<string>(),
-    mutedConversations: new Set<string>(),
-    originator,
-  };
-}
-
 /**
- * Build a `MoltZapConnection` whose `write` records outbound frames into a
+ * Build a fake `{ originator }` whose `write` records outbound frames into a
  * Ref. Caller can inspect the captured frame, then synthesize the matching
  * inbound response via `conn.originator.resolve`.
  */
@@ -355,10 +343,10 @@ const makeFakeConnection = (
 ): Effect.Effect<FakeConnSetup, never, Scope.Scope> =>
   Effect.gen(function* () {
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
-    const write: MoltZapConnection["write"] = (raw) =>
+    const write = (raw: string): Effect.Effect<void, Socket.SocketError> =>
       Ref.update(outbound, (xs) => [...xs, raw]);
     const originator = yield* acquireConnectionRpcClient(connId, write);
-    return { conn: makeConnection(connId, write, originator), outbound };
+    return { conn: { originator }, outbound };
   });
 
 function useFakeConnection<A, E>(
@@ -379,7 +367,7 @@ function createManualFakeConnection(
 }
 
 function forkDispatchAuthorize(
-  conn: MoltZapConnection,
+  conn: FakeConn,
   params: ReturnType<typeof authorizeDispatchParams>,
 ) {
   return Effect.fork(

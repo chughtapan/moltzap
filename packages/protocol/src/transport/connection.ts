@@ -129,9 +129,8 @@ interface InboundDispatch<Ctx, R = never> {
 
 /**
  * Stable identifier the surrounding transport assigns at acquisition.
- * Mirrors `MoltZapConnection.id` from `packages/server/src/transport/
- * connection.ts → MoltZapConnection` so impl-staff can replace that
- * shape with the new typed Connection without consumer churn at the
+ * Mirrors the server-side `Connection` arm's `connId`
+ * (`packages/server/src/transport/connection.ts → Connection`) at the
  * id-reading sites.
  */
 interface ConnectionIdentity {
