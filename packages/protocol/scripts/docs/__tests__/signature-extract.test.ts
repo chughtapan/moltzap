@@ -43,17 +43,17 @@ describe("extractSignatureText", () => {
 
   it("keeps the full body of a class declaration", () => {
     const source = [
-      "export class TmAuthority extends Context.Tag(",
-      '  "@moltzap/protocol/TmAuthority",',
-      ")<TmAuthority, TmAuthorityValue>() {}",
+      "export class AgentExists extends Context.Tag(",
+      '  "@moltzap/protocol/AgentExists",',
+      ")<AgentExists, AgentExistsValue>() {}",
       "",
     ].join("\n");
     const sig = extractSignatureText(source, 1, ReflectionKind.Class);
     expect(sig).toBe(
       [
-        "export class TmAuthority extends Context.Tag(",
-        '  "@moltzap/protocol/TmAuthority",',
-        ")<TmAuthority, TmAuthorityValue>() {}",
+        "export class AgentExists extends Context.Tag(",
+        '  "@moltzap/protocol/AgentExists",',
+        ")<AgentExists, AgentExistsValue>() {}",
       ].join("\n"),
     );
   });
