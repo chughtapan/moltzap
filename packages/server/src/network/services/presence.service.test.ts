@@ -19,10 +19,8 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { LeaseId } from "@moltzap/protocol";
 
-import {
-  ConnectionManager,
-  type MoltZapConnection,
-} from "../../transport/connection.js";
+import { ConnectionManager } from "../../transport/connection.js";
+import { seedUnauthenticatedConnection } from "../../transport/connection.test-utils.js";
 import { PresenceService } from "./presence.service.js";
 
 const it = effectIt.live;
@@ -43,20 +41,19 @@ interface Harness {
 function makeHarness(): Harness {
   const connections = new ConnectionManager();
   const sent: string[] = [];
-  const subscriberConn: MoltZapConnection = {
-    id: SUBSCRIBER,
-    write: (raw: string) =>
-      Effect.sync(() => {
-        sent.push(raw);
-      }),
-    shutdown: Effect.void,
-    auth: null,
-    lastPong: 0,
-    conversationIds: new Set(),
-    mutedConversations: new Set(),
-    originator: {} as MoltZapConnection["originator"],
-  };
-  connections.add(subscriberConn);
+  // The subscriber connection only RECEIVES the fan-out; an unauthenticated
+  // arm with a recording `socket.write` suffices (D #705 CP4e — fan-out reads
+  // the three-arm connectionsRef).
+  Effect.runSync(
+    seedUnauthenticatedConnection({
+      manager: connections,
+      connId: SUBSCRIBER,
+      write: (raw: string) =>
+        Effect.sync(() => {
+          sent.push(raw);
+        }),
+    }),
+  );
   return { connections, sent };
 }
 

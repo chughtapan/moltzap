@@ -8,7 +8,7 @@ import type { ConnectionId } from "@moltzap/protocol/network";
 
 import type {
   ConnectionManager,
-  MoltZapConnection,
+  WebSocketRef,
 } from "../../transport/connection.js";
 import {
   type AgentPresenceEntry,
@@ -259,7 +259,7 @@ function statusForAgent(
  * once per fork so every log inside the forked fiber inherits it.
  */
 function publishOneFrame(
-  conn: MoltZapConnection,
+  socket: WebSocketRef,
   raw: string,
   context: {
     readonly connId: ConnectionId;
@@ -268,7 +268,7 @@ function publishOneFrame(
   },
 ): void {
   Effect.runFork(
-    conn.write(raw).pipe(
+    socket.write(raw).pipe(
       Effect.catchAll((cause) =>
         Effect.logDebug("presence/changed fan-out write failed").pipe(
           Effect.annotateLogs({ cause }),
@@ -283,24 +283,27 @@ function publishOneFrame(
  * Send a `presence/changed` notification to every subscriber
  * connection. The subscriber set is snapshotted by the caller before
  * this runs, so concurrent `subscribe` / `removeConnection` mutations
- * cannot leak into the fan-out.
+ * cannot leak into the fan-out. Reads the three-arm `connectionsRef`
+ * (D #705 CP4e); the per-arm `socket.write` is the wire.
  */
 function fanOut(
   connections: ConnectionManager,
   agentId: AgentId,
   status: DerivedPresenceStatus,
   subscriberConnIds: ReadonlySet<ConnectionId>,
-): void {
-  if (subscriberConnIds.size === 0) return;
-  const raw = JSON.stringify(
-    PresenceChangedNotificationDefinition.encode({ agentId, status }),
-  );
-  for (const connId of subscriberConnIds) {
-    const conn = connections.get(connId);
-    if (conn !== undefined) {
-      publishOneFrame(conn, raw, { connId, agentId, status });
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    if (subscriberConnIds.size === 0) return;
+    const raw = JSON.stringify(
+      PresenceChangedNotificationDefinition.encode({ agentId, status }),
+    );
+    for (const connId of subscriberConnIds) {
+      const connOpt = yield* connections.peek(connId);
+      if (Option.isSome(connOpt)) {
+        publishOneFrame(connOpt.value.socket, raw, { connId, agentId, status });
+      }
     }
-  }
+  });
 }
 
 /**
@@ -484,11 +487,16 @@ export class PresenceService implements LeaseTransitionObserver {
     next: DerivedPresenceStatus,
     agentId: AgentId,
   ): Effect.Effect<void, never, never> {
-    return Effect.sync(() => {
+    return Effect.gen(this, function* () {
       const decision = emitPresenceTransition(previous, next);
       if (Option.isNone(decision)) return;
       const subscriberConnIds = new Set(this.getSubscribers(agentId));
-      fanOut(this.connections, agentId, decision.value, subscriberConnIds);
+      yield* fanOut(
+        this.connections,
+        agentId,
+        decision.value,
+        subscriberConnIds,
+      );
     });
   }
 

@@ -25,6 +25,27 @@ export const unusedOriginator = (): ServerConnection<DispatchContext> => ({
 });
 
 /**
+ * D #705 CP4e — seed an UNAUTHENTICATED-arm connection into a
+ * `ConnectionManager`'s three-arm `connectionsRef`. The minted arm's
+ * `socket.write` is the `write` passed here. Used by fan-out tests that only
+ * need a connection to RECEIVE frames (presence subscribers), where the
+ * principal arm is irrelevant.
+ */
+export const seedUnauthenticatedConnection = (args: {
+  readonly manager: ConnectionManager;
+  readonly connId: ConnectionId;
+  readonly write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+  readonly shutdown?: Effect.Effect<void>;
+}): Effect.Effect<void> =>
+  args.manager
+    .addUnauthenticated(
+      args.connId,
+      { write: args.write, shutdown: args.shutdown ?? Effect.void },
+      unusedOriginator(),
+    )
+    .pipe(Effect.withSpan("seedUnauthenticatedConnection"));
+
+/**
  * D #705 CP4e — seed an authenticated AGENT-arm connection into a
  * `ConnectionManager`'s three-arm `connectionsRef`. The arm constructors are
  * module-private, so tests construct arms through the sanctioned

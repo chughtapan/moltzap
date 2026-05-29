@@ -1,5 +1,5 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Data, Effect, Fiber, Ref } from "effect";
+import { Data, Effect, Fiber, Option, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type {
@@ -568,21 +568,26 @@ function writeFrame(
   connId: ConnectionId,
   raw: string,
 ): Effect.Effect<void, never, never> {
-  const conn = state.deps.connections.get(connId);
-  if (!conn) {
-    return Effect.logDebug(
-      "lease-registry: target connection gone; dropping notification",
-    ).pipe(Effect.annotateLogs({ connId }));
-  }
-  return conn
-    .write(raw)
-    .pipe(
-      Effect.catchAll((cause) =>
-        Effect.logWarning("lease-registry: socket write failed").pipe(
-          Effect.annotateLogs({ connId, cause: String(cause) }),
-        ),
-      ),
-    );
+  // D #705 CP4e — read the three-arm `connectionsRef`; the per-arm
+  // `socket.write` is the wire.
+  return state.deps.connections.peek(connId).pipe(
+    Effect.flatMap((connOpt) => {
+      if (Option.isNone(connOpt)) {
+        return Effect.logDebug(
+          "lease-registry: target connection gone; dropping notification",
+        ).pipe(Effect.annotateLogs({ connId }));
+      }
+      return connOpt.value.socket
+        .write(raw)
+        .pipe(
+          Effect.catchAll((cause) =>
+            Effect.logWarning("lease-registry: socket write failed").pipe(
+              Effect.annotateLogs({ connId, cause: String(cause) }),
+            ),
+          ),
+        );
+    }),
+  );
 }
 
 function emitDispatchRelease(
