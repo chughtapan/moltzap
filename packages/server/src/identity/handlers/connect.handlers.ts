@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect, Match, Option } from "effect";
 import {
   PROTOCOL_VERSION,
   Connect,
@@ -10,9 +10,10 @@ import {
   type HelloOk,
   type ParamsOf,
 } from "@moltzap/protocol";
-import type {
-  AuthenticatedContext,
-  RpcMethodRegistry,
+import {
+  agentContextFromAuthenticated,
+  type AuthenticatedContext,
+  type RpcMethodRegistry,
 } from "../../transport/context.js";
 import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
@@ -180,6 +181,33 @@ function registerEndpointIfStillConnected(
   }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
 }
 
+/**
+ * D #705 CP4a EXPAND — mirror the legacy `conn.auth` mutation onto the
+ * three-arm `connectionsRef` via the immutable transition. The agent arm is
+ * minted from the resolved `AuthenticatedContext`; the app arm arrives in CP5
+ * (appKey Connect). All `TransitionOutcome` arms are matched exhaustively.
+ * `not-connected` is a benign race (the close handler removed the entry);
+ * `already-connected` mirrors the legacy re-auth no-op (a fresh `HelloOk`).
+ */
+function mirrorAgentArmTransition(
+  connections: ConnectionManager,
+  connId: ConnectionId,
+  auth: AuthenticatedContext,
+): Effect.Effect<void> {
+  return agentContextFromAuthenticated(auth).pipe(
+    Effect.flatMap((agentCtx) => connections.authenticate(connId, agentCtx)),
+    Effect.flatMap((outcome) =>
+      Match.value(outcome).pipe(
+        Match.when({ kind: "ok-agent" }, () => Effect.void),
+        Match.when({ kind: "ok-app" }, () => Effect.void),
+        Match.when({ kind: "already-connected" }, () => Effect.void),
+        Match.when({ kind: "not-connected" }, () => Effect.void),
+        Match.exhaustive,
+      ),
+    ),
+  );
+}
+
 function handleConnect(params: ConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
@@ -221,6 +249,7 @@ function handleConnect(params: ConnectParams) {
         db,
       );
       conn.auth = auth;
+      yield* mirrorAgentArmTransition(connections, conn.id, auth);
       yield* hydrateConnectionState(conn, auth, conversationService, db);
       yield* registerEndpointIfStillConnected(
         connections,

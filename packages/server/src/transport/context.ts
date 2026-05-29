@@ -42,6 +42,47 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
   readonly appId: AppId;
 }> {}
 
+/**
+ * D #705 CP4a — narrow the legacy `AuthenticatedContext` (carrying
+ * `agentStatus: string`) to the closed-union `AgentContext` arm used by the
+ * three-arm `connectionsRef`. The `agent_status` SQL enum constrains the
+ * stored value to exactly the {@link AgentStatus} members, so a value outside
+ * the union is an impossible-state defect (`Effect.die`), not a
+ * caller-actionable error.
+ *
+ * Transitional: deleted at the CP4 cutover once the Connect path mints the
+ * `AgentContext` arm directly (no `AuthenticatedContext` intermediary).
+ */
+export function agentContextFromAuthenticated(
+  auth: AuthenticatedContext,
+): Effect.Effect<AgentContext> {
+  return narrowAgentStatus(auth.agentStatus).pipe(
+    Effect.map(
+      (agentStatus) =>
+        new AgentContext({
+          agentId: auth.agentId,
+          agentStatus,
+          ownerUserId: auth.ownerUserId,
+        }),
+    ),
+  );
+}
+
+function narrowAgentStatus(status: string): Effect.Effect<AgentStatus> {
+  switch (status) {
+    case "active":
+    case "pending_claim":
+    case "suspended":
+      return Effect.succeed(status);
+    default:
+      return Effect.die(
+        new Error(
+          `agentContextFromAuthenticated: agent_status outside closed union: ${status}`,
+        ),
+      );
+  }
+}
+
 /** Per-request dispatch context handed to every RPC handler by the typed dispatcher. */
 export interface DispatchContext {
   readonly auth: AuthenticatedContext;
