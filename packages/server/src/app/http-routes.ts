@@ -120,12 +120,13 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions) {
 function makeHealthRoute(connections: ResolvedServices["connections"]) {
   return HttpRouter.get(
     "/health",
-    Effect.sync(() =>
-      HttpServerResponse.unsafeJson({
+    Effect.gen(function* () {
+      const connectionCount = yield* connections.currentSize();
+      return HttpServerResponse.unsafeJson({
         status: "ok",
-        connections: connections.size,
-      }),
-    ),
+        connections: connectionCount,
+      });
+    }),
   );
 }
 
