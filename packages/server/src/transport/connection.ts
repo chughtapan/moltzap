@@ -87,16 +87,20 @@ export function acquireConnectionRpcClient(
 }
 
 /**
- * Send an awaitable RPC from server → client over `connection`'s WebSocket.
+ * Send an awaitable RPC from server → client over `originator`'s WebSocket.
  *
- * Generic-narrowing wrapper around `connection.originator.call` that
- * constrains `D` to the task-callback RPC union — prevents accidental
- * dispatch of a client→server method on the appCallback channel.
+ * Generic-narrowing wrapper around `originator.call` that constrains `D` to
+ * the task-callback RPC union — prevents accidental dispatch of a
+ * client→server method on the appCallback channel. Takes the bare
+ * {@link Originator} surface (the only field a server→client RPC needs); the
+ * caller (`AppHost.callAppRpc`) sources it from the registered app's
+ * `AppEndpoint`, which is minted from the live `AppConnection` arm's
+ * `originator`.
  *
  * Caller controls timeout via `Effect.timeout` at the call site.
  */
 export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
-  connection: MoltZapConnection,
+  originator: Originator,
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError, never> {
@@ -104,9 +108,7 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   // `AnyServerRpcDefinition` bound; the cast widens to the originator's
   // generic constraint shape without losing the per-definition
   // narrowing the caller provides.
-  const call = connection.originator.call as <
-    D2 extends RpcDefinition<string, any, any>,
-  >(
+  const call = originator.call as <D2 extends RpcDefinition<string, any, any>>(
     definition: D2,
     params: ParamsOf<D2>,
   ) => Effect.Effect<ResultOf<D2>, RpcCallError>;

@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import type * as Socket from "@effect/platform/Socket";
 import type {
   AnyTaskCallbackRpcDefinition,
   ParamsOf,
@@ -7,7 +6,8 @@ import type {
   ResultOf,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
-import type { MoltZapConnection } from "../transport/connection.js";
+import type { AppEndpoint } from "./app-registration.js";
+import type { Originator } from "../transport/connection.js";
 
 /**
  * In-process handler for one task-callback RPC. The handler returns
@@ -30,15 +30,6 @@ export type LoopbackHandlers = {
   readonly [D in AnyTaskCallbackRpcDefinition as D["name"]]: LoopbackHandler<D>;
 };
 
-function defectingWrite(id: ConnectionId, label: string) {
-  return (_raw: string): Effect.Effect<void, Socket.SocketError> =>
-    Effect.die(
-      new Error(
-        `${label} connection ${id}: write is not implemented (use originator.call)`,
-      ),
-    );
-}
-
 function defectingOp(id: ConnectionId, label: string, op: string) {
   return Effect.die(
     new Error(
@@ -48,12 +39,12 @@ function defectingOp(id: ConnectionId, label: string, op: string) {
 }
 
 /**
- * Build a `MoltZapConnection` whose outbound `call` dispatches to
- * in-process handlers instead of going over a WebSocket. The
- * connection satisfies the same interface as a real WS connection so
- * `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape — the
- * difference between "in-process moderator" and "wire moderator" is
- * which factory built the connection, not how it's consumed.
+ * Build an {@link AppEndpoint} whose outbound `originator.call` dispatches to
+ * in-process handlers instead of going over a WebSocket. The endpoint
+ * satisfies the same `{ connId, originator }` shape a wire-registered app's
+ * arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape
+ * — the difference between "in-process moderator" and "wire moderator" is
+ * which factory built the endpoint, not how it's consumed.
  *
  * Loopback-specific behavior:
  *   - `originator.call(D, params)` indexes `handlers` by `D.name`. The
@@ -66,12 +57,11 @@ function defectingOp(id: ConnectionId, label: string, op: string) {
  *   - `originator.handle` / `originator.resolve` defect — a loopback
  *     never receives inbound frames; if anyone calls these, it's a
  *     wiring bug that should crash the server immediately.
- *   - `write` / `shutdown` are similarly defects / inert.
  */
 export function makeLoopbackConnection(args: {
   readonly id: ConnectionId;
   readonly handlers: LoopbackHandlers;
-}): MoltZapConnection {
+}): AppEndpoint {
   const call = <D extends AnyTaskCallbackRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
@@ -83,13 +73,7 @@ export function makeLoopbackConnection(args: {
   };
 
   return {
-    id: args.id,
-    write: defectingWrite(args.id, "loopback"),
-    shutdown: Effect.void,
-    auth: null,
-    lastPong: Date.now(),
-    conversationIds: new Set<string>(),
-    mutedConversations: new Set<string>(),
+    connId: args.id,
     originator: {
       id: args.id,
       call,
@@ -97,12 +81,12 @@ export function makeLoopbackConnection(args: {
       failAllPending: () => Effect.void,
       handle: () => defectingOp(args.id, "loopback", "originator.handle"),
       resolve: () => defectingOp(args.id, "loopback", "originator.resolve"),
-    } as MoltZapConnection["originator"],
+    } as Originator,
   };
 }
 
 /**
- * Minimal `MoltZapConnection` for tests that only assert the
+ * Minimal {@link AppEndpoint} for tests that only assert the
  * registration surface (id-equality via `isAppConnection`,
  * unregister-side effects, etc.). Every dispatch method defects —
  * tests that actually drive `runMessageAuthorize` /
@@ -120,18 +104,12 @@ export function makeStubConnection(args: {
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, RpcCallError>;
-}): MoltZapConnection {
+}): AppEndpoint {
   const call =
     args.originatorCall ??
     (() => defectingOp(args.id, "stub", "originator.call"));
   return {
-    id: args.id,
-    write: defectingWrite(args.id, "stub"),
-    shutdown: Effect.void,
-    auth: null,
-    lastPong: Date.now(),
-    conversationIds: new Set<string>(),
-    mutedConversations: new Set<string>(),
+    connId: args.id,
     originator: {
       id: args.id,
       call,
@@ -139,6 +117,6 @@ export function makeStubConnection(args: {
       failAllPending: () => Effect.void,
       handle: () => defectingOp(args.id, "stub", "originator.handle"),
       resolve: () => defectingOp(args.id, "stub", "originator.resolve"),
-    } as MoltZapConnection["originator"],
+    } as Originator,
   };
 }

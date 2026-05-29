@@ -6,7 +6,7 @@ import {
   ForbiddenError,
 } from "@moltzap/protocol";
 import { Effect } from "effect";
-import { AppHostTag, ConnectionManagerTag, ConnectionTag } from "../layers.js";
+import { AppHostTag, ConnectionTag } from "../layers.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
 
@@ -25,21 +25,14 @@ export const appHandlers: RpcMethodRegistry = [
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
         const connection = yield* ConnectionTag;
-        // D #705 CP4d transitional — `AppRegistration` still carries the
-        // legacy `MoltZapConnection` (its `default-app` loopback shape
-        // migrates in CP8). Resolve it from the dual-populated legacy map
-        // by the arm's `connId`; the bridge is deleted when CP5/CP8
-        // re-shape `AppRegistration` around the `Connection` arm.
-        const connections = yield* ConnectionManagerTag;
-        const legacyConn = connections.get(connection.connId);
-        if (legacyConn === undefined) {
-          return yield* Effect.fail(
-            new ForbiddenError({
-              message: `App ${params.manifest.appId} connection is no longer live`,
-            }),
-          );
-        }
-        const ok = appHost.registerApp(params.manifest, legacyConn);
+        // D #705 CP4f — mint the `AppEndpoint` straight off the live
+        // `Connection` arm (`{ connId, originator }` are `ConnectionBase`
+        // fields on every arm). The legacy-map bridge is gone — the arm IS
+        // the dispatch surface `AppHost` registers.
+        const ok = appHost.registerApp(params.manifest, {
+          connId: connection.connId,
+          originator: connection.originator,
+        });
         if (!ok) {
           return yield* Effect.fail(
             new ForbiddenError({

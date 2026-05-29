@@ -23,7 +23,7 @@ const DEFAULT_APP_CONNECTION_ID = Value.Decode(
 
 /**
  * Boot-time installation of the default app. Wires a loopback
- * `MoltZapConnection` whose `originator.call` dispatches in-process
+ * `AppEndpoint` whose `originator.call` dispatches in-process
  * — from AppHost's perspective this is identical to a wire-registered
  * app. The two task-callback handlers:
  *
@@ -40,7 +40,7 @@ export function installDefaultApp(
   appHost: AppHost,
   conversation: ConversationServiceForAppHost,
 ): void {
-  const connection = makeLoopbackConnection({
+  const endpoint = makeLoopbackConnection({
     id: DEFAULT_APP_CONNECTION_ID,
     handlers: {
       [DispatchAuthorize.name]: () =>
@@ -66,5 +66,5 @@ export function installDefaultApp(
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
   });
-  appHost.registerApp({ appId: DEFAULT_APP_ID, name: "Default" }, connection);
+  appHost.registerApp({ appId: DEFAULT_APP_ID, name: "Default" }, endpoint);
 }

@@ -20,6 +20,7 @@ import {
   type JsonRpcId,
 } from "@moltzap/protocol";
 import { makeStubConnection } from "./loopback-connection.js";
+import type { AppEndpoint } from "./app-registration.js";
 import {
   agentId,
   appId as makeAppId,
@@ -85,16 +86,16 @@ const makeFakeConnection = (
     return { conn, outbound };
   });
 
-const stubConnection = (connId: ConnectionId): MoltZapConnection =>
+const stubConnection = (connId: ConnectionId): AppEndpoint =>
   makeStubConnection({ id: connId });
 
 /**
- * Stub connection whose `originator.call` always fails with
+ * Stub endpoint whose `originator.call` always fails with
  * `NotConnectedError`. Mimics the "registration outlives its
  * connection" scenario (e.g., the WS dropped after AppsRegister
  * succeeded but before the cleanup finalizer ran).
  */
-const staleConnection = (connId: ConnectionId): MoltZapConnection =>
+const staleConnection = (connId: ConnectionId): AppEndpoint =>
   makeStubConnection({
     id: connId,
     originatorCall: () =>
@@ -297,7 +298,10 @@ function makeRemoteFixture(connectionId: ConnectionId, manifest: AppManifest) {
       scope,
     );
     fixture.connections.add(conn);
-    fixture.host.registerApp(manifest, conn);
+    fixture.host.registerApp(manifest, {
+      connId: conn.id,
+      originator: conn.originator,
+    });
     return { ...fixture, conn, outbound, scope };
   }).pipe(Effect.withSpan("appHostTest.makeRemoteFixture"));
 }
