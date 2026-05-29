@@ -45,8 +45,13 @@ export const taskRpcMethods = [
   TaskConversationRemoveParticipant,
 ] as const;
 
-// Spec D3 R11 — per-kind subsets of the surviving task layer.
-export const nonTmAuthorityTaskRpcMethods = [
+// Spec D3 R11 — per-kind subsets of the surviving task layer. The
+// `agentCallable` / `appCallable` split is the OUTBOUND client catalog
+// partition: which task RPCs a `MoltZapAgentClient` may originate vs which
+// an app/TM client may. (Renamed from `nonTmAuthority` / `tmOnly` under
+// D #705 Decision 1 — the `TmAuthority` capability is dissolved; the
+// partition survives, the names no longer encode the dissolved capability.)
+export const agentCallableTaskRpcMethods = [
   TaskRequest,
   TaskList,
   TaskLeave,
@@ -54,7 +59,7 @@ export const nonTmAuthorityTaskRpcMethods = [
   MessagesList,
 ] as const;
 
-export const tmOnlyTaskRpcMethods = [
+export const appCallableTaskRpcMethods = [
   TaskClose,
   TaskAddParticipant,
   TaskRemoveParticipant,

@@ -40,7 +40,7 @@ _Variable_
 export const agentClientRpcMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
-  ...nonTmAuthorityTaskRpcMethods,
+  ...agentCallableTaskRpcMethods,
   ...appRpcMethods,
 ] as const
 ```
@@ -564,7 +564,7 @@ export type RegisteredTaggedError =
 export const agentClientRpcMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
-  ...nonTmAuthorityTaskRpcMethods,
+  ...agentCallableTaskRpcMethods,
   ...appRpcMethods,
 ] as const;
 ```
@@ -607,7 +607,7 @@ _Variable_
 ```ts
 export const taskMasterRpcMethods = [
   ...agentClientRpcMethods,
-  ...tmOnlyTaskRpcMethods,
+  ...appCallableTaskRpcMethods,
 ] as const
 ```
 

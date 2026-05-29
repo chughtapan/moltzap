@@ -23,8 +23,8 @@ import {
   ConversationArchivedError,
   ConversationFullError,
   HookBlockedError,
-  nonTmAuthorityTaskRpcMethods,
-  tmOnlyTaskRpcMethods,
+  agentCallableTaskRpcMethods,
+  appCallableTaskRpcMethods,
 } from "./task/methods.js";
 import {
   appRpcMethods,
@@ -98,13 +98,13 @@ export type RegisteredTaggedError =
 export const agentClientRpcMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
-  ...nonTmAuthorityTaskRpcMethods,
+  ...agentCallableTaskRpcMethods,
   ...appRpcMethods,
 ] as const;
 
 export const taskMasterRpcMethods = [
   ...agentClientRpcMethods,
-  ...tmOnlyTaskRpcMethods,
+  ...appCallableTaskRpcMethods,
 ] as const;
 
 export const serverRpcMethods = [
