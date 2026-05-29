@@ -191,7 +191,7 @@ Build the TM dispatcher. Wires both the inbound dispatch loop
 REQUIRED: callers must register a handler for each catalog method;
 vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
-### [`CapabilitiesOf`](./capabilities.ts#L76)
+### [`CapabilitiesOf`](./capabilities.ts#L107)
 
 _TypeAlias_
 
@@ -206,7 +206,7 @@ via `D["capabilities"][number]["tag"]`. When `D["capabilities"]` is
 absent (the spec F stub state, before impl-staff per-method updates),
 resolves to `never` — the slot contributes no capability requirements.
 
-### [`CapabilityDescriptor`](./capabilities.ts#L35)
+### [`CapabilityDescriptor`](./capabilities.ts#L66)
 
 _Interface_
 
@@ -217,7 +217,7 @@ export interface CapabilityDescriptor {
 }
 ```
 
-### [`CapabilityProviderTable`](./capabilities.ts#L56)
+### [`CapabilityProviderTable`](./capabilities.ts#L87)
 
 _TypeAlias_
 
@@ -472,6 +472,43 @@ string can never accidentally type-fit a method position. See
 
 Sibling: defineNotification — same pipeline minus the
 result schema and response encoder.
+
+### [`DispatchAuth`](./capabilities.ts#L27)
+
+_TypeAlias_
+
+```ts
+export type DispatchAuth =
+  | { readonly _tag: "AgentContext"; readonly agentId: AgentId }
+```
+
+Protocol-owned principal union read by `argsOf` resolvers (D #705
+Decision 2). Tagged so a resolver narrows app-arm vs agent-arm before
+reading `appId` / `agentId`. The server's `AppContext` / `AgentContext`
+(`@moltzap/server-core` `transport/context.ts`) satisfy this
+structurally — their `_tag` / `agentId` / `appId` use these same
+protocol-owned brands — so the descriptor type can name the principal
+without protocol importing server.
+
+### [`DispatchContext`](./capabilities.ts#L39)
+
+_Interface_
+
+```ts
+export interface DispatchContext {
+  readonly connection: {
+    readonly connId: ConnectionId;
+    readonly auth: DispatchAuth;
+  };
+}
+```
+
+Per-request context handed to every `argsOf` resolver (D #705 Decision
+2). Uniform across all methods (independent of the wire method string),
+so — unlike `params` — it is compiler-typeable. Replaces the prior
+`ctx: unknown` + per-site `ctx as ...` casts. The `connection.connId`
+field matches the server's three-arm `Connection` arm `connId`; the
+`connection.auth` tagged union mirrors the principal arms.
 
 ### [`encodeErrorResponse`](./wire.ts#L225)
 

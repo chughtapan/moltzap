@@ -86,6 +86,8 @@ export type {
   CapabilityDescriptor,
   CapabilityProviderTable,
   CapabilitiesOf,
+  DispatchAuth,
+  DispatchContext,
 } from "./capabilities.js";
 export type {
   HandlerSlot,
