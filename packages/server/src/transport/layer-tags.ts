@@ -34,6 +34,7 @@ import type {
   ConnectionTag,
   DbTag,
   AuthServiceTag,
+  AppAuthServiceTag,
   AgentEndpointResolverTag,
   ConnectionManagerTag,
   NetworkSendServiceTag,
@@ -98,12 +99,13 @@ export type NetworkTags =
 /**
  * Task-layer allowlist: conversations, messages, tasks.
  * Includes `LeaseRegistryTag` (admission gate for `messages/send`
- * dispatch leases — yielded by `messages.handlers.ts`) and
- * `SessionValidatorTag` (yielded by the Connect handler at
- * `identity/handlers/connect.handlers.ts`). The Connect handler runs
- * at task-tier because its body pulls cross-cutting services
- * spanning network (connections, presence) AND task (conversation
- * resolution for presence fan-out).
+ * dispatch leases — yielded by `messages.handlers.ts`),
+ * `SessionValidatorTag` AND `AppAuthServiceTag` (both yielded by the
+ * Connect handler at `identity/handlers/connect.handlers.ts` — the
+ * latter on the CP5 `appKey` arm). The Connect handler runs at
+ * task-tier because its body pulls cross-cutting services spanning
+ * network (connections, presence) AND task (conversation resolution
+ * for presence fan-out).
  */
 export type TaskTags =
   | NetworkTags
@@ -112,7 +114,8 @@ export type TaskTags =
   | TaskServiceTag
   | ContactsServiceTag
   | LeaseRegistryTag
-  | SessionValidatorTag;
+  | SessionValidatorTag
+  | AppAuthServiceTag;
 
 /**
  * App-layer allowlist: `apps.handlers.ts` (registration + dispatch

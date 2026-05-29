@@ -12,12 +12,14 @@ import {
 } from "@moltzap/protocol";
 import {
   agentContextFromAuthenticated,
+  AppContext,
   type AuthenticatedContext,
   type RpcMethodRegistry,
 } from "../../transport/context.js";
 import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   AgentEndpointResolverTag,
+  AppAuthServiceTag,
   AuthServiceTag,
   ConnectionTag,
   ConnectionManagerTag,
@@ -29,6 +31,7 @@ import {
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
+import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
 import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { Db } from "../../db/client.js";
@@ -142,7 +145,10 @@ function buildHelloOk(
 }
 
 function resolveAuthenticatedContext(
-  params: ConnectParams,
+  // The `appKey` arm is dispatched + returned early in `handleConnect`
+  // (CP5), so this agent-side resolver only ever sees the agent/session
+  // arms — narrow the parameter to exclude `appKey`.
+  params: Exclude<ConnectParams, { readonly appKey: string }>,
   authService: AuthService,
   sessionValidator: SessionValidator | null,
   db: Db,
@@ -151,6 +157,76 @@ function resolveAuthenticatedContext(
     return authenticateSession(params.sessionToken, sessionValidator, db);
   }
   return authenticateAgentKey(params.agentKey, authService);
+}
+
+/**
+ * D #705 CP5 — app-principal Connect builder. The `AppConnection` HelloOk
+ * carries NO `agentId` (apps have no agent identity) and skips agent-only
+ * hydration (conversation-id seeding, presence, endpoint registration). The
+ * server policy is shared with the agent path.
+ */
+function buildAppHelloOk(): HelloOk {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    policy: {
+      maxMessageBytes: 65536,
+      maxPartsPerMessage: 10,
+      maxTextLength: 32768,
+      maxGroupParticipants: 256,
+      heartbeatIntervalMs: 30000,
+      rateLimits: {
+        messagesPerMinute: 60,
+        requestsPerMinute: 120,
+      },
+    },
+  };
+}
+
+/**
+ * D #705 CP5 — resolve an `appKey` credential to its `AppContext`. A hash
+ * MISS (`null` from `authenticateApp`) surfaces a uniform
+ * `UnauthorizedError`; a corrupted manifest on a hash-matching row carries
+ * `UnauthorizedError`'s `manifest_corrupted` reason (set inside
+ * `authenticateApp`).
+ */
+function authenticateAppKey(
+  appKey: string,
+  appAuthService: AppAuthService,
+): Effect.Effect<AppContext, UnauthorizedError> {
+  return appAuthService.authenticateApp(appKey).pipe(
+    Effect.flatMap((resolved) =>
+      resolved === null
+        ? Effect.fail(
+            new UnauthorizedError({ message: "Authentication failed" }),
+          )
+        : Effect.succeed(resolved.auth),
+    ),
+    Effect.withSpan("connect.authenticateAppKey"),
+  );
+}
+
+/**
+ * D #705 CP5 — mint the `AppConnection` arm via the immutable transition.
+ * Mirrors {@link mirrorAgentArmTransition} for the app principal; all
+ * `TransitionOutcome` arms are matched exhaustively. `not-connected` is a
+ * benign close race; `already-connected` is the re-auth no-op.
+ */
+function mirrorAppArmTransition(
+  connections: ConnectionManager,
+  connId: ConnectionId,
+  auth: AppContext,
+): Effect.Effect<void> {
+  return connections.authenticate(connId, auth).pipe(
+    Effect.flatMap((outcome) =>
+      Match.value(outcome).pipe(
+        Match.when({ kind: "ok-agent" }, () => Effect.void),
+        Match.when({ kind: "ok-app" }, () => Effect.void),
+        Match.when({ kind: "already-connected" }, () => Effect.void),
+        Match.when({ kind: "not-connected" }, () => Effect.void),
+        Match.exhaustive,
+      ),
+    ),
+  );
 }
 
 function hydrateConnectionState(
@@ -210,6 +286,51 @@ function mirrorAgentArmTransition(
   );
 }
 
+/**
+ * D #705 CP5 — agent/session post-auth flow. Resolves the credential to an
+ * `AgentContext`, mints the agent arm via the immutable transition, hydrates
+ * the conversation-id subscription set + agent-endpoint registration, then
+ * emits the agent-shaped `HelloOk`. Reached only for the non-`appKey` arms
+ * (the `appKey` arm returns early in {@link handleConnect}).
+ */
+function completeAgentConnect(
+  params: Exclude<ConnectParams, { readonly appKey: string }>,
+  connId: ConnectionId,
+) {
+  return Effect.gen(function* () {
+    const authService = yield* AuthServiceTag;
+    const conversationService = yield* ConversationServiceTag;
+    const presenceService = yield* PresenceServiceTag;
+    const connections = yield* ConnectionManagerTag;
+    const agentEndpointResolver = yield* AgentEndpointResolverTag;
+    const db = yield* DbTag;
+    const sessionValidator = yield* SessionValidatorTag;
+
+    const auth = yield* resolveAuthenticatedContext(
+      params,
+      authService,
+      sessionValidator,
+      db,
+    );
+    // The agent arm is minted by the immutable transition below; there is
+    // no longer a legacy `conn.auth` mutation (the arm IS the auth store).
+    yield* mirrorAgentArmTransition(connections, connId, auth);
+    yield* hydrateConnectionState(
+      connections,
+      connId,
+      auth,
+      conversationService,
+    );
+    yield* registerEndpointIfStillConnected(
+      connections,
+      agentEndpointResolver,
+      connId,
+      auth,
+    );
+    return yield* buildHelloOk(auth, connId, presenceService);
+  }).pipe(Effect.withSpan("connect.completeAgentConnect"));
+}
+
 function handleConnect(params: ConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
@@ -231,46 +352,36 @@ function handleConnect(params: ConnectParams) {
         ),
       );
 
-      const authService = yield* AuthServiceTag;
-      const conversationService = yield* ConversationServiceTag;
-      const presenceService = yield* PresenceServiceTag;
       const connections = yield* ConnectionManagerTag;
-      const agentEndpointResolver = yield* AgentEndpointResolverTag;
-      const db = yield* DbTag;
-      const sessionValidator = yield* SessionValidatorTag;
+      const appAuthService = yield* AppAuthServiceTag;
+      const presenceService = yield* PresenceServiceTag;
       const conn = yield* ConnectionTag;
 
-      // D #705 CP4d — Connect dispatches on the live arm. A re-Connect on an
-      // already-authenticated agent arm is an idempotent no-op that re-emits
-      // `HelloOk`; the agent arm's `AgentContext` is a structural
-      // `AuthenticatedContext`. The app arm has no agent identity and never
-      // reaches this re-Connect path (apps Connect via the appKey arm, CP5).
+      // D #705 CP4d/CP5 — Connect dispatches on the live arm. A re-Connect on
+      // an already-authenticated arm is an idempotent no-op that re-emits the
+      // arm-appropriate `HelloOk`: the agent arm re-hydrates its agent shape;
+      // the app arm re-emits the agentId-less app shape.
       if (conn._tag === "AgentConnection") {
         return yield* buildHelloOk(conn.auth, conn.connId, presenceService);
       }
+      if (conn._tag === "AppConnection") {
+        return buildAppHelloOk();
+      }
 
-      const auth = yield* resolveAuthenticatedContext(
-        params,
-        authService,
-        sessionValidator,
-        db,
-      );
-      // The agent arm is minted by the immutable transition below; there is
-      // no longer a legacy `conn.auth` mutation (the arm IS the auth store).
-      yield* mirrorAgentArmTransition(connections, conn.connId, auth);
-      yield* hydrateConnectionState(
-        connections,
-        conn.connId,
-        auth,
-        conversationService,
-      );
-      yield* registerEndpointIfStillConnected(
-        connections,
-        agentEndpointResolver,
-        conn.connId,
-        auth,
-      );
-      return yield* buildHelloOk(auth, conn.connId, presenceService);
+      // D #705 CP5 — structural credential dispatch over the Connect params
+      // union. The `appKey` arm mints an `AppConnection` (no agent identity,
+      // no conversation/presence hydration); the agent/session arms run the
+      // full agent-side hydration in `completeAgentConnect`.
+      if ("appKey" in params) {
+        const appAuth = yield* authenticateAppKey(
+          params.appKey,
+          appAuthService,
+        );
+        yield* mirrorAppArmTransition(connections, conn.connId, appAuth);
+        return buildAppHelloOk();
+      }
+
+      return yield* completeAgentConnect(params, conn.connId);
     }).pipe(Effect.withSpan("network.connect")),
   );
 }

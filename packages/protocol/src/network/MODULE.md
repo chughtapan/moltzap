@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so the
 optionality is collapsed here.
 
-### [`Connect`](./methods.ts#L63)
+### [`Connect`](./methods.ts#L70)
 
 _Variable_
 
@@ -54,6 +54,18 @@ export const Connect = defineRpc({
     Type.Object(
       {
         sessionToken: Type.String(),
+        minProtocol: Type.String(),
+        maxProtocol: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+    // D #705 CP5 — app-principal Connect arm. The `appKey` credential
+    // (prefix `moltzap_app_`) resolves to an `AppContext` via
+    // `AppAuthService.authenticateApp`; the handler dispatches
+    // structurally on `"appKey" in params` and mints an `AppConnection`.
+    Type.Object(
+      {
+        appKey: Type.String(),
         minProtocol: Type.String(),
         maxProtocol: Type.String(),
       },
@@ -112,7 +124,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L86)
+### [`HelloOk`](./methods.ts#L105)
 
 _TypeAlias_
 
@@ -120,7 +132,7 @@ _TypeAlias_
 export type HelloOk = Static<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L210)
+### [`networkNotifications`](./methods.ts#L229)
 
 _Variable_
 
@@ -130,7 +142,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L155)
+### [`NetworkPing`](./methods.ts#L174)
 
 _Variable_
 
@@ -144,7 +156,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L204)
+### [`networkRpcMethods`](./methods.ts#L223)
 
 _Variable_
 
@@ -156,7 +168,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L199)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L218)
 
 _Variable_
 
@@ -171,7 +183,7 @@ Pushed when a subscribed participant's presence status changes.
 Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
 connect/disconnect; there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L174)
+### [`PresenceSubscribe`](./methods.ts#L193)
 
 _Variable_
 
@@ -192,7 +204,7 @@ export const PresenceSubscribe = defineRpc({
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`ProtocolMismatchError`](./methods.ts#L135)
+### [`ProtocolMismatchError`](./methods.ts#L154)
 
 _Class_
 
@@ -250,7 +262,7 @@ serialization to the JSON-RPC envelope still happens via
 value); the concrete shape at the class level is purely a TS-side
 narrowing.
 
-### [`ProtocolMismatchReason`](./methods.ts#L92)
+### [`ProtocolMismatchReason`](./methods.ts#L111)
 
 _TypeAlias_
 

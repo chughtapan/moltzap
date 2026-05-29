@@ -45,10 +45,17 @@ const PolicySchema = Type.Object(
   { additionalProperties: false },
 );
 
+// D #705 CP5 — `agentId` is OPTIONAL so the app-principal Connect arm
+// (appKey credential) can return a HelloOk with no agent identity. The
+// agent/session arms still populate it; an `AppConnection` omits it
+// (apps have no `agentId`). The final-state collapse to an empty
+// `HelloOk` (v36 §4) lands with the client app-arm cutover (CP9); making
+// the field optional here is the additive expand step that keeps every
+// existing agent-side reader green.
 const HelloOkSchema = Type.Object(
   {
     protocolVersion: Type.String(),
-    agentId: AgentId,
+    agentId: Type.Optional(AgentId),
     policy: PolicySchema,
   },
   { additionalProperties: false },
@@ -74,6 +81,18 @@ export const Connect = defineRpc({
     Type.Object(
       {
         sessionToken: Type.String(),
+        minProtocol: Type.String(),
+        maxProtocol: Type.String(),
+      },
+      { additionalProperties: false },
+    ),
+    // D #705 CP5 — app-principal Connect arm. The `appKey` credential
+    // (prefix `moltzap_app_`) resolves to an `AppContext` via
+    // `AppAuthService.authenticateApp`; the handler dispatches
+    // structurally on `"appKey" in params` and mints an `AppConnection`.
+    Type.Object(
+      {
+        appKey: Type.String(),
         minProtocol: Type.String(),
         maxProtocol: Type.String(),
       },

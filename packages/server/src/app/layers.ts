@@ -88,12 +88,12 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
   AuthService
 >() {}
 
-// Module-private: the resolved service (`ResolvedServices.appAuthService`)
-// is the consumer surface. The Connect handler's `appKey` branch (D #705
-// Decision 4) reads `AppAuthService.authenticateApp` directly — the wire's
-// discriminated Connect params union IS the principal discriminator, so no
-// resolver sits between the wire and the auth services.
-class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
+// The Connect handler's `appKey` branch (D #705 CP5 / Decision 4) reads
+// `AppAuthService.authenticateApp` directly — the wire's discriminated
+// Connect params union IS the principal discriminator, so no resolver
+// sits between the wire and the auth services. Exported so
+// `connect.handlers.ts` can `yield* AppAuthServiceTag` on the app arm.
+export class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
   AppAuthServiceTag,
   AppAuthService
 >() {}
