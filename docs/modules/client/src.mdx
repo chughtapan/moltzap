@@ -791,7 +791,7 @@ callers compose failures and cancellation explicitly. (Phase -1
 vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
 to arena; consumers wanting Promise wrappers maintain their own.)
 
-### [`MoltZapTMClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/tm-client.ts#L294)
+### [`MoltZapTMClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/tm-client.ts#L307)
 
 _Class_
 
@@ -1145,6 +1145,19 @@ _Interface_
 export interface TMClientOptions {
   serverUrl: string;
   agentKey: string;
+
+  /**
+   * D #705 CP8 — app-principal credential. When set, the `network/connect`
+   * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
+   * instead of the `agentKey` arm, so the server mints an `AppConnection`
+   * and the HelloOk carries no `agentId`. Used by the boot orchestrator's
+   * self-connecting default-app client (`reconnectPolicy: "none"`); wire
+   * agent clients leave it unset and authenticate via `agentKey`. The two
+   * are mutually exclusive at the wire — the Connect params union is
+   * disjoint — so a configured `appKey` wins the handshake-credential
+   * selection in `awaitConnectAuth`.
+   */
+  appKey?: string;
 
   /**
    * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
