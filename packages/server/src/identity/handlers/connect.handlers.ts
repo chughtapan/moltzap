@@ -6,7 +6,9 @@ import {
   // regression tests can import it directly without an illegal seam
   // through this server-internal handler module.
   checkProtocolRange,
+  NotConnectedError,
   UnauthorizedError,
+  type AppManifest,
   type HelloOk,
   type ParamsOf,
 } from "@moltzap/protocol";
@@ -16,10 +18,11 @@ import {
   type AuthenticatedContext,
   type RpcMethodRegistry,
 } from "../../transport/context.js";
-import { defineTaskMethod } from "../../transport/define-layered-method.js";
+import { defineAppMethod } from "../../transport/define-layered-method.js";
 import {
   AgentEndpointResolverTag,
   AppAuthServiceTag,
+  AppHostTag,
   AuthServiceTag,
   ConnectionTag,
   ConnectionManagerTag,
@@ -41,7 +44,11 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
-import type { ConnectionManager } from "../../transport/connection.js";
+import type {
+  ConnectionManager,
+  Originator,
+} from "../../transport/connection.js";
+import type { AppHost } from "../../app/app-host.js";
 
 type ConnectParams = ParamsOf<typeof Connect>;
 
@@ -183,44 +190,114 @@ function buildAppHelloOk(): HelloOk {
 }
 
 /**
- * D #705 CP5 — resolve an `appKey` credential to its `AppContext`. A hash
- * MISS (`null` from `authenticateApp`) surfaces a uniform
- * `UnauthorizedError`; a corrupted manifest on a hash-matching row carries
- * `UnauthorizedError`'s `manifest_corrupted` reason (set inside
- * `authenticateApp`).
+ * D #705 CP5/CP8 — resolve an `appKey` credential to its `AppContext` AND its
+ * decoded `AppManifest` (sourced atomically from the same `authenticateApp`
+ * SQL row, so the implicit registration in {@link registerAppArmTransition}
+ * has NO post-auth `getManifest` failure surface). A hash MISS (`null` from
+ * `authenticateApp`) surfaces a uniform `UnauthorizedError`; a corrupted
+ * manifest on a hash-matching row carries `UnauthorizedError`'s
+ * `manifest_corrupted` reason (set inside `authenticateApp`).
  */
 function authenticateAppKey(
   appKey: string,
   appAuthService: AppAuthService,
-): Effect.Effect<AppContext, UnauthorizedError> {
+): Effect.Effect<
+  { auth: AppContext; manifest: AppManifest },
+  UnauthorizedError
+> {
   return appAuthService.authenticateApp(appKey).pipe(
     Effect.flatMap((resolved) =>
       resolved === null
         ? Effect.fail(
             new UnauthorizedError({ message: "Authentication failed" }),
           )
-        : Effect.succeed(resolved.auth),
+        : Effect.succeed({ auth: resolved.auth, manifest: resolved.manifest }),
     ),
     Effect.withSpan("connect.authenticateAppKey"),
   );
 }
 
 /**
- * D #705 CP5 — mint the `AppConnection` arm via the immutable transition.
- * Mirrors {@link mirrorAgentArmTransition} for the app principal; all
- * `TransitionOutcome` arms are matched exhaustively. `not-connected` is a
- * benign close race; `already-connected` is the re-auth no-op.
+ * D #705 CP8 STEP D + D.5 — register the freshly minted `AppConnection`'s
+ * `AppEndpoint` into `AppHost`/`AppRegistry`, then re-peek for a close race.
+ *
+ *   - STEP D: register `{ connId, originator }` off the live arm. A `false`
+ *     return (the registry rejects an overwrite — another live connection
+ *     already owns this appId) rolls the arm back + surfaces the uniform
+ *     `UnauthorizedError` (the appKey resolved but its slot is occupied).
+ *   - STEP D.5: a close that raced between the transition and the
+ *     registration leaves a stale registry entry; undo it via
+ *     `unregisterAppsForConnection` before failing `NotConnectedError`.
  */
-function mirrorAppArmTransition(
-  connections: ConnectionManager,
-  connId: ConnectionId,
-  auth: AppContext,
-): Effect.Effect<void> {
+function registerAppEndpoint(args: {
+  readonly connections: ConnectionManager;
+  readonly appHost: AppHost;
+  readonly manifest: AppManifest;
+  readonly authed: {
+    readonly connId: ConnectionId;
+    readonly originator: Originator;
+  };
+}): Effect.Effect<void, UnauthorizedError | NotConnectedError> {
+  const { connections, appHost, manifest, authed } = args;
+  const connId = authed.connId;
+  return Effect.gen(function* () {
+    const ok = appHost.registerApp(manifest, {
+      connId,
+      originator: authed.originator,
+    });
+    if (!ok) {
+      yield* connections.rollbackToUnauthenticated(connId);
+      return yield* Effect.fail(
+        new UnauthorizedError({
+          message: `App ${manifest.appId} already has an active connection`,
+        }),
+      );
+    }
+    const postCheck = yield* connections.peek(connId);
+    if (Option.isNone(postCheck) || postCheck.value._tag !== "AppConnection") {
+      appHost.unregisterAppsForConnection(connId);
+      return yield* Effect.fail(
+        new NotConnectedError({
+          message: "connection closed during Connect's app-arm registration",
+        }),
+      );
+    }
+  }).pipe(Effect.withSpan("connect.registerAppEndpoint"));
+}
+
+/**
+ * D #705 CP5/CP8 — mint the `AppConnection` arm via the immutable transition
+ * AND implicitly register its `AppEndpoint` into `AppHost`/`AppRegistry`
+ * (the v36 §3 Connect STEP D for the app arm). An app's routing surface is
+ * now minted from the live `AppConnection` arm on appKey Connect — there is
+ * no separate WS `apps/register` RPC. Mirrors {@link mirrorAgentArmTransition}
+ * for the app principal; all `TransitionOutcome` arms are matched exhaustively:
+ * `ok-app` registers the endpoint (see {@link registerAppEndpoint}); `ok-agent`
+ * is impossible here (we pass an `AppContext`) — `Effect.die`;
+ * `already-connected` is the re-auth no-op (HelloOk re-emitted upstream);
+ * `not-connected` is a benign close race.
+ */
+function registerAppArmTransition(args: {
+  readonly connections: ConnectionManager;
+  readonly appHost: AppHost;
+  readonly connId: ConnectionId;
+  readonly auth: AppContext;
+  readonly manifest: AppManifest;
+}): Effect.Effect<void, UnauthorizedError | NotConnectedError> {
+  const { connections, appHost, connId, auth, manifest } = args;
   return connections.authenticate(connId, auth).pipe(
     Effect.flatMap((outcome) =>
       Match.value(outcome).pipe(
-        Match.when({ kind: "ok-agent" }, () => Effect.void),
-        Match.when({ kind: "ok-app" }, () => Effect.void),
+        Match.when({ kind: "ok-app" }, ({ authed }) =>
+          registerAppEndpoint({ connections, appHost, manifest, authed }),
+        ),
+        Match.when({ kind: "ok-agent" }, () =>
+          Effect.die(
+            new Error(
+              "registerAppArmTransition: authenticate returned ok-agent for an AppContext",
+            ),
+          ),
+        ),
         Match.when({ kind: "already-connected" }, () => Effect.void),
         Match.when({ kind: "not-connected" }, () => Effect.void),
         Match.exhaustive,
@@ -354,6 +431,7 @@ function handleConnect(params: ConnectParams) {
 
       const connections = yield* ConnectionManagerTag;
       const appAuthService = yield* AppAuthServiceTag;
+      const appHost = yield* AppHostTag;
       const presenceService = yield* PresenceServiceTag;
       const conn = yield* ConnectionTag;
 
@@ -373,11 +451,17 @@ function handleConnect(params: ConnectParams) {
       // no conversation/presence hydration); the agent/session arms run the
       // full agent-side hydration in `completeAgentConnect`.
       if ("appKey" in params) {
-        const appAuth = yield* authenticateAppKey(
+        const { auth: appAuth, manifest } = yield* authenticateAppKey(
           params.appKey,
           appAuthService,
         );
-        yield* mirrorAppArmTransition(connections, conn.connId, appAuth);
+        yield* registerAppArmTransition({
+          connections,
+          appHost,
+          connId: conn.connId,
+          auth: appAuth,
+          manifest,
+        });
         return buildAppHelloOk();
       }
 
@@ -387,7 +471,11 @@ function handleConnect(params: ConnectParams) {
 }
 
 export const connectHandlers: RpcMethodRegistry = [
-  defineTaskMethod(Connect, {
+  // D #705 CP8 — Connect is bound at the APP layer: its `appKey` arm pulls
+  // `AppHostTag` to implicitly register the app's `AppEndpoint` off the live
+  // `AppConnection` arm (replacing the deleted WS `apps/register` RPC). The
+  // agent/session arms ride the same handler and yield no app-layer tags.
+  defineAppMethod(Connect, {
     handler: handleConnect,
   }),
 ];
