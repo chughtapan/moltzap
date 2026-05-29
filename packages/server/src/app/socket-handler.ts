@@ -87,11 +87,11 @@ interface SocketSession {
  *   HS->>RPC: acquireConnectionRpcClient(connId, write)
  *   Note over RPC: per-connection originator<br>scope-bound finalizer fails pending Deferreds with NotConnectedError
  *   RPC-->>HS: originator
- *   HS->>CM: connections.add{id, write, shutdown, auth null, originator, ...}
+ *   HS->>CM: connections.addUnauthenticated{connId, socket, originator}
  *   HS->>R: socket.runRaw — handleFrame
  *   Note over HS,R: Effect.raceFirst(reader, Deferred.await(closeRequested))<br>raceFirst, not race — abrupt close still runs onExit
  *   R-->>Cleanup: socket closes
- *   Note over Cleanup: if authCtx → presenceService.onAgentDisconnect(agentId, connId)<br>for hook of disconnectionHooks — runUserHook sequentially<br>agentEndpointResolver.remove(agentId, connId)<br>leaseRegistry.abandon(connId)<br>presenceService.removeConnection<br>connections.remove(connId)
+ *   Note over Cleanup: removed = connections.removeAndReturn(connId)<br>if AgentConnection → presenceService.onAgentDisconnect(agentId, connId)<br>for hook of disconnectionHooks — runUserHook sequentially<br>agentEndpointResolver.remove(agentId, connId)<br>leaseRegistry.abandon(connId)<br>presenceService.removeConnection<br>appHost.unregisterAppsForConnection(connId)
  * ```
  *
  * `Effect.raceFirst` (vs plain `race`) is load-bearing: an abrupt
@@ -129,21 +129,11 @@ function openSocketSession(
     const shutdown = Deferred.succeed(session.closeRequested, undefined).pipe(
       Effect.asVoid,
     );
-    options.services.connections.add({
-      id: session.connId,
-      write: session.write,
-      shutdown,
-      auth: null,
-      lastPong: Date.now(),
-      conversationIds: new Set(),
-      mutedConversations: new Set(),
-      originator: serverConn,
-    });
-    // D #705 CP4a EXPAND — dual-populate the three-arm `connectionsRef`
-    // alongside the legacy `connections` map. The `socket: WebSocketRef`
-    // arm carries the same write/shutdown surface the legacy entry holds.
-    // Both maps are kept in sync until the cutover phase deletes the
-    // legacy map + `MoltZapConnection`.
+    // D #705 — insert the fresh `UnauthenticatedConnection` arm into the
+    // three-arm `connectionsRef` (the only connections map; the legacy
+    // `MoltZapConnection` map was deleted at CP4f). The `socket: WebSocketRef`
+    // arm carries the write/shutdown surface; `Connect` promotes the arm to
+    // agent/app in place via `authenticate`.
     yield* options.services.connections.addUnauthenticated(
       session.connId,
       { write: session.write, shutdown },
@@ -458,10 +448,6 @@ function closeSocketSession(
     yield* options.services.leaseRegistry.abandon(session.connId);
     options.services.presenceService.removeConnection(session.connId);
     options.services.appHost.unregisterAppsForConnection(session.connId);
-    // Legacy `connections.remove` mirror — kept until the legacy map is
-    // deleted in CP4f (the dual-populated map still backs `registerApp`'s
-    // `MoltZapConnection` lookup and the claim dual-write).
-    options.services.connections.remove(session.connId);
     if (Exit.isFailure(exit)) {
       yield* Effect.logWarning("WebSocket error").pipe(
         Effect.annotateLogs({

@@ -8,7 +8,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentClientConnection`](./connection.ts#L162)
+### [`AgentClientConnection`](./connection.ts#L161)
 
 _Interface_
 
@@ -24,7 +24,7 @@ the full `serverRpcMethods` catalog. Outbound notifications: none
 `notify` method is typed `never`, which fails any call site. No
 inbound surface (the AgentClient kind's inbound catalog is empty).
 
-### [`AgentClientConnectionConfig`](./connection.ts#L229)
+### [`AgentClientConnectionConfig`](./connection.ts#L228)
 
 _Interface_
 
@@ -701,7 +701,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeAgentClientConnection`](./connection.ts#L280)
+### [`makeAgentClientConnection`](./connection.ts#L279)
 
 _Function_
 
@@ -729,7 +729,7 @@ export const makeOriginator = (config: {
 }): Effect.Effect<Originator, never, Scope.Scope>
 ```
 
-### [`makeServerConnection`](./connection.ts#L269)
+### [`makeServerConnection`](./connection.ts#L268)
 
 _Function_
 
@@ -751,7 +751,7 @@ Factory — server side. Delegates to `buildServerDispatcher`
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
-### [`makeTaskMasterConnection`](./connection.ts#L300)
+### [`makeTaskMasterConnection`](./connection.ts#L299)
 
 _Function_
 
@@ -1238,7 +1238,7 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`ServerConnection`](./connection.ts#L149)
+### [`ServerConnection`](./connection.ts#L148)
 
 _Interface_
 
@@ -1253,7 +1253,7 @@ are the full `AnyNotificationDefinition` set (the server originates
 delivery + lifecycle notifications). Inbound surface is the closed
 `serverRpcMethods` catalog, dispatched via the static `ServerHandlers` table.
 
-### [`ServerConnectionConfig`](./connection.ts#L210)
+### [`ServerConnectionConfig`](./connection.ts#L209)
 
 _Interface_
 
@@ -1312,7 +1312,7 @@ call into the server. LSP-anchored: the catalog is `serverRpcMethods` from
 `networkRpcMethods`, `taskRpcMethods`, and `appRpcMethods`. 42
 members at `227c398`.
 
-### [`TaskMasterConnection`](./connection.ts#L184)
+### [`TaskMasterConnection`](./connection.ts#L183)
 
 _Interface_
 
@@ -1329,7 +1329,7 @@ type level). Outbound notifications: none. Inbound surface is the
 sentinels), so vacuous-deny moderators must bind an explicit
 `ForbiddenError`-returning handler per catalog method.
 
-### [`TaskMasterConnectionConfig`](./connection.ts#L243)
+### [`TaskMasterConnectionConfig`](./connection.ts#L242)
 
 _Interface_
 

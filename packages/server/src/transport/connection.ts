@@ -16,39 +16,8 @@ import type { ConversationId } from "@moltzap/protocol/task";
 import {
   AgentContext,
   AppContext,
-  type AuthenticatedContext,
   type DispatchContext,
 } from "../transport/context.js";
-
-export interface MoltZapConnection {
-  id: ConnectionId;
-
-  /**
-   * Write a raw frame to this connection. Fails with SocketError on send
-   * failure or if the socket is already closed.
-   */
-  write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
-
-  /** Close this connection's scope, tearing down the underlying socket. */
-  shutdown: Effect.Effect<void>;
-  auth: AuthenticatedContext | null;
-  lastPong: number;
-  conversationIds: Set<string>;
-  mutedConversations: Set<string>;
-
-  /**
-   * Per-socket Spec F (#617) typed-dispatcher `ServerConnection`. Carries
-   * BOTH the inbound dispatcher (`handle` over the static
-   * `ServerHandlers&lt;DispatchContext>` table) AND the outbound originator
-   * (`call` / `notify` / `resolve` / `failAllPending`) for the
-   * server→client appCallback channel. Mints `srv-${connId}-N` request
-   * ids, tracks pending Deferreds, and fails every still-pending call
-   * with `NotConnectedError` when the surrounding scope closes. The
-   * per-conversation `sendRpcToClient` wrapper narrows the outbound call
-   * to `AnyTaskCallbackRpcDefinition`.
-   */
-  readonly originator: ServerConnection<DispatchContext>;
-}
 
 /**
  * Allocate a per-connection Spec F (#617) typed `ServerConnection` whose
@@ -116,27 +85,25 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
 }
 
 // ===========================================================================
-// D #705 §1.1 / §3 — three-arm discriminated-union connection state.
-//
-// Added ALONGSIDE the legacy `MoltZapConnection` surface above. The full
-// cutover (handlers consuming `AgentConnection` / `AppConnection` directly,
-// the connections map switching to this union as its only entry shape) lands
-// in a later phase; this phase introduces the types + sanctioned construction
-// methods so downstream phases compile against a published contract.
+// D #705 §1.1 / §3 — three-arm discriminated-union connection state. This IS
+// the connections map's only entry shape (the legacy `MoltZapConnection` was
+// deleted at CP4f). Handlers consume `AgentConnection` / `AppConnection` via
+// `ConnectionTag`; the sanctioned construction + transition surface
+// (`addUnauthenticated` / `authenticate` / `rollbackToUnauthenticated` /
+// `removeAndReturn`) is the only mutator of `connectionsRef`.
 // ===========================================================================
 
 /**
  * The outbound originator + inbound dispatcher carried by every connection.
  * Publicly constructible (via `acquireConnectionRpcClient` above); passed to
- * `ConnectionManager.add` as a primitive-equivalent parameter.
+ * `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
  */
 export type Originator = ServerConnection<DispatchContext>;
 
 /**
- * The per-connection socket handle. The write/shutdown surface the transport
- * already exposes on `MoltZapConnection`; lifted to a standalone public type
- * so `ConnectionManager.add` can take it as a constructible parameter without
- * accepting a `Connection`-arm value.
+ * The per-connection socket handle (write + shutdown). Lifted to a standalone
+ * public type so `ConnectionManager.addUnauthenticated` can take it as a
+ * constructible parameter without accepting a `Connection`-arm value.
  */
 export interface WebSocketRef {
   /**
@@ -209,7 +176,7 @@ class AppConnection extends Data.TaggedClass("AppConnection")<
 
 export type { UnauthenticatedConnection, AgentConnection, AppConnection };
 
-/** The three-arm connection state. Replaces `MoltZapConnection` at cutover. */
+/** The three-arm connection state — the connections map's only entry shape. */
 export type Connection =
   | UnauthenticatedConnection
   | AgentConnection
@@ -260,29 +227,16 @@ const mintAuthedArm = (
   );
 
 export class ConnectionManager {
-  private connections = new Map<ConnectionId, MoltZapConnection>();
-
   /**
    * D #705 §1.1 — the three-arm connections map. Module-private; the only
-   * mutators are `add` / `authenticate` / `rollbackToUnauthenticated` /
-   * `removeAndReturn` below. Lives alongside the legacy `connections` map
-   * during the additive phase; the cutover phase collapses the two.
+   * mutators are `addUnauthenticated` / `authenticate` /
+   * `rollbackToUnauthenticated` / `removeAndReturn` below. The legacy
+   * `MoltZapConnection` map it replaced was deleted at CP4f (no reader
+   * remained once `apps/register` minted its `AppEndpoint` off the live arm).
    */
   private readonly connectionsRef: Ref.Ref<
     HashMap.HashMap<ConnectionId, Connection>
   > = Effect.runSync(Ref.make(HashMap.empty<ConnectionId, Connection>()));
-
-  add(conn: MoltZapConnection): void {
-    this.connections.set(conn.id, conn);
-  }
-
-  remove(id: ConnectionId): void {
-    this.connections.delete(id);
-  }
-
-  get(id: ConnectionId): MoltZapConnection | undefined {
-    return this.connections.get(id);
-  }
 
   // =========================================================================
   // D #705 §5.2 — sanctioned construction + transition surface over the
@@ -294,11 +248,9 @@ export class ConnectionManager {
 
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
-   * at WS-open. The ONLY construction site for the unauth arm.
-   *
-   * Named `addUnauthenticated` during the additive phase to coexist with the
-   * legacy `add(conn: MoltZapConnection)`; the cutover phase deletes the
-   * legacy method and renames this to `add` (the §5.2 contract name).
+   * at WS-open. The ONLY construction site for the unauth arm. The
+   * `Connect`-handler `authenticate` transition promotes it to the agent/app
+   * arm in place.
    */
   addUnauthenticated(
     connId: ConnectionId,

@@ -3,9 +3,9 @@
  * plan §3.4). The dispatch helpers and registration paths exercised
  * here cover the single `dispatch/authorize` server→client round-trip.
  *
- * Tests run against `MoltZapConnection` directly (no testcontainers, no
- * real WS) so they stay pure-Effect — `TestClock`-drivable, no real
- * sleeps. The connection's `write` records outbound frames; the test
+ * Tests run against a fake wire `{ id, originator }` directly (no
+ * testcontainers, no real WS) so they stay pure-Effect — `TestClock`-drivable,
+ * no real sleeps. The originator's `write` records outbound frames; the test
  * synthesizes inbound responses by calling `conn.originator.resolve`
  * (the same path the server's read fiber uses).
  */
@@ -31,10 +31,11 @@ import {
   validateRequestFrame,
 } from "@moltzap/protocol/testing";
 import type { ConnectionId } from "@moltzap/protocol/network";
+import type * as Socket from "@effect/platform/Socket";
 import {
   acquireConnectionRpcClient,
   ConnectionManager,
-  type MoltZapConnection,
+  type Originator,
 } from "../transport/connection.js";
 import type { Db } from "../db/client.js";
 import { makeFakeService } from "../test-utils/fakes.js";
@@ -50,40 +51,39 @@ const liveIt = effectIt.live;
 // Test fixtures
 // ─────────────────────────────────────────────────────────────────────
 
-const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
+/**
+ * Minimal fake wire connection: the `{ id, originator }` the test registers
+ * (as an `AppEndpoint`) plus drives response synthesis through. The legacy
+ * `MoltZapConnection` shape was deleted at CP4f; the test never read anything
+ * else off it.
+ */
+interface FakeWireConn {
+  readonly id: ConnectionId;
+  readonly originator: Originator;
+}
 
 interface FakeConn {
-  readonly conn: MoltZapConnection;
+  readonly conn: FakeWireConn;
   readonly outbound: Ref.Ref<ReadonlyArray<string>>;
 }
 
 /**
- * Build a real {@link MoltZapConnection} whose `write` records outbound
- * frames into a Ref. Caller can `JSON.parse` the captured frame to get
- * the request id, then synthesize a matching response via
- * `conn.originator.resolve`. The Originator's Scope finalizer
- * fails every still-pending call with `NotConnectedError` when the
- * surrounding scope closes — close to drive the disconnect path.
+ * Build a real wire {@link Originator} whose `write` records outbound frames
+ * into a Ref. Caller can `JSON.parse` the captured frame to get the request
+ * id, then synthesize a matching response via `conn.originator.resolve`. The
+ * Originator's Scope finalizer fails every still-pending call with
+ * `NotConnectedError` when the surrounding scope closes — close to drive the
+ * disconnect path.
  */
 const makeFakeConnection = (
   connId: ConnectionId,
 ): Effect.Effect<FakeConn, never, Scope.Scope> =>
   Effect.gen(function* () {
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
-    const write: MoltZapConnection["write"] = (raw) =>
+    const write = (raw: string): Effect.Effect<void, Socket.SocketError> =>
       Ref.update(outbound, (xs) => [...xs, raw]);
     const originator = yield* acquireConnectionRpcClient(connId, write);
-    const conn: MoltZapConnection = {
-      id: connId,
-      write,
-      shutdown: noopShutdown,
-      auth: null,
-      lastPong: Date.now(),
-      conversationIds: new Set<string>(),
-      mutedConversations: new Set<string>(),
-      originator,
-    };
-    return { conn, outbound };
+    return { conn: { id: connId, originator }, outbound };
   });
 
 const stubConnection = (connId: ConnectionId): AppEndpoint =>
@@ -297,7 +297,6 @@ function makeRemoteFixture(connectionId: ConnectionId, manifest: AppManifest) {
       makeFakeConnection(connectionId),
       scope,
     );
-    fixture.connections.add(conn);
     fixture.host.registerApp(manifest, {
       connId: conn.id,
       originator: conn.originator,

@@ -44,9 +44,12 @@ void presenceService.getSubscribers;
 void presenceService.subscribe;
 void presenceService.removeConnection;
 
-// ── 2. ConnectionManager.get ────────────────────────────────────────
+// ── 2. ConnectionManager.peek ───────────────────────────────────────
+// D #705 CP4f — the legacy `get(id): MoltZapConnection` was deleted with the
+// legacy connections map; the live arm-aware lookup is `peek(connId)` over the
+// three-arm `connectionsRef`.
 declare const connections: ConnectionManager;
-void connections.get;
+void connections.peek;
 
 // ── 3. LeaseRegistryDeps shape ──────────────────────────────────────
 //
