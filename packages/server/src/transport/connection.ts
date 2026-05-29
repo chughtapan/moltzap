@@ -366,6 +366,24 @@ export class ConnectionManager {
   }
 
   /**
+   * Snapshot of every connection arm (§5.2). Replaces the legacy `all()`;
+   * callers iterate + discriminate on `_tag` (e.g. the shutdown loop reads
+   * `arm.socket.shutdown`).
+   */
+  allConnections(): Effect.Effect<readonly Connection[]> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => Array.from(HashMap.values(map))),
+    );
+  }
+
+  /** Current connection count (§5.2). Replaces the legacy `size` getter. */
+  currentSize(): Effect.Effect<number> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => HashMap.size(map)),
+    );
+  }
+
+  /**
    * Atomic per-connection authentication gate (§3 STEP C). Pattern-matches on
    * `auth._tag` ONCE to decide which arm to mint — the only surviving site of
    * that runtime check. Returns a split-per-arm `TransitionOutcome` so the

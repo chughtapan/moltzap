@@ -305,8 +305,8 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
   return Effect.gen(function* () {
     yield* services.messageService.close();
     services.appHost.destroy();
-    for (const conn of services.connections.all()) {
-      yield* conn.shutdown;
+    for (const conn of yield* services.connections.allConnections()) {
+      yield* conn.socket.shutdown;
     }
     yield* Effect.sleep(Duration.millis(SHUTDOWN_DRAIN_MS));
     yield* Scope.close(options.appScope, Exit.void);
