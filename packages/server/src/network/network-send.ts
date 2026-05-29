@@ -12,7 +12,7 @@
  * observability writes via {@link AppHost}'s remote-registration table
  * directly, not through here.
  */
-import { Brand, Data, Effect, Either, HashSet } from "effect";
+import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
@@ -111,9 +111,9 @@ export class NetworkSendService {
     return Effect.gen(this, function* () {
       const conns = yield* this.resolver.resolveAll(to);
       for (const candidate of HashSet.values(conns)) {
-        const conn = this.connections.get(candidate);
-        if (conn === undefined) continue;
-        yield* conn.write(payload).pipe(
+        const conn = yield* this.connections.peek(candidate);
+        if (Option.isNone(conn)) continue;
+        yield* conn.value.socket.write(payload).pipe(
           Effect.either,
           Effect.flatMap(
             Either.match({
@@ -171,8 +171,8 @@ export class NetworkSendService {
       const connIds = yield* this.resolver.resolveAll(target);
       let agentReached = false;
       for (const cid of HashSet.values(connIds)) {
-        if (!this.connectionCanReceive(cid, options)) continue;
-        this.forkBroadcastWrite({ cid, target, payload, options });
+        if (!(yield* this.connectionCanReceive(cid, options))) continue;
+        yield* this.forkBroadcastWrite({ cid, target, payload, options });
         agentReached = true;
       }
       return agentReached;
@@ -182,39 +182,48 @@ export class NetworkSendService {
   private connectionCanReceive(
     cid: ConnectionId,
     options: BroadcastOptions,
-  ): boolean {
-    if (
-      options.excludeConnectionId !== undefined &&
-      cid === options.excludeConnectionId
-    ) {
-      return false;
-    }
-    const conn = this.connections.get(cid);
-    if (conn === undefined || conn.auth === null) return false;
-    const conversationId = options.forConversation;
-    if (conversationId === undefined) return true;
-    return conn.conversationIds.has(conversationId);
+  ): Effect.Effect<boolean> {
+    return Effect.gen(this, function* () {
+      if (
+        options.excludeConnectionId !== undefined &&
+        cid === options.excludeConnectionId
+      ) {
+        return false;
+      }
+      const connOpt = yield* this.connections.peek(cid);
+      if (Option.isNone(connOpt)) return false;
+      const conn = connOpt.value;
+      // Only authenticated agent arms participate in conversation fan-out;
+      // unauthenticated and app arms have no `conversationIds` membership.
+      if (conn._tag !== "AgentConnection") return false;
+      const conversationId = options.forConversation;
+      if (conversationId === undefined) return true;
+      return conn.conversationIds.has(conversationId);
+    });
   }
 
-  private forkBroadcastWrite(write: BroadcastWrite): void {
-    const conn = this.connections.get(write.cid);
-    if (conn === undefined) return;
-    Effect.runFork(
-      conn.write(write.payload).pipe(
-        Effect.catchAll((cause) =>
-          Effect.logWarning("broadcast: socket write failed").pipe(
-            Effect.annotateLogs({
-              event: "broadcast.write_failed",
-              reason: "WriteFailed",
-              connId: write.cid,
-              agentId: write.target,
-              conversationId: write.options.forConversation,
-              messageId: write.options.messageId,
-              cause: String(cause),
-            }),
+  private forkBroadcastWrite(write: BroadcastWrite): Effect.Effect<void> {
+    return Effect.gen(this, function* () {
+      const connOpt = yield* this.connections.peek(write.cid);
+      if (Option.isNone(connOpt)) return;
+      const conn = connOpt.value;
+      Effect.runFork(
+        conn.socket.write(write.payload).pipe(
+          Effect.catchAll((cause) =>
+            Effect.logWarning("broadcast: socket write failed").pipe(
+              Effect.annotateLogs({
+                event: "broadcast.write_failed",
+                reason: "WriteFailed",
+                connId: write.cid,
+                agentId: write.target,
+                conversationId: write.options.forConversation,
+                messageId: write.options.messageId,
+                cause: String(cause),
+              }),
+            ),
           ),
         ),
-      ),
-    );
+      );
+    });
   }
 }

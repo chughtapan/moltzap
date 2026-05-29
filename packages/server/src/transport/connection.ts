@@ -509,4 +509,105 @@ export class ConnectionManager {
       }),
     );
   }
+
+  /**
+   * Every live agent-arm connection of `agentId` (§5.2). Multi-tab agents
+   * have one arm per socket; the per-connection `conversationIds`
+   * subscription gate is maintained on each. Replaces the legacy
+   * `getByAgent` for the agent-only consumers (fan-out, conversation
+   * subscription maintenance).
+   */
+  agentConnections(
+    agentId: AgentId,
+  ): Effect.Effect<readonly AgentConnection[]> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => {
+        const out: AgentConnection[] = [];
+        for (const conn of HashMap.values(map)) {
+          if (
+            conn._tag === "AgentConnection" &&
+            conn.auth.agentId === agentId
+          ) {
+            out.push(conn);
+          }
+        }
+        return out;
+      }),
+    );
+  }
+
+  /**
+   * Add `conversationId` to the subscription set of every currently-connected
+   * agent arm in `agentIds`. Idempotent (Set semantics); returns the
+   * subscribed connection ids for observability. Replaces the legacy
+   * `subscribeAgentsToConversation`. The arm's `conversationIds` Set is
+   * mutated in place (the `Data.TaggedClass` field is a `readonly` reference
+   * to a mutable Set — the reference never changes, matching the legacy
+   * per-connection cache mutation).
+   */
+  addConversationToAgents(
+    agentIds: readonly AgentId[],
+    conversationId: ConversationId,
+  ): Effect.Effect<readonly ConnectionId[]> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => {
+        const agentSet = new Set<AgentId>(agentIds);
+        const subscribed: ConnectionId[] = [];
+        for (const conn of HashMap.values(map)) {
+          if (
+            conn._tag === "AgentConnection" &&
+            agentSet.has(conn.auth.agentId)
+          ) {
+            conn.conversationIds.add(conversationId);
+            subscribed.push(conn.connId);
+          }
+        }
+        return subscribed;
+      }),
+    );
+  }
+
+  /**
+   * Seed the subscription set of a SINGLE agent-arm connection from its
+   * persisted `conversation_participants` rows at connect time (§5.2). No-op
+   * if the entry is absent (close race) or not an agent arm. Mirrors the
+   * legacy per-connection `hydrateConnectionState` loop.
+   */
+  hydrateConversationIds(
+    connId: ConnectionId,
+    conversationIds: readonly ConversationId[],
+  ): Effect.Effect<void> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => {
+        const current = HashMap.get(map, connId);
+        if (Option.isNone(current)) return;
+        const conn = current.value;
+        if (conn._tag !== "AgentConnection") return;
+        for (const id of conversationIds) conn.conversationIds.add(id);
+      }),
+    );
+  }
+
+  /**
+   * Remove `conversationId` from the subscription set of every connected agent
+   * arm of `agentId` (the inverse of {@link addConversationToAgents}). Used by
+   * `ConversationService.removeParticipant`.
+   */
+  removeConversationFromAgent(
+    agentId: AgentId,
+    conversationId: ConversationId,
+  ): Effect.Effect<void> {
+    return Ref.get(this.connectionsRef).pipe(
+      Effect.map((map) => {
+        for (const conn of HashMap.values(map)) {
+          if (
+            conn._tag === "AgentConnection" &&
+            conn.auth.agentId === agentId
+          ) {
+            conn.conversationIds.delete(conversationId);
+          }
+        }
+      }),
+    );
+  }
 }

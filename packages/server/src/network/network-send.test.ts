@@ -19,7 +19,7 @@ import { Cause, Effect, Exit, Option } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import { agentId } from "@moltzap/protocol/testing";
 import { ConnectionManager } from "../transport/connection.js";
-import { unusedOriginator } from "../transport/connection.test-utils.js";
+import { seedAgentConnection } from "../transport/connection.test-utils.js";
 import {
   AgentEndpointResolver,
   connectionId,
@@ -39,32 +39,20 @@ const makeResolver = (): AgentEndpointResolver =>
   Effect.runSync(AgentEndpointResolver.make);
 
 /**
- * Build a minimal MoltZapConnection record that satisfies the parts of
- * the interface the send path actually reads:
- *   - `id`
- *   - `write(raw)`: Effect succeeding or failing per `writeBehavior`
- *
- * Other fields are present as placeholders to satisfy the structural type
- * but are not exercised by the send path.
+ * Build the `socket.write` behavior the send path reads on an agent arm:
+ * an Effect succeeding or failing per `writeBehavior`, capturing the raw
+ * payload. Seeded into the manager's three-arm `connectionsRef` via
+ * {@link seedAgentConnection} (D #705 CP4e — the send path reads the arm,
+ * not the legacy map).
  */
-function fakeConnection(
-  id: import("@moltzap/protocol/network").ConnectionId,
+function fakeWrite(
   writeBehavior: "ok" | { fail: Socket.SocketError },
   capture: { raw: string | null },
-): import("../transport/connection.js").MoltZapConnection {
-  return {
-    id,
-    write: (raw: string) => {
-      capture.raw = raw;
-      if (writeBehavior === "ok") return Effect.void;
-      return Effect.fail(writeBehavior.fail);
-    },
-    shutdown: Effect.void,
-    auth: null,
-    lastPong: 0,
-    conversationIds: new Set<string>(),
-    mutedConversations: new Set<string>(),
-    originator: unusedOriginator(),
+): (raw: string) => Effect.Effect<void, Socket.SocketError> {
+  return (raw: string) => {
+    capture.raw = raw;
+    if (writeBehavior === "ok") return Effect.void;
+    return Effect.fail(writeBehavior.fail);
   };
 }
 
@@ -73,8 +61,14 @@ describe("NetworkSendService.send — durable delivery", () => {
     const resolver = makeResolver();
     const connections = new ConnectionManager();
     const capture = { raw: null as string | null };
-    const conn = fakeConnection(CONN_A, "ok", capture);
-    connections.add(conn);
+    Effect.runSync(
+      seedAgentConnection({
+        manager: connections,
+        connId: CONN_A,
+        agentId: ALICE,
+        write: fakeWrite("ok", capture),
+      }),
+    );
 
     Effect.runSync(resolver.add(ALICE, CONN_A));
 
@@ -141,8 +135,14 @@ describe("NetworkSendService.send — write failure", () => {
       reason: "Write",
       cause: new Error("EPIPE"),
     });
-    const conn = fakeConnection(CONN_A, { fail: cause }, capture);
-    connections.add(conn);
+    Effect.runSync(
+      seedAgentConnection({
+        manager: connections,
+        connId: CONN_A,
+        agentId: ALICE,
+        write: fakeWrite({ fail: cause }, capture),
+      }),
+    );
     Effect.runSync(resolver.add(ALICE, CONN_A));
     const service = new NetworkSendService(resolver, connections);
     const payload = opaquePayload("{}");

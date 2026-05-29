@@ -1,5 +1,10 @@
 import { Effect } from "effect";
 import type { ServerConnection } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/network";
+import type * as Socket from "@effect/platform/Socket";
+import type { AgentId } from "../app/types.js";
+import { AgentContext, type AgentStatus } from "./context.js";
+import type { ConnectionManager } from "./connection.js";
 import type { DispatchContext } from "./context.js";
 
 /**
@@ -18,3 +23,34 @@ export const unusedOriginator = (): ServerConnection<DispatchContext> => ({
   notify: (() => Effect.die("test fake originator.notify invoked")) as never,
   handle: () => Effect.die("test fake originator.handle invoked"),
 });
+
+/**
+ * D #705 CP4e — seed an authenticated AGENT-arm connection into a
+ * `ConnectionManager`'s three-arm `connectionsRef`. The arm constructors are
+ * module-private, so tests construct arms through the sanctioned
+ * `addUnauthenticated` → `authenticate` transition (the same path production
+ * takes). The minted arm's `socket.write` is the `write` passed here.
+ */
+export const seedAgentConnection = (args: {
+  readonly manager: ConnectionManager;
+  readonly connId: ConnectionId;
+  readonly agentId: AgentId;
+  readonly write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+  readonly shutdown?: Effect.Effect<void>;
+  readonly status?: AgentStatus;
+}): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    yield* args.manager.addUnauthenticated(
+      args.connId,
+      { write: args.write, shutdown: args.shutdown ?? Effect.void },
+      unusedOriginator(),
+    );
+    yield* args.manager.authenticate(
+      args.connId,
+      new AgentContext({
+        agentId: args.agentId,
+        agentStatus: args.status ?? "active",
+        ownerUserId: null,
+      }),
+    );
+  }).pipe(Effect.withSpan("seedAgentConnection"));
