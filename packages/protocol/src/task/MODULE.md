@@ -8,6 +8,37 @@ Public barrel for task, conversation, message, and task-manager protocol descrip
 
 ## Public surface
 
+### [`agentCallableTaskRpcMethods`](./methods.ts#L54)
+
+_Variable_
+
+```ts
+export const agentCallableTaskRpcMethods = [
+  TaskRequest,
+  TaskList,
+  TaskLeave,
+  MessagesSend,
+  MessagesList,
+] as const
+```
+
+### [`appCallableTaskRpcMethods`](./methods.ts#L62)
+
+_Variable_
+
+```ts
+export const appCallableTaskRpcMethods = [
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
+  TaskConversationCreate,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+] as const
+```
+
 ### [`AppId`](./ids.ts#L7)
 
 _TypeAlias_
@@ -351,20 +382,6 @@ _Function_
 
 ```ts
 export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema
-```
-
-### [`nonTmAuthorityTaskRpcMethods`](./methods.ts#L49)
-
-_Variable_
-
-```ts
-export const nonTmAuthorityTaskRpcMethods = [
-  TaskRequest,
-  TaskList,
-  TaskLeave,
-  MessagesSend,
-  MessagesList,
-] as const
 ```
 
 ### [`Part`](./messages.ts#L55)
@@ -896,7 +913,7 @@ export const TaskList = defineRpc({
 })
 ```
 
-### [`taskNotifications`](./methods.ts#L68)
+### [`taskNotifications`](./methods.ts#L73)
 
 _Variable_
 
@@ -1087,23 +1104,6 @@ _Function_
 
 ```ts
 export function tmDecisionSchema(): typeof TmDecisionSchema
-```
-
-### [`tmOnlyTaskRpcMethods`](./methods.ts#L57)
-
-_Variable_
-
-```ts
-export const tmOnlyTaskRpcMethods = [
-  TaskClose,
-  TaskAddParticipant,
-  TaskRemoveParticipant,
-  TaskConversationCreate,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
-] as const
 ```
 
 ### [`validateMessage`](./messages.ts#L81)

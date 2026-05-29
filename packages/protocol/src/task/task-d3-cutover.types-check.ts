@@ -2,7 +2,7 @@
  * @file Spec D3 (#600) R11 outbound-catalog-split type canaries.
  *
  * Pins the partition shape: agentClientRpcMethods ⊂ taskMasterRpcMethods,
- * disjoint from tmOnlyTaskRpcMethods. Each predicate fails compilation if
+ * disjoint from appCallableTaskRpcMethods. Each predicate fails compilation if
  * a method gets moved between sides or a new method lands without
  * classification.
  *
@@ -19,8 +19,8 @@ import {
   type AnyAgentClientRpcDefinition,
   type AnyTaskMasterRpcDefinition,
   type AnyServerRpcDefinition,
-  nonTmAuthorityTaskRpcMethods,
-  tmOnlyTaskRpcMethods,
+  agentCallableTaskRpcMethods,
+  appCallableTaskRpcMethods,
   TaskRequest,
   TaskLeave,
   MessagesSend,
@@ -41,7 +41,7 @@ type _CardinalityHolds = AssertEquals<
   (typeof taskMasterRpcMethods)["length"],
   AddOne<
     (typeof agentClientRpcMethods)["length"],
-    (typeof tmOnlyTaskRpcMethods)["length"]
+    (typeof appCallableTaskRpcMethods)["length"]
   >
 >;
 
@@ -151,10 +151,10 @@ export type _D3CanaryHolds =
   | _TaskRequestWireName
   | _TaskCreateCallbackWireName;
 
-// Reference nonTmAuthorityTaskRpcMethods so knip sees it as consumed
+// Reference agentCallableTaskRpcMethods so knip sees it as consumed
 // (otherwise it's flagged as exported-but-unused until Commit 4).
-export type _NonTmAuthorityCanary =
-  (typeof nonTmAuthorityTaskRpcMethods)["length"];
+export type _AgentCallableCanary =
+  (typeof agentCallableTaskRpcMethods)["length"];
 
 // ── Helper conditional types (local; tiny) ──────────────────────────
 type AssertEquals<A, B> =

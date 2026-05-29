@@ -45,8 +45,8 @@ export {
   tmDecisionSchema,
   messageWithTmDecisionSchema,
   // Spec D3 R11 — per-kind catalog subsets.
-  nonTmAuthorityTaskRpcMethods,
-  tmOnlyTaskRpcMethods,
+  agentCallableTaskRpcMethods,
+  appCallableTaskRpcMethods,
 } from "./methods.js";
 
 export type {

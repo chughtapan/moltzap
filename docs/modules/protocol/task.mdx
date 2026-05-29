@@ -13,6 +13,37 @@ Public barrel for task, conversation, message, and task-manager protocol descrip
 
 ## Public surface
 
+### [`agentCallableTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L54)
+
+_Variable_
+
+```ts
+export const agentCallableTaskRpcMethods = [
+  TaskRequest,
+  TaskList,
+  TaskLeave,
+  MessagesSend,
+  MessagesList,
+] as const
+```
+
+### [`appCallableTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L62)
+
+_Variable_
+
+```ts
+export const appCallableTaskRpcMethods = [
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
+  TaskConversationCreate,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+] as const
+```
+
 ### [`AppId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L7)
 
 _TypeAlias_
@@ -356,20 +387,6 @@ _Function_
 
 ```ts
 export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema
-```
-
-### [`nonTmAuthorityTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L49)
-
-_Variable_
-
-```ts
-export const nonTmAuthorityTaskRpcMethods = [
-  TaskRequest,
-  TaskList,
-  TaskLeave,
-  MessagesSend,
-  MessagesList,
-] as const
 ```
 
 ### [`Part`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L55)
@@ -901,7 +918,7 @@ export const TaskList = defineRpc({
 })
 ```
 
-### [`taskNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L68)
+### [`taskNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L73)
 
 _Variable_
 
@@ -1092,23 +1109,6 @@ _Function_
 
 ```ts
 export function tmDecisionSchema(): typeof TmDecisionSchema
-```
-
-### [`tmOnlyTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L57)
-
-_Variable_
-
-```ts
-export const tmOnlyTaskRpcMethods = [
-  TaskClose,
-  TaskAddParticipant,
-  TaskRemoveParticipant,
-  TaskConversationCreate,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
-] as const
 ```
 
 ### [`validateMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L81)
