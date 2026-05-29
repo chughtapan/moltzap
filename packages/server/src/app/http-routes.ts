@@ -6,10 +6,11 @@ import {
 } from "@effect/platform";
 import * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Exit } from "effect";
+import { Value } from "@sinclair/typebox/value";
 import type { ParamsOf } from "@moltzap/protocol";
 import { Claim, Register } from "@moltzap/protocol";
+import { AgentId, UserId } from "@moltzap/protocol/identity";
 
-import type { AuthenticatedContext } from "../transport/context.js";
 import type { AppTags } from "../transport/layer-tags.js";
 import type { ConnectionTag, ResolvedServices } from "./layers.js";
 import { safeEqual } from "../identity/services/agent-auth.js";
@@ -336,37 +337,47 @@ function handleClaimExit(
         HTTP_INTERNAL_SERVER_ERROR,
       );
     }
-    return handleClaimResult(exit.value, connections);
+    return yield* handleClaimResult(exit.value, connections);
   }).pipe(Effect.withSpan("http.handleClaimExit"));
 }
 
 function handleClaimResult(
   result: ClaimAgentResult,
   connections: ResolvedServices["connections"],
-) {
+): Effect.Effect<HttpServerResponse.HttpServerResponse> {
   switch (result._tag) {
     case CLAIM_SUCCESS:
-      refreshClaimedConnections(
-        connections,
-        result.agentId,
-        result.ownerUserId,
-      );
-      return jsonResponse(
-        { agentId: result.agentId, ownerUserId: result.ownerUserId },
-        result.alreadyClaimed ? HTTP_OK : HTTP_CREATED,
-      );
+      return Effect.gen(function* () {
+        // Brand the request-supplied owner id at the trust boundary (the same
+        // `Value.Decode(UserId, ...)` pattern as webhook-session-validator);
+        // the claim path already validated it as a non-empty string upstream.
+        const ownerUserId = Value.Decode(UserId, result.ownerUserId);
+        yield* refreshClaimedConnections(
+          connections,
+          result.agentId,
+          ownerUserId,
+        );
+        return jsonResponse(
+          { agentId: result.agentId, ownerUserId: result.ownerUserId },
+          result.alreadyClaimed ? HTTP_OK : HTTP_CREATED,
+        );
+      });
     case CLAIM_NOT_FOUND:
-      return jsonResponse(
-        { error: "Invalid claim token", code: CLAIM_NOT_FOUND },
-        HTTP_UNAUTHORIZED,
+      return Effect.succeed(
+        jsonResponse(
+          { error: "Invalid claim token", code: CLAIM_NOT_FOUND },
+          HTTP_UNAUTHORIZED,
+        ),
       );
     case CLAIM_OWNER_MISMATCH:
-      return jsonResponse(
-        {
-          error: "Agent already claimed by a different owner",
-          code: CLAIM_OWNER_MISMATCH,
-        },
-        HTTP_FORBIDDEN,
+      return Effect.succeed(
+        jsonResponse(
+          {
+            error: "Agent already claimed by a different owner",
+            code: CLAIM_OWNER_MISMATCH,
+          },
+          HTTP_FORBIDDEN,
+        ),
       );
   }
 }
@@ -443,16 +454,19 @@ function authorizeRequiredInviteCode(
 
 function refreshClaimedConnections(
   connections: ResolvedServices["connections"],
-  agentId: string,
-  ownerUserId: string,
-): void {
+  agentId: AgentId,
+  ownerUserId: UserId,
+): Effect.Effect<void> {
+  // Dual-write the claimed owner (D #705 CP4e): the three-arm `connectionsRef`
+  // arm AND the legacy `conn.auth` the RPC dispatch context still reads
+  // (`socket-handler.handleRequestFrame` sources `DispatchContext.auth` from
+  // `conn.auth`). The legacy mutation is dropped once CP4d rebinds the
+  // dispatch context to read the arm.
   for (const conn of connections.getByAgent(agentId)) {
     if (conn.auth === null) continue;
-    conn.auth = {
-      ...conn.auth,
-      ownerUserId: ownerUserId as AuthenticatedContext["ownerUserId"],
-    };
+    conn.auth = { ...conn.auth, ownerUserId };
   }
+  return connections.setOwnerUserIdForAgent(agentId, ownerUserId);
 }
 
 function registerSuccessResponse(
