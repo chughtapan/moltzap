@@ -201,11 +201,72 @@ function scopesListToCallerTasks() {
     yield* svc.create(BOB, { appId: BOB_APP_ID });
 
     const aliceList = yield* svc.list(ALICE, {});
-    expect(aliceList.map((t) => t.id)).toContain(aliceTask.id);
-    expect(aliceList).toHaveLength(1);
+    expect(aliceList.tasks.map((t) => t.id)).toContain(aliceTask.id);
+    expect(aliceList.tasks).toHaveLength(1);
 
     const carolList = yield* svc.list(CAROL, {});
-    expect(carolList).toHaveLength(0);
+    expect(carolList.tasks).toHaveLength(0);
+  });
+}
+
+const SUB_MS_TASK_IDS = [
+  makeTaskId("00000000-0000-4000-8000-00000000aa01"),
+  makeTaskId("00000000-0000-4000-8000-00000000aa02"),
+  makeTaskId("00000000-0000-4000-8000-00000000aa03"),
+  makeTaskId("00000000-0000-4000-8000-00000000aa04"),
+] as const;
+
+// Three tasks share the same millisecond but differ in microseconds; a
+// fourth sits in a later millisecond. Postgres stores microsecond
+// precision but the cursor sortKey is millisecond-resolution (JS Date).
+// A keyset that compares the full-precision column against the truncated
+// cursor would skip the same-millisecond siblings on page 2 — this seeds
+// exactly that condition.
+function seedSubMillisecondTasks() {
+  const sameMs = "2026-05-24T00:00:00.500";
+  const rows = [
+    { id: SUB_MS_TASK_IDS[0], created_at: `${sameMs}123Z` },
+    { id: SUB_MS_TASK_IDS[1], created_at: `${sameMs}456Z` },
+    { id: SUB_MS_TASK_IDS[2], created_at: `${sameMs}789Z` },
+    { id: SUB_MS_TASK_IDS[3], created_at: "2026-05-24T00:00:00.600000Z" },
+  ];
+  return Effect.gen(function* () {
+    for (const row of rows) {
+      yield* harness.db.insertInto("tasks").values({
+        id: row.id,
+        app_id: ALICE_APP_ID,
+        initiator_agent_id: ALICE,
+        status: "active",
+        created_at: row.created_at,
+      });
+      yield* harness.db.insertInto("task_participants").values({
+        task_id: row.id,
+        agent_id: ALICE,
+        admitted_at: new Date(),
+      });
+    }
+  });
+}
+
+// Walk every page with limit 1; assert each seeded task appears exactly
+// once across pages (no skip, no dup) even when rows share a millisecond.
+function paginatesSubMillisecondTiesWithoutSkips() {
+  return Effect.gen(function* () {
+    const svc = makeService();
+    yield* seedSubMillisecondTasks();
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let more = true;
+    for (let guard = 0; more && guard < SUB_MS_TASK_IDS.length + 2; guard++) {
+      const page = yield* svc.list(ALICE, { limit: 1, cursor });
+      for (const task of page.tasks) seen.push(task.id);
+      cursor = page.nextCursor;
+      more = page.nextCursor !== undefined && page.tasks.length > 0;
+    }
+
+    expect([...seen].sort()).toEqual([...SUB_MS_TASK_IDS].sort());
+    expect(new Set(seen).size).toBe(SUB_MS_TASK_IDS.length);
   });
 }
 
@@ -372,6 +433,10 @@ function registerCreateReadListTests() {
       admitsInitiatorAndInvitedParticipants,
     );
     it("scopes list to caller's tasks", scopesListToCallerTasks);
+    it(
+      "paginates sub-millisecond created_at ties without skips or dups",
+      paginatesSubMillisecondTiesWithoutSkips,
+    );
     it(
       "rejects get when caller is neither initiator nor participant",
       rejectsGetForNonParticipant,

@@ -15,8 +15,10 @@ import {
 import type { AppHost } from "../../app/app-host.js";
 import {
   ConversationArchivedError,
+  DEFAULT_PAGE_LIMIT,
   ForbiddenError,
   HookBlockedError,
+  MAX_PAGE_LIMIT,
   MessageReceivedNotificationDefinition,
   NotFoundError,
   TaskClosedError,
@@ -103,8 +105,6 @@ function textPartsMetadata(parts: readonly Part[]): {
 
 const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
 const DELIVERY_WEBHOOK_BACKOFF_FACTOR = 2;
-const DEFAULT_MESSAGE_HISTORY_LIMIT = 50;
-const MAX_MESSAGE_HISTORY_LIMIT = 100;
 const PLAINTEXT_IV_BYTES = 12;
 const PLAINTEXT_TAG_BYTES = 16;
 const CONVERSATION_KEYS_ALIAS = "conversation_keys as ck";
@@ -831,8 +831,8 @@ export class MessageService {
           requesterAgentId,
         );
         const limit = Math.min(
-          options.limit ?? DEFAULT_MESSAGE_HISTORY_LIMIT,
-          MAX_MESSAGE_HISTORY_LIMIT,
+          options.limit ?? DEFAULT_PAGE_LIMIT,
+          MAX_PAGE_LIMIT,
         );
         const rows = yield* this.visibleMessageRows({
           conversationId,

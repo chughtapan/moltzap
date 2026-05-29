@@ -41,6 +41,17 @@ export {
   InvalidProtocolVersionError,
 } from "./version.js";
 
+// Opaque pagination token for the cursor-paginated list RPCs.
+export { listCursorSchema } from "./schema-primitives.js";
+export type { ListCursor } from "./schema-primitives.js";
+
+// Shared pagination limits for the cursor-paginated list RPCs.
+export {
+  DEFAULT_PAGE_LIMIT,
+  MAX_PAGE_LIMIT,
+  ListLimitSchema,
+} from "./pagination.js";
+
 export * from "./transport/index.js";
 export * from "./identity/index.js";
 export * from "./network/index.js";

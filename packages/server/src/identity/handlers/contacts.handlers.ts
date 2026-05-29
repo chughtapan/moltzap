@@ -6,6 +6,7 @@ import {
   ContactsById,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
+  InvalidParamsError,
   UnauthorizedError,
   type NotificationDefinition,
   type NotificationParamsOf,
@@ -50,12 +51,22 @@ const fanOut = <D extends NotificationDefinition<string, any>>(
 
 export const contactHandlers: RpcMethodRegistry = [
   defineTaskMethod(ContactsList, {
-    handler: (_params, ctx) =>
+    handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
         const owner = yield* loadOwnerOrFail(ctx);
-        const contacts = yield* contactService.list(owner);
-        return { contacts: [...contacts] };
+        const { contacts, nextCursor } = yield* contactService
+          .list(owner, { limit: params.limit, cursor: params.cursor })
+          .pipe(
+            // A bad cursor is an invalid client param, not an internal defect.
+            Effect.catchTag("InvalidCursor", (err) =>
+              Effect.fail(new InvalidParamsError({ message: err.message })),
+            ),
+          );
+        return {
+          contacts: [...contacts],
+          ...(nextCursor !== undefined ? { nextCursor } : {}),
+        };
       }).pipe(Effect.withSpan("contacts.list")),
   }),
 

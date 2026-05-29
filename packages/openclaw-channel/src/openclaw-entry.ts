@@ -18,6 +18,7 @@
 import {
   MoltZapChannelCore,
   MoltZapService,
+  drainPaginatedList,
   type ChannelService,
   type CrossConvMessage,
   type EnrichedInboundMessage,
@@ -625,6 +626,27 @@ function getActiveService(
   return activeClients.get(accountId ?? DEFAULT_ACCOUNT_ID);
 }
 
+// `agents/lookup` caps `agentIds` at `maxItems: 100`, so resolve a larger
+// id set in <=100-id chunks to stay under the wire cap.
+const AGENTS_LOOKUP_MAX_IDS = 100;
+
+function lookupAgentsInChunks(
+  sendRpc: NonNullable<OpenClawClientService["sendRpc"]>,
+  agentIds: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<AgentDirectoryEntry>, ServiceRpcError> {
+  return Effect.gen(function* () {
+    const out: AgentDirectoryEntry[] = [];
+    for (let i = 0; i < agentIds.length; i += AGENTS_LOOKUP_MAX_IDS) {
+      const chunk = agentIds.slice(i, i + AGENTS_LOOKUP_MAX_IDS);
+      const { agents } = (yield* sendRpc(AgentsLookup, {
+        agentIds: chunk,
+      })) as { agents: AgentDirectoryEntry[] };
+      out.push(...agents);
+    }
+    return out;
+  });
+}
+
 function listPeersEffect(
   activeClients: Map<string, OpenClawClientService>,
   params: OpenClawDirectoryParams,
@@ -632,14 +654,21 @@ function listPeersEffect(
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
     if (!service?.sendRpc) return [];
-    const { contacts } = (yield* service.sendRpc(ContactsList, {})) as {
-      contacts: ContactDirectoryEntry[];
-    };
+    // `service.sendRpc` is a prototype method reading `this.client` inside
+    // `Effect.suspend`; passed as a bare reference its receiver is stripped,
+    // so the suspend thunk dies with a `this`-undefined TypeError that
+    // `catchAll` (a failure-channel handler) cannot absorb. Bind once so both
+    // drain consumers keep the service receiver.
+    const sendRpc = service.sendRpc.bind(service);
+    // Drain ALL contact pages so every peer in the directory resolves.
+    const contacts = (yield* drainPaginatedList(
+      sendRpc,
+      ContactsList,
+      "contacts",
+    )) as ReadonlyArray<ContactDirectoryEntry>;
     const agentIds = contacts.flatMap(contactAgentIds);
     if (agentIds.length === 0) return [];
-    const { agents } = (yield* service.sendRpc(AgentsLookup, { agentIds })) as {
-      agents: AgentDirectoryEntry[];
-    };
+    const agents = yield* lookupAgentsInChunks(sendRpc, agentIds);
     return agents.map((agent) => ({
       id: `agent:${agent.name}`,
       name: agent.displayName ?? agent.name,
