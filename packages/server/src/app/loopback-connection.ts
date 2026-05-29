@@ -39,12 +39,14 @@ function defectingOp(id: ConnectionId, label: string, op: string) {
 }
 
 /**
- * Build an {@link AppEndpoint} whose outbound `originator.call` dispatches to
- * in-process handlers instead of going over a WebSocket. The endpoint
- * satisfies the same `{ connId, originator }` shape a wire-registered app's
- * arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape
- * — the difference between "in-process moderator" and "wire moderator" is
- * which factory built the endpoint, not how it's consumed.
+ * TEST-ONLY. Build an {@link AppEndpoint} whose outbound `originator.call`
+ * dispatches to in-process handlers instead of going over a WebSocket. The
+ * endpoint satisfies the same `{ connId, originator }` shape a wire-registered
+ * app's arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE
+ * shape. Used by AppHost unit tests to exercise the hook-declaring dispatch
+ * path without a real socket; production code (the boot-installed default app)
+ * declares no hooks and is served by AppHost's manifest-default fast-path
+ * (see `default-app.ts → makeDefaultAppEndpoint`).
  *
  * Loopback-specific behavior:
  *   - `originator.call(D, params)` indexes `handlers` by `D.name`. The

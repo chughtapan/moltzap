@@ -148,7 +148,7 @@ function makeCoreRuntime(config: CoreConfig) {
       const appHost = yield* AppHostTag;
       const conversation = yield* ConversationServiceTag;
       appHost.setConversationService(conversation);
-      installDefaultApp(appHost, conversation);
+      installDefaultApp(appHost);
     }).pipe(Effect.withSpan("makeCoreRuntime.wireConversationIntoAppHost")),
   );
   const FullLive = Layer.provideMerge(
