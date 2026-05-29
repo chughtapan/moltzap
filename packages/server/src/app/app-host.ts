@@ -80,7 +80,6 @@ export interface ConversationServiceForAppHost {
   removeParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
-    requesterAgentId: AgentId,
   ): Effect.Effect<void, unknown, NetworkSendServiceTag>;
   getParticipantAgentIds(
     conversationId: ConversationId,
@@ -264,18 +263,24 @@ export class AppHost {
 
   /**
    * Register an app under the given endpoint. The registry rejects
-   * overwrites unconditionally — returns false when `manifest.appId`
-   * is already registered. Callers (the `apps/register` handler and
-   * `installDefaultApp`) decide how to surface false (typed
-   * `ForbiddenError` over the wire; exception at boot).
+   * overwrites unconditionally — returns false when `appId` is already
+   * registered. `appId` is the SERVER-MINTED identity (the authenticated
+   * `AppConnection.auth.appId` on the implicit-registration path, or
+   * `DEFAULT_APP_ID` at boot), NOT `manifest.appId` (D #705 CP9). Callers
+   * (the appKey-Connect path and `installDefaultApp`) decide how to surface
+   * false (typed `UnauthorizedError` over the wire; exception at boot).
    */
-  registerApp(manifest: AppManifest, endpoint: AppEndpoint): boolean {
-    const ok = this.apps.register(manifest, endpoint);
+  registerApp(
+    appId: AppId,
+    manifest: AppManifest,
+    endpoint: AppEndpoint,
+  ): boolean {
+    const ok = this.apps.register(appId, manifest, endpoint);
     if (ok) {
       Effect.runFork(
         Effect.logInfo("App registered").pipe(
           Effect.annotateLogs({
-            appId: manifest.appId,
+            appId,
             connectionId: endpoint.connId,
           }),
         ),
@@ -582,44 +587,25 @@ export class AppHost {
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
     if (verdict.decision !== "deny") return Effect.void;
     const svc = this.conversationService;
-    return Effect.gen(this, function* () {
-      const moderatorAgentId = yield* this.moderatorAgentIdFromConn(
-        params.moderatorConnectionId,
-      );
-      if (svc === null || moderatorAgentId === null) return;
-      yield* svc
-        .removeParticipant(
-          params.conversationId,
-          params.recipientAgentId,
-          moderatorAgentId,
-        )
-        .pipe(
-          Effect.catchAll((cause) =>
-            Effect.logWarning("deny removeParticipant failed").pipe(
-              Effect.annotateLogs({
-                conversationId: params.conversationId,
-                recipientAgentId: params.recipientAgentId,
-                cause: String(cause),
-              }),
-            ),
+    if (svc === null) return Effect.void;
+    // D #705 CP9 — the moderator is an `AppConnection` (no `agentId`), so the
+    // deny-removal no longer resolves an actor agentId from the moderator
+    // connection: `conversationService.removeParticipant` does not consume one
+    // (the dead `_requesterAgentId` arg was dropped). The eviction targets the
+    // recipient; provenance is structurally the task's bound app.
+    return svc
+      .removeParticipant(params.conversationId, params.recipientAgentId)
+      .pipe(
+        Effect.catchAll((cause) =>
+          Effect.logWarning("deny removeParticipant failed").pipe(
+            Effect.annotateLogs({
+              conversationId: params.conversationId,
+              recipientAgentId: params.recipientAgentId,
+              cause: String(cause),
+            }),
           ),
-        );
-    });
-  }
-
-  private moderatorAgentIdFromConn(
-    connectionId: ConnectionId,
-  ): Effect.Effect<AgentId | null> {
-    if (connectionId === EMPTY_CONNECTION_ID) return Effect.succeed(null);
-    // D #705 CP4e — read the three-arm `connectionsRef`. Only an agent arm
-    // carries `auth.agentId`; unauthenticated + app arms yield null.
-    return this.connections.peek(connectionId).pipe(
-      Effect.map((connOpt) => {
-        if (Option.isNone(connOpt)) return null;
-        const conn = connOpt.value;
-        return conn._tag === "AgentConnection" ? conn.auth.agentId : null;
-      }),
-    );
+        ),
+      );
   }
 
   /**

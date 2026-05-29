@@ -1,13 +1,12 @@
 import {
-  AppsRegister,
   DEFAULT_APP_ID,
   DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
   MessagesSend,
   TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskCreate,
   TaskRequest,
+  type AppId,
   type AppManifest,
   type ConversationId,
   type DispatchId,
@@ -16,18 +15,21 @@ import {
 } from "@moltzap/protocol";
 import {
   agentId as protocolAgentId,
-  appId as mkAppId,
   messageId,
 } from "@moltzap/protocol/testing";
 import { Effect } from "effect";
 import {
   awaitOneNotification,
+  connectAppClient,
   getTestCoreApp,
+  registerApp,
   resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
   type ConnectedAgent,
+  type ServerTestClient,
 } from "../../helpers.js";
+import { getBaseUrl } from "../../../../test-utils/index.js";
 
 type GrantVerdict = {
   readonly decision: "grant";
@@ -68,14 +70,17 @@ export const stopDispatchFlowServer = () =>
 export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 
 /**
- * Create a task + conversation under `manifest`. Registers the app
- * on alice's connection on the first call per test; subsequent calls
- * (same alice, same manifest) skip AppsRegister because it strictly
- * rejects double-registration. The fixture's `reset` clears the
- * per-test registered-apps cache. The caller MUST have wired alice's
- * `DispatchAuthorize` callback (via {@link attachDispatchAuthorizeHook})
- * BEFORE calling this — the server resolves the forked moderator
- * round-trip on the first `dispatch/request`.
+ * D #705 CP9 — create a task + conversation under the fixture's
+ * moderator app. The app is minted via the `/api/v1/apps/register` HTTP
+ * endpoint (DB-issued `appId`) and a SEPARATE app client `appKey`-Connects
+ * (disjoint principal); its implicit registration binds that connection as
+ * the app's moderator endpoint. `task/request` is sent by `alice` (the
+ * requesting AGENT, R1) and targets the DB-minted `appId`. The caller MUST
+ * have wired the moderator callbacks (via {@link attachDispatchAuthorizeHook})
+ * BEFORE calling this — the server resolves the forked moderator round-trip
+ * on the first `dispatch/request`. `manifest.appId` is ignored; the manifest
+ * supplies the hook declarations (so the server's hookless fast-path does NOT
+ * short-circuit to a synthetic grant) + conversation defaults.
  */
 export function createTaskConversationOnApp(
   alice: ConnectedAgent,
@@ -83,9 +88,9 @@ export function createTaskConversationOnApp(
   manifest: AppManifest,
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
-    yield* ensureModeratorAppRegistered(alice, manifest);
+    const appId = yield* ensureModeratorApp(manifest);
     const result = yield* alice.client.sendRpc(TaskRequest, {
-      appId: mkAppId(manifest.appId),
+      appId,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
@@ -96,69 +101,109 @@ export function createTaskConversationOnApp(
   }).pipe(Effect.withSpan("createTaskConversationOnApp"));
 }
 
-const registeredAppsByConn = new Map<string, Set<string>>();
-
-function moderatorAppKey(connId: string): Set<string> {
-  let s = registeredAppsByConn.get(connId);
-  if (s === undefined) {
-    s = new Set<string>();
-    registeredAppsByConn.set(connId, s);
-  }
-  return s;
+/**
+ * Per-test moderator-app state: the DB-minted `appId` + the live
+ * `AppConnection` client whose `onAppCallback` handlers answer the
+ * server→client moderator round-trips. Memoized per manifest so a test that
+ * creates several conversations under one moderator reuses one app client.
+ */
+interface ModeratorApp {
+  readonly appId: AppId;
+  readonly client: ServerTestClient;
 }
 
-function ensureModeratorAppRegistered(
-  alice: ConnectedAgent,
+let moderatorApp: ModeratorApp | null = null;
+let attachedFixture: DispatchFlowFixture | null = null;
+
+/**
+ * Inject the `dispatch_authorize` hook declaration so the server round-trips
+ * the dispatch-admission decision to the app (a hookless manifest opts into
+ * the synthetic-grant fast-path). `task_create` is deliberately NOT declared:
+ * these scenarios exercise the dispatch lifecycle, so the server's hookless
+ * `task/create` fast-path auto-accepts the task without an app round-trip.
+ */
+function withModeratorHooks(manifest: AppManifest): AppManifest {
+  return {
+    ...manifest,
+    hooks: {
+      dispatch_authorize: {},
+      ...manifest.hooks,
+    },
+  };
+}
+
+function ensureModeratorApp(
   manifest: AppManifest,
-): Effect.Effect<void, unknown> {
+): Effect.Effect<AppId, unknown> {
   return Effect.gen(function* () {
-    // Each test creates a fresh `alice` via `setupAgentPair` (fresh
-    // apiKey → fresh server connection), so per-test dedup keyed by
-    // apiKey suffices to skip re-registration when the same test
-    // creates multiple conversations under one moderator.
-    const registered = moderatorAppKey(alice.apiKey);
-    if (registered.has(manifest.appId)) return;
-    yield* alice.client.sendRpc(AppsRegister, { manifest });
-    registered.add(manifest.appId);
-  }).pipe(Effect.withSpan("ensureModeratorAppRegistered"));
+    if (moderatorApp !== null) return moderatorApp.appId;
+    const registered = yield* registerApp(
+      getBaseUrl(),
+      withModeratorHooks(manifest),
+    );
+    const client = yield* connectAppClient(registered.appKey);
+    moderatorApp = { appId: registered.appId, client };
+    yield* wireModeratorCallbacks(client);
+    return registered.appId;
+  }).pipe(Effect.withSpan("ensureModeratorApp"));
+}
+
+function wireModeratorCallbacks(client: ServerTestClient): Effect.Effect<void> {
+  return client.onAppCallback(DispatchAuthorize, () =>
+    Effect.gen(function* () {
+      if (attachedFixture === null) return yield* Effect.never;
+      const verdict = attachedFixture.consumeNextVerdict();
+      if ("kind" in verdict) return yield* Effect.never;
+      return { admission: verdict };
+    }).pipe(Effect.withSpan("dispatchFlow.wireHook")),
+  );
 }
 
 /**
- * Reset the per-test registered-apps cache. Called from
- * {@link DispatchFlowFixture.reset} so cross-test connection-id
- * recycling never leaks "already registered" state.
+ * Reset the per-test moderator-app state. Called from
+ * {@link DispatchFlowFixture.reset}; `reset` closes all clients (including the
+ * moderator app client) via `resetTestDbEffect → closeAllClients`, so the
+ * stale `ModeratorApp` reference is dropped here before the next test
+ * re-mints one.
  */
 function resetRegisteredApps(): void {
-  registeredAppsByConn.clear();
+  moderatorApp = null;
+  attachedFixture = null;
 }
 
 /**
- * Attach the wire callback that handles server→client
- * `dispatch/authorize` invocations for `alice`. Tests register this
- * BEFORE AppsRegister so the callback is live by the time the server
- * forks the moderator round-trip on `dispatch/request`. Delegates to
- * `fixture.consumeNextVerdict` so test bodies can swap verdicts via
- * `setNextHookVerdict(...)` between scenarios.
+ * Arm the fixture's moderator callbacks. The verdict callback lives on the
+ * fixture's app `AppConnection` (a disjoint principal from `alice`), so this
+ * records the active fixture whose `consumeNextVerdict` the callback consults;
+ * the actual `onAppCallback` wiring happens once at app-client connect time
+ * (see {@link wireModeratorCallbacks}). Call BEFORE
+ * {@link createTaskConversationOnApp} so the verdict source is live by the
+ * time the server forks the moderator round-trip on `dispatch/request`.
  */
 export function attachDispatchAuthorizeHook(
-  alice: ConnectedAgent,
+  _alice: ConnectedAgent,
   fixture: DispatchFlowFixture,
 ): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    yield* alice.client.onAppCallback(DispatchAuthorize, () =>
-      Effect.gen(function* () {
-        const verdict = fixture.consumeNextVerdict();
-        if ("kind" in verdict) return yield* Effect.never;
-        return { admission: verdict };
-      }).pipe(Effect.withSpan("dispatchFlow.wireHook")),
-    );
-    // task/request fires a task/create TM callback before the task
-    // leaves `waiting`; this fixture's moderator auto-accepts so the
-    // dispatch-flow scenarios get an active task to operate on.
-    yield* alice.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
+  return Effect.sync(() => {
+    attachedFixture = fixture;
   });
+}
+
+/**
+ * The fixture's moderator `AppConnection` client — the disjoint principal
+ * bound as the app's moderator endpoint. `dispatches/get` is moderator-scoped
+ * (the calling connection MUST be the lease's `moderatorConnectionId`), so a
+ * test asserting that scope reads via THIS client, not the requesting agent.
+ * Throws if no conversation has been created yet (the app client is minted
+ * lazily by {@link createTaskConversationOnApp}).
+ */
+export function moderatorAppClient(): ServerTestClient {
+  if (moderatorApp === null) {
+    throw new Error(
+      "moderatorAppClient: no moderator app — call createTaskConversationOnApp first",
+    );
+  }
+  return moderatorApp.client;
 }
 
 export function createUnmoderatedDm(

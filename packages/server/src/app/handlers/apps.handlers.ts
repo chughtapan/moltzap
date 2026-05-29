@@ -5,7 +5,9 @@ import {
   DispatchesGet,
   ForbiddenError,
 } from "@moltzap/protocol";
+import { AppId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
+import { Value } from "@sinclair/typebox/value";
 import { AppHostTag, ConnectionTag } from "../layers.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
@@ -29,10 +31,18 @@ export const appHandlers: RpcMethodRegistry = [
         // `Connection` arm (`{ connId, originator }` are `ConnectionBase`
         // fields on every arm). The legacy-map bridge is gone — the arm IS
         // the dispatch surface `AppHost` registers.
-        const ok = appHost.registerApp(params.manifest, {
-          connId: connection.connId,
-          originator: connection.originator,
-        });
+        // D #705 CP9 — this cross-principal WS RPC is being dissolved in favor
+        // of `/api/v1/apps/register` (HTTP) + implicit registration on the
+        // `appKey` Connect arm; until its consumers migrate it keeps its
+        // legacy `manifest.appId` keying.
+        const ok = appHost.registerApp(
+          Value.Decode(AppId, params.manifest.appId),
+          params.manifest,
+          {
+            connId: connection.connId,
+            originator: connection.originator,
+          },
+        );
         if (!ok) {
           return yield* Effect.fail(
             new ForbiddenError({

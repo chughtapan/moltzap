@@ -91,7 +91,7 @@ describe("AppHost.registerApp", () => {
           }),
       },
     });
-    host.registerApp(APP_MANIFEST, connection);
+    host.registerApp(APP_ID, APP_MANIFEST, connection);
     expect(host.lookupApp(APP_ID)?.endpoint.connId).toBe(CONN_ID);
   });
 });
@@ -129,7 +129,7 @@ function runRegisteredMessageAuthorize() {
           }),
       },
     });
-    host.registerApp(APP_MANIFEST, connection);
+    host.registerApp(APP_ID, APP_MANIFEST, connection);
     const result = yield* host.runMessageAuthorize(
       APP_ID,
       messageAuthorizeContext(),

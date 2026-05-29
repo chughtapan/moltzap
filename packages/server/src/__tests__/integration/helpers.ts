@@ -23,8 +23,11 @@ import {
   closeAllClients,
   trackClient,
   registerAgent,
+  registerApp,
+  connectAppClient,
   connectTestClient,
   postJson,
+  type RegisteredApp,
   type ServerTestClient,
 } from "../../test-utils/helpers.js";
 import type { CoreApp } from "../../app/types.js";
@@ -44,16 +47,18 @@ export const it = effectIt.live;
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export {
   awaitOneNotification,
+  connectAppClient,
   connectTestClient,
   postJson,
   registerAgent,
+  registerApp,
   registerAndConnect,
   registerOnly,
   setupAgentPair,
   setupAgentGroup,
   trackClient,
 };
-export type { ServerTestClient };
+export type { RegisteredApp, ServerTestClient };
 
 export function notificationParams<T>(notification: NotificationFrame): T {
   return notification.params as T;

@@ -165,7 +165,6 @@ export class ConversationService {
   removeParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
-    _requesterAgentId: AgentId,
   ): Effect.Effect<void, ConversationServiceError, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
