@@ -14,16 +14,23 @@ import {
 } from "../transport/wire-errors.js";
 import { ConversationId, conversationSchema } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
-import type { ConnectionId } from "../network/actor-model.js";
-// Structural alias for the dispatcher ctx shape consumed by argsOf
-// resolvers — the brand keeps it type-safe end to end. The
-// dispatcher provides a full `MoltZapConnection` per request; argsOf
-// reads `.id` for capability obtain helpers that take a
-// `ConnectionId`.
-type CallerConnIdCtx = {
-  readonly connection: { readonly id: ConnectionId };
-  readonly auth: { readonly agentId: AgentId };
-};
+import type { DispatchContext } from "../transport/capabilities.js";
+// D #705 CP4d — the dispatcher now provides the protocol-owned
+// `DispatchContext` per request (the server's three-arm `Connection`
+// arm satisfies it structurally): `connection.connId` is the caller's
+// id and `connection.auth` is the tagged principal union. The argsOf
+// resolvers below read those fields directly — no more `ctx: unknown`
+// casts to an ad-hoc structural alias.
+//
+// Read the AGENT arm's id off the protocol-owned `DispatchContext`. Used
+// by the two contact-policy resolvers (`task/request`,
+// `task/conversation/create`), which are agent-originated at the dispatch
+// site (the binding hands an agent ctx). Re-imposes the agent shape on
+// the tagged `auth` via the same dispatcher-boundary erasure carve-out
+// every `argsOf` body below uses for `params`.
+const callerAgentIdOf = (c: DispatchContext): AgentId =>
+  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the agent-arm ctx shape (dispatcher-boundary erasure carve-out — the binding guarantees an agent caller)
+  (c.connection.auth as { readonly agentId: AgentId }).agentId;
 // Direct per-file imports (NOT via the capabilities barrel) to keep the
 // runtime dep graph one-way; see conversations.ts for the rationale.
 import { ContactPolicyAllowsReach } from "./capabilities/contact-policy-allows-reach.js";
@@ -173,10 +180,10 @@ export const TaskClose = defineRpc({
       argsOf: (params: unknown, ctx: unknown) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
+        const c = ctx as DispatchContext;
         return {
           taskId: p.taskId,
-          callerConnId: c.connection.id,
+          callerConnId: c.connection.connId,
         };
       },
     },
@@ -202,10 +209,10 @@ export const TaskAddParticipant = defineRpc({
       argsOf: (params: unknown, ctx: unknown) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
+        const c = ctx as DispatchContext;
         return {
           taskId: p.taskId,
-          callerConnId: c.connection.id,
+          callerConnId: c.connection.connId,
         };
       },
     },
@@ -228,10 +235,10 @@ export const TaskRemoveParticipant = defineRpc({
       argsOf: (params: unknown, ctx: unknown) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
+        const c = ctx as DispatchContext;
         return {
           taskId: p.taskId,
-          callerConnId: c.connection.id,
+          callerConnId: c.connection.connId,
         };
       },
     },
@@ -420,9 +427,9 @@ export const TaskRequest = defineRpc({
         const p = params as {
           readonly invitedAgentIds: ReadonlyArray<AgentId>;
         };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        const c = ctx as DispatchContext;
         return {
-          creatorAgentId: c.auth.agentId,
+          creatorAgentId: callerAgentIdOf(c),
           targetAgentIds: [...p.invitedAgentIds],
         };
       },
@@ -479,10 +486,10 @@ export const TaskConversationCreate = defineRpc({
       argsOf: (params: unknown, ctx: unknown) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
+        const c = ctx as DispatchContext;
         return {
           taskId: p.taskId,
-          callerConnId: c.connection.id,
+          callerConnId: c.connection.connId,
         };
       },
     },
@@ -496,10 +503,10 @@ export const TaskConversationCreate = defineRpc({
         const p = params as {
           readonly participants: ReadonlyArray<AgentId>;
         };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
+        const c = ctx as DispatchContext;
         return {
           agentIds: [...p.participants],
-          creatorAgentId: c.auth.agentId,
+          creatorAgentId: callerAgentIdOf(c),
         };
       },
     },
@@ -538,10 +545,10 @@ export const TaskConversationList = defineRpc({
 const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown) => {
   // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
   const p = params as { readonly taskId: TaskId };
-  const c = ctx as CallerConnIdCtx;
+  const c = ctx as DispatchContext;
   return {
     taskId: p.taskId,
-    callerConnId: c.connection.id,
+    callerConnId: c.connection.connId,
   };
 };
 const conversationInTaskArgsOfPair = (params: unknown) => {

@@ -15,6 +15,18 @@ import {
   type ObtainMessageSendPermissionInput,
 } from "./capabilities/message-send-permission.js";
 import { TaskReadAccess } from "./capabilities/task-read-access.js";
+import type { DispatchContext } from "../transport/capabilities.js";
+
+// D #705 CP4d — `messages/send` + `messages/list` are agent-originated;
+// their `argsOf` resolvers read the sender/caller agent id off the
+// protocol-owned `DispatchContext` agent arm (the binding hands an agent
+// ctx). Re-imposes the agent shape on the tagged `auth` via the same
+// dispatcher-boundary erasure carve-out the `params` casts use.
+const callerAgentIdOf = (ctx: unknown): AgentId => {
+  const c = ctx as DispatchContext;
+  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the agent-arm ctx shape (dispatcher-boundary erasure carve-out — the binding guarantees an agent caller)
+  return (c.connection.auth as { readonly agentId: AgentId }).agentId;
+};
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -200,13 +212,10 @@ export const MessagesSend = defineRpc({
           readonly conversationId: ConversationId;
           readonly replyToId?: Static<typeof MessageId>;
         };
-        const c = ctx as {
-          readonly auth: { readonly agentId: AgentId };
-        };
         return {
           taskId: p.taskId,
           conversationId: p.conversationId,
-          senderAgentId: c.auth.agentId,
+          senderAgentId: callerAgentIdOf(ctx),
           replyToId: p.replyToId,
         };
       },
@@ -247,8 +256,7 @@ export const MessagesList = defineRpc({
       argsOf: (params: unknown, ctx: unknown) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return { taskId: p.taskId, callerAgentId: c.auth.agentId };
+        return { taskId: p.taskId, callerAgentId: callerAgentIdOf(ctx) };
       },
     },
     {

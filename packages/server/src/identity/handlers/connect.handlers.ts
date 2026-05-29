@@ -175,7 +175,9 @@ function registerEndpointIfStillConnected(
   auth: AuthenticatedContext,
 ) {
   return Effect.gen(function* () {
-    if (connections.get(connId)) {
+    // D #705 CP4d — read the three-arm `connectionsRef` arm; the legacy map
+    // is no longer consulted on the dispatch path.
+    if (Option.isSome(yield* connections.peek(connId))) {
       yield* resolver.add(auth.agentId, connId);
     }
   }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
@@ -238,8 +240,13 @@ function handleConnect(params: ConnectParams) {
       const sessionValidator = yield* SessionValidatorTag;
       const conn = yield* ConnectionTag;
 
-      if (conn.auth) {
-        return yield* buildHelloOk(conn.auth, conn.id, presenceService);
+      // D #705 CP4d — Connect dispatches on the live arm. A re-Connect on an
+      // already-authenticated agent arm is an idempotent no-op that re-emits
+      // `HelloOk`; the agent arm's `AgentContext` is a structural
+      // `AuthenticatedContext`. The app arm has no agent identity and never
+      // reaches this re-Connect path (apps Connect via the appKey arm, CP5).
+      if (conn._tag === "AgentConnection") {
+        return yield* buildHelloOk(conn.auth, conn.connId, presenceService);
       }
 
       const auth = yield* resolveAuthenticatedContext(
@@ -248,21 +255,22 @@ function handleConnect(params: ConnectParams) {
         sessionValidator,
         db,
       );
-      conn.auth = auth;
-      yield* mirrorAgentArmTransition(connections, conn.id, auth);
+      // The agent arm is minted by the immutable transition below; there is
+      // no longer a legacy `conn.auth` mutation (the arm IS the auth store).
+      yield* mirrorAgentArmTransition(connections, conn.connId, auth);
       yield* hydrateConnectionState(
         connections,
-        conn.id,
+        conn.connId,
         auth,
         conversationService,
       );
       yield* registerEndpointIfStillConnected(
         connections,
         agentEndpointResolver,
-        conn.id,
+        conn.connId,
         auth,
       );
-      return yield* buildHelloOk(auth, conn.id, presenceService);
+      return yield* buildHelloOk(auth, conn.connId, presenceService);
     }).pipe(Effect.withSpan("network.connect")),
   );
 }

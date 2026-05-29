@@ -8,10 +8,7 @@ import { HttpClient } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
-import {
-  ConnectionManager,
-  type MoltZapConnection,
-} from "../transport/connection.js";
+import { ConnectionManager, type Connection } from "../transport/connection.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
@@ -53,16 +50,16 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 >() {}
 
 /**
- * Request-scoped connection. Provided per WebSocket RPC dispatch by the
- * router; read by handlers via `yield* ConnectionTag`. Handlers that
- * only need the id read `.id` on the connection. Replaces the
- * previous `ConnectionTag` — carrying the connection directly eliminates
- * the lookup-by-id-and-maybe-fail step (and its associated defect
- * path) every handler that wanted the connection object had to do.
+ * Request-scoped connection (D #705 CP4d). Provided per WebSocket RPC
+ * dispatch by the typed dispatcher from the live three-arm `Connection`
+ * arm; read by handlers via `yield* ConnectionTag`. Handlers that only
+ * need the id read `.connId`; handlers that need the principal narrow on
+ * `.auth._tag` (`AgentConnection` carries `AgentContext`, `AppConnection`
+ * carries `AppContext`, `UnauthenticatedConnection` has neither).
  */
 export class ConnectionTag extends Context.Tag("moltzap/Connection")<
   ConnectionTag,
-  MoltZapConnection
+  Connection
 >() {}
 
 export class ConnectionManagerTag extends Context.Tag(

@@ -99,7 +99,7 @@ function handleMessageSend(
       const connection = yield* ConnectionTag;
       if (params.dispatchLeaseId !== undefined) {
         return yield* sendWithDispatchLease({
-          connId: connection.id,
+          connId: connection.connId,
           ctx,
           params,
           messageService,
@@ -111,7 +111,7 @@ function handleMessageSend(
         parts: params.parts,
         senderAgentId: ctx.agentId,
         replyToId: params.replyToId,
-        excludeConnectionId: connection.id,
+        excludeConnectionId: connection.connId,
       });
       return { message };
     }).pipe(Effect.withSpan("messages.send")),
@@ -132,7 +132,7 @@ export const messageHandlers: RpcMethodRegistry = [
         return yield* messageService.list(
           params.conversationId,
           ctx.agentId,
-          connection.id,
+          connection.connId,
           {
             limit: params.limit,
             sinceSeq: params.sinceSeq,
