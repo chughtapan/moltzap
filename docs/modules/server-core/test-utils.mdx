@@ -142,7 +142,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L107)
+### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L111)
 
 _Interface_
 
@@ -187,7 +187,7 @@ Asserts the RPC effect fails with `RpcServerError(code)` and returns the
 narrowed error for follow-up assertions. `catchTags` routes by tag name
 declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L382)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L386)
 
 _Function_
 
@@ -195,7 +195,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L374)
+### [`getCoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L378)
 
 _Function_
 
@@ -203,7 +203,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L359)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L363)
 
 _Function_
 
@@ -211,7 +211,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L367)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L371)
 
 _Function_
 
@@ -219,7 +219,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L387)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L391)
 
 _Function_
 
@@ -379,7 +379,7 @@ export function registerOnly(name: string): Effect.Effect<
 
 Register an agent without connecting (for tests that need the raw client).
 
-### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L333)
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L337)
 
 _Function_
 
@@ -441,7 +441,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L294)
+### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L298)
 
 _Function_
 
@@ -449,7 +449,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L307)
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L311)
 
 _Function_
 
