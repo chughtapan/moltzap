@@ -590,34 +590,44 @@ export class AppHost {
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
     if (verdict.decision !== "deny") return Effect.void;
     const svc = this.conversationService;
-    const moderatorAgentId = this.moderatorAgentIdFromConn(
-      params.moderatorConnectionId,
-    );
-    if (svc === null || moderatorAgentId === null) return Effect.void;
-    return svc
-      .removeParticipant(
-        params.conversationId,
-        params.recipientAgentId,
-        moderatorAgentId,
-      )
-      .pipe(
-        Effect.catchAll((cause) =>
-          Effect.logWarning("deny removeParticipant failed").pipe(
-            Effect.annotateLogs({
-              conversationId: params.conversationId,
-              recipientAgentId: params.recipientAgentId,
-              cause: String(cause),
-            }),
-          ),
-        ),
+    return Effect.gen(this, function* () {
+      const moderatorAgentId = yield* this.moderatorAgentIdFromConn(
+        params.moderatorConnectionId,
       );
+      if (svc === null || moderatorAgentId === null) return;
+      yield* svc
+        .removeParticipant(
+          params.conversationId,
+          params.recipientAgentId,
+          moderatorAgentId,
+        )
+        .pipe(
+          Effect.catchAll((cause) =>
+            Effect.logWarning("deny removeParticipant failed").pipe(
+              Effect.annotateLogs({
+                conversationId: params.conversationId,
+                recipientAgentId: params.recipientAgentId,
+                cause: String(cause),
+              }),
+            ),
+          ),
+        );
+    });
   }
 
-  private moderatorAgentIdFromConn(connectionId: ConnectionId): AgentId | null {
-    if (connectionId === EMPTY_CONNECTION_ID) return null;
-    const conn = this.connections.get(connectionId);
-    if (!conn || !conn.auth) return null;
-    return conn.auth.agentId as AgentId;
+  private moderatorAgentIdFromConn(
+    connectionId: ConnectionId,
+  ): Effect.Effect<AgentId | null> {
+    if (connectionId === EMPTY_CONNECTION_ID) return Effect.succeed(null);
+    // D #705 CP4e — read the three-arm `connectionsRef`. Only an agent arm
+    // carries `auth.agentId`; unauthenticated + app arms yield null.
+    return this.connections.peek(connectionId).pipe(
+      Effect.map((connOpt) => {
+        if (Option.isNone(connOpt)) return null;
+        const conn = connOpt.value;
+        return conn._tag === "AgentConnection" ? conn.auth.agentId : null;
+      }),
+    );
   }
 
   /**
