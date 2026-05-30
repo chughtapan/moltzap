@@ -41,8 +41,8 @@ Transport is the lowest protocol layer. It does not know about identity, convers
 ## Files
 
 - `connection.ts` — WS connection manager + per-connection RPC client.
-- `context.ts` — `defineMethod`, `RpcMethodBinding`, `AuthenticatedContext`, `DispatchContext`. The base wrapper; provides `ConnectionTag` from the per-request `DispatchContext`.
-- `define-layered-method.ts` — `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`. Layer-specific wrappers that constrain handler R-channel to a per-layer Tag allowlist and provide the matching layer-scope service.
+- `context.ts` — `defineMethod` (+ the required `callablePrincipal` principal-kind gate), `CtxForKind`, `RpcMethodBinding`, the `AgentContext`/`AppContext` principal arms, `DispatchContext`. The base wrapper narrows the live `Connection` arm to the binding's declared principal and hands the body its `CtxForKind<K>` arm; `DispatchContext` (the 3-arm dispatcher `Ctx`) is the only type that accepts the unauthenticated arm.
+- `define-layered-method.ts` — `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`. Layer-specific wrappers that constrain handler R-channel to a per-layer Tag allowlist and provide the matching layer-scope service. Each threads a REQUIRED `callablePrincipal` (`"agent"`/`"app"`/`"any"`), orthogonal to the layer: a `defineAppMethod` binding may declare `callablePrincipal: "agent"` (e.g. `task/request`, `dispatch/request`).
 - `layer-scopes.ts` — runtime `Context.Tag`s used as structural layer markers (`NetworkLayerScope`, `TaskLayerScope`, `AppLayerScope`).
 - `layer-tags.ts` — type-only allowlist hierarchy (`TransportTags`, `IdentityTags`, `NetworkTags`, `TaskTags`, `AppTags`).
 - `layer-boundary.types-check.ts` — compile-time test that exercises the constraint shape.

@@ -25,10 +25,7 @@ import {
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 
-import type {
-  AuthenticatedContext,
-  DispatchContext,
-} from "../transport/context.js";
+import type { AgentContext, DispatchContext } from "../transport/context.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import type { AppTags } from "../transport/layer-tags.js";
 import { serverCapabilityProviders } from "./capability-providers.js";
@@ -346,8 +343,9 @@ function handleRequestFrame(
     // Spec F (#617) §6 FRI cutover: dispatch through the per-connection
     // typed `ServerConnection.handle`. The dispatcher casts R to `never`
     // via `asNeverR`; the surrounding `ManagedRuntime<FullLive>`
-    // provides every handler-body Tag at request time. The handler-facing
-    // `AuthenticatedContext` is derived from the arm inside `defineMethod`.
+    // provides every handler-body Tag at request time. The per-principal
+    // arm-narrow + the body's narrowed `AgentContext`/`AppContext` are
+    // applied inside `defineMethod`'s principal-kind gate (#705 #720 §B1).
     const response = yield* conn.originator.handle(frame, {
       connection: conn,
     });
@@ -379,7 +377,7 @@ function fireConnectionHooks(
 }
 
 function readAgentName(
-  agentId: AuthenticatedContext["agentId"],
+  agentId: AgentContext["agentId"],
   options: SocketHandlerOptions,
 ) {
   return Effect.tryPromise(() =>
@@ -421,9 +419,8 @@ function closeSocketSession(
 ) {
   return Effect.gen(function* () {
     // D #705 CP4d — atomic delete + return of the live arm drives the
-    // auth-gated cleanup. The agent arm carries the `AgentContext` (a
-    // structural `AuthenticatedContext`); the app + unauthenticated arms
-    // skip the agent-disconnect path.
+    // auth-gated cleanup. The agent arm carries the `AgentContext`; the app +
+    // unauthenticated arms skip the agent-disconnect path.
     const removed = yield* options.services.connections.removeAndReturn(
       session.connId,
     );
@@ -463,7 +460,7 @@ function closeSocketSession(
 }
 
 function runDisconnectionHooks(
-  authCtx: AuthenticatedContext,
+  authCtx: AgentContext,
   session: SocketSession,
   options: SocketHandlerOptions,
 ) {

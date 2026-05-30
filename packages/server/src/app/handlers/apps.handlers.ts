@@ -14,6 +14,7 @@ import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
 
 export const appHandlers: RpcMethodRegistry = [
   defineAppMethod(AppsRegister, {
+    callablePrincipal: "app",
     // A client-originated `apps/register` stores the calling WS
     // connection as the moderator endpoint for `manifest.appId`.
     // `dispatch/authorize` and `messages/authorize` route to this
@@ -57,6 +58,12 @@ export const appHandlers: RpcMethodRegistry = [
   // round-trip, recipient observes the verdict via `dispatch/release`
   // notification.
   defineAppMethod(DispatchRequest, {
+    // D #705 #720 — agent-called yet `defineAppMethod`-bound (the
+    // orthogonality: `callablePrincipal: "agent"` for the table arm + ctx,
+    // `defineAppMethod` for the `AppHostTag` R-channel bound). Reads
+    // `ctx.agentId` as `recipientAgentId`; `requiresActive` fires on the
+    // live agent arm and is load-bearing.
+    callablePrincipal: "agent",
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {
@@ -82,7 +89,7 @@ export const appHandlers: RpcMethodRegistry = [
   // (binding tuple recorded at `mint`). Otherwise typed
   // `ForbiddenError`.
   defineAppMethod(DispatchesGet, {
-    requiresActive: true,
+    callablePrincipal: "app",
     handler: (params) =>
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;

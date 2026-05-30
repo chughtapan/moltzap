@@ -109,6 +109,7 @@ function agentsListPage(input: AgentsListPageInput) {
 
 export const agentsLookupHandlers: RpcMethodRegistry = [
   defineNetworkMethod(AgentsLookup, {
+    callablePrincipal: "agent",
     // NOT contact-scoped. Per architect #481: "those are dereference-by-known-key,
     // so the privacy concern is at the enumeration verb, not the lookup verb."
     // The client uses this RPC to resolve peer `AgentCard`s for UI rendering of
@@ -137,6 +138,7 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
       ),
   }),
   defineNetworkMethod(AgentsLookupByName, {
+    callablePrincipal: "agent",
     // Contact-scoped per #481/#506. Names are 1-32 chars and human-chosen,
     // so a dictionary attack on the unfiltered RPC was tractable. The
     // `active` status filter is preserved (existing semantics); the
@@ -174,6 +176,7 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
       ),
   }),
   defineNetworkMethod(AgentsList, {
+    callablePrincipal: "agent",
     requiresActive: true,
     // Contact-scoped. `visibleAgentIds` is the entitlement filter; the
     // cursor + limit then run on the `agents` row query so page order is
