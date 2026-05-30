@@ -1,7 +1,7 @@
 /**
  * Shared reconnecting-socket-client primitives (#705 CP-F A6-base).
  *
- * `MoltZapTMClient` (`tm-client.ts`) and `MoltZapAgentClient`
+ * `MoltZapAppClient` (`app-client.ts`) and `MoltZapAgentClient`
  * (`agent-client.ts`) are ~90% identical reconnecting WebSocket clients:
  * both open a `Socket.makeWebSocket` under a request `Scope`, fork a
  * reader fiber, and on reader-exit run an exponential-backoff reconnect

@@ -61,7 +61,7 @@ it("send() delivers message to other agent", () =>
 // `TaskConversationArchive` is TM-only (#677). Driving it from the
 // owner requires (a) AppsRegister on a custom appId AND (b) a
 // `messages/authorize` wire-callback handler — `MoltZapAgentClient`
-// doesn't expose `onAppCallback`, only `TestClient`/`MoltZapTMClient`
+// doesn't expose `onAppCallback`, only `TestClient`/`MoltZapAppClient`
 // do. Re-enable when client-side test infra adds wire-callback
 // registration (tracked alongside the 11 server-side TM-only markers
 // in chughtapan/moltzap#681).

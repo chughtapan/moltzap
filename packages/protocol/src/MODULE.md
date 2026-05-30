@@ -54,6 +54,23 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
+### [`AnyAppCallableRpcDefinition`](./rpc-registry.ts#L130)
+
+_TypeAlias_
+
+```ts
+export type AnyAppCallableRpcDefinition =
+  (typeof appCallableRpcMethods)[number] & RpcDefinition<string, any, any>;
+```
+
+### [`AnyAppCallbackRpcDefinition`](./rpc-registry.ts#L133)
+
+_TypeAlias_
+
+```ts
+export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
+```
+
 ### [`AnyNotificationDefinition`](./rpc-registry.ts#L135)
 
 _TypeAlias_
@@ -71,20 +88,15 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
 ```
 
-### [`AnyTaskCallbackRpcDefinition`](./rpc-registry.ts#L133)
+### [`appCallableRpcMethods`](./rpc-registry.ts#L107)
 
-_TypeAlias_
-
-```ts
-export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
-```
-
-### [`AnyTaskMasterRpcDefinition`](./rpc-registry.ts#L130)
-
-_TypeAlias_
+_Variable_
 
 ```ts
-export type AnyTaskMasterRpcDefinition = (typeof taskMasterRpcMethods)[number] &
+export const appCallableRpcMethods = [
+  ...agentClientRpcMethods,
+  ...appCallableTaskRpcMethods,
+] as const
 ```
 
 ### [`brandedId`](./schema-primitives.ts#L178)
@@ -394,7 +406,7 @@ export type DecodedServerInbound =
   | DecodedResponseError
   | ({
       readonly _tag: "ServerRequest";
-    } & DecodedRpcRequest<AnyTaskCallbackRpcDefinition>)
+    } & DecodedRpcRequest<AnyAppCallbackRpcDefinition>)
 ```
 
 Decoded shape of a frame inbound to the client (from server):
@@ -420,7 +432,7 @@ flowchart TD
   A["raw socket payload<br>(JSON.parse happens before this call)"]
   A --> B["decodeFrame(parsed)"]
   B --> C{tag?}
-  C -->|Request| D["decodeRpcRequest(taskCallbackMethods)<br>→ ServerRequest"]
+  C -->|Request| D["decodeRpcRequest(appCallbackMethods)<br>→ ServerRequest"]
   C -->|Response| E["decodeResponseFrame<br>→ ResponseSuccess | ResponseError"]
   C -->|Notification| F["decodeNotification(notificationDefs)<br>→ Notification"]
   D --> G[DecodedServerInbound]
@@ -429,7 +441,7 @@ flowchart TD
 ```
 
 Client-inbound `Request` frames are restricted to
-`taskCallbackMethods` (the subset the server is allowed to call
+`appCallbackMethods` (the subset the server is allowed to call
 back into the client — `dispatch/authorize`, etc.). Response
 frames with `id === null` fail closed since a null id has no
 pending call to resolve.
@@ -647,17 +659,6 @@ same wire shape, simpler schema. Replaces the former TypeBox
 `Type.String({ enum })`; `JSONSchema.make` renders a literal union as
 `{ "enum": [...] }` (string-valued), which the docs walker reads off
 `.enum`.
-
-### [`taskMasterRpcMethods`](./rpc-registry.ts#L107)
-
-_Variable_
-
-```ts
-export const taskMasterRpcMethods = [
-  ...agentClientRpcMethods,
-  ...appCallableTaskRpcMethods,
-] as const
-```
 
 ### [`WireStringFormat`](./schema-primitives.ts#L25)
 

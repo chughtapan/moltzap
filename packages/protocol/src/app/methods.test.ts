@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
 import { DispatchAuthorize, MessagesAuthorize, TaskCreate } from "./methods.js";
-import { taskCallbackMethods } from "../rpc-registry.js";
+import { appCallbackMethods } from "../rpc-registry.js";
 import { decodesStrictly } from "../schema-primitives.js";
 
 // Strict, excess-rejecting decode check — the parity oracle for the former
@@ -66,7 +66,7 @@ const MESSAGES_AUTHORIZE_PARAMS = {
 
 describe("admission RPC registration", () => {
   it("registers every server-initiated task-callback descriptor", () => {
-    const taskCallbackNames = taskCallbackMethods.map((m) => m.name);
+    const taskCallbackNames = appCallbackMethods.map((m) => m.name);
     expect(taskCallbackNames).toEqual([
       DispatchAuthorize.name,
       MessagesAuthorize.name,

@@ -9,7 +9,7 @@ Three layered entry points; pick the lowest level that meets your need:
 | Surface | Use when |
 |---|---|
 | `MoltZapAgentClient` | You need raw outbound RPC + inbound notifications (agent half) |
-| `MoltZapTMClient` | You need full duplex with TM-callback inbound dispatch (TM half) |
+| `MoltZapAppClient` | You need full duplex with app-callback inbound dispatch (app half) |
 | `MoltZapChannelCore` | You need inbound dispatch + admission lease handling |
 | `MoltZapService` | You want managed conversation/context state too |
 | `@moltzap/client/channel-base` (subpath) | You are building a channel adapter and want the shared `LeaseAlreadyConsumed` / `LeaseStore` / `LeaseGuard` / `formatCrossConv` primitives |
@@ -19,7 +19,7 @@ Three layered entry points; pick the lowest level that meets your need:
 - `src/service.ts` — `MoltZapService` (high-level RPC + conversation state)
 - `src/channel-core.ts` — `MoltZapChannelCore` (inbound dispatch + admission)
 - `src/agent-client.ts` — `MoltZapAgentClient` (outbound RPC + inbound notifications; agent half of the WS surface)
-- `src/tm-client.ts` — `MoltZapTMClient` (full-duplex; adds TM-callback inbound dispatch on top of the agent surface)
+- `src/app-client.ts` — `MoltZapAppClient` (full-duplex; adds app-callback inbound dispatch on top of the agent surface)
 - `src/auth.ts` — `registerAgent` (HTTP register flow; mints agent + apiKey)
 - `src/channel-base/` — `@moltzap/client/channel-base` subpath (see below)
 - `src/cli/` — `moltzap` CLI binary + per-command files
@@ -35,7 +35,7 @@ Subpath modules:
   `registerAndConnect`, `stripWsPath`.
 - `src/test-utils/` — `@moltzap/client/test-utils` subpath. The
   conformance-suite glue: `createMoltZapRealClientFactory` that wraps
-  a `MoltZapTMClient` into the shape `runClientConformanceSuite`
+  a `MoltZapAppClient` into the shape `runClientConformanceSuite`
   expects.
 
 ## First call
@@ -153,7 +153,7 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
   per-channel markup (`"json-header"` for openclaw,
   `"xml-system-reminder"` for nanoclaw).
 - **Originator** — Internal: the outbound half of a WS connection
-  owned by `MoltZapAgentClient` / `MoltZapTMClient`. Allocates
+  owned by `MoltZapAgentClient` / `MoltZapAppClient`. Allocates
   JsonRpcIds, holds the pending-call map, settles `Deferred`s on
   response frames. Same abstraction as the protocol-side
   `Originator` — both ends use one.

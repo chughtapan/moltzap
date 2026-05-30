@@ -19,14 +19,14 @@ _TypeAlias_
 
 ```ts
 export type AppEndpointHandlers = {
-  readonly [D in AnyTaskCallbackRpcDefinition as D["name"]]: AppEndpointHandler<D>;
+  readonly [D in AnyAppCallbackRpcDefinition as D["name"]]: AppEndpointHandler<D>;
 };
 ```
 
-Mapped over the closed `AnyTaskCallbackRpcDefinition` union, keyed
+Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
 by each definition's wire name. Mandates one handler per
 task-callback RPC at construction time — adding a new entry to
-`taskCallbackMethods` becomes a compile error at every endpoint
+`appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
 ### [`AwaitNotificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L72)
@@ -307,7 +307,7 @@ satisfies the same `{ connId, originator }` shape a wire-registered app's
 arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
 
   - `originator.call(D, params)` indexes `handlers` by `D.name`. The
-    mapped type guarantees every member of `AnyTaskCallbackRpcDefinition`
+    mapped type guarantees every member of `AnyAppCallbackRpcDefinition`
     has a handler — no runtime "method not found" branch exists.
   - `originator.notify` / `failAllPending` are no-ops.
   - `originator.handle` / `originator.resolve` defect — an in-process
@@ -320,7 +320,7 @@ _Function_
 ```ts
 export function makeInertAppEndpoint(args: {
   readonly id: ConnectionId;
-  readonly originatorCall?: <D extends AnyTaskCallbackRpcDefinition>(
+  readonly originatorCall?: <D extends AnyAppCallbackRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, RpcCallError>;
