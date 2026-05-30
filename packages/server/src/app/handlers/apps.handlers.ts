@@ -6,8 +6,7 @@ import {
   ForbiddenError,
 } from "@moltzap/protocol";
 import { AppId } from "@moltzap/protocol/task";
-import { Effect } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { Effect, Schema } from "effect";
 import { AppHostTag, ConnectionTag } from "../layers.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
@@ -37,7 +36,7 @@ export const appHandlers: ServerRpcSlots = [
         // `appKey` Connect arm; until its consumers migrate it keeps its
         // legacy `manifest.appId` keying.
         const ok = appHost.registerApp(
-          Value.Decode(AppId, params.manifest.appId),
+          Schema.decodeUnknownSync(AppId)(params.manifest.appId),
           params.manifest,
           {
             connId: connection.connId,

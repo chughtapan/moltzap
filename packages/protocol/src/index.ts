@@ -45,6 +45,11 @@ export {
 export { listCursorSchema } from "./schema-primitives.js";
 export type { ListCursor } from "./schema-primitives.js";
 
+// Brand aliases the wire id types resolve to. Re-exported so downstream
+// `.d.ts` emit can name them via the package entry (not the deep
+// `dist/schema-primitives.js` path) — TS2742 portability.
+export type { BrandedString, BrandedNumber } from "./schema-primitives.js";
+
 // Shared pagination limits for the cursor-paginated list RPCs.
 export {
   DEFAULT_PAGE_LIMIT,

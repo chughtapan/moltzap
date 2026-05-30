@@ -18,7 +18,7 @@
  * `AgentsList` consumer is the proof the old `Record` shape is gone (no
  * negative `@ts-expect-error` canary needed).
  */
-import type { Static } from "@sinclair/typebox";
+import type { Schema } from "effect";
 import type { AgentCard, ListCursor } from "../index.js";
 import { AgentsList, ContactsList } from "../index.js";
 import { TaskList } from "../task/index.js";
@@ -31,10 +31,14 @@ type Equal<A, B> =
     : false;
 
 // ── AgentsList: Record → Array + cursor envelope ─────────────────────
-type AgentsListParams = Static<typeof AgentsList.paramsSchema>;
-type AgentsListResult = Static<typeof AgentsList.resultSchema>;
+type AgentsListParams = Schema.Schema.Type<typeof AgentsList.paramsSchema>;
+type AgentsListResult = Schema.Schema.Type<typeof AgentsList.resultSchema>;
 
-type _A1 = Expect<Equal<AgentsListResult["agents"], AgentCard[]>>;
+// Post-#723 (Effect Schema): `Schema.Array` produces `readonly T[]`, so the
+// wire result is `readonly AgentCard[]` — a tighter (more correct) invariant
+// than the former TypeBox mutable `AgentCard[]`. The Record→Array break is
+// still locked: a `Record` shape would fail this equality.
+type _A1 = Expect<Equal<AgentsListResult["agents"], readonly AgentCard[]>>;
 type _A2 = Expect<
   Equal<AgentsListResult["nextCursor"], ListCursor | undefined>
 >;
@@ -44,8 +48,8 @@ type _A4 = Expect<Equal<AgentsListParams["cursor"], ListCursor | undefined>>;
 export type _AgentsListPaginationCanary = _A1 | _A2 | _A3 | _A4;
 
 // ── ContactsList: cursor envelope ────────────────────────────────────
-type ContactsListParams = Static<typeof ContactsList.paramsSchema>;
-type ContactsListResult = Static<typeof ContactsList.resultSchema>;
+type ContactsListParams = Schema.Schema.Type<typeof ContactsList.paramsSchema>;
+type ContactsListResult = Schema.Schema.Type<typeof ContactsList.resultSchema>;
 
 type _C1 = Expect<Equal<ContactsListParams["limit"], number | undefined>>;
 type _C2 = Expect<Equal<ContactsListParams["cursor"], ListCursor | undefined>>;
@@ -56,7 +60,7 @@ type _C3 = Expect<
 export type _ContactsListPaginationCanary = _C1 | _C2 | _C3;
 
 // ── TaskList: nextCursor envelope (interim) ──────────────────────────
-type TaskListResult = Static<typeof TaskList.resultSchema>;
+type TaskListResult = Schema.Schema.Type<typeof TaskList.resultSchema>;
 
 // interim — the final TaskList canaries land when the `tasks` item is
 // reshaped to `TaskListItem`.

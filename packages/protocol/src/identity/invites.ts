@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Schema } from "effect";
 import { defineRpc } from "../transport/method.js";
 
 /**
@@ -6,8 +6,11 @@ import { defineRpc } from "../transport/method.js";
  */
 export const InvitesCreateAgent = defineRpc({
   name: "invites/createAgent",
-  params: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({}),
   // Result shape hasn't been formalized yet. Keep it open rather than
   // locking in a shape we haven't designed.
-  result: Type.Object({}, { additionalProperties: true }),
+  result: Schema.Struct(
+    {},
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
 });

@@ -12,8 +12,8 @@
  * wire-driver's frame-receive path) sees the schema check fail at this
  * layer, so the typed channel stays adjacent to the producers.
  */
-import { Data, Effect } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { Data, Effect, Either, ParseResult, Schema } from "effect";
+import { decodesStrictly, STRICT_DECODE } from "../../../schema-primitives.js";
 import {
   requestFrameSchema,
   responseFrameSchema,
@@ -33,7 +33,14 @@ const RequestFrameSchema = requestFrameSchema();
 const ResponseFrameSchema = responseFrameSchema();
 const NotificationFrameSchema = notificationFrameSchema();
 
-/** A frame read off the wire failed `Value.Check` against its schema. */
+// Strict, excess-rejecting decode check (former AJV `strict` `Value.Check`).
+// `decodesStrictly` passes `{ onExcessProperty: "error" }`, which is
+// LOAD-BEARING: the `extra-property` / `oversized` mutators below append a
+// stray key, and the adversity properties assert those frames FAIL the schema
+// check — a bare decode would silently strip the key and INVERT the assertion.
+const decodeRequestEither = Schema.decodeUnknownEither(RequestFrameSchema);
+
+/** A frame read off the wire failed the strict schema check. */
 export class FrameSchemaError extends Data.TaggedError(
   "TestingFrameSchemaError",
 )<{
@@ -125,13 +132,11 @@ export function decodeFrame(
       );
     }
 
-    if (Value.Check(ResponseFrameSchema, parsed)) {
-      return Effect.succeed(parsed as AnyFrame);
-    }
-    if (Value.Check(RequestFrameSchema, parsed)) {
-      return Effect.succeed(parsed as AnyFrame);
-    }
-    if (Value.Check(NotificationFrameSchema, parsed)) {
+    if (
+      decodesStrictly(ResponseFrameSchema, parsed) ||
+      decodesStrictly(RequestFrameSchema, parsed) ||
+      decodesStrictly(NotificationFrameSchema, parsed)
+    ) {
       return Effect.succeed(parsed as AnyFrame);
     }
 
@@ -140,21 +145,23 @@ export function decodeFrame(
         direction,
         expected: "request",
         raw,
-        reason: firstValueError(RequestFrameSchema, parsed),
+        reason: firstParseError(parsed),
       }),
     );
   });
 }
 
-function firstValueError(
-  schema: Parameters<typeof Value.Errors>[0],
-  value: unknown,
-): string {
-  const iter = Value.Errors(schema, value);
-  for (const err of iter) {
-    return `${err.path}: ${err.message}`;
-  }
-  return "schema check failed";
+function firstParseError(value: unknown): string {
+  return Either.match(decodeRequestEither(value, STRICT_DECODE), {
+    onRight: () => "schema check failed",
+    onLeft: (parseError) => {
+      const issues = ParseResult.ArrayFormatter.formatErrorSync(parseError);
+      const first = issues[0];
+      return first
+        ? `${first.path.join("/")}: ${first.message}`
+        : "schema check failed";
+    },
+  });
 }
 
 /**

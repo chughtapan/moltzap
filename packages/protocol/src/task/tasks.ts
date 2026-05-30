@@ -1,5 +1,4 @@
-import { Data } from "effect";
-import { Type, type Static } from "@sinclair/typebox";
+import { Data, Schema } from "effect";
 import {
   stringEnum,
   dateTimeStringSchema,
@@ -79,16 +78,16 @@ registerErrorClass(ParticipantNotAdmittedError);
  * Logical time frontier per delivery domain (usually a conversation):
  * monotonic `epoch` + per-participant observed counts in `vector`.
  */
-const LogicalClockSchema = Type.Object(
-  {
-    domainId: Type.String({ minLength: 1 }),
-    epoch: Type.Integer({ minimum: 0 }),
-    vector: Type.Record(Type.String(), Type.Integer({ minimum: 0 })),
-  },
-  { additionalProperties: false },
-);
+const LogicalClockSchema = Schema.Struct({
+  domainId: Schema.String.pipe(Schema.minLength(1)),
+  epoch: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+  vector: Schema.Record({
+    key: Schema.String,
+    value: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+  }),
+});
 
-export type LogicalClock = Static<typeof LogicalClockSchema>;
+export type LogicalClock = Schema.Schema.Type<typeof LogicalClockSchema>;
 
 export function logicalClockSchema(): typeof LogicalClockSchema {
   return LogicalClockSchema;
@@ -97,22 +96,19 @@ export function logicalClockSchema(): typeof LogicalClockSchema {
 // Mirrors the `task_status` DB enum.
 const TaskStatusEnum = stringEnum(["waiting", "active", "failed", "closed"]);
 
-export type TaskStatus = Static<typeof TaskStatusEnum>;
+export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 
-const TaskSchema = Type.Object(
-  {
-    id: TaskId,
-    appId: Type.String(),
-    initiatorAgentId: AgentId,
-    status: TaskStatusEnum,
-    startedAt: Type.Union([DateTimeString, Type.Null()]),
-    endedAt: Type.Union([DateTimeString, Type.Null()]),
-    createdAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
+const TaskSchema = Schema.Struct({
+  id: TaskId,
+  appId: Schema.String,
+  initiatorAgentId: AgentId,
+  status: TaskStatusEnum,
+  startedAt: Schema.Union(DateTimeString, Schema.Null),
+  endedAt: Schema.Union(DateTimeString, Schema.Null),
+  createdAt: DateTimeString,
+});
 
-export type Task = Static<typeof TaskSchema>;
+export type Task = Schema.Schema.Type<typeof TaskSchema>;
 
 // `admittedAt = null` is reserved for a future "pending invitation"
 // flow. Today the server auto-admits every invitee at TaskRequest, so
@@ -120,89 +116,64 @@ export type Task = Static<typeof TaskSchema>;
 // nullable + the `WHERE admitted_at IS NOT NULL` filters in read
 // paths stay in place so the future flow drops in without
 // re-engineering the gating.
-const TaskParticipantSchema = Type.Object(
-  {
-    taskId: TaskId,
-    agentId: AgentId,
-    admittedAt: Type.Union([DateTimeString, Type.Null()]),
-  },
-  { additionalProperties: false },
-);
+const TaskParticipantSchema = Schema.Struct({
+  taskId: TaskId,
+  agentId: AgentId,
+  admittedAt: Schema.Union(DateTimeString, Schema.Null),
+});
 
-export type TaskParticipant = Static<typeof TaskParticipantSchema>;
+export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 
 export const TaskList = defineRpc({
   name: "task/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      tasks: Type.Array(TaskSchema),
-      nextCursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    tasks: Schema.Array(TaskSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
 });
 
 export const TaskClose = defineRpc({
   name: "task/close",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId }),
+  result: Schema.Struct({ task: TaskSchema }),
 });
 
 export const TaskAddParticipant = defineRpc({
   name: "task/addParticipant",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { participant: TaskParticipantSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({ participant: TaskParticipantSchema }),
 });
 
 export const TaskRemoveParticipant = defineRpc({
   name: "task/removeParticipant",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({
+    taskId: TaskId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({}),
 });
 
-const TaskFailedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    // Free-form one-liner. The task/create TM-callback verdict's
-    // `reject.reason`, the synthesized `"tm_unreachable"` /
-    // `"timeout"` strings from the fail-closed envelope, and any
-    // future caller-supplied failure reason all flow through here.
-    reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
-  },
-  { additionalProperties: false },
-);
+const TaskFailedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  // Free-form one-liner. The task/create TM-callback verdict's
+  // `reject.reason`, the synthesized `"tm_unreachable"` /
+  // `"timeout"` strings from the fail-closed envelope, and any
+  // future caller-supplied failure reason all flow through here.
+  reason: Schema.optional(
+    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
+  ),
+});
 
-const TaskCreatedNotificationSchema = Type.Object(
-  { task: TaskSchema },
-  { additionalProperties: false },
-);
+const TaskCreatedNotificationSchema = Schema.Struct({ task: TaskSchema });
 
-const TaskClosedNotificationSchema = Type.Object(
-  { task: TaskSchema },
-  { additionalProperties: false },
-);
+const TaskClosedNotificationSchema = Schema.Struct({ task: TaskSchema });
 
 /**
  * Pushed when a task fails before becoming ready.
@@ -292,26 +263,24 @@ export const TaskClosedNotificationDefinition = defineNotification({
 // on delivery failure.
 // ─────────────────────────────────────────────────────────────────────
 
-const InitialConversationSchema = Type.Object(
-  {
-    name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-    participants: Type.Optional(Type.Array(AgentId, { minItems: 1 })),
-  },
-  { additionalProperties: false },
-);
+const InitialConversationSchema = Schema.Struct({
+  name: Schema.optional(
+    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
+  ),
+  participants: Schema.optional(Schema.Array(AgentId).pipe(Schema.minItems(1))),
+});
 
-export type InitialConversationInput = Static<typeof InitialConversationSchema>;
+export type InitialConversationInput = Schema.Schema.Type<
+  typeof InitialConversationSchema
+>;
 
-const TaskConversationListItemSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversation: ConversationSchema,
-    participants: Type.Array(AgentId),
-  },
-  { additionalProperties: false },
-);
+const TaskConversationListItemSchema = Schema.Struct({
+  taskId: TaskId,
+  conversation: ConversationSchema,
+  participants: Schema.Array(AgentId),
+});
 
-export type TaskConversationListItem = Static<
+export type TaskConversationListItem = Schema.Schema.Type<
   typeof TaskConversationListItemSchema
 >;
 
@@ -336,21 +305,15 @@ export type TaskConversationListItem = Static<
  */
 export const TaskRequest = defineRpc({
   name: "task/request",
-  params: Type.Object(
-    {
-      appId: AppId,
-      invitedAgentIds: Type.Array(AgentId),
-      initialConversation: Type.Optional(InitialConversationSchema),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      task: TaskSchema,
-      conversation: Type.Union([ConversationSchema, Type.Null()]),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    appId: AppId,
+    invitedAgentIds: Schema.Array(AgentId),
+    initialConversation: Schema.optional(InitialConversationSchema),
+  }),
+  result: Schema.Struct({
+    task: TaskSchema,
+    conversation: Schema.Union(ConversationSchema, Schema.Null),
+  }),
 });
 
 /**
@@ -368,8 +331,8 @@ export const TaskRequest = defineRpc({
  */
 export const TaskLeave = defineRpc({
   name: "task/leave",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId }),
+  result: Schema.Struct({}),
 });
 
 /**
@@ -379,18 +342,14 @@ export const TaskLeave = defineRpc({
  */
 export const TaskConversationCreate = defineRpc({
   name: "task/conversation/create",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      participants: Type.Array(AgentId, { minItems: 1 }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { conversation: ConversationSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    name: Schema.optional(
+      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
+    ),
+    participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
+  }),
+  result: Schema.Struct({ conversation: ConversationSchema }),
   // No descriptor-side capabilities (D #705 R3/R7). App-ownership is
   // gated by the app-arm handler's `assertCallerAppOwnsTask`, and
   // `ConversationCreateAuthorization` is provided INLINE by the handler
@@ -407,20 +366,14 @@ export const TaskConversationCreate = defineRpc({
  */
 export const TaskConversationList = defineRpc({
   name: "task/conversation/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      items: Type.Array(TaskConversationListItemSchema),
-      nextCursor: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(Schema.String),
+  }),
+  result: Schema.Struct({
+    items: Schema.Array(TaskConversationListItemSchema),
+    nextCursor: Schema.optional(Schema.String),
+  }),
 });
 
 // The four conversation-targeted descriptors below share the IDENTICAL
@@ -432,21 +385,15 @@ export const TaskConversationList = defineRpc({
 /** TM-only: archive one conversation. Task stays open. */
 export const TaskConversationArchive = defineRpc({
   name: "task/conversation/archive",
-  params: Type.Object(
-    { taskId: TaskId, conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
+  result: Schema.Struct({}),
 });
 
 /** TM-only: reverse of `task/conversation/archive`. */
 export const TaskConversationUnarchive = defineRpc({
   name: "task/conversation/unarchive",
-  params: Type.Object(
-    { taskId: TaskId, conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
+  result: Schema.Struct({}),
 });
 
 /**
@@ -456,15 +403,12 @@ export const TaskConversationUnarchive = defineRpc({
  */
 export const TaskConversationAddParticipant = defineRpc({
   name: "task/conversation/participants/add",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({}),
   // App-ownership is gated by the app-arm handler's
   // `assertCallerAppOwnsTask` BEFORE `requireAgentsAreInTaskParticipants`
   // (so a non-owner sees `ForbiddenError`, not the participant-admitted
@@ -479,15 +423,12 @@ export const TaskConversationAddParticipant = defineRpc({
  */
 export const TaskConversationRemoveParticipant = defineRpc({
   name: "task/conversation/participants/remove",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({}),
 });
 
 // ─── task/conversation/* notifications ──────────────────────────────
@@ -504,67 +445,56 @@ export const TaskConversationRemoveParticipant = defineRpc({
 //     agent still receives the notification)
 // ────────────────────────────────────────────────────────────────────
 
-const TaskConversationCreatedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    name: Type.Optional(Type.String()),
-    participants: Type.Array(AgentId),
-  },
-  { additionalProperties: false },
-);
+const TaskConversationCreatedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  conversationId: ConversationId,
+  name: Schema.optional(Schema.String),
+  participants: Schema.Array(AgentId),
+});
 
-const TaskConversationArchivedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    archivedAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
+const TaskConversationArchivedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  conversationId: ConversationId,
+  archivedAt: DateTimeString,
+});
 
-const TaskConversationUnarchivedNotificationSchema = Type.Object(
-  { taskId: TaskId, conversationId: ConversationId },
-  { additionalProperties: false },
-);
+const TaskConversationUnarchivedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  conversationId: ConversationId,
+});
 
-const TaskConversationParticipantsAddedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    addedAgentId: AgentId,
-    // Authority is TM-only today; the enum is single-valued but kept
-    // open-shaped so the wire can widen without a schema rev.
-    byAgentOrTm: stringEnum(["tm"]),
-  },
-  { additionalProperties: false },
-);
+const TaskConversationParticipantsAddedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  conversationId: ConversationId,
+  addedAgentId: AgentId,
+  // Authority is TM-only today; the enum is single-valued but kept
+  // open-shaped so the wire can widen without a schema rev.
+  byAgentOrTm: stringEnum(["tm"]),
+});
 
-const TaskConversationParticipantsRemovedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    removedAgentId: AgentId,
-    reason: stringEnum(["tm_remove", "task_leave"]),
-  },
-  { additionalProperties: false },
-);
+const TaskConversationParticipantsRemovedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  conversationId: ConversationId,
+  removedAgentId: AgentId,
+  reason: stringEnum(["tm_remove", "task_leave"]),
+});
 
-export type TaskConversationCreatedNotification = Static<
+export type TaskConversationCreatedNotification = Schema.Schema.Type<
   typeof TaskConversationCreatedNotificationSchema
 >;
-export type TaskConversationArchivedNotification = Static<
+export type TaskConversationArchivedNotification = Schema.Schema.Type<
   typeof TaskConversationArchivedNotificationSchema
 >;
-export type TaskConversationUnarchivedNotification = Static<
+export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
   typeof TaskConversationUnarchivedNotificationSchema
 >;
-export type TaskConversationParticipantsAddedNotification = Static<
+export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
   typeof TaskConversationParticipantsAddedNotificationSchema
 >;
-export type TaskConversationParticipantsRemovedNotification = Static<
-  typeof TaskConversationParticipantsRemovedNotificationSchema
->;
+export type TaskConversationParticipantsRemovedNotification =
+  Schema.Schema.Type<
+    typeof TaskConversationParticipantsRemovedNotificationSchema
+  >;
 
 export const TaskConversationCreatedNotificationDefinition = defineNotification(
   {

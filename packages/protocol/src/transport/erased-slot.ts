@@ -9,8 +9,9 @@
  *
  * #705 HALF-2 — every slot is built by `makeMiddlewareSlot`
  * (`middleware-slot.ts`): the slot's `invoke` decodes `params` via the
- * method's OWN AJV validator (a genuine `d is Static&lt;P>` narrowing, not an
- * assertion) and runs a pre-composed, cast-free gated body whose per-frame
+ * method's OWN validator (`validateParams`, an Effect-`Schema`-backed
+ * `d is Schema.Schema.Type&lt;P>` narrowing post-#723, not an assertion) and
+ * runs a pre-composed, cast-free gated body whose per-frame
  * capabilities were discharged by a STATIC `provideServiceEffect` chain at
  * the binding site. The slot boundary is honestly typed: `invoke`'s residual
  * `R` is `Env` (the `FullLive` service-tag union the dispatcher's
@@ -18,8 +19,7 @@
  * `asNeverR` lie, and there is NO `dischargeCaps` runtime fold / `argsOf`
  * erasure (deleted in HALF-2).
  */
-import { type Effect, type Exit } from "effect";
-import { type TSchema } from "@sinclair/typebox";
+import { type Effect, type Exit, Schema } from "effect";
 
 import { type RpcDefinition } from "./method.js";
 
@@ -50,13 +50,18 @@ export interface SlotDispatchContext<Conn> {
  * MINUS the per-frame capability tags, which are discharged inside
  * `invoke`). `Conn` is the server's three-arm `Connection` union.
  *
- * `invoke` decodes `params` via the method's own AJV validator, runs the
+ * `invoke` decodes `params` via the method's own validator (the Effect
+ * `Schema`-backed `validateParams` guard, post-#723), runs the
  * pre-composed gated body (caps + principal discharged inside), and returns
  * the `Exit`. `R = Env` (NOT `never`). NO double-erasure cast, NO
  * `Context.Tag&lt;unknown, unknown>`.
  */
 export interface ErasedSlot<Env, Conn> {
-  readonly definition: RpcDefinition<string, TSchema, TSchema>;
+  readonly definition: RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >;
   readonly invoke: (
     params: unknown,
     ctx: SlotDispatchContext<Conn>,

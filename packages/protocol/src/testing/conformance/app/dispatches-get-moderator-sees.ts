@@ -1,5 +1,4 @@
-import { Effect } from "effect";
-import type { Static } from "@sinclair/typebox";
+import { Effect, Schema } from "effect";
 import type { DispatchId } from "../../../app/index.js";
 import type { LeaseId } from "../../../task/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -47,8 +46,8 @@ function assertModeratorSeesLifecycle(
 }
 
 type DispatchAck = {
-  readonly leaseId: Static<typeof LeaseId>;
-  readonly dispatchId: Static<typeof DispatchId>;
+  readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+  readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
 };
 
 function assertGrantedView(

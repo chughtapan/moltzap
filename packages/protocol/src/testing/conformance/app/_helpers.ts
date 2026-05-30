@@ -4,8 +4,7 @@
  * Carved verbatim from `conformance/dispatch-admission.ts@961a5c8`.
  * Body unchanged; import paths shift to the new layer location.
  */
-import { Effect, type Scope } from "effect";
-import type { Static } from "@sinclair/typebox";
+import { Effect, type Scope, Schema } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
@@ -73,7 +72,7 @@ export type ConsumedFrameView = {
   readonly leaseId: string;
 };
 
-export function freshMessageId(): Static<typeof MessageId> {
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
   // UUIDv4 from the runtime; the brand-decoder accepts a well-formed
   // UUID4 string. `crypto.randomUUID` is in Node 18+.
   return makeMessageId(globalThis.crypto.randomUUID());

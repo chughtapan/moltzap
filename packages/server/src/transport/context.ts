@@ -1,5 +1,4 @@
-import { Data, Effect, type Exit } from "effect";
-import { type Static, type TSchema } from "@sinclair/typebox";
+import { Data, Effect, type Exit, Schema } from "effect";
 import {
   ForbiddenError,
   CurrentPrincipal,
@@ -228,8 +227,8 @@ function narrowPrincipalCtx<K extends PrincipalKind>(
  * deleted `defineMethod` + `makeErasedSlot` cap-less agent/app path.
  */
 interface MiddlewareMethodDef<
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   E,
   EW,
@@ -239,21 +238,25 @@ interface MiddlewareMethodDef<
   readonly callablePrincipal: K;
   readonly requiresActive?: boolean;
   readonly handler: (
-    params: Static<P>,
+    params: Schema.Schema.Type<P>,
     ctx: CtxForKind<K>,
   ) => Effect.Effect<
-    Static<R>,
+    Schema.Schema.Type<R>,
     E,
     Env | ConnectionTag | CurrentPrincipal | NoInfer<CapIdents>
   >;
   readonly weaveCaps: (
     handlerEffect: Effect.Effect<
-      Static<R>,
+      Schema.Schema.Type<R>,
       E,
       Env | ConnectionTag | CurrentPrincipal | CapIdents
     >,
-    params: Static<P>,
-  ) => Effect.Effect<Static<R>, EW, Env | ConnectionTag | CurrentPrincipal>;
+    params: Schema.Schema.Type<P>,
+  ) => Effect.Effect<
+    Schema.Schema.Type<R>,
+    EW,
+    Env | ConnectionTag | CurrentPrincipal
+  >;
 }
 
 /**
@@ -284,8 +287,8 @@ interface MiddlewareMethodDef<
  * per-provider `args as Shape`.
  */
 export function defineMiddlewareMethod<
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   E,
   EW,
@@ -294,12 +297,12 @@ export function defineMiddlewareMethod<
 >(
   def: MiddlewareMethodDef<P, R, K, E, EW, CapIdents, Env>,
 ): (
-  params: Static<P>,
+  params: Schema.Schema.Type<P>,
   ctx: DispatchContext,
 ) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env> {
   const requiresActive = def.requiresActive ?? false;
   const callablePrincipal = def.callablePrincipal;
-  return (params: Static<P>, ctx: DispatchContext) =>
+  return (params: Schema.Schema.Type<P>, ctx: DispatchContext) =>
     // `Effect.exit` over the WHOLE body so the #720 gate's `ForbiddenError`
     // (a wrong-principal arm) ALSO surfaces as a success-typed `Exit.Failure`
     // the dispatcher projects (mirrors the slot `invoke`). The gate runs
@@ -340,20 +343,20 @@ export function defineMiddlewareMethod<
  * {@link defineMiddlewareMethod} covers every authenticated method.
  */
 export function defineUnauthMethod<
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   E,
   Env,
 >(def: {
   readonly handler: (
-    params: Static<P>,
+    params: Schema.Schema.Type<P>,
     ctx: undefined,
-  ) => Effect.Effect<Static<R>, E, Env | ConnectionTag>;
+  ) => Effect.Effect<Schema.Schema.Type<R>, E, Env | ConnectionTag>;
 }): (
-  params: Static<P>,
+  params: Schema.Schema.Type<P>,
   ctx: DispatchContext,
 ) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env> {
-  return (params: Static<P>, ctx: DispatchContext) =>
+  return (params: Schema.Schema.Type<P>, ctx: DispatchContext) =>
     Effect.gen(function* () {
       // `"any"` gate yields `undefined` (no principal); the body reads the
       // live arm via `ConnectionTag`, provided here from the dispatch ctx.

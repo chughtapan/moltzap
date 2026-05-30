@@ -1,3 +1,4 @@
+import { JSONSchema, type Schema } from "effect";
 import {
   serverRpcMethods,
   taskCallbackMethods,
@@ -5,10 +6,9 @@ import {
 import * as protocolSchema from "../../src/index.js";
 import {
   SORT_KEY_PAD_WIDTH,
-  TypeBoxKind,
   type AnyRpcDocDefinition,
+  type JsonSchemaNode,
   type SchemaPropertyDoc,
-  type TypeBoxSchema,
 } from "./types.js";
 
 type RpcDefinitionField = readonly [
@@ -16,29 +16,18 @@ type RpcDefinitionField = readonly [
   predicate: (value: unknown) => boolean,
 ];
 
-type TypeNameReader = (schema: TypeBoxSchema) => string;
-
+// Duck-type predicate for an RPC descriptor in the module namespace. Keyed on
+// the runtime descriptor field set (post-#723: `paramsSchema`/`resultSchema`
+// are Effect `Schema` values, `validateParams`/`validateResult` strict decode
+// guards). Dropping `validateParams`/`validateResult` from the descriptor
+// would zero the docs silently, so they stay in the predicate.
 const RPC_DEFINITION_FIELDS: readonly RpcDefinitionField[] = [
   ["name", isString],
-  ["paramsSchema", isObjectRecord],
-  ["resultSchema", isObjectRecord],
+  ["paramsSchema", isSchema],
+  ["resultSchema", isSchema],
   ["validateParams", isFunction],
   ["validateResult", isFunction],
 ];
-
-const TYPE_NAME_READERS: Readonly<Record<string, TypeNameReader>> = {
-  Array: () => "array",
-  Boolean: () => "boolean",
-  Integer: () => "integer",
-  Literal: getLiteralTypeName,
-  Number: () => "number",
-  Object: () => "object",
-  Optional: getOptionalTypeName,
-  Record: () => "object (map)",
-  String: getStringTypeName,
-  Union: () => "union",
-  Unsafe: getUnsafeTypeName,
-};
 
 export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
@@ -76,6 +65,11 @@ function isFunction(value: unknown): value is (...args: never[]) => unknown {
   return typeof value === "function";
 }
 
+// An Effect `Schema` is an object carrying an `ast` field. Duck-type on that.
+function isSchema(value: unknown): value is Schema.Schema.AnyNoContext {
+  return isObjectRecord(value) && "ast" in value;
+}
+
 function getOwnProperty(value: object, key: string): unknown {
   return Object.hasOwn(value, key) ? Reflect.get(value, key) : undefined;
 }
@@ -99,65 +93,91 @@ function methodSortKey(method: string): string {
 }
 
 // ── Schema Introspection ─────────────────────────────────────────────────
+//
+// Post-#723 the source is `JSONSchema.make(schema)` (draft-07), NOT the live
+// TypeBox AST. The draft-07 shape contract is preserved, so the readers below
+// branch on `.type` / `.anyOf` / `.const` / `.enum` / `.format` rather than a
+// `TypeBox.Kind` symbol. `Schema.Int` would hoist a `$defs`/`$ref`, but the
+// wire schemas use the inline `Schema.Number.pipe(Schema.int(), …)` form
+// (renders inline `{"type":"integer"}`), so no `$ref` dereference is needed.
 
-function getSchemaKind(schema: TypeBoxSchema): string | undefined {
-  const kind = schema[TypeBoxKind];
-  return typeof kind === "string" ? kind : undefined;
-}
-
-function getStringTypeName(schema: TypeBoxSchema): string {
-  if (schema.format === "uuid") return "string (UUID)";
-  if (schema.format === "uri") return "string (URI)";
-  if (schema.format === "date-time") return "string (ISO 8601)";
-  if (schema.enum) return schema.enum.join(" | ");
+function getStringTypeName(node: JsonSchemaNode): string {
+  if (node.format === "uuid") return "string (UUID)";
+  if (node.format === "uri") return "string (URI)";
+  if (node.format === "date-time") return "string (ISO 8601)";
+  if (node.enum) return node.enum.join(" | ");
   return "string";
 }
 
-function getUnsafeTypeName(schema: TypeBoxSchema): string {
-  if (schema.enum) return schema.enum.join(" | ");
-  return typeof schema.type === "string" ? schema.type : "unknown";
+function getTypeName(node: JsonSchemaNode): string {
+  if (node.anyOf) return "union";
+  if (node.const !== undefined) return String(node.const);
+  if (node.enum && node.type !== "string") return node.enum.join(" | ");
+  const type = node.type;
+  if (type === "string") return getStringTypeName(node);
+  if (type === "integer") return "integer";
+  if (type === "number") return "number";
+  if (type === "boolean") return "boolean";
+  if (type === "array") return "array";
+  if (type === "null") return "null";
+  if (type === "object") {
+    // A `Schema.Record` renders `{ type: "object", additionalProperties: V }`
+    // with no `properties`; a struct renders with `properties`. Mirror the
+    // former walker's "object" / "object (map)" split.
+    return node.properties === undefined ? "object (map)" : "object";
+  }
+  return typeof type === "string" ? type : "unknown";
 }
 
-function getOptionalTypeName(schema: TypeBoxSchema): string {
-  return getTypeName(schema.anyOf?.[1] ?? schema);
-}
+// `JSONSchema.make` injects an AUTO-GENERATED description on a refined
+// primitive that carries no explicit `description` annotation (e.g. "a number
+// less than or equal to 200", "a string matching the pattern ^...", "an
+// integer"). Those are validator prose, not field documentation — strip them
+// so the renderer's "The <name> field." fallback applies. Human descriptions
+// (annotated via `Schema.annotations({ description })`) do NOT match these
+// patterns and are preserved.
+const AUTO_DESCRIPTION_PATTERNS: readonly RegExp[] = [
+  /^a number /,
+  /^an? integer$/,
+  /^a (non-negative|positive|non-positive|negative) number$/,
+  /^a string (matching the pattern|at least|at most|of length)/,
+  /^a string$/,
+  /^an? array /,
+  /^a non-empty /,
+];
 
-function getLiteralTypeName(schema: TypeBoxSchema): string {
-  return String(schema.const);
-}
-
-function getTypeName(schema: TypeBoxSchema): string {
-  const kind = getSchemaKind(schema);
-  if (!kind) return "unknown";
-  const reader = TYPE_NAME_READERS[kind];
-  return reader ? reader(schema) : kind.toLowerCase();
+function fieldDescription(prop: JsonSchemaNode): string {
+  const description = prop.description ?? "";
+  if (AUTO_DESCRIPTION_PATTERNS.some((re) => re.test(description))) {
+    return "";
+  }
+  return description;
 }
 
 function schemaPropertyDoc(
   name: string,
-  prop: TypeBoxSchema,
+  prop: JsonSchemaNode,
   required: boolean,
 ): SchemaPropertyDoc {
   return {
     name,
     type: getTypeName(prop),
     required,
-    description: prop.description ?? "",
+    description: fieldDescription(prop),
   };
 }
 
-function extractObjectProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
-  if (getSchemaKind(schema) !== "Object" || !schema.properties) return [];
-
-  const requiredSet = new Set<string>(schema.required ?? []);
-  return Object.entries(schema.properties).map(([name, prop]) =>
+function extractObjectProperties(node: JsonSchemaNode): SchemaPropertyDoc[] {
+  if (node.type !== "object" || !node.properties) return [];
+  const requiredSet = new Set<string>(node.required ?? []);
+  return Object.entries(node.properties).map(([name, prop]) =>
     schemaPropertyDoc(name, prop, requiredSet.has(name)),
   );
 }
 
-function extractUnionProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
+function extractUnionProperties(node: JsonSchemaNode): SchemaPropertyDoc[] {
   const seen = new Map<string, SchemaPropertyDoc>();
-  for (const member of schema.anyOf ?? []) {
+  for (const member of node.anyOf ?? []) {
     for (const prop of extractObjectProperties(member)) {
       if (!seen.has(prop.name)) seen.set(prop.name, prop);
     }
@@ -168,7 +188,12 @@ function extractUnionProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
   }));
 }
 
-export function extractProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
-  if (getSchemaKind(schema) === "Union") return extractUnionProperties(schema);
-  return extractObjectProperties(schema);
+export function extractProperties(
+  schema: Schema.Schema.AnyNoContext,
+): SchemaPropertyDoc[] {
+  // `JSONSchema.make` emits a draft-07 root; read it through the structural
+  // `JsonSchemaNode` reader interface (the shapes overlap, no `unknown`).
+  const node = JSONSchema.make(schema) as JsonSchemaNode;
+  if (node.anyOf) return extractUnionProperties(node);
+  return extractObjectProperties(node);
 }

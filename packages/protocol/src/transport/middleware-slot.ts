@@ -26,12 +26,12 @@
  * legacy `erased-slot.ts` carries. The slice's grep-zero target.
  *
  * `invoke` decodes `params` via the method's OWN validator (a genuine
- * `d is Static&lt;P&gt;` narrow, the same honest wire-dynamic boundary), then
+ * `d is Schema.Schema.Type&lt;P&gt;` narrow via the Effect-`Schema`-backed
+ * `validateParams` guard, the same honest wire-dynamic boundary), then
  * runs the pre-composed gated body. A params-decode failure surfaces as a
  * success-typed `Exit.Failure` the dispatcher projects to `InvalidParams`.
  */
-import { Effect, Exit } from "effect";
-import { type Static, type TSchema } from "@sinclair/typebox";
+import { Effect, Exit, Schema } from "effect";
 
 import { decodeRpcParams, type RpcDefinition } from "./method.js";
 import type { ErasedSlot, SlotDispatchContext } from "./erased-slot.js";
@@ -50,8 +50,12 @@ import type { ErasedSlot, SlotDispatchContext } from "./erased-slot.js";
  * outcome into the success channel (mirrors `makeErasedSlot.invoke`, which
  * returns `Effect&lt;Exit&lt;…&gt;, never, Env&gt;`).
  */
-export type GatedMiddlewareBody<P extends TSchema, Conn, Env> = (
-  params: Static<P>,
+export type GatedMiddlewareBody<
+  P extends Schema.Schema.AnyNoContext,
+  Conn,
+  Env,
+> = (
+  params: Schema.Schema.Type<P>,
   ctx: SlotDispatchContext<Conn>,
 ) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env>;
 
@@ -65,8 +69,8 @@ export type GatedMiddlewareBody<P extends TSchema, Conn, Env> = (
  */
 export function makeMiddlewareSlot<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   Conn,
   Env,
 >(

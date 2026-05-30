@@ -14,8 +14,7 @@
  * (Spec F I1). The slot table is value-passed at construction time
  * and immutable thereafter.
  */
-import { Effect, type Scope } from "effect";
-import type { TSchema } from "@sinclair/typebox";
+import { Effect, type Scope, Schema } from "effect";
 
 import type {
   AnyAgentClientRpcDefinition,
@@ -47,7 +46,11 @@ import {
  * received at construction.
  */
 interface OutboundCall<
-  OutCall extends RpcDefinition<string, TSchema, TSchema>,
+  OutCall extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
 > {
   /**
    * Outbound RPC call. Constrained by the kind's outbound surface
@@ -79,12 +82,15 @@ interface OutboundNotify<OutNotify> {
    * which surfaces a compile-time error at any call site.
    */
   readonly notify: <
-    N extends OutNotify extends NotificationDefinition<string, TSchema>
+    N extends OutNotify extends NotificationDefinition<
+      string,
+      Schema.Schema.AnyNoContext
+    >
       ? OutNotify
       : never,
   >(
     definition: N,
-    params: N extends NotificationDefinition<string, TSchema>
+    params: N extends NotificationDefinition<string, Schema.Schema.AnyNoContext>
       ? NotificationParamsOf<N>
       : never,
   ) => Effect.Effect<void>;

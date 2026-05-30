@@ -1,6 +1,5 @@
 /* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `NotificationParamsOf<D>` use natural angle-bracket form inside backtick spans; matches filter-equivalence.test.ts precedent. */
-import { Data, Effect } from "effect";
-import type { TSchema } from "@sinclair/typebox";
+import { Data, Effect, Schema } from "effect";
 import type { NotificationFrame, RequestFrame } from "./wire.js";
 import type { JsonRpcId } from "./wire.js";
 import type {
@@ -10,8 +9,15 @@ import type {
   NotificationParamsOf,
 } from "./method.js";
 
-type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
-type AnyNotificationDefinition = NotificationDefinition<string, TSchema>;
+type AnyServerRpcDefinition = RpcDefinition<
+  string,
+  Schema.Schema.AnyNoContext,
+  Schema.Schema.AnyNoContext
+>;
+type AnyNotificationDefinition = NotificationDefinition<
+  string,
+  Schema.Schema.AnyNoContext
+>;
 
 export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
   D extends AnyServerRpcDefinition

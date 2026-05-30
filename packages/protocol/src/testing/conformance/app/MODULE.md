@@ -22,7 +22,7 @@ from legacy `conformance/test-server-driver.ts`).
 
 ## Public surface
 
-### [`ABANDON_OBSERVATION_BUFFER_MS`](./_helpers.ts#L24)
+### [`ABANDON_OBSERVATION_BUFFER_MS`](./_helpers.ts#L23)
 
 _Variable_
 
@@ -30,7 +30,7 @@ _Variable_
 export const ABANDON_OBSERVATION_BUFFER_MS = 1_000
 ```
 
-### [`ABANDON_POLL_EXTRA_MS`](./_helpers.ts#L31)
+### [`ABANDON_POLL_EXTRA_MS`](./_helpers.ts#L30)
 
 _Variable_
 
@@ -74,7 +74,7 @@ All app-layer property registrars, ordered per architect plan §2:
 registrars (delivery tombstones, boundary unavailable, rpc-semantics
 spurious-callback tombstone, rpc-semantics idempotence).
 
-### [`ConsumedFrameView`](./_helpers.ts#L71)
+### [`ConsumedFrameView`](./_helpers.ts#L70)
 
 _TypeAlias_
 
@@ -85,7 +85,7 @@ export type ConsumedFrameView = {
 };
 ```
 
-### [`DISPATCH_ADMISSION_CATEGORY`](./_helpers.ts#L19)
+### [`DISPATCH_ADMISSION_CATEGORY`](./_helpers.ts#L18)
 
 _Variable_
 
@@ -93,7 +93,7 @@ _Variable_
 export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission" as const
 ```
 
-### [`dispatchAdmissionViolation`](./_helpers.ts#L53)
+### [`dispatchAdmissionViolation`](./_helpers.ts#L52)
 
 _Function_
 
@@ -104,7 +104,7 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L268)
+### [`DispatchTestDriver`](./_driver.ts#L270)
 
 _Interface_
 
@@ -113,8 +113,8 @@ export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
   readonly fixtures: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
   };
 
   /**
@@ -134,7 +134,7 @@ export interface DispatchTestDriver {
    * server's typed error rather than the lease record.
    */
   readonly getLeaseFromNonModerator: (
-    dispatchId: Static<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
   ) => Effect.Effect<{ readonly errorCode: number }, PropertyFailure>;
 
   /**
@@ -145,7 +145,7 @@ export interface DispatchTestDriver {
    * defaults to 5 s.
    */
   readonly assertLeaseState: (
-    dispatchId: Static<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
     expected: LeaseState,
     opts?: { readonly timeoutMs?: number },
   ) => Effect.Effect<void, PropertyFailure>;
@@ -166,7 +166,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchTestDriverConfig`](./_driver.ts#L332)
+### [`DispatchTestDriverConfig`](./_driver.ts#L334)
 
 _Interface_
 
@@ -202,7 +202,7 @@ Properties that need to script a moderator's reply pass a
 `DispatchVerdict` value to `recipient.expectAuthorize` /
 `respondWith`; the driver encodes it to the wire shape internally.
 
-### [`FAST_ACK_THRESHOLD_MS`](./_helpers.ts#L44)
+### [`FAST_ACK_THRESHOLD_MS`](./_helpers.ts#L43)
 
 _Variable_
 
@@ -210,7 +210,7 @@ _Variable_
 export const FAST_ACK_THRESHOLD_MS = 1_000
 ```
 
-### [`FORBIDDEN_ERROR_CODE`](./_helpers.ts#L26)
+### [`FORBIDDEN_ERROR_CODE`](./_helpers.ts#L25)
 
 _Variable_
 
@@ -218,15 +218,15 @@ _Variable_
 export const FORBIDDEN_ERROR_CODE = -32001
 ```
 
-### [`freshMessageId`](./_helpers.ts#L76)
+### [`freshMessageId`](./_helpers.ts#L75)
 
 _Function_
 
 ```ts
-export function freshMessageId(): Static<typeof MessageId>
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId>
 ```
 
-### [`HOLD_DRAIN_BUFFER_MS`](./_helpers.ts#L51)
+### [`HOLD_DRAIN_BUFFER_MS`](./_helpers.ts#L50)
 
 _Variable_
 
@@ -234,7 +234,7 @@ _Variable_
 export const HOLD_DRAIN_BUFFER_MS = 2_000
 ```
 
-### [`HOLD_RELEASE_MARGIN_MS`](./_helpers.ts#L48)
+### [`HOLD_RELEASE_MARGIN_MS`](./_helpers.ts#L47)
 
 _Variable_
 
@@ -242,7 +242,7 @@ _Variable_
 export const HOLD_RELEASE_MARGIN_MS = 500
 ```
 
-### [`isUuidV4`](./_helpers.ts#L85)
+### [`isUuidV4`](./_helpers.ts#L84)
 
 _Function_
 
@@ -250,7 +250,7 @@ _Function_
 export function isUuidV4(s: string): boolean
 ```
 
-### [`leaseId`](./_helpers.ts#L73)
+### [`leaseId`](./_helpers.ts#L72)
 
 _Property_
 
@@ -258,10 +258,10 @@ _Property_
   readonly leaseId: string;
 };
 
-export function freshMessageId(): Static<typeof MessageId> {
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
-### [`leaseId`](./_helpers.ts#L70)
+### [`leaseId`](./_helpers.ts#L69)
 
 _Property_
 
@@ -269,7 +269,7 @@ _Property_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`leaseId`](./_helpers.ts#L67)
+### [`leaseId`](./_helpers.ts#L66)
 
 _Property_
 
@@ -278,7 +278,7 @@ _Property_
   readonly verdict: { decision: string; reason?: string };
 ```
 
-### [`LeaseIdOnlyView`](./_helpers.ts#L70)
+### [`LeaseIdOnlyView`](./_helpers.ts#L69)
 
 _TypeAlias_
 
@@ -310,7 +310,7 @@ export type LeaseState =
  * underlying TestClient.
  */
 export interface RecipientHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
    * Issue `dispatch/request` for the given inbound. Returns the ack
@@ -319,14 +319,14 @@ export interface RecipientHandle {
    * own assertions.
    */
   readonly requestDispatch: (params: {
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly messageId: Static<typeof MessageId>;
-    readonly senderAgentId: Static<typeof AgentId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
     readonly attempt?: number;
   }) => Effect.Effect<
     {
-      readonly leaseId: Static<typeof LeaseId>;
-      readonly dispatchId: Static<typeof DispatchId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
     },
     PropertyFailure
   >;
@@ -353,13 +353,13 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly leaseId: Static<typeof LeaseId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     readonly text: string;
   }) => Effect.Effect<
     {
-      readonly messageId: Static<typeof MessageId>;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
       readonly errorCode?: number;
       readonly errorState?: string;
     },
@@ -382,7 +382,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (impl-staff picks the bound
 per-property; default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L948)
+### [`makeDispatchTestDriver`](./_driver.ts#L958)
 
 _Function_
 
@@ -400,7 +400,7 @@ Property authors call this from inside their property body; the driver
 is per-property, never shared. Cross-property state leakage is the
 exact failure mode the per-property scope prevents.
 
-### [`messageId`](./_helpers.ts#L72)
+### [`messageId`](./_helpers.ts#L71)
 
 _Property_
 
@@ -409,7 +409,7 @@ _Property_
   readonly leaseId: string;
 };
 
-export function freshMessageId(): Static<typeof MessageId> {
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
 ### [`ModeratorHandle`](./_driver.ts#L197)
@@ -418,7 +418,7 @@ _Interface_
 
 ```ts
 export interface ModeratorHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly appId: string;
 
   /**
@@ -434,9 +434,9 @@ export interface ModeratorHandle {
   readonly handleAuthorize: (opts: {
     readonly respondWith: DispatchVerdict;
     readonly predicate?: (params: {
-      readonly taskId: Static<typeof TaskId>;
-      readonly conversationId: Static<typeof ConversationId>;
-      readonly messageId: Static<typeof MessageId>;
+      readonly taskId: Schema.Schema.Type<typeof TaskId>;
+      readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
     }) => boolean;
     readonly holdResponseFor?: number;
   }) => Effect.Effect<void, PropertyFailure>;
@@ -455,7 +455,7 @@ export interface ModeratorHandle {
   readonly waitForObservability: <K extends "consumed" | "expired">(
     kind: K,
     opts: {
-      readonly dispatchId?: Static<typeof DispatchId>;
+      readonly dispatchId?: Schema.Schema.Type<typeof DispatchId>;
       readonly timeoutMs?: number;
     },
   ) => Effect.Effect<
@@ -470,11 +470,13 @@ export interface ModeratorHandle {
    * positive `dispatches-get-moderator-sees-record` property + every
    * `assertLeaseState` poll.
    */
-  readonly getLease: (dispatchId: Static<typeof DispatchId>) => Effect.Effect<
+  readonly getLease: (
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
+  ) => Effect.Effect<
     {
       readonly state: LeaseState;
       readonly verdict: DispatchVerdict | null;
-      readonly leaseId: Static<typeof LeaseId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     },
     PropertyFailure
   >;
@@ -486,7 +488,7 @@ server under a moderator agent identity, with `apps/register` already
 driven to install a `dispatch_authorize` hook for the test app. Holds
 the registered `appId` for `dispatches/get` scope assertions.
 
-### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L25)
+### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L24)
 
 _Variable_
 
@@ -494,7 +496,7 @@ _Variable_
 export const NEGATIVE_OBSERVABILITY_WINDOW_MS = 750
 ```
 
-### [`NO_SECOND_RELEASE_WINDOW_MS`](./_helpers.ts#L40)
+### [`NO_SECOND_RELEASE_WINDOW_MS`](./_helpers.ts#L39)
 
 _Variable_
 
@@ -508,7 +510,7 @@ _Interface_
 
 ```ts
 export interface RecipientHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
    * Issue `dispatch/request` for the given inbound. Returns the ack
@@ -517,14 +519,14 @@ export interface RecipientHandle {
    * own assertions.
    */
   readonly requestDispatch: (params: {
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly messageId: Static<typeof MessageId>;
-    readonly senderAgentId: Static<typeof AgentId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
     readonly attempt?: number;
   }) => Effect.Effect<
     {
-      readonly leaseId: Static<typeof LeaseId>;
-      readonly dispatchId: Static<typeof DispatchId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
     },
     PropertyFailure
   >;
@@ -551,13 +553,13 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly leaseId: Static<typeof LeaseId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     readonly text: string;
   }) => Effect.Effect<
     {
-      readonly messageId: Static<typeof MessageId>;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
       readonly errorCode?: number;
       readonly errorState?: string;
     },
@@ -650,7 +652,7 @@ export function registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(
 ): void
 ```
 
-### [`registerDispatchesGetModeratorSeesRecord`](./dispatches-get-moderator-sees.ts#L15)
+### [`registerDispatchesGetModeratorSeesRecord`](./dispatches-get-moderator-sees.ts#L14)
 
 _Function_
 
@@ -746,7 +748,7 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 ): void
 ```
 
-### [`registerSameConversationDispatchesConcurrent`](./same-conv-dispatches-concurrent.ts#L15)
+### [`registerSameConversationDispatchesConcurrent`](./same-conv-dispatches-concurrent.ts#L14)
 
 _Function_
 
@@ -776,7 +778,7 @@ export function registerSpuriousAppCallbackFrameHandling(
 ): void
 ```
 
-### [`ReleaseFrameView`](./_helpers.ts#L66)
+### [`ReleaseFrameView`](./_helpers.ts#L65)
 
 _TypeAlias_
 
@@ -787,7 +789,7 @@ export type ReleaseFrameView = {
 };
 ```
 
-### [`SHORT_LEASE_TIMEOUT_MS`](./_helpers.ts#L21)
+### [`SHORT_LEASE_TIMEOUT_MS`](./_helpers.ts#L20)
 
 _Variable_
 
@@ -795,7 +797,7 @@ _Variable_
 export const SHORT_LEASE_TIMEOUT_MS = 250
 ```
 
-### [`TIMEOUT_RELEASE_WAIT_MS`](./_helpers.ts#L36)
+### [`TIMEOUT_RELEASE_WAIT_MS`](./_helpers.ts#L35)
 
 _Variable_
 
@@ -803,7 +805,7 @@ _Variable_
 export const TIMEOUT_RELEASE_WAIT_MS = 3_000
 ```
 
-### [`TINY_MODERATOR_TIMEOUT_MS`](./_helpers.ts#L22)
+### [`TINY_MODERATOR_TIMEOUT_MS`](./_helpers.ts#L21)
 
 _Variable_
 
@@ -811,7 +813,7 @@ _Variable_
 export const TINY_MODERATOR_TIMEOUT_MS = 200
 ```
 
-### [`TTL_OBSERVATION_BUFFER_MS`](./_helpers.ts#L23)
+### [`TTL_OBSERVATION_BUFFER_MS`](./_helpers.ts#L22)
 
 _Variable_
 
@@ -819,7 +821,7 @@ _Variable_
 export const TTL_OBSERVATION_BUFFER_MS = 1_500
 ```
 
-### [`verdict`](./_helpers.ts#L68)
+### [`verdict`](./_helpers.ts#L67)
 
 _Property_
 
@@ -827,7 +829,7 @@ _Property_
   readonly verdict: { decision: string; reason?: string };
 ```
 
-### [`withDriver`](./_helpers.ts#L93)
+### [`withDriver`](./_helpers.ts#L92)
 
 _Function_
 

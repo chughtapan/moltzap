@@ -90,7 +90,12 @@ function decodedPresence(
 function decodedMessageReceived(): DecodedNotification<
   typeof MessageReceivedNotificationDefinition
 > {
-  return {
+  // Minimal test fixture: raw-string ids + a partial `message` (no `taskId`
+  // etc.), whereas the decoded `params` is deeply `readonly` with branded ids
+  // post-#723 (Effect Schema). Pure test data fed into the subscriber stream,
+  // not a wire trust boundary — the snapshot test only inspects the stream
+  // delivery order, not the params' field shape.
+  const fixture = {
     _tag: "Notification" as const,
     jsonrpc: "2.0",
     definition: MessageReceivedNotificationDefinition,
@@ -103,7 +108,12 @@ function decodedMessageReceived(): DecodedNotification<
         parts: [{ type: "text", text: "hi" }],
       },
     },
-  } as DecodedNotification<typeof MessageReceivedNotificationDefinition>;
+  };
+  type Decoded = DecodedNotification<
+    typeof MessageReceivedNotificationDefinition
+  >;
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- minimal test fixture, pure test data not a wire decode
+  return fixture as unknown as Decoded; // #ignore-sloppy-code[as-unknown-as]: minimal test fixture re-asserting the branded readonly decoded notification shape; pure test data, not a wire decode
 }
 
 describe("AD1 snapshot semantics — Stream cancellation", () => {

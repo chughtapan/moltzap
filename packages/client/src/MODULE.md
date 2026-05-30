@@ -786,7 +786,7 @@ callers compose failures and cancellation explicitly. (Phase -1
 vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
 to arena; consumers wanting Promise wrappers maintain their own.)
 
-### [`MoltZapTMClient`](./tm-client.ts#L332)
+### [`MoltZapTMClient`](./tm-client.ts#L335)
 
 _Class_
 
@@ -1132,7 +1132,7 @@ passthrough is intentional: when the wire frame carries an OTel
 traceparent header, the surrounding transport may layer it on; the
 typed-dispatcher does not encode tracing into the type.
 
-### [`TMClientOptions`](./tm-client.ts#L244)
+### [`TMClientOptions`](./tm-client.ts#L247)
 
 _Interface_
 

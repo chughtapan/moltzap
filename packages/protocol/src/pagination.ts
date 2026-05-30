@@ -7,7 +7,7 @@
  * constants import {@link DEFAULT_PAGE_LIMIT} / {@link MAX_PAGE_LIMIT}
  * so the protocol cap and the server's clamp can never drift apart.
  */
-import { Type } from "@sinclair/typebox";
+import { Schema } from "effect";
 
 // Page size a list RPC returns when the caller omits `limit`. The server
 // applies this default; clients may request fewer or up to MAX_PAGE_LIMIT.
@@ -20,6 +20,10 @@ export const MAX_PAGE_LIMIT = 200;
 // Optional `limit` param shared by every cursor-paginated list RPC: a
 // positive integer, capped at MAX_PAGE_LIMIT. Omit it to take the
 // server's DEFAULT_PAGE_LIMIT.
-export const ListLimitSchema = Type.Optional(
-  Type.Integer({ minimum: 1, maximum: MAX_PAGE_LIMIT }),
+export const ListLimitSchema = Schema.optional(
+  Schema.Number.pipe(
+    Schema.int(),
+    Schema.greaterThanOrEqualTo(1),
+    Schema.lessThanOrEqualTo(MAX_PAGE_LIMIT),
+  ),
 );

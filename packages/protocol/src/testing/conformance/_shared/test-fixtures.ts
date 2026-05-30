@@ -16,9 +16,7 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import type { Static } from "@sinclair/typebox";
-import { Data, Effect } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { Data, Effect, Schema } from "effect";
 import { UserId, AgentId, ContactId } from "../../../identity/methods.js";
 import type { ConnectionId } from "../../../network/actor-model.js";
 import { AppId } from "../../../task/ids.js";
@@ -50,22 +48,28 @@ function uniqueSuffixFragment(): string {
 // eval harnesses use these to construct branded values from UUID string
 // literals.
 
-export const userId = (value: string): Static<typeof UserId> =>
-  Value.Decode(UserId, value);
-export const agentId = (value: string): Static<typeof AgentId> =>
-  Value.Decode(AgentId, value);
-export const contactId = (value: string): Static<typeof ContactId> =>
-  Value.Decode(ContactId, value);
-export const conversationId = (value: string): Static<typeof ConversationId> =>
-  Value.Decode(ConversationId, value);
-export const messageId = (value: string): Static<typeof MessageId> =>
-  Value.Decode(MessageId, value);
-export const taskId = (value: string): Static<typeof TaskId> =>
-  Value.Decode(TaskId, value);
-export const leaseId = (value: string): Static<typeof LeaseId> =>
-  Value.Decode(LeaseId, value);
-export const appId = (value: string): Static<typeof AppId> =>
-  Value.Decode(AppId, value);
+export const userId = (value: string): Schema.Schema.Type<typeof UserId> =>
+  Schema.decodeUnknownSync(UserId)(value);
+export const agentId = (value: string): Schema.Schema.Type<typeof AgentId> =>
+  Schema.decodeUnknownSync(AgentId)(value);
+export const contactId = (
+  value: string,
+): Schema.Schema.Type<typeof ContactId> =>
+  Schema.decodeUnknownSync(ContactId)(value);
+export const conversationId = (
+  value: string,
+): Schema.Schema.Type<typeof ConversationId> =>
+  Schema.decodeUnknownSync(ConversationId)(value);
+export const messageId = (
+  value: string,
+): Schema.Schema.Type<typeof MessageId> =>
+  Schema.decodeUnknownSync(MessageId)(value);
+export const taskId = (value: string): Schema.Schema.Type<typeof TaskId> =>
+  Schema.decodeUnknownSync(TaskId)(value);
+export const leaseId = (value: string): Schema.Schema.Type<typeof LeaseId> =>
+  Schema.decodeUnknownSync(LeaseId)(value);
+export const appId = (value: string): Schema.Schema.Type<typeof AppId> =>
+  Schema.decodeUnknownSync(AppId)(value);
 // `ConnectionId` is a `brandedString` (no UUID format predicate); skip
 // `Value.Decode` and brand the raw string directly. Test fixtures use
 // synthetic non-UUID values like "owner-conn-1".
@@ -80,7 +84,7 @@ export const connectionId = (value: string): ConnectionId =>
 // wrapper thin.
 
 export interface TestAgent {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly apiKey: string;
   readonly name: string;
   readonly claimUrl?: string;
@@ -193,7 +197,7 @@ const parseRegistrationResponse = (
 
 /** A registered app: the server-minted `appId` + the once-returned `appKey`. */
 export interface RegisteredTestApp {
-  readonly appId: Static<typeof AppId>;
+  readonly appId: Schema.Schema.Type<typeof AppId>;
   readonly appKey: string;
   readonly manifest: AppManifest;
 }

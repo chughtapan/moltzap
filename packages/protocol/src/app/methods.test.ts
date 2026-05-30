@@ -1,20 +1,25 @@
 /**
  * Schema conformance for the server-initiated task-callback verbs.
  *
- * AJV checks against the manifest's compiled `paramsSchema` /
- * `resultSchema`. The verdict-shape coverage on `DispatchAdmissionDecision`
+ * Strict Effect-Schema decode checks against the descriptor's `paramsSchema`
+ * / `resultSchema` (post-#723: the former `ajv.compile` validators are now
+ * the descriptors' `validateParams` guard + a `Schema.decodeUnknownEither`
+ * for results). The verdict-shape coverage on `DispatchAdmissionDecision`
  * itself lives in `DispatchRequest`'s schema; the cases here are smoke
  * checks that the `dispatch/authorize` manifest references the same
  * shared decision schema. `messages/authorize` coverage pins the
  * send-side fan-out gate restored by #560.
  */
 import { describe, it, expect } from "vitest";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
+import type { Schema } from "effect";
 import { DispatchAuthorize, MessagesAuthorize, TaskCreate } from "./methods.js";
 import { taskCallbackMethods } from "../rpc-registry.js";
+import { decodesStrictly } from "../schema-primitives.js";
 
-const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
+// Strict, excess-rejecting decode check — the parity oracle for the former
+// `ajv.compile(resultSchema)` strict validators.
+const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
+  decodesStrictly(schema, value);
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const APP_ID = "werewolf";
@@ -26,9 +31,8 @@ const RECIPIENT_ID = "550e8400-e29b-41d4-a716-446655440004";
 const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
 
 const validateDispatchAuthorizeParams = DispatchAuthorize.validateParams;
-const validateDispatchAuthorizeResult = ajv.compile(
-  DispatchAuthorize.resultSchema,
-);
+const validateDispatchAuthorizeResult = (value: unknown): boolean =>
+  decodes(DispatchAuthorize.resultSchema, value);
 const DISPATCH_AUTHORIZE_PARAMS = {
   taskId: SESSION_ID,
   appId: APP_ID,
@@ -43,9 +47,8 @@ const DISPATCH_AUTHORIZE_PARAMS = {
 };
 
 const validateMessagesAuthorizeParams = MessagesAuthorize.validateParams;
-const validateMessagesAuthorizeResult = ajv.compile(
-  MessagesAuthorize.resultSchema,
-);
+const validateMessagesAuthorizeResult = (value: unknown): boolean =>
+  decodes(MessagesAuthorize.resultSchema, value);
 const MESSAGES_AUTHORIZE_PARAMS = {
   taskId: SESSION_ID,
   appId: APP_ID,

@@ -1,5 +1,13 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Config, ConfigProvider, Data, Effect, Option, Redacted } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   MoltZapChannelCore,
   MoltZapService,
@@ -11,7 +19,6 @@ import {
   type LeaseId,
   type TaskId,
 } from "@moltzap/protocol/task";
-import { Value } from "@sinclair/typebox/value";
 import {
   LeaseAlreadyConsumed,
   LeaseStore,
@@ -69,7 +76,9 @@ function jidFromConversationId(conversationId: string): string {
 }
 
 function conversationIdFromJid(jid: string): ConversationId {
-  return Value.Decode(ConversationId, jid.slice(MOLTZAP_JID_PREFIX.length));
+  return Schema.decodeUnknownSync(ConversationId)(
+    jid.slice(MOLTZAP_JID_PREFIX.length),
+  );
 }
 
 function loadMoltZapChannelEnv(): {

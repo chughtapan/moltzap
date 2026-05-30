@@ -15,7 +15,7 @@
  * deliberately absent from this interface until resolved.
  */
 import { Command, HelpDoc, Options } from "@effect/cli";
-import { Data, Effect, Option } from "effect";
+import { Data, Effect, Option, Schema } from "effect";
 import {
   rpc,
   runHandler,
@@ -25,7 +25,6 @@ import {
 
 import { MessagesList } from "@moltzap/protocol";
 import { ConversationId, TaskId } from "@moltzap/protocol/task";
-import { Value } from "@sinclair/typebox/value";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -93,14 +92,14 @@ export const messagesListHandler = (
 const taskOption = Options.text("task").pipe(
   Options.withDescription("Task id"),
   Options.mapTryCatch(
-    (raw) => Value.Decode(TaskId, raw),
+    (raw) => Schema.decodeUnknownSync(TaskId)(raw),
     (err) => HelpDoc.p(`invalid --task: ${String(err)}`),
   ),
 );
 const conversationOption = Options.text("conversation").pipe(
   Options.withDescription("Conversation id"),
   Options.mapTryCatch(
-    (raw) => Value.Decode(ConversationId, raw),
+    (raw) => Schema.decodeUnknownSync(ConversationId)(raw),
     (err) => HelpDoc.p(`invalid --conversation: ${String(err)}`),
   ),
 );

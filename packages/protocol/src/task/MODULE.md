@@ -55,15 +55,15 @@ _Variable_
 export const AppId = brandedId("AppId")
 ```
 
-### [`Conversation`](./conversations.ts#L98)
+### [`Conversation`](./conversations.ts#L88)
 
 _TypeAlias_
 
 ```ts
-export type Conversation = Static<typeof ConversationSchema>;
+export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
 ```
 
-### [`ConversationArchivedError`](./conversations.ts#L22)
+### [`ConversationArchivedError`](./conversations.ts#L25)
 
 _Class_
 
@@ -76,7 +76,7 @@ export class ConversationArchivedError extends Data.TaggedError(
 }
 ```
 
-### [`ConversationFullError`](./conversations.ts#L30)
+### [`ConversationFullError`](./conversations.ts#L33)
 
 _Class_
 
@@ -89,7 +89,7 @@ export class ConversationFullError extends Data.TaggedError(
 }
 ```
 
-### [`ConversationId`](./conversations.ts#L12)
+### [`ConversationId`](./conversations.ts#L15)
 
 _TypeAlias_
 
@@ -97,7 +97,7 @@ _TypeAlias_
 export const ConversationId = brandedId("ConversationId");
 ```
 
-### [`ConversationId`](./conversations.ts#L12)
+### [`ConversationId`](./conversations.ts#L15)
 
 _Variable_
 
@@ -105,17 +105,17 @@ _Variable_
 export const ConversationId = brandedId("ConversationId")
 ```
 
-### [`ConversationParticipant`](./conversations.ts#L99)
+### [`ConversationParticipant`](./conversations.ts#L89)
 
 _TypeAlias_
 
 ```ts
-export type ConversationParticipant = Static<
+export type ConversationParticipant = Schema.Schema.Type<
   typeof ConversationParticipantSchema
 >;
 ```
 
-### [`conversationSchema`](./conversations.ts#L104)
+### [`conversationSchema`](./conversations.ts#L96)
 
 _Function_
 
@@ -123,12 +123,14 @@ _Function_
 export function conversationSchema(): typeof ConversationSchema
 ```
 
-### [`ConversationSummary`](./conversations.ts#L102)
+### [`ConversationSummary`](./conversations.ts#L92)
 
 _TypeAlias_
 
 ```ts
-export type ConversationSummary = Static<typeof ConversationSummarySchema>;
+export type ConversationSummary = Schema.Schema.Type<
+  typeof ConversationSummarySchema
+>;
 ```
 
 ### [`DEFAULT_APP_ID`](./ids.ts#L10)
@@ -139,7 +141,7 @@ _Variable_
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
 ```
 
-### [`HookBlockedError`](./tasks.ts#L55)
+### [`HookBlockedError`](./tasks.ts#L54)
 
 _Class_
 
@@ -152,15 +154,17 @@ export class HookBlockedError extends Data.TaggedError(
 }
 ```
 
-### [`InitialConversationInput`](./tasks.ts#L303)
+### [`InitialConversationInput`](./tasks.ts#L273)
 
 _TypeAlias_
 
 ```ts
-export type InitialConversationInput = Static<typeof InitialConversationSchema>;
+export type InitialConversationInput = Schema.Schema.Type<
+  typeof InitialConversationSchema
+>;
 ```
 
-### [`LeaseId`](./messages.ts#L10)
+### [`LeaseId`](./messages.ts#L14)
 
 _TypeAlias_
 
@@ -168,7 +172,7 @@ _TypeAlias_
 export const LeaseId = brandedId("LeaseId");
 ```
 
-### [`LeaseId`](./messages.ts#L10)
+### [`LeaseId`](./messages.ts#L14)
 
 _Variable_
 
@@ -176,15 +180,15 @@ _Variable_
 export const LeaseId = brandedId("LeaseId")
 ```
 
-### [`LogicalClock`](./tasks.ts#L91)
+### [`LogicalClock`](./tasks.ts#L90)
 
 _TypeAlias_
 
 ```ts
-export type LogicalClock = Static<typeof LogicalClockSchema>;
+export type LogicalClock = Schema.Schema.Type<typeof LogicalClockSchema>;
 ```
 
-### [`logicalClockSchema`](./tasks.ts#L93)
+### [`logicalClockSchema`](./tasks.ts#L92)
 
 _Function_
 
@@ -192,15 +196,15 @@ _Function_
 export function logicalClockSchema(): typeof LogicalClockSchema
 ```
 
-### [`Message`](./messages.ts#L77)
+### [`Message`](./messages.ts#L73)
 
 _TypeAlias_
 
 ```ts
-export type Message = Static<typeof MessageSchema>;
+export type Message = Schema.Schema.Type<typeof MessageSchema>;
 ```
 
-### [`MessageId`](./conversations.ts#L19)
+### [`MessageId`](./conversations.ts#L22)
 
 _TypeAlias_
 
@@ -208,7 +212,7 @@ _TypeAlias_
 export const MessageId = brandedId("MessageId");
 ```
 
-### [`MessageId`](./conversations.ts#L19)
+### [`MessageId`](./conversations.ts#L22)
 
 _Variable_
 
@@ -216,7 +220,7 @@ _Variable_
 export const MessageId = brandedId("MessageId")
 ```
 
-### [`messagePartsSchema`](./messages.ts#L86)
+### [`messagePartsSchema`](./messages.ts#L78)
 
 _Function_
 
@@ -224,17 +228,17 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L216)
+### [`MessageReceivedNotification`](./messages.ts#L188)
 
 _TypeAlias_
 
 ```ts
-export type MessageReceivedNotification = Static<
+export type MessageReceivedNotification = Schema.Schema.Type<
   typeof MessageReceivedNotificationSchema
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L224)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L196)
 
 _Variable_
 
@@ -247,59 +251,47 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](./messages.ts#L187)
+### [`MessagesList`](./messages.ts#L165)
 
 _Variable_
 
 ```ts
 export const MessagesList = defineRpc({
   name: "messages/list",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      sinceSeq: Type.Optional(
-        Type.String({
-          description: "Snowflake seq cursor (string-encoded BIGINT)",
-        }),
-      ),
-      limit: ListLimitSchema,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      messages: Type.Array(MessageSchema),
-      hasMore: Type.Boolean(),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    sinceSeq: Schema.optional(
+      Schema.String.annotations({
+        description: "Snowflake seq cursor (string-encoded BIGINT)",
+      }),
+    ),
+    limit: ListLimitSchema,
+  }),
+  result: Schema.Struct({
+    messages: Schema.Array(MessageSchema),
+    hasMore: Schema.Boolean,
+  }),
 })
 ```
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
 
-### [`MessagesSend`](./messages.ts#L164)
+### [`MessagesSend`](./messages.ts#L148)
 
 _Variable_
 
 ```ts
 export const MessagesSend = defineRpc({
   name: "messages/send",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      parts: MessagePartsSchema,
-      replyToId: Type.Optional(MessageId),
-      dispatchLeaseId: Type.Optional(LeaseId),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { message: MessageSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    parts: MessagePartsSchema,
+    replyToId: Schema.optional(MessageId),
+    dispatchLeaseId: Schema.optional(LeaseId),
+  }),
+  result: Schema.Struct({ message: MessageSchema }),
 })
 ```
 
@@ -310,15 +302,17 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithTmDecision`](./messages.ts#L143)
+### [`MessageWithTmDecision`](./messages.ts#L125)
 
 _TypeAlias_
 
 ```ts
-export type MessageWithTmDecision = Static<typeof MessageWithTmDecisionSchema>;
+export type MessageWithTmDecision = Schema.Schema.Type<
+  typeof MessageWithTmDecisionSchema
+>;
 ```
 
-### [`messageWithTmDecisionSchema`](./messages.ts#L149)
+### [`messageWithTmDecisionSchema`](./messages.ts#L133)
 
 _Function_
 
@@ -326,15 +320,15 @@ _Function_
 export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema
 ```
 
-### [`Part`](./messages.ts#L56)
+### [`Part`](./messages.ts#L55)
 
 _TypeAlias_
 
 ```ts
-export type Part = Static<typeof PartSchema>;
+export type Part = Schema.Schema.Type<typeof PartSchema>;
 ```
 
-### [`ParticipantNotAdmittedError`](./tasks.ts#L70)
+### [`ParticipantNotAdmittedError`](./tasks.ts#L69)
 
 _Class_
 
@@ -353,48 +347,42 @@ tag lets clients distinguish "wrong agentId shape" (InvalidParams)
 from "agent exists but is not admitted to this task" (this tag)
 without parsing message strings.
 
-### [`Task`](./tasks.ts#L115)
+### [`Task`](./tasks.ts#L111)
 
 _TypeAlias_
 
 ```ts
-export type Task = Static<typeof TaskSchema>;
+export type Task = Schema.Schema.Type<typeof TaskSchema>;
 ```
 
-### [`TaskAddParticipant`](./tasks.ts#L158)
+### [`TaskAddParticipant`](./tasks.ts#L145)
 
 _Variable_
 
 ```ts
 export const TaskAddParticipant = defineRpc({
   name: "task/addParticipant",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { participant: TaskParticipantSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({ participant: TaskParticipantSchema }),
 })
 ```
 
-### [`TaskClose`](./tasks.ts#L152)
+### [`TaskClose`](./tasks.ts#L139)
 
 _Variable_
 
 ```ts
 export const TaskClose = defineRpc({
   name: "task/close",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId }),
+  result: Schema.Struct({ task: TaskSchema }),
 })
 ```
 
-### [`TaskClosedError`](./tasks.ts#L30)
+### [`TaskClosedError`](./tasks.ts#L29)
 
 _Class_
 
@@ -407,7 +395,7 @@ export class TaskClosedError extends Data.TaggedError(
 }
 ```
 
-### [`TaskClosedNotificationDefinition`](./tasks.ts#L232)
+### [`TaskClosedNotificationDefinition`](./tasks.ts#L203)
 
 _Variable_
 
@@ -420,22 +408,19 @@ export const TaskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`TaskConversationAddParticipant`](./tasks.ts#L457)
+### [`TaskConversationAddParticipant`](./tasks.ts#L404)
 
 _Variable_
 
 ```ts
 export const TaskConversationAddParticipant = defineRpc({
   name: "task/conversation/participants/add",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({}),
   // App-ownership is gated by the app-arm handler's
   // `assertCallerAppOwnsTask` BEFORE `requireAgentsAreInTaskParticipants`
   // (so a non-owner sees `ForbiddenError`, not the participant-admitted
@@ -448,34 +433,31 @@ TM-only: add an agent to one conversation. The agent MUST already
 appear in `task_participants` for `taskId`; otherwise
 `ParticipantNotAdmittedError`. Spec body Goal 1.
 
-### [`TaskConversationArchive`](./tasks.ts#L433)
+### [`TaskConversationArchive`](./tasks.ts#L386)
 
 _Variable_
 
 ```ts
 export const TaskConversationArchive = defineRpc({
   name: "task/conversation/archive",
-  params: Type.Object(
-    { taskId: TaskId, conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
+  result: Schema.Struct({}),
 })
 ```
 
 TM-only: archive one conversation. Task stays open.
 
-### [`TaskConversationArchivedNotification`](./tasks.ts#L556)
+### [`TaskConversationArchivedNotification`](./tasks.ts#L485)
 
 _TypeAlias_
 
 ```ts
-export type TaskConversationArchivedNotification = Static<
+export type TaskConversationArchivedNotification = Schema.Schema.Type<
   typeof TaskConversationArchivedNotificationSchema
 >;
 ```
 
-### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L576)
+### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L506)
 
 _Variable_
 
@@ -487,25 +469,21 @@ export const TaskConversationArchivedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationCreate`](./tasks.ts#L380)
+### [`TaskConversationCreate`](./tasks.ts#L343)
 
 _Variable_
 
 ```ts
 export const TaskConversationCreate = defineRpc({
   name: "task/conversation/create",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      participants: Type.Array(AgentId, { minItems: 1 }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { conversation: ConversationSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    name: Schema.optional(
+      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
+    ),
+    participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
+  }),
+  result: Schema.Struct({ conversation: ConversationSchema }),
   // No descriptor-side capabilities (D #705 R3/R7). App-ownership is
   // gated by the app-arm handler's `assertCallerAppOwnsTask`, and
   // `ConversationCreateAuthorization` is provided INLINE by the handler
@@ -519,17 +497,17 @@ TM-only: mint a new conversation under an existing task. Every
 entry in `participants` MUST already appear in `task_participants`
 for `taskId`; violations return `ParticipantNotAdmittedError`.
 
-### [`TaskConversationCreatedNotification`](./tasks.ts#L553)
+### [`TaskConversationCreatedNotification`](./tasks.ts#L482)
 
 _TypeAlias_
 
 ```ts
-export type TaskConversationCreatedNotification = Static<
+export type TaskConversationCreatedNotification = Schema.Schema.Type<
   typeof TaskConversationCreatedNotificationSchema
 >;
 ```
 
-### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L569)
+### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L499)
 
 _Variable_
 
@@ -542,27 +520,21 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 )
 ```
 
-### [`TaskConversationList`](./tasks.ts#L408)
+### [`TaskConversationList`](./tasks.ts#L367)
 
 _Variable_
 
 ```ts
 export const TaskConversationList = defineRpc({
   name: "task/conversation/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      items: Type.Array(TaskConversationListItemSchema),
-      nextCursor: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(Schema.String),
+  }),
+  result: Schema.Struct({
+    items: Schema.Array(TaskConversationListItemSchema),
+    nextCursor: Schema.optional(Schema.String),
+  }),
 })
 ```
 
@@ -571,27 +543,27 @@ in (across all tasks). No filter params; archived rows are
 included; callers filter `archivedAt` locally. See spec body
 Goal 1 for the full pagination + visibility contract.
 
-### [`TaskConversationListItem`](./tasks.ts#L314)
+### [`TaskConversationListItem`](./tasks.ts#L283)
 
 _TypeAlias_
 
 ```ts
-export type TaskConversationListItem = Static<
+export type TaskConversationListItem = Schema.Schema.Type<
   typeof TaskConversationListItemSchema
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L562)
+### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L491)
 
 _TypeAlias_
 
 ```ts
-export type TaskConversationParticipantsAddedNotification = Static<
+export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
   typeof TaskConversationParticipantsAddedNotificationSchema
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L588)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L518)
 
 _Variable_
 
@@ -603,17 +575,18 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L565)
+### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L494)
 
 _TypeAlias_
 
 ```ts
-export type TaskConversationParticipantsRemovedNotification = Static<
-  typeof TaskConversationParticipantsRemovedNotificationSchema
->;
+export type TaskConversationParticipantsRemovedNotification =
+  Schema.Schema.Type<
+    typeof TaskConversationParticipantsRemovedNotificationSchema
+  >;
 ```
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L594)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L524)
 
 _Variable_
 
@@ -625,22 +598,19 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationRemoveParticipant`](./tasks.ts#L480)
+### [`TaskConversationRemoveParticipant`](./tasks.ts#L424)
 
 _Variable_
 
 ```ts
 export const TaskConversationRemoveParticipant = defineRpc({
   name: "task/conversation/participants/remove",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({}),
 })
 ```
 
@@ -648,34 +618,31 @@ TM-only: remove an agent from one conversation. The agent stays
 in `task_participants` (so they may still receive messages on
 other conversations within the task).
 
-### [`TaskConversationUnarchive`](./tasks.ts#L443)
+### [`TaskConversationUnarchive`](./tasks.ts#L393)
 
 _Variable_
 
 ```ts
 export const TaskConversationUnarchive = defineRpc({
   name: "task/conversation/unarchive",
-  params: Type.Object(
-    { taskId: TaskId, conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
+  result: Schema.Struct({}),
 })
 ```
 
 TM-only: reverse of `task/conversation/archive`.
 
-### [`TaskConversationUnarchivedNotification`](./tasks.ts#L559)
+### [`TaskConversationUnarchivedNotification`](./tasks.ts#L488)
 
 _TypeAlias_
 
 ```ts
-export type TaskConversationUnarchivedNotification = Static<
+export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
   typeof TaskConversationUnarchivedNotificationSchema
 >;
 ```
 
-### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L582)
+### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L512)
 
 _Variable_
 
@@ -687,7 +654,7 @@ export const TaskConversationUnarchivedNotificationDefinition =
   })
 ```
 
-### [`TaskCreatedNotificationDefinition`](./tasks.ts#L223)
+### [`TaskCreatedNotificationDefinition`](./tasks.ts#L194)
 
 _Variable_
 
@@ -704,7 +671,7 @@ transitions from `waiting` to `active`. Carries the full Task row
 (matching `task/closed`'s shape) so subscribers don't need a
 second read to discover the post-transition state.
 
-### [`TaskFailedNotificationDefinition`](./tasks.ts#L211)
+### [`TaskFailedNotificationDefinition`](./tasks.ts#L182)
 
 _Variable_
 
@@ -733,15 +700,15 @@ _Variable_
 export const TaskId = brandedId("TaskId")
 ```
 
-### [`TaskLeave`](./tasks.ts#L369)
+### [`TaskLeave`](./tasks.ts#L332)
 
 _Variable_
 
 ```ts
 export const TaskLeave = defineRpc({
   name: "task/leave",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({ taskId: TaskId }),
+  result: Schema.Struct({}),
 })
 ```
 
@@ -757,27 +724,21 @@ the task transitions to `status = 'closed'` and
 `TaskClosedNotificationDefinition` fires alongside in the same
 transaction.
 
-### [`TaskList`](./tasks.ts#L134)
+### [`TaskList`](./tasks.ts#L127)
 
 _Variable_
 
 ```ts
 export const TaskList = defineRpc({
   name: "task/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      tasks: Type.Array(TaskSchema),
-      nextCursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    tasks: Schema.Array(TaskSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
 })
 ```
 
@@ -801,15 +762,15 @@ export const taskNotifications = [
 ] as const
 ```
 
-### [`TaskParticipant`](./tasks.ts#L132)
+### [`TaskParticipant`](./tasks.ts#L125)
 
 _TypeAlias_
 
 ```ts
-export type TaskParticipant = Static<typeof TaskParticipantSchema>;
+export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 ```
 
-### [`TaskRejectedError`](./tasks.ts#L47)
+### [`TaskRejectedError`](./tasks.ts#L46)
 
 _Class_
 
@@ -830,46 +791,37 @@ rejected by the moderator" — an expected, actionable outcome —
 from an opaque internal error. The TM's reason rides in the
 `data` arm when present.
 
-### [`TaskRemoveParticipant`](./tasks.ts#L173)
+### [`TaskRemoveParticipant`](./tasks.ts#L154)
 
 _Variable_
 
 ```ts
 export const TaskRemoveParticipant = defineRpc({
   name: "task/removeParticipant",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({
+    taskId: TaskId,
+    agentId: AgentId,
+  }),
+  result: Schema.Struct({}),
 })
 ```
 
-### [`TaskRequest`](./tasks.ts#L337)
+### [`TaskRequest`](./tasks.ts#L306)
 
 _Variable_
 
 ```ts
 export const TaskRequest = defineRpc({
   name: "task/request",
-  params: Type.Object(
-    {
-      appId: AppId,
-      invitedAgentIds: Type.Array(AgentId),
-      initialConversation: Type.Optional(InitialConversationSchema),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      task: TaskSchema,
-      conversation: Type.Union([ConversationSchema, Type.Null()]),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    appId: AppId,
+    invitedAgentIds: Schema.Array(AgentId),
+    initialConversation: Schema.optional(InitialConversationSchema),
+  }),
+  result: Schema.Struct({
+    task: TaskSchema,
+    conversation: Schema.Union(ConversationSchema, Schema.Null),
+  }),
 })
 ```
 
@@ -914,23 +866,23 @@ export const taskRpcMethods = [
 ] as const
 ```
 
-### [`TaskStatus`](./tasks.ts#L100)
+### [`TaskStatus`](./tasks.ts#L99)
 
 _TypeAlias_
 
 ```ts
-export type TaskStatus = Static<typeof TaskStatusEnum>;
+export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`TmDecision`](./messages.ts#L130)
+### [`TmDecision`](./messages.ts#L113)
 
 _TypeAlias_
 
 ```ts
-export type TmDecision = Static<typeof TmDecisionSchema>;
+export type TmDecision = Schema.Schema.Type<typeof TmDecisionSchema>;
 ```
 
-### [`tmDecisionSchema`](./messages.ts#L145)
+### [`tmDecisionSchema`](./messages.ts#L129)
 
 _Function_
 
@@ -938,34 +890,28 @@ _Function_
 export function tmDecisionSchema(): typeof TmDecisionSchema
 ```
 
-### [`validateMessage`](./messages.ts#L82)
+### [`validateMessage`](./messages.ts#L76)
 
 _Variable_
 
 ```ts
-export const validateMessage = ajv.compile(MessageSchema) as (
-  value: unknown,
-)
+export const validateMessage = closedStructGuard(MessageSchema)
 ```
 
-### [`validateTextPart`](./messages.ts#L79)
+### [`validateTextPart`](./messages.ts#L75)
 
 _Variable_
 
 ```ts
-export const validateTextPart = ajv.compile(TextPartSchema) as (
-  value: unknown,
-)
+export const validateTextPart = closedStructGuard(TextPartSchema)
 ```
 
-### [`validateTmDecision`](./messages.ts#L131)
+### [`validateTmDecision`](./messages.ts#L118)
 
 _Variable_
 
 ```ts
-export const validateTmDecision = ajv.compile(TmDecisionSchema) as (
-  value: unknown,
-)
+export const validateTmDecision = closedStructGuard(TmDecisionSchema)
 ```
 
 ## Files

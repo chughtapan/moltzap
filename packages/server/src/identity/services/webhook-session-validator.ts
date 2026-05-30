@@ -18,7 +18,6 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "@effect/platform";
-import { Value } from "@sinclair/typebox/value";
 import { Cause, Data, Duration, Effect, Schema } from "effect";
 import { AgentId, UserId } from "@moltzap/protocol/identity";
 import type {
@@ -66,13 +65,13 @@ function decodeSessionValidation(
 ): Effect.Effect<SessionValidation, SessionValidationBrandDecodeFailed> {
   if (result.valid !== true) return Effect.succeed({ valid: false });
   return Effect.try({
-    try: () => Value.Decode(AgentId, result.agentId),
+    try: () => Schema.decodeUnknownSync(AgentId)(result.agentId),
     catch: (cause) =>
       new SessionValidationBrandDecodeFailed({ field: "agentId", cause }),
   }).pipe(
     Effect.flatMap((agentId) =>
       Effect.try({
-        try: () => Value.Decode(UserId, result.ownerUserId),
+        try: () => Schema.decodeUnknownSync(UserId)(result.ownerUserId),
         catch: (cause) =>
           new SessionValidationBrandDecodeFailed({
             field: "ownerUserId",

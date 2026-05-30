@@ -1,88 +1,90 @@
-import { describe, expect, it, vi } from "vitest";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { FormatRegistry, Type } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
-import { Effect } from "effect";
+import { describe, expect, it } from "vitest";
+import { JSONSchema, Schema } from "effect";
 import {
   stringEnum,
   brandedId,
   brandedString,
   brandedNumber,
+  formatString,
   dateTimeStringSchema,
+  decodesStrictly,
 } from "./schema-primitives.js";
 
 const DateTimeString = dateTimeStringSchema();
 const INVALID_ENUM_VALUE = 123;
 
-const ajv = addFormats(new Ajv({ strict: true }));
+// Strict decode check (excess-rejecting) — the parity oracle for the former
+// `ajv.compile(schema)` strict validators (`decodesStrictly` passes
+// `{ onExcessProperty: "error" }`, the wire boundary's option).
+const accepts = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
+  decodesStrictly(schema, value);
 
-const reimportSchemaPrimitives = Effect.tryPromise({
-  try: () => import("./schema-primitives.js"),
-  catch: (cause) => cause,
-});
-
-const sentinelValidator =
-  (sentinel: string) =>
-  (value: string): boolean =>
-    value === sentinel;
+// The `description` reaches the wire/docs surface via `JSONSchema.make`'s
+// `description` keyword (what the docs walker reads). Assert it there rather
+// than digging into the branded `ast.annotations` internals.
+const jsonDescription = (schema: Schema.Schema.AnyNoContext): string => {
+  const node = JSONSchema.make(schema) as { description?: string };
+  return node.description ?? "";
+};
 
 describe("stringEnum", () => {
   const schema = stringEnum(["user", "agent"]);
 
   it("accepts valid enum values", () => {
-    const validate = ajv.compile(schema);
-    expect(validate("user")).toBe(true);
-    expect(validate("agent")).toBe(true);
+    expect(accepts(schema, "user")).toBe(true);
+    expect(accepts(schema, "agent")).toBe(true);
   });
 
   it("rejects invalid enum values", () => {
-    const validate = ajv.compile(schema);
-    expect(validate("other")).toBe(false);
-    expect(validate("")).toBe(false);
-    expect(validate(INVALID_ENUM_VALUE)).toBe(false);
+    expect(accepts(schema, "other")).toBe(false);
+    expect(accepts(schema, "")).toBe(false);
+    expect(accepts(schema, INVALID_ENUM_VALUE)).toBe(false);
   });
 
-  it("produces enum schema, not anyOf", () => {
-    expect(schema).toHaveProperty("enum", ["user", "agent"]);
-    expect(schema).not.toHaveProperty("anyOf");
+  it("renders a literal-union enum in JSONSchema, not anyOf", () => {
+    // `Schema.Literal(...)` surfaces an `enum` keyword in JSONSchema.make,
+    // which the docs walker reads off `.enum` (NOT `anyOf`).
+    const node = JSONSchema.make(schema) as {
+      enum?: readonly string[];
+      anyOf?: unknown;
+    };
+    expect(node.enum).toEqual(["user", "agent"]);
+    expect(node.anyOf).toBeUndefined();
   });
 });
 
 describe("brandedString", () => {
-  it("passes through TypeBox String options", () => {
+  it("honors minLength/maxLength refinements", () => {
     const schema = brandedString("Tag", { minLength: 3, maxLength: 12 });
-    const validate = ajv.compile(schema);
-    expect(validate("ok")).toBe(false);
-    expect(validate("good")).toBe(true);
-    expect(validate("waaaaaaaaaaaaaaay-too-long")).toBe(false);
+    expect(accepts(schema, "ok")).toBe(false);
+    expect(accepts(schema, "good")).toBe(true);
+    expect(accepts(schema, "waaaaaaaaaaaaaaay-too-long")).toBe(false);
   });
 
   it("defaults description with brand name embedded when caller omits it", () => {
     const schema = brandedString("Color");
-    expect(schema.description).toMatch(/Color/);
+    expect(jsonDescription(schema)).toMatch(/Color/);
   });
 
   it("respects caller-supplied description override", () => {
     const custom = "the color value";
     const schema = brandedString("Color", { description: custom });
-    expect(schema.description).toBe(custom);
+    expect(jsonDescription(schema)).toContain(custom);
   });
 });
 
 describe("brandedNumber", () => {
   it("validates numbers and honors min/max bounds", () => {
     const schema = brandedNumber("Year", { minimum: 1900, maximum: 2100 });
-    const validate = ajv.compile(schema);
-    expect(validate(2026)).toBe(true);
-    expect(validate(1899)).toBe(false);
-    expect(validate(2101)).toBe(false);
-    expect(validate("2026")).toBe(false);
+    expect(accepts(schema, 2026)).toBe(true);
+    expect(accepts(schema, 1899)).toBe(false);
+    expect(accepts(schema, 2101)).toBe(false);
+    expect(accepts(schema, "2026")).toBe(false);
   });
 
   it("defaults description with brand name embedded when caller omits it", () => {
     const schema = brandedNumber("Year");
-    expect(schema.description).toMatch(/Year/);
+    expect(jsonDescription(schema)).toMatch(/Year/);
   });
 });
 
@@ -90,120 +92,55 @@ describe("brandedId", () => {
   const schema = brandedId("UserId");
 
   it("accepts valid UUIDs", () => {
-    const validate = ajv.compile(schema);
-    expect(validate("550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+    expect(accepts(schema, "550e8400-e29b-41d4-a716-446655440000")).toBe(true);
   });
 
   it("rejects non-UUID strings", () => {
-    const validate = ajv.compile(schema);
-    expect(validate("not-a-uuid")).toBe(false);
-    expect(validate("")).toBe(false);
+    expect(accepts(schema, "not-a-uuid")).toBe(false);
+    expect(accepts(schema, "")).toBe(false);
   });
 });
 
 describe("DateTimeString", () => {
   it("accepts ISO 8601 timestamps", () => {
-    const validate = ajv.compile(DateTimeString);
-    expect(validate("2026-03-14T12:00:00.000Z")).toBe(true);
+    expect(accepts(DateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
   });
 
   it("rejects non-datetime strings", () => {
-    const validate = ajv.compile(DateTimeString);
-    expect(validate("not-a-date")).toBe(false);
+    expect(accepts(DateTimeString, "not-a-date")).toBe(false);
   });
 });
 
 /**
- * Regression #370: importing `@moltzap/protocol` (or any of its helpers)
- * must register the `uuid`, `date-time`, and `uri` formats with TypeBox's
- * `FormatRegistry` as a side effect. Otherwise `Value.Decode` against any
- * schema using these formats fails with "Unknown format &lt;name>" and every
- * frame is rejected.
+ * Format-checker parity corpus (replaces the deleted AJV/`FormatRegistry`
+ * side-effect tests, #370/#383). The three wire formats are now decode-time
+ * `Schema.pattern` / `Schema.filter` refinements; assert they accept/reject
+ * the SAME corpus the old `FormatRegistry` checkers did — in particular the
+ * date-time regex-pass-but-`Date.parse`-NaN cliff (the one behavioral case
+ * that the finiteness `filter` guards and a regex alone would miss).
  */
-describe("TypeBox FormatRegistry side-effect registration", () => {
-  it("registers uuid", () => {
-    expect(FormatRegistry.Has("uuid")).toBe(true);
+describe("wire-format parity corpus", () => {
+  it("uuid", () => {
     const schema = brandedId("AgentId");
-    expect(Value.Check(schema, "550e8400-e29b-41d4-a716-446655440000")).toBe(
-      true,
-    );
-    expect(Value.Check(schema, "not-a-uuid")).toBe(false);
+    expect(accepts(schema, "550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+    expect(accepts(schema, "not-a-uuid")).toBe(false);
   });
 
-  it("registers date-time", () => {
-    expect(FormatRegistry.Has("date-time")).toBe(true);
-    expect(Value.Check(DateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
-    expect(Value.Check(DateTimeString, "not-a-date")).toBe(false);
-    // Shape-valid but semantically impossible — must reject.
-    expect(Value.Check(DateTimeString, "2026-99-99T99:99:99Z")).toBe(false);
+  it("date-time (incl. the finiteness cliff)", () => {
+    expect(accepts(DateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
+    expect(accepts(DateTimeString, "not-a-date")).toBe(false);
+    // Shape-valid (matches DATE_TIME_RE) but `Date.parse` → NaN: month/day
+    // out of range. The finiteness `filter` is what rejects it; a bare regex
+    // would accept. This is the load-bearing parity case.
+    expect(accepts(DateTimeString, "2026-99-99T99:99:99Z")).toBe(false);
+    expect(accepts(DateTimeString, "2021-13-01T00:00:00Z")).toBe(false);
   });
 
-  it("registers uri", () => {
-    expect(FormatRegistry.Has("uri")).toBe(true);
-    const uriSchema = Type.String({ format: "uri" });
-    expect(Value.Check(uriSchema, "https://example.com/path")).toBe(true);
-    expect(Value.Check(uriSchema, "moltzap:foo/bar")).toBe(true);
-    expect(Value.Check(uriSchema, "not a uri")).toBe(false);
-    expect(Value.Check(uriSchema, "://missing-scheme")).toBe(false);
+  it("uri", () => {
+    const uriSchema = formatString("uri");
+    expect(accepts(uriSchema, "https://example.com/path")).toBe(true);
+    expect(accepts(uriSchema, "moltzap:foo/bar")).toBe(true);
+    expect(accepts(uriSchema, "not a uri")).toBe(false);
+    expect(accepts(uriSchema, "://missing-scheme")).toBe(false);
   });
-});
-
-/**
- * Regression #383: `helpers.ts` gates each `FormatRegistry.Set(...)` on
- * `FormatRegistry.Has(...)` precisely so that a downstream consumer who
- * pre-registers a stricter (or otherwise customized) validator is NOT
- * silently overwritten when `@moltzap/protocol`'s side-effect import
- * runs after them.
- *
- * Pin the contract for every format helpers.ts touches: pre-register a
- * sentinel validator that accepts ONLY one specific value, force a
- * re-execution of the helpers module body via `vi.resetModules()` +
- * dynamic import, and assert the sentinel is still the active validator
- * — i.e. helpers.ts's default validator (which would also accept a
- * separate "default-valid" sample) did NOT clobber it. Removing any of
- * the three `Has(...)` guards in helpers.ts fails the matching case.
- */
-describe("FormatRegistry Has-guard preserves consumer-registered formats", () => {
-  const cases: ReadonlyArray<{
-    format: "uuid" | "date-time" | "uri";
-    sentinel: string;
-    defaultValid: string;
-  }> = [
-    {
-      format: "uuid",
-      sentinel: "00000000-0000-0000-0000-000000000001",
-      defaultValid: "550e8400-e29b-41d4-a716-446655440000",
-    },
-    {
-      format: "date-time",
-      sentinel: "2099-01-01T00:00:00.000Z",
-      defaultValid: "2026-03-14T12:00:00.000Z",
-    },
-    {
-      format: "uri",
-      sentinel: "moltzap:sentinel",
-      defaultValid: "https://example.com/path",
-    },
-  ];
-
-  for (const { format, sentinel, defaultValid } of cases) {
-    it(`does not overwrite a pre-registered ${format} validator on re-import`, () =>
-      Effect.runPromise(
-        Effect.gen(function* () {
-          const original = FormatRegistry.Get(format);
-          expect(original).toBeDefined();
-          try {
-            FormatRegistry.Set(format, sentinelValidator(sentinel));
-            vi.resetModules();
-            yield* reimportSchemaPrimitives;
-
-            const schema = Type.String({ format });
-            expect(Value.Check(schema, sentinel)).toBe(true);
-            expect(Value.Check(schema, defaultValid)).toBe(false);
-          } finally {
-            if (original) FormatRegistry.Set(format, original);
-          }
-        }),
-      ));
-  }
 });

@@ -8,9 +8,7 @@
  * `messages/authorize`, but it does not know about tasks, leases, or
  * conversations beyond manifest defaults.
  */
-import { Duration, Effect, Ref, type Scope } from "effect";
-import type { Static } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
+import { Duration, Effect, Ref, type Scope, Schema } from "effect";
 import {
   DispatchAuthorize,
   MessagesAuthorize,
@@ -95,7 +93,7 @@ export interface TestAppCallbackScript<D extends ServerRpcDefinition> {
 
 export interface TestApp {
   /** Server-minted appId (the principal `task/request` targets). */
-  readonly appId: Static<typeof AppId>;
+  readonly appId: Schema.Schema.Type<typeof AppId>;
   readonly manifest: AppManifest;
   /** The app-principal `AppConnection` hosting the moderator callbacks. */
   readonly client: TestClient;
@@ -146,7 +144,7 @@ export function registerTestApp(
       // shape requires them; the autoConnect dispatcher selects the appKey
       // arm because `appKey` is present.
       agentKey: "unused-app-arm",
-      agentId: Value.Decode(AgentId, crypto.randomUUID()),
+      agentId: Schema.decodeUnknownSync(AgentId)(crypto.randomUUID()),
       defaultTimeoutMs: APP_CLIENT_DEFAULT_TIMEOUT_MS,
       captureCapacity: APP_CLIENT_DEFAULT_CAPTURE_CAPACITY,
     });
@@ -178,7 +176,14 @@ export function registerTestApp(
 function makeManifestHooks(
   options: TestAppManifestOptions,
 ): AppManifest["hooks"] {
-  const hooks: NonNullable<AppManifest["hooks"]> = {};
+  // Build a mutable shape locally; the returned `AppManifest["hooks"]` type is
+  // deeply `readonly` post-#723 (Effect Schema), so assemble then widen on
+  // return.
+  const hooks: {
+    dispatch_authorize?: { timeout_ms?: number };
+    message_authorize?: { timeout_ms?: number };
+    task_create?: { timeout_ms?: number };
+  } = {};
   if (options.dispatchAuthorizeTimeoutMs !== undefined) {
     hooks.dispatch_authorize = {
       timeout_ms: options.dispatchAuthorizeTimeoutMs,

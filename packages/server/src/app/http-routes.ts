@@ -5,8 +5,7 @@ import {
   HttpServerResponse,
 } from "@effect/platform";
 import * as Socket from "@effect/platform/Socket";
-import { Cause, Data, Effect, Either, Exit } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { Cause, Data, Effect, Either, Exit, Schema } from "effect";
 import type { ParamsOf } from "@moltzap/protocol";
 import { Claim, Register } from "@moltzap/protocol";
 import { validateAppManifest, type AppManifest } from "@moltzap/protocol/app";
@@ -412,9 +411,11 @@ function handleClaimResult(
     case CLAIM_SUCCESS:
       return Effect.gen(function* () {
         // Brand the request-supplied owner id at the trust boundary (the same
-        // `Value.Decode(UserId, ...)` pattern as webhook-session-validator);
+        // `Schema.decodeUnknownSync(UserId)(...)` pattern as webhook-session-validator);
         // the claim path already validated it as a non-empty string upstream.
-        const ownerUserId = Value.Decode(UserId, result.ownerUserId);
+        const ownerUserId = Schema.decodeUnknownSync(UserId)(
+          result.ownerUserId,
+        );
         yield* refreshClaimedConnections(
           connections,
           result.agentId,

@@ -29,7 +29,10 @@ const wrap = <A>(
 const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
   wrap(
     request(ContactsList, {}) as Effect.Effect<
-      { contacts: Contact[]; nextCursor?: string },
+      {
+        readonly contacts: ReadonlyArray<Contact>;
+        readonly nextCursor?: string;
+      },
       Error
     >,
     (r) => {

@@ -1,5 +1,4 @@
-import { Data } from "effect";
-import { Type, type Static } from "@sinclair/typebox";
+import { Data, Schema } from "effect";
 import { AgentId } from "../identity/methods.js";
 import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
@@ -18,32 +17,26 @@ const DateTimeString = dateTimeStringSchema();
 // clients to set status manually (deleted in the same cutover).
 const PresenceStatusEnum = stringEnum(["online", "working", "offline"]);
 
-const PresenceEntrySchema = Type.Object(
-  { agentId: AgentId, status: PresenceStatusEnum },
-  { additionalProperties: false },
-);
+const PresenceEntrySchema = Schema.Struct({
+  agentId: AgentId,
+  status: PresenceStatusEnum,
+});
 
 // ── network/connect ──────────────────────────────────────────────────
 
-const RateLimitsSchema = Type.Object(
-  {
-    messagesPerMinute: Type.Integer(),
-    requestsPerMinute: Type.Integer(),
-  },
-  { additionalProperties: false },
-);
+const RateLimitsSchema = Schema.Struct({
+  messagesPerMinute: Schema.Number.pipe(Schema.int()),
+  requestsPerMinute: Schema.Number.pipe(Schema.int()),
+});
 
-const PolicySchema = Type.Object(
-  {
-    maxMessageBytes: Type.Integer(),
-    maxPartsPerMessage: Type.Integer(),
-    maxTextLength: Type.Integer(),
-    maxGroupParticipants: Type.Integer(),
-    heartbeatIntervalMs: Type.Integer(),
-    rateLimits: RateLimitsSchema,
-  },
-  { additionalProperties: false },
-);
+const PolicySchema = Schema.Struct({
+  maxMessageBytes: Schema.Number.pipe(Schema.int()),
+  maxPartsPerMessage: Schema.Number.pipe(Schema.int()),
+  maxTextLength: Schema.Number.pipe(Schema.int()),
+  maxGroupParticipants: Schema.Number.pipe(Schema.int()),
+  heartbeatIntervalMs: Schema.Number.pipe(Schema.int()),
+  rateLimits: RateLimitsSchema,
+});
 
 // D #705 CP5 — `agentId` is OPTIONAL so the app-principal Connect arm
 // (appKey credential) can return a HelloOk with no agent identity. The
@@ -52,14 +45,11 @@ const PolicySchema = Type.Object(
 // `HelloOk` (v36 §4) lands with the client app-arm cutover (CP9); making
 // the field optional here is the additive expand step that keeps every
 // existing agent-side reader green.
-const HelloOkSchema = Type.Object(
-  {
-    protocolVersion: Type.String(),
-    agentId: Type.Optional(AgentId),
-    policy: PolicySchema,
-  },
-  { additionalProperties: false },
-);
+const HelloOkSchema = Schema.Struct({
+  protocolVersion: Schema.String,
+  agentId: Schema.optional(AgentId),
+  policy: PolicySchema,
+});
 
 /**
  * Authenticate a WebSocket connection. Must be the first message on a new connection.
@@ -69,40 +59,31 @@ const HelloOkSchema = Type.Object(
  */
 export const Connect = defineRpc({
   name: "network/connect",
-  params: Type.Union([
-    Type.Object(
-      {
-        agentKey: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
-    Type.Object(
-      {
-        sessionToken: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
+  params: Schema.Union(
+    Schema.Struct({
+      agentKey: Schema.String,
+      minProtocol: Schema.String,
+      maxProtocol: Schema.String,
+    }),
+    Schema.Struct({
+      sessionToken: Schema.String,
+      minProtocol: Schema.String,
+      maxProtocol: Schema.String,
+    }),
     // D #705 CP5 — app-principal Connect arm. The `appKey` credential
     // (prefix `moltzap_app_`) resolves to an `AppContext` via
     // `AppAuthService.authenticateApp`; the handler dispatches
     // structurally on `"appKey" in params` and mints an `AppConnection`.
-    Type.Object(
-      {
-        appKey: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
-  ]),
+    Schema.Struct({
+      appKey: Schema.String,
+      minProtocol: Schema.String,
+      maxProtocol: Schema.String,
+    }),
+  ),
   result: HelloOkSchema,
 });
 
-export type HelloOk = Static<typeof HelloOkSchema>;
+export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 
 /**
  * Reason discriminant carried in `ProtocolMismatchError.data.reason`.
@@ -173,8 +154,8 @@ registerErrorClass(ProtocolMismatchError);
  */
 export const NetworkPing = defineRpc({
   name: "network/ping",
-  params: Type.Object({}, { additionalProperties: false }),
-  result: Type.Object({ ts: DateTimeString }, { additionalProperties: false }),
+  params: Schema.Struct({}),
+  result: Schema.Struct({ ts: DateTimeString }),
 });
 
 // ── presence/* ───────────────────────────────────────────────────────
@@ -192,23 +173,14 @@ export const NetworkPing = defineRpc({
  */
 export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
-  params: Type.Object(
-    { agentIds: Type.Array(AgentId) },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { statuses: Type.Array(PresenceEntrySchema) },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
+  result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
 });
 
-const PresenceChangedNotificationSchema = Type.Object(
-  {
-    agentId: AgentId,
-    status: PresenceStatusEnum,
-  },
-  { additionalProperties: false },
-);
+const PresenceChangedNotificationSchema = Schema.Struct({
+  agentId: AgentId,
+  status: PresenceStatusEnum,
+});
 
 /**
  * Pushed when a subscribed participant's presence status changes.

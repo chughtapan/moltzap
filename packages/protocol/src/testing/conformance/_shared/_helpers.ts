@@ -4,7 +4,7 @@
  * when they would otherwise be duplicated verbatim.
  */
 import { Effect, Either } from "effect";
-import type { TSchema } from "@sinclair/typebox";
+import type { Schema } from "effect";
 import type { RpcDefinition } from "../../../transport/method.js";
 import type { TestClient } from "./driver/test-client.js";
 import type { FrameSchemaError } from "./frame-mutator.js";
@@ -22,7 +22,11 @@ import type {
  */
 export function sendUntypedRpc(
   client: TestClient,
-  definition: RpcDefinition<string, TSchema, TSchema>,
+  definition: RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
   params: unknown,
 ): Effect.Effect<
   unknown,
@@ -33,7 +37,11 @@ export function sendUntypedRpc(
   | FrameSchemaError
 > {
   const sendRpc = client.sendRpc.bind(client) as (
-    definition: RpcDefinition<string, TSchema, TSchema>,
+    definition: RpcDefinition<
+      string,
+      Schema.Schema.AnyNoContext,
+      Schema.Schema.AnyNoContext
+    >,
     params: unknown,
   ) => Effect.Effect<
     unknown,

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: wire validation engine TypeBox + AJV → Effect `Schema` (Half-2 slice 3, #723)
+
+The wire-validation ENGINE moves off TypeBox + AJV onto Effect `Schema` —
+the same decode engine the rest of the runtime already uses. Both `Ajv`
+instances and every `ajv.compile` validator are deleted; `@sinclair/typebox`,
+`ajv`, and `ajv-formats` are removed from `@moltzap/protocol`'s dependencies.
+The JSON-RPC-2.0 wire DIALECT is unchanged — the exact same bytes flow on the
+socket (`{jsonrpc:"2.0", id, method, params}` / `-32xxx` codes); only HOW
+frames are validated/decoded changed.
+
+- **Engine swap:** descriptor `paramsSchema` / `resultSchema` are Effect
+  `Schema` values (`P`/`R extends Schema.Schema.AnyNoContext`);
+  `validateParams` / `validateResult` are strict, excess-rejecting type
+  guards (`closedStructGuard`) that decode via `Schema.decodeUnknownEither(…,
+  { onExcessProperty: "error" })`. `decodeFrame` discriminates the three
+  JSON-RPC frame shapes (Request / Response / Notification) through strict
+  `Schema.decodeUnknownEither`; `validateAppManifest` maps the `ParseError`
+  to `AppManifestInvalid` via `ParseResult.ArrayFormatter`.
+- **AJV-strict parity (load-bearing):** `Schema.Struct` STRIPS excess keys by
+  default, but `new Ajv({strict:true})` + `additionalProperties:false`
+  REJECTED them. A shared `STRICT_DECODE` (`{ onExcessProperty: "error" }`) +
+  the `closedStructGuard` factory restore that rejection at every wire decode,
+  so the conformance malformed-frame, excess-property, and
+  schema-exhaustive-fuzz proofs (`registerMalformedFrameHandling`,
+  `registerRequestWellFormedness`, `registerSchemaExhaustiveFuzz`) still fire.
+  The three former AJV `FormatRegistry` checkers (`uuid` / `uri` /
+  `date-time`, including the `Date.parse` finiteness cliff) are now
+  `Schema.pattern` / `Schema.filter` refinements on `brandedString` /
+  `formatString`.
+- **Branded ids** are `Schema.brand` (`brandedId` / `brandedString`); their
+  decoded type (`string & Brand.Brand<…>`) is identical to the former
+  `BrandedString`, so the ~16 cross-package `Value.Decode(<Brand>, raw)`
+  brand-attach sites (server / client / openclaw-channel / nanoclaw-channel)
+  become `Schema.decodeUnknownSync(<Brand>)(raw)`. Wire result types are now
+  deeply `readonly` (Effect `Schema`'s `Schema.Array` yields `readonly T[]`).
+- **Introspection rewired:** the docs walker (`scripts/docs/schema.ts`) reads
+  `JSONSchema.make(schema)` draft-07 output instead of the TypeBox AST
+  (generated RPC-reference docs are byte-identical); the conformance
+  arbitrary walker delegates to Effect's native `Arbitrary.make`.
+- **Out of scope (intentional):** `@moltzap/server-core`'s YAML-config
+  validator (`config.ts → MoltZapConfigShape`) is a self-contained, non-wire
+  TypeBox schema and is untouched — `@sinclair/typebox` stays a `server-core`
+  dependency for it.
+
 ### Changed: cast-free capability middleware + principal-as-service (Half-2 slice 1, #723)
 
 The dispatcher's capability layer gains its cast-free, principal-as-service
