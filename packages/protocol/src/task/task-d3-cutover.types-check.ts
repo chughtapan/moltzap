@@ -6,9 +6,8 @@
  * a method gets moved between sides or a new method lands without
  * classification.
  *
- * Additional D3 canaries (TaskId branding, JsonValue, MessagesSend
- * capabilities, AppCallbackHandlers REQUIRED slots) follow in their
- * respective commits.
+ * Also pins the TaskId branding, JsonValue, and AppCallbackHandlers
+ * REQUIRED-slot canaries.
  */
 import type { JsonValue } from "../schema-primitives.js";
 import type { JsonRpcMethod } from "../transport/wire.js";
@@ -19,7 +18,6 @@ import {
   type AnyAgentClientRpcDefinition,
   type AnyAppCallableRpcDefinition,
   type AnyServerRpcDefinition,
-  agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
   TaskRequest,
   TaskLeave,
@@ -36,7 +34,7 @@ import {
 } from "../index.js";
 
 // ── Partition cardinality ───────────────────────────────────────────
-// taskMaster = agentClient ∪ tmOnly; cardinality sum equals.
+// appCallable = agentCallable ∪ appCallableTask; cardinality sum equals.
 type _CardinalityHolds = AssertEquals<
   (typeof appCallableRpcMethods)["length"],
   AddOne<
@@ -45,28 +43,28 @@ type _CardinalityHolds = AssertEquals<
   >
 >;
 
-// ── Membership: TM-only side carries the admin operations ───────────
-type _TmOnlyHasClose = AssertExtends<
+// ── Membership: app-callable side carries the admin operations ──────
+type _AppCallableHasClose = AssertExtends<
   typeof TaskClose,
   AnyAppCallableRpcDefinition
 >;
-type _TmOnlyHasConvCreate = AssertExtends<
+type _AppCallableHasConvCreate = AssertExtends<
   typeof TaskConversationCreate,
   AnyAppCallableRpcDefinition
 >;
-type _TmOnlyHasConvArchive = AssertExtends<
+type _AppCallableHasConvArchive = AssertExtends<
   typeof TaskConversationArchive,
   AnyAppCallableRpcDefinition
 >;
-type _TmOnlyHasConvUnarchive = AssertExtends<
+type _AppCallableHasConvUnarchive = AssertExtends<
   typeof TaskConversationUnarchive,
   AnyAppCallableRpcDefinition
 >;
-type _TmOnlyHasAddPart = AssertExtends<
+type _AppCallableHasAddPart = AssertExtends<
   typeof TaskConversationAddParticipant,
   AnyAppCallableRpcDefinition
 >;
-type _TmOnlyHasRemovePart = AssertExtends<
+type _AppCallableHasRemovePart = AssertExtends<
   typeof TaskConversationRemoveParticipant,
   AnyAppCallableRpcDefinition
 >;
@@ -93,7 +91,7 @@ type _AgentHasMessagesList = AssertExtends<
   AnyAgentClientRpcDefinition
 >;
 
-// ── Disjointness: a tm-only method must NOT satisfy the agent union ──
+// ── Disjointness: an app-callable method must NOT satisfy agent union ─
 // If TaskClose were accidentally added to agentClientRpcMethods, the
 // `Exclude<>` below would resolve to never and break the assertion.
 type _TaskCloseNotInAgentSet = AssertEquals<
@@ -133,12 +131,12 @@ type _TaskCreateCallbackWireName = AssertEquals<
 // ── Closed union — references every predicate so tsc sees them used ─
 export type _D3CanaryHolds =
   | _CardinalityHolds
-  | _TmOnlyHasClose
-  | _TmOnlyHasConvCreate
-  | _TmOnlyHasConvArchive
-  | _TmOnlyHasConvUnarchive
-  | _TmOnlyHasAddPart
-  | _TmOnlyHasRemovePart
+  | _AppCallableHasClose
+  | _AppCallableHasConvCreate
+  | _AppCallableHasConvArchive
+  | _AppCallableHasConvUnarchive
+  | _AppCallableHasAddPart
+  | _AppCallableHasRemovePart
   | _AgentHasCreate
   | _AgentHasLeave
   | _AgentHasList
@@ -150,11 +148,6 @@ export type _D3CanaryHolds =
   | _RpcErrorPayloadDataIsJsonValue
   | _TaskRequestWireName
   | _TaskCreateCallbackWireName;
-
-// Reference agentCallableTaskRpcMethods so knip sees it as consumed
-// (otherwise it's flagged as exported-but-unused until Commit 4).
-export type _AgentCallableCanary =
-  (typeof agentCallableTaskRpcMethods)["length"];
 
 // ── Helper conditional types (local; tiny) ──────────────────────────
 type AssertEquals<A, B> =

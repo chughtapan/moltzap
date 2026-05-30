@@ -21,7 +21,7 @@ import { decodesStrictly } from "../schema-primitives.js";
 const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
   decodesStrictly(schema, value);
 
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
+const TASK_ID = "550e8400-e29b-41d4-a716-446655440000";
 const APP_ID = "werewolf";
 const CONVERSATION_ID = "550e8400-e29b-41d4-a716-446655440001";
 const AGENT_ID = "550e8400-e29b-41d4-a716-446655440002";
@@ -34,7 +34,7 @@ const validateDispatchAuthorizeParams = DispatchAuthorize.validateParams;
 const validateDispatchAuthorizeResult = (value: unknown): boolean =>
   decodes(DispatchAuthorize.resultSchema, value);
 const DISPATCH_AUTHORIZE_PARAMS = {
-  taskId: SESSION_ID,
+  taskId: TASK_ID,
   appId: APP_ID,
   conversationId: CONVERSATION_ID,
   recipient: HOOK_AGENT,
@@ -50,7 +50,7 @@ const validateMessagesAuthorizeParams = MessagesAuthorize.validateParams;
 const validateMessagesAuthorizeResult = (value: unknown): boolean =>
   decodes(MessagesAuthorize.resultSchema, value);
 const MESSAGES_AUTHORIZE_PARAMS = {
-  taskId: SESSION_ID,
+  taskId: TASK_ID,
   appId: APP_ID,
   conversationId: CONVERSATION_ID,
   message: {
@@ -65,9 +65,9 @@ const MESSAGES_AUTHORIZE_PARAMS = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("admission RPC registration", () => {
-  it("registers every server-initiated task-callback descriptor", () => {
-    const taskCallbackNames = appCallbackMethods.map((m) => m.name);
-    expect(taskCallbackNames).toEqual([
+  it("registers every app-callback descriptor", () => {
+    const appCallbackNames = appCallbackMethods.map((m) => m.name);
+    expect(appCallbackNames).toEqual([
       DispatchAuthorize.name,
       MessagesAuthorize.name,
       TaskCreate.name,
