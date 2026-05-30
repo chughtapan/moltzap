@@ -16,7 +16,7 @@ import {
   agentContextFrom,
   AgentContext,
   AppContext,
-  type RpcMethodRegistry,
+  type ServerRpcSlots,
 } from "../../transport/context.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
 import {
@@ -475,16 +475,20 @@ function handleConnect(params: ConnectParams) {
   );
 }
 
-export const connectHandlers: RpcMethodRegistry = [
+export const connectHandlers: ServerRpcSlots = [
   // D #705 CP8 — Connect is bound at the APP layer: its `appKey` arm pulls
   // `AppHostTag` to implicitly register the app's `AppEndpoint` off the live
   // `AppConnection` arm (replacing the deleted WS `apps/register` RPC). The
   // agent/session arms ride the same handler and yield no app-layer tags.
-  defineAppMethod(Connect, {
-    // `network/connect` is the ONLY any-principal method: it is dispatched
-    // while the arm is still `UnauthenticatedConnection`, and the handler
-    // dispatches on the credential union itself (not on `ctx`).
-    callablePrincipal: "any",
-    handler: handleConnect,
-  }),
+  defineAppMethod(
+    Connect,
+    {
+      // `network/connect` is the ONLY any-principal method: it is dispatched
+      // while the arm is still `UnauthenticatedConnection`, and the handler
+      // dispatches on the credential union itself (not on `ctx`).
+      callablePrincipal: "any",
+      handler: handleConnect,
+    },
+    [],
+  ),
 ];

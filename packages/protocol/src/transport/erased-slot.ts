@@ -58,11 +58,11 @@
  * also makes the capability discharge static and removes the lone
  * {@link dischargeCaps} carve-out below.
  */
-import { Effect, Exit, type Context } from "effect";
+import { Data, Effect, Exit, type Context } from "effect";
 import { type Static, type TSchema } from "@sinclair/typebox";
 
 import { decodeRpcParams, type RpcDefinition } from "./method.js";
-import type { CapabilityDescriptor } from "./capabilities.js";
+import type { CapabilityDescriptor, DispatchContext } from "./capabilities.js";
 
 /**
  * The dispatcher-boundary `ctx` the slot's `invoke` receives. Structural
@@ -245,6 +245,67 @@ interface DischargeArgs<
 }
 
 /**
+ * Impossible-state defect: the discharge boundary handed `argsOf` a
+ * connection arm that is NOT an authenticated principal (D #705 #720,
+ * the CP-B fold-in). The #720 principal-kind gate runs in the SERVER's
+ * slot wrapper (`define-layered-method.ts → defineXMethod`, via
+ * `defineMethod`'s `narrowPrincipalCtx`) and rejects a non-agent/non-app
+ * arm with `ForbiddenError` BEFORE the cap-bearing handler runs, so a
+ * cap-bearing slot only reaches {@link narrowToDispatchContext} on an
+ * authenticated arm. Tagged (not a raw throw) so the synchronous
+ * `argsOf` boundary names the wiring failure.
+ */
+class UnauthenticatedDischargeError extends Data.TaggedError(
+  "UnauthenticatedDischargeError",
+)<{ readonly arm: string }> {}
+
+/**
+ * Narrow the slot-boundary connection arm to the protocol-owned 2-arm
+ * {@link DispatchContext} that `argsOf` resolvers consume (D #705
+ * Decision 2). `argsOf` reads `connection.auth` (the tagged principal
+ * union) to derive a provider's args; the slot ctx
+ * (`SlotDispatchContext&lt;Conn&gt;`) carries the THREE-arm connection whose
+ * unauthenticated arm has no `auth`. Cap-bearing slots only reach here
+ * AFTER the #720 principal gate narrowed to an agent/app arm, so the
+ * authenticated `auth` is present by construction; an unauthenticated
+ * arm is an impossible-state wiring defect (throws the tagged error).
+ *
+ * The arm narrowing is structural (the `auth._tag` discriminant probe,
+ * not an `as DispatchContext` assertion on the input). The lone residual
+ * is the `connId` BRAND (`ConnectionId = string & Brand`) plus the
+ * `auth` tagged-union re-derivation: the runtime value IS a real
+ * authenticated `Connection` arm (the #720 gate + the live arm guarantee
+ * it), but TS cannot re-derive the brand/tag from a structural read of
+ * `unknown`. That single re-projection is the SAME irreducible boundary
+ * as {@link dischargeCaps}'s R-subtraction (both type-level-unprovable,
+ * runtime-true facts). HALF-2's typed `Match`-over-methods makes the slot
+ * ctx statically the authenticated arm and removes this.
+ */
+function narrowToDispatchContext(ctx: {
+  readonly connection: unknown;
+}): DispatchContext {
+  const { connection } = ctx;
+  if (connection === null || typeof connection !== "object") {
+    throw new UnauthenticatedDischargeError({ arm: "non-object-connection" });
+  }
+  const auth = (connection as { readonly auth?: unknown }).auth;
+  if (auth === null || typeof auth !== "object") {
+    throw new UnauthenticatedDischargeError({ arm: "missing-auth" });
+  }
+  const tag = (auth as { readonly _tag?: unknown })._tag;
+  if (tag !== "AgentContext" && tag !== "AppContext") {
+    throw new UnauthenticatedDischargeError({ arm: String(tag) });
+  }
+  // IRREDUCIBLE carve-out (same boundary as `dischargeCaps`): the
+  // `auth._tag` probe above PROVED the authenticated 2-arm union at
+  // runtime, and the live `Connection` arm carries a branded `connId`,
+  // but TS cannot re-derive the `ConnectionId` brand + `DispatchAuth` tag
+  // from a structural read of `unknown`. HALF-2's typed Match removes it.
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- argsOf-ctx narrow: `auth._tag` runtime-proved authenticated 2-arm (the #720 gate guarantees it); TS cannot re-brand connId / re-tag auth from a structural `unknown` read; same irreducible boundary as dischargeCaps, HALF-2 makes it static
+  return connection as unknown as DispatchContext; // #ignore-sloppy-code[as-unknown-as]: argsOf-ctx narrow — `auth._tag` runtime-proved authenticated 2-arm (#720 gate guarantees it); TS cannot re-brand connId / re-tag auth from a structural `unknown` read; same irreducible boundary as dischargeCaps, HALF-2 makes it static
+}
+
+/**
  * The ONE irreducible carve-out in the cast-free dispatch path.
  *
  * Discharges the handler's declared per-frame capabilities by folding
@@ -298,7 +359,7 @@ function dischargeCaps<
       continue;
     }
     const providerEffect: Effect.Effect<unknown, unknown, Env> = provider(
-      cap.argsOf(params, ctx),
+      cap.argsOf(params, narrowToDispatchContext(ctx)),
     );
     drained = Effect.provideServiceEffect(drained, cap.tag, providerEffect);
   }

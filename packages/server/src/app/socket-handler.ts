@@ -9,12 +9,7 @@ import {
   Option,
   type Scope,
 } from "effect";
-import type {
-  JsonRpcId,
-  RequestFrame,
-  ResponseFrame,
-  ServerHandlers,
-} from "@moltzap/protocol";
+import type { JsonRpcId, RequestFrame, ResponseFrame } from "@moltzap/protocol";
 import {
   Connect,
   JSON_RPC_RESERVED_CODES,
@@ -25,10 +20,10 @@ import {
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 
-import type { AgentContext, DispatchContext } from "../transport/context.js";
+import type { AgentContext } from "../transport/context.js";
+import type { ServerRpcSlotTable } from "../transport/context.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import type { AppTags } from "../transport/layer-tags.js";
-import { serverCapabilityProviders } from "./capability-providers.js";
 import type { ConnectionTag, ResolvedServices } from "./layers.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 const ERROR_INVALID_JSON = "Invalid JSON";
@@ -49,7 +44,7 @@ interface SocketHandlerOptions {
     | "leaseRegistry"
     | "appHost"
   >;
-  readonly handlers: ServerHandlers<DispatchContext>;
+  readonly slots: ServerRpcSlotTable;
   readonly connectionHooks: readonly ConnectionHook[];
   readonly disconnectionHooks: readonly DisconnectionHook[];
 }
@@ -118,8 +113,7 @@ function openSocketSession(
     // request ids back to the originating socket.
     const serverConn = yield* makeServerConnection({
       id: session.connId,
-      handlers: options.handlers,
-      capabilities: serverCapabilityProviders,
+      slots: options.slots,
       write: session.write,
       idPrefix: `srv-${session.connId}`,
     });

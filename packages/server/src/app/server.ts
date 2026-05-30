@@ -14,10 +14,9 @@ import {
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import type {
-  DispatchContext,
-  RpcMethodRegistry,
+  ServerRpcSlots,
+  ServerRpcSlotTable,
 } from "../transport/context.js";
-import type { ServerHandlers } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
 // Handlers
@@ -166,11 +165,10 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const { dispatchRuntime, services } = makeCoreRuntime(config);
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
-  const methods = makeCoreRpcMethods();
-  const handlers = buildServerHandlers(methods);
+  const slots = buildServerSlots(makeCoreRpcMethods());
   const handleSocket = makeSocketHandler({
     services,
-    handlers,
+    slots,
     connectionHooks,
     disconnectionHooks,
   });
@@ -215,7 +213,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   });
 }
 
-function makeCoreRpcMethods(): RpcMethodRegistry {
+function makeCoreRpcMethods(): ServerRpcSlots {
   return [
     ...connectHandlers,
     ...agentsLookupHandlers,
@@ -230,27 +228,20 @@ function makeCoreRpcMethods(): RpcMethodRegistry {
 }
 
 /**
- * Convert the flat `RpcMethodRegistry` array into the Spec F (#617)
- * typed-dispatcher `ServerHandlers&lt;DispatchContext>` record, keyed by
- * each binding's `definition.name`. Duplicate method names collide at
- * `Map.set` time (impossible by construction — each handler file
- * exports a distinct method-definition slice of the catalog).
- *
- * The `as` cast bridges the upper-bound widening from
- * `RpcMethodBinding`'s storage-friendly `Context.Tag&lt;unknown, unknown>`
- * R-channel to `ServerHandlers`'s mapped-type slot shape. The dispatcher
- * erases R via `asNeverR` at runtime; the surrounding
- * `ManagedRuntime&lt;FullLive>` provides every Tag at request time.
+ * Key the flat `ServerRpcSlots` array into the cast-free
+ * {@link ServerRpcSlotTable} the dispatcher indexes by `frame.method`
+ * (#705 HALF-1). Each slot is already a real `ErasedSlot` (from a
+ * `defineXMethod` wrapper); this just keys it by `slot.definition.name`.
+ * Duplicate method names collide on `table[name]` (impossible by
+ * construction — each handler file exports a distinct method slice of the
+ * catalog). NO erasure cast: the `ErasedSlot` IS the dispatch surface.
  */
-function buildServerHandlers(
-  methods: RpcMethodRegistry,
-): ServerHandlers<DispatchContext> {
-  const table: Record<string, RpcMethodRegistry[number]> = {};
+function buildServerSlots(methods: ServerRpcSlots): ServerRpcSlotTable {
+  const table: Record<string, ServerRpcSlots[number]> = {};
   for (const slot of methods) {
     table[slot.definition.name] = slot;
   }
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- catalog→record erasure: the flat array's union elements key into ServerHandlers's mapped record by definition.name; the cast bridges the type-level partition. The dispatcher's `asNeverR` post-erases the residual R channel at boundary.
-  return table as unknown as ServerHandlers<DispatchContext>; // #ignore-sloppy-code[as-unknown-as]: catalog→record erasure: the flat array's union elements key into ServerHandlers's mapped record by definition.name; the dispatcher's `asNeverR` post-erases the residual R channel at boundary.
+  return table;
 }
 
 type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

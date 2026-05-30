@@ -1,34 +1,80 @@
 import { Effect } from "effect";
 import type { Static, TSchema } from "@sinclair/typebox";
-import type { RpcDefinition } from "@moltzap/protocol";
+import {
+  makeErasedSlot,
+  type CapabilityDescriptor,
+  type CapIdentsOf,
+  type CapProviders,
+  type ErasedSlot,
+  type ForbiddenError,
+  type RpcDefinition,
+} from "@moltzap/protocol";
 import {
   defineMethod,
   type CtxForKind,
   type PrincipalKind,
-  type RpcMethodBinding,
 } from "./context.js";
+import type { ConnectionTag } from "../app/layers.js";
+import type { Connection } from "./connection.js";
 import {
   AppLayerScope,
   NetworkLayerScope,
   TaskLayerScope,
 } from "./layer-scopes.js";
-import type {
-  AppTags,
-  CapabilityTags,
-  NetworkTags,
-  TaskTags,
-} from "./layer-tags.js";
+import type { AppTags, NetworkTags, TaskTags } from "./layer-tags.js";
 
 /**
- * #705 #720 §B1 — the handler's `ctx` type is a function of the binding's
- * declared `callablePrincipal` (via the `CtxForKind` conditional type). A
- * `callablePrincipal: "app"`
- * binding forces `ctx: AppContext`; a body reading `ctx.agentId` fails TS2339,
- * and a `(ctx: AgentContext)` lambda fails TS2345. The `callablePrincipal`
- * field is REQUIRED (no default) — omitting it is TS2554. The bind layer
- * (`defineNetworkMethod`/`defineTaskMethod`/`defineAppMethod`) stays orthogonal
- * to the principal kind: a `defineAppMethod` binding may carry
- * `callablePrincipal: "agent"` (e.g. `task/request`, `dispatch/request`).
+ * The residual `Env` a slot's `invoke` requires from the surrounding
+ * `ManagedRuntime` — the layer service tags MINUS `ConnectionTag` (which
+ * `defineMethod` provides per-frame from the live arm) and MINUS the
+ * per-frame capability tags (discharged inside the slot). Each wrapper
+ * pins its layer's variant; `Exclude&lt;…, ConnectionTag>` keeps the pin
+ * honest so the slot does NOT claim a `ConnectionTag` the runtime never
+ * supplies (it is request-scoped).
+ */
+type NetworkSlotEnv = Exclude<NetworkTags, ConnectionTag>;
+type TaskSlotEnv = Exclude<TaskTags, ConnectionTag>;
+type AppSlotEnv = Exclude<AppTags, ConnectionTag>;
+
+/**
+ * @file Per-layer RPC binding wrappers — #705 HALF-1 cast-free slot
+ * cutover.
+ *
+ * Each `defineXMethod` wrapper composes TWO orthogonal axes onto one
+ * {@link ErasedSlot}:
+ *   - **Binding layer** — the `Reqs extends NetworkTags`/`TaskTags`/`AppTags`
+ *     upper bound on the handler body's service-tag R-channel (the wrapper
+ *     provides its `*LayerScope` markers structurally).
+ *   - **Calling principal** — `callablePrincipal` (`agent`/`app`/`any`)
+ *     types the body's `ctx` via `CtxForKind&lt;K>` and drives the #720
+ *     principal-kind gate inside `defineMethod`'s slot handler.
+ *
+ * The wrapper PINS `makeErasedSlot`'s `Env` to its layer service-tag
+ * union and `Conn` to the server's three-arm {@link Connection}, then
+ * threads a positional `providers` tuple aligned 1:1 to the descriptor's
+ * `capabilities` array. The slot's `invoke` discharges those caps INSIDE
+ * (the pre-HALF-1 global `serverCapabilityProviders` table + the
+ * `eraseHandlerTable`/`asNeverR` cascade are gone). The cross-package
+ * handler-R ⊆ declared-caps lockstep is the `makeErasedSlot` typed bound
+ * (`erased-slot.types-check.ts`).
+ *
+ * **Env pin is MANDATORY.** A free `Env` widens to swallow an undeclared
+ * capability in the handler's R and the R⊆Caps lockstep goes false-green
+ * (the `makeErasedSlot` JSDoc names this trap). Each wrapper turbofishes
+ * its layer union as the last `makeErasedSlot` generic.
+ *
+ * **Type-alias hierarchy + maintenance contract.** See `./layer-tags.ts`
+ * for the allowlist. Adding a new service Tag is a TWO-step edit:
+ * update `layer-tags.ts` AND `architectureOptions.layers` in the root
+ * `eslint.config.js` so the structural lint and the type system agree.
+ */
+
+/**
+ * The handler + principal shape each `defineXMethod` accepts. `Required`
+ * is the handler body's R-channel upper bound (the layer service tags +
+ * the per-frame capability tag identifiers the body yields via service
+ * calls). The wrapper provides its `*LayerScope` markers, pins `Env`,
+ * and threads the `providers` tuple.
  */
 interface MethodDef<
   P extends TSchema,
@@ -46,35 +92,42 @@ interface MethodDef<
 }
 
 /**
- * Network-layer RPC method binding. Handler `R`-channel is
- * `Reqs extends NetworkTags`; the wrapper provides `NetworkLayerScope`
- * structurally and the dispatcher's `ManagedRuntime` provides every
- * service Tag at request time.
- *
- * `Reqs` defaults to `NetworkTags` so a handler that yields no service
- * Tag (the pre-2A.0 factory shape) infers `Reqs = never` via R-channel
- * covariance and compiles unchanged. A handler that yields a Tag from a
- * higher layer (e.g. `MessageServiceTag`, which is `TaskTags` only)
- * fails the constraint at the call site.
- *
- * **Type-alias hierarchy.** See `./layer-tags.ts` for the full
- * allowlist. Adding a new service Tag is a TWO-step edit per the
- * maintenance contract: update `layer-tags.ts` AND
- * `architectureOptions.layers` in the root `eslint.config.js` so the
- * structural lint and the type system agree.
+ * The descriptor shape the wrappers consume: a `defineRpc` return whose
+ * `capabilities` is the literal tuple `CapsTuple` (sourced from the
+ * `defineRpc` RETURN, never `never`). `makeErasedSlot` `Omit`s the wide
+ * optional `capabilities?` off `RpcDefinition` and re-intersects the
+ * clean tuple; the wrappers mirror that so the tuple flows through.
+ */
+type SlotDefinition<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  CapsTuple extends ReadonlyArray<CapabilityDescriptor>,
+> = Omit<RpcDefinition<Name, P, R>, "capabilities"> & {
+  readonly capabilities: CapsTuple;
+};
+
+/**
+ * Network-layer RPC binding. Handler `R`-channel is
+ * `Reqs extends NetworkTags`; provides `NetworkLayerScope` structurally.
+ * The per-frame capability identifiers ride via `CapProviders&lt;CapsTuple>`
+ * inside `makeErasedSlot`'s bound (NOT a separate `| CapabilityTags` on
+ * `Reqs` — the slot discharges them).
  */
 export function defineNetworkMethod<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
   K extends PrincipalKind,
+  CapsTuple extends ReadonlyArray<CapabilityDescriptor>,
   E = never,
   Reqs extends NetworkTags = NetworkTags,
 >(
-  definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, Reqs | NetworkLayerScope, E, K>,
-): RpcMethodBinding {
-  return defineMethod(definition, {
+  definition: SlotDefinition<Name, P, R, CapsTuple>,
+  def: MethodDef<P, R, Reqs | CapIdentsOf<CapsTuple> | NetworkLayerScope, E, K>,
+  providers: CapProviders<CapsTuple, NetworkSlotEnv>,
+): ErasedSlot<NetworkSlotEnv, Connection> {
+  const gated = defineMethod(definition, {
     callablePrincipal: def.callablePrincipal,
     handler: (params, ctx) =>
       def
@@ -82,16 +135,22 @@ export function defineNetworkMethod<
         .pipe(Effect.provideService(NetworkLayerScope, undefined)),
     requiresActive: def.requiresActive,
   });
+  return makeErasedSlot<
+    Name,
+    P,
+    R,
+    E | ForbiddenError,
+    Connection,
+    CapsTuple,
+    NetworkSlotEnv
+  >(definition, gated, providers);
 }
 
 /**
- * Task-layer RPC method binding. Handler `R`-channel is
- * `Reqs extends TaskTags | CapabilityTags`; provides `NetworkLayerScope`
- * and `TaskLayerScope` structurally. Capability tags are admitted so
- * the typed dispatcher's auto-provision step can fill them from the
- * descriptor's `capabilities` array. The cross-package lockstep
- * (handler R ⊆ `CapabilitiesOf&lt;D>`) is enforced at
- * `typed-dispatcher.types-check.ts`.
+ * Task-layer RPC binding. Handler `R`-channel is `Reqs extends TaskTags`;
+ * provides `NetworkLayerScope` and `TaskLayerScope` structurally. Per-frame
+ * capability tags ride via `CapProviders&lt;CapsTuple>` (the slot discharges
+ * them) — NOT a `| CapabilityTags` widening on `Reqs`.
  *
  * See `defineNetworkMethod` for the maintenance contract.
  */
@@ -100,13 +159,21 @@ export function defineTaskMethod<
   P extends TSchema,
   R extends TSchema,
   K extends PrincipalKind,
+  CapsTuple extends ReadonlyArray<CapabilityDescriptor>,
   E = never,
-  Reqs extends TaskTags | CapabilityTags = TaskTags,
+  Reqs extends TaskTags = TaskTags,
 >(
-  definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, Reqs | NetworkLayerScope | TaskLayerScope, E, K>,
-): RpcMethodBinding {
-  return defineMethod(definition, {
+  definition: SlotDefinition<Name, P, R, CapsTuple>,
+  def: MethodDef<
+    P,
+    R,
+    Reqs | CapIdentsOf<CapsTuple> | NetworkLayerScope | TaskLayerScope,
+    E,
+    K
+  >,
+  providers: CapProviders<CapsTuple, TaskSlotEnv>,
+): ErasedSlot<TaskSlotEnv, Connection> {
+  const gated = defineMethod(definition, {
     callablePrincipal: def.callablePrincipal,
     handler: (params, ctx) =>
       def
@@ -117,12 +184,21 @@ export function defineTaskMethod<
         ),
     requiresActive: def.requiresActive,
   });
+  return makeErasedSlot<
+    Name,
+    P,
+    R,
+    E | ForbiddenError,
+    Connection,
+    CapsTuple,
+    TaskSlotEnv
+  >(definition, gated, providers);
 }
 
 /**
- * App-layer RPC method binding. Handler `R`-channel is
- * `Reqs extends AppTags | CapabilityTags`; provides all three layer
- * scopes structurally. Capability tags admit auto-provision.
+ * App-layer RPC binding. Handler `R`-channel is `Reqs extends AppTags`;
+ * provides all three layer scopes structurally. Per-frame capability tags
+ * ride via `CapProviders&lt;CapsTuple>` (the slot discharges them).
  *
  * See `defineNetworkMethod` for the maintenance contract.
  */
@@ -131,19 +207,25 @@ export function defineAppMethod<
   P extends TSchema,
   R extends TSchema,
   K extends PrincipalKind,
+  CapsTuple extends ReadonlyArray<CapabilityDescriptor>,
   E = never,
-  Reqs extends AppTags | CapabilityTags = AppTags,
+  Reqs extends AppTags = AppTags,
 >(
-  definition: RpcDefinition<Name, P, R>,
+  definition: SlotDefinition<Name, P, R, CapsTuple>,
   def: MethodDef<
     P,
     R,
-    Reqs | NetworkLayerScope | TaskLayerScope | AppLayerScope,
+    | Reqs
+    | CapIdentsOf<CapsTuple>
+    | NetworkLayerScope
+    | TaskLayerScope
+    | AppLayerScope,
     E,
     K
   >,
-): RpcMethodBinding {
-  return defineMethod(definition, {
+  providers: CapProviders<CapsTuple, AppSlotEnv>,
+): ErasedSlot<AppSlotEnv, Connection> {
+  const gated = defineMethod(definition, {
     callablePrincipal: def.callablePrincipal,
     handler: (params, ctx) =>
       def
@@ -155,4 +237,13 @@ export function defineAppMethod<
         ),
     requiresActive: def.requiresActive,
   });
+  return makeErasedSlot<
+    Name,
+    P,
+    R,
+    E | ForbiddenError,
+    Connection,
+    CapsTuple,
+    AppSlotEnv
+  >(definition, gated, providers);
 }

@@ -1,76 +1,92 @@
 /**
- * @file Type canaries for the Spec F typed dispatcher (Spec F G3 / I2 / I3 / I5 / AC5).
+ * @file Type canaries for the cast-free typed dispatcher (#705 HALF-1).
  *
  * Each canary asserts a compile-time invariant on the LIVE Connection /
- * Handler types this branch introduces. Negative cases use
+ * slot types this branch introduces. Negative cases use
  * `@ts-expect-error` — `tsc --noEmit` fails with TS2578 ("Unused
  * '@ts-expect-error' directive") if the marked line ever stops
  * erroring. The file is compiled by the package's standard `tsc` pass
  * (no separate script).
  *
+ * The handler-R ⊆ declared-capabilities lockstep (the retired Canary 7)
+ * + the value-half providers obligation are exercised on the LIVE
+ * `makeErasedSlot` factory in `erased-slot.types-check.ts` (Canary
+ * 7/7a/7b/7c/7d). This file covers the SURROUNDING invariants:
+ *
  * Live canaries:
- *   1. ServerHandlers requires every catalog member (TS2741 on `{}`).
- *   2. HandlerSlot's `Ctx` generic is invariant in the slot's `handle`
- *      signature (TS2322 on cross-Ctx assignment).
+ *   1. `ErasedSlotTable` totality: an `ErasedSlotTable` keyed over the
+ *      `serverRpcMethods` catalog accepts a complete table and indexes
+ *      every catalog method by name (the wire-dynamic lookup is
+ *      `| undefined`, so totality is asserted structurally below).
+ *   2. `HandlerSlot`'s `Ctx` generic is invariant in the slot's `handle`
+ *      signature (TS2322 on cross-Ctx assignment) — the TM-callback
+ *      authoring shape.
  *   3. The `_assertTaskCallback` helper rejects server-inbound
  *      definitions at the `D extends AnyTaskCallbackRpcDefinition`
  *      constraint site (TS2345).
- *   4. AgentClientHandlers accepts `{}` (positive — empty inbound
- *      catalog).
+ *   4. The AgentClient inbound surface is the empty slot table `{}`
+ *      (positive — empty inbound catalog).
  *   5. `ServerConnection.call(MessagesSend, ...)` is rejected DIRECTLY
  *      on the method signature (TS2345 on the definition argument).
- *      Companion to Canary 3: if the call signature's `OutCall` upper
- *      bound were ever widened to `AnyServerRpcDefinition`, Canary 3's
- *      helper-form check would still fire (it tests the union directly)
- *      but the live `.call(...)` signature would silently accept
- *      server-inbound definitions. Canary 5 closes that gap.
- *   6. TaskMasterHandlers REJECTS `{ handlers: {} }` (TS2741 on the
- *      empty literal): Spec D3 R14b made every TM-callback slot a
- *      REQUIRED real handler; vacuous-deny moderators must bind an
- *      explicit `ForbiddenError`-returning handler per catalog method.
- *   7. Handler R channel ⊆ `CapabilitiesOf&lt;D&gt;`: a slot whose
- *      handler effect yields a `Context.Tag` not listed in the
- *      descriptor's `capabilities` array fails to assign (TS2322).
- *      Closes the gap the runtime dispatcher would otherwise hit as
- *      an unresolved-service defect at handler invocation.
+ *      Companion to Canary 3.
+ *   6. `TaskMasterHandlers` REJECTS `{ }` (TS2741 on the empty literal):
+ *      Spec D3 R14b made every TM-callback slot a REQUIRED real handler;
+ *      vacuous-deny moderators must bind an explicit
+ *      `ForbiddenError`-returning handler per catalog method.
  *
  * Per `feedback_canaries_focus_on_live_code`: NO canaries that prove
- * a deleted thing is unreachable. `Connection.register` does not
- * exist in this stub because the types defined here never had it; an
- * assertion of "`.register` is missing" would be tautological.
+ * a deleted thing is unreachable.
  */
 
-import { MessagesList, MessagesSend } from "../task/messages.js";
+import { Context, type Effect, type Exit } from "effect";
+
+import { MessagesSend } from "../task/messages.js";
 import { DispatchAuthorize, MessagesAuthorize } from "../app/methods.js";
-import { MessageSendPermission } from "../task/capabilities/message-send-permission.js";
+import { serverRpcMethods } from "../rpc-registry.js";
 
 import type { AnyTaskCallbackRpcDefinition } from "../rpc-registry.js";
 import type { ParamsOf } from "./method.js";
-import type { CapabilitiesOf } from "./capabilities.js";
 
 import type {
   ServerConnection as _ServerConnection,
   AgentClientConnection as _AgentClientConnection,
   TaskMasterConnection as _TaskMasterConnection,
 } from "./connection.js";
-import type {
-  ServerHandlers,
-  AgentClientHandlers,
-  TaskMasterHandlers,
-  HandlerSlot,
-} from "./handlers.js";
+import type { TaskMasterHandlers, HandlerSlot } from "./handlers.js";
+import type { ErasedSlot, ErasedSlotTable } from "./erased-slot.js";
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 1: ServerHandlers requires every catalog member.
-// Empty literal is missing 42 required slots (e.g. 'task/messages/send').
+// Fixtures: a stand-in service-tag `Env` (a `Context.Tag` class, the
+// production shape) + connection `Conn` for the slot table the server
+// builds.
 // ───────────────────────────────────────────────────────────────────────
 
-// @ts-expect-error — empty literal missing required slots (Spec F I2).
-const _shouldFailEmptyServer: ServerHandlers<unknown, never> = {};
+class Env extends Context.Tag("@moltzap/test/SlotEnv")<Env, "env">() {}
+interface Conn {
+  readonly _tag: "Stub";
+}
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 2: HandlerSlot's `Ctx` generic is invariant.
-// Cross-Ctx assignment fails TS2322.
+// Canary 1: `ErasedSlotTable` totality over the `serverRpcMethods`
+// catalog. The slot table is keyed by the runtime method string; the
+// production builder must register a slot for every catalog method.
+// Indexing any catalog `definition.name` yields `ErasedSlot | undefined`
+// (the wire-dynamic `| undefined`), and a complete table assigns to the
+// `ErasedSlotTable` shape. A table MISSING a method is NOT rejected at
+// the table type (the table is an open `Record`), so totality is owned
+// by the server-side builder (`makeCoreRpcMethods`); here we assert the
+// slot-table SHAPE round-trips the catalog method names.
+// ───────────────────────────────────────────────────────────────────────
+
+declare const _serverSlots: ErasedSlotTable<Env, Conn>;
+type _CatalogName = (typeof serverRpcMethods)[number]["name"];
+declare const _someCatalogName: _CatalogName;
+const _slotByName: ErasedSlot<Env, Conn> | undefined =
+  _serverSlots[_someCatalogName];
+
+// ───────────────────────────────────────────────────────────────────────
+// Canary 2: HandlerSlot's `Ctx` generic is invariant (TM-callback
+// authoring shape). Cross-Ctx assignment fails TS2322.
 // ───────────────────────────────────────────────────────────────────────
 
 interface CtxA {
@@ -80,17 +96,14 @@ interface CtxB {
   readonly auth: { userId: string };
 }
 
-declare const _ctxBSlot: HandlerSlot<typeof MessagesSend, CtxB, never>;
+declare const _ctxBSlot: HandlerSlot<typeof DispatchAuthorize, CtxB, never>;
 // @ts-expect-error — Ctx mismatch: CtxB-shaped slot not assignable to CtxA-shaped slot (Spec F I3).
-const _shouldFailCtx: HandlerSlot<typeof MessagesSend, CtxA, never> = _ctxBSlot;
+const _shouldFailCtx: HandlerSlot<typeof DispatchAuthorize, CtxA, never> =
+  _ctxBSlot;
 
 // ───────────────────────────────────────────────────────────────────────
 // Canary 3: ServerConnection.call rejects definitions outside the
 // task-callback outbound surface (Spec F I5).
-//
-// Mirror the `<D extends OutCall>` constraint check at the inference
-// site via a helper. A single-statement call() expression keeps the
-// suppression directive attached to one line under oxfmt.
 // ───────────────────────────────────────────────────────────────────────
 
 declare function _assertTaskCallback<D extends AnyTaskCallbackRpcDefinition>(
@@ -106,43 +119,32 @@ const _serverOutboundOk1 = _assertTaskCallback(DispatchAuthorize);
 const _serverOutboundOk2 = _assertTaskCallback(MessagesAuthorize);
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 4: AgentClientHandlers accepts `{}` (empty inbound catalog
-// today). A future spec adding AgentClient-inbound RPCs extends the
-// catalog; this canary then begins firing (the now-required slot
-// missing) and impl-staff for that spec must populate the slot.
+// Canary 4: the AgentClient inbound surface is the empty slot table.
+// The AgentClient kind's inbound catalog is empty, so its config `slots`
+// is the empty `ErasedSlotTable` literal `{}`. A future spec adding
+// AgentClient-inbound RPCs registers slots; this canary then begins
+// firing in the builder, not here.
 // ───────────────────────────────────────────────────────────────────────
 
-const _agentClientEmpty: AgentClientHandlers<unknown, never> = {};
+const _agentClientEmptySlots: ErasedSlotTable<Env, Conn> = {};
 
 // Positive sanity: a TaskMasterHandlers literal is shape-typed.
 declare const _tmHandlers: TaskMasterHandlers<unknown, never>;
 const _tmHandlersSink: TaskMasterHandlers<unknown, never> = _tmHandlers;
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 6 (Spec D3 R14b): TaskMasterHandlers REJECTS `{}` — both keys
-// are REQUIRED real handlers. Vacuous-deny moderators must write the
+// Canary 6 (Spec D3 R14b): TaskMasterHandlers REJECTS `{}` — every key
+// is a REQUIRED real handler. Vacuous-deny moderators must write the
 // handler explicitly.
 // ───────────────────────────────────────────────────────────────────────
 
-// @ts-expect-error — both keys required; omitting fails TS2741.
+// @ts-expect-error — every key required; omitting fails TS2741.
 const _tmEmpty: TaskMasterHandlers<unknown, never> = {};
 
 // ───────────────────────────────────────────────────────────────────────
 // Canary 5: ServerConnection.call rejects non-task-callback definitions
 // DIRECTLY on the live `.call(...)` method signature (Spec F I5 direct).
-//
-// Companion to Canary 3. Canary 3 tests the
-// `<D extends AnyTaskCallbackRpcDefinition>` constraint via a local
-// `_assertTaskCallback` helper. If `OutboundCall<OutCall>.call`'s upper
-// bound were ever widened on `ServerConnection` (e.g. losing the
-// `AnyTaskCallbackRpcDefinition` bound on the kind-shape), Canary 3 would
-// still fire (it tests the union directly) — but real consumer code
-// calling `.call(...)` on a `ServerConnection` value would silently
-// accept any RPC. Canary 5 closes that gap by invoking `.call` on a live
-// `ServerConnection` value with a server-inbound definition; widening
-// extinguishes the error here and the `@ts-expect-error` becomes unused
-// (TS2578). Params are typed via `ParamsOf<typeof MessagesSend>` so the
-// param-arg cannot mask the constraint error on the definition arg.
+// Companion to Canary 3.
 // ───────────────────────────────────────────────────────────────────────
 
 declare const _serverConnI5: _ServerConnection;
@@ -152,68 +154,35 @@ declare const _msgsSendParams: ParamsOf<typeof MessagesSend>;
 const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 7 — handler R-channel must be a subset of CapabilitiesOf<D>.
-//
-// Post-cutover invariant: handler bodies may yield capability tags
-// only if the descriptor's `capabilities: [...]` array declares them.
-// The
-// dispatcher's auto-provision iterates the descriptor's list at runtime;
-// a handler that yields an UNDECLARED tag would face an unresolved
-// service Tag at handler-invocation time. Catching the mismatch at
-// compile time means a server author cannot ship a handler whose
-// authorization needs aren't reflected in the wire-protocol descriptor.
-//
-// The check below uses `MessagesList` whose `capabilities` array does NOT
-// include `MessageSendPermission`. A handler that yields
-// `MessageSendPermission` should fail the `Handler<D, Ctx, Caps>`
-// constraint where `Caps = CapabilitiesOf<typeof MessagesList>`. Yielding
-// `MessageSendPermission` widens R beyond `Caps` and the slot literal
-// fails to assign.
+// Slot-boundary R sanity: a slot's `invoke` residual R is `Env` (NOT
+// `never`, NOT a cap union) — capabilities are discharged inside. (The
+// full handler-R ⊆ caps + providers lockstep lives on `makeErasedSlot`
+// in `erased-slot.types-check.ts`.)
 // ───────────────────────────────────────────────────────────────────────
 
-declare const _messagesListSlotWithExtraCap: HandlerSlot<
-  typeof MessagesList,
-  unknown,
-  typeof MessageSendPermission
->;
-// @ts-expect-error — handler R (MessageSendPermission) is NOT in CapabilitiesOf<MessagesList>.
-const _capLockstepReject: HandlerSlot<
-  typeof MessagesList,
-  unknown,
-  CapabilitiesOf<typeof MessagesList>
-> = _messagesListSlotWithExtraCap;
-
-// Positive control: a handler whose Caps exactly matches the descriptor's
-// `capabilities` declaration assigns cleanly.
-declare const _messagesListSlotProper: HandlerSlot<
-  typeof MessagesList,
-  unknown,
-  CapabilitiesOf<typeof MessagesList>
->;
-const _capLockstepAccept: HandlerSlot<
-  typeof MessagesList,
-  unknown,
-  CapabilitiesOf<typeof MessagesList>
-> = _messagesListSlotProper;
+declare const _someSlot: ErasedSlot<Env, Conn>;
+declare const _slotCtx: { readonly connection: Conn };
+const _slotInvokeR: Effect.Effect<
+  Exit.Exit<unknown, unknown>,
+  never,
+  Env
+> = _someSlot.invoke(undefined, _slotCtx);
 
 // Export each canary local as a discriminated union so the unused-vars
 // rule (which is otherwise satisfied by leading `_`) cannot trim them
 // in a future refactor.
 export type _TypedDispatcherCanarySink =
-  | typeof _shouldFailEmptyServer
+  | typeof _slotByName
   | typeof _shouldFailCtx
   | typeof _ctxBSlot
   | typeof _serverOutboundReject
   | typeof _serverOutboundOk1
   | typeof _serverOutboundOk2
-  | typeof _agentClientEmpty
+  | typeof _agentClientEmptySlots
   | typeof _tmHandlersSink
   | typeof _tmEmpty
   | typeof _directReject
-  | typeof _messagesListSlotWithExtraCap
-  | typeof _capLockstepReject
-  | typeof _messagesListSlotProper
-  | typeof _capLockstepAccept
+  | typeof _slotInvokeR
   | _ServerConnection
   | _AgentClientConnection
   | _TaskMasterConnection;

@@ -202,7 +202,7 @@ export const MessagesSend = defineRpc({
       tag: MessageSendPermission,
       argsOf: (
         params: unknown,
-        ctx: unknown,
+        ctx: DispatchContext,
       ): ObtainMessageSendPermissionInput => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
@@ -213,8 +213,10 @@ export const MessagesSend = defineRpc({
         return {
           taskId: p.taskId,
           conversationId: p.conversationId,
-          // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the ctx shape (dispatcher-boundary erasure carve-out — ctx arrives as `unknown` from the type-erased dispatcher); `callerAgentIdOf` then narrows the agent arm cast-free
-          senderAgentId: callerAgentIdOf(ctx as DispatchContext),
+          // `ctx` is the protocol 2-arm `DispatchContext` (the slot
+          // narrowed the live arm before discharge); `callerAgentIdOf`
+          // reads the agent arm cast-free.
+          senderAgentId: callerAgentIdOf(ctx),
           replyToId: p.replyToId,
         };
       },
@@ -252,13 +254,15 @@ export const MessagesList = defineRpc({
   capabilities: [
     {
       tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
+      argsOf: (params: unknown, ctx: DispatchContext) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the ctx shape (dispatcher-boundary erasure carve-out — ctx arrives as `unknown` from the type-erased dispatcher); `callerAgentIdOf` then narrows the agent arm cast-free
+        // `ctx` is the protocol 2-arm `DispatchContext` (the slot narrowed
+        // the live arm before discharge); `callerAgentIdOf` reads the
+        // agent arm cast-free.
         return {
           taskId: p.taskId,
-          callerAgentId: callerAgentIdOf(ctx as DispatchContext),
+          callerAgentId: callerAgentIdOf(ctx),
         };
       },
     },

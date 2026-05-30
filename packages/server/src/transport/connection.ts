@@ -8,48 +8,44 @@ import {
   type RpcCallError,
   type RpcDefinition,
   type ServerConnection,
-  type ServerHandlers,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
-import {
-  AgentContext,
-  AppContext,
-  type DispatchContext,
-} from "../transport/context.js";
+import { AgentContext, AppContext } from "../transport/context.js";
+import type { ServerRpcSlotTable } from "../transport/context.js";
+import type { ConnectionTag } from "../app/layers.js";
+import type { AppTags } from "./layer-tags.js";
+
+/** Residual `Env` the server slot's `invoke` requires (see `context.ts`). */
+type ServerSlotEnv = Exclude<AppTags, ConnectionTag>;
 
 /**
- * Allocate a per-connection Spec F (#617) typed `ServerConnection` whose
- * request ids are prefixed `srv-${connectionId}` (keeps server-originated
- * ids disjoint from client ids in logs and captures). The Scope finalizer
- * registered by the internalized originator helper drains pending
- * Deferreds with `NotConnectedError` when the connection scope closes.
+ * Allocate a per-connection #705 HALF-1 cast-free `ServerConnection`
+ * whose request ids are prefixed `srv-${connectionId}` (keeps
+ * server-originated ids disjoint from client ids in logs and captures).
+ * The Scope finalizer registered by the internalized originator helper
+ * drains pending Deferreds with `NotConnectedError` when the connection
+ * scope closes.
  *
- * Test-only: `handlers` defaults to the empty record (no inbound
- * dispatch). Production code passes the application's
- * `ServerHandlers&lt;DispatchContext>` table via `socket-handler.ts → openSocketSession`.
+ * Test-only: `slots` defaults to the empty table (no inbound dispatch).
+ * Production code passes the application's {@link ServerRpcSlotTable}
+ * via `socket-handler.ts → openSocketSession`. The per-method capability
+ * discharge lives inside each slot, so there is no separate provider
+ * table here (the pre-HALF-1 `handlers` + `capabilities` pair is gone).
  */
 export function acquireConnectionRpcClient(
   connectionId: ConnectionId,
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
-  handlers: ServerHandlers<DispatchContext> = {} as ServerHandlers<DispatchContext>,
-  // Providers default to empty: the test-only `originator` overload
-  // never drives a real handler whose body yields capabilities, so the
-  // dispatcher's per-tag lookup is unexercised. Production wiring at
-  // `socket-handler.ts → openSocketSession` passes the real provider
-  // table (`serverCapabilityProviders`). Decoupling avoids a runtime
-  // import cycle through `app/capability-providers.ts → app/layers.ts →
-  // transport/connection.ts`.
-  capabilities: Record<
-    string,
-    (args: unknown) => Effect.Effect<unknown, unknown, unknown>
-  > = {},
-): Effect.Effect<ServerConnection<DispatchContext>, never, Scope.Scope> {
+  slots: ServerRpcSlotTable = {},
+): Effect.Effect<
+  ServerConnection<ServerSlotEnv, Connection>,
+  never,
+  Scope.Scope
+> {
   return makeServerConnection({
     id: connectionId,
-    handlers,
-    capabilities,
+    slots,
     write,
     idPrefix: `srv-${connectionId}`,
   });
@@ -98,7 +94,7 @@ export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
  * Publicly constructible (via `acquireConnectionRpcClient` above); passed to
  * `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
  */
-export type Originator = ServerConnection<DispatchContext>;
+export type Originator = ServerConnection<ServerSlotEnv, Connection>;
 
 /**
  * The per-connection socket handle (write + shutdown). Lifted to a standalone

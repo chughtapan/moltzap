@@ -1,25 +1,45 @@
 /**
- * @file Auto-provision dispatcher — Spec F G6.
+ * @file Cast-free inbound dispatcher — #705 HALF-1.
  *
- * Drives one inbound `RequestFrame` through the kind's static handler
- * table. For each frame:
- *   1. Look up the slot by `frame.method`. Catalog membership is type-
- *      level enforced (Spec F I2 — TS2741). Method not in the catalog →
- *      wire `MethodNotFound` -32601.
- *   2. Read `slot.definition.capabilities`. For each `{ tag, argsOf }` in
- *      declaration order: look up `CapabilityProviderTable[tag.key]`,
- *      call it with `argsOf(decodedParams, ctx)`, and thread
- *      `Effect.provideServiceEffect(tag, providerEffect)`. First-failure
- *      short-circuit per Effect's standard error semantics.
- *   3. Run the composed handler effect, map outcome via
+ * Drives one inbound `RequestFrame` through the kind's keyed
+ * {@link ErasedSlotTable}. For each frame:
+ *   1. Look up the slot by `frame.method` (a wire-dynamic string). An
+ *      unknown method → wire `MethodNotFound` -32601.
+ *   2. Call `slot.invoke(frame.params, ctx)`. The slot owns the typed
+ *      `(definition, handler, providers)` triple bound at its wrap site
+ *      ({@link makeErasedSlot}): `invoke` decodes params via the method's
+ *      OWN validator, discharges THIS method's declared capabilities in
+ *      declaration order from the slot's positional providers tuple, runs
+ *      the handler, and returns the `Exit`. NO `eraseHandlerTable` /
+ *      `eraseProviderTable` / `asNeverR` cascade — the per-frame caps are
+ *      discharged INSIDE the slot; only the service `Env` rides out.
+ *   3. Project the `Exit` into a wire `ResponseFrame` via
  *      `wireErrorFromInstance`.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A[RequestFrame] --> B{slots[method]?}
+ *   B -- undefined --> Bx[MethodNotFound -32601]
+ *   B -- ErasedSlot --> C[slot.invoke params ctx]
+ *   C --> D[slot decodes via own validator]
+ *   D -- decode fail --> Dx[InvalidParams -32602]
+ *   D -- ok --> E[slot discharges declared caps&lt;br&gt;from positional providers tuple]
+ *   E --> F[handler runs under Env]
+ *   F --> G[Exit]
+ *   G -- success --> Gs[successResponse]
+ *   G -- tagged failure --> Gt[knownWireErrorResponse]
+ *   G -- untagged --> Gu[internalErrorResponse -32603]
+ * ```
+ *
+ * The dispatcher's residual `R` is `Env` (the `FullLive` service-tag
+ * union the surrounding `ManagedRuntime` resolves at request time), NOT
+ * `never`: capabilities are discharged inside each slot; the runtime
+ * provides `Env`.
  *
  * Outbound calls / notifications go through the internalized originator.
  */
-import { Cause, Effect, Exit, type Context, type Scope } from "effect";
-import type { TSchema } from "@sinclair/typebox";
+import { Cause, Effect, Exit, type Scope } from "effect";
 
-import { decodeRpcParams, type RpcDefinition } from "./method.js";
 import {
   JSON_RPC_RESERVED_CODES,
   isRegisteredErrorInstance,
@@ -40,15 +60,8 @@ import type {
   AgentClientConnectionConfig,
   TaskMasterConnectionConfig,
 } from "./connection.js";
-import type { HandlerSlot } from "./handlers.js";
-import type { CapabilityDescriptor } from "./capabilities.js";
+import type { ErasedSlotTable, SlotDispatchContext } from "./erased-slot.js";
 
-type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
-type AnySlot = HandlerSlot<
-  AnyServerRpcDefinition,
-  unknown,
-  Context.Tag<unknown, unknown>
->;
 type WireError = {
   readonly code: number;
   readonly message: string;
@@ -56,57 +69,20 @@ type WireError = {
 };
 
 /**
- * Erased view of the static handler table: maps wire method names to
- * `HandlerSlot`. R14b removed the sentinel arm; every slot is a real
- * handler. The mapped-type machinery in `handlers.ts` enforces structural
- * shape at the factory call; the runtime stays defensive against frames
- * whose method isn't in the kind's catalog.
- */
-type ErasedHandlerTable = Readonly<Record<string, AnySlot | undefined>>;
-
-/** Erased view of the provider table — `[tag.key]` → obtain effect. */
-type ErasedProviderTable = Readonly<
-  Record<string, (args: unknown) => Effect.Effect<unknown, unknown, unknown>>
->;
-
-/**
- * Type-erase the per-kind handler table at the dispatcher boundary.
- * The factory-side type (`ServerHandlers&lt;Ctx, Caps&gt;` etc.) is a mapped
- * type with literal-named keys; the dispatcher reads slots by frame
- * method name (a runtime string) and needs the structural-record view.
- * Erasure is the design per Spec F §3 carve-out for `unknown` at the
- * private dispatcher plumbing.
- */
-const eraseHandlerTable = (table: object): ErasedHandlerTable =>
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- dispatcher-boundary type-erasure (Spec F §3 carve-out); factory-side mapped type has literal-named keys, dispatcher reads by runtime method string
-  table as unknown as ErasedHandlerTable; // #ignore-sloppy-code[as-unknown-as]: dispatcher-boundary type-erasure (Spec F §3 carve-out); factory-side mapped type has literal-named keys, dispatcher reads by runtime method string
-
-/**
- * Type-erase the capability provider table at the dispatcher boundary.
- * Same reasoning as `eraseHandlerTable`: per-tag obtain helpers carry
- * tag-specific arg shapes the dispatcher iterates heterogeneously.
- */
-const eraseProviderTable = (table: object): ErasedProviderTable =>
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- dispatcher-boundary type-erasure (Spec F §3 carve-out); per-tag obtain helpers re-impose typed args at invocation
-  table as unknown as ErasedProviderTable; // #ignore-sloppy-code[as-unknown-as]: dispatcher-boundary type-erasure (Spec F §3 carve-out); per-tag obtain helpers re-impose typed args at invocation
-
-/**
- * Build the server-side dispatcher. Wires the inbound static-table
+ * Build the server-side dispatcher. Wires the inbound slot-table
  * dispatch loop + the outbound originator (TM-callback path) into a
- * single `ServerConnection` value.
+ * single `ServerConnection` value. `Env` is the slot table's residual
+ * service-tag union; `Conn` is the server's three-arm `Connection`.
  */
-export function buildServerDispatcher<Ctx, Caps extends Context.Tag<any, any>>(
-  config: ServerConnectionConfig<Ctx, Caps>,
-): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
+export function buildServerDispatcher<Env, Conn>(
+  config: ServerConnectionConfig<Env, Conn>,
+): Effect.Effect<ServerConnection<Env, Conn>, never, Scope.Scope> {
   return Effect.gen(function* () {
     const originator = yield* makeOriginator({
       write: config.write,
       idPrefix: config.idPrefix,
     });
-    const dispatch = makeInboundDispatch<Ctx>(
-      eraseHandlerTable(config.handlers),
-      eraseProviderTable(config.capabilities),
-    );
+    const dispatch = makeInboundDispatch<Env, Conn>(config.slots);
     return {
       id: config.id,
       handle: (frame, ctx) => dispatch(frame, ctx),
@@ -114,21 +90,19 @@ export function buildServerDispatcher<Ctx, Caps extends Context.Tag<any, any>>(
       call: originator.call,
       failAllPending: originator.failAllPending,
       notify: makeNotify(config.write),
-    } satisfies ServerConnection<Ctx>;
+    } satisfies ServerConnection<Env, Conn>;
   }).pipe(Effect.withSpan("buildServerDispatcher"));
 }
 
 /**
  * Build the agent-client dispatcher. Wires the originator only (no
- * inbound dispatch — the AgentClient kind's inbound catalog is empty).
- * The empty `notify` shape is `never`-typed at the type level (no
- * call site can satisfy the constraint).
+ * inbound dispatch — the AgentClient kind's inbound catalog is empty,
+ * so `config.slots` is the empty table `{}`). The empty `notify` shape
+ * is `never`-typed at the type level (no call site can satisfy the
+ * constraint).
  */
-export function buildAgentClientDispatcher<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: AgentClientConnectionConfig<Ctx, Caps>,
+export function buildAgentClientDispatcher<Env, Conn>(
+  config: AgentClientConnectionConfig<Env, Conn>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
   return Effect.gen(function* () {
     const originator = yield* makeOriginator({
@@ -155,21 +129,15 @@ export function buildAgentClientDispatcher<
  * REQUIRED: callers must register a handler for each catalog method;
  * vacuous-deny moderators bind an explicit `ForbiddenError` handler.
  */
-export function buildTaskMasterDispatcher<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: TaskMasterConnectionConfig<Ctx, Caps>,
-): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope> {
+export function buildTaskMasterDispatcher<Env, Conn>(
+  config: TaskMasterConnectionConfig<Env, Conn>,
+): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope> {
   return Effect.gen(function* () {
     const originator = yield* makeOriginator({
       write: config.write,
       idPrefix: config.idPrefix,
     });
-    const dispatch = makeInboundDispatch<Ctx>(
-      eraseHandlerTable(config.handlers),
-      eraseProviderTable(config.capabilities),
-    );
+    const dispatch = makeInboundDispatch<Env, Conn>(config.slots);
     return {
       id: config.id,
       handle: (frame, ctx) => dispatch(frame, ctx),
@@ -180,7 +148,7 @@ export function buildTaskMasterDispatcher<
         Effect.die(
           "TaskMasterConnection.notify: TM kind originates no notifications",
         ),
-    } satisfies TaskMasterConnection<Ctx>;
+    } satisfies TaskMasterConnection<Env, Conn>;
   }).pipe(Effect.withSpan("buildTaskMasterDispatcher"));
 }
 
@@ -208,156 +176,71 @@ function makeNotify(write: (raw: string) => Effect.Effect<void, unknown>) {
     }).pipe(Effect.withSpan("ServerConnection.notify"))) as never;
 }
 
-// ── Inbound dispatch (static-table loop) ────────────────────────────
+// ── Inbound dispatch (slot-table loop) ──────────────────────────────
 
 /**
- * Build the per-frame inbound dispatcher. Closes over the erased
- * handler + provider tables; the returned function takes one frame +
- * context and produces a wire-ready `ResponseFrame`.
+ * Build the per-frame inbound dispatcher. Closes over the kind's
+ * {@link ErasedSlotTable}; the returned function takes one frame +
+ * `SlotDispatchContext&lt;Conn&gt;` and produces a wire-ready `ResponseFrame`.
  *
- * Capability auto-provision (Spec F G6): per-definition Shape B
- * metadata (`slot.definition.capabilities`) names each tag the handler
- * `yield*`s. The dispatcher iterates this list, looks up
- * `providers[tag.key]`, calls it with `argsOf(params, ctx)`, and
- * threads `Effect.provideServiceEffect` over the handler effect in
- * declaration order. Sequential execution + first-failure short-circuit
- * per Spec F §5.1 step 3.
+ * The slot owns its own param decode + capability discharge (see
+ * {@link makeErasedSlot}); the dispatcher only routes by `frame.method`
+ * and projects the slot's `Exit` into a wire response. The slot's
+ * `invoke` returns `Effect&lt;Exit&lt;unknown,unknown&gt;, never, Env&gt;`: a wire
+ * `MethodNotFound` for an out-of-catalog method, otherwise the slot's
+ * decoded-and-discharged outcome. The residual `R` is `Env`, resolved
+ * by the surrounding `ManagedRuntime` at request time.
  */
-function makeInboundDispatch<Ctx>(
-  table: ErasedHandlerTable,
-  providers: ErasedProviderTable,
-) {
+function makeInboundDispatch<Env, Conn>(table: ErasedSlotTable<Env, Conn>) {
   return (
     frame: RequestFrame,
-    ctx: Ctx,
-  ): Effect.Effect<ResponseFrame, never, never> =>
+    ctx: SlotDispatchContext<Conn>,
+  ): Effect.Effect<ResponseFrame, never, Env> =>
     Effect.gen(function* () {
       // `JsonRpcMethod` is `string & Brand`; widen to plain string for
-      // record/map indexing.
+      // record indexing. The lookup is wire-dynamic — a remote can name
+      // any string — so an unknown method yields `undefined`.
       const method: string = frame.method;
       const slot = table[method];
       if (slot === undefined) {
-        // Catalog-membership is type-level enforced — a well-typed
-        // factory literal cannot omit a catalog key. Reaching here means
-        // a malformed wire frame named a method that isn't in the kind's
-        // catalog.
         return methodNotFoundResponse(frame);
       }
 
-      const paramsResult = yield* Effect.exit(
-        decodeRpcParams(slot.definition, frame.params),
-      );
-      if (Exit.isFailure(paramsResult)) {
-        return invalidParamsResponse(frame);
-      }
-
       const startMs = Date.now();
-      const handlerEffect = applyCapabilityProvisioning({
-        effect: slot.handle(paramsResult.value, ctx),
-        capabilities: slot.definition.capabilities ?? [],
-        params: paramsResult.value,
-        ctx,
-        providers,
-      });
-      // Post-provision R channel is fully covered by the
-      // `CapabilityProviderTable` (Spec F I4). The lockstep canary at the
-      // handler-table literal site enforces the type-level invariant; at
-      // the runtime boundary we erase the residual `R = unknown` to
-      // `never` so the surrounding transport's `handle(frame, ctx)` shape
-      // resolves to `Effect.Effect<ResponseFrame, never, never>`.
-      const handlerExit = yield* Effect.exit(asNeverR(handlerEffect));
+      // The slot decodes params via its OWN validator and discharges its
+      // declared capabilities INSIDE `invoke`; the residual `R` is `Env`.
+      // `invoke` returns the inner `Exit` (NOT a failed effect) so a
+      // params-decode failure surfaces as a success-typed `Exit.Failure`
+      // we project to `InvalidParams`.
+      const slotExit = yield* slot.invoke(frame.params, ctx);
       const durationMs = Date.now() - startMs;
 
-      if (Exit.isSuccess(handlerExit)) {
-        return yield* successResponse(frame, durationMs, handlerExit.value);
+      if (Exit.isSuccess(slotExit)) {
+        return yield* successResponse(frame, durationMs, slotExit.value);
       }
-      return yield* failureResponse(frame, durationMs, handlerExit.cause);
+      // A params-decode failure inside the slot surfaces as a tagged
+      // `RpcParamsDecodeError` in the cause; map it to `InvalidParams`.
+      // Everything else routes through the tagged-error / internal map.
+      if (isParamsDecodeFailureCause(slotExit.cause)) {
+        return invalidParamsResponse(frame);
+      }
+      return yield* failureResponse(frame, durationMs, slotExit.cause);
     }).pipe(Effect.withSpan("InboundDispatch"));
 }
 
 /**
- * Narrow the residual R channel of a fully-provisioned handler effect
- * from `unknown` to `never`. Justification: the lockstep gate in
- * `typed-dispatcher.types-check.ts` ensures every capability tag a
- * handler references appears in `slot.definition.capabilities`, which
- * the dispatcher iterates to thread `provideServiceEffect`. Post-pass,
- * no requirement remains.
+ * Recognise a params-decode failure surfaced by a slot's `invoke`
+ * (`decodeRpcParams` fails with an `RpcParamsDecodeError`-tagged value;
+ * see `method.ts`). The slot returns the inner `Exit`, so the decode
+ * failure rides the cause's failure channel; map it to the wire
+ * `InvalidParams -32602` rather than the generic internal error.
  */
-const asNeverR = (
-  effect: Effect.Effect<unknown, unknown, unknown>,
-): Effect.Effect<unknown, unknown, never> =>
-  effect as Effect.Effect<unknown, unknown, never>;
-
-interface ProvisioningArgs {
-  readonly effect: Effect.Effect<unknown, unknown, unknown>;
-  readonly capabilities: ReadonlyArray<CapabilityDescriptor>;
-  readonly params: unknown;
-  readonly ctx: unknown;
-  readonly providers: ErasedProviderTable;
-}
-
-/**
- * Spec F G6 / §5.1 step 3: thread `provideServiceEffect` calls for each
- * declared capability in declaration order. `provideServiceEffect` is
- * sequential at the runtime; first-failure short-circuit follows from
- * Effect's standard error semantics (an upstream provider failure
- * propagates through the composed effect without running later
- * providers' obtain helpers).
- *
- * Type-erasure: the handler's R channel is erased to `unknown` at
- * value-level storage; the per-tag `provideServiceEffect` calls
- * structurally compose because each provider's service shape matches
- * its tag's `Identifier`. The compile-time gate
- * (handler R channel ⊆ `CapabilitiesOf&lt;D&gt;`) lives at the
- * handler-table literal site (`typed-dispatcher.types-check.ts`).
- */
-function applyCapabilityProvisioning(
-  args: ProvisioningArgs,
-): Effect.Effect<unknown, unknown, unknown> {
-  // Capabilities are applied in REVERSE declaration order so the
-  // FIRST-declared provider becomes the OUTERMOST `provideServiceEffect`
-  // in the composed pipe — matching the "sequential, declaration-order"
-  // contract from Spec F §5.1 step 3 (first provider runs first; its
-  // failure short-circuits without running later providers).
-  const reversed = [...args.capabilities].reverse();
-  return reversed.reduce<Effect.Effect<unknown, unknown, unknown>>(
-    (acc, cap) => provideOne(acc, cap, args),
-    args.effect,
-  );
-}
-
-const provideOne = (
-  acc: Effect.Effect<unknown, unknown, unknown>,
-  cap: CapabilityDescriptor,
-  args: ProvisioningArgs,
-): Effect.Effect<unknown, unknown, unknown> => {
-  const tag = cap.tag;
-  // Effect's `Context.Tag` keys its identifier on `tag.key` (per
-  // `node_modules/effect/dist/dts/Context.d.ts → interface Tag → readonly key: string`).
-  const tagKey = tag.key;
-  const provider = args.providers[tagKey];
-  if (provider === undefined) {
-    // The handler declared a capability with no provider in the table.
-    // The lockstep gate at the handler-table literal site
-    // (`HandlerSlot.handle.R ⊆ CapabilitiesOf<D>`) catches this at
-    // compile time when both sides are non-erased; reaching this
-    // branch means either (a) a `defineRpc` declared `capabilities`
-    // without a corresponding `CapabilityProviderTable` entry, or
-    // (b) the value-level provider table was constructed with a
-    // missing tag and the structural type check didn't fire. Fail
-    // loud rather than silently skip — silent skip would leave a
-    // downstream `Context.NoSuchElementError` deep inside the
-    // handler.
-    return Effect.die(
-      `CapabilityProviderTable missing entry for tag '${tagKey}' declared by definition; ` +
-        "every Context.Tag named in `definition.capabilities` must appear in the factory's `capabilities` provider table.",
-    );
-  }
-  const providerEffect = provider(cap.argsOf(args.params, args.ctx));
-  return Effect.provideServiceEffect(
-    acc,
-    tag,
-    providerEffect as Effect.Effect<unknown, unknown, never>,
+const isParamsDecodeFailureCause = (cause: Cause.Cause<unknown>): boolean => {
+  const failure = Cause.failureOption(cause);
+  return (
+    failure._tag === "Some" &&
+    isRecord(failure.value) &&
+    failure.value._tag === "RpcParamsDecodeError"
   );
 };
 

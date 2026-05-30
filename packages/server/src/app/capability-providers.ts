@@ -1,18 +1,21 @@
 /**
- * @file Shared capability provider table for `makeServerConnection`.
+ * @file Named capability providers — #705 HALF-1.
  *
- * The dispatcher's auto-provision path (`applyCapabilityProvisioning`
- * in `@moltzap/protocol/transport/dispatch.ts`) keys obtain helpers
- * by each `Context.Tag.key` declared on the descriptor's
- * `RpcDefinition.capabilities` array. Both `makeServerConnection`
- * call sites pass an IDENTICAL provider table, extracted here.
+ * Each cap-bearing method threads a positional provider tuple (aligned
+ * 1:1 to its descriptor's `capabilities` array) into
+ * `defineXMethod(definition, def, [...providers])`; the slot's `invoke`
+ * ({@link makeErasedSlot}) discharges them in declaration order. The
+ * pre-HALF-1 global `serverCapabilityProviders` table (keyed by
+ * `Context.Tag.key`, consumed by the now-deleted dispatcher
+ * `applyCapabilityProvisioning`) is gone; the inhabitants are the named
+ * `provideX` functions below.
  *
- * Each provider unwraps the dispatcher-supplied `args` (built by the
+ * Each provider unwraps the slot-supplied `args` (built by the
  * descriptor's `argsOf(params, ctx)` resolver) via a single-level `as`
  * cast and runs the capability composition. Simple obtains live INLINE
- * here (each has exactly one consumer — this table); composites with
- * their own direct consumers live as named functions next to the
- * services they compose (`obtainMessageSendPermission` and
+ * here; composites with their own direct consumers live as named
+ * functions next to the services they compose
+ * (`obtainMessageSendPermission` and
  * `obtainConversationCreateAuthorization` in `task/services/`).
  *
  * The pattern this table closes the loop on: privileged service
@@ -88,21 +91,14 @@
  */
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import {
-  ContactPolicyAllowsReach,
-  ConversationCreateAuthorization,
-  ConversationInTask,
-  MessageSendPermission,
-  TaskReadAccess,
-  type ConversationId,
-  type TaskId,
-  type ObtainConversationCreateAuthorizationInput,
-  type ObtainMessageSendPermissionInput,
+import type {
+  ConversationId,
+  TaskId,
+  ObtainMessageSendPermissionInput,
 } from "@moltzap/protocol/task";
 import { ConversationServiceTag, TaskServiceTag } from "./layers.js";
 import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 import { obtainMessageSendPermission } from "../task/services/message-send-permission.js";
-import { obtainConversationCreateAuthorization } from "../task/services/conversation-create-authorization.js";
 
 interface TaskAndAgent {
   readonly taskId: TaskId;
@@ -119,54 +115,66 @@ interface CreatorAndTargets {
   readonly targetAgentIds: readonly AgentId[];
 }
 
+// #705 HALF-1 — per-method positional provider tuples. The pre-cutover
+// global `serverCapabilityProviders` table (keyed by `Context.Tag.key`)
+// is gone; each cap-bearing method threads the matching provider(s) as a
+// positional tuple aligned 1:1 to its descriptor's `capabilities` array
+// (the `CapProviders<CapsTuple, Env>` lockstep). The named providers
+// below are the inhabitants; handlers compose them into tuples at the
+// `defineXMethod(definition, def, [...providers])` call site.
+//
+// Each provider receives the dispatcher-derived args (built by the
+// descriptor's `argsOf(params, ctx)`), narrows via a single-level `as`
+// cast (HALF-2 tightens these), and returns the capability's effect.
+
+/** Provider for `TaskReadAccess` (`messages/list`). */
+export const provideTaskReadAccess = (args: unknown) => {
+  // #ignore-sloppy-code-next-line[params-cast]: provider re-imposes the descriptor-derived args shape (dispatcher-boundary erasure carve-out, HALF-2 tightens)
+  const { taskId, callerAgentId } = args as TaskAndAgent;
+  return Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const task = yield* taskService.loadTaskWithReadAccess(
+      taskId,
+      callerAgentId,
+    );
+    return { task, callerAgentId };
+  }).pipe(Effect.withSpan("obtainTaskReadAccess"));
+};
+
 /**
- * Provider table keyed by `Context.Tag.key`. Each entry receives the
- * dispatcher-derived args (built by the descriptor's `argsOf`), narrows
- * via a single-level `as` cast, and returns the capability's effect.
- *
- * Both `makeServerConnection` call sites pass this same constant so the
- * `Caps` generic of `ServerConnectionConfig` agrees across them.
+ * Provider for `ConversationInTask` (`messages/send`, `messages/list`,
+ * the four `task/conversation/*` admin RPCs).
  */
-export const serverCapabilityProviders = {
-  [TaskReadAccess.key]: (args: unknown) => {
-    const { taskId, callerAgentId } = args as TaskAndAgent;
-    return Effect.gen(function* () {
-      const taskService = yield* TaskServiceTag;
-      const task = yield* taskService.loadTaskWithReadAccess(
-        taskId,
-        callerAgentId,
+export const provideConversationInTask = (args: unknown) => {
+  // #ignore-sloppy-code-next-line[params-cast]: provider re-imposes the descriptor-derived args shape (dispatcher-boundary erasure carve-out, HALF-2 tightens)
+  const { taskId, conversationId } = args as TaskAndConversation;
+  return Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    yield* taskService.assertConversationInTask(taskId, conversationId);
+    return { taskId, conversationId };
+  }).pipe(Effect.withSpan("obtainConversationInTask"));
+};
+
+/** Provider for `ContactPolicyAllowsReach` (`task/request`). */
+export const provideContactPolicyAllowsReach = (args: unknown) => {
+  // #ignore-sloppy-code-next-line[params-cast]: provider re-imposes the descriptor-derived args shape (dispatcher-boundary erasure carve-out, HALF-2 tightens)
+  const { creatorAgentId, targetAgentIds } = args as CreatorAndTargets;
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const conversations = yield* ConversationServiceTag;
+      const ownerByAgentId =
+        yield* conversations.loadAgentOwners(targetAgentIds);
+      yield* conversations.assertContactPolicyForCreate(
+        creatorAgentId,
+        targetAgentIds,
+        ownerByAgentId,
       );
-      return { task, callerAgentId };
-    }).pipe(Effect.withSpan("obtainTaskReadAccess"));
-  },
-  [ConversationInTask.key]: (args: unknown) => {
-    const { taskId, conversationId } = args as TaskAndConversation;
-    return Effect.gen(function* () {
-      const taskService = yield* TaskServiceTag;
-      yield* taskService.assertConversationInTask(taskId, conversationId);
-      return { taskId, conversationId };
-    }).pipe(Effect.withSpan("obtainConversationInTask"));
-  },
-  [ContactPolicyAllowsReach.key]: (args: unknown) => {
-    const { creatorAgentId, targetAgentIds } = args as CreatorAndTargets;
-    return catchSqlErrorAsDefect(
-      Effect.gen(function* () {
-        const conversations = yield* ConversationServiceTag;
-        const ownerByAgentId =
-          yield* conversations.loadAgentOwners(targetAgentIds);
-        yield* conversations.assertContactPolicyForCreate(
-          creatorAgentId,
-          targetAgentIds,
-          ownerByAgentId,
-        );
-        return { creatorAgentId, targetAgentIds };
-      }),
-    ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
-  },
-  [ConversationCreateAuthorization.key]: (args: unknown) =>
-    obtainConversationCreateAuthorization(
-      args as ObtainConversationCreateAuthorizationInput,
-    ),
-  [MessageSendPermission.key]: (args: unknown) =>
-    obtainMessageSendPermission(args as ObtainMessageSendPermissionInput),
-} as const;
+      return { creatorAgentId, targetAgentIds };
+    }),
+  ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
+};
+
+/** Provider for `MessageSendPermission` (`messages/send`). */
+export const provideMessageSendPermission = (args: unknown) =>
+  // #ignore-sloppy-code-next-line[params-cast]: provider re-imposes the descriptor-derived args shape (dispatcher-boundary erasure carve-out, HALF-2 tightens)
+  obtainMessageSendPermission(args as ObtainMessageSendPermissionInput);
