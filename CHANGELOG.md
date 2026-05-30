@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: cast-free capability middleware + principal-as-service (Half-2 slice 1, #723)
+
+The dispatcher's capability layer gains its cast-free, principal-as-service
+form on the two `messages/*` methods as an integration proof ahead of the
+full port. A capability is now a first-class `CapabilityMiddleware`
+(`provides` tag + typed payload-only `derivePayload` + typed `obtain`)
+rather than an `argsOf(unknown, unknown): unknown` descriptor, and the
+authenticated principal is read as an Effect service (`CurrentPrincipal`)
+rather than threaded as a context parameter. `messages/send` and
+`messages/list` now dispatch through this path with ZERO `as unknown as`
+and no per-provider `args as Shape` cast.
+
+- **New (protocol):** `CurrentPrincipal` — a protocol-owned `Context.Tag`
+  carrying the request's authenticated `Principal` (the 2-arm `agent | app`
+  union), `yield*`'d by `derivePayload`; `callerAgentId` reads the agent
+  arm by discriminant. `CapabilityMiddleware<Params, Provides, Input, Env,
+  Fail>` + `MiddlewaresOf` + the per-step `provideMiddleware` composition
+  helper. `makeMiddlewareSlot` — the cast-free successor to `makeErasedSlot`
+  for converted methods; it produces the SAME `ErasedSlot` shape so a
+  middleware slot stores in the SAME slot table without a widening cast.
+- **New (`@moltzap/server-core`):** `defineMiddlewareMethod` /
+  `defineTaskMiddlewareMethod` weave each method's capabilities as a STATIC
+  hand-expanded `provideServiceEffect` chain (declaration order preserved
+  for Forbidden-before-state-probe) and provide `CurrentPrincipal` from the
+  #720-narrowed arm — replacing the `dischargeCaps` runtime fold +
+  `narrowToDispatchContext` for these methods. The per-arm totality lockstep
+  is compiler-native and non-vacuous (pinned from the declared middleware
+  tuple, so it bites even for caps the handler consumes only as an
+  authorization side-effect, e.g. `messages/list`).
+- **Behavior preserved:** the wire decode, the `-32xxx`
+  `wireErrorFromInstance` projection, the #720 principal-kind gate, and the
+  conversation-before-permission ordering on `messages/send` are unchanged
+  (conformance + integration green). The remaining ~7 cap-bearing methods
+  stay on the legacy `dischargeCaps` path until the full port.
+
 ### Fixed: `CoreApp.close()` teardown deadlock with live dispatch leases (#729)
 
 - **Fixed (`@moltzap/server-core`):** `CoreApp.close()` could deadlock

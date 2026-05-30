@@ -91,14 +91,9 @@
  */
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type {
-  ConversationId,
-  TaskId,
-  ObtainMessageSendPermissionInput,
-} from "@moltzap/protocol/task";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import { ConversationServiceTag, TaskServiceTag } from "./layers.js";
 import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
-import { obtainMessageSendPermission } from "../task/services/message-send-permission.js";
 
 interface TaskAndAgent {
   readonly taskId: TaskId;
@@ -127,7 +122,11 @@ interface CreatorAndTargets {
 // descriptor's `argsOf(params, ctx)`), narrows via a single-level `as`
 // cast (HALF-2 tightens these), and returns the capability's effect.
 
-/** Provider for `TaskReadAccess` (`messages/list`). */
+/**
+ * Provider for `TaskReadAccess`. `messages/list` (its former dispatch
+ * consumer) is now on the HALF-2 middleware path; this legacy provider
+ * survives only as a `task.service.test.ts` fixture until the full port.
+ */
 export const provideTaskReadAccess = (args: unknown) => {
   // #ignore-sloppy-code-next-line[params-cast]: provider re-imposes the descriptor-derived args shape (dispatcher-boundary erasure carve-out, HALF-2 tightens)
   const { taskId, callerAgentId } = args as TaskAndAgent;
@@ -174,7 +173,10 @@ export const provideContactPolicyAllowsReach = (args: unknown) => {
   ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
 };
 
-/** Provider for `MessageSendPermission` (`messages/send`). */
-export const provideMessageSendPermission = (args: unknown) =>
-  // #ignore-sloppy-code-next-line[params-cast]: provider re-imposes the descriptor-derived args shape (dispatcher-boundary erasure carve-out, HALF-2 tightens)
-  obtainMessageSendPermission(args as ObtainMessageSendPermissionInput);
+// `provideMessageSendPermission` was deleted here — `messages/send` is the
+// FIRST method converted to the HALF-2 `CapabilityMiddleware` path
+// (`capability-middlewares.ts → messageSendPermissionMiddleware`), so its
+// legacy positional provider is orphaned. `provideTaskReadAccess` /
+// `provideConversationInTask` survive: the former is still consumed by
+// `task.service.test.ts`, the latter by the unconverted `task/conversation/*`
+// admin RPCs (`tasks.handlers.ts`).

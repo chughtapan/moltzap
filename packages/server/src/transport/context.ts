@@ -1,7 +1,8 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, type Exit } from "effect";
 import { type Static, type TSchema } from "@sinclair/typebox";
 import {
   ForbiddenError,
+  CurrentPrincipal,
   type ErasedSlot,
   type ErasedSlotTable,
   type RpcDefinition,
@@ -298,4 +299,115 @@ export function defineMethod<
         .handler(params, principalCtx)
         .pipe(Effect.provideService(ConnectionTag, ctx.connection));
     }).pipe(Effect.withSpan("defineMethod"));
+}
+
+/**
+ * The handler + `weaveCaps` shape {@link defineMiddlewareMethod} accepts.
+ *
+ * `NoInfer&lt;CapIdents>` on the handler: `CapIdents` is PINNED by the caller
+ * (`defineTaskMiddlewareMethod` derives it from the declared middleware
+ * tuple). Without `NoInfer`, a handler whose body does not `yield*` the cap
+ * would let TS infer `CapIdents = never` and the `weaveCaps` totality
+ * lockstep would go false-green. The handler effect is widened to require
+ * `CapIdents` (sound — providing extra services upward is assignable) so
+ * `weaveCaps` MUST discharge every pinned cap. `weaveCaps` subtracts the
+ * cap idents (`provideServiceEffect` per CONCRETE tag) and may add obtain
+ * errors (`EW ⊇ E`); `CurrentPrincipal` / `ConnectionTag` stay in its
+ * output R and are subtracted by the body's two `provideService`s.
+ */
+interface MiddlewareMethodDef<
+  P extends TSchema,
+  R extends TSchema,
+  K extends "agent" | "app",
+  E,
+  EW,
+  CapIdents,
+  Env,
+> {
+  readonly callablePrincipal: K;
+  readonly requiresActive?: boolean;
+  readonly handler: (
+    params: Static<P>,
+    ctx: CtxForKind<K>,
+  ) => Effect.Effect<
+    Static<R>,
+    E,
+    Env | ConnectionTag | CurrentPrincipal | NoInfer<CapIdents>
+  >;
+  readonly weaveCaps: (
+    handlerEffect: Effect.Effect<
+      Static<R>,
+      E,
+      Env | ConnectionTag | CurrentPrincipal | CapIdents
+    >,
+    params: Static<P>,
+  ) => Effect.Effect<Static<R>, EW, Env | ConnectionTag | CurrentPrincipal>;
+}
+
+/**
+ * Compose ONE cast-free middleware-slot body (#705 HALF-2 slice-1). The
+ * principal-as-service successor to {@link defineMethod} + the legacy slot's
+ * `dischargeCaps` runtime fold. It:
+ *   1. runs the #720 principal-kind gate (`narrowPrincipalCtx`) → the
+ *      narrowed `AgentContext | AppContext` arm (a {@link Principal});
+ *   2. lets the binding site weave the method's STATIC, hand-expanded
+ *      capability `provideServiceEffect` chain over the handler effect
+ *      (`weaveCaps` — each names a CONCRETE tag, so R subtracts cast-free);
+ *   3. provides `ConnectionTag` from the live arm AND `CurrentPrincipal`
+ *      from the narrowed arm — the principal-as-service provision site
+ *      (`derivePayload` reads `CurrentPrincipal` via `yield*`; this provide
+ *      SUBTRACTS it; the residual R bottoms out at `Env`);
+ *   4. `Effect.exit`s into the inner `Exit` the dispatcher projects.
+ *
+ * `K extends "agent" | "app"` (NOT `"any"`): every cap-bearing method is
+ * authenticated, so the narrowed arm is always a real `Principal`. The
+ * unauth Connect path (`"any"`) declares no middlewares and never reaches
+ * here — so `CurrentPrincipal` is never provided on the unauthenticated arm
+ * (the #720 gate rejected non-agent/app callers BEFORE any principal read).
+ *
+ * Cast-free end to end: NO `dischargeCaps` runtime fold, NO
+ * `narrowToDispatchContext`, NO `argsOf(unknown, unknown)` erasure, NO
+ * per-provider `args as Shape`.
+ */
+export function defineMiddlewareMethod<
+  P extends TSchema,
+  R extends TSchema,
+  K extends "agent" | "app",
+  E,
+  EW,
+  CapIdents,
+  Env,
+>(
+  def: MiddlewareMethodDef<P, R, K, E, EW, CapIdents, Env>,
+): (
+  params: Static<P>,
+  ctx: DispatchContext,
+) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env> {
+  const requiresActive = def.requiresActive ?? false;
+  const callablePrincipal = def.callablePrincipal;
+  return (params: Static<P>, ctx: DispatchContext) =>
+    // `Effect.exit` over the WHOLE body so the #720 gate's `ForbiddenError`
+    // (a wrong-principal arm) ALSO surfaces as a success-typed `Exit.Failure`
+    // the dispatcher projects (mirrors `makeErasedSlot.invoke`). The gate
+    // runs BEFORE any `CurrentPrincipal` read — the unauth/wrong-principal
+    // arm is rejected before the principal-as-service provision (#720).
+    Effect.gen(function* () {
+      const principalCtx = yield* narrowPrincipalCtx(
+        callablePrincipal,
+        ctx.connection,
+        requiresActive,
+      );
+      return yield* def
+        .weaveCaps(def.handler(params, principalCtx), params)
+        .pipe(
+          Effect.provideService(ConnectionTag, ctx.connection),
+          // The principal-as-service provision: `derivePayload` reads the
+          // caller's id via `yield* CurrentPrincipal`; this concrete-value
+          // provide subtracts `CurrentPrincipal` from the woven R. The
+          // narrowed `AgentContext | AppContext` arm structurally inhabits
+          // the protocol `Principal` (extra fields are fine for a
+          // read-only consumer), so NO cast.
+          Effect.provideService(CurrentPrincipal, principalCtx),
+        );
+    }).pipe(Effect.exit, Effect.withSpan("defineMiddlewareMethod"));
 }

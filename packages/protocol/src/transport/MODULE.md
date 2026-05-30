@@ -73,6 +73,26 @@ already authenticated as either arm) and at the per-principal gate
 binding). The `principal` discriminator names which arm the conflict is
 on; the wire code is shared.
 
+### [`AnyCapabilityMiddleware`](./capability-middleware.ts#L99)
+
+_TypeAlias_
+
+```ts
+export type AnyCapabilityMiddleware = CapabilityMiddleware<
+  never,
+  AnyContextTag,
+  any,
+  any,
+  any
+>;
+```
+
+The tuple of middlewares carried on a definition's `middlewares` field.
+Each element's `Params` is the OWNING method's decoded params type. The
+`unknown`/`never` slots are intentionally wide here — the per-method
+tuple narrows them at the descriptor literal (the same erasure-vs-recover
+pattern as `CapabilityDescriptor` / `CapabilitiesOf`).
+
 ### [`buildAgentClientDispatcher`](./dispatch.ts#L104)
 
 _Function_
@@ -119,6 +139,33 @@ Build the TM dispatcher. Wires both the inbound dispatch loop
 `serverRpcMethods`). Spec D3 R14b made every TM-inbound slot
 REQUIRED: callers must register a handler for each catalog method;
 vacuous-deny moderators bind an explicit `ForbiddenError` handler.
+
+### [`callerAgentId`](./current-principal.ts#L67)
+
+_Variable_
+
+```ts
+export const callerAgentId: Effect.Effect<AgentId, never, CurrentPrincipal> =
+  Effect.gen(function* () {
+    const p = yield* CurrentPrincipal;
+    // Exhaustive narrow on the tagged union — NOT an `as { agentId }`
+    // assertion. The agent arm's `agentId` is reached by discriminant.
+    return p._tag === "AgentContext"
+      ? p.agentId
+      : yield* Effect.die(
+          new Error(
+            `capability derivePayload reached a non-agent principal: ${p._tag}`,
+          ),
+        );
+  }).pipe(Effect.withSpan("callerAgentId"))
+```
+
+Impossible-state defect: a capability `derivePayload` read the principal
+and found a NON-agent arm. Every live descriptor cap is agent-originated
+(its binding's `callablePrincipal` is `"agent"`), so the binding
+guarantees an agent caller; an app arm here is a wiring defect, not a
+caller-actionable error. Effect.die (not a caller-visible error)
+because the principal-kind gate already rejected non-agent callers.
 
 ### [`callerAgentIdOf`](./capabilities.ts#L70)
 
@@ -173,6 +220,45 @@ export interface CapabilityDescriptor {
 }
 ```
 
+### [`CapabilityMiddleware`](./capability-middleware.ts#L57)
+
+_Interface_
+
+```ts
+export interface CapabilityMiddleware<
+  Params,
+  Provides extends AnyContextTag,
+  Input,
+  Env,
+  Fail = never,
+> {
+  /** The service Tag the middleware PROVIDES (effect's `provides`). */
+  readonly provides: Provides;
+
+  /**
+   * Typed, payload-only payload-derivation (was `CapabilityDescriptor.argsOf`).
+   * Reads the DECODED per-method params (A9: `Params`, not `unknown`) and
+   * the principal via `yield* CurrentPrincipal` (NO `ctx` parameter). The
+   * `R` channel declares `CurrentPrincipal`; the dispatcher provides it.
+   */
+  readonly derivePayload: (
+    params: Params,
+  ) => Effect.Effect<Input, never, CurrentPrincipal>;
+
+  /**
+   * Obtain the service value under `Env` (the today
+   * `serverCapabilityProviders` entry, now typed: input is `derivePayload`'s
+   * output, output is the `Provides` service value).
+   */
+  readonly obtain: (
+    input: Input,
+  ) => Effect.Effect<Context.Tag.Service<Provides>, Fail, Env>;
+}
+```
+
+A per-rpc capability middleware. The carrier for the middleware-reshaped
+descriptor caps.
+
 ### [`CapIdentsOf`](./erased-slot.ts#L158)
 
 _TypeAlias_
@@ -226,6 +312,24 @@ export class ConflictError extends Data.TaggedError(
 ```
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
+
+### [`CurrentPrincipal`](./current-principal.ts#L55)
+
+_Class_
+
+```ts
+export class CurrentPrincipal extends Context.Tag(
+  "@moltzap/protocol/CurrentPrincipal",
+)<CurrentPrincipal, Principal>() {}
+```
+
+Protocol-owned `Context.Tag` carrying the request's authenticated
+Principal. The capability middleware's `derivePayload` `yield*`s
+it WITHOUT importing the server; the server SATISFIES it by
+`provideService(CurrentPrincipal, principalCtx)` at the dispatch site.
+Provided ONLY on authenticated/capability-bearing methods — capabilities
+never run on the unauth Connect frame — so the unauth arm is never a
+concern here.
 
 ### [`DecodedFrame`](./wire.ts#L139)
 
@@ -549,6 +653,30 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
 }> {}
 ```
 
+### [`GatedMiddlewareBody`](./middleware-slot.ts#L53)
+
+_TypeAlias_
+
+```ts
+export type GatedMiddlewareBody<P extends TSchema, Conn, Env> = (
+  params: Static<P>,
+  ctx: SlotDispatchContext<Conn>,
+) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env>;
+```
+
+The fully-composed gated body the binding site hands `makeMiddlewareSlot`.
+
+It is the #720-gated handler with its STATIC per-arm capability
+`provideServiceEffect` chain ALREADY woven AND the dispatcher's
+`provideService(CurrentPrincipal, …)` + `provideService(ConnectionTag,
+…)` ALREADY applied — so its residual `R` is exactly `Env` (cap tags and
+`CurrentPrincipal` and `ConnectionTag` all subtracted, compiler-checked).
+`makeMiddlewareSlot` only adds the param decode + the `Exit` projection.
+
+`E` is `never` because the gated body has already `Effect.exit`'d its
+outcome into the success channel (mirrors `makeErasedSlot.invoke`, which
+returns `Effect&lt;Exit&lt;…&gt;, never, Env&gt;`).
+
 ### [`HandlerSlot`](./handlers.ts#L36)
 
 _Interface_
@@ -737,6 +865,30 @@ For the no-capability case (`capabilities: readonly []`):
 `CapsTuple = readonly []`, `CapIdentsOf&lt;readonly []> = never`, the
 handler R upper bound is `Env`, and `providers` is the empty tuple `[]`.
 
+### [`makeMiddlewareSlot`](./middleware-slot.ts#L66)
+
+_Function_
+
+```ts
+export function makeMiddlewareSlot<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  Conn,
+  Env,
+>(
+  definition: RpcDefinition<Name, P, R>,
+  body: GatedMiddlewareBody<P, Conn, Env>,
+): ErasedSlot<Env, Conn>
+```
+
+Build a real ErasedSlot from a definition + a fully-composed,
+cast-free GatedMiddlewareBody. The body's caps were discharged by
+a STATIC per-arm `provideServiceEffect` chain at the binding site, so
+there is no runtime-fold carve-out to subtract R — the residual `R = Env`
+is the body's own honest type. `invoke` adds the param decode; on decode
+success it runs the body (which already returns the inner `Exit`).
+
 ### [`makeOriginator`](./originator.ts#L227)
 
 _Function_
@@ -803,6 +955,26 @@ export class MalformedFrameError extends Data.TaggedError(
 ```
 
 Inbound frame failed to parse as JSON or did not match the expected shape.
+
+### [`MiddlewaresOf`](./capability-middleware.ts#L118)
+
+_TypeAlias_
+
+```ts
+export type MiddlewaresOf<D> = D extends {
+  readonly middlewares: ReadonlyArray<infer M>;
+}
+```
+
+Type-level extractor: the union of cap-tag IDENTIFIERS the `middlewares`
+tuple on a definition `D` PROVIDES — i.e. the `Context.Tag.Identifier`
+(= `Self` instance type, for the repo's class tags) of each `provides`
+tag, which is the type a handler's R-channel actually holds AND the type
+`provideServiceEffect(tag, …)` subtracts. (Projecting to the raw `provides`
+tag VALUE type `typeof Tag` would be WRONG — that is not what R holds, so
+the totality bound would never subtract.) Mirrors `CapIdentsOf` for the
+middleware surface. When `D["middlewares"]` is absent, resolves to
+`never` (the method contributes no capability requirements).
 
 ### [`NotConnectedError`](./rpc-errors.ts#L17)
 
@@ -969,6 +1141,56 @@ export type ParamsOf<D extends RpcDefinition<string, TSchema, TSchema>> =
 ```
 
 Type-only accessor for a definition's params payload.
+
+### [`Principal`](./current-principal.ts#L42)
+
+_TypeAlias_
+
+```ts
+export type Principal =
+  | { readonly _tag: "AgentContext"; readonly agentId: AgentId }
+```
+
+The authenticated principal of the in-flight request — the value a
+capability middleware `yield*`s to read `agentId` / `appId`. Tagged so a
+middleware narrows the app-arm vs agent-arm by discriminant before
+reading the field (no `as { agentId }` assertion).
+
+The server's `AgentContext` / `AppContext`
+(`@moltzap/server-core` `transport/context.ts`) — `Data.TaggedClass`
+instances carrying extra fields (`agentStatus`, `ownerUserId`) —
+structurally inhabit this union (`_tag` + `agentId` / `appId` match;
+extra fields are fine for a read-only consumer), so the server provides
+the live narrowed arm directly. The `appId` of the app arm is sourced
+from the live `AppConnection.auth` minted at auth time, NOT hardcoded.
+
+### [`provideMiddleware`](./capability-middleware.ts#L145)
+
+_Function_
+
+```ts
+export const provideMiddleware =
+  <Params, Provides extends AnyContextTag, Input, Env, Fail>(
+    mw: CapabilityMiddleware<Params, Provides, Input, Env, Fail>,
+    params: Params,
+  )
+```
+
+Apply ONE CapabilityMiddleware as a `provideServiceEffect` step:
+`derivePayload(params)` (reads `CurrentPrincipal` via `yield*`) →
+`flatMap(obtain)` → `provideServiceEffect(mw.provides, …)`. Returns a
+`pipe`-able function so a binding site composes its method's chain by
+listing one `provideMiddleware(mw, params)` per declared cap in REVERSE
+declaration order (FIRST-declared = OUTERMOST, for
+Forbidden-before-state-probe).
+
+This is a PER-MIDDLEWARE step, NOT a variadic tuple-fold (cap-reshape
+Concern 5 — a tuple-fold is unproven cast-free). `mw.provides` is a
+CONCRETE tag at each call, so TS subtracts exactly that tag's `Identifier`
+from the accumulator R — the spike-proven EXIT-0 R-subtraction, no cast.
+The `CurrentPrincipal` requirement of `derivePayload` rides out on the
+step's R; the dispatcher's `provideService(CurrentPrincipal, …)` (around
+the whole arm) discharges it.
 
 ### [`registerErrorClass`](./wire-errors.ts#L61)
 
@@ -1446,11 +1668,14 @@ Returns `null` when the failure isn't a registered wire-error class
 ## Files
 
 - `capabilities.ts`
+- `capability-middleware.ts`
 - `connection.ts`
+- `current-principal.ts`
 - `dispatch.ts`
 - `erased-slot.ts`
 - `handlers.ts`
 - `method.ts`
+- `middleware-slot.ts`
 - `originator.ts`
 - `rpc-errors.ts`
 - `rpc-groups.ts`

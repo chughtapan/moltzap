@@ -125,3 +125,20 @@ export type {
   CapIdentsOf,
 } from "./erased-slot.js";
 export { makeErasedSlot } from "./erased-slot.js";
+
+// #705 HALF-2 slice-1 — principal-as-service + cap-as-middleware. The
+// cast-free successor surface for middleware-converted methods: the
+// protocol-owned `CurrentPrincipal` Tag (read via `yield*` in
+// `derivePayload`), the `CapabilityMiddleware` carrier, and the
+// `makeMiddlewareSlot` builder (no `dischargeCaps` runtime fold, no
+// `narrowToDispatchContext`, no `argsOf(unknown, unknown)` erasure).
+export type { Principal } from "./current-principal.js";
+export { CurrentPrincipal, callerAgentId } from "./current-principal.js";
+export type {
+  CapabilityMiddleware,
+  AnyCapabilityMiddleware,
+  MiddlewaresOf,
+} from "./capability-middleware.js";
+export { provideMiddleware } from "./capability-middleware.js";
+export type { GatedMiddlewareBody } from "./middleware-slot.js";
+export { makeMiddlewareSlot } from "./middleware-slot.js";
