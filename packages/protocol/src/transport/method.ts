@@ -123,9 +123,13 @@ export function defineRpc<
     validateResult: ajv.compile(def.result),
     encodeRequest: (id, params) => requestFrame(id, d, params as Static<P>),
     encodeResponse: (id, result) => responseFrame(id, { result }),
-    ...(def.capabilities !== undefined
-      ? { capabilities: def.capabilities }
-      : {}),
+    // Always materialize `capabilities` (default empty) so the runtime
+    // value matches the return type's `readonly capabilities: Caps`
+    // assertion. The slot dispatcher reads `definition.capabilities`
+    // unconditionally (`dischargeCaps` folds over it); a cap-less method
+    // whose property was omitted would crash with `capabilities.length`
+    // of undefined on the first dispatched frame.
+    capabilities: def.capabilities ?? [],
   };
   return d as Omit<RpcDefinition<Name, P, R>, "capabilities"> & {
     readonly capabilities: Caps;

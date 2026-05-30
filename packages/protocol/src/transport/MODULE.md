@@ -301,7 +301,7 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](./method.ts#L206)
+### [`decodeRpcParams`](./method.ts#L210)
 
 _Function_
 
@@ -332,7 +332,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L219)
+### [`decodeRpcResult`](./method.ts#L223)
 
 _Function_
 
@@ -347,7 +347,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Static<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L177)
+### [`defineNotification`](./method.ts#L181)
 
 _Function_
 
@@ -866,7 +866,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L157)
+### [`NotificationDefinition`](./method.ts#L161)
 
 _Interface_
 
@@ -930,7 +930,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L168)
+### [`NotificationParamsOf`](./method.ts#L172)
 
 _TypeAlias_
 
@@ -1184,7 +1184,7 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](./method.ts#L192)
+### [`RpcParamsDecodeError`](./method.ts#L196)
 
 _Class_
 
@@ -1213,7 +1213,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L199)
+### [`RpcResultDecodeError`](./method.ts#L203)
 
 _Class_
 
