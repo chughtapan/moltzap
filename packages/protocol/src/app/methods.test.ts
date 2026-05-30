@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { DispatchAuthorize, MessagesAuthorize, TaskCreate } from "./methods.js";
-import { taskCallbackMethods } from "../rpc-registry.js";
+import { appCallbackMethods } from "../rpc-registry.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 
@@ -63,7 +63,7 @@ const MESSAGES_AUTHORIZE_PARAMS = {
 
 describe("admission RPC registration", () => {
   it("registers every server-initiated task-callback descriptor", () => {
-    const taskCallbackNames = taskCallbackMethods.map((m) => m.name);
+    const taskCallbackNames = appCallbackMethods.map((m) => m.name);
     expect(taskCallbackNames).toEqual([
       DispatchAuthorize.name,
       MessagesAuthorize.name,

@@ -21,7 +21,7 @@ import {
   TaskCreate,
   encodeErrorResponse,
   makeMiddlewareSlot,
-  makeTaskMasterConnection,
+  makeAppClientConnection,
   NotConnectedError,
   RpcTimeoutError,
   type AnyNotificationDefinition,
@@ -37,8 +37,8 @@ import {
   type RpcCallError,
   type RpcDefinition,
   type SlotDispatchContext,
-  type TaskMasterConnection,
-  type TaskMasterHandlers,
+  type AppClientConnection,
+  type AppCallbackHandlers,
 } from "@moltzap/protocol";
 import type { Static, TSchema } from "@sinclair/typebox";
 import { decodeFrames } from "./runtime/frame.js";
@@ -65,9 +65,9 @@ import {
 } from "./runtime/reconnect.js";
 
 // Re-export `CloseInfo` so consumers can import it from
-// `@moltzap/client` alongside `MoltZapTMClient` itself; the type lives
+// `@moltzap/client` alongside `MoltZapAppClient` itself; the type lives
 // in `runtime/close-info.ts` for build hygiene but the public surface
-// is the package barrel and direct `tm-client.ts` import path.
+// is the package barrel and direct `app-client.ts` import path.
 export type { CloseInfo };
 
 /**
@@ -93,7 +93,7 @@ type ConnectError = RpcCallError | RpcTimeoutError;
  * today's burst envelope under the partition-replaced single-drain
  * topology.
  */
-const TASK_CALLBACK_QUEUE_CAPACITY = 8192;
+const APP_CALLBACK_QUEUE_CAPACITY = 8192;
 
 type ConnectResult = ResultOf<typeof Connect>;
 type DecodedIncomingFrame = Effect.Effect.Success<
@@ -115,7 +115,7 @@ type DecodedIncomingNotification = Extract<
  * Cutover (#533): the partitioned dispatcher is replaced by a single
  * bounded global queue + single drain fiber. The queue holds decoded
  * server-initiated requests; the drain fiber runs handlers serially.
- * Capacity = `TASK_CALLBACK_QUEUE_CAPACITY` (8192, preserves the
+ * Capacity = `APP_CALLBACK_QUEUE_CAPACITY` (8192, preserves the
  * pre-cutover 256×32 burst envelope). Held here alongside its own
  * `dispatcherScope` (NOT bound to the socket scope) so
  * `runSync(client.close())` can `runFork(Scope.close(…))` without
@@ -130,11 +130,11 @@ interface ConnState {
 
   /**
    * Spec F (#617) typed-dispatcher Connection. Carries the originator
-   * (outbound `call` + response `resolve`) and the inbound TM-callback
+   * (outbound `call` + response `resolve`) and the inbound app-callback
    * `handle` driven by the immutable handler table the client was
    * constructed with.
    */
-  readonly tmConn: TaskMasterConnection<never, TaskCallbackContext>;
+  readonly appConn: AppClientConnection<never, AppCallbackContext>;
 
   /**
    * Settled when the reader fiber exits, letting `connect()` race against
@@ -148,7 +148,7 @@ interface ConnState {
    * handlers one at a time. Replaces the pre-cutover partitioned
    * dispatcher with the simpler single-queue topology.
    */
-  readonly taskCallbackQueue: Queue.Queue<DecodedServerRequest>;
+  readonly appCallbackQueue: Queue.Queue<DecodedServerRequest>;
 
   /**
    * Closeable Scope owning the drain fiber. Off-Scope from the socket
@@ -163,85 +163,92 @@ type DecodedServerRequest = Extract<
   { readonly _tag: "ServerRequest" }
 >;
 
-interface TaskCallbackDispatcher {
+interface AppCallbackDispatcher {
   readonly dispatcherScope: Scope.CloseableScope;
-  readonly taskCallbackQueue: Queue.Queue<DecodedServerRequest>;
+  readonly appCallbackQueue: Queue.Queue<DecodedServerRequest>;
 }
 
 /**
  * Per-frame context the WS client threads through the Spec F typed
- * dispatcher when invoking a TM-callback handler. The dispatcher reads
+ * dispatcher when invoking a app-callback handler. The dispatcher reads
  * the slot's definition off the static handler table — handlers only need
  * the request id (e.g. for tracing / logging). The empty `traceparent`
  * passthrough is intentional: when the wire frame carries an OTel
  * traceparent header, the surrounding transport may layer it on; the
  * typed-dispatcher does not encode tracing into the type.
  */
-export interface TaskCallbackContext {
+export interface AppCallbackContext {
   readonly requestId: JsonRpcId;
 }
 
 /**
- * Public handler-table type for `TMClientOptions.handlers`.
- * Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
- * client's per-frame context. Spec D3 R14b made every slot REQUIRED;
- * vacuous-deny moderators bind an explicit `ForbiddenError -32001`
- * handler.
+ * Public handler-table type for `AppClientOptions.handlers`. Re-exported
+ * straight from `@moltzap/protocol`; the client binds the per-frame
+ * context generic to {@link AppCallbackContext} at each use site
+ * (`AppCallbackHandlers<AppCallbackContext>`). Spec D3 R14b made every
+ * slot REQUIRED; vacuous-deny moderators bind an explicit
+ * `ForbiddenError -32001` handler.
  */
-export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
+export type { AppCallbackHandlers };
 
 /**
- * The cast-free slot table the TM connection dispatches against (#705
- * HALF-1). `Env = never` (TM-callback handlers yield no service tags) and
- * `Conn = TaskCallbackContext` (the per-frame ctx carried by
+ * The cast-free slot table the app-client connection dispatches against (#705
+ * HALF-1). `Env = never` (app-callback handlers yield no service tags) and
+ * `Conn = AppCallbackContext` (the per-frame ctx carried by
  * `SlotDispatchContext`).
  */
-type TMSlotTable = ErasedSlotTable<never, TaskCallbackContext>;
+type AppCallbackSlotTable = ErasedSlotTable<never, AppCallbackContext>;
 
 /**
- * Wrap ONE authored TM-callback slot into a cast-free `ErasedSlot` (#705
+ * Wrap ONE authored app-callback slot into a cast-free `ErasedSlot` (#705
  * HALF-2), generic over its `params`/`result` schemas (`P`/`R`) so those
- * types stay correlated per method. The TM-callback catalog declares NO
- * capabilities and runs no principal gate (the TM callback carries its own
- * {@link TaskCallbackContext}, not a `Connection` arm), so the slot is built
+ * types stay correlated per method. The app-callback catalog declares NO
+ * capabilities and runs no principal gate (the app callback carries its own
+ * {@link AppCallbackContext}, not a `Connection` arm), so the slot is built
  * by {@link makeMiddlewareSlot} with a bare gated body: decode (done by
  * `makeMiddlewareSlot`) → run the authored `handle` on the unwrapped
  * `ctx.connection` → `Effect.exit` into the inner `Exit` the dispatcher
  * projects. No `weaveCaps` chain, no `CurrentPrincipal` (the cap-less
  * successor to the deleted `makeErasedSlot` + empty-providers path).
  */
-function wrapTmSlot<P extends TSchema, R extends TSchema>(slot: {
+function wrapAppCallbackSlot<P extends TSchema, R extends TSchema>(slot: {
   readonly definition: RpcDefinition<string, P, R>;
   readonly handle: (
     params: Static<P>,
-    ctx: TaskCallbackContext,
+    ctx: AppCallbackContext,
   ) => Effect.Effect<Static<R>, unknown, never>;
-}): ErasedSlot<never, TaskCallbackContext> {
+}): ErasedSlot<never, AppCallbackContext> {
   return makeMiddlewareSlot(
     slot.definition,
-    (params, ctx: SlotDispatchContext<TaskCallbackContext>) =>
+    (params, ctx: SlotDispatchContext<AppCallbackContext>) =>
       slot.handle(params, ctx.connection).pipe(Effect.exit),
   );
 }
 
 /**
- * Convert the public {@link TMHandlers} authoring table into the cast-free
- * {@link TMSlotTable} `makeTaskMasterConnection` consumes (#705 HALF-2). The
- * TM-callback catalog is closed (`DispatchAuthorize`, `MessagesAuthorize`,
+ * Convert the public {@link AppCallbackHandlers} authoring table into the cast-free
+ * {@link AppCallbackSlotTable} `makeAppClientConnection` consumes (#705 HALF-2). The
+ * app-callback catalog is closed (`DispatchAuthorize`, `MessagesAuthorize`,
  * `TaskCreate`); each slot is wrapped at its own concrete definition type via
- * {@link wrapTmSlot} so the per-method `params`/`result` lockstep holds (a
+ * {@link wrapAppCallbackSlot} so the per-method `params`/`result` lockstep holds (a
  * `Object.values` loop would collapse the three arms into a union and break
  * `makeMiddlewareSlot`'s typed `definition`/`handler` correlation).
  */
-function tmHandlersToSlots(handlers: TMHandlers): TMSlotTable {
+function appCallbackHandlersToSlots(
+  handlers: AppCallbackHandlers<AppCallbackContext>,
+): AppCallbackSlotTable {
   return {
-    [DispatchAuthorize.name]: wrapTmSlot(handlers["dispatch/authorize"]),
-    [MessagesAuthorize.name]: wrapTmSlot(handlers["messages/authorize"]),
-    [TaskCreate.name]: wrapTmSlot(handlers["task/create"]),
+    [DispatchAuthorize.name]: wrapAppCallbackSlot(
+      handlers["dispatch/authorize"],
+    ),
+    [MessagesAuthorize.name]: wrapAppCallbackSlot(
+      handlers["messages/authorize"],
+    ),
+    [TaskCreate.name]: wrapAppCallbackSlot(handlers["task/create"]),
   };
 }
 
-export interface TMClientOptions {
+export interface AppClientOptions {
   serverUrl: string;
   agentKey: string;
 
@@ -275,13 +282,13 @@ export interface TMClientOptions {
   onReconnect?: (helloOk: ConnectResult) => void;
 
   /**
-   * Spec D3 R14b — REQUIRED. TM-callback handler table immutable at
+   * Spec D3 R14b — REQUIRED. app-callback handler table immutable at
    * construction (Spec F I1). Keys are catalog method names
    * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
    * the matching `defineRpc` descriptor and its handler effect.
    * Vacuous-deny moderators write the explicit ForbiddenError handler.
    */
-  handlers: TMHandlers;
+  handlers: AppCallbackHandlers<AppCallbackContext>;
 }
 
 /**
@@ -299,7 +306,7 @@ export interface TMClientOptions {
  *   [*] --> INIT
  *   INIT : stateRef None, closed false
  *   INIT --> CONNECTING : connect()
- *   CONNECTING : openSocket 10s timeout<br>startTaskCallbackDispatcher<br>readerFiber forked<br>sendRpc(Connect) in flight
+ *   CONNECTING : openSocket 10s timeout<br>startAppCallbackDispatcher<br>readerFiber forked<br>sendRpc(Connect) in flight
  *   CONNECTING --> CONNECTED : HelloOk received<br>stateRef = Some(ConnState)
  *   CONNECTED : _helloOk set, reader fiber active
  *   CONNECTED --> DISCONNECTED : reader fiber exit<br>failAllPending, stateRef = None<br>onDisconnect(closeInfo)
@@ -329,7 +336,7 @@ export interface TMClientOptions {
  * a `NotConnectedError` error channel. Consume via `Stream.runForEach`
  * (long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
  */
-export class MoltZapTMClient {
+export class MoltZapAppClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
@@ -344,17 +351,17 @@ export class MoltZapTMClient {
   private readonly subscribers: SubscriberRegistry;
 
   /**
-   * Spec F (#617) immutable TM-callback handler table. Captured from
-   * `TMClientOptions.handlers` at construction and threaded through
-   * every `makeTaskMasterConnection` call (including reconnects).
+   * Spec F (#617) immutable app-callback handler table. Captured from
+   * `AppClientOptions.handlers` at construction and threaded through
+   * every `makeAppClientConnection` call (including reconnects).
    */
-  private readonly handlers: TMHandlers;
+  private readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 
   private closed = false;
   private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private _helloOk: ConnectResult | null = null;
 
-  constructor(private readonly options: TMClientOptions) {
+  constructor(private readonly options: AppClientOptions) {
     this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
@@ -375,15 +382,15 @@ export class MoltZapTMClient {
    * ```mermaid
    * sequenceDiagram
    *   participant caller
-   *   participant client as MoltZapTMClient
+   *   participant client as MoltZapAppClient
    *   participant server
    *
-   *   caller->>client: new MoltZapTMClient(options)
+   *   caller->>client: new MoltZapAppClient(options)
    *   Note over client: stateRef = None, subscribers, ManagedRuntime
    *   caller->>client: subscribe(filter, handler)
    *   Note over client: SubscriberRegistry.register — survives reconnect
    *   caller->>client: connect()
-   *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startTaskCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
+   *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startAppCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
    *   client->>server: TCP open + WS upgrade
    *   client->>server: network/connect {agentKey, minProtocol, maxProtocol}
    *   server-->>client: HelloOk
@@ -597,10 +604,10 @@ export class MoltZapTMClient {
       const scope = yield* Scope.make();
       const socket = yield* this.openSocket(url, scope);
       const write = yield* Scope.extend(socket.writer, scope);
-      const tmConn = yield* Scope.extend(
-        makeTaskMasterConnection<never, TaskCallbackContext>({
-          id: "tm-client",
-          slots: tmHandlersToSlots(this.handlers),
+      const appConn = yield* Scope.extend(
+        makeAppClientConnection<never, AppCallbackContext>({
+          id: "app-client",
+          slots: appCallbackHandlersToSlots(this.handlers),
           write: (raw) => write(raw),
           idPrefix: "rpc",
         }),
@@ -610,7 +617,7 @@ export class MoltZapTMClient {
         ConnectResult,
         ConnectError
       >();
-      const dispatcher = yield* this.startTaskCallbackDispatcher(write, tmConn);
+      const dispatcher = yield* this.startAppCallbackDispatcher(write, appConn);
       const readerFiber = this.runtime.runFork(
         this.readerEffect(socket, handshakeSettled, dispatcher.dispatcherScope),
       );
@@ -619,9 +626,9 @@ export class MoltZapTMClient {
         write,
         readerFiber,
         scope,
-        tmConn,
+        appConn,
         handshakeSettled,
-        taskCallbackQueue: dispatcher.taskCallbackQueue,
+        appCallbackQueue: dispatcher.appCallbackQueue,
         dispatcherScope: dispatcher.dispatcherScope,
       });
       return yield* this.awaitConnectAuth(handshakeSettled);
@@ -645,24 +652,24 @@ export class MoltZapTMClient {
     });
   }
 
-  private startTaskCallbackDispatcher(
+  private startAppCallbackDispatcher(
     write: ConnState["write"],
-    tmConn: TaskMasterConnection<never, TaskCallbackContext>,
-  ): Effect.Effect<TaskCallbackDispatcher> {
+    appConn: AppClientConnection<never, AppCallbackContext>,
+  ): Effect.Effect<AppCallbackDispatcher> {
     return Effect.gen(this, function* () {
       const dispatcherScope = yield* Scope.make();
-      const taskCallbackQueue = yield* Queue.bounded<DecodedServerRequest>(
-        TASK_CALLBACK_QUEUE_CAPACITY,
+      const appCallbackQueue = yield* Queue.bounded<DecodedServerRequest>(
+        APP_CALLBACK_QUEUE_CAPACITY,
       );
       const drainEffect = Effect.forever(
-        Queue.take(taskCallbackQueue).pipe(
+        Queue.take(appCallbackQueue).pipe(
           Effect.flatMap((req) =>
-            this.dispatchInboundServerRequest(req, write, tmConn),
+            this.dispatchInboundServerRequest(req, write, appConn),
           ),
         ),
       );
       yield* Effect.forkIn(drainEffect, dispatcherScope);
-      return { dispatcherScope, taskCallbackQueue };
+      return { dispatcherScope, appCallbackQueue };
     });
   }
 
@@ -755,7 +762,7 @@ export class MoltZapTMClient {
       // narrowed at the call site. The typed-dispatcher's `call` is
       // constrained to `AnyServerRpcDefinition` (the union of catalog members);
       // the bound carry-through is preserved by widening to the union here.
-      const call = state.value.tmConn.call as <
+      const call = state.value.appConn.call as <
         D2 extends RpcDefinition<string, any, any>,
       >(
         definition: D2,
@@ -783,7 +790,7 @@ export class MoltZapTMClient {
   ): Effect.Effect<void, never> {
     const reply: ResponseFrame = encodeErrorResponse(requestId, {
       code: -32000,
-      message: `Server busy: task-callback executor queue full (capacity=${TASK_CALLBACK_QUEUE_CAPACITY})`,
+      message: `Server busy: task-callback executor queue full (capacity=${APP_CALLBACK_QUEUE_CAPACITY})`,
     });
     return write(JSON.stringify(reply)).pipe(
       Effect.catchAll((werr) =>
@@ -798,7 +805,7 @@ export class MoltZapTMClient {
   /**
    * Dispatch one inbound appCallback request through the typed Spec F
    * dispatcher and write its wire response back to the server. Spec D3
-   * R14b made every TM-callback slot REQUIRED at construction, so the
+   * R14b made every app-callback slot REQUIRED at construction, so the
    * dispatcher always finds a bound handler. Handler defects collapse
    * to a generic InternalError reply so the server's `Deferred.await`
    * always settles deterministically.
@@ -806,15 +813,15 @@ export class MoltZapTMClient {
   private dispatchInboundServerRequest(
     request: DecodedServerRequest,
     write: ConnState["write"],
-    tmConn: TaskMasterConnection<never, TaskCallbackContext>,
+    appConn: AppClientConnection<never, AppCallbackContext>,
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       // #705 HALF-1 — the dispatcher ctx is `SlotDispatchContext<Conn>`
-      // (`{ connection: Conn }`); `Conn = TaskCallbackContext`, so the
+      // (`{ connection: Conn }`); `Conn = AppCallbackContext`, so the
       // per-frame `requestId` rides on `connection`. The slot's
       // `makeErasedSlot` wrapper unwraps `.connection` to hand the
-      // authored `handle` its bare `TaskCallbackContext`.
-      const reply = yield* tmConn.handle(request.frame, {
+      // authored `handle` its bare `AppCallbackContext`.
+      const reply = yield* appConn.handle(request.frame, {
         connection: { requestId: request.id },
       });
       yield* this.writeInboundServerReply(write, reply);
@@ -854,7 +861,7 @@ export class MoltZapTMClient {
     return Effect.gen(this, function* () {
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) return;
-      yield* state.value.tmConn.resolve(decoded.frame).pipe(Effect.asVoid);
+      yield* state.value.appConn.resolve(decoded.frame).pipe(Effect.asVoid);
     });
   }
 
@@ -864,10 +871,7 @@ export class MoltZapTMClient {
     return Effect.gen(this, function* () {
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) return;
-      const offered = yield* Queue.offer(
-        state.value.taskCallbackQueue,
-        decoded,
-      );
+      const offered = yield* Queue.offer(state.value.appCallbackQueue, decoded);
       if (!offered) {
         yield* this.writeQueueFullRejection(decoded.id, state.value.write);
       }
@@ -921,7 +925,7 @@ export class MoltZapTMClient {
   }
 
   private failConnectionPending(state: ConnState): Effect.Effect<void> {
-    return state.tmConn.failAllPending(
+    return state.appConn.failAllPending(
       new NotConnectedError({ message: MSG_NOT_CONNECTED }),
     );
   }
@@ -930,7 +934,7 @@ export class MoltZapTMClient {
     return Effect.gen(this, function* () {
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) return;
-      yield* state.value.tmConn.failAllPending(
+      yield* state.value.appConn.failAllPending(
         new NotConnectedError({ message }),
       );
     });

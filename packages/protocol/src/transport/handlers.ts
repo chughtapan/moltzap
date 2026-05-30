@@ -1,13 +1,13 @@
 /**
- * @file TaskMaster-callback handler-table type aliases.
+ * @file app-callback handler-table type aliases.
  *
  * The server-side inbound surface flipped to the cast-free
  * {@link ErasedSlotTable} at #705 HALF-1 (`ServerHandlers` /
  * `HandlerTable` / `CapsUnionOf` / `AgentClientHandlers` retired). What
- * REMAINS here is the TM-callback authoring surface: clients acting as a
- * TaskMaster (and the conformance harness) write a
- * {@link TaskMasterHandlers} literal — a `{ definition, handle }` slot
- * per `taskCallbackMethods` member — which the WS client converts to an
+ * REMAINS here is the app-callback authoring surface: clients acting as
+ * an app (and the conformance harness) write an
+ * {@link AppCallbackHandlers} literal — a `{ definition, handle }` slot
+ * per `appCallbackMethods` member — which the WS client converts to an
  * `ErasedSlotTable` (cap-less) at connection time via
  * {@link makeMiddlewareSlot}. Every slot is REQUIRED (Spec D3 R14b retired
  * the `forbidden` / `noOpNotification` sentinels); omitting any key fails
@@ -16,15 +16,15 @@
 import type { Context, Effect } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 
-import type { AnyTaskCallbackRpcDefinition } from "../rpc-registry.js";
+import type { AnyAppCallbackRpcDefinition } from "../rpc-registry.js";
 
 import type { ParamsOf, ResultOf, RpcDefinition } from "./method.js";
 
 /**
- * Per-definition handler slot (TM-callback authoring shape). `Ctx` is
+ * Per-definition handler slot (app-callback authoring shape). `Ctx` is
  * the per-frame context the client hands every handler. `Caps` is the
  * upper bound on which `Context.Tag`s the handler's R channel may
- * reference; the TM-callback catalog declares no capabilities, so
+ * reference; the app-callback catalog declares no capabilities, so
  * callers bind `Caps = never`.
  *
  * The WS client wraps each authored slot into an `ErasedSlot` (cap-less)
@@ -78,17 +78,17 @@ type HandlerTable<
 };
 
 /**
- * `TaskMasterHandlers` — handler table for an agent acting as TM for
- * one or more tasks. Catalog: `taskCallbackMethods` —
+ * `AppCallbackHandlers` — handler table for an app moderating one or
+ * more tasks. Catalog: `appCallbackMethods` —
  * `DispatchAuthorize`, `MessagesAuthorize`, `TaskCreate`. All three
  * REQUIRED (R14b); vacuous-deny moderators must write the handler
  * explicitly. `TaskCreate` is the server-initiated callback fired
- * after `task/request` lands the task in `waiting`; the TM's typed
+ * after `task/request` lands the task in `waiting`; the app's typed
  * verdict drives the lifecycle transition.
  */
-export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
+export type AppCallbackInboundRpcDefinition = AnyAppCallbackRpcDefinition;
 
-export type TaskMasterHandlers<
+export type AppCallbackHandlers<
   Ctx,
   Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
+> = HandlerTable<AppCallbackInboundRpcDefinition, Ctx, Caps>;

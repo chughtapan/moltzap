@@ -2,7 +2,7 @@ import { Data, Effect, HashMap, Match, Option, Ref, type Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
   makeServerConnection,
-  type AnyTaskCallbackRpcDefinition,
+  type AnyAppCallbackRpcDefinition,
   type ParamsOf,
   type ResultOf,
   type RpcCallError,
@@ -64,12 +64,12 @@ export function acquireConnectionRpcClient(
  *
  * Caller controls timeout via `Effect.timeout` at the call site.
  */
-export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
+export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
   originator: Originator,
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError, never> {
-  // `AnyTaskCallbackRpcDefinition` is a strict subset of the originator's
+  // `AnyAppCallbackRpcDefinition` is a strict subset of the originator's
   // `AnyServerRpcDefinition` bound; the cast widens to the originator's
   // generic constraint shape without losing the per-definition
   // narrowing the caller provides.

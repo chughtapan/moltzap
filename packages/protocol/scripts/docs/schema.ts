@@ -1,6 +1,6 @@
 import {
   serverRpcMethods,
-  taskCallbackMethods,
+  appCallbackMethods,
 } from "../../src/rpc-registry.js";
 import * as protocolSchema from "../../src/index.js";
 import {
@@ -43,7 +43,7 @@ const TYPE_NAME_READERS: Readonly<Record<string, TypeNameReader>> = {
 export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
     ...serverRpcMethods,
-    ...taskCallbackMethods,
+    ...appCallbackMethods,
     ...Object.values(protocolSchema).filter(isRpcDefinition),
   ];
   const byName = new Map<string, AnyRpcDocDefinition>();

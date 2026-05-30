@@ -1,5 +1,5 @@
 /**
- * Tests for `tm-client.ts` against a real in-process `@effect/platform` WebSocket server.
+ * Tests for `app-client.ts` against a real in-process `@effect/platform` WebSocket server.
  */
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
@@ -77,7 +77,7 @@ import {
   type CloseInfo,
   type MutableRef,
   type RequestFrame,
-} from "./tm-client-test-support.js";
+} from "./app-client-test-support.js";
 import { shouldLogMalformedFrame } from "./runtime/reconnect.js";
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -682,7 +682,7 @@ effectTest(
 
 // ─────────────────────────────────────────────────────────────────────
 // Phase 1.0 (B.1) gating tests — client-side server-initiated RPC
-// (Spec F #617 typed-dispatcher TM-callback handler table + dispatcher
+// (Spec F #617 typed-dispatcher app-callback handler table + dispatcher
 // fiber + appCallback response write-back)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -700,7 +700,7 @@ effectTest(
           SERVER_TEST_REQUEST_ID,
           dispatchRequestParams(SESSION_A),
         );
-        // Spec F: pass the TM-callback handler table at construction
+        // Spec F: pass the app-callback handler table at construction
         // so the typed dispatcher sees it on the very first inbound
         // task-callback request. The handler captures the `taskId`
         // it was invoked with so the assertion below can verify the
@@ -736,7 +736,7 @@ effectTest(
     ),
 );
 
-// Spec F: TM-callback handler-table fragment bound at construction.
+// Spec F: app-callback handler-table fragment bound at construction.
 // The dispatch/authorize handler unconditionally fails with a
 // registered tagged error so the dispatcher encodes it onto the wire
 // as an `error` reply.
@@ -797,7 +797,7 @@ effectTest(
     ),
 );
 
-// Note: Spec F (#617) makes the TM-callback handler table immutable at
+// Note: Spec F (#617) makes the app-callback handler table immutable at
 // construction. Duplicate-key binding is now a TypeScript compile-time
 // error at the object-literal site (duplicate property name on the
 // `handlers` literal). The previous runtime

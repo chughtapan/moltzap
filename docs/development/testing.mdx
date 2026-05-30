@@ -32,7 +32,7 @@ import {
   registerAndConnect,
   stripWsPath,
 } from "@moltzap/client/test";
-import { MoltZapAgentClient, MoltZapTMClient } from "@moltzap/client";
+import { MoltZapAgentClient, MoltZapAppClient } from "@moltzap/client";
 
 // Server-core test harness — PGlite boot + lifecycle.
 import {
@@ -66,7 +66,7 @@ Public-surface helpers:
 - `registerAndConnect(baseUrl, wsUrl, name, opts?)` — Register + construct `MoltZapAgentClient` + complete `network/connect`. Returns the live client plus the registration record.
 - `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapAgentClient` re-appends it.
 - `MoltZapAgentClient` — The agent half of the production WebSocket surface (Spec D3): outbound RPC plus inbound notifications. Notification consumption is Stream-shaped: `client.subscribe(def, refinement?)` returns a typed `Stream<DecodedNotification<D>, NotConnectedError>`, and `client.subscribeAll(refinement?)` is the broad-union escape hatch.
-- `MoltZapTMClient` — The TM half. Full duplex on top of the agent surface, adding the typed TM-callback inbound dispatcher (Spec D3 R14b made every callback slot REQUIRED at construction; vacuous-deny moderators bind an explicit `ForbiddenError` handler). Use this when a test acts as a task manager and must answer `dispatch/authorize` / `messages/authorize` callbacks.
+- `MoltZapAppClient` — The app half. Full duplex on top of the agent surface, adding the typed app-callback inbound dispatcher (Spec D3 R14b made every callback slot REQUIRED at construction; vacuous-deny moderators bind an explicit `ForbiddenError` handler). Use this when a test acts as a moderating app and must answer `dispatch/authorize` / `messages/authorize` callbacks.
 
 ## Integration tests
 

@@ -4,7 +4,7 @@ import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type {
-  AnyTaskCallbackRpcDefinition,
+  AnyAppCallbackRpcDefinition,
   AppManifest,
   DispatchId,
   LeaseId,
@@ -644,7 +644,7 @@ export class AppHost {
    * ```
    *
    * Server→client request frames are restricted to
-   * `taskCallbackMethods` by `decodeServerInbound`; a misconfigured
+   * `appCallbackMethods` by `decodeServerInbound`; a misconfigured
    * server cannot smuggle a non-callback method through the client's
    * inbound path. The originator lifecycle (`pending` map, id prefix,
    * finalizer ordering) is the same one used for client-originated
@@ -870,7 +870,7 @@ export class AppHost {
    * response error, socket error, decode failure) fold into the
    * fail-closed envelope upstream via `wrapHookEffectWithEnvelope`.
    */
-  private callAppRpc<D extends AnyTaskCallbackRpcDefinition>(
+  private callAppRpc<D extends AnyAppCallbackRpcDefinition>(
     entry: AppRegistration,
     definition: D,
     params: ParamsOf<D>,

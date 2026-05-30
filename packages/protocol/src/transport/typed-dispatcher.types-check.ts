@@ -19,18 +19,18 @@
  *      every catalog method by name (the wire-dynamic lookup is
  *      `| undefined`, so totality is asserted structurally below).
  *   2. `HandlerSlot`'s `Ctx` generic is invariant in the slot's `handle`
- *      signature (TS2322 on cross-Ctx assignment) — the TM-callback
+ *      signature (TS2322 on cross-Ctx assignment) — the app-callback
  *      authoring shape.
  *   3. The `_assertTaskCallback` helper rejects server-inbound
- *      definitions at the `D extends AnyTaskCallbackRpcDefinition`
+ *      definitions at the `D extends AnyAppCallbackRpcDefinition`
  *      constraint site (TS2345).
  *   4. The AgentClient inbound surface is the empty slot table `{}`
  *      (positive — empty inbound catalog).
  *   5. `ServerConnection.call(MessagesSend, ...)` is rejected DIRECTLY
  *      on the method signature (TS2345 on the definition argument).
  *      Companion to Canary 3.
- *   6. `TaskMasterHandlers` REJECTS `{ }` (TS2741 on the empty literal):
- *      Spec D3 R14b made every TM-callback slot a REQUIRED real handler;
+ *   6. `AppCallbackHandlers` REJECTS `{ }` (TS2741 on the empty literal):
+ *      Spec D3 R14b made every app-callback slot a REQUIRED real handler;
  *      vacuous-deny moderators must bind an explicit
  *      `ForbiddenError`-returning handler per catalog method.
  *
@@ -44,15 +44,15 @@ import { MessagesSend } from "../task/messages.js";
 import { DispatchAuthorize, MessagesAuthorize } from "../app/methods.js";
 import { serverRpcMethods } from "../rpc-registry.js";
 
-import type { AnyTaskCallbackRpcDefinition } from "../rpc-registry.js";
+import type { AnyAppCallbackRpcDefinition } from "../rpc-registry.js";
 import type { ParamsOf } from "./method.js";
 
 import type {
   ServerConnection as _ServerConnection,
   AgentClientConnection as _AgentClientConnection,
-  TaskMasterConnection as _TaskMasterConnection,
+  AppClientConnection as _AppClientConnection,
 } from "./connection.js";
-import type { TaskMasterHandlers, HandlerSlot } from "./handlers.js";
+import type { AppCallbackHandlers, HandlerSlot } from "./handlers.js";
 import type { ErasedSlot, ErasedSlotTable } from "./erased-slot.js";
 
 // ───────────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ const _slotByName: ErasedSlot<Env, Conn> | undefined =
   _serverSlots[_someCatalogName];
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 2: HandlerSlot's `Ctx` generic is invariant (TM-callback
+// Canary 2: HandlerSlot's `Ctx` generic is invariant (app-callback
 // authoring shape). Cross-Ctx assignment fails TS2322.
 // ───────────────────────────────────────────────────────────────────────
 
@@ -106,15 +106,15 @@ const _shouldFailCtx: HandlerSlot<typeof DispatchAuthorize, CtxA, never> =
 // task-callback outbound surface (Spec F I5).
 // ───────────────────────────────────────────────────────────────────────
 
-declare function _assertTaskCallback<D extends AnyTaskCallbackRpcDefinition>(
+declare function _assertTaskCallback<D extends AnyAppCallbackRpcDefinition>(
   def: D,
 ): D;
 
-// @ts-expect-error — MessagesSend does NOT extend AnyTaskCallbackRpcDefinition (Spec F I5).
+// @ts-expect-error — MessagesSend does NOT extend AnyAppCallbackRpcDefinition (Spec F I5).
 const _serverOutboundReject = _assertTaskCallback(MessagesSend);
 
 // Positive controls — DispatchAuthorize + MessagesAuthorize DO extend
-// AnyTaskCallbackRpcDefinition; the same call must NOT error.
+// AnyAppCallbackRpcDefinition; the same call must NOT error.
 const _serverOutboundOk1 = _assertTaskCallback(DispatchAuthorize);
 const _serverOutboundOk2 = _assertTaskCallback(MessagesAuthorize);
 
@@ -128,18 +128,19 @@ const _serverOutboundOk2 = _assertTaskCallback(MessagesAuthorize);
 
 const _agentClientEmptySlots: ErasedSlotTable<Env, Conn> = {};
 
-// Positive sanity: a TaskMasterHandlers literal is shape-typed.
-declare const _tmHandlers: TaskMasterHandlers<unknown, never>;
-const _tmHandlersSink: TaskMasterHandlers<unknown, never> = _tmHandlers;
+// Positive sanity: an AppCallbackHandlers literal is shape-typed.
+declare const _appCallbackHandlers: AppCallbackHandlers<unknown, never>;
+const _appCallbackHandlersSink: AppCallbackHandlers<unknown, never> =
+  _appCallbackHandlers;
 
 // ───────────────────────────────────────────────────────────────────────
-// Canary 6 (Spec D3 R14b): TaskMasterHandlers REJECTS `{}` — every key
+// Canary 6 (Spec D3 R14b): AppCallbackHandlers REJECTS `{}` — every key
 // is a REQUIRED real handler. Vacuous-deny moderators must write the
 // handler explicitly.
 // ───────────────────────────────────────────────────────────────────────
 
 // @ts-expect-error — every key required; omitting fails TS2741.
-const _tmEmpty: TaskMasterHandlers<unknown, never> = {};
+const _appCallbackEmpty: AppCallbackHandlers<unknown, never> = {};
 
 // ───────────────────────────────────────────────────────────────────────
 // Canary 5: ServerConnection.call rejects non-task-callback definitions
@@ -150,7 +151,7 @@ const _tmEmpty: TaskMasterHandlers<unknown, never> = {};
 declare const _serverConnI5: _ServerConnection;
 declare const _msgsSendParams: ParamsOf<typeof MessagesSend>;
 
-// @ts-expect-error — MessagesSend isn't AnyTaskCallbackRpcDefinition (Spec F I5 direct).
+// @ts-expect-error — MessagesSend isn't AnyAppCallbackRpcDefinition (Spec F I5 direct).
 const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
 
 // ───────────────────────────────────────────────────────────────────────
@@ -179,10 +180,10 @@ export type _TypedDispatcherCanarySink =
   | typeof _serverOutboundOk1
   | typeof _serverOutboundOk2
   | typeof _agentClientEmptySlots
-  | typeof _tmHandlersSink
-  | typeof _tmEmpty
+  | typeof _appCallbackHandlersSink
+  | typeof _appCallbackEmpty
   | typeof _directReject
   | typeof _slotInvokeR
   | _ServerConnection
   | _AgentClientConnection
-  | _TaskMasterConnection;
+  | _AppClientConnection;

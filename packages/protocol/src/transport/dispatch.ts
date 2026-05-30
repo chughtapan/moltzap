@@ -55,10 +55,10 @@ import { makeOriginator } from "./originator.js";
 import type {
   ServerConnection,
   AgentClientConnection,
-  TaskMasterConnection,
+  AppClientConnection,
   ServerConnectionConfig,
   AgentClientConnectionConfig,
-  TaskMasterConnectionConfig,
+  AppClientConnectionConfig,
 } from "./connection.js";
 import type { ErasedSlotTable, SlotDispatchContext } from "./erased-slot.js";
 
@@ -70,7 +70,7 @@ type WireError = {
 
 /**
  * Build the server-side dispatcher. Wires the inbound slot-table
- * dispatch loop + the outbound originator (TM-callback path) into a
+ * dispatch loop + the outbound originator (app-callback path) into a
  * single `ServerConnection` value. `Env` is the slot table's residual
  * service-tag union; `Conn` is the server's three-arm `Connection`.
  */
@@ -123,15 +123,15 @@ export function buildAgentClientDispatcher<Env, Conn>(
 }
 
 /**
- * Build the TM dispatcher. Wires both the inbound dispatch loop
- * (against `taskCallbackMethods`) and the outbound originator (against
- * `serverRpcMethods`). Spec D3 R14b made every TM-inbound slot
+ * Build the app-client dispatcher. Wires both the inbound dispatch loop
+ * (against `appCallbackMethods`) and the outbound originator (against
+ * `serverRpcMethods`). Spec D3 R14b made every app-inbound slot
  * REQUIRED: callers must register a handler for each catalog method;
  * vacuous-deny moderators bind an explicit `ForbiddenError` handler.
  */
-export function buildTaskMasterDispatcher<Env, Conn>(
-  config: TaskMasterConnectionConfig<Env, Conn>,
-): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope> {
+export function buildAppClientDispatcher<Env, Conn>(
+  config: AppClientConnectionConfig<Env, Conn>,
+): Effect.Effect<AppClientConnection<Env, Conn>, never, Scope.Scope> {
   return Effect.gen(function* () {
     const originator = yield* makeOriginator({
       write: config.write,
@@ -146,10 +146,10 @@ export function buildTaskMasterDispatcher<Env, Conn>(
       failAllPending: originator.failAllPending,
       notify: () =>
         Effect.die(
-          "TaskMasterConnection.notify: TM kind originates no notifications",
+          "AppClientConnection.notify: app-client kind originates no notifications",
         ),
-    } satisfies TaskMasterConnection<Env, Conn>;
-  }).pipe(Effect.withSpan("buildTaskMasterDispatcher"));
+    } satisfies AppClientConnection<Env, Conn>;
+  }).pipe(Effect.withSpan("buildAppClientDispatcher"));
 }
 
 // ── Notify (outbound notifications) ─────────────────────────────────

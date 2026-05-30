@@ -59,6 +59,23 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
+### [`AnyAppCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L130)
+
+_TypeAlias_
+
+```ts
+export type AnyAppCallableRpcDefinition =
+  (typeof appCallableRpcMethods)[number] & RpcDefinition<string, any, any>;
+```
+
+### [`AnyAppCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L133)
+
+_TypeAlias_
+
+```ts
+export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
+```
+
 ### [`AnyNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L135)
 
 _TypeAlias_
@@ -76,20 +93,15 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
 ```
 
-### [`AnyTaskCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L133)
+### [`appCallableRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L107)
 
-_TypeAlias_
-
-```ts
-export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
-```
-
-### [`AnyTaskMasterRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L130)
-
-_TypeAlias_
+_Variable_
 
 ```ts
-export type AnyTaskMasterRpcDefinition = (typeof taskMasterRpcMethods)[number] &
+export const appCallableRpcMethods = [
+  ...agentClientRpcMethods,
+  ...appCallableTaskRpcMethods,
+] as const
 ```
 
 ### [`brandedId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L85)
@@ -355,7 +367,7 @@ export type DecodedServerInbound =
   | DecodedResponseError
   | ({
       readonly _tag: "ServerRequest";
-    } & DecodedRpcRequest<AnyTaskCallbackRpcDefinition>)
+    } & DecodedRpcRequest<AnyAppCallbackRpcDefinition>)
 ```
 
 Decoded shape of a frame inbound to the client (from server):
@@ -381,7 +393,7 @@ flowchart TD
   A["raw socket payload<br>(JSON.parse happens before this call)"]
   A --> B["decodeFrame(parsed)"]
   B --> C{tag?}
-  C -->|Request| D["decodeRpcRequest(taskCallbackMethods)<br>→ ServerRequest"]
+  C -->|Request| D["decodeRpcRequest(appCallbackMethods)<br>→ ServerRequest"]
   C -->|Response| E["decodeResponseFrame<br>→ ResponseSuccess | ResponseError"]
   C -->|Notification| F["decodeNotification(notificationDefs)<br>→ Notification"]
   D --> G[DecodedServerInbound]
@@ -390,7 +402,7 @@ flowchart TD
 ```
 
 Client-inbound `Request` frames are restricted to
-`taskCallbackMethods` (the subset the server is allowed to call
+`appCallbackMethods` (the subset the server is allowed to call
 back into the client — `dispatch/authorize`, etc.). Response
 frames with `id === null` fail closed since a null id has no
 pending call to resolve.
@@ -569,17 +581,6 @@ export function stringEnum<T extends string[]>(values: [...T])
 `Type.String({ enum: values })` typed as the union of the literal
 values. Use instead of `Type.Union([Type.Literal("a"), Type.Literal("b")])`
 — same wire shape, simpler schema, single AJV `enum` keyword.
-
-### [`taskMasterRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L107)
-
-_Variable_
-
-```ts
-export const taskMasterRpcMethods = [
-  ...agentClientRpcMethods,
-  ...appCallableTaskRpcMethods,
-] as const
-```
 
 ## Files
 

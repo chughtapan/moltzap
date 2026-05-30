@@ -14,8 +14,9 @@ app at the top — see `src/index.ts` file-level JSDoc for the diagram):
   dispatcher, tagged-error registry, per-connection `Originator`.
   Bottom of the DAG.
 - `src/identity/` — agents, users, sessions, contact policy.
-- `src/network/` — `network/connect`, ping, presence, endpoint
-  actor-model types (`tm:agent:<uuid>`, `tm:app:<uuid>`).
+- `src/network/` — `network/connect`, ping, presence, the
+  actor-model identity types (`ConnectionId` brand,
+  `AuthenticatedIdentity`).
 - `src/task/` — singular `task/*` + `task/conversation/*` namespace:
   `TaskCreate`, `TaskLeave`, `TaskList`, `TaskClose`,
   `TaskAddParticipant`, `TaskRemoveParticipant`, the six
@@ -34,9 +35,9 @@ Aggregates and entry points:
 
 - `src/index.ts` — public barrel; re-exports the layers in DAG order.
 - `src/rpc-registry.ts` — canonical `rpcMethods` +
-  `notificationDefinitions` arrays + `taskCallbackMethods` group +
+  `notificationDefinitions` arrays + `appCallbackMethods` group +
   per-kind partitions (`agentClientRpcMethods`,
-  `taskMasterRpcMethods`, `serverRpcMethods`); exposes
+  `appCallableRpcMethods`, `serverRpcMethods`); exposes
   `decodeServerInbound` / `decodeClientInbound`.
 - `src/schema-primitives.ts` — `stringEnum`, `brandedId`,
   `brandedString`, `brandedNumber`, `DateTimeString`.

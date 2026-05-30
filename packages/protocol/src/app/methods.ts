@@ -276,7 +276,7 @@ export const DispatchRequest = defineRpc({
  * `LeaseRegistry.resolve`. Manifests opt in by declaring
  * `hooks.dispatch_authorize`.
  */
-// Spec D3 R14b — REQUIRED slot. `MoltZapTMClient` constructor demands a
+// Spec D3 R14b — REQUIRED slot. `MoltZapAppClient` constructor demands a
 // handler at type level; vacuous-deny moderators must wire it explicitly.
 export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
@@ -585,7 +585,7 @@ export const appRpcMethods = [
   DispatchesGet,
 ] as const;
 
-export const taskCallbackMethods = [
+export const appCallbackMethods = [
   DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
