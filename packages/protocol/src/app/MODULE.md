@@ -8,6 +8,18 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
+### [`appCallbackMethods`](./methods.ts#L500)
+
+_Variable_
+
+```ts
+export const appCallbackMethods = [
+  DispatchAuthorize,
+  MessagesAuthorize,
+  TaskCreate,
+] as const
+```
+
 ### [`AppManifest`](./methods.ts#L82)
 
 _TypeAlias_
@@ -256,18 +268,6 @@ verdict at the AppHost envelope (mirrors `runAuthorizeDispatch`'s
 participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
-
-### [`taskCallbackMethods`](./methods.ts#L500)
-
-_Variable_
-
-```ts
-export const taskCallbackMethods = [
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-] as const
-```
 
 ### [`TaskCreate`](./methods.ts#L486)
 

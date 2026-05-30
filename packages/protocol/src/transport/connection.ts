@@ -3,7 +3,7 @@
  * cast-free slot cutover (#705 HALF-1).
  *
  * Each factory accepts an immutable {@link ErasedSlotTable} (server /
- * TM) and produces a `Connection` whose inbound surface is reified by
+ * app client) and produces a `Connection` whose inbound surface is reified by
  * that slot table and whose outbound surface is constrained by the
  * kind's `OutCall` / `OutNotify` generics. Each slot is built by
  * {@link makeMiddlewareSlot}: the per-method capability discharge happens
@@ -18,8 +18,8 @@ import { Effect, type Scope, Schema } from "effect";
 
 import type {
   AnyAgentClientRpcDefinition,
-  AnyTaskMasterRpcDefinition,
-  AnyTaskCallbackRpcDefinition,
+  AnyAppCallableRpcDefinition,
+  AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
 } from "../rpc-registry.js";
 import type {
@@ -36,7 +36,7 @@ import type { RequestFrame, ResponseFrame } from "./wire.js";
 import {
   buildAgentClientDispatcher,
   buildServerDispatcher,
-  buildTaskMasterDispatcher,
+  buildAppClientDispatcher,
 } from "./dispatch.js";
 
 /**
@@ -148,7 +148,7 @@ interface ConnectionIdentity {
 
 /**
  * `ServerConnection` — server side. Outbound surface is the
- * `AnyTaskCallbackRpcDefinition` union: the server may call INTO a TM
+ * `AnyAppCallbackRpcDefinition` union: the server may call INTO an app
  * for `DispatchAuthorize` and `MessagesAuthorize`. Outbound notifications
  * are the full `AnyNotificationDefinition` set (the server originates
  * delivery + lifecycle notifications). Inbound surface is the closed
@@ -158,7 +158,7 @@ interface ConnectionIdentity {
 export interface ServerConnection<Env = unknown, Conn = unknown>
   extends ConnectionIdentity,
     InboundDispatch<Env, Conn>,
-    OutboundCall<AnyTaskCallbackRpcDefinition>,
+    OutboundCall<AnyAppCallbackRpcDefinition>,
     OutboundNotify<AnyNotificationDefinition> {}
 
 /**
@@ -181,19 +181,23 @@ export interface AgentClientConnection
 }
 
 /**
- * `TaskMasterConnection` — agent acting as TM. Outbound surface is the
- * full `serverRpcMethods` catalog (a TM is a superset of an AgentClient at the
- * type level). Outbound notifications: none. Inbound surface is the
- * `taskCallbackMethods` catalog, dispatched via the kind's
- * {@link ErasedSlotTable}; every slot is a REQUIRED real handler (Spec
- * D3 R14b retired the optional `forbidden` / `noOpNotification`
- * sentinels), so vacuous-deny moderators must bind an explicit
- * `ForbiddenError`-returning handler per catalog method.
+ * `AppClientConnection` — the CLIENT-facing outbound connection a
+ * moderating app drives (distinct from the SERVER-side `AppConnection`
+ * arm in `packages/server/src/transport/connection.ts → AppConnection`,
+ * which is the inbound app-authenticated socket state the server stores).
+ * Outbound surface is the full `serverRpcMethods` catalog (an app client
+ * is a superset of an AgentClient at the type level). Outbound
+ * notifications: none. Inbound surface is the `appCallbackMethods`
+ * catalog, dispatched via the kind's {@link ErasedSlotTable}; every slot
+ * is a REQUIRED real handler (Spec D3 R14b retired the optional
+ * `forbidden` / `noOpNotification` sentinels), so vacuous-deny moderators
+ * must bind an explicit `ForbiddenError`-returning handler per catalog
+ * method.
  */
-export interface TaskMasterConnection<Env = unknown, Conn = unknown>
+export interface AppClientConnection<Env = unknown, Conn = unknown>
   extends ConnectionIdentity,
     InboundDispatch<Env, Conn>,
-    OutboundCall<AnyTaskMasterRpcDefinition>,
+    OutboundCall<AnyAppCallableRpcDefinition>,
     OutboundNotify<never> {}
 
 /**
@@ -210,7 +214,7 @@ export interface TaskMasterConnection<Env = unknown, Conn = unknown>
  *
  * `write` is the wire-level write effect the surrounding transport
  * supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
- * for the outbound TM-callback path.
+ * for the outbound app-callback path.
  */
 export interface ServerConnectionConfig<Env, Conn> {
   readonly id: string;
@@ -233,10 +237,10 @@ export interface AgentClientConnectionConfig<Env, Conn> {
 }
 
 /**
- * Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
+ * Config for the app-client factory. The app owns the `appCallbackMethods`
  * catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
  */
-export interface TaskMasterConnectionConfig<Env, Conn> {
+export interface AppClientConnectionConfig<Env, Conn> {
   readonly id: string;
   readonly slots: ErasedSlotTable<Env, Conn>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
@@ -274,17 +278,17 @@ export function makeAgentClientConnection<Env, Conn>(
 }
 
 /**
- * Factory — TaskMaster. Delegates to `buildTaskMasterDispatcher` which
- * wires both the inbound dispatch loop (against `taskCallbackMethods`)
+ * Factory — app client. Delegates to `buildAppClientDispatcher` which
+ * wires both the inbound dispatch loop (against `appCallbackMethods`)
  * and the outbound originator (against the full `serverRpcMethods` catalog).
- * Every TM-inbound slot is REQUIRED. Spec D3 R14b retired the optional
+ * Every app-inbound slot is REQUIRED. Spec D3 R14b retired the optional
  * sentinel defaults the prior shape carried; callers build the slot
  * table via `makeErasedSlot` per catalog method. Vacuous-deny
  * moderators bind an explicit `ForbiddenError`-returning handler for
  * each catalog method.
  */
-export function makeTaskMasterConnection<Env, Conn>(
-  config: TaskMasterConnectionConfig<Env, Conn>,
-): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope> {
-  return buildTaskMasterDispatcher(config);
+export function makeAppClientConnection<Env, Conn>(
+  config: AppClientConnectionConfig<Env, Conn>,
+): Effect.Effect<AppClientConnection<Env, Conn>, never, Scope.Scope> {
+  return buildAppClientDispatcher(config);
 }

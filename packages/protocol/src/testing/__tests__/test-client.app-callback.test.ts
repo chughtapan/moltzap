@@ -26,7 +26,7 @@ import {
 import { RpcResponseError } from "../conformance/_shared/errors.js";
 import type { RequestFrame, ResponseFrame } from "../../transport/wire.js";
 import { requestFrame, validateResponseFrame } from "../../transport/wire.js";
-import type { AnyTaskCallbackRpcDefinition } from "../../rpc-registry.js";
+import type { AnyAppCallbackRpcDefinition } from "../../rpc-registry.js";
 import type { ParamsOf } from "../../transport/method.js";
 
 import { DispatchAuthorize } from "../../app/methods.js";
@@ -210,7 +210,7 @@ const findResponse = (
   return undefined;
 };
 
-const appCallbackRequest = <D extends AnyTaskCallbackRpcDefinition>(
+const appCallbackRequest = <D extends AnyAppCallbackRpcDefinition>(
   id: string,
   definition: D,
   params: ParamsOf<D>,

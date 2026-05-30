@@ -24,7 +24,7 @@ the full `serverRpcMethods` catalog. Outbound notifications: none
 `notify` method is typed `never`, which fails any call site. No
 inbound surface (the AgentClient kind's inbound catalog is empty).
 
-### [`AgentClientConnectionConfig`](./connection.ts#L228)
+### [`AgentClientConnectionConfig`](./connection.ts#L232)
 
 _Interface_
 
@@ -85,6 +85,75 @@ Each element's `Params` is the OWNING method's decoded params type. The
 tuple narrows them at the descriptor literal (the same erasure-vs-recover
 pattern as `CapabilityDescriptor` / `CapabilitiesOf`).
 
+### [`AppCallbackHandlers`](./handlers.ts#L109)
+
+_TypeAlias_
+
+```ts
+export type AppCallbackHandlers<
+  Ctx,
+  Caps extends Context.Tag<any, any> = never,
+> = HandlerTable<AppCallbackInboundRpcDefinition, Ctx, Caps>;
+```
+
+### [`AppCallbackInboundRpcDefinition`](./handlers.ts#L107)
+
+_TypeAlias_
+
+```ts
+export type AppCallbackInboundRpcDefinition = AnyAppCallbackRpcDefinition;
+
+export type AppCallbackHandlers<
+  Ctx,
+  Caps extends Context.Tag<any, any> = never,
+> = HandlerTable<AppCallbackInboundRpcDefinition, Ctx, Caps>;
+```
+
+`AppCallbackHandlers` — handler table for an app moderating one or
+more tasks. Catalog: `appCallbackMethods` —
+`DispatchAuthorize`, `MessagesAuthorize`, `TaskCreate`. All three
+REQUIRED (R14b); vacuous-deny moderators must write the handler
+explicitly. `TaskCreate` is the server-initiated callback fired
+after `task/request` lands the task in `waiting`; the app's typed
+verdict drives the lifecycle transition.
+
+### [`AppClientConnection`](./connection.ts#L197)
+
+_Interface_
+
+```ts
+export interface AppClientConnection<Env = unknown, Conn = unknown>
+```
+
+`AppClientConnection` — the CLIENT-facing outbound connection a
+moderating app drives (distinct from the SERVER-side `AppConnection`
+arm in `packages/server/src/transport/connection.ts → AppConnection`,
+which is the inbound app-authenticated socket state the server stores).
+Outbound surface is the full `serverRpcMethods` catalog (an app client
+is a superset of an AgentClient at the type level). Outbound
+notifications: none. Inbound surface is the `appCallbackMethods`
+catalog, dispatched via the kind's ErasedSlotTable; every slot
+is a REQUIRED real handler (Spec D3 R14b retired the optional
+`forbidden` / `noOpNotification` sentinels), so vacuous-deny moderators
+must bind an explicit `ForbiddenError`-returning handler per catalog
+method.
+
+### [`AppClientConnectionConfig`](./connection.ts#L243)
+
+_Interface_
+
+```ts
+export interface AppClientConnectionConfig<Env, Conn> {
+  readonly id: string;
+  readonly slots: ErasedSlotTable<Env, Conn>;
+  readonly write: (raw: string) => Effect.Effect<void, unknown>;
+  readonly idPrefix: string;
+}
+```
+
+Config for the app-client factory. The app owns the `appCallbackMethods`
+catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
+
 ### [`buildAgentClientDispatcher`](./dispatch.ts#L104)
 
 _Function_
@@ -101,6 +170,22 @@ so `config.slots` is the empty table `{}`). The empty `notify` shape
 is `never`-typed at the type level (no call site can satisfy the
 constraint).
 
+### [`buildAppClientDispatcher`](./dispatch.ts#L132)
+
+_Function_
+
+```ts
+export function buildAppClientDispatcher<Env, Conn>(
+  config: AppClientConnectionConfig<Env, Conn>,
+): Effect.Effect<AppClientConnection<Env, Conn>, never, Scope.Scope>
+```
+
+Build the app-client dispatcher. Wires both the inbound dispatch loop
+(against `appCallbackMethods`) and the outbound originator (against
+`serverRpcMethods`). Spec D3 R14b made every app-inbound slot
+REQUIRED: callers must register a handler for each catalog method;
+vacuous-deny moderators bind an explicit `ForbiddenError` handler.
+
 ### [`buildServerDispatcher`](./dispatch.ts#L77)
 
 _Function_
@@ -112,25 +197,9 @@ export function buildServerDispatcher<Env, Conn>(
 ```
 
 Build the server-side dispatcher. Wires the inbound slot-table
-dispatch loop + the outbound originator (TM-callback path) into a
+dispatch loop + the outbound originator (app-callback path) into a
 single `ServerConnection` value. `Env` is the slot table's residual
 service-tag union; `Conn` is the server's three-arm `Connection`.
-
-### [`buildTaskMasterDispatcher`](./dispatch.ts#L132)
-
-_Function_
-
-```ts
-export function buildTaskMasterDispatcher<Env, Conn>(
-  config: TaskMasterConnectionConfig<Env, Conn>,
-): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope>
-```
-
-Build the TM dispatcher. Wires both the inbound dispatch loop
-(against `taskCallbackMethods`) and the outbound originator (against
-`serverRpcMethods`). Spec D3 R14b made every TM-inbound slot
-REQUIRED: callers must register a handler for each catalog method;
-vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
 ### [`callerAgentId`](./current-principal.ts#L67)
 
@@ -581,10 +650,10 @@ export interface HandlerSlot<
 }
 ```
 
-Per-definition handler slot (TM-callback authoring shape). `Ctx` is
+Per-definition handler slot (app-callback authoring shape). `Ctx` is
 the per-frame context the client hands every handler. `Caps` is the
 upper bound on which `Context.Tag`s the handler's R channel may
-reference; the TM-callback catalog declares no capabilities, so
+reference; the app-callback catalog declares no capabilities, so
 callers bind `Caps = never`.
 
 The WS client wraps each authored slot into an `ErasedSlot` (cap-less)
@@ -681,7 +750,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeAgentClientConnection`](./connection.ts#L270)
+### [`makeAgentClientConnection`](./connection.ts#L274)
 
 _Function_
 
@@ -694,6 +763,25 @@ export function makeAgentClientConnection<Env, Conn>(
 Factory — agent client. Delegates to `buildAgentClientDispatcher`
 which wires the originator only (no inbound dispatch — the AgentClient
 kind's inbound catalog is empty, so `config.slots` is `{}`).
+
+### [`makeAppClientConnection`](./connection.ts#L290)
+
+_Function_
+
+```ts
+export function makeAppClientConnection<Env, Conn>(
+  config: AppClientConnectionConfig<Env, Conn>,
+): Effect.Effect<AppClientConnection<Env, Conn>, never, Scope.Scope>
+```
+
+Factory — app client. Delegates to `buildAppClientDispatcher` which
+wires both the inbound dispatch loop (against `appCallbackMethods`)
+and the outbound originator (against the full `serverRpcMethods` catalog).
+Every app-inbound slot is REQUIRED. Spec D3 R14b retired the optional
+sentinel defaults the prior shape carried; callers build the slot
+table via `makeErasedSlot` per catalog method. Vacuous-deny
+moderators bind an explicit `ForbiddenError`-returning handler for
+each catalog method.
 
 ### [`makeMiddlewareSlot`](./middleware-slot.ts#L70)
 
@@ -730,7 +818,7 @@ export const makeOriginator = (config: {
 }): Effect.Effect<Originator, never, Scope.Scope>
 ```
 
-### [`makeServerConnection`](./connection.ts#L259)
+### [`makeServerConnection`](./connection.ts#L263)
 
 _Function_
 
@@ -751,25 +839,6 @@ Factory — server side. Delegates to `buildServerDispatcher`
     `makeOriginator`) that mints `${idPrefix}-N` ids and tracks
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
-
-### [`makeTaskMasterConnection`](./connection.ts#L286)
-
-_Function_
-
-```ts
-export function makeTaskMasterConnection<Env, Conn>(
-  config: TaskMasterConnectionConfig<Env, Conn>,
-): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope>
-```
-
-Factory — TaskMaster. Delegates to `buildTaskMasterDispatcher` which
-wires both the inbound dispatch loop (against `taskCallbackMethods`)
-and the outbound originator (against the full `serverRpcMethods` catalog).
-Every TM-inbound slot is REQUIRED. Spec D3 R14b retired the optional
-sentinel defaults the prior shape carried; callers build the slot
-table via `makeErasedSlot` per catalog method. Vacuous-deny
-moderators bind an explicit `ForbiddenError`-returning handler for
-each catalog method.
 
 ### [`MalformedFrameError`](./wire-errors.ts#L146)
 
@@ -1341,14 +1410,14 @@ export interface ServerConnection<Env = unknown, Conn = unknown>
 ```
 
 `ServerConnection` — server side. Outbound surface is the
-`AnyTaskCallbackRpcDefinition` union: the server may call INTO a TM
+`AnyAppCallbackRpcDefinition` union: the server may call INTO an app
 for `DispatchAuthorize` and `MessagesAuthorize`. Outbound notifications
 are the full `AnyNotificationDefinition` set (the server originates
 delivery + lifecycle notifications). Inbound surface is the closed
 `serverRpcMethods` catalog, dispatched via the kind's
 ErasedSlotTable.
 
-### [`ServerConnectionConfig`](./connection.ts#L215)
+### [`ServerConnectionConfig`](./connection.ts#L219)
 
 _Interface_
 
@@ -1374,7 +1443,7 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 
 `write` is the wire-level write effect the surrounding transport
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
-for the outbound TM-callback path.
+for the outbound app-callback path.
 
 ### [`SlotDispatchContext`](./erased-slot.ts#L41)
 
@@ -1399,71 +1468,6 @@ does not depend on `@moltzap/server-core`. The slot factory is generic over
 `DispatchContext` (`transport/context.ts`) is just `SlotDispatchContext<
 Connection>` — the SAME type, one name per role (#705 HALF-2 collapsed the
 former duplicate server-local + argsOf-resolver `DispatchContext`s here).
-
-### [`TaskMasterConnection`](./connection.ts#L193)
-
-_Interface_
-
-```ts
-export interface TaskMasterConnection<Env = unknown, Conn = unknown>
-```
-
-`TaskMasterConnection` — agent acting as TM. Outbound surface is the
-full `serverRpcMethods` catalog (a TM is a superset of an AgentClient at the
-type level). Outbound notifications: none. Inbound surface is the
-`taskCallbackMethods` catalog, dispatched via the kind's
-ErasedSlotTable; every slot is a REQUIRED real handler (Spec
-D3 R14b retired the optional `forbidden` / `noOpNotification`
-sentinels), so vacuous-deny moderators must bind an explicit
-`ForbiddenError`-returning handler per catalog method.
-
-### [`TaskMasterConnectionConfig`](./connection.ts#L239)
-
-_Interface_
-
-```ts
-export interface TaskMasterConnectionConfig<Env, Conn> {
-  readonly id: string;
-  readonly slots: ErasedSlotTable<Env, Conn>;
-  readonly write: (raw: string) => Effect.Effect<void, unknown>;
-  readonly idPrefix: string;
-}
-```
-
-Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
-catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
-
-### [`TaskMasterHandlers`](./handlers.ts#L109)
-
-_TypeAlias_
-
-```ts
-export type TaskMasterHandlers<
-  Ctx,
-  Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
-```
-
-### [`TaskMasterInboundRpcDefinition`](./handlers.ts#L107)
-
-_TypeAlias_
-
-```ts
-export type TaskMasterInboundRpcDefinition = AnyTaskCallbackRpcDefinition;
-
-export type TaskMasterHandlers<
-  Ctx,
-  Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
-```
-
-`TaskMasterHandlers` — handler table for an agent acting as TM for
-one or more tasks. Catalog: `taskCallbackMethods` —
-`DispatchAuthorize`, `MessagesAuthorize`, `TaskCreate`. All three
-REQUIRED (R14b); vacuous-deny moderators must write the handler
-explicitly. `TaskCreate` is the server-initiated callback fired
-after `task/request` lands the task in `waiting`; the TM's typed
-verdict drives the lifecycle transition.
 
 ### [`UnauthorizedError`](./wire-errors.ts#L96)
 

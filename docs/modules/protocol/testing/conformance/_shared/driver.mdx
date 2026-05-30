@@ -128,7 +128,7 @@ export interface ServerRpcContext {
 _TypeAlias_
 
 ```ts
-export type ServerRpcDefinition = AnyTaskCallbackRpcDefinition;
+export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
 
 /**
  * Inbound params type for an app-callback method.
@@ -362,8 +362,8 @@ export interface TestClientConfig {
    * D #705 CP5/CP7 — when set, the `network/connect` handshake uses the
    * app-principal `appKey` arm instead of the agent `agentKey` arm, so the
    * connection authenticates as an `AppConnection`. Used by app-arm
-   * integration tests (e.g. `app-session-scoping`) that drive the TM as a
-   * first-class app principal rather than the dead #673 agent-AppsRegisters
+   * integration tests (e.g. `app-session-scoping`) that drive the moderator app
+   * as a first-class app principal rather than the dead #673 agent-AppsRegisters
    * model. Mutually exclusive with the agent path at the wire (the Connect
    * params union is disjoint).
    */

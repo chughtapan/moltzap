@@ -1,7 +1,7 @@
 import { JSONSchema, type Schema } from "effect";
 import {
   serverRpcMethods,
-  taskCallbackMethods,
+  appCallbackMethods,
 } from "../../src/rpc-registry.js";
 import * as protocolSchema from "../../src/index.js";
 import {
@@ -32,7 +32,7 @@ const RPC_DEFINITION_FIELDS: readonly RpcDefinitionField[] = [
 export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
     ...serverRpcMethods,
-    ...taskCallbackMethods,
+    ...appCallbackMethods,
     ...Object.values(protocolSchema).filter(isRpcDefinition),
   ];
   const byName = new Map<string, AnyRpcDocDefinition>();
