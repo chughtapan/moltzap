@@ -1,9 +1,7 @@
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
-  Data,
   Deferred,
-  Duration,
   Either,
   Effect,
   Exit,
@@ -11,7 +9,6 @@ import {
   ManagedRuntime,
   Option,
   Ref,
-  Schedule,
   Scope,
   Stream,
 } from "effect";
@@ -41,6 +38,19 @@ import {
   subscribeAll as subscribeAllStream,
 } from "./notification/stream.js";
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
+import {
+  MALFORMED_FRAME_PREVIEW_CHARS,
+  MSG_NOT_CONNECTED,
+  NORMAL_CLOSE_CODE,
+  ReconnectAttemptFailedError,
+  UTF8_DECODER,
+  makeNotConnectedError,
+  makeReconnectSchedule,
+  openSocket,
+  shouldLogMalformedFrame,
+  webSocketUrl,
+  type ClientWebSocket,
+} from "./runtime/reconnect.js";
 
 export type { CloseInfo };
 
@@ -52,23 +62,6 @@ export interface RpcCallOptions {
 }
 
 type ConnectError = RpcCallError | RpcTimeoutError;
-
-const BASE_RECONNECT_DELAY_MS = 1000;
-const MAX_RECONNECT_DELAY_MS = 30_000;
-const RECONNECT_BACKOFF_FACTOR = 2;
-const NORMAL_CLOSE_CODE = 1000;
-const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
-const MALFORMED_FRAME_PREVIEW_CHARS = 200;
-const MALFORMED_LOG_EVERY = 50;
-
-const shouldLogMalformedFrame = (count: number): boolean =>
-  count === 1 || count % MALFORMED_LOG_EVERY === 0;
-
-const MSG_NOT_CONNECTED = "WebSocket not connected";
-const UTF8_DECODER = new TextDecoder("utf-8");
-
-const makeNotConnectedError = (): NotConnectedError =>
-  new NotConnectedError({ message: MSG_NOT_CONNECTED });
 
 type ConnectResult = ResultOf<typeof Connect>;
 type DecodedIncomingFrame = Effect.Effect.Success<
@@ -87,12 +80,6 @@ type DecodedServerRequest = Extract<
   { readonly _tag: "ServerRequest" }
 >;
 
-class ReconnectAttemptFailedError extends Data.TaggedError(
-  "ReconnectAttemptFailedError",
-)<{
-  readonly reason: string;
-}> {}
-
 interface ConnState {
   readonly write: (
     chunk: string | Socket.CloseEvent,
@@ -102,10 +89,6 @@ interface ConnState {
   readonly agentConn: AgentClientConnection;
   readonly handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>;
 }
-
-type ClientWebSocket = Effect.Effect.Success<
-  ReturnType<typeof Socket.makeWebSocket>
->;
 
 export interface AgentClientOptions {
   serverUrl: string;
@@ -295,7 +278,7 @@ export class MoltZapAgentClient {
   }
 
   private webSocketUrl(): string {
-    return this.options.serverUrl.replace(/^http/, "ws") + "/ws";
+    return webSocketUrl(this.options.serverUrl);
   }
 
   private openSocket(
@@ -306,21 +289,9 @@ export class MoltZapAgentClient {
     NotConnectedError,
     Socket.WebSocketConstructor
   > {
-    const openTimeout = Duration.seconds(WEB_SOCKET_OPEN_TIMEOUT_SECONDS);
-    return Scope.extend(Socket.makeWebSocket(url, { openTimeout }), scope).pipe(
-      Effect.timeoutFail({
-        duration: openTimeout,
-        onTimeout: makeNotConnectedError,
-      }),
-      Effect.catchAllCause((cause) =>
-        Effect.zipRight(
-          Effect.logWarning("WebSocket open failed", cause),
-          Effect.sync(() => {
-            this.runtime.runFork(Scope.close(scope, Exit.void));
-          }).pipe(Effect.zipRight(Effect.fail(makeNotConnectedError()))),
-        ),
-      ),
-    );
+    return openSocket(url, scope, () => {
+      this.runtime.runFork(Scope.close(scope, Exit.void));
+    });
   }
 
   private readerEffect(
@@ -517,13 +488,7 @@ export class MoltZapAgentClient {
       ),
     );
 
-    const backoff = Schedule.exponential(
-      Duration.millis(BASE_RECONNECT_DELAY_MS),
-      RECONNECT_BACKOFF_FACTOR,
-    ).pipe(
-      Schedule.either(Schedule.spaced(Duration.millis(MAX_RECONNECT_DELAY_MS))),
-      Schedule.jittered,
-    );
+    const backoff = makeReconnectSchedule();
 
     const loop: Effect.Effect<void, never> = attempt.pipe(
       Effect.retry(backoff),
