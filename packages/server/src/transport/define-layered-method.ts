@@ -2,15 +2,20 @@ import { Effect } from "effect";
 import type { Static, TSchema } from "@sinclair/typebox";
 import {
   makeErasedSlot,
+  makeMiddlewareSlot,
+  type AnyCapabilityMiddleware,
   type CapabilityDescriptor,
   type CapIdentsOf,
   type CapProviders,
+  type CurrentPrincipal,
   type ErasedSlot,
   type ForbiddenError,
+  type MiddlewaresOf,
   type RpcDefinition,
 } from "@moltzap/protocol";
 import {
   defineMethod,
+  defineMiddlewareMethod,
   type CtxForKind,
   type PrincipalKind,
 } from "./context.js";
@@ -246,4 +251,137 @@ export function defineAppMethod<
     CapsTuple,
     AppSlotEnv
   >(definition, gated, providers);
+}
+
+// ── #705 HALF-2 slice-1 — middleware-slot task binding ──────────────────
+
+/**
+ * The cap-tag IDENTIFIER union a declared `middlewares` tuple discharges.
+ * (Wraps the tuple in the `{ middlewares }` shape `MiddlewaresOf` reads.)
+ */
+type CapIdentsFrom<Middlewares extends ReadonlyArray<AnyCapabilityMiddleware>> =
+  MiddlewaresOf<{ readonly middlewares: Middlewares }>;
+
+/**
+ * The handler + `weaveCaps` shape `defineTaskMiddlewareMethod` accepts.
+ *
+ * The handler MAY `yield*` the declared caps (`messages/send` reaches
+ * `MessageSendPermission` via `messageService.send`) or not (`messages/list`
+ * reaches none — its caps are auth side-effects). The TOTALITY guarantee
+ * does NOT rest on the handler consuming them (that is the false-green
+ * trap); it rests on `weaveCaps`'s WIDENED input requiring ALL declared caps.
+ */
+interface MiddlewareTaskMethodDef<
+  P extends TSchema,
+  R extends TSchema,
+  K extends "agent" | "app",
+  Caps,
+  Reqs,
+  E,
+  EW,
+> {
+  readonly callablePrincipal: K;
+  readonly requiresActive?: boolean;
+  readonly handler: (
+    params: Static<P>,
+    ctx: CtxForKind<K>,
+  ) => Effect.Effect<
+    Static<R>,
+    E,
+    Reqs | Caps | CurrentPrincipal | NetworkLayerScope | TaskLayerScope
+  >;
+  readonly weaveCaps: (
+    handlerEffect: Effect.Effect<
+      Static<R>,
+      E,
+      TaskSlotEnv | ConnectionTag | CurrentPrincipal | Caps
+    >,
+    params: Static<P>,
+  ) => Effect.Effect<
+    Static<R>,
+    EW,
+    TaskSlotEnv | ConnectionTag | CurrentPrincipal
+  >;
+}
+
+/**
+ * Task-layer RPC binding via the HALF-2 {@link CapabilityMiddleware} path
+ * (principal-as-service + static per-arm cap chain). The cast-free
+ * successor to {@link defineTaskMethod} for middleware-converted methods.
+ *
+ * Pins the slot `Env` to `TaskSlotEnv`, provides `NetworkLayerScope` +
+ * `TaskLayerScope` structurally onto the handler, runs the #720 gate +
+ * provides `ConnectionTag` and `CurrentPrincipal` (`defineMiddlewareMethod`),
+ * and wraps the gated body into an {@link ErasedSlot} via
+ * {@link makeMiddlewareSlot} — the SAME slot type a `defineTaskMethod` slot
+ * produces, so both store in the SAME `ServerRpcSlotTable` without a widen.
+ *
+ * **The cast-free TOTALITY lockstep (non-vacuous).** The cap idents are
+ * PINNED from the declared `middlewares` tuple via {@link CapIdentsFrom} —
+ * NOT inferred from the handler's R (a method whose handler does not itself
+ * `yield*` the cap, like `messages/list`, would otherwise pin `never` and
+ * the lockstep would go false-green). `weaveCaps`'s input is WIDENED to
+ * require every declared cap (sound — providing extra services upward is
+ * always assignable), so it MUST discharge EVERY declared cap with a
+ * `provideServiceEffect` to bring the woven R down to `TaskSlotEnv |
+ * ConnectionTag | CurrentPrincipal` — dropping any leaks that cap into the
+ * woven R and fails the bound (TS2322). This is the per-arm coverage gate
+ * (cap-reshape §4) replacing the legacy positional `CapProviders` tuple.
+ *
+ * The discharge is the binding site's hand-expanded `weaveCaps` chain (one
+ * `provideServiceEffect` per declared cap, CONCRETE tag, reverse declaration
+ * order for Forbidden-before-state-probe) — NO `dischargeCaps` runtime fold,
+ * NO `narrowToDispatchContext`, NO `args as Shape`.
+ */
+export function defineTaskMiddlewareMethod<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  K extends "agent" | "app",
+  Middlewares extends ReadonlyArray<AnyCapabilityMiddleware>,
+  E,
+  EW,
+  Reqs extends TaskTags = TaskTags,
+>(
+  definition: RpcDefinition<Name, P, R>,
+  // The declared middleware tuple — the source of truth that PINS the cap
+  // idents `weaveCaps` must discharge. Read at the TYPE level only (via
+  // `Middlewares`); the runtime weave is `def.weaveCaps`. Pass it `as const`
+  // so the tuple shape (hence `CapIdentsFrom`) is preserved. Underscore so
+  // the unused-runtime-value lint is satisfied without a `void` statement.
+  _middlewares: Middlewares,
+  def: MiddlewareTaskMethodDef<
+    P,
+    R,
+    K,
+    CapIdentsFrom<Middlewares>,
+    Reqs,
+    E,
+    EW
+  >,
+): ErasedSlot<TaskSlotEnv, Connection> {
+  const body = defineMiddlewareMethod<
+    P,
+    R,
+    K,
+    E,
+    EW,
+    CapIdentsFrom<Middlewares>,
+    TaskSlotEnv
+  >({
+    callablePrincipal: def.callablePrincipal,
+    requiresActive: def.requiresActive,
+    handler: (params, ctx) =>
+      def
+        .handler(params, ctx)
+        .pipe(
+          Effect.provideService(NetworkLayerScope, undefined),
+          Effect.provideService(TaskLayerScope, undefined),
+        ),
+    weaveCaps: def.weaveCaps,
+  });
+  return makeMiddlewareSlot<Name, P, R, Connection, TaskSlotEnv>(
+    definition,
+    body,
+  );
 }

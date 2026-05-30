@@ -1,15 +1,17 @@
 import type { ServerRpcSlots } from "../../transport/context.js";
-import { defineTaskMethod } from "../../transport/define-layered-method.js";
+import { defineTaskMiddlewareMethod } from "../../transport/define-layered-method.js";
 import {
-  provideConversationInTask,
-  provideMessageSendPermission,
-  provideTaskReadAccess,
-} from "../../app/capability-providers.js";
+  conversationInTaskForList,
+  conversationInTaskForSend,
+  messageSendPermissionMiddleware,
+  taskReadAccessMiddleware,
+} from "../../app/capability-middlewares.js";
 import {
   MessagesSend,
   MessagesList,
   NotFoundError,
   ForbiddenError,
+  provideMiddleware,
   type LeaseId,
   type ParamsOf,
 } from "@moltzap/protocol";
@@ -120,21 +122,42 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
   );
 }
 
+// The capability middlewares are woven as a HAND-EXPANDED static chain per
+// arm via `provideMiddleware` (one CONCRETE-tag `provideServiceEffect` step
+// per declared cap — the load-bearing cast-free form, cap-reshape Concern 5,
+// NOT a runtime tuple-fold). Declaration order is preserved by listing the
+// FIRST-declared cap as the OUTERMOST `.pipe` step (LAST in source) for
+// Forbidden-before-state-probe. The declared `middlewares` tuple (2nd arg)
+// pins the totality lockstep so dropping a step fails the compile.
 export const messageHandlers: ServerRpcSlots = [
   // `MessagesSend` declares `[ConversationInTask, MessageSendPermission]`
-  // — the providers tuple is positional, aligned to that order.
-  defineTaskMethod(
+  // — the static chain weaves them in REVERSE declaration order so the
+  // FIRST-declared (`ConversationInTask`) is the OUTERMOST provide
+  // (Forbidden-before-state-probe); `conversationId` is DB-resolved by
+  // `ConversationInTask` before `MessageSendPermission` obtains against it.
+  defineTaskMiddlewareMethod(
     MessagesSend,
+    // declared middleware tuple — pins the totality lockstep (`weaveCaps`
+    // MUST discharge exactly `[ConversationInTask, MessageSendPermission]`).
+    [conversationInTaskForSend, messageSendPermissionMiddleware] as const,
     {
       callablePrincipal: "agent",
       requiresActive: true,
       handler: handleMessageSend,
+      // REVERSE declaration order: FIRST-declared (ConversationInTask) is the
+      // OUTERMOST step (LAST in source) so it runs first — resolves
+      // `conversationId` membership before MessageSendPermission obtains.
+      weaveCaps: (handlerEffect, params) =>
+        handlerEffect.pipe(
+          provideMiddleware(messageSendPermissionMiddleware, params),
+          provideMiddleware(conversationInTaskForSend, params),
+        ),
     },
-    [provideConversationInTask, provideMessageSendPermission],
   ),
   // `MessagesList` declares `[TaskReadAccess, ConversationInTask]`.
-  defineTaskMethod(
+  defineTaskMiddlewareMethod(
     MessagesList,
+    [taskReadAccessMiddleware, conversationInTaskForList] as const,
     {
       callablePrincipal: "agent",
       requiresActive: true,
@@ -150,7 +173,12 @@ export const messageHandlers: ServerRpcSlots = [
             },
           );
         }).pipe(Effect.withSpan("messages.list")),
+      // REVERSE declaration order: FIRST-declared (TaskReadAccess) outermost.
+      weaveCaps: (handlerEffect, params) =>
+        handlerEffect.pipe(
+          provideMiddleware(conversationInTaskForList, params),
+          provideMiddleware(taskReadAccessMiddleware, params),
+        ),
     },
-    [provideTaskReadAccess, provideConversationInTask],
   ),
 ];
