@@ -335,11 +335,13 @@ function handleRequestFrame(
       return;
     }
     // Spec F (#617) §6 FRI cutover: dispatch through the per-connection
-    // typed `ServerConnection.handle`. The dispatcher casts R to `never`
-    // via `asNeverR`; the surrounding `ManagedRuntime<FullLive>`
-    // provides every handler-body Tag at request time. The per-principal
-    // arm-narrow + the body's narrowed `AgentContext`/`AppContext` are
-    // applied inside `defineMethod`'s principal-kind gate (#705 #720 §B1).
+    // typed `ServerConnection.handle`. Each slot's residual R is `Env` (the
+    // per-frame caps are discharged INSIDE the slot, #705 HALF-2); the
+    // surrounding `ManagedRuntime<FullLive>` provides every handler-body Tag
+    // at request time. The per-principal arm-narrow + the body's narrowed
+    // `AgentContext`/`AppContext` are applied inside the slot body's
+    // principal-kind gate (`defineMiddlewareMethod` / `defineUnauthMethod`,
+    // #705 #720 §B1).
     const response = yield* conn.originator.handle(frame, {
       connection: conn,
     });

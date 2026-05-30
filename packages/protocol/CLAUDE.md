@@ -108,10 +108,11 @@ The recipe; every new RPC follows it:
    descriptor + JSDoc. CI runs `pnpm docs:check:drift` to verify
    no hand edits to generated files.
 7. **Implement the handler** in `@moltzap/server-core`. The
-   server's `defineXMethod` wrappers enforce the layer-tag
-   allowlist; capability tags declared on the descriptor are
-   auto-provisioned by the dispatcher (see
-   `packages/server/src/app/capability-providers.ts`).
+   server's binding wrappers enforce the layer-tag allowlist; any
+   per-frame capability is declared at the binding site as a
+   `CapabilityMiddleware` (#705 HALF-2 — capabilities are no longer
+   descriptor metadata) and woven by the binding's `weaveCaps` (see
+   `packages/server/src/app/capability-middlewares.ts`).
 
 ## Notification methods
 
@@ -221,15 +222,16 @@ Arena (v2 per spec amendment #200 N8) copies this template directly.
   load; the validator is the runtime gate.
 - **Descriptor** — A frozen `RpcDefinition` or
   `NotificationDefinition` produced by `defineRpc` /
-  `defineNotification`. Carries the schema, validators, encoders,
-  and optional `capabilities` array for one wire method. Every
-  RPC slot is required; the dispatcher fails closed when no
-  handler is bound.
-- **Capability tag** — A `Context.Tag` declared on a descriptor's
-  `capabilities` array. The server dispatcher auto-provisions each
-  tag per frame so handler bodies just `yield* TagName` instead of
-  hand-piping `Effect.provideServiceEffect`. Pattern documented in
-  `@moltzap/server-core/src/app/capability-providers.ts`.
+  `defineNotification`. Carries the schema, validators, and encoders
+  for one wire method (#705 HALF-2 — capabilities are NO LONGER on the
+  descriptor; they are declared at the server binding site). Every RPC
+  slot is required; the dispatcher fails closed when no handler is bound.
+- **Capability tag** — A `Context.Tag` whose value carries a runtime
+  authority proof. The server declares each as a `CapabilityMiddleware`
+  at the binding site and weaves it per-frame, so handler bodies just
+  `yield* TagName` instead of hand-piping `Effect.provideServiceEffect`.
+  Pattern documented in
+  `@moltzap/server-core/src/app/capability-middlewares.ts`.
 - **Originator** — The outbound half of a `Connection`. Owns the
   per-connection pending-request map and the request-id counter for
   outbound `call(...)` invocations. Used in both directions — for

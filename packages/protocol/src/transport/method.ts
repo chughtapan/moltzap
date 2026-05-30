@@ -13,18 +13,18 @@ import {
   type RequestFrame,
   type ResponseFrame,
 } from "./wire.js";
-import type { CapabilityDescriptor } from "./capabilities.js";
 
 /**
  * Typed manifest for one RPC method: wire name + schemas + validators.
  * Type-only payload accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>`
  * — there is no runtime `Params`/`Result` property.
  *
- * `capabilities` is the only optional metadata: a runtime-readable list
- * of capability descriptors the dispatcher iterates to thread
- * `Effect.provideServiceEffect`. Each descriptor names a `Context.Tag`
- * plus an `argsOf` resolver that derives the obtain helper's args from
- * `params` + `ctx`. Absent → no capabilities.
+ * #705 HALF-2 — a method's per-frame capabilities are NO LONGER descriptor
+ * metadata. They are declared at the server binding site as
+ * `CapabilityMiddleware` tuples woven by `defineXMiddlewareMethod`; the
+ * descriptor carries only the wire shape. The former optional
+ * `capabilities` field (+ its `argsOf` resolvers) and the runtime
+ * `dischargeCaps` fold that read it are gone.
  */
 export interface RpcDefinition<
   Name extends string,
@@ -43,15 +43,6 @@ export interface RpcDefinition<
     id: JsonRpcId | null,
     result: unknown,
   ) => ResponseFrame;
-
-  /**
-   * Spec F G5/G6: per-definition capability descriptors. Each entry's
-   * `tag` is a Spec E `Context.Tag` the handler will `yield*`; `argsOf`
-   * is the synchronous resolver that derives the obtain helper's args
-   * from `params` + `ctx`. The dispatcher reads this list at runtime
-   * (not from the handler's R channel — TypeScript erases it).
-   */
-  readonly capabilities?: ReadonlyArray<CapabilityDescriptor>;
 }
 
 /** Type-only accessor for a definition's params payload. */
@@ -71,7 +62,7 @@ export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
  *
  * ```mermaid
  * flowchart TD
- *   A["domain layer call site:<br>defineRpc{ name, params, result, capabilities? }"]
+ *   A["domain layer call site:<br>defineRpc{ name, params, result }"]
  *   A --> B["ajv.compile(params)<br>→ validateParams"]
  *   A --> C["ajv.compile(result)<br>→ validateResult"]
  *   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
@@ -82,9 +73,9 @@ export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
  *
  * - Every slot is REQUIRED in the handler table (Spec D3 R14b);
  *   omitting any key fails TS2741 at the factory call.
- * - `capabilities` absent → no auto-provision; the dispatcher reads
- *   `definition.capabilities` per frame and threads
- *   `Effect.provideServiceEffect` for each entry.
+ * - #705 HALF-2: capabilities are NOT descriptor metadata. They are
+ *   declared at the server binding site as `CapabilityMiddleware` tuples;
+ *   `defineRpc` carries only the wire shape.
  *
  * Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
  * string can never accidentally type-fit a method position. See
@@ -97,24 +88,7 @@ export function defineRpc<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
-  Caps extends ReadonlyArray<CapabilityDescriptor> = readonly [],
->(def: {
-  name: Name;
-  params: P;
-  result: R;
-
-  /**
-   * Per-definition capability descriptors. Each entry pairs a Spec E
-   * `Context.Tag` (the value the handler will `yield*`) with a
-   * synchronous `argsOf` resolver that derives the obtain helper's
-   * arguments from wire `params` + dispatcher `ctx`. Generic-parameterized
-   * so the return type preserves the literal tuple shape for
-   * `CapabilitiesOf&lt;D>`.
-   */
-  capabilities?: Caps;
-}): Omit<RpcDefinition<Name, P, R>, "capabilities"> & {
-  readonly capabilities: Caps;
-} {
+>(def: { name: Name; params: P; result: R }): RpcDefinition<Name, P, R> {
   const d: RpcDefinition<Name, P, R> = {
     name: jsonRpcMethod(def.name),
     paramsSchema: def.params,
@@ -123,17 +97,8 @@ export function defineRpc<
     validateResult: ajv.compile(def.result),
     encodeRequest: (id, params) => requestFrame(id, d, params as Static<P>),
     encodeResponse: (id, result) => responseFrame(id, { result }),
-    // Always materialize `capabilities` (default empty) so the runtime
-    // value matches the return type's `readonly capabilities: Caps`
-    // assertion. The slot dispatcher reads `definition.capabilities`
-    // unconditionally (`dischargeCaps` folds over it); a cap-less method
-    // whose property was omitted would crash with `capabilities.length`
-    // of undefined on the first dispatched frame.
-    capabilities: def.capabilities ?? [],
   };
-  return d as Omit<RpcDefinition<Name, P, R>, "capabilities"> & {
-    readonly capabilities: Caps;
-  };
+  return d;
 }
 
 /**

@@ -8,10 +8,10 @@
  * erroring. The file is compiled by the package's standard `tsc` pass
  * (no separate script).
  *
- * The handler-R ⊆ declared-capabilities lockstep (the retired Canary 7)
- * + the value-half providers obligation are exercised on the LIVE
- * `makeErasedSlot` factory in `erased-slot.types-check.ts` (Canary
- * 7/7a/7b/7c/7d). This file covers the SURROUNDING invariants:
+ * The handler-R ⊆ declared-capabilities lockstep is exercised on the LIVE
+ * cap-as-middleware path (#705 HALF-2) by `server-core`'s
+ * `middleware-slot.types-check.ts` (Canary M1/M2/M3 — the `weaveCaps`
+ * totality bound). This file covers the SURROUNDING invariants:
  *
  * Live canaries:
  *   1. `ErasedSlotTable` totality: an `ErasedSlotTable` keyed over the
@@ -156,8 +156,8 @@ const _directReject = _serverConnI5.call(MessagesSend, _msgsSendParams);
 // ───────────────────────────────────────────────────────────────────────
 // Slot-boundary R sanity: a slot's `invoke` residual R is `Env` (NOT
 // `never`, NOT a cap union) — capabilities are discharged inside. (The
-// full handler-R ⊆ caps + providers lockstep lives on `makeErasedSlot`
-// in `erased-slot.types-check.ts`.)
+// full cap-totality lockstep lives on the `weaveCaps` bound in
+// `server-core` `middleware-slot.types-check.ts`.)
 // ───────────────────────────────────────────────────────────────────────
 
 declare const _someSlot: ErasedSlot<Env, Conn>;

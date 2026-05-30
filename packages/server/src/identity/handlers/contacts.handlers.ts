@@ -48,85 +48,69 @@ const fanOut = <D extends NotificationDefinition<string, any>>(
   }).pipe(Effect.withSpan("contacts.fanOut"));
 
 export const contactHandlers: ServerRpcSlots = [
-  defineTaskMethod(
-    ContactsList,
-    {
-      callablePrincipal: "agent",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const contactService = yield* ContactsServiceTag;
-          const owner = yield* loadOwnerOrFail(ctx);
-          const { contacts, nextCursor } = yield* contactService
-            .list(owner, { limit: params.limit, cursor: params.cursor })
-            .pipe(
-              // A bad cursor is an invalid client param, not an internal defect.
-              Effect.catchTag("InvalidCursor", (err) =>
-                Effect.fail(new InvalidParamsError({ message: err.message })),
-              ),
-            );
-          return {
-            contacts: [...contacts],
-            ...(nextCursor !== undefined ? { nextCursor } : {}),
-          };
-        }).pipe(Effect.withSpan("contacts.list")),
-    },
-    [],
-  ),
-
-  defineTaskMethod(
-    ContactsAdd,
-    {
-      callablePrincipal: "agent",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const contactService = yield* ContactsServiceTag;
-          const owner = yield* loadOwnerOrFail(ctx);
-          const contact = yield* contactService.add(owner, params);
-          yield* fanOut(
-            params.contactUserId,
-            ContactRequestNotificationDefinition,
-            { contact },
+  defineTaskMethod(ContactsList, {
+    callablePrincipal: "agent",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const contactService = yield* ContactsServiceTag;
+        const owner = yield* loadOwnerOrFail(ctx);
+        const { contacts, nextCursor } = yield* contactService
+          .list(owner, { limit: params.limit, cursor: params.cursor })
+          .pipe(
+            // A bad cursor is an invalid client param, not an internal defect.
+            Effect.catchTag("InvalidCursor", (err) =>
+              Effect.fail(new InvalidParamsError({ message: err.message })),
+            ),
           );
-          return { contact };
-        }).pipe(Effect.withSpan("contacts.add")),
-    },
-    [],
-  ),
+        return {
+          contacts: [...contacts],
+          ...(nextCursor !== undefined ? { nextCursor } : {}),
+        };
+      }).pipe(Effect.withSpan("contacts.list")),
+  }),
 
-  defineTaskMethod(
-    ContactsAccept,
-    {
-      callablePrincipal: "agent",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const contactService = yield* ContactsServiceTag;
-          const owner = yield* loadOwnerOrFail(ctx);
-          const result = yield* contactService.accept(owner, params.contactId);
-          if (result.transitioned) {
-            yield* fanOut(
-              result.requesterUserId,
-              ContactAcceptedNotificationDefinition,
-              { contact: result.contact },
-            );
-          }
-          return { contact: result.contact };
-        }).pipe(Effect.withSpan("contacts.accept")),
-    },
-    [],
-  ),
+  defineTaskMethod(ContactsAdd, {
+    callablePrincipal: "agent",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const contactService = yield* ContactsServiceTag;
+        const owner = yield* loadOwnerOrFail(ctx);
+        const contact = yield* contactService.add(owner, params);
+        yield* fanOut(
+          params.contactUserId,
+          ContactRequestNotificationDefinition,
+          { contact },
+        );
+        return { contact };
+      }).pipe(Effect.withSpan("contacts.add")),
+  }),
 
-  defineTaskMethod(
-    ContactsById,
-    {
-      callablePrincipal: "agent",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const contactService = yield* ContactsServiceTag;
-          const owner = yield* loadOwnerOrFail(ctx);
-          const contact = yield* contactService.byId(owner, params.contactId);
-          return { contact };
-        }).pipe(Effect.withSpan("contacts.byId")),
-    },
-    [],
-  ),
+  defineTaskMethod(ContactsAccept, {
+    callablePrincipal: "agent",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const contactService = yield* ContactsServiceTag;
+        const owner = yield* loadOwnerOrFail(ctx);
+        const result = yield* contactService.accept(owner, params.contactId);
+        if (result.transitioned) {
+          yield* fanOut(
+            result.requesterUserId,
+            ContactAcceptedNotificationDefinition,
+            { contact: result.contact },
+          );
+        }
+        return { contact: result.contact };
+      }).pipe(Effect.withSpan("contacts.accept")),
+  }),
+
+  defineTaskMethod(ContactsById, {
+    callablePrincipal: "agent",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const contactService = yield* ContactsServiceTag;
+        const owner = yield* loadOwnerOrFail(ctx);
+        const contact = yield* contactService.byId(owner, params.contactId);
+        return { contact };
+      }).pipe(Effect.withSpan("contacts.byId")),
+  }),
 ];

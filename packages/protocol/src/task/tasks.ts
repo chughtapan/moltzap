@@ -14,21 +14,11 @@ import {
 } from "../transport/wire-errors.js";
 import { ConversationId, conversationSchema } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
-import {
-  callerAgentIdOf,
-  type DispatchContext,
-} from "../transport/capabilities.js";
-// D #705 CP4d — the dispatcher now provides the protocol-owned
-// `DispatchContext` per request (the server's three-arm `Connection`
-// arm satisfies it structurally): `connection.connId` is the caller's
-// id and `connection.auth` is the tagged principal union. The argsOf
-// resolvers below read those fields directly. The shared
-// `callerAgentIdOf` (capabilities.ts) narrows the tagged `auth` union by
-// `_tag === "AgentContext"` — cast-free; no `as { agentId }` assertion.
-// Direct per-file imports (NOT via the capabilities barrel) to keep the
-// runtime dep graph one-way; see conversations.ts for the rationale.
-import { ContactPolicyAllowsReach } from "./capabilities/contact-policy-allows-reach.js";
-import { ConversationInTask } from "./capabilities/conversation-in-task.js";
+// #705 HALF-2 — `task/request`'s `ContactPolicyAllowsReach` and the four
+// `task/conversation/*` `ConversationInTask` capabilities are declared at
+// the server binding site as `CapabilityMiddleware` tuples (reading the
+// caller via `CurrentPrincipal`), NOT as descriptor `capabilities` + `argsOf`
+// resolvers. The wire descriptors below carry only their params/result shape.
 
 // `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
 // re-exported here for backward compatibility of import paths.
@@ -361,30 +351,6 @@ export const TaskRequest = defineRpc({
     },
     { additionalProperties: false },
   ),
-  // Contact-policy gate. The dispatcher auto-provisions this before the
-  // app-layer handler runs; the handler drains it as a precondition of
-  // creating the task. Empty `invitedAgentIds` provisions a no-op proof
-  // (zero targets short-circuit the obtain helper). The descriptor
-  // declares the gate so the wire surface reflects the authorization
-  // need even though `task/request` is bound via `defineAppMethod`.
-  capabilities: [
-    {
-      tag: ContactPolicyAllowsReach,
-      argsOf: (params: unknown, ctx: DispatchContext) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly invitedAgentIds: ReadonlyArray<AgentId>;
-        };
-        // `ctx` is the protocol 2-arm `DispatchContext` (the slot narrowed
-        // the live arm before discharge); `callerAgentIdOf` reads the
-        // agent arm cast-free.
-        return {
-          creatorAgentId: callerAgentIdOf(ctx),
-          targetAgentIds: [...p.invitedAgentIds],
-        };
-      },
-    },
-  ] as const,
 });
 
 /**
@@ -457,18 +423,11 @@ export const TaskConversationList = defineRpc({
   ),
 });
 
-// Shared `argsOf` builder for the four conversation-targeted
-// descriptors below — they share the IDENTICAL `[ConversationInTask]`
-// capability array. App-ownership is gated in the app-arm handlers
-// (D #705 R7); only `ConversationInTask` rides on the descriptor.
-const conversationInTaskArgsOfPair = (params: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-  const p = params as {
-    readonly taskId: TaskId;
-    readonly conversationId: ConversationId;
-  };
-  return { taskId: p.taskId, conversationId: p.conversationId };
-};
+// The four conversation-targeted descriptors below share the IDENTICAL
+// `[ConversationInTask]` capability. App-ownership is gated in the app-arm
+// handlers (D #705 R7); only `ConversationInTask` applies, declared at the
+// server binding site as a `CapabilityMiddleware` (#705 HALF-2). The wire
+// descriptors here carry only their params/result shape.
 
 /** TM-only: archive one conversation. Task stays open. */
 export const TaskConversationArchive = defineRpc({
@@ -478,9 +437,6 @@ export const TaskConversationArchive = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
 });
 
 /** TM-only: reverse of `task/conversation/archive`. */
@@ -491,9 +447,6 @@ export const TaskConversationUnarchive = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
 });
 
 /**
@@ -514,12 +467,9 @@ export const TaskConversationAddParticipant = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
   // App-ownership is gated by the app-arm handler's
   // `assertCallerAppOwnsTask` BEFORE `requireAgentsAreInTaskParticipants`
-  // (so a non-owner sees `ForbiddenError`, not the
-  // participant-admitted state probe). `ConversationInTask` stays
-  // descriptor-provisioned.
-  capabilities: [
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
+  // (so a non-owner sees `ForbiddenError`, not the participant-admitted
+  // state probe). `ConversationInTask` is woven by the server binding's
+  // `CapabilityMiddleware` (#705 HALF-2).
 });
 
 /**
@@ -538,9 +488,6 @@ export const TaskConversationRemoveParticipant = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
 });
 
 // ─── task/conversation/* notifications ──────────────────────────────

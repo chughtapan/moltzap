@@ -81,12 +81,6 @@ export type { RpcCallError } from "./originator.js";
 // three connection factories (`make{Server,AgentClient,TaskMaster}Connection`).
 // Type-level invariants are exercised by `typed-dispatcher.types-check.ts`.
 export type {
-  CapabilityDescriptor,
-  CapabilitiesOf,
-  DispatchAuth,
-  DispatchContext,
-} from "./capabilities.js";
-export type {
   HandlerSlot,
   TaskMasterHandlers,
   TaskMasterInboundRpcDefinition,
@@ -110,23 +104,18 @@ export {
   buildTaskMasterDispatcher,
 } from "./dispatch.js";
 
-// #705 HALF-1 — cast-free erased slot. The keyed `ErasedSlotTable` the
-// dispatcher will index by runtime method string (supersedes the
-// `RpcMethodBinding[]` + erasure-cast cascade). `makeErasedSlot` wraps a
-// typed `(definition, handler, providers)` triple where `CapsTuple` is
-// bound; the positional `CapProviders` tuple reproduces the retired
-// Canary 7 lockstep on live code. Migration of the live dispatch path
-// onto this surface is the HALF-1 cutover.
+// #705 — the existential `ErasedSlot` the dispatcher indexes by runtime
+// method string (supersedes the `RpcMethodBinding[]` + erasure-cast
+// cascade). Every slot is built by `makeMiddlewareSlot` (HALF-2); the
+// legacy `makeErasedSlot` + `dischargeCaps` + positional `CapProviders`
+// tuple + `argsOf` erasure are gone.
 export type {
   ErasedSlot,
   ErasedSlotTable,
   SlotDispatchContext,
-  CapProviders,
-  CapIdentsOf,
 } from "./erased-slot.js";
-export { makeErasedSlot } from "./erased-slot.js";
 
-// #705 HALF-2 slice-1 — principal-as-service + cap-as-middleware. The
+// #705 HALF-2 — principal-as-service + cap-as-middleware. The
 // cast-free successor surface for middleware-converted methods: the
 // protocol-owned `CurrentPrincipal` Tag (read via `yield*` in
 // `derivePayload`), the `CapabilityMiddleware` carrier, and the

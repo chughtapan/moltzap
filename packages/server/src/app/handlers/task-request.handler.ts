@@ -27,6 +27,7 @@ import {
   TaskFailedNotificationDefinition,
   TaskRejectedError,
   TaskRequest,
+  provideMiddleware,
   type AppId,
   type Conversation,
   type Task,
@@ -44,9 +45,9 @@ import {
 } from "../layers.js";
 import { obtainConversationCreateAuthorization } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
-import { defineAppMethod } from "../../transport/define-layered-method.js";
+import { defineAppMiddlewareMethod } from "../../transport/define-layered-method.js";
 import type { ServerRpcSlots } from "../../transport/context.js";
-import { provideContactPolicyAllowsReach } from "../capability-providers.js";
+import { contactPolicyAllowsReachMiddleware } from "../capability-middlewares.js";
 
 type TaskRequestParams = {
   readonly appId: AppId;
@@ -178,14 +179,13 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const appHost = yield* AppHostTag;
-    // Contact-policy gate. The dispatcher auto-provisions
-    // `ContactPolicyAllowsReach` from the descriptor's `capabilities`
-    // array before this body runs; draining the tag here makes the
-    // gate a precondition of `taskService.create`. Empty
-    // `invitedAgentIds` provisions a no-op proof: the service-layer
-    // guards short-circuit on zero targets (`loadAgentOwners([])` does
-    // no DB work; `assertContactPolicyForCreate(_, [], _)` returns
-    // `Effect.void`).
+    // Contact-policy gate. The binding's `weaveCaps` chain provides
+    // `ContactPolicyAllowsReach` (via `contactPolicyAllowsReachMiddleware`)
+    // before this body runs; draining the tag here makes the gate a
+    // precondition of `taskService.create`. Empty `invitedAgentIds`
+    // provisions a no-op proof: the service-layer guards short-circuit on
+    // zero targets (`loadAgentOwners([])` does no DB work;
+    // `assertContactPolicyForCreate(_, [], _)` returns `Effect.void`).
     yield* ContactPolicyAllowsReach;
     const waitingTask = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
@@ -211,20 +211,25 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 export const taskRequestHandlers: ServerRpcSlots = [
   // D #705 #720 — the orthogonality proof site: `task/request` is
   // AGENT-called (reads `ctx.agentId` as `initiatorAgentId`) yet binds via
-  // `defineAppMethod` (its body `yield*`s `AppHostTag` to fire the
+  // `defineAppMiddlewareMethod` (its body `yield*`s `AppHostTag` to fire the
   // `task/create` callback). `callablePrincipal: "agent"` places it in the
-  // agent arm + hands the body an `AgentContext`; `defineAppMethod` admits
-  // `AppHostTag` in the R-channel. The two axes are independent.
+  // agent arm + hands the body an `AgentContext`; the app-layer binding
+  // admits `AppHostTag` in the R-channel. The two axes are independent.
   //
-  // `TaskRequest` declares `[ContactPolicyAllowsReach]` — the providers
-  // tuple is positional, aligned to that single-cap order.
-  defineAppMethod(
+  // `TaskRequest` declares `[ContactPolicyAllowsReach]` — woven as a static
+  // single-step `weaveCaps` chain; the declared middleware tuple (2nd arg)
+  // pins the totality lockstep.
+  defineAppMiddlewareMethod(
     TaskRequest,
+    [contactPolicyAllowsReachMiddleware] as const,
     {
       callablePrincipal: "agent",
       requiresActive: true,
       handler: (params, ctx) => taskRequestBody(params, ctx),
+      weaveCaps: (handlerEffect, params) =>
+        handlerEffect.pipe(
+          provideMiddleware(contactPolicyAllowsReachMiddleware, params),
+        ),
     },
-    [provideContactPolicyAllowsReach],
   ),
 ];

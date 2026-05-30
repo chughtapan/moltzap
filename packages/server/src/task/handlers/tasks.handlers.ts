@@ -18,6 +18,7 @@ import {
   TaskList,
   TaskRemoveParticipant,
   InvalidParamsError,
+  provideMiddleware,
   type Conversation,
   type TaskConversationListItem,
 } from "@moltzap/protocol";
@@ -30,12 +31,18 @@ import {
 } from "@moltzap/protocol/task";
 import {
   defineAppMethod,
+  defineAppMiddlewareMethod,
   defineTaskMethod,
 } from "../../transport/define-layered-method.js";
 import type { ServerRpcSlots } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-import { provideConversationInTask } from "../../app/capability-providers.js";
+import {
+  conversationInTaskForArchive,
+  conversationInTaskForUnarchive,
+  conversationInTaskForAddParticipant,
+  conversationInTaskForRemoveParticipant,
+} from "../../app/capability-middlewares.js";
 import { obtainConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
@@ -64,8 +71,8 @@ function assertCallerAppOwnsTask(appId: AppId, taskId: TaskId) {
 }
 
 // `task/request` lives in `packages/server/src/app/handlers/task-request.handler.ts`
-// — its handler binds via `defineAppMethod` because it dispatches the
-// `task/create` TM callback through `AppHost`, which is an app-layer
+// — its handler binds via `defineAppMiddlewareMethod` because it dispatches
+// the `task/create` TM callback through `AppHost`, which is an app-layer
 // service. The descriptor itself stays in `@moltzap/protocol/task`;
 // only the binding moves up a layer.
 
@@ -254,192 +261,165 @@ function fanoutUnarchiveDualEmit(input: UnarchiveDualEmitInput) {
 }
 
 export const taskHandlers: ServerRpcSlots = [
-  defineTaskMethod(
-    TaskList,
-    {
-      callablePrincipal: "agent",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const taskService = yield* TaskServiceTag;
-          const { tasks, nextCursor } = yield* taskService
-            .list(ctx.agentId, {
-              limit: params.limit,
-              cursor: params.cursor,
-            })
-            .pipe(
-              // A bad cursor is an invalid client param, not an internal defect.
-              Effect.catchTag("InvalidCursor", (err) =>
-                Effect.fail(new InvalidParamsError({ message: err.message })),
-              ),
-            );
-          return {
-            tasks: [...tasks],
-            ...(nextCursor !== undefined ? { nextCursor } : {}),
-          };
-        }).pipe(Effect.withSpan("task.list")),
-    },
-    [],
-  ),
+  defineTaskMethod(TaskList, {
+    callablePrincipal: "agent",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const { tasks, nextCursor } = yield* taskService
+          .list(ctx.agentId, {
+            limit: params.limit,
+            cursor: params.cursor,
+          })
+          .pipe(
+            // A bad cursor is an invalid client param, not an internal defect.
+            Effect.catchTag("InvalidCursor", (err) =>
+              Effect.fail(new InvalidParamsError({ message: err.message })),
+            ),
+          );
+        return {
+          tasks: [...tasks],
+          ...(nextCursor !== undefined ? { nextCursor } : {}),
+        };
+      }).pipe(Effect.withSpan("task.list")),
+  }),
 
-  defineAppMethod(
-    TaskClose,
-    {
-      callablePrincipal: "app",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-          const taskService = yield* TaskServiceTag;
-          const closed = yield* taskService.closeWithLifecycle(params.taskId);
-          for (const conversation of closed.archivedConversations) {
-            yield* broadcastNotificationToAgents(
-              conversation.participantAgentIds,
-              TaskConversationArchivedNotificationDefinition,
-              {
-                taskId: params.taskId,
-                conversationId: conversation.conversationId,
-                archivedAt: conversation.archivedAt,
-              },
-              { forConversation: conversation.conversationId },
-            );
-          }
+  defineAppMethod(TaskClose, {
+    callablePrincipal: "app",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+        const taskService = yield* TaskServiceTag;
+        const closed = yield* taskService.closeWithLifecycle(params.taskId);
+        for (const conversation of closed.archivedConversations) {
           yield* broadcastNotificationToAgents(
-            closed.participantAgentIds,
-            TaskClosedNotificationDefinition,
-            { task: closed.task },
+            conversation.participantAgentIds,
+            TaskConversationArchivedNotificationDefinition,
+            {
+              taskId: params.taskId,
+              conversationId: conversation.conversationId,
+              archivedAt: conversation.archivedAt,
+            },
+            { forConversation: conversation.conversationId },
           );
-          return { task: closed.task };
-        }).pipe(Effect.withSpan("task.close")),
-    },
-    [],
-  ),
+        }
+        yield* broadcastNotificationToAgents(
+          closed.participantAgentIds,
+          TaskClosedNotificationDefinition,
+          { task: closed.task },
+        );
+        return { task: closed.task };
+      }).pipe(Effect.withSpan("task.close")),
+  }),
 
-  defineAppMethod(
-    TaskAddParticipant,
-    {
-      callablePrincipal: "app",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-          const taskService = yield* TaskServiceTag;
-          const participant = yield* taskService.addParticipant(
-            params.taskId,
-            params.agentId,
-          );
-          return { participant };
-        }).pipe(Effect.withSpan("task.addParticipant")),
-    },
-    [],
-  ),
+  defineAppMethod(TaskAddParticipant, {
+    callablePrincipal: "app",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+        const taskService = yield* TaskServiceTag;
+        const participant = yield* taskService.addParticipant(
+          params.taskId,
+          params.agentId,
+        );
+        return { participant };
+      }).pipe(Effect.withSpan("task.addParticipant")),
+  }),
 
-  defineAppMethod(
-    TaskRemoveParticipant,
-    {
-      callablePrincipal: "app",
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-          const taskService = yield* TaskServiceTag;
-          yield* taskService.removeParticipant(params.taskId, params.agentId);
-          return {};
-        }).pipe(Effect.withSpan("task.removeParticipant")),
-    },
-    [],
-  ),
+  defineAppMethod(TaskRemoveParticipant, {
+    callablePrincipal: "app",
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+        const taskService = yield* TaskServiceTag;
+        yield* taskService.removeParticipant(params.taskId, params.agentId);
+        return {};
+      }).pipe(Effect.withSpan("task.removeParticipant")),
+  }),
 
   // `task/*` + `task/conversation/*` handlers. Per-flow walkthrough
   // lives in the family-overview header block in
   // `packages/protocol/src/task/tasks.ts` (the `task/*` +
   // `task/conversation/*` block above `InitialConversationSchema`).
   //
-  // The 8 task-admin RPCs bind via `defineAppMethod` (D #705 R7): each
-  // handler runs `assertCallerAppOwnsTask` (the app-arm authority gate
-  // that replaced the dissolved `TmAuthority` capability) before any
-  // service mutation. `ConversationInTask` is still auto-provisioned per
-  // descriptor for the four conversation-targeted RPCs.
+  // The 8 task-admin RPCs bind at the app layer (D #705 R7): each handler
+  // runs `assertCallerAppOwnsTask` (the app-arm authority gate that replaced
+  // the dissolved `TmAuthority` capability) before any service mutation. The
+  // four conversation-targeted RPCs bind via `defineAppMiddlewareMethod` and
+  // weave `ConversationInTask` as a `CapabilityMiddleware`; the rest are
+  // cap-less (`defineAppMethod`).
 
-  // `task/request` is registered via `defineAppMethod` in
+  // `task/request` is registered via `defineAppMiddlewareMethod` in
   // `packages/server/src/app/handlers/task-request.handler.ts`. The
   // descriptor stays in `@moltzap/protocol/task`; the binding moves up
   // a layer because the handler needs `AppHostTag` to fire the
   // `task/create` TM callback (an app-layer service).
 
-  defineTaskMethod(
-    TaskLeave,
-    {
-      callablePrincipal: "agent",
-      requiresActive: true,
-      handler: (params, ctx) => taskLeaveBody(params, ctx),
-    },
-    [],
-  ),
+  defineTaskMethod(TaskLeave, {
+    callablePrincipal: "agent",
+    requiresActive: true,
+    handler: (params, ctx) => taskLeaveBody(params, ctx),
+  }),
 
-  defineAppMethod(
-    TaskConversationCreate,
-    {
-      callablePrincipal: "app",
-      handler: (params, ctx) => taskConversationCreateBody(ctx.appId, params),
-    },
-    [],
-  ),
+  defineAppMethod(TaskConversationCreate, {
+    callablePrincipal: "app",
+    handler: (params, ctx) => taskConversationCreateBody(ctx.appId, params),
+  }),
 
-  defineTaskMethod(
-    TaskConversationList,
-    {
-      callablePrincipal: "agent",
-      requiresActive: true,
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const conversationService = yield* ConversationServiceTag;
-          // `archived: "include"` per spec body Goal 1 — archived rows
-          // are surfaced and the client filters `conversation.archivedAt`
-          // locally. The underlying `listConversations` helper already
-          // supports the `include` filter mode (Spec E added it).
-          const { conversations, cursor: nextCursor } =
-            yield* conversationService.list(
-              ctx.agentId,
-              params.limit,
-              params.cursor,
-              "include",
-            );
-          // Project each summary into the spec-body `TaskConversationListItem`
-          // shape: `{ taskId, conversation: ConversationRow, participants }`.
-          // The summary is from the listConversations projection; the per-
-          // item `conversation` and `participants` come from one batched
-          // round-trip each.
-          const items: TaskConversationListItem[] = [];
-          for (const summary of conversations) {
-            const conversation = yield* conversationService.loadById(
-              summary.id,
-            );
-            const participants = yield* conversationService
-              .getParticipantAgentIds(summary.id)
-              .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-            const linkedTaskId =
-              yield* conversationService.taskIdForConversation(summary.id);
-            items.push({
-              taskId: linkedTaskId,
-              conversation,
-              participants: [...participants],
-            });
-          }
-          return {
-            items,
-            ...(nextCursor !== undefined ? { nextCursor } : {}),
-          };
-        }).pipe(Effect.withSpan("task.conversation.list")),
-    },
-    [],
-  ),
+  defineTaskMethod(TaskConversationList, {
+    callablePrincipal: "agent",
+    requiresActive: true,
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const conversationService = yield* ConversationServiceTag;
+        // `archived: "include"` per spec body Goal 1 — archived rows
+        // are surfaced and the client filters `conversation.archivedAt`
+        // locally. The underlying `listConversations` helper already
+        // supports the `include` filter mode (Spec E added it).
+        const { conversations, cursor: nextCursor } =
+          yield* conversationService.list(
+            ctx.agentId,
+            params.limit,
+            params.cursor,
+            "include",
+          );
+        // Project each summary into the spec-body `TaskConversationListItem`
+        // shape: `{ taskId, conversation: ConversationRow, participants }`.
+        // The summary is from the listConversations projection; the per-
+        // item `conversation` and `participants` come from one batched
+        // round-trip each.
+        const items: TaskConversationListItem[] = [];
+        for (const summary of conversations) {
+          const conversation = yield* conversationService.loadById(summary.id);
+          const participants = yield* conversationService
+            .getParticipantAgentIds(summary.id)
+            .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
+          const linkedTaskId = yield* conversationService.taskIdForConversation(
+            summary.id,
+          );
+          items.push({
+            taskId: linkedTaskId,
+            conversation,
+            participants: [...participants],
+          });
+        }
+        return {
+          items,
+          ...(nextCursor !== undefined ? { nextCursor } : {}),
+        };
+      }).pipe(Effect.withSpan("task.conversation.list")),
+  }),
 
-  defineAppMethod(
+  defineAppMiddlewareMethod(
     TaskConversationArchive,
+    [conversationInTaskForArchive] as const,
     {
       callablePrincipal: "app",
       handler: (params, ctx) =>
         Effect.gen(function* () {
           yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-          // `ConversationInTask` auto-provisioned per descriptor
-          // `capabilities: [...]`; consumed inside `archiveTaskConversation`.
+          // `ConversationInTask` woven by `weaveCaps`; consumed inside
+          // `archiveTaskConversation`.
           const taskService = yield* TaskServiceTag;
           const { archivedAt } = yield* taskService.archiveTaskConversation(
             params.taskId,
@@ -452,19 +432,23 @@ export const taskHandlers: ServerRpcSlots = [
           });
           return {};
         }).pipe(Effect.withSpan("task.conversation.archive")),
+      weaveCaps: (handlerEffect, params) =>
+        handlerEffect.pipe(
+          provideMiddleware(conversationInTaskForArchive, params),
+        ),
     },
-    [provideConversationInTask],
   ),
 
-  defineAppMethod(
+  defineAppMiddlewareMethod(
     TaskConversationUnarchive,
+    [conversationInTaskForUnarchive] as const,
     {
       callablePrincipal: "app",
       handler: (params, ctx) =>
         Effect.gen(function* () {
           yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-          // `ConversationInTask` auto-provisioned per descriptor
-          // `capabilities: [...]`; consumed inside `unarchiveTaskConversation`.
+          // `ConversationInTask` woven by `weaveCaps`; consumed inside
+          // `unarchiveTaskConversation`.
           const taskService = yield* TaskServiceTag;
           yield* taskService.unarchiveTaskConversation(
             params.taskId,
@@ -476,12 +460,16 @@ export const taskHandlers: ServerRpcSlots = [
           });
           return {};
         }).pipe(Effect.withSpan("task.conversation.unarchive")),
+      weaveCaps: (handlerEffect, params) =>
+        handlerEffect.pipe(
+          provideMiddleware(conversationInTaskForUnarchive, params),
+        ),
     },
-    [provideConversationInTask],
   ),
 
-  defineAppMethod(
+  defineAppMiddlewareMethod(
     TaskConversationAddParticipant,
+    [conversationInTaskForAddParticipant] as const,
     {
       callablePrincipal: "app",
       handler: (params, ctx) =>
@@ -496,8 +484,8 @@ export const taskHandlers: ServerRpcSlots = [
           yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
             params.agentId,
           ]);
-          // `ConversationInTask` auto-provisioned per descriptor and
-          // consumed inside `addTaskConversationParticipant`.
+          // `ConversationInTask` woven by `weaveCaps`; consumed inside
+          // `addTaskConversationParticipant`.
           const { postMutationParticipants } =
             yield* taskService.addTaskConversationParticipant(
               params.taskId,
@@ -518,19 +506,22 @@ export const taskHandlers: ServerRpcSlots = [
           );
           return {};
         }).pipe(Effect.withSpan("task.conversation.participants.add")),
+      weaveCaps: (handlerEffect, params) =>
+        handlerEffect.pipe(
+          provideMiddleware(conversationInTaskForAddParticipant, params),
+        ),
     },
-    [provideConversationInTask],
   ),
 
-  defineAppMethod(
+  defineAppMiddlewareMethod(
     TaskConversationRemoveParticipant,
+    [conversationInTaskForRemoveParticipant] as const,
     {
       callablePrincipal: "app",
       handler: (params, ctx) =>
         Effect.gen(function* () {
           yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-          // `ConversationInTask` auto-provisioned per descriptor
-          // `capabilities: [...]`; consumed inside
+          // `ConversationInTask` woven by `weaveCaps`; consumed inside
           // `removeTaskConversationParticipant`.
           const taskService = yield* TaskServiceTag;
           const { preMutationParticipants, wasParticipant } =
@@ -558,7 +549,10 @@ export const taskHandlers: ServerRpcSlots = [
           );
           return {};
         }).pipe(Effect.withSpan("task.conversation.participants.remove")),
+      weaveCaps: (handlerEffect, params) =>
+        handlerEffect.pipe(
+          provideMiddleware(conversationInTaskForRemoveParticipant, params),
+        ),
     },
-    [provideConversationInTask],
   ),
 ];

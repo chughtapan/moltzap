@@ -76,31 +76,31 @@ const defConversation = {
 const defContacts = { callablePrincipal: p, handler: yieldsContactsService };
 const defAppHost = { callablePrincipal: p, handler: yieldsAppHost };
 
-// `AgentsLookup` declares no capabilities, so the providers tuple is the
-// empty tuple `[]` (#705 HALF-1 — every `defineXMethod` takes a positional
-// providers tuple aligned to the descriptor's `capabilities`). These
-// canaries exercise the LAYER (R-channel) boundary, orthogonal to caps.
-defineNetworkMethod(AgentsLookup, defEmpty, []);
-defineTaskMethod(AgentsLookup, defNetworkScope, []);
-defineAppMethod(AgentsLookup, defAllScopes, []);
+// `AgentsLookup` declares no capabilities, so these bind via the cap-LESS
+// per-layer wrappers (#705 HALF-2 — `defineXMethod(definition, def)`, no
+// providers tuple). These canaries exercise the LAYER (R-channel) boundary,
+// orthogonal to caps.
+defineNetworkMethod(AgentsLookup, defEmpty);
+defineTaskMethod(AgentsLookup, defNetworkScope);
+defineAppMethod(AgentsLookup, defAllScopes);
 
 // @ts-expect-error - network handler may not require TaskLayerScope
-defineNetworkMethod(AgentsLookup, defTaskScope, []);
+defineNetworkMethod(AgentsLookup, defTaskScope);
 
 // @ts-expect-error - network handler may not require AppLayerScope
-defineNetworkMethod(AgentsLookup, defAppScope, []);
+defineNetworkMethod(AgentsLookup, defAppScope);
 
 // @ts-expect-error - network handler may not yield from a task-layer service
-defineNetworkMethod(AgentsLookup, defConversation, []);
+defineNetworkMethod(AgentsLookup, defConversation);
 
 // @ts-expect-error - network handler may not yield from contacts (task-layer)
-defineNetworkMethod(AgentsLookup, defContacts, []);
+defineNetworkMethod(AgentsLookup, defContacts);
 
 // @ts-expect-error - network handler may not yield from app-layer service
-defineNetworkMethod(AgentsLookup, defAppHost, []);
+defineNetworkMethod(AgentsLookup, defAppHost);
 
 // @ts-expect-error - task handler may not require AppLayerScope
-defineTaskMethod(AgentsLookup, defAppScope, []);
+defineTaskMethod(AgentsLookup, defAppScope);
 
 // @ts-expect-error - task handler may not yield from app-layer service
-defineTaskMethod(AgentsLookup, defAppHost, []);
+defineTaskMethod(AgentsLookup, defAppHost);

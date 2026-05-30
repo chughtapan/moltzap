@@ -5,7 +5,7 @@ import {
   CurrentPrincipal,
   type ErasedSlot,
   type ErasedSlotTable,
-  type RpcDefinition,
+  type SlotDispatchContext,
 } from "@moltzap/protocol";
 import type { AppId } from "@moltzap/protocol/task";
 import { ConnectionTag } from "../app/layers.js";
@@ -82,7 +82,7 @@ export function agentContextFrom(parts: {
  * `callablePrincipal: "agent"` (e.g. `task/request`, `dispatch/request` — they
  * `yield* AppHostTag` yet read `ctx.agentId`).
  */
-export type PrincipalKind = "agent" | "app" | "any";
+type PrincipalKind = "agent" | "app" | "any";
 
 /**
  * #705 #720 §B1 — the value→type binding that makes wrong-principal wiring a
@@ -103,21 +103,22 @@ export type CtxForKind<K extends PrincipalKind> = K extends "agent"
 
 /**
  * Per-request dispatch context handed to the dispatcher boundary (D #705
- * CP4d). The SERVER `DispatchContext` carries the live THREE-arm `Connection`
- * union — the principal (`arm.auth`) and the connId are reached off the arm.
- * It is the dispatcher `Ctx` instantiation (the `ServerConnection` Ctx param),
- * and it is the only type that accepts the UNAUTHENTICATED arm, which the
- * Connect frame needs (`socket-handler.ts → handleRequestFrame` passes the
- * unnarrowed arm). It does NOT structurally satisfy the protocol-owned
- * `DispatchContext` (`@moltzap/protocol` `capabilities.ts`): that type requires
- * `connection.auth`, and `UnauthenticatedConnection` has none. Only the
- * NARROWED agent/app arms are assignable to the protocol type — which is
- * exactly why `argsOf` may require `auth` while this dispatcher `Ctx` may not
- * ("two names, one per role").
+ * CP4d). It carries the live THREE-arm `Connection` union — the principal
+ * (`arm.auth`) and the connId are reached off the arm. It is the dispatcher
+ * `Ctx` instantiation (the `ServerConnection` Ctx param), and it is the only
+ * type that accepts the UNAUTHENTICATED arm, which the Connect frame needs
+ * (`socket-handler.ts → handleRequestFrame` passes the unnarrowed arm).
+ *
+ * #705 HALF-2 slice-2: this is just the protocol-owned
+ * {@link SlotDispatchContext} pinned to the server's `Connection` union — the
+ * SAME type the slot factory's `invoke` receives. The former duplicate
+ * server-local `DispatchContext` interface AND the protocol-owned
+ * argsOf-resolver `DispatchContext` (`capabilities.ts`, which required a
+ * narrowed `connection.auth`) both collapsed into this single name when the
+ * cap-as-middleware cutover removed the `argsOf` resolver path: the principal
+ * is now read via {@link CurrentPrincipal}, not off a separate resolver ctx.
  */
-interface DispatchContext {
-  readonly connection: Connection;
-}
+type DispatchContext = SlotDispatchContext<Connection>;
 
 /**
  * One server-side inbound RPC slot — #705 HALF-1. Every `defineXMethod`
@@ -207,105 +208,10 @@ function narrowPrincipalCtx<K extends PrincipalKind>(
 }
 
 /**
- * The slot-handler shape `defineMethod` produces — #705 HALF-1. The
- * `defineXMethod` wrappers (`define-layered-method.ts`) feed this to
- * `makeErasedSlot` as the slot's typed `handler`. `ctx` is the
- * dispatcher-boundary {@link DispatchContext} (the 3-arm `Connection`);
- * the wrapper pins `makeErasedSlot`'s `Conn = Connection`, so
- * `SlotDispatchContext&lt;Connection>` IS this `{ connection: Connection }`.
- *
- * The handler RETURNS the #720-gated body: `narrowPrincipalCtx` rejects a
- * wrong-principal arm with `ForbiddenError` BEFORE the body runs (so the
- * `ForbiddenError` rides the error channel), then runs the user handler
- * on the NARROWED arm and provides `ConnectionTag` from the live arm.
- * The residual `R` is `Reqs` (the layer service tags + per-frame
- * capability tags) the dispatcher's `ManagedRuntime` / the slot's own
- * capability discharge resolves.
- */
-export type SlotHandler<P extends TSchema, R extends TSchema, E, Reqs> = (
-  params: Static<P>,
-  ctx: DispatchContext,
-) => Effect.Effect<Static<R>, E | ForbiddenError, Reqs>;
-
-/**
- * Type-safe RPC method definition driven by a protocol manifest.
- * Wraps the user's handler with the #705 #720 §B1 principal-kind gate
- * (`narrowPrincipalCtx`) + `requiresActive` enforcement and provides
- * `ConnectionTag` from the dispatch context. Returns the gated
- * {@link SlotHandler} the `defineXMethod` wrappers thread into
- * `makeErasedSlot` (no longer an `RpcMethodBinding` — the registry shape
- * was retired by the cast-free `ErasedSlotTable` cutover).
- *
- * `Reqs` is the handler body's R-channel — the union of service Tags it
- * `yield*`s (plus per-frame capability tags) MINUS `ConnectionTag`
- * (provided here from the live arm). Per the Phase 2A r2 plan §3, the
- * `defineXMethod` variants add per-layer upper bounds on `Reqs` via
- * constrained generics; this base `defineMethod` is unconstrained.
- *
- * `Effect.provideService(ConnectionTag, ctx.connection)` is a no-op when
- * the body doesn't pull `ConnectionTag`, so `Reqs` widening doesn't lie
- * about requirements.
- */
-export function defineMethod<
-  Name extends string,
-  P extends TSchema,
-  R extends TSchema,
-  K extends PrincipalKind,
-  E = never,
-  // `Reqs` is intentionally unconstrained: caller handlers' R-channels
-  // are unions of concrete `Context.Tag` instances (DbTag, etc.) whose
-  // invariant `Id`/`Type` parameters reject a `Context.Tag<unknown,
-  // unknown>` upper bound. The slot's `makeErasedSlot` `Env`-pin + the
-  // surrounding `ManagedRuntime` (`FullLive`) resolve them at request
-  // time; the per-frame capability tags are discharged inside the slot.
-  Reqs = never,
->(
-  definition: RpcDefinition<Name, P, R>,
-  def: {
-    // #705 #720 §B1 — REQUIRED, no default. Omitting it is TS2554; it is the
-    // value that types `ctx` via `CtxForKind<K>` (the value→type binding).
-    readonly callablePrincipal: K;
-    readonly handler: (
-      params: Static<P>,
-      ctx: CtxForKind<K>,
-    ) => Effect.Effect<Static<R>, E, Reqs | ConnectionTag>;
-    readonly requiresActive?: boolean;
-  },
-  // `ConnectionTag` is provided per-frame from the live arm below, so it
-  // is SUBTRACTED from the gated handler's residual R — the slot does NOT
-  // claim a request-scoped `ConnectionTag` from the `ManagedRuntime`.
-): SlotHandler<P, R, E, Exclude<Reqs, ConnectionTag>> {
-  const requiresActive = def.requiresActive ?? false;
-  const callablePrincipal = def.callablePrincipal;
-  // #705 HALF-1 — the gated slot handler. The `defineXMethod` wrapper
-  // threads this into `makeErasedSlot`; the slot's `invoke` runs it on
-  // the dispatcher-supplied `DispatchContext` (the 3-arm `Connection`).
-  // `narrowPrincipalCtx` is the #720 principal gate's INVOKE PRE-BODY:
-  // it rejects a wrong-principal arm with `ForbiddenError` before the
-  // user body runs, then hands the body its narrowed `CtxForKind<K>` arm.
-  return (params: Static<P>, ctx: DispatchContext) =>
-    Effect.gen(function* () {
-      const principalCtx = yield* narrowPrincipalCtx(
-        callablePrincipal,
-        ctx.connection,
-        requiresActive,
-      );
-      // R-channel: `def.handler` returns
-      // `Effect<Static<R>, E, Reqs | ConnectionTag>`.
-      // `Effect.provideService(ConnectionTag, ctx.connection)` removes
-      // ConnectionTag; remaining `Reqs` ride out for the slot's
-      // capability discharge + the dispatcher's `ManagedRuntime`.
-      return yield* def
-        .handler(params, principalCtx)
-        .pipe(Effect.provideService(ConnectionTag, ctx.connection));
-    }).pipe(Effect.withSpan("defineMethod"));
-}
-
-/**
  * The handler + `weaveCaps` shape {@link defineMiddlewareMethod} accepts.
  *
  * `NoInfer&lt;CapIdents>` on the handler: `CapIdents` is PINNED by the caller
- * (`defineTaskMiddlewareMethod` derives it from the declared middleware
+ * (`defineXMiddlewareMethod` derives it from the declared middleware
  * tuple). Without `NoInfer`, a handler whose body does not `yield*` the cap
  * would let TS infer `CapIdents = never` and the `weaveCaps` totality
  * lockstep would go false-green. The handler effect is widened to require
@@ -314,6 +220,12 @@ export function defineMethod<
  * cap idents (`provideServiceEffect` per CONCRETE tag) and may add obtain
  * errors (`EW ⊇ E`); `CurrentPrincipal` / `ConnectionTag` stay in its
  * output R and are subtracted by the body's two `provideService`s.
+ *
+ * For a cap-LESS authenticated method `Middlewares = readonly []` ⇒
+ * `CapIdents = never`, and the binding site passes `weaveCaps: (e) => e`
+ * (identity); the body then just runs the #720 gate + provides
+ * `ConnectionTag` + `CurrentPrincipal` — the cast-free successor to the
+ * deleted `defineMethod` + `makeErasedSlot` cap-less agent/app path.
  */
 interface MiddlewareMethodDef<
   P extends TSchema,
@@ -345,25 +257,27 @@ interface MiddlewareMethodDef<
 }
 
 /**
- * Compose ONE cast-free middleware-slot body (#705 HALF-2 slice-1). The
- * principal-as-service successor to {@link defineMethod} + the legacy slot's
- * `dischargeCaps` runtime fold. It:
+ * Compose ONE cast-free middleware-slot body for an AUTHENTICATED
+ * (`"agent"`/`"app"`) method (#705 HALF-2). The principal-as-service
+ * successor to BOTH the legacy `defineMethod` + `makeErasedSlot` cap-less
+ * agent/app path AND the legacy slot's `dischargeCaps` runtime fold. It:
  *   1. runs the #720 principal-kind gate (`narrowPrincipalCtx`) → the
  *      narrowed `AgentContext | AppContext` arm (a {@link Principal});
  *   2. lets the binding site weave the method's STATIC, hand-expanded
  *      capability `provideServiceEffect` chain over the handler effect
- *      (`weaveCaps` — each names a CONCRETE tag, so R subtracts cast-free);
+ *      (`weaveCaps` — each names a CONCRETE tag, so R subtracts cast-free;
+ *      identity for a cap-less method);
  *   3. provides `ConnectionTag` from the live arm AND `CurrentPrincipal`
  *      from the narrowed arm — the principal-as-service provision site
  *      (`derivePayload` reads `CurrentPrincipal` via `yield*`; this provide
  *      SUBTRACTS it; the residual R bottoms out at `Env`);
  *   4. `Effect.exit`s into the inner `Exit` the dispatcher projects.
  *
- * `K extends "agent" | "app"` (NOT `"any"`): every cap-bearing method is
- * authenticated, so the narrowed arm is always a real `Principal`. The
- * unauth Connect path (`"any"`) declares no middlewares and never reaches
- * here — so `CurrentPrincipal` is never provided on the unauthenticated arm
- * (the #720 gate rejected non-agent/app callers BEFORE any principal read).
+ * `K extends "agent" | "app"` (NOT `"any"`): the narrowed arm is always a
+ * real `Principal`, so `CurrentPrincipal` is unconditionally provided —
+ * keeping the provision cast-free. The lone unauth `"any"` method
+ * (`network/connect`) reads no principal and runs through the sibling
+ * {@link defineUnauthMethod}, which provides `ConnectionTag` only.
  *
  * Cast-free end to end: NO `dischargeCaps` runtime fold, NO
  * `narrowToDispatchContext`, NO `argsOf(unknown, unknown)` erasure, NO
@@ -388,9 +302,9 @@ export function defineMiddlewareMethod<
   return (params: Static<P>, ctx: DispatchContext) =>
     // `Effect.exit` over the WHOLE body so the #720 gate's `ForbiddenError`
     // (a wrong-principal arm) ALSO surfaces as a success-typed `Exit.Failure`
-    // the dispatcher projects (mirrors `makeErasedSlot.invoke`). The gate
-    // runs BEFORE any `CurrentPrincipal` read — the unauth/wrong-principal
-    // arm is rejected before the principal-as-service provision (#720).
+    // the dispatcher projects (mirrors the slot `invoke`). The gate runs
+    // BEFORE any `CurrentPrincipal` read — the unauth/wrong-principal arm is
+    // rejected before the principal-as-service provision (#720).
     Effect.gen(function* () {
       const principalCtx = yield* narrowPrincipalCtx(
         callablePrincipal,
@@ -410,4 +324,46 @@ export function defineMiddlewareMethod<
           Effect.provideService(CurrentPrincipal, principalCtx),
         );
     }).pipe(Effect.exit, Effect.withSpan("defineMiddlewareMethod"));
+}
+
+/**
+ * Compose ONE cast-free middleware-slot body for the lone UNAUTHENTICATED
+ * (`"any"`) method — `network/connect` (#705 HALF-2). It is dispatched while
+ * the arm is still `UnauthenticatedConnection`, so there is NO principal: the
+ * body dispatches on the credential union itself (reading the live arm via
+ * `ConnectionTag`), NOT on a `ctx` principal. So this builder runs the #720
+ * gate (which yields `undefined` for `"any"`) and provides `ConnectionTag`
+ * only — `CurrentPrincipal` is NEVER provided on the unauthenticated arm.
+ *
+ * Cap-less by construction (an unauth method can declare no capability — caps
+ * read the principal that does not yet exist). The sibling
+ * {@link defineMiddlewareMethod} covers every authenticated method.
+ */
+export function defineUnauthMethod<
+  P extends TSchema,
+  R extends TSchema,
+  E,
+  Env,
+>(def: {
+  readonly handler: (
+    params: Static<P>,
+    ctx: undefined,
+  ) => Effect.Effect<Static<R>, E, Env | ConnectionTag>;
+}): (
+  params: Static<P>,
+  ctx: DispatchContext,
+) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env> {
+  return (params: Static<P>, ctx: DispatchContext) =>
+    Effect.gen(function* () {
+      // `"any"` gate yields `undefined` (no principal); the body reads the
+      // live arm via `ConnectionTag`, provided here from the dispatch ctx.
+      const principalCtx = yield* narrowPrincipalCtx(
+        "any",
+        ctx.connection,
+        false,
+      );
+      return yield* def
+        .handler(params, principalCtx)
+        .pipe(Effect.provideService(ConnectionTag, ctx.connection));
+    }).pipe(Effect.exit, Effect.withSpan("defineUnauthMethod"));
 }

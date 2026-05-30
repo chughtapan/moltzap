@@ -8,8 +8,8 @@
  * TaskMaster (and the conformance harness) write a
  * {@link TaskMasterHandlers} literal — a `{ definition, handle }` slot
  * per `taskCallbackMethods` member — which the WS client converts to an
- * `ErasedSlotTable` (caps-empty) at connection time via
- * {@link makeErasedSlot}. Every slot is REQUIRED (Spec D3 R14b retired
+ * `ErasedSlotTable` (cap-less) at connection time via
+ * {@link makeMiddlewareSlot}. Every slot is REQUIRED (Spec D3 R14b retired
  * the `forbidden` / `noOpNotification` sentinels); omitting any key fails
  * TS2741 at the factory call.
  */
@@ -27,11 +27,12 @@ import type { ParamsOf, ResultOf, RpcDefinition } from "./method.js";
  * reference; the TM-callback catalog declares no capabilities, so
  * callers bind `Caps = never`.
  *
- * The WS client wraps each authored slot into an `ErasedSlot` (caps
- * tuple `[]`) at connection time; the slot's `invoke` decodes params
- * and runs `handle`. The cross-package handler-R lockstep that the
- * server side enforces lives on `makeErasedSlot`'s typed handler bound
- * (`erased-slot.types-check.ts`).
+ * The WS client wraps each authored slot into an `ErasedSlot` (cap-less)
+ * at connection time via {@link makeMiddlewareSlot}; the slot's `invoke`
+ * decodes params and runs `handle`. The cross-package handler-R / cap
+ * totality lockstep that the server side enforces lives on the
+ * `defineXMiddlewareMethod` `weaveCaps` bound
+ * (`server-core` `middleware-slot.types-check.ts`).
  */
 export interface HandlerSlot<
   D extends RpcDefinition<string, TSchema, TSchema>,
