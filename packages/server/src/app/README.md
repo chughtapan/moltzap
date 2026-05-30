@@ -1,6 +1,6 @@
 # app/
 
-App-host, app registration, capability provider table, top-level
+App-host, app registration, capability middlewares, top-level
 server boot, layer composition, HTTP routes, WS socket handler. (The
 dispatch lease registry now lives in `task/leases/`.)
 
@@ -17,11 +17,12 @@ dispatch lease registry now lives in `task/leases/`.)
   that wires Layers, services, and HTTP/WS routes.
 - `layers.ts` — Tag definitions + `ServicesLive` tier composition for
   the whole stack.
-- `app-host.ts` — `AppHost` class; hook envelope + 3-step resolution
-  (in-process → remote → synthetic default) for `dispatch/authorize`
-  and `messages/authorize`.
-- `app-registration.ts` — app registration + remote-app connection
-  binding.
+- `app-host.ts` — `AppHost` class; hook envelope + two-arm resolution
+  (unknown-app fail-closed / manifest-default synthetic / app round-trip
+  over the endpoint originator) for `dispatch/authorize`,
+  `messages/authorize`, and `task/create`.
+- `app-registration.ts` — app registration + the `AppEndpoint`
+  (`{ connId, originator }`) every app carries.
 - `default-app.ts` — built-in unmoderated default app wiring.
   Registers a HOOKLESS manifest with an inert endpoint; AppHost's
   manifest-default fast-path serves every callback server-side
@@ -48,7 +49,8 @@ dispatch lease registry now lives in `task/leases/`.)
 - `handlers/apps.handlers.ts` — `apps/*` RPC handlers (register +
   authorize callbacks).
 - `handlers/task-request.handler.ts` — `task/request` entry point;
-  mints the initial conversation server-side after TM accept.
+  mints the initial conversation server-side after the app's
+  `task/create` accept verdict.
 
 ## Handler shape
 

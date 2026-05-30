@@ -11,11 +11,11 @@ Wire-level dispatch.
 
 ```mermaid
 flowchart LR
-  T["TransportTags<br>ConnId, Db, Encryption, HttpClient, …"]
-  I["IdentityTags<br>+ Auth, ParticipantSvc"]
-  N["NetworkTags<br>+ Presence, ResolverSvc, NetworkSend, ContactsSvc"]
-  K["TaskTags<br>+ Message, Conv, TaskSvc"]
-  A["AppTags<br>+ AppHost, LeaseRegistry"]
+  T["TransportTags<br>ConnId, Db"]
+  I["IdentityTags<br>+ Auth"]
+  N["NetworkTags<br>+ Presence, ResolverSvc, NetworkSend, ConnMgr"]
+  K["TaskTags<br>+ Message, Conv, TaskSvc, Contacts, LeaseRegistry, SessionValidator, AppAuthSvc"]
+  A["AppTags<br>+ AppHost"]
 
   T -->|"subset of"| I -->|"subset of"| N -->|"subset of"| K -->|"subset of"| A
 ```

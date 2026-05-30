@@ -27,8 +27,9 @@ import type {
 
 /**
  * Raised when the webhook response's `agentId` or `ownerUserId` field
- * fails the TypeBox `format: "uuid"` check on the canonical
- * {@link AgentId} / {@link UserId} schemas. Flows through the same
+ * fails the `format: "uuid"` check on the canonical {@link AgentId} /
+ * {@link UserId} Effect Schemas (enforced at decode time via
+ * `Schema.decodeUnknownSync`). Flows through the same
  * `catchAllCause` fail-closed handler as HTTP / network / timeout /
  * schema-decode errors, so a malformed id collapses to
  * `{ valid: false }` rather than `{ valid: true, agentId: "" as AgentId }`.
@@ -50,8 +51,9 @@ type SessionValidateResponseDecoded =
     };
 
 /**
- * Brand-attach `agentId` and `ownerUserId` via the canonical TypeBox
- * schemas (`format: "uuid"` enforced at decode time). The Effect
+ * Brand-attach `agentId` and `ownerUserId` via the canonical
+ * {@link AgentId} / {@link UserId} Effect Schemas (`format: "uuid"`
+ * enforced at decode time via `Schema.decodeUnknownSync`). The Effect
  * Schema upstream pins the response SHAPE; this step gives the
  * already-shape-validated id strings their nominal `AgentId` /
  * `UserId` brand at runtime. A malformed id (e.g. "" or

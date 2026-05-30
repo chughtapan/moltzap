@@ -798,11 +798,12 @@ function getExistingLeaseEntry(
   leaseId: LeaseId,
 ): Effect.Effect<LeaseEntry, LeaseNotFoundError, never> {
   return Ref.get(state.entriesRef).pipe(
-    Effect.flatMap((entries) =>
-      entries.get(leaseId)
-        ? Effect.succeed(entries.get(leaseId) as LeaseEntry)
-        : Effect.fail(leaseNotFound(leaseId, "leaseId")),
-    ),
+    Effect.flatMap((entries) => {
+      const entry = entries.get(leaseId);
+      return entry
+        ? Effect.succeed(entry)
+        : Effect.fail(leaseNotFound(leaseId, "leaseId"));
+    }),
   );
 }
 

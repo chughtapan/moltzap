@@ -882,9 +882,8 @@ export class TaskService {
    * the new TM-only handler.
    *
    * Returns the updated `Conversation` (with populated `archivedAt`)
-   * so the handler can fan out the legacy `conversations/archived`
-   * payload alongside the new `task/conversation/archived` payload
-   * inside the dual-emit window. App-ownership (`assertAppOwnsTask`) is
+   * so the handler can fan out the `task/conversation/archived`
+   * notification. App-ownership (`assertAppOwnsTask`) is
    * asserted by the app-arm handler before this call (D #705 R7 — the
    * dissolved `TmAuthority` capability moved up to the handler), so this
    * body assumes authority is already proven.

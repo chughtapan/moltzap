@@ -8,9 +8,9 @@
  *
  * Issue #673 cutover: the `EndpointAddress` brand + endpoint-kind
  * dispatch retired. Outbound routing is now strictly per-agent
- * ({@link send}) or per-agent-set ({@link broadcast}). App-TM
- * observability writes via {@link AppHost}'s remote-registration table
- * directly, not through here.
+ * ({@link send}) or per-agent-set ({@link broadcast}). App callbacks
+ * write over the app's own `AppEndpoint` originator inside `AppHost`,
+ * not through here.
  */
 import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -18,6 +18,7 @@ import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../transport/connection.js";
+import type { AgentConnection } from "../transport/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 
 /**
@@ -81,6 +82,7 @@ interface BroadcastOptions {
 
 interface BroadcastWrite {
   readonly cid: ConnectionId;
+  readonly conn: AgentConnection;
   readonly target: AgentId;
   readonly payload: OpaquePayload;
   readonly options: BroadcastOptions;
@@ -171,44 +173,60 @@ export class NetworkSendService {
       const connIds = yield* this.resolver.resolveAll(target);
       let agentReached = false;
       for (const cid of HashSet.values(connIds)) {
-        if (!(yield* this.connectionCanReceive(cid, options))) continue;
-        yield* this.forkBroadcastWrite({ cid, target, payload, options });
+        const connOpt = yield* this.connectionCanReceive(cid, options);
+        if (Option.isNone(connOpt)) continue;
+        yield* this.forkBroadcastWrite({
+          cid,
+          conn: connOpt.value,
+          target,
+          payload,
+          options,
+        });
         agentReached = true;
       }
       return agentReached;
     });
   }
 
+  /**
+   * Gate one resolved connection for conversation fan-out. Returns the
+   * gate-passing {@link AgentConnection} (so the caller threads it into
+   * {@link forkBroadcastWrite} without a second `peek`), or `None` when
+   * the connection is excluded, gone, not an agent arm, or not a member
+   * of the target conversation.
+   */
   private connectionCanReceive(
     cid: ConnectionId,
     options: BroadcastOptions,
-  ): Effect.Effect<boolean> {
+  ): Effect.Effect<Option.Option<AgentConnection>> {
     return Effect.gen(this, function* () {
       if (
         options.excludeConnectionId !== undefined &&
         cid === options.excludeConnectionId
       ) {
-        return false;
+        return Option.none();
       }
       const connOpt = yield* this.connections.peek(cid);
-      if (Option.isNone(connOpt)) return false;
+      if (Option.isNone(connOpt)) return Option.none();
       const conn = connOpt.value;
       // Only authenticated agent arms participate in conversation fan-out;
       // unauthenticated and app arms have no `conversationIds` membership.
-      if (conn._tag !== "AgentConnection") return false;
+      if (conn._tag !== "AgentConnection") return Option.none();
       const conversationId = options.forConversation;
-      if (conversationId === undefined) return true;
-      return conn.conversationIds.has(conversationId);
+      if (
+        conversationId !== undefined &&
+        !conn.conversationIds.has(conversationId)
+      ) {
+        return Option.none();
+      }
+      return Option.some(conn);
     });
   }
 
   private forkBroadcastWrite(write: BroadcastWrite): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const connOpt = yield* this.connections.peek(write.cid);
-      if (Option.isNone(connOpt)) return;
-      const conn = connOpt.value;
+    return Effect.sync(() => {
       Effect.runFork(
-        conn.socket.write(write.payload).pipe(
+        write.conn.socket.write(write.payload).pipe(
           Effect.catchAll((cause) =>
             Effect.logWarning("broadcast: socket write failed").pipe(
               Effect.annotateLogs({

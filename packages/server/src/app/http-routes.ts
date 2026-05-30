@@ -81,7 +81,8 @@ interface RegisterAgentSuccess {
  * | `/api/v1/admin/register-agent`     | only when `skipDefaultRegisterRoute=false` AND `registrationSecret` set | POST | superset of `Register.params` + `ownerUserId` | 200 (rotated) / 201 (new); 400/403/409/500 |
  *
  * All bodied routes funnel through `readValidatedBody` for JSON
- * decode + Ajv validation. Invite-gate checks use `safeEqual`
+ * decode + Effect-Schema strict (excess-rejecting) decode. Invite-gate
+ * checks use `safeEqual`
  * (constant-time) to compare `inviteCode` against
  * `registrationSecret`.
  *

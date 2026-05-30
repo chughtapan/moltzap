@@ -196,16 +196,6 @@ export class MessageService {
   }
 
   /**
-   * #529 reshape additive — the durable insert subset of `send`.
-   * Returns a `SendInsertResult` carrier that {@link sendCommit}
-   * consumes for the routing/broadcast/trace tail. `send` composes both
-   * for backward compatibility with all existing callers.
-   *
-   * Architect plan §3 carrier shape: `{ message, parts, conv,
-   * excludeConnectionId, bypassTmRouting }`.
-   */
-
-  /**
    * CAS-guarded UPDATE of `messages.tm_decision` after the
    * `messages/authorize` gate resolves.
    *
@@ -223,8 +213,6 @@ export class MessageService {
    * Kysely query builder per memory `feedback_no_raw_sql`; the
    * implementer uses Kysely's `.returning()` for the rowcount-equiv
    * to compute `committed`.
-   *
-   * Stub: `implement-*` fills in the body.
    */
   recordTmDecision(
     messageId: MessageId,
@@ -484,9 +472,16 @@ export class MessageService {
     });
   }
 
-  private defaultForwardVerdict(
-    input: SendCommitInput,
-  ): Effect.Effect<TmDecision, never> {
+  /**
+   * Synthesize the forward-to-all-participants-except-sender verdict.
+   * Used by the `bypassTmRouting` carrier path AND the AppHost-null
+   * fallback in {@link resolveSendVerdict} (unit-test layer); both pass
+   * the same `{ conversationId, senderAgentId }` slice.
+   */
+  private defaultForwardVerdict(input: {
+    readonly conversationId: ConversationId;
+    readonly senderAgentId: AgentId;
+  }): Effect.Effect<TmDecision, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const participants = yield* this.conversations.getParticipantAgentIds(
@@ -652,17 +647,7 @@ export class MessageService {
     if (!host) {
       // Legacy / unit-test path with no AppHost wired. Fall back to
       // the synthetic Forward-all-participants verdict.
-      return catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
-          const participants = yield* this.conversations.getParticipantAgentIds(
-            input.conversationId,
-          );
-          return {
-            tag: "forward" as const,
-            recipients: participants.filter((id) => id !== input.senderAgentId),
-          };
-        }),
-      );
+      return this.defaultForwardVerdict(input);
     }
     return Effect.gen(this, function* () {
       const result = yield* host.runMessageAuthorize(input.appId, {
