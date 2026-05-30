@@ -1,0 +1,17 @@
+{
+  // Type-checks the wire-decode benchmark (`src/**/__benchmarks__/**`) WITHOUT
+  // emitting it into the published `dist/`. The main `tsconfig.json` excludes
+  // `__benchmarks__` so the bench + its throwaway Effect-Schema prototype never
+  // ship; this config keeps them honest at compile time (same role `vitest`
+  // type-stripping plays for `*.test.ts`). Wired into `pnpm bench:typecheck`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "./src"
+  },
+  // Re-include the bench tree the base config deliberately excludes; the
+  // bench imports production source under `src/`, so keep `src/**/*.ts`
+  // visible to the program but drop the base `__benchmarks__` exclude.
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "dist"]
+}

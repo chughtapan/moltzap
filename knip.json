@@ -51,6 +51,7 @@
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.types-check.ts",
+        "src/**/__benchmarks__/*.bench.ts",
         "src/testing/conformance/**/*.ts",
         "scripts/check-mermaid.ts",
         "vitest*.config.ts"

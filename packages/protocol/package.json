@@ -48,7 +48,9 @@
     "lint": "eslint src scripts *.ts --cache --max-warnings=0",
     "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bench": "vitest bench --run src/transport/__benchmarks__/wire-decode.bench.ts",
+    "bench:typecheck": "tsc --noEmit -p tsconfig.bench.json"
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",
