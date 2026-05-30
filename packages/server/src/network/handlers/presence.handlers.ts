@@ -17,6 +17,7 @@ import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
  */
 export const presenceHandlers: RpcMethodRegistry = [
   defineTaskMethod(PresenceSubscribe, {
+    callablePrincipal: "agent",
     requiresActive: true,
     // Contact-scoped per #481/#508: throw NotInContactsError when any
     // requested agentId falls outside the caller's visibility set.

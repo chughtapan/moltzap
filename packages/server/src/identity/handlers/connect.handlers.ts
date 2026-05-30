@@ -13,9 +13,9 @@ import {
   type ParamsOf,
 } from "@moltzap/protocol";
 import {
-  agentContextFromAuthenticated,
+  agentContextFrom,
+  AgentContext,
   AppContext,
-  type AuthenticatedContext,
   type RpcMethodRegistry,
 } from "../../transport/context.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
@@ -68,11 +68,11 @@ const SERVER_POLICY: HelloOk["policy"] = {
   },
 };
 
-/** Agent API-key path — existing behavior, typed `never` from authService. */
+/** Agent API-key path — mints the closed-union `AgentContext` arm directly. */
 function authenticateAgentKey(
   agentKey: string,
   authService: AuthService,
-): Effect.Effect<AuthenticatedContext, UnauthorizedError> {
+): Effect.Effect<AgentContext, UnauthorizedError> {
   return Effect.gen(function* () {
     const agent = yield* authService.authenticateAgent(agentKey);
     if (!agent) {
@@ -80,11 +80,11 @@ function authenticateAgentKey(
         new UnauthorizedError({ message: "Authentication failed" }),
       );
     }
-    return {
+    return yield* agentContextFrom({
       agentId: agent.agentId,
       agentStatus: agent.status,
       ownerUserId: agent.ownerUserId,
-    };
+    });
   }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
 }
 
@@ -97,7 +97,7 @@ function authenticateSession(
   token: string,
   sessionValidator: SessionValidator | null,
   db: Db,
-): Effect.Effect<AuthenticatedContext, UnauthorizedError> {
+): Effect.Effect<AgentContext, UnauthorizedError> {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
       if (!sessionValidator) {
@@ -114,11 +114,11 @@ function authenticateSession(
         );
       }
       if (result.agentStatus !== undefined) {
-        return {
+        return yield* agentContextFrom({
           agentId: result.agentId,
           agentStatus: result.agentStatus,
           ownerUserId: result.ownerUserId,
-        };
+        });
       }
       const rowOpt = yield* takeFirstOption(
         db
@@ -131,17 +131,17 @@ function authenticateSession(
           new UnauthorizedError({ message: "Authentication failed" }),
         );
       }
-      return {
+      return yield* agentContextFrom({
         agentId: result.agentId,
         agentStatus: rowOpt.value.status,
         ownerUserId: result.ownerUserId,
-      };
+      });
     }).pipe(Effect.withSpan("connect.authenticateSession")),
   );
 }
 
 function buildHelloOk(
-  ctx: AuthenticatedContext,
+  ctx: AgentContext,
   connId: ConnectionId,
   presenceService: PresenceService,
 ): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
@@ -165,7 +165,7 @@ function resolveAuthenticatedContext(
   authService: AuthService,
   sessionValidator: SessionValidator | null,
   db: Db,
-): Effect.Effect<AuthenticatedContext, UnauthorizedError> {
+): Effect.Effect<AgentContext, UnauthorizedError> {
   if ("sessionToken" in params) {
     return authenticateSession(params.sessionToken, sessionValidator, db);
   }
@@ -315,7 +315,7 @@ function registerAppArmTransition(args: {
 function hydrateConnectionState(
   connections: ConnectionManager,
   connId: ConnectionId,
-  auth: AuthenticatedContext,
+  auth: AgentContext,
   conversationService: ConversationService,
 ) {
   return Effect.gen(function* () {
@@ -331,7 +331,7 @@ function registerEndpointIfStillConnected(
   connections: ConnectionManager,
   resolver: AgentEndpointResolver,
   connId: ConnectionId,
-  auth: AuthenticatedContext,
+  auth: AgentContext,
 ) {
   return Effect.gen(function* () {
     // D #705 CP4d — read the three-arm `connectionsRef` arm; the legacy map
@@ -343,20 +343,19 @@ function registerEndpointIfStillConnected(
 }
 
 /**
- * D #705 CP4a EXPAND — mirror the legacy `conn.auth` mutation onto the
- * three-arm `connectionsRef` via the immutable transition. The agent arm is
- * minted from the resolved `AuthenticatedContext`; the app arm arrives in CP5
- * (appKey Connect). All `TransitionOutcome` arms are matched exhaustively.
- * `not-connected` is a benign race (the close handler removed the entry);
- * `already-connected` mirrors the legacy re-auth no-op (a fresh `HelloOk`).
+ * D #705 §3 — mint the agent arm onto the three-arm `connectionsRef` via the
+ * immutable transition. The `AgentContext` is resolved directly by the
+ * authenticators (no `AuthenticatedContext` intermediary), so this passes it
+ * straight to `authenticate`. All `TransitionOutcome` arms are matched
+ * exhaustively. `not-connected` is a benign race (the close handler removed the
+ * entry); `already-connected` is the re-auth no-op (a fresh `HelloOk`).
  */
 function mirrorAgentArmTransition(
   connections: ConnectionManager,
   connId: ConnectionId,
-  auth: AuthenticatedContext,
+  auth: AgentContext,
 ): Effect.Effect<void> {
-  return agentContextFromAuthenticated(auth).pipe(
-    Effect.flatMap((agentCtx) => connections.authenticate(connId, agentCtx)),
+  return connections.authenticate(connId, auth).pipe(
     Effect.flatMap((outcome) =>
       Match.value(outcome).pipe(
         Match.when({ kind: "ok-agent" }, () => Effect.void),
@@ -482,6 +481,10 @@ export const connectHandlers: RpcMethodRegistry = [
   // `AppConnection` arm (replacing the deleted WS `apps/register` RPC). The
   // agent/session arms ride the same handler and yield no app-layer tags.
   defineAppMethod(Connect, {
+    // `network/connect` is the ONLY any-principal method: it is dispatched
+    // while the arm is still `UnauthenticatedConnection`, and the handler
+    // dispatches on the credential union itself (not on `ctx`).
+    callablePrincipal: "any",
     handler: handleConnect,
   }),
 ];

@@ -10,7 +10,7 @@ import {
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import { Effect, Exit } from "effect";
-import type { AuthenticatedContext } from "../../transport/context.js";
+import type { AgentContext } from "../../transport/context.js";
 import {
   ConnectionTag,
   LeaseRegistryTag,
@@ -47,7 +47,7 @@ function claimDispatchLease(leaseRegistry: LeaseRegistry, leaseId: LeaseId) {
 
 interface LeaseSendInput {
   readonly connId: ConnectionId;
-  readonly ctx: AuthenticatedContext;
+  readonly ctx: AgentContext;
   readonly params: MessagesSendParams;
   readonly messageService: MessageService;
   readonly leaseRegistry: LeaseRegistry;
@@ -88,10 +88,7 @@ function sendWithDispatchLease(input: LeaseSendInput) {
   }).pipe(Effect.withSpan("messages.sendWithDispatchLease"));
 }
 
-function handleMessageSend(
-  params: MessagesSendParams,
-  ctx: AuthenticatedContext,
-) {
+function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const messageService = yield* MessageServiceTag;
@@ -120,10 +117,12 @@ function handleMessageSend(
 
 export const messageHandlers: RpcMethodRegistry = [
   defineTaskMethod(MessagesSend, {
+    callablePrincipal: "agent",
     requiresActive: true,
     handler: handleMessageSend,
   }),
   defineTaskMethod(MessagesList, {
+    callablePrincipal: "agent",
     requiresActive: true,
     handler: (params, ctx) =>
       Effect.gen(function* () {

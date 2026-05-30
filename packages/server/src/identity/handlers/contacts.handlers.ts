@@ -14,10 +14,8 @@ import {
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AuthService } from "../../identity/services/auth.service.js";
 import { opaquePayload } from "../../network/network-send.js";
-import type {
-  AuthenticatedContext,
-  RpcMethodRegistry,
-} from "../../transport/context.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
+import type { AgentContext } from "../../transport/context.js";
 import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   AuthServiceTag,
@@ -28,7 +26,7 @@ import {
 const ERR_NEED_OWNER = "Contacts require a claimed agent owner";
 
 const loadOwnerOrFail = (
-  ctx: AuthenticatedContext,
+  ctx: AgentContext,
 ): Effect.Effect<UserId, UnauthorizedError> =>
   ctx.ownerUserId === null
     ? Effect.fail(new UnauthorizedError({ message: ERR_NEED_OWNER }))
@@ -51,6 +49,7 @@ const fanOut = <D extends NotificationDefinition<string, any>>(
 
 export const contactHandlers: RpcMethodRegistry = [
   defineTaskMethod(ContactsList, {
+    callablePrincipal: "agent",
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
@@ -71,6 +70,7 @@ export const contactHandlers: RpcMethodRegistry = [
   }),
 
   defineTaskMethod(ContactsAdd, {
+    callablePrincipal: "agent",
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
@@ -86,6 +86,7 @@ export const contactHandlers: RpcMethodRegistry = [
   }),
 
   defineTaskMethod(ContactsAccept, {
+    callablePrincipal: "agent",
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;
@@ -103,6 +104,7 @@ export const contactHandlers: RpcMethodRegistry = [
   }),
 
   defineTaskMethod(ContactsById, {
+    callablePrincipal: "agent",
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const contactService = yield* ContactsServiceTag;

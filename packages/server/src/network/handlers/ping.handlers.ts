@@ -5,6 +5,7 @@ import { defineNetworkMethod } from "../../transport/define-layered-method.js";
 
 export const pingHandlers: RpcMethodRegistry = [
   defineNetworkMethod(NetworkPing, {
+    callablePrincipal: "agent",
     handler: () => Effect.sync(() => ({ ts: new Date().toISOString() })),
   }),
 ];
