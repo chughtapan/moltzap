@@ -40,8 +40,9 @@ export type { CloseInfo } from "./runtime/close-info.js";
 // `NotificationConsumerError` is a type union (see notification/errors.ts
 // header for rationale, codex review r1 finding #8).
 export {
-  TimeoutError as NotificationTimeoutError,
+  NotificationTimeoutError,
   StreamClosedError as NotificationStreamClosedError,
+  type StreamCloseReason,
   type NotificationConsumerError,
 } from "./notification/errors.js";
 export {

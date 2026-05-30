@@ -25,7 +25,14 @@
  *   3. Pre-`connect()` consumer pulls suspend inside `Stream.async`'s
  *      internal queue. No `NotConnectedError` until terminal close.
  *   4. Reconnect leaves registry callbacks intact; `subsRef` survives
- *      transient disconnects (preserved invariant).
+ *      transient disconnects (preserved invariant). **Reconnect-window
+ *      frame loss (#611):** any server-originated notification frame that
+ *      the transport drops while disconnected (between the socket dying and
+ *      the reconnect `hello` completing) is NOT replayed — the Stream API
+ *      has no buffering or gap-fill across the reconnect window, so such
+ *      frames are silently lost to the consumer. Subscriptions resume
+ *      receiving frames that arrive AFTER reconnect; there is no error or
+ *      sentinel marking the gap.
  *   5. `MoltZapAgentClient.close` invokes `SubscriberRegistry.closeAll`, which
  *      calls each live `sub.onClose(new NotConnectedError(...))`. Each
  *      `Stream.async`-backed consumer fails with `NotConnectedError`

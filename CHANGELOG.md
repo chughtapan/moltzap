@@ -550,8 +550,11 @@ delta. The `pnpm dev` script is the only operator-visible change.
   payload to `DecodedNotification<D, R>`.
 - **BREAKING (`@moltzap/client`):** Public barrel drops
   `SubscriptionFilter`, `SubscriberHandler`, `NotificationSubscription`,
-  `SubscriptionId`. Adds `TimeoutError`, `StreamClosedError`, and the
-  `NotificationConsumerError` union from `./notification/errors`.
+  `SubscriptionId`. Adds `NotificationTimeoutError`,
+  `NotificationStreamClosedError` (with its `StreamCloseReason`
+  discriminant — `"client-closed"` | `"stream-completed"` |
+  `"transport-disconnected"`), and the `NotificationConsumerError` union
+  from `./notification/errors`.
 - **Behavior:** `MoltZapWsClient.close()` propagates `NotConnectedError`
   to every in-flight Stream via the registry's `closeAll` →
   per-subscription `onClose` callback → `Stream.async`'s `emit.fail`
