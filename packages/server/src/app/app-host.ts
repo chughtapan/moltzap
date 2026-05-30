@@ -174,34 +174,29 @@ function dispatchVerdictToLeaseVerdict(
 
 /**
  * Hook registry + fail-closed envelope for every "send context, get
- * verdict" S→C interaction. The same `Hook&lt;TContext, TResult>`
- * abstraction backs `dispatch/authorize` (lease verdict) and
- * `messages/authorize` (delivery verdict). Each hook runner uses the
- * three-step resolution and the envelope to keep the wire surface
+ * verdict" S→C interaction. A single {@link AppRegistry} keyed by
+ * `AppId` carries each app's `AppEndpoint`; the same envelope backs
+ * `dispatch/authorize` (lease verdict), `messages/authorize` (delivery
+ * verdict), and `task/create` (task gate). Each hook runner uses the
+ * two-arm resolution below and the envelope to keep the wire surface
  * uniform.
  *
  * ```mermaid
  * flowchart TD
- *   subgraph Registries
- *     RegA[appId-keyed hooks<br>AppHooks slot taskAuthorizeDispatch]
- *     RegB[EndpointAddress-keyed messageAuthorizeHooks<br>seeded for DEFAULT_DM_TM / DEFAULT_GROUP_TM]
- *     Remote[remoteRegistrations<br>appId → connectionId<br>set by registerRemoteApp on apps/register success]
- *   end
- *
- *   Call[hook runner — dispatchAuthorizeHook or runMessageAuthorize] --> Step1{lookup in-process registry by primary key}
- *   Step1 -- found --> InProc[runInProcessHookEffect]
- *   Step1 -- miss --> Step2{derive appId, lookup remoteRegistrations}
- *   Step2 -- found --> RemoteRun[runRemoteHookEffect — RPC via connectionId+definition+params]
- *   Step2 -- miss --> Default[synthetic default<br>messageAuthorize Forward — recipients participants minus sender<br>authorizeDispatch grant]
- *   InProc --> Envelope[wrapHookEffectWithEnvelope<br>raw, timeoutMs, onTimeout, onError, log contexts]
- *   RemoteRun --> Envelope
- *   Default --> Envelope
+ *   Call[hook runner — dispatchAuthorizeHook / runMessageAuthorize / runTaskCreate] --> Lookup{apps.get appId}
+ *   Lookup -- undefined --> FailClosed0[fail-closed synthetic verdict<br>deny app_unavailable / Block tm_unreachable / reject tm_unreachable]
+ *   Lookup -- found --> Hook{manifest.hooks omits this hook?}
+ *   Hook -- yes --> Default[synthetic default<br>grant / Forward — recipients participants minus sender / accept]
+ *   Hook -- no --> Rpc[callAppRpc entry.endpoint.originator, definition, params]
+ *   Rpc --> Envelope[wrapHookEffectWithEnvelope<br>raw, timeoutMs, onTimeout, onError, log contexts]
  *   Envelope --> FailClosed[timeout, handler throw, RPC failure, decode failure<br>collapse to onTimeout / onError<br>e.g. messageAuthorize Block reason tm_unreachable]
  * ```
  *
  * Every fail-mode collapses to a deny-shaped verdict so callers
  * never see an Effect failure on the hook channel — the envelope IS
- * the contract.
+ * the contract. The synthetic-default arm and the fail-closed
+ * unknown-app arm are pure (no app round-trip); only the third arm
+ * touches the wire.
  */
 export class AppHost {
   /**
@@ -503,7 +498,7 @@ export class AppHost {
     lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, SqlError, NetworkSendServiceTag> {
-    if (!this.hasDispatchAuthorizeHook(lookup.appId)) {
+    if (!this.isAppRegistered(lookup.appId)) {
       return this.resolveDispatchLease(registry, leaseId, {
         _tag: "hold",
         reason: "moderator_unavailable",
@@ -522,7 +517,7 @@ export class AppHost {
     });
   }
 
-  private hasDispatchAuthorizeHook(appId: AppId): boolean {
+  private isAppRegistered(appId: AppId): boolean {
     return this.apps.has(appId);
   }
 
@@ -612,29 +607,29 @@ export class AppHost {
   }
 
   /**
-   * Dispatch a `dispatch/authorize` hook. In-process / remote choice
-   * is made INSIDE the helper; callers see one signature and one
-   * return type. Returns `{ decision: "grant" }` when no hook is
-   * registered. Fail-closed on timeout / handler error / RPC failure.
+   * Dispatch a `dispatch/authorize` hook. The two-arm resolution is
+   * made INSIDE the helper; callers see one signature and one return
+   * type. Synthesizes `{ decision: "grant" }` when the manifest omits
+   * the hook. Fail-closed on unknown app / timeout / handler error /
+   * RPC failure.
    *
    * ```mermaid
    * sequenceDiagram
    *   participant Caller as MessageService.send
    *   participant AH as dispatchAuthorizeHook
-   *   participant Mod as Moderator client
+   *   participant App as Bound app client
    *   participant LR as LeaseRegistry
    *   participant Recv as Recipient client
    *
-   *   Caller->>AH: ctx {taskId, callerAgentId, conversationId, parts, ...}
-   *   alt in-process hook registered
-   *     AH->>AH: runInProcessHookEffect
-   *   else remote registration found
-   *     Note over AH: remote = remoteRegistrations.get(appId)<br>conn = connections.get(remote.connectionId)
-   *     AH->>Mod: conn.originator.call(DispatchAuthorize, params)
-   *     Note over Mod: decodeServerInbound → ServerRequest<br>client TypedDispatcher.handle<br>taskCallbackHandlers["dispatch/authorize"]
-   *     Mod-->>AH: response frame — verdict {grant|deny|hold}
-   *   else neither
+   *   Caller->>AH: ctx {taskId, appId, conversationId, parts, ...}
+   *   alt apps.get(appId) undefined
+   *     AH-->>AH: synthetic deny reason app_unavailable
+   *   else manifest omits dispatch_authorize
    *     AH-->>AH: synthetic grant
+   *   else hook declared
+   *     AH->>App: callAppRpc(entry.endpoint.originator, DispatchAuthorize, params)
+   *     Note over App: decodeServerInbound → ServerRequest<br>client TypedDispatcher.handle<br>taskCallbackHandlers["dispatch/authorize"]
+   *     App-->>AH: response frame — verdict {grant|deny|hold}
    *   end
    *   Note over AH: wrapHookEffectWithEnvelope<br>timeout → deny reason timeout<br>RPC error → deny reason "dispatch/authorize error"
    *   AH->>LR: leaseRegistry.resolve(leaseId, verdict)
@@ -654,9 +649,8 @@ export class AppHost {
    * RPCs — see the typed dispatcher in `@moltzap/protocol`.
    *
    * `runMessageAuthorize` is the sibling caller of
-   * `wrapHookEffectWithEnvelope`: keyed by `EndpointAddress` instead
-   * of `appId`, with verdicts in `Forward`/`Block` shape instead of
-   * grant/deny/hold.
+   * `wrapHookEffectWithEnvelope`: also keyed by `appId`, with verdicts
+   * in `Forward`/`Block` shape instead of grant/deny/hold.
    */
   private dispatchAuthorizeHook(
     appId: AppId,
@@ -896,8 +890,8 @@ export class AppHost {
   /**
    * Wire-shape params for `messages/authorize`. Mirrors
    * {@link authorizeDispatchParamsForWire}: conditionally include
-   * optional fields so the TypeBox schema's `additionalProperties:
-   * false` doesn't reject an explicit `undefined`.
+   * optional fields so the wire schema's `onExcessProperty: "error"`
+   * strict decode doesn't reject an explicit `undefined`.
    */
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,

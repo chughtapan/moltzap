@@ -321,13 +321,13 @@ const MessageServiceLive = Layer.effect(
 //
 // Service tier graph:
 //
-//   Tier 1 — ConnectionManager, AuthService, ParticipantService,
+//   Tier 1 — ConnectionManager, AuthService, AppAuthService,
 //            ContactsService.
-//   Tier 2 — Presence, AgentEndpointResolver, AppTmRegistry (provideMerge over T1).
+//   Tier 2 — Presence, AgentEndpointResolver (provideMerge over T1).
 //   Tier 2.5 — NetworkSendService.
 //   Tier 2.6 — LeaseRegistry (consumes PresenceServiceTag as its transitionObserver).
-//   Tier 3 — AppHost (db + connections + leases; seeds default
-//            messageAuthorize hooks for the DM/Group TM addresses).
+//   Tier 3 — AppHost (db + connections + leases; the boot-installed
+//            default app is served by the manifest-default fast-path).
 //   Tier 4 — ConversationService (db + participants + connections + AppHost).
 //   Tier 5 — MessageService (every upstream + Encryption + DeliveryWebhook +
 //            Webhook + TraceCapture + AppHost).

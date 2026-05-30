@@ -73,7 +73,7 @@ type IdentityTags = TransportTags | AuthServiceTag;
  * resolution is what the network layer DOES, not who owns it). The
  * presence service lives in `network/services/` post-2A.2 reshape; its
  * Tag is yielded by the presence handler at `network/handlers/`, which
- * routes through the TM bus.
+ * fans out via PresenceService.
  */
 export type NetworkTags =
   | IdentityTags

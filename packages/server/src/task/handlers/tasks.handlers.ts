@@ -161,7 +161,7 @@ function taskLeaveBody(
       ctx.agentId,
     );
     for (const conversationId of leftConversationIds) {
-      yield* fanoutLeaveParticipantDualEmit({
+      yield* fanoutLeaveParticipantRemoval({
         taskId: params.taskId,
         conversationId,
         leaver: ctx.agentId,
@@ -181,13 +181,13 @@ function taskLeaveBody(
   }).pipe(Effect.withSpan("task.leave"));
 }
 
-interface LeaveParticipantDualEmitInput {
+interface LeaveParticipantFanoutInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly leaver: AgentId;
 }
 
-function fanoutLeaveParticipantDualEmit(input: LeaveParticipantDualEmitInput) {
+function fanoutLeaveParticipantRemoval(input: LeaveParticipantFanoutInput) {
   return Effect.gen(function* () {
     // Recipients: the leaver PLUS the remaining participants on the
     // conversation. The leaver is included so they receive their own
@@ -212,13 +212,13 @@ function fanoutLeaveParticipantDualEmit(input: LeaveParticipantDualEmitInput) {
   }).pipe(Effect.withSpan("task.leave.fanout"));
 }
 
-interface ArchiveDualEmitInput {
+interface ArchiveFanoutInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly archivedAt: string;
 }
 
-function fanoutArchiveDualEmit(input: ArchiveDualEmitInput) {
+function fanoutArchive(input: ArchiveFanoutInput) {
   return Effect.gen(function* () {
     const conversationService = yield* ConversationServiceTag;
     const recipientAgentIds = yield* conversationService
@@ -237,12 +237,12 @@ function fanoutArchiveDualEmit(input: ArchiveDualEmitInput) {
   }).pipe(Effect.withSpan("task.conversation.archive.fanout"));
 }
 
-interface UnarchiveDualEmitInput {
+interface UnarchiveFanoutInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
-function fanoutUnarchiveDualEmit(input: UnarchiveDualEmitInput) {
+function fanoutUnarchive(input: UnarchiveFanoutInput) {
   return Effect.gen(function* () {
     const conversationService = yield* ConversationServiceTag;
     const recipientAgentIds = yield* conversationService
@@ -425,7 +425,7 @@ export const taskHandlers: ServerRpcSlots = [
             params.taskId,
             params.conversationId,
           );
-          yield* fanoutArchiveDualEmit({
+          yield* fanoutArchive({
             taskId: params.taskId,
             conversationId: params.conversationId,
             archivedAt,
@@ -454,7 +454,7 @@ export const taskHandlers: ServerRpcSlots = [
             params.taskId,
             params.conversationId,
           );
-          yield* fanoutUnarchiveDualEmit({
+          yield* fanoutUnarchive({
             taskId: params.taskId,
             conversationId: params.conversationId,
           });

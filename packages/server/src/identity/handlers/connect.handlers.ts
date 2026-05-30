@@ -158,8 +158,8 @@ function buildHelloOk(
 }
 
 function resolveAuthenticatedContext(
-  // The `appKey` arm is dispatched + returned early in `handleConnect`
-  // (CP5), so this agent-side resolver only ever sees the agent/session
+  // The `appKey` arm is dispatched + returned early in `handleConnect`,
+  // so this agent-side resolver only ever sees the agent/session
   // arms — narrow the parameter to exclude `appKey`.
   params: Exclude<ConnectParams, { readonly appKey: string }>,
   authService: AuthService,
@@ -173,8 +173,8 @@ function resolveAuthenticatedContext(
 }
 
 /**
- * D #705 CP5 — app-principal Connect builder. The `AppConnection` HelloOk
- * carries NO `agentId` (apps have no agent identity) and skips agent-only
+ * App-principal Connect builder. The `AppConnection` HelloOk carries
+ * NO `agentId` (apps have no agent identity) and skips agent-only
  * hydration (conversation-id seeding, presence, endpoint registration). The
  * server policy is shared with the agent path.
  */
@@ -186,7 +186,7 @@ function buildAppHelloOk(): HelloOk {
 }
 
 /**
- * D #705 CP5/CP8 — resolve an `appKey` credential to its `AppContext` AND its
+ * Resolve an `appKey` credential to its `AppContext` AND its
  * decoded `AppManifest` (sourced atomically from the same `authenticateApp`
  * SQL row, so the implicit registration in {@link registerAppArmTransition}
  * has NO post-auth `getManifest` failure surface). A hash MISS (`null` from
@@ -214,16 +214,17 @@ function authenticateAppKey(
 }
 
 /**
- * D #705 CP8 STEP D + D.5 — register the freshly minted `AppConnection`'s
- * `AppEndpoint` into `AppHost`/`AppRegistry`, then re-peek for a close race.
+ * Register the freshly minted `AppConnection`'s `AppEndpoint` into
+ * `AppHost`/`AppRegistry`, then re-peek for a close race.
  *
- *   - STEP D: register `{ connId, originator }` off the live arm. A `false`
- *     return (the registry rejects an overwrite — another live connection
- *     already owns this appId) rolls the arm back + surfaces the uniform
- *     `UnauthorizedError` (the appKey resolved but its slot is occupied).
- *   - STEP D.5: a close that raced between the transition and the
- *     registration leaves a stale registry entry; undo it via
- *     `unregisterAppsForConnection` before failing `NotConnectedError`.
+ *   1. Register `{ connId, originator }` off the live arm via
+ *      `AppHost.registerApp`. A `false` return (the registry rejects an
+ *      overwrite — another live connection already owns this appId) rolls
+ *      the arm back + surfaces the uniform `UnauthorizedError` (the appKey
+ *      resolved but its slot is occupied).
+ *   2. A close that raced between the transition and the registration
+ *      leaves a stale registry entry; undo it via
+ *      `unregisterAppsForConnection` before failing `NotConnectedError`.
  */
 function registerAppEndpoint(args: {
   readonly connections: ConnectionManager;
@@ -238,7 +239,7 @@ function registerAppEndpoint(args: {
   const { connections, appHost, appId, manifest, authed } = args;
   const connId = authed.connId;
   return Effect.gen(function* () {
-    // D #705 CP9 — register under the SERVER-MINTED `appId` (the authenticated
+    // Register under the SERVER-MINTED `appId` (the authenticated
     // principal), NOT `manifest.appId`. `task/request` routes to the appId the
     // registrant received from `/api/v1/apps/register` = this identity.
     const ok = appHost.registerApp(appId, manifest, {
@@ -266,11 +267,11 @@ function registerAppEndpoint(args: {
 }
 
 /**
- * D #705 CP5/CP8 — mint the `AppConnection` arm via the immutable transition
- * AND implicitly register its `AppEndpoint` into `AppHost`/`AppRegistry`
- * (the v36 §3 Connect STEP D for the app arm). An app's routing surface is
- * now minted from the live `AppConnection` arm on appKey Connect — there is
- * no separate WS `apps/register` RPC. Mirrors {@link mirrorAgentArmTransition}
+ * Mint the `AppConnection` arm via the immutable transition AND
+ * implicitly register its `AppEndpoint` into `AppHost`/`AppRegistry`. An
+ * app's routing surface is now minted from the live `AppConnection` arm on
+ * appKey Connect — there is no separate WS `apps/register` RPC. Mirrors
+ * {@link mirrorAgentArmTransition}
  * for the app principal; all `TransitionOutcome` arms are matched exhaustively:
  * `ok-app` registers the endpoint (see {@link registerAppEndpoint}); `ok-agent`
  * is impossible here (we pass an `AppContext`) — `Effect.die`;
@@ -320,9 +321,9 @@ function hydrateConnectionState(
 ) {
   return Effect.gen(function* () {
     const convIds = yield* conversationService.getConversationIds(auth.agentId);
-    // D #705 CP4e — seed the three-arm `connectionsRef` agent arm's
-    // subscription set (the fan-out gate now reads it). The arm was minted by
-    // `mirrorAgentArmTransition` just above, so it exists for this connId.
+    // Seed the agent arm's `connectionsRef` subscription set (the fan-out
+    // gate reads it). The arm was minted by `mirrorAgentArmTransition` just
+    // above, so it exists for this connId.
     yield* connections.hydrateConversationIds(connId, convIds);
   }).pipe(Effect.withSpan("connect.hydrateConnectionState"));
 }
@@ -334,8 +335,7 @@ function registerEndpointIfStillConnected(
   auth: AgentContext,
 ) {
   return Effect.gen(function* () {
-    // D #705 CP4d — read the three-arm `connectionsRef` arm; the legacy map
-    // is no longer consulted on the dispatch path.
+    // Read the live `connectionsRef` arm before registering the endpoint.
     if (Option.isSome(yield* connections.peek(connId))) {
       yield* resolver.add(auth.agentId, connId);
     }
@@ -343,7 +343,7 @@ function registerEndpointIfStillConnected(
 }
 
 /**
- * D #705 §3 — mint the agent arm onto the three-arm `connectionsRef` via the
+ * Mint the agent arm onto the `connectionsRef` via the
  * immutable transition. The `AgentContext` is resolved directly by the
  * authenticators (no `AuthenticatedContext` intermediary), so this passes it
  * straight to `authenticate`. All `TransitionOutcome` arms are matched
@@ -369,7 +369,7 @@ function mirrorAgentArmTransition(
 }
 
 /**
- * D #705 CP5 — agent/session post-auth flow. Resolves the credential to an
+ * Agent/session post-auth flow. Resolves the credential to an
  * `AgentContext`, mints the agent arm via the immutable transition, hydrates
  * the conversation-id subscription set + agent-endpoint registration, then
  * emits the agent-shaped `HelloOk`. Reached only for the non-`appKey` arms
@@ -440,8 +440,8 @@ function handleConnect(params: ConnectParams) {
       const presenceService = yield* PresenceServiceTag;
       const conn = yield* ConnectionTag;
 
-      // D #705 CP4d/CP5 — Connect dispatches on the live arm. A re-Connect on
-      // an already-authenticated arm is an idempotent no-op that re-emits the
+      // Connect dispatches on the live arm. A re-Connect on an
+      // already-authenticated arm is an idempotent no-op that re-emits the
       // arm-appropriate `HelloOk`: the agent arm re-hydrates its agent shape;
       // the app arm re-emits the agentId-less app shape.
       if (conn._tag === "AgentConnection") {
@@ -451,7 +451,7 @@ function handleConnect(params: ConnectParams) {
         return buildAppHelloOk();
       }
 
-      // D #705 CP5 — structural credential dispatch over the Connect params
+      // Structural credential dispatch over the Connect params
       // union. The `appKey` arm mints an `AppConnection` (no agent identity,
       // no conversation/presence hydration); the agent/session arms run the
       // full agent-side hydration in `completeAgentConnect`.
@@ -476,7 +476,7 @@ function handleConnect(params: ConnectParams) {
 }
 
 export const connectHandlers: ServerRpcSlots = [
-  // D #705 CP8 — Connect is bound at the APP layer: its `appKey` arm pulls
+  // Connect is bound at the APP layer: its `appKey` arm pulls
   // `AppHostTag` to implicitly register the app's `AppEndpoint` off the live
   // `AppConnection` arm (replacing the deleted WS `apps/register` RPC). The
   // agent/session arms ride the same handler and yield no app-layer tags.

@@ -16,9 +16,9 @@ import {
   UnauthorizedError,
   decodeClientInbound,
   encodeErrorResponse,
-  makeServerConnection,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
+import { acquireConnectionRpcClient } from "../transport/connection.js";
 
 import type { AgentContext } from "../transport/context.js";
 import type { ServerRpcSlotTable } from "../transport/context.js";
@@ -111,12 +111,11 @@ function openSocketSession(
     // `createCoreApp`) AND the outbound originator (server→client
     // appCallback path). The `id` mirrors the connId so logs trace
     // request ids back to the originating socket.
-    const serverConn = yield* makeServerConnection({
-      id: session.connId,
-      slots: options.slots,
-      write: session.write,
-      idPrefix: `srv-${session.connId}`,
-    });
+    const serverConn = yield* acquireConnectionRpcClient(
+      session.connId,
+      session.write,
+      options.slots,
+    );
     const shutdown = Deferred.succeed(session.closeRequested, undefined).pipe(
       Effect.asVoid,
     );
@@ -200,7 +199,7 @@ function handleSocketData(
  *   F -- no --> Fx[return]
  *   F -- yes --> Fa{isConnect or conn.auth?}
  *   Fa -- not authenticated --> FaX[sendFrame Unauthorized -32001]
- *   Fa -- ok --> G[conn.originator.handle frame {auth, connId}<br>delegates to buildServerDispatcher]
+ *   Fa -- ok --> G[conn.originator.handle frame, ctx auth+connId<br>indexes the ErasedSlotTable by frame.method]
  *   G --> H{Exit?}
  *   H -- success --> Hs[successResponse → sendFrame]
  *   H -- tagged failure --> Ht[knownWireErrorResponse → sendFrame]
@@ -221,13 +220,16 @@ function handleSocketData(
  *   internal).
  * - `fireConnectionHooks` after a successful Connect.
  *
- * The dispatcher itself (`buildServerDispatcher` in
- * `@moltzap/protocol`) reads `ServerHandlers["method"]`, runs the
- * descriptor's `capabilities` array through
- * `serverCapabilityProviders` to thread `provideServiceEffect`, then
- * invokes the handler. Every slot is REQUIRED (Spec D3 R14b retired
- * the fail-closed sentinels); a slot absent at the type level fails
- * compilation at handler-table construction.
+ * `conn.originator.handle(frame, ctx)` indexes the kind's
+ * `ErasedSlotTable` by `frame.method` (see
+ * `@moltzap/protocol transport/dispatch.ts → makeInboundDispatch`). The
+ * matched slot decodes params via its OWN validator, runs the #720 gate
+ * + the binding's `weaveCaps` capability chain (each declared capability
+ * discharged INSIDE the slot via a static per-arm
+ * `provideServiceEffect`), and provides `ConnectionTag` /
+ * `CurrentPrincipal` around the arm — only the service `Env` rides out.
+ * Every slot is required by construction; a method absent at the type
+ * level fails compilation at slot-table construction.
  *
  * The originator's pending-map is keyed by frame id. `ResponseFrame`
  * routing is `pendingRef.modify(takePendingEntry(id))` — atomic

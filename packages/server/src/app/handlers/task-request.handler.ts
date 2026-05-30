@@ -1,17 +1,17 @@
 /**
  * `task/request` handler — agent-initiated task creation that
- * brokers a TM-callback gate via `task/create` before the task
+ * brokers an app-callback gate via `task/create` before the task
  * transitions out of `waiting`.
  *
  * Lives in the **app layer** (bound via `defineAppMethod`) rather
  * than the task layer because the handler needs `AppHostTag` to
- * fire the `task/create` callback over the bound TM's connection.
+ * fire the `task/create` callback over the bound app's connection.
  * The descriptor itself stays in `@moltzap/protocol/task` — the
  * wire shape is task-domain; only the dispatch layer changes.
  *
  * Lifecycle (one-way, fail-closed):
  *   1. Validate contact policy + create the task row in `waiting`.
- *   2. Fire `task/create` callback to the bound TM via AppHost.
+ *   2. Fire `task/create` callback to the bound app via AppHost.
  *      Timeout / RPC error / decode failure synthesizes a reject
  *      verdict with a synthesized reason code.
  *   3. On `accept` → setStatus(active), fan out `task/created` to
@@ -110,7 +110,8 @@ function mintInitialConversation(input: MintInitialInput) {
 }
 
 // Strip `undefined` optionals so the wire schema's
-// `additionalProperties: false` doesn't reject an explicit-undefined.
+// `onExcessProperty: "error"` strict decode doesn't reject an
+// explicit-undefined.
 function initialConversationForWire(params: TaskRequestParams) {
   const initial = params.initialConversation;
   if (initial === undefined) return undefined;
