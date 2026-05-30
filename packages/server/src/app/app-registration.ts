@@ -1,8 +1,6 @@
 import type { AppManifest } from "@moltzap/protocol";
-import { AppNotFoundError, AppNotReadyError } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
-import { AppId, DEFAULT_APP_ID } from "@moltzap/protocol/task";
-import { Effect } from "effect";
+import { AppId } from "@moltzap/protocol/task";
 import type { Originator } from "../transport/connection.js";
 
 /**
@@ -40,14 +38,6 @@ export interface AppRegistration {
 }
 
 /**
- * D #705 §3.1 — the spec's name for a registry entry. Aliased onto the
- * existing `AppRegistration` shape so `lookup`'s public signature reads in
- * `RegisteredApp` terms per spec; the cutover phase renames the underlying
- * interface and migrates consumers.
- */
-export type RegisteredApp = AppRegistration;
-
-/**
  * Single source of truth for app registrations. The registry has no
  * notion of "boot" vs "wire" — both go through {@link register}.
  * The registry itself enforces the no-overwrite invariant: any
@@ -58,13 +48,6 @@ export type RegisteredApp = AppRegistration;
  */
 export class AppRegistry {
   private entries = new Map<AppId, AppRegistration>();
-
-  /**
-   * D #705 §3.1 — boot-state discriminator for {@link lookup}. `null` until
-   * {@link markBootComplete} runs after §2.6 step 5c; thereafter an immutable
-   * timestamp. Internal state — no public read accessor.
-   */
-  private bootCompleteAt: number | null = null;
 
   /**
    * Returns true if the registration was installed, false if `appId`
@@ -86,46 +69,6 @@ export class AppRegistry {
     if (this.entries.has(appId)) return false;
     this.entries.set(appId, { appId, manifest, endpoint });
     return true;
-  }
-
-  /**
-   * Stamp boot-complete (D #705 §3.1). Called by the boot orchestrator AFTER
-   * §2.6 step 5c's `startDefaultApp` succeeds. One-shot idempotent: the first
-   * call stamps `bootCompleteAt`; subsequent calls are no-ops, preserving the
-   * original timestamp. The set-if-null guard structurally enforces the
-   * immutable-once-set invariant — not caller-disciplined.
-   *
-   * Returns an Effect with a `never` error channel (not sync `void`) so the
-   * boot orchestrator can compose it inline with `lookup()` via `yield*`.
-   */
-  markBootComplete(): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      if (this.bootCompleteAt === null) {
-        this.bootCompleteAt = Date.now();
-      }
-    });
-  }
-
-  /**
-   * Primary consumer surface (D #705 §3.1). Encapsulates the
-   * `AppNotReadyError` (transient) vs `AppNotFoundError` (durable)
-   * discriminator so callers see the typed union directly and never replicate
-   * the boot-state rule at the call site.
-   *
-   * - entry present → succeed.
-   * - absent AND `appId === DEFAULT_APP_ID` AND still in the boot transient
-   *   (`bootCompleteAt === null`) → `AppNotReadyError` (retryable, -32011).
-   * - otherwise → `AppNotFoundError` (durable, -32012).
-   */
-  lookup(
-    appId: AppId,
-  ): Effect.Effect<RegisteredApp, AppNotReadyError | AppNotFoundError> {
-    const entry = this.entries.get(appId);
-    if (entry !== undefined) return Effect.succeed(entry);
-    if (appId === DEFAULT_APP_ID && this.bootCompleteAt === null) {
-      return Effect.fail(new AppNotReadyError({ appId }));
-    }
-    return Effect.fail(new AppNotFoundError({ appId }));
   }
 
   unregister(appId: AppId): boolean {
