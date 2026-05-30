@@ -8,23 +8,23 @@ Public barrel for identity, agent, contact, and invite protocol descriptors.
 
 ## Public surface
 
-### [`Agent`](./agents.ts#L59)
+### [`Agent`](./agents.ts#L51)
 
 _TypeAlias_
 
 ```ts
-export type Agent = Static<typeof AgentSchema>;
+export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./agents.ts#L60)
+### [`AgentCard`](./agents.ts#L52)
 
 _TypeAlias_
 
 ```ts
-export type AgentCard = Static<typeof AgentCardSchema>;
+export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentId`](./agents.ts#L16)
+### [`AgentId`](./agents.ts#L17)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ _TypeAlias_
 export const AgentId = brandedId("AgentId");
 ```
 
-### [`AgentId`](./agents.ts#L16)
+### [`AgentId`](./agents.ts#L17)
 
 _Variable_
 
@@ -40,7 +40,7 @@ _Variable_
 export const AgentId = brandedId("AgentId")
 ```
 
-### [`agentOwnershipSchema`](./agents.ts#L69)
+### [`agentOwnershipSchema`](./agents.ts#L61)
 
 _Function_
 
@@ -48,104 +48,79 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L203)
+### [`AgentsList`](./agents.ts#L172)
 
 _Variable_
 
 ```ts
 export const AgentsList = defineRpc({
   name: "agents/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      agents: Type.Array(AgentCardSchema),
-      nextCursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    agents: Schema.Array(AgentCardSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
 })
 ```
 
 List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
 
-### [`AgentsLookup`](./agents.ts#L163)
+### [`AgentsLookup`](./agents.ts#L145)
 
 _Variable_
 
 ```ts
 export const AgentsLookup = defineRpc({
   name: "agents/lookup",
-  params: Type.Object(
-    {
-      agentIds: Type.Array(Type.String({ format: "uuid" }), {
-        minItems: 1,
-        maxItems: 100,
-      }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { agents: Type.Array(AgentCardSchema) },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    agentIds: Schema.Array(formatString("uuid")).pipe(
+      Schema.minItems(1),
+      Schema.maxItems(100),
+    ),
+  }),
+  result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
 })
 ```
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
 
-### [`AgentsLookupByName`](./agents.ts#L183)
+### [`AgentsLookupByName`](./agents.ts#L159)
 
 _Variable_
 
 ```ts
 export const AgentsLookupByName = defineRpc({
   name: "agents/lookupByName",
-  params: Type.Object(
-    {
-      names: Type.Array(Type.String({ minLength: 1, maxLength: 32 }), {
-        minItems: 1,
-        maxItems: 100,
-      }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { agents: Type.Array(AgentCardSchema) },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    names: Schema.Array(
+      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
+    ).pipe(Schema.minItems(1), Schema.maxItems(100)),
+  }),
+  result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
 })
 ```
 
 Look up agents by their short names.
 
-### [`Claim`](./agents.ts#L129)
+### [`Claim`](./agents.ts#L117)
 
 _Variable_
 
 ```ts
 export const Claim = defineRpc({
   name: "agents/claim",
-  params: Type.Object(
-    {
-      claimToken: Type.String({ minLength: 1 }),
-      ownerUserId: Type.String({ format: "uuid" }),
-      inviteCode: Type.Optional(Type.String({ minLength: 1 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      agentId: AgentId,
-      ownerUserId: Type.String({ format: "uuid" }),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    claimToken: Schema.String.pipe(Schema.minLength(1)),
+    ownerUserId: formatString("uuid"),
+    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  }),
+  result: Schema.Struct({
+    agentId: AgentId,
+    ownerUserId: formatString("uuid"),
+  }),
 })
 ```
 
@@ -177,15 +152,15 @@ Recommended order: `agents/register → agents/claim → network/connect`
 (the apiKey from register opens the WebSocket; owner-gated RPCs
 unblock once claim has bound `ownerUserId`).
 
-### [`Contact`](./contacts.ts#L44)
+### [`Contact`](./contacts.ts#L39)
 
 _TypeAlias_
 
 ```ts
-export type Contact = Static<typeof ContactSchema>;
+export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 ```
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L136)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L105)
 
 _Variable_
 
@@ -198,7 +173,7 @@ export const ContactAcceptedNotificationDefinition = defineNotification({
 
 Pushed when a contact request is accepted.
 
-### [`ContactId`](./contacts.ts#L12)
+### [`ContactId`](./contacts.ts#L11)
 
 _TypeAlias_
 
@@ -206,7 +181,7 @@ _TypeAlias_
 export const ContactId = brandedId("ContactId");
 ```
 
-### [`ContactId`](./contacts.ts#L12)
+### [`ContactId`](./contacts.ts#L11)
 
 _Variable_
 
@@ -214,7 +189,7 @@ _Variable_
 export const ContactId = brandedId("ContactId")
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L128)
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L97)
 
 _Variable_
 
@@ -227,90 +202,66 @@ export const ContactRequestNotificationDefinition = defineNotification({
 
 Pushed when an agent receives a contact request.
 
-### [`ContactsAccept`](./contacts.ts#L88)
+### [`ContactsAccept`](./contacts.ts#L71)
 
 _Variable_
 
 ```ts
 export const ContactsAccept = defineRpc({
   name: "contacts/accept",
-  params: Type.Object(
-    { contactId: ContactId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { contact: ContactSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ contactId: ContactId }),
+  result: Schema.Struct({ contact: ContactSchema }),
 })
 ```
 
 Accept a pending contact request.
 
-### [`ContactsAdd`](./contacts.ts#L70)
+### [`ContactsAdd`](./contacts.ts#L59)
 
 _Variable_
 
 ```ts
 export const ContactsAdd = defineRpc({
   name: "contacts/add",
-  params: Type.Object(
-    {
-      contactUserId: UserId,
-      relationship: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { contact: ContactSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    contactUserId: UserId,
+    relationship: Schema.optional(Schema.String),
+  }),
+  result: Schema.Struct({ contact: ContactSchema }),
 })
 ```
 
 Create a contact request.
 
-### [`ContactsById`](./contacts.ts#L103)
+### [`ContactsById`](./contacts.ts#L80)
 
 _Variable_
 
 ```ts
 export const ContactsById = defineRpc({
   name: "contacts/byId",
-  params: Type.Object(
-    { contactId: ContactId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { contact: ContactSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ contactId: ContactId }),
+  result: Schema.Struct({ contact: ContactSchema }),
 })
 ```
 
 Look up a contact by its identifier.
 
-### [`ContactsList`](./contacts.ts#L49)
+### [`ContactsList`](./contacts.ts#L44)
 
 _Variable_
 
 ```ts
 export const ContactsList = defineRpc({
   name: "contacts/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      contacts: Type.Array(ContactSchema),
-      nextCursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    contacts: Schema.Array(ContactSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
 })
 ```
 
@@ -347,18 +298,18 @@ export const identityRpcMethods = [
 ] as const
 ```
 
-### [`InviteAgent`](./agents.ts#L151)
+### [`InviteAgent`](./agents.ts#L133)
 
 _Variable_
 
 ```ts
 export const InviteAgent = defineRpc({
   name: "agents/invite",
-  params: Type.Object(
-    { phone: Type.Optional(Type.String()) },
-    { additionalProperties: false },
+  params: Schema.Struct({ phone: Schema.optional(Schema.String) }),
+  result: Schema.Struct(
+    {},
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   ),
-  result: Type.Object({}, { additionalProperties: true }),
 })
 ```
 
@@ -371,16 +322,19 @@ _Variable_
 ```ts
 export const InvitesCreateAgent = defineRpc({
   name: "invites/createAgent",
-  params: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({}),
   // Result shape hasn't been formalized yet. Keep it open rather than
   // locking in a shape we haven't designed.
-  result: Type.Object({}, { additionalProperties: true }),
+  result: Schema.Struct(
+    {},
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
 })
 ```
 
 Create an agent invite.
 
-### [`NotInContactsError`](./contacts.ts#L15)
+### [`NotInContactsError`](./contacts.ts#L14)
 
 _Class_
 
@@ -393,30 +347,26 @@ export class NotInContactsError extends Data.TaggedError(
 }
 ```
 
-### [`Register`](./agents.ts#L79)
+### [`Register`](./agents.ts#L71)
 
 _Variable_
 
 ```ts
 export const Register = defineRpc({
   name: "agents/register",
-  params: Type.Object(
-    {
-      name: Type.String({ pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$" }),
-      description: Type.Optional(Type.String({ maxLength: 500 })),
-      inviteCode: Type.Optional(Type.String({ minLength: 1 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      agentId: AgentId,
-      apiKey: Type.String(),
-      claimUrl: Type.String({ format: "uri" }),
-      claimToken: Type.String(),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    name: Schema.String.pipe(
+      Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
+    ),
+    description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
+    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  }),
+  result: Schema.Struct({
+    agentId: AgentId,
+    apiKey: Schema.String,
+    claimUrl: formatString("uri"),
+    claimToken: Schema.String,
+  }),
 })
 ```
 
@@ -424,7 +374,7 @@ Register a new agent and receive an API key.
 
 **Returns:** Agent ID, API key, and claim URL.
 
-### [`UserId`](./agents.ts#L14)
+### [`UserId`](./agents.ts#L15)
 
 _TypeAlias_
 
@@ -432,7 +382,7 @@ _TypeAlias_
 export const UserId = brandedId("UserId");
 ```
 
-### [`UserId`](./agents.ts#L14)
+### [`UserId`](./agents.ts#L15)
 
 _Variable_
 
@@ -440,24 +390,20 @@ _Variable_
 export const UserId = brandedId("UserId")
 ```
 
-### [`validateAgent`](./agents.ts#L62)
+### [`validateAgent`](./agents.ts#L58)
 
 _Variable_
 
 ```ts
-export const validateAgent = ajv.compile(AgentSchema) as (
-  value: unknown,
-)
+export const validateAgent = closedStructGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./agents.ts#L65)
+### [`validateAgentCard`](./agents.ts#L59)
 
 _Variable_
 
 ```ts
-export const validateAgentCard = ajv.compile(AgentCardSchema) as (
-  value: unknown,
-)
+export const validateAgentCard = closedStructGuard(AgentCardSchema)
 ```
 
 ## Files

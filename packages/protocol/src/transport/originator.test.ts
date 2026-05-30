@@ -15,8 +15,7 @@
  * legacy `makeOriginator` factory.
  */
 import { describe, expect, it } from "vitest";
-import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect";
-import { Type } from "@sinclair/typebox";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
 
 import { defineRpc } from "./method.js";
 import { makeAgentClientConnection } from "./connection.js";
@@ -26,8 +25,8 @@ import { TaskRejectedError } from "../task/methods.js";
 
 const TestEcho = defineRpc({
   name: "test/echo",
-  params: Type.Object({}, { additionalProperties: false }),
-  result: Type.Object({}, { additionalProperties: false }),
+  params: Schema.Struct({}),
+  result: Schema.Struct({}),
 });
 
 function parseRequestId(raw: string): string {

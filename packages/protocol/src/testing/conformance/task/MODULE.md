@@ -30,7 +30,7 @@ export function acquireClient(
 ): Effect.Effect<ConversationActor, string, Scope.Scope>
 ```
 
-### [`acquireConversation`](./_helpers.ts#L763)
+### [`acquireConversation`](./_helpers.ts#L766)
 
 _Function_
 
@@ -301,7 +301,7 @@ _Function_
 export function fixtureN(requested: number): number
 ```
 
-### [`moderateAs`](./_helpers.ts#L732)
+### [`moderateAs`](./_helpers.ts#L735)
 
 _Function_
 
@@ -327,13 +327,13 @@ notifications are agent broadcasts that CANNOT reach an `AppConnection`.
 The shared in-process `participantsRef` bridges the owner's subscriber to
 the app's forward-all callback.
 
-### [`ModeratedHandle`](./_helpers.ts#L695)
+### [`ModeratedHandle`](./_helpers.ts#L698)
 
 _Interface_
 
 ```ts
 export interface ModeratedHandle {
-  readonly appId: Static<typeof AppIdSchema>;
+  readonly appId: Schema.Schema.Type<typeof AppIdSchema>;
 
   /**
    * The app-principal `AppConnection` bound as moderator. TM-admin RPCs
@@ -350,7 +350,7 @@ export interface ModeratedHandle {
    */
   readonly awaitConversationReady: (
     conversationId: ConversationId,
-    expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+    expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof AgentId>>,
   ) => Effect.Effect<void, string>;
 }
 ```

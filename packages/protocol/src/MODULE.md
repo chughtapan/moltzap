@@ -87,7 +87,7 @@ _TypeAlias_
 export type AnyTaskMasterRpcDefinition = (typeof taskMasterRpcMethods)[number] &
 ```
 
-### [`brandedId`](./schema-primitives.ts#L85)
+### [`brandedId`](./schema-primitives.ts#L178)
 
 _Function_
 
@@ -95,28 +95,27 @@ _Function_
 export function brandedId<const BrandName extends string>(brand: BrandName)
 ```
 
-Convenience over `brandedString` that adds `format: "uuid"`. The
+Convenience over brandedString that adds the `uuid` format. The
 canonical way to define wire id types in this package
-(`AgentId = brandedId("AgentId")`, `TaskId = brandedId("TaskId")`,
-etc.). The format check runs against the FormatRegistry's UUID
-regex registered at module load.
+(`AgentId = brandedId("AgentId")`, `TaskId = brandedId("TaskId")`, etc.).
+The format check runs the `UUID_RE` regex at decode time and annotates the
+schema so `JSONSchema.make` emits `format:"uuid"` for the docs walker.
 
-### [`brandedNumber`](./schema-primitives.ts#L68)
+### [`brandedNumber`](./schema-primitives.ts#L152)
 
 _Function_
 
 ```ts
 export function brandedNumber<const BrandName extends string>(
   brand: BrandName,
-  options: Parameters<typeof Type.Number>[0] = {},
-)
+  options: BrandedNumberOptions = {},
+): Schema.Schema<BrandedNumber<BrandName>, number>
 ```
 
-Build a `TNumber` TypeBox schema whose static type is
-`BrandedNumber&lt;BrandName>`. Same shape as `brandedString` for the
-numeric case.
+Effect `Schema` whose decoded type is `BrandedNumber&lt;BrandName>`. Same
+shape as brandedString for the numeric case.
 
-### [`BrandedNumber`](./schema-primitives.ts#L43)
+### [`BrandedNumber`](./schema-primitives.ts#L21)
 
 _TypeAlias_
 
@@ -126,24 +125,45 @@ export type BrandedNumber<BrandName extends string> = number &
 
 A `number` carrying a nominal `Brand.Brand&lt;BrandName>` tag.
 
-### [`brandedString`](./schema-primitives.ts#L53)
+### [`BrandedNumberOptions`](./schema-primitives.ts#L37)
+
+_Interface_
+
+```ts
+export interface BrandedNumberOptions {
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly description?: string;
+}
+```
+
+Refinement options accepted by brandedNumber.
+
+### [`brandedString`](./schema-primitives.ts#L57)
 
 _Function_
 
 ```ts
 export function brandedString<const BrandName extends string>(
   brand: BrandName,
-  options: Parameters<typeof Type.String>[0] = {},
-)
+  options: BrandedStringOptions = {},
+): Schema.Schema<BrandedString<BrandName>, string>
 ```
 
-Build a `TString` TypeBox schema whose static type is
-`BrandedString&lt;BrandName>`. The brand exists only at the type level —
-the AJV validator runs against the underlying string. Passes
-`options` through to `Type.String` so callers can add `format`,
-`minLength`, `maxLength`, `pattern`, etc.
+Effect `Schema` whose decoded type is `BrandedString&lt;BrandName>`. The
+brand exists only at the type level — decode runs against the underlying
+string with the requested refinements (`minLength`, `maxLength`,
+`pattern`, and the three wire `format` checkers below). Replaces the
+former TypeBox `Type.String` + AJV `format` registry: the regex/finiteness
+checks are now `Schema.pattern` / `Schema.filter` refinements that run
+inside the same `Schema.decode*` engine as everything else.
 
-### [`BrandedString`](./schema-primitives.ts#L39)
+`format` annotates the schema with `{ jsonSchema: { format } }` so
+`JSONSchema.make` re-emits the draft-07 `format` keyword the docs walker
+reads (`scripts/docs/schema.ts → getStringTypeName`). The `pattern`/`filter`
+refinement still runs at decode time regardless of the annotation.
+
+### [`BrandedString`](./schema-primitives.ts#L17)
 
 _TypeAlias_
 
@@ -153,6 +173,26 @@ export type BrandedString<BrandName extends string> = string &
 
 A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
 a `string` from accidentally type-fitting a slot expecting the brand.
+
+`Schema.brand` produces `string & Brand.Brand&lt;BrandName>`, identical to
+this alias, so a `brandedString("Foo")` schema's `Schema.Schema.Type` is
+assignable both ways with `BrandedString&lt;"Foo">`.
+
+### [`BrandedStringOptions`](./schema-primitives.ts#L28)
+
+_Interface_
+
+```ts
+export interface BrandedStringOptions {
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  readonly pattern?: string;
+  readonly format?: WireStringFormat;
+  readonly description?: string;
+}
+```
+
+Refinement options accepted by brandedString.
 
 ### [`checkProtocolRange`](./version.ts#L155)
 
@@ -207,6 +247,22 @@ minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
 `ProtocolMismatchError` whose `data.reason` is
 `"server-above-client-max"`.
 
+### [`closedStructGuard`](./schema-primitives.ts#L298)
+
+_Function_
+
+```ts
+export function closedStructGuard<A, I>(
+  schema: Schema.Schema<A, I>,
+): (value: unknown)
+```
+
+Build a boolean type-guard from a `Schema` that REJECTS excess keys,
+matching the former `ajv.compile(schema)` strict type guards. A bare
+`Schema.is(schema)` ACCEPTS excess (loosening the trust boundary), so the
+standalone validators (`validateAgent`, `validateMessage`, …) wrap a
+strict `decodeUnknownEither` instead.
+
 ### [`compareProtocolVersion`](./version.ts#L81)
 
 _Function_
@@ -252,18 +308,7 @@ through checkProtocolRange, which wraps this call in
 — never as a sync throw escaping into the JSON-RPC handler
 (codex PR review #1 P2).
 
-### [`DateTimeString`](./schema-primitives.ts#L107)
-
-_TypeAlias_
-
-```ts
-export type DateTimeString = Static<typeof DateTimeStringSchema>;
-```
-
-ISO-8601 date-time string. Validated by the FormatRegistry `date-time`
-checker registered at module load (regex plus `Date.parse` finiteness).
-
-### [`dateTimeStringSchema`](./schema-primitives.ts#L114)
+### [`dateTimeStringSchema`](./schema-primitives.ts#L226)
 
 _Function_
 
@@ -271,9 +316,8 @@ _Function_
 export function dateTimeStringSchema(): typeof DateTimeStringSchema
 ```
 
-Returns the shared `DateTimeStringSchema` singleton. Functioned so
-callers can keep `as const` references stable while the schema body
-is owned here.
+Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
+can keep `as const` references stable while the schema body is owned here.
 
 ### [`decodeClientInbound`](./rpc-registry.ts#L280)
 
@@ -393,6 +437,22 @@ pending call to resolve.
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
 
+### [`decodesStrictly`](./schema-primitives.ts#L281)
+
+_Function_
+
+```ts
+export function decodesStrictly<A, I>(
+  schema: Schema.Schema<A, I>,
+  value: unknown,
+): boolean
+```
+
+Whether `value` decodes cleanly against `schema` with excess-key rejection
+(the strict AJV-parity check). The canonical boolean form used by the wire
+frame validators, the standalone struct guards, and the conformance ports —
+built on `Either.match` (the repo's required Either discriminant).
+
 ### [`DEFAULT_PAGE_LIMIT`](./pagination.ts#L14)
 
 _Variable_
@@ -400,6 +460,20 @@ _Variable_
 ```ts
 export const DEFAULT_PAGE_LIMIT = 50
 ```
+
+### [`formatString`](./schema-primitives.ts#L192)
+
+_Function_
+
+```ts
+export function formatString(format: WireStringFormat): Schema.Schema<string>
+```
+
+Unbranded `Schema.String` carrying one of the three wire `format` checkers
+(the former AJV `FormatRegistry` formats). Use for `result`/nested string
+fields that need a `format` but no brand (e.g. a `claimUrl` `uri`, a raw
+`uuid`-shaped id field). Emits the draft-07 `format` keyword for the docs
+walker and runs the regex/finiteness refinement at decode time.
 
 ### [`InvalidProtocolVersionError`](./version.ts#L35)
 
@@ -438,7 +512,7 @@ for untrusted client-supplied version strings. The
 `InvalidParamsError` (JSON-RPC -32602) so the client gets a typed
 malformed-input response, not a defect.
 
-### [`JsonValue`](./schema-primitives.ts#L149)
+### [`JsonValue`](./schema-primitives.ts#L251)
 
 _TypeAlias_
 
@@ -451,26 +525,7 @@ export type JsonValue =
   | ReadonlyArray<JsonValue>
 ```
 
-### [`JsonValueSchema`](./schema-primitives.ts#L137)
-
-_Variable_
-
-```ts
-export const JsonValueSchema = Type.Recursive(
-  (Self) =>
-    Type.Union([
-      Type.Null(),
-      Type.Boolean(),
-      Type.Number(),
-      Type.String(),
-      Type.Array(Self),
-      Type.Record(Type.String(), Self),
-    ]),
-  { $id: "JsonValue" },
-)
-```
-
-### [`ListCursor`](./schema-primitives.ts#L121)
+### [`ListCursor`](./schema-primitives.ts#L233)
 
 _TypeAlias_
 
@@ -478,12 +533,12 @@ _TypeAlias_
 export type ListCursor = BrandedString<"ListCursor">;
 ```
 
-### [`listCursorSchema`](./schema-primitives.ts#L123)
+### [`listCursorSchema`](./schema-primitives.ts#L242)
 
 _Function_
 
 ```ts
-export function listCursorSchema(): TString &
+export function listCursorSchema(): typeof ListCursorSchema
 ```
 
 ### [`ListLimitSchema`](./pagination.ts#L23)
@@ -491,8 +546,12 @@ export function listCursorSchema(): TString &
 _Variable_
 
 ```ts
-export const ListLimitSchema = Type.Optional(
-  Type.Integer({ minimum: 1, maximum: MAX_PAGE_LIMIT }),
+export const ListLimitSchema = Schema.optional(
+  Schema.Number.pipe(
+    Schema.int(),
+    Schema.greaterThanOrEqualTo(1),
+    Schema.lessThanOrEqualTo(MAX_PAGE_LIMIT),
+  ),
 )
 ```
 
@@ -553,17 +612,41 @@ export const serverRpcMethods = [
 ] as const
 ```
 
-### [`stringEnum`](./schema-primitives.ts#L97)
+### [`STRICT_DECODE`](./schema-primitives.ts#L273)
+
+_Variable_
+
+```ts
+export const STRICT_DECODE =
+```
+
+Decode-time option that makes a `Schema.Struct` REJECT extra keys.
+
+Effect's `Schema.Struct` STRIPS excess keys by default
+(`onExcessProperty:"ignore"`) — `Schema.decodeUnknownEither(S)({a,extra})`
+returns `Right` with `extra` silently dropped, and `Schema.is(S)` returns
+`true`. The former wire engine was `new Ajv({ strict: true })` +
+`additionalProperties:false`, which REJECTED excess at every boundary, and
+the conformance `extra-property` / `oversized` mutators assert frames with
+an extra key still FAIL. So every ported decode boundary MUST pass this
+option (or use closedStructGuard) to preserve that rejection.
+
+### [`stringEnum`](./schema-primitives.ts#L204)
 
 _Function_
 
 ```ts
-export function stringEnum<T extends string[]>(values: [...T])
+export function stringEnum<T extends string[]>(
+  values: [...T],
+): Schema.Schema<T[number]>
 ```
 
-`Type.String({ enum: values })` typed as the union of the literal
-values. Use instead of `Type.Union([Type.Literal("a"), Type.Literal("b")])`
-— same wire shape, simpler schema, single AJV `enum` keyword.
+`Schema.Literal(...values)` typed as the union of the literal values. Use
+instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` —
+same wire shape, simpler schema. Replaces the former TypeBox
+`Type.String({ enum })`; `JSONSchema.make` renders a literal union as
+`{ "enum": [...] }` (string-valued), which the docs walker reads off
+`.enum`.
 
 ### [`taskMasterRpcMethods`](./rpc-registry.ts#L107)
 
@@ -575,6 +658,25 @@ export const taskMasterRpcMethods = [
   ...appCallableTaskRpcMethods,
 ] as const
 ```
+
+### [`WireStringFormat`](./schema-primitives.ts#L25)
+
+_TypeAlias_
+
+```ts
+export type WireStringFormat = "uuid" | "uri" | "date-time";
+
+/** Refinement options accepted by {@link brandedString}. */
+export interface BrandedStringOptions {
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  readonly pattern?: string;
+  readonly format?: WireStringFormat;
+  readonly description?: string;
+}
+```
+
+The three wire string formats (former AJV `FormatRegistry` entries).
 
 ## Files
 

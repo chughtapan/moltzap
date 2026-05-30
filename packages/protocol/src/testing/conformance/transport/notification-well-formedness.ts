@@ -12,7 +12,7 @@
  */
 import * as fc from "fast-check";
 import { Effect, Either } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { decodesStrictly } from "../../../schema-primitives.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import {
   decodeFrame,
@@ -81,6 +81,7 @@ function notificationFrameDecodesCleanly(frame: NotificationFrame): boolean {
 
 function isWellFormedNotificationFrame(frame: AnyFrame): boolean {
   return (
-    isNotificationFrame(frame) && Value.Check(NotificationFrameSchema(), frame)
+    isNotificationFrame(frame) &&
+    decodesStrictly(NotificationFrameSchema(), frame)
   );
 }

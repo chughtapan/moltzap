@@ -332,9 +332,9 @@ const lookupAgentIdsByName = (
         }),
       );
     }
-    // Defensive copy: AgentsLookupByName.params.names resolves to
-    // mutable `string[]` (TypeBox's `Static<Array>`); pass a shallow
-    // clone so the caller's readonly contract isn't bypassed.
+    // Defensive copy: spread the caller's `names` into a fresh array before
+    // handing it to the RPC, so the caller's array isn't aliased into the
+    // request frame.
     const result = yield* rpc(AgentsLookupByName, { names: [...names] });
     for (const agent of result.agents) {
       if (!byName.has(agent.name)) byName.set(agent.name, agent.id);
@@ -469,17 +469,17 @@ const createTaskAtomic = (
   name: string,
 ): Effect.Effect<CreateTaskOutcome, TransportError, Transport> =>
   Effect.gen(function* () {
-    // Defensive copies: TaskRequest's params type expects mutable arrays
-    // (TypeBox's Static<Array> resolves to T[], not readonly T[]); pass
-    // shallow clones so the caller's readonly contract isn't bypassed.
+    // Defensive copies: spread the caller's arrays into fresh ones before
+    // building the request, so the caller's arrays aren't aliased into the
+    // request frame.
     //
     // Spec D2 (#599) amendment N7 (zero-participant carve-out):
-    // `InitialConversationSchema.participants` is `Type.Optional(Type.Array(AgentId,
-    // { minItems: 1 }))` — an EMPTY array fails server AJV. The
-    // caller-only path (help text + plan §R4 + `start.test.ts →
-    // zeroParticipants`) MUST omit `participants` entirely; the server
-    // adds the caller to `conversation_participants` implicitly. See
-    // `packages/protocol/src/task/tasks.ts → InitialConversationSchema`.
+    // `InitialConversationSchema.participants` is `Schema.optional(
+    // Schema.Array(AgentId).pipe(Schema.minItems(1)))` — an EMPTY array fails
+    // the server's decode. The caller-only path (help text + plan §R4 +
+    // `start.test.ts → zeroParticipants`) MUST omit `participants` entirely;
+    // the server adds the caller to `conversation_participants` implicitly.
+    // See `packages/protocol/src/task/tasks.ts → InitialConversationSchema`.
     const initialConversation =
       invitedAgentIds.length === 0
         ? { name }

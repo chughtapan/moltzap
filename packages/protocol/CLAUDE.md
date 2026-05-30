@@ -1,9 +1,16 @@
 # @moltzap/protocol
 
-TypeBox schema definitions, descriptor-backed RPC/notification
-definitions, and AJV validators for the MoltZap JSON-RPC protocol.
-Source of truth for all wire message types. Leaf of the workspace
-dependency DAG.
+Effect-`Schema` definitions, descriptor-backed RPC/notification
+definitions, and decode-time validators for the MoltZap JSON-RPC
+protocol. Source of truth for all wire message types. Leaf of the
+workspace dependency DAG.
+
+The wire DIALECT is unchanged JSON-RPC-2.0 (`{jsonrpc:"2.0", id,
+method, params}` / `-32xxx` error codes). #723 migrated the validation
+ENGINE off TypeBox + AJV onto Effect `Schema` (`Schema.Struct` /
+`Schema.Union` / `Schema.brand`, decoded via `Schema.decodeUnknownEither`)
+— same bytes on the socket, one decode engine shared with the rest of
+the runtime.
 
 ## Key Files
 
@@ -84,9 +91,18 @@ The recipe; every new RPC follows it:
    layers at-or-below; never above. Put it in the lowest layer that
    covers it.
 2. **Declare schemas** in the layer's `methods.ts` (or
-   `tasks.ts` / `messages.ts` for task subfamilies). Use TypeBox:
-   `Type.Object({ ... }, { additionalProperties: false })`. Branded
-   ids via `brandedId("FooId")`. Enums via `stringEnum(["a", "b"])`.
+   `tasks.ts` / `messages.ts` for task subfamilies). Use Effect
+   `Schema`: `Schema.Struct({ ... })`. Branded ids via
+   `brandedId("FooId")`; enums via `stringEnum(["a", "b"])`; bounded
+   integers via `Schema.Number.pipe(Schema.int(),
+   Schema.greaterThanOrEqualTo(n))` (the inline form — NOT
+   `Schema.Int`, which hoists a `$defs`/`$ref` the docs walker can't
+   read). `Schema.Struct` STRIPS excess keys by default; AJV-strict
+   parity (reject excess) is enforced at the DECODE boundary, where
+   every wire decode passes `{ onExcessProperty: "error" }` (the
+   `STRICT_DECODE` const) — see `transport/dispatch.ts` and the
+   `closedStructGuard` validators, NOT the `Schema.Struct` shape
+   alone.
 3. **Define the descriptor** with `defineRpc({ name, params, result,
    capabilities? })`. Add it to the layer's
    `<layer>RpcMethods` array (e.g., `taskRpcMethods` in
@@ -124,12 +140,20 @@ app layer files. Add to the layer's `<layer>Notifications` array.
 ## Conventions
 
 Schema authoring:
-- All `Type.Object()` calls use `{ additionalProperties: false }`.
+- Use `Schema.Struct({ ... })`. Excess-key rejection is NOT on the
+  struct shape (it strips by default); it is enforced at decode via
+  `STRICT_DECODE` (`{ onExcessProperty: "error" }`) — see the
+  `closedStruct` / `STRICT_DECODE` glossary entry.
 - Use `stringEnum(["a", "b"])` instead of
-  `Type.Union([Type.Literal("a"), Type.Literal("b")])` — same wire
-  shape, simpler validator output.
-- Use `brandedId("FooId")` for UUID string fields. Use
+  `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` — same wire
+  shape, simpler schema.
+- Use `brandedId("FooId")` for UUID string fields; `formatString`
+  for non-branded `uuid`/`uri`/`date-time` fields. Use
   `brandedString` / `brandedNumber` for non-UUID branded primitives.
+- Bounded integers: `Schema.Number.pipe(Schema.int(),
+  Schema.greaterThanOrEqualTo(n))` — the INLINE form. `Schema.Int`
+  hoists a `$defs`/`$ref` in `JSONSchema.make` that the docs walker
+  can't dereference.
 
 Wire frames:
 - Request / response / notification frames are standard JSON-RPC
@@ -213,18 +237,32 @@ Arena (v2 per spec amendment #200 N8) copies this template directly.
 
 ## Glossary
 
-- **TypeBox** — `@sinclair/typebox` runtime schema library. Schemas
-  are values, not types — `Type.Object({...})` builds a JSON Schema
-  object you can pass to AJV and read the static type off of via
-  `Static<typeof Schema>`.
-- **AJV** — `ajv` JSON Schema validator. Every descriptor compiles
-  its TypeBox params/result schema to an AJV validator at module
-  load; the validator is the runtime gate.
+- **Effect `Schema`** — the runtime schema library (`effect`'s
+  `Schema` module) the protocol uses post-#723. Schemas are values —
+  `Schema.Struct({...})` builds a schema you decode via
+  `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
+  "error" })` and read the static type off of via
+  `Schema.Schema.Type<typeof Schema>`. Replaced TypeBox + AJV (both
+  deleted); the same `Schema` engine decodes wire frames AND the rest
+  of the runtime. Branded ids are `Schema.brand` (`brandedId`); the
+  three wire string formats (`uuid`/`uri`/`date-time`) are
+  `Schema.pattern` / `Schema.filter` refinements (`brandedString` /
+  `formatString`), replacing AJV's `FormatRegistry`.
+- **`closedStruct` / `STRICT_DECODE`** — `Schema.Struct` STRIPS excess
+  keys by default (`onExcessProperty:"ignore"`); the former
+  `new Ajv({strict:true})` + `additionalProperties:false` REJECTED
+  them, and the conformance `extra-property` / `oversized` mutators
+  assert frames with an extra key still FAIL. `STRICT_DECODE`
+  (`{ onExcessProperty: "error" }`, `schema-primitives.ts`) restores
+  that rejection at every wire decode; `closedStructGuard(schema)`
+  wraps it as a boolean type guard (the former `ajv.compile` strict
+  validators: `validateAgent`, `validateMessage`, …).
 - **Descriptor** — A frozen `RpcDefinition` or
   `NotificationDefinition` produced by `defineRpc` /
-  `defineNotification`. Carries the schema, validators, and encoders
-  for one wire method (#705 HALF-2 — capabilities are NO LONGER on the
-  descriptor; they are declared at the server binding site). Every RPC
+  `defineNotification`. Carries the Effect `Schema`,
+  decode-time validators, and encoders for one wire method (#705
+  HALF-2 — capabilities are NO LONGER on the descriptor; they are
+  declared at the server binding site). Every RPC
   slot is required; the dispatcher fails closed when no handler is bound.
 - **Capability tag** — A `Context.Tag` whose value carries a runtime
   authority proof. The server declares each as a `CapabilityMiddleware`

@@ -144,10 +144,19 @@ const cursorListFilter = (cursorParam: string | null) => {
   return sql`AND c.updated_at < ${cursorParam}`;
 };
 
+// Working shape with a mutable `participants` slot: `ConversationSummary`'s
+// fields are deeply `readonly` post-#723 (Effect Schema), but the rows are
+// assembled WITHOUT participants and then back-filled in
+// `attachSummaryParticipants`. Build mutably here, then return as the
+// readonly `ConversationSummary[]`.
+type MutableConversationSummary = Omit<ConversationSummary, "participants"> & {
+  participants?: ReadonlyArray<ConversationParticipant["participant"]>;
+};
+
 const conversationSummariesFromRows = (
   rows: ReadonlyArray<ListRow>,
   previewCache: ReadonlyMap<ConversationId, string>,
-): ConversationSummary[] =>
+): MutableConversationSummary[] =>
   rows.map((row) => ({
     id: row.id,
     name: row.name ?? undefined,
@@ -158,7 +167,7 @@ const conversationSummariesFromRows = (
 
 const attachSummaryParticipants = (
   db: Db,
-  conversations: ConversationSummary[],
+  conversations: MutableConversationSummary[],
 ): Effect.Effect<void, SqlError> => {
   if (conversations.length === 0) return Effect.void;
   return Effect.gen(function* () {

@@ -18,7 +18,7 @@
  * succeeds and `tsc --noEmit` fails with TS2578 ("Unused
  * '@ts-expect-error' directive").
  */
-import type { Static } from "@sinclair/typebox";
+import type { Schema } from "effect";
 import type { JsonRpcMethod } from "../transport/wire.js";
 import type {
   AgentId,
@@ -155,9 +155,12 @@ export type _D1WireNameCanary =
 // re-introduces `tmType` or downgrades `appId` to `string` fails the
 // `Expect<Equal<...>>` below.
 
-type TaskCreateParams = Static<typeof TaskRequest.paramsSchema>;
+type TaskCreateParams = Schema.Schema.Type<typeof TaskRequest.paramsSchema>;
 type _C1 = Expect<Equal<TaskCreateParams["appId"], AppId>>;
-type _C2 = Expect<Equal<TaskCreateParams["invitedAgentIds"], AgentId[]>>;
+// Post-#723 (Effect Schema): `Schema.Array` yields `readonly T[]`.
+type _C2 = Expect<
+  Equal<TaskCreateParams["invitedAgentIds"], readonly AgentId[]>
+>;
 type _C3 = Expect<
   Equal<
     keyof TaskCreateParams,
@@ -165,7 +168,7 @@ type _C3 = Expect<
   >
 >;
 
-type TaskCreateResult = Static<typeof TaskRequest.resultSchema>;
+type TaskCreateResult = Schema.Schema.Type<typeof TaskRequest.resultSchema>;
 type _C4 = Expect<Equal<keyof TaskCreateResult, "task" | "conversation">>;
 // Spec body Goal 3 fixes `conversation: Conversation | null` (NOT
 // optional `conversation?`); the AC text uses shorthand `conversation?`
@@ -200,7 +203,9 @@ type _L1 = Expect<
   >
 >;
 type _L2 = Expect<Equal<TaskConversationListItem["taskId"], TaskId>>;
-type _L3 = Expect<Equal<TaskConversationListItem["participants"], AgentId[]>>;
+type _L3 = Expect<
+  Equal<TaskConversationListItem["participants"], readonly AgentId[]>
+>;
 // Spec D1 adds `archivedAt?: DateTimeString` to the `Conversation` row
 // so clients can filter archived rows out of
 // `TaskConversationList` responses without a separate field on

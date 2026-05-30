@@ -25,6 +25,7 @@ import {
   Ref,
   Scope,
   Stream,
+  Schema,
 } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
@@ -54,7 +55,6 @@ import { requestFrame, responseFrame } from "../../../../transport/wire.js";
 import type { JsonRpcId } from "../../../../transport/wire.js";
 import type { AnyNotificationDefinition } from "../../../../rpc-registry.js";
 import { notificationDefinitions } from "../../../../rpc-registry.js";
-import type { Static } from "@sinclair/typebox";
 import { AgentId } from "../../../../identity/methods.js";
 import { PROTOCOL_VERSION } from "../../../../version.js";
 import {
@@ -100,7 +100,7 @@ import { Connect } from "../../../../network/methods.js";
 export interface TestClientConfig {
   readonly serverUrl: string;
   readonly agentKey: string;
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly defaultTimeoutMs: number;
   /** Soft cap on captured frames before the ring buffer drops oldest. */
   readonly captureCapacity: number;
@@ -125,6 +125,14 @@ export interface TestClientConfig {
   readonly malformedQuiescenceMs?: number;
 }
 
+/** Error channel shared by every `sendRpc` surface (interface + impls). */
+type SendRpcError =
+  | RpcResponseError
+  | RpcTimeoutError
+  | TransportClosedError
+  | TransportIoError
+  | FrameSchemaError;
+
 /**
  * Handle surface. Scoped: acquiring the handle opens the WS; releasing the
  * scope closes it. All methods return Effects so property code can compose
@@ -135,14 +143,7 @@ export interface TestClient {
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
-  ) => Effect.Effect<
-    ResultOf<D>,
-    | RpcResponseError
-    | RpcTimeoutError
-    | TransportClosedError
-    | TransportIoError
-    | FrameSchemaError
-  >;
+  ) => Effect.Effect<ResultOf<D>, SendRpcError>;
 
   readonly sendMalformed: <D extends AnyServerRpcDefinition>(opts: {
     readonly baseDefinition: D;
@@ -458,8 +459,8 @@ class RuntimeTestClient implements TestClient {
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
-  ): ReturnType<TestClient["sendRpc"]> {
-    const input =
+  ): Effect.Effect<ResultOf<D>, SendRpcError> {
+    const input: SendRpcInput<D> =
       opts === undefined
         ? { definition, params }
         : { definition, params, opts };
@@ -887,14 +888,7 @@ function handleSocketReaderFailure(
 function sendClientRpc<D extends AnyServerRpcDefinition>(
   runtime: TestClientRuntime,
   input: SendRpcInput<D>,
-): Effect.Effect<
-  ResultOf<D>,
-  | RpcResponseError
-  | RpcTimeoutError
-  | TransportClosedError
-  | TransportIoError
-  | FrameSchemaError
-> {
+): Effect.Effect<ResultOf<D>, SendRpcError> {
   return Effect.gen(function* () {
     const request = requestFrame(
       nextRequestId(),
@@ -962,6 +956,11 @@ function decodeRpcSuccessResult<D extends AnyServerRpcDefinition>(
     );
   }
   return decodeRpcResult(definition, response.result).pipe(
+    // `decodeRpcResult` over the opaque `D extends AnyServerRpcDefinition`
+    // infers the result as the abstract `Schema.Schema.Type<R>`; widen to
+    // `ResultOf<D>` (the same type, named through the descriptor) so the
+    // `TestClient.sendRpc` signature's `Effect<ResultOf<D>, …>` is satisfied.
+    Effect.map((result) => result as ResultOf<D>),
     Effect.mapError(() =>
       inboundFrameSchemaError(
         encodeFrame(response),

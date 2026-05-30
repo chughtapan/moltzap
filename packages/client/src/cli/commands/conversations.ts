@@ -4,8 +4,7 @@
  * land at the transport boundary.
  */
 import { Args, Command, HelpDoc, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { Effect, Option, Schema } from "effect";
 import { ConversationId, TaskId } from "@moltzap/protocol/task";
 import { LocalServiceCommands, requestLocalService } from "../socket-client.js";
 import type {
@@ -50,7 +49,7 @@ const sessionKeyOption = Options.text("session-key").pipe(
 const taskIdArg = Args.text({ name: "taskId" }).pipe(
   Args.withDescription("Task ID"),
   Args.mapTryCatch(
-    (raw) => Value.Decode(TaskId, raw),
+    (raw) => Schema.decodeUnknownSync(TaskId)(raw),
     (err) => HelpDoc.p(`invalid taskId: ${String(err)}`),
   ),
 );
@@ -58,7 +57,7 @@ const taskIdArg = Args.text({ name: "taskId" }).pipe(
 const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
   Args.withDescription("Conversation ID"),
   Args.mapTryCatch(
-    (raw) => Value.Decode(ConversationId, raw),
+    (raw) => Schema.decodeUnknownSync(ConversationId)(raw),
     (err) => HelpDoc.p(`invalid conversationId: ${String(err)}`),
   ),
 );

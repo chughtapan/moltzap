@@ -1,70 +1,62 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Schema } from "effect";
 import {
   stringEnum,
   dateTimeStringSchema,
   brandedId,
   listCursorSchema,
+  formatString,
+  closedStructGuard,
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc } from "../transport/method.js";
-import { ajv } from "../transport/wire.js";
 
 const DateTimeString = dateTimeStringSchema();
 
 export const UserId = brandedId("UserId");
-export type UserId = Static<typeof UserId>;
+export type UserId = Schema.Schema.Type<typeof UserId>;
 export const AgentId = brandedId("AgentId");
-export type AgentId = Static<typeof AgentId>;
+export type AgentId = Schema.Schema.Type<typeof AgentId>;
 
-const AgentMetadataSchema = Type.Object(
-  {
-    purpose: Type.Optional(Type.Array(Type.String())),
-    description: Type.Optional(Type.String()),
-    tags: Type.Optional(Type.Record(Type.String(), Type.String())),
-  },
-  { additionalProperties: false },
-);
-
-const AgentSchema = Type.Object(
-  {
-    id: AgentId,
-    ownerUserId: Type.Optional(UserId),
-    name: Type.String({
-      pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$",
-      minLength: 3,
-      maxLength: 32,
-    }),
-    displayName: Type.Optional(Type.String()),
-    description: Type.Optional(Type.String()),
-    agentType: Type.Optional(stringEnum(["OpenClaw", "NanoClaw"])),
-    metadata: Type.Optional(AgentMetadataSchema),
-    status: stringEnum(["pending_claim", "active", "suspended"]),
-    createdAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
-
-const AgentCardSchema = Type.Omit(AgentSchema, ["createdAt"], {
-  additionalProperties: false,
+const AgentMetadataSchema = Schema.Struct({
+  purpose: Schema.optional(Schema.Array(Schema.String)),
+  description: Schema.optional(Schema.String),
+  tags: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.String }),
+  ),
 });
 
-const AgentOwnershipSchema = Type.Object(
-  {
-    agentId: AgentId,
-    ownerId: Type.String(),
-  },
-  { additionalProperties: false },
-);
+const AgentSchema = Schema.Struct({
+  id: AgentId,
+  ownerUserId: Schema.optional(UserId),
+  name: Schema.String.pipe(
+    Schema.minLength(3),
+    Schema.maxLength(32),
+    Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
+  ),
+  displayName: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
+  agentType: Schema.optional(stringEnum(["OpenClaw", "NanoClaw"])),
+  metadata: Schema.optional(AgentMetadataSchema),
+  status: stringEnum(["pending_claim", "active", "suspended"]),
+  createdAt: DateTimeString,
+});
 
-export type Agent = Static<typeof AgentSchema>;
-export type AgentCard = Static<typeof AgentCardSchema>;
+const AgentCardSchema = AgentSchema.omit("createdAt");
 
-export const validateAgent = ajv.compile(AgentSchema) as (
-  value: unknown,
-) => value is Agent;
-export const validateAgentCard = ajv.compile(AgentCardSchema) as (
-  value: unknown,
-) => value is AgentCard;
+const AgentOwnershipSchema = Schema.Struct({
+  agentId: AgentId,
+  ownerId: Schema.String,
+});
+
+export type Agent = Schema.Schema.Type<typeof AgentSchema>;
+export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
+
+// Strict, excess-rejecting type guards (former `ajv.compile(schema)` strict
+// validators). `closedStructGuard` wraps a `Schema.decodeUnknownEither(...,
+// { onExcessProperty: "error" })` so extra keys are REJECTED — a bare
+// `Schema.is` would accept them and loosen the trust boundary.
+export const validateAgent = closedStructGuard(AgentSchema);
+export const validateAgentCard = closedStructGuard(AgentCardSchema);
 
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
   return AgentOwnershipSchema;
@@ -78,23 +70,19 @@ export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
  */
 export const Register = defineRpc({
   name: "agents/register",
-  params: Type.Object(
-    {
-      name: Type.String({ pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$" }),
-      description: Type.Optional(Type.String({ maxLength: 500 })),
-      inviteCode: Type.Optional(Type.String({ minLength: 1 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      agentId: AgentId,
-      apiKey: Type.String(),
-      claimUrl: Type.String({ format: "uri" }),
-      claimToken: Type.String(),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    name: Schema.String.pipe(
+      Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
+    ),
+    description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
+    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  }),
+  result: Schema.Struct({
+    agentId: AgentId,
+    apiKey: Schema.String,
+    claimUrl: formatString("uri"),
+    claimToken: Schema.String,
+  }),
 });
 
 /**
@@ -128,21 +116,15 @@ export const Register = defineRpc({
  */
 export const Claim = defineRpc({
   name: "agents/claim",
-  params: Type.Object(
-    {
-      claimToken: Type.String({ minLength: 1 }),
-      ownerUserId: Type.String({ format: "uuid" }),
-      inviteCode: Type.Optional(Type.String({ minLength: 1 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      agentId: AgentId,
-      ownerUserId: Type.String({ format: "uuid" }),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    claimToken: Schema.String.pipe(Schema.minLength(1)),
+    ownerUserId: formatString("uuid"),
+    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  }),
+  result: Schema.Struct({
+    agentId: AgentId,
+    ownerUserId: formatString("uuid"),
+  }),
 });
 
 /**
@@ -150,11 +132,11 @@ export const Claim = defineRpc({
  */
 export const InviteAgent = defineRpc({
   name: "agents/invite",
-  params: Type.Object(
-    { phone: Type.Optional(Type.String()) },
-    { additionalProperties: false },
+  params: Schema.Struct({ phone: Schema.optional(Schema.String) }),
+  result: Schema.Struct(
+    {},
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   ),
-  result: Type.Object({}, { additionalProperties: true }),
 });
 
 /**
@@ -162,19 +144,13 @@ export const InviteAgent = defineRpc({
  */
 export const AgentsLookup = defineRpc({
   name: "agents/lookup",
-  params: Type.Object(
-    {
-      agentIds: Type.Array(Type.String({ format: "uuid" }), {
-        minItems: 1,
-        maxItems: 100,
-      }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { agents: Type.Array(AgentCardSchema) },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    agentIds: Schema.Array(formatString("uuid")).pipe(
+      Schema.minItems(1),
+      Schema.maxItems(100),
+    ),
+  }),
+  result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
 });
 
 /**
@@ -182,19 +158,12 @@ export const AgentsLookup = defineRpc({
  */
 export const AgentsLookupByName = defineRpc({
   name: "agents/lookupByName",
-  params: Type.Object(
-    {
-      names: Type.Array(Type.String({ minLength: 1, maxLength: 32 }), {
-        minItems: 1,
-        maxItems: 100,
-      }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { agents: Type.Array(AgentCardSchema) },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    names: Schema.Array(
+      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
+    ).pipe(Schema.minItems(1), Schema.maxItems(100)),
+  }),
+  result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
 });
 
 /**
@@ -202,18 +171,12 @@ export const AgentsLookupByName = defineRpc({
  */
 export const AgentsList = defineRpc({
   name: "agents/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      agents: Type.Array(AgentCardSchema),
-      nextCursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    agents: Schema.Array(AgentCardSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
 });

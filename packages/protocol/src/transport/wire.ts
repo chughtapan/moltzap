@@ -1,33 +1,10 @@
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { Type, type Static, type TSchema } from "@sinclair/typebox";
-import { Brand, Data, Effect } from "effect";
-import { brandedString } from "../schema-primitives.js";
-
-// ── AJV ──────────────────────────────────────────────────────────────
-
-/**
- * Single shared AJV instance for the protocol package. Both `defineRpc()`
- * and `defineNotification()` register their TypeBox schemas against this
- * instance, so every wire boundary uses the same compiled validator pool
- * with identical options. The instance itself is not exported because
- * AJV mutates its own `opts` on first compile; the factory exposes only
- * `compile`, sealed inside the closure.
- */
-const ajvInstance = addFormats(new Ajv({ strict: true, allErrors: true }));
-
-export const ajv: {
-  readonly compile: <T extends TSchema>(
-    schema: T,
-  ) => (data: unknown) => data is Static<T>;
-} = Object.freeze({
-  compile: <T extends TSchema>(
-    schema: T,
-  ): ((data: unknown) => data is Static<T>) => {
-    const validate = ajvInstance.compile<Static<T>>(schema);
-    return (data: unknown): data is Static<T> => validate(data);
-  },
-});
+/* eslint-disable jsdoc/text-escaping -- mermaid flowchart blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+import { Brand, Data, Effect, Either, Schema } from "effect";
+import {
+  brandedString,
+  decodesStrictly,
+  STRICT_DECODE,
+} from "../schema-primitives.js";
 
 // ── JSON-RPC ids and methods ─────────────────────────────────────────
 
@@ -38,7 +15,7 @@ const JsonRpcMethodSchema = brandedString("JsonRpcMethod", {
   minLength: 1,
 });
 
-export type JsonRpcId = Static<typeof JsonRpcIdSchema>;
+export type JsonRpcId = Schema.Schema.Type<typeof JsonRpcIdSchema>;
 export type JsonRpcMethod<Name extends string = string> = Name &
   Brand.Brand<"JsonRpcMethod">;
 
@@ -57,60 +34,62 @@ const JsonRpcIdBrand = Brand.nominal<JsonRpcId>();
 
 // ── Wire error envelope schema ───────────────────────────────────────
 
-const RpcErrorSchema = Type.Object(
-  {
-    code: Type.Integer(),
-    message: Type.String(),
-    data: Type.Optional(Type.Unknown()),
-  },
-  { additionalProperties: false },
-);
+const RpcErrorSchema = Schema.Struct({
+  code: Schema.Number.pipe(Schema.int()),
+  message: Schema.String,
+  data: Schema.optional(Schema.Unknown),
+});
 
 // ── Frame schemas ────────────────────────────────────────────────────
+//
+// The wire dialect is unchanged JSON-RPC-2.0: the exact same bytes flow on
+// the socket as before. What changed is the validation ENGINE — these are
+// Effect `Schema` values decoded by `Schema.decodeUnknownEither(...,
+// { onExcessProperty: "error" })` rather than AJV `strict` compiled
+// validators. The `{ onExcessProperty: "error" }` option is LOAD-BEARING:
+// `Schema.Struct` STRIPS excess keys by default, but AJV `strict` +
+// `additionalProperties:false` REJECTED them, and the conformance
+// `extra-property` / `oversized` mutators assert frames with an extra key
+// still FAIL. `decodeFrame` passes that option (`STRICT_DECODE`) so the
+// rejection is preserved.
 
-const ResponseIdSchema = Type.Union([JsonRpcIdSchema, Type.Null()]);
+const ResponseIdSchema = Schema.Union(JsonRpcIdSchema, Schema.Null);
 
-const RequestFrameSchema = Type.Object(
-  {
-    jsonrpc: Type.Literal("2.0"),
-    id: JsonRpcIdSchema,
-    method: JsonRpcMethodSchema,
-    params: Type.Optional(Type.Unknown()),
-  },
-  { additionalProperties: false },
+const RequestFrameSchema = Schema.Struct({
+  jsonrpc: Schema.Literal("2.0"),
+  id: JsonRpcIdSchema,
+  method: JsonRpcMethodSchema,
+  params: Schema.optional(Schema.Unknown),
+});
+
+const ResponseSuccessFrameSchema = Schema.Struct({
+  jsonrpc: Schema.Literal("2.0"),
+  id: ResponseIdSchema,
+  result: Schema.Unknown,
+});
+
+const ResponseErrorFrameSchema = Schema.Struct({
+  jsonrpc: Schema.Literal("2.0"),
+  id: ResponseIdSchema,
+  error: RpcErrorSchema,
+});
+
+const ResponseFrameSchema = Schema.Union(
+  ResponseSuccessFrameSchema,
+  ResponseErrorFrameSchema,
 );
 
-const ResponseFrameSchema = Type.Union([
-  Type.Object(
-    {
-      jsonrpc: Type.Literal("2.0"),
-      id: ResponseIdSchema,
-      result: Type.Unknown(),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      jsonrpc: Type.Literal("2.0"),
-      id: ResponseIdSchema,
-      error: RpcErrorSchema,
-    },
-    { additionalProperties: false },
-  ),
-]);
+const NotificationFrameSchema = Schema.Struct({
+  jsonrpc: Schema.Literal("2.0"),
+  method: JsonRpcMethodSchema,
+  params: Schema.optional(Schema.Unknown),
+});
 
-const NotificationFrameSchema = Type.Object(
-  {
-    jsonrpc: Type.Literal("2.0"),
-    method: JsonRpcMethodSchema,
-    params: Type.Optional(Type.Unknown()),
-  },
-  { additionalProperties: false },
-);
-
-export type RequestFrame = Static<typeof RequestFrameSchema>;
-export type ResponseFrame = Static<typeof ResponseFrameSchema>;
-export type NotificationFrame = Static<typeof NotificationFrameSchema>;
+export type RequestFrame = Schema.Schema.Type<typeof RequestFrameSchema>;
+export type ResponseFrame = Schema.Schema.Type<typeof ResponseFrameSchema>;
+export type NotificationFrame = Schema.Schema.Type<
+  typeof NotificationFrameSchema
+>;
 
 export function requestFrameSchema(): typeof RequestFrameSchema {
   return RequestFrameSchema;
@@ -124,15 +103,30 @@ export function notificationFrameSchema(): typeof NotificationFrameSchema {
   return NotificationFrameSchema;
 }
 
-export const validateRequestFrame = ajv.compile(RequestFrameSchema) as (
-  v: unknown,
-) => v is RequestFrame;
-export const validateResponseFrame = ajv.compile(ResponseFrameSchema) as (
-  v: unknown,
-) => v is ResponseFrame;
-export const validateNotificationFrame = ajv.compile(
+// Eager per-frame strict decoders, built once. Each rejects excess keys so
+// the strict AJV parity holds at the wire boundary.
+const decodeRequestFrame = Schema.decodeUnknownEither(RequestFrameSchema);
+const decodeResponseFrame = Schema.decodeUnknownEither(ResponseFrameSchema);
+const decodeNotificationFrame = Schema.decodeUnknownEither(
   NotificationFrameSchema,
-) as (v: unknown) => v is NotificationFrame;
+);
+
+// A Response frame's `result` / `error` are `Schema.Unknown`; a REQUIRED
+// `Schema.Unknown` field ACCEPTS an absent key (it reads as `undefined`),
+// whereas AJV `strict` REJECTED a `{jsonrpc, id}` frame carrying neither
+// key. Re-assert key PRESENCE on the RAW input so `{jsonrpc, id}` stays
+// malformed (it must not resolve a pending call).
+const hasResponseBodyKey = (parsed: unknown): boolean =>
+  typeof parsed === "object" &&
+  parsed !== null &&
+  ("result" in parsed || "error" in parsed);
+
+export const validateRequestFrame = (v: unknown): v is RequestFrame =>
+  decodesStrictly(RequestFrameSchema, v);
+export const validateResponseFrame = (v: unknown): v is ResponseFrame =>
+  decodesStrictly(ResponseFrameSchema, v) && hasResponseBodyKey(v);
+export const validateNotificationFrame = (v: unknown): v is NotificationFrame =>
+  decodesStrictly(NotificationFrameSchema, v);
 
 // ── Frame decoder + builders ─────────────────────────────────────────
 
@@ -146,19 +140,59 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
   readonly id: JsonRpcId | null;
 }> {}
 
+/**
+ * Classify one already-`JSON.parse`d value as a JSON-RPC Request, Response,
+ * or Notification frame — fail-closed on anything else.
+ *
+ * The discrimination runs `Schema.decodeUnknownEither(...,
+ * { onExcessProperty: "error" })` against each frame schema in the existing
+ * precedence (Request → Response → Notification). The `{ onExcessProperty:
+ * "error" }` option preserves the former AJV `strict` rejection: a frame with
+ * an extra top-level key fails decode at EVERY arm and falls through to
+ * `FrameDecodeError` — the conformance `extra-property` / `oversized`
+ * mutators depend on this.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   A["parsed: unknown<br>(JSON.parse already ran)"]
+ *   A --> B["Schema.decodeUnknownEither(RequestFrame, STRICT)"]
+ *   B -- Right --> R["tag Request"]
+ *   B -- Left --> C["Schema.decodeUnknownEither(ResponseFrame, STRICT)"]
+ *   C -- Right --> S["tag Response"]
+ *   C -- Left --> D["Schema.decodeUnknownEither(NotificationFrame, STRICT)"]
+ *   D -- Right --> N["tag Notification"]
+ *   D -- Left --> X["FrameDecodeError (id salvaged if string)"]
+ * ```
+ */
 export function decodeFrame(
   parsed: unknown,
 ): Effect.Effect<DecodedFrame, FrameDecodeError> {
-  if (validateRequestFrame(parsed))
-    return Effect.succeed({ _tag: "Request", frame: parsed });
-  if (validateResponseFrame(parsed))
-    return Effect.succeed({ _tag: "Response", frame: parsed });
-  if (validateNotificationFrame(parsed))
-    return Effect.succeed({ _tag: "Notification", frame: parsed });
+  const tagged = Either.match(decodeRequestFrame(parsed, STRICT_DECODE), {
+    onLeft: () =>
+      // `hasResponseBodyKey` re-asserts `result`/`error` key presence (see
+      // its definition) — `Schema.Unknown` alone accepts an absent key.
+      hasResponseBodyKey(parsed)
+        ? Either.match(decodeResponseFrame(parsed, STRICT_DECODE), {
+            onLeft: () => decodeNotificationTag(parsed),
+            onRight: (frame): DecodedFrame | null => ({
+              _tag: "Response",
+              frame,
+            }),
+          })
+        : decodeNotificationTag(parsed),
+    onRight: (frame): DecodedFrame | null => ({ _tag: "Request", frame }),
+  });
+  if (tagged !== null) return Effect.succeed(tagged);
   const idValue = (parsed as { id?: unknown } | null)?.id;
   const id = typeof idValue === "string" ? (idValue as JsonRpcId) : null;
   return Effect.fail(new FrameDecodeError({ raw: parsed, id }));
 }
+
+const decodeNotificationTag = (parsed: unknown): DecodedFrame | null =>
+  Either.match(decodeNotificationFrame(parsed, STRICT_DECODE), {
+    onLeft: () => null,
+    onRight: (frame) => ({ _tag: "Notification", frame }),
+  });
 
 // `RpcDefinition` and `NotificationDefinition` live in `./method.ts` (one
 // import cycle below); the frame builders take `definition.name` only and
@@ -168,15 +202,15 @@ import type { RpcDefinition, NotificationDefinition } from "./method.js";
 
 export function requestFrame<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
 >(
   id: string,
   definition: RpcDefinition<Name, P, R>,
-  params: Static<P>,
+  params: Schema.Schema.Type<P>,
 ): RequestFrame & {
   readonly method: JsonRpcMethod<Name>;
-  readonly params: Static<P>;
+  readonly params: Schema.Schema.Type<P>;
 } {
   return {
     jsonrpc: JSON_RPC_VERSION,
@@ -185,7 +219,7 @@ export function requestFrame<
     params,
   } as RequestFrame & {
     readonly method: JsonRpcMethod<Name>;
-    readonly params: Static<P>;
+    readonly params: Schema.Schema.Type<P>;
   };
 }
 
@@ -230,12 +264,15 @@ export function encodeErrorResponse(
   return responseFrame(id, { error });
 }
 
-export function notificationFrame<Name extends string, P extends TSchema>(
+export function notificationFrame<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+>(
   definition: NotificationDefinition<Name, P>,
-  params: Static<P>,
+  params: Schema.Schema.Type<P>,
 ): NotificationFrame & {
   readonly method: JsonRpcMethod<Name>;
-  readonly params: Static<P>;
+  readonly params: Schema.Schema.Type<P>;
 } {
   return {
     jsonrpc: JSON_RPC_VERSION,
@@ -243,6 +280,6 @@ export function notificationFrame<Name extends string, P extends TSchema>(
     params,
   } as NotificationFrame & {
     readonly method: JsonRpcMethod<Name>;
-    readonly params: Static<P>;
+    readonly params: Schema.Schema.Type<P>;
   };
 }

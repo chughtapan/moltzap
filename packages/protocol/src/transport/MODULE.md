@@ -8,7 +8,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentClientConnection`](./connection.ts#L165)
+### [`AgentClientConnection`](./connection.ts#L171)
 
 _Interface_
 
@@ -24,7 +24,7 @@ the full `serverRpcMethods` catalog. Outbound notifications: none
 `notify` method is typed `never`, which fails any call site. No
 inbound surface (the AgentClient kind's inbound catalog is empty).
 
-### [`AgentClientConnectionConfig`](./connection.ts#L222)
+### [`AgentClientConnectionConfig`](./connection.ts#L228)
 
 _Interface_
 
@@ -41,14 +41,6 @@ Equivalent config for the AgentClient factory. `slots` is the empty
 table (the AgentClient kind's inbound catalog is empty); the factory
 accepts it for forward compatibility (if a future spec adds
 AgentClient-inbound RPCs, the slot table demands coverage).
-
-### [`ajv`](./wire.ts#L19)
-
-_Variable_
-
-```ts
-export const ajv:
-```
 
 ### [`AlreadyConnected`](./wire-errors.ts#L161)
 
@@ -239,7 +231,7 @@ Provided ONLY on authenticated/capability-bearing methods — capabilities
 never run on the unauth Connect frame — so the unauth arm is never a
 concern here.
 
-### [`DecodedFrame`](./wire.ts#L139)
+### [`DecodedFrame`](./wire.ts#L133)
 
 _TypeAlias_
 
@@ -248,7 +240,7 @@ export type DecodedFrame =
   | { readonly _tag: "Request"; readonly frame: RequestFrame }
 ```
 
-### [`DecodedNotification`](./rpc-groups.ts#L47)
+### [`DecodedNotification`](./rpc-groups.ts#L53)
 
 _TypeAlias_
 
@@ -279,7 +271,7 @@ union and break per-branch params narrowing for `D` unions like
 resolving inside the conditional keeps the original `params` shape per
 distribution branch when the one-arg form is used.
 
-### [`DecodedRpcRequest`](./rpc-groups.ts#L16)
+### [`DecodedRpcRequest`](./rpc-groups.ts#L22)
 
 _TypeAlias_
 
@@ -287,7 +279,7 @@ _TypeAlias_
 export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
 ```
 
-### [`decodeFrame`](./wire.ts#L149)
+### [`decodeFrame`](./wire.ts#L167)
 
 _Function_
 
@@ -297,7 +289,30 @@ export function decodeFrame(
 ): Effect.Effect<DecodedFrame, FrameDecodeError>
 ```
 
-### [`decodeNotification`](./rpc-groups.ts#L117)
+Classify one already-`JSON.parse`d value as a JSON-RPC Request, Response,
+or Notification frame — fail-closed on anything else.
+
+The discrimination runs `Schema.decodeUnknownEither(...,
+{ onExcessProperty: "error" })` against each frame schema in the existing
+precedence (Request → Response → Notification). The `{ onExcessProperty:
+"error" }` option preserves the former AJV `strict` rejection: a frame with
+an extra top-level key fails decode at EVERY arm and falls through to
+`FrameDecodeError` — the conformance `extra-property` / `oversized`
+mutators depend on this.
+
+```mermaid
+flowchart TD
+  A["parsed: unknown<br>(JSON.parse already ran)"]
+  A --> B["Schema.decodeUnknownEither(RequestFrame, STRICT)"]
+  B -- Right --> R["tag Request"]
+  B -- Left --> C["Schema.decodeUnknownEither(ResponseFrame, STRICT)"]
+  C -- Right --> S["tag Response"]
+  C -- Left --> D["Schema.decodeUnknownEither(NotificationFrame, STRICT)"]
+  D -- Right --> N["tag Notification"]
+  D -- Left --> X["FrameDecodeError (id salvaged if string)"]
+```
+
+### [`decodeNotification`](./rpc-groups.ts#L123)
 
 _Function_
 
@@ -313,22 +328,22 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](./method.ts#L175)
+### [`decodeRpcParams`](./method.ts#L225)
 
 _Function_
 
 ```ts
 export function decodeRpcParams<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
 >(
   definition: RpcDefinition<Name, P, R>,
   data: unknown,
-): Effect.Effect<Static<P>, RpcParamsDecodeError>
+): Effect.Effect<Schema.Schema.Type<P>, RpcParamsDecodeError>
 ```
 
-### [`decodeRpcRequest`](./rpc-groups.ts#L92)
+### [`decodeRpcRequest`](./rpc-groups.ts#L98)
 
 _Function_
 
@@ -344,29 +359,29 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L188)
+### [`decodeRpcResult`](./method.ts#L238)
 
 _Function_
 
 ```ts
 export function decodeRpcResult<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
 >(
   definition: RpcDefinition<Name, P, R>,
   data: unknown,
-): Effect.Effect<Static<R>, RpcResultDecodeError>
+): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L146)
+### [`defineNotification`](./method.ts#L185)
 
 _Function_
 
 ```ts
 export function defineNotification<
   Name extends string,
-  P extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
 >(def: { name: Name; params: P }): NotificationDefinition<Name, P>
 ```
 
@@ -374,29 +389,29 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L87)
+### [`defineRpc`](./method.ts#L115)
 
 _Function_
 
 ```ts
 export function defineRpc<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
 >(def: { name: Name; params: P; result: R }): RpcDefinition<Name, P, R>
 ```
 
-Create one wire method's frozen descriptor: name, schemas, AJV
-validators, and per-descriptor request/response encoders. Every
-wire boundary in moltzap is born from a single `defineRpc` call at
-module-load time so AJV validators are compiled eagerly and the
-runtime never re-parses schemas.
+Create one wire method's frozen descriptor: name, Effect `Schema` shapes,
+strict decode-time validators, and per-descriptor request/response
+encoders. Every wire boundary in moltzap is born from a single `defineRpc`
+call at module-load time so the strict decoders are built eagerly and the
+runtime never re-derives them.
 
 ```mermaid
 flowchart TD
   A["domain layer call site:<br>defineRpc{ name, params, result }"]
-  A --> B["ajv.compile(params)<br>→ validateParams"]
-  A --> C["ajv.compile(result)<br>→ validateResult"]
+  A --> B["closedStructGuard(params)<br>→ validateParams (strict decode)"]
+  A --> C["closedStructGuard(result)<br>→ validateResult (strict decode)"]
   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
   C --> D
   D --> E["pushed into per-layer *RpcMethods const"]
@@ -408,6 +423,9 @@ flowchart TD
 - #705 HALF-2: capabilities are NOT descriptor metadata. They are
   declared at the server binding site as `CapabilityMiddleware` tuples;
   `defineRpc` carries only the wire shape.
+- The validators reject excess keys (`closedStructGuard`), preserving the
+  AJV `strict` + `additionalProperties:false` rejection the conformance
+  suite's `extra-property` / `oversized` mutators assert.
 
 Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
 string can never accidentally type-fit a method position. See
@@ -416,7 +434,7 @@ string can never accidentally type-fit a method position. See
 Sibling: defineNotification — same pipeline minus the
 result schema and response encoder.
 
-### [`encodeErrorResponse`](./wire.ts#L225)
+### [`encodeErrorResponse`](./wire.ts#L259)
 
 _Function_
 
@@ -431,13 +449,17 @@ Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
 
-### [`ErasedSlot`](./erased-slot.ts#L58)
+### [`ErasedSlot`](./erased-slot.ts#L59)
 
 _Interface_
 
 ```ts
 export interface ErasedSlot<Env, Conn> {
-  readonly definition: RpcDefinition<string, TSchema, TSchema>;
+  readonly definition: RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >;
   readonly invoke: (
     params: unknown,
     ctx: SlotDispatchContext<Conn>,
@@ -452,12 +474,13 @@ Existential slot the dispatcher indexes by runtime method string.
 MINUS the per-frame capability tags, which are discharged inside
 `invoke`). `Conn` is the server's three-arm `Connection` union.
 
-`invoke` decodes `params` via the method's own AJV validator, runs the
+`invoke` decodes `params` via the method's own validator (the Effect
+`Schema`-backed `validateParams` guard, post-#723), runs the
 pre-composed gated body (caps + principal discharged inside), and returns
 the `Exit`. `R = Env` (NOT `never`). NO double-erasure cast, NO
 `Context.Tag&lt;unknown, unknown>`.
 
-### [`ErasedSlotTable`](./erased-slot.ts#L72)
+### [`ErasedSlotTable`](./erased-slot.ts#L77)
 
 _TypeAlias_
 
@@ -497,7 +520,7 @@ export class ForbiddenError extends Data.TaggedError(
 
 Authenticated but not authorized for this resource.
 
-### [`FrameDecodeError`](./wire.ts#L144)
+### [`FrameDecodeError`](./wire.ts#L138)
 
 _Class_
 
@@ -513,8 +536,12 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
 _TypeAlias_
 
 ```ts
-export type GatedMiddlewareBody<P extends TSchema, Conn, Env> = (
-  params: Static<P>,
+export type GatedMiddlewareBody<
+  P extends Schema.Schema.AnyNoContext,
+  Conn,
+  Env,
+> = (
+  params: Schema.Schema.Type<P>,
   ctx: SlotDispatchContext<Conn>,
 ) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env>;
 ```
@@ -532,13 +559,17 @@ It is the #720-gated handler with its STATIC per-arm capability
 outcome into the success channel (mirrors `makeErasedSlot.invoke`, which
 returns `Effect&lt;Exit&lt;…&gt;, never, Env&gt;`).
 
-### [`HandlerSlot`](./handlers.ts#L37)
+### [`HandlerSlot`](./handlers.ts#L36)
 
 _Interface_
 
 ```ts
 export interface HandlerSlot<
-  D extends RpcDefinition<string, TSchema, TSchema>,
+  D extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
   Ctx,
   Caps extends Context.Tag<any, any>,
 > {
@@ -581,7 +612,7 @@ protocol- and server-layer handlers when params fail schema validation;
 registered with the wire-error registry so handler-raised instances map
 to a `-32602 InvalidParams` wire response via `wireErrorFromInstance`.
 
-### [`isDecodedNotification`](./rpc-groups.ts#L147)
+### [`isDecodedNotification`](./rpc-groups.ts#L153)
 
 _Function_
 
@@ -612,7 +643,7 @@ export const JSON_RPC_RESERVED_CODES =
 
 JSON-RPC 2.0 reserved codes. Emitted by TypedDispatcher; never raised by handlers.
 
-### [`JSON_RPC_VERSION`](./wire.ts#L34)
+### [`JSON_RPC_VERSION`](./wire.ts#L11)
 
 _Variable_
 
@@ -620,15 +651,15 @@ _Variable_
 export const JSON_RPC_VERSION = "2.0" as const
 ```
 
-### [`JsonRpcId`](./wire.ts#L41)
+### [`JsonRpcId`](./wire.ts#L18)
 
 _TypeAlias_
 
 ```ts
-export type JsonRpcId = Static<typeof JsonRpcIdSchema>;
+export type JsonRpcId = Schema.Schema.Type<typeof JsonRpcIdSchema>;
 ```
 
-### [`jsonRpcMethod`](./wire.ts#L52)
+### [`jsonRpcMethod`](./wire.ts#L29)
 
 _Function_
 
@@ -642,7 +673,7 @@ Internal factory for descriptor construction (`defineRpc`,
 `defineNotification`). Not on the package barrel — callers pass plain
 strings to frame builders, which brand internally.
 
-### [`JsonRpcMethod`](./wire.ts#L42)
+### [`JsonRpcMethod`](./wire.ts#L19)
 
 _TypeAlias_
 
@@ -650,7 +681,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeAgentClientConnection`](./connection.ts#L264)
+### [`makeAgentClientConnection`](./connection.ts#L270)
 
 _Function_
 
@@ -664,15 +695,15 @@ Factory — agent client. Delegates to `buildAgentClientDispatcher`
 which wires the originator only (no inbound dispatch — the AgentClient
 kind's inbound catalog is empty, so `config.slots` is `{}`).
 
-### [`makeMiddlewareSlot`](./middleware-slot.ts#L66)
+### [`makeMiddlewareSlot`](./middleware-slot.ts#L70)
 
 _Function_
 
 ```ts
 export function makeMiddlewareSlot<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   Conn,
   Env,
 >(
@@ -688,7 +719,7 @@ there is no runtime-fold carve-out to subtract R — the residual `R = Env`
 is the body's own honest type. `invoke` adds the param decode; on decode
 success it runs the body (which already returns the inner `Exit`).
 
-### [`makeOriginator`](./originator.ts#L227)
+### [`makeOriginator`](./originator.ts#L230)
 
 _Function_
 
@@ -699,7 +730,7 @@ export const makeOriginator = (config: {
 }): Effect.Effect<Originator, never, Scope.Scope>
 ```
 
-### [`makeServerConnection`](./connection.ts#L253)
+### [`makeServerConnection`](./connection.ts#L259)
 
 _Function_
 
@@ -721,7 +752,7 @@ Factory — server side. Delegates to `buildServerDispatcher`
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
-### [`makeTaskMasterConnection`](./connection.ts#L280)
+### [`makeTaskMasterConnection`](./connection.ts#L286)
 
 _Function_
 
@@ -802,7 +833,7 @@ export class NotFoundError extends Data.TaggedError(
 
 Resource not found (cross-cutting variant; domain-specific NotFound errors live with their domain).
 
-### [`NotificationDecodeError`](./rpc-groups.ts#L88)
+### [`NotificationDecodeError`](./rpc-groups.ts#L94)
 
 _TypeAlias_
 
@@ -837,18 +868,18 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L126)
+### [`NotificationDefinition`](./method.ts#L162)
 
 _Interface_
 
 ```ts
 export interface NotificationDefinition<
   Name extends string,
-  P extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
 > {
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
-  readonly validateParams: (data: unknown) => data is Static<P>;
+  readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly encode: (params: unknown) => NotificationFrame;
 }
 ```
@@ -874,26 +905,31 @@ Descriptor role at the transport layer: encode + decode + schema
 validation. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`notificationFrame`](./wire.ts#L233)
+### [`notificationFrame`](./wire.ts#L267)
 
 _Function_
 
 ```ts
-export function notificationFrame<Name extends string, P extends TSchema>(
+export function notificationFrame<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+>(
   definition: NotificationDefinition<Name, P>,
-  params: Static<P>,
+  params: Schema.Schema.Type<P>,
 ): NotificationFrame &
 ```
 
-### [`NotificationFrame`](./wire.ts#L113)
+### [`NotificationFrame`](./wire.ts#L90)
 
 _TypeAlias_
 
 ```ts
-export type NotificationFrame = Static<typeof NotificationFrameSchema>;
+export type NotificationFrame = Schema.Schema.Type<
+  typeof NotificationFrameSchema
+>;
 ```
 
-### [`notificationFrameSchema`](./wire.ts#L123)
+### [`notificationFrameSchema`](./wire.ts#L102)
 
 _Function_
 
@@ -901,19 +937,19 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L137)
+### [`NotificationParamsOf`](./method.ts#L173)
 
 _TypeAlias_
 
 ```ts
 export type NotificationParamsOf<
-  D extends NotificationDefinition<string, TSchema>,
-> = D extends NotificationDefinition<string, infer P> ? Static<P> : never;
+  D extends NotificationDefinition<string, Schema.Schema.AnyNoContext>,
+> =
 ```
 
 Type-only accessor for a notification's params payload.
 
-### [`Originator`](./originator.ts#L32)
+### [`Originator`](./originator.ts#L35)
 
 _Interface_
 
@@ -931,12 +967,18 @@ export interface Originator {
 Originator side of a JSON-RPC connection. Scope-bound: closing the
 scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
 
-### [`ParamsOf`](./method.ts#L49)
+### [`ParamsOf`](./method.ts#L58)
 
 _TypeAlias_
 
 ```ts
-export type ParamsOf<D extends RpcDefinition<string, TSchema, TSchema>> =
+export type ParamsOf<
+  D extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
+> =
 ```
 
 Type-only accessor for a definition's params payload.
@@ -1022,31 +1064,31 @@ lives in the runtime registry, not in a central table. The
 registered classes and must be hand-kept in sync — the TS type
 system cannot enumerate the static-side registry into a union.
 
-### [`requestFrame`](./wire.ts#L169)
+### [`requestFrame`](./wire.ts#L203)
 
 _Function_
 
 ```ts
 export function requestFrame<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
 >(
   id: string,
   definition: RpcDefinition<Name, P, R>,
-  params: Static<P>,
+  params: Schema.Schema.Type<P>,
 ): RequestFrame &
 ```
 
-### [`RequestFrame`](./wire.ts#L111)
+### [`RequestFrame`](./wire.ts#L88)
 
 _TypeAlias_
 
 ```ts
-export type RequestFrame = Static<typeof RequestFrameSchema>;
+export type RequestFrame = Schema.Schema.Type<typeof RequestFrameSchema>;
 ```
 
-### [`requestFrameSchema`](./wire.ts#L115)
+### [`requestFrameSchema`](./wire.ts#L94)
 
 _Function_
 
@@ -1054,7 +1096,7 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`responseFrame`](./wire.ts#L201)
+### [`responseFrame`](./wire.ts#L235)
 
 _Function_
 
@@ -1065,15 +1107,15 @@ export function responseFrame(
 ): ResponseFrame
 ```
 
-### [`ResponseFrame`](./wire.ts#L112)
+### [`ResponseFrame`](./wire.ts#L89)
 
 _TypeAlias_
 
 ```ts
-export type ResponseFrame = Static<typeof ResponseFrameSchema>;
+export type ResponseFrame = Schema.Schema.Type<typeof ResponseFrameSchema>;
 ```
 
-### [`ResponseFrameBody`](./wire.ts#L197)
+### [`ResponseFrameBody`](./wire.ts#L231)
 
 _TypeAlias_
 
@@ -1082,7 +1124,7 @@ export type ResponseFrameBody =
   | { result: unknown }
 ```
 
-### [`responseFrameSchema`](./wire.ts#L119)
+### [`responseFrameSchema`](./wire.ts#L98)
 
 _Function_
 
@@ -1090,17 +1132,23 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L53)
+### [`ResultOf`](./method.ts#L70)
 
 _TypeAlias_
 
 ```ts
-export type ResultOf<D extends RpcDefinition<string, TSchema, TSchema>> =
+export type ResultOf<
+  D extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
+> =
 ```
 
 Type-only accessor for a definition's result payload.
 
-### [`RpcCallError`](./originator.ts#L23)
+### [`RpcCallError`](./originator.ts#L26)
 
 _TypeAlias_
 
@@ -1124,23 +1172,24 @@ export interface Originator {
 }
 ```
 
-### [`RpcDefinition`](./method.ts#L29)
+### [`RpcDefinition`](./method.ts#L37)
 
 _Interface_
 
 ```ts
 export interface RpcDefinition<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
 > {
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
   readonly resultSchema: R;
-  readonly validateParams: (data: unknown) => data is Static<P>;
-  readonly validateResult: (data: unknown) => data is Static<R>;
-  // `unknown` for variance compatibility with the `<string, TSchema, TSchema>`
-  // supertype; concrete call sites pass typed values.
+  readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
+  readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
+  // `unknown` for variance compatibility with the
+  // `<string, AnyNoContext, AnyNoContext>` supertype; concrete call sites
+  // pass typed values.
   readonly encodeRequest: (id: string, params: unknown) => RequestFrame;
   readonly encodeResponse: (
     id: JsonRpcId | null,
@@ -1149,9 +1198,18 @@ export interface RpcDefinition<
 }
 ```
 
-Typed manifest for one RPC method: wire name + schemas + validators.
-Type-only payload accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>`
-— there is no runtime `Params`/`Result` property.
+Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
+decode-time validators. Type-only payload accessors are exposed via
+`ParamsOf&lt;D>`/`ResultOf&lt;D>` — there is no runtime `Params`/`Result`
+property.
+
+The `paramsSchema`/`resultSchema` are Effect `Schema` values (`P`/`R extends
+Schema.Schema.AnyNoContext` — the wire schemas have no decode context).
+`validateParams`/`validateResult` are strict, excess-rejecting type guards
+(`closedStructGuard`) that match the former `ajv.compile(schema)` strict
+behavior: a bare `Schema.is` would ACCEPT extra keys, so the guards wrap a
+`Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" })`
+to preserve AJV `strict` rejection at the trust boundary.
 
 #705 HALF-2 — a method's per-frame capabilities are NO LONGER descriptor
 metadata. They are declared at the server binding site as
@@ -1197,7 +1255,7 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](./method.ts#L161)
+### [`RpcParamsDecodeError`](./method.ts#L203)
 
 _Class_
 
@@ -1205,12 +1263,16 @@ _Class_
 export class RpcParamsDecodeError extends Data.TaggedError(
   "RpcParamsDecodeError",
 )<{
-  readonly definition: RpcDefinition<string, TSchema, TSchema>;
+  readonly definition: RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >;
   readonly data: unknown;
 }> {}
 ```
 
-### [`RpcRequestDecodeError`](./rpc-groups.ts#L71)
+### [`RpcRequestDecodeError`](./rpc-groups.ts#L77)
 
 _TypeAlias_
 
@@ -1226,7 +1288,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L168)
+### [`RpcResultDecodeError`](./method.ts#L214)
 
 _Class_
 
@@ -1234,7 +1296,11 @@ _Class_
 export class RpcResultDecodeError extends Data.TaggedError(
   "RpcResultDecodeError",
 )<{
-  readonly definition: RpcDefinition<string, TSchema, TSchema>;
+  readonly definition: RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >;
   readonly data: unknown;
 }> {}
 ```
@@ -1266,7 +1332,7 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`ServerConnection`](./connection.ts#L152)
+### [`ServerConnection`](./connection.ts#L158)
 
 _Interface_
 
@@ -1282,7 +1348,7 @@ delivery + lifecycle notifications). Inbound surface is the closed
 `serverRpcMethods` catalog, dispatched via the kind's
 ErasedSlotTable.
 
-### [`ServerConnectionConfig`](./connection.ts#L209)
+### [`ServerConnectionConfig`](./connection.ts#L215)
 
 _Interface_
 
@@ -1334,7 +1400,7 @@ does not depend on `@moltzap/server-core`. The slot factory is generic over
 Connection>` — the SAME type, one name per role (#705 HALF-2 collapsed the
 former duplicate server-local + argsOf-resolver `DispatchContext`s here).
 
-### [`TaskMasterConnection`](./connection.ts#L187)
+### [`TaskMasterConnection`](./connection.ts#L193)
 
 _Interface_
 
@@ -1351,7 +1417,7 @@ D3 R14b retired the optional `forbidden` / `noOpNotification`
 sentinels), so vacuous-deny moderators must bind an explicit
 `ForbiddenError`-returning handler per catalog method.
 
-### [`TaskMasterConnectionConfig`](./connection.ts#L233)
+### [`TaskMasterConnectionConfig`](./connection.ts#L239)
 
 _Interface_
 
@@ -1367,7 +1433,7 @@ export interface TaskMasterConnectionConfig<Env, Conn> {
 Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
 catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
 
-### [`TaskMasterHandlers`](./handlers.ts#L91)
+### [`TaskMasterHandlers`](./handlers.ts#L109)
 
 _TypeAlias_
 
@@ -1378,7 +1444,7 @@ export type TaskMasterHandlers<
 > = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 ```
 
-### [`TaskMasterInboundRpcDefinition`](./handlers.ts#L89)
+### [`TaskMasterInboundRpcDefinition`](./handlers.ts#L107)
 
 _TypeAlias_
 
@@ -1412,34 +1478,28 @@ export class UnauthorizedError extends Data.TaggedError(
 }
 ```
 
-### [`validateNotificationFrame`](./wire.ts#L133)
+### [`validateNotificationFrame`](./wire.ts#L128)
 
-_Variable_
+_Function_
 
 ```ts
-export const validateNotificationFrame = ajv.compile(
-  NotificationFrameSchema,
-) as (v: unknown)
+export const validateNotificationFrame = (v: unknown): v is NotificationFrame
 ```
 
-### [`validateRequestFrame`](./wire.ts#L127)
+### [`validateRequestFrame`](./wire.ts#L124)
 
-_Variable_
+_Function_
 
 ```ts
-export const validateRequestFrame = ajv.compile(RequestFrameSchema) as (
-  v: unknown,
-)
+export const validateRequestFrame = (v: unknown): v is RequestFrame
 ```
 
-### [`validateResponseFrame`](./wire.ts#L130)
+### [`validateResponseFrame`](./wire.ts#L126)
 
-_Variable_
+_Function_
 
 ```ts
-export const validateResponseFrame = ajv.compile(ResponseFrameSchema) as (
-  v: unknown,
-)
+export const validateResponseFrame = (v: unknown): v is ResponseFrame
 ```
 
 ### [`wireErrorFromInstance`](./dispatch.ts#L365)

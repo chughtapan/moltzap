@@ -1,7 +1,4 @@
-import { Type, type Static } from "@sinclair/typebox";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { Data, Either } from "effect";
+import { Data, Either, ParseResult, Schema } from "effect";
 import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
 import { messagePartsSchema, logicalClockSchema } from "../task/methods.js";
@@ -9,6 +6,7 @@ import {
   dateTimeStringSchema,
   brandedId,
   stringEnum,
+  STRICT_DECODE,
 } from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
 
@@ -17,25 +15,21 @@ const AgentOwnershipSchema = agentOwnershipSchema();
 const MessagePartsSchema = messagePartsSchema();
 const LogicalClockSchema = logicalClockSchema();
 
-const AppManifestConversationSchema = Type.Object(
-  {
-    key: Type.String(),
-    name: Type.String(),
-    participantFilter: Type.Optional(stringEnum(["all", "initiator", "none"])),
-  },
-  { additionalProperties: false },
-);
+const AppManifestConversationSchema = Schema.Struct({
+  key: Schema.String,
+  name: Schema.String,
+  participantFilter: Schema.optional(stringEnum(["all", "initiator", "none"])),
+});
 
 /**
  * Per-hook configuration entry. Every hook key accepts the same
  * shape — only `timeout_ms` is configurable.
  */
-const HookEntrySchema = Type.Object(
-  {
-    timeout_ms: Type.Optional(Type.Integer({ default: 5000, minimum: 1 })),
-  },
-  { additionalProperties: false },
-);
+const HookEntrySchema = Schema.Struct({
+  timeout_ms: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+  ),
+});
 
 /**
  * Manifest hook map. Three hook keys:
@@ -66,45 +60,28 @@ const HookEntrySchema = Type.Object(
  * send-side design, #538/#536 for the receive-side history, and #683
  * for the task-creation gate.
  */
-const AppManifestSchema = Type.Object(
-  {
-    appId: Type.String(),
-    name: Type.String(),
-    description: Type.Optional(Type.String()),
-    limits: Type.Optional(
-      Type.Object(
-        {
-          maxParticipants: Type.Optional(Type.Integer({ default: 50 })),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    conversations: Type.Optional(Type.Array(AppManifestConversationSchema)),
-    hooks: Type.Optional(
-      Type.Object(
-        {
-          dispatch_authorize: Type.Optional(HookEntrySchema),
-          message_authorize: Type.Optional(HookEntrySchema),
-          task_create: Type.Optional(HookEntrySchema),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-  },
-  { additionalProperties: false },
-);
+const AppManifestSchema = Schema.Struct({
+  appId: Schema.String,
+  name: Schema.String,
+  description: Schema.optional(Schema.String),
+  limits: Schema.optional(
+    Schema.Struct({
+      maxParticipants: Schema.optional(Schema.Number.pipe(Schema.int())),
+    }),
+  ),
+  conversations: Schema.optional(Schema.Array(AppManifestConversationSchema)),
+  hooks: Schema.optional(
+    Schema.Struct({
+      dispatch_authorize: Schema.optional(HookEntrySchema),
+      message_authorize: Schema.optional(HookEntrySchema),
+      task_create: Schema.optional(HookEntrySchema),
+    }),
+  ),
+});
 
-export type AppManifest = Static<typeof AppManifestSchema>;
+export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 
-const appManifestValidator = addFormats(
-  new Ajv({ strict: true, allErrors: true }),
-).compile<AppManifest>(AppManifestSchema);
-
-const formatAppManifestError = (error: {
-  readonly instancePath?: string;
-  readonly message?: string;
-}): string =>
-  `${error.instancePath || "/"} ${error.message ?? "validation failed"}`;
+const decodeAppManifest = Schema.decodeUnknownEither(AppManifestSchema);
 
 class AppManifestInvalid extends Data.TaggedError("AppManifestInvalid")<{
   readonly errors: readonly string[];
@@ -115,22 +92,27 @@ export type AppManifestValidationResult = Either.Either<
   AppManifestInvalid
 >;
 
-const currentAppManifestErrors = (): readonly string[] => {
-  const errors = (appManifestValidator.errors ?? []).map(
-    formatAppManifestError,
-  );
-  return errors.length > 0 ? errors : ["unknown validation failure"];
-};
-
-const validateAppManifestValue = Either.liftPredicate(
-  (value: unknown): value is AppManifest => appManifestValidator(value),
-  () => new AppManifestInvalid({ errors: currentAppManifestErrors() }),
-);
-
+/**
+ * Strict manifest validation. Decodes with `{ onExcessProperty: "error" }`
+ * (the former `new Ajv({ strict: true })` + `additionalProperties:false`
+ * rejected extra keys); on failure surfaces every `ParseError` leaf via
+ * `ParseResult.ArrayFormatter.formatErrorSync` (one issue → one string),
+ * replacing the AJV `.errors` `${instancePath} ${message}` adapter.
+ */
 export function validateAppManifest(
   value: unknown,
 ): AppManifestValidationResult {
-  return validateAppManifestValue(value);
+  return Either.mapLeft(
+    decodeAppManifest(value, STRICT_DECODE),
+    (parseError) => {
+      const issues = ParseResult.ArrayFormatter.formatErrorSync(parseError).map(
+        (issue) => `${issue.path.join("/") || "/"} ${issue.message}`,
+      );
+      return new AppManifestInvalid({
+        errors: issues.length > 0 ? issues : ["unknown validation failure"],
+      });
+    },
+  );
 }
 
 // ── apps/* RPCs ──────────────────────────────────────────────────────
@@ -140,80 +122,58 @@ export function validateAppManifest(
  */
 export const AppsRegister = defineRpc({
   name: "apps/register",
-  params: Type.Object(
-    { manifest: AppManifestSchema },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { appId: Type.String() },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ manifest: AppManifestSchema }),
+  result: Schema.Struct({ appId: Schema.String }),
 });
 
-const DispatchAdmissionDecisionSchema = Type.Union([
-  Type.Object(
-    {
-      decision: Type.Literal("grant"),
-      leaseId: Type.Optional(LeaseId),
-      leaseTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
-      dispatchMessageId: Type.Optional(MessageId),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      decision: Type.Literal("deny"),
-      reason: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      decision: Type.Literal("hold"),
-      reason: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-]);
-
-const PendingMessageSchema = Type.Object(
-  {
-    messageId: MessageId,
-    conversationId: ConversationId,
-    senderAgentId: AgentId,
-    createdAt: DateTimeString,
-    receivedAt: DateTimeString,
-    clock: Type.Optional(LogicalClockSchema),
-    parts: Type.Optional(MessagePartsSchema),
-  },
-  { additionalProperties: false },
-);
-
-const PendingMessageArraySchema = Type.Array(PendingMessageSchema, {
-  maxItems: 100,
-});
-
-const DispatchAuthorizeContextSchema = Type.Object(
-  {
-    taskId: TaskId,
-    appId: Type.String(),
-    conversationId: ConversationId,
-    recipient: AgentOwnershipSchema,
-    message: Type.Object(
-      {
-        id: MessageId,
-        senderAgentId: AgentId,
-        parts: Type.Optional(MessagePartsSchema),
-      },
-      { additionalProperties: false },
+const DispatchAdmissionDecisionSchema = Schema.Union(
+  Schema.Struct({
+    decision: Schema.Literal("grant"),
+    leaseId: Schema.optional(LeaseId),
+    leaseTimeoutMs: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
     ),
-    attempt: Type.Integer({ minimum: 0 }),
-    receivedAt: Type.Optional(DateTimeString),
-    clock: Type.Optional(LogicalClockSchema),
-    pending: Type.Optional(PendingMessageArraySchema),
-  },
-  { additionalProperties: false },
+    dispatchMessageId: Schema.optional(MessageId),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("deny"),
+    reason: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("hold"),
+    reason: Schema.optional(Schema.String),
+  }),
 );
+
+const PendingMessageSchema = Schema.Struct({
+  messageId: MessageId,
+  conversationId: ConversationId,
+  senderAgentId: AgentId,
+  createdAt: DateTimeString,
+  receivedAt: DateTimeString,
+  clock: Schema.optional(LogicalClockSchema),
+  parts: Schema.optional(MessagePartsSchema),
+});
+
+const PendingMessageArraySchema = Schema.Array(PendingMessageSchema).pipe(
+  Schema.maxItems(100),
+);
+
+const DispatchAuthorizeContextSchema = Schema.Struct({
+  taskId: TaskId,
+  appId: Schema.String,
+  conversationId: ConversationId,
+  recipient: AgentOwnershipSchema,
+  message: Schema.Struct({
+    id: MessageId,
+    senderAgentId: AgentId,
+    parts: Schema.optional(MessagePartsSchema),
+  }),
+  attempt: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+  receivedAt: Schema.optional(DateTimeString),
+  clock: Schema.optional(LogicalClockSchema),
+  pending: Schema.optional(PendingMessageArraySchema),
+});
 
 // ── dispatch/* admission descriptors ────────────────────────────────
 //
@@ -237,7 +197,7 @@ import { LeaseId } from "../task/messages.js";
  * rolled back-and-re-granted within the same dispatch.
  */
 export const DispatchId = brandedId("DispatchId");
-export type DispatchId = Static<typeof DispatchId>;
+export type DispatchId = Schema.Schema.Type<typeof DispatchId>;
 
 /**
  * Recipient → server admission request. The server returns an
@@ -250,23 +210,19 @@ export type DispatchId = Static<typeof DispatchId>;
  */
 export const DispatchRequest = defineRpc({
   name: "dispatch/request",
-  params: Type.Object(
-    {
-      conversationId: ConversationId,
-      messageId: MessageId,
-      senderAgentId: AgentId,
-      parts: Type.Optional(MessagePartsSchema),
-      receivedAt: Type.Optional(DateTimeString),
-      pending: Type.Optional(PendingMessageArraySchema),
-      clock: Type.Optional(LogicalClockSchema),
-      attempt: Type.Optional(Type.Integer({ minimum: 0 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { leaseId: LeaseId, dispatchId: DispatchId },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    conversationId: ConversationId,
+    messageId: MessageId,
+    senderAgentId: AgentId,
+    parts: Schema.optional(MessagePartsSchema),
+    receivedAt: Schema.optional(DateTimeString),
+    pending: Schema.optional(PendingMessageArraySchema),
+    clock: Schema.optional(LogicalClockSchema),
+    attempt: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+    ),
+  }),
+  result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
 });
 
 /**
@@ -281,10 +237,7 @@ export const DispatchRequest = defineRpc({
 export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
-  result: Type.Object(
-    { admission: DispatchAdmissionDecisionSchema },
-    { additionalProperties: false },
-  ),
+  result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
 });
 
 /**
@@ -301,15 +254,14 @@ export const DispatchAuthorize = defineRpc({
  */
 export const DispatchRelease = defineNotification({
   name: "dispatch/release",
-  params: Type.Object(
-    {
-      dispatchId: DispatchId,
-      leaseId: LeaseId,
-      verdict: DispatchAdmissionDecisionSchema,
-      leaseTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    verdict: DispatchAdmissionDecisionSchema,
+    leaseTimeoutMs: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+    ),
+  }),
 });
 
 // ── dispatches/* moderator-observability surfaces (#529, decision #11) ─
@@ -323,16 +275,13 @@ export const DispatchRelease = defineNotification({
  */
 export const DispatchesConsumed = defineNotification({
   name: "dispatches/consumed",
-  params: Type.Object(
-    {
-      dispatchId: DispatchId,
-      leaseId: LeaseId,
-      conversationId: ConversationId,
-      messageId: MessageId,
-      consumedAt: DateTimeString,
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    conversationId: ConversationId,
+    messageId: MessageId,
+    consumedAt: DateTimeString,
+  }),
 });
 
 /**
@@ -343,15 +292,12 @@ export const DispatchesConsumed = defineNotification({
  */
 export const DispatchesExpired = defineNotification({
   name: "dispatches/expired",
-  params: Type.Object(
-    {
-      dispatchId: DispatchId,
-      leaseId: LeaseId,
-      conversationId: ConversationId,
-      expiredAt: DateTimeString,
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    conversationId: ConversationId,
+    expiredAt: DateTimeString,
+  }),
 });
 
 /**
@@ -374,26 +320,26 @@ const LeaseStateSchema = stringEnum([
   "HOLD",
 ]);
 
-const LeaseRecordSchema = Type.Object(
-  {
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    conversationId: ConversationId,
-    taskId: TaskId,
-    appId: Type.String(),
-    recipientAgentId: AgentId,
-    moderatorConnectionId: Type.String(),
-    state: LeaseStateSchema,
-    verdict: Type.Union([DispatchAdmissionDecisionSchema, Type.Null()]),
-    mintedAt: DateTimeString,
-    resolvedAt: Type.Union([DateTimeString, Type.Null()]),
-    consumedAt: Type.Union([DateTimeString, Type.Null()]),
-    consumedMessageId: Type.Union([MessageId, Type.Null()]),
-    expiredAt: Type.Union([DateTimeString, Type.Null()]),
-    leaseTimeoutMs: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
-  },
-  { additionalProperties: false },
-);
+const LeaseRecordSchema = Schema.Struct({
+  dispatchId: DispatchId,
+  leaseId: LeaseId,
+  conversationId: ConversationId,
+  taskId: TaskId,
+  appId: Schema.String,
+  recipientAgentId: AgentId,
+  moderatorConnectionId: Schema.String,
+  state: LeaseStateSchema,
+  verdict: Schema.Union(DispatchAdmissionDecisionSchema, Schema.Null),
+  mintedAt: DateTimeString,
+  resolvedAt: Schema.Union(DateTimeString, Schema.Null),
+  consumedAt: Schema.Union(DateTimeString, Schema.Null),
+  consumedMessageId: Schema.Union(MessageId, Schema.Null),
+  expiredAt: Schema.Union(DateTimeString, Schema.Null),
+  leaseTimeoutMs: Schema.Union(
+    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+    Schema.Null,
+  ),
+});
 
 /**
  * Moderator-only query for a specific lease record. Scope-enforced at
@@ -403,14 +349,8 @@ const LeaseRecordSchema = Type.Object(
  */
 export const DispatchesGet = defineRpc({
   name: "dispatches/get",
-  params: Type.Object(
-    { dispatchId: DispatchId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { lease: LeaseRecordSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ dispatchId: DispatchId }),
+  result: Schema.Struct({ lease: LeaseRecordSchema }),
 });
 
 // ── messages/authorize (send-side fan-out gate) ─────────────────────
@@ -428,41 +368,29 @@ export const DispatchesGet = defineRpc({
 // fail-closed timeout posture (timeout / RPC error → synthesize Block
 // with reason `tm_unreachable`), different verdict union.
 
-const MessagesAuthorizeContextSchema = Type.Object(
-  {
-    taskId: TaskId,
-    appId: Type.String(),
-    conversationId: ConversationId,
-    message: Type.Object(
-      {
-        id: MessageId,
-        senderAgentId: AgentId,
-        parts: Type.Optional(MessagePartsSchema),
-      },
-      { additionalProperties: false },
-    ),
-    receivedAt: Type.Optional(DateTimeString),
-    clock: Type.Optional(LogicalClockSchema),
-  },
-  { additionalProperties: false },
-);
+const MessagesAuthorizeContextSchema = Schema.Struct({
+  taskId: TaskId,
+  appId: Schema.String,
+  conversationId: ConversationId,
+  message: Schema.Struct({
+    id: MessageId,
+    senderAgentId: AgentId,
+    parts: Schema.optional(MessagePartsSchema),
+  }),
+  receivedAt: Schema.optional(DateTimeString),
+  clock: Schema.optional(LogicalClockSchema),
+});
 
-const MessagesAuthorizeVerdictSchema = Type.Union([
-  Type.Object(
-    {
-      decision: Type.Literal("Forward"),
-      recipients: Type.Array(AgentId),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      decision: Type.Literal("Block"),
-      reason: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-]);
+const MessagesAuthorizeVerdictSchema = Schema.Union(
+  Schema.Struct({
+    decision: Schema.Literal("Forward"),
+    recipients: Schema.Array(AgentId),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("Block"),
+    reason: Schema.optional(Schema.String),
+  }),
+);
 
 /**
  * Server → TM round-trip asking for the per-message fan-out verdict.
@@ -482,10 +410,7 @@ const MessagesAuthorizeVerdictSchema = Type.Union([
 export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
-  result: Type.Object(
-    { verdict: MessagesAuthorizeVerdictSchema },
-    { additionalProperties: false },
-  ),
+  result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
 });
 
 // ── task/create (TM recruitment) ────────────────────────────────────
@@ -499,45 +424,35 @@ export const MessagesAuthorize = defineRpc({
 // of the wire-callback family — same fail-closed envelope, same
 // timeout-synthesizes-reject posture.
 
-const TaskCreateContextSchema = Type.Object(
-  {
-    taskId: TaskId,
-    initiatorAgentId: AgentId,
-    invitedAgentIds: Type.Array(AgentId),
-    initialConversation: Type.Optional(
-      Type.Object(
-        {
-          name: Type.Optional(Type.String()),
-          participants: Type.Optional(Type.Array(AgentId)),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    receivedAt: Type.Optional(DateTimeString),
-  },
-  { additionalProperties: false },
-);
+const TaskCreateContextSchema = Schema.Struct({
+  taskId: TaskId,
+  initiatorAgentId: AgentId,
+  invitedAgentIds: Schema.Array(AgentId),
+  initialConversation: Schema.optional(
+    Schema.Struct({
+      name: Schema.optional(Schema.String),
+      participants: Schema.optional(Schema.Array(AgentId)),
+    }),
+  ),
+  receivedAt: Schema.optional(DateTimeString),
+});
 
-const TaskCreateVerdictSchema = Type.Union([
-  Type.Object(
-    { decision: Type.Literal("accept") },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      decision: Type.Literal("reject"),
-      // Bound matches `TaskFailedNotificationDefinition.reason`
-      // (1..256). The server forwards this verdict reason verbatim
-      // into the `task/failed` notification; an unbounded or empty
-      // reason here would produce a `task/failed` frame the client
-      // decoder rejects (the notification would silently never
-      // decode at subscribers). Keeping the two schemas in lockstep
-      // makes that mismatch unrepresentable.
-      reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
-    },
-    { additionalProperties: false },
-  ),
-]);
+const TaskCreateVerdictSchema = Schema.Union(
+  Schema.Struct({ decision: Schema.Literal("accept") }),
+  Schema.Struct({
+    decision: Schema.Literal("reject"),
+    // Bound matches `TaskFailedNotificationDefinition.reason`
+    // (1..256). The server forwards this verdict reason verbatim
+    // into the `task/failed` notification; an unbounded or empty
+    // reason here would produce a `task/failed` frame the client
+    // decoder rejects (the notification would silently never
+    // decode at subscribers). Keeping the two schemas in lockstep
+    // makes that mismatch unrepresentable.
+    reason: Schema.optional(
+      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
+    ),
+  }),
+);
 
 /**
  * Server → TM round-trip asking whether the TM accepts a newly
@@ -571,10 +486,7 @@ const TaskCreateVerdictSchema = Type.Union([
 export const TaskCreate = defineRpc({
   name: "task/create",
   params: TaskCreateContextSchema,
-  result: Type.Object(
-    { verdict: TaskCreateVerdictSchema },
-    { additionalProperties: false },
-  ),
+  result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
 });
 
 // ── Aggregators ─────────────────────────────────────────────────────

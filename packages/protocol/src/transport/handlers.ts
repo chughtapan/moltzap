@@ -13,8 +13,7 @@
  * the `forbidden` / `noOpNotification` sentinels); omitting any key fails
  * TS2741 at the factory call.
  */
-import type { Context, Effect } from "effect";
-import type { TSchema } from "@sinclair/typebox";
+import type { Context, Effect, Schema } from "effect";
 
 import type { AnyTaskCallbackRpcDefinition } from "../rpc-registry.js";
 
@@ -35,7 +34,11 @@ import type { ParamsOf, ResultOf, RpcDefinition } from "./method.js";
  * (`server-core` `middleware-slot.types-check.ts`).
  */
 export interface HandlerSlot<
-  D extends RpcDefinition<string, TSchema, TSchema>,
+  D extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
   Ctx,
   Caps extends Context.Tag<any, any>,
 > {
@@ -52,14 +55,25 @@ export interface HandlerSlot<
  * = Name &amp; Brand&lt;"JsonRpcMethod"&gt;`) which would widen the mapped-type
  * key to `string` and erase the per-method required property names.
  */
-type NameOf<D> = D extends RpcDefinition<infer N, TSchema, TSchema> ? N : never;
+type NameOf<D> =
+  D extends RpcDefinition<
+    infer N,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >
+    ? N
+    : never;
 
 /**
  * Per-slot value type. Every slot is a real `HandlerSlot&lt;D, Ctx, Caps>`;
  * Spec D3 R14b removed the sentinel widening.
  */
 type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> =
-  D extends RpcDefinition<string, TSchema, TSchema>
+  D extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >
     ? HandlerSlot<D, Ctx, Caps>
     : never;
 
@@ -70,7 +84,11 @@ type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> =
  * sentinel widening — no slot is optional).
  */
 type HandlerTable<
-  Defs extends RpcDefinition<string, TSchema, TSchema>,
+  Defs extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
   Ctx,
   Caps extends Context.Tag<any, any>,
 > = {

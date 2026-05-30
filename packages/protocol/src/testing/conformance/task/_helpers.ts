@@ -12,6 +12,7 @@ import {
   Ref,
   Stream,
   Scope,
+  Schema,
 } from "effect";
 import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
 import type { NotificationParamsOf } from "../../../transport/method.js";
@@ -39,7 +40,6 @@ import {
   TaskConversationParticipantsRemovedNotificationDefinition,
 } from "../../../task/methods.js";
 import { AppId as AppIdSchema } from "../../../task/ids.js";
-import type { Static } from "@sinclair/typebox";
 import { AgentId } from "../../../identity/methods.js";
 import {
   conversationId as makeConversationId,
@@ -560,7 +560,10 @@ function attachAcceptTaskCreate(client: TestClient): Effect.Effect<void> {
   );
 }
 
-type ParticipantMap = Map<ConversationId, Set<Static<typeof AgentId>>>;
+type ParticipantMap = Map<
+  ConversationId,
+  Set<Schema.Schema.Type<typeof AgentId>>
+>;
 
 function attachForwardAllMessagesAuthorize(
   client: TestClient,
@@ -674,7 +677,7 @@ const PARTICIPANT_READY_POLL_MS = 10;
 function awaitParticipantsForConversation(
   participantsRef: Ref.Ref<ParticipantMap>,
   conversationId: ConversationId,
-  expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+  expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof AgentId>>,
 ): Effect.Effect<void, string> {
   const wanted = new Set(expectedAgentIds);
   return Effect.gen(function* () {
@@ -693,7 +696,7 @@ function awaitParticipantsForConversation(
 }
 
 export interface ModeratedHandle {
-  readonly appId: Static<typeof AppIdSchema>;
+  readonly appId: Schema.Schema.Type<typeof AppIdSchema>;
 
   /**
    * The app-principal `AppConnection` bound as moderator. TM-admin RPCs
@@ -710,7 +713,7 @@ export interface ModeratedHandle {
    */
   readonly awaitConversationReady: (
     conversationId: ConversationId,
-    expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+    expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof AgentId>>,
   ) => Effect.Effect<void, string>;
 }
 

@@ -1,6 +1,5 @@
 import { Args, Command, HelpDoc, Options } from "@effect/cli";
-import { Data, Effect, Option } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { Data, Effect, Option, Schema } from "effect";
 import { request } from "../socket-client.js";
 
 import { MessagesSend } from "@moltzap/protocol";
@@ -35,8 +34,8 @@ const targetArg = Args.text({ name: "target" }).pipe(
         });
       }
       return {
-        taskId: Value.Decode(TaskId, tid),
-        conversationId: Value.Decode(ConversationId, cid),
+        taskId: Schema.decodeUnknownSync(TaskId)(tid),
+        conversationId: Schema.decodeUnknownSync(ConversationId)(cid),
       };
     },
     (err) => HelpDoc.p(`invalid target: ${String(err)}`),
@@ -50,7 +49,7 @@ const messageArg = Args.text({ name: "message" }).pipe(
 const replyToOption = Options.text("reply-to").pipe(
   Options.withDescription("Reply to a specific message"),
   Options.mapTryCatch(
-    (raw) => Value.Decode(MessageId, raw),
+    (raw) => Schema.decodeUnknownSync(MessageId)(raw),
     (err) => HelpDoc.p(`invalid --reply-to: ${String(err)}`),
   ),
   Options.optional,

@@ -1,5 +1,4 @@
-import { Data } from "effect";
-import { Type, type Static } from "@sinclair/typebox";
+import { Data, Schema } from "effect";
 import { brandedId, listCursorSchema } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
@@ -10,7 +9,7 @@ import {
 import { UserId } from "./agents.js";
 
 export const ContactId = brandedId("ContactId");
-export type ContactId = Static<typeof ContactId>;
+export type ContactId = Schema.Schema.Type<typeof ContactId>;
 
 export class NotInContactsError extends Data.TaggedError(
   "NotInContacts",
@@ -20,48 +19,38 @@ export class NotInContactsError extends Data.TaggedError(
 }
 registerErrorClass(NotInContactsError);
 
-const RelationshipType = Type.String();
+const RelationshipType = Schema.String;
 
-const ContactSchema = Type.Object(
-  {
-    id: ContactId,
-    contactUserId: UserId,
-    relationship: Type.Optional(RelationshipType),
-    metadata: Type.Optional(
-      Type.Object(
-        {
-          tags: Type.Optional(
-            Type.Array(Type.Record(Type.String(), Type.String())),
-          ),
-        },
-        { additionalProperties: false },
+const ContactSchema = Schema.Struct({
+  id: ContactId,
+  contactUserId: UserId,
+  relationship: Schema.optional(RelationshipType),
+  metadata: Schema.optional(
+    Schema.Struct({
+      tags: Schema.optional(
+        Schema.Array(
+          Schema.Record({ key: Schema.String, value: Schema.String }),
+        ),
       ),
-    ),
-  },
-  { additionalProperties: false },
-);
+    }),
+  ),
+});
 
-export type Contact = Static<typeof ContactSchema>;
+export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 
 /**
  * List contacts for the authenticated agent.
  */
 export const ContactsList = defineRpc({
   name: "contacts/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      contacts: Type.Array(ContactSchema),
-      nextCursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    contacts: Schema.Array(ContactSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
 });
 
 /**
@@ -69,17 +58,11 @@ export const ContactsList = defineRpc({
  */
 export const ContactsAdd = defineRpc({
   name: "contacts/add",
-  params: Type.Object(
-    {
-      contactUserId: UserId,
-      relationship: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { contact: ContactSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    contactUserId: UserId,
+    relationship: Schema.optional(Schema.String),
+  }),
+  result: Schema.Struct({ contact: ContactSchema }),
 });
 
 /**
@@ -87,14 +70,8 @@ export const ContactsAdd = defineRpc({
  */
 export const ContactsAccept = defineRpc({
   name: "contacts/accept",
-  params: Type.Object(
-    { contactId: ContactId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { contact: ContactSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ contactId: ContactId }),
+  result: Schema.Struct({ contact: ContactSchema }),
 });
 
 /**
@@ -102,25 +79,17 @@ export const ContactsAccept = defineRpc({
  */
 export const ContactsById = defineRpc({
   name: "contacts/byId",
-  params: Type.Object(
-    { contactId: ContactId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { contact: ContactSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ contactId: ContactId }),
+  result: Schema.Struct({ contact: ContactSchema }),
 });
 
-const ContactRequestNotificationSchema = Type.Object(
-  { contact: ContactSchema },
-  { additionalProperties: false },
-);
+const ContactRequestNotificationSchema = Schema.Struct({
+  contact: ContactSchema,
+});
 
-const ContactAcceptedNotificationSchema = Type.Object(
-  { contact: ContactSchema },
-  { additionalProperties: false },
-);
+const ContactAcceptedNotificationSchema = Schema.Struct({
+  contact: ContactSchema,
+});
 
 /**
  * Pushed when an agent receives a contact request.

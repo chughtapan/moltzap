@@ -35,9 +35,9 @@ import {
   Queue,
   Scope,
   Stream,
+  Schema,
 } from "effect";
 import { RpcResponseError } from "../_shared/errors.js";
-import type { Static } from "@sinclair/typebox";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
@@ -65,7 +65,7 @@ import {
   DispatchesGet,
   type DispatchId,
 } from "../../../app/index.js";
-import type { LeaseId } from "../../../task/index.js";
+import { LeaseId } from "../../../task/index.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
@@ -120,7 +120,7 @@ export type LeaseState =
  * underlying TestClient.
  */
 export interface RecipientHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
    * Issue `dispatch/request` for the given inbound. Returns the ack
@@ -129,14 +129,14 @@ export interface RecipientHandle {
    * own assertions.
    */
   readonly requestDispatch: (params: {
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly messageId: Static<typeof MessageId>;
-    readonly senderAgentId: Static<typeof AgentId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
     readonly attempt?: number;
   }) => Effect.Effect<
     {
-      readonly leaseId: Static<typeof LeaseId>;
-      readonly dispatchId: Static<typeof DispatchId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
     },
     PropertyFailure
   >;
@@ -163,13 +163,13 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly leaseId: Static<typeof LeaseId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     readonly text: string;
   }) => Effect.Effect<
     {
-      readonly messageId: Static<typeof MessageId>;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
       readonly errorCode?: number;
       readonly errorState?: string;
     },
@@ -195,7 +195,7 @@ export interface RecipientHandle {
  * the registered `appId` for `dispatches/get` scope assertions.
  */
 export interface ModeratorHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly appId: string;
 
   /**
@@ -211,9 +211,9 @@ export interface ModeratorHandle {
   readonly handleAuthorize: (opts: {
     readonly respondWith: DispatchVerdict;
     readonly predicate?: (params: {
-      readonly taskId: Static<typeof TaskId>;
-      readonly conversationId: Static<typeof ConversationId>;
-      readonly messageId: Static<typeof MessageId>;
+      readonly taskId: Schema.Schema.Type<typeof TaskId>;
+      readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
     }) => boolean;
     readonly holdResponseFor?: number;
   }) => Effect.Effect<void, PropertyFailure>;
@@ -232,7 +232,7 @@ export interface ModeratorHandle {
   readonly waitForObservability: <K extends "consumed" | "expired">(
     kind: K,
     opts: {
-      readonly dispatchId?: Static<typeof DispatchId>;
+      readonly dispatchId?: Schema.Schema.Type<typeof DispatchId>;
       readonly timeoutMs?: number;
     },
   ) => Effect.Effect<
@@ -247,11 +247,13 @@ export interface ModeratorHandle {
    * positive `dispatches-get-moderator-sees-record` property + every
    * `assertLeaseState` poll.
    */
-  readonly getLease: (dispatchId: Static<typeof DispatchId>) => Effect.Effect<
+  readonly getLease: (
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
+  ) => Effect.Effect<
     {
       readonly state: LeaseState;
       readonly verdict: DispatchVerdict | null;
-      readonly leaseId: Static<typeof LeaseId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     },
     PropertyFailure
   >;
@@ -269,8 +271,8 @@ export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
   readonly fixtures: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
   };
 
   /**
@@ -290,7 +292,7 @@ export interface DispatchTestDriver {
    * server's typed error rather than the lease record.
    */
   readonly getLeaseFromNonModerator: (
-    dispatchId: Static<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
   ) => Effect.Effect<{ readonly errorCode: number }, PropertyFailure>;
 
   /**
@@ -301,7 +303,7 @@ export interface DispatchTestDriver {
    * defaults to 5 s.
    */
   readonly assertLeaseState: (
-    dispatchId: Static<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
     expected: LeaseState,
     opts?: { readonly timeoutMs?: number },
   ) => Effect.Effect<void, PropertyFailure>;
@@ -437,7 +439,9 @@ function reasonVerdictFromWire(
   return typeof reason === "string" ? { _tag: tag, reason } : { _tag: tag };
 }
 
-type DispatchIdParamsView = { readonly dispatchId?: Static<typeof DispatchId> };
+type DispatchIdParamsView = {
+  readonly dispatchId?: Schema.Schema.Type<typeof DispatchId>;
+};
 type WireVerdictView = {
   readonly decision?: unknown;
   readonly reason?: unknown;
@@ -651,17 +655,18 @@ function sendWithLease(
 }
 
 function messageSendSuccess(result: unknown): {
-  readonly messageId: Static<typeof MessageId>;
+  readonly messageId: Schema.Schema.Type<typeof MessageId>;
 } {
   return {
-    messageId: (result as { message: { id: Static<typeof MessageId> } }).message
-      .id,
+    messageId: (
+      result as { message: { id: Schema.Schema.Type<typeof MessageId> } }
+    ).message.id,
   };
 }
 
 function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
   {
-    readonly messageId: Static<typeof MessageId>;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
     readonly errorCode: number;
     readonly errorState?: string;
   },
@@ -678,7 +683,10 @@ function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
   }
   const errorState = rpcErrorState(rpcErr);
   return Effect.succeed({
-    messageId: "" as Static<typeof MessageId>,
+    // Sentinel placeholder on the error path — no message was created, so
+    // there is no real id to decode. (Was `"" as Static<MessageId>` pre-#723.)
+    // eslint-disable-next-line agent-code-guard/no-schema-type-cast -- sentinel empty-string id on an error path, not a wire decode
+    messageId: "" as Schema.Schema.Type<typeof MessageId>,
     errorCode: rpcErr.code,
     ...(errorState !== undefined ? { errorState } : {}),
   });
@@ -692,9 +700,9 @@ function rpcErrorState(error: RpcResponseError): string | undefined {
 }
 
 type DispatchAuthorizePredicateInput = {
-  readonly taskId: Static<typeof TaskId>;
-  readonly conversationId: Static<typeof ConversationId>;
-  readonly messageId: Static<typeof MessageId>;
+  readonly taskId: Schema.Schema.Type<typeof TaskId>;
+  readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+  readonly messageId: Schema.Schema.Type<typeof MessageId>;
 };
 
 interface ModeratorHandleOptions {
@@ -728,8 +736,8 @@ interface DriverClients {
 }
 
 interface DriverFixtures {
-  readonly taskId: Static<typeof TaskId>;
-  readonly conversationId: Static<typeof ConversationId>;
+  readonly taskId: Schema.Schema.Type<typeof TaskId>;
+  readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
 }
 
 interface DriverBuildParts {
@@ -743,13 +751,13 @@ interface DriverBuildParts {
 interface AddRecipientInput {
   readonly ctx: ConformanceRunContext;
   readonly moderatorClient: TestClient;
-  readonly taskId: Static<typeof TaskId>;
-  readonly conversationId: Static<typeof ConversationId>;
+  readonly taskId: Schema.Schema.Type<typeof TaskId>;
+  readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
   readonly opts: Parameters<DispatchTestDriver["addRecipient"]>[0];
 }
 
 interface LeaseStateTimeoutInput {
-  readonly dispatchId: Static<typeof DispatchId>;
+  readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
   readonly expected: LeaseState;
   readonly bound: number;
   readonly last: LeaseState | null;
@@ -903,7 +911,7 @@ function observabilityViolation(
 
 function matchesDispatchId(
   params: unknown,
-  dispatchId: Static<typeof DispatchId> | undefined,
+  dispatchId: Schema.Schema.Type<typeof DispatchId> | undefined,
 ): boolean {
   if (dispatchId === undefined) return true;
   return (params as DispatchIdParamsView).dispatchId === dispatchId;
@@ -911,7 +919,7 @@ function matchesDispatchId(
 
 function getLease(
   client: TestClient,
-  dispatchId: Static<typeof DispatchId>,
+  dispatchId: Schema.Schema.Type<typeof DispatchId>,
 ): ReturnType<ModeratorHandle["getLease"]> {
   return client.sendRpc(DispatchesGet, { dispatchId }).pipe(
     Effect.map(leaseResultFromWire),
@@ -927,13 +935,15 @@ function getLease(
 function leaseResultFromWire(result: unknown): {
   readonly state: LeaseState;
   readonly verdict: DispatchVerdict | null;
-  readonly leaseId: Static<typeof LeaseId>;
+  readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
 } {
   const lease = (result as { lease: Record<string, unknown> }).lease;
   return {
     state: lease["state"] as LeaseState,
     verdict: verdictFromWire(lease["verdict"]),
-    leaseId: lease["leaseId"] as Static<typeof LeaseId>,
+    // The wire `leaseId` is a server-minted UUID; decode it through the brand
+    // schema rather than a bare cast (post-#723 brand is an Effect `Schema`).
+    leaseId: Schema.decodeUnknownSync(LeaseId)(lease["leaseId"]),
   };
 }
 
@@ -993,7 +1003,7 @@ function resolveDriverConfig(
       taskAppId === null
         ? null
         : // AppId is a `brandedId("AppId")` (UUID format); use a real UUID
-          // here so the dispatcher's `Value.Decode(AppId, …)` succeeds.
+          // here so the dispatcher's `Schema.decodeUnknownSync(AppId)(…)` succeeds.
           (taskAppId ?? globalThis.crypto.randomUUID()),
   };
 }
@@ -1062,7 +1072,7 @@ function registerDriverApp(
 
 function createDriverFixtures(
   clients: DriverClients,
-  appId: Static<typeof AppId>,
+  appId: Schema.Schema.Type<typeof AppId>,
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
   // `task/request` is agent-called (the moderator agent); the app-only
@@ -1087,9 +1097,9 @@ function createDriverFixtures(
 
 function createDriverTask(
   moderatorClient: TestClient,
-  appId: Static<typeof AppId>,
+  appId: Schema.Schema.Type<typeof AppId>,
   recipientAgent: TestAgent,
-): Effect.Effect<Static<typeof TaskId>, PropertyFailure> {
+): Effect.Effect<Schema.Schema.Type<typeof TaskId>, PropertyFailure> {
   return moderatorClient
     .sendRpc(TaskRequest, {
       appId,
@@ -1097,7 +1107,9 @@ function createDriverTask(
     })
     .pipe(
       Effect.map(
-        (result) => (result as { task: { id: Static<typeof TaskId> } }).task.id,
+        (result) =>
+          (result as { task: { id: Schema.Schema.Type<typeof TaskId> } }).task
+            .id,
       ),
       Effect.mapError((e) =>
         violation(
@@ -1110,9 +1122,9 @@ function createDriverTask(
 
 function createDriverConversation(
   moderatorClient: TestClient,
-  taskId: Static<typeof TaskId>,
+  taskId: Schema.Schema.Type<typeof TaskId>,
   recipientAgent: TestAgent,
-): Effect.Effect<Static<typeof ConversationId>, PropertyFailure> {
+): Effect.Effect<Schema.Schema.Type<typeof ConversationId>, PropertyFailure> {
   return moderatorClient
     .sendRpc(TaskConversationCreate, {
       taskId,
@@ -1124,7 +1136,7 @@ function createDriverConversation(
         (result) =>
           (
             result as {
-              conversation: { id: Static<typeof ConversationId> };
+              conversation: { id: Schema.Schema.Type<typeof ConversationId> };
             }
           ).conversation.id,
       ),
@@ -1184,7 +1196,7 @@ function addRecipient(
 
 function addTaskParticipant(
   moderatorClient: TestClient,
-  taskId: Static<typeof TaskId>,
+  taskId: Schema.Schema.Type<typeof TaskId>,
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
@@ -1204,8 +1216,8 @@ function addTaskParticipant(
 
 function addConversationParticipant(
   moderatorClient: TestClient,
-  taskId: Static<typeof TaskId>,
-  conversationId: Static<typeof ConversationId>,
+  taskId: Schema.Schema.Type<typeof TaskId>,
+  conversationId: Schema.Schema.Type<typeof ConversationId>,
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
@@ -1226,7 +1238,7 @@ function addConversationParticipant(
 
 function getLeaseFromNonModerator(
   client: CloseableTestClient,
-  dispatchId: Static<typeof DispatchId>,
+  dispatchId: Schema.Schema.Type<typeof DispatchId>,
 ): ReturnType<DispatchTestDriver["getLeaseFromNonModerator"]> {
   return Effect.gen(function* () {
     const exit = yield* Effect.exit(
@@ -1265,7 +1277,7 @@ function exitCauseSummary(exit: Exit.Exit<unknown, unknown>): string {
 
 function assertLeaseState(
   moderator: ModeratorHandle,
-  dispatchId: Static<typeof DispatchId>,
+  dispatchId: Schema.Schema.Type<typeof DispatchId>,
   expected: LeaseState,
   opts?: Parameters<DispatchTestDriver["assertLeaseState"]>[2],
 ): ReturnType<DispatchTestDriver["assertLeaseState"]> {

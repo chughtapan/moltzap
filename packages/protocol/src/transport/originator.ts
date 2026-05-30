@@ -1,5 +1,4 @@
-import { Deferred, Effect, HashMap, Option, Ref, Scope } from "effect";
-import type { TSchema } from "@sinclair/typebox";
+import { Deferred, Effect, HashMap, Option, Ref, Scope, Schema } from "effect";
 import {
   decodeRpcResult,
   type ParamsOf,
@@ -12,7 +11,11 @@ import type { JsonRpcId } from "./wire.js";
 import { requestFrame, type ResponseFrame } from "./wire.js";
 import type { RegisteredTaggedError } from "../rpc-registry.js";
 
-type AnyServerRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
+type AnyServerRpcDefinition = RpcDefinition<
+  string,
+  Schema.Schema.AnyNoContext,
+  Schema.Schema.AnyNoContext
+>;
 
 interface PendingCall {
   readonly method: string;

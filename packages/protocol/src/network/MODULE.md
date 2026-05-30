@@ -35,43 +35,34 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so the
 optionality is collapsed here.
 
-### [`Connect`](./methods.ts#L70)
+### [`Connect`](./methods.ts#L60)
 
 _Variable_
 
 ```ts
 export const Connect = defineRpc({
   name: "network/connect",
-  params: Type.Union([
-    Type.Object(
-      {
-        agentKey: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
-    Type.Object(
-      {
-        sessionToken: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
+  params: Schema.Union(
+    Schema.Struct({
+      agentKey: Schema.String,
+      minProtocol: Schema.String,
+      maxProtocol: Schema.String,
+    }),
+    Schema.Struct({
+      sessionToken: Schema.String,
+      minProtocol: Schema.String,
+      maxProtocol: Schema.String,
+    }),
     // D #705 CP5 — app-principal Connect arm. The `appKey` credential
     // (prefix `moltzap_app_`) resolves to an `AppContext` via
     // `AppAuthService.authenticateApp`; the handler dispatches
     // structurally on `"appKey" in params` and mints an `AppConnection`.
-    Type.Object(
-      {
-        appKey: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
-  ]),
+    Schema.Struct({
+      appKey: Schema.String,
+      minProtocol: Schema.String,
+      maxProtocol: Schema.String,
+    }),
+  ),
   result: HelloOkSchema,
 })
 ```
@@ -124,15 +115,15 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L105)
+### [`HelloOk`](./methods.ts#L86)
 
 _TypeAlias_
 
 ```ts
-export type HelloOk = Static<typeof HelloOkSchema>;
+export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L229)
+### [`networkNotifications`](./methods.ts#L201)
 
 _Variable_
 
@@ -142,21 +133,21 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L174)
+### [`NetworkPing`](./methods.ts#L155)
 
 _Variable_
 
 ```ts
 export const NetworkPing = defineRpc({
   name: "network/ping",
-  params: Type.Object({}, { additionalProperties: false }),
-  result: Type.Object({ ts: DateTimeString }, { additionalProperties: false }),
+  params: Schema.Struct({}),
+  result: Schema.Struct({ ts: DateTimeString }),
 })
 ```
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L223)
+### [`networkRpcMethods`](./methods.ts#L195)
 
 _Variable_
 
@@ -168,7 +159,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L218)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L190)
 
 _Variable_
 
@@ -183,28 +174,22 @@ Pushed when a subscribed participant's presence status changes.
 Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
 connect/disconnect; there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L193)
+### [`PresenceSubscribe`](./methods.ts#L174)
 
 _Variable_
 
 ```ts
 export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
-  params: Type.Object(
-    { agentIds: Type.Array(AgentId) },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { statuses: Type.Array(PresenceEntrySchema) },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
+  result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
 })
 ```
 
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`ProtocolMismatchError`](./methods.ts#L154)
+### [`ProtocolMismatchError`](./methods.ts#L135)
 
 _Class_
 
@@ -262,7 +247,7 @@ serialization to the JSON-RPC envelope still happens via
 value); the concrete shape at the class level is purely a TS-side
 narrowing.
 
-### [`ProtocolMismatchReason`](./methods.ts#L111)
+### [`ProtocolMismatchReason`](./methods.ts#L92)
 
 _TypeAlias_
 

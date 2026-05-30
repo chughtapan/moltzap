@@ -20,7 +20,7 @@
  *     preventing the subsequent liveness probe from surfacing.
  */
 import { Effect } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { decodesStrictly } from "../../../schema-primitives.js";
 import {
   notificationFrameSchema,
   validateNotificationFrame,
@@ -204,7 +204,7 @@ function livenessFailure(propertyName: string, tag: string): string {
 
 function assertNotificationSchemaClean(observed: TaggedObservation) {
   return validateNotificationFrame(observed.decoded) &&
-    Value.Check(NotificationFrameSchema, observed.decoded)
+    decodesStrictly(NotificationFrameSchema, observed.decoded)
     ? Effect.void
     : Effect.fail(
         invariant(

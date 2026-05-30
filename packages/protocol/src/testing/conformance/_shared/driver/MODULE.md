@@ -17,7 +17,7 @@ Re-exporting keeps external consumers on the public testing entrypoint.
 
 ## Public surface
 
-### [`CloseableTestClient`](./test-client.ts#L283)
+### [`CloseableTestClient`](./test-client.ts#L284)
 
 _Interface_
 
@@ -31,7 +31,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`makeCloseableTestClient`](./test-client.ts#L1170)
+### [`makeCloseableTestClient`](./test-client.ts#L1169)
 
 _Function_
 
@@ -44,7 +44,7 @@ export function makeCloseableTestClient(
 >
 ```
 
-### [`makeTestClient`](./test-client.ts#L1157)
+### [`makeTestClient`](./test-client.ts#L1156)
 
 _Function_
 
@@ -93,7 +93,7 @@ Construct an empty registry. Called once from
 finalizer — consumers see `emit.fail(TransportClosedError)` before
 the transport tears down.
 
-### [`ServerRequestWaitError`](./test-client.ts#L255)
+### [`ServerRequestWaitError`](./test-client.ts#L256)
 
 _Class_
 
@@ -107,7 +107,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 }> {}
 ```
 
-### [`ServerRpcContext`](./test-client.ts#L278)
+### [`ServerRpcContext`](./test-client.ts#L279)
 
 _Interface_
 
@@ -118,7 +118,7 @@ export interface ServerRpcContext {
 }
 ```
 
-### [`ServerRpcDefinition`](./test-client.ts#L266)
+### [`ServerRpcDefinition`](./test-client.ts#L267)
 
 _TypeAlias_
 
@@ -133,7 +133,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Descriptor constraint for app-callback RPC test surface.
 
-### [`ServerRpcParams`](./test-client.ts#L271)
+### [`ServerRpcParams`](./test-client.ts#L272)
 
 _TypeAlias_
 
@@ -143,7 +143,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Inbound params type for an app-callback method.
 
-### [`ServerRpcResult`](./test-client.ts#L276)
+### [`ServerRpcResult`](./test-client.ts#L277)
 
 _TypeAlias_
 
@@ -205,7 +205,7 @@ notification regardless of definition. Used by conformance helpers
 that need to filter on params-shaped predicates not expressible at
 the definition level (e.g. presence/changed by agentId+status).
 
-### [`TestClient`](./test-client.ts#L133)
+### [`TestClient`](./test-client.ts#L141)
 
 _Interface_
 
@@ -215,14 +215,7 @@ export interface TestClient {
     definition: D,
     params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
-  ) => Effect.Effect<
-    ResultOf<D>,
-    | RpcResponseError
-    | RpcTimeoutError
-    | TransportClosedError
-    | TransportIoError
-    | FrameSchemaError
-  >;
+  ) => Effect.Effect<ResultOf<D>, SendRpcError>;
 
   readonly sendMalformed: <D extends AnyServerRpcDefinition>(opts: {
     readonly baseDefinition: D;
@@ -330,13 +323,14 @@ export interface TestClient {
     predicate?: (params: ServerRpcParams<D>) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<ServerRpcParams<D>, ServerRequestWaitError>;
+}
 ```
 
 Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`TestClient`](./test-client.ts#L133)
+### [`TestClient`](./test-client.ts#L141)
 
 _Variable_
 
@@ -354,7 +348,7 @@ _Interface_
 export interface TestClientConfig {
   readonly serverUrl: string;
   readonly agentKey: string;
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly defaultTimeoutMs: number;
   /** Soft cap on captured frames before the ring buffer drops oldest. */
   readonly captureCapacity: number;

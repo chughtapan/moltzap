@@ -105,7 +105,8 @@ type PendingDispatchMessage = Readonly<{
   createdAt: string;
   receivedAt: string;
   clock?: LogicalClock;
-  parts?: Part[];
+  // Post-#723: wire `pending[].parts` decodes to `readonly Part[]`.
+  parts?: ReadonlyArray<Part>;
 }>;
 
 interface EnqueueDispatchRequestArgs {
@@ -114,7 +115,9 @@ interface EnqueueDispatchRequestArgs {
   readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: Part[];
+  // Post-#723: wire params decode to deeply-`readonly` Effect Schema types;
+  // these inputs are never mutated here, so accept `ReadonlyArray`.
+  readonly parts?: ReadonlyArray<Part>;
   readonly attempt?: number;
   readonly receivedAt?: string;
   readonly clock?: LogicalClock;
@@ -132,7 +135,7 @@ interface DispatchRoundTripParams {
   readonly recipientAgentId: AgentId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: Part[];
+  readonly parts?: ReadonlyArray<Part>;
   readonly attempt?: number;
   readonly receivedAt?: string;
   readonly clock?: LogicalClock;

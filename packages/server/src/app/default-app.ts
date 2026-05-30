@@ -1,8 +1,7 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { AppManifest } from "@moltzap/protocol";
 import { ConnectionId } from "@moltzap/protocol/network";
 import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
-import { Value } from "@sinclair/typebox/value";
 import type { AppHost } from "./app-host.js";
 import type { AppEndpoint } from "./app-registration.js";
 import type { Originator } from "../transport/connection.js";
@@ -12,8 +11,7 @@ import type { Originator } from "../transport/connection.js";
  * no client `crypto.randomUUID()` can ever collide with the default
  * app's registered endpoint connId.
  */
-const DEFAULT_APP_CONNECTION_ID = Value.Decode(
-  ConnectionId,
+const DEFAULT_APP_CONNECTION_ID = Schema.decodeUnknownSync(ConnectionId)(
   "00000000-0000-4000-8000-000000000001",
 );
 

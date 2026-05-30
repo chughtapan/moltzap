@@ -12,6 +12,7 @@ import {
   Ref,
   Scope,
   Stream,
+  Schema,
 } from "effect";
 import {
   PROTOCOL_VERSION,
@@ -40,7 +41,6 @@ import {
   type TaskMasterConnection,
   type TaskMasterHandlers,
 } from "@moltzap/protocol";
-import type { Static, TSchema } from "@sinclair/typebox";
 import { decodeFrames } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
@@ -210,12 +210,15 @@ type TMSlotTable = ErasedSlotTable<never, TaskCallbackContext>;
  * projects. No `weaveCaps` chain, no `CurrentPrincipal` (the cap-less
  * successor to the deleted `makeErasedSlot` + empty-providers path).
  */
-function wrapTmSlot<P extends TSchema, R extends TSchema>(slot: {
+function wrapTmSlot<
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
+>(slot: {
   readonly definition: RpcDefinition<string, P, R>;
   readonly handle: (
-    params: Static<P>,
+    params: Schema.Schema.Type<P>,
     ctx: TaskCallbackContext,
-  ) => Effect.Effect<Static<R>, unknown, never>;
+  ) => Effect.Effect<Schema.Schema.Type<R>, unknown, never>;
 }): ErasedSlot<never, TaskCallbackContext> {
   return makeMiddlewareSlot(
     slot.definition,

@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConnectionId } from "@moltzap/protocol/network";
 import type { AppManifest, ParamsOf } from "@moltzap/protocol";
@@ -12,7 +12,6 @@ import {
   messageId,
   taskId,
 } from "@moltzap/protocol/testing";
-import { Value } from "@sinclair/typebox/value";
 import type { Db } from "../db/client.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
@@ -33,8 +32,7 @@ function makeAppHost(): { host: AppHost } {
 
 const APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
 const OTHER_APP_ID = makeAppId("00000000-0000-4000-8000-000000000999");
-const CONN_ID = Value.Decode(
-  ConnectionId,
+const CONN_ID = Schema.decodeUnknownSync(ConnectionId)(
   "00000000-0000-4000-8000-00000000c001",
 );
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000c560");

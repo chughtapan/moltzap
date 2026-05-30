@@ -68,38 +68,37 @@ K > 1 samples and keep only methods where every probe predicts ok)
 per the architect's contract. Single-probe is sufficient when
 `applyCall` is method-only (today).
 
-### [`arbitraryForParams`](./from-typebox.ts#L266)
+### [`arbitraryForParams`](./from-typebox.ts#L41)
 
 _Function_
 
 ```ts
-export function arbitraryForParams<S extends TSchema>(
+export function arbitraryForParams<S extends Schema.Schema.AnyNoContext>(
   schema: S,
-): fc.Arbitrary<Static<S>>
+): FastCheck.Arbitrary<Schema.Schema.Type<S>>
 ```
 
-Shrink-preserving narrower. Some schemas (`Type.Unknown`, `Type.Any`)
-produce open-world trees that drown properties in noise. This returns a
-narrowed arbitrary still `Value.Check`-valid against `schema` but biased
-toward "small typical" values the reference model can reason about.
+Narrowing alias kept for call-site intent. The former hand-roll narrowed
+to "small typical" values; `Arbitrary.make` already reads the schema's
+`maxItems` / `maxLength` / `between` bounds, so this delegates to
+arbitraryFromSchema.
 
-For now the narrowing strategy is identical to `arbitraryFromSchema` with
-smaller default string/array bounds (handled inside `walk`). Exposed as a
-distinct export so call sites document their intent.
-
-### [`arbitraryFromSchema`](./from-typebox.ts#L62)
+### [`arbitraryFromSchema`](./from-typebox.ts#L29)
 
 _Function_
 
 ```ts
-export function arbitraryFromSchema<S extends TSchema>(
+export function arbitraryFromSchema<S extends Schema.Schema.AnyNoContext>(
   schema: S,
-): fc.Arbitrary<Static<S>>
+): FastCheck.Arbitrary<Schema.Schema.Type<S>>
 ```
 
-Derive an `Arbitrary&lt;Static&lt;S>>` for any TypeBox schema. The derivation
-is pure: given the same schema + fast-check seed, it yields the same
-value tree (AC10 reproducibility).
+Derive an `Arbitrary&lt;Schema.Schema.Type&lt;S>>` for any Effect `Schema`. The
+derivation is pure: given the same schema + fast-check seed, it yields the
+same value tree (AC10 reproducibility). The return type is Effect's
+re-exported `FastCheck.Arbitrary` — the SAME `fast-check` module the rest of
+the suite samples with (both pinned to fast-check v3, the version Effect's
+`Arbitrary.make` binds to), so no cross-module cast is needed.
 
 ### [`arbitraryMalformedFrame`](./frames.ts#L77)
 

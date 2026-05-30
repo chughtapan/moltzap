@@ -1,18 +1,22 @@
 import { describe, it, expect } from "vitest";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { Either } from "effect";
+import { Either, type Schema } from "effect";
 import * as fc from "fast-check";
 import {
   validateAppManifest,
   DispatchAuthorize,
   DispatchRequest,
 } from "./methods.js";
+import { decodesStrictly } from "../schema-primitives.js";
 
-const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
+// Strict, excess-rejecting decode check — the parity oracle for the former
+// `ajv.compile(schema)` strict validators (post-#723 Effect Schema cutover).
+const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
+  decodesStrictly(schema, value);
 
-const validateAuthorizeResult = ajv.compile(DispatchAuthorize.resultSchema);
-const validateRequestParams = ajv.compile(DispatchRequest.paramsSchema);
+const validateAuthorizeResult = (value: unknown): boolean =>
+  decodes(DispatchAuthorize.resultSchema, value);
+const validateRequestParams = (value: unknown): boolean =>
+  decodes(DispatchRequest.paramsSchema, value);
 const MANIFEST_PROPERTY_RUNS = 25;
 
 const manifestIsValid = (manifest: unknown): boolean =>

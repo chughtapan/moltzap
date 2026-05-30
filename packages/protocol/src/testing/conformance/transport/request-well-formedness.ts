@@ -9,7 +9,7 @@
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { Value } from "@sinclair/typebox/value";
+import { decodesStrictly } from "../../../schema-primitives.js";
 import { arbitraryAnyCall } from "../../arbitraries/rpc.js";
 import type { ArbitraryRpcCall } from "../../arbitraries/rpc.js";
 import {
@@ -149,7 +149,7 @@ function inboundResponses(
 
 function allResponsesValid(replies: ReadonlyArray<ResponseFrame>): boolean {
   for (const reply of replies) {
-    if (!Value.Check(ResponseFrameSchema, reply)) return false;
+    if (!decodesStrictly(ResponseFrameSchema, reply)) return false;
   }
   return true;
 }

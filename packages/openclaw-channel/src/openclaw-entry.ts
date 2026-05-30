@@ -32,7 +32,7 @@ import {
   getGroupFields,
   type GroupFields,
 } from "@moltzap/client/channel-base";
-import { Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
 import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
@@ -52,7 +52,6 @@ import {
   TaskId,
   type LeaseId,
 } from "@moltzap/protocol/task";
-import { Value } from "@sinclair/typebox/value";
 import { RpcServerError } from "@moltzap/protocol/transport";
 
 const DEFAULT_ACCOUNT_ID = "default";
@@ -638,9 +637,12 @@ function lookupAgentsInChunks(
     const out: AgentDirectoryEntry[] = [];
     for (let i = 0; i < agentIds.length; i += AGENTS_LOOKUP_MAX_IDS) {
       const chunk = agentIds.slice(i, i + AGENTS_LOOKUP_MAX_IDS);
+      // Post-#723 the decoded result is deeply `readonly` (Effect Schema);
+      // `AgentCard` is a structural supertype of `AgentDirectoryEntry`
+      // (id/name/displayName), so a single readonly cast bridges it.
       const { agents } = (yield* sendRpc(AgentsLookup, {
         agentIds: chunk,
-      })) as { agents: AgentDirectoryEntry[] };
+      })) as { readonly agents: ReadonlyArray<AgentDirectoryEntry> };
       out.push(...agents);
     }
     return out;
@@ -687,10 +689,13 @@ function listGroupsEffect(
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
     if (!service?.sendRpc) return [];
+    // Post-#723 the decoded result is deeply `readonly` (Effect Schema); the
+    // wire `conversation` is a structural supertype of
+    // `ConversationDirectoryEntry`, so a single readonly cast bridges it.
     const result = (yield* service.sendRpc(TaskConversationList, {})) as {
-      items: Array<{
-        taskId: string;
-        conversation: ConversationDirectoryEntry;
+      readonly items: ReadonlyArray<{
+        readonly taskId: string;
+        readonly conversation: ConversationDirectoryEntry;
       }>;
     };
     return result.items
@@ -1137,8 +1142,10 @@ function parseTaskTarget(
   }
   return Effect.try({
     try: () => ({
-      taskId: Value.Decode(TaskId, body.slice(0, sep)),
-      conversationId: Value.Decode(ConversationId, body.slice(sep + 1)),
+      taskId: Schema.decodeUnknownSync(TaskId)(body.slice(0, sep)),
+      conversationId: Schema.decodeUnknownSync(ConversationId)(
+        body.slice(sep + 1),
+      ),
     }),
     catch: () => new MoltZapTargetMalformedError({ target: to }),
   });
@@ -1172,7 +1179,7 @@ function dispatchOutbound(
       parsed.conversationId,
       ctx.text,
       ctx.replyToId !== undefined
-        ? { replyTo: Value.Decode(MessageId, ctx.replyToId) }
+        ? { replyTo: Schema.decodeUnknownSync(MessageId)(ctx.replyToId) }
         : {},
     );
   });

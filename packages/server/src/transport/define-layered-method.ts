@@ -1,5 +1,4 @@
-import { Effect } from "effect";
-import type { Static, TSchema } from "@sinclair/typebox";
+import { Effect, Schema } from "effect";
 import {
   makeMiddlewareSlot,
   type AnyCapabilityMiddleware,
@@ -102,8 +101,8 @@ type CapIdentsFrom<Middlewares extends ReadonlyArray<AnyCapabilityMiddleware>> =
  * `*LayerScope` marker union the wrapper provides structurally onto the body.
  */
 interface MiddlewareMethodDef<
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   Caps,
   Reqs,
@@ -115,17 +114,25 @@ interface MiddlewareMethodDef<
   readonly callablePrincipal: K;
   readonly requiresActive?: boolean;
   readonly handler: (
-    params: Static<P>,
+    params: Schema.Schema.Type<P>,
     ctx: CtxForKind<K>,
-  ) => Effect.Effect<Static<R>, E, Reqs | Caps | CurrentPrincipal | Scopes>;
+  ) => Effect.Effect<
+    Schema.Schema.Type<R>,
+    E,
+    Reqs | Caps | CurrentPrincipal | Scopes
+  >;
   readonly weaveCaps: (
     handlerEffect: Effect.Effect<
-      Static<R>,
+      Schema.Schema.Type<R>,
       E,
       SlotEnv | ConnectionTag | CurrentPrincipal | Caps
     >,
-    params: Static<P>,
-  ) => Effect.Effect<Static<R>, EW, SlotEnv | ConnectionTag | CurrentPrincipal>;
+    params: Schema.Schema.Type<P>,
+  ) => Effect.Effect<
+    Schema.Schema.Type<R>,
+    EW,
+    SlotEnv | ConnectionTag | CurrentPrincipal
+  >;
 }
 
 /**
@@ -135,10 +142,21 @@ interface MiddlewareMethodDef<
  * the R down to the slot's `SlotEnv | ConnectionTag | CurrentPrincipal |
  * Caps` (the caps + principal are subtracted later by the slot body).
  */
-type ScopeProvider<R extends TSchema, Reqs, Caps, Scopes, SlotEnv, E> = (
-  e: Effect.Effect<Static<R>, E, Reqs | Caps | CurrentPrincipal | Scopes>,
+type ScopeProvider<
+  R extends Schema.Schema.AnyNoContext,
+  Reqs,
+  Caps,
+  Scopes,
+  SlotEnv,
+  E,
+> = (
+  e: Effect.Effect<
+    Schema.Schema.Type<R>,
+    E,
+    Reqs | Caps | CurrentPrincipal | Scopes
+  >,
 ) => Effect.Effect<
-  Static<R>,
+  Schema.Schema.Type<R>,
   E,
   SlotEnv | ConnectionTag | CurrentPrincipal | Caps
 >;
@@ -164,8 +182,8 @@ type ScopeProvider<R extends TSchema, Reqs, Caps, Scopes, SlotEnv, E> = (
  */
 function buildMiddlewareSlot<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   Middlewares extends ReadonlyArray<AnyCapabilityMiddleware>,
   Scopes,
@@ -220,8 +238,8 @@ function buildMiddlewareSlot<
  */
 function defineNetworkMiddlewareMethod<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   Middlewares extends ReadonlyArray<AnyCapabilityMiddleware>,
   E,
@@ -264,8 +282,8 @@ function defineNetworkMiddlewareMethod<
  */
 export function defineTaskMiddlewareMethod<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   Middlewares extends ReadonlyArray<AnyCapabilityMiddleware>,
   E,
@@ -316,8 +334,8 @@ export function defineTaskMiddlewareMethod<
  */
 export function defineAppMiddlewareMethod<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   Middlewares extends ReadonlyArray<AnyCapabilityMiddleware>,
   E,
@@ -367,8 +385,8 @@ export function defineAppMiddlewareMethod<
  * deleted `defineXMethod` + `makeErasedSlot` cap-less agent/app path.
  */
 interface CaplessMethodDef<
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   Reqs,
   Scopes,
@@ -377,9 +395,13 @@ interface CaplessMethodDef<
   readonly callablePrincipal: K;
   readonly requiresActive?: boolean;
   readonly handler: (
-    params: Static<P>,
+    params: Schema.Schema.Type<P>,
     ctx: CtxForKind<K>,
-  ) => Effect.Effect<Static<R>, E, Reqs | CurrentPrincipal | Scopes>;
+  ) => Effect.Effect<
+    Schema.Schema.Type<R>,
+    E,
+    Reqs | CurrentPrincipal | Scopes
+  >;
 }
 
 /**
@@ -387,8 +409,8 @@ interface CaplessMethodDef<
  */
 export function defineNetworkMethod<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   E = never,
   Reqs extends NetworkTags = NetworkTags,
@@ -413,8 +435,8 @@ export function defineNetworkMethod<
  */
 export function defineTaskMethod<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   E = never,
   Reqs extends TaskTags = TaskTags,
@@ -439,8 +461,8 @@ export function defineTaskMethod<
  */
 export function defineAppMethod<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   K extends "agent" | "app",
   E = never,
   Reqs extends AppTags = AppTags,
@@ -473,17 +495,17 @@ export function defineAppMethod<
  */
 export function defineConnectMethod<
   Name extends string,
-  P extends TSchema,
-  R extends TSchema,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
   E = never,
   Reqs extends AppTags = AppTags,
 >(
   definition: RpcDefinition<Name, P, R>,
   def: {
     readonly handler: (
-      params: Static<P>,
+      params: Schema.Schema.Type<P>,
       ctx: undefined,
-    ) => Effect.Effect<Static<R>, E, Reqs | AppScopes>;
+    ) => Effect.Effect<Schema.Schema.Type<R>, E, Reqs | AppScopes>;
   },
 ): ErasedSlot<AppSlotEnv, Connection> {
   const body = defineUnauthMethod<P, R, E, AppSlotEnv>({

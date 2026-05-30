@@ -1,14 +1,18 @@
-import { Type, type Static } from "@sinclair/typebox";
-import { brandedId, dateTimeStringSchema } from "../schema-primitives.js";
+import { Schema } from "effect";
+import {
+  brandedId,
+  dateTimeStringSchema,
+  formatString,
+  closedStructGuard,
+} from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
-import { ajv } from "../transport/wire.js";
 import { ConversationId, MessageId } from "./conversations.js";
 import { TaskId } from "./ids.js";
 
 export const LeaseId = brandedId("LeaseId");
-export type LeaseId = Static<typeof LeaseId>;
+export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
 
 // #705 HALF-2 — `messages/send` + `messages/list` are agent-originated; their
 // per-frame capabilities (`ConversationInTask`, `MessageSendPermission`,
@@ -19,69 +23,57 @@ export type LeaseId = Static<typeof LeaseId>;
 
 const DateTimeString = dateTimeStringSchema();
 
-const TextPartSchema = Type.Object(
-  {
-    type: Type.Literal("text"),
-    text: Type.String({ minLength: 1, maxLength: 32768 }),
-  },
-  { additionalProperties: false },
-);
+const TextPartSchema = Schema.Struct({
+  type: Schema.Literal("text"),
+  text: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32768)),
+});
 
-const ImagePartSchema = Type.Object(
-  {
-    type: Type.Literal("image"),
-    url: Type.String({ minLength: 1, format: "uri" }),
-    altText: Type.Optional(Type.String({ maxLength: 256 })),
-  },
-  { additionalProperties: false },
-);
+const ImagePartSchema = Schema.Struct({
+  type: Schema.Literal("image"),
+  url: formatString("uri").pipe(Schema.minLength(1)),
+  altText: Schema.optional(Schema.String.pipe(Schema.maxLength(256))),
+});
 
-const FilePartSchema = Type.Object(
-  {
-    type: Type.Literal("file"),
-    url: Type.String({ minLength: 1, format: "uri" }),
-    name: Type.String({ minLength: 1, maxLength: 256 }),
-    mimeType: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
-    size: Type.Optional(Type.Integer({ minimum: 0 })),
-  },
-  { additionalProperties: false },
-);
+const FilePartSchema = Schema.Struct({
+  type: Schema.Literal("file"),
+  url: formatString("uri").pipe(Schema.minLength(1)),
+  name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
+  mimeType: Schema.optional(
+    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128)),
+  ),
+  size: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+  ),
+});
 
-const PartSchema = Type.Union([
+const PartSchema = Schema.Union(
   TextPartSchema,
   ImagePartSchema,
   FilePartSchema,
-]);
-
-export type Part = Static<typeof PartSchema>;
-
-const MessagePartsSchema = Type.Array(PartSchema, {
-  minItems: 1,
-  maxItems: 10,
-});
-
-const MessageSchema = Type.Object(
-  {
-    id: MessageId,
-    conversationId: ConversationId,
-    senderId: AgentId,
-    replyToId: Type.Optional(MessageId),
-    parts: MessagePartsSchema,
-    taggedEntities: Type.Optional(Type.Array(AgentId)),
-    patchedBy: Type.Optional(Type.String()),
-    createdAt: DateTimeString,
-  },
-  { additionalProperties: false },
 );
 
-export type Message = Static<typeof MessageSchema>;
+export type Part = Schema.Schema.Type<typeof PartSchema>;
 
-export const validateTextPart = ajv.compile(TextPartSchema) as (
-  value: unknown,
-) => value is Static<typeof TextPartSchema>;
-export const validateMessage = ajv.compile(MessageSchema) as (
-  value: unknown,
-) => value is Message;
+const MessagePartsSchema = Schema.Array(PartSchema).pipe(
+  Schema.minItems(1),
+  Schema.maxItems(10),
+);
+
+const MessageSchema = Schema.Struct({
+  id: MessageId,
+  conversationId: ConversationId,
+  senderId: AgentId,
+  replyToId: Schema.optional(MessageId),
+  parts: MessagePartsSchema,
+  taggedEntities: Schema.optional(Schema.Array(AgentId)),
+  patchedBy: Schema.optional(Schema.String),
+  createdAt: DateTimeString,
+});
+
+export type Message = Schema.Schema.Type<typeof MessageSchema>;
+
+export const validateTextPart = closedStructGuard(TextPartSchema);
+export const validateMessage = closedStructGuard(MessageSchema);
 
 export function messagePartsSchema(): typeof MessagePartsSchema {
   return MessagePartsSchema;
@@ -106,41 +98,33 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
 // the field is not in their type. See #560 architect comment §3
 // + risk R8 for the alternative.
 
-const TmDecisionSchema = Type.Union([
-  Type.Object(
-    { tag: Type.Literal("pending") },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      tag: Type.Literal("forward"),
-      recipients: Type.Array(AgentId),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      tag: Type.Literal("block"),
-      reason: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-]);
+const TmDecisionSchema = Schema.Union(
+  Schema.Struct({ tag: Schema.Literal("pending") }),
+  Schema.Struct({
+    tag: Schema.Literal("forward"),
+    recipients: Schema.Array(AgentId),
+  }),
+  Schema.Struct({
+    tag: Schema.Literal("block"),
+    reason: Schema.optional(Schema.String),
+  }),
+);
 
-export type TmDecision = Static<typeof TmDecisionSchema>;
-export const validateTmDecision = ajv.compile(TmDecisionSchema) as (
-  value: unknown,
-) => value is TmDecision;
+export type TmDecision = Schema.Schema.Type<typeof TmDecisionSchema>;
+// Strict, excess-rejecting guard over the verdict union (former
+// `ajv.compile`). Keeps the boolean-guard call shape the live cross-package
+// consumer `server/.../message.service.ts → validateTmDecision(raw)` relies
+// on, while preserving AJV `strict`'s excess rejection at the trust boundary.
+export const validateTmDecision = closedStructGuard(TmDecisionSchema);
 
-const MessageWithTmDecisionSchema = Type.Composite([
+const MessageWithTmDecisionSchema = Schema.extend(
   MessageSchema,
-  Type.Object(
-    { tmDecision: TmDecisionSchema },
-    { additionalProperties: false },
-  ),
-]);
+  Schema.Struct({ tmDecision: TmDecisionSchema }),
+);
 
-export type MessageWithTmDecision = Static<typeof MessageWithTmDecisionSchema>;
+export type MessageWithTmDecision = Schema.Schema.Type<
+  typeof MessageWithTmDecisionSchema
+>;
 
 export function tmDecisionSchema(): typeof TmDecisionSchema {
   return TmDecisionSchema;
@@ -163,20 +147,14 @@ export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchem
  */
 export const MessagesSend = defineRpc({
   name: "messages/send",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      parts: MessagePartsSchema,
-      replyToId: Type.Optional(MessageId),
-      dispatchLeaseId: Type.Optional(LeaseId),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { message: MessageSchema },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    parts: MessagePartsSchema,
+    replyToId: Schema.optional(MessageId),
+    dispatchLeaseId: Schema.optional(LeaseId),
+  }),
+  result: Schema.Struct({ message: MessageSchema }),
 });
 
 /**
@@ -186,34 +164,28 @@ export const MessagesSend = defineRpc({
  */
 export const MessagesList = defineRpc({
   name: "messages/list",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      sinceSeq: Type.Optional(
-        Type.String({
-          description: "Snowflake seq cursor (string-encoded BIGINT)",
-        }),
-      ),
-      limit: ListLimitSchema,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      messages: Type.Array(MessageSchema),
-      hasMore: Type.Boolean(),
-    },
-    { additionalProperties: false },
-  ),
+  params: Schema.Struct({
+    taskId: TaskId,
+    conversationId: ConversationId,
+    sinceSeq: Schema.optional(
+      Schema.String.annotations({
+        description: "Snowflake seq cursor (string-encoded BIGINT)",
+      }),
+    ),
+    limit: ListLimitSchema,
+  }),
+  result: Schema.Struct({
+    messages: Schema.Array(MessageSchema),
+    hasMore: Schema.Boolean,
+  }),
 });
 
-const MessageReceivedNotificationSchema = Type.Object(
-  { taskId: TaskId, message: MessageSchema },
-  { additionalProperties: false },
-);
+const MessageReceivedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  message: MessageSchema,
+});
 
-export type MessageReceivedNotification = Static<
+export type MessageReceivedNotification = Schema.Schema.Type<
   typeof MessageReceivedNotificationSchema
 >;
 
