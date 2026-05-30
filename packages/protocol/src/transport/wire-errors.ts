@@ -1,9 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data } from "effect";
 import type { JsonValue } from "../schema-primitives.js";
-// Type-only import — erased at runtime, so it does NOT create a module
-// cycle with `task/ids.js` (which has no runtime dependency on this file).
-import type { AppId } from "../task/ids.js";
 
 /** JSON-RPC 2.0 reserved codes. Emitted by TypedDispatcher; never raised by handlers. */
 export const JSON_RPC_RESERVED_CODES = {
@@ -171,36 +168,3 @@ export class AlreadyConnected extends Data.TaggedError("AlreadyConnected")<
     "Principal already has an active connection. Disconnect the prior session first.";
 }
 registerErrorClass(AlreadyConnected);
-
-/**
- * The default app's registry slot is absent during the brief boot window
- * before `AppRegistry.markBootComplete()` runs. Transient — the client
- * SDK's retry-with-backoff finds the registered slot on the next attempt.
- * Once boot completes, an absent slot is durable absence and surfaces as
- * `AppNotFoundError` instead.
- */
-export class AppNotReadyError extends Data.TaggedError("AppNotReadyError")<
-  RpcErrorPayload & {
-    readonly appId: AppId;
-  }
-> {
-  static readonly code = -32011;
-  static readonly message =
-    "App is not yet ready. Retry after a short backoff.";
-}
-registerErrorClass(AppNotReadyError);
-
-/**
- * No app is registered under the given id, and boot has completed (so the
- * absence is durable, not a boot transient). NOT retryable — surfaces
- * actionable error UX rather than an infinite retry loop.
- */
-export class AppNotFoundError extends Data.TaggedError("AppNotFoundError")<
-  RpcErrorPayload & {
-    readonly appId: AppId;
-  }
-> {
-  static readonly code = -32012;
-  static readonly message = "App not found.";
-}
-registerErrorClass(AppNotFoundError);

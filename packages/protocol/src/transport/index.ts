@@ -52,10 +52,8 @@ export {
   NotFoundError,
   ConflictError,
   InvalidParamsError,
-  // D #705 §3.1 — Connect-handler + app-registry wire errors.
+  // D #705 §3.1 — Connect-handler wire error.
   AlreadyConnected,
-  AppNotReadyError,
-  AppNotFoundError,
   // Read-only registry predicate — lets a consumer (e.g. the CLI transport)
   // recognise any registered wire-error instance and recover its static
   // `code`/`message`. Does NOT expose `registerErrorClass`: the registered set
