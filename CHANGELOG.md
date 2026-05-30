@@ -86,6 +86,27 @@ and no per-provider `args as Shape` cast.
   (conformance + integration green). The remaining ~7 cap-bearing methods
   stay on the legacy `dischargeCaps` path until the full port.
 
+### Changed: `MoltZapTMClient` SDK surface renamed to `MoltZapAppClient` (#705 §4.1)
+
+The moderating-client SDK now matches the principal it speaks for: an **app**.
+Every `TaskMaster`/`TM` identifier on the client + protocol-transport surface is
+renamed to `App`, so the type you reach for is named after what it is. This is a
+pure rename — the wire dialect, JSON-RPC method names (`dispatch/*`,
+`messages/*`, `task/*`, `apps/register`), and the `tm_unreachable` / `tm_decision`
+/ `tm_policy` DB literals are byte-identical; no behavior changed.
+
+- **BREAKING (`@moltzap/client`):** import `MoltZapAppClient` (was
+  `MoltZapTMClient`) from `app-client.ts` (was `tm-client.ts`);
+  `AppClientOptions` (was `TMClientOptions`) carries an
+  `AppCallbackHandlers`-typed (was `TMHandlers`) `handlers` table.
+- **BREAKING (`@moltzap/protocol/transport`):** `makeAppClientConnection` (was
+  `makeTaskMasterConnection`) returns `AppClientConnection` (was
+  `TaskMasterConnection`); callbacks run in an `AppCallbackContext` (was
+  `TaskCallbackContext`). The `appCallbackMethods` group + `appCallableRpcMethods`
+  partition replace `taskCallbackMethods` / `taskMasterRpcMethods`. The
+  server-side `AppConnection` runtime class is unchanged (the renamed protocol
+  type is `AppClientConnection`, kept distinct to avoid colliding with it).
+
 ### Fixed: `CoreApp.close()` teardown deadlock with live dispatch leases (#729)
 
 - **Fixed (`@moltzap/server-core`):** `CoreApp.close()` could deadlock
