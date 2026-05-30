@@ -3,7 +3,6 @@ import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
   Deferred,
-  Either,
   Effect,
   Exit,
   Fiber,
@@ -56,10 +55,9 @@ import {
   MALFORMED_FRAME_PREVIEW_CHARS,
   MSG_NOT_CONNECTED,
   NORMAL_CLOSE_CODE,
-  ReconnectAttemptFailedError,
   UTF8_DECODER,
   makeNotConnectedError,
-  makeReconnectSchedule,
+  makeReconnectLoop,
   openSocket,
   shouldLogMalformedFrame,
   webSocketUrl,
@@ -944,45 +942,18 @@ export class MoltZapTMClient {
    */
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectFiber !== null) return;
-
-    const attempt = this.connectEffect().pipe(
-      Effect.tap((helloOk) =>
-        Effect.gen(this, function* () {
-          try {
-            this.options.onReconnect?.(helloOk);
-          } catch (err) {
-            yield* Effect.logWarning("onReconnect handler threw", err);
-          }
-        }),
-      ),
-      Effect.either,
-      Effect.flatMap(
-        Either.match({
-          onLeft: () =>
-            Effect.fail(
-              new ReconnectAttemptFailedError({
-                reason: "reconnect attempt failed",
-              }),
-            ),
-          onRight: (value) => Effect.succeed(value),
-        }),
-      ),
-    );
-
-    const backoff = makeReconnectSchedule();
-
-    const loop: Effect.Effect<void, never> = attempt.pipe(
-      Effect.retry(backoff),
-      Effect.asVoid,
-      Effect.catchAll(() => Effect.void),
-      Effect.ensuring(
-        Effect.sync(() => {
-          this.reconnectFiber = null;
-        }),
-      ),
-      Effect.provide(NodeSocket.layerWebSocketConstructor),
-    );
-
+    // The reconnect loop body is shared (`runtime/reconnect.ts →
+    // makeReconnectLoop`, #705 CP-F A6-base — byte-identical to
+    // `MoltZapAgentClient`). The per-class guard above + `runtime.runFork`
+    // here stay local because they touch this client's `reconnectFiber` /
+    // `closed` state.
+    const loop = makeReconnectLoop({
+      connectEffect: () => this.connectEffect(),
+      onReconnect: (helloOk) => this.options.onReconnect?.(helloOk),
+      onLoopEnd: () => {
+        this.reconnectFiber = null;
+      },
+    });
     this.reconnectFiber = this.runtime.runFork(loop);
   }
 }
