@@ -9,10 +9,12 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   registerAndConnect,
-  type ConnectedAgent,
+  registerApp,
+  connectAppClient,
+  getBaseUrl,
+  type ServerTestClient,
 } from "../helpers.js";
 import {
-  AppsRegister,
   DEFAULT_APP_ID,
   HookBlockedError,
   MessagesAuthorize,
@@ -89,8 +91,8 @@ function expectNoPlaintext(
   expect(serialized).not.toContain(plaintext);
 }
 
-function attachBlockingMessageAuthorize(alice: ConnectedAgent) {
-  return alice.client.onAppCallback(MessagesAuthorize, () =>
+function attachBlockingMessageAuthorize(appClient: ServerTestClient) {
+  return appClient.onAppCallback(MessagesAuthorize, () =>
     Effect.succeed({
       verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
     }),
@@ -162,21 +164,31 @@ function emitBlockedHookSpan(): Effect.Effect<void> {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-trace-span-blocked");
     const bob = yield* registerAndConnect("bob-trace-span-blocked");
-    // Wire the message-authorize callback BEFORE AppsRegister so the
-    // server's forked round-trip lands on a live handler.
-    yield* attachBlockingMessageAuthorize(alice);
-    yield* alice.client.sendRpc(AppsRegister, { manifest: TRACE_APP_MANIFEST });
-    yield* alice.client.onAppCallback(TaskCreate, () =>
+    // D #705 CP9 — the moderator app is a SEPARATE app principal (HTTP
+    // register → `appKey` Connect). Its `messages/authorize` + `task/create`
+    // callbacks and the app-only `task/conversation/create` RPC run on the
+    // app connection; alice (agent) drives the agent-only `task/request` +
+    // `messages/send`. Callbacks wired BEFORE any send so the server's
+    // forked round-trip lands on a live handler.
+    const registered = yield* registerApp(getBaseUrl(), TRACE_APP_MANIFEST);
+    const appClient = yield* connectAppClient(registered.appKey);
+    yield* attachBlockingMessageAuthorize(appClient);
+    yield* appClient.onAppCallback(TaskCreate, () =>
       Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
 
     const task = yield* alice.client.sendRpc(TaskRequest, {
-      appId: TRACE_APP_ID,
+      appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
-    const conv = yield* alice.client.sendRpc(TaskConversationCreate, {
+    // The app creates the conversation off its own `AppConnection`
+    // (`seedCreatorAsParticipant: false`); alice (the sender) is added
+    // explicitly so her `messages/send` passes the participant gate and
+    // reaches the `before_message_delivery` hook (vs. a participant-gate
+    // ForbiddenError firing first).
+    const conv = yield* appClient.sendRpc(TaskConversationCreate, {
       taskId: task.task.id,
-      participants: [bob.agentId],
+      participants: [alice.agentId, bob.agentId],
     });
     const outcome = yield* Effect.either(
       alice.client.sendRpc(MessagesSend, {

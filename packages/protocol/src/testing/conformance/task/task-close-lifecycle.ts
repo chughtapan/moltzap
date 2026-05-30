@@ -58,7 +58,9 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
       const fixture = yield* acquireTaskCloseFixture(ctx);
-      const close = yield* fixture.owner.client
+      // tasks/close is `callablePrincipal: "app"` — drive it through the
+      // moderator app principal, not the agent owner.
+      const close = yield* fixture.moderatorClient
         .sendRpc(TaskClose, { taskId: fixture.taskId })
         .pipe(Effect.either);
       const closed = yield* requireRight(close, (error) =>
@@ -102,49 +104,54 @@ function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
     const participant = yield* acquireClient(ctx, "tc-participant").pipe(
       Effect.mapError((e) => deliveryViolation(PROPERTY, `participant: ${e}`)),
     );
-    const moderator = yield* moderateAs(owner, "tc").pipe(
+    const moderator = yield* moderateAs(ctx, owner, "tc").pipe(
       Effect.mapError((message) => deliveryViolation(PROPERTY, message)),
     );
     const task = yield* createTaskAndAddParticipant(
       owner,
       participant,
-      moderator.appId,
+      moderator,
     );
     const conversation = yield* createTaskCloseConversation(
-      owner,
+      moderator,
       task.task.id,
+      owner,
       participant,
     );
     yield* moderator
       .awaitConversationReady(conversation.conversation.id, [
+        owner.agent.agentId,
         participant.agent.agentId,
       ])
       .pipe(Effect.mapError((message) => deliveryViolation(PROPERTY, message)));
     return {
       owner,
       participant,
+      moderatorClient: moderator.client,
       taskId: task.task.id,
       conversationId: conversation.conversation.id,
     };
   });
 }
 
+// `task/request` is agent-called by `owner`; `task/addParticipant` is
+// `callablePrincipal: "app"` and routes through the moderator app principal.
 function createTaskAndAddParticipant(
   owner: ConversationActor,
   participant: ConversationActor,
-  appId: ModeratedHandle["appId"],
+  moderator: ModeratedHandle,
 ) {
   return Effect.gen(function* () {
     const taskResult = yield* owner.client
       .sendRpc(TaskRequest, {
-        appId,
+        appId: moderator.appId,
         invitedAgentIds: [participant.agent.agentId],
       })
       .pipe(Effect.either);
     const task = yield* requireRight(taskResult, (error) =>
       deliveryViolation(PROPERTY, `task/create failed: ${error._tag}`),
     );
-    const addResult = yield* owner.client
+    const addResult = yield* moderator.client
       .sendRpc(TaskAddParticipant, {
         taskId: task.task.id,
         agentId: participant.agent.agentId,
@@ -157,16 +164,22 @@ function createTaskAndAddParticipant(
   });
 }
 
+// `task/conversation/create` is `callablePrincipal: "app"` — the moderator
+// app creates it. `owner` is included as a participant so its subscriber
+// observes the `task/conversation/created` event (`awaitConversationReady`
+// polls a map fed by the owner's agent-broadcast stream; an `AppConnection`
+// cannot receive that broadcast).
 function createTaskCloseConversation(
-  owner: ConversationActor,
+  moderator: ModeratedHandle,
   taskId: TaskId,
+  owner: ConversationActor,
   participant: ConversationActor,
 ) {
   return Effect.gen(function* () {
-    const conversationResult = yield* owner.client
+    const conversationResult = yield* moderator.client
       .sendRpc(TaskConversationCreate, {
         taskId,
-        participants: [participant.agent.agentId],
+        participants: [owner.agent.agentId, participant.agent.agentId],
       })
       .pipe(Effect.either);
     return yield* requireRight(conversationResult, (error) =>

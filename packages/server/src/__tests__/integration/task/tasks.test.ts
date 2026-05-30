@@ -1,7 +1,6 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
-  AppsRegister,
   TaskCreate,
   DEFAULT_APP_ID,
   TaskAddParticipant,
@@ -17,6 +16,8 @@ import {
   resetTestDbEffect,
   trackClient,
   connectTestClient,
+  connectAppClient,
+  registerApp,
   adminRegisterAgent,
   expectEitherLeft,
   type ServerTestClient,
@@ -112,32 +113,35 @@ it("task/request returns an active task bound to the supplied appId", () =>
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
   }));
 
-it("TM authority: only the registered app connection may mutate task membership", () =>
+it("TM authority: only the app principal may mutate task membership", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient, bobAgentId } = yield* setupAliceAndBob();
-    // TM authority is proved via app-ownership of the calling WS
-    // connection. Alice AppsRegisters a custom app; her connection
-    // becomes the remote-app entry for TM_TEST_APP_ID. Bob does not
-    // register, so his connection cannot pass TM-authority. (A
-    // DEFAULT_APP_ID AppsRegister would return ForbiddenError — that
-    // app is boot-installed and unhijackable.)
-    const TM_TEST_APP_ID =
-      "00000000-0000-4000-8000-000000010007" as typeof DEFAULT_APP_ID;
-    yield* aliceClient.sendRpc(AppsRegister, {
-      manifest: {
-        appId: TM_TEST_APP_ID,
+    // D #705 CP9 — TM-admin RPCs (`task/close`, `task/addParticipant`,
+    // `task/removeParticipant`) are `callablePrincipal: "app"`. The
+    // moderator is a SEPARATE app principal: it registers via HTTP, then
+    // `appKey`-Connects to bind its `AppConnection` as the app's endpoint.
+    // Alice (agent) drives the agent-only `task/request`; the app client
+    // does the membership mutations. Neither agent (`alice` nor `bob`) can
+    // call the app-only admin RPCs — the gate rejects the non-app arm.
+    const registered = yield* registerApp(
+      baseUrl,
+      {
+        appId: "00000000-0000-4000-8000-000000010007",
         name: "tm-test-app",
       },
-    });
-    yield* aliceClient.onAppCallback(TaskCreate, () =>
+      REGISTRATION_SECRET,
+    );
+    const appClient = yield* connectAppClient(registered.appKey);
+    trackClient(appClient);
+    yield* appClient.onAppCallback(TaskCreate, () =>
       Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
     const created = yield* aliceClient.sendRpc(TaskRequest, {
-      appId: TM_TEST_APP_ID,
+      appId: registered.appId,
       invitedAgentIds: [],
     });
 
-    // Bob (not the registered app connection) cannot mutate.
+    // Bob (an agent, not the app principal) cannot mutate membership.
     const closeDenied = yield* Effect.either(
       bobClient.sendRpc(TaskClose, { taskId: created.task.id }),
     );
@@ -151,19 +155,19 @@ it("TM authority: only the registered app connection may mutate task membership"
     );
     expect(expectEitherLeft(addDenied)).toBeDefined();
 
-    // Alice (the registered app connection) can.
-    const added = yield* aliceClient.sendRpc(TaskAddParticipant, {
+    // The app principal can.
+    const added = yield* appClient.sendRpc(TaskAddParticipant, {
       taskId: created.task.id,
       agentId: bobAgentId,
     });
     expect(added.participant.agentId).toBe(bobAgentId);
 
-    yield* aliceClient.sendRpc(TaskRemoveParticipant, {
+    yield* appClient.sendRpc(TaskRemoveParticipant, {
       taskId: created.task.id,
       agentId: bobAgentId,
     });
 
-    const closed = yield* aliceClient.sendRpc(TaskClose, {
+    const closed = yield* appClient.sendRpc(TaskClose, {
       taskId: created.task.id,
     });
     expect(closed.task.status).toBe(CLOSED_STATUS);

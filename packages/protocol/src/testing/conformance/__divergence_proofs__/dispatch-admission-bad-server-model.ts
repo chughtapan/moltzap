@@ -84,6 +84,20 @@ export interface ServerState {
   readonly fixedConversationId: string;
 }
 
+/**
+ * D #705 CP9 — app registry shared between the HTTP `/api/v1/apps/register`
+ * route (which mints `{ appId, appKey }` + records the manifest's
+ * dispatch-authorize timeout) and the WS `handleConnect` appKey arm (which
+ * binds the connecting `AppConnection` as moderator on a known appKey). The
+ * dead cross-principal WS `apps/register` RPC is gone.
+ */
+export interface BadAppRegistration {
+  readonly appId: string;
+  readonly moderatorTimeoutMs: number;
+}
+
+export type BadAppRegistry = Ref.Ref<Map<string, BadAppRegistration>>;
+
 export interface BadDispatchRefs {
   readonly stateRef: Ref.Ref<ServerState>;
   readonly connCounter: Ref.Ref<number>;
@@ -92,6 +106,7 @@ export interface BadDispatchRefs {
   readonly firstAckHeldRef: Ref.Ref<boolean>;
   readonly mintCounterByRecipient: Ref.Ref<Map<number, number>>;
   readonly nextEmitIndexByRecipient: Ref.Ref<Map<number, number>>;
+  readonly appRegistry: BadAppRegistry;
 }
 
 export interface HandleInboundFrameOpts {
@@ -103,6 +118,7 @@ export interface HandleInboundFrameOpts {
   readonly firstAckHeldRef: Ref.Ref<boolean>;
   readonly mintCounterByRecipient: Ref.Ref<Map<number, number>>;
   readonly nextEmitIndexByRecipient: Ref.Ref<Map<number, number>>;
+  readonly appRegistry: BadAppRegistry;
   readonly behavior: BadServerBehavior;
 }
 
@@ -145,6 +161,7 @@ export function makeBadDispatchRefs(): Effect.Effect<BadDispatchRefs> {
       firstAckHeldRef: yield* Ref.make<boolean>(false),
       mintCounterByRecipient: yield* Ref.make<Map<number, number>>(new Map()),
       nextEmitIndexByRecipient: yield* Ref.make<Map<number, number>>(new Map()),
+      appRegistry: yield* Ref.make<Map<string, BadAppRegistration>>(new Map()),
     };
   }).pipe(Effect.withSpan("makeBadDispatchRefs"));
 }

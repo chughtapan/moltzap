@@ -8,27 +8,37 @@
  * `messages/authorize`, but it does not know about tasks, leases, or
  * conversations beyond manifest defaults.
  */
-import { Data, Duration, Effect, Ref } from "effect";
+import { Duration, Effect, Ref, type Scope } from "effect";
+import type { Static } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import {
-  AppsRegister,
   DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
   type AppManifest,
 } from "../../../app/index.js";
+import { AppId } from "../../../task/ids.js";
+import { AgentId } from "../../../identity/methods.js";
+import { makeTestClient, type TestClient } from "./driver/test-client.js";
 import type {
   ServerRpcDefinition,
   ServerRpcParams,
   ServerRpcResult,
-  TestClient,
 } from "./driver/test-client.js";
-import type { FrameSchemaError } from "./frame-mutator.js";
+import type { RpcResponseError } from "./errors.js";
+import {
+  registerTestAppHttp,
+  type TestAppHttpRegistrationError,
+} from "./test-fixtures.js";
 import type {
-  RpcResponseError,
   RpcTimeoutError,
   TransportClosedError,
   TransportIoError,
 } from "./errors.js";
+import type { FrameSchemaError } from "./frame-mutator.js";
+
+const APP_CLIENT_DEFAULT_TIMEOUT_MS = 5_000;
+const APP_CLIENT_DEFAULT_CAPTURE_CAPACITY = 256;
 
 const UNIQUE_SUFFIX_START = 2;
 const UNIQUE_SUFFIX_END = 8;
@@ -37,16 +47,8 @@ const DEFAULT_CONVERSATIONS: NonNullable<AppManifest["conversations"]> = [
   { key: "main", name: "Main", participantFilter: "all" },
 ];
 
-export class TestAppRegistrationError extends Data.TaggedError(
-  "TestingAppRegistrationError",
-)<{
-  readonly appId: string;
-  readonly actualAppId: string;
-  readonly message: string;
-}> {}
-
 export type TestAppRegistrationFailure =
-  | TestAppRegistrationError
+  | TestAppHttpRegistrationError
   | RpcResponseError
   | RpcTimeoutError
   | TransportClosedError
@@ -63,9 +65,21 @@ export interface TestAppManifestOptions {
   readonly taskCreateTimeoutMs?: number;
 }
 
+/**
+ * D #705 CP9 — `registerTestApp` now mints a SEPARATE app principal: it
+ * HTTP-registers the manifest (`/api/v1/apps/register` → server-minted
+ * `{ appId, appKey }`) and opens an `appKey`-Connect `TestClient` whose
+ * implicit registration binds it as the app's moderator endpoint. The
+ * callers supply the real server's `baseUrl` (HTTP register) + `wsUrl`
+ * (Connect), NOT a pre-built agent client — the cross-principal WS
+ * `apps/register` RPC is gone.
+ */
 export interface RegisterTestAppOptions extends TestAppManifestOptions {
-  readonly client: TestClient;
+  readonly baseUrl: string;
+  readonly wsUrl: string;
   readonly manifest?: AppManifest;
+  /** Required when the server boots with a `registrationSecret`. */
+  readonly inviteCode?: string;
 }
 
 export interface TestAppCallbackHandler<D extends ServerRpcDefinition> {
@@ -80,8 +94,10 @@ export interface TestAppCallbackScript<D extends ServerRpcDefinition> {
 }
 
 export interface TestApp {
-  readonly appId: string;
+  /** Server-minted appId (the principal `task/request` targets). */
+  readonly appId: Static<typeof AppId>;
   readonly manifest: AppManifest;
+  /** The app-principal `AppConnection` hosting the moderator callbacks. */
   readonly client: TestClient;
   readonly dispatchAuthorize: TestAppCallbackScript<typeof DispatchAuthorize>;
   readonly messagesAuthorize: TestAppCallbackScript<typeof MessagesAuthorize>;
@@ -110,32 +126,49 @@ export function makeTestAppManifest(
 
 export function registerTestApp(
   options: RegisterTestAppOptions,
-): Effect.Effect<TestApp, TestAppRegistrationFailure> {
+): Effect.Effect<TestApp, TestAppRegistrationFailure, Scope.Scope> {
   const manifest = options.manifest ?? makeTestAppManifest(options);
   return Effect.gen(function* () {
-    const registered = yield* options.client.sendRpc(AppsRegister, {
+    // HTTP register → server-minted `{ appId, appKey }`; the `appKey`
+    // Connect arm binds the live `AppConnection` as the moderator endpoint
+    // (no WS `apps/register`).
+    const registered = yield* registerTestAppHttp({
+      baseUrl: options.baseUrl,
       manifest,
+      ...(options.inviteCode !== undefined
+        ? { inviteCode: options.inviteCode }
+        : {}),
     });
-    yield* assertRegisteredAppId(manifest, registered.appId);
+    const client = yield* makeTestClient({
+      serverUrl: options.wsUrl,
+      appKey: registered.appKey,
+      // The agent-arm fields are unused on the appKey arm but the config
+      // shape requires them; the autoConnect dispatcher selects the appKey
+      // arm because `appKey` is present.
+      agentKey: "unused-app-arm",
+      agentId: Value.Decode(AgentId, crypto.randomUUID()),
+      defaultTimeoutMs: APP_CLIENT_DEFAULT_TIMEOUT_MS,
+      captureCapacity: APP_CLIENT_DEFAULT_CAPTURE_CAPACITY,
+    });
     const dispatchAuthorize = yield* makeCallbackScript(
-      options.client,
+      client,
       DispatchAuthorize,
     );
     const messagesAuthorize = yield* makeCallbackScript(
-      options.client,
+      client,
       MessagesAuthorize,
     );
     // task/request fires a task/create TM callback before the task
     // leaves `waiting`. Dispatch-admission properties don't gate task
     // creation, so the test app auto-accepts; the dispatch lifecycle
     // is what they exercise.
-    yield* options.client.onAppCallback(TaskCreate, () =>
+    yield* client.onAppCallback(TaskCreate, () =>
       Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
     return {
-      appId: manifest.appId,
+      appId: registered.appId,
       manifest,
-      client: options.client,
+      client,
       dispatchAuthorize,
       messagesAuthorize,
     } satisfies TestApp;
@@ -219,20 +252,6 @@ function delayResponse<D extends ServerRpcDefinition>(
   }
   return Effect.sleep(Duration.millis(handler.holdResponseFor)).pipe(
     Effect.zipRight(response),
-  );
-}
-
-function assertRegisteredAppId(
-  manifest: AppManifest,
-  registeredAppId: string,
-): Effect.Effect<void, TestAppRegistrationError> {
-  if (registeredAppId === manifest.appId) return Effect.void;
-  return Effect.fail(
-    new TestAppRegistrationError({
-      appId: manifest.appId,
-      actualAppId: registeredAppId,
-      message: `apps/register returned ${registeredAppId}; expected ${manifest.appId}`,
-    }),
   );
 }
 

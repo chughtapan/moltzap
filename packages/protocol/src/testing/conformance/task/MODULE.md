@@ -19,7 +19,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L514)
+### [`acquireClient`](./_helpers.ts#L525)
 
 _Function_
 
@@ -30,7 +30,7 @@ export function acquireClient(
 ): Effect.Effect<ConversationActor, string, Scope.Scope>
 ```
 
-### [`acquireConversation`](./_helpers.ts#L754)
+### [`acquireConversation`](./_helpers.ts#L763)
 
 _Function_
 
@@ -42,7 +42,7 @@ export function acquireConversation(
 ): Effect.Effect<ConversationFixture, string, Scope.Scope>
 ```
 
-### [`acquirePropertyConversation`](./_helpers.ts#L284)
+### [`acquirePropertyConversation`](./_helpers.ts#L292)
 
 _Function_
 
@@ -54,7 +54,7 @@ export function acquirePropertyConversation(
 ): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`agent`](./_helpers.ts#L74)
+### [`agent`](./_helpers.ts#L82)
 
 _Property_
 
@@ -92,19 +92,19 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`archiveConversation`](./_helpers.ts#L319)
+### [`archiveConversation`](./_helpers.ts#L330)
 
 _Function_
 
 ```ts
 export function archiveConversation(
-  actor: ConversationActor,
+  moderatorClient: TestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 )
 ```
 
-### [`assertConversationRejectsMessages`](./_helpers.ts#L470)
+### [`assertConversationRejectsMessages`](./_helpers.ts#L481)
 
 _Function_
 
@@ -114,7 +114,7 @@ export function assertConversationRejectsMessages(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L462)
+### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L473)
 
 _Interface_
 
@@ -128,7 +128,7 @@ export interface AssertConversationRejectsMessagesInput {
 }
 ```
 
-### [`awaitOneNotification`](./_helpers.ts#L252)
+### [`awaitOneNotification`](./_helpers.ts#L260)
 
 _Function_
 
@@ -156,7 +156,7 @@ Surfaces a single string message on either timeout or stream
 exhaustion so call sites preserve the legacy `e.message`-style error
 mapper without re-deriving a tagged error type per definition.
 
-### [`client`](./_helpers.ts#L75)
+### [`client`](./_helpers.ts#L83)
 
 _Property_
 
@@ -193,7 +193,7 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`ConversationActor`](./_helpers.ts#L73)
+### [`ConversationActor`](./_helpers.ts#L81)
 
 _TypeAlias_
 
@@ -217,7 +217,7 @@ export type ConversationActor = {
 };
 ```
 
-### [`ConversationFixture`](./_helpers.ts#L66)
+### [`ConversationFixture`](./_helpers.ts#L65)
 
 _Interface_
 
@@ -227,10 +227,19 @@ export interface ConversationFixture {
   readonly participants: ReadonlyArray<ConversationActor>;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
+
+  /**
+   * D #705 CP9 — the app-principal `AppConnection` bound as the
+   * conversation's moderator. TM-admin RPCs (archive, unarchive,
+   * addParticipant, removeParticipant, close) are `callablePrincipal:
+   * "app"`, so they route through THIS client, not the agent `owner`.
+   * `owner` (an agent) still drives `task/request` + `messages/send`.
+   */
+  readonly moderatorClient: TestClient;
 }
 ```
 
-### [`DELIVERY_CATEGORY`](./_helpers.ts#L60)
+### [`DELIVERY_CATEGORY`](./_helpers.ts#L59)
 
 _Variable_
 
@@ -238,7 +247,7 @@ _Variable_
 export const DELIVERY_CATEGORY = "delivery" as const
 ```
 
-### [`DELIVERY_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L62)
+### [`DELIVERY_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L61)
 
 _Variable_
 
@@ -246,7 +255,7 @@ _Variable_
 export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256
 ```
 
-### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L63)
+### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L62)
 
 _Variable_
 
@@ -254,7 +263,7 @@ _Variable_
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 ```
 
-### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L61)
+### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L60)
 
 _Variable_
 
@@ -262,7 +271,7 @@ _Variable_
 export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`deliveryViolation`](./_helpers.ts#L224)
+### [`deliveryViolation`](./_helpers.ts#L232)
 
 _Function_
 
@@ -273,7 +282,7 @@ export function deliveryViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`firstParticipant`](./_helpers.ts#L294)
+### [`firstParticipant`](./_helpers.ts#L302)
 
 _Function_
 
@@ -284,7 +293,7 @@ export function firstParticipant(
 ): Effect.Effect<ConversationActor, PropertyInvariantViolation>
 ```
 
-### [`fixtureN`](./_helpers.ts#L280)
+### [`fixtureN`](./_helpers.ts#L288)
 
 _Function_
 
@@ -292,24 +301,45 @@ _Function_
 export function fixtureN(requested: number): number
 ```
 
-### [`moderateAs`](./_helpers.ts#L721)
+### [`moderateAs`](./_helpers.ts#L732)
 
 _Function_
 
 ```ts
 export function moderateAs(
+  ctx: ConformanceRunContext,
   owner: ConversationActor,
   namePrefix: string,
 ): Effect.Effect<ModeratedHandle, string, Scope.Scope>
 ```
 
-### [`ModeratedHandle`](./_helpers.ts#L705)
+D #705 CP9 — wire a SEPARATE app principal as moderator: HTTP-register
+the manifest + `appKey`-Connect a `TestClient` whose implicit
+registration binds it as the app's moderator endpoint. The grant-all
+`DispatchAuthorize` + accept `TaskCreate` + forward-all
+`MessagesAuthorize` callbacks run on THAT app connection (all are
+server-initiated, app-principal round-trips). The agent `owner` still
+drives `task/request` + `messages/send`.
+
+Participant tracking stays on `owner.client` (an agent + conversation
+participant): the `task/conversation/created` + participants/added/removed
+notifications are agent broadcasts that CANNOT reach an `AppConnection`.
+The shared in-process `participantsRef` bridges the owner's subscriber to
+the app's forward-all callback.
+
+### [`ModeratedHandle`](./_helpers.ts#L695)
 
 _Interface_
 
 ```ts
 export interface ModeratedHandle {
   readonly appId: Static<typeof AppIdSchema>;
+
+  /**
+   * The app-principal `AppConnection` bound as moderator. TM-admin RPCs
+   * (`callablePrincipal: "app"`) route through this client.
+   */
+  readonly client: TestClient;
 
   /**
    * Block until the moderator has observed `expectedAgentIds` as
@@ -325,7 +355,7 @@ export interface ModeratedHandle {
 }
 ```
 
-### [`NotificationBuffer`](./_helpers.ts#L104)
+### [`NotificationBuffer`](./_helpers.ts#L112)
 
 _Interface_
 
@@ -350,7 +380,7 @@ set to true when the transport-side stream terminates (either via
 consumes it to surface "Connection closed" rather than masquerading
 a missing notification as a timeout.
 
-### [`notifications`](./_helpers.ts#L88)
+### [`notifications`](./_helpers.ts#L96)
 
 _Property_
 
@@ -452,7 +482,7 @@ _Function_
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskConversationAddParticipant`](./task-conversation-family.ts#L551)
+### [`registerTaskConversationAddParticipant`](./task-conversation-family.ts#L553)
 
 _Function_
 
@@ -462,7 +492,7 @@ export function registerTaskConversationAddParticipant(
 ): void
 ```
 
-### [`registerTaskConversationArchiveDenied`](./task-conversation-family.ts#L535)
+### [`registerTaskConversationArchiveDenied`](./task-conversation-family.ts#L537)
 
 _Function_
 
@@ -472,7 +502,7 @@ export function registerTaskConversationArchiveDenied(
 ): void
 ```
 
-### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L435)
+### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L437)
 
 _Function_
 
@@ -482,7 +512,7 @@ export function registerTaskConversationCreateAndList(
 ): void
 ```
 
-### [`registerTaskConversationCreateDenied`](./task-conversation-family.ts#L634)
+### [`registerTaskConversationCreateDenied`](./task-conversation-family.ts#L636)
 
 _Function_
 
@@ -492,7 +522,7 @@ export function registerTaskConversationCreateDenied(
 ): void
 ```
 
-### [`registerTaskConversationRemoveParticipant`](./task-conversation-family.ts#L594)
+### [`registerTaskConversationRemoveParticipant`](./task-conversation-family.ts#L596)
 
 _Function_
 
@@ -502,7 +532,7 @@ export function registerTaskConversationRemoveParticipant(
 ): void
 ```
 
-### [`registerTaskCreate`](./task-conversation-family.ts#L138)
+### [`registerTaskCreate`](./task-conversation-family.ts#L136)
 
 _Function_
 
@@ -510,7 +540,7 @@ _Function_
 export function registerTaskCreate(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskLeave`](./task-conversation-family.ts#L343)
+### [`registerTaskLeave`](./task-conversation-family.ts#L345)
 
 _Function_
 
@@ -518,7 +548,7 @@ _Function_
 export function registerTaskLeave(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskRequestReject`](./task-conversation-family.ts#L271)
+### [`registerTaskRequestReject`](./task-conversation-family.ts#L273)
 
 _Function_
 
@@ -526,7 +556,7 @@ _Function_
 export function registerTaskRequestReject(ctx: ConformanceRunContext): void
 ```
 
-### [`sendText`](./_helpers.ts#L306)
+### [`sendText`](./_helpers.ts#L314)
 
 _Function_
 
@@ -539,7 +569,7 @@ export function sendText(
 )
 ```
 
-### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L682)
+### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L684)
 
 _Variable_
 
@@ -582,19 +612,19 @@ All task-layer property registrars, ordered per architect plan §2
 (delivery subset first, then `model-equivalence` from rpc-semantics).
 Spec D1 additions append to the delivery subset.
 
-### [`unarchiveConversation`](./_helpers.ts#L330)
+### [`unarchiveConversation`](./_helpers.ts#L341)
 
 _Function_
 
 ```ts
 export function unarchiveConversation(
-  actor: ConversationActor,
+  moderatorClient: TestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 )
 ```
 
-### [`waitForArchivedEvent`](./_helpers.ts#L396)
+### [`waitForArchivedEvent`](./_helpers.ts#L407)
 
 _Function_
 
@@ -607,7 +637,7 @@ export function waitForArchivedEvent(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForConversationCreatedNotification`](./_helpers.ts#L341)
+### [`waitForConversationCreatedNotification`](./_helpers.ts#L352)
 
 _Function_
 
@@ -619,7 +649,7 @@ export function waitForConversationCreatedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForMessageReceivedNotification`](./_helpers.ts#L369)
+### [`waitForMessageReceivedNotification`](./_helpers.ts#L380)
 
 _Function_
 
@@ -631,7 +661,7 @@ export function waitForMessageReceivedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForUnarchivedEvent`](./_helpers.ts#L433)
+### [`waitForUnarchivedEvent`](./_helpers.ts#L444)
 
 _Function_
 

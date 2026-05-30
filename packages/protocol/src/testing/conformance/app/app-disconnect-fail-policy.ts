@@ -26,18 +26,11 @@
  * `boundary/app-disconnect-fail-policy` to preserve the conformance
  * baseline (architect §7).
  */
-import { Effect, Exit, Scope } from "effect";
+import { Effect, type Scope } from "effect";
 import { TaskRequest } from "../../../task/methods.js";
-import {
-  makeTestClient,
-  type TestClient,
-} from "../_shared/driver/test-client.js";
+import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
-import {
-  makeTestAppManifest,
-  registerTestApp,
-  type TestApp,
-} from "../_shared/test-app.js";
+import { registerTestApp, type TestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
 
@@ -67,40 +60,17 @@ export function registerAppDisconnectFailPolicy(
   );
 }
 
-type AppClientSession = {
-  readonly scope: Scope.CloseableScope;
-  readonly client: TestClient;
-};
-
 function runAppDisconnectFailPolicy(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
-      const appSession = yield* acquireAppClientSession(ctx);
-      const app = yield* registerDisconnectFailApp(appSession).pipe(
-        Effect.catchAll((e) =>
-          closeAppSession(appSession).pipe(Effect.zipRight(Effect.fail(e))),
-        ),
-      );
+      // D #705 CP9 — the moderator app is an `AppConnection` (HTTP register
+      // + `appKey` Connect); its scope is the surrounding `Effect.scoped`.
+      const app = yield* registerDisconnectFailApp(ctx);
       yield* app.dispatchAuthorize.silence;
       yield* acquireSenderClient(ctx);
-      yield* closeAppSession(appSession);
       return yield* missingTopologyUnavailable();
     }),
   );
-}
-
-function acquireAppClientSession(ctx: ConformanceRunContext) {
-  return Effect.gen(function* () {
-    const appAgent = yield* registerAgent(ctx, "adfp-app", "app agent");
-    const scope = yield* Scope.make();
-    const client = yield* acquireScopedClient(
-      ctx,
-      appAgent,
-      "app client",
-      scope,
-    );
-    return { scope, client } satisfies AppClientSession;
-  });
 }
 
 function registerAgent(
@@ -134,30 +104,17 @@ function acquireClient(
   );
 }
 
-function acquireScopedClient(
-  ctx: ConformanceRunContext,
-  agent: TestAgent,
-  label: string,
-  scope: Scope.CloseableScope,
-) {
-  return Scope.extend(makeAgentClient(ctx, agent), scope).pipe(
-    Effect.mapError((e) => unavailable(`${label} acquire: ${String(e)}`)),
-    Effect.tapError(() => Scope.close(scope, Exit.void)),
-  );
-}
-
 function registerDisconnectFailApp(
-  session: AppClientSession,
-): Effect.Effect<TestApp, PropertyUnavailable> {
+  ctx: ConformanceRunContext,
+): Effect.Effect<TestApp, PropertyUnavailable, Scope.Scope> {
   const appId = crypto.randomUUID();
   return registerTestApp({
-    client: session.client,
-    manifest: makeTestAppManifest({
-      appId,
-      name: `Disconnect-fail app ${appId}`,
-      dispatchAuthorizeTimeoutMs: 5_000,
-    }),
-  }).pipe(Effect.mapError((e) => unavailable(e.message)));
+    baseUrl: ctx.realServer.baseUrl,
+    wsUrl: ctx.realServer.wsUrl,
+    appId,
+    name: `Disconnect-fail app ${appId}`,
+    dispatchAuthorizeTimeoutMs: 5_000,
+  }).pipe(Effect.mapError((e) => unavailable(e._tag)));
 }
 
 function acquireSenderClient(ctx: ConformanceRunContext) {
@@ -165,10 +122,6 @@ function acquireSenderClient(ctx: ConformanceRunContext) {
     const sender = yield* registerAgent(ctx, "adfp-sender", "sender");
     yield* acquireClient(ctx, sender, "sender client");
   });
-}
-
-function closeAppSession(session: AppClientSession) {
-  return Scope.close(session.scope, Exit.void);
 }
 
 function missingTopologyUnavailable() {

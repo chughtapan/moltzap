@@ -97,7 +97,6 @@ export {
   type TestAppCallbackScript,
   type TestAppManifestOptions,
   type TestAppRegistrationFailure,
-  TestAppRegistrationError,
   makeTestAppManifest,
   registerTestApp,
 } from "./conformance/_shared/test-app.js";

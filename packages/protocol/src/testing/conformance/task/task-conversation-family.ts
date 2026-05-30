@@ -44,12 +44,10 @@ import {
   type TaskConversationListItem,
   type TaskId,
 } from "../../../task/methods.js";
-import { AppsRegister, TaskCreate } from "../../../app/methods.js";
+import { TaskCreate } from "../../../app/methods.js";
 import type { TestClient } from "../_shared/driver/test-client.js";
-import {
-  appId as makeAppId,
-  type TestAgent,
-} from "../_shared/test-fixtures.js";
+import { type TestAgent } from "../_shared/test-fixtures.js";
+import { registerTestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
@@ -189,31 +187,35 @@ const awaitTaskCreated = (actor: Actor, property: string) =>
 const TASK_REQUEST_REJECT_PROPERTY = "task-request-tm-reject";
 const REJECT_REASON = "tm_policy";
 
-// Register `tm` as the moderator for a fresh app id with a
-// task/create handler that always rejects. Returns the bound appId.
-const registerRejectingTm = (tm: Actor) =>
-  Effect.gen(function* () {
-    const appId = makeAppId(crypto.randomUUID());
-    yield* tm.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({
-        verdict: { decision: "reject" as const, reason: REJECT_REASON },
-      }),
-    );
-    yield* tm.client
-      .sendRpc(AppsRegister, { manifest: { appId, name: "rejecting-tm" } })
-      .pipe(
-        Effect.either,
-        Effect.flatMap((res) =>
-          requireRight(res, (e) =>
-            deliveryViolation(
-              TASK_REQUEST_REJECT_PROPERTY,
-              `apps/register: ${e._tag ?? String(e)}`,
-            ),
-          ),
-        ),
-      );
-    return appId;
-  });
+// D #705 CP9 — register a SEPARATE app principal (HTTP + `appKey` Connect)
+// whose `task/create` callback always rejects. Returns the server-minted
+// appId that the requesting agent targets in `task/request`.
+const registerRejectingTm = (ctx: ConformanceRunContext) =>
+  registerTestApp({
+    baseUrl: ctx.realServer.baseUrl,
+    wsUrl: ctx.realServer.wsUrl,
+    appId: crypto.randomUUID(),
+    name: "rejecting-tm",
+    // Declare the `task_create` hook so the server round-trips the
+    // task-admission decision to the app (a hookless manifest opts into the
+    // synthetic-accept fast-path, which would never reach the reject below).
+    taskCreateTimeoutMs: 5_000,
+  }).pipe(
+    Effect.mapError((e) =>
+      deliveryViolation(
+        TASK_REQUEST_REJECT_PROPERTY,
+        `apps/register: ${e._tag}`,
+      ),
+    ),
+    Effect.tap((app) =>
+      app.client.onAppCallback(TaskCreate, () =>
+        Effect.succeed({
+          verdict: { decision: "reject" as const, reason: REJECT_REASON },
+        }),
+      ),
+    ),
+    Effect.map((app) => app.appId),
+  );
 
 const assertTaskRequestFailed = (
   outcome: Either.Either<unknown, unknown>,
@@ -286,7 +288,7 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
           TASK_REQUEST_REJECT_PROPERTY,
           "tcf-rej-b",
         );
-        const appId = yield* registerRejectingTm(alice);
+        const appId = yield* registerRejectingTm(ctx);
         const outcome = yield* alice.client
           .sendRpc(TaskRequest, {
             appId,

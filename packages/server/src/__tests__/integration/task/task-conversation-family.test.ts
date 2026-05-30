@@ -35,7 +35,6 @@ import {
   ParticipantNotAdmittedError,
   TaskConversationAddParticipant,
   TaskConversationArchive,
-  AppsRegister,
   TaskConversationCreate,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationList,
@@ -53,6 +52,8 @@ import {
   resetTestDbEffect,
   trackClient,
   connectTestClient,
+  connectAppClient,
+  registerApp,
   adminRegisterAgent,
   expectEitherLeft,
   type ServerTestClient,
@@ -165,19 +166,23 @@ it("TaskRequest (different appId) does NOT dedup across apps", () =>
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
-    // Non-default app: register alice as its TM so the task/create
-    // callback resolves. Dedup is retired (#677); two requests under
-    // different apps always mint distinct tasks.
-    const other =
-      "11111111-2222-4333-8444-555555555555" as typeof DEFAULT_APP_ID;
-    yield* alice.client.sendRpc(AppsRegister, {
-      manifest: { appId: other, name: "other-app" },
-    });
-    yield* alice.client.onAppCallback(TaskCreate, () =>
+    // Non-default app: an app principal registers (HTTP) + `appKey`-
+    // Connects so its `task/create` callback resolves. Alice (agent)
+    // drives the agent-only `task/request` against the DB-minted appId.
+    // Dedup is retired (#677); two requests under different apps always
+    // mint distinct tasks.
+    const registered = yield* registerApp(
+      baseUrl,
+      { appId: "11111111-2222-4333-8444-555555555555", name: "other-app" },
+      REGISTRATION_SECRET,
+    );
+    const appClient = yield* connectAppClient(registered.appKey);
+    trackClient(appClient);
+    yield* appClient.onAppCallback(TaskCreate, () =>
       Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
     const second = yield* alice.client.sendRpc(TaskRequest, {
-      appId: other,
+      appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
     expect(second.task.id).not.toBe(first.task.id);

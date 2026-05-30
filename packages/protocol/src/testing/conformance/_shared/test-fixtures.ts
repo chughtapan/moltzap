@@ -22,6 +22,7 @@ import { Value } from "@sinclair/typebox/value";
 import { UserId, AgentId, ContactId } from "../../../identity/methods.js";
 import type { ConnectionId } from "../../../network/actor-model.js";
 import { AppId } from "../../../task/ids.js";
+import type { AppManifest } from "../../../app/methods.js";
 import {
   ConversationId,
   LeaseId,
@@ -181,6 +182,129 @@ const parseRegistrationResponse = (
     try: () => JSON.parse(body) as RegistrationResponse,
     catch: toRegistrationError,
   });
+
+// --- Real-server app registration (D #705 CP9) ---
+//
+// App principals register via the `/api/v1/apps/register` HTTP endpoint
+// (server-minted `{ appId, appKey }`), then `appKey`-Connect to bind an
+// `AppConnection`. The protocol package owns this helper for the same
+// reason it owns `registerTestAgent`: the HTTP shape is part of the
+// protocol contract and every implementation running the suite needs it.
+
+/** A registered app: the server-minted `appId` + the once-returned `appKey`. */
+export interface RegisteredTestApp {
+  readonly appId: Static<typeof AppId>;
+  readonly appKey: string;
+  readonly manifest: AppManifest;
+}
+
+interface RegisterTestAppOptions {
+  readonly baseUrl: string;
+  readonly manifest: AppManifest;
+  /** Required when the server boots with a `registrationSecret`. */
+  readonly inviteCode?: string;
+}
+
+interface AppRegistrationResponse {
+  readonly appId: string;
+  readonly appKey: string;
+}
+
+/** HTTP app registration failed (network, non-2xx, malformed response). */
+export class TestAppHttpRegistrationError extends Data.TaggedError(
+  "TestingAppHttpRegistrationError",
+)<{
+  readonly baseUrl: string;
+  readonly status: number;
+  readonly body: string;
+}> {}
+
+const hasStringField = (value: object, key: string): boolean =>
+  key in value && typeof Reflect.get(value, key) === "string";
+
+const isAppRegistrationResponse = (
+  value: unknown,
+): value is AppRegistrationResponse =>
+  typeof value === "object" &&
+  value !== null &&
+  hasStringField(value, "appId") &&
+  hasStringField(value, "appKey");
+
+const appRegistrationBody = (
+  opts: RegisterTestAppOptions,
+): Record<string, unknown> =>
+  opts.inviteCode === undefined
+    ? { manifest: opts.manifest }
+    : { manifest: opts.manifest, inviteCode: opts.inviteCode };
+
+const appRegistrationError =
+  (opts: RegisterTestAppOptions) =>
+  (cause: unknown): TestAppHttpRegistrationError => {
+    if (cause instanceof TestAppHttpRegistrationError) return cause;
+    return new TestAppHttpRegistrationError({
+      baseUrl: opts.baseUrl,
+      status: 0,
+      body: cause instanceof Error ? cause.message : String(cause),
+    });
+  };
+
+/**
+ * Register an app manifest against the real server's HTTP endpoint and
+ * return the server-minted `{ appId, appKey }` (the `appId` is
+ * `gen_random_uuid()`, NOT `manifest.appId`). The App-principal sibling of
+ * {@link registerTestAgent}; the `appKey` is handed to a `TestClient` whose
+ * `appKey` Connect arm binds an `AppConnection` (implicit moderator-endpoint
+ * registration) — there is no cross-principal WS `apps/register` RPC.
+ */
+export function registerTestAppHttp(
+  opts: RegisterTestAppOptions,
+): Effect.Effect<RegisteredTestApp, TestAppHttpRegistrationError> {
+  const toError = appRegistrationError(opts);
+  return Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    const request = HttpClientRequest.post(
+      `${opts.baseUrl}/api/v1/apps/register`,
+    ).pipe(
+      HttpClientRequest.setHeader("Content-Type", "application/json"),
+      HttpClientRequest.bodyUnsafeJson(appRegistrationBody(opts)),
+    );
+    const response = yield* client
+      .execute(request)
+      .pipe(Effect.mapError(toError));
+    const body = yield* response.text.pipe(Effect.mapError(toError));
+    const parsed = yield* parseAppRegistration(opts, response.status, body);
+    return {
+      appId: appId(parsed.appId),
+      appKey: parsed.appKey,
+      manifest: opts.manifest,
+    } satisfies RegisteredTestApp;
+  }).pipe(
+    Effect.provide(FetchHttpClient.layer),
+    Effect.withSpan("registerTestAppHttp"),
+  );
+}
+
+function parseAppRegistration(
+  opts: RegisterTestAppOptions,
+  status: number,
+  body: string,
+): Effect.Effect<AppRegistrationResponse, TestAppHttpRegistrationError> {
+  const fail = (): Effect.Effect<never, TestAppHttpRegistrationError> =>
+    Effect.fail(
+      new TestAppHttpRegistrationError({ baseUrl: opts.baseUrl, status, body }),
+    );
+  if (status < HTTP_SUCCESS_MIN || status >= HTTP_SUCCESS_MAX_EXCLUSIVE) {
+    return fail();
+  }
+  return Effect.try({
+    try: () => JSON.parse(body) as unknown,
+    catch: appRegistrationError(opts),
+  }).pipe(
+    Effect.flatMap((parsed) =>
+      isAppRegistrationResponse(parsed) ? Effect.succeed(parsed) : fail(),
+    ),
+  );
+}
 
 export function registerTestAgent(
   opts: RegisterTestAgentOptions,
