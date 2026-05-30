@@ -19,11 +19,14 @@ import {
 } from "../_shared/registry.js";
 import { runExpectingFailure } from "./executable-proof-helpers.js";
 import type {
+  BadAppRegistration,
+  BadAppRegistry,
   BadDispatchRefs,
   BadServerBehavior,
 } from "./dispatch-admission-bad-server-model.js";
 import {
   badServerAgentId,
+  freshUuidV4,
   makeBadDispatchRefs,
 } from "./dispatch-admission-bad-server-model.js";
 import {
@@ -68,8 +71,9 @@ function makeBadDispatchServerContext(
   Scope.Scope | HttpServer.HttpServer
 > {
   return Effect.gen(function* () {
-    const httpHandle = yield* makeRegistrationHttpServer;
-    const wsHandle = yield* makeBadDispatchWebSocketServer(behavior);
+    const refs = yield* makeBadDispatchRefs();
+    const httpHandle = yield* makeRegistrationHttpServer(refs.appRegistry);
+    const wsHandle = yield* makeBadDispatchWebSocketServer(behavior, refs);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
     const realServer: RealServerHandle = {
       baseUrl: httpHandle.baseUrl,
@@ -90,13 +94,11 @@ function makeBadDispatchServerContext(
   });
 }
 
-const makeRegistrationHttpServer: Effect.Effect<
-  { readonly baseUrl: string },
-  never,
-  Scope.Scope | HttpServer.HttpServer
-> = Effect.gen(function* () {
+const DEFAULT_BAD_MODERATOR_TIMEOUT_MS = 5_000;
+
+function makeAgentRegisterRoute() {
   let counter = 0;
-  const registerRoute = HttpRouter.post(
+  return HttpRouter.post(
     "/api/v1/auth/register",
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
@@ -110,21 +112,77 @@ const makeRegistrationHttpServer: Effect.Effect<
       });
     }),
   );
-  yield* HttpServer.serveEffect(HttpRouter.empty.pipe(registerRoute));
-  const address = yield* HttpServer.addressWith((addr) => Effect.succeed(addr));
-  if (address._tag !== "TcpAddress") {
-    return yield* Effect.die(
-      new Error(`expected TcpAddress, got ${address._tag}`),
+}
+
+// D #705 CP9 — app registration: mint `{ appId, appKey }` + record the
+// manifest's dispatch-authorize timeout, keyed by appKey. The WS
+// `handleConnect` appKey arm reads this to bind the moderator.
+function makeAppRegisterRoute(appRegistry: BadAppRegistry) {
+  return HttpRouter.post(
+    "/api/v1/apps/register",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const body = yield* request.json.pipe(Effect.orElseSucceed(() => ({})));
+      const appId = freshUuidV4();
+      const appKey = `bad-server-app-key-${appId}`;
+      const registration: BadAppRegistration = {
+        appId,
+        moderatorTimeoutMs: extractDispatchAuthorizeTimeoutMs(body),
+      };
+      yield* Ref.update(appRegistry, (m) =>
+        new Map(m).set(appKey, registration),
+      );
+      return HttpServerResponse.unsafeJson({ appId, appKey });
+    }),
+  );
+}
+
+function makeRegistrationHttpServer(
+  appRegistry: BadAppRegistry,
+): Effect.Effect<
+  { readonly baseUrl: string },
+  never,
+  Scope.Scope | HttpServer.HttpServer
+> {
+  return Effect.gen(function* () {
+    yield* HttpServer.serveEffect(
+      HttpRouter.empty.pipe(
+        makeAgentRegisterRoute(),
+        makeAppRegisterRoute(appRegistry),
+      ),
     );
-  }
-  return { baseUrl: `http://127.0.0.1:${address.port}` };
-}).pipe(Effect.orDie);
+    const address = yield* HttpServer.addressWith((addr) =>
+      Effect.succeed(addr),
+    );
+    if (address._tag !== "TcpAddress") {
+      return yield* Effect.die(
+        new Error(`expected TcpAddress, got ${address._tag}`),
+      );
+    }
+    return { baseUrl: `http://127.0.0.1:${address.port}` };
+  }).pipe(Effect.orDie);
+}
+
+function extractDispatchAuthorizeTimeoutMs(body: unknown): number {
+  const manifest = readField(body, "manifest");
+  const hooks = readField(manifest, "hooks");
+  const dispatchAuthorize = readField(hooks, "dispatch_authorize");
+  const timeoutMs = readField(dispatchAuthorize, "timeout_ms");
+  return typeof timeoutMs === "number" && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_BAD_MODERATOR_TIMEOUT_MS;
+}
+
+function readField(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  return Reflect.get(value, key);
+}
 
 function makeBadDispatchWebSocketServer(
   behavior: BadServerBehavior,
+  refs: BadDispatchRefs,
 ): Effect.Effect<{ readonly wsUrl: string }, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const refs = yield* makeBadDispatchRefs();
     const server = yield* NodeSocketServer.makeWebSocket({
       port: 0,
       host: "127.0.0.1",
@@ -168,6 +226,7 @@ function runBadDispatchConnection(
           firstAckHeldRef: refs.firstAckHeldRef,
           mintCounterByRecipient: refs.mintCounterByRecipient,
           nextEmitIndexByRecipient: refs.nextEmitIndexByRecipient,
+          appRegistry: refs.appRegistry,
           behavior,
         }),
       )

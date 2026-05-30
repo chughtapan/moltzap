@@ -30,7 +30,6 @@ import {
   TaskId,
 } from "../../../task/methods.js";
 import {
-  AppsRegister,
   DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
@@ -41,7 +40,6 @@ import {
 } from "../../../task/methods.js";
 import { AppId as AppIdSchema } from "../../../task/ids.js";
 import type { Static } from "@sinclair/typebox";
-import { appId as makeAppId } from "../_shared/test-fixtures.js";
 import { AgentId } from "../../../identity/methods.js";
 import {
   conversationId as makeConversationId,
@@ -53,6 +51,7 @@ import {
   type TestClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
+import { registerTestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
@@ -68,6 +67,15 @@ export interface ConversationFixture {
   readonly participants: ReadonlyArray<ConversationActor>;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
+
+  /**
+   * D #705 CP9 — the app-principal `AppConnection` bound as the
+   * conversation's moderator. TM-admin RPCs (archive, unarchive,
+   * addParticipant, removeParticipant, close) are `callablePrincipal:
+   * "app"`, so they route through THIS client, not the agent `owner`.
+   * `owner` (an agent) still drives `task/request` + `messages/send`.
+   */
+  readonly moderatorClient: TestClient;
 }
 
 export type ConversationActor = {
@@ -316,23 +324,26 @@ export function sendText(
   });
 }
 
+// TM-admin RPCs (`task/conversation/archive` + `unarchive`) are
+// `callablePrincipal: "app"`; callers pass the fixture's
+// `moderatorClient` (the app principal), NOT the agent owner.
 export function archiveConversation(
-  actor: ConversationActor,
+  moderatorClient: TestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(TaskConversationArchive, {
+  return moderatorClient.sendRpc(TaskConversationArchive, {
     taskId,
     conversationId,
   });
 }
 
 export function unarchiveConversation(
-  actor: ConversationActor,
+  moderatorClient: TestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(TaskConversationUnarchive, {
+  return moderatorClient.sendRpc(TaskConversationUnarchive, {
     taskId,
     conversationId,
   });
@@ -532,28 +543,7 @@ export function acquireClient(
   }).pipe(Effect.withSpan("acquireClient"));
 }
 
-/**
- * Wire `owner` as moderator for a fresh app id: AppsRegister + attach
- * grant-all `DispatchAuthorize` + forward-all `MessagesAuthorize` wire
- * callbacks. Required for properties that drive TM-only RPCs
- * (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
- *
- * Participant tracking is auto-discovered — the moderator subscribes
- * to `task/conversation/participants/added` and
- * `task/conversation/participants/removed` notifications (which the
- * server delivers to every conversation participant including the
- * moderator) and maintains a per-fixture conversation-id keyed
- * mutable map of agent-id sets from those events. The forward-all
- * callback reads from that map.
- *
- * Tests get a deterministic-readiness helper
- * (`awaitConversationReady`) to bridge the inherent observation gap
- * between `TaskRequest`/`TaskConversationCreate` returning and the
- * matching notification arriving at the moderator's subscriber. Use
- * it once per conversation, immediately after the create RPC
- * resolves, before any `messages/send` triggers
- * `MessagesAuthorize`.
- */
+/** Fresh UUID manifest appId for a per-fixture conformance app. */
 function freshConformanceAppId(): string {
   return crypto.randomUUID();
 }
@@ -706,6 +696,12 @@ export interface ModeratedHandle {
   readonly appId: Static<typeof AppIdSchema>;
 
   /**
+   * The app-principal `AppConnection` bound as moderator. TM-admin RPCs
+   * (`callablePrincipal: "app"`) route through this client.
+   */
+  readonly client: TestClient;
+
+  /**
    * Block until the moderator has observed `expectedAgentIds` as
    * participants of `conversationId` via
    * `task/conversation/participants/added` notifications. Bridges
@@ -718,28 +714,41 @@ export interface ModeratedHandle {
   ) => Effect.Effect<void, string>;
 }
 
+/**
+ * D #705 CP9 — wire a SEPARATE app principal as moderator: HTTP-register
+ * the manifest + `appKey`-Connect a `TestClient` whose implicit
+ * registration binds it as the app's moderator endpoint. The grant-all
+ * `DispatchAuthorize` + accept `TaskCreate` + forward-all
+ * `MessagesAuthorize` callbacks run on THAT app connection (all are
+ * server-initiated, app-principal round-trips). The agent `owner` still
+ * drives `task/request` + `messages/send`.
+ *
+ * Participant tracking stays on `owner.client` (an agent + conversation
+ * participant): the `task/conversation/created` + participants/added/removed
+ * notifications are agent broadcasts that CANNOT reach an `AppConnection`.
+ * The shared in-process `participantsRef` bridges the owner's subscriber to
+ * the app's forward-all callback.
+ */
 export function moderateAs(
+  ctx: ConformanceRunContext,
   owner: ConversationActor,
   namePrefix: string,
 ): Effect.Effect<ModeratedHandle, string, Scope.Scope> {
   return Effect.gen(function* () {
-    const fixtureAppId = makeAppId(freshConformanceAppId());
     const participantsRef = yield* Ref.make<ParticipantMap>(new Map());
     yield* subscribeParticipantNotifications(owner.client, participantsRef);
-    yield* attachGrantDispatchAuthorize(owner.client);
-    yield* attachAcceptTaskCreate(owner.client);
-    yield* attachForwardAllMessagesAuthorize(owner.client, participantsRef);
-    const registerResult = yield* owner.client
-      .sendRpc(AppsRegister, {
-        manifest: { appId: fixtureAppId, name: `${namePrefix}-app` },
-      })
-      .pipe(Effect.either);
-    yield* requireRight(
-      registerResult,
-      (error) => `apps/register failed: ${error._tag}`,
-    );
+    const app = yield* registerTestApp({
+      baseUrl: ctx.realServer.baseUrl,
+      wsUrl: ctx.realServer.wsUrl,
+      appId: freshConformanceAppId(),
+      name: `${namePrefix}-app`,
+    }).pipe(Effect.mapError((e) => `apps/register failed: ${e._tag}`));
+    yield* attachGrantDispatchAuthorize(app.client);
+    yield* attachAcceptTaskCreate(app.client);
+    yield* attachForwardAllMessagesAuthorize(app.client, participantsRef);
     const handle: ModeratedHandle = {
-      appId: fixtureAppId,
+      appId: app.appId,
+      client: app.client,
       awaitConversationReady: (conversationId, expectedAgentIds) =>
         awaitParticipantsForConversation(
           participantsRef,
@@ -764,9 +773,10 @@ export function acquireConversation(
       (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
       { concurrency: clamped },
     );
-    // Spec D3 + #677: owner needs TM authority for TM-only RPCs
-    // (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
-    const moderator = yield* moderateAs(owner, namePrefix);
+    // Spec D3 + #677 + D #705 CP9: a separate app principal holds TM
+    // authority for TM-only RPCs (archive, addParticipant, close);
+    // DEFAULT_APP_ID has no TM. `owner` (agent) drives task/request below.
+    const moderator = yield* moderateAs(ctx, owner, namePrefix);
     const createResult = yield* owner.client
       .sendRpc(TaskRequest, {
         appId: moderator.appId,
@@ -798,6 +808,7 @@ export function acquireConversation(
       participants,
       taskId: makeTaskId(created.task.id),
       conversationId: branded,
+      moderatorClient: moderator.client,
     };
   }).pipe(Effect.withSpan("acquireConversation"));
 }

@@ -348,12 +348,19 @@ function isAppRegisterResponse(
  * to open an `AppConnection`, whose implicit registration binds it as the
  * app's moderator endpoint. Replaces the cross-principal WS `apps/register`
  * RPC.
+ *
+ * `inviteCode` is required when the server boots with a `registrationSecret`
+ * (the HTTP route gates app registration behind the same secret as agent
+ * registration); omit it for the default open-registration server.
  */
 export function registerApp(
   baseUrl: string,
   manifest: AppManifest,
+  inviteCode?: string,
 ): Effect.Effect<RegisteredApp, PostJsonError | AppRegistrationError> {
-  return postJson(baseUrl, "/api/v1/apps/register", { manifest }).pipe(
+  const body =
+    inviteCode === undefined ? { manifest } : { manifest, inviteCode };
+  return postJson(baseUrl, "/api/v1/apps/register", body).pipe(
     Effect.flatMap(({ status, json }) => {
       if (status !== HTTP_CREATED || !isAppRegisterResponse(json)) {
         return Effect.fail(

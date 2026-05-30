@@ -104,7 +104,7 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L269)
+### [`DispatchTestDriver`](./_driver.ts#L268)
 
 _Interface_
 
@@ -166,7 +166,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchTestDriverConfig`](./_driver.ts#L333)
+### [`DispatchTestDriverConfig`](./_driver.ts#L332)
 
 _Interface_
 
@@ -188,7 +188,7 @@ via `taskAppId: "conformance-test-app"`. The `default-grant` properties
 moderator-response TTL pass a small value (e.g., 200 ms); properties
 that don't care pass the default 5_000 ms.
 
-### [`DispatchVerdict`](./_driver.ts#L94)
+### [`DispatchVerdict`](./_driver.ts#L93)
 
 _TypeAlias_
 
@@ -286,7 +286,7 @@ _TypeAlias_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`LeaseState`](./_driver.ts#L105)
+### [`LeaseState`](./_driver.ts#L104)
 
 _TypeAlias_
 
@@ -382,7 +382,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (impl-staff picks the bound
 per-property; default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L941)
+### [`makeDispatchTestDriver`](./_driver.ts#L948)
 
 _Function_
 
@@ -412,7 +412,7 @@ _Property_
 export function freshMessageId(): Static<typeof MessageId> {
 ```
 
-### [`ModeratorHandle`](./_driver.ts#L198)
+### [`ModeratorHandle`](./_driver.ts#L197)
 
 _Interface_
 
@@ -502,7 +502,7 @@ _Variable_
 export const NO_SECOND_RELEASE_WINDOW_MS = 250
 ```
 
-### [`RecipientHandle`](./_driver.ts#L123)
+### [`RecipientHandle`](./_driver.ts#L122)
 
 _Interface_
 
@@ -580,7 +580,7 @@ server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
 underlying TestClient.
 
-### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L56)
+### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L49)
 
 _Function_
 

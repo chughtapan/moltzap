@@ -54,7 +54,7 @@ function assertArchive(
 ) {
   return Effect.gen(function* () {
     const archive = yield* archiveConversation(
-      fixture.owner,
+      fixture.moderatorClient,
       fixture.taskId,
       fixture.conversationId,
     ).pipe(Effect.either);
@@ -82,7 +82,7 @@ function assertUnarchive(
 ) {
   return Effect.gen(function* () {
     const unarchive = yield* unarchiveConversation(
-      fixture.owner,
+      fixture.moderatorClient,
       fixture.taskId,
       fixture.conversationId,
     ).pipe(Effect.either);

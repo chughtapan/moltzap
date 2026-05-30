@@ -102,7 +102,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L384)
+### [`connectAppClient`](./helpers.ts#L391)
 
 _Function_
 
@@ -394,7 +394,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L442)
+### [`postJson`](./helpers.ts#L449)
 
 _Function_
 
@@ -424,7 +424,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L424)
+### [`registerAndConnect`](./helpers.ts#L431)
 
 _Function_
 
@@ -436,7 +436,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L352)
+### [`registerApp`](./helpers.ts#L356)
 
 _Function_
 
@@ -444,6 +444,7 @@ _Function_
 export function registerApp(
   baseUrl: string,
   manifest: AppManifest,
+  inviteCode?: string,
 ): Effect.Effect<RegisteredApp, PostJsonError | AppRegistrationError>
 ```
 
@@ -454,6 +455,10 @@ server-minted `{ appId, appKey }` (the `appId` is `gen_random_uuid()`, NOT
 to open an `AppConnection`, whose implicit registration binds it as the
 app's moderator endpoint. Replaces the cross-principal WS `apps/register`
 RPC.
+
+`inviteCode` is required when the server boots with a `registrationSecret`
+(the HTTP route gates app registration behind the same secret as agent
+registration); omit it for the default open-registration server.
 
 ### [`RegisteredApp`](./helpers.ts#L322)
 
@@ -467,7 +472,7 @@ export interface RegisteredApp {
 }
 ```
 
-### [`registerOnly`](./helpers.ts#L526)
+### [`registerOnly`](./helpers.ts#L533)
 
 _Function_
 
@@ -514,7 +519,7 @@ wrappers were deleted. Consumers reach typed-payload Streams via
 Ergonomic one-shot test sites use the top-level `awaitOneNotification`
 helper below.
 
-### [`setupAgentGroup`](./helpers.ts#L565)
+### [`setupAgentGroup`](./helpers.ts#L572)
 
 _Function_
 
@@ -534,7 +539,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L553)
+### [`setupAgentPair`](./helpers.ts#L560)
 
 _Function_
 

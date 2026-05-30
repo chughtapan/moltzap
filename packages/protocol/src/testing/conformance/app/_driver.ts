@@ -44,7 +44,6 @@ import {
   type PropertyFailure,
 } from "../_shared/registry.js";
 import type { AgentId } from "../../../identity/agents.js";
-import { Value } from "@sinclair/typebox/value";
 import {
   type ConversationId,
   type MessageId,
@@ -716,7 +715,15 @@ interface DriverAgents {
 }
 
 interface DriverClients {
+  /** Agent connection — drives the agent-called `task/request`. */
   readonly moderatorClient: TestClient;
+
+  /**
+   * App-principal `AppConnection` — hosts the moderator callbacks and
+   * the app-only RPCs (task/conversation/create, add-participant,
+   * dispatches/get). `null` only on the dead DEFAULT_APP_ID config path.
+   */
+  readonly appClient: TestClient | null;
   readonly recipientAcquired: AcquiredCloseableClient;
 }
 
@@ -945,22 +952,24 @@ export function makeDispatchTestDriver(
   const resolved = resolveDriverConfig(config ?? {});
   return Effect.gen(function* () {
     const agents = yield* acquireDriverAgents(ctx);
-    const clients = yield* acquireDriverClients(ctx, agents);
-    const app = yield* registerDriverApp(clients.moderatorClient, resolved);
-    const taskAppId =
-      resolved.appId === null
-        ? DEFAULT_APP_ID
-        : Value.Decode(AppId, resolved.appId);
+    // D #705 CP9 — register the moderator app FIRST (HTTP + `appKey`
+    // Connect → an `AppConnection`); `task/request` then targets the
+    // server-minted `appId`. App-only RPCs + moderator callbacks +
+    // `dispatches/get` route through `app.client`; the agent
+    // `moderatorClient` only drives the agent-called `task/request`.
+    const app = yield* registerDriverApp(ctx, resolved);
+    const clients = yield* acquireDriverClients(ctx, agents, app);
+    const taskAppId = app === null ? DEFAULT_APP_ID : app.appId;
     const fixtures = yield* createDriverFixtures(
-      clients.moderatorClient,
+      clients,
       taskAppId,
       agents.recipientAgent,
     );
     const recipient = yield* buildRecipientHandle(clients.recipientAcquired);
     const moderator = yield* buildModeratorHandle({
       agent: agents.moderatorAgent,
-      client: clients.moderatorClient,
-      appId: resolved.appId ?? "",
+      client: clients.appClient ?? clients.moderatorClient,
+      appId: app?.appId ?? "",
       app,
     });
     return buildDispatchDriver({
@@ -1003,10 +1012,12 @@ function acquireDriverAgents(
 function acquireDriverClients(
   ctx: ConformanceRunContext,
   agents: DriverAgents,
+  app: TestApp | null,
 ): Effect.Effect<DriverClients, PropertyFailure, Scope.Scope> {
   return Effect.gen(function* () {
     return {
       moderatorClient: yield* acquireSharedClient(ctx, agents.moderatorAgent),
+      appClient: app?.client ?? null,
       recipientAcquired: yield* acquireCloseableClient(
         ctx,
         agents.recipientAgent,
@@ -1016,14 +1027,15 @@ function acquireDriverClients(
 }
 
 function registerDriverApp(
-  moderatorClient: TestClient,
+  ctx: ConformanceRunContext,
   config: ResolvedDriverConfig,
-): Effect.Effect<TestApp | null, PropertyFailure> {
+): Effect.Effect<TestApp | null, PropertyFailure, Scope.Scope> {
   if (config.appId === null) return Effect.succeed(null);
   const appId = config.appId;
   return Effect.gen(function* () {
     const app = yield* registerTestApp({
-      client: moderatorClient,
+      baseUrl: ctx.realServer.baseUrl,
+      wsUrl: ctx.realServer.wsUrl,
       manifest: makeTestAppManifest({
         appId,
         name: "Conformance Dispatch Test App",
@@ -1031,7 +1043,7 @@ function registerDriverApp(
       }),
     }).pipe(
       Effect.mapError((e) =>
-        violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
+        violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e._tag}`),
       ),
     );
     // Remote apps must answer `messages/authorize` or the server's
@@ -1049,18 +1061,23 @@ function registerDriverApp(
 }
 
 function createDriverFixtures(
-  moderatorClient: TestClient,
+  clients: DriverClients,
   appId: Static<typeof AppId>,
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
+  // `task/request` is agent-called (the moderator agent); the app-only
+  // `task/conversation/create` routes through the app principal (falls
+  // back to the agent on the dead DEFAULT_APP_ID path where there is no
+  // app principal — that config is never exercised).
+  const appOrAgentClient = clients.appClient ?? clients.moderatorClient;
   return Effect.gen(function* () {
     const taskId = yield* createDriverTask(
-      moderatorClient,
+      clients.moderatorClient,
       appId,
       recipientAgent,
     );
     const conversationId = yield* createDriverConversation(
-      moderatorClient,
+      appOrAgentClient,
       taskId,
       recipientAgent,
     );
@@ -1128,7 +1145,10 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
     addRecipient: (opts) =>
       addRecipient({
         ctx: parts.ctx,
-        moderatorClient: parts.clients.moderatorClient,
+        // task/addParticipant + task/conversation/participants/add are
+        // `callablePrincipal: "app"` — route through the app principal.
+        moderatorClient:
+          parts.clients.appClient ?? parts.clients.moderatorClient,
         taskId: parts.fixtures.taskId,
         conversationId: parts.fixtures.conversationId,
         opts,

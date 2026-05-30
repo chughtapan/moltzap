@@ -8,14 +8,19 @@ import {
   resetTestDbEffect,
   registerAndConnect,
   setupAgentPair,
+  registerApp,
+  connectAppClient,
+  postJson,
+  getBaseUrl,
+  HTTP_BAD_REQUEST,
 } from "../helpers.js";
 
 import {
-  AppsRegister,
   DEFAULT_APP_ID,
   MessagesSend,
   NetworkPing,
   TaskRequest,
+  type AppManifest,
 } from "@moltzap/protocol";
 import { messageId } from "@moltzap/protocol/testing";
 
@@ -62,41 +67,51 @@ it(`${NetworkPing.name}: returns an ISO8601 timestamp`, () =>
     expect(isWithinPingSkew(Date.now() - Date.parse(result.ts))).toBe(true);
   }));
 
-it(`${AppsRegister.name}: registers a valid manifest and returns the appId`, () =>
+// D #705 CP9 — app registration is the HTTP `/api/v1/apps/register`
+// endpoint (server-minted `appId` + `appKey`); the app then `appKey`-
+// Connects to bind its `AppConnection` as the moderator endpoint. There
+// is no cross-principal WS `apps/register` RPC (an agent registering an
+// app is the dissolved anti-pattern). These exercise the live HTTP
+// boundary + the appKey-Connect arm.
+it("apps/register: HTTP registers a valid manifest and the app can connect", () =>
   Effect.gen(function* () {
-    const agent = yield* registerAndConnect("alice");
+    const manifest: AppManifest = {
+      appId: APP_ID,
+      name: "My Test App",
+      conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+    };
 
-    const result = yield* agent.client.sendRpc(AppsRegister, {
-      manifest: {
-        appId: APP_ID,
-        name: "My Test App",
-        conversations: [
-          { key: "main", name: "Main", participantFilter: "all" },
-        ],
-      },
+    const registered = yield* registerApp(getBaseUrl(), manifest);
+
+    // The server mints its OWN `appId` (gen_random_uuid()), distinct from
+    // the manifest's declared id, and a parseable `appKey`.
+    expect(registered.appId).toEqual(expect.any(String));
+    expect(registered.appId).not.toBe(APP_ID);
+    expect(registered.appKey).toEqual(expect.any(String));
+
+    // The minted `appKey` authenticates an `AppConnection` (implicit
+    // moderator-endpoint registration) — proves the credential is live.
+    yield* connectAppClient(registered.appKey);
+  }));
+
+it("apps/register: HTTP rejects a manifest missing required fields", () =>
+  Effect.gen(function* () {
+    // Post a structurally-invalid manifest directly (the typed `registerApp`
+    // helper cannot express this) and assert the HTTP validation 400.
+    const { status } = yield* postJson(getBaseUrl(), "/api/v1/apps/register", {
+      manifest: { appId: "broken" },
     });
-
-    expect(result.appId).toBe(APP_ID);
+    expect(status).toBe(HTTP_BAD_REQUEST);
   }));
 
-it(`${AppsRegister.name}: rejects a manifest missing required fields`, () =>
+it("apps/register: HTTP rejects a request missing the manifest param", () =>
   Effect.gen(function* () {
-    const agent = yield* registerAndConnect("alice");
-
-    const exit = yield* Effect.exit(
-      agent.client.sendRpc(AppsRegister, {
-        manifest: { appId: "broken" },
-      }),
+    const { status } = yield* postJson(
+      getBaseUrl(),
+      "/api/v1/apps/register",
+      {},
     );
-    expectExitFailure(exit);
-  }));
-
-it(`${AppsRegister.name}: rejects calls missing the manifest param`, () =>
-  Effect.gen(function* () {
-    const agent = yield* registerAndConnect("alice");
-
-    const exit = yield* Effect.exit(agent.client.sendRpc(AppsRegister, {}));
-    expectExitFailure(exit);
+    expect(status).toBe(HTTP_BAD_REQUEST);
   }));
 
 it("messages/send preserves replyToId on the persisted message", () =>

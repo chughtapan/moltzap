@@ -2,7 +2,6 @@ import { Deferred, Duration, Effect, Either, Fiber, Ref } from "effect";
 import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
 import { JSON_RPC_RESERVED_CODES } from "../../../transport/wire-errors.js";
 import { Connect } from "../../../network/methods.js";
-import { AppsRegister } from "../../../app/methods.js";
 import {
   decodeFrame,
   isRequestFrame,
@@ -68,13 +67,7 @@ function handleRequestFrame(
       frame,
       connId: opts.connId,
       stateRef: opts.stateRef,
-    });
-  }
-  if (frame.method === AppsRegister.name) {
-    return handleAppsRegister({
-      frame,
-      connId: opts.connId,
-      stateRef: opts.stateRef,
+      appRegistry: opts.appRegistry,
     });
   }
   return handleDomainRequestFrame(frame, opts);
@@ -233,12 +226,35 @@ function writeDefaultSuccess(
 
 // ── Request-method handlers ──────────────────────────────────────────
 
+// D #705 CP9 — the Connect params union is disjoint: an `agentKey` arm
+// authenticates an agent; an `appKey` arm authenticates an `AppConnection`
+// AND implicitly binds it as the app's moderator endpoint (replacing the
+// dead WS `apps/register` RPC). The most-recent `appKey` Connect is the
+// moderator — `withDriver` loops mint a fresh moderator app per iteration.
 function handleConnect(args: {
   readonly frame: RequestFrame;
   readonly connId: number;
   readonly stateRef: Ref.Ref<ServerState>;
+  readonly appRegistry: HandleInboundFrameOpts["appRegistry"];
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
+    const appKey = stringParam(args.frame.params, "appKey");
+    if (appKey !== null) {
+      const registry = yield* Ref.get(args.appRegistry);
+      const registration = registry.get(appKey);
+      if (registration !== undefined) {
+        yield* Ref.update(args.stateRef, (s) => {
+          s.moderatorAgentId = null;
+          s.moderatorConnId = args.connId;
+          s.moderatorResponseTimeoutMs = registration.moderatorTimeoutMs;
+          return s;
+        });
+      }
+      yield* writeResponse(args.stateRef, args.connId, args.frame.id, {
+        result: {},
+      });
+      return;
+    }
     const apiKey = stringParam(args.frame.params, "agentKey");
     if (apiKey !== null) {
       // Map `apiKey → agentId` per the HTTP register's known issuance.
@@ -257,41 +273,6 @@ function handleConnect(args: {
     }
     yield* writeResponse(args.stateRef, args.connId, args.frame.id, {
       result: {},
-    });
-  });
-}
-
-function handleAppsRegister(args: {
-  readonly frame: RequestFrame;
-  readonly connId: number;
-  readonly stateRef: Ref.Ref<ServerState>;
-}): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    const manifest = paramField(args.frame.params, "manifest");
-    const appIdParam = paramField(manifest, "appId");
-    const appId =
-      typeof appIdParam === "string" ? appIdParam : "bad-server-app";
-    const hooks = paramField(manifest, "hooks");
-    const dispatchAuthorize = paramField(hooks, "dispatch_authorize");
-    const timeoutMsRaw = paramField(dispatchAuthorize, "timeout_ms");
-    const moderatorTimeoutMs =
-      typeof timeoutMsRaw === "number" && timeoutMsRaw > 0
-        ? timeoutMsRaw
-        : 5_000;
-    yield* Ref.update(args.stateRef, (s) => {
-      // The most-recent connection to call `apps/register` is the
-      // moderator. Properties that loop `withDriver` mint fresh
-      // moderator connections per iteration; tracking only the first
-      // would leave subsequent iterations' dispatches/get without a
-      // recognized authority.
-      const agentId = s.agentByConn.get(args.connId) ?? null;
-      s.moderatorAgentId = agentId;
-      s.moderatorConnId = args.connId;
-      s.moderatorResponseTimeoutMs = moderatorTimeoutMs;
-      return s;
-    });
-    yield* writeResponse(args.stateRef, args.connId, args.frame.id, {
-      result: { appId },
     });
   });
 }
