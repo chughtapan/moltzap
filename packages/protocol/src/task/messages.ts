@@ -15,18 +15,16 @@ import {
   type ObtainMessageSendPermissionInput,
 } from "./capabilities/message-send-permission.js";
 import { TaskReadAccess } from "./capabilities/task-read-access.js";
-import type { DispatchContext } from "../transport/capabilities.js";
+import {
+  callerAgentIdOf,
+  type DispatchContext,
+} from "../transport/capabilities.js";
 
 // D #705 CP4d — `messages/send` + `messages/list` are agent-originated;
 // their `argsOf` resolvers read the sender/caller agent id off the
 // protocol-owned `DispatchContext` agent arm (the binding hands an agent
-// ctx). Re-imposes the agent shape on the tagged `auth` via the same
-// dispatcher-boundary erasure carve-out the `params` casts use.
-const callerAgentIdOf = (ctx: unknown): AgentId => {
-  const c = ctx as DispatchContext;
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the agent-arm ctx shape (dispatcher-boundary erasure carve-out — the binding guarantees an agent caller)
-  return (c.connection.auth as { readonly agentId: AgentId }).agentId;
-};
+// ctx). The shared `callerAgentIdOf` (capabilities.ts) narrows the tagged
+// `auth` union by `_tag === "AgentContext"` — cast-free.
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -215,7 +213,8 @@ export const MessagesSend = defineRpc({
         return {
           taskId: p.taskId,
           conversationId: p.conversationId,
-          senderAgentId: callerAgentIdOf(ctx),
+          // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the ctx shape (dispatcher-boundary erasure carve-out — ctx arrives as `unknown` from the type-erased dispatcher); `callerAgentIdOf` then narrows the agent arm cast-free
+          senderAgentId: callerAgentIdOf(ctx as DispatchContext),
           replyToId: p.replyToId,
         };
       },
@@ -256,7 +255,11 @@ export const MessagesList = defineRpc({
       argsOf: (params: unknown, ctx: unknown) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        return { taskId: p.taskId, callerAgentId: callerAgentIdOf(ctx) };
+        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the ctx shape (dispatcher-boundary erasure carve-out — ctx arrives as `unknown` from the type-erased dispatcher); `callerAgentIdOf` then narrows the agent arm cast-free
+        return {
+          taskId: p.taskId,
+          callerAgentId: callerAgentIdOf(ctx as DispatchContext),
+        };
       },
     },
     {

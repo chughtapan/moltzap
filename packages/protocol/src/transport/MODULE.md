@@ -150,7 +150,26 @@ Build the TM dispatcher. Wires both the inbound dispatch loop
 REQUIRED: callers must register a handler for each catalog method;
 vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
-### [`CapabilitiesOf`](./capabilities.ts#L107)
+### [`callerAgentIdOf`](./capabilities.ts#L69)
+
+_Function_
+
+```ts
+export const callerAgentIdOf = (ctx: DispatchContext): AgentId
+```
+
+Read the AGENT arm's id off the protocol-owned DispatchContext
+(D #705 Decision 2). The single shared helper for every agent-originated
+`argsOf` resolver (`task/request`, `messages/send`, `messages/list`, …):
+each is bound at a dispatch site that hands an agent ctx, so the
+`_tag === "AgentContext"` narrowing always succeeds. The narrowing is
+cast-free — `auth` is the tagged DispatchAuth union, so the agent
+arm's `agentId` is reached by discriminant, NOT by an `as { agentId }`
+assertion. A non-agent arm reaching here is an impossible-state defect
+(the binding guarantees an agent caller), so it throws the tagged
+NonAgentCallerError rather than returning a caller-actionable error.
+
+### [`CapabilitiesOf`](./capabilities.ts#L138)
 
 _TypeAlias_
 
@@ -165,7 +184,7 @@ via `D["capabilities"][number]["tag"]`. When `D["capabilities"]` is
 absent (the spec F stub state, before impl-staff per-method updates),
 resolves to `never` — the slot contributes no capability requirements.
 
-### [`CapabilityDescriptor`](./capabilities.ts#L66)
+### [`CapabilityDescriptor`](./capabilities.ts#L97)
 
 _Interface_
 
@@ -176,7 +195,7 @@ export interface CapabilityDescriptor {
 }
 ```
 
-### [`CapabilityProviderTable`](./capabilities.ts#L87)
+### [`CapabilityProviderTable`](./capabilities.ts#L118)
 
 _TypeAlias_
 

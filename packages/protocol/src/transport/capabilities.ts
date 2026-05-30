@@ -10,7 +10,7 @@
  * referencing capabilities not in `definition.capabilities` lives in
  * `typed-dispatcher.types-check.ts` (positive canary).
  */
-import type { Context, Effect } from "effect";
+import { Data, type Context, type Effect } from "effect";
 import type { ConnectionId } from "../network/actor-model.js";
 import type { AgentId } from "../identity/agents.js";
 import type { AppId } from "../task/ids.js";
@@ -42,6 +42,37 @@ export interface DispatchContext {
     readonly auth: DispatchAuth;
   };
 }
+
+/**
+ * Impossible-state defect: a non-agent arm reached {@link callerAgentIdOf}.
+ * Every call site is an agent-originated `argsOf` resolver whose binding
+ * hands an agent ctx, so this can only surface a wiring defect, never a
+ * caller-actionable error. Tagged (not a raw `throw new Error`) so the
+ * synchronous `argsOf` boundary still names the failure.
+ */
+class NonAgentCallerError extends Data.TaggedError("NonAgentCallerError")<{
+  readonly arm: DispatchAuth["_tag"];
+}> {}
+
+/**
+ * Read the AGENT arm's id off the protocol-owned {@link DispatchContext}
+ * (D #705 Decision 2). The single shared helper for every agent-originated
+ * `argsOf` resolver (`task/request`, `messages/send`, `messages/list`, …):
+ * each is bound at a dispatch site that hands an agent ctx, so the
+ * `_tag === "AgentContext"` narrowing always succeeds. The narrowing is
+ * cast-free — `auth` is the tagged {@link DispatchAuth} union, so the agent
+ * arm's `agentId` is reached by discriminant, NOT by an `as { agentId }`
+ * assertion. A non-agent arm reaching here is an impossible-state defect
+ * (the binding guarantees an agent caller), so it throws the tagged
+ * {@link NonAgentCallerError} rather than returning a caller-actionable error.
+ */
+export const callerAgentIdOf = (ctx: DispatchContext): AgentId => {
+  const { auth } = ctx.connection;
+  if (auth._tag !== "AgentContext") {
+    throw new NonAgentCallerError({ arm: auth._tag });
+  }
+  return auth.agentId;
+};
 
 /**
  * Closed shape of a per-definition capability descriptor.
