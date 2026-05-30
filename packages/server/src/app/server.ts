@@ -281,9 +281,10 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  *   A[messageService.close — interrupt webhook retries] --> B[appHost.destroy — clears manifests + hook registries]
  *   B --> C[for each conn — conn.shutdown signals closeRequested]
  *   C --> D[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
- *   D --> E[Scope.close appScope — NodeHttpServer + upgrade wiring]
- *   E --> F[dispatchRuntime.dispose — finalize service Layers]
- *   F --> G[config.dbCleanup — optional caller hook]
+ *   D --> E[leaseRegistry.shutdown — fail-closed leases + interrupt TTL/round-trip fibers]
+ *   E --> F[Scope.close appScope — NodeHttpServer + upgrade wiring]
+ *   F --> G[dispatchRuntime.dispose — finalize service Layers]
+ *   G --> H[config.dbCleanup — optional caller hook]
  * ```
  *
  * `messageService.close()` runs FIRST so pending delivery-webhook
@@ -291,10 +292,31 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  * runs BEFORE per-connection shutdown: in-flight RPCs may observe
  * cleared manifests, and the `SHUTDOWN_DRAIN_MS` sleep is the only
  * mitigation today.
+ *
+ * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)` (#729):
+ * closing the app scope interrupts every per-connection WS fiber, and each
+ * runs its disconnect cleanup UNINTERRUPTIBLY. For a recipient holding a
+ * GRANTED lease that cleanup emits a `dispatches/expired` frame to the
+ * moderator connection; when the moderator socket is torn down concurrently
+ * the cross-connection write parks on its closed write-latch forever,
+ * deadlocking `Scope.close`. Draining the registry first (fail-closed every
+ * lease so notifications drop, interrupt the live TTL/round-trip fibers)
+ * removes the parked write. See
+ * `task/leases/lease-registry.ts → LeaseRegistry.shutdown`.
  */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;
   return Effect.gen(function* () {
+    // #729 — drain the lease runtime FIRST, before any socket teardown. Both
+    // the explicit `conn.socket.shutdown` loop below AND `Scope.close`'s
+    // interrupt of the WS fibers trigger each connection's disconnect cleanup
+    // (`socket-handler.ts → closeSocketSession → leaseRegistry.abandon`),
+    // which for a recipient holding a GRANTED lease emits a cross-connection
+    // `dispatches/expired` frame to the moderator. If the moderator socket is
+    // closing concurrently that write parks forever on its closed write-latch.
+    // Flipping the registry closed up front makes every such notification drop
+    // instead of park; it also interrupts the live TTL/round-trip fibers.
+    yield* services.leaseRegistry.shutdown();
     yield* services.messageService.close();
     services.appHost.destroy();
     for (const conn of yield* services.connections.allConnections()) {

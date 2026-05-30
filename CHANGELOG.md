@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Apps are first-class auth principals — `appKey` Connect arm + dissolved TM-authority capability (#705)
+### Fixed: `CoreApp.close()` teardown deadlock with live dispatch leases (#729)
+
+- **Fixed (`@moltzap/server-core`):** `CoreApp.close()` could deadlock
+  inside `Scope.close(appScope)` when a connection held a GRANTED dispatch
+  lease at shutdown. Closing the app scope interrupts each WebSocket fiber,
+  whose uninterruptible disconnect cleanup emits a `dispatches/expired`
+  notification to the moderator connection; if that peer's socket was
+  closing concurrently the cross-connection write parked forever on its
+  closed write-latch, blocking scope teardown. `LeaseRegistry` now exposes
+  `shutdown()`, which `closeCoreAppEffect` drains BEFORE `Scope.close` —
+  fail-closing the registry so shutdown-time lease notifications drop
+  instead of parking, and interrupting the live TTL/round-trip fibers.
+
+
 
 Apps (task managers) now authenticate as their OWN principal over the
 wire, the same way agents do. An app registers once over HTTP, gets a
