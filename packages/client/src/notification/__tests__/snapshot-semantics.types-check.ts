@@ -106,6 +106,31 @@ type Canary1b_SubscribeOverloadResolves =
     ? true
     : false;
 
+// Canary #1b element pin (P3 #627) — the `extends … <def, any>` check
+// above uses `any`, which accepts ANY refined `R` and therefore pins
+// nothing about the element the overload actually produces. Replace the
+// `any` escape hatch with an EXACT `Equal<>` assertion against the
+// resolved Stream element type.
+//
+// The type-guard overload (third arg `params is R`) is selected at this
+// call site, but TypeScript resolves the overload's declared return
+// `Stream<DecodedNotification<D, R>, …>` by carrying `R` as the
+// `unknown`-sentinel default through `DecodedNotification`'s distributive
+// conditional (see `rpc-groups.ts → DecodedNotification`), so the
+// materialised element is the broad one-arg shape `DecodedNotification<D>`
+// — `params.status` stays the full `"online" | "working" | "offline"`
+// enum, NOT the value-level-narrowed `"online"` literal. The runtime
+// narrowing is verified by the property test in `filter-equivalence.test.ts
+// → "user-defined type guard narrows the Stream payload"`; this canary
+// pins the COMPILE-TIME element type exactly, off `any`, so any drift in
+// either the overload return or `DecodedNotification`'s conditional fails
+// here.
+type _Canary1bElement = Stream.Stream.Success<typeof _canary1bStream>;
+type Canary1b_ElementIsExactDecodedNotification = Equal<
+  _Canary1bElement,
+  DecodedNotification<typeof PresenceChangedNotificationDefinition>
+>;
+
 // Canary #2 — `subscribeAll()` returns the broad-union Stream with R=never.
 type Canary2_SubscribeAllStreamShape = Equal<
   ReturnType<typeof subscribeAll>,
@@ -160,6 +185,7 @@ type Canary4_TypedErrorChannel = Equal<
 function _ad1Canaries<D extends AnyNotificationDefinition>(): void {
   assertCanary<Canary1_SubscribeStreamShape<D>>();
   assertCanary<Canary1b_SubscribeOverloadResolves>();
+  assertCanary<Canary1b_ElementIsExactDecodedNotification>();
   assertCanary<Canary2_SubscribeAllStreamShape>();
   assertCanary<Canary3_RunForEachHasNoLeakedRequirements>();
   assertCanary<Canary4_TypedErrorChannel>();
