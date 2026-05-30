@@ -155,26 +155,28 @@ export type _D1WireNameCanary =
 // re-introduces `tmType` or downgrades `appId` to `string` fails the
 // `Expect<Equal<...>>` below.
 
-type TaskCreateParams = Schema.Schema.Type<typeof TaskRequest.paramsSchema>;
-type _C1 = Expect<Equal<TaskCreateParams["appId"], AppId>>;
+type TaskRequestParams = Schema.Schema.Type<typeof TaskRequest.paramsSchema>;
+type _C1 = Expect<Equal<TaskRequestParams["appId"], AppId>>;
 // Post-#723 (Effect Schema): `Schema.Array` yields `readonly T[]`.
 type _C2 = Expect<
-  Equal<TaskCreateParams["invitedAgentIds"], readonly AgentId[]>
+  Equal<TaskRequestParams["invitedAgentIds"], readonly AgentId[]>
 >;
 type _C3 = Expect<
   Equal<
-    keyof TaskCreateParams,
+    keyof TaskRequestParams,
     "appId" | "invitedAgentIds" | "initialConversation"
   >
 >;
 
-type TaskCreateResult = Schema.Schema.Type<typeof TaskRequest.resultSchema>;
-type _C4 = Expect<Equal<keyof TaskCreateResult, "task" | "conversation">>;
+type TaskRequestResult = Schema.Schema.Type<typeof TaskRequest.resultSchema>;
+type _C4 = Expect<Equal<keyof TaskRequestResult, "task" | "conversation">>;
 // Spec body Goal 3 fixes `conversation: Conversation | null` (NOT
 // optional `conversation?`); the AC text uses shorthand `conversation?`
 // but Goal 3 is canonical. Lock the explicit nullable shape so the
 // stub matches the wire signature reviewers consume.
-type _C5 = Expect<Equal<TaskCreateResult["conversation"], Conversation | null>>;
+type _C5 = Expect<
+  Equal<TaskRequestResult["conversation"], Conversation | null>
+>;
 
 export type _D1TaskCreateShapeCanary = _C1 | _C2 | _C3 | _C4 | _C5;
 
