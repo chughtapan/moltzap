@@ -78,7 +78,7 @@ import {
   type MutableRef,
   type RequestFrame,
 } from "./tm-client-test-support.js";
-import { shouldLogMalformedFrame } from "./tm-client.js";
+import { shouldLogMalformedFrame } from "./runtime/reconnect.js";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
