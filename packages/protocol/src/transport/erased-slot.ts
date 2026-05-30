@@ -301,8 +301,13 @@ function narrowToDispatchContext(ctx: {
   // runtime, and the live `Connection` arm carries a branded `connId`,
   // but TS cannot re-derive the `ConnectionId` brand + `DispatchAuth` tag
   // from a structural read of `unknown`. HALF-2's typed Match removes it.
+  //
+  // Return the `{ connection }` WRAPPER (`ctx`), not the bare `connection`:
+  // `DispatchContext` is `{ connection: { connId, auth } }` and the `argsOf`
+  // resolvers read `ctx.connection.auth` (see `callerAgentIdOf`). The probe
+  // above narrowed `ctx.connection`, so `ctx` itself is the DispatchContext.
   // eslint-disable-next-line agent-code-guard/as-unknown-as -- argsOf-ctx narrow: `auth._tag` runtime-proved authenticated 2-arm (the #720 gate guarantees it); TS cannot re-brand connId / re-tag auth from a structural `unknown` read; same irreducible boundary as dischargeCaps, HALF-2 makes it static
-  return connection as unknown as DispatchContext; // #ignore-sloppy-code[as-unknown-as]: argsOf-ctx narrow — `auth._tag` runtime-proved authenticated 2-arm (#720 gate guarantees it); TS cannot re-brand connId / re-tag auth from a structural `unknown` read; same irreducible boundary as dischargeCaps, HALF-2 makes it static
+  return ctx as unknown as DispatchContext; // #ignore-sloppy-code[as-unknown-as]: argsOf-ctx narrow — `ctx.connection.auth._tag` runtime-proved authenticated 2-arm (#720 gate guarantees it); return the `{ connection }` wrapper that `argsOf` resolvers read; TS cannot re-brand connId / re-tag auth from a structural `unknown` read; same irreducible boundary as dischargeCaps, HALF-2 makes it static
 }
 
 /**

@@ -306,7 +306,7 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L206)
+### [`decodeRpcParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L210)
 
 _Function_
 
@@ -337,7 +337,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L219)
+### [`decodeRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L223)
 
 _Function_
 
@@ -352,7 +352,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Static<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L177)
+### [`defineNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L181)
 
 _Function_
 
@@ -871,7 +871,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L157)
+### [`NotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L161)
 
 _Interface_
 
@@ -935,7 +935,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L168)
+### [`NotificationParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L172)
 
 _TypeAlias_
 
@@ -1189,7 +1189,7 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L192)
+### [`RpcParamsDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L196)
 
 _Class_
 
@@ -1218,7 +1218,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L199)
+### [`RpcResultDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L203)
 
 _Class_
 
