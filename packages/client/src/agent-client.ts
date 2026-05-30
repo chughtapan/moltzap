@@ -126,6 +126,11 @@ export class MoltZapAgentClient {
   }
 
   connect(): Effect.Effect<ConnectResult, ConnectError> {
+    // Unlike `MoltZapAppClient.connect`, this arm has no
+    // `if (this.closed) Effect.fail(...)` fast-fail guard: a `connect()`
+    // after `close()` runs the handshake against the disposed runtime
+    // rather than short-circuiting. Behavior preserved as-is here; see
+    // `app-client.ts → MoltZapAppClient.connect` for the guarded variant.
     return this.runtime.runtimeEffect.pipe(
       Effect.flatMap(() => this.connectEffect()),
       Effect.provide(this.runtime),

@@ -58,8 +58,9 @@ it("send() delivers message to other agent", () =>
     yield* regB.client.close();
   }));
 
-// `TaskConversationArchive` is TM-only (#677). Driving it from the
-// owner requires (a) AppsRegister on a custom appId AND (b) a
+// `TaskConversationArchive` is TM-only (#677) — i.e. gated to the TM
+// authority, which post-#705 belongs to the App principal. Driving it
+// from the owner requires (a) AppsRegister on a custom appId AND (b) a
 // `messages/authorize` wire-callback handler — `MoltZapAgentClient`
 // doesn't expose `onAppCallback`, only `TestClient`/`MoltZapAppClient`
 // do. Re-enable when client-side test infra adds wire-callback

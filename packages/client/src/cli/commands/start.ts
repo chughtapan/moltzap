@@ -332,10 +332,9 @@ const lookupAgentIdsByName = (
         }),
       );
     }
-    // Defensive copy: spread the caller's `names` into a fresh array before
-    // handing it to the RPC, so the caller's array isn't aliased into the
-    // request frame.
-    const result = yield* rpc(AgentsLookupByName, { names: [...names] });
+    // `AgentsLookupByName.params.names` is `Schema.Array` → `ReadonlyArray`,
+    // so the `readonly string[]` param passes through as-is.
+    const result = yield* rpc(AgentsLookupByName, { names });
     for (const agent of result.agents) {
       if (!byName.has(agent.name)) byName.set(agent.name, agent.id);
     }
@@ -469,10 +468,6 @@ const createTaskAtomic = (
   name: string,
 ): Effect.Effect<CreateTaskOutcome, TransportError, Transport> =>
   Effect.gen(function* () {
-    // Defensive copies: spread the caller's arrays into fresh ones before
-    // building the request, so the caller's arrays aren't aliased into the
-    // request frame.
-    //
     // Spec D2 (#599) amendment N7 (zero-participant carve-out):
     // `InitialConversationSchema.participants` is `Schema.optional(
     // Schema.Array(AgentId).pipe(Schema.minItems(1)))` — an EMPTY array fails
@@ -483,10 +478,10 @@ const createTaskAtomic = (
     const initialConversation =
       invitedAgentIds.length === 0
         ? { name }
-        : { name, participants: [...invitedAgentIds] };
+        : { name, participants: invitedAgentIds };
     const result = yield* rpc(TaskRequest, {
       appId,
-      invitedAgentIds: [...invitedAgentIds],
+      invitedAgentIds,
       initialConversation,
     });
     if (result.conversation === null) {

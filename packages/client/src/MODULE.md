@@ -447,6 +447,11 @@ export class MoltZapAgentClient {
   }
 
   connect(): Effect.Effect<ConnectResult, ConnectError> {
+    // Unlike `MoltZapAppClient.connect`, this arm has no
+    // `if (this.closed) Effect.fail(...)` fast-fail guard: a `connect()`
+    // after `close()` runs the handshake against the disposed runtime
+    // rather than short-circuiting. Behavior preserved as-is here; see
+    // `app-client.ts → MoltZapAppClient.connect` for the guarded variant.
     return this.runtime.runtimeEffect.pipe(
       Effect.flatMap(() => this.connectEffect()),
       Effect.provide(this.runtime),
@@ -536,11 +541,6 @@ export class MoltZapAgentClient {
   }
 
   disconnect(): Effect.Effect<void, never> {
-    return Effect.sync(() => this.disconnectSync());
-  }
-
-  private disconnectSync(): void {
-    const state = this.runtime.runSync(Ref.get(this.stateRef));
 ```
 
 MoltZap agent client — outbound RPC only, no app-callback inbound
@@ -603,12 +603,12 @@ export class MoltZapAppClient {
    *
    *   caller->>client: new MoltZapAppClient(options)
    *   Note over client: stateRef = None, subscribers, ManagedRuntime
-   *   caller->>client: subscribe(filter, handler)
+   *   caller->>client: subscribe(def, refinement?)
    *   Note over client: SubscriberRegistry.register — survives reconnect
    *   caller->>client: connect()
    *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startAppCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
    *   client->>server: TCP open + WS upgrade
-   *   client->>server: network/connect {agentKey, minProtocol, maxProtocol}
+   *   client->>server: network/connect {appKey | agentKey, minProtocol, maxProtocol} — appKey wins when set
    *   server-->>client: HelloOk
    *   Note over client: stateRef = Some(connState), _helloOk = value
    *   client-->>caller: HelloOk
@@ -622,7 +622,7 @@ export class MoltZapAppClient {
    * exponential-backoff retry (`1s × 2^n, cap 30s, +jitter`).
    *
    * State that SURVIVES reconnect: `SubscriberRegistry` entries,
-   * `appCallbackHandlers` (immutable, value-captured at construction),
+   * `handlers` (immutable, value-captured at construction),
    * `ManagedRuntime`.
    *
    * State that does NOT survive reconnect: in-flight RPC Deferreds
