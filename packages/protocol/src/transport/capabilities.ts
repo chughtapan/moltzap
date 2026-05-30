@@ -3,14 +3,15 @@
  *
  * Shape B (per-definition metadata) source of truth: each `RpcDefinition`
  * carries an OPTIONAL `capabilities` array of `Context.Tag` instances and
- * a `capabilityArgs` resolver. The dispatcher reads these at runtime to
- * thread `Effect.provideServiceEffect` from a `CapabilityProviderTable`.
+ * an `argsOf` resolver. Post-#705-HALF-1 each slot
+ * ({@link makeErasedSlot}) discharges its own declared capabilities from
+ * its positional providers tuple — there is no global provider table.
  *
  * The type-level lockstep gate that prevents a handler's R channel
  * referencing capabilities not in `definition.capabilities` lives in
  * `typed-dispatcher.types-check.ts` (positive canary).
  */
-import { Data, type Context, type Effect } from "effect";
+import { Data, type Context } from "effect";
 import type { ConnectionId } from "../network/actor-model.js";
 import type { AgentId } from "../identity/agents.js";
 import type { AppId } from "../task/ids.js";
@@ -96,38 +97,16 @@ type AnyContextTag = Context.Tag<any, any>;
 
 export interface CapabilityDescriptor {
   readonly tag: AnyContextTag;
-  readonly argsOf: (params: unknown, ctx: unknown) => unknown;
+  // `ctx` is the protocol-owned {@link DispatchContext} (D #705 Decision
+  // 2): the `argsOf` resolver reads the AUTHENTICATED principal arm
+  // (`connection.auth`) to derive the provider's args. The slot's
+  // `invoke` narrows the live 3-arm connection to the agent/app arm
+  // (the #720 principal-kind gate) BEFORE `argsOf` runs, so the
+  // protocol 2-arm `DispatchContext` is always satisfied here. `params`
+  // stays `unknown` — it is wire-dynamic, re-imposed per-method inside
+  // each resolver.
+  readonly argsOf: (params: unknown, ctx: DispatchContext) => unknown;
 }
-
-/**
- * Provider-table type alias (Spec F G5). Keys are the capability tag's
- * `_tag` string; values are the obtain helper that produces the tag's
- * service value. Spec E #606 owns the inhabitants — Spec F consumes
- * them unchanged.
- *
- * Spec E's obtain helpers have shape
- * `(args) =&gt; Effect.Effect&lt;Service, ObtainError, ObtainContext&gt;`. The
- * dispatcher invokes the provider, then threads
- * `Effect.provideServiceEffect(tag, providerEffect)` for each tag a
- * handler's definition declares.
- *
- * Parameter `Caps` is the union of `Context.Tag` instances referenced
- * across all slots in the handler table; the factory rejects (TS2741) a
- * provider table missing any tag in `Caps`.
- */
-export type CapabilityProviderTable<Caps extends Context.Tag<any, any>> = {
-  readonly [Cap in Caps as Cap extends Context.Tag<infer Id, infer _Svc>
-    ? Id extends string
-      ? Id
-      : never
-    : never]: (
-    args: unknown,
-  ) => Effect.Effect<
-    Cap extends Context.Tag<unknown, infer Svc> ? Svc : never,
-    unknown,
-    unknown
-  >;
-};
 
 /**
  * Type-level extractor: union of capability tags declared on definition `D`

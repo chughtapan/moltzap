@@ -252,7 +252,10 @@ export class MoltZapAgentClient {
       const agentConn = yield* Scope.extend(
         makeAgentClientConnection<never, never>({
           id: "agent-client",
-          handlers: {},
+          // #705 HALF-1 — the AgentClient kind has an empty inbound
+          // catalog, so its slot table is `{}` (no inbound dispatch; the
+          // factory wires the originator only).
+          slots: {},
           write: (raw) => write(raw),
           idPrefix: "rpc",
         }),

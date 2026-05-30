@@ -1,16 +1,20 @@
 /**
- * @file `Connection&lt;...&gt;` types + 3 specialized factories — Spec F G2.
+ * @file `Connection&lt;...&gt;` types + 3 specialized factories — Spec F G2,
+ * cast-free slot cutover (#705 HALF-1).
  *
- * Each factory accepts an immutable handler table (server / TM) and
- * produces a `Connection` whose inbound surface is reified by that
- * table and whose outbound surface is constrained by the kind's
- * `OutCall` / `OutNotify` generics.
+ * Each factory accepts an immutable {@link ErasedSlotTable} (server /
+ * TM) and produces a `Connection` whose inbound surface is reified by
+ * that slot table and whose outbound surface is constrained by the
+ * kind's `OutCall` / `OutNotify` generics. Each slot owns its typed
+ * `(definition, handler, providers)` triple ({@link makeErasedSlot}):
+ * the per-method capability discharge happens INSIDE the slot, so the
+ * factory no longer threads a separate provider table.
  *
  * No `register` / `unregister` method exists on any Connection shape
- * (Spec F I1). The handler table is value-passed at construction time
+ * (Spec F I1). The slot table is value-passed at construction time
  * and immutable thereafter.
  */
-import { Effect, type Context, type Scope } from "effect";
+import { Effect, type Scope } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 
 import type {
@@ -28,13 +32,7 @@ import type {
 } from "./method.js";
 import type { RpcCallError } from "./originator.js";
 import type { NotConnectedError } from "./rpc-errors.js";
-import type {
-  ServerHandlers,
-  AgentClientHandlers,
-  TaskMasterHandlers,
-  CapsUnionOf,
-} from "./handlers.js";
-import type { CapabilityProviderTable } from "./capabilities.js";
+import type { ErasedSlotTable, SlotDispatchContext } from "./erased-slot.js";
 import type { RequestFrame, ResponseFrame } from "./wire.js";
 import {
   buildAgentClientDispatcher,
@@ -94,29 +92,34 @@ interface OutboundNotify<OutNotify> {
 
 /**
  * Inbound RPC dispatch — drives one inbound `RequestFrame` through the
- * kind's static handler table. The surrounding transport (socket reader
- * fiber, mock harness, etc.) calls `handle(frame, ctx)` per inbound
- * client-request frame; the dispatcher resolves the slot by
- * `frame.method`, runs the handler, and returns the `ResponseFrame`
- * ready for the wire. Every catalog slot is a real handler post-R14b;
- * the only dispatcher-synthesized response is `MethodNotFound -32601`
- * for an out-of-catalog `frame.method`.
+ * kind's {@link ErasedSlotTable}. The surrounding transport (socket
+ * reader fiber, mock harness, etc.) calls `handle(frame, ctx)` per
+ * inbound client-request frame; the dispatcher resolves the slot by
+ * `frame.method`, calls `slot.invoke` (which decodes params + discharges
+ * the method's declared capabilities INSIDE), and returns the
+ * `ResponseFrame` ready for the wire. Every catalog slot is a real
+ * handler post-R14b; the only dispatcher-synthesized response is
+ * `MethodNotFound -32601` for an out-of-catalog `frame.method`.
+ *
+ * `Env` is the slot table's residual service-tag union (the `FullLive`
+ * tags the surrounding `ManagedRuntime` resolves at request time, MINUS
+ * the per-frame capability tags discharged inside each slot); `Conn` is
+ * the kind's connection-ctx shape carried by `SlotDispatchContext`.
  */
-interface InboundDispatch<Ctx, R = never> {
+interface InboundDispatch<Env, Conn> {
   /**
    * Dispatch one inbound request frame. Returns the wire-ready
    * `ResponseFrame` (success, registered tagged error, `InvalidParams`
    * when params fail schema decode, `InternalError` for an unmapped
    * defect, or `MethodNotFound` when `frame.method` is not in the
-   * kind's catalog). The Effect's `R` channel surfaces any unresolved
-   * capability tags the handler's body still requires (with full Spec F
-   * Shape-B metadata threaded, this collapses to `never`; stub state
-   * retains `R` for ergonomic generic propagation).
+   * kind's catalog). The Effect's `R` channel is `Env` — the residual
+   * service tags the surrounding `ManagedRuntime` resolves; per-frame
+   * capabilities are already discharged inside the slot.
    */
   readonly handle: (
     frame: RequestFrame,
-    ctx: Ctx,
-  ) => Effect.Effect<ResponseFrame, never, R>;
+    ctx: SlotDispatchContext<Conn>,
+  ) => Effect.Effect<ResponseFrame, never, Env>;
 
   /**
    * Resolve one inbound response frame against the originator's
@@ -143,11 +146,12 @@ interface ConnectionIdentity {
  * for `DispatchAuthorize` and `MessagesAuthorize`. Outbound notifications
  * are the full `AnyNotificationDefinition` set (the server originates
  * delivery + lifecycle notifications). Inbound surface is the closed
- * `serverRpcMethods` catalog, dispatched via the static `ServerHandlers` table.
+ * `serverRpcMethods` catalog, dispatched via the kind's
+ * {@link ErasedSlotTable}.
  */
-export interface ServerConnection<Ctx = unknown, R = never>
+export interface ServerConnection<Env = unknown, Conn = unknown>
   extends ConnectionIdentity,
-    InboundDispatch<Ctx, R>,
+    InboundDispatch<Env, Conn>,
     OutboundCall<AnyTaskCallbackRpcDefinition>,
     OutboundNotify<AnyNotificationDefinition> {}
 
@@ -174,63 +178,50 @@ export interface AgentClientConnection
  * `TaskMasterConnection` — agent acting as TM. Outbound surface is the
  * full `serverRpcMethods` catalog (a TM is a superset of an AgentClient at the
  * type level). Outbound notifications: none. Inbound surface is the
- * `taskCallbackMethods` catalog, dispatched via the static
- * `TaskMasterHandlers` table; every slot is a REQUIRED real handler
- * (Spec D3 R14b retired the optional `forbidden` / `noOpNotification`
+ * `taskCallbackMethods` catalog, dispatched via the kind's
+ * {@link ErasedSlotTable}; every slot is a REQUIRED real handler (Spec
+ * D3 R14b retired the optional `forbidden` / `noOpNotification`
  * sentinels), so vacuous-deny moderators must bind an explicit
  * `ForbiddenError`-returning handler per catalog method.
  */
-export interface TaskMasterConnection<Ctx = unknown, R = never>
+export interface TaskMasterConnection<Env = unknown, Conn = unknown>
   extends ConnectionIdentity,
-    InboundDispatch<Ctx, R>,
+    InboundDispatch<Env, Conn>,
     OutboundCall<AnyTaskMasterRpcDefinition>,
     OutboundNotify<never> {}
 
 /**
- * Helper: narrow `CapsUnionOf&lt;...&gt;` back to the
- * `Context.Tag&lt;unknown, unknown&gt;` upper bound so it satisfies the
- * `CapabilityProviderTable` parameter constraint. When no slot
- * declares capabilities, the union evaluates to `never` and the
- * provider-table type resolves to `Record&lt;never, ...&gt;` (i.e. `{}`),
- * which the empty literal `{}` satisfies.
- */
-type CapsArg<T> = Extract<CapsUnionOf<T>, Context.Tag<unknown, unknown>>;
-
-/**
- * Config record consumed by `makeServerConnection`. `Caps` is inferred
- * by TypeScript from the handler-table literal — callers normally
- * write `makeServerConnection({ handlers: { ... }, capabilities: { ... } })`
- * and TypeScript reconstructs `Caps` from the slots' definitions.
+ * Config record consumed by `makeServerConnection`. `slots` is the
+ * kind's {@link ErasedSlotTable}: a `Record&lt;methodName, ErasedSlot&gt;`
+ * each owning its typed `(definition, handler, providers)` triple. The
+ * per-method capability discharge lives INSIDE each slot, so there is
+ * no separate provider table on the config (the pre-HALF-1
+ * `handlers` + `capabilities` pair).
+ *
+ * `Env` is the residual service-tag union each slot's `invoke` requires
+ * (resolved by the surrounding `ManagedRuntime` at request time); `Conn`
+ * is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
  *
  * `write` is the wire-level write effect the surrounding transport
  * supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
  * for the outbound TM-callback path.
  */
-export interface ServerConnectionConfig<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> {
+export interface ServerConnectionConfig<Env, Conn> {
   readonly id: string;
-  readonly handlers: ServerHandlers<Ctx, Caps>;
-  readonly capabilities: CapabilityProviderTable<
-    CapsArg<ServerHandlers<Ctx, Caps>>
-  >;
+  readonly slots: ErasedSlotTable<Env, Conn>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }
 
 /**
- * Equivalent config for the AgentClient factory. `handlers` is the
- * empty table; the factory accepts it for forward compatibility (if a
- * future spec adds AgentClient-inbound RPCs, the type system demands
- * coverage).
+ * Equivalent config for the AgentClient factory. `slots` is the empty
+ * table (the AgentClient kind's inbound catalog is empty); the factory
+ * accepts it for forward compatibility (if a future spec adds
+ * AgentClient-inbound RPCs, the slot table demands coverage).
  */
-export interface AgentClientConnectionConfig<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> {
+export interface AgentClientConnectionConfig<Env, Conn> {
   readonly id: string;
-  readonly handlers: AgentClientHandlers<Ctx, Caps>;
+  readonly slots: ErasedSlotTable<Env, Conn>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }
@@ -239,15 +230,9 @@ export interface AgentClientConnectionConfig<
  * Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
  * catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
  */
-export interface TaskMasterConnectionConfig<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> {
+export interface TaskMasterConnectionConfig<Env, Conn> {
   readonly id: string;
-  readonly handlers: TaskMasterHandlers<Ctx, Caps>;
-  readonly capabilities: CapabilityProviderTable<
-    CapsArg<TaskMasterHandlers<Ctx, Caps>>
-  >;
+  readonly slots: ErasedSlotTable<Env, Conn>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }
@@ -255,32 +240,29 @@ export interface TaskMasterConnectionConfig<
 /**
  * Factory — server side. Delegates to `buildServerDispatcher`
  * (`dispatch.ts`) which wires:
- *   - inbound: per-frame dispatch via the static handler table; for
- *     each frame, the dispatcher reads the handler's
- *     `definition.capabilities` (Shape B), invokes the provider table's
- *     entry for each tag with the dispatcher-derived args, and threads
- *     `Effect.provideServiceEffect` over the handler effect.
+ *   - inbound: per-frame dispatch via the kind's {@link ErasedSlotTable};
+ *     each slot decodes params via its own validator + discharges the
+ *     method's declared capabilities from its own positional providers
+ *     tuple INSIDE `invoke`, so the dispatcher just routes and projects
+ *     the slot's `Exit` to a wire response.
  *   - outbound: an internalized originator (formerly the body of
  *     `makeOriginator`) that mints `${idPrefix}-N` ids and tracks
  *     pending Deferreds. Scope finalizer drains pending Deferreds with
  *     `NotConnectedError`.
  */
-export function makeServerConnection<Ctx, Caps extends Context.Tag<any, any>>(
-  config: ServerConnectionConfig<Ctx, Caps>,
-): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
+export function makeServerConnection<Env, Conn>(
+  config: ServerConnectionConfig<Env, Conn>,
+): Effect.Effect<ServerConnection<Env, Conn>, never, Scope.Scope> {
   return buildServerDispatcher(config);
 }
 
 /**
  * Factory — agent client. Delegates to `buildAgentClientDispatcher`
  * which wires the originator only (no inbound dispatch — the AgentClient
- * kind's inbound catalog is empty).
+ * kind's inbound catalog is empty, so `config.slots` is `{}`).
  */
-export function makeAgentClientConnection<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: AgentClientConnectionConfig<Ctx, Caps>,
+export function makeAgentClientConnection<Env, Conn>(
+  config: AgentClientConnectionConfig<Env, Conn>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope> {
   return buildAgentClientDispatcher(config);
 }
@@ -290,17 +272,13 @@ export function makeAgentClientConnection<
  * wires both the inbound dispatch loop (against `taskCallbackMethods`)
  * and the outbound originator (against the full `serverRpcMethods` catalog).
  * Every TM-inbound slot is REQUIRED. Spec D3 R14b retired the optional
- * sentinel defaults the prior shape carried; the empty literal
- * `{ handlers: {} }` is REJECTED at the type level (TS2741 — see
- * Canary 6 in `typed-dispatcher.types-check.ts`). Vacuous-deny
+ * sentinel defaults the prior shape carried; callers build the slot
+ * table via `makeErasedSlot` per catalog method. Vacuous-deny
  * moderators bind an explicit `ForbiddenError`-returning handler for
  * each catalog method.
  */
-export function makeTaskMasterConnection<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: TaskMasterConnectionConfig<Ctx, Caps>,
-): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope> {
+export function makeTaskMasterConnection<Env, Conn>(
+  config: TaskMasterConnectionConfig<Env, Conn>,
+): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope> {
   return buildTaskMasterDispatcher(config);
 }

@@ -17,13 +17,19 @@ import {
 import {
   PROTOCOL_VERSION,
   Connect,
+  DispatchAuthorize,
+  MessagesAuthorize,
+  TaskCreate,
   encodeErrorResponse,
+  makeErasedSlot,
   makeTaskMasterConnection,
   NotConnectedError,
   RpcTimeoutError,
   type AnyNotificationDefinition,
   type DecodedNotification,
   type DecodedServerInbound,
+  type ErasedSlot,
+  type ErasedSlotTable,
   type JsonRpcId,
   type NotificationParamsOf,
   type ParamsOf,
@@ -31,9 +37,11 @@ import {
   type ResultOf,
   type RpcCallError,
   type RpcDefinition,
+  type SlotDispatchContext,
   type TaskMasterConnection,
   type TaskMasterHandlers,
 } from "@moltzap/protocol";
+import type { Static, TSchema } from "@sinclair/typebox";
 import { decodeFrames } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
@@ -128,7 +136,7 @@ interface ConnState {
    * `handle` driven by the immutable handler table the client was
    * constructed with.
    */
-  readonly tmConn: TaskMasterConnection<TaskCallbackContext>;
+  readonly tmConn: TaskMasterConnection<never, TaskCallbackContext>;
 
   /**
    * Settled when the reader fiber exits, letting `connect()` race against
@@ -183,6 +191,57 @@ export interface TaskCallbackContext {
  * handler.
  */
 export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
+
+/**
+ * The cast-free slot table the TM connection dispatches against (#705
+ * HALF-1). `Env = never` (TM-callback handlers yield no service tags) and
+ * `Conn = TaskCallbackContext` (the per-frame ctx carried by
+ * `SlotDispatchContext`).
+ */
+type TMSlotTable = ErasedSlotTable<never, TaskCallbackContext>;
+
+/**
+ * Wrap ONE authored TM-callback slot into a cast-free `ErasedSlot` (#705
+ * HALF-1), generic over its concrete definition `D` so the `params`/`result`
+ * types stay correlated per method. The TM-callback catalog declares NO
+ * capabilities, so the providers tuple is the empty tuple `[]`; the
+ * `makeErasedSlot` `handler` receives `SlotDispatchContext<TaskCallbackContext>`
+ * and unwraps `.connection` to hand the authored `handle` its bare
+ * `TaskCallbackContext`.
+ */
+function wrapTmSlot<P extends TSchema, R extends TSchema>(slot: {
+  readonly definition: Omit<RpcDefinition<string, P, R>, "capabilities"> & {
+    readonly capabilities: readonly [];
+  };
+  readonly handle: (
+    params: Static<P>,
+    ctx: TaskCallbackContext,
+  ) => Effect.Effect<Static<R>, unknown, never>;
+}): ErasedSlot<never, TaskCallbackContext> {
+  return makeErasedSlot(
+    slot.definition,
+    (params, ctx: SlotDispatchContext<TaskCallbackContext>) =>
+      slot.handle(params, ctx.connection),
+    [],
+  );
+}
+
+/**
+ * Convert the public {@link TMHandlers} authoring table into the cast-free
+ * {@link TMSlotTable} `makeTaskMasterConnection` consumes (#705 HALF-1). The
+ * TM-callback catalog is closed (`DispatchAuthorize`, `MessagesAuthorize`,
+ * `TaskCreate`); each slot is wrapped at its own concrete definition type via
+ * {@link wrapTmSlot} so the per-method `params`/`result` lockstep holds (a
+ * `Object.values` loop would collapse the three arms into a union and break
+ * `makeErasedSlot`'s typed `definition`/`handler` correlation).
+ */
+function tmHandlersToSlots(handlers: TMHandlers): TMSlotTable {
+  return {
+    [DispatchAuthorize.name]: wrapTmSlot(handlers["dispatch/authorize"]),
+    [MessagesAuthorize.name]: wrapTmSlot(handlers["messages/authorize"]),
+    [TaskCreate.name]: wrapTmSlot(handlers["task/create"]),
+  };
+}
 
 export interface TMClientOptions {
   serverUrl: string;
@@ -541,10 +600,9 @@ export class MoltZapTMClient {
       const socket = yield* this.openSocket(url, scope);
       const write = yield* Scope.extend(socket.writer, scope);
       const tmConn = yield* Scope.extend(
-        makeTaskMasterConnection<TaskCallbackContext, never>({
+        makeTaskMasterConnection<never, TaskCallbackContext>({
           id: "tm-client",
-          handlers: this.handlers,
-          capabilities: {},
+          slots: tmHandlersToSlots(this.handlers),
           write: (raw) => write(raw),
           idPrefix: "rpc",
         }),
@@ -591,7 +649,7 @@ export class MoltZapTMClient {
 
   private startTaskCallbackDispatcher(
     write: ConnState["write"],
-    tmConn: TaskMasterConnection<TaskCallbackContext>,
+    tmConn: TaskMasterConnection<never, TaskCallbackContext>,
   ): Effect.Effect<TaskCallbackDispatcher> {
     return Effect.gen(this, function* () {
       const dispatcherScope = yield* Scope.make();
@@ -750,11 +808,16 @@ export class MoltZapTMClient {
   private dispatchInboundServerRequest(
     request: DecodedServerRequest,
     write: ConnState["write"],
-    tmConn: TaskMasterConnection<TaskCallbackContext>,
+    tmConn: TaskMasterConnection<never, TaskCallbackContext>,
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
+      // #705 HALF-1 — the dispatcher ctx is `SlotDispatchContext<Conn>`
+      // (`{ connection: Conn }`); `Conn = TaskCallbackContext`, so the
+      // per-frame `requestId` rides on `connection`. The slot's
+      // `makeErasedSlot` wrapper unwraps `.connection` to hand the
+      // authored `handle` its bare `TaskCallbackContext`.
       const reply = yield* tmConn.handle(request.frame, {
-        requestId: request.id,
+        connection: { requestId: request.id },
       });
       yield* this.writeInboundServerReply(write, reply);
     });

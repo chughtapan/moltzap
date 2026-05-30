@@ -18,7 +18,7 @@ import {
   type PgliteHarness,
 } from "../../test-utils/index.js";
 import { TaskReadAccess } from "@moltzap/protocol/task";
-import { serverCapabilityProviders } from "../../app/capability-providers.js";
+import { provideTaskReadAccess } from "../../app/capability-providers.js";
 import { TaskServiceTag } from "../../app/layers.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
@@ -110,7 +110,7 @@ function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
     eff.pipe(
       Effect.provideServiceEffect(
         TaskReadAccess,
-        serverCapabilityProviders[TaskReadAccess.key]({
+        provideTaskReadAccess({
           taskId,
           callerAgentId: caller,
         }),

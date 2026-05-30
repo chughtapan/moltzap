@@ -32,9 +32,10 @@ import {
   defineAppMethod,
   defineTaskMethod,
 } from "../../transport/define-layered-method.js";
-import type { RpcMethodRegistry } from "../../transport/context.js";
+import type { ServerRpcSlots } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
+import { provideConversationInTask } from "../../app/capability-providers.js";
 import { obtainConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
@@ -252,82 +253,98 @@ function fanoutUnarchiveDualEmit(input: UnarchiveDualEmitInput) {
   }).pipe(Effect.withSpan("task.conversation.unarchive.fanout"));
 }
 
-export const taskHandlers: RpcMethodRegistry = [
-  defineTaskMethod(TaskList, {
-    callablePrincipal: "agent",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const taskService = yield* TaskServiceTag;
-        const { tasks, nextCursor } = yield* taskService
-          .list(ctx.agentId, {
-            limit: params.limit,
-            cursor: params.cursor,
-          })
-          .pipe(
-            // A bad cursor is an invalid client param, not an internal defect.
-            Effect.catchTag("InvalidCursor", (err) =>
-              Effect.fail(new InvalidParamsError({ message: err.message })),
-            ),
-          );
-        return {
-          tasks: [...tasks],
-          ...(nextCursor !== undefined ? { nextCursor } : {}),
-        };
-      }).pipe(Effect.withSpan("task.list")),
-  }),
+export const taskHandlers: ServerRpcSlots = [
+  defineTaskMethod(
+    TaskList,
+    {
+      callablePrincipal: "agent",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          const taskService = yield* TaskServiceTag;
+          const { tasks, nextCursor } = yield* taskService
+            .list(ctx.agentId, {
+              limit: params.limit,
+              cursor: params.cursor,
+            })
+            .pipe(
+              // A bad cursor is an invalid client param, not an internal defect.
+              Effect.catchTag("InvalidCursor", (err) =>
+                Effect.fail(new InvalidParamsError({ message: err.message })),
+              ),
+            );
+          return {
+            tasks: [...tasks],
+            ...(nextCursor !== undefined ? { nextCursor } : {}),
+          };
+        }).pipe(Effect.withSpan("task.list")),
+    },
+    [],
+  ),
 
-  defineAppMethod(TaskClose, {
-    callablePrincipal: "app",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-        const taskService = yield* TaskServiceTag;
-        const closed = yield* taskService.closeWithLifecycle(params.taskId);
-        for (const conversation of closed.archivedConversations) {
+  defineAppMethod(
+    TaskClose,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+          const taskService = yield* TaskServiceTag;
+          const closed = yield* taskService.closeWithLifecycle(params.taskId);
+          for (const conversation of closed.archivedConversations) {
+            yield* broadcastNotificationToAgents(
+              conversation.participantAgentIds,
+              TaskConversationArchivedNotificationDefinition,
+              {
+                taskId: params.taskId,
+                conversationId: conversation.conversationId,
+                archivedAt: conversation.archivedAt,
+              },
+              { forConversation: conversation.conversationId },
+            );
+          }
           yield* broadcastNotificationToAgents(
-            conversation.participantAgentIds,
-            TaskConversationArchivedNotificationDefinition,
-            {
-              taskId: params.taskId,
-              conversationId: conversation.conversationId,
-              archivedAt: conversation.archivedAt,
-            },
-            { forConversation: conversation.conversationId },
+            closed.participantAgentIds,
+            TaskClosedNotificationDefinition,
+            { task: closed.task },
           );
-        }
-        yield* broadcastNotificationToAgents(
-          closed.participantAgentIds,
-          TaskClosedNotificationDefinition,
-          { task: closed.task },
-        );
-        return { task: closed.task };
-      }).pipe(Effect.withSpan("task.close")),
-  }),
+          return { task: closed.task };
+        }).pipe(Effect.withSpan("task.close")),
+    },
+    [],
+  ),
 
-  defineAppMethod(TaskAddParticipant, {
-    callablePrincipal: "app",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-        const taskService = yield* TaskServiceTag;
-        const participant = yield* taskService.addParticipant(
-          params.taskId,
-          params.agentId,
-        );
-        return { participant };
-      }).pipe(Effect.withSpan("task.addParticipant")),
-  }),
+  defineAppMethod(
+    TaskAddParticipant,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+          const taskService = yield* TaskServiceTag;
+          const participant = yield* taskService.addParticipant(
+            params.taskId,
+            params.agentId,
+          );
+          return { participant };
+        }).pipe(Effect.withSpan("task.addParticipant")),
+    },
+    [],
+  ),
 
-  defineAppMethod(TaskRemoveParticipant, {
-    callablePrincipal: "app",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-        const taskService = yield* TaskServiceTag;
-        yield* taskService.removeParticipant(params.taskId, params.agentId);
-        return {};
-      }).pipe(Effect.withSpan("task.removeParticipant")),
-  }),
+  defineAppMethod(
+    TaskRemoveParticipant,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+          const taskService = yield* TaskServiceTag;
+          yield* taskService.removeParticipant(params.taskId, params.agentId);
+          return {};
+        }).pipe(Effect.withSpan("task.removeParticipant")),
+    },
+    [],
+  ),
 
   // `task/*` + `task/conversation/*` handlers. Per-flow walkthrough
   // lives in the family-overview header block in
@@ -346,173 +363,202 @@ export const taskHandlers: RpcMethodRegistry = [
   // a layer because the handler needs `AppHostTag` to fire the
   // `task/create` TM callback (an app-layer service).
 
-  defineTaskMethod(TaskLeave, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: (params, ctx) => taskLeaveBody(params, ctx),
-  }),
+  defineTaskMethod(
+    TaskLeave,
+    {
+      callablePrincipal: "agent",
+      requiresActive: true,
+      handler: (params, ctx) => taskLeaveBody(params, ctx),
+    },
+    [],
+  ),
 
-  defineAppMethod(TaskConversationCreate, {
-    callablePrincipal: "app",
-    handler: (params, ctx) => taskConversationCreateBody(ctx.appId, params),
-  }),
+  defineAppMethod(
+    TaskConversationCreate,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) => taskConversationCreateBody(ctx.appId, params),
+    },
+    [],
+  ),
 
-  defineTaskMethod(TaskConversationList, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const conversationService = yield* ConversationServiceTag;
-        // `archived: "include"` per spec body Goal 1 — archived rows
-        // are surfaced and the client filters `conversation.archivedAt`
-        // locally. The underlying `listConversations` helper already
-        // supports the `include` filter mode (Spec E added it).
-        const { conversations, cursor: nextCursor } =
-          yield* conversationService.list(
-            ctx.agentId,
-            params.limit,
-            params.cursor,
-            "include",
+  defineTaskMethod(
+    TaskConversationList,
+    {
+      callablePrincipal: "agent",
+      requiresActive: true,
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          const conversationService = yield* ConversationServiceTag;
+          // `archived: "include"` per spec body Goal 1 — archived rows
+          // are surfaced and the client filters `conversation.archivedAt`
+          // locally. The underlying `listConversations` helper already
+          // supports the `include` filter mode (Spec E added it).
+          const { conversations, cursor: nextCursor } =
+            yield* conversationService.list(
+              ctx.agentId,
+              params.limit,
+              params.cursor,
+              "include",
+            );
+          // Project each summary into the spec-body `TaskConversationListItem`
+          // shape: `{ taskId, conversation: ConversationRow, participants }`.
+          // The summary is from the listConversations projection; the per-
+          // item `conversation` and `participants` come from one batched
+          // round-trip each.
+          const items: TaskConversationListItem[] = [];
+          for (const summary of conversations) {
+            const conversation = yield* conversationService.loadById(
+              summary.id,
+            );
+            const participants = yield* conversationService
+              .getParticipantAgentIds(summary.id)
+              .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
+            const linkedTaskId =
+              yield* conversationService.taskIdForConversation(summary.id);
+            items.push({
+              taskId: linkedTaskId,
+              conversation,
+              participants: [...participants],
+            });
+          }
+          return {
+            items,
+            ...(nextCursor !== undefined ? { nextCursor } : {}),
+          };
+        }).pipe(Effect.withSpan("task.conversation.list")),
+    },
+    [],
+  ),
+
+  defineAppMethod(
+    TaskConversationArchive,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+          // `ConversationInTask` auto-provisioned per descriptor
+          // `capabilities: [...]`; consumed inside `archiveTaskConversation`.
+          const taskService = yield* TaskServiceTag;
+          const { archivedAt } = yield* taskService.archiveTaskConversation(
+            params.taskId,
+            params.conversationId,
           );
-        // Project each summary into the spec-body `TaskConversationListItem`
-        // shape: `{ taskId, conversation: ConversationRow, participants }`.
-        // The summary is from the listConversations projection; the per-
-        // item `conversation` and `participants` come from one batched
-        // round-trip each.
-        const items: TaskConversationListItem[] = [];
-        for (const summary of conversations) {
-          const conversation = yield* conversationService.loadById(summary.id);
-          const participants = yield* conversationService
-            .getParticipantAgentIds(summary.id)
-            .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-          const linkedTaskId = yield* conversationService.taskIdForConversation(
-            summary.id,
-          );
-          items.push({
-            taskId: linkedTaskId,
-            conversation,
-            participants: [...participants],
+          yield* fanoutArchiveDualEmit({
+            taskId: params.taskId,
+            conversationId: params.conversationId,
+            archivedAt,
           });
-        }
-        return {
-          items,
-          ...(nextCursor !== undefined ? { nextCursor } : {}),
-        };
-      }).pipe(Effect.withSpan("task.conversation.list")),
-  }),
-
-  defineAppMethod(TaskConversationArchive, {
-    callablePrincipal: "app",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-        // `ConversationInTask` auto-provisioned per descriptor
-        // `capabilities: [...]`; consumed inside `archiveTaskConversation`.
-        const taskService = yield* TaskServiceTag;
-        const { archivedAt } = yield* taskService.archiveTaskConversation(
-          params.taskId,
-          params.conversationId,
-        );
-        yield* fanoutArchiveDualEmit({
-          taskId: params.taskId,
-          conversationId: params.conversationId,
-          archivedAt,
-        });
-        return {};
-      }).pipe(Effect.withSpan("task.conversation.archive")),
-  }),
-
-  defineAppMethod(TaskConversationUnarchive, {
-    callablePrincipal: "app",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-        // `ConversationInTask` auto-provisioned per descriptor
-        // `capabilities: [...]`; consumed inside `unarchiveTaskConversation`.
-        const taskService = yield* TaskServiceTag;
-        yield* taskService.unarchiveTaskConversation(
-          params.taskId,
-          params.conversationId,
-        );
-        yield* fanoutUnarchiveDualEmit({
-          taskId: params.taskId,
-          conversationId: params.conversationId,
-        });
-        return {};
-      }).pipe(Effect.withSpan("task.conversation.unarchive")),
-  }),
-
-  defineAppMethod(TaskConversationAddParticipant, {
-    callablePrincipal: "app",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        // App-ownership gate first — same rationale as
-        // `taskConversationCreateBody` (so a non-owner sees
-        // ForbiddenError before `requireAgentsAreInTaskParticipants`
-        // can leak task-state).
-        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-        const taskService = yield* TaskServiceTag;
-        // Participant-admitted invariant — runs AFTER app-ownership auth.
-        yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
-          params.agentId,
-        ]);
-        // `ConversationInTask` auto-provisioned per descriptor and
-        // consumed inside `addTaskConversationParticipant`.
-        const { postMutationParticipants } =
-          yield* taskService.addTaskConversationParticipant(
-            params.taskId,
-            params.conversationId,
-            params.agentId,
-          );
-        // Post-mutation membership drives fan-out so the newcomer
-        // receives their own added notification.
-        yield* broadcastNotificationToAgents(
-          postMutationParticipants,
-          TaskConversationParticipantsAddedNotificationDefinition,
-          {
-            taskId: params.taskId,
-            conversationId: params.conversationId,
-            addedAgentId: params.agentId,
-            byAgentOrTm: "tm" as const,
-          },
-        );
-        return {};
-      }).pipe(Effect.withSpan("task.conversation.participants.add")),
-  }),
-
-  defineAppMethod(TaskConversationRemoveParticipant, {
-    callablePrincipal: "app",
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
-        // `ConversationInTask` auto-provisioned per descriptor
-        // `capabilities: [...]`; consumed inside
-        // `removeTaskConversationParticipant`.
-        const taskService = yield* TaskServiceTag;
-        const { preMutationParticipants, wasParticipant } =
-          yield* taskService.removeTaskConversationParticipant(
-            params.taskId,
-            params.conversationId,
-            params.agentId,
-          );
-        if (!wasParticipant) {
-          // Idempotent no-op: no notifications fire when the agent was
-          // not in `conversation_participants`.
           return {};
-        }
-        // Pre-mutation membership drives fan-out so the removed agent
-        // still receives the notification.
-        yield* broadcastNotificationToAgents(
-          preMutationParticipants,
-          TaskConversationParticipantsRemovedNotificationDefinition,
-          {
+        }).pipe(Effect.withSpan("task.conversation.archive")),
+    },
+    [provideConversationInTask],
+  ),
+
+  defineAppMethod(
+    TaskConversationUnarchive,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+          // `ConversationInTask` auto-provisioned per descriptor
+          // `capabilities: [...]`; consumed inside `unarchiveTaskConversation`.
+          const taskService = yield* TaskServiceTag;
+          yield* taskService.unarchiveTaskConversation(
+            params.taskId,
+            params.conversationId,
+          );
+          yield* fanoutUnarchiveDualEmit({
             taskId: params.taskId,
             conversationId: params.conversationId,
-            removedAgentId: params.agentId,
-            reason: "tm_remove" as const,
-          },
-        );
-        return {};
-      }).pipe(Effect.withSpan("task.conversation.participants.remove")),
-  }),
+          });
+          return {};
+        }).pipe(Effect.withSpan("task.conversation.unarchive")),
+    },
+    [provideConversationInTask],
+  ),
+
+  defineAppMethod(
+    TaskConversationAddParticipant,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          // App-ownership gate first — same rationale as
+          // `taskConversationCreateBody` (so a non-owner sees
+          // ForbiddenError before `requireAgentsAreInTaskParticipants`
+          // can leak task-state).
+          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+          const taskService = yield* TaskServiceTag;
+          // Participant-admitted invariant — runs AFTER app-ownership auth.
+          yield* taskService.requireAgentsAreInTaskParticipants(params.taskId, [
+            params.agentId,
+          ]);
+          // `ConversationInTask` auto-provisioned per descriptor and
+          // consumed inside `addTaskConversationParticipant`.
+          const { postMutationParticipants } =
+            yield* taskService.addTaskConversationParticipant(
+              params.taskId,
+              params.conversationId,
+              params.agentId,
+            );
+          // Post-mutation membership drives fan-out so the newcomer
+          // receives their own added notification.
+          yield* broadcastNotificationToAgents(
+            postMutationParticipants,
+            TaskConversationParticipantsAddedNotificationDefinition,
+            {
+              taskId: params.taskId,
+              conversationId: params.conversationId,
+              addedAgentId: params.agentId,
+              byAgentOrTm: "tm" as const,
+            },
+          );
+          return {};
+        }).pipe(Effect.withSpan("task.conversation.participants.add")),
+    },
+    [provideConversationInTask],
+  ),
+
+  defineAppMethod(
+    TaskConversationRemoveParticipant,
+    {
+      callablePrincipal: "app",
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+          // `ConversationInTask` auto-provisioned per descriptor
+          // `capabilities: [...]`; consumed inside
+          // `removeTaskConversationParticipant`.
+          const taskService = yield* TaskServiceTag;
+          const { preMutationParticipants, wasParticipant } =
+            yield* taskService.removeTaskConversationParticipant(
+              params.taskId,
+              params.conversationId,
+              params.agentId,
+            );
+          if (!wasParticipant) {
+            // Idempotent no-op: no notifications fire when the agent was
+            // not in `conversation_participants`.
+            return {};
+          }
+          // Pre-mutation membership drives fan-out so the removed agent
+          // still receives the notification.
+          yield* broadcastNotificationToAgents(
+            preMutationParticipants,
+            TaskConversationParticipantsRemovedNotificationDefinition,
+            {
+              taskId: params.taskId,
+              conversationId: params.conversationId,
+              removedAgentId: params.agentId,
+              reason: "tm_remove" as const,
+            },
+          );
+          return {};
+        }).pipe(Effect.withSpan("task.conversation.participants.remove")),
+    },
+    [provideConversationInTask],
+  ),
 ];

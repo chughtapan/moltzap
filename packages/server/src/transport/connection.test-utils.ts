@@ -1,20 +1,18 @@
 import { Effect } from "effect";
-import type { ServerConnection } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type * as Socket from "@effect/platform/Socket";
 import type { AgentId } from "../app/types.js";
 import { AgentContext, type AgentStatus } from "./context.js";
-import type { ConnectionManager } from "./connection.js";
-import type { DispatchContext } from "./context.js";
+import type { ConnectionManager, Originator } from "./connection.js";
 
 /**
- * Defect-throwing `ServerConnection&lt;DispatchContext>` stub for the arm
- * seeders below — the seeded arms never exercise the appCallback channel
- * or the inbound-dispatch path. If a test inadvertently drives any method
- * the defect surfaces loudly rather than silently passing. Module-private:
- * the seeders are the only consumers.
+ * Defect-throwing {@link Originator} stub for the arm seeders below — the
+ * seeded arms never exercise the appCallback channel or the inbound-dispatch
+ * path. If a test inadvertently drives any method the defect surfaces loudly
+ * rather than silently passing. Module-private: the seeders are the only
+ * consumers.
  */
-const unusedOriginator = (): ServerConnection<DispatchContext> => ({
+const unusedOriginator = (): Originator => ({
   id: "test-fake-originator",
   call: () => Effect.die("test fake originator.call invoked"),
   resolve: () => Effect.die("test fake originator.resolve invoked"),

@@ -1,5 +1,10 @@
-import type { RpcMethodRegistry } from "../../transport/context.js";
+import type { ServerRpcSlots } from "../../transport/context.js";
 import { defineTaskMethod } from "../../transport/define-layered-method.js";
+import {
+  provideConversationInTask,
+  provideMessageSendPermission,
+  provideTaskReadAccess,
+} from "../../app/capability-providers.js";
 import {
   MessagesSend,
   MessagesList,
@@ -115,22 +120,37 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
   );
 }
 
-export const messageHandlers: RpcMethodRegistry = [
-  defineTaskMethod(MessagesSend, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: handleMessageSend,
-  }),
-  defineTaskMethod(MessagesList, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: (params, ctx) =>
-      Effect.gen(function* () {
-        const messageService = yield* MessageServiceTag;
-        return yield* messageService.list(params.conversationId, ctx.agentId, {
-          limit: params.limit,
-          sinceSeq: params.sinceSeq,
-        });
-      }).pipe(Effect.withSpan("messages.list")),
-  }),
+export const messageHandlers: ServerRpcSlots = [
+  // `MessagesSend` declares `[ConversationInTask, MessageSendPermission]`
+  // — the providers tuple is positional, aligned to that order.
+  defineTaskMethod(
+    MessagesSend,
+    {
+      callablePrincipal: "agent",
+      requiresActive: true,
+      handler: handleMessageSend,
+    },
+    [provideConversationInTask, provideMessageSendPermission],
+  ),
+  // `MessagesList` declares `[TaskReadAccess, ConversationInTask]`.
+  defineTaskMethod(
+    MessagesList,
+    {
+      callablePrincipal: "agent",
+      requiresActive: true,
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          const messageService = yield* MessageServiceTag;
+          return yield* messageService.list(
+            params.conversationId,
+            ctx.agentId,
+            {
+              limit: params.limit,
+              sinceSeq: params.sinceSeq,
+            },
+          );
+        }).pipe(Effect.withSpan("messages.list")),
+    },
+    [provideTaskReadAccess, provideConversationInTask],
+  ),
 ];

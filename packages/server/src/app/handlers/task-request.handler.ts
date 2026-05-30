@@ -45,7 +45,8 @@ import {
 import { obtainConversationCreateAuthorization } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
 import { defineAppMethod } from "../../transport/define-layered-method.js";
-import type { RpcMethodRegistry } from "../../transport/context.js";
+import type { ServerRpcSlots } from "../../transport/context.js";
+import { provideContactPolicyAllowsReach } from "../capability-providers.js";
 
 type TaskRequestParams = {
   readonly appId: AppId;
@@ -207,16 +208,23 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   }).pipe(Effect.withSpan("task.request"));
 }
 
-export const taskRequestHandlers: RpcMethodRegistry = [
+export const taskRequestHandlers: ServerRpcSlots = [
   // D #705 #720 — the orthogonality proof site: `task/request` is
   // AGENT-called (reads `ctx.agentId` as `initiatorAgentId`) yet binds via
   // `defineAppMethod` (its body `yield*`s `AppHostTag` to fire the
   // `task/create` callback). `callablePrincipal: "agent"` places it in the
   // agent arm + hands the body an `AgentContext`; `defineAppMethod` admits
   // `AppHostTag` in the R-channel. The two axes are independent.
-  defineAppMethod(TaskRequest, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: (params, ctx) => taskRequestBody(params, ctx),
-  }),
+  //
+  // `TaskRequest` declares `[ContactPolicyAllowsReach]` — the providers
+  // tuple is positional, aligned to that single-cap order.
+  defineAppMethod(
+    TaskRequest,
+    {
+      callablePrincipal: "agent",
+      requiresActive: true,
+      handler: (params, ctx) => taskRequestBody(params, ctx),
+    },
+    [provideContactPolicyAllowsReach],
+  ),
 ];

@@ -82,20 +82,14 @@ export type { RpcCallError } from "./originator.js";
 // Type-level invariants are exercised by `typed-dispatcher.types-check.ts`.
 export type {
   CapabilityDescriptor,
-  CapabilityProviderTable,
   CapabilitiesOf,
   DispatchAuth,
   DispatchContext,
 } from "./capabilities.js";
 export type {
   HandlerSlot,
-  HandlerTable,
-  ServerHandlers,
-  AgentClientHandlers,
   TaskMasterHandlers,
-  ServerInboundRpcDefinition,
   TaskMasterInboundRpcDefinition,
-  CapsUnionOf,
 } from "./handlers.js";
 export type {
   ServerConnection,

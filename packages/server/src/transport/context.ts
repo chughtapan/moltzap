@@ -1,14 +1,15 @@
-import { Context, Data, Effect } from "effect";
+import { Data, Effect } from "effect";
 import { type Static, type TSchema } from "@sinclair/typebox";
 import {
   ForbiddenError,
-  type HandlerSlot,
-  type ResultOf,
+  type ErasedSlot,
+  type ErasedSlotTable,
   type RpcDefinition,
 } from "@moltzap/protocol";
 import type { AppId } from "@moltzap/protocol/task";
 import { ConnectionTag } from "../app/layers.js";
 import type { Connection } from "./connection.js";
+import type { AppTags } from "./layer-tags.js";
 import type { AgentId, UserId } from "../app/types.js";
 
 /**
@@ -113,29 +114,35 @@ export type CtxForKind<K extends PrincipalKind> = K extends "agent"
  * exactly why `argsOf` may require `auth` while this dispatcher `Ctx` may not
  * ("two names, one per role").
  */
-export interface DispatchContext {
+interface DispatchContext {
   readonly connection: Connection;
 }
 
 /**
- * RPC binding stored in the registry. Each binding carries a method
- * definition and a Spec F (#617) typed-dispatcher `HandlerSlot`-shaped
- * handler that already provides `ConnectionTag` from the dispatch context.
- *
- * The remaining R-channel tags (the rest of `AppTags`) are provided by
- * the dispatcher's `FullLive` Layer at request time via the surrounding
- * `ManagedRuntime`. At the slot type the R-channel is widened to a
- * generic `Context.Tag` union for storage; the runtime resolves R
- * against `FullLive` post-`asNeverR` in
- * `transport/dispatch.ts → makeInboundDispatch`.
+ * One server-side inbound RPC slot — #705 HALF-1. Every `defineXMethod`
+ * wrapper returns an `ErasedSlot` whose residual `Env` is its layer tag
+ * union MINUS `ConnectionTag` (provided per-frame inside `defineMethod`
+ * from the live arm) and minus the per-frame capability tags (discharged
+ * inside the slot). The widest layer is `AppTags` (`AppTags ⊇ TaskTags ⊇
+ * NetworkTags`), and Effect's `R` channel is covariant, so a
+ * narrower-`Env` slot assigns up to `ServerRpcSlot`. `Conn` is the
+ * server's three-arm {@link Connection}.
  */
-export type RpcMethodBinding = HandlerSlot<
-  RpcDefinition<string, TSchema, TSchema>,
-  DispatchContext,
-  Context.Tag<unknown, unknown>
->;
+type ServerRpcSlot = ErasedSlot<Exclude<AppTags, ConnectionTag>, Connection>;
 
-export type RpcMethodRegistry = RpcMethodBinding[];
+/**
+ * A per-handler-file slice of the server's inbound catalog. Each
+ * `*.handlers.ts` exports one of these; `app/server.ts → makeCoreRpcMethods`
+ * concatenates them and `buildServerSlots` keys them by `definition.name`
+ * into the {@link ServerRpcSlotTable} `makeServerConnection` consumes.
+ */
+export type ServerRpcSlots = ReadonlyArray<ServerRpcSlot>;
+
+/** The keyed slot table the server dispatcher indexes by `frame.method`. */
+export type ServerRpcSlotTable = ErasedSlotTable<
+  Exclude<AppTags, ConnectionTag>,
+  Connection
+>;
 
 const FORBIDDEN_AGENT_ONLY =
   "This method is callable only by an agent principal";
@@ -199,22 +206,44 @@ function narrowPrincipalCtx<K extends PrincipalKind>(
 }
 
 /**
+ * The slot-handler shape `defineMethod` produces — #705 HALF-1. The
+ * `defineXMethod` wrappers (`define-layered-method.ts`) feed this to
+ * `makeErasedSlot` as the slot's typed `handler`. `ctx` is the
+ * dispatcher-boundary {@link DispatchContext} (the 3-arm `Connection`);
+ * the wrapper pins `makeErasedSlot`'s `Conn = Connection`, so
+ * `SlotDispatchContext&lt;Connection>` IS this `{ connection: Connection }`.
+ *
+ * The handler RETURNS the #720-gated body: `narrowPrincipalCtx` rejects a
+ * wrong-principal arm with `ForbiddenError` BEFORE the body runs (so the
+ * `ForbiddenError` rides the error channel), then runs the user handler
+ * on the NARROWED arm and provides `ConnectionTag` from the live arm.
+ * The residual `R` is `Reqs` (the layer service tags + per-frame
+ * capability tags) the dispatcher's `ManagedRuntime` / the slot's own
+ * capability discharge resolves.
+ */
+export type SlotHandler<P extends TSchema, R extends TSchema, E, Reqs> = (
+  params: Static<P>,
+  ctx: DispatchContext,
+) => Effect.Effect<Static<R>, E | ForbiddenError, Reqs>;
+
+/**
  * Type-safe RPC method definition driven by a protocol manifest.
- * Wraps the user's handler with `requiresActive` enforcement and
- * provides `ConnectionTag` from the dispatch context.
+ * Wraps the user's handler with the #705 #720 §B1 principal-kind gate
+ * (`narrowPrincipalCtx`) + `requiresActive` enforcement and provides
+ * `ConnectionTag` from the dispatch context. Returns the gated
+ * {@link SlotHandler} the `defineXMethod` wrappers thread into
+ * `makeErasedSlot` (no longer an `RpcMethodBinding` — the registry shape
+ * was retired by the cast-free `ErasedSlotTable` cutover).
  *
  * `Reqs` is the handler body's R-channel — the union of service Tags it
- * `yield*`s plus `ConnectionTag` if the body reads it. Defaults to
- * `ConnectionTag` so existing handlers (which yield no service Tags)
- * continue to compile against this signature. Per the Phase 2A r2 plan
- * §3, the `defineXMethod` variants in `define-layered-method.ts` add
- * per-layer upper bounds on `Reqs` via constrained generics; this base
- * `defineMethod` is unconstrained.
+ * `yield*`s (plus per-frame capability tags) MINUS `ConnectionTag`
+ * (provided here from the live arm). Per the Phase 2A r2 plan §3, the
+ * `defineXMethod` variants add per-layer upper bounds on `Reqs` via
+ * constrained generics; this base `defineMethod` is unconstrained.
  *
- * `Effect.provideService(ConnectionTag, ctx.connId)` is a no-op when the
- * body doesn't pull `ConnectionTag` (the `R` channel of `Effect` excludes
- * the tag if absent), so `Reqs` widening doesn't lie about
- * requirements.
+ * `Effect.provideService(ConnectionTag, ctx.connection)` is a no-op when
+ * the body doesn't pull `ConnectionTag`, so `Reqs` widening doesn't lie
+ * about requirements.
  */
 export function defineMethod<
   Name extends string,
@@ -224,10 +253,10 @@ export function defineMethod<
   E = never,
   // `Reqs` is intentionally unconstrained: caller handlers' R-channels
   // are unions of concrete `Context.Tag` instances (DbTag, etc.) whose
-  // invariant `Id`/`Type` parameters reject the `Context.Tag<unknown,
-  // unknown>` upper bound. The dispatcher's `asNeverR` erases R at the
-  // runtime boundary; the surrounding `ManagedRuntime` provides the
-  // tags via `FullLive`.
+  // invariant `Id`/`Type` parameters reject a `Context.Tag<unknown,
+  // unknown>` upper bound. The slot's `makeErasedSlot` `Env`-pin + the
+  // surrounding `ManagedRuntime` (`FullLive`) resolve them at request
+  // time; the per-frame capability tags are discharged inside the slot.
   Reqs = never,
 >(
   definition: RpcDefinition<Name, P, R>,
@@ -241,40 +270,32 @@ export function defineMethod<
     ) => Effect.Effect<Static<R>, E, Reqs | ConnectionTag>;
     readonly requiresActive?: boolean;
   },
-): RpcMethodBinding {
+  // `ConnectionTag` is provided per-frame from the live arm below, so it
+  // is SUBTRACTED from the gated handler's residual R — the slot does NOT
+  // claim a request-scoped `ConnectionTag` from the `ManagedRuntime`.
+): SlotHandler<P, R, E, Exclude<Reqs, ConnectionTag>> {
   const requiresActive = def.requiresActive ?? false;
   const callablePrincipal = def.callablePrincipal;
-  // Spec F (#617) typed-dispatcher binding: construct a `HandlerSlot`
-  // literal directly. The dispatcher's `makeInboundDispatch` runs each
-  // slot's `handle` inside the surrounding `ManagedRuntime` whose
-  // `FullLive` layer provides every Tag the handler `yield*`s. The
-  // erasure-to-`never` happens in `dispatch.ts → asNeverR` at the
-  // dispatcher boundary.
-  const slotHandle = (params: Static<P>, ctx: DispatchContext) =>
+  // #705 HALF-1 — the gated slot handler. The `defineXMethod` wrapper
+  // threads this into `makeErasedSlot`; the slot's `invoke` runs it on
+  // the dispatcher-supplied `DispatchContext` (the 3-arm `Connection`).
+  // `narrowPrincipalCtx` is the #720 principal gate's INVOKE PRE-BODY:
+  // it rejects a wrong-principal arm with `ForbiddenError` before the
+  // user body runs, then hands the body its narrowed `CtxForKind<K>` arm.
+  return (params: Static<P>, ctx: DispatchContext) =>
     Effect.gen(function* () {
       const principalCtx = yield* narrowPrincipalCtx(
         callablePrincipal,
         ctx.connection,
         requiresActive,
       );
-      // The handler returns `Static<R>`; the conditional `ResultOf<D>`
-      // reduces to that, but TypeScript doesn't auto-simplify across
-      // the generic boundary, so the cast bridges the equality.
-      //
       // R-channel: `def.handler` returns
       // `Effect<Static<R>, E, Reqs | ConnectionTag>`.
       // `Effect.provideService(ConnectionTag, ctx.connection)` removes
-      // ConnectionTag; remaining Reqs ride through into the
-      // `HandlerSlot.handle` R channel and are resolved by the
-      // dispatcher's `ManagedRuntime` at request time.
-      const result = yield* def
+      // ConnectionTag; remaining `Reqs` ride out for the slot's
+      // capability discharge + the dispatcher's `ManagedRuntime`.
+      return yield* def
         .handler(params, principalCtx)
         .pipe(Effect.provideService(ConnectionTag, ctx.connection));
-      return result as ResultOf<RpcDefinition<Name, P, R>>;
     }).pipe(Effect.withSpan("defineMethod"));
-  return {
-    definition,
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- HandlerSlot.handle's params type narrows to `ParamsOf<D>` (= `Static<P>` post-decode); the dispatcher passes the AJV-narrowed value, so the erasure-via-binding is safe (Spec F §3 carve-out).
-    handle: slotHandle as unknown as RpcMethodBinding["handle"], // #ignore-sloppy-code[as-unknown-as]: HandlerSlot.handle's params type narrows to `ParamsOf<D>` post-decode; the dispatcher's AJV-narrowed value satisfies the constraint at runtime (Spec F §3 carve-out)
-  };
 }

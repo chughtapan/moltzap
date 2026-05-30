@@ -786,7 +786,7 @@ callers compose failures and cancellation explicitly. (Phase -1
 vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
 to arena; consumers wanting Promise wrappers maintain their own.)
 
-### [`MoltZapTMClient`](./tm-client.ts#L275)
+### [`MoltZapTMClient`](./tm-client.ts#L334)
 
 _Class_
 
@@ -1049,7 +1049,7 @@ export interface RegisterResponse {
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register` and `/api/v1/admin/register-agent`).
 
-### [`RpcCallOptions`](./tm-client.ts#L73)
+### [`RpcCallOptions`](./tm-client.ts#L81)
 
 _Interface_
 
@@ -1114,7 +1114,7 @@ export interface ConversationMeta {
 Errors that can surface from the Effect-based service API. Matches the
 failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
 
-### [`TaskCallbackContext`](./tm-client.ts#L174)
+### [`TaskCallbackContext`](./tm-client.ts#L182)
 
 _Interface_
 
@@ -1132,7 +1132,7 @@ passthrough is intentional: when the wire frame carries an OTel
 traceparent header, the surrounding transport may layer it on; the
 typed-dispatcher does not encode tracing into the type.
 
-### [`TMClientOptions`](./tm-client.ts#L187)
+### [`TMClientOptions`](./tm-client.ts#L246)
 
 _Interface_
 
@@ -1181,7 +1181,7 @@ export interface TMClientOptions {
 }
 ```
 
-### [`TMHandlers`](./tm-client.ts#L185)
+### [`TMHandlers`](./tm-client.ts#L193)
 
 _TypeAlias_
 

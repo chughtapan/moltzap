@@ -224,7 +224,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L284)
+### [`MessageReceivedNotification`](./messages.ts#L288)
 
 _TypeAlias_
 
@@ -234,7 +234,7 @@ export type MessageReceivedNotification = Static<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L292)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L296)
 
 _Variable_
 
@@ -247,7 +247,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](./messages.ts#L230)
+### [`MessagesList`](./messages.ts#L232)
 
 _Variable_
 
@@ -277,13 +277,15 @@ export const MessagesList = defineRpc({
   capabilities: [
     {
       tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: unknown) => {
+      argsOf: (params: unknown, ctx: DispatchContext) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as { readonly taskId: TaskId };
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the ctx shape (dispatcher-boundary erasure carve-out — ctx arrives as `unknown` from the type-erased dispatcher); `callerAgentIdOf` then narrows the agent arm cast-free
+        // `ctx` is the protocol 2-arm `DispatchContext` (the slot narrowed
+        // the live arm before discharge); `callerAgentIdOf` reads the
+        // agent arm cast-free.
         return {
           taskId: p.taskId,
-          callerAgentId: callerAgentIdOf(ctx as DispatchContext),
+          callerAgentId: callerAgentIdOf(ctx),
         };
       },
     },
@@ -341,7 +343,7 @@ export const MessagesSend = defineRpc({
       tag: MessageSendPermission,
       argsOf: (
         params: unknown,
-        ctx: unknown,
+        ctx: DispatchContext,
       ): ObtainMessageSendPermissionInput => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
@@ -352,8 +354,10 @@ export const MessagesSend = defineRpc({
         return {
           taskId: p.taskId,
           conversationId: p.conversationId,
-          // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes the ctx shape (dispatcher-boundary erasure carve-out — ctx arrives as `unknown` from the type-erased dispatcher); `callerAgentIdOf` then narrows the agent arm cast-free
-          senderAgentId: callerAgentIdOf(ctx as DispatchContext),
+          // `ctx` is the protocol 2-arm `DispatchContext` (the slot
+          // narrowed the live arm before discharge); `callerAgentIdOf`
+          // reads the agent arm cast-free.
+          senderAgentId: callerAgentIdOf(ctx),
           replyToId: p.replyToId,
         };
       },
@@ -479,7 +483,7 @@ export const TaskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`TaskConversationAddParticipant`](./tasks.ts#L502)
+### [`TaskConversationAddParticipant`](./tasks.ts#L504)
 
 _Variable_
 
@@ -510,7 +514,7 @@ TM-only: add an agent to one conversation. The agent MUST already
 appear in `task_participants` for `taskId`; otherwise
 `ParticipantNotAdmittedError`. Spec body Goal 1.
 
-### [`TaskConversationArchive`](./tasks.ts#L472)
+### [`TaskConversationArchive`](./tasks.ts#L474)
 
 _Variable_
 
@@ -530,7 +534,7 @@ export const TaskConversationArchive = defineRpc({
 
 TM-only: archive one conversation. Task stays open.
 
-### [`TaskConversationArchivedNotification`](./tasks.ts#L607)
+### [`TaskConversationArchivedNotification`](./tasks.ts#L609)
 
 _TypeAlias_
 
@@ -540,7 +544,7 @@ export type TaskConversationArchivedNotification = Static<
 >;
 ```
 
-### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L627)
+### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L629)
 
 _Variable_
 
@@ -552,7 +556,7 @@ export const TaskConversationArchivedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationCreate`](./tasks.ts#L412)
+### [`TaskConversationCreate`](./tasks.ts#L414)
 
 _Variable_
 
@@ -584,7 +588,7 @@ TM-only: mint a new conversation under an existing task. Every
 entry in `participants` MUST already appear in `task_participants`
 for `taskId`; violations return `ParticipantNotAdmittedError`.
 
-### [`TaskConversationCreatedNotification`](./tasks.ts#L604)
+### [`TaskConversationCreatedNotification`](./tasks.ts#L606)
 
 _TypeAlias_
 
@@ -594,7 +598,7 @@ export type TaskConversationCreatedNotification = Static<
 >;
 ```
 
-### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L620)
+### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L622)
 
 _Variable_
 
@@ -607,7 +611,7 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 )
 ```
 
-### [`TaskConversationList`](./tasks.ts#L440)
+### [`TaskConversationList`](./tasks.ts#L442)
 
 _Variable_
 
@@ -646,7 +650,7 @@ export type TaskConversationListItem = Static<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L613)
+### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L615)
 
 _TypeAlias_
 
@@ -656,7 +660,7 @@ export type TaskConversationParticipantsAddedNotification = Static<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L639)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L641)
 
 _Variable_
 
@@ -668,7 +672,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L616)
+### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L618)
 
 _TypeAlias_
 
@@ -678,7 +682,7 @@ export type TaskConversationParticipantsRemovedNotification = Static<
 >;
 ```
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L645)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L647)
 
 _Variable_
 
@@ -690,7 +694,7 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationRemoveParticipant`](./tasks.ts#L528)
+### [`TaskConversationRemoveParticipant`](./tasks.ts#L530)
 
 _Variable_
 
@@ -716,7 +720,7 @@ TM-only: remove an agent from one conversation. The agent stays
 in `task_participants` (so they may still receive messages on
 other conversations within the task).
 
-### [`TaskConversationUnarchive`](./tasks.ts#L485)
+### [`TaskConversationUnarchive`](./tasks.ts#L487)
 
 _Variable_
 
@@ -736,7 +740,7 @@ export const TaskConversationUnarchive = defineRpc({
 
 TM-only: reverse of `task/conversation/archive`.
 
-### [`TaskConversationUnarchivedNotification`](./tasks.ts#L610)
+### [`TaskConversationUnarchivedNotification`](./tasks.ts#L612)
 
 _TypeAlias_
 
@@ -746,7 +750,7 @@ export type TaskConversationUnarchivedNotification = Static<
 >;
 ```
 
-### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L633)
+### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L635)
 
 _Variable_
 
@@ -804,7 +808,7 @@ _Variable_
 export const TaskId = brandedId("TaskId")
 ```
 
-### [`TaskLeave`](./tasks.ts#L401)
+### [`TaskLeave`](./tasks.ts#L403)
 
 _Variable_
 
@@ -950,14 +954,16 @@ export const TaskRequest = defineRpc({
   capabilities: [
     {
       tag: ContactPolicyAllowsReach,
-      argsOf: (params: unknown, ctx: unknown) => {
+      argsOf: (params: unknown, ctx: DispatchContext) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly invitedAgentIds: ReadonlyArray<AgentId>;
         };
-        const c = ctx as DispatchContext;
+        // `ctx` is the protocol 2-arm `DispatchContext` (the slot narrowed
+        // the live arm before discharge); `callerAgentIdOf` reads the
+        // agent arm cast-free.
         return {
-          creatorAgentId: callerAgentIdOf(c),
+          creatorAgentId: callerAgentIdOf(ctx),
           targetAgentIds: [...p.invitedAgentIds],
         };
       },

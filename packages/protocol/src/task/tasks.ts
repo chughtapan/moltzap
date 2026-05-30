@@ -370,14 +370,16 @@ export const TaskRequest = defineRpc({
   capabilities: [
     {
       tag: ContactPolicyAllowsReach,
-      argsOf: (params: unknown, ctx: unknown) => {
+      argsOf: (params: unknown, ctx: DispatchContext) => {
         // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
         const p = params as {
           readonly invitedAgentIds: ReadonlyArray<AgentId>;
         };
-        const c = ctx as DispatchContext;
+        // `ctx` is the protocol 2-arm `DispatchContext` (the slot narrowed
+        // the live arm before discharge); `callerAgentIdOf` reads the
+        // agent arm cast-free.
         return {
-          creatorAgentId: callerAgentIdOf(c),
+          creatorAgentId: callerAgentIdOf(ctx),
           targetAgentIds: [...p.invitedAgentIds],
         };
       },

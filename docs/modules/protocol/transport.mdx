@@ -13,7 +13,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentClientConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L161)
+### [`AgentClientConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L165)
 
 _Interface_
 
@@ -29,49 +29,23 @@ the full `serverRpcMethods` catalog. Outbound notifications: none
 `notify` method is typed `never`, which fails any call site. No
 inbound surface (the AgentClient kind's inbound catalog is empty).
 
-### [`AgentClientConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L228)
+### [`AgentClientConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L222)
 
 _Interface_
 
 ```ts
-export interface AgentClientConnectionConfig<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> {
+export interface AgentClientConnectionConfig<Env, Conn> {
   readonly id: string;
-  readonly handlers: AgentClientHandlers<Ctx, Caps>;
+  readonly slots: ErasedSlotTable<Env, Conn>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }
 ```
 
-Equivalent config for the AgentClient factory. `handlers` is the
-empty table; the factory accepts it for forward compatibility (if a
-future spec adds AgentClient-inbound RPCs, the type system demands
-coverage).
-
-### [`AgentClientHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L117)
-
-_TypeAlias_
-
-```ts
-export type AgentClientHandlers<
-  Ctx,
-  Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<never, Ctx, Caps>;
-```
-
-`AgentClientHandlers` — handler table for a plain agent client. The
-inbound catalog is empty (an AgentClient receives notifications + RPC
-responses; server-initiated RPCs go to a TM, not a generic client).
-Resolves to `{}` so the literal `{}` is always well-typed; future
-AgentClient-inbound RPC additions extend the catalog and propagate
-through this alias.
-
-The `Ctx` / `Caps` generics are retained so future
-AgentClient-inbound RPC additions get the same Ctx/Caps threading
-as Server and TM. The mapped type evaluates to `{}` when the
-catalog union is `never`, satisfying both knip and the type's intent.
+Equivalent config for the AgentClient factory. `slots` is the empty
+table (the AgentClient kind's inbound catalog is empty); the factory
+accepts it for forward compatibility (if a future spec adds
+AgentClient-inbound RPCs, the slot table demands coverage).
 
 ### [`ajv`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L19)
 
@@ -104,49 +78,45 @@ already authenticated as either arm) and at the per-principal gate
 binding). The `principal` discriminator names which arm the conflict is
 on; the wire code is shared.
 
-### [`buildAgentClientDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L127)
+### [`buildAgentClientDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L104)
 
 _Function_
 
 ```ts
-export function buildAgentClientDispatcher<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: AgentClientConnectionConfig<Ctx, Caps>,
+export function buildAgentClientDispatcher<Env, Conn>(
+  config: AgentClientConnectionConfig<Env, Conn>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope>
 ```
 
 Build the agent-client dispatcher. Wires the originator only (no
-inbound dispatch — the AgentClient kind's inbound catalog is empty).
-The empty `notify` shape is `never`-typed at the type level (no
-call site can satisfy the constraint).
+inbound dispatch — the AgentClient kind's inbound catalog is empty,
+so `config.slots` is the empty table `{}`). The empty `notify` shape
+is `never`-typed at the type level (no call site can satisfy the
+constraint).
 
-### [`buildServerDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L98)
+### [`buildServerDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L77)
 
 _Function_
 
 ```ts
-export function buildServerDispatcher<Ctx, Caps extends Context.Tag<any, any>>(
-  config: ServerConnectionConfig<Ctx, Caps>,
-): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope>
+export function buildServerDispatcher<Env, Conn>(
+  config: ServerConnectionConfig<Env, Conn>,
+): Effect.Effect<ServerConnection<Env, Conn>, never, Scope.Scope>
 ```
 
-Build the server-side dispatcher. Wires the inbound static-table
+Build the server-side dispatcher. Wires the inbound slot-table
 dispatch loop + the outbound originator (TM-callback path) into a
-single `ServerConnection` value.
+single `ServerConnection` value. `Env` is the slot table's residual
+service-tag union; `Conn` is the server's three-arm `Connection`.
 
-### [`buildTaskMasterDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L158)
+### [`buildTaskMasterDispatcher`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L132)
 
 _Function_
 
 ```ts
-export function buildTaskMasterDispatcher<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: TaskMasterConnectionConfig<Ctx, Caps>,
-): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope>
+export function buildTaskMasterDispatcher<Env, Conn>(
+  config: TaskMasterConnectionConfig<Env, Conn>,
+): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope>
 ```
 
 Build the TM dispatcher. Wires both the inbound dispatch loop
@@ -155,7 +125,7 @@ Build the TM dispatcher. Wires both the inbound dispatch loop
 REQUIRED: callers must register a handler for each catalog method;
 vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
-### [`callerAgentIdOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L69)
+### [`callerAgentIdOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L70)
 
 _Function_
 
@@ -174,7 +144,7 @@ assertion. A non-agent arm reaching here is an impossible-state defect
 (the binding guarantees an agent caller), so it throws the tagged
 NonAgentCallerError rather than returning a caller-actionable error.
 
-### [`CapabilitiesOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L138)
+### [`CapabilitiesOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L117)
 
 _TypeAlias_
 
@@ -189,51 +159,24 @@ via `D["capabilities"][number]["tag"]`. When `D["capabilities"]` is
 absent (the spec F stub state, before impl-staff per-method updates),
 resolves to `never` — the slot contributes no capability requirements.
 
-### [`CapabilityDescriptor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L97)
+### [`CapabilityDescriptor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L98)
 
 _Interface_
 
 ```ts
 export interface CapabilityDescriptor {
   readonly tag: AnyContextTag;
-  readonly argsOf: (params: unknown, ctx: unknown) => unknown;
+  // `ctx` is the protocol-owned {@link DispatchContext} (D #705 Decision
+  // 2): the `argsOf` resolver reads the AUTHENTICATED principal arm
+  // (`connection.auth`) to derive the provider's args. The slot's
+  // `invoke` narrows the live 3-arm connection to the agent/app arm
+  // (the #720 principal-kind gate) BEFORE `argsOf` runs, so the
+  // protocol 2-arm `DispatchContext` is always satisfied here. `params`
+  // stays `unknown` — it is wire-dynamic, re-imposed per-method inside
+  // each resolver.
+  readonly argsOf: (params: unknown, ctx: DispatchContext) => unknown;
 }
 ```
-
-### [`CapabilityProviderTable`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L118)
-
-_TypeAlias_
-
-```ts
-export type CapabilityProviderTable<Caps extends Context.Tag<any, any>> = {
-  readonly [Cap in Caps as Cap extends Context.Tag<infer Id, infer _Svc>
-    ? Id extends string
-      ? Id
-      : never
-    : never]: (
-    args: unknown,
-  ) => Effect.Effect<
-    Cap extends Context.Tag<unknown, infer Svc> ? Svc : never,
-    unknown,
-    unknown
-  >;
-};
-```
-
-Provider-table type alias (Spec F G5). Keys are the capability tag's
-`_tag` string; values are the obtain helper that produces the tag's
-service value. Spec E #606 owns the inhabitants — Spec F consumes
-them unchanged.
-
-Spec E's obtain helpers have shape
-`(args) =&gt; Effect.Effect&lt;Service, ObtainError, ObtainContext&gt;`. The
-dispatcher invokes the provider, then threads
-`Effect.provideServiceEffect(tag, providerEffect)` for each tag a
-handler's definition declares.
-
-Parameter `Caps` is the union of `Context.Tag` instances referenced
-across all slots in the handler table; the factory rejects (TS2741) a
-provider table missing any tag in `Caps`.
 
 ### [`CapIdentsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/erased-slot.ts#L158)
 
@@ -273,20 +216,6 @@ WRONG-service provider is an element-type mismatch. Both FIRE for the
 repo's class-style tags — the equivalent mapped-type keyed by the tag
 Identifier does NOT (the class-tag Identifier is `Self`, a brand type,
 not a string key, so the mapped type collapses to `{}`).
-
-### [`CapsUnionOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L148)
-
-_TypeAlias_
-
-```ts
-export type CapsUnionOf<T> = {
-  [K in keyof T]: SlotCaps<T[K]>;
-}[keyof T];
-```
-
-Capability-union extractor: union of every capability tag referenced
-across all real `HandlerSlot` arms in the table. The factory's
-signature uses this to demand a `CapabilityProviderTable&lt;CapsUnionOf&lt;T>>`.
 
 ### [`ConflictError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L123)
 
@@ -495,7 +424,7 @@ string can never accidentally type-fit a method position. See
 Sibling: defineNotification — same pipeline minus the
 result schema and response encoder.
 
-### [`DispatchAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L27)
+### [`DispatchAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L28)
 
 _TypeAlias_
 
@@ -512,7 +441,7 @@ structurally — their `_tag` / `agentId` / `appId` use these same
 protocol-owned brands — so the descriptor type can name the principal
 without protocol importing server.
 
-### [`DispatchContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L39)
+### [`DispatchContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/capabilities.ts#L40)
 
 _Interface_
 
@@ -625,7 +554,7 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
 }> {}
 ```
 
-### [`HandlerSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L33)
+### [`HandlerSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L36)
 
 _Interface_
 
@@ -643,40 +572,17 @@ export interface HandlerSlot<
 }
 ```
 
-Per-definition handler slot. `Ctx` is the dispatch context the
-server side hands to every handler. `Caps` is the upper bound on
-which `Context.Tag`s the handler's R channel may reference; the
-dispatcher provides exactly these from the `CapabilityProviderTable`.
+Per-definition handler slot (TM-callback authoring shape). `Ctx` is
+the per-frame context the client hands every handler. `Caps` is the
+upper bound on which `Context.Tag`s the handler's R channel may
+reference; the TM-callback catalog declares no capabilities, so
+callers bind `Caps = never`.
 
-The Caps type-level gate (handler R channel ⊆ `CapabilitiesOf&lt;D&gt;`)
-lives in `typed-dispatcher.types-check.ts`. The impl-staff PR
-populates per-definition `capabilities` and the gate becomes
-exercisable.
-
-### [`HandlerTable`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L74)
-
-_TypeAlias_
-
-```ts
-export type HandlerTable<
-  Defs extends RpcDefinition<string, TSchema, TSchema>,
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> = {
-  readonly [D in Defs as NameOf<D>]: SlotValue<D, Ctx, Caps>;
-};
-```
-
-Closed handler-table type generated from a definition union. Every
-catalog member appears as a structurally-required key whose value is
-a real `HandlerSlot&lt;D, Ctx, Caps&gt;` (Spec D3 R14b retired the
-sentinel widening — no slot is optional).
-
-Type-parameter erasure note: `RpcDefinition` is variant across `Name`
-— the catalog `typeof serverRpcMethods[number]` resolves to a union of the
-concrete `RpcDefinition&lt;"identity/register", ...>` etc. arms; the
-mapped type preserves each arm's `name` literal so the resulting
-table has named keys.
+The WS client wraps each authored slot into an `ErasedSlot` (caps
+tuple `[]`) at connection time; the slot's `invoke` decodes params
+and runs `handle`. The cross-package handler-R lockstep that the
+server side enforces lives on `makeErasedSlot`'s typed handler bound
+(`erased-slot.types-check.ts`).
 
 ### [`InvalidParamsError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L137)
 
@@ -765,22 +671,19 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeAgentClientConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L279)
+### [`makeAgentClientConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L264)
 
 _Function_
 
 ```ts
-export function makeAgentClientConnection<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: AgentClientConnectionConfig<Ctx, Caps>,
+export function makeAgentClientConnection<Env, Conn>(
+  config: AgentClientConnectionConfig<Env, Conn>,
 ): Effect.Effect<AgentClientConnection, never, Scope.Scope>
 ```
 
 Factory — agent client. Delegates to `buildAgentClientDispatcher`
 which wires the originator only (no inbound dispatch — the AgentClient
-kind's inbound catalog is empty).
+kind's inbound catalog is empty, so `config.slots` is `{}`).
 
 ### [`makeErasedSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/erased-slot.ts#L182)
 
@@ -850,48 +753,44 @@ export const makeOriginator = (config: {
 }): Effect.Effect<Originator, never, Scope.Scope>
 ```
 
-### [`makeServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L268)
+### [`makeServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L253)
 
 _Function_
 
 ```ts
-export function makeServerConnection<Ctx, Caps extends Context.Tag<any, any>>(
-  config: ServerConnectionConfig<Ctx, Caps>,
-): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope>
+export function makeServerConnection<Env, Conn>(
+  config: ServerConnectionConfig<Env, Conn>,
+): Effect.Effect<ServerConnection<Env, Conn>, never, Scope.Scope>
 ```
 
 Factory — server side. Delegates to `buildServerDispatcher`
 (`dispatch.ts`) which wires:
-  - inbound: per-frame dispatch via the static handler table; for
-    each frame, the dispatcher reads the handler's
-    `definition.capabilities` (Shape B), invokes the provider table's
-    entry for each tag with the dispatcher-derived args, and threads
-    `Effect.provideServiceEffect` over the handler effect.
+  - inbound: per-frame dispatch via the kind's ErasedSlotTable;
+    each slot decodes params via its own validator + discharges the
+    method's declared capabilities from its own positional providers
+    tuple INSIDE `invoke`, so the dispatcher just routes and projects
+    the slot's `Exit` to a wire response.
   - outbound: an internalized originator (formerly the body of
     `makeOriginator`) that mints `${idPrefix}-N` ids and tracks
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
-### [`makeTaskMasterConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L299)
+### [`makeTaskMasterConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L280)
 
 _Function_
 
 ```ts
-export function makeTaskMasterConnection<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
->(
-  config: TaskMasterConnectionConfig<Ctx, Caps>,
-): Effect.Effect<TaskMasterConnection<Ctx>, never, Scope.Scope>
+export function makeTaskMasterConnection<Env, Conn>(
+  config: TaskMasterConnectionConfig<Env, Conn>,
+): Effect.Effect<TaskMasterConnection<Env, Conn>, never, Scope.Scope>
 ```
 
 Factory — TaskMaster. Delegates to `buildTaskMasterDispatcher` which
 wires both the inbound dispatch loop (against `taskCallbackMethods`)
 and the outbound originator (against the full `serverRpcMethods` catalog).
 Every TM-inbound slot is REQUIRED. Spec D3 R14b retired the optional
-sentinel defaults the prior shape carried; the empty literal
-`{ handlers: {} }` is REJECTED at the type level (TS2741 — see
-Canary 6 in `typed-dispatcher.types-check.ts`). Vacuous-deny
+sentinel defaults the prior shape carried; callers build the slot
+table via `makeErasedSlot` per catalog method. Vacuous-deny
 moderators bind an explicit `ForbiddenError`-returning handler for
 each catalog method.
 
@@ -1359,12 +1258,12 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`ServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L148)
+### [`ServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L152)
 
 _Interface_
 
 ```ts
-export interface ServerConnection<Ctx = unknown, R = never>
+export interface ServerConnection<Env = unknown, Conn = unknown>
 ```
 
 `ServerConnection` — server side. Outbound surface is the
@@ -1372,66 +1271,36 @@ export interface ServerConnection<Ctx = unknown, R = never>
 for `DispatchAuthorize` and `MessagesAuthorize`. Outbound notifications
 are the full `AnyNotificationDefinition` set (the server originates
 delivery + lifecycle notifications). Inbound surface is the closed
-`serverRpcMethods` catalog, dispatched via the static `ServerHandlers` table.
+`serverRpcMethods` catalog, dispatched via the kind's
+ErasedSlotTable.
 
 ### [`ServerConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L209)
 
 _Interface_
 
 ```ts
-export interface ServerConnectionConfig<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> {
+export interface ServerConnectionConfig<Env, Conn> {
   readonly id: string;
-  readonly handlers: ServerHandlers<Ctx, Caps>;
-  readonly capabilities: CapabilityProviderTable<
-    CapsArg<ServerHandlers<Ctx, Caps>>
-  >;
+  readonly slots: ErasedSlotTable<Env, Conn>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }
 ```
 
-Config record consumed by `makeServerConnection`. `Caps` is inferred
-by TypeScript from the handler-table literal — callers normally
-write `makeServerConnection({ handlers: { ... }, capabilities: { ... } })`
-and TypeScript reconstructs `Caps` from the slots' definitions.
+Config record consumed by `makeServerConnection`. `slots` is the
+kind's ErasedSlotTable: a `Record&lt;methodName, ErasedSlot&gt;`
+each owning its typed `(definition, handler, providers)` triple. The
+per-method capability discharge lives INSIDE each slot, so there is
+no separate provider table on the config (the pre-HALF-1
+`handlers` + `capabilities` pair).
+
+`Env` is the residual service-tag union each slot's `invoke` requires
+(resolved by the surrounding `ManagedRuntime` at request time); `Conn`
+is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 
 `write` is the wire-level write effect the surrounding transport
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound TM-callback path.
-
-### [`ServerHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L99)
-
-_TypeAlias_
-
-```ts
-export type ServerHandlers<
-  Ctx,
-  Caps extends Context.Tag<any, any> = never,
-> = HandlerTable<ServerInboundRpcDefinition, Ctx, Caps>;
-```
-
-`ServerHandlers` — handler table for the server side. `Ctx` defaults
-to the dispatch context the server's `defineMethod` wrapper exposes
-(see `packages/server/src/transport/context.ts → DispatchContext`).
-`Caps` is the union of `Context.Tag` instances the table's slots
-declare; the factory infers it from the literal.
-
-### [`ServerInboundRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L89)
-
-_TypeAlias_
-
-```ts
-export type ServerInboundRpcDefinition = (typeof serverRpcMethods)[number] &
-```
-
-Server-side inbound RPC catalog — every method an agent client may
-call into the server. LSP-anchored: the catalog is `serverRpcMethods` from
-`rpc-registry.ts`, which composes `identityRpcMethods`,
-`networkRpcMethods`, `taskRpcMethods`, and `appRpcMethods`. 42
-members at `227c398`.
 
 ### [`SlotDispatchContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/erased-slot.ts#L84)
 
@@ -1459,37 +1328,31 @@ Kept structural (not an import of the server type) so the protocol
 package does not depend on `@moltzap/server-core`. The slot factory is
 generic over `Conn`, which the server pins to its `Connection` union.
 
-### [`TaskMasterConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L183)
+### [`TaskMasterConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L187)
 
 _Interface_
 
 ```ts
-export interface TaskMasterConnection<Ctx = unknown, R = never>
+export interface TaskMasterConnection<Env = unknown, Conn = unknown>
 ```
 
 `TaskMasterConnection` — agent acting as TM. Outbound surface is the
 full `serverRpcMethods` catalog (a TM is a superset of an AgentClient at the
 type level). Outbound notifications: none. Inbound surface is the
-`taskCallbackMethods` catalog, dispatched via the static
-`TaskMasterHandlers` table; every slot is a REQUIRED real handler
-(Spec D3 R14b retired the optional `forbidden` / `noOpNotification`
+`taskCallbackMethods` catalog, dispatched via the kind's
+ErasedSlotTable; every slot is a REQUIRED real handler (Spec
+D3 R14b retired the optional `forbidden` / `noOpNotification`
 sentinels), so vacuous-deny moderators must bind an explicit
 `ForbiddenError`-returning handler per catalog method.
 
-### [`TaskMasterConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L242)
+### [`TaskMasterConnectionConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L233)
 
 _Interface_
 
 ```ts
-export interface TaskMasterConnectionConfig<
-  Ctx,
-  Caps extends Context.Tag<any, any>,
-> {
+export interface TaskMasterConnectionConfig<Env, Conn> {
   readonly id: string;
-  readonly handlers: TaskMasterHandlers<Ctx, Caps>;
-  readonly capabilities: CapabilityProviderTable<
-    CapsArg<TaskMasterHandlers<Ctx, Caps>>
-  >;
+  readonly slots: ErasedSlotTable<Env, Conn>;
   readonly write: (raw: string) => Effect.Effect<void, unknown>;
   readonly idPrefix: string;
 }
@@ -1498,7 +1361,7 @@ export interface TaskMasterConnectionConfig<
 Config for the TaskMaster factory. The TM owns the `taskCallbackMethods`
 catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
 
-### [`TaskMasterHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L133)
+### [`TaskMasterHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L90)
 
 _TypeAlias_
 
@@ -1509,7 +1372,7 @@ export type TaskMasterHandlers<
 > = HandlerTable<TaskMasterInboundRpcDefinition, Ctx, Caps>;
 ```
 
-### [`TaskMasterInboundRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L131)
+### [`TaskMasterInboundRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/handlers.ts#L88)
 
 _TypeAlias_
 
@@ -1573,7 +1436,7 @@ export const validateResponseFrame = ajv.compile(ResponseFrameSchema) as (
 )
 ```
 
-### [`wireErrorFromInstance`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L482)
+### [`wireErrorFromInstance`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/dispatch.ts#L365)
 
 _Function_
 
