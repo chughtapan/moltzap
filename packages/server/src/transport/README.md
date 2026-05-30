@@ -36,13 +36,13 @@ time.
 | Imports FROM | kernels only (`db`, `crypto`, `runtime`, `runtime-surface`, `config`, `test-utils`) |
 | Imports TO   | identity, network, task, app (any protocol layer composes on top) |
 
-Transport is the lowest protocol layer. It does not know about identity, conversations, presence, or app hosts. Handlers live in their layer's `handlers/` directory and are bound via `defineXMethod` from this layer.
+Transport is the lowest protocol layer. It does not know about identity, conversations, presence, or app hosts. Handlers live in their layer's `handlers/` directory and are bound via the `defineX(Middleware)Method` wrappers from this layer.
 
 ## Files
 
 - `connection.ts` — WS connection manager + per-connection RPC client.
-- `context.ts` — `defineMethod` (+ the required `callablePrincipal` principal-kind gate), `CtxForKind`, the `SlotHandler` shape it returns, `ServerRpcSlots`/`ServerRpcSlotTable` (the cast-free `ErasedSlot` catalog), the `AgentContext`/`AppContext` principal arms, the module-private `DispatchContext`. The base wrapper narrows the live `Connection` arm to the binding's declared principal and hands the body its `CtxForKind<K>` arm; `DispatchContext` (the 3-arm dispatcher `Ctx`, structurally `SlotDispatchContext<Connection>`) is the only type that accepts the unauthenticated arm.
-- `define-layered-method.ts` — `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`. Layer-specific wrappers that constrain handler R-channel to a per-layer Tag allowlist and provide the matching layer-scope service. Each threads a REQUIRED `callablePrincipal` (`"agent"`/`"app"`/`"any"`), orthogonal to the layer: a `defineAppMethod` binding may declare `callablePrincipal: "agent"` (e.g. `task/request`, `dispatch/request`).
+- `context.ts` — `defineMiddlewareMethod` (the authenticated slot body — #720 principal-kind gate + `weaveCaps` cap chain + `ConnectionTag` / `CurrentPrincipal` provisions) and `defineUnauthMethod` (the lone `"any"` body), `CtxForKind`, `ServerRpcSlots`/`ServerRpcSlotTable` (the `ErasedSlot` catalog), the `AgentContext`/`AppContext` principal arms, the module-private `DispatchContext`. The slot body narrows the live `Connection` arm to the binding's declared principal and hands the body its `CtxForKind<K>` arm; `DispatchContext` (the 3-arm dispatcher `Ctx`, just `SlotDispatchContext<Connection>` — #705 HALF-2 collapsed the former duplicate server-local + protocol argsOf-resolver `DispatchContext`s into this one name) is the only type that accepts the unauthenticated arm.
+- `define-layered-method.ts` — cap-LESS `defineNetworkMethod` / `defineTaskMethod` / `defineAppMethod`, cap-BEARING `defineTaskMiddlewareMethod` / `defineAppMiddlewareMethod`, and `defineConnectMethod` (the unauth `network/connect`). Layer-specific wrappers that constrain handler R-channel to a per-layer Tag allowlist and provide the matching layer-scope service; every one bottoms out at `makeMiddlewareSlot` (the single slot mechanism, #705 HALF-2). Each threads a REQUIRED `callablePrincipal` (`"agent"`/`"app"`/`"any"`), orthogonal to the layer: an app-layer binding may declare `callablePrincipal: "agent"` (e.g. `task/request`, `dispatch/request`).
 - `layer-scopes.ts` — runtime `Context.Tag`s used as structural layer markers (`NetworkLayerScope`, `TaskLayerScope`, `AppLayerScope`).
 - `layer-tags.ts` — type-only allowlist hierarchy (`TransportTags`, `IdentityTags`, `NetworkTags`, `TaskTags`, `AppTags`).
 - `layer-boundary.types-check.ts` — compile-time test that exercises the constraint shape.
@@ -64,21 +64,27 @@ The two checks fire at different boundaries (yield-site vs import-site) and toge
 
 ## Dispatch model
 
-Per-request handler R-channel resolution (#705 HALF-1 — cast-free `ErasedSlot`):
+Per-request handler R-channel resolution (#705 HALF-2 — single
+`makeMiddlewareSlot` mechanism, cast-free):
 
 ```
 ErasedSlot.invoke  (call site: conn.originator.handle(frame, ctx); the slot
-        │           decodes params via its own validator + discharges its
-        │           declared per-frame capabilities from its positional
-        │           CapProviders tuple INSIDE invoke)
+        │           decodes params via its own validator, then runs the
+        │           pre-composed gated body: #720 principal gate → weaveCaps
+        │           STATIC provideServiceEffect chain → provide ConnectionTag
+        │           + CurrentPrincipal → Effect.exit. NO dischargeCaps fold.)
         │
-        │ ConnectionTag      ── provided by defineMethod from ctx.connection
+        │ ConnectionTag      ── provided by the slot body from ctx.connection
         │                       (subtracted from the slot's residual Env)
+        │ CurrentPrincipal   ── provided by the slot body from the #720-narrowed
+        │                       arm (authenticated methods only; derivePayload
+        │                       reads it via `yield* callerAgentId`)
         │ NetworkLayerScope, TaskLayerScope, AppLayerScope
-        │                ── provided by defineXMethod wrappers, structurally
+        │                ── provided by the per-layer wrappers, structurally
         │ TaskReadAccess, ConversationInTask, MessageSendPermission, ...
         │                ── per-frame capability tags, discharged inside the
-        │                   slot from the method's providers tuple
+        │                   slot by the binding's weaveCaps `provideMiddleware`
+        │                   chain (one concrete-tag step per declared cap)
         │ MessageServiceTag, ConversationServiceTag, ...
         │                ── the residual Env, provided by the dispatcher's
         │                   ManagedRuntime (Layer.mergeAll(NodeHttpServer.layerContext, FullLive))
@@ -94,4 +100,4 @@ Three pieces:
 
 1. **Tag hierarchy** in `layer-tags.ts`. Every Tag yielded by a post-DI-migration handler is placed at the lowest layer that yields it.
 2. **Wrapper signatures** in `context.ts` and `define-layered-method.ts` widen with `Reqs` generics. `Reqs extends NetworkTags = NetworkTags` (and parallel for Task/App) — defaulted to the upper bound so handlers without per-Tag yields still compile; constrained so a handler that yields a higher-tier Tag is rejected at the call site.
-3. **Protocol-side slot factory** in `@moltzap/protocol/transport/erased-slot.ts`: `makeErasedSlot` wraps each typed `(definition, handler, providers)` triple into an `ErasedSlot<Env, Conn>` whose `invoke` discharges the method's declared per-frame capabilities (positional `CapProviders` tuple) inside. The residual `R = Env` is the layer service-tag union the dispatcher's `ManagedRuntime` resolves at request time. `makeInboundDispatch` (`dispatch.ts`) indexes the `ErasedSlotTable` by `frame.method`.
+3. **Protocol-side slot factory** in `@moltzap/protocol/transport/middleware-slot.ts`: `makeMiddlewareSlot` wraps a definition + a pre-composed cast-free gated body into an `ErasedSlot<Env, Conn>` whose `invoke` decodes params then runs the body. The body's per-frame capabilities were discharged by the binding's STATIC `weaveCaps` `provideServiceEffect` chain (one concrete-tag step per cap), so the residual `R = Env` is the layer service-tag union the dispatcher's `ManagedRuntime` resolves at request time — no runtime fold, no cast. `makeInboundDispatch` (`dispatch.ts`) indexes the `ErasedSlotTable` by `frame.method`.

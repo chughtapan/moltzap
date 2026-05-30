@@ -9,22 +9,13 @@ import { TaskId } from "./ids.js";
 
 export const LeaseId = brandedId("LeaseId");
 export type LeaseId = Static<typeof LeaseId>;
-import { ConversationInTask } from "./capabilities/conversation-in-task.js";
-import {
-  MessageSendPermission,
-  type ObtainMessageSendPermissionInput,
-} from "./capabilities/message-send-permission.js";
-import { TaskReadAccess } from "./capabilities/task-read-access.js";
-import {
-  callerAgentIdOf,
-  type DispatchContext,
-} from "../transport/capabilities.js";
 
-// D #705 CP4d — `messages/send` + `messages/list` are agent-originated;
-// their `argsOf` resolvers read the sender/caller agent id off the
-// protocol-owned `DispatchContext` agent arm (the binding hands an agent
-// ctx). The shared `callerAgentIdOf` (capabilities.ts) narrows the tagged
-// `auth` union by `_tag === "AgentContext"` — cast-free.
+// #705 HALF-2 — `messages/send` + `messages/list` are agent-originated; their
+// per-frame capabilities (`ConversationInTask`, `MessageSendPermission`,
+// `TaskReadAccess`) are now declared at the server binding site as
+// `CapabilityMiddleware` tuples and read the caller via `CurrentPrincipal`,
+// NOT as descriptor `capabilities` + `argsOf` resolvers. The wire descriptor
+// here carries only the params/result shape.
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -186,42 +177,6 @@ export const MessagesSend = defineRpc({
     { message: MessageSchema },
     { additionalProperties: false },
   ),
-  capabilities: [
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-    {
-      tag: MessageSendPermission,
-      argsOf: (
-        params: unknown,
-        ctx: DispatchContext,
-      ): ObtainMessageSendPermissionInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-          readonly replyToId?: Static<typeof MessageId>;
-        };
-        return {
-          taskId: p.taskId,
-          conversationId: p.conversationId,
-          // `ctx` is the protocol 2-arm `DispatchContext` (the slot
-          // narrowed the live arm before discharge); `callerAgentIdOf`
-          // reads the agent arm cast-free.
-          senderAgentId: callerAgentIdOf(ctx),
-          replyToId: p.replyToId,
-        };
-      },
-    },
-  ] as const,
 });
 
 /**
@@ -251,33 +206,6 @@ export const MessagesList = defineRpc({
     },
     { additionalProperties: false },
   ),
-  capabilities: [
-    {
-      tag: TaskReadAccess,
-      argsOf: (params: unknown, ctx: DispatchContext) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        // `ctx` is the protocol 2-arm `DispatchContext` (the slot narrowed
-        // the live arm before discharge); `callerAgentIdOf` reads the
-        // agent arm cast-free.
-        return {
-          taskId: p.taskId,
-          callerAgentId: callerAgentIdOf(ctx),
-        };
-      },
-    },
-    {
-      tag: ConversationInTask,
-      argsOf: (params: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (Spec F §3 dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly taskId: TaskId;
-          readonly conversationId: ConversationId;
-        };
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-    },
-  ] as const,
 });
 
 const MessageReceivedNotificationSchema = Type.Object(

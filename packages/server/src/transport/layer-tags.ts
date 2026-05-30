@@ -51,9 +51,10 @@ import type {
 /**
  * Bottom kernel — per-request connection id plus the database handle.
  * Both are infrastructure that every protocol layer may pull. ConnectionTag
- * is provided by `defineMethod` from the dispatch context; DbTag is
- * provided by the dispatcher's `ManagedRuntime` from the configured
- * database `Layer.succeed(DbTag, db)`.
+ * is provided by the slot body (`defineMiddlewareMethod` /
+ * `defineUnauthMethod`) from the dispatch context; DbTag is provided by the
+ * dispatcher's `ManagedRuntime` from the configured database
+ * `Layer.succeed(DbTag, db)`.
  */
 type TransportTags = ConnectionTag | DbTag;
 
@@ -108,12 +109,11 @@ export type TaskTags =
  */
 export type AppTags = TaskTags | AppHostTag;
 
-// #705 HALF-1 — the former `CapabilityTags` SIBLING alias (Spec E #601)
-// is retired. Per-frame capability tags are no longer admitted into the
-// `defineXMethod` `Reqs` bound as a single global union; instead each
-// method declares its OWN capability tuple, and the slot's
-// `CapIdentsOf<CapsTuple>` (`@moltzap/protocol` `erased-slot.ts`) is the
-// per-method upper bound the wrapper threads into `makeErasedSlot`'s
-// typed handler. The handler-R ⊆ declared-caps lockstep moved onto
-// `makeErasedSlot` (`erased-slot.types-check.ts`); the global alias has
-// no remaining consumer.
+// #705 — the former `CapabilityTags` SIBLING alias (Spec E #601) is
+// retired. Per-frame capability tags are no longer admitted into the
+// binding's `Reqs` bound as a single global union; instead each method
+// declares its OWN `CapabilityMiddleware` tuple (#705 HALF-2), and the
+// per-method cap idents are pinned from that tuple via `MiddlewaresOf`. The
+// handler-R / cap-totality lockstep lives on the `weaveCaps` bound
+// (`middleware-slot.types-check.ts`); the global alias has no remaining
+// consumer.

@@ -26,6 +26,7 @@ import {
   ConversationInTask,
   TaskReadAccess,
   MessageSendPermission,
+  ContactPolicyAllowsReach,
   callerAgentId,
   type CapabilityMiddleware,
   type ObtainMessageSendPermissionInput,
@@ -34,6 +35,11 @@ import {
   type TaskId,
   MessagesList,
   MessagesSend,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+  TaskRequest,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
@@ -42,12 +48,24 @@ import {
   TaskServiceTag,
 } from "./layers.js";
 import { obtainMessageSendPermission } from "../task/services/message-send-permission.js";
+import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 
 /** Slot env the obtains run under (the converted methods' `TaskSlotEnv`). */
 type MwEnv = TaskServiceTag | ConversationServiceTag | MessageServiceTag;
 
 type MessagesListParams = ParamsOf<typeof MessagesList>;
 type MessagesSendParams = ParamsOf<typeof MessagesSend>;
+type TaskConversationArchiveParams = ParamsOf<typeof TaskConversationArchive>;
+type TaskConversationUnarchiveParams = ParamsOf<
+  typeof TaskConversationUnarchive
+>;
+type TaskConversationAddParticipantParams = ParamsOf<
+  typeof TaskConversationAddParticipant
+>;
+type TaskConversationRemoveParticipantParams = ParamsOf<
+  typeof TaskConversationRemoveParticipant
+>;
+type TaskRequestParams = ParamsOf<typeof TaskRequest>;
 
 interface TaskAndAgent {
   readonly taskId: TaskId;
@@ -57,6 +75,11 @@ interface TaskAndAgent {
 interface TaskAndConversation {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
+}
+
+interface CreatorAndTargets {
+  readonly creatorAgentId: AgentId;
+  readonly targetAgentIds: readonly AgentId[];
 }
 
 // ── obtains (typed input, no `args as Shape`) ──────────────────────────
@@ -81,6 +104,25 @@ const obtainConversationInTask = (input: TaskAndConversation) =>
     return { taskId: input.taskId, conversationId: input.conversationId };
   }).pipe(Effect.withSpan("obtainConversationInTask"));
 
+const obtainContactPolicyAllowsReach = (input: CreatorAndTargets) =>
+  catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const conversations = yield* ConversationServiceTag;
+      const ownerByAgentId = yield* conversations.loadAgentOwners(
+        input.targetAgentIds,
+      );
+      yield* conversations.assertContactPolicyForCreate(
+        input.creatorAgentId,
+        input.targetAgentIds,
+        ownerByAgentId,
+      );
+      return {
+        creatorAgentId: input.creatorAgentId,
+        targetAgentIds: input.targetAgentIds,
+      };
+    }),
+  ).pipe(Effect.withSpan("obtainContactPolicyForCreate"));
+
 // `Fail` is the obtain's actual error union (derived, not hardcoded) so
 // the dispatcher's `wireErrorFromInstance` maps it unchanged.
 type TaskReadAccessFail = Effect.Effect.Error<
@@ -91,6 +133,9 @@ type ConversationInTaskFail = Effect.Effect.Error<
 >;
 type MessageSendPermissionFail = Effect.Effect.Error<
   ReturnType<typeof obtainMessageSendPermission>
+>;
+type ContactPolicyAllowsReachFail = Effect.Effect.Error<
+  ReturnType<typeof obtainContactPolicyAllowsReach>
 >;
 
 // ── middlewares ─────────────────────────────────────────────────────────
@@ -154,6 +199,71 @@ export const conversationInTaskForList: CapabilityMiddleware<
   MwEnv,
   ConversationInTaskFail
 > = conversationInTaskMiddleware<MessagesListParams>();
+
+// The four app-principal `task/conversation/*` admin RPCs share the
+// IDENTICAL `[ConversationInTask]` capability (D #705 R7 — app-ownership is
+// gated separately in the handler body via `assertCallerAppOwnsTask`). The
+// derive reads NO principal (pure `taskId`/`conversationId` params), so the
+// SAME `conversationInTaskMiddleware<Params>()` typed per the owning method's
+// params serves them all.
+
+export const conversationInTaskForArchive: CapabilityMiddleware<
+  TaskConversationArchiveParams,
+  typeof ConversationInTask,
+  TaskAndConversation,
+  MwEnv,
+  ConversationInTaskFail
+> = conversationInTaskMiddleware<TaskConversationArchiveParams>();
+
+export const conversationInTaskForUnarchive: CapabilityMiddleware<
+  TaskConversationUnarchiveParams,
+  typeof ConversationInTask,
+  TaskAndConversation,
+  MwEnv,
+  ConversationInTaskFail
+> = conversationInTaskMiddleware<TaskConversationUnarchiveParams>();
+
+export const conversationInTaskForAddParticipant: CapabilityMiddleware<
+  TaskConversationAddParticipantParams,
+  typeof ConversationInTask,
+  TaskAndConversation,
+  MwEnv,
+  ConversationInTaskFail
+> = conversationInTaskMiddleware<TaskConversationAddParticipantParams>();
+
+export const conversationInTaskForRemoveParticipant: CapabilityMiddleware<
+  TaskConversationRemoveParticipantParams,
+  typeof ConversationInTask,
+  TaskAndConversation,
+  MwEnv,
+  ConversationInTaskFail
+> = conversationInTaskMiddleware<TaskConversationRemoveParticipantParams>();
+
+/**
+ * `ContactPolicyAllowsReach` middleware (`task/request` cap[0]). The caller
+ * (creator) id is read via `yield* callerAgentId` (principal-as-service —
+ * `task/request` is `callablePrincipal: "agent"`); the targets are a typed
+ * `params.invitedAgentIds` read. Empty targets provision a no-op proof (the
+ * service-layer guards short-circuit on zero targets), preserving the legacy
+ * semantics.
+ */
+export const contactPolicyAllowsReachMiddleware: CapabilityMiddleware<
+  TaskRequestParams,
+  typeof ContactPolicyAllowsReach,
+  CreatorAndTargets,
+  MwEnv,
+  ContactPolicyAllowsReachFail
+> = {
+  provides: ContactPolicyAllowsReach,
+  derivePayload: (params) =>
+    Effect.gen(function* () {
+      return {
+        creatorAgentId: yield* callerAgentId,
+        targetAgentIds: [...params.invitedAgentIds],
+      };
+    }).pipe(Effect.withSpan("deriveContactPolicyAllowsReach")),
+  obtain: obtainContactPolicyAllowsReach,
+};
 
 /**
  * `MessageSendPermission` middleware (`messages/send` cap[1]). Reads the

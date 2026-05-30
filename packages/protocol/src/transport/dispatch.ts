@@ -5,11 +5,11 @@
  * {@link ErasedSlotTable}. For each frame:
  *   1. Look up the slot by `frame.method` (a wire-dynamic string). An
  *      unknown method → wire `MethodNotFound` -32601.
- *   2. Call `slot.invoke(frame.params, ctx)`. The slot owns the typed
- *      `(definition, handler, providers)` triple bound at its wrap site
- *      ({@link makeErasedSlot}): `invoke` decodes params via the method's
- *      OWN validator, discharges THIS method's declared capabilities in
- *      declaration order from the slot's positional providers tuple, runs
+ *   2. Call `slot.invoke(frame.params, ctx)`. The slot is built at its wrap
+ *      site by {@link makeMiddlewareSlot}: `invoke` decodes params via the
+ *      method's OWN validator, runs the pre-composed gated body that
+ *      discharges THIS method's declared capabilities via a STATIC per-arm
+ *      `provideServiceEffect` chain (#705 HALF-2 — no runtime fold), runs
  *      the handler, and returns the `Exit`. NO `eraseHandlerTable` /
  *      `eraseProviderTable` / `asNeverR` cascade — the per-frame caps are
  *      discharged INSIDE the slot; only the service `Env` rides out.
@@ -184,7 +184,7 @@ function makeNotify(write: (raw: string) => Effect.Effect<void, unknown>) {
  * `SlotDispatchContext&lt;Conn&gt;` and produces a wire-ready `ResponseFrame`.
  *
  * The slot owns its own param decode + capability discharge (see
- * {@link makeErasedSlot}); the dispatcher only routes by `frame.method`
+ * {@link makeMiddlewareSlot}); the dispatcher only routes by `frame.method`
  * and projects the slot's `Exit` into a wire response. The slot's
  * `invoke` returns `Effect&lt;Exit&lt;unknown,unknown&gt;, never, Env&gt;`: a wire
  * `MethodNotFound` for an out-of-catalog method, otherwise the slot's

@@ -18,7 +18,7 @@ import {
   AppContext,
   type ServerRpcSlots,
 } from "../../transport/context.js";
-import { defineAppMethod } from "../../transport/define-layered-method.js";
+import { defineConnectMethod } from "../../transport/define-layered-method.js";
 import {
   AgentEndpointResolverTag,
   AppAuthServiceTag,
@@ -480,15 +480,13 @@ export const connectHandlers: ServerRpcSlots = [
   // `AppHostTag` to implicitly register the app's `AppEndpoint` off the live
   // `AppConnection` arm (replacing the deleted WS `apps/register` RPC). The
   // agent/session arms ride the same handler and yield no app-layer tags.
-  defineAppMethod(
-    Connect,
-    {
-      // `network/connect` is the ONLY any-principal method: it is dispatched
-      // while the arm is still `UnauthenticatedConnection`, and the handler
-      // dispatches on the credential union itself (not on `ctx`).
-      callablePrincipal: "any",
-      handler: handleConnect,
-    },
-    [],
-  ),
+  // `network/connect` is the ONLY any-principal method: it is dispatched
+  // while the arm is still `UnauthenticatedConnection`, and the handler
+  // dispatches on the credential union itself (not on `ctx`). It binds via
+  // `defineConnectMethod` (the lone `"any"` wrapper) — no `CurrentPrincipal`
+  // is provided on the unauthenticated arm; the body reads the live arm via
+  // `ConnectionTag`.
+  defineConnectMethod(Connect, {
+    handler: (params) => handleConnect(params),
+  }),
 ];

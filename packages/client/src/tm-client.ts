@@ -20,7 +20,7 @@ import {
   MessagesAuthorize,
   TaskCreate,
   encodeErrorResponse,
-  makeErasedSlot,
+  makeMiddlewareSlot,
   makeTaskMasterConnection,
   NotConnectedError,
   RpcTimeoutError,
@@ -200,38 +200,38 @@ type TMSlotTable = ErasedSlotTable<never, TaskCallbackContext>;
 
 /**
  * Wrap ONE authored TM-callback slot into a cast-free `ErasedSlot` (#705
- * HALF-1), generic over its `params`/`result` schemas (`P`/`R`) so those
+ * HALF-2), generic over its `params`/`result` schemas (`P`/`R`) so those
  * types stay correlated per method. The TM-callback catalog declares NO
- * capabilities, so the providers tuple is the empty tuple `[]`; the
- * `makeErasedSlot` `handler` receives `SlotDispatchContext<TaskCallbackContext>`
- * and unwraps `.connection` to hand the authored `handle` its bare
- * `TaskCallbackContext`.
+ * capabilities and runs no principal gate (the TM callback carries its own
+ * {@link TaskCallbackContext}, not a `Connection` arm), so the slot is built
+ * by {@link makeMiddlewareSlot} with a bare gated body: decode (done by
+ * `makeMiddlewareSlot`) → run the authored `handle` on the unwrapped
+ * `ctx.connection` → `Effect.exit` into the inner `Exit` the dispatcher
+ * projects. No `weaveCaps` chain, no `CurrentPrincipal` (the cap-less
+ * successor to the deleted `makeErasedSlot` + empty-providers path).
  */
 function wrapTmSlot<P extends TSchema, R extends TSchema>(slot: {
-  readonly definition: Omit<RpcDefinition<string, P, R>, "capabilities"> & {
-    readonly capabilities: readonly [];
-  };
+  readonly definition: RpcDefinition<string, P, R>;
   readonly handle: (
     params: Static<P>,
     ctx: TaskCallbackContext,
   ) => Effect.Effect<Static<R>, unknown, never>;
 }): ErasedSlot<never, TaskCallbackContext> {
-  return makeErasedSlot(
+  return makeMiddlewareSlot(
     slot.definition,
     (params, ctx: SlotDispatchContext<TaskCallbackContext>) =>
-      slot.handle(params, ctx.connection),
-    [],
+      slot.handle(params, ctx.connection).pipe(Effect.exit),
   );
 }
 
 /**
  * Convert the public {@link TMHandlers} authoring table into the cast-free
- * {@link TMSlotTable} `makeTaskMasterConnection` consumes (#705 HALF-1). The
+ * {@link TMSlotTable} `makeTaskMasterConnection` consumes (#705 HALF-2). The
  * TM-callback catalog is closed (`DispatchAuthorize`, `MessagesAuthorize`,
  * `TaskCreate`); each slot is wrapped at its own concrete definition type via
  * {@link wrapTmSlot} so the per-method `params`/`result` lockstep holds (a
  * `Object.values` loop would collapse the three arms into a union and break
- * `makeErasedSlot`'s typed `definition`/`handler` correlation).
+ * `makeMiddlewareSlot`'s typed `definition`/`handler` correlation).
  */
 function tmHandlersToSlots(handlers: TMHandlers): TMSlotTable {
   return {

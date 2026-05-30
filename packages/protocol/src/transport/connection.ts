@@ -5,10 +5,10 @@
  * Each factory accepts an immutable {@link ErasedSlotTable} (server /
  * TM) and produces a `Connection` whose inbound surface is reified by
  * that slot table and whose outbound surface is constrained by the
- * kind's `OutCall` / `OutNotify` generics. Each slot owns its typed
- * `(definition, handler, providers)` triple ({@link makeErasedSlot}):
- * the per-method capability discharge happens INSIDE the slot, so the
- * factory no longer threads a separate provider table.
+ * kind's `OutCall` / `OutNotify` generics. Each slot is built by
+ * {@link makeMiddlewareSlot}: the per-method capability discharge happens
+ * INSIDE the slot (a STATIC `provideServiceEffect` chain, #705 HALF-2), so
+ * the factory no longer threads a separate provider table.
  *
  * No `register` / `unregister` method exists on any Connection shape
  * (Spec F I1). The slot table is value-passed at construction time

@@ -19,7 +19,7 @@ packages/server/src/
 ├── app/                # AppHost + composition root
 │   ├── server.ts             # createCoreApp — composes Layers, mounts routes
 │   ├── app-host.ts           # AppHost — dispatch/* + hook fan-out
-│   ├── capability-providers.ts # named per-cap provideX obtain helpers (#705 HALF-1)
+│   ├── capability-middlewares.ts # per-cap CapabilityMiddleware (provides/derivePayload/obtain) (#705 HALF-2)
 │   ├── handlers/             # apps.handlers, task-request.handler
 │   ├── layers.ts             # Tag definitions + Live composition (Tier 1-6)
 │   └── types.ts              # CoreConfig, CoreApp, branded IDs + ConnectionHook / DisconnectionHook (no generic Hook<T,R>)
@@ -38,114 +38,114 @@ packages/server/src/
 ```
 
 
-## R-channel capability tokens
+## R-channel capabilities (cap-as-middleware, #705 HALF-2)
 
-Privileged service methods declare their preconditions in their
-type signature via Effect's R channel. The descriptor declares which
-capability tags the handler needs; the dispatcher auto-provisions
-them per frame from a shared provider table — handlers `yield*` the
-tag directly with no hand-piped `Effect.provideServiceEffect` chain
-at the call site.
+Privileged service methods declare their preconditions in their type
+signature via Effect's R channel. Each per-frame capability is a
+`CapabilityMiddleware` declared at the SERVER binding site — NOT descriptor
+metadata. A method's binding carries a `middlewares` tuple; the binding's
+`weaveCaps` weaves a STATIC, hand-expanded `provideServiceEffect` chain (one
+concrete-tag step per cap) over the handler. There is no descriptor
+`capabilities` array, no `argsOf` resolver, no runtime `dischargeCaps` fold,
+and no positional `CapProviders` tuple — all deleted in HALF-2. The wire
+descriptor (`defineRpc`) carries ONLY the params/result shape.
 
 ```ts
-// protocol/task/messages.ts — descriptor declares its capabilities
-export const MessagesSend = defineRpc({
-  name: "messages/send",
-  params: MessagesSendParams,
-  result: MessagesSendResult,
-  capabilities: [
-    { tag: MessageSendPermission, argsOf: (p, ctx) => ({ /* ... */ }) },
-  ],
-});
+// server/src/app/capability-middlewares.ts — one CapabilityMiddleware per cap
+export const messageSendPermissionMiddleware: CapabilityMiddleware<
+  MessagesSendParams, typeof MessageSendPermission, /* Input */, /* Env */, /* Fail */
+> = {
+  provides: MessageSendPermission,            // the Context.Tag the handler yields
+  derivePayload: (params) => Effect.gen(function* () {
+    // TYPED params (NOT unknown) + the caller via `yield* callerAgentId`
+    // (CurrentPrincipal read — NO ctx param, NO narrowToDispatchContext).
+    return { /* ... */, senderAgentId: yield* callerAgentId };
+  }),
+  obtain: obtainMessageSendPermission,        // typed input → service value (NO `args as Shape`)
+};
 
-// App-arm RPCs (D #705 R3/R7) declare NO descriptor capabilities for
-// app-ownership: each handler loads the task and calls
-// `assertAppOwnsTask(appConn.auth.appId, task)` directly. e.g.
-// `TaskConversationCreate` carries no `capabilities` array — its
-// app-ownership + capacity proofs are inline in the handler body.
-
-// service body just yields the tag, no provideServiceEffect at the call site
-send(
-  /* ... */
-): Effect.Effect<MessageResult, MessageServiceError, MessageSendPermission>;
-
-// server/src/app/capability-providers.ts — named per-cap obtain helpers
-// (#705 HALF-1; the pre-cutover global `serverCapabilityProviders` table
-// keyed by `Context.Tag.key` is gone). Simple obtains are INLINE; the #673
-// `TmAuthority` capability is dissolved (D #705 R7): the 8 task-admin RPCs
-// bind to `defineAppMethod` and each handler loads the task + calls
-// `assertAppOwnsTask(appConn.auth.appId, task)` directly — no provider entry.
-export const provideTaskReadAccess = (args: unknown) =>
-  Effect.gen(function* () {
-    const taskService = yield* TaskServiceTag;
-    const { taskId, callerAgentId } = args as TaskAndAgent;
-    const task = yield* taskService.loadTaskWithReadAccess(taskId, callerAgentId);
-    return { task, callerAgentId };
-  });
-/* ...provideConversationInTask, provideContactPolicyAllowsReach inline... */
-// Composites with their own direct consumers live as named functions next
-// to the services they compose (task/services/{message-send-permission,
-// conversation-create-authorization}.ts). `ConversationCreateAuthorization`
-// is hand-piped via `Effect.provideServiceEffect` at its handler call sites
-// (NOT descriptor-declared), so it has no `provideX` here.
+// server/src/task/handlers/messages.handlers.ts — binding weaves the chain
+defineTaskMiddlewareMethod(
+  MessagesSend,
+  [conversationInTaskForSend, messageSendPermissionMiddleware] as const, // totality anchor
+  {
+    callablePrincipal: "agent",
+    requiresActive: true,
+    handler: handleMessageSend,
+    // REVERSE declaration order: FIRST-declared cap is the OUTERMOST step
+    // (last in source) for Forbidden-before-state-probe.
+    weaveCaps: (handlerEffect, params) =>
+      handlerEffect.pipe(
+        provideMiddleware(messageSendPermissionMiddleware, params),
+        provideMiddleware(conversationInTaskForSend, params),
+      ),
+  },
+);
 ```
 
-Each cap-bearing method threads a positional providers tuple aligned 1:1
-to its descriptor's `capabilities` into `defineXMethod(definition, def,
-[...providers])`. The slot (`@moltzap/protocol` `makeErasedSlot`) reads
-`definition.capabilities` per frame and discharges each tag from the
-tuple via `Effect.provideServiceEffect(tag, provider(argsOf(params, ctx)))`
-INSIDE its `invoke`. The compile-time handler-R ⊆ declared-caps lockstep
-moved onto `makeErasedSlot`'s typed handler bound
-(`protocol/transport/erased-slot.types-check.ts`) — a handler whose R
-references a tag NOT in its method's `capabilities` tuple fails to assign.
+The principal is read as a SERVICE: `CurrentPrincipal` (protocol-owned Tag)
+is provided by the slot body from the #720-narrowed arm; `derivePayload`
+reads it via `yield* callerAgentId`. Cap-LESS methods bind via
+`defineNetworkMethod` / `defineTaskMethod` / `defineAppMethod` (no
+`middlewares`, `weaveCaps` is identity). The lone unauth method
+(`network/connect`) binds via `defineConnectMethod` (no principal,
+`ConnectionTag` only).
 
-`MessagesSend` is the one structural exception: the wire schema
-accepts `(conversationId | to | replyToId)` and the handler must
-resolve `conversationId` via DB lookup before `MessageSendPermission`
-can be obtained, so it stays hand-piped at the handler call site.
-See `protocol/task/messages.ts → MessagesSend` for the rationale.
-
-- **`packages/server/src/app/capability-providers.ts`** (file-level
-  JSDoc) — provider-table walkthrough, capability shapes, composite
-  path, migration recipe.
+The compile-time TOTALITY lockstep: the cap idents are PINNED from the
+declared `middlewares` tuple via `MiddlewaresOf` (NOT inferred from the
+handler R — a method whose handler does not itself yield the cap, like
+`messages/list`, would pin `never` and go false-green). `weaveCaps`'s input
+is WIDENED to require every declared cap, so dropping a `provideMiddleware`
+step leaks the cap into the woven R and fails the bound. Canaries:
+`transport/middleware-slot.types-check.ts` (M1/M2/M3).
 
 Capability shapes:
 
-- **Obtain** — queries the DB, produces the capability value + payload
-  row. `obtainXxx(...)` returns `Effect<Xxx["Type"], ServiceError, ServiceTag>`.
+- **Obtain** — queries the DB, produces the capability value + payload row.
+  `obtainXxx(input)` returns `Effect<Xxx["Type"], ServiceError, ServiceTag>`;
+  the middleware's `derivePayload` builds `input` from typed params + the
+  principal.
 - **Refine** — validates an already-fetched row (no DB read).
   `refineXxx(row)` returns `Effect<Xxx["Type"], ValidationError>`. The
   refine helpers (`refineTaskActive`, `refineConversationNotArchived`)
   live in `@moltzap/protocol/task/capabilities`.
-- **Composite** — collapses an intersection-with-alternative
-  authorization set into one tag whose value is a discriminated union,
-  because Effect's R channel cannot express "exactly one of N
-  alternative tags must be provided" (architect Decision A, #606).
-  `MessageSendPermission` is the canonical composite.
+- **Composite** — collapses an intersection-with-alternative authorization
+  set into one tag whose value is a discriminated union, because Effect's R
+  channel cannot express "exactly one of N alternative tags must be
+  provided" (architect Decision A, #606). `MessageSendPermission` is the
+  canonical composite.
 
-When you add a new capability tag, the tag class + value type live in
+App-arm RPCs (D #705 R3/R7) gate app-ownership in the handler body, NOT via
+a capability: each loads the task and calls
+`assertAppOwnsTask(appConn.auth.appId, task)` directly. The four
+`task/conversation/*` admin RPCs ALSO weave `ConversationInTask`;
+`ConversationCreateAuthorization` is hand-piped via
+`Effect.provideServiceEffect` at its handler call sites (a clean typed
+obtain, not a middleware).
+
+When you add a new capability: the tag class + value type live in
 `packages/protocol/src/task/capabilities/<name>.ts` (so descriptors can
-reference them without a layering violation). The obtain logic lives in
-`server/src/app/capability-providers.ts`: inline in the provider-table
-entry for a simple obtain, or as a named function in
-`server/src/task/services/<name>.ts` for a composite that has its own
-direct consumer (currently `obtainMessageSendPermission` and
-`obtainConversationCreateAuthorization`). Capability tags are collected
-by the `CapabilityTags` alias in `transport/layer-tags.ts`;
-`defineTaskMethod` / `defineAppMethod` accept them in the handler R
-channel so the dispatcher's auto-provision path can fill them from the
-descriptor's `capabilities` array.
+reference them without a layering violation). The obtain logic + the
+`CapabilityMiddleware` live in `server/src/app/capability-middlewares.ts`
+(inline for a simple obtain), or the obtain lives as a named function in
+`server/src/task/services/<name>.ts` for a composite with its own direct
+consumer (`obtainMessageSendPermission`,
+`obtainConversationCreateAuthorization`). The binding adds the middleware to
+its `middlewares` tuple AND a matching `provideMiddleware` step in
+`weaveCaps`.
 
 ## Layered RPC method wrappers
 
-`src/transport/define-layered-method.ts` exports `defineNetworkMethod`,
-`defineTaskMethod`, `defineAppMethod`. Each wrapper enforces a
-per-layer Tag allowlist (`NetworkTags` ⊂ `TaskTags` ⊂ `AppTags`) so a
-handler at layer L cannot pull a service that only layer L+1 owns.
-See `transport/README.md` for the layer hierarchy and
-`transport/layer-tags.ts` for the allowlists (capability tags are a
-sibling alias, NOT folded in).
+`src/transport/define-layered-method.ts` exports the cap-LESS wrappers
+`defineNetworkMethod` / `defineTaskMethod` / `defineAppMethod`, the
+cap-BEARING wrappers `defineTaskMiddlewareMethod` / `defineAppMiddlewareMethod`
+(network has no cap-bearing method, so its variant is internal), and
+`defineConnectMethod` for the lone unauth `network/connect`. Every wrapper
+bottoms out at `makeMiddlewareSlot` (the SINGLE slot mechanism, #705 HALF-2 —
+`makeErasedSlot` + `dischargeCaps` are gone). Each enforces a per-layer Tag
+allowlist (`NetworkTags` ⊂ `TaskTags` ⊂ `AppTags`) so a handler at layer L
+cannot pull a service that only layer L+1 owns. See `transport/README.md` for
+the layer hierarchy and `transport/layer-tags.ts` for the allowlists.
 
 ## Data stores
 
@@ -226,5 +226,7 @@ derived from `app_id` at routing time.
   per-frame `Effect.provide`.
 - **R-channel capability** — Nominal `Context.Tag` whose value
   carries the runtime IDs + already-fetched payload row that a
-  `require*` authority check would otherwise fetch inline. Pattern
-  documented in `src/app/capability-providers.ts` (file-level JSDoc).
+  `require*` authority check would otherwise fetch inline. Discharged
+  per-frame by a `CapabilityMiddleware` (provides / derivePayload /
+  obtain) woven at the binding site (#705 HALF-2). Pattern documented in
+  `src/app/capability-middlewares.ts` (file-level JSDoc).
