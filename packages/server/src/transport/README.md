@@ -41,7 +41,7 @@ Transport is the lowest protocol layer. It does not know about identity, convers
 ## Files
 
 - `connection.ts` — WS connection manager + per-connection RPC client.
-- `context.ts` — `defineMethod` (+ the required `callablePrincipal` principal-kind gate), `CtxForKind`, `RpcMethodBinding`, the `AgentContext`/`AppContext` principal arms, `DispatchContext`. The base wrapper narrows the live `Connection` arm to the binding's declared principal and hands the body its `CtxForKind<K>` arm; `DispatchContext` (the 3-arm dispatcher `Ctx`) is the only type that accepts the unauthenticated arm.
+- `context.ts` — `defineMethod` (+ the required `callablePrincipal` principal-kind gate), `CtxForKind`, the `SlotHandler` shape it returns, `ServerRpcSlots`/`ServerRpcSlotTable` (the cast-free `ErasedSlot` catalog), the `AgentContext`/`AppContext` principal arms, the module-private `DispatchContext`. The base wrapper narrows the live `Connection` arm to the binding's declared principal and hands the body its `CtxForKind<K>` arm; `DispatchContext` (the 3-arm dispatcher `Ctx`, structurally `SlotDispatchContext<Connection>`) is the only type that accepts the unauthenticated arm.
 - `define-layered-method.ts` — `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`. Layer-specific wrappers that constrain handler R-channel to a per-layer Tag allowlist and provide the matching layer-scope service. Each threads a REQUIRED `callablePrincipal` (`"agent"`/`"app"`/`"any"`), orthogonal to the layer: a `defineAppMethod` binding may declare `callablePrincipal: "agent"` (e.g. `task/request`, `dispatch/request`).
 - `layer-scopes.ts` — runtime `Context.Tag`s used as structural layer markers (`NetworkLayerScope`, `TaskLayerScope`, `AppLayerScope`).
 - `layer-tags.ts` — type-only allowlist hierarchy (`TransportTags`, `IdentityTags`, `NetworkTags`, `TaskTags`, `AppTags`).
@@ -64,17 +64,24 @@ The two checks fire at different boundaries (yield-site vs import-site) and toge
 
 ## Dispatch model
 
-Per-request handler R-channel resolution:
+Per-request handler R-channel resolution (#705 HALF-1 — cast-free `ErasedSlot`):
 
 ```
-RpcMethodBinding.handle  (call site: conn.originator.handle(frame, ctx) per Spec F #617 §6 FRI)
+ErasedSlot.invoke  (call site: conn.originator.handle(frame, ctx); the slot
+        │           decodes params via its own validator + discharges its
+        │           declared per-frame capabilities from its positional
+        │           CapProviders tuple INSIDE invoke)
         │
-        │ ConnectionTag      ── provided by defineMethod from ctx.connId
+        │ ConnectionTag      ── provided by defineMethod from ctx.connection
+        │                       (subtracted from the slot's residual Env)
         │ NetworkLayerScope, TaskLayerScope, AppLayerScope
         │                ── provided by defineXMethod wrappers, structurally
+        │ TaskReadAccess, ConversationInTask, MessageSendPermission, ...
+        │                ── per-frame capability tags, discharged inside the
+        │                   slot from the method's providers tuple
         │ MessageServiceTag, ConversationServiceTag, ...
-        │                ── provided by the dispatcher's ManagedRuntime
-        │                   (Layer.mergeAll(NodeHttpServer.layerContext, FullLive))
+        │                ── the residual Env, provided by the dispatcher's
+        │                   ManagedRuntime (Layer.mergeAll(NodeHttpServer.layerContext, FullLive))
         ▼
    handler body
 ```
@@ -87,4 +94,4 @@ Three pieces:
 
 1. **Tag hierarchy** in `layer-tags.ts`. Every Tag yielded by a post-DI-migration handler is placed at the lowest layer that yields it.
 2. **Wrapper signatures** in `context.ts` and `define-layered-method.ts` widen with `Reqs` generics. `Reqs extends NetworkTags = NetworkTags` (and parallel for Task/App) — defaulted to the upper bound so handlers without per-Tag yields still compile; constrained so a handler that yields a higher-tier Tag is rejected at the call site.
-3. **Protocol-side widening** in `@moltzap/protocol/transport/{handlers,dispatch}.ts`: `RpcHandler<Ctx, R = never>` and the per-kind `*Handlers` table types carry the R-channel structurally. The dispatcher's `ManagedRuntime` resolves R at request time.
+3. **Protocol-side slot factory** in `@moltzap/protocol/transport/erased-slot.ts`: `makeErasedSlot` wraps each typed `(definition, handler, providers)` triple into an `ErasedSlot<Env, Conn>` whose `invoke` discharges the method's declared per-frame capabilities (positional `CapProviders` tuple) inside. The residual `R = Env` is the layer service-tag union the dispatcher's `ManagedRuntime` resolves at request time. `makeInboundDispatch` (`dispatch.ts`) indexes the `ErasedSlotTable` by `frame.method`.

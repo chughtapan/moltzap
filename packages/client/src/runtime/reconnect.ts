@@ -17,8 +17,9 @@
  * Pure: no Refs, no fibers held here. `openSocket` takes the closing
  * callback as a parameter so each client keeps owning its own runtime.
  */
-import { Duration, Effect, Schedule, Scope, Data } from "effect";
+import { Duration, Effect, Either, Schedule, Scope, Data } from "effect";
 import * as Socket from "@effect/platform/Socket";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
 
 import { NotConnectedError } from "@moltzap/protocol";
 
@@ -56,8 +57,10 @@ export const makeNotConnectedError = (): NotConnectedError =>
 /**
  * The reconnect loop fails each unsuccessful attempt with this so the
  * retry `Schedule` re-fires; it never escapes the loop (caught + voided).
+ * Module-private: only {@link makeReconnectLoop} consumes it now (the
+ * clients no longer build the loop inline — #705 CP-F A6-base).
  */
-export class ReconnectAttemptFailedError extends Data.TaggedError(
+class ReconnectAttemptFailedError extends Data.TaggedError(
   "ReconnectAttemptFailedError",
 )<{
   readonly reason: string;
@@ -73,8 +76,10 @@ export type ClientWebSocket = Effect.Effect.Success<
  * type is `Schedule`'s inferred `[Duration, number]` (the `either` of
  * the exponential delay and the spaced attempt count) — the reconnect
  * loop ignores the schedule output, so the exact shape is immaterial.
+ * Module-private: consumed only by {@link makeReconnectLoop} (#705 CP-F
+ * A6-base — the clients no longer build the retry inline).
  */
-export const makeReconnectSchedule = (): Schedule.Schedule<
+const makeReconnectSchedule = (): Schedule.Schedule<
   [Duration.Duration, number]
 > =>
   Schedule.exponential(
@@ -88,6 +93,63 @@ export const makeReconnectSchedule = (): Schedule.Schedule<
 /** Derive the WS endpoint from the HTTP(S) server URL. */
 export const webSocketUrl = (serverUrl: string): string =>
   serverUrl.replace(/^http/, "ws") + "/ws";
+
+/**
+ * The byte-identical reconnect loop both clients ran inline in
+ * `scheduleReconnect` (#705 CP-F A6-base). Each unsuccessful
+ * `connectEffect` attempt fails with {@link ReconnectAttemptFailedError}
+ * so the exponential {@link makeReconnectSchedule} re-fires; a successful
+ * reconnect fires `onReconnect(helloOk)` (caught + logged, never
+ * propagated). The loop voids every outcome, runs `onLoopEnd` in an
+ * `ensuring` finalizer (the per-client `reconnectFiber = null` reset), and
+ * provides the Node WS constructor. The per-client guard
+ * (`if (closed || reconnectFiber !== null) return`) + `runtime.runFork`
+ * stay in each client — they touch class state the helper must not own.
+ *
+ * `HelloOk` is the per-client connect result (`ResultOf&lt;typeof Connect>`);
+ * the helper is generic over it so `onReconnect` stays precisely typed.
+ */
+export const makeReconnectLoop = <HelloOk>(input: {
+  readonly connectEffect: () => Effect.Effect<
+    HelloOk,
+    unknown,
+    Socket.WebSocketConstructor
+  >;
+  readonly onReconnect: (helloOk: HelloOk) => void;
+  readonly onLoopEnd: () => void;
+}): Effect.Effect<void, never> => {
+  const attempt = input.connectEffect().pipe(
+    Effect.tap((helloOk) =>
+      Effect.gen(function* () {
+        try {
+          input.onReconnect(helloOk);
+        } catch (err) {
+          yield* Effect.logWarning("onReconnect handler threw", err);
+        }
+      }),
+    ),
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: () =>
+          Effect.fail(
+            new ReconnectAttemptFailedError({
+              reason: "reconnect attempt failed",
+            }),
+          ),
+        onRight: (value) => Effect.succeed(value),
+      }),
+    ),
+  );
+  return attempt.pipe(
+    Effect.retry(makeReconnectSchedule()),
+    Effect.asVoid,
+    Effect.catchAll(() => Effect.void),
+    Effect.ensuring(Effect.sync(input.onLoopEnd)),
+    Effect.provide(NodeSocket.layerWebSocketConstructor),
+    Effect.withSpan("makeReconnectLoop"),
+  );
+};
 
 /**
  * Open a WebSocket under `scope`, failing fast with `NotConnectedError`
