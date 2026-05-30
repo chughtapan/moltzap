@@ -609,6 +609,35 @@ delta. The `pnpm dev` script is the only operator-visible change.
   broad-union vs per-def fan-out invariants. Uses `Effect.yieldNow` to
   deterministically interleave register/unregister with dispatch.
 
+### Spec C (#597) — `channel-base` extraction + lease-lifecycle consolidation
+
+- **Added (`@moltzap/client`):** New `@moltzap/client/channel-base`
+  subpath export collecting the channel-plugin scaffolding shared
+  across the first-party channels (replaces the per-channel copy-paste
+  of lease projection + formatter helpers).
+- **Added (`@moltzap/client/channel-base`):** Canonical
+  `LeaseAlreadyConsumed` `TaggedError` plus the
+  `projectLeaseInvalid(error)` predicate, the `catchLeaseInvalid(self)`
+  wrapper, and the `LeaseInvalidProjectionError<E>` type alias — one
+  shared lease-invalid projection surface instead of each channel
+  re-deriving the "lease already consumed" case.
+- **Added (`@moltzap/client/channel-base`):** `LeaseStore<HostKey, T>`
+  and `LeaseGuard` primitives for channel-local lease bookkeeping.
+- **Added (`@moltzap/client/channel-base`):** Consolidated
+  `formatCrossConv` / `formatGroupBlock` formatters with the
+  `getGroupFields(meta) === null` group-absent semantic (a `null`
+  group block is rendered as "no group", not an empty block).
+- **Added (`@moltzap/client/channel-base`):** `onLeaseConsumed`
+  callback on `MoltzapChannelPluginDeps`, fired when the server reports
+  a lease as already consumed so channels can drop local state.
+- **Behavior:** Deterministic reconnection is now triggered via
+  `MoltZapWsClient.disconnect()` (replacing the toxiproxy
+  `reset_peer` fault-injection path) — reconnection tests drive the
+  client API directly instead of the proxy.
+- **Wire-code correction:** lease-invalid rejections surface as
+  `-32001 ForbiddenError` (corrected from `-32011`) with
+  `data.reason === "LeaseInvalid"`.
+
 ### Spec E (#601) — R-channel capability primitives + TaskService cutover
 
 - **Internal:** R-channel typed capability tags
