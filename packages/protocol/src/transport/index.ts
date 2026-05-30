@@ -115,3 +115,19 @@ export {
   buildAgentClientDispatcher,
   buildTaskMasterDispatcher,
 } from "./dispatch.js";
+
+// #705 HALF-1 — cast-free erased slot. The keyed `ErasedSlotTable` the
+// dispatcher will index by runtime method string (supersedes the
+// `RpcMethodBinding[]` + erasure-cast cascade). `makeErasedSlot` wraps a
+// typed `(definition, handler, providers)` triple where `CapsTuple` is
+// bound; the positional `CapProviders` tuple reproduces the retired
+// Canary 7 lockstep on live code. Migration of the live dispatch path
+// onto this surface is the HALF-1 cutover.
+export type {
+  ErasedSlot,
+  ErasedSlotTable,
+  SlotDispatchContext,
+  CapProviders,
+  CapIdentsOf,
+} from "./erased-slot.js";
+export { makeErasedSlot } from "./erased-slot.js";

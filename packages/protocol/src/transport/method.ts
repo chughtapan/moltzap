@@ -112,7 +112,7 @@ export function defineRpc<
    * `CapabilitiesOf&lt;D>`.
    */
   capabilities?: Caps;
-}): RpcDefinition<Name, P, R> & {
+}): Omit<RpcDefinition<Name, P, R>, "capabilities"> & {
   readonly capabilities: Caps;
 } {
   const d: RpcDefinition<Name, P, R> = {
@@ -127,7 +127,7 @@ export function defineRpc<
       ? { capabilities: def.capabilities }
       : {}),
   };
-  return d as RpcDefinition<Name, P, R> & {
+  return d as Omit<RpcDefinition<Name, P, R>, "capabilities"> & {
     readonly capabilities: Caps;
   };
 }

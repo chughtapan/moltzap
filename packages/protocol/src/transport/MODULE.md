@@ -211,6 +211,45 @@ Parameter `Caps` is the union of `Context.Tag` instances referenced
 across all slots in the handler table; the factory rejects (TS2741) a
 provider table missing any tag in `Caps`.
 
+### [`CapIdentsOf`](./erased-slot.ts#L158)
+
+_TypeAlias_
+
+```ts
+export type CapIdentsOf<CapsTuple extends ReadonlyArray<CapabilityDescriptor>> =
+```
+
+Identifier union of the declared caps — the handler R upper bound.
+Projects to the Tag Identifier (= `Self` for a class tag), the type a
+real handler's R channel actually holds (NOT the Tag VALUE type
+`typeof X`). `CapsTuple[number]["tag"]` is the union of the declared
+tags; `Context.Tag.Identifier` projects each to its `Self`.
+
+### [`CapProviders`](./erased-slot.ts#L140)
+
+_TypeAlias_
+
+```ts
+export type CapProviders<
+  CapsTuple extends ReadonlyArray<CapabilityDescriptor>,
+  Env,
+> = {
+  readonly [I in keyof CapsTuple]: CapsTuple[I] extends {
+    readonly tag: infer Tag;
+  }
+    ? ProviderFor<Tag, Env>
+    : never;
+};
+```
+
+NON-VACUOUS providers obligation: a positional tuple correlated to the
+descriptor's `capabilities` tuple. Element `I` provides the `I`-th
+declared cap. A MISSING provider is a tuple-arity mismatch; a
+WRONG-service provider is an element-type mismatch. Both FIRE for the
+repo's class-style tags — the equivalent mapped-type keyed by the tag
+Identifier does NOT (the class-tag Identifier is `Self`, a brand type,
+not a string key, so the mapped type collapses to `{}`).
+
 ### [`CapsUnionOf`](./handlers.ts#L148)
 
 _TypeAlias_
@@ -399,7 +438,7 @@ export function defineRpc<
    * `CapabilitiesOf&lt;D>`.
    */
   capabilities?: Caps;
-}): RpcDefinition<Name, P, R> &
+}): Omit<RpcDefinition<Name, P, R>, "capabilities"> &
 ```
 
 Create one wire method's frozen descriptor: name, schemas, AJV
@@ -483,6 +522,48 @@ export function encodeErrorResponse(
 Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
+
+### [`ErasedSlot`](./erased-slot.ts#L102)
+
+_Interface_
+
+```ts
+export interface ErasedSlot<Env, Conn> {
+  readonly definition: RpcDefinition<string, TSchema, TSchema>;
+  readonly invoke: (
+    params: unknown,
+    ctx: SlotDispatchContext<Conn>,
+  ) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env>;
+}
+```
+
+Existential slot the dispatcher indexes by runtime method string.
+
+`Env` is the `FullLive` service-tag union the dispatcher's
+`ManagedRuntime` resolves at request time (the layer service tags
+MINUS the per-frame capability tags, which are discharged inside
+`invoke`). `Conn` is the server's three-arm `Connection` union.
+
+`invoke` decodes `params` via the method's own AJV validator, threads
+THIS method's declared capability providers in declaration order, runs
+the typed handler, and returns the `Exit`. `R = Env` (NOT `never`):
+capabilities are already discharged; the `ManagedRuntime&lt;FullLive>`
+provides `Env`. NO double-erasure cast, NO `Context.Tag&lt;unknown, unknown>`.
+
+### [`ErasedSlotTable`](./erased-slot.ts#L116)
+
+_TypeAlias_
+
+```ts
+export type ErasedSlotTable<Env, Conn> = Readonly<
+  Record<string, ErasedSlot<Env, Conn> | undefined>
+>;
+```
+
+The keyed table the dispatcher indexes by runtime method string. The
+`| undefined` value type makes the wire-dynamic lookup honest: an
+unknown method string yields `undefined` → wire `MethodNotFound`
+-32601. HALF-2 types this away.
 
 ### [`errorClassFor`](./wire-errors.ts#L73)
 
@@ -676,6 +757,63 @@ export function makeAgentClientConnection<
 Factory — agent client. Delegates to `buildAgentClientDispatcher`
 which wires the originator only (no inbound dispatch — the AgentClient
 kind's inbound catalog is empty).
+
+### [`makeErasedSlot`](./erased-slot.ts#L182)
+
+_Function_
+
+```ts
+export function makeErasedSlot<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+  E,
+  Conn,
+  CapsTuple extends ReadonlyArray<CapabilityDescriptor>,
+  Env, // pinned by caller (wrapper layer-tag union / canary turbofish) — NEVER left free
+>(
+  // `Omit<…, "capabilities">` strips `RpcDefinition`'s WIDE optional
+  // `capabilities?: ReadonlyArray<CapabilityDescriptor>` so the
+  // intersection does NOT poison `CapsTuple` with a `& CapabilityDescriptor[]`
+  // arm (whose tag Identifier is `any`, which would swallow every
+  // undeclared cap and make the R⊆Caps lockstep false-green). `defineRpc`'s
+  // return type is `Omit`'d the same way so `definition.capabilities` is the
+  // clean tuple this signature requires.
+  definition: Omit<RpcDefinition<Name, P, R>, "capabilities"> & {
+    readonly capabilities: CapsTuple;
+  },
+  // `CapsTuple` and `Env` are inferred ONLY from `definition` + `providers`;
+  // `NoInfer` blocks the handler's R-channel from driving their inference.
+  // Without it, a handler that `yield*`s an undeclared cap would let TS
+  // WIDEN `CapsTuple`/`Env` to admit that cap and the R⊆Caps lockstep
+  // would go false-green (the slot factory's whole point is that it bites).
+  handler: (
+    params: Static<P>,
+    ctx: SlotDispatchContext<Conn>,
+  ) => Effect.Effect<Static<R>, E, NoInfer<Env | CapIdentsOf<CapsTuple>>>,
+  providers: CapProviders<CapsTuple, Env>,
+): ErasedSlot<Env, Conn>
+```
+
+Build a real ErasedSlot from a typed `(definition, handler,
+providers)` triple. `CapsTuple` is sourced from the `defineRpc` RETURN
+shape (`& { readonly capabilities: CapsTuple }`) so it is the literal
+tuple, never `never`. `Env` MUST be supplied concretely by the caller
+(the wrapper supplies its layer service-tag union; a canary turbofishes
+a concrete union) — a FREE `Env` widens to swallow an undeclared cap in
+the handler's R and the R⊆Caps negative goes false-green. `Env` is the
+LAST generic so the turbofish stays ergonomic; do NOT rely on inference
+for it.
+
+Lockstep obligations (both bound here, both verified to fire on
+class-tags):
+  - `handler` R upper bound = `Env | CapIdentsOf&lt;CapsTuple>` (R⊆Caps).
+  - `providers: CapProviders&lt;CapsTuple, Env>` (one typed provider per
+    declared cap, positional).
+
+For the no-capability case (`capabilities: readonly []`):
+`CapsTuple = readonly []`, `CapIdentsOf&lt;readonly []> = never`, the
+handler R upper bound is `Env`, and `providers` is the empty tuple `[]`.
 
 ### [`makeOriginator`](./originator.ts#L227)
 
@@ -1271,6 +1409,32 @@ call into the server. LSP-anchored: the catalog is `serverRpcMethods` from
 `networkRpcMethods`, `taskRpcMethods`, and `appRpcMethods`. 42
 members at `227c398`.
 
+### [`SlotDispatchContext`](./erased-slot.ts#L84)
+
+_Interface_
+
+```ts
+export interface SlotDispatchContext<Conn> {
+  readonly connection: Conn;
+}
+```
+
+The dispatcher-boundary `ctx` the slot's `invoke` receives. Structural
+mirror of the SERVER `DispatchContext`
+(`@moltzap/server-core` `transport/context.ts → DispatchContext`) — the
+live THREE-arm `Connection` union whose unauthenticated arm has no
+`auth`. The slot narrows `ctx.connection._tag` INSIDE `invoke` (the
+#720 principal-kind gate); it MUST be the 3-arm union because the
+Connect frame (`agent/connect` / `app/connect`) is dispatched while the
+arm is still unauthenticated, so the unauth arm reaches `invoke`
+unnarrowed. The protocol `DispatchContext` (`capabilities.ts`) is a
+DIFFERENT type for a DIFFERENT role — the `argsOf` resolver context
+(Decision 2) — and requires `auth`, so it cannot stand in here.
+
+Kept structural (not an import of the server type) so the protocol
+package does not depend on `@moltzap/server-core`. The slot factory is
+generic over `Conn`, which the server pins to its `Connection` union.
+
 ### [`TaskMasterConnection`](./connection.ts#L183)
 
 _Interface_
@@ -1402,6 +1566,7 @@ Returns `null` when the failure isn't a registered wire-error class
 - `capabilities.ts`
 - `connection.ts`
 - `dispatch.ts`
+- `erased-slot.ts`
 - `handlers.ts`
 - `method.ts`
 - `originator.ts`
