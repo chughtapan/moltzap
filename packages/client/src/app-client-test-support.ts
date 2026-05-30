@@ -1,17 +1,13 @@
 /**
- * Tests for `app-client.ts` — now running against a real in-process
- * `@effect/platform` WebSocket server instead of a `vi.mock("ws")` fake.
+ * Shared in-process WebSocket test harness for `app-client.test.ts` —
+ * helpers, constants, and server fixtures. Contains no test cases of its
+ * own; the `it(...)` blocks (including reconnect-backoff) live in
+ * `app-client.test.ts`, which imports from here.
  *
  * Setup: each test spins up a fresh `NodeSocketServer.makeWebSocket` bound to
  * `127.0.0.1:0` (OS-assigned port). An explicit host is required — omitting
  * it binds `::` which `server.address()` returns verbatim, yielding a
  * non-dialable `ws://:::PORT` URL on Linux/macOS (gotcha §4.11).
- *
- * Coverage matches the §5 invariants + the typed-manifest + malformed-frame
- * cadence tests from the legacy suite. Reconnect-backoff uses real wall-clock
- * timing because the reconnect loop runs on the client's internal
- * `ManagedRuntime`, whose default Clock is out of reach of a test-fiber's
- * `TestClock` (see the `describe("reconnect backoff")` block for details).
  */
 import { createServer } from "node:net";
 import { expect, it } from "vitest";

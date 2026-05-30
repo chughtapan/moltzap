@@ -71,17 +71,12 @@ export type ClientWebSocket = Effect.Effect.Success<
 >;
 
 /**
- * Exponential backoff (1s base, ×2 per attempt) capped at 30s and
- * jittered. The shared reconnect-loop tuning for both clients. Output
- * type is `Schedule`'s inferred `[Duration, number]` (the `either` of
- * the exponential delay and the spaced attempt count) — the reconnect
- * loop ignores the schedule output, so the exact shape is immaterial.
- * Module-private: consumed only by {@link makeReconnectLoop} (#705 CP-F
- * A6-base — the clients no longer build the retry inline).
+ * Exponential backoff (1s base, ×2 per attempt) capped at 30s + jitter.
+ * The retry loop discards the schedule output. Module-private: consumed
+ * only by {@link makeReconnectLoop} (#705 CP-F A6-base — the clients no
+ * longer build the retry inline).
  */
-const makeReconnectSchedule = (): Schedule.Schedule<
-  [Duration.Duration, number]
-> =>
+const makeReconnectSchedule = () =>
   Schedule.exponential(
     Duration.millis(BASE_RECONNECT_DELAY_MS),
     RECONNECT_BACKOFF_FACTOR,
