@@ -627,12 +627,16 @@ delta. The `pnpm dev` script is the only operator-visible change.
 - **Added (`@moltzap/client/channel-base`):** `LeaseStore<HostKey, T>`
   and `LeaseGuard` primitives for channel-local lease bookkeeping.
 - **Added (`@moltzap/client/channel-base`):** Consolidated
-  `formatCrossConv` / `formatGroupBlock` formatters with the
-  `getGroupFields(meta) === null` group-absent semantic (a `null`
-  group block is rendered as "no group", not an empty block).
-- **Added (`@moltzap/client/channel-base`):** `onLeaseConsumed`
-  callback on `MoltzapChannelPluginDeps`, fired when the server reports
-  a lease as already consumed so channels can drop local state.
+  `formatCrossConv` / `formatGroupBlock` formatters plus the
+  `getGroupFields(meta)` narrowing helper (returns `null` when the
+  conversation is not a group, so callers skip the block entirely;
+  the `json-header` markup variant returns an empty string by design,
+  since openclaw consumes `getGroupFields` directly rather than
+  rendering a block).
+- **Added (`@moltzap/openclaw-channel`):** `onLeaseConsumed` callback
+  on the openclaw channel's `MoltzapChannelPluginDeps`, fired when the
+  server reports a lease as already consumed so the channel can drop
+  local state.
 - **Behavior:** Deterministic reconnection is now triggered via
   `MoltZapWsClient.disconnect()` (replacing the toxiproxy
   `reset_peer` fault-injection path) — reconnection tests drive the
