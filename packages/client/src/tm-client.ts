@@ -200,7 +200,7 @@ type TMSlotTable = ErasedSlotTable<never, TaskCallbackContext>;
 
 /**
  * Wrap ONE authored TM-callback slot into a cast-free `ErasedSlot` (#705
- * HALF-1), generic over its concrete definition `D` so the `params`/`result`
+ * HALF-1), generic over its `params`/`result` schemas (`P`/`R`) so those
  * types stay correlated per method. The TM-callback catalog declares NO
  * capabilities, so the providers tuple is the empty tuple `[]`; the
  * `makeErasedSlot` `handler` receives `SlotDispatchContext<TaskCallbackContext>`

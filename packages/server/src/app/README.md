@@ -27,9 +27,11 @@ dispatch lease registry now lives in `task/leases/`.)
   manifest-default fast-path serves every callback server-side
   (`dispatch/authorize → grant`, `messages/authorize →
   Forward{participants∖sender}`, `task/create → accept`).
-- `capability-providers.ts` — `serverCapabilityProviders` table
-  (keyed by `Context.Tag.key`). File-level JSDoc covers the full
-  R-channel capability pattern and the migration recipe for new
+- `capability-providers.ts` — named per-cap `provideX` functions
+  (#705 HALF-1; the pre-cutover global `serverCapabilityProviders`
+  table keyed by `Context.Tag.key` is gone — each cap-bearing method
+  threads a positional providers tuple into `defineXMethod`). File-level
+  JSDoc covers the full R-channel capability pattern and the recipe for new
   capabilities.
 - `http-routes.ts` — `makeCoreHttpApp`; `/health`, `/ws`, auth
   register / claim, optional admin route.

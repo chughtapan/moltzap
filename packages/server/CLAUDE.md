@@ -19,7 +19,7 @@ packages/server/src/
 ├── app/                # AppHost + composition root
 │   ├── server.ts             # createCoreApp — composes Layers, mounts routes
 │   ├── app-host.ts           # AppHost — dispatch/* + hook fan-out
-│   ├── capability-providers.ts # serverCapabilityProviders obtain table
+│   ├── capability-providers.ts # named per-cap provideX obtain helpers (#705 HALF-1)
 │   ├── handlers/             # apps.handlers, task-request.handler
 │   ├── layers.ts             # Tag definitions + Live composition (Tier 1-6)
 │   └── types.ts              # CoreConfig, CoreApp, branded IDs + ConnectionHook / DisconnectionHook (no generic Hook<T,R>)
@@ -69,40 +69,36 @@ send(
   /* ... */
 ): Effect.Effect<MessageResult, MessageServiceError, MessageSendPermission>;
 
-// server/src/app/capability-providers.ts — single source of truth.
-// Simple obtains are INLINE here (each has exactly one consumer: this
-// table). The #673 `TmAuthority` capability is dissolved (D #705 R7):
-// the 8 task-admin RPCs are bound to `defineAppMethod` and each handler
-// loads the task + calls `assertAppOwnsTask(appConn.auth.appId, task)`
-// directly — there is no capability-provider entry for app-ownership.
-export const serverCapabilityProviders = {
-  [TaskReadAccess.key]: (args) =>
-    Effect.gen(function* () {
-      const taskService = yield* TaskServiceTag;
-      const { taskId, callerAgentId } = args as TaskAndAgent;
-      const task = yield* taskService.loadTaskWithReadAccess(
-        taskId,
-        callerAgentId,
-      );
-      return { task, callerAgentId };
-    }),
-  /* ...ConversationInTask, ContactPolicyAllowsReach inline... */
-  // Composites with their own direct consumers live as named functions
-  // next to the services they compose:
-  [ConversationCreateAuthorization.key]: (args) =>
-    obtainConversationCreateAuthorization(args), // task/services/conversation-create-authorization.ts
-  [MessageSendPermission.key]: (args) =>
-    obtainMessageSendPermission(args), // task/services/message-send-permission.ts
-} as const;
+// server/src/app/capability-providers.ts — named per-cap obtain helpers
+// (#705 HALF-1; the pre-cutover global `serverCapabilityProviders` table
+// keyed by `Context.Tag.key` is gone). Simple obtains are INLINE; the #673
+// `TmAuthority` capability is dissolved (D #705 R7): the 8 task-admin RPCs
+// bind to `defineAppMethod` and each handler loads the task + calls
+// `assertAppOwnsTask(appConn.auth.appId, task)` directly — no provider entry.
+export const provideTaskReadAccess = (args: unknown) =>
+  Effect.gen(function* () {
+    const taskService = yield* TaskServiceTag;
+    const { taskId, callerAgentId } = args as TaskAndAgent;
+    const task = yield* taskService.loadTaskWithReadAccess(taskId, callerAgentId);
+    return { task, callerAgentId };
+  });
+/* ...provideConversationInTask, provideContactPolicyAllowsReach inline... */
+// Composites with their own direct consumers live as named functions next
+// to the services they compose (task/services/{message-send-permission,
+// conversation-create-authorization}.ts). `ConversationCreateAuthorization`
+// is hand-piped via `Effect.provideServiceEffect` at its handler call sites
+// (NOT descriptor-declared), so it has no `provideX` here.
 ```
 
-The dispatcher reads `definition.capabilities` per frame, looks up
-each tag's obtain helper in `serverCapabilityProviders`, and threads
-`Effect.provideServiceEffect(tag, providerEffect)` over the handler
-before invoking it. The compile-time lockstep gate
-(`protocol/transport/typed-dispatcher.types-check.ts` Canary 7)
-rejects any handler whose R channel references a tag NOT in its
-descriptor's `capabilities` array.
+Each cap-bearing method threads a positional providers tuple aligned 1:1
+to its descriptor's `capabilities` into `defineXMethod(definition, def,
+[...providers])`. The slot (`@moltzap/protocol` `makeErasedSlot`) reads
+`definition.capabilities` per frame and discharges each tag from the
+tuple via `Effect.provideServiceEffect(tag, provider(argsOf(params, ctx)))`
+INSIDE its `invoke`. The compile-time handler-R ⊆ declared-caps lockstep
+moved onto `makeErasedSlot`'s typed handler bound
+(`protocol/transport/erased-slot.types-check.ts`) — a handler whose R
+references a tag NOT in its method's `capabilities` tuple fails to assign.
 
 `MessagesSend` is the one structural exception: the wire schema
 accepts `(conversationId | to | replyToId)` and the handler must
