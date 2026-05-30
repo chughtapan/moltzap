@@ -61,7 +61,7 @@ export * from "./app/index.js";
 export {
   serverRpcMethods,
   agentClientRpcMethods,
-  taskMasterRpcMethods,
+  appCallableRpcMethods,
   notificationDefinitions,
   decodeServerInbound,
   decodeClientInbound,
@@ -69,8 +69,8 @@ export {
 export type {
   AnyServerRpcDefinition,
   AnyAgentClientRpcDefinition,
-  AnyTaskMasterRpcDefinition,
-  AnyTaskCallbackRpcDefinition,
+  AnyAppCallableRpcDefinition,
+  AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
   DecodedServerInbound,
   DecodedClientInbound,

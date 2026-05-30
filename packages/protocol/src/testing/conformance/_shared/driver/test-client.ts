@@ -29,10 +29,10 @@ import {
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type {
-  AnyTaskCallbackRpcDefinition,
+  AnyAppCallbackRpcDefinition,
   AnyServerRpcDefinition,
 } from "../../../../rpc-registry.js";
-import { taskCallbackMethods } from "../../../../rpc-registry.js";
+import { appCallbackMethods } from "../../../../rpc-registry.js";
 import {
   decodeRpcResult,
   type NotificationParamsOf,
@@ -109,8 +109,8 @@ export interface TestClientConfig {
    * D #705 CP5/CP7 — when set, the `network/connect` handshake uses the
    * app-principal `appKey` arm instead of the agent `agentKey` arm, so the
    * connection authenticates as an `AppConnection`. Used by app-arm
-   * integration tests (e.g. `app-session-scoping`) that drive the TM as a
-   * first-class app principal rather than the dead #673 agent-AppsRegisters
+   * integration tests (e.g. `app-session-scoping`) that drive the moderator app
+   * as a first-class app principal rather than the dead #673 agent-AppsRegisters
    * model. Mutually exclusive with the agent path at the wire (the Connect
    * params union is disjoint).
    */
@@ -263,7 +263,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 /**
  * Descriptor constraint for app-callback RPC test surface.
  */
-export type ServerRpcDefinition = AnyTaskCallbackRpcDefinition;
+export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
 
 /**
  * Inbound params type for an app-callback method.
@@ -327,7 +327,7 @@ interface TestClientRuntime {
   readonly pending: PendingMap;
   readonly closeRef: Ref.Ref<CloseState>;
   readonly subscribers: TestSubscriberRegistry;
-  readonly onTMHandlersRef: Ref.Ref<
+  readonly onAppCallbackHandlersRef: Ref.Ref<
     HashMap.HashMap<ServerRpcDefinition, AppCallbackHandler>
   >;
   readonly awaitersRef: Ref.Ref<AwaitersMap>;
@@ -565,7 +565,7 @@ function acquireTestClientRuntime(
       pending: new Map(),
       closeRef,
       subscribers: yield* makeTestSubscriberRegistry(),
-      onTMHandlersRef: yield* Ref.make(
+      onAppCallbackHandlersRef: yield* Ref.make(
         HashMap.empty<ServerRpcDefinition, AppCallbackHandler>(),
       ),
       awaitersRef: yield* Ref.make(
@@ -715,7 +715,7 @@ function handleRequestFrame(
   runtime: TestClientRuntime,
   frame: RequestFrame,
 ): Effect.Effect<void> {
-  return decodeRpcRequest(taskCallbackMethods, frame).pipe(
+  return decodeRpcRequest(appCallbackMethods, frame).pipe(
     Effect.matchEffect({
       onFailure: () => writeReply(runtime, invalidCallbackRequestReply(frame)),
       onSuccess: (request) => handleDecodedServerRequest(runtime, request),
@@ -773,7 +773,7 @@ function buildServerRequestReply(
   request: ServerRequestDispatch,
 ): Effect.Effect<ResponseFrame> {
   return Effect.gen(function* () {
-    const handlers = yield* Ref.get(runtime.onTMHandlersRef);
+    const handlers = yield* Ref.get(runtime.onAppCallbackHandlersRef);
     const handler = Option.getOrUndefined(
       HashMap.get(handlers, request.definition),
     );
@@ -1045,7 +1045,7 @@ function registerAppCallbackHandler(
   definition: ServerRpcDefinition,
   handler: AppCallbackHandler,
 ): Effect.Effect<void> {
-  return Ref.update(runtime.onTMHandlersRef, (handlers) =>
+  return Ref.update(runtime.onAppCallbackHandlersRef, (handlers) =>
     HashMap.set(handlers, definition, handler),
   );
 }

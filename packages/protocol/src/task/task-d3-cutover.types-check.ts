@@ -1,13 +1,13 @@
 /**
  * @file Spec D3 (#600) R11 outbound-catalog-split type canaries.
  *
- * Pins the partition shape: agentClientRpcMethods ⊂ taskMasterRpcMethods,
+ * Pins the partition shape: agentClientRpcMethods ⊂ appCallableRpcMethods,
  * disjoint from appCallableTaskRpcMethods. Each predicate fails compilation if
  * a method gets moved between sides or a new method lands without
  * classification.
  *
  * Additional D3 canaries (TaskId branding, JsonValue, MessagesSend
- * capabilities, TaskMasterHandlers REQUIRED slots) follow in their
+ * capabilities, AppCallbackHandlers REQUIRED slots) follow in their
  * respective commits.
  */
 import type { JsonValue } from "../schema-primitives.js";
@@ -15,9 +15,9 @@ import type { JsonRpcMethod } from "../transport/wire.js";
 import type { RpcErrorPayload } from "../transport/wire-errors.js";
 import {
   agentClientRpcMethods,
-  taskMasterRpcMethods,
+  appCallableRpcMethods,
   type AnyAgentClientRpcDefinition,
-  type AnyTaskMasterRpcDefinition,
+  type AnyAppCallableRpcDefinition,
   type AnyServerRpcDefinition,
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
@@ -38,7 +38,7 @@ import {
 // ── Partition cardinality ───────────────────────────────────────────
 // taskMaster = agentClient ∪ tmOnly; cardinality sum equals.
 type _CardinalityHolds = AssertEquals<
-  (typeof taskMasterRpcMethods)["length"],
+  (typeof appCallableRpcMethods)["length"],
   AddOne<
     (typeof agentClientRpcMethods)["length"],
     (typeof appCallableTaskRpcMethods)["length"]
@@ -48,27 +48,27 @@ type _CardinalityHolds = AssertEquals<
 // ── Membership: TM-only side carries the admin operations ───────────
 type _TmOnlyHasClose = AssertExtends<
   typeof TaskClose,
-  AnyTaskMasterRpcDefinition
+  AnyAppCallableRpcDefinition
 >;
 type _TmOnlyHasConvCreate = AssertExtends<
   typeof TaskConversationCreate,
-  AnyTaskMasterRpcDefinition
+  AnyAppCallableRpcDefinition
 >;
 type _TmOnlyHasConvArchive = AssertExtends<
   typeof TaskConversationArchive,
-  AnyTaskMasterRpcDefinition
+  AnyAppCallableRpcDefinition
 >;
 type _TmOnlyHasConvUnarchive = AssertExtends<
   typeof TaskConversationUnarchive,
-  AnyTaskMasterRpcDefinition
+  AnyAppCallableRpcDefinition
 >;
 type _TmOnlyHasAddPart = AssertExtends<
   typeof TaskConversationAddParticipant,
-  AnyTaskMasterRpcDefinition
+  AnyAppCallableRpcDefinition
 >;
 type _TmOnlyHasRemovePart = AssertExtends<
   typeof TaskConversationRemoveParticipant,
-  AnyTaskMasterRpcDefinition
+  AnyAppCallableRpcDefinition
 >;
 
 // ── Membership: agent-client side carries the open operations ───────
@@ -107,7 +107,7 @@ type _ConvCreateNotInAgentSet = AssertEquals<
 
 // ── Sanity: server set is the superset (still includes legacy) ──────
 type _ServerSupersetOfTm = AssertExtends<
-  AnyTaskMasterRpcDefinition,
+  AnyAppCallableRpcDefinition,
   AnyServerRpcDefinition
 >;
 
@@ -117,7 +117,7 @@ type _RpcErrorPayloadDataIsJsonValue = AssertEquals<
   JsonValue | undefined
 >;
 
-// ── Wire-name pins (iter-12 rename + new TM callback) ───────────────
+// ── Wire-name pins (iter-12 rename + new app callback) ───────────────
 // Locks the agent-facing entry RPC to `task/request` and the new
 // TM-facing callback to `task/create`. A future refactor that touches
 // either constant must update these canaries deliberately.

@@ -21,6 +21,73 @@ export interface AgentClientOptions {
 }
 ```
 
+### [`AppCallbackContext`](./app-client.ts#L180)
+
+_Interface_
+
+```ts
+export interface AppCallbackContext {
+  readonly requestId: JsonRpcId;
+}
+```
+
+Per-frame context the WS client threads through the Spec F typed
+dispatcher when invoking a app-callback handler. The dispatcher reads
+the slot's definition off the static handler table — handlers only need
+the request id (e.g. for tracing / logging). The empty `traceparent`
+passthrough is intentional: when the wire frame carries an OTel
+traceparent header, the surrounding transport may layer it on; the
+typed-dispatcher does not encode tracing into the type.
+
+### [`AppClientOptions`](./app-client.ts#L251)
+
+_Interface_
+
+```ts
+export interface AppClientOptions {
+  serverUrl: string;
+  agentKey: string;
+
+  /**
+   * D #705 CP8 — app-principal credential. When set, the `network/connect`
+   * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
+   * instead of the `agentKey` arm, so the server mints an `AppConnection`
+   * and the HelloOk carries no `agentId`. Used by wire app clients (a
+   * moderator app authenticating as an app principal); wire agent clients
+   * leave it unset and authenticate via `agentKey`. The two are mutually
+   * exclusive at the wire — the Connect params union is disjoint — so a
+   * configured `appKey` wins the handshake-credential selection in
+   * `awaitConnectAuth`. (The boot-installed default app is NOT a client: it
+   * registers a hookless manifest server-side and is served by AppHost's
+   * manifest-default fast-path.)
+   */
+  appKey?: string;
+
+  /**
+   * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
+   * `close` is the typed close metadata — real WebSocket `{code, reason}`
+   * when the transport surfaces them, OQ-5 defaults otherwise.
+   *
+   * Migration note (spec #596): the previous `subscribe(filter, handler)` /
+   * `waitForNotification` / `notificationsBufferRef` surface was deleted in
+   * Spec B. Callers consume notifications via `subscribe(def, refinement?)`
+   * returning a `Stream`, or `subscribeAll(refinement?)` for the broad-union
+   * escape hatch.
+   */
+  onDisconnect?: (close: CloseInfo) => void;
+  onReconnect?: (helloOk: ConnectResult) => void;
+
+  /**
+   * Spec D3 R14b — REQUIRED. app-callback handler table immutable at
+   * construction (Spec F I1). Keys are catalog method names
+   * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
+   * the matching `defineRpc` descriptor and its handler effect.
+   * Vacuous-deny moderators write the explicit ForbiddenError handler.
+   */
+  handlers: AppCallbackHandlers<AppCallbackContext>;
+}
+```
+
 ### [`ChannelCoreOptions`](./channel-core.ts#L209)
 
 _Interface_
@@ -391,7 +458,7 @@ export class MoltZapAgentClient {
    * `RpcDefinition` so generic forwarders (service.sendRpc, CLI
    * transport) can pass through without per-method narrowing; the R11
    * agent-client catalog narrowing applies at runtime inside
-   * `AgentClientConnection` and rejects TM-only methods.
+   * `AgentClientConnection` and rejects app-only methods.
    */
   sendRpc<D extends RpcDefinition<string, any, any>>(
     definition: D,
@@ -476,9 +543,180 @@ export class MoltZapAgentClient {
     const state = this.runtime.runSync(Ref.get(this.stateRef));
 ```
 
-MoltZap agent client — outbound RPC only, no TM-callback inbound
-dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; TM-only
+MoltZap agent client — outbound RPC only, no app-callback inbound
+dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; app-only
 methods are unreachable at compile time (Spec D3 R11/R13).
+
+### [`MoltZapAppClient`](./app-client.ts#L339)
+
+_Class_
+
+```ts
+export class MoltZapAppClient {
+  private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
+  private readonly malformedRef: Ref.Ref<number>;
+  private readonly runtime: ManagedRuntime.ManagedRuntime<
+    Socket.WebSocketConstructor,
+    never
+  >;
+
+  /**
+   * Per-subscription notification registry. Spec #596 / Spec B: callback-based
+   * storage feeds `Stream.async` consumers via `notification/stream.ts`.
+   */
+  private readonly subscribers: SubscriberRegistry;
+
+  /**
+   * Spec F (#617) immutable app-callback handler table. Captured from
+   * `AppClientOptions.handlers` at construction and threaded through
+   * every `makeAppClientConnection` call (including reconnects).
+   */
+  private readonly handlers: AppCallbackHandlers<AppCallbackContext>;
+
+  private closed = false;
+  private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
+  private _helloOk: ConnectResult | null = null;
+
+  constructor(private readonly options: AppClientOptions) {
+    this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
+    this.stateRef = this.runtime.runSync(
+      Ref.make<Option.Option<ConnState>>(Option.none()),
+    );
+    this.malformedRef = this.runtime.runSync(Ref.make(0));
+    this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
+    this.handlers = options.handlers;
+  }
+
+  get helloOk(): ConnectResult | null {
+    return this._helloOk;
+  }
+
+  /**
+   * Open the socket, perform `network/connect`, resolve with HelloOk.
+   * Fails immediately on pre-open close or error.
+   *
+   * ```mermaid
+   * sequenceDiagram
+   *   participant caller
+   *   participant client as MoltZapAppClient
+   *   participant server
+   *
+   *   caller->>client: new MoltZapAppClient(options)
+   *   Note over client: stateRef = None, subscribers, ManagedRuntime
+   *   caller->>client: subscribe(filter, handler)
+   *   Note over client: SubscriberRegistry.register — survives reconnect
+   *   caller->>client: connect()
+   *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startAppCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
+   *   client->>server: TCP open + WS upgrade
+   *   client->>server: network/connect {agentKey, minProtocol, maxProtocol}
+   *   server-->>client: HelloOk
+   *   Note over client: stateRef = Some(connState), _helloOk = value
+   *   client-->>caller: HelloOk
+   *   Note over client,server: steady state — reader fiber loops on socket.runRaw
+   * ```
+   *
+   * Reconnect arm fires from `handleReaderExit` when the reader fiber
+   * exits with `closed === false`. `failAllPending` settles every
+   * in-flight Deferred with `NotConnectedError`, `notifyDisconnect`
+   * surfaces the close info, then `scheduleReconnect` forks an
+   * exponential-backoff retry (`1s × 2^n, cap 30s, +jitter`).
+   *
+   * State that SURVIVES reconnect: `SubscriberRegistry` entries,
+   * `appCallbackHandlers` (immutable, value-captured at construction),
+   * `ManagedRuntime`.
+   *
+   * State that does NOT survive reconnect: in-flight RPC Deferreds
+   * (failed via `failAllPending`), the prior `ConnState` (scope,
+   * reader fiber, callback queue, dispatcher scope) — rebuilt fresh.
+   */
+  connect(): Effect.Effect<ConnectResult, ConnectError> {
+    return Effect.suspend(() => {
+      if (this.closed) {
+        return Effect.fail(makeNotConnectedError());
+      }
+      return this.connectEffect().pipe(
+        // `makeWebSocket` requires `Socket.WebSocketConstructor`; our
+        // internal Node layer provides it so callers' Effects stay
+        // requirement-free (same public shape the legacy client had).
+        Effect.provide(NodeSocket.layerWebSocketConstructor),
+      );
+    });
+  }
+
+  /**
+   * Send an RPC. Fails with a typed error:
+   *   - `NotConnectedError` if the socket isn't OPEN or closes mid-RPC
+   *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
+   *   - a registered tagged error for known protocol error codes
+   *   - `RpcServerError` for unknown protocol error codes
+   *
+   * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
+   * client extracts the wire method only inside the encoder path.
+   */
+  sendRpc<D extends RpcDefinition<string, any, any>>(
+    definition: D,
+    params: ParamsOf<D>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<ResultOf<D>, ConnectError> {
+    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
+    return this.sendRpcEffect(definition, params, timeoutMs);
+  }
+
+  /**
+   * Typed-payload subscribe (spec #596 Goal #1). Returns a Stream of
+   * `DecodedNotification<D>` whose error channel is `NotConnectedError`
+   * and whose requirement set is `never`.
+   *
+   * `refinement` is a typed predicate over the definition's params shape.
+   * The user-defined-type-guard overload (signature below) narrows the
+   * Stream's payload to `DecodedNotification<D, R>`.
+   *
+   * Lifecycle (spec §"Stream lifecycle contract"):
+```
+
+WebSocket lifecycle: open → network/connect → active. On disconnect,
+exponential backoff (1s base, 30s cap, jittered) retries the handshake via
+`Effect.sleep` + `Schedule` so TestClock can drive it. Public API is
+Effect-based — consumers run the returned Effects themselves (typically at
+a framework or CLI edge).
+
+Connection state machine, driven by `stateRef` (`None` | `Some(ConnState)`)
+and the `closed` flag:
+
+```mermaid
+stateDiagram-v2
+  [*] --> INIT
+  INIT : stateRef None, closed false
+  INIT --> CONNECTING : connect()
+  CONNECTING : openSocket 10s timeout<br>startAppCallbackDispatcher<br>readerFiber forked<br>sendRpc(Connect) in flight
+  CONNECTING --> CONNECTED : HelloOk received<br>stateRef = Some(ConnState)
+  CONNECTED : _helloOk set, reader fiber active
+  CONNECTED --> DISCONNECTED : reader fiber exit<br>failAllPending, stateRef = None<br>onDisconnect(closeInfo)
+  DISCONNECTED : reconnectable, closed false
+  DISCONNECTED --> CONNECTING : scheduleReconnect<br>exponential backoff 1s..30s jittered<br>connectEffect → onReconnect(helloOk)
+  INIT --> CLOSED : close()
+  CONNECTING --> CLOSED : close()
+  CONNECTED --> CLOSED : close()
+  DISCONNECTED --> CLOSED : close()
+  CLOSED : terminal — closed true<br>stateRef None, reconnectFiber null<br>no further reconnects
+  CLOSED --> [*]
+```
+
+`close()` is total from any state: interrupts the reconnect fiber,
+`failAllPending` + `failAllNotificationWaiters`, `subscribers.closeAll`,
+writes `CloseEvent(1000)` if the handshake completed, closes the
+connection and dispatcher scopes, disposes the `ManagedRuntime`.
+
+Transport: `@effect/platform/Socket.makeWebSocket` backed by
+`@effect/platform-node/NodeSocket.layerWebSocketConstructor`. The Node
+`WebSocketConstructor` layer is provided internally via `ManagedRuntime`
+so callers' `connect()` / `sendRpc()` Effects have no extra requirement.
+
+Notification consumption: use `subscribe(def, refinement?)` for typed
+payload Streams; `subscribeAll(refinement?)` for the broad-union
+escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
+a `NotConnectedError` error channel. Consume via `Stream.runForEach`
+(long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
 
 ### [`MoltZapChannelCore`](./channel-core.ts#L324)
 
@@ -786,177 +1024,6 @@ callers compose failures and cancellation explicitly. (Phase -1
 vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
 to arena; consumers wanting Promise wrappers maintain their own.)
 
-### [`MoltZapTMClient`](./tm-client.ts#L332)
-
-_Class_
-
-```ts
-export class MoltZapTMClient {
-  private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
-  private readonly malformedRef: Ref.Ref<number>;
-  private readonly runtime: ManagedRuntime.ManagedRuntime<
-    Socket.WebSocketConstructor,
-    never
-  >;
-
-  /**
-   * Per-subscription notification registry. Spec #596 / Spec B: callback-based
-   * storage feeds `Stream.async` consumers via `notification/stream.ts`.
-   */
-  private readonly subscribers: SubscriberRegistry;
-
-  /**
-   * Spec F (#617) immutable TM-callback handler table. Captured from
-   * `TMClientOptions.handlers` at construction and threaded through
-   * every `makeTaskMasterConnection` call (including reconnects).
-   */
-  private readonly handlers: TMHandlers;
-
-  private closed = false;
-  private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
-  private _helloOk: ConnectResult | null = null;
-
-  constructor(private readonly options: TMClientOptions) {
-    this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
-    this.stateRef = this.runtime.runSync(
-      Ref.make<Option.Option<ConnState>>(Option.none()),
-    );
-    this.malformedRef = this.runtime.runSync(Ref.make(0));
-    this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
-    this.handlers = options.handlers;
-  }
-
-  get helloOk(): ConnectResult | null {
-    return this._helloOk;
-  }
-
-  /**
-   * Open the socket, perform `network/connect`, resolve with HelloOk.
-   * Fails immediately on pre-open close or error.
-   *
-   * ```mermaid
-   * sequenceDiagram
-   *   participant caller
-   *   participant client as MoltZapTMClient
-   *   participant server
-   *
-   *   caller->>client: new MoltZapTMClient(options)
-   *   Note over client: stateRef = None, subscribers, ManagedRuntime
-   *   caller->>client: subscribe(filter, handler)
-   *   Note over client: SubscriberRegistry.register — survives reconnect
-   *   caller->>client: connect()
-   *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startTaskCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
-   *   client->>server: TCP open + WS upgrade
-   *   client->>server: network/connect {agentKey, minProtocol, maxProtocol}
-   *   server-->>client: HelloOk
-   *   Note over client: stateRef = Some(connState), _helloOk = value
-   *   client-->>caller: HelloOk
-   *   Note over client,server: steady state — reader fiber loops on socket.runRaw
-   * ```
-   *
-   * Reconnect arm fires from `handleReaderExit` when the reader fiber
-   * exits with `closed === false`. `failAllPending` settles every
-   * in-flight Deferred with `NotConnectedError`, `notifyDisconnect`
-   * surfaces the close info, then `scheduleReconnect` forks an
-   * exponential-backoff retry (`1s × 2^n, cap 30s, +jitter`).
-   *
-   * State that SURVIVES reconnect: `SubscriberRegistry` entries,
-   * `appCallbackHandlers` (immutable, value-captured at construction),
-   * `ManagedRuntime`.
-   *
-   * State that does NOT survive reconnect: in-flight RPC Deferreds
-   * (failed via `failAllPending`), the prior `ConnState` (scope,
-   * reader fiber, callback queue, dispatcher scope) — rebuilt fresh.
-   */
-  connect(): Effect.Effect<ConnectResult, ConnectError> {
-    return Effect.suspend(() => {
-      if (this.closed) {
-        return Effect.fail(makeNotConnectedError());
-      }
-      return this.connectEffect().pipe(
-        // `makeWebSocket` requires `Socket.WebSocketConstructor`; our
-        // internal Node layer provides it so callers' Effects stay
-        // requirement-free (same public shape the legacy client had).
-        Effect.provide(NodeSocket.layerWebSocketConstructor),
-      );
-    });
-  }
-
-  /**
-   * Send an RPC. Fails with a typed error:
-   *   - `NotConnectedError` if the socket isn't OPEN or closes mid-RPC
-   *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
-   *   - a registered tagged error for known protocol error codes
-   *   - `RpcServerError` for unknown protocol error codes
-   *
-   * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
-   * client extracts the wire method only inside the encoder path.
-   */
-  sendRpc<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ConnectError> {
-    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.sendRpcEffect(definition, params, timeoutMs);
-  }
-
-  /**
-   * Typed-payload subscribe (spec #596 Goal #1). Returns a Stream of
-   * `DecodedNotification<D>` whose error channel is `NotConnectedError`
-   * and whose requirement set is `never`.
-   *
-   * `refinement` is a typed predicate over the definition's params shape.
-   * The user-defined-type-guard overload (signature below) narrows the
-   * Stream's payload to `DecodedNotification<D, R>`.
-   *
-   * Lifecycle (spec §"Stream lifecycle contract"):
-```
-
-WebSocket lifecycle: open → network/connect → active. On disconnect,
-exponential backoff (1s base, 30s cap, jittered) retries the handshake via
-`Effect.sleep` + `Schedule` so TestClock can drive it. Public API is
-Effect-based — consumers run the returned Effects themselves (typically at
-a framework or CLI edge).
-
-Connection state machine, driven by `stateRef` (`None` | `Some(ConnState)`)
-and the `closed` flag:
-
-```mermaid
-stateDiagram-v2
-  [*] --> INIT
-  INIT : stateRef None, closed false
-  INIT --> CONNECTING : connect()
-  CONNECTING : openSocket 10s timeout<br>startTaskCallbackDispatcher<br>readerFiber forked<br>sendRpc(Connect) in flight
-  CONNECTING --> CONNECTED : HelloOk received<br>stateRef = Some(ConnState)
-  CONNECTED : _helloOk set, reader fiber active
-  CONNECTED --> DISCONNECTED : reader fiber exit<br>failAllPending, stateRef = None<br>onDisconnect(closeInfo)
-  DISCONNECTED : reconnectable, closed false
-  DISCONNECTED --> CONNECTING : scheduleReconnect<br>exponential backoff 1s..30s jittered<br>connectEffect → onReconnect(helloOk)
-  INIT --> CLOSED : close()
-  CONNECTING --> CLOSED : close()
-  CONNECTED --> CLOSED : close()
-  DISCONNECTED --> CLOSED : close()
-  CLOSED : terminal — closed true<br>stateRef None, reconnectFiber null<br>no further reconnects
-  CLOSED --> [*]
-```
-
-`close()` is total from any state: interrupts the reconnect fiber,
-`failAllPending` + `failAllNotificationWaiters`, `subscribers.closeAll`,
-writes `CloseEvent(1000)` if the handshake completed, closes the
-connection and dispatcher scopes, disposes the `ManagedRuntime`.
-
-Transport: `@effect/platform/Socket.makeWebSocket` backed by
-`@effect/platform-node/NodeSocket.layerWebSocketConstructor`. The Node
-`WebSocketConstructor` layer is provided internally via `ManagedRuntime`
-so callers' `connect()` / `sendRpc()` Effects have no extra requirement.
-
-Notification consumption: use `subscribe(def, refinement?)` for typed
-payload Streams; `subscribeAll(refinement?)` for the broad-union
-escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
-a `NotConnectedError` error channel. Consume via `Stream.runForEach`
-(long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
-
 ### [`NonAdvancingCursorError`](./pagination.ts#L23)
 
 _Class_
@@ -1049,7 +1116,7 @@ export interface RegisterResponse {
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register` and `/api/v1/admin/register-agent`).
 
-### [`RpcCallOptions`](./tm-client.ts#L79)
+### [`RpcCallOptions`](./app-client.ts#L79)
 
 _Interface_
 
@@ -1114,92 +1181,11 @@ export interface ConversationMeta {
 Errors that can surface from the Effect-based service API. Matches the
 failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
 
-### [`TaskCallbackContext`](./tm-client.ts#L180)
-
-_Interface_
-
-```ts
-export interface TaskCallbackContext {
-  readonly requestId: JsonRpcId;
-}
-```
-
-Per-frame context the WS client threads through the Spec F typed
-dispatcher when invoking a TM-callback handler. The dispatcher reads
-the slot's definition off the static handler table — handlers only need
-the request id (e.g. for tracing / logging). The empty `traceparent`
-passthrough is intentional: when the wire frame carries an OTel
-traceparent header, the surrounding transport may layer it on; the
-typed-dispatcher does not encode tracing into the type.
-
-### [`TMClientOptions`](./tm-client.ts#L244)
-
-_Interface_
-
-```ts
-export interface TMClientOptions {
-  serverUrl: string;
-  agentKey: string;
-
-  /**
-   * D #705 CP8 — app-principal credential. When set, the `network/connect`
-   * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
-   * instead of the `agentKey` arm, so the server mints an `AppConnection`
-   * and the HelloOk carries no `agentId`. Used by wire app clients (a
-   * moderator app authenticating as an app principal); wire agent clients
-   * leave it unset and authenticate via `agentKey`. The two are mutually
-   * exclusive at the wire — the Connect params union is disjoint — so a
-   * configured `appKey` wins the handshake-credential selection in
-   * `awaitConnectAuth`. (The boot-installed default app is NOT a client: it
-   * registers a hookless manifest server-side and is served by AppHost's
-   * manifest-default fast-path.)
-   */
-  appKey?: string;
-
-  /**
-   * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
-   * `close` is the typed close metadata — real WebSocket `{code, reason}`
-   * when the transport surfaces them, OQ-5 defaults otherwise.
-   *
-   * Migration note (spec #596): the previous `subscribe(filter, handler)` /
-   * `waitForNotification` / `notificationsBufferRef` surface was deleted in
-   * Spec B. Callers consume notifications via `subscribe(def, refinement?)`
-   * returning a `Stream`, or `subscribeAll(refinement?)` for the broad-union
-   * escape hatch.
-   */
-  onDisconnect?: (close: CloseInfo) => void;
-  onReconnect?: (helloOk: ConnectResult) => void;
-
-  /**
-   * Spec D3 R14b — REQUIRED. TM-callback handler table immutable at
-   * construction (Spec F I1). Keys are catalog method names
-   * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
-   * the matching `defineRpc` descriptor and its handler effect.
-   * Vacuous-deny moderators write the explicit ForbiddenError handler.
-   */
-  handlers: TMHandlers;
-}
-```
-
-### [`TMHandlers`](./tm-client.ts#L191)
-
-_TypeAlias_
-
-```ts
-export type TMHandlers = TaskMasterHandlers<TaskCallbackContext>;
-```
-
-Public handler-table type for `TMClientOptions.handlers`.
-Re-exposes the protocol's `TaskMasterHandlers` mapped type bound to the
-client's per-frame context. Spec D3 R14b made every slot REQUIRED;
-vacuous-deny moderators bind an explicit `ForbiddenError -32001`
-handler.
-
 ## Files
 
 - `agent-client.ts`
+- `app-client.ts`
 - `auth.ts`
 - `channel-core.ts`
 - `pagination.ts`
 - `service.ts`
-- `tm-client.ts`

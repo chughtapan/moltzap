@@ -29,12 +29,12 @@ export {
 } from "./channel-core.js";
 export { MoltZapAgentClient, type AgentClientOptions } from "./agent-client.js";
 export {
-  MoltZapTMClient,
-  type TMClientOptions,
-  type TMHandlers,
-  type TaskCallbackContext,
+  MoltZapAppClient,
+  type AppClientOptions,
+  type AppCallbackHandlers,
+  type AppCallbackContext,
   type RpcCallOptions,
-} from "./tm-client.js";
+} from "./app-client.js";
 export type { CloseInfo } from "./runtime/close-info.js";
 // Spec B (#596) — tagged errors for the typed-Stream subscribe surface.
 // `NotificationConsumerError` is a type union (see notification/errors.ts

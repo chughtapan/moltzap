@@ -96,8 +96,8 @@ export interface AgentClientOptions {
 }
 
 /**
- * MoltZap agent client — outbound RPC only, no TM-callback inbound
- * dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; TM-only
+ * MoltZap agent client — outbound RPC only, no app-callback inbound
+ * dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; app-only
  * methods are unreachable at compile time (Spec D3 R11/R13).
  */
 export class MoltZapAgentClient {
@@ -137,7 +137,7 @@ export class MoltZapAgentClient {
    * `RpcDefinition` so generic forwarders (service.sendRpc, CLI
    * transport) can pass through without per-method narrowing; the R11
    * agent-client catalog narrowing applies at runtime inside
-   * `AgentClientConnection` and rejects TM-only methods.
+   * `AgentClientConnection` and rejects app-only methods.
    */
   sendRpc<D extends RpcDefinition<string, any, any>>(
     definition: D,
@@ -466,7 +466,7 @@ export class MoltZapAgentClient {
     if (this.closed || this.reconnectFiber !== null) return;
     // The reconnect loop body is shared (`runtime/reconnect.ts →
     // makeReconnectLoop`, #705 CP-F A6-base — byte-identical to
-    // `MoltZapTMClient`). The per-class guard above + `runtime.runFork`
+    // `MoltZapAppClient`). The per-class guard above + `runtime.runFork`
     // here stay local because they touch this client's `reconnectFiber` /
     // `closed` state.
     const loop = makeReconnectLoop({

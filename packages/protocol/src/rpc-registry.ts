@@ -28,7 +28,7 @@ import {
 } from "./task/methods.js";
 import {
   appRpcMethods,
-  taskCallbackMethods,
+  appCallbackMethods,
   appNotifications,
 } from "./app/methods.js";
 import type { RpcDefinition } from "./transport/method.js";
@@ -53,7 +53,7 @@ import {
   AlreadyConnected,
 } from "./transport/wire-errors.js";
 
-export { taskCallbackMethods };
+export { appCallbackMethods };
 
 /**
  * Single source of truth for the wire-registered tagged-error classes.
@@ -93,7 +93,7 @@ export type RegisteredTaggedError = InstanceType<
 
 // Spec D3 R11 — per-kind outbound catalogs.
 //   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.
-//   `taskMasterRpcMethods`  — superset; adds TM-only operations.
+//   `appCallableRpcMethods`  — superset; adds app-only operations.
 //   `serverRpcMethods`      — server inbound; full union (still
 //     includes the legacy `Conversations*` / plural `Tasks*` that
 //     retire across Commits 6-10).
@@ -104,7 +104,7 @@ export const agentClientRpcMethods = [
   ...appRpcMethods,
 ] as const;
 
-export const taskMasterRpcMethods = [
+export const appCallableRpcMethods = [
   ...agentClientRpcMethods,
   ...appCallableTaskRpcMethods,
 ] as const;
@@ -127,10 +127,10 @@ export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
   RpcDefinition<string, any, any>;
 export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
-export type AnyTaskMasterRpcDefinition = (typeof taskMasterRpcMethods)[number] &
-  RpcDefinition<string, any, any>;
+export type AnyAppCallableRpcDefinition =
+  (typeof appCallableRpcMethods)[number] & RpcDefinition<string, any, any>;
 
-export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
+export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 
 export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
@@ -165,7 +165,7 @@ export type DecodedServerInbound =
   | DecodedResponseError
   | ({
       readonly _tag: "ServerRequest";
-    } & DecodedRpcRequest<AnyTaskCallbackRpcDefinition>)
+    } & DecodedRpcRequest<AnyAppCallbackRpcDefinition>)
   | ({
       readonly _tag: "Notification";
     } & DecodedNotification<AnyNotificationDefinition>);
@@ -226,7 +226,7 @@ function decodeResponseFrame(
  *   A["raw socket payload<br>(JSON.parse happens before this call)"]
  *   A --> B["decodeFrame(parsed)"]
  *   B --> C{tag?}
- *   C -->|Request| D["decodeRpcRequest(taskCallbackMethods)<br>→ ServerRequest"]
+ *   C -->|Request| D["decodeRpcRequest(appCallbackMethods)<br>→ ServerRequest"]
  *   C -->|Response| E["decodeResponseFrame<br>→ ResponseSuccess | ResponseError"]
  *   C -->|Notification| F["decodeNotification(notificationDefs)<br>→ Notification"]
  *   D --> G[DecodedServerInbound]
@@ -235,7 +235,7 @@ function decodeResponseFrame(
  * ```
  *
  * Client-inbound `Request` frames are restricted to
- * `taskCallbackMethods` (the subset the server is allowed to call
+ * `appCallbackMethods` (the subset the server is allowed to call
  * back into the client — `dispatch/authorize`, etc.). Response
  * frames with `id === null` fail closed since a null id has no
  * pending call to resolve.
@@ -255,7 +255,7 @@ export function decodeServerInbound(
         if (decoded._tag === "Response")
           return decodeResponseFrame(decoded.frame, raw);
         if (decoded._tag === "Request")
-          return decodeRpcRequest(taskCallbackMethods, decoded.frame).pipe(
+          return decodeRpcRequest(appCallbackMethods, decoded.frame).pipe(
             Effect.mapError(wrap),
             Effect.map((req) => ({ ...req, _tag: "ServerRequest" as const })),
           );

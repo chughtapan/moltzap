@@ -1,5 +1,5 @@
 /**
- * Tests for `tm-client.ts` — now running against a real in-process
+ * Tests for `app-client.ts` — now running against a real in-process
  * `@effect/platform` WebSocket server instead of a `vi.mock("ws")` fake.
  *
  * Setup: each test spins up a fresh `NodeSocketServer.makeWebSocket` bound to
@@ -35,11 +35,12 @@ import * as Command from "@effect/platform/Command";
 import * as Socket from "@effect/platform/Socket";
 
 import {
-  MoltZapTMClient,
+  MoltZapAppClient,
   RPC_TIMEOUT_MS,
-  type TMHandlers,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
   type CloseInfo,
-} from "./tm-client.js";
+} from "./app-client.js";
 import {
   ForbiddenError,
   RpcTimeoutError,
@@ -395,13 +396,13 @@ interface MakeClientOverrides {
   readonly onNotification?: (evt: NotificationFrame) => void;
   readonly onDisconnect?: (close: CloseInfo) => void;
   readonly onReconnect?: (hello: unknown) => void;
-  readonly handlers?: TMHandlers;
+  readonly handlers?: AppCallbackHandlers<AppCallbackContext>;
 }
 
-// Post-D3 R14b vacuous-deny default: handlers REQUIRED on MoltZapTMClient
+// Post-D3 R14b vacuous-deny default: handlers REQUIRED on MoltZapAppClient
 // constructor; helpers default to deny-everything for tests that don't
-// care about TM-callback inbound.
-const denyEverythingHandlers = (): TMHandlers => ({
+// care about app-callback inbound.
+const denyEverythingHandlers = (): AppCallbackHandlers<AppCallbackContext> => ({
   "dispatch/authorize": {
     definition: DispatchAuthorize,
     handle: () =>
@@ -444,10 +445,10 @@ const notificationHandler =
       cb(frame);
     });
 
-const connectClient = (client: MoltZapTMClient) => client.connect();
+const connectClient = (client: MoltZapAppClient) => client.connect();
 
 const sendRpcEffect = <D extends RpcDefinition<string, any, any>>(
-  client: MoltZapTMClient,
+  client: MoltZapAppClient,
   definition: D,
   params: ParamsOf<D>,
 ) => client.sendRpc(definition, params);
@@ -469,7 +470,7 @@ function expectEffectFailure<A, E, R>(
   });
 }
 
-const closeClient = (client: MoltZapTMClient): Effect.Effect<void, never> =>
+const closeClient = (client: MoltZapAppClient): Effect.Effect<void, never> =>
   client.close();
 
 /**
@@ -628,7 +629,7 @@ function startAgentsLookupByNameServer(
 function connectClientForServer(
   url: string,
 ): Effect.Effect<
-  MoltZapTMClient,
+  MoltZapAppClient,
   Effect.Effect.Error<ReturnType<typeof connectClient>>
 > {
   const client = makeClient(url);
@@ -636,7 +637,7 @@ function connectClientForServer(
 }
 
 /**
- * Build a Spec F (#617) TM-callback handler-table fragment for the
+ * Build a Spec F (#617) app-callback handler-table fragment for the
  * `dispatch/authorize` slot that grants admission and records the
  * `taskId` it was invoked with into `observedTaskId`. Pass as
  * `appCallbackHandlers` to `makeClient` so the typed dispatcher sees
@@ -644,7 +645,7 @@ function connectClientForServer(
  */
 function grantDispatchAuthorizeHandlers(
   observedTaskId: MutableRef<string | null>,
-): TMHandlers {
+): AppCallbackHandlers<AppCallbackContext> {
   return {
     "dispatch/authorize": {
       definition: DispatchAuthorize,
@@ -728,7 +729,7 @@ const closeWaitSocketOutput = Command.make(
 );
 
 /**
- * Build a `MoltZapTMClient`. Spec #222 OQ-4 deletion: `onNotification` is no
+ * Build a `MoltZapAppClient`. Spec #222 OQ-4 deletion: `onNotification` is no
  * longer a constructor option; tests that previously stashed an
  * `onNotification` callback now register a `subscribe({}, …)` subscription
  * post-construction. The helper accepts the same `onNotification` callback as
@@ -738,14 +739,14 @@ const closeWaitSocketOutput = Command.make(
 function makeClient(
   url: string,
   overrides: MakeClientOverrides = {},
-): MoltZapTMClient {
+): MoltZapAppClient {
   const {
     onNotification,
     onDisconnect = ignoreDisconnect,
     onReconnect = ignoreReconnect,
     handlers,
   } = overrides;
-  const client = new MoltZapTMClient({
+  const client = new MoltZapAppClient({
     serverUrl: url,
     agentKey: "test-key",
     onDisconnect,

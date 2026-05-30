@@ -185,7 +185,7 @@ export const TaskRemoveParticipant = defineRpc({
 const TaskFailedNotificationSchema = Type.Object(
   {
     taskId: TaskId,
-    // Free-form one-liner. The task/create TM-callback verdict's
+    // Free-form one-liner. The task/create app-callback verdict's
     // `reject.reason`, the synthesized `"tm_unreachable"` /
     // `"timeout"` strings from the fail-closed envelope, and any
     // future caller-supplied failure reason all flow through here.

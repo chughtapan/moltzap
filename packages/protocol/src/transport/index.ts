@@ -78,30 +78,30 @@ export { isDecodedNotification } from "./rpc-groups.js";
 export type { RpcCallError } from "./originator.js";
 
 // Spec F (#617) — typed dispatcher. Per-kind static handler tables and
-// three connection factories (`make{Server,AgentClient,TaskMaster}Connection`).
+// three connection factories (`make{Server,AgentClient,AppClient}Connection`).
 // Type-level invariants are exercised by `typed-dispatcher.types-check.ts`.
 export type {
   HandlerSlot,
-  TaskMasterHandlers,
-  TaskMasterInboundRpcDefinition,
+  AppCallbackHandlers,
+  AppCallbackInboundRpcDefinition,
 } from "./handlers.js";
 export type {
   ServerConnection,
   AgentClientConnection,
-  TaskMasterConnection,
+  AppClientConnection,
   ServerConnectionConfig,
   AgentClientConnectionConfig,
-  TaskMasterConnectionConfig,
+  AppClientConnectionConfig,
 } from "./connection.js";
 export {
   makeServerConnection,
   makeAgentClientConnection,
-  makeTaskMasterConnection,
+  makeAppClientConnection,
 } from "./connection.js";
 export {
   buildServerDispatcher,
   buildAgentClientDispatcher,
-  buildTaskMasterDispatcher,
+  buildAppClientDispatcher,
 } from "./dispatch.js";
 
 // #705 — the existential `ErasedSlot` the dispatcher indexes by runtime
