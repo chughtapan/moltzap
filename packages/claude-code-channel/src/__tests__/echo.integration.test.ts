@@ -10,13 +10,16 @@ import { afterAll, beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
 import { MoltZapService } from "@moltzap/client";
+import type { ServiceRpcError } from "@moltzap/client";
 import type { Message } from "@moltzap/protocol";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
-import { waitUntil } from "@moltzap/protocol/testing";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import { agentId, waitUntil } from "@moltzap/protocol/testing";
 import { bootClaudeCodeChannel } from "../entry.js";
 import type { Handle } from "../types.js";
 import { CLAUDE_CHANNEL_NOTIFICATION_METHOD } from "../types.js";
@@ -30,20 +33,20 @@ interface InjectedConfig {
   readonly wsUrl: string;
   readonly agentAApiKey: string;
   readonly agentBApiKey: string;
-  readonly channelAgentId: string;
-  readonly peerAgentId: string;
+  readonly channelAgentId: AgentId;
+  readonly peerAgentId: AgentId;
 }
 
 interface Harness {
   readonly channelHandle: Handle;
   readonly peerService: MoltZapService;
   readonly mcpClient: Client;
-  readonly channelAgentId: string;
-  readonly peerAgentId: string;
+  readonly channelAgentId: AgentId;
+  readonly peerAgentId: AgentId;
   readonly notifications: Notification[];
   readonly peerInbox: Message[];
-  readonly taskId: string;
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
 }
 
 const HARNESS_BOOT_TIMEOUT_MS = 120_000;
@@ -77,13 +80,13 @@ function injectedConfig(): InjectedConfig {
     wsUrl: injectString("moltzapWsUrl"),
     agentAApiKey: injectString("agentAApiKey"),
     agentBApiKey: injectString("agentBApiKey"),
-    channelAgentId: injectString("agentAAgentId"),
-    peerAgentId: injectString("agentBAgentId"),
+    channelAgentId: agentId(injectString("agentAAgentId")),
+    peerAgentId: agentId(injectString("agentBAgentId")),
   };
 }
 
-function injectString(key: string): string {
-  return inject(key) as string;
+function injectString(key: keyof import("vitest").ProvidedContext): string {
+  return inject(key);
 }
 
 function bootChannelHandle(
@@ -140,10 +143,10 @@ function makePeerService(
 
 function createPeerConversation(
   peerService: MoltZapService,
-  channelAgentId: string,
+  channelAgentId: AgentId,
 ): Effect.Effect<
-  { readonly taskId: string; readonly conversationId: string },
-  EchoIntegrationError
+  { readonly taskId: TaskId; readonly conversationId: ConversationId },
+  ServiceRpcError
 > {
   return Effect.gen(function* () {
     const response = yield* peerService.sendRpc(TaskRequest, {
@@ -158,7 +161,10 @@ function createPeerConversation(
   });
 }
 
-function bootHarness(): Effect.Effect<Harness, EchoIntegrationError> {
+function bootHarness(): Effect.Effect<
+  Harness,
+  EchoIntegrationError | ServiceRpcError
+> {
   return Effect.gen(function* () {
     const config = injectedConfig();
     const notifications: Notification[] = [];
