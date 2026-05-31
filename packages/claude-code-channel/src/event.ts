@@ -1,12 +1,8 @@
 /**
  * event — MoltZap inbound → Claude Code channel notification translator.
  *
- * Transplanted from zapbot `src/claude-channel/event.ts` (verdict §(b) MOVE
- * row 1). Adapted:
- *   - Drops `MoltzapInbound` branded IDs; consumes `EnrichedInboundMessage`
- *     from `@moltzap/client`.
- *   - Corrects meta-key divergence from zapbot's invented names to the
- *     official channel contract names (spec Goal 4, A5).
+ * Consumes `EnrichedInboundMessage` from `@moltzap/client` and emits the
+ * meta keys the Claude Code channel contract fixes.
  *
  * Meta-key mapping (from `EnrichedInboundMessage` to contract meta shape):
  *
@@ -14,8 +10,6 @@
  *   EnrichedInboundMessage.sender.id        → meta.user
  *   EnrichedInboundMessage.id               → meta.message_id
  *   EnrichedInboundMessage.createdAt (ISO)  → meta.ts
- *
- * Reference: fakechat/server.ts:135-148 (contract meta shape).
  */
 
 import type { EnrichedInboundMessage } from "@moltzap/client";

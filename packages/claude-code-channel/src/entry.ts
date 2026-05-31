@@ -4,10 +4,8 @@
  * entry — public boot entry point for `@moltzap/claude-code-channel`.
  *
  * Wires `MoltZapService` + `MoltZapChannelCore` + the MCP stdio server into
- * a single `Handle`. Mirrors `~/moltzap/packages/openclaw-channel/src/openclaw-entry.ts`
- * as the precedent for "wrap client primitives + host plugin shape."
- *
- * Spec A2: `bootClaudeCodeChannel` returns a `BootResult` wrapped in a promise.
+ * a single `Handle`. `bootClaudeCodeChannel` returns a `BootResult` wrapped
+ * in a promise.
  */
 
 import {
@@ -68,17 +66,12 @@ function validateBootOptions(opts: BootOptions): BootError | null {
 function makeSendReply(core: MoltZapChannelCore) {
   return (target: RoutingTarget, text: string) =>
     core.sendReply(target.taskId, target.conversationId, text).pipe(
-      // Cutover #533 single-use lease semantics: the server returns
-      // a typed `RpcServerError` whose `data.reason === "LeaseInvalid"`
-      // when the recipient tries to consume an already-consumed lease
-      // (multi-turn agent calls reply twice in one dispatch). The
-      // channel-base `catchLeaseInvalid` reads `Clock.currentTimeMillis`
-      // and projects onto `LeaseAlreadyConsumed` BEFORE the generic
-      // `mapError` collapses everything else into `SendFailed`. Server.ts
-      // surfaces the typed error as `toolErrorResult("LeaseAlreadyConsumed: ...")`.
-      //
-      // No `leaseId` ctx is supplied here; the wire payload does not carry
-      // one, so the projected error falls back to "(unknown)".
+      // `catchLeaseInvalid` projects the server's single-use-lease rejection
+      // (`RpcServerError` with `data.reason === "LeaseInvalid"`, raised when an
+      // agent calls reply twice in one dispatch) onto `LeaseAlreadyConsumed`
+      // before the generic `mapError` collapses everything else into
+      // `SendFailed`. No `leaseId` ctx is supplied: the wire payload carries
+      // none, so the projected error's `leaseId` falls back to "(unknown)".
       catchLeaseInvalid(),
       Effect.mapError(
         (cause): ReplyError =>
@@ -171,9 +164,8 @@ function bootMcpServerHandle(
 
 /**
  * Inbound MoltZap message → Claude push pipeline. Registered as a
- * `MoltZapChannelCore.onInbound` callback at boot step 7. Drops
- * silently on allowlist failure, schema decode failure, or MCP push
- * failure (per Spec I5).
+ * `MoltZapChannelCore.onInbound` callback. Drops silently on allowlist
+ * failure, schema decode failure, or MCP push failure.
  *
  * ```mermaid
  * sequenceDiagram
@@ -258,12 +250,11 @@ function connectCore(
  * `serverHandle.stop()` called via `Effect.tapError`, BootResult Err
  * returned before any Handle is issued.
  *
- * CLI SIGTERM path: no explicit signal handler in v1. Node default
- * kills the process; stdio transport closes via process exit; the
- * server observes the WS disconnect and expires the agent's
- * session. Pending notifications in `state.pending[]` are lost if
- * MCP handshake hadn't completed — acceptable because Claude is
- * closing too.
+ * CLI SIGTERM path: no explicit signal handler. Node's default kills
+ * the process; the stdio transport closes via process exit; the server
+ * observes the WS disconnect and expires the agent's session. Pending
+ * notifications in `state.pending[]` are lost if the MCP handshake had
+ * not completed, which is acceptable because Claude is closing too.
  */
 function makeHandle(
   core: MoltZapChannelCore,
@@ -281,15 +272,11 @@ function makeHandle(
 
 /**
  * Boot a Claude Code channel. Single public entry point of the package.
+ * In production the CLI binary (`cli.ts`) calls this; tests call it
+ * directly with an injected in-memory MCP transport.
  *
- * Error channel is tagged (Principle 3). Internals run on Effect; the
- * `Promise` wrapper lives only at this boundary.
- */
-
-/**
- * Single public entry point. In production the CLI binary
- * (`cli.ts`) calls this; tests call it directly with an injected
- * in-memory MCP transport.
+ * The error channel is tagged; internals run on Effect, and the `Promise`
+ * wrapper lives only at this boundary.
  *
  * ```mermaid
  * sequenceDiagram
@@ -357,8 +344,7 @@ function bootClaudeCodeChannelEffect(
     if (serverBoot._tag === "Err") return serverBoot;
     const serverHandle = serverBoot.value;
 
-    // Inbound: gate → translate → record → push. Failures log and drop —
-    // spec I5 (pure, drop on failure) + A3.
+    // Inbound: gate → translate → record → push. Failures log and drop.
     core.onInbound((enriched: EnrichedInboundMessage) =>
       handleInboundMessage(opts, routing, serverHandle, enriched),
     );

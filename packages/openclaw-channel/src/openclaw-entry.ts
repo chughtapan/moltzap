@@ -263,7 +263,7 @@ interface MoltzapChannelPluginDeps {
    * error without violating that contract. Threaded from
    * `createMoltzapChannelPlugin` deps through `createGatewaySection` and
    * `registerInboundHandler` into the `createLeaseConsumingDeliver`
-   * closure. See spec C (#597) AC and arch sub-issue #605 §5.6.
+   * closure.
    */
   readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
 }
@@ -323,8 +323,7 @@ function resolveAccount(
 /**
  * Wait for an AbortSignal to fire, as an Effect. Completes synchronously if
  * the signal is already aborted; otherwise registers a one-shot `abort`
- * listener and resolves when it fires. Replaces the ad-hoc
- * `new Promise((resolve) => signal.addEventListener("abort", resolve))`.
+ * listener and resolves when it fires.
  */
 const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
   Effect.async<void>((resume) => {
@@ -402,12 +401,9 @@ function sendDeliveredReply(params: {
       catchLeaseInvalid(
         params.leaseId !== undefined ? { leaseId: params.leaseId } : undefined,
       ),
-      // Stamp the guard only on a successful `core.sendReply` (matches the
-      // pre-refactor `markConsumed` ordering). Transient send failures fall
-      // through to `Effect.catchAll` below WITHOUT stamping, so a retried
-      // deliver call still exercises the lease — see
-      // `openclaw-entry.delivery.test.ts → "lease guard stays unconsumed on
-      // transient send failure"` regression test.
+      // Stamp the guard only on a successful `core.sendReply`. Transient send
+      // failures fall through to `Effect.catchAll` below WITHOUT stamping, so a
+      // retried deliver call still exercises the lease.
       Effect.tap(() => params.guard.consume()),
       Effect.tap(() =>
         logOutboundReply(params.log, params.conversationId, params.text),
@@ -456,15 +452,13 @@ function createLeaseConsumingDeliver(params: {
   readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
 }): OpenClawDeliver {
   // One LeaseGuard per inbound message: stamped exactly once, on the FIRST
-  // successful `core.sendReply`. Replaces the pre-refactor
-  // `consumedLeaseAt: number | null` closure.
+  // successful `core.sendReply`.
   //
   // Ordering matters: pre-check `guard.consumedAt` BEFORE sending so duplicate
   // delivers are short-circuited; the actual stamp happens inside
   // `sendDeliveredReply` via `Effect.tap(() => guard.consume())` AFTER
   // `core.sendReply` succeeds. A transient send failure therefore leaves the
-  // guard unconsumed, and a retried deliver call still exercises the lease —
-  // matching pre-refactor behavior (`markConsumed` in the success tap).
+  // guard unconsumed, and a retried deliver call still exercises the lease.
   const guard = new LeaseGuard();
   return (payload, info) => {
     if (info?.kind !== "final") return Promise.resolve(true);
@@ -637,8 +631,8 @@ function lookupAgentsInChunks(
     const out: AgentDirectoryEntry[] = [];
     for (let i = 0; i < agentIds.length; i += AGENTS_LOOKUP_MAX_IDS) {
       const chunk = agentIds.slice(i, i + AGENTS_LOOKUP_MAX_IDS);
-      // Post-#723 the decoded result is deeply `readonly` (Effect Schema);
-      // `AgentCard` is a structural supertype of `AgentDirectoryEntry`
+      // The decoded result is deeply `readonly` (Effect Schema); `AgentCard`
+      // is a structural supertype of `AgentDirectoryEntry`
       // (id/name/displayName), so a single readonly cast bridges it.
       const { agents } = (yield* sendRpc(AgentsLookup, {
         agentIds: chunk,
@@ -689,9 +683,9 @@ function listGroupsEffect(
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
     if (!service?.sendRpc) return [];
-    // Post-#723 the decoded result is deeply `readonly` (Effect Schema); the
-    // wire `conversation` is a structural supertype of
-    // `ConversationDirectoryEntry`, so a single readonly cast bridges it.
+    // The decoded result is deeply `readonly` (Effect Schema); the wire
+    // `conversation` is a structural supertype of `ConversationDirectoryEntry`,
+    // so a single readonly cast bridges it.
     const result = (yield* service.sendRpc(TaskConversationList, {})) as {
       readonly items: ReadonlyArray<{
         readonly taskId: string;
@@ -903,10 +897,10 @@ function bodyForAgent(text: string, crossConvBlock: string | null): string {
   return crossConvBlock ? `${crossConvBlock}\n\n${text}` : text;
 }
 
-// P3 #608 resolution: `groupMembersFor` stays openclaw-local because the
-// comma-joined string format is openclaw-specific (the `GroupMembers`
-// dispatch-context field shape). Channel-base's `getGroupFields` provides
-// the narrowing; this helper does the openclaw-side join.
+// `groupMembersFor` stays openclaw-local because the comma-joined string
+// format is openclaw-specific (the `GroupMembers` dispatch-context field
+// shape). Channel-base's `getGroupFields` provides the narrowing; this helper
+// does the openclaw-side join.
 function groupMembersFor(fields: GroupFields | null): string | undefined {
   if (fields === null) return undefined;
   return fields.participants.join(",");
@@ -1259,8 +1253,8 @@ function sendTextEffect(
  * a throw.
  *
  * `resolveTarget` accepts `agent:&lt;name>` (DM with named agent) and
- * `conv:&lt;id>` (existing conversation). Plain conversation IDs are
- * accepted for backward compatibility.
+ * `task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
+ * containing `:` in any other shape is rejected.
  */
 export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},
