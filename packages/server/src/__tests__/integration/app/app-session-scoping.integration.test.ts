@@ -25,6 +25,7 @@ import {
   TaskCreate,
   TaskConversationCreate,
   TaskRequest,
+  type AppId,
   type AppManifest,
   ForbiddenError,
 } from "@moltzap/protocol";
@@ -71,7 +72,7 @@ function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): number | null {
  * `task/create` callback, and return the live app client + DB-minted appId.
  */
 function setupOwningApp(): Effect.Effect<
-  { appClient: ServerTestClient; appId: string },
+  { appClient: ServerTestClient; appId: AppId },
   unknown
 > {
   return Effect.gen(function* () {

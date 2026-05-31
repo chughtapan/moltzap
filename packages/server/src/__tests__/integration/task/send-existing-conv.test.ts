@@ -2,6 +2,7 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -61,14 +62,7 @@ it("second message to existing DM delivers correctly with same conversationId", 
       bob.client,
       MessageReceivedNotificationDefinition,
     );
-    const received = (
-      bobEvent2.params as {
-        message: {
-          conversationId: string;
-          parts: Array<{ text: string }>;
-        };
-      }
-    ).message;
+    const received = bobEvent2.params.message;
     expect(received.conversationId).toBe(conversationId);
-    expect(received.parts[0]!.text).toBe(SECOND_MESSAGE_TEXT);
+    expect(firstTextPart(received.parts)).toBe(SECOND_MESSAGE_TEXT);
   }));

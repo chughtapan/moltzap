@@ -2,6 +2,7 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -115,8 +116,8 @@ function expectReconnectedHistory(
     });
 
     expect(msgs.messages).toHaveLength(2);
-    expect(msgs.messages[0]!.parts[0]!.text!).toBe(PRE_DISCONNECT_TEXT);
-    expect(msgs.messages[1]!.parts[0]!.text!).toBe(OFFLINE_TEXT);
+    expect(firstTextPart(msgs.messages[0]!.parts)).toBe(PRE_DISCONNECT_TEXT);
+    expect(firstTextPart(msgs.messages[1]!.parts)).toBe(OFFLINE_TEXT);
   });
 }
 

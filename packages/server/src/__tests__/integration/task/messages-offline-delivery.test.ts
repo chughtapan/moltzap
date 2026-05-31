@@ -15,6 +15,7 @@ import {
   MessagesList,
   MessagesSend,
   TaskRequest,
+  type AgentId,
   type ConversationId,
   type Message,
   type TaskId,
@@ -61,11 +62,11 @@ beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 interface ThreeAgents {
   readonly tm: ServerTestClient;
-  readonly tmAgentId: string;
+  readonly tmAgentId: AgentId;
   readonly sender: ServerTestClient;
-  readonly senderAgentId: string;
+  readonly senderAgentId: AgentId;
   readonly recipient: ServerTestClient;
-  readonly recipientAgentId: string;
+  readonly recipientAgentId: AgentId;
   readonly recipientApiKey: string;
 }
 

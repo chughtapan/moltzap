@@ -35,6 +35,10 @@ import {
   type ConnectedAgent,
   type ServerTestClient,
 } from "../../helpers.js";
+import {
+  conversationId as toConversationId,
+  messageId as toMessageId,
+} from "@moltzap/protocol/testing";
 
 const it = effectIt.live;
 
@@ -183,7 +187,7 @@ function readTmDecision(
       getKyselyDb()
         .selectFrom("messages")
         .select("app_decision")
-        .where("id", "=", messageId)
+        .where("id", "=", toMessageId(messageId))
         .executeTakeFirstOrThrow(),
     catch: (cause) => dbError("Unable to read app_decision", cause),
   }).pipe(Effect.map((row) => row.app_decision));
@@ -197,7 +201,7 @@ function readAllMessageIdsForConversation(
       getKyselyDb()
         .selectFrom("messages")
         .select("id")
-        .where("conversation_id", "=", conversationId)
+        .where("conversation_id", "=", toConversationId(conversationId))
         .execute(),
     catch: (cause) => dbError("Unable to read conversation messages", cause),
   }).pipe(Effect.map((rows) => rows.map((row) => row.id)));
@@ -211,7 +215,7 @@ function attemptPendingCasBlock(messageId: string) {
         .set({
           app_decision: { tag: VERDICT_TAG_BLOCK, reason: RACE_LOSER_REASON },
         })
-        .where("id", "=", messageId)
+        .where("id", "=", toMessageId(messageId))
         .where(
           "app_decision",
           "@>",

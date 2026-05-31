@@ -29,7 +29,7 @@
 
 import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
 import * as fc from "fast-check";
-import { Effect, Exit } from "effect";
+import { Brand, Effect, Exit } from "effect";
 import {
   DEFAULT_APP_ID,
   ParticipantNotAdmittedError,
@@ -58,6 +58,7 @@ import {
   expectEitherLeft,
   type ServerTestClient,
 } from "../helpers.js";
+import { agentId } from "@moltzap/protocol/testing";
 import { awaitOneNotification } from "../../../test-utils/helpers.js";
 
 const REGISTRATION_SECRET = "tcf-test-secret-xyz1";
@@ -122,7 +123,7 @@ function registerAndConnect(
       apiKey: reg.apiKey,
     });
     trackClient(client);
-    return { client, agentId: reg.agentId };
+    return { client, agentId: agentId(reg.agentId) };
   });
 }
 
@@ -448,12 +449,15 @@ it("TaskConversationRemoveParticipant on absent agent is idempotent", () =>
 it("dual-emit suppression: a rolled-back TaskRequest emits zero notifications", () =>
   Effect.gen(function* () {
     const { alice } = yield* setupThreeAgents();
-    // Empty invitedAgentIds + bad shape -> schema decode fails AT THE
-    // WIRE (not inside the handler), so no notifications.
+    // A non-UUID invited id fails the server's wire validator before the
+    // handler runs, so the task rolls back and emits no notifications. The
+    // nominal brand carries the malformed value past the client-side UUID
+    // refinement; the assertion is the server-side rejection.
+    const malformedAgentId = Brand.nominal<AgentId>()("not-a-uuid");
     const result = yield* Effect.either(
       alice.client.sendRpc(TaskRequest, {
         appId: DEFAULT_APP_ID,
-        invitedAgentIds: ["not-a-uuid"],
+        invitedAgentIds: [malformedAgentId],
       }),
     );
     expect(expectEitherLeft(result)).toBeDefined();

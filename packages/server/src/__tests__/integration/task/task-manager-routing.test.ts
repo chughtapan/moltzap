@@ -17,6 +17,7 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
   TaskRequest,
+  type AgentId,
   type ConversationId,
   type Message,
   type Task,
@@ -59,9 +60,9 @@ beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 interface AgentPair {
   readonly tm: ServerTestClient;
-  readonly tmAgentId: string;
+  readonly tmAgentId: AgentId;
   readonly sender: ServerTestClient;
-  readonly senderAgentId: string;
+  readonly senderAgentId: AgentId;
 }
 
 function setupTmAndSender(index: number): Effect.Effect<AgentPair, Error> {
