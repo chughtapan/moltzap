@@ -41,4 +41,4 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - uses: nrwl/nx-set-shas@v4
-      - run: pnpm exec nx affected -t test test:integration
+      - run: pnpm exec nx affected -t typecheck:tests test test:integration
