@@ -42,7 +42,7 @@ table (the AgentClient kind's inbound catalog is empty); the factory
 accepts it for forward compatibility (if a future spec adds
 AgentClient-inbound RPCs, the slot table demands coverage).
 
-### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L76)
+### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L105)
 
 _Variable_
 
@@ -95,7 +95,7 @@ Each element's `Params` is the OWNING method's decoded params type. The
 tuple narrows them at the descriptor literal (the same erasure-vs-recover
 pattern as `CapabilityDescriptor` / `CapabilitiesOf`).
 
-### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L79)
+### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L108)
 
 _Variable_
 
@@ -137,7 +137,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the app's typed
 verdict drives the lifecycle transition.
 
-### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L73)
+### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L102)
 
 _Variable_
 
@@ -1475,7 +1475,7 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound app-callback path.
 
-### [`ServerRpcGroup`](./rpc-method-groups.ts#L70)
+### [`ServerRpcGroup`](./rpc-method-groups.ts#L99)
 
 _Variable_
 
@@ -1484,11 +1484,10 @@ export const ServerRpcGroup = groupFromCatalog(serverRpcMethods)
 ```
 
 `@effect/rpc` groups for moltzap's four per-kind RPC catalogs, built from the
-`rpc-registry.ts` descriptor arrays. The native-engine cutover (#725) binds
-handlers onto these via `RpcGroup.toLayer` (server inbound) and derives typed
-clients via `RpcClient.make`; the dual-endpoint demux pairs
-ServerRpcGroup (client-to-server) with AppCallbackRpcGroup
-(server-to-client).
+`rpc-registry.ts` descriptor arrays. The native-engine cutover binds handlers
+onto these via `RpcGroup.toLayer` (server inbound) and derives typed clients
+via `RpcClient.make`; the dual-endpoint demux pairs ServerRpcGroup
+(client-to-server) with AppCallbackRpcGroup (server-to-client).
 
 ### [`SlotDispatchContext`](./erased-slot.ts#L41)
 
