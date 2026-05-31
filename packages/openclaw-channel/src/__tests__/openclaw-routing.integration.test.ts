@@ -12,6 +12,7 @@ import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
+import { agentId } from "@moltzap/protocol/testing";
 import {
   registerAndClaim,
   extractMessage,
@@ -26,13 +27,14 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
   TaskRequest,
+  type AgentId,
   type Message,
 } from "@moltzap/protocol";
 
 interface GatewayHarness {
   readonly containerAId: string;
-  readonly containerAAgentId: string;
-  readonly containerBAgentId: string;
+  readonly containerAAgentId: AgentId;
+  readonly containerBAgentId: AgentId;
 }
 
 let wsUrl: string;
@@ -115,8 +117,8 @@ function defineGatewayIntegrationSuite() {
 function gatewayHarness(): GatewayHarness {
   return {
     containerAId: inject("containerAId"),
-    containerAAgentId: inject("containerAAgentId"),
-    containerBAgentId: inject("containerBAgentId"),
+    containerAAgentId: agentId(inject("containerAAgentId")),
+    containerBAgentId: agentId(inject("containerBAgentId")),
   };
 }
 
@@ -128,7 +130,7 @@ function gatewayStarts(containerAId: string) {
   });
 }
 
-function dmEchoReplyArrives(containerAAgentId: string) {
+function dmEchoReplyArrives(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-dm");
     const binding = yield* createDm(aliceClient, containerAAgentId);
@@ -144,7 +146,7 @@ function dmEchoReplyArrives(containerAAgentId: string) {
   });
 }
 
-function groupMessageDispatches(containerAAgentId: string) {
+function groupMessageDispatches(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-grp");
     const eve = yield* registerAgent("a2a-eve-grp");
@@ -165,7 +167,7 @@ function groupMessageDispatches(containerAAgentId: string) {
   });
 }
 
-function rapidMessagesGetReplies(containerAAgentId: string) {
+function rapidMessagesGetReplies(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-rapid");
     const binding = yield* createDm(aliceClient, containerAAgentId);
@@ -218,7 +220,7 @@ function twoAgentsReplyFromOwnContainers(harness: GatewayHarness) {
   });
 }
 
-function proactiveMessageArrives(containerAAgentId: string) {
+function proactiveMessageArrives(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const receiver = yield* registerAgent(PROACTIVE_RECEIVER_NAME);
     const receiverClient = connectedClient(receiver.apiKey);
@@ -284,7 +286,7 @@ function missingAgentLookupFails() {
   });
 }
 
-function largeMessageDelivered(containerAAgentId: string) {
+function largeMessageDelivered(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("lg-alice");
     const binding = yield* createDm(aliceClient, containerAAgentId);
@@ -302,7 +304,7 @@ function largeMessageDelivered(containerAAgentId: string) {
   });
 }
 
-function reconnectDuringDispatchRecovers(containerAAgentId: string) {
+function reconnectDuringDispatchRecovers(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const alice = yield* registerAgent("rd-alice");
     const aliceClient = connectedClient(alice.apiKey);
@@ -353,13 +355,13 @@ function connectedClient(agentKey: string) {
 
 function createDm(
   client: MoltZapAgentClient,
-  agentId: string,
+  invitee: AgentId,
 ): Effect.Effect<TaskBinding, unknown> {
   return client
     .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [agentId],
-      initialConversation: { participants: [agentId] },
+      invitedAgentIds: [invitee],
+      initialConversation: { participants: [invitee] },
     })
     .pipe(Effect.map(extractTaskBinding));
 }
@@ -367,14 +369,13 @@ function createDm(
 function createGroup(
   client: MoltZapAgentClient,
   name: string,
-  agentIds: ReadonlyArray<string>,
+  agentIds: ReadonlyArray<AgentId>,
 ): Effect.Effect<TaskBinding, unknown> {
-  const ids = agentIds.map((id) => id);
   return client
     .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: ids,
-      initialConversation: { name, participants: ids },
+      invitedAgentIds: agentIds,
+      initialConversation: { name, participants: agentIds },
     })
     .pipe(Effect.map(extractTaskBinding));
 }
@@ -467,9 +468,18 @@ function expectConversationMessageFrom(
 }
 
 function lookupAgentId(client: MoltZapAgentClient, name: string) {
-  return client
-    .sendRpc(AgentsLookupByName, { names: [name] })
-    .pipe(Effect.map((result) => result.agents[0]?.id ?? ""));
+  return client.sendRpc(AgentsLookupByName, { names: [name] }).pipe(
+    Effect.flatMap((result) => {
+      const found = result.agents[0]?.id;
+      return found === undefined
+        ? Effect.fail(
+            new RoutingIntegrationError({
+              message: `agent not found: ${name}`,
+            }),
+          )
+        : Effect.succeed(found);
+    }),
+  );
 }
 
 function timeoutsCoverNotificationWait() {
