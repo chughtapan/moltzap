@@ -7,7 +7,9 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { Brand } from "effect";
 import type { EnrichedInboundMessage } from "@moltzap/client";
+import { taskId } from "@moltzap/protocol/testing";
 import {
   brandConversationId,
   brandIsoTimestamp,
@@ -19,6 +21,7 @@ import { ContentEmpty, MetaInvalid } from "./errors.js";
 import { CLAUDE_CHANNEL_NOTIFICATION_METHOD } from "./types.js";
 
 const CONVERSATION_ID = "00000000-0000-4000-8000-0000000000a1";
+const TASK_ID = "00000000-0000-4000-8000-0000000003a1";
 const CONVERSATION_OTHER = "00000000-0000-4000-8000-0000000000a2";
 const MESSAGE_ID = "00000000-0000-4000-8000-0000000001a1";
 const MESSAGE_OTHER = "00000000-0000-4000-8000-0000000001a2";
@@ -30,12 +33,20 @@ const INVALID_DATE_TEXT = "not a date";
 const VALID_ISO_TIMESTAMP = "2026-04-24T00:00:00Z";
 const VALID_ISO_TIMESTAMP_WITH_MS = "2026-04-24T09:00:00.123Z";
 
+// `toClaudeChannelNotification` re-validates `conversationId` at its own
+// boundary, so the rejection tests need to inject a raw string the branded
+// surface would otherwise forbid. `Brand.nominal` types the literal without
+// validating, mirroring the optimistically-typed value the boundary sees.
+const rawConversationId =
+  Brand.nominal<EnrichedInboundMessage["conversationId"]>();
+
 function makeEvent(
   overrides: Partial<EnrichedInboundMessage> = {},
 ): EnrichedInboundMessage {
   return {
     id: MESSAGE_ID,
-    conversationId: CONVERSATION_ID,
+    taskId: taskId(TASK_ID),
+    conversationId: brandConversationId(CONVERSATION_ID),
     sender: { id: AGENT_ALICE, name: "Alice" },
     text: DEFAULT_TEXT,
     isFromMe: false,
@@ -48,7 +59,7 @@ function makeEvent(
 describe("toClaudeChannelNotification meta identity", () => {
   it("maps conversationId → chat_id verbatim", () => {
     const r = toClaudeChannelNotification(
-      makeEvent({ conversationId: CONVERSATION_OTHER }),
+      makeEvent({ conversationId: brandConversationId(CONVERSATION_OTHER) }),
     );
     expect(r._tag).toBe("Ok");
     if (r._tag !== "Ok") return;
@@ -133,7 +144,9 @@ describe("toClaudeChannelNotification meta shape", () => {
 
 describe("toClaudeChannelNotification invalid meta", () => {
   it("rejects with MetaInvalid when conversationId is empty", () => {
-    const r = toClaudeChannelNotification(makeEvent({ conversationId: "" }));
+    const r = toClaudeChannelNotification(
+      makeEvent({ conversationId: rawConversationId("") }),
+    );
     expect(r._tag).toBe("Err");
     if (r._tag !== "Err") return;
     expect(r.error).toBeInstanceOf(MetaInvalid);
