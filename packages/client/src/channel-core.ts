@@ -329,12 +329,10 @@ export class MoltZapChannelCore {
 
   /**
    * Lease id scoped to the in-flight `dispatchInboundEffect` call
-   * (set immediately around the user-handler invocation). Replaces
-   * the legacy `activeDispatchLeaseId` field whose semantics were
-   * unchanged but whose name leaked an admission-flow detail. The
-   * field remains a single mutable cell because the consumer fiber
-   * processes inbound work strictly serially (one queue, one fiber);
-   * concurrent dispatches do not exist on this code path.
+   * (set immediately around the user-handler invocation). A single
+   * mutable cell because the consumer fiber processes inbound work
+   * strictly serially (one queue, one fiber); concurrent dispatches do
+   * not exist on this code path.
    */
   private leaseIdInFlight: LeaseId | undefined;
 

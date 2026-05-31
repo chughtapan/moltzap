@@ -1,11 +1,10 @@
 /**
  * Channel-base group-block helpers.
  *
- * Replaces nanoclaw's inline `formatGroupBlock` at
- * `packages/nanoclaw-channel/src/channels/moltzap.ts → formatGroupBlock`. Also
- * extracts the shared type-narrowing predicate (`getGroupFields`) consumed by
- * openclaw (deriving `groupSubject` / `groupMembers` for the OpenClaw context)
- * and nanoclaw (gating the inline group-block render).
+ * `formatGroupBlock` renders the group block for nanoclaw. The shared
+ * type-narrowing predicate `getGroupFields` is consumed by openclaw
+ * (deriving `groupSubject` / `groupMembers` for the OpenClaw context) and
+ * nanoclaw (gating the group-block render).
  */
 
 import { sanitizeForSystemReminder } from "../service.js";
@@ -53,13 +52,12 @@ function formatXmlSystemReminder(fields: GroupFields): string {
  * Returns the formatted group block.
  *
  * Markup variants:
- * - `"xml-system-reminder"`: byte-identical to the pre-refactor nanoclaw
- *   output (a `&lt;system-reminder&gt;` block with group name + participants).
+ * - `"xml-system-reminder"`: a `&lt;system-reminder&gt;` block with group
+ *   name + participants (nanoclaw output).
  * - `"json-header"`: empty string. Openclaw does not render a group block;
  *   it consumes `getGroupFields` directly to derive its OpenClaw-side
- *   `groupSubject` / `groupMembers` fields. The empty-string return locks
- *   the "openclaw renders no group block" behavior as an explicit,
- *   fixtured output (see arch sub-issue #605 §3.5).
+ *   `groupSubject` / `groupMembers` fields. The empty-string return makes
+ *   "openclaw renders no group block" an explicit, fixtured output.
  *
  * Or pass a custom `formatter` callback.
  */

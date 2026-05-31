@@ -1,5 +1,5 @@
 /**
- * Shared reconnecting-socket-client primitives (#705 CP-F A6-base).
+ * Shared reconnecting-socket-client primitives.
  *
  * `MoltZapAppClient` (`app-client.ts`) and `MoltZapAgentClient`
  * (`agent-client.ts`) are ~90% identical reconnecting WebSocket clients:
@@ -57,8 +57,7 @@ export const makeNotConnectedError = (): NotConnectedError =>
 /**
  * The reconnect loop fails each unsuccessful attempt with this so the
  * retry `Schedule` re-fires; it never escapes the loop (caught + voided).
- * Module-private: only {@link makeReconnectLoop} consumes it now (the
- * clients no longer build the loop inline — #705 CP-F A6-base).
+ * Module-private: only {@link makeReconnectLoop} consumes it.
  */
 class ReconnectAttemptFailedError extends Data.TaggedError(
   "ReconnectAttemptFailedError",
@@ -73,8 +72,7 @@ export type ClientWebSocket = Effect.Effect.Success<
 /**
  * Exponential backoff (1s base, ×2 per attempt) capped at 30s + jitter.
  * The retry loop discards the schedule output. Module-private: consumed
- * only by {@link makeReconnectLoop} (#705 CP-F A6-base — the clients no
- * longer build the retry inline).
+ * only by {@link makeReconnectLoop}.
  */
 const makeReconnectSchedule = () =>
   Schedule.exponential(
@@ -90,9 +88,8 @@ export const webSocketUrl = (serverUrl: string): string =>
   serverUrl.replace(/^http/, "ws") + "/ws";
 
 /**
- * The byte-identical reconnect loop both clients ran inline in
- * `scheduleReconnect` (#705 CP-F A6-base). Each unsuccessful
- * `connectEffect` attempt fails with {@link ReconnectAttemptFailedError}
+ * The reconnect loop both clients drive from `scheduleReconnect`. Each
+ * unsuccessful `connectEffect` attempt fails with {@link ReconnectAttemptFailedError}
  * so the exponential {@link makeReconnectSchedule} re-fires; a successful
  * reconnect fires `onReconnect(helloOk)` (caught + logged, never
  * propagated). The loop voids every outcome, runs `onLoopEnd` in an
