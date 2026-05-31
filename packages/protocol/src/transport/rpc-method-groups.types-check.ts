@@ -2,23 +2,22 @@
  * @file Type canaries for the additive `@effect/rpc` `RpcGroup` construction
  * (`transport/rpc-method-groups.ts`).
  *
- * The groups are built ahead of the #725 native-engine cutover and are wired to
- * no dispatcher yet. These canaries are the groups' live type consumer (so the
+ * The groups are built ahead of the native-engine cutover and are wired to no
+ * dispatcher yet. These canaries are the groups' live type consumer (so the
  * unused-export pass does not flag the exports dead) AND the documented
- * invariant: every group is a non-empty `RpcGroup` whose members carry the
- * `WireErrorSchema` envelope as their error Schema.
+ * invariants the build guarantees:
+ *
+ *   1. every group is a non-empty `RpcGroup`;
+ *   2. every member carries the `WireErrorSchema` envelope as its error Schema;
+ *   3. each member's tag correlates with its own payload Schema — the group's
+ *      member type is the per-slot tuple union, not a single widened element,
+ *      so `RpcClient.make` types each method and `RpcGroup.toLayer` types each
+ *      handler against the right payload.
  *
  * The file is compiled by the package's standard `tsc` pass (no separate
  * script). A positive canary wraps an `Equal` comparison in `Expect`, which
  * fails with TS2344 when the two sides diverge; a bare `Equal` with no `Expect`
  * wrapper pins nothing.
- *
- * The member type is a single union member (payload and success widen across
- * the catalog) because `groupFromCatalog` maps the catalog tuple with
- * `Array.prototype.map`. Per-tag payload and success correlation is recovered
- * at the `RpcGroup.toLayer` seam in the cutover, so these canaries pin the
- * error-channel and non-emptiness invariants the additive build can guarantee,
- * not per-tag payload shapes.
  */
 import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
@@ -28,6 +27,7 @@ import {
   AgentClientRpcGroup,
   AppCallableRpcGroup,
 } from "./rpc-method-groups.js";
+import type { JsonRpcMethod } from "./wire.js";
 
 // Compile-time equality helper.
 type Expect<T extends true> = T;
@@ -41,6 +41,20 @@ type IsNever<T> = [T] extends [never] ? true : false;
 type ErrorSchemaOf<R> =
   R extends Rpc.Rpc<infer _Tag, infer _Payload, infer _Success, infer Error>
     ? Error
+    : never;
+
+// The member of group `G` whose wire name is `Name`, and that member's payload
+// type. Member tags are branded `JsonRpcMethod<Name>`, so the match brands the
+// plain name argument before comparing.
+type MemberWithTag<G, Name extends string> =
+  MemberOf<G> extends infer R
+    ? R extends Rpc.Rpc<JsonRpcMethod<Name>, infer _P, infer _S, infer _E>
+      ? R
+      : never
+    : never;
+type PayloadTypeOf<R> =
+  R extends Rpc.Rpc<infer _Tag, infer Payload, infer _S, infer _E>
+    ? Schema.Schema.Type<Payload>
     : never;
 
 // Canary 1: the four group exports are non-empty `RpcGroup`s.
@@ -68,5 +82,27 @@ type _E1 = Expect<
       readonly message: string;
       readonly data?: unknown;
     }
+  >
+>;
+
+// Canary 3: per-tag payload correlation survives the catalog map.
+//
+// `dispatch/authorize` carries the `DispatchAuthorize` context payload, whose
+// `attempt` field is unique to it among the callback members: `messages/authorize`
+// and `task/create` carry no `attempt`. Selecting the member by tag and reading
+// its payload type therefore yields THIS method's payload, not a union across
+// the catalog. If the group's member type widened to a single element (the
+// failure mode when the construction loses per-slot types), `MemberWithTag`
+// either collapses to `never` (flipping `_C0` to `true`) or returns a payload
+// whose `attempt` is absent or non-`number` (failing `_C1`).
+type DispatchAuthorizeMember = MemberWithTag<
+  typeof AppCallbackRpcGroup,
+  "dispatch/authorize"
+>;
+type _C0 = Expect<Equal<IsNever<DispatchAuthorizeMember>, false>>;
+type _C1 = Expect<
+  Equal<
+    Pick<PayloadTypeOf<DispatchAuthorizeMember>, "attempt">,
+    { readonly attempt: number }
   >
 >;
