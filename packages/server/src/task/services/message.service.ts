@@ -157,12 +157,6 @@ export interface MessageServiceDeps {
  * fails closed (`Block { reason: "app_unreachable" }`) on timeout, handler
  * error, or RPC failure. On Forward, `network.send` broadcasts to
  * `verdict.recipients`; on Block, the call fails with `HookBlocked`.
- *
- * `bypassTmRouting=true` skips the `messages/authorize` round-trip
- * and synthesizes a Forward-to-all-participants-except-sender verdict.
- * It is the internal extension point for server-authored inserts whose
- * authorization is already established upstream; every wire entry point
- * hardcodes `false`.
  */
 export class MessageService {
   private deliveryWebhookFibers = new Set<
@@ -280,7 +274,6 @@ export class MessageService {
         parts,
         conv,
         excludeConnectionId: input.excludeConnectionId,
-        bypassTmRouting: input.bypassTmRouting,
       };
     });
   }
@@ -387,10 +380,6 @@ export class MessageService {
    *      On Forward, broadcast to `verdict.recipients` (not all
    *      participants).
    *
-   * `bypassTmRouting=true` skips the gate: the caller has already
-   * established authorization upstream, so the server records a
-   * synthetic `Forward { participants \ sender }` verdict and
-   * broadcasts as usual.
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
    * were reached, `recordTrace` and `deliveryWebhook` observe the misses, and
@@ -445,9 +434,6 @@ export class MessageService {
   private resolveCommitVerdict(
     input: SendCommitInput,
   ): Effect.Effect<DispatchDecision, never> {
-    if (input.carrier.bypassTmRouting) {
-      return this.defaultForwardVerdict(input);
-    }
     return this.resolveSendVerdict({
       messageId: input.carrier.message.id,
       // Boundary cast: SendConversationRow.app_id arrives as the raw
@@ -462,9 +448,8 @@ export class MessageService {
 
   /**
    * Synthesize the forward-to-all-participants-except-sender verdict.
-   * Used by the `bypassTmRouting` carrier path AND the AppHost-null
-   * fallback in {@link resolveSendVerdict} (unit-test layer); both pass
-   * the same `{ conversationId, senderAgentId }` slice.
+   * Used by the AppHost-null fallback in {@link resolveSendVerdict}
+   * (unit-test layer).
    */
   private defaultForwardVerdict(input: {
     readonly conversationId: ConversationId;
@@ -702,11 +687,7 @@ export class MessageService {
     input: SendMessageInput,
   ): Effect.Effect<Message, MessageServiceError, MessageSendPermission> {
     return Effect.gen(this, function* () {
-      const bypassTmRouting = input.bypassTmRouting ?? false;
-      const carrier = yield* this.sendInsert({
-        ...input,
-        bypassTmRouting,
-      });
+      const carrier = yield* this.sendInsert(input);
       return yield* this.sendCommit(
         carrier,
         input.conversationId,
