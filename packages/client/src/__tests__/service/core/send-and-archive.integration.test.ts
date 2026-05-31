@@ -48,10 +48,11 @@ it("send() delivers message to other agent", () =>
       eventOpt,
       () => new Error("notification stream closed before delivery"),
     );
-    const msg = (
-      event.params as { message: { parts: Array<{ text: string }> } }
-    ).message;
-    expect(msg.parts[0]!.text).toBe(H.HELLO_FROM_SERVICE);
+    const part = event.params.message.parts[0]!;
+    if (part.type !== "text") {
+      throw new Error(`expected text part, got ${part.type}`);
+    }
+    expect(part.text).toBe(H.HELLO_FROM_SERVICE);
 
     service.close();
     yield* regA.client.close();

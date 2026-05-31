@@ -121,10 +121,14 @@ function startServer(): Effect.Effect<DedupTestServer, unknown, Scope.Scope> {
   });
 }
 
+type SocketWriter = (
+  chunk: Uint8Array | string | Socket.CloseEvent,
+) => Effect.Effect<void, Socket.SocketError>;
+
 function handleServerSocket(
   serverSock: Socket.Socket,
   firstConn: Deferred.Deferred<ServerConn>,
-): Effect.Effect<void> {
+): Effect.Effect<void, Socket.SocketError, Scope.Scope> {
   return Effect.gen(function* () {
     const write = yield* serverSock.writer;
     const conn: ServerConn = {
@@ -137,8 +141,8 @@ function handleServerSocket(
 
 function handleServerData(
   data: string | Uint8Array,
-  write: (raw: string) => Effect.Effect<void>,
-): Effect.Effect<void> {
+  write: SocketWriter,
+): Effect.Effect<void, Socket.SocketError> {
   return Effect.gen(function* () {
     const parsed = parseRequestFrame(decodeServerData(data));
     if (parsed === null) return;
