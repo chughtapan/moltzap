@@ -6,7 +6,6 @@ import {
   dateTimeStringSchema,
   brandedId,
   stringEnum,
-  STRICT_DECODE,
 } from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
 
@@ -93,17 +92,17 @@ export type AppManifestValidationResult = Either.Either<
 >;
 
 /**
- * Strict manifest validation. Decodes with `{ onExcessProperty: "error" }`
- * (the former `new Ajv({ strict: true })` + `additionalProperties:false`
- * rejected extra keys); on failure surfaces every `ParseError` leaf via
- * `ParseResult.ArrayFormatter.formatErrorSync` (one issue → one string),
- * replacing the AJV `.errors` `${instancePath} ${message}` adapter.
+ * Strict manifest validation. Decodes with `{ onExcessProperty: "error" }` so
+ * an extra key rejects the manifest at this trust boundary (an app manifest is
+ * operator-supplied configuration, not wire traffic). On failure surfaces every
+ * `ParseError` leaf via `ParseResult.ArrayFormatter.formatErrorSync` (one issue
+ * → one string).
  */
 export function validateAppManifest(
   value: unknown,
 ): AppManifestValidationResult {
   return Either.mapLeft(
-    decodeAppManifest(value, STRICT_DECODE),
+    decodeAppManifest(value, { onExcessProperty: "error" }),
     (parseError) => {
       const issues = ParseResult.ArrayFormatter.formatErrorSync(parseError).map(
         (issue) => `${issue.path.join("/") || "/"} ${issue.message}`,

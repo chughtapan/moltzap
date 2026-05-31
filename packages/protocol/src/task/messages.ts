@@ -1,9 +1,8 @@
-import { Schema } from "effect";
+import { Either, Schema } from "effect";
 import {
   brandedId,
   dateTimeStringSchema,
   formatString,
-  closedStructGuard,
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
@@ -72,8 +71,23 @@ const MessageSchema = Schema.Struct({
 
 export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
-export const validateTextPart = closedStructGuard(TextPartSchema);
-export const validateMessage = closedStructGuard(MessageSchema);
+/**
+ * Boolean type-guard that REJECTS excess keys. A bare `Schema.is` accepts
+ * extra keys (Effect strips them by default); these are domain trust
+ * boundaries (DB-read parts/messages, app-supplied verdicts) where an extra
+ * key signals a malformed value and must fail, so the guard decodes with
+ * `{ onExcessProperty: "error" }`.
+ */
+const closedGuard =
+  <A, I>(schema: Schema.Schema<A, I>) =>
+  (value: unknown): value is A =>
+    Either.match(
+      Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" }),
+      { onLeft: () => false, onRight: () => true },
+    );
+
+export const validateTextPart = closedGuard(TextPartSchema);
+export const validateMessage = closedGuard(MessageSchema);
 
 export function messagePartsSchema(): typeof MessagePartsSchema {
   return MessagePartsSchema;
@@ -113,13 +127,10 @@ const DispatchDecisionSchema = Schema.Union(
 export type DispatchDecision = Schema.Schema.Type<
   typeof DispatchDecisionSchema
 >;
-// Strict, excess-rejecting guard over the verdict union. Keeps the
-// boolean-guard call shape the live cross-package consumer
-// `server/.../message.service.ts → validateDispatchDecision(raw)` relies
-// on, rejecting excess properties at the trust boundary.
-export const validateDispatchDecision = closedStructGuard(
-  DispatchDecisionSchema,
-);
+// Strict, excess-rejecting guard over the verdict union. Decodes a value read
+// from the `messages.dispatch_decision` JSONB column; an extra key signals a
+// malformed verdict and rejects.
+export const validateDispatchDecision = closedGuard(DispatchDecisionSchema);
 
 const MessageWithDispatchDecisionSchema = Schema.extend(
   MessageSchema,

@@ -141,7 +141,7 @@ _Variable_
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
 ```
 
-### [`DispatchDecision`](./messages.ts#L113)
+### [`DispatchDecision`](./messages.ts#L127)
 
 _TypeAlias_
 
@@ -151,7 +151,7 @@ export type DispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`dispatchDecisionSchema`](./messages.ts#L133)
+### [`dispatchDecisionSchema`](./messages.ts#L144)
 
 _Function_
 
@@ -182,7 +182,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 >;
 ```
 
-### [`LeaseId`](./messages.ts#L14)
+### [`LeaseId`](./messages.ts#L13)
 
 _TypeAlias_
 
@@ -190,7 +190,7 @@ _TypeAlias_
 export const LeaseId = brandedId("LeaseId");
 ```
 
-### [`LeaseId`](./messages.ts#L14)
+### [`LeaseId`](./messages.ts#L13)
 
 _Variable_
 
@@ -214,7 +214,7 @@ _Function_
 export function logicalClockSchema(): typeof LogicalClockSchema
 ```
 
-### [`Message`](./messages.ts#L73)
+### [`Message`](./messages.ts#L72)
 
 _TypeAlias_
 
@@ -238,7 +238,7 @@ _Variable_
 export const MessageId = brandedId("MessageId")
 ```
 
-### [`messagePartsSchema`](./messages.ts#L78)
+### [`messagePartsSchema`](./messages.ts#L92)
 
 _Function_
 
@@ -246,7 +246,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L192)
+### [`MessageReceivedNotification`](./messages.ts#L203)
 
 _TypeAlias_
 
@@ -256,7 +256,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L200)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L211)
 
 _Variable_
 
@@ -269,7 +269,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](./messages.ts#L169)
+### [`MessagesList`](./messages.ts#L180)
 
 _Variable_
 
@@ -295,7 +295,7 @@ export const MessagesList = defineRpc({
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
 
-### [`MessagesSend`](./messages.ts#L152)
+### [`MessagesSend`](./messages.ts#L163)
 
 _Variable_
 
@@ -320,7 +320,7 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithDispatchDecision`](./messages.ts#L129)
+### [`MessageWithDispatchDecision`](./messages.ts#L140)
 
 _TypeAlias_
 
@@ -330,7 +330,7 @@ export type MessageWithDispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`messageWithDispatchDecisionSchema`](./messages.ts#L137)
+### [`messageWithDispatchDecisionSchema`](./messages.ts#L148)
 
 _Function_
 
@@ -338,7 +338,7 @@ _Function_
 export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema
 ```
 
-### [`Part`](./messages.ts#L55)
+### [`Part`](./messages.ts#L54)
 
 _TypeAlias_
 
@@ -890,30 +890,28 @@ _TypeAlias_
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`validateDispatchDecision`](./messages.ts#L120)
+### [`validateDispatchDecision`](./messages.ts#L133)
 
 _Variable_
 
 ```ts
-export const validateDispatchDecision = closedStructGuard(
-  DispatchDecisionSchema,
-)
+export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
 ```
 
-### [`validateMessage`](./messages.ts#L76)
+### [`validateMessage`](./messages.ts#L90)
 
 _Variable_
 
 ```ts
-export const validateMessage = closedStructGuard(MessageSchema)
+export const validateMessage = closedGuard(MessageSchema)
 ```
 
-### [`validateTextPart`](./messages.ts#L75)
+### [`validateTextPart`](./messages.ts#L89)
 
 _Variable_
 
 ```ts
-export const validateTextPart = closedStructGuard(TextPartSchema)
+export const validateTextPart = closedGuard(TextPartSchema)
 ```
 
 ## Files

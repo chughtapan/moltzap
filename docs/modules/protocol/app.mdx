@@ -13,7 +13,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
-### [`appCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L500)
+### [`appCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L499)
 
 _Variable_
 
@@ -25,7 +25,7 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L82)
+### [`AppManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L81)
 
 _TypeAlias_
 
@@ -33,7 +33,7 @@ _TypeAlias_
 export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 ```
 
-### [`AppManifestValidationResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L90)
+### [`AppManifestValidationResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L89)
 
 _TypeAlias_
 
@@ -44,7 +44,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L506)
+### [`appNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L505)
 
 _Variable_
 
@@ -56,7 +56,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L494)
+### [`appRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L493)
 
 _Variable_
 
@@ -68,7 +68,7 @@ export const appRpcMethods = [
 ] as const
 ```
 
-### [`AppsRegister`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L123)
+### [`AppsRegister`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L122)
 
 _Variable_
 
@@ -82,7 +82,7 @@ export const AppsRegister = defineRpc({
 
 Register an app manifest for the current connection.
 
-### [`DispatchAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L237)
+### [`DispatchAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L236)
 
 _Variable_
 
@@ -100,7 +100,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 `LeaseRegistry.resolve`. Manifests opt in by declaring
 `hooks.dispatch_authorize`.
 
-### [`DispatchesConsumed`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L276)
+### [`DispatchesConsumed`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L275)
 
 _Variable_
 
@@ -123,7 +123,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L293)
+### [`DispatchesExpired`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L292)
 
 _Variable_
 
@@ -144,7 +144,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L350)
+### [`DispatchesGet`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L349)
 
 _Variable_
 
@@ -161,7 +161,7 @@ the handler: the calling connection must match the lease's
 `moderatorConnectionId` (the binding tuple recorded at mint time);
 non-moderator callers fail with `ForbiddenError`.
 
-### [`DispatchId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L199)
+### [`DispatchId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L198)
 
 _TypeAlias_
 
@@ -175,7 +175,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L199)
+### [`DispatchId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L198)
 
 _Variable_
 
@@ -189,7 +189,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchRelease`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L255)
+### [`DispatchRelease`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L254)
 
 _Variable_
 
@@ -218,7 +218,7 @@ out via the standard EXPIRED path; no `leaseTimeoutMs` field needed
 on the hold arm because the grant TTL has not started yet (lease
 never reached GRANTED).
 
-### [`DispatchRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L211)
+### [`DispatchRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L210)
 
 _Variable_
 
@@ -249,7 +249,7 @@ Wire ordering: the ack and `dispatch/release` may race — the
 recipient absorbs the race via a client-side ring buffer + per-
 lease `Deferred` (see `packages/client/src/channel-core.ts`).
 
-### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L410)
+### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L409)
 
 _Variable_
 
@@ -274,7 +274,7 @@ participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`TaskCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L486)
+### [`TaskCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L485)
 
 _Variable_
 
@@ -314,7 +314,7 @@ waiting tasks are invisible to delivery (no conversation, no
 participants observe them) and are reaped by follow-up work (the
 stale-waiting-task sweep, #684).
 
-### [`validateAppManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L102)
+### [`validateAppManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L101)
 
 _Function_
 
@@ -324,11 +324,11 @@ export function validateAppManifest(
 ): AppManifestValidationResult
 ```
 
-Strict manifest validation. Decodes with `{ onExcessProperty: "error" }`
-(the former `new Ajv({ strict: true })` + `additionalProperties:false`
-rejected extra keys); on failure surfaces every `ParseError` leaf via
-`ParseResult.ArrayFormatter.formatErrorSync` (one issue → one string),
-replacing the AJV `.errors` `${instancePath} ${message}` adapter.
+Strict manifest validation. Decodes with `{ onExcessProperty: "error" }` so
+an extra key rejects the manifest at this trust boundary (an app manifest is
+operator-supplied configuration, not wire traffic). On failure surfaces every
+`ParseError` leaf via `ParseResult.ArrayFormatter.formatErrorSync` (one issue
+→ one string).
 
 ## Files
 

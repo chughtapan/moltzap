@@ -1,11 +1,10 @@
-import { Schema } from "effect";
+import { Either, Schema } from "effect";
 import {
   stringEnum,
   dateTimeStringSchema,
   brandedId,
   listCursorSchema,
   formatString,
-  closedStructGuard,
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc } from "../transport/method.js";
@@ -51,12 +50,21 @@ const AgentOwnershipSchema = Schema.Struct({
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 
-// Strict, excess-rejecting type guards. `closedStructGuard` wraps a
-// `Schema.decodeUnknownEither(..., { onExcessProperty: "error" })` so
-// extra keys are REJECTED — a bare `Schema.is` would accept them and
-// loosen the trust boundary.
-export const validateAgent = closedStructGuard(AgentSchema);
-export const validateAgentCard = closedStructGuard(AgentCardSchema);
+// Strict, excess-rejecting type guards over agent identity records. A bare
+// `Schema.is` accepts extra keys (Effect strips them by default); these
+// records arrive from storage and registration, where an extra key signals a
+// malformed record and must reject, so each guard decodes with
+// `{ onExcessProperty: "error" }`.
+const closedGuard =
+  <A, I>(schema: Schema.Schema<A, I>) =>
+  (value: unknown): value is A =>
+    Either.match(
+      Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" }),
+      { onLeft: () => false, onRight: () => true },
+    );
+
+export const validateAgent = closedGuard(AgentSchema);
+export const validateAgentCard = closedGuard(AgentCardSchema);
 
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
   return AgentOwnershipSchema;
