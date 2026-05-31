@@ -44,6 +44,7 @@ import {
   TaskConversationUnarchivedNotificationDefinition,
   TaskRequest,
   TaskLeave,
+  TaskCreate,
 } from "../index.js";
 
 // ── Compile-time equality helper ─────────────────────────────────────
@@ -242,6 +243,19 @@ type _R3 = Expect<
 >;
 
 export type _D1RemovedReasonCanary = _R1 | _R2 | _R3;
+
+// ── Canary 6: task/create app-callback wire name ─────────────────────
+//
+// Locks the app-facing admission callback to the wire name
+// `task/create` (distinct from the agent-facing entry RPC
+// `task/request`, pinned by Canary 1 `_N1`). The server round-trips
+// this exact method name to the app's `task_create` hook; a rename of
+// the `TaskCreate` constant that drifts the wire name would silently
+// break admission without this pin. Carried forward from the deleted
+// `task-d3-cutover.types-check.ts` (its only non-vacuous assertion).
+export type _D3TaskCreateCallbackWireName = Expect<
+  Equal<typeof TaskCreate.name, JsonRpcMethod<"task/create">>
+>;
 
 // ── Negative canary block: explicitly-rejected symbols ───────────────
 //

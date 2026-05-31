@@ -10,10 +10,11 @@
  * Asserts: ONE `Effect.provideServiceEffect(MessageSendPermission,
  * obtainMessageSendPermission(...))` drains the composite capability
  * from a handler body and leaves only the obtain helper's residual R
- * (the source-service Tags it composes). The dispatcher-side lockstep
- * gate (`protocol/transport/typed-dispatcher.types-check.ts` Canary 7)
- * proves the inverse: a handler yielding a capability NOT declared in
- * its descriptor fails to compile.
+ * (the source-service Tags it composes). The handler-R-vs-declared-caps
+ * lockstep gate (`server-core`'s `transport/middleware-slot.types-check.ts`
+ * Canary M1/M2/M3, on the `weaveCaps` totality bound) proves the inverse:
+ * a handler that drops a declared capability from `weaveCaps` fails to
+ * compile.
  *
  * No test-runner involvement; `tsc --noEmit` is the canary.
  */

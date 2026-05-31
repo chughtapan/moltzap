@@ -33,8 +33,12 @@ app at the top — see `src/index.ts` file-level JSDoc for the diagram):
   constant, `ParticipantNotAdmittedError`. Branded `TaskId` /
   `LeaseId` ids live in `src/task/ids.ts`. Family overview lives
   in the header block above the descriptors in `src/task/tasks.ts`.
-  Type canaries: `src/task/task-conversation-family.types-check.ts`
-  + `src/task/task-d3-cutover.types-check.ts`.
+  Type canary: `src/task/task-conversation-family.types-check.ts`
+  (wire-name pins, payload shapes, removed-reason enum, the
+  `task/create` callback pin). The outbound-catalog partition
+  (`appCallable = agentClient ∪ appCallableTask`) is a RUNTIME test in
+  `src/rpc-registry.test.ts`, not a canary — the invariant is a fact
+  about array membership that `expect` checks directly.
 - `src/app/` — app registration + task-callback RPCs (server-initiated
   calls into the client). Top of the DAG.
 
@@ -193,6 +197,29 @@ Errors:
   codes (-32700, -32600, -32601, -32602, -32603) only. Every
   other code lives in the runtime registry; there is no central
   `ErrorCodes` table.
+
+Type-tests (`*.types-check.ts` canaries):
+- These files are never executed; they exist so the COMPILER enforces an
+  invariant the runtime never re-checks (a brand seal, an exhaustive
+  union, a not-exported symbol, a handler R-channel bound). `tsc --build`
+  IS the test runner. They sit in `src/**` (not `*.test.ts`) so the
+  package's standard `tsc` pass compiles them.
+- Two assertion shapes. POSITIVE: `type _X = Expect<Equal<A, B>>` where
+  `Expect<T extends true> = T` — if `A` and `B` diverge, `Equal` resolves
+  to `false`, `false` violates `extends true`, and tsc fails with TS2344.
+  (A bare `type _X = Equal<A, B>` with NO `Expect` wrapper pins NOTHING —
+  it just names a `true | false` type. That vacuous shape is why
+  `task-d3-cutover.types-check.ts` was deleted.) NEGATIVE: an
+  `@ts-expect-error` on a line that MUST fail to compile (an illegal
+  import, an out-of-bound assignment); if the line ever starts compiling,
+  the directive goes unused and tsc fails with TS2578.
+- Each file header names the invariant + WHY it is compile-time-only +
+  how to read its positive/negative controls. When the live type moves,
+  update the canary's assertion deliberately — a green canary after a
+  shape change means the canary stopped guarding.
+- When the invariant is array MEMBERSHIP or a runtime value (cardinality,
+  disjointness, a literal constant), prefer a runtime `*.test.ts` over a
+  canary: `expect` cannot be vacuous, a type alias can.
 
 ## Dependencies
 - None on other workspace packages (this is the leaf dependency)
