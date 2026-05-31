@@ -2,6 +2,7 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -52,10 +53,8 @@ it("connection survives idle period and still delivers messages", () =>
       bob.client,
       MessageReceivedNotificationDefinition,
     );
-    const received = (
-      bobEvent.params as { message: { parts: Array<{ text: string }> } }
-    ).message;
-    expect(received.parts[0]!.text).toBe(ALIVE_AFTER_IDLE_TEXT);
+    const received = bobEvent.params.message;
+    expect(firstTextPart(received.parts)).toBe(ALIVE_AFTER_IDLE_TEXT);
 
     // Verify bidirectional: Bob replies after idle
     yield* bob.client.sendRpc(MessagesSend, {
@@ -68,8 +67,6 @@ it("connection survives idle period and still delivers messages", () =>
       alice.client,
       MessageReceivedNotificationDefinition,
     );
-    const aliceReceived = (
-      aliceEvent.params as { message: { parts: Array<{ text: string }> } }
-    ).message;
-    expect(aliceReceived.parts[0]!.text).toBe(REPLY_AFTER_IDLE_TEXT);
+    const aliceReceived = aliceEvent.params.message;
+    expect(firstTextPart(aliceReceived.parts)).toBe(REPLY_AFTER_IDLE_TEXT);
   }));

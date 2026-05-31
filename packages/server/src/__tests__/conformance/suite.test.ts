@@ -213,20 +213,18 @@ function probeToxiproxy(url: string) {
 }
 
 function setupToxiproxy(env: ConformanceEnv) {
-  if (env.skipToxiproxy) {
-    return Effect.succeed({ compose: null, url: null });
-  }
-  if (env.skipDocker) {
-    return waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_REUSE_TIMEOUT_MS).pipe(
-      Effect.as({ compose: null, url: env.toxiproxyUrl }),
-    );
-  }
-  return bringUpToxiproxy().pipe(
-    Effect.tap(() =>
-      waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_BOOT_TIMEOUT_MS),
-    ),
-    Effect.map((compose) => ({ compose, url: env.toxiproxyUrl })),
-  );
+  return Effect.gen(function* () {
+    if (env.skipToxiproxy) {
+      return { compose: null, url: null } satisfies ToxiproxySetup;
+    }
+    if (env.skipDocker) {
+      yield* waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_REUSE_TIMEOUT_MS);
+      return { compose: null, url: env.toxiproxyUrl };
+    }
+    const compose = yield* bringUpToxiproxy();
+    yield* waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_BOOT_TIMEOUT_MS);
+    return { compose, url: env.toxiproxyUrl };
+  });
 }
 
 function conformanceRealServer() {

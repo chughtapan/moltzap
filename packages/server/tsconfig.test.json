@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": false,
+    "declaration": false,
+    "declarationMap": false,
     "noEmit": true,
     "incremental": true,
     "tsBuildInfoFile": "./tsconfig.test.tsbuildinfo"

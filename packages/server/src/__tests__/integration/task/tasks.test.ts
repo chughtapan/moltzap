@@ -9,6 +9,7 @@ import {
   TaskList,
   TaskRemoveParticipant,
 } from "@moltzap/protocol";
+import { agentId } from "@moltzap/protocol/testing";
 import {
   it,
   startTestServerEffect,
@@ -150,7 +151,7 @@ it("TM authority: only the app principal may mutate task membership", () =>
     const addDenied = yield* Effect.either(
       bobClient.sendRpc(TaskAddParticipant, {
         taskId: created.task.id,
-        agentId: bobAgentId,
+        agentId: agentId(bobAgentId),
       }),
     );
     expect(expectEitherLeft(addDenied)).toBeDefined();
@@ -158,13 +159,13 @@ it("TM authority: only the app principal may mutate task membership", () =>
     // The app principal can.
     const added = yield* appClient.sendRpc(TaskAddParticipant, {
       taskId: created.task.id,
-      agentId: bobAgentId,
+      agentId: agentId(bobAgentId),
     });
     expect(added.participant.agentId).toBe(bobAgentId);
 
     yield* appClient.sendRpc(TaskRemoveParticipant, {
       taskId: created.task.id,
-      agentId: bobAgentId,
+      agentId: agentId(bobAgentId),
     });
 
     const closed = yield* appClient.sendRpc(TaskClose, {

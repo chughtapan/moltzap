@@ -108,7 +108,7 @@ function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
   });
 }
 
-function emitDeliveredMessageSpan(): Effect.Effect<void> {
+function emitDeliveredMessageSpan() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-trace-span");
     const bob = yield* registerAndConnect("bob-trace-span");
@@ -160,7 +160,7 @@ function emitDeliveredMessageSpan(): Effect.Effect<void> {
   });
 }
 
-function emitBlockedHookSpan(): Effect.Effect<void> {
+function emitBlockedHookSpan() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-trace-span-blocked");
     const bob = yield* registerAndConnect("bob-trace-span-blocked");

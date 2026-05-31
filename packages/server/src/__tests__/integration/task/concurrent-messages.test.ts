@@ -2,6 +2,7 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -124,18 +125,10 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
     );
 
     for (let i = 0; i < events.length; i++) {
-      const event = events[i]!;
-      const data = event.params as {
-        message: {
-          conversationId: string;
-          parts: Array<{ text: string }>;
-        };
-      };
+      const message = events[i]!.params.message;
 
-      expect(data.message.conversationId).toBe(
-        conversations[i]!.conversationId,
-      );
-      expect(data.message.parts[0]!.text).toBe(`Hello receiver-${i + 1}`);
+      expect(message.conversationId).toBe(conversations[i]!.conversationId);
+      expect(firstTextPart(message.parts)).toBe(`Hello receiver-${i + 1}`);
     }
 
     // No extra events: settle-window collector forked before sends;

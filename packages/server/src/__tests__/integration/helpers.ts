@@ -7,13 +7,13 @@ import {
   stopCoreTestServer,
   resetCoreTestDb,
   getCoreDb,
-  getCoreApp,
   getCoreEncryptionEnvelope,
   getBaseUrl,
 } from "../../test-utils/index.js";
 import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { NotificationFrame } from "@moltzap/protocol";
+import type { Part } from "@moltzap/protocol/task";
 import type { JsonRpcMethod } from "@moltzap/protocol/testing";
 import {
   awaitOneNotification,
@@ -64,6 +64,22 @@ export type { RegisteredApp, ServerTestClient };
 
 export function notificationParams<T>(notification: NotificationFrame): T {
   return notification.params as T;
+}
+
+/**
+ * Read the text of a `text` part. Throws on a non-text variant — callers
+ * assert on text payloads they just sent.
+ */
+export function textOfPart(part: Part | undefined): string {
+  if (part === undefined || part.type !== "text") {
+    throw new IntegrationTestHelperError("Expected a text part in message.");
+  }
+  return part.text;
+}
+
+/** Text of the first part. See {@link textOfPart}. */
+export function firstTextPart(parts: ReadonlyArray<Part>): string {
+  return textOfPart(parts[0]);
 }
 
 export function notificationMatches(
@@ -239,25 +255,33 @@ export function adminRegisterAgent(opts: {
   if (opts.description !== undefined) body.description = opts.description;
 
   return postJson(opts.baseUrl, "/api/v1/admin/register-agent", body).pipe(
-    Effect.flatMap(({ status, json }) => {
-      if (status !== HTTP_CREATED && status !== HTTP_OK) {
-        return Effect.fail(
-          new AdminRegisterStatusError({
-            message: `admin register failed: ${status}`,
-            status,
-            json,
-          }),
-        );
-      }
-      return isAdminRegisterResponse(json)
-        ? Effect.succeed(json)
-        : Effect.fail(
-            new AdminRegisterDecodeError({
-              message: "admin register response did not match expected shape",
+    Effect.flatMap(
+      ({
+        status,
+        json,
+      }): Effect.Effect<
+        AdminRegisterResponse,
+        AdminRegisterStatusError | AdminRegisterDecodeError
+      > => {
+        if (status !== HTTP_CREATED && status !== HTTP_OK) {
+          return Effect.fail(
+            new AdminRegisterStatusError({
+              message: `admin register failed: ${status}`,
+              status,
               json,
             }),
           );
-    }),
+        }
+        return isAdminRegisterResponse(json)
+          ? Effect.succeed(json)
+          : Effect.fail(
+              new AdminRegisterDecodeError({
+                message: "admin register response did not match expected shape",
+                json,
+              }),
+            );
+      },
+    ),
   );
 }
 

@@ -3,6 +3,7 @@ import { it as effectIt } from "@effect/vitest";
 
 import { Effect, Exit } from "effect";
 import { ContactsAdd } from "@moltzap/protocol";
+import { userId } from "@moltzap/protocol/testing";
 import {
   CLAIM_NOT_FOUND,
   CLAIM_OWNER_MISMATCH,
@@ -134,7 +135,9 @@ function expectContactsAddSucceeds(
   contactUserId: string,
 ) {
   return Effect.gen(function* () {
-    const result = yield* client.sendRpc(ContactsAdd, { contactUserId });
+    const result = yield* client.sendRpc(ContactsAdd, {
+      contactUserId: userId(contactUserId),
+    });
     expect(contactUserIdFromResult(result)).toBe(contactUserId);
   });
 }
@@ -145,7 +148,7 @@ function expectContactsAddFails(
 ) {
   return Effect.gen(function* () {
     const exit = yield* Effect.exit(
-      client.sendRpc(ContactsAdd, { contactUserId }),
+      client.sendRpc(ContactsAdd, { contactUserId: userId(contactUserId) }),
     );
     expect(Exit.isFailure(exit)).toBe(true);
   });

@@ -10,6 +10,7 @@ import {
   registerAgent,
 } from "../helpers.js";
 import { getCoreDb } from "../../../test-utils/index.js";
+import type { AgentId } from "@moltzap/protocol/identity";
 
 import { Connect, TaskConversationList } from "@moltzap/protocol";
 
@@ -73,7 +74,7 @@ function registeredAgentCanUseMethods() {
   });
 }
 
-function suspendAgent(agentId: string) {
+function suspendAgent(agentId: AgentId) {
   const db = getCoreDb();
   return Effect.tryPromise(() =>
     db

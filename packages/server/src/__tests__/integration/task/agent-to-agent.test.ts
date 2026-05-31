@@ -3,6 +3,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
@@ -114,14 +115,13 @@ function messageTextsFor(
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return agent.client.sendRpc(MessagesList, { taskId, conversationId }).pipe(
-    Effect.map(
-      (result) =>
-        (result as { messages: Array<{ parts: Array<{ text: string }> }> })
-          .messages,
-    ),
-    Effect.map((messages) => messages.map((message) => message.parts[0]!.text)),
-  );
+  return agent.client
+    .sendRpc(MessagesList, { taskId, conversationId })
+    .pipe(
+      Effect.map((result) =>
+        result.messages.map((message) => firstTextPart(message.parts)),
+      ),
+    );
 }
 
 const NO_ECHO_SETTLE_MS = 500;
