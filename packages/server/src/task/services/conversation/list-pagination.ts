@@ -1,5 +1,5 @@
 /**
- * Sibling module to `conversation.service.ts` — Spec E (#601) Decision E.
+ * Sibling module to `conversation.service.ts`.
  *
  * Hosts the list-conversation cursor-pagination cluster: cursor
  * validation, the conversation+last-message projection query, archive
@@ -7,9 +7,7 @@
  *
  * Pure-function exports (no service class state). The service class
  * keeps a thin `list(...)` delegate that wires `{ db, previewCache }`
- * into `listConversations`. Extraction reclaims ~150 effective lines
- * from `conversation.service.ts` so Phase 3 R-channel cutover edits
- * fit under the `max-lines: 1050` lint cap.
+ * into `listConversations`.
  */
 import type { Db } from "../../../db/client.js";
 import type {
@@ -145,10 +143,9 @@ const cursorListFilter = (cursorParam: string | null) => {
 };
 
 // Working shape with a mutable `participants` slot: `ConversationSummary`'s
-// fields are deeply `readonly` post-#723 (Effect Schema), but the rows are
-// assembled WITHOUT participants and then back-filled in
-// `attachSummaryParticipants`. Build mutably here, then return as the
-// readonly `ConversationSummary[]`.
+// fields are deeply `readonly`, but the rows are assembled WITHOUT
+// participants and then back-filled in `attachSummaryParticipants`.
+// Build mutably here, then return as the readonly `ConversationSummary[]`.
 type MutableConversationSummary = Omit<ConversationSummary, "participants"> & {
   participants?: ReadonlyArray<ConversationParticipant["participant"]>;
 };

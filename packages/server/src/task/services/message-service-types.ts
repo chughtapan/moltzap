@@ -51,10 +51,7 @@ export interface SendConversationRow {
   /**
    * Parent task's `app_id`. Consumed by `MessageService.sendCommit` to
    * route the per-message `messages/authorize` verdict request to the
-   * right app. Pre-cutover this was also the TM-bypass discriminator
-   * for `obtainMessageSendPermission`; the bypass branch was removed
-   * in the #673 follow-up but this column survives because the
-   * verdict-routing consumer still reads it.
+   * right app.
    *
    * Typed as `string` because Kysely's row inference returns the raw
    * SQL column shape; consumers brand at the boundary

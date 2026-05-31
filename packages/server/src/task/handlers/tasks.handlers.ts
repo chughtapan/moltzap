@@ -47,19 +47,16 @@ import { obtainConversationCreateCapacityOnly } from "../services/conversation-c
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
 /**
- * App-arm authority gate for the 8 task-admin RPCs (D #705 R7). The
- * dissolved `TmAuthority` capability moved up to the handler: the app must
- * own the task. Loads the open task (status `waiting | active`) and asserts
- * ownership, returning the loaded `Task` so the handler body can reuse it
- * (e.g. the `task.initiatorAgentId` creator-of-record on
+ * App-arm authority gate for the task-admin RPCs: the app must own the
+ * task. Loads the open task (status `waiting | active`) and asserts
+ * ownership, returning the loaded `Task` so the handler body can reuse
+ * it (e.g. the `task.initiatorAgentId` creator-of-record on
  * `task/conversation/create`).
  *
- * D #705 #720 §B3 — the caller is GUARANTEED to be an `AppConnection`: every
- * binding here is `callablePrincipal: "app"`, so the dispatcher's principal
- * gate rejects a non-app arm with `ForbiddenError` before the body runs. The
- * `appId` flows from the narrowed {@link AppContext} `ctx.appId`; the former
- * in-body `connection._tag !== "AppConnection"` re-check (a runtime check made
- * structurally unreachable) is deleted.
+ * The caller is guaranteed to be an `AppConnection`: every binding here
+ * is `callablePrincipal: "app"`, so the dispatcher's principal gate
+ * rejects a non-app arm with `ForbiddenError` before the body runs. The
+ * `appId` flows from the narrowed {@link AppContext} `ctx.appId`.
  */
 function assertCallerAppOwnsTask(appId: AppId, taskId: TaskId) {
   return Effect.gen(function* () {
@@ -87,7 +84,7 @@ function taskConversationCreateBody(
   return Effect.gen(function* () {
     // App-ownership gate first so a non-owner sees ForbiddenError, not
     // ParticipantNotAdmittedError (which would leak task state). The
-    // loaded task carries `initiatorAgentId` = creator-of-record (R3).
+    // loaded task carries `initiatorAgentId` = creator-of-record.
     const task = yield* assertCallerAppOwnsTask(appId, params.taskId);
     const taskService = yield* TaskServiceTag;
     const conversationService = yield* ConversationServiceTag;
@@ -95,10 +92,10 @@ function taskConversationCreateBody(
       params.taskId,
       params.participants,
     );
-    // D #705 R3: createdBy = task.initiatorAgentId (the agent that sent
-    // the initial task/request); membership = exactly params.participants
-    // (the initiator is NOT injected). Authorization is capacity-only —
-    // a TM minting on the task's behalf has no agent contact-edges; the
+    // createdBy = task.initiatorAgentId (the agent that sent the initial
+    // task/request); membership = exactly params.participants (the
+    // initiator is NOT injected). Authorization is capacity-only — a TM
+    // minting on the task's behalf has no agent contact-edges; the
     // targets are gated by `requireAgentsAreInTaskParticipants` above.
     const conversation = yield* conversationService
       .create({
@@ -132,11 +129,10 @@ interface TaskConversationCreateInput {
 }
 
 function fanoutTaskConversationCreate(input: TaskConversationCreateInput) {
-  // Recipients = exactly the initial participants (D #705 R3). The app
-  // caller is NOT an agent-broadcast target — its confirmation is the
-  // RPC `{conversation}` response, and the agent-broadcast channel
-  // cannot reach an `AppConnection`. (Dropped the legacy `callerAgentId`
-  // fanout entry along with the agent-shaped ctx.)
+  // Recipients = exactly the initial participants. The app caller is NOT
+  // an agent-broadcast target — its confirmation is the RPC
+  // `{conversation}` response, and the agent-broadcast channel cannot
+  // reach an `AppConnection`.
   const recipientAgentIds: AgentId[] = [...input.participants];
   return broadcastNotificationToAgents(
     recipientAgentIds,
@@ -168,9 +164,7 @@ function taskLeaveBody(
       });
     }
     if (closedTask !== null) {
-      // Last-participant task closure. `task/closed { task }` reuses
-      // the EXISTING `TaskClosedNotificationDefinition` payload shape
-      // per architect plan §R9.
+      // Last-participant task closure fans out `task/closed { task }`.
       yield* broadcastNotificationToAgents(
         [ctx.agentId],
         TaskClosedNotificationDefinition,
@@ -339,21 +333,13 @@ export const taskHandlers: ServerRpcSlots = [
 
   // `task/*` + `task/conversation/*` handlers. Per-flow walkthrough
   // lives in the family-overview header block in
-  // `packages/protocol/src/task/tasks.ts` (the `task/*` +
-  // `task/conversation/*` block above `InitialConversationSchema`).
+  // `packages/protocol/src/task/tasks.ts` (above `InitialConversationSchema`).
   //
-  // The 8 task-admin RPCs bind at the app layer (D #705 R7): each handler
-  // runs `assertCallerAppOwnsTask` (the app-arm authority gate that replaced
-  // the dissolved `TmAuthority` capability) before any service mutation. The
-  // four conversation-targeted RPCs bind via `defineAppMiddlewareMethod` and
+  // The task-admin RPCs bind at the app layer: each handler runs
+  // `assertCallerAppOwnsTask` before any service mutation. The four
+  // conversation-targeted RPCs bind via `defineAppMiddlewareMethod` and
   // weave `ConversationInTask` as a `CapabilityMiddleware`; the rest are
   // cap-less (`defineAppMethod`).
-
-  // `task/request` is registered via `defineAppMiddlewareMethod` in
-  // `packages/server/src/app/handlers/task-request.handler.ts`. The
-  // descriptor stays in `@moltzap/protocol/task`; the binding moves up
-  // a layer because the handler needs `AppHostTag` to fire the
-  // `task/create` TM callback (an app-layer service).
 
   defineTaskMethod(TaskLeave, {
     callablePrincipal: "agent",
@@ -372,10 +358,8 @@ export const taskHandlers: ServerRpcSlots = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const conversationService = yield* ConversationServiceTag;
-        // `archived: "include"` per spec body Goal 1 — archived rows
-        // are surfaced and the client filters `conversation.archivedAt`
-        // locally. The underlying `listConversations` helper already
-        // supports the `include` filter mode (Spec E added it).
+        // `archived: "include"` — archived rows are surfaced and the
+        // client filters `conversation.archivedAt` locally.
         const { conversations, cursor: nextCursor } =
           yield* conversationService.list(
             ctx.agentId,
@@ -383,11 +367,9 @@ export const taskHandlers: ServerRpcSlots = [
             params.cursor,
             "include",
           );
-        // Project each summary into the spec-body `TaskConversationListItem`
-        // shape: `{ taskId, conversation: ConversationRow, participants }`.
-        // The summary is from the listConversations projection; the per-
-        // item `conversation` and `participants` come from one batched
-        // round-trip each.
+        // Each `TaskConversationListItem` needs the full conversation row
+        // and participant set, which the list projection omits; fetch
+        // both per summary.
         const items: TaskConversationListItem[] = [];
         for (const summary of conversations) {
           const conversation = yield* conversationService.loadById(summary.id);

@@ -160,10 +160,9 @@ export interface MessageServiceDeps {
  *
  * `bypassTmRouting=true` skips the `messages/authorize` round-trip
  * and synthesizes a Forward-to-all-participants-except-sender verdict.
- * No wire handler currently sets this flag (every entry point hardcodes
- * `false`); it is retained as the internal extension point for
- * server-authored inserts whose authorization is already established
- * upstream.
+ * It is the internal extension point for server-authored inserts whose
+ * authorization is already established upstream; every wire entry point
+ * hardcodes `false`.
  */
 export class MessageService {
   private deliveryWebhookFibers = new Set<
@@ -207,9 +206,6 @@ export class MessageService {
    * timeout-synthesized fallback) cannot both succeed: whichever
    * commits first wins, the loser sees `committed: false` and
    * skips the dependent broadcast.
-   *
-   * Kysely query builder per memory `feedback_no_raw_sql`; the
-   * `.returning()` rowcount-equivalent computes `committed`.
    */
   recordDispatchDecision(
     messageId: MessageId,
@@ -217,16 +213,9 @@ export class MessageService {
   ): Effect.Effect<{ committed: boolean }, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        // Kysely query-builder UPDATE with CAS predicate. Postgres sees:
-        //   UPDATE messages
-        //   SET dispatch_decision = $1
-        //   WHERE id = $2
-        //     AND dispatch_decision @> '{"tag":"pending"}'
-        //   RETURNING id
-        // Containment (`@>`) is parameter-safe (Postgres binds the JSON
-        // value as a query parameter); the project's no-raw-SQL rule
-        // is honoured. The row-count semantic is rowCount=1 iff the
-        // row was still pending at UPDATE time; concurrent transitions
+        // CAS predicate via JSONB containment (`@>`), which Postgres
+        // binds as a query parameter. The UPDATE returns one row iff the
+        // row was still `pending` at UPDATE time; concurrent transitions
         // see committed=false and skip the dependent broadcast.
         const result = yield* Effect.tryPromise({
           try: () =>
@@ -328,8 +317,8 @@ export class MessageService {
   }
 
   /**
-   * Reply-target presence gate consumed by `obtainValidReplyTarget`
-   * (Spec E #601). Kept as a method because it needs `this.db`.
+   * Reply-target presence gate consumed by `obtainValidReplyTarget`. A
+   * method (not a free function) because it needs `this.db`.
    * @internal
    */
   assertReplyTarget(
@@ -401,8 +390,7 @@ export class MessageService {
    * `bypassTmRouting=true` skips the gate: the caller has already
    * established authorization upstream, so the server records a
    * synthetic `Forward { participants \ sender }` verdict and
-   * broadcasts as usual. No wire handler currently sets the flag;
-   * it is the internal extension point for server-authored inserts.
+   * broadcasts as usual.
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
    * were reached, `recordTrace` and `deliveryWebhook` observe the misses, and
@@ -648,8 +636,8 @@ export class MessageService {
   ): Effect.Effect<DispatchDecision, never> {
     const host = this.appHost;
     if (!host) {
-      // Legacy / unit-test path with no AppHost wired. Fall back to
-      // the synthetic Forward-all-participants verdict.
+      // Unit-test path with no AppHost wired. Fall back to the synthetic
+      // Forward-all-participants verdict.
       return this.defaultForwardVerdict(input);
     }
     return Effect.gen(this, function* () {

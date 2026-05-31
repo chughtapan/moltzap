@@ -26,27 +26,18 @@ import type { LeaseTransitionObserver } from "../../network/services/presence-ty
 type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
 
 /**
- * Lease registry — server-local admission state for the dispatch
- * reshape (#529 / #512). Replaces the synchronous Deferred-on-the-wire
- * pattern of `apps/authorizeDispatch` with an off-wire state machine
- * the server walks deterministically as moderator verdicts, durable
- * inserts, TTLs, and connection closures arrive.
+ * Lease registry — server-local admission state. An off-wire state
+ * machine the server walks deterministically as moderator verdicts,
+ * durable inserts, TTLs, and connection closures arrive.
  *
- * Doctrine notes:
+ * Invariants:
  *
  * - Every public method returns `Effect&lt;T, E, R>` with a typed error
- *   channel (Principle 3). `Promise&lt;T>` is forbidden on this surface.
- * - State transitions are atomic via `Ref.modify` (or equivalent
- *   first-writer-wins primitive at impl time). The state machine
- *   below names every transition; impl-staff exhaustively asserts via
- *   `absurd(s)` on the state union (Principle 4).
+ *   channel. `Promise&lt;T>` is forbidden on this surface.
+ * - State transitions are atomic via `Ref.modify` (first-writer-wins).
+ *   The state machine below names every transition.
  * - Lease and dispatch ids are branded (`LeaseId` / `DispatchId` from
- *   `@moltzap/protocol`); raw strings cannot be confused at call
- *   sites (Principle 1).
- * - SQL-shaped failures (binding-tuple persistence, if any) surface
- *   as defects via `catchSqlErrorAsDefect` per repo convention; the
- *   public Effect channels expose only the registry-modeled errors
- *   below.
+ *   `@moltzap/protocol`); raw strings cannot be confused at call sites.
  *
  * ─── State machine ──────────────────────────────────────────────────
  *
@@ -71,7 +62,7 @@ type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
  * to EXPIRED. CLAIMED and terminal states (CONSUMED / DENIED / EXPIRED /
  * ABANDONED) skip TTL.
  *
- * Two load-bearing rules (parent plan §"Reshape PR (additive)"):
+ * Two load-bearing rules:
  *
  * 1. **TTL skip on CLAIMED.** The TTL transition GRANTED → EXPIRED is
  *    a `Ref.modify` predicate that is a no-op on CLAIMED state. Only
@@ -176,9 +167,9 @@ interface LeaseMintResult {
 /**
  * Tagged error channel for the registry's transition-rejecting paths.
  * The `state` carries the lease's CURRENT state (so callers can
- * surface a precise wire-error code per #529's typed-CONSUMED /
- * typed-EXPIRED requirements) and `expected` carries the set of
- * states the operation would have accepted.
+ * surface a precise wire-error code, e.g. typed-CONSUMED /
+ * typed-EXPIRED) and `expected` carries the set of states the
+ * operation would have accepted.
  */
 export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
   readonly leaseId: LeaseId;
@@ -340,9 +331,9 @@ export interface LeaseRegistry {
   ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never>;
 
   /**
-   * Snapshot read for `dispatches/get`. Includes live `leaseId` —
-   * the moderator IS the authority for the lease (#11), live-id
-   * visibility is in-scope.
+   * Snapshot read for `dispatches/get`. Includes the live `leaseId` —
+   * the moderator is the authority for the lease, so live-id visibility
+   * is in-scope.
    *
    * Lookup by either id flavor; the `kind` discriminator on the
    * error tells the caller which key was used. Scope enforcement
@@ -361,18 +352,18 @@ export interface LeaseRegistry {
   /**
    * Connection-close cleanup. Called from the WS disconnect-hook chain
    * with the closing connection id. Iterates leases bound to that
-   * recipientConnectionId and applies the architect §3 transitions:
+   * recipientConnectionId and applies these transitions:
    *
    * - **PENDING → ABANDONED**: cancels the forked moderator round-trip
-   *   (its `resolve` call against the now-ABANDONED lease will return
+   *   (its `resolve` call against the now-ABANDONED lease returns
    *   `LeaseInvalidError(state=ABANDONED, expected=PENDING)`, which the
    *   forked fiber catches and discards). No `dispatch/release`
-   *   notification fires (the recipient is gone). Architect §3 + §8 #15.
+   *   notification fires (the recipient is gone).
    *
    * - **GRANTED → EXPIRED-on-disconnect**: terminal state; emits
    *   `dispatches/expired` to the moderator. Cancels the post-grant TTL
    *   fiber. The recipient won't observe; the moderator's view stays
-   *   consistent. Architect §3.
+   *   consistent.
    *
    * - **CLAIMED → no-op (load-bearing rule 2)**: a CLAIMED lease has an
    *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
@@ -415,8 +406,8 @@ export interface LeaseRegistry {
    * frame to the MODERATOR connection via {@link writeFrame}. When the
    * moderator socket is being torn down concurrently its write-latch is
    * closed, so the cross-connection write SUSPENDS forever — inside the
-   * uninterruptible region — and `Scope.close` blocks awaiting that fiber
-   * (root cause of #729's intermittent teardown deadlock).
+   * uninterruptible region — and `Scope.close` blocks awaiting that
+   * fiber. That is the teardown deadlock this method prevents.
    *
    * `shutdown` breaks the deadlock at its source: it flips the registry into
    * a closed state so {@link writeFrame} drops (rather than parks on) every
@@ -508,8 +499,6 @@ function leaseTimeoutForVerdict(verdict: LeaseVerdict): number | null {
  * in-process representation as the single source of truth for the
  * authoritative tuple while the wire schema stays flat for simple
  * ergonomics on the moderator client side.
- *
- * Advisory carry-over from review-senior-arch529 #2.
  */
 export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire {
   return {
@@ -599,12 +588,12 @@ function writeFrame(
   connId: ConnectionId,
   raw: string,
 ): Effect.Effect<void, never, never> {
-  // #729 — once the registry is shutting down, every connection is being
-  // torn down concurrently. A peer's `socket.write` parks on its closed
+  // Once the registry is shutting down, every connection is being torn
+  // down concurrently. A peer's `socket.write` parks on its closed
   // write-latch (`Socket.fromWebSocket`'s `latch.whenOpen`), and because
   // disconnect cleanup runs uninterruptibly that park would block
-  // `Scope.close(appScope)` forever. Drop the notification deterministically —
-  // no consumer remains at shutdown.
+  // `Scope.close(appScope)` forever. Drop the notification
+  // deterministically — no consumer remains at shutdown.
   return Ref.get(state.closedRef).pipe(
     Effect.flatMap((closed) =>
       closed ? Effect.void : writeFrameToConnection(state, connId, raw),
@@ -617,8 +606,8 @@ function writeFrameToConnection(
   connId: ConnectionId,
   raw: string,
 ): Effect.Effect<void, never, never> {
-  // D #705 CP4e — read the three-arm `connectionsRef`; the per-arm
-  // `socket.write` is the wire.
+  // Read the three-arm `connectionsRef`; the per-arm `socket.write` is
+  // the wire.
   return state.deps.connections.peek(connId).pipe(
     Effect.flatMap((connOpt) => {
       if (Option.isNone(connOpt)) {

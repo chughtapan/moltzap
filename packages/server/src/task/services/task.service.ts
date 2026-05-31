@@ -44,10 +44,10 @@ import {
 } from "@moltzap/protocol/task";
 
 /**
- * Public-but-package-scoped error union. Spec E (#601) needs this
- * exported so the capability obtain helpers (inline in
- * `app/capability-providers.ts` and the composites in `task/services/`)
- * can declare matching error channels without over-narrowing.
+ * Package-scoped error union. Exported so the capability obtain helpers
+ * (in `app/capability-providers.ts` and the composites in
+ * `task/services/`) can declare matching error channels without
+ * over-narrowing.
  * @internal
  */
 export type TaskServiceError =
@@ -134,10 +134,9 @@ export interface TaskCloseLifecycle {
 }
 
 /**
- * Spec D1 (#598) — return shape of `TaskService.leaveTask`. The
- * handler fans out one removal notification per `leftConversationIds`
- * (dual-emit), plus `TaskClosedNotificationDefinition` when
- * `closedTask` is non-null.
+ * Return shape of `TaskService.leaveTask`. The handler fans out one
+ * removal notification per `leftConversationIds`, plus
+ * `TaskClosedNotificationDefinition` when `closedTask` is non-null.
  */
 export interface TaskLeaveResult {
   readonly leftConversationIds: ReadonlyArray<ConversationId>;
@@ -224,14 +223,12 @@ export class TaskService {
               })
               .returningAll(),
           );
-          // Auto-admit every invited participant at create time. The
-          // `admitted_at` column + the `WHERE admitted_at IS NOT NULL`
-          // filters in read paths (`loadTaskWithReadAccess`,
-          // `assertAgentInTaskParticipants`, task list scope) stay in
-          // place — so a future "invitation accept" flow that writes
-          // pending invitees with `admitted_at: null` slots in without
-          // changing the read gates. No wire RPC exposes the pending
-          // semantic today; revisit if/when one lands.
+          // Auto-admit every invited participant at create time. Read
+          // paths (`loadTaskWithReadAccess`,
+          // `assertAgentInTaskParticipants`, task list scope) gate on
+          // `WHERE admitted_at IS NOT NULL`, so a row written with
+          // `admitted_at: null` is a pending invite that grants no read
+          // access until admitted.
           const admittedAt = new Date();
           yield* trx.insertInto("task_participants").values({
             task_id: row.id,
@@ -256,10 +253,8 @@ export class TaskService {
   }
 
   /**
-   * Transition a task from `waiting` to `active` (TM accepted via the
-   * `task/create` callback) or `failed` (TM rejected, timed out, or
-   * the synthesized fail-closed envelope fired). The state machine is
-   * `waiting → active | failed`, one-way.
+   * Transition a task from `waiting` to `active` or `failed`. The state
+   * machine is `waiting → active | failed`, one-way.
    *
    * The `WHERE status = 'waiting'` guard SQL-enforces the one-way
    * invariant: an UPDATE against an already-transitioned task matches
@@ -375,10 +370,8 @@ export class TaskService {
   closeWithLifecycle(
     id: TaskId,
   ): Effect.Effect<TaskCloseLifecycle, TaskServiceError> {
-    // App-ownership (`assertAppOwnsTask`) is enforced by the handler
-    // before this call (D #705 R7 — the dissolved `TmAuthority`
-    // capability moved up to the app-arm handler). This body assumes
-    // authority is already proven.
+    // App-ownership (`assertAppOwnsTask`) is enforced by the app-arm
+    // handler before this call; this body assumes authority is proven.
     return catchSqlErrorAsDefect(
       transaction(this.db, (trx) => this.closeLifecycleTransaction(trx, id)),
     );
@@ -512,7 +505,7 @@ export class TaskService {
     id: TaskId,
     target: AgentId,
   ): Effect.Effect<TaskParticipant, TaskServiceError> {
-    // App-ownership asserted by the handler (D #705 R7).
+    // App-ownership asserted by the handler before this call.
     return Effect.gen(this, function* () {
       const row = yield* catchSqlErrorAsDefect(
         takeFirstOrFail(
@@ -539,7 +532,7 @@ export class TaskService {
     id: TaskId,
     target: AgentId,
   ): Effect.Effect<void, TaskServiceError> {
-    // App-ownership asserted by the handler (D #705 R7).
+    // App-ownership asserted by the handler before this call.
     return catchSqlErrorAsDefect(
       this.db
         .deleteFrom("task_participants")
@@ -549,10 +542,8 @@ export class TaskService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private fetch helper
-   * consumed by `obtainMessageSendPermission` to populate the composite
-   * `MessageSendPermission.task` payload field. Not part of the
-   * service's exported public surface; the JSDoc tag is the convention.
+   * Fetch helper consumed by `obtainMessageSendPermission` to populate
+   * the composite `MessageSendPermission.task` payload field.
    * @internal
    */
   fetchTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
@@ -572,9 +563,7 @@ export class TaskService {
   }
 
   /**
-   * Spec E (#601) Decision B / Option A — package-private relationship
-   * check consumed by `obtainConversationInTask`. Not part of the
-   * service's exported public surface; the JSDoc tag is the convention.
+   * Relationship check consumed by `obtainConversationInTask`.
    * @internal
    */
   assertConversationInTask(
@@ -604,11 +593,9 @@ export class TaskService {
   }
 
   /**
-   * Spec E (#601) — Phase 1 new helper consumed by
-   * `obtainAgentInTaskParticipants`. Mirrors the inline
-   * `task_participants` lookup D1's `TaskConversationAddParticipant`
-   * would otherwise duplicate. Fails closed with `ForbiddenError` when
-   * the agent is absent or pending.
+   * Helper consumed by `obtainAgentInTaskParticipants`. Fails closed
+   * with `ForbiddenError` when the agent is absent or pending
+   * (`admitted_at IS NULL`).
    * @internal
    */
   assertAgentInTaskParticipants(
@@ -635,15 +622,12 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — participant-admitted invariant for the new
-   * `task/conversation/*` admin handlers.
-   *
-   * The wire-level participant invariant per spec body Goal 1 is "agent
-   * has a row in `task_participants(task_id, agent_id)`"; admission
-   * state is a separate gate (a row with `admittedAt IS NULL` still
-   * passes). This complements the Spec E
-   * `obtainAgentInTaskParticipants` helper, which is the stricter
-   * "admitted only" check used by message-send authority.
+   * Participant-membership check for the `task/conversation/*` admin
+   * handlers. The invariant is "agent has a row in
+   * `task_participants(task_id, agent_id)`"; admission state is a
+   * separate gate (a row with `admitted_at IS NULL` still passes). The
+   * stricter "admitted only" check used by message-send authority is
+   * `assertAgentInTaskParticipants`.
    *
    * Fails closed with `ParticipantNotAdmittedError` on the first agent
    * missing from `task_participants` so clients can distinguish
@@ -759,7 +743,7 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — `task/leave` self-only handler body.
+   * `task/leave` self-only handler body.
    *
    * Removes the caller from `task_participants` and from every
    * `conversation_participants` row under the task in one transaction.
@@ -801,10 +785,9 @@ export class TaskService {
       // Without `FOR UPDATE`, two concurrent `leaveTask` callers can
       // each see the other under read-committed isolation, each skip
       // `maybeCloseEmptyTask`, and leave the task in a "0 participants
-      // but not closed" state (codex review finding 3). The lock
-      // serializes leaves per task; the second call sees the post-DELETE
-      // state and either no-ops (if it was already deleted) or fires
-      // the closure path correctly.
+      // but not closed" state. The lock serializes leaves per task; the
+      // second call sees the post-DELETE state and either no-ops (if it
+      // was already deleted) or fires the closure path correctly.
       yield* trx
         .selectFrom("tasks")
         .select("id")
@@ -878,17 +861,13 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — `task/conversation/{archive,unarchive}` body for
-   * the new TM-only handler.
+   * `task/conversation/archive` body.
    *
    * Returns the updated `Conversation` (with populated `archivedAt`)
    * so the handler can fan out the `task/conversation/archived`
-   * notification. App-ownership (`assertAppOwnsTask`) is
-   * asserted by the app-arm handler before this call (D #705 R7 — the
-   * dissolved `TmAuthority` capability moved up to the handler), so this
-   * body assumes authority is already proven.
-   *
-   * `ConversationInTask` is required as an R-channel proof.
+   * notification. App-ownership (`assertAppOwnsTask`) is asserted by the
+   * app-arm handler before this call, so this body assumes authority is
+   * proven. `ConversationInTask` is required as an R-channel proof.
    * @internal
    */
   archiveTaskConversation(
@@ -940,9 +919,9 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — `task/conversation/unarchive` body. Idempotent
-   * (no-op when the conversation is not archived). Returns the
-   * updated `Conversation` (with `archivedAt` cleared).
+   * `task/conversation/unarchive` body. Idempotent (no-op when the
+   * conversation is not archived). Returns the updated `Conversation`
+   * (with `archivedAt` cleared).
    * @internal
    */
   unarchiveTaskConversation(
@@ -972,7 +951,7 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — `task/conversation/participants/add` body.
+   * `task/conversation/participants/add` body.
    *
    * Inserts a new `conversation_participants` row (idempotent via
    * `ON CONFLICT DO NOTHING`) AND captures the post-mutation membership
@@ -1017,15 +996,14 @@ export class TaskService {
   }
 
   /**
-   * Spec D1 (#598) — `task/conversation/participants/remove` body.
+   * `task/conversation/participants/remove` body.
    *
    * Returns the pre-mutation membership snapshot so the handler can
    * fan out the participants-removed notification to the removed
    * agent (who is no longer in `conversation_participants` post-DELETE).
    * Idempotent: no-op when the agent is not currently in the
    * conversation. The conversation is NOT auto-archived when its
-   * `conversation_participants` becomes empty (spec body Goal 2 — left
-   * in place; D3 may revisit).
+   * `conversation_participants` becomes empty.
    * @internal
    */
   removeTaskConversationParticipant(

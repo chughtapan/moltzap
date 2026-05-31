@@ -239,8 +239,8 @@ export class ConversationService {
             .returningAll(),
         );
         // The creator is auto-seeded as a participant only on the agent
-        // path (D #705 R3). The app-originated `task/conversation/create`
-        // passes `seedCreatorAsParticipant: false`: membership = exactly
+        // path. The app-originated `task/conversation/create` passes
+        // `seedCreatorAsParticipant: false`: membership = exactly
         // `input.agentIds`.
         if (input.seedCreatorAsParticipant !== false) {
           yield* trx.insertInto("conversation_participants").values({
@@ -264,7 +264,7 @@ export class ConversationService {
     conversationId: ConversationId,
   ): Effect.Effect<void> {
     // Mirrors `insertConversation`'s membership set: the creator is
-    // subscribed only when it was seeded as a participant (D #705 R3).
+    // subscribed only when it was seeded as a participant.
     const memberAgentIds =
       input.seedCreatorAsParticipant !== false
         ? [input.creatorAgentId, ...input.agentIds]
