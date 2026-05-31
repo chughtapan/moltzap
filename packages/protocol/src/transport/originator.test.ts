@@ -11,7 +11,7 @@
  *
  * Post Spec F (architect plan #619 §6 FRI), this test exercises the
  * originator through the public typed-dispatcher entry point
- * `makeAgentClientConnection({ handlers: {}, ... })` rather than the
+ * `makeAgentClientConnection({ slots: {}, ... })` rather than the
  * legacy `makeOriginator` factory.
  */
 import { describe, expect, it } from "vitest";
@@ -52,7 +52,7 @@ function decodeErrorFrame(
       const idDef = yield* Deferred.make<string>();
       const client = yield* makeAgentClientConnection<never, never>({
         id,
-        handlers: {},
+        slots: {},
         write: (raw) =>
           Deferred.succeed(idDef, parseRequestId(raw)).pipe(Effect.ignore),
         idPrefix: "test",

@@ -16,7 +16,16 @@
  * server-core verbs.
  */
 import { describe, it, expect } from "vitest";
-import { Cause, Deferred, Effect, Exit, Option, Ref, Scope } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Option,
+  Ref,
+  Schema,
+  Scope,
+} from "effect";
 import { waitForValue } from "../wait.js";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
@@ -27,8 +36,7 @@ import {
 import { RpcResponseError } from "../conformance/_shared/errors.js";
 import type { RequestFrame, ResponseFrame } from "../../transport/wire.js";
 import { requestFrame, validateResponseFrame } from "../../transport/wire.js";
-import type { AnyAppCallbackRpcDefinition } from "../../rpc-registry.js";
-import type { ParamsOf } from "../../transport/method.js";
+import type { ParamsOf, RpcDefinition } from "../../transport/method.js";
 
 import { DispatchAuthorize } from "../../app/methods.js";
 import {
@@ -175,14 +183,17 @@ const baseTestClientConfig = (wsUrl: string) =>
   ({
     serverUrl: wsUrl,
     agentKey: "test-key",
-    agentId: "test-agent",
+    agentId: AGENT_ID,
     defaultTimeoutMs: 2_000,
     captureCapacity: 64,
     autoConnect: false,
   }) as const;
 
-const withClient = <A>(
-  body: (client: TestClient, server: ScriptedServerHandle) => Effect.Effect<A>,
+const withClient = <A, E>(
+  body: (
+    client: TestClient,
+    server: ScriptedServerHandle,
+  ) => Effect.Effect<A, E>,
 ): Effect.Effect<A> =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -210,10 +221,14 @@ const findResponse = (
   return undefined;
 };
 
-const appCallbackRequest = <D extends AnyAppCallbackRpcDefinition>(
+const appCallbackRequest = <
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
+>(
   id: string,
-  definition: D,
-  params: ParamsOf<D>,
+  definition: RpcDefinition<Name, P, R>,
+  params: Schema.Schema.Type<P>,
 ): RequestFrame => requestFrame(id, definition, params);
 
 function expectResponseResult(reply: ResponseFrame): unknown {
