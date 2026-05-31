@@ -302,6 +302,48 @@ export interface CapabilityMiddleware<
 A per-rpc capability middleware. The carrier for the middleware-reshaped
 descriptor caps.
 
+### [`ChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L211)
+
+_Interface_
+
+```ts
+export interface ChannelProtocol<Impl> {
+  readonly impl: Impl;
+  readonly sink: ChannelSink;
+}
+```
+
+A built channel protocol: the exact impl record the corresponding
+`Protocol.make` callback returns, plus the ChannelSink the
+demux registers so inbound frames on this channel reach the engine.
+The two are split so the `Protocol.make` callback returns only `impl`
+(no excess fields), while the demux owns `sink`.
+
+### [`ChannelSink`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L116)
+
+_Interface_
+
+```ts
+interface ChannelSink {
+  readonly parser: RpcSerialization.Parser;
+  readonly inject: (frame: unknown) => Effect.Effect<void>;
+}
+```
+
+The per-channel inbound sinks the demux routes decoded wire strings
+into. Each sink owns its endpoint's Parser and the engine-side
+`write` injector the Parser feeds.
+
+### [`clientProtocolCanary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.types-check.ts#L47)
+
+_Variable_
+
+```ts
+export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
+  clientBuilder(write).pipe(Effect.map((built) => built.impl)),
+)
+```
+
 ### [`ConflictError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L123)
 
 _Class_
@@ -818,6 +860,27 @@ table via `makeErasedSlot` per catalog method. Vacuous-deny
 moderators bind an explicit `ForbiddenError`-returning handler for
 each catalog method.
 
+### [`makeClientChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L273)
+
+_Function_
+
+```ts
+export function makeClientChannelProtocol(options: {
+  readonly channel: MuxChannel;
+  readonly write: WireWrite;
+}): (
+  write: (data: FromServerEncoded) => Effect.Effect<void>,
+)
+```
+
+Build the client-side `RpcClient.Protocol` impl over one socket
+channel. Mirrors makeServerChannelProtocol for the client
+engine: `send` encodes a `FromClientEncoded` through the channel's
+Parser and writes the enveloped wire string; the sink's `inject`
+feeds decoded inbound `FromServerEncoded` frames into the engine. The
+client engine has no `disconnects` Mailbox — socket close fails the
+client call channel through the underlying socket.
+
 ### [`makeMiddlewareSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/middleware-slot.ts#L70)
 
 _Function_
@@ -852,6 +915,31 @@ export const makeOriginator = (config: {
   readonly idPrefix: string;
 }): Effect.Effect<Originator, never, Scope.Scope>
 ```
+
+### [`makeServerChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L228)
+
+_Function_
+
+```ts
+export function makeServerChannelProtocol(options: {
+  readonly channel: MuxChannel;
+  readonly write: WireWrite;
+  readonly disconnects: Mailbox.Mailbox<number>;
+}): (
+  write: (clientId: number, data: FromClientEncoded) => Effect.Effect<void>,
+)
+```
+
+Build the server-side `RpcServer.Protocol` impl over one socket
+channel. Pass the resulting builder the engine's `write` injector
+(the argument `RpcServer.Protocol.make` hands its callback); the
+builder returns the impl record `Protocol.make` expects plus the
+ChannelSink the demux registers.
+
+`send` encodes a `FromServerEncoded` through the channel's Parser and
+writes the enveloped wire string. The sink's `inject` feeds decoded
+inbound `FromClientEncoded` frames into the engine via `write`.
+Socket close is surfaced through the shared `disconnects` Mailbox.
 
 ### [`makeServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L263)
 
@@ -909,6 +997,57 @@ tag VALUE type `typeof Tag` would be WRONG — that is not what R holds, so
 the totality bound would never subtract.) Mirrors `CapIdentsOf` for the
 middleware surface. When `D["middlewares"]` is absent, resolves to
 `never` (the method contributes no capability requirements).
+
+### [`MUX_CLIENT_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L171)
+
+_Variable_
+
+```ts
+const MUX_CLIENT_ID = 0
+```
+
+The single physical client every endpoint on one socket shares. The
+server `Protocol` keys per-client state by id; a mux carries one
+socket, so every channel reports the same id.
+
+### [`MuxChannel`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L51)
+
+_TypeAlias_
+
+```ts
+export type MuxChannel = "c2s" | "s2c";
+
+/**
+ * The channel-tagged envelope every multiplexed frame rides in. `ch`
+ * routes the frame to one endpoint's Parser; `f` is that endpoint's
+ * encoded wire string (a `JSON.stringify`'d RPC frame). The mux owns
+ * this framing, so the per-endpoint Parser runs with
+ * `includesFraming=false`.
+ */
+const MuxEnvelopeSchema = Schema.Struct({
+  ch: Schema.Literal("c2s", "s2c"),
+  f: Schema.String,
+});
+```
+
+A logical endpoint's slot on the shared socket. `c2s` carries the
+client→server RPC group; `s2c` carries the server-originated callback
+group (the role-inverted endpoint). Adding a logical endpoint adds a
+channel here so the demux stays exhaustive.
+
+### [`MuxEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L70)
+
+_TypeAlias_
+
+```ts
+export type MuxEnvelope = typeof MuxEnvelopeSchema.Type;
+
+const decodeEnvelope = Schema.decodeUnknownEither(MuxEnvelopeSchema);
+```
+
+The envelope's decoded form. `ch` is narrowed to MuxChannel;
+`f` is the per-endpoint encoded wire string awaiting that endpoint's
+Parser.
 
 ### [`NotConnectedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-errors.ts#L17)
 
@@ -1252,6 +1391,24 @@ export type ResultOf<
 
 Type-only accessor for a definition's result payload.
 
+### [`routeInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L129)
+
+_Function_
+
+```ts
+export function routeInbound(
+  raw: string | Uint8Array,
+  sinks: Partial<Record<MuxChannel, ChannelSink>>,
+): Effect.Effect<void>
+```
+
+Route one raw socket chunk to the channel sink named by its envelope.
+A chunk that is not a well-formed envelope, or names an unregistered
+channel, is dropped after a warning rather than failing the socket —
+a single malformed frame must not tear down every endpoint on the
+shared connection. Each endpoint's Parser may yield zero or more
+decoded frames per wire string; every frame is injected in order.
+
 ### [`RpcCallError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/originator.ts#L26)
 
 _TypeAlias_
@@ -1436,6 +1593,23 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
+### [`runMuxReader`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L309)
+
+_Function_
+
+```ts
+export function runMuxReader(
+  socket: Socket.Socket,
+  sinks: Partial<Record<MuxChannel, ChannelSink>>,
+  disconnects: Mailbox.Mailbox<number>,
+): Effect.Effect<void, Socket.SocketError>
+```
+
+Drive the shared socket's read loop, routing every inbound chunk to
+the channel sink named by its envelope. The owner forks this and
+surfaces socket close to the server engine's `disconnects` Mailbox so
+per-client teardown runs.
+
 ### [`ServerConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/connection.ts#L158)
 
 _Interface_
@@ -1479,6 +1653,16 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 `write` is the wire-level write effect the surrounding transport
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound app-callback path.
+
+### [`serverProtocolCanary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.types-check.ts#L37)
+
+_Variable_
+
+```ts
+export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
+  serverBuilder(write).pipe(Effect.map((built) => built.impl)),
+)
+```
 
 ### [`ServerRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-method-groups.ts#L99)
 
@@ -1567,6 +1751,20 @@ Reads wire metadata (code/message/data) off an `RpcErrorClass` instance.
 Returns `null` when the failure isn't a registered wire-error class
 (caller routes to InternalError).
 
+### [`WireWrite`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L79)
+
+_TypeAlias_
+
+```ts
+export type WireWrite = (
+  chunk: string,
+) => Effect.Effect<void, Socket.SocketError>;
+```
+
+The raw-write surface the mux drives. Mirrors the effect returned by
+`Socket.Socket["writer"]`: one call writes one chunk to the wire and
+fails with a Socket.SocketError if the socket is gone.
+
 ## Files
 
 - `capability-middleware.ts`
@@ -1577,6 +1775,8 @@ Returns `null` when the failure isn't a registered wire-error class
 - `handlers.ts`
 - `method.ts`
 - `middleware-slot.ts`
+- `native-mux.ts`
+- `native-mux.types-check.ts`
 - `originator.ts`
 - `rpc-errors.ts`
 - `rpc-groups.ts`
