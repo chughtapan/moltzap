@@ -57,7 +57,6 @@ describe("codec decoding", () => {
       Effect.gen(function* () {
         const frame: AnyFrame = requestFrame("req-1", Connect, {
           agentKey: "k",
-          agentId: "a",
           minProtocol: "0.1.0",
           maxProtocol: "0.1.0",
         });

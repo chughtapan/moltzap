@@ -317,7 +317,11 @@ function runSingleServerProof(
 
 function makeBadServerContext(
   behavior: BadServerBehavior,
-): Effect.Effect<ConformanceRunContext, never, Scope.Scope> {
+): Effect.Effect<
+  ConformanceRunContext,
+  never,
+  Scope.Scope | HttpServer.HttpServer
+> {
   return Effect.gen(function* () {
     const httpHandle = yield* makeRegistrationHttpServer;
     const wsHandle = yield* makeBadWebSocketServer(behavior);
@@ -355,7 +359,7 @@ function badServerAgentId(counter: number): string {
 const makeRegistrationHttpServer: Effect.Effect<
   { readonly baseUrl: string },
   never,
-  Scope.Scope
+  Scope.Scope | HttpServer.HttpServer
 > = Effect.gen(function* () {
   let counter = 0;
   const registerRoute = HttpRouter.post(
