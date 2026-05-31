@@ -10,7 +10,7 @@ Tag classes + value types, plus the `refine*` helpers (which validate
 an already-fetched row and need no server service). The `obtain*`
 helpers that depend on server-side services live in
 `@moltzap/server-core` — paired with their `CapabilityMiddleware` in
-`app/capability-middlewares.ts` (#705 HALF-2), with the composites in
+`app/capability-middlewares.ts`, with the composites in
 `task/services/`.
 
 ## Public surface
@@ -42,7 +42,7 @@ Tier 2 capability — `agentId` resolves to a real, active `agents` row.
 Value payload carries `ownerUserId` (nullable, since unclaimed agents
 are valid existence proofs but have no owner).
 
-### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L17)
+### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L16)
 
 _Class_
 
@@ -52,7 +52,7 @@ export class AgentInTaskParticipants extends Context.Tag(
 )<AgentInTaskParticipants, AgentInTaskParticipantsValue>() {}
 ```
 
-### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L12)
+### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L11)
 
 _Interface_
 
@@ -64,12 +64,11 @@ export interface AgentInTaskParticipantsValue {
 ```
 
 Tier 2 capability — `agentId` is in `task_participants` for `taskId`.
-Used by `TaskConversationAddParticipant` (D1's new handler) to prove
-the agent being added to a conversation already participates in the
-parent task — today's inline `task_participants` query becomes the
-capability obtain.
+The `TaskConversationAddParticipant` handler requires it to prove the
+agent being added to a conversation already participates in the
+parent task.
 
-### [`assertAppOwnsTask`](./assert-capability-matches-task.ts#L81)
+### [`assertAppOwnsTask`](./assert-capability-matches-task.ts#L78)
 
 _Function_
 
@@ -80,9 +79,8 @@ export const assertAppOwnsTask = (
 ): Effect.Effect<void, ForbiddenError>
 ```
 
-App-principal ownership gate (D #705 R6/R7). Asserts the calling app
-IS the app bound to `task` — i.e. the app on whose behalf the task's
-TM acts. Replaces the dissolved `TmAuthority` capability: the 8
+App-principal ownership gate. Asserts the calling app IS the app
+bound to `task` — the app on whose behalf the task's TM acts. The 8
 task-admin RPCs (`task/close`, `task/addParticipant`,
 `task/removeParticipant`, `task/conversation/{create,archive,
 unarchive,addParticipant,removeParticipant}`) load the open task in
@@ -91,10 +89,9 @@ their handler and call this asserter before the service mutation.
 `task.appId` rides as a wire `string`; the brand boundary is the type
 system, so the equality check compares the branded `appId` argument to
 the row value directly. Fails with `ForbiddenError` (wire -32001) when
-the app does not own the task — preserving the pre-cutover "not the
-registered task manager" 403 surface.
+the app does not own the task.
 
-### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L49)
+### [`assertConversationInTaskMatches`](./assert-capability-matches-task.ts#L48)
 
 _Function_
 
@@ -111,7 +108,7 @@ equals the expected pair. Fails with `ForbiddenError` on the first
 mismatch; runs both comparisons in one Effect for handler-side
 symmetry with `assertTaskReadAccessMatchesTask`.
 
-### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L37)
+### [`assertTaskReadAccessMatchesTask`](./assert-capability-matches-task.ts#L36)
 
 _Function_
 
@@ -250,7 +247,7 @@ Value payload carries `(creatorAgentId, invitedAgentIds)` to match
 the obtain-time argument set; service methods consuming the capability
 verify the count matches handler input.
 
-### [`MessageSendPermission`](./message-send-permission.ts#L40)
+### [`MessageSendPermission`](./message-send-permission.ts#L31)
 
 _Class_
 
@@ -260,7 +257,7 @@ export class MessageSendPermission extends Context.Tag(
 )<MessageSendPermission, MessageSendPermissionValue>() {}
 ```
 
-### [`MessageSendPermissionValue`](./message-send-permission.ts#L24)
+### [`MessageSendPermissionValue`](./message-send-permission.ts#L15)
 
 _Interface_
 
@@ -282,24 +279,15 @@ export interface MessageSendPermissionValue {
 }
 ```
 
-Composite capability for `MessageService.send` — Architect Decision A
-in plan #606.
+Composite capability for `MessageService.send`.
 
 One tag carrying one payload shape. The handler obtains the value
 via `provideServiceEffect`; the service body destructures the
-carried proof rows directly.
+carried proof rows directly. TM authority to send into a task is
+proved at obtain time via app-ownership of the calling WS
+connection, so there is no per-variant bypass flag on the payload.
 
-Earlier revisions of this surface modelled a three-arm discriminated
-union (`forParticipantOnActiveTask | forTmBypass |
-forTmBypassWithReply`) so the TM could bypass the
-`refineTaskActive` gate when sending into a `failed` task. The
-downstream `MessageService.sendInsert` never discriminated the
-variants, no production caller exercised the failed-task window,
-and the TM gate is now proved at obtain time via app-ownership of
-the calling WS connection rather than a per-variant bypass flag.
-The bypass mechanism was removed in the #673 follow-up.
-
-### [`noReplyTarget`](./reply-target.ts#L40)
+### [`noReplyTarget`](./reply-target.ts#L39)
 
 _Function_
 
@@ -309,7 +297,7 @@ export const noReplyTarget = (): NoReplyTargetValue
 
 Synchronous constructor — no runtime check needed.
 
-### [`NoReplyTarget`](./reply-target.ts#L35)
+### [`NoReplyTarget`](./reply-target.ts#L34)
 
 _Class_
 
@@ -319,7 +307,7 @@ export class NoReplyTarget extends Context.Tag(
 )<NoReplyTarget, NoReplyTargetValue>() {}
 ```
 
-### [`NoReplyTargetValue`](./reply-target.ts#L31)
+### [`NoReplyTargetValue`](./reply-target.ts#L30)
 
 _Interface_
 
@@ -342,14 +330,14 @@ export interface ObtainConversationCreateAuthorizationInput {
 }
 ```
 
-### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L51)
+### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L42)
 
 _Interface_
 
 ```ts
 export interface ObtainMessageSendPermissionInput {
   /**
-   * Optional defensive cross-check. When supplied (e.g. by D1's
+   * Optional defensive cross-check. When supplied (e.g. by the
    * `TaskConversation*` handlers whose wire shape names `taskId`
    * independently of the conversation), `obtainMessageSendPermission`
    * runs an `assertConvBelongsToTask` defense against the conv lookup.
@@ -384,7 +372,7 @@ Refine constructor. Fails with `ConversationArchivedError` when
 `archivedAt` is non-null. Consumed by `obtainMessageSendPermission`
 after the conversation projection lookup.
 
-### [`refineTaskActive`](./task-active.ts#L39)
+### [`refineTaskActive`](./task-active.ts#L35)
 
 _Function_
 
@@ -396,10 +384,9 @@ export const refineTaskActive = (
 ```
 
 Refine constructor. Fails with `TaskClosedError` when status is
-`closed` / `failed`. Consumed by `obtainMessageSendPermission` on
-the non-TM-bypass branch.
+`closed` / `failed`. Consumed by `obtainMessageSendPermission`.
 
-### [`TaskActive`](./task-active.ts#L29)
+### [`TaskActive`](./task-active.ts#L26)
 
 _Class_
 
@@ -410,7 +397,7 @@ export class TaskActive extends Context.Tag("@moltzap/protocol/TaskActive")<
 >() {}
 ```
 
-### [`TaskActiveValue`](./task-active.ts#L24)
+### [`TaskActiveValue`](./task-active.ts#L21)
 
 _Interface_
 
@@ -426,11 +413,8 @@ Tier 4 refine-shape capability — task status accepts messages
 
 Refine-shape: takes a `SendConversationRow` already fetched by
 `MessageService.readSendConversation` and validates the `task_status`
-column inline. No DB call. Consumed by the composite
-`MessageSendPermission.forParticipantOnActiveTask` obtain helper.
-
-The TM-bypass branch is NOT a `TaskActive` proof — it's modeled in
-the composite `MessageSendPermission.forTmBypass` constructor instead.
+column inline. No DB call. Consumed by `obtainMessageSendPermission`
+when populating the composite `MessageSendPermission` value.
 
 ## Staleness window
 
@@ -464,14 +448,14 @@ export interface TaskReadAccessValue {
 Tier 1 capability — caller has read access to `task` (initiator OR
 admitted `task_participant`).
 
-Value payload carries the `task` row already fetched by today's
+Value payload carries the `task` row already fetched by the
 `TaskService.loadTaskWithReadAccess` check; consumers reuse the payload.
 
 Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
 `getMessagesSince`) via the R-channel; handlers wire the value with
 `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
 
-### [`ValidReplyTarget`](./reply-target.ts#L26)
+### [`ValidReplyTarget`](./reply-target.ts#L25)
 
 _Class_
 
@@ -481,7 +465,7 @@ export class ValidReplyTarget extends Context.Tag(
 )<ValidReplyTarget, ValidReplyTargetValue>() {}
 ```
 
-### [`ValidReplyTargetValue`](./reply-target.ts#L21)
+### [`ValidReplyTargetValue`](./reply-target.ts#L20)
 
 _Interface_
 
@@ -501,12 +485,11 @@ verifies the referenced message exists in the target conversation);
 `input.replyToId === undefined` obtains the zero-payload
 `NoReplyTarget` constructor.
 
-Per Architect Decision A, these two tags are FOLDED into the
-composite `MessageSendPermission` value (every constructor variant
-carries one of the reply-target proofs) — they're not provided as
-separate R-channel tags at the MessagesSend handler. They remain
-standalone tags so D1 / future handlers can require them
-independently if/when needed.
+These two tags are folded into the composite `MessageSendPermission`
+value (every constructor variant carries one of the reply-target
+proofs); they are not provided as separate R-channel tags at the
+`MessagesSend` handler. They stay standalone tags so a handler can
+require them independently.
 
 ## Files
 

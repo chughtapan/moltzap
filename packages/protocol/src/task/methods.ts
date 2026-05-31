@@ -12,7 +12,6 @@ import {
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Spec D1 (#598) `task/*` + `task/conversation/*` surface (singular).
   TaskRequest,
   TaskLeave,
   TaskConversationCreate,
@@ -45,12 +44,9 @@ export const taskRpcMethods = [
   TaskConversationRemoveParticipant,
 ] as const;
 
-// Spec D3 R11 — per-kind subsets of the surviving task layer. The
-// `agentCallable` / `appCallable` split is the OUTBOUND client catalog
-// partition: which task RPCs a `MoltZapAgentClient` may originate vs which
-// an app/TM client may. (Renamed from `nonTmAuthority` / `tmOnly` under
-// D #705 Decision 1 — the `TmAuthority` capability is dissolved; the
-// partition survives, the names no longer encode the dissolved capability.)
+// The `agentCallable` / `appCallable` split is the OUTBOUND client
+// catalog partition: which task RPCs a `MoltZapAgentClient` may
+// originate vs which an app/TM client may.
 export const agentCallableTaskRpcMethods = [
   TaskRequest,
   TaskList,
@@ -75,8 +71,6 @@ export const taskNotifications = [
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Spec D3 canonical: only the task/conversation/* set survives the
-  // `conversations/*` notification deletion.
   TaskConversationCreatedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,

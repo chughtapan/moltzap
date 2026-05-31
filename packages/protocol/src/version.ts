@@ -15,22 +15,16 @@ export const PROTOCOL_VERSION = "2026.529.0";
  * suffixes like `2026.527.0-rc.1`, leading/trailing dots like
  * `"2026..0"`, or non-digit characters like `"abc.def"`.
  *
- * **`Data.TaggedError` shape (codex PR review P2 + review-senior P3
- * convergence).** Was a plain `Error` subclass in the first
- * impl-staff drop; switched to `Data.TaggedError` so:
+ * A `Data.TaggedError` so the error flows through Effect's typed `E`
+ * channel cleanly (`Effect.catchTag("InvalidProtocolVersionError",
+ * ...)` works in {@link checkProtocolRange}'s caller) and matches the
+ * sibling {@link ProtocolMismatchError} convention in
+ * `network/methods.ts`.
  *
- * - The error flows through Effect's typed `E` channel cleanly
- *   (`Effect.catchTag("InvalidProtocolVersionError", ...)` works in
- *   {@link checkProtocolRange}'s caller).
- * - It matches the sibling {@link ProtocolMismatchError} convention
- *   in `network/methods.ts` (both tagged, both registered if a wire
- *   code is needed).
- *
- * This error is NOT a wire-protocol error — it is INPUT-VALIDATION
- * for untrusted client-supplied version strings. The
- * `network/connect` handler catches it and maps to
- * `InvalidParamsError` (JSON-RPC -32602) so the client gets a typed
- * malformed-input response, not a defect.
+ * This is INPUT-VALIDATION for untrusted client-supplied version
+ * strings, not a wire-protocol error. The `network/connect` handler
+ * catches it and maps to `InvalidParamsError` (JSON-RPC -32602) so the
+ * client gets a typed malformed-input response, not a defect.
  */
 export class InvalidProtocolVersionError extends Data.TaggedError(
   "InvalidProtocolVersionError",
@@ -44,15 +38,13 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
  * Numeric comparator for `PROTOCOL_VERSION` strings, ordered by their
  * dotted numeric segments (NOT lexicographically).
  *
- * Architect plan #706 v5 (codex r4 P2 #1) — required because CalVer
- * values of the form `YYYY.NNNN.M` carry variable-digit middle
- * components and `"2026.1001.0".localeCompare("2026.527.0") === -1`
- * (lex: `1001 < 527`), opposite of the chronological/numeric truth.
- * The v4 plan's `checkProtocolRange` originally compared
- * `client.maxProtocol < PROTOCOL_VERSION` via raw string ordering;
- * v5 routes it through this helper so the "old client rejected at
- * network/connect" gate stays correct as the publish workflow rolls
- * the middle component past `999`.
+ * CalVer values of the form `YYYY.NNNN.M` carry variable-digit middle
+ * components, so lexicographic ordering is wrong:
+ * `"2026.1001.0".localeCompare("2026.527.0") === -1` (lex: `1001 <
+ * 527`), opposite of the numeric truth. The `network/connect`
+ * old-client-rejection gate routes through this helper so it stays
+ * correct as the publish workflow rolls the middle component past
+ * `999`.
  *
  * Returns `-1 | 0 | 1` with conventional semantics:
  *
@@ -67,16 +59,14 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
  * pre-release suffixes (`2026.527.0-rc.1`) or build metadata
  * (`2026.527.0+abc`). Empty segments (e.g., `"2026..0"`) and
  * non-digit characters (`"abc"`) also reject — `Number("") === 0`
- * would otherwise silently coerce, contradicting the
- * "strict / fail-closed" JSDoc claim (review-senior P3 #2).
+ * would otherwise silently coerce, contradicting the strict /
+ * fail-closed contract.
  *
- * **Synchronous throw shape.** Throws
- * {@link InvalidProtocolVersionError} (a `Data.TaggedError`) on any
- * malformed segment. Untrusted client input MUST be funnelled
+ * Throws {@link InvalidProtocolVersionError} (a `Data.TaggedError`) on
+ * any malformed segment. Untrusted client input MUST be funnelled
  * through {@link checkProtocolRange}, which wraps this call in
  * `Effect.try` so the parse error flows through the Effect channel
- * — never as a sync throw escaping into the JSON-RPC handler
- * (codex PR review #1 P2).
+ * rather than escaping as a sync throw into the JSON-RPC handler.
  */
 export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1 {
   const segmentsA = parseVersionSegments(a);
@@ -111,19 +101,17 @@ function parseVersionSegments(version: string): readonly number[] {
 
 /**
  * Range-check the client's protocol-version interval against an
- * injected server version. Raised by `network/connect` BEFORE auth
+ * injected server version. Runs at `network/connect` BEFORE auth
  * resolution; the server-side handler in
  * `@moltzap/server-core/identity/handlers/connect.handlers.ts`
  * yields this Effect as the FIRST step of `handleConnect`.
  *
- * **Architect plan #706 v10 (codex r9 P2 #1) — relocated from
- * `connect.handlers.ts` to here.** v9 made the function's signature
- * testable (parameterized over `serverVersion`); v10 makes the
- * function itself importable from `@moltzap/protocol` so regression
- * tests can call it without an illegal test seam through the
- * server-internal handler module.
+ * `serverVersion` is a parameter (not the `PROTOCOL_VERSION` constant)
+ * so regression tests can inject future-version values, and the
+ * function lives in `@moltzap/protocol` so tests can import it without
+ * a seam through the server-internal handler module.
  *
- * **Two error channels, both typed (codex PR review #1 P2).**
+ * Two error channels, both typed:
  *
  * - `ProtocolMismatchError` — versions are well-formed, just outside
  *   the supported range. Two `reason` discriminants in the wire
@@ -160,10 +148,9 @@ export function checkProtocolRange(
   // `InvalidProtocolVersionError` on malformed
   // `params.{min,max}Protocol` — untrusted client input. Wrapping
   // both calls in `Effect.try` keeps the parse error in the typed E
-  // channel; without this, the sync throw would escape into the
-  // JSON-RPC dispatch as a defect (codex PR review #1 P2). The
-  // `serverVersion` is server-controlled / trusted, but passing it
-  // through the same path keeps the symmetry.
+  // channel; without it, the sync throw would escape into the JSON-RPC
+  // dispatch as a defect. `serverVersion` is server-controlled /
+  // trusted, but passing it through the same path keeps the symmetry.
   return Effect.gen(function* () {
     const high = yield* compareThrough(serverVersion, params.maxProtocol);
     if (high > 0) {
@@ -211,14 +198,9 @@ function compareThrough(
 
 /**
  * Construct + raise a {@link ProtocolMismatchError} carrying the
- * diagnostic triple in `data`. Module-private to `version.ts` (NOT
- * exported); callers go through {@link checkProtocolRange}.
- *
- * Architect plan #706 v10 (codex r9 P2 #1) — relocated alongside
- * `checkProtocolRange`. The helper isn't re-exported from the
- * protocol root barrel because its only caller is
- * `checkProtocolRange`; making it private encodes "this is the
- * canonical raise path for ProtocolMismatchError on the server side."
+ * diagnostic triple in `data`. Module-private (NOT exported); its only
+ * caller is {@link checkProtocolRange}, the canonical server-side
+ * raise path for `ProtocolMismatchError`.
  *
  * The wire error is registered in
  * `@moltzap/protocol/network/methods.ts` with `static code = -32006`
