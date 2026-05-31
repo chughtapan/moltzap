@@ -12,9 +12,9 @@
  * It does NOT subclass / wrap `TestServer` — TestServer is the byte-level
  * harness for fault-injection and stays untouched. The driver composes
  * existing `TestClient` primitives (`sendRpc`, `onAppCallback`,
- * `awaitServerRequest`, `waitForNotification`, scope-controlled close)
- * against an injected `RealServerHandle` (already present on every
- * conformance run via `runner.ts:35`).
+ * `awaitServerRequest`, `subscribe`, scope-controlled close) against an
+ * injected `RealServerHandle` (already present on every conformance run
+ * via the conformance `runner`).
  *
  * Architect plan #533 §3 + §7 + Revisions r1 (correction 2 dropped
  * `connectionId` from both handles).
