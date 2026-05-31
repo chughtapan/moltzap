@@ -958,6 +958,30 @@ Factory — server side. Delegates to `buildServerDispatcher`
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
+### [`makeServerProtocolLayer`](./native-server-engine.ts#L69)
+
+_Function_
+
+```ts
+export const makeServerProtocolLayer = (options: {
+  readonly write: WireWrite;
+  readonly disconnects: Mailbox.Mailbox<number>;
+}): Layer.Layer<RpcServer.Protocol>
+```
+
+Build the `RpcServer.Protocol` layer over one server-side native-mux
+channel. `RpcServer.Protocol.make` hands the engine's inbound `write`
+injector to makeServerChannelProtocol's builder, which returns the
+protocol impl record (the engine binds to) plus the channel sink (the mux
+demux feeds decoded inbound frames into). Only the impl crosses into the
+`Protocol` Tag here; the live connection owns the sink registration and the
+`disconnects` Mailbox wiring.
+
+`write` is the raw-write surface of the shared socket (one call writes one
+enveloped chunk; the live connection passes `Socket.Socket["writer"]`).
+`disconnects` is the Mailbox the live connection offers a client id to on
+socket close, so the engine runs per-client teardown.
+
 ### [`MalformedFrameError`](./wire-errors.ts#L146)
 
 _Class_
@@ -1242,6 +1266,32 @@ structurally inhabit this union (`_tag` + `agentId` / `appId` match;
 extra fields are fine for a read-only consumer), so the server provides
 the live narrowed arm directly. The `appId` of the app arm is sourced
 from the live `AppConnection.auth` minted at auth time, NOT hardcoded.
+
+### [`PrincipalResolution`](./native-server-engine.ts#L50)
+
+_Class_
+
+```ts
+export class PrincipalResolution extends RpcMiddleware.Tag<PrincipalResolution>()(
+  "@moltzap/protocol/PrincipalResolution",
+  { provides: CurrentPrincipal },
+) {}
+```
+
+The `@effect/rpc` middleware descriptor that provides the request's
+authenticated CurrentPrincipal.Principal into every handler's
+Context. `provides: CurrentPrincipal` makes the middleware's service value
+the 2-arm principal, so a handler reads identity via `yield* CurrentPrincipal`
+with no `ctx` parameter and no cast.
+
+The descriptor is protocol-owned because the Tag it provides
+(`CurrentPrincipal`) is protocol-owned; the implementation that resolves a
+`clientId` to its live connection arm (via the server's `ConnectionManager`)
+and narrows the 3-arm connection union to the 2-arm principal is a server
+concern, supplied as a `Layer` over this Tag. The middleware impl shape
+`@effect/rpc` derives from this descriptor is
+`({ clientId, rpc, payload, headers }) => Effect&lt;Principal&gt;` —
+payload-only, no `ctx`.
 
 ### [`provideMiddleware`](./capability-middleware.ts#L145)
 
@@ -1649,6 +1699,24 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound app-callback path.
 
+### [`ServerEngineLayer`](./native-server-engine.ts#L97)
+
+_Variable_
+
+```ts
+export const ServerEngineLayer = RpcServer.layer(ServerRpcGroup)
+```
+
+The native server engine layer for ServerRpcGroup.
+`RpcServer.layer(group)` runs the dispatch loop over whatever
+`RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
+requirement channel is
+`RpcServer.Protocol | Rpc.ToHandler&lt;ServerRpcGroup&gt;` plus the group's
+Context/Middleware — the live connection provides the
+Protocol via makeServerProtocolLayer, the handler bodies via
+`ServerRpcGroup.toLayer(...)`, and the PrincipalResolution middleware
+runtime via its server-supplied `Layer`.
+
 ### [`serverProtocolCanary`](./native-mux.types-check.ts#L37)
 
 _Variable_
@@ -1772,6 +1840,7 @@ fails with a Socket.SocketError if the socket is gone.
 - `middleware-slot.ts`
 - `native-mux.ts`
 - `native-mux.types-check.ts`
+- `native-server-engine.ts`
 - `originator.ts`
 - `rpc-errors.ts`
 - `rpc-groups.ts`

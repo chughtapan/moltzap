@@ -151,3 +151,14 @@ export type {
   ChannelProtocol,
   ChannelSink,
 } from "./native-mux.js";
+
+// Native `@effect/rpc` server engine over the mux. `ServerEngineLayer` runs
+// `RpcServer` for `ServerRpcGroup`; `makeServerProtocolLayer` builds the
+// `RpcServer.Protocol` over a c→s native-mux channel; `PrincipalResolution`
+// is the middleware descriptor providing `CurrentPrincipal`. The live
+// connection composes these with `ServerRpcGroup.toLayer(handlers)`.
+export {
+  PrincipalResolution,
+  makeServerProtocolLayer,
+  ServerEngineLayer,
+} from "./native-server-engine.js";
