@@ -24,8 +24,9 @@ type Int8 = ColumnType<
 
 /**
  * jsonb column type. Server code decodes the column into the typed
- * union (e.g. `TmDecision`) at the boundary; the generated type stays
- * `unknown` so a Principle-2 schema decode happens at every read site.
+ * union (e.g. `DispatchDecision`) at the boundary; the generated type
+ * stays `unknown` so a Principle-2 schema decode happens at every read
+ * site.
  */
 type Json = ColumnType<unknown, unknown, unknown>;
 
@@ -123,13 +124,14 @@ export interface Messages {
   task_id: string | null;
 
   /**
-   * #560: TM fan-out verdict, written by `MessageService.sendInsert`
-   * as `{tag: "pending"}` and updated by `recordTmDecision` to
-   * `{tag: "forward", recipients: [...]}` or `{tag: "block",
-   * reason: "..."}`. Decoded via `TmDecisionSchema` at every read
-   * site (Principle 2: schemas at boundaries).
+   * Per-message dispatch-authorization verdict, written by
+   * `MessageService.sendInsert` as `{tag: "pending"}` and updated by
+   * `recordDispatchDecision` to `{tag: "forward", recipients: [...]}`
+   * or `{tag: "block", reason: "..."}`. Decoded via
+   * `DispatchDecisionSchema` at every read site (Principle 2: schemas
+   * at boundaries).
    */
-  app_decision: Generated<Json>;
+  dispatch_decision: Generated<Json>;
 }
 
 export interface TaskParticipants {

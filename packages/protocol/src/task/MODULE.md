@@ -141,6 +141,24 @@ _Variable_
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
 ```
 
+### [`DispatchDecision`](./messages.ts#L113)
+
+_TypeAlias_
+
+```ts
+export type DispatchDecision = Schema.Schema.Type<
+  typeof DispatchDecisionSchema
+>;
+```
+
+### [`dispatchDecisionSchema`](./messages.ts#L133)
+
+_Function_
+
+```ts
+export function dispatchDecisionSchema(): typeof DispatchDecisionSchema
+```
+
 ### [`HookBlockedError`](./tasks.ts#L54)
 
 _Class_
@@ -228,7 +246,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L188)
+### [`MessageReceivedNotification`](./messages.ts#L192)
 
 _TypeAlias_
 
@@ -238,7 +256,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L196)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L200)
 
 _Variable_
 
@@ -251,7 +269,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](./messages.ts#L165)
+### [`MessagesList`](./messages.ts#L169)
 
 _Variable_
 
@@ -277,7 +295,7 @@ export const MessagesList = defineRpc({
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
 
-### [`MessagesSend`](./messages.ts#L148)
+### [`MessagesSend`](./messages.ts#L152)
 
 _Variable_
 
@@ -302,22 +320,22 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithTmDecision`](./messages.ts#L125)
+### [`MessageWithDispatchDecision`](./messages.ts#L129)
 
 _TypeAlias_
 
 ```ts
-export type MessageWithTmDecision = Schema.Schema.Type<
-  typeof MessageWithTmDecisionSchema
+export type MessageWithDispatchDecision = Schema.Schema.Type<
+  typeof MessageWithDispatchDecisionSchema
 >;
 ```
 
-### [`messageWithTmDecisionSchema`](./messages.ts#L133)
+### [`messageWithDispatchDecisionSchema`](./messages.ts#L137)
 
 _Function_
 
 ```ts
-export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema
+export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema
 ```
 
 ### [`Part`](./messages.ts#L55)
@@ -874,20 +892,14 @@ _TypeAlias_
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`TmDecision`](./messages.ts#L113)
+### [`validateDispatchDecision`](./messages.ts#L120)
 
-_TypeAlias_
-
-```ts
-export type TmDecision = Schema.Schema.Type<typeof TmDecisionSchema>;
-```
-
-### [`tmDecisionSchema`](./messages.ts#L129)
-
-_Function_
+_Variable_
 
 ```ts
-export function tmDecisionSchema(): typeof TmDecisionSchema
+export const validateDispatchDecision = closedStructGuard(
+  DispatchDecisionSchema,
+)
 ```
 
 ### [`validateMessage`](./messages.ts#L76)
@@ -904,14 +916,6 @@ _Variable_
 
 ```ts
 export const validateTextPart = closedStructGuard(TextPartSchema)
-```
-
-### [`validateTmDecision`](./messages.ts#L118)
-
-_Variable_
-
-```ts
-export const validateTmDecision = closedStructGuard(TmDecisionSchema)
 ```
 
 ## Files

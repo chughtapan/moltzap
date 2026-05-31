@@ -194,15 +194,13 @@ ALTER TABLE messages
   ADD COLUMN task_id UUID REFERENCES tasks(id);
 CREATE INDEX idx_messages_task_seq ON messages(task_id, seq);
 
--- #560: per-message TM fan-out verdict. Insert-then-gate ordering
--- (#560 §7) — the message is durably inserted first with verdict
--- `{tag: "pending"}`, then the TM round-trip resolves to `{tag:
--- "forward", recipients: [...]}` or `{tag: "block", reason: "..."}`.
--- `getMessages` visibility is per-caller (architect plan §3 + §8):
--- TM sees all rows, sender sees own rows regardless of tag, recipient
--- sees only `forward` rows where they appear in `recipients`.
--- Greenfield schema follows the project's existing pattern (no
--- migration runner; column lands in `core-schema.sql` directly).
+-- Per-message dispatch-authorization verdict. Insert-then-gate ordering:
+-- the message is durably inserted first with verdict `{tag: "pending"}`,
+-- then the `messages/authorize` round-trip resolves to `{tag: "forward",
+-- recipients: [...]}` or `{tag: "block", reason: "..."}`. `getMessages`
+-- visibility is per-caller: the authorizing app sees all rows, sender sees
+-- own rows regardless of tag, recipient sees only `forward` rows where they
+-- appear in `recipients`.
 ALTER TABLE messages
-  ADD COLUMN app_decision JSONB NOT NULL DEFAULT '{"tag":"pending"}'::jsonb;
-CREATE INDEX idx_messages_app_decision_tag ON messages ((app_decision->>'tag'));
+  ADD COLUMN dispatch_decision JSONB NOT NULL DEFAULT '{"tag":"pending"}'::jsonb;
+CREATE INDEX idx_messages_dispatch_decision_tag ON messages ((dispatch_decision->>'tag'));

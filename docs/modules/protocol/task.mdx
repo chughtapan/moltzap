@@ -146,6 +146,24 @@ _Variable_
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
 ```
 
+### [`DispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L113)
+
+_TypeAlias_
+
+```ts
+export type DispatchDecision = Schema.Schema.Type<
+  typeof DispatchDecisionSchema
+>;
+```
+
+### [`dispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L133)
+
+_Function_
+
+```ts
+export function dispatchDecisionSchema(): typeof DispatchDecisionSchema
+```
+
 ### [`HookBlockedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L54)
 
 _Class_
@@ -233,7 +251,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L188)
+### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L192)
 
 _TypeAlias_
 
@@ -243,7 +261,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L196)
+### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L200)
 
 _Variable_
 
@@ -256,7 +274,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L165)
+### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L169)
 
 _Variable_
 
@@ -282,7 +300,7 @@ export const MessagesList = defineRpc({
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
 
-### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L148)
+### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L152)
 
 _Variable_
 
@@ -307,22 +325,22 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithTmDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L125)
+### [`MessageWithDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L129)
 
 _TypeAlias_
 
 ```ts
-export type MessageWithTmDecision = Schema.Schema.Type<
-  typeof MessageWithTmDecisionSchema
+export type MessageWithDispatchDecision = Schema.Schema.Type<
+  typeof MessageWithDispatchDecisionSchema
 >;
 ```
 
-### [`messageWithTmDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L133)
+### [`messageWithDispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L137)
 
 _Function_
 
 ```ts
-export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema
+export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema
 ```
 
 ### [`Part`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L55)
@@ -879,20 +897,14 @@ _TypeAlias_
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`TmDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L113)
+### [`validateDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L120)
 
-_TypeAlias_
-
-```ts
-export type TmDecision = Schema.Schema.Type<typeof TmDecisionSchema>;
-```
-
-### [`tmDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L129)
-
-_Function_
+_Variable_
 
 ```ts
-export function tmDecisionSchema(): typeof TmDecisionSchema
+export const validateDispatchDecision = closedStructGuard(
+  DispatchDecisionSchema,
+)
 ```
 
 ### [`validateMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L76)
@@ -909,14 +921,6 @@ _Variable_
 
 ```ts
 export const validateTextPart = closedStructGuard(TextPartSchema)
-```
-
-### [`validateTmDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L118)
-
-_Variable_
-
-```ts
-export const validateTmDecision = closedStructGuard(TmDecisionSchema)
 ```
 
 ## Files

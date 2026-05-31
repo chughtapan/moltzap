@@ -41,9 +41,9 @@ export {
   TaskConversationUnarchivedNotificationDefinition,
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
-  validateTmDecision,
-  tmDecisionSchema,
-  messageWithTmDecisionSchema,
+  validateDispatchDecision,
+  dispatchDecisionSchema,
+  messageWithDispatchDecisionSchema,
   // Spec D3 R11 — per-kind catalog subsets.
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
@@ -60,8 +60,8 @@ export type {
   Task,
   TaskParticipant,
   MessageReceivedNotification,
-  TmDecision,
-  MessageWithTmDecision,
+  DispatchDecision,
+  MessageWithDispatchDecision,
   // Spec D1 surface types.
   InitialConversationInput,
   TaskConversationListItem,
