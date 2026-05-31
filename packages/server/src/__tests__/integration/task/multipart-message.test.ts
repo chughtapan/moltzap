@@ -7,6 +7,7 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   setupAgentPair,
+  textOfPart,
 } from "../helpers.js";
 
 import {
@@ -60,16 +61,12 @@ it("message with multiple text parts preserves all parts in order", () =>
       bob.client,
       MessageReceivedNotificationDefinition,
     );
-    const received = (
-      bobEvent.params as {
-        message: { parts: Array<{ type: string; text: string }> };
-      }
-    ).message;
+    const received = bobEvent.params.message;
 
     expect(received.parts).toHaveLength(3);
-    expect(received.parts[0]!.text).toBe(PART_ONE_TEXT);
-    expect(received.parts[1]!.text).toBe(PART_TWO_TEXT);
-    expect(received.parts[2]!.text).toBe(PART_THREE_TEXT);
+    expect(textOfPart(received.parts[0])).toBe(PART_ONE_TEXT);
+    expect(textOfPart(received.parts[1])).toBe(PART_TWO_TEXT);
+    expect(textOfPart(received.parts[2])).toBe(PART_THREE_TEXT);
 
     // Verify via message listing
     const history = yield* bob.client.sendRpc(MessagesList, {

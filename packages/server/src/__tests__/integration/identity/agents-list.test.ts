@@ -12,7 +12,7 @@ import {
   adminRegisterAgent,
 } from "../helpers.js";
 import type { AgentCard } from "@moltzap/protocol";
-import { userId } from "@moltzap/protocol/testing";
+import { agentId, userId } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
 
 import {
@@ -184,22 +184,22 @@ function acceptContact(
   });
 }
 
-function persistedAgentName(agentId: string) {
+function persistedAgentName(id: string) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .selectFrom("agents")
       .select("name")
-      .where("id", "=", agentId)
+      .where("id", "=", agentId(id))
       .executeTakeFirstOrThrow(),
   ).pipe(Effect.map((row) => row.name));
 }
 
-function suspendAgent(agentId: string) {
+function suspendAgent(id: string) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .updateTable("agents")
       .set({ status: AGENT_STATUS_SUSPENDED })
-      .where("id", "=", agentId)
+      .where("id", "=", agentId(id))
       .execute(),
   ).pipe(Effect.asVoid);
 }
