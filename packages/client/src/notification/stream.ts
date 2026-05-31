@@ -2,22 +2,20 @@
 
 /**
  * Stream-returning constructors for `MoltZapAgentClient.subscribe` and
- * `MoltZapAgentClient.subscribeAll` (Spec B, #596).
+ * `MoltZapAgentClient.subscribeAll`.
  *
- * Architect decision **AD1 — path (a)**: trust `Stream.async` cancellation
- * to drive registry-stored `unregister` finalizer. The registry's
- * `dispatch` snapshots `subsRef` at iteration start, so the spec #222
- * §5.3 OQ-3 snapshot semantic is preserved by Ref atomicity without an
- * additional per-sub cancelled-flag check (architect plan §3).
+ * `Stream.async` cancellation drives the registry-stored `unregister`
+ * finalizer. The registry's `dispatch` snapshots `subsRef` at iteration
+ * start, so the snapshot semantic holds by Ref atomicity without a
+ * per-sub cancelled-flag check.
  *
  * Stream construction uses `Stream.async<DecodedNotification<D>, NotConnectedError>`
  * with the registry storing typed callback references — NOT `Queue` of
  * `Take` items combined with `Stream.fromQueue`/`Stream.flattenTake`,
- * which codex empirically verified is racy under
- * `Queue.offer(Take.fail); Queue.shutdown` and does not reliably propagate
- * the typed failure to the consumer (architect plan §3.2, codex r4).
+ * which is racy under `Queue.offer(Take.fail); Queue.shutdown` and does
+ * not reliably propagate the typed failure to the consumer.
  *
- * Stream lifecycle (architect-mandated, spec §"Stream lifecycle contract"):
+ * Stream lifecycle:
  *   1. `subscribe(def)` returns a Stream value. Pure; no I/O, no scope.
  *   2. Materialization opens the `Stream.async` source: `registry.register`
  *      runs synchronously, callbacks are installed; consumer pulls suspend
@@ -25,7 +23,7 @@
  *   3. Pre-`connect()` consumer pulls suspend inside `Stream.async`'s
  *      internal queue. No `NotConnectedError` until terminal close.
  *   4. Reconnect leaves registry callbacks intact; `subsRef` survives
- *      transient disconnects (preserved invariant). **Reconnect-window
+ *      transient disconnects. **Reconnect-window
  *      frame loss:** any server-originated notification frame that the
  *      transport drops while disconnected (between the socket dying and
  *      the reconnect `hello` completing) is NOT replayed — the Stream API
@@ -97,11 +95,11 @@ export function subscribe<D extends AnyNotificationDefinition>(
           }),
       }),
     );
-    // Per P3 issue #613: use `Effect.suspend` to defer running `unregister`
-    // to whenever the Stream's runtime invokes the finalizer Effect. This
-    // is future-proof if `unregister` ever grows yielded effects (e.g.
-    // flushing a queue); the `Effect.sync(() => Effect.runSync(handle.unregister))`
-    // form would force-eager-evaluate as sync.
+    // `Effect.suspend` defers running `unregister` to whenever the
+    // Stream's runtime invokes the finalizer Effect, so `unregister` can
+    // grow yielded effects (e.g. flushing a queue) without changing this
+    // call site. `Effect.sync(() => Effect.runSync(handle.unregister))`
+    // would force-eager-evaluate as sync.
     return Effect.suspend(() => handle.unregister);
   });
 }
@@ -113,32 +111,11 @@ export function subscribe<D extends AnyNotificationDefinition>(
  * narrowing is intentionally lost; callers wanting typed payloads use
  * `subscribe(def, refinement?)`.
  *
- * The `subscribeAll` Stream uses a synthetic "match every definition"
- * filter — implemented by the registry treating a `null` definition
- * pointer as "match all", but for the Stream API we instead register
- * one subscription per inbound frame's definition. Simpler: model
- * "match all" by passing an in-band sentinel.
- *
- * Implementation: the registry has no native "match all" subscription
- * shape (intentional — `subscribe<D>` is per-definition). To preserve
- * the registry's typed dispatch surface, `subscribeAll` constructs a
- * Stream that taps the registry via a per-arrival path: registering
- * once with a sentinel definition would require a registry-level "match
- * any" capability we deliberately avoid (would complicate the typed
- * dispatch in subscribers.ts). Instead, the dispatcher feeds every
- * frame to `subscribeAll`'s emit via a dedicated `subscribeAllRef`
- * callback list maintained alongside `subsRef`.
- *
- * Architect-mandated code shape: per spec Goal #2 / plan §5.3, the
- * surface returns a Stream value. Implementation passes the literal
- * `AnyNotificationDefinition` sentinel via the registry's broad-union
- * channel — see `notification/stream.ts → subscribeAllStream` below
- * which registers via a new `SubscriberRegistry.registerAll` helper.
- *
- * To keep the registry minimal we route `subscribeAll` through a thin
- * wrapper that the registry exposes as `registerAll(callbacks)` —
- * identical lifecycle to `register(def, …)` but with no definition
- * match (the dispatcher hits these callbacks for every inbound frame).
+ * The registry has no "match all" subscription shape (`subscribe<D>` is
+ * per-definition). `subscribeAll` instead registers via
+ * `SubscriberRegistry.registerAll`, whose callbacks the dispatcher hits
+ * for every inbound frame regardless of definition. Same lifecycle as
+ * `register(def, …)`, no definition match.
  */
 export function subscribeAll(
   registry: SubscriberRegistry,

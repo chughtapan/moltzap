@@ -1,8 +1,7 @@
 /**
  * @file Local-service IPC primitives and runtime helpers for the client CLI.
  *
- * Spec B (#596) deleted the three-field `SubscriptionFilter` re-export — the
- * notification consumption surface is now Stream-based via
+ * The notification consumption surface is Stream-based via
  * `MoltZapAgentClient.subscribe(def, refinement?)`.
  */
 

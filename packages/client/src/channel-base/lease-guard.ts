@@ -2,8 +2,6 @@
  * Channel-base `LeaseGuard` — per-dispatch single-shot client-side dup-reply
  * detection.
  *
- * Replaces openclaw's `consumedLeaseAt: number | null` closure in
- * `packages/openclaw-channel/src/openclaw-entry.ts → createLeaseConsumingDeliver`.
  * One `LeaseGuard` instance per inbound message (created inside the deliver
  * wrapper); `consume()` returns true exactly once, false on every subsequent
  * call.

@@ -3,8 +3,8 @@
  * the wire. Decides between the singleton daemon (Unix socket) and a
  * direct WebSocket per invocation.
  *
- * This file is the `--as &lt;apiKey>` branch point (spec sbd#177 rev 3 §5.1,
- * Invariant §4.2). Command handlers pull `Transport` from Effect context;
+ * This file is the `--as &lt;apiKey>` branch point. Command handlers pull
+ * `Transport` from Effect context;
  * they do NOT open sockets or construct clients themselves. The kind of
  * transport in effect is decided once at CLI boot by {@link makeTransportLayer}
  * and is immutable for the lifetime of the process.
@@ -145,10 +145,9 @@ export interface TransportOptions {
 
   /**
    * Lazy probe: called ONLY on the env-fallback branch (step 2 below).
-   * The as-flag branch never invokes it (Invariant §4.2: --as must not
-   * touch the daemon socket, not even to check reachability). Passed as
-   * a thunk so the probe is a side effect of the fall-through branch,
-   * not of the decision input.
+   * The as-flag branch never invokes it: --as must not touch the daemon
+   * socket, not even to check reachability. Passed as a thunk so the probe
+   * is a side effect of the fall-through branch, not of the decision input.
    */
   readonly probeDaemon?: () => Effect.Effect<boolean, never>;
 }
@@ -215,7 +214,7 @@ const selectDirectTransportKey = (
  * may invoke the `probeDaemon` thunk. The as-flag branch short-circuits
  * BEFORE any probe: `impersonateKey` present ⇒ returns
  * `UseDirect{as-flag}` without calling `probeDaemon`, without reading
- * env, without any side effect (Invariant §4.2).
+ * env, without any side effect.
  */
 export const decideTransport = (
   options: TransportOptions,
@@ -314,7 +313,7 @@ function mapRegisteredWireError(
 }
 
 /**
- * Exported for decoder-fixture tests only (sbd#198).
+ * Exported for decoder-fixture tests only.
  * @internal
  */
 export const tagWsError = (method: string, err: unknown): TransportError => {
@@ -370,9 +369,9 @@ function sendDirectRpc<D extends RpcDefinition<string, any, any>>(
  * can install a finalizer via `Effect.addFinalizer`. The finalizer fires on
  * fiber interruption (SIGINT/SIGTERM) — closing the ws-client and its internal
  * ManagedRuntime — and also runs on normal completion so the event loop drains
- * naturally without a forced `process.exit`. This replaces the fragile
- * `process.once("beforeExit", ...)` hook that never fired because the reader
- * fiber kept the event loop non-empty (sbd#198 Bug-2 / moltzap#228).
+ * naturally without a forced `process.exit`. A `process.once("beforeExit", ...)`
+ * hook would not fire here because the reader fiber keeps the event loop
+ * non-empty, so the scope finalizer is the reliable teardown path.
  *
  * `MoltZapAgentClient` is constructed lazily inside `Effect.cached` so commands
  * that never reach the wire (e.g. help-text display, input validation failure)
@@ -437,15 +436,13 @@ const makeDirectTransport = (
  * Build the Layer that provides {@link Transport} for the current invocation.
  *
  * Branch points (in priority order):
- *   1. `options.impersonateKey` → direct WS, Invariant §4.2 isolation guaranteed.
+ *   1. `options.impersonateKey` → direct WS, isolated from the daemon.
  *   2. `process.env.MOLTZAP_API_KEY` present AND daemon unreachable → direct WS.
  *   3. `options.profileKey` set → direct WS with that key.
  *   4. otherwise → daemon transport over `options.socketPath`.
  *
  * The direct branch must NOT open the daemon socket, mutate
  * `~/.moltzap/config.json`, or share any Effect fiber with the daemon.
- * Integration test §7 of the design doc verifies this with a two-agent
- * concurrent roster.
  */
 export const makeTransportLayer = (
   options: TransportOptions,
@@ -483,8 +480,8 @@ export const makeTransportLayer = (
 
 /**
  * Convenience for command handlers: pull the Transport tag and call rpc.
- * Every new subcommand routes through this helper; raw `socket-client.request`
- * imports in new commands are a lint-level violation (see design doc §3).
+ * Every subcommand routes through this helper; command handlers do not
+ * import `socket-client.request` directly.
  */
 export const rpc = <D extends RpcDefinition<string, any, any>>(
   definition: D,
@@ -496,13 +493,13 @@ export const rpc = <D extends RpcDefinition<string, any, any>>(
  * Uniform error-to-exit adapter for subcommand handlers. Catches every error
  * channel, prints `Failed: &lt;msg>` to stderr, and exits non-zero. Uses the
  * tagged-error `message` field if present, otherwise the `_tag`, otherwise
- * a generic fallback. Shared across every v2 subcommand wrapper so the
- * exit-code contract (Invariant §4.6) has a single implementation.
+ * a generic fallback. Shared across every subcommand wrapper so the
+ * exit-code contract has a single implementation.
  *
  * On success, this returns normally and relies on the `Layer.scoped`
  * finalizer in `makeDirectTransport` to close the ws-client and drain
- * the event loop (sbd#198 / moltzap#228 Bug-2 fix). No forced
- * `process.exit(0)` — that would truncate piped stdout on large payloads.
+ * the event loop. No forced `process.exit(0)` — that would truncate piped
+ * stdout on large payloads.
  */
 export const runHandler = <
   E extends { readonly message?: string; readonly _tag?: string },
@@ -524,16 +521,17 @@ export const runHandler = <
 
 /**
  * Lazy resolver invoked by the CLI entrypoint BEFORE constructing the
- * transport layer. Closes the composition-boundary leak (architect design
- * doc rev 4 finding 1): with `impersonateKey` set, this function does NOT
- * call `cli/config.ts:loadConfig`, does NOT read `MOLTZAP_API_KEY` env,
- * does NOT open `~/.moltzap/config.json`. The only resolution performed on
- * the as-flag branch is `MOLTZAP_SERVER_URL` (or the hard-coded default).
+ * transport layer. Keeps the as-flag branch isolated: with
+ * `impersonateKey` set, this function does NOT call
+ * `cli/config.ts:loadConfig`, does NOT read `MOLTZAP_API_KEY` env, does
+ * NOT open `~/.moltzap/config.json`. The only resolution performed on the
+ * as-flag branch is `MOLTZAP_SERVER_URL` (or the hard-coded default).
  *
- * This function is the true CLI-boundary gate on Invariant §4.2 — without
- * it, eager config-read side effects leak even when `decideTransport` is
- * later short-circuited. Unit tests assert on `fs.open` and `env` read
- * spies that zero calls happen on the `impersonateKey` branch.
+ * This function is the CLI-boundary gate that keeps the as-flag branch
+ * isolated — without it, eager config-read side effects leak even when
+ * `decideTransport` is later short-circuited. Unit tests assert on
+ * `fs.open` and `env` read spies that zero calls happen on the
+ * `impersonateKey` branch.
  */
 export const resolveTransportInputs = (parsed: {
   readonly impersonateKey?: string;
@@ -541,7 +539,7 @@ export const resolveTransportInputs = (parsed: {
 }): Effect.Effect<TransportOptions, TransportConfigError | ProfileError> =>
   Effect.gen(function* () {
     // ─── Branch A: impersonate (--as) ──────────────────────────────────────
-    // Invariant §4.2: no loadConfig, no MOLTZAP_API_KEY read, no config.json open.
+    // No loadConfig, no MOLTZAP_API_KEY read, no config.json open.
     if (parsed.impersonateKey !== undefined) {
       const serverUrl = yield* loadEnvServerUrlWithDefault;
       return {

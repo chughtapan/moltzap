@@ -64,8 +64,8 @@ function readExistingOpenClawConfig(
  * the gateway stuck in draining mode. Direct file write triggers only the
  * file watcher → one clean restart.
  *
- * Per architect design rev 4 finding 2, this side effect is gated by the
- * caller: `--no-persist` skips this call entirely (Invariant §4.4).
+ * This side effect is gated by the caller: `--no-persist` skips this call
+ * entirely.
  */
 const writeOpenClawChannelConfig = (account: {
   apiKey: string;
@@ -132,12 +132,10 @@ const descriptionOption = Options.text("description").pipe(
   Options.optional,
 );
 
-// Spec sbd#177 rev 3 §5.2 barrel edits: --profile and --no-persist.
-//
-// NOTE on `--profile` routing: `register` consumes `--profile` locally because
-// it writes a NEW profile. Parent-level `moltzap --profile <name>` still means
-// "load an existing profile" for transport selection, and would reject the new
-// profile before this command could create it.
+// `register` consumes `--profile` locally because it writes a NEW profile.
+// Parent-level `moltzap --profile <name>` means "load an existing profile"
+// for transport selection, and would reject the new profile before this
+// command could create it.
 const profileOption = Options.text("profile").pipe(
   Options.withDescription(
     "Named profile to register under. Writes the new apiKey to " +
@@ -310,7 +308,7 @@ export const registerCommand = Command.make(
       const record = profileRecordFrom(name, result, serverUrl);
 
       if (noPersist) {
-        // Invariant §4.4: no writes to ~/.moltzap/ or ~/.openclaw/.
+        // No writes to ~/.moltzap/ or ~/.openclaw/.
         const emitted = yield* emitNoPersist(record);
         printNoPersistRegistration(name, result, emitted);
         return;

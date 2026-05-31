@@ -5,32 +5,29 @@
  *
  * Responsibility: own the list of live subscriptions and fan each inbound
  * JSON-RPC notification out to every subscription whose definition (and
- * optional typed refinement predicate) matches. Implements spec #596
- * (notification consumption consolidation) via the AD1 path-(a) Stream.async
- * design (architect plan §3, §5.5).
+ * optional typed refinement predicate) matches, via the path-(a)
+ * `Stream.async` design.
  *
- * Storage shape (post-Spec B):
+ * Storage shape:
  *   - Subscriptions are records of typed `{onFrame, onClose}` callbacks
  *     (NOT queues / Take items / Stream.fromQueue). `notification/stream.ts`
  *     owns Stream construction via `Stream.async`; this module owns the
  *     register/dispatch/closeAll lifecycle.
- *   - The dispatch path snapshots `subsRef` at iteration start (AD1
- *     snapshot-semantic contract from spec #222 §5.3 OQ-3 / spec #596
- *     "Stream lifecycle contract" row).
+ *   - The dispatch path snapshots `subsRef` at iteration start
+ *     (snapshot-semantic contract).
  *   - `closeAll` invokes each live sub's `onClose(new NotConnectedError(...))`
- *     before clearing `subsRef` — deterministic typed-failure delivery
- *     replaces the deleted `failAllNotificationWaiters` semantic.
+ *     before clearing `subsRef` — deterministic typed-failure delivery on
+ *     terminal close.
  *
- * Filter grammar (post-Spec B):
+ * Filter grammar:
  *   - Subscription matches a frame iff `sub.definition === frame.definition`.
  *   - Optional `refinement` is a typed predicate over the frame's params
  *     (erased to the union type `ErasedNotificationRefinement` at the
  *     storage boundary; consumers receive the typed-narrowed shape via
  *     `Stream.async`'s typed `emit.single` callback inside
  *     `notification/stream.ts`).
- *   - The three-field `SubscriptionFilter` grammar is deleted (spec #596
- *     Goal #3 + §"Acceptance criteria" delete sweep). Multi-definition
- *     fan-out becomes `Stream.mergeAll([subscribe(d1), subscribe(d2)])`.
+ *   - Multi-definition fan-out is
+ *     `Stream.mergeAll([subscribe(d1), subscribe(d2)])`.
  */
 import { Brand, Effect, Ref } from "effect";
 import {
@@ -138,10 +135,9 @@ interface SubscriptionHandle {
  *   Note over registry: every live sub → onClose(NotConnectedError)<br>Ref.set(subsRef, [])
  * ```
  *
- * AD1 snapshot semantic: `dispatch` snapshots `subsRef` at iteration
- * start and never re-reads mid-loop. In-flight dispatch of frame N is
- * not interrupted by an unsubscribe that lands during frame N. The
- * `snapshot-semantics` tests pin this invariant end-to-end.
+ * Snapshot semantic: `dispatch` snapshots `subsRef` at iteration start
+ * and never re-reads mid-loop. In-flight dispatch of frame N is not
+ * interrupted by an unsubscribe that lands during frame N.
  *
  * Reconnect: subscriptions survive the reconnect path. The new socket
  * resumes feeding `onFrame`; frames dropped at the transport during
@@ -168,9 +164,9 @@ export interface SubscriberRegistry {
   ) => Effect.Effect<SubscriptionHandle, never>;
 
   /**
-   * `subscribeAll` surface (spec #596 Goal #2). Registers a broad-union
-   * subscription that fires for every inbound frame regardless of
-   * definition. The optional `refinement` predicate runs against the
+   * `subscribeAll` surface. Registers a broad-union subscription that
+   * fires for every inbound frame regardless of definition. The optional
+   * `refinement` predicate runs against the
    * full `DecodedNotification<AnyNotificationDefinition>` shape.
    *
    * Stored in a sibling `subsAllRef` list — kept off `subsRef` so the
@@ -192,8 +188,7 @@ export interface SubscriberRegistry {
   /**
    * Fan an inbound notification out to every matching subscription. Called
    * from `MoltZapAgentClient.handleDecodedNotification`. Snapshot semantic:
-   * unsubscribes that commit mid-dispatch observe NEXT-frame semantics
-   * (AD1 path-(a) contract).
+   * unsubscribes that commit mid-dispatch observe NEXT-frame semantics.
    */
   readonly dispatch: (
     frame: DecodedNotification<AnyNotificationDefinition>,
@@ -262,22 +257,6 @@ function closeSubscriber(
   );
 }
 
-/**
- * Construct an empty registry. Called once from the `MoltZapAgentClient`
- * constructor.
- *
- * Implementation notes:
- *   - `subsRef: Ref<ReadonlyArray<LiveSubscription>>` keyed by registration
- *     order. Append-on-register, filter-on-unregister keeps the dispatch
- *     path O(N) with N = live subscription count.
- *   - `dispatch` snapshots `subsRef` at iteration start. An unregister
- *     mid-dispatch mutates the Ref but the in-flight iteration walks the
- *     snapshot (AD1 path-(a) snapshot semantic).
- *   - `closeAll` invokes each live sub's `onClose` in iteration order
- *     before clearing the ref. `Stream.async`'s `emit.fail` is the
- *     deterministic in-Effect mechanism that propagates the typed
- *     failure to each consumer.
- */
 function appendBroadSubscription(
   subsAllRef: Ref.Ref<ReadonlyArray<LiveBroadSubscription>>,
   live: LiveBroadSubscription,
@@ -381,10 +360,10 @@ function buildRegisterAll(
 /**
  * Run a user-supplied refinement predicate with throw isolation. A throw
  * inside the predicate must NOT defect the dispatch Effect (which would
- * starve sibling subscribers of the in-flight frame, AD1 path-(a) snapshot
- * contract). Treat any throw as "predicate said false" — the frame is
- * filtered out for this subscriber, the throw is logged, dispatch
- * continues with the next subscription in the snapshot.
+ * starve sibling subscribers of the in-flight frame, snapshot contract).
+ * Treat any throw as "predicate said false" — the frame is filtered out
+ * for this subscriber, the throw is logged, dispatch continues with the
+ * next subscription in the snapshot.
  *
  * The warning is emitted via `Effect.runFork(Effect.logWarning(…))`
  * (detached from the dispatch fiber's span/annotations) so the
@@ -395,9 +374,7 @@ function buildRegisterAll(
  * re-emit post-dispatch (extra state for a non-load-bearing log). The
  * detached log is acceptable for predicate misuse — a noisy warning
  * that names the call site (`subscribe` vs `subscribeAll`) is sufficient
- * signal for the application author to find the throw in their
- * refinement. Codex r2 P3-1 documented this trade-off rather than
- * restructuring.
+ * signal for the application author to find the throw in their refinement.
  */
 function safePredicate<P>(
   predicate: (params: P) => boolean,
@@ -415,10 +392,9 @@ function safePredicate<P>(
 }
 
 /**
- * Cognitive-complexity helper: decides whether a per-definition sub
- * accepts a given frame. Predicate throws are caught (P2-1, codex r1):
- * a throwing refinement returns `false` rather than defecting the
- * dispatch Effect.
+ * Decides whether a per-definition sub accepts a given frame. Predicate
+ * throws are caught: a throwing refinement returns `false` rather than
+ * defecting the dispatch Effect.
  */
 function subAcceptsFrame(
   sub: LiveSubscription,
@@ -450,7 +426,7 @@ function buildDispatch(
 ): SubscriberRegistry["dispatch"] {
   return (frame) =>
     Effect.gen(function* () {
-      // Snapshot both lists at iteration start (AD1 path-(a) semantic).
+      // Snapshot both lists at iteration start.
       const snapshot = yield* Ref.get(subsRef);
       const broadSnapshot = yield* Ref.get(subsAllRef);
       const matching = snapshot.filter((sub) => subAcceptsFrame(sub, frame));
@@ -491,6 +467,22 @@ function buildCloseAll(
   });
 }
 
+/**
+ * Construct an empty registry. Called once from the `MoltZapAgentClient`
+ * constructor.
+ *
+ * Implementation notes:
+ *   - `subsRef: Ref<ReadonlyArray<LiveSubscription>>` keyed by registration
+ *     order. Append-on-register, filter-on-unregister keeps the dispatch
+ *     path O(N) with N = live subscription count.
+ *   - `dispatch` snapshots `subsRef` at iteration start. An unregister
+ *     mid-dispatch mutates the Ref but the in-flight iteration walks the
+ *     snapshot.
+ *   - `closeAll` invokes each live sub's `onClose` in iteration order
+ *     before clearing the ref. `Stream.async`'s `emit.fail` is the
+ *     deterministic in-Effect mechanism that propagates the typed
+ *     failure to each consumer.
+ */
 export function makeSubscriberRegistry(): Effect.Effect<
   SubscriberRegistry,
   never

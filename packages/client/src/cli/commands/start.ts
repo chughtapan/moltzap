@@ -5,9 +5,8 @@
  *
  * Single-command composition over the protocol's atomic
  * `TaskRequest({ appId, invitedAgentIds, initialConversation })` plus
- * an optional follow-up `MessagesSend`. Replaces the legacy two-step
- * `conversations create` -> `send conv:&lt;id> &lt;text>` workflow for the
- * common case. DM-vs-Group is implicit from participant count.
+ * an optional follow-up `MessagesSend`. DM-vs-Group is implicit from
+ * participant count.
  *
  * ```mermaid
  * sequenceDiagram
@@ -99,9 +98,7 @@
  * into ONE batched `AgentsLookupByName` call.
  *
  * Sibling: `packages/protocol/src/task/tasks.ts → TaskRequest` /
- * `DEFAULT_APP_ID` / `AppId` — the wire surface this command
- * composes. `commands/conversations.ts → createConversation` — the
- * legacy two-step path D2 replaces (untouched here; D3 deletes it).
+ * `DEFAULT_APP_ID` / `AppId` — the wire surface this command composes.
  */
 import { Args, Command, Options } from "@effect/cli";
 import { Data, Effect, Either, Option } from "effect";
@@ -121,7 +118,7 @@ import {
 import type { ConversationId } from "@moltzap/protocol/task";
 import { rpc, type Transport, type TransportError } from "../transport.js";
 
-// ─── Exit-code contract (spec D2 Goal 5 + Goal 7) ─────────────────────────
+// ─── Exit-code contract ───────────────────────────────────────────────────
 
 /**
  * Exit-code table for the `moltzap start` command. Values are documented
@@ -143,7 +140,7 @@ const EXIT_CODES = {
  * Maps to `EXIT_CODES.USAGE_ERROR`; stderr prints
  * `Invalid --app-id: not a UUID`. Local to this module — tests assert
  * by exit code + stderr text rather than `expect().toBeInstanceOf(...)`,
- * so the class stays unexported per the architect plan.
+ * so the class stays unexported.
  */
 class InvalidAppIdError extends Data.TaggedError("InvalidAppIdError")<{
   readonly value: string;
@@ -156,9 +153,8 @@ class InvalidAppIdError extends Data.TaggedError("InvalidAppIdError")<{
  *
  * Resolver calls `AgentsLookupByName` (a server RPC) for name-shaped
  * tokens. That RPC is read-only and does not mutate server state, so
- * the partial-failure invariant is unaffected. The spec D2 AC clause
- * "NO RPC calls" reads as "NO mutating (TaskRequest / MessagesSend)
- * calls" in this plan; see per-flow doc §8 + plan §R5.
+ * resolving participants before validation does not affect the
+ * partial-failure invariant: only `TaskRequest` / `MessagesSend` mutate.
  */
 class UnresolvedParticipantError extends Data.TaggedError(
   "UnresolvedParticipantError",
@@ -196,9 +192,8 @@ const MAX_NAME_LOOKUP_BATCH = 100;
 /**
  * Parsed CLI arguments for the `start` command. `@effect/cli`'s
  * `Args.repeated` admits zero participants — caller-only tasks are
- * permitted at the wire (Spec D1 per-flow doc 12) but not exercised by
- * spec D2 ACs (which cover `length === 1` DM and `length >= 2` group
- * shapes). Handler MUST NOT reject empty `participants`.
+ * permitted at the wire (`length === 1` is a DM, `length >= 2` a group).
+ * Handler MUST NOT reject empty `participants`.
  */
 export interface StartCommandArgs {
   readonly name: string;
@@ -217,8 +212,7 @@ export interface StartCommandArgs {
  *   any other `TransportError`      -> 1  (rpc; from `TaskRequest`)
  *
  * The post-`TaskRequest` `MessagesSend` failure path exits 2 via inline
- * `process.exit` inside the handler body, NOT through `runStartCommand`
- * (see per-flow doc §"Partial-failure dispatcher").
+ * `process.exit` inside the handler body, NOT through `runStartCommand`.
  *
  * `TransportError` here is the union from `transport.ts -> TransportError`
  * which includes `TransportDecodeError`, `TransportRpcError`,
@@ -234,11 +228,10 @@ type StartCommandError =
 // ─── UUID validation ──────────────────────────────────────────────────────
 
 /**
- * RFC 4122 UUID v4 regex per plan Invariant 7. The `4` in the third
- * group pins the version; the `[89ab]` in the fourth group pins the
- * variant. Pre-existing `socket-client.ts -> UUID_RE` accepts any UUID
- * version, which would let v3/v5/v7 tokens through; spec D2 Goal 7
- * requires v4-specific rejection at exit 64.
+ * RFC 4122 UUID v4 regex. The `4` in the third group pins the version;
+ * the `[89ab]` in the fourth group pins the variant. `socket-client.ts ->
+ * UUID_RE` accepts any UUID version, which would let v3/v5/v7 tokens
+ * through; `--app-id` requires v4-specific rejection at exit 64.
  */
 const UUID_V4_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -309,10 +302,9 @@ const uniqueNamesOf = (classified: readonly Classified[]): readonly string[] =>
 /**
  * Look up `names` in one batched RPC (no-op when empty) and return a
  * name→AgentId map keyed by FIRST agent per name. The server's response
- * is a flat agents array; mapping by name preserves the pre-P3-2
- * tie-break ("first agent wins"). Caps at `MAX_NAME_LOOKUP_BATCH`
- * BEFORE the RPC to keep the >100 case as a usage error rather than a
- * decode failure.
+ * is a flat agents array; mapping by name applies a "first agent wins"
+ * tie-break. Caps at `MAX_NAME_LOOKUP_BATCH` BEFORE the RPC to keep the
+ * >100 case as a usage error rather than a decode failure.
  */
 const lookupAgentIdsByName = (
   names: readonly string[],
@@ -407,10 +399,10 @@ const printTaskAlreadyClosed = (taskId: TaskId): Effect.Effect<void> =>
     // (a) the existing task has no non-archived conversation, OR
     // (b) the dedup-lookup window (1000 rows) did not surface one.
     // (b) is rare per the activity-desc server ordering; if a heavy
-    // user trips it on an active task, the spec D2 amendment N6
-    // diagnostic is intentionally conservative ("closed") rather than
-    // claiming false freshness. The follow-up `moltzap conversations
-    // list` invocation surfaces the real state.
+    // user trips it on an active task, this diagnostic is intentionally
+    // conservative ("closed") rather than claiming false freshness. The
+    // follow-up `moltzap conversations list` invocation surfaces the real
+    // state.
     console.error(`Task already exists but is closed: ${taskId}`);
   });
 
@@ -447,9 +439,8 @@ const sendFirstMessage = (
  * Outcome of the atomic `TaskRequest` call. The dedup branch fires when
  * `appId === DEFAULT_APP_ID` AND the caller already owns a task with
  * the exact same `{caller} ∪ invitedAgentIds` participant set (see
- * `packages/server/src/task/handlers/tasks.handlers.ts → maybeTaskCreateDedup`
- * and protocol per-flow doc 12 §3). The server returns
- * `{ task: existing, conversation: null }` even when
+ * `packages/server/src/task/services/task.service.ts → TaskService.findExistingTaskByParticipants`).
+ * The server returns `{ task: existing, conversation: null }` even when
  * `initialConversation` was supplied — dedup is task-level, not
  * conversation-level — so the CLI MUST treat `conversation === null`
  * as a legitimate outcome rather than a decode error.
@@ -468,12 +459,11 @@ const createTaskAtomic = (
   name: string,
 ): Effect.Effect<CreateTaskOutcome, TransportError, Transport> =>
   Effect.gen(function* () {
-    // Spec D2 (#599) amendment N7 (zero-participant carve-out):
-    // `InitialConversationSchema.participants` is `Schema.optional(
-    // Schema.Array(AgentId).pipe(Schema.minItems(1)))` — an EMPTY array fails
-    // the server's decode. The caller-only path (help text + plan §R4 +
-    // `start.test.ts → zeroParticipants`) MUST omit `participants` entirely;
-    // the server adds the caller to `conversation_participants` implicitly.
+    // Zero-participant carve-out: `InitialConversationSchema.participants`
+    // is `Schema.optional(Schema.Array(AgentId).pipe(Schema.minItems(1)))`
+    // — an EMPTY array fails the server's decode. The caller-only path MUST
+    // omit `participants` entirely; the server adds the caller to
+    // `conversation_participants` implicitly.
     // See `packages/protocol/src/task/tasks.ts → InitialConversationSchema`.
     const initialConversation =
       invitedAgentIds.length === 0
@@ -499,7 +489,7 @@ const createTaskAtomic = (
     } as const;
   });
 
-// ─── Dedup-hit conversation lookup (spec D2 amendment N6) ─────────────────
+// ─── Dedup-hit conversation lookup ────────────────────────────────────────
 
 /**
  * Page size + safety cap on `TaskConversationList` follow-up calls. The
@@ -513,17 +503,6 @@ const createTaskAtomic = (
  */
 const DEDUP_LOOKUP_PAGE_SIZE = 100;
 const DEDUP_LOOKUP_MAX_PAGES = 10;
-
-/**
- * P2-A (spec D2 amendment N6) — locate a reusable conversation under a
- * dedup-hit task. Tie-break rule: "first match in server iteration
- * order" — server sorts by activity desc, so this is equivalent to
- * most-recently-active. WHY a small page-count cap: a freshly-touched
- * dedup-hit task lives near the top of the activity-sorted list; the
- * 1000-row ceiling protects against pathological lists where the
- * target is older than the lookup window can see (the closed-task
- * diagnostic is the correct fallback per spec D2 amendment N6).
- */
 
 /**
  * Filter rule for the dedup-hit lookup: (a) the item's `taskId` must
@@ -566,13 +545,12 @@ const findReusableConversation = (
   });
 
 /**
- * Spec D2 amendment N6 — dedup-hit branch. `TaskConversationList`
- * wire failures are captured inline via `Effect.either` (same pattern
- * + same reason as `sendFirstMessage`'s partial-success handling)
- * because `TaskRequest` already succeeded server-side; routing the
- * list error through `runStartCommand`'s `catchAll` would print
- * `Failed: &lt;list-error>`, misleading the user into thinking the
- * create failed.
+ * Dedup-hit branch. `TaskConversationList` wire failures are captured
+ * inline via `Effect.either` (same pattern + same reason as
+ * `sendFirstMessage`'s partial-success handling) because `TaskRequest`
+ * already succeeded server-side; routing the list error through
+ * `runStartCommand`'s `catchAll` would print `Failed: &lt;list-error>`,
+ * misleading the user into thinking the create failed.
  */
 const onReuseFound = (
   task: Task,
@@ -620,7 +598,7 @@ const handleDedupOutcome = (
 // ─── Handler body ─────────────────────────────────────────────────────────
 
 /**
- * `moltzap start` handler. Four stages (see per-flow doc 09 §6):
+ * `moltzap start` handler. Four stages:
  *
  *   1. Validate `args.appId` UUID v4 if set; else use `DEFAULT_APP_ID`.
  *      Failure -> `InvalidAppIdError` -> exit 64 via `runStartCommand`.
@@ -630,12 +608,12 @@ const handleDedupOutcome = (
  *      `UnresolvedParticipantError` -> exit 64.
  *   3. `rpc(TaskRequest, { appId, invitedAgentIds, initialConversation })`
  *      where `initialConversation` carries `participants` ONLY when
- *      `invitedAgentIds.length > 0` (P2-B). Two success outcomes:
+ *      `invitedAgentIds.length > 0`. Two success outcomes:
  *      - `created`: server returned a fresh `conversation`. Print
  *        `Task started: &lt;taskId> (conversation: &lt;convId>)`.
  *      - `dedup`: server returned `conversation: null` because
  *        `{caller} ∪ invitedAgentIds` already owned a task on this
- *        appId (P2-A). Auto-fetch the most-recently-active non-
+ *        appId. Auto-fetch the most-recently-active non-
  *        archived conversation under the existing task via
  *        `findReusableConversation` and print
  *        `Task started: &lt;taskId> (reusing existing conversation: &lt;convId>)`.
@@ -676,9 +654,9 @@ const startCommandHandler = (
 // ─── Exit-code dispatcher ─────────────────────────────────────────────────
 
 /**
- * Outer adapter that replaces the shared `transport.ts -> runHandler`
- * (which collapses every error to exit 1) with a `_tag`-aware mapping
- * per the spec D2 exit-code contract:
+ * Outer adapter with a `_tag`-aware exit-code mapping. Used instead of
+ * the shared `transport.ts -> runHandler` (which collapses every error
+ * to exit 1):
  *
  *   `InvalidAppIdError`             -> 64 + stderr `Invalid --app-id: not a UUID`
  *   `UnresolvedParticipantError`    -> 64 + stderr `Cannot resolve "&lt;token>": &lt;reason>`
