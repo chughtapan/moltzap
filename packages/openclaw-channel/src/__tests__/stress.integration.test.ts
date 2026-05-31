@@ -16,6 +16,7 @@ import {
   type TaskBinding,
 } from "./test-helpers.js";
 import type { Message } from "@moltzap/protocol";
+import { waitForValue } from "@moltzap/protocol/testing";
 
 import {
   DEFAULT_APP_ID,
@@ -264,22 +265,17 @@ function waitForRepliesByList(params: {
   readonly receiverAgentId: string;
   readonly expectedCount: number;
   readonly timeoutMs: number;
-}): Effect.Effect<readonly Message[], StressTestError> {
-  return Effect.gen(function* () {
-    const deadline = Date.now() + params.timeoutMs;
-    while (Date.now() < deadline) {
-      const replies = yield* listMatchingReplies(params);
-      if (replies.length >= params.expectedCount) {
-        return replies.slice(0, params.expectedCount);
-      }
-      yield* Effect.sleep(`${REPLY_POLL_INTERVAL_MS} millis`);
-    }
-    return yield* Effect.fail(
-      new StressTestError({
-        message: `Timed out waiting for replies in ${params.binding.conversationId}`,
-      }),
-    );
-  });
+}): Effect.Effect<readonly Message[]> {
+  return waitForValue(
+    listMatchingReplies(params).pipe(
+      Effect.map((replies) =>
+        replies.length >= params.expectedCount
+          ? replies.slice(0, params.expectedCount)
+          : undefined,
+      ),
+    ),
+    { pollMillis: REPLY_POLL_INTERVAL_MS },
+  );
 }
 
 function listMatchingReplies(params: {

@@ -17,6 +17,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Cause, Deferred, Effect, Exit, Option, Ref, Scope } from "effect";
+import { waitForValue } from "../wait.js";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
 import {
@@ -43,7 +44,6 @@ const CONVERSATION_ID = conversationId("550e8400-e29b-41d4-a716-446655440001");
 const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440002");
 const MESSAGE_ID = messageId("550e8400-e29b-41d4-a716-446655440003");
 const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" } as const;
-const RESPONSE_WAIT_TIMEOUT_MS = 2_000;
 const HANDLER_REJECTION_CODE = -32099;
 const JSON_RPC_METHOD_NOT_FOUND_CODE = -32601;
 const SHORT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 50;
@@ -235,22 +235,10 @@ function expectResponseError(reply: ResponseFrame): {
 const waitForResponse = (
   server: ScriptedServerHandle,
   id: string,
-  maxMs = RESPONSE_WAIT_TIMEOUT_MS,
 ): Effect.Effect<ResponseFrame> =>
-  Effect.gen(function* () {
-    const deadline = Date.now() + maxMs;
-    while (true) {
-      const raw = yield* server.received;
-      const found = findResponse(raw, id);
-      if (found !== undefined) return found;
-      if (Date.now() > deadline) {
-        return yield* Effect.die(
-          new Error(`waitForResponse timeout for id=${id}`),
-        );
-      }
-      yield* Effect.sleep("10 millis");
-    }
-  });
+  waitForValue(
+    server.received.pipe(Effect.map((raw) => findResponse(raw, id))),
+  );
 
 const validatingGrantHandler = (
   params: ParamsOf<typeof DispatchAuthorize>,

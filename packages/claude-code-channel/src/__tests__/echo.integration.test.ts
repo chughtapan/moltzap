@@ -16,6 +16,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { waitUntil } from "@moltzap/protocol/testing";
 import { bootClaudeCodeChannel } from "../entry.js";
 import type { Handle } from "../types.js";
 import { CLAUDE_CHANNEL_NOTIFICATION_METHOD } from "../types.js";
@@ -45,10 +46,7 @@ interface Harness {
   readonly conversationId: string;
 }
 
-const WAIT_FOR_TIMEOUT_MS = 10_000;
-const WAIT_FOR_TICK_MS = 25;
 const HARNESS_BOOT_TIMEOUT_MS = 120_000;
-const INBOUND_NOTIFICATION_TIMEOUT_MS = 15_000;
 const TEXT_TYPE = "text";
 const STRING_TYPE = "string";
 const PING_ONE = "ping-one";
@@ -218,26 +216,6 @@ function stopHarness(harness: Harness): Effect.Effect<void> {
   });
 }
 
-function waitFor(
-  condition: () => boolean,
-  timeoutMs = WAIT_FOR_TIMEOUT_MS,
-  tickMs = WAIT_FOR_TICK_MS,
-): Effect.Effect<void, EchoIntegrationError> {
-  return Effect.gen(function* () {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (condition()) return;
-      yield* Effect.sleep(tickMs);
-    }
-    return yield* Effect.fail(
-      new EchoIntegrationError({
-        operation: "waitFor",
-        cause: "condition not met within timeout",
-      }),
-    );
-  });
-}
-
 const textPart = (
   part: Message["parts"][number],
 ): part is { readonly type: "text"; readonly text: string } =>
@@ -254,10 +232,7 @@ function findNotificationByContent(content: string): Notification | undefined {
 function peerSendsPingEmitsNotification() {
   return Effect.gen(function* () {
     yield* h.peerService.send(h.taskId, h.conversationId, PING_ONE);
-    yield* waitFor(
-      () => h.notifications.some(isChannelContent(PING_ONE)),
-      INBOUND_NOTIFICATION_TIMEOUT_MS,
-    );
+    yield* waitUntil(() => h.notifications.some(isChannelContent(PING_ONE)));
     const notification = findNotificationByContent(PING_ONE);
     expect(notification).toBeDefined();
     const meta = (notification!.params as { meta: Record<string, unknown> })
@@ -290,7 +265,7 @@ function replyWithoutReplyToRoutesToLastActiveChat() {
       }),
     );
     expect(result.isError).not.toBe(true);
-    yield* waitFor(() => h.peerInbox.length > inboxBefore);
+    yield* waitUntil(() => h.peerInbox.length > inboxBefore);
     const newMsg = h.peerInbox[h.peerInbox.length - 1];
     expect(newMsg?.conversationId).toBe(h.conversationId);
     expect(newMsg?.parts.find(textPart)?.text).toBe(PONG_ONE);
@@ -314,7 +289,7 @@ function replyWithKnownReplyToRoutesToThatChat() {
       }),
     );
     expect(result.isError).not.toBe(true);
-    yield* waitFor(() => h.peerInbox.length > inboxBefore);
+    yield* waitUntil(() => h.peerInbox.length > inboxBefore);
     const newMsg = h.peerInbox[h.peerInbox.length - 1];
     expect(newMsg?.parts.find(textPart)?.text).toBe(PONG_TWO);
   });

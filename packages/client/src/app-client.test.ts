@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import { MessagesAuthorize, TaskCreate } from "@moltzap/protocol";
+import { waitUntil } from "@moltzap/protocol/testing";
 import {
   AgentsLookupByName,
   TaskList,
@@ -41,12 +42,10 @@ import {
   startReconnectServer,
   startTestServer,
   validateResponseFrame,
-  waitFor,
   waitForErrorResponse,
   waitForResponseRaw,
   withTestServer,
   CLIENT_DRAIN_COUNT,
-  CLOSE_INFO_WAIT_MS,
   CLOSE_PROPAGATION_TIMEOUT_MS,
   CONNECT_FAILURE_MAX_MS,
   DOMAIN_REJECTED_MESSAGE,
@@ -59,7 +58,6 @@ import {
   NORMAL_CLOSE_CODE,
   NORMAL_CLOSE_REASON,
   POST_TIMEOUT_SETTLE_MS,
-  REALTIME_POLL_TIMEOUT_MS,
   RECONNECT_AGENT_ID,
   REFUSED_CONNECT_MAX_MS,
   REFUSED_CONNECT_TEST_TIMEOUT_MS,
@@ -187,7 +185,7 @@ effectTest("rejects pending sendRpc calls when disconnect() is called", () =>
         }),
       );
       // Wait for the RPC frame to land on the server.
-      yield* waitFor(() => server.connections[0]!.received.length >= 2);
+      yield* waitUntil(() => server.connections[0]!.received.length >= 2);
 
       // Trigger disconnect — the reader-fiber `onExit` path drains pendings
       // with NotConnectedError.
@@ -241,9 +239,7 @@ scopedEffectTest(
           }),
         );
 
-        yield* waitFor(() => serverConn.received.length > beforeCount, {
-          maxMs: REALTIME_POLL_TIMEOUT_MS,
-        });
+        yield* waitUntil(() => serverConn.received.length > beforeCount);
         expect(serverConn.received.length).toBe(beforeCount + 1);
 
         // Virtual time: advance past RPC_TIMEOUT_MS → timeoutFail fires.
@@ -309,15 +305,14 @@ effectTest(
         // via `Effect.sleep` + `Schedule.jittered`.
         yield* server.connections[0]!.close(NORMAL_CLOSE_CODE);
 
-        yield* waitFor(
+        yield* waitUntil(
           () =>
             server.connections.length >= 2 && authResponsesSent.current >= 2,
-          { maxMs: 2500 },
         );
         expect(server.connections.length).toBeGreaterThanOrEqual(2);
         expect(authResponsesSent.current).toBeGreaterThanOrEqual(2);
 
-        yield* waitFor(() => reconnectHello.current !== null, { maxMs: 500 });
+        yield* waitUntil(() => reconnectHello.current !== null);
         expect((reconnectHello.current as { agentId: string }).agentId).toBe(
           RECONNECT_AGENT_ID,
         );
@@ -398,9 +393,7 @@ effectTest("routes a well-formed notification frame to onNotification", () =>
       const rpcFiber = yield* Effect.fork(
         sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
       );
-      yield* waitFor(() => events.length > 0, {
-        maxMs: CLOSE_INFO_WAIT_MS,
-      });
+      yield* waitUntil(() => events.length > 0);
       expect(events[0]).toMatchObject({
         method: MessageReceivedNotificationDefinition.name,
       });
@@ -490,7 +483,7 @@ effectTest(
         const rpcFiber = yield* Effect.fork(
           sendRpcEffect(client, TaskList, {}),
         );
-        yield* waitFor(() => server.connections[0]!.received.length >= 2);
+        yield* waitUntil(() => server.connections[0]!.received.length >= 2);
 
         const beforeMs = Date.now();
         yield* closeClient(client);
@@ -634,9 +627,7 @@ effectTest(
         yield* connectClient(client);
         yield* server.connections[0]!.close(NORMAL_CLOSE_CODE, "bye");
 
-        yield* waitFor(() => closes.length > 0, {
-          maxMs: CLOSE_INFO_WAIT_MS,
-        });
+        yield* waitUntil(() => closes.length > 0);
         yield* closeClient(client);
 
         expect(closes.length).toBeGreaterThanOrEqual(1);
@@ -665,9 +656,7 @@ effectTest(
           SERVER_ERROR_REASON,
         );
 
-        yield* waitFor(() => closes.length > 0, {
-          maxMs: CLOSE_INFO_WAIT_MS,
-        });
+        yield* waitUntil(() => closes.length > 0);
         yield* closeClient(client);
 
         expect(closes.length).toBeGreaterThanOrEqual(1);
