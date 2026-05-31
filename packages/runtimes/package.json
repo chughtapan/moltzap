@@ -15,10 +15,11 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist.build tsconfig.build.tsbuildinfo && tsc --outDir dist.build --tsBuildInfoFile tsconfig.build.tsbuildinfo && rm -rf dist && mv dist.build dist && rm -f tsconfig.build.tsbuildinfo",
+    "build": "tsc -b",
     "lint": "eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run --passWithNoTests",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",

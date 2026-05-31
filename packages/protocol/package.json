@@ -44,11 +44,12 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -b",
     "lint": "eslint src scripts *.ts --cache --max-warnings=0",
     "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",
