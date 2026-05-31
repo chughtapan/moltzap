@@ -133,13 +133,10 @@ export interface MessageServiceDeps {
   readonly httpClient: HttpClient.HttpClient;
 
   /**
-   * AppHost owns the `messages/authorize` registry and runner.
-   * Optional only because unit-test stubs construct MessageService
-   * without AppHost; production wiring (layers.ts) always provides one.
-   * Calls on `null` short-circuit to the synthetic
-   * Forward-all-participants default.
+   * AppHost owns the `messages/authorize` registry and runner. The send
+   * path routes every dispatch-authorization verdict through it.
    */
-  readonly appHost: AppHost | null;
+  readonly appHost: AppHost;
 }
 
 /**
@@ -169,7 +166,7 @@ export class MessageService {
   private readonly encryption: EnvelopeEncryption | null;
   private readonly deliveryWebhook: DeliveryWebhookConfig | null;
   private readonly httpClient: HttpClient.HttpClient;
-  private readonly appHost: AppHost | null;
+  private readonly appHost: AppHost;
 
   constructor(deps: MessageServiceDeps) {
     this.db = deps.db;
@@ -446,28 +443,6 @@ export class MessageService {
     });
   }
 
-  /**
-   * Synthesize the forward-to-all-participants-except-sender verdict.
-   * Used by the AppHost-null fallback in {@link resolveSendVerdict}
-   * (unit-test layer).
-   */
-  private defaultForwardVerdict(input: {
-    readonly conversationId: ConversationId;
-    readonly senderAgentId: AgentId;
-  }): Effect.Effect<DispatchDecision, never> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const participants = yield* this.conversations.getParticipantAgentIds(
-          input.conversationId,
-        );
-        return {
-          tag: "forward" as const,
-          recipients: participants.filter((id) => id !== input.senderAgentId),
-        };
-      }),
-    );
-  }
-
   private commitDispatchDecision(
     messageId: MessageId,
     verdict: DispatchDecision,
@@ -619,14 +594,8 @@ export class MessageService {
   private resolveSendVerdict(
     input: ResolveSendVerdictInput,
   ): Effect.Effect<DispatchDecision, never> {
-    const host = this.appHost;
-    if (!host) {
-      // Unit-test path with no AppHost wired. Fall back to the synthetic
-      // Forward-all-participants verdict.
-      return this.defaultForwardVerdict(input);
-    }
     return Effect.gen(this, function* () {
-      const result = yield* host.runMessageAuthorize(input.appId, {
+      const result = yield* this.appHost.runMessageAuthorize(input.appId, {
         conversationId: input.conversationId,
         message: {
           id: input.messageId,

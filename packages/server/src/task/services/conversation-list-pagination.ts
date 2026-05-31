@@ -9,7 +9,7 @@
  * keeps a thin `list(...)` delegate that wires `{ db, previewCache }`
  * into `listConversations`.
  */
-import type { Db } from "../../../db/client.js";
+import type { Db } from "../../db/client.js";
 import type {
   ConversationParticipant,
   ConversationSummary,
@@ -19,15 +19,15 @@ import type { ConversationId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect } from "effect";
 import { InvalidParamsError } from "@moltzap/protocol";
-import { sql } from "../../../db/sql.js";
+import { sql } from "../../db/sql.js";
 import {
   catchSqlErrorAsDefect,
   rawQuery,
-} from "../../../db/effect-kysely-toolkit.js";
+} from "../../db/effect-kysely-toolkit.js";
 import type {
   ConversationArchiveFilter,
   ListRow,
-} from "../conversation-service-types.js";
+} from "./conversation-service-types.js";
 
 export interface ListConversationsDeps {
   readonly db: Db;

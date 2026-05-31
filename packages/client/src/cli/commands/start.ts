@@ -495,7 +495,7 @@ const createTaskAtomic = (
  * Page size + safety cap on `TaskConversationList` follow-up calls. The
  * dedup-hit conversation should appear in the first page for any
  * recently-touched task (server orders by activity desc, see
- * `packages/server/src/task/services/conversation/list-pagination.ts →
+ * `packages/server/src/task/services/conversation-list-pagination.ts →
  * queryConversationListRows`). The cap protects against pathological
  * cases where the caller has a very long list and the target task is
  * older than the window can see — in which case we surface the closed-

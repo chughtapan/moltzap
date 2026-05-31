@@ -24,7 +24,7 @@ import {
   takeFirstOrFail,
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
-import { listConversations } from "./conversation/list-pagination.js";
+import { listConversations } from "./conversation-list-pagination.js";
 import { ConversationCreateAuthorization } from "@moltzap/protocol/task";
 import type {
   ContactEdgeInput,
