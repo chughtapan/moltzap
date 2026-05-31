@@ -27,7 +27,7 @@ export const IDENTITY_PROPERTIES: ReadonlyArray<
 > = [registerAuthorityPositive, registerAuthorityNegative]
 ```
 
-All identity-layer property registrars in legacy walk order
+All identity-layer property registrars, in suite walk order
 (authority-positive → authority-negative).
 
 ### [`registerAuthorityNegative`](./authority-negative.ts#L40)

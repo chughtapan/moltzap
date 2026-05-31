@@ -91,15 +91,12 @@ export function expectAssertionFailure(
 /**
  * Assert the registrar emits a typed `PropertyDeferred` whose `followUp`
  * mentions `expectedReasonSubstring`. Used by registrars whose property
- * body is a documented tombstone pending a future infrastructure landing
- * (e.g. cross-impl `dispatch/request` driver in TestServer, #529 row 13).
+ * body is a documented tombstone pending infrastructure not yet present
+ * (e.g. a cross-impl `dispatch/request` driver in TestServer).
  *
  * The proof is meaningful: it confirms the registrar (a) is wired into
  * the suite, (b) emits a typed failure (not a silent pass, not an
- * untyped defect), (c) cites the expected follow-up. When the
- * infrastructure lands, registrar bodies become real assertions and
- * these proofs flip to `expectInvariant` / `expectAssertionFailure`
- * against a known-bad implementation, mirroring the existing pattern.
+ * untyped defect), (c) cites the expected follow-up.
  */
 export function expectDeferred(
   failure: PropertyFailure,

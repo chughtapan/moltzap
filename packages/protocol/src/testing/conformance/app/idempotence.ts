@@ -4,11 +4,10 @@
  * says replay is safe, sends the same params twice and asserts both
  * succeed with **identical results** (not just identical tags).
  *
- * Architect §4.4: removed `.pipe(Effect.orElseSucceed(["skip","skip"]))`
- * masking. Transport failures now surface as `PropertyUnavailable` so
- * the runner reports them explicitly instead of folding them into a
- * silent pass. Predicate compares response bodies via canonical JSON
- * — spec B5 says "identical results", not "identical outcome kinds".
+ * Transport failures surface as `PropertyUnavailable` so the runner
+ * reports them explicitly instead of folding them into a silent pass.
+ * The predicate compares response bodies via canonical JSON: the spec
+ * requires "identical results", not "identical outcome kinds".
  */
 import { Effect, Either } from "effect";
 import { AgentsList } from "../../../identity/methods.js";
@@ -195,13 +194,12 @@ function successPairOrNull(pair: ReplayPair) {
 }
 
 /**
- * Idempotence canonical projection — architect #197 §3.3.
+ * Idempotence canonical projection.
  *
- * Spec B5: agents/list.agents and conversations/list.conversations are
- * unordered row sets across replays. Every OTHER array (including any
- * nested `participants`, future nested message lists, and every
- * payload field that is not one of the two named arrays) remains
- * order-sensitive.
+ * `agents/list.agents` and `conversations/list.conversations` are
+ * unordered row sets across replays per spec. Every OTHER array
+ * (including any nested `participants` and every payload field that is
+ * not one of the two named arrays) remains order-sensitive.
  *
  * The projection sorts ONLY the specific top-level array the spec
  * marks unordered, then finalizes via `canonicalJson` (which

@@ -6,12 +6,11 @@
  * discriminate on `_tag` so shrinks land on a named failure mode rather
  * than an anonymous `unknown`.
  *
- * Per the Phase 1B reorg, two error fragments live alongside the subsystem
- * that owns them: `FrameSchemaError` co-locates with
- * `./frame-mutator.js`, and `ToxicControlError` co-locates with
- * `../../toxics/errors.js`. The `TestingError` discriminated union keeps
- * exhaustiveness across all seven tags so property `match` calls stay
- * compiler-checked.
+ * Two error fragments live alongside the subsystem that owns them:
+ * `FrameSchemaError` co-locates with `./frame-mutator.js`, and
+ * `ToxicControlError` co-locates with `../../toxics/errors.js`. The
+ * `TestingError` discriminated union keeps exhaustiveness across all
+ * seven tags so property `match` calls stay compiler-checked.
  */
 import { Data } from "effect";
 import { FrameSchemaError } from "./frame-mutator.js";

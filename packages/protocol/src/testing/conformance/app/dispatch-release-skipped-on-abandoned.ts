@@ -31,12 +31,12 @@ export function registerDispatchReleaseSkippedOnAbandoned(
           // Hard-close before the verdict resolves → ABANDONED.
           yield* driver.recipient.hardClose;
           // Confirm ABANDONED transition (positive) — proof the lease
-          // is in the no-release terminal state. The architect §7
-          // "no release went to a third-party listener" assertion
-          // is implicit at the wire level: the recipient's connection
-          // is closed, so no `dispatch/release` could land there;
-          // dispatches/* notifications fire only on the moderator's
-          // connection (see lease-registry.ts:516 emit fan-out).
+          // is in the no-release terminal state. "No release went to a
+          // third-party listener" holds at the wire level: the
+          // recipient's connection is closed, so no `dispatch/release`
+          // could land there; dispatches/* notifications fire only on
+          // the moderator's connection (LeaseRegistry emit fan-out in
+          // server-core's `lease-registry.ts`).
           yield* driver.assertLeaseState(ack.dispatchId, "ABANDONED", {
             timeoutMs: ABANDON_OBSERVATION_BUFFER_MS + ABANDON_POLL_EXTRA_MS,
           });

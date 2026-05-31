@@ -2,10 +2,8 @@
  * Multi-app FIFO short-circuit — two apps; first denies; second hook is
  * NOT invoked.
  *
- * Phase 1A architect §5 disposition: RETOMBSTONE — flip-to-executable
- * needs FIFO ordering across multi-app dispatch (TM-topology routing
- * not yet wired), and is implementer-tier behavior change outside Phase
- * 1A's structural scope.
+ * Tombstone: making this executable needs FIFO ordering across multi-app
+ * dispatch (TM-topology routing not yet wired).
  */
 import { Effect } from "effect";
 import { TaskRequest } from "@moltzap/protocol/task";
@@ -29,7 +27,7 @@ export function registerMultiAppFifoShortCircuit(
           new PropertyDeferred({
             category: CATEGORY,
             name: PROPERTY,
-            followUp: `dual-app first-deny short-circuit needs TM-topology dispatch; reactivate alongside #555 (${TaskRequest.name} bootstrap)`,
+            followUp: `dual-app first-deny short-circuit needs TM-topology dispatch (${TaskRequest.name} conversation bootstrap)`,
           }),
         );
       }).pipe(Effect.withSpan("registerMultiAppFifoShortCircuit")),

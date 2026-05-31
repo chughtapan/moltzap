@@ -1,9 +1,6 @@
 /**
  * Transport-layer helpers shared by adversity properties (latency,
  * slicer, reset-peer, timeout, slow-close).
- *
- * Carved from `conformance/adversity.ts@961a5c8`. Body verbatim; only
- * import paths shift to the new layer location.
  */
 import { Effect, type Scope } from "effect";
 import type { ToxiproxyProxy } from "../../toxics/client.js";

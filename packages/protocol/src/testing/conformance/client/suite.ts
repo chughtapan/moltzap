@@ -3,24 +3,17 @@
 /**
  * Client-side conformance suite entry point.
  *
- * O4 decision: **option (c) — one library, both factories optional.**
- * The architect's target surface is the existing `runConformanceSuite(opts)`
- * extended with a `realClient?` field alongside `realServer?`. The suite
- * registers every server-side property when `realServer` is present and
- * every client-side property when `realClient` is present. A caller that
- * passes both gets the joint run for free; a caller that passes neither
- * fails at option-decode time.
+ * One library, both factories optional: `runConformanceSuite(opts)` takes
+ * a `realClient?` field alongside `realServer?`. The suite registers every
+ * server-side property when `realServer` is present and every client-side
+ * property when `realClient` is present. A caller that passes both gets the
+ * joint run; a caller that passes neither fails at option-decode time.
  *
- * This module ships the **client-only** entry — `runClientConformanceSuite`
- * — as the stub the implementer wires in. When `implement-staff` lands the
- * body it folds this into a single extended `runConformanceSuite` whose
- * signature is declared in §Interfaces of the design doc. The stub exists
- * so consumers and CI wiring have a stable symbol to import against while
- * the merge lands.
+ * This module is the **client-only** entry, `runClientConformanceSuite`.
  *
- * Scope: dependency on `packages/client` or either channel package is
- * forbidden (extends AC13 to AC14). The factory injection pattern keeps
- * the protocol package leaf-of-the-graph.
+ * The protocol package must not depend on `packages/client` or either
+ * channel package. The factory injection pattern keeps the protocol
+ * package leaf-of-the-graph.
  */
 import { FileSystem, Path } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
@@ -129,11 +122,9 @@ interface ClientFailureRecordInput extends ClientRunPropertyInput {
 }
 
 /**
- * Register every client-side property (A2, A4, B1, B4, C1, C3, C4, D1,
- * D3, D4, D5, D6, E2 plus archive lifecycle — 14 total) against
- * `ctx`. Property files in `conformance/client/*.ts` each export one
- * `registerXxxClient` per spec-amendment registrar; this helper is the
- * single call site.
+ * Register every client-side property (14 total) against `ctx`. Property
+ * files in `conformance/client/*.ts` each export one `registerXxxClient`
+ * registrar; this helper is the single call site.
  */
 export function registerAllClientProperties(
   ctx: ClientConformanceRunContext,
@@ -470,15 +461,10 @@ function writeArtifact(
 }
 
 /**
- * Joint-run entry — passed both `realServer?` and `realClient?`.
- * Architect target shape per O4 (c). Implementer folds this into
- * `runConformanceSuite` in `../suite.ts` as an extension of
- * `ConformanceSuiteOptions`; the stub declares the joint signature
- * here so the design doc has a concrete symbol to trace.
- *
- * This signature is **not** the final exported surface — the merged
- * `runConformanceSuite` in `../suite.ts` replaces it. Declared here
- * for cold-read traceability only.
+ * Joint-run option shape — both `realServer?` and `realClient?` supplied,
+ * so the suite exercises a real client against a real server in one run.
+ * The merged `runConformanceSuite` in `../suite.ts` accepts these fields
+ * as an extension of `ConformanceSuiteOptions`.
  */
 export interface JointConformanceSuiteOptions {
   readonly realServer?: ClientConformanceSuiteOptions["realClient"] extends never

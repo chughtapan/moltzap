@@ -34,8 +34,7 @@ export {
 };
 
 /**
- * All network-layer property registrars in legacy walk order
- * (mirroring legacy `presence.ts` registration sequence).
+ * All network-layer property registrars, in suite walk order.
  */
 export const NETWORK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void

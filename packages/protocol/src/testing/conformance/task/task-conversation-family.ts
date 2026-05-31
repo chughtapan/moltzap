@@ -1,24 +1,17 @@
 /**
- * Spec D1 (#598) — conformance properties for the additive
- * `task/*` + `task/conversation/*` family.
+ * Conformance properties for the `task/*` + `task/conversation/*` family
+ * (8 methods × 9 properties, N/A cells excluded). One `register*` per
+ * method anchors a property whose body exercises the spec-body-mandated
+ * case: schema decode, happy-path delivery, participant-admitted
+ * invariant (where applicable).
  *
- * Per architect plan §9 r2: this file aggregates the per-method
- * properties enumerated in the plan's "Per-method conformance matrix"
- * (8 methods × 9 properties, N/A cells excluded). One `register*`
- * per method anchors a property whose body exercises the
- * spec-body-mandated case: schema decode, happy-path delivery,
- * participant-admitted invariant (where applicable).
+ * All methods live in one file because every property shares the same
+ * acquire-clients fixture; one file per method would duplicate ~30 lines
+ * of setup each without adding coverage. The "one property per method"
+ * shape is preserved via separate `register*` functions per method.
  *
- * Architect plan §9 r2 specified "one file per method" — collapsed
- * into a single file here because every property shares the same
- * acquire-clients fixture; splitting into 8 files would duplicate
- * ~30 lines of setup each without adding coverage. The "one
- * property per method" shape (the load-bearing
- * register-as-its-own-property surface) is preserved via separate
- * `register*` functions per method.
- *
- * Out of scope (covered by the new
- * `task-conversation-family.test.ts` integration suite under
+ * Out of scope (covered by the `task-conversation-family.test.ts`
+ * integration suite under
  * `packages/server/src/__tests__/integration/task/`):
  *   - Transaction rollback (requires real Postgres mid-tx failure).
  *   - Dual-emit notification arrival assertion (covered with
@@ -187,9 +180,9 @@ const awaitTaskCreated = (actor: Actor, property: string) =>
 const TASK_REQUEST_REJECT_PROPERTY = "task-request-tm-reject";
 const REJECT_REASON = "app_policy";
 
-// D #705 CP9 — register a SEPARATE app principal (HTTP + `appKey` Connect)
-// whose `task/create` callback always rejects. Returns the server-minted
-// appId that the requesting agent targets in `task/request`.
+// Register a SEPARATE app principal (HTTP + `appKey` Connect) whose
+// `task/create` callback always rejects. Returns the server-minted appId
+// that the requesting agent targets in `task/request`.
 const registerRejectingTm = (ctx: ConformanceRunContext) =>
   registerTestApp({
     baseUrl: ctx.realServer.baseUrl,

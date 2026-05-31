@@ -22,7 +22,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L74)
+### [`acquireClient`](./_helpers.ts#L68)
 
 _Function_
 
@@ -38,7 +38,7 @@ export function acquireClient(
 >
 ```
 
-### [`acquireCloseableClient`](./_helpers.ts#L103)
+### [`acquireCloseableClient`](./_helpers.ts#L97)
 
 _Function_
 
@@ -51,7 +51,7 @@ export function acquireCloseableClient(
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`countPresenceChangedFor`](./_helpers.ts#L240)
+### [`countPresenceChangedFor`](./_helpers.ts#L233)
 
 _Function_
 
@@ -62,7 +62,7 @@ export function countPresenceChangedFor(
 ): Effect.Effect<number>
 ```
 
-### [`NETWORK_PROPERTIES`](./index.ts#L40)
+### [`NETWORK_PROPERTIES`](./index.ts#L39)
 
 _Variable_
 
@@ -79,10 +79,9 @@ export const NETWORK_PROPERTIES: ReadonlyArray<
 ]
 ```
 
-All network-layer property registrars in legacy walk order
-(mirroring legacy `presence.ts` registration sequence).
+All network-layer property registrars, in suite walk order.
 
-### [`PRESENCE_CATEGORY`](./_helpers.ts#L29)
+### [`PRESENCE_CATEGORY`](./_helpers.ts#L26)
 
 _Variable_
 
@@ -90,7 +89,7 @@ _Variable_
 export const PRESENCE_CATEGORY = "presence" as const
 ```
 
-### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L31)
+### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L28)
 
 _Variable_
 
@@ -98,7 +97,7 @@ _Variable_
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
 ```
 
-### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L30)
+### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L27)
 
 _Variable_
 
@@ -106,7 +105,7 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceChangedPayload`](./_helpers.ts#L40)
+### [`PresenceChangedPayload`](./_helpers.ts#L34)
 
 _Interface_
 
@@ -117,7 +116,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`PresenceStatus`](./_helpers.ts#L38)
+### [`PresenceStatus`](./_helpers.ts#L32)
 
 _TypeAlias_
 
@@ -130,7 +129,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`presenceStatusesFor`](./_helpers.ts#L203)
+### [`presenceStatusesFor`](./_helpers.ts#L196)
 
 _Function_
 
@@ -141,7 +140,7 @@ export function presenceStatusesFor(
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
-### [`presenceViolation`](./_helpers.ts#L45)
+### [`presenceViolation`](./_helpers.ts#L39)
 
 _Function_
 
@@ -152,7 +151,7 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](./_helpers.ts#L56)
+### [`registerAgent`](./_helpers.ts#L50)
 
 _Function_
 
@@ -218,7 +217,7 @@ export function registerSubscribeAfterConnect(
 ): void
 ```
 
-### [`subscribePresence`](./_helpers.ts#L134)
+### [`subscribePresence`](./_helpers.ts#L128)
 
 _Function_
 
@@ -230,7 +229,7 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](./_helpers.ts#L159)
+### [`waitForPresenceWithStatus`](./_helpers.ts#L152)
 
 _Function_
 
@@ -248,8 +247,7 @@ matches `expected.agentId` + `expected.status`.
 
 `TestClient.subscribe(def)` filters by descriptor only, so we
 consume the broad-union `subscribeAll()` Stream with a per-payload
-predicate and timeout it ourselves (#645: replaces the legacy
-polling `client.notifications` Stream).
+predicate and timeout it ourselves.
 
 ## Files
 

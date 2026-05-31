@@ -6,24 +6,18 @@ the layer that owns durable state.
 
 ## Property files
 
-| File | Carved from |
-|---|---|
-| `fan-out-cardinality.ts` | `delivery.ts` |
-| `store-and-replay.ts` | `delivery.ts` |
-| `payload-opacity.ts` | `delivery.ts` |
-| `task-boundary-isolation.ts` | `delivery.ts` |
-| `conversation-lifecycle.ts` | `delivery.ts` |
-| `archive-lifecycle.ts` | `delivery.ts` |
-| `task-close-lifecycle.ts` | `delivery.ts` (tombstoned, retombstoned to new follow-up; see plan §5) |
-| `model-equivalence.ts` | `rpc-semantics.ts` |
+- `fan-out-cardinality.ts`
+- `store-and-replay.ts`
+- `payload-opacity.ts`
+- `task-boundary-isolation.ts`
+- `conversation-lifecycle.ts`
+- `archive-lifecycle.ts`
+- `task-close-lifecycle.ts`
+- `model-equivalence.ts`
+- `task-conversation-family.ts` — the `task/conversation/*` family,
+  one `register*` per method
 
 ## Aggregation
 
 `index.ts` re-exports every `register*` by name and assembles
-`TASK_PROPERTIES` in the order legacy `_shared/suite.ts` invokes them.
-
-## Tombstone
-
-`task-close-lifecycle` retains its `PropertyDeferred` body. The
-`_shared/suite.ts` `allowedServerCoverageGaps` entry preserves the
-existing exemption — Phase 1A keeps baseline parity.
+`TASK_PROPERTIES` in the order `_shared/suite.ts` invokes them.

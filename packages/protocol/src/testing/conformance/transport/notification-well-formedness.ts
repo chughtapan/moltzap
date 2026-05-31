@@ -1,14 +1,14 @@
 /**
  * Valid notification frame round-trips the codec cleanly.
  *
- * `@pure-codec` — does NOT drive a real server or real client. Spec A2's
+ * `@pure-codec` — does NOT drive a real server or real client. The
  * "accepted by a real client" assertion requires a TestServer + real
  * client driver; that property lives in the consumer package (e.g.,
  * `packages/client` or `moltzap-arena`).
  *
- * Tightened per architect §4.4: predicate demands `Right` AND schema
- * check of the specific notification variant — the previous `Right || Left`
- * shape was a tautology over the union.
+ * The predicate demands `Right` AND a schema check of the specific
+ * notification variant. A `Right || Left` shape would be a tautology
+ * over the union and assert nothing.
  */
 import * as fc from "fast-check";
 import { Effect, Either } from "effect";

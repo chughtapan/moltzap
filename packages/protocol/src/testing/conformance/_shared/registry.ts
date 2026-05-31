@@ -17,16 +17,16 @@ import { Data, Effect, Ref } from "effect";
 
 /**
  * Context key for a property registry. Server-side properties key by
- * `ConformanceRunContext`; client-side properties (architect-201) key
- * by `ClientConformanceRunContext`. The WeakMap stores per-context
+ * `ConformanceRunContext`; client-side properties key by
+ * `ClientConformanceRunContext`. The WeakMap stores per-context
  * registries, so any object shape works as a key.
  */
 type PropertyContext = object;
 
 /**
- * Semantic category each property belongs to. Categories match the five
- * conformance modules; the spec's tier grouping (A/B/C/D/E) is noted
- * once per module header, never in code.
+ * Semantic category each property belongs to. The category derives from
+ * the call-site, not the file path, so a property's category can differ
+ * from the module folder it lives in.
  */
 export type PropertyCategory =
   | "schema-conformance"

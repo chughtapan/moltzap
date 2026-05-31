@@ -1,23 +1,22 @@
 /**
- * Client-side adversity properties.
+ * Client-side adversity properties: the client halves of the both-sides
+ * adversity coverage —
+ *   adversity-latency
+ *   adversity-slicer
+ *   adversity-reset-peer
+ *   adversity-timeout
+ *   adversity-slow-close
  *
- * Covers spec-amendment #200 §5 (all client halves of both-sides):
- *   D1 — adversity-latency
- *   D3 — adversity-slicer
- *   D4 — adversity-reset-peer
- *   D5 — adversity-timeout
- *   D6 — adversity-slow-close
- *
- * Typed-error precision (O6 resolution):
- *   - D5: spec names `RpcTimeoutError`. Predicate asserts
+ * Typed-error precision:
+ *   - adversity-timeout: spec names `RpcTimeoutError`. Predicate asserts
  *     `documentedErrorTag === "RpcTimeoutError"`.
- *   - D6: spec does not name a type. Predicate asserts close-signal
- *     resolves within the reap deadline.
- *   - D1, D3, D4: no error involvement.
+ *   - adversity-slow-close: spec does not name a type. Predicate asserts
+ *     the close-signal resolves within the reap deadline.
+ *   - adversity-latency, -slicer, -reset-peer: no error involvement.
  *
- * Handshake-noise guard (O7): D1/D3/D4 reuse tagged-emission filters.
- * D5 filters by outbound request id. D6 observes lifecycle only —
- * exempt from the guard.
+ * Handshake-noise guard: adversity-latency/-slicer/-reset-peer reuse
+ * tagged-emission filters. adversity-timeout filters by outbound request
+ * id. adversity-slow-close observes lifecycle only — exempt from the guard.
  *
  * Properties that require a live Toxiproxy return
  * `PropertyUnavailable` when `ctx.toxiproxy === null`, mirroring the
@@ -58,10 +57,10 @@ function unavailable(name: string, reason: string): PropertyUnavailable {
 }
 
 /**
- * D1 client half — re-run C1 client-side under latency. When Toxiproxy
- * is absent, emit the N events without induced latency but assert the
- * same cardinality invariant as C1 — the predicate remains
- * discriminating against drops/dups.
+ * Client half of `adversity-latency` — re-run the fan-out cardinality
+ * property client-side under latency. When Toxiproxy is absent, emit the
+ * N events without induced latency but assert the same cardinality
+ * invariant — the predicate remains discriminating against drops/dups.
  */
 export function registerLatencyResilienceClient(
   ctx: ClientConformanceRunContext,
@@ -174,9 +173,9 @@ function latencySlot(i: number): string {
 }
 
 /**
- * D3 client half — partial-frame splitting under slicer. Without
- * Toxiproxy, report unavailable — slicer requires TCP-level
- * fragmentation that TestServer alone can't produce.
+ * Client half of `adversity-slicer` — partial-frame splitting under
+ * slicer. Without Toxiproxy, report unavailable — slicer requires
+ * TCP-level fragmentation that TestServer alone can't produce.
  */
 export function registerSlicerFramingClient(
   ctx: ClientConformanceRunContext,
@@ -198,8 +197,8 @@ export function registerSlicerFramingClient(
 }
 
 /**
- * D4 client half — `reset_peer` mid-flight, post-reconnect exactly-once
- * delivery. Live-delivery-only per spec #200 §5 revision.
+ * Client half of `adversity-reset-peer` — `reset_peer` mid-flight,
+ * post-reconnect exactly-once delivery. Live-delivery-only.
  */
 export function registerResetPeerRecoveryClient(
   ctx: ClientConformanceRunContext,
@@ -221,11 +220,11 @@ export function registerResetPeerRecoveryClient(
 }
 
 /**
- * D5 client half — TestServer accepts a sampled RPC but never responds;
- * real client's documented typed-error surface (`RpcTimeoutError`)
- * fires within its own timeout budget.
+ * Client half of `adversity-timeout` — TestServer accepts a sampled RPC
+ * but never responds; real client's documented typed-error surface
+ * (`RpcTimeoutError`) fires within its own timeout budget.
  *
- * Predicate (strict, per O6):
+ * Predicate (strict):
  *   - `RealClientRpcError.documentedErrorTag === "RpcTimeoutError"`
  *   - `RealClientRpcError.kind === "timeout"`
  */
@@ -310,12 +309,12 @@ function assertTimeoutCause(
 }
 
 /**
- * D6 client half — TestServer initiates a slow close; real client's
- * documented close-signal resolves within the reap deadline; suite
- * Scope releases cleanly.
+ * Client half of `adversity-slow-close` — TestServer initiates a slow
+ * close; real client's documented close-signal resolves within the reap
+ * deadline; suite Scope releases cleanly.
  *
- * Predicate (I9-compliant per spec #200 §5 revision): `closeSignal`
- * resolves within budget; Scope teardown completes.
+ * Predicate: `closeSignal` resolves within budget; Scope teardown
+ * completes.
  */
 export function registerSlowCloseCleanupClient(
   ctx: ClientConformanceRunContext,
