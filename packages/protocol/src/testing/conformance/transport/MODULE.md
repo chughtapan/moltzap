@@ -17,7 +17,7 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireProxiedClient`](./_helpers.ts#L61)
+### [`acquireProxiedClient`](./_helpers.ts#L58)
 
 _Function_
 
@@ -37,7 +37,7 @@ export function acquireProxiedClient(opts: {
 
 Acquire a TestClient that routes through the Toxiproxy proxy.
 
-### [`ADVERSITY_CATEGORY`](./_helpers.ts#L27)
+### [`ADVERSITY_CATEGORY`](./_helpers.ts#L24)
 
 _Variable_
 
@@ -45,7 +45,7 @@ _Variable_
 export const ADVERSITY_CATEGORY = "adversity" as const
 ```
 
-### [`adversityViolation`](./_helpers.ts#L34)
+### [`adversityViolation`](./_helpers.ts#L31)
 
 _Function_
 
@@ -56,7 +56,7 @@ export function adversityViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`attachToxic`](./_helpers.ts#L115)
+### [`attachToxic`](./_helpers.ts#L112)
 
 _Property_
 
@@ -64,7 +64,7 @@ _Property_
   readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
 ```
 
-### [`createOneOnOneConversation`](./_helpers.ts#L220)
+### [`createOneOnOneConversation`](./_helpers.ts#L217)
 
 _Function_
 
@@ -79,7 +79,7 @@ export function createOneOnOneConversation(
 >
 ```
 
-### [`DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L28)
+### [`DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L25)
 
 _Variable_
 
@@ -87,7 +87,7 @@ _Variable_
 export const DEFAULT_CAPTURE_CAPACITY = 128
 ```
 
-### [`proxy`](./_helpers.ts#L113)
+### [`proxy`](./_helpers.ts#L110)
 
 _Property_
 
@@ -96,7 +96,7 @@ _Property_
   readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
-### [`proxyName`](./_helpers.ts#L52)
+### [`proxyName`](./_helpers.ts#L49)
 
 _Function_
 
@@ -216,7 +216,7 @@ _Function_
 export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 ```
 
-### [`ToxicBodyParams`](./_helpers.ts#L112)
+### [`ToxicBodyParams`](./_helpers.ts#L109)
 
 _TypeAlias_
 
@@ -243,7 +243,7 @@ so the toxic is removed BEFORE TestClient's socket close. Under
 disruptive toxics (timeout, reset_peer), this lets the WS close
 handshake flow cleanly instead of hanging on a black-holed channel.
 
-### [`TRANSPORT_PROPERTIES`](./index.ts#L52)
+### [`TRANSPORT_PROPERTIES`](./index.ts#L50)
 
 _Variable_
 
@@ -268,12 +268,10 @@ export const TRANSPORT_PROPERTIES: ReadonlyArray<
 ```
 
 All transport-layer property registrars, in the order
-`_shared/suite.ts` invokes them. Order matches the legacy
-`registerAllProperties` walk for byte-equivalent baseline output:
-schema-conformance subset (5) → rpc-semantics subset (2) →
-adversity (5) → boundary subset (1).
+`_shared/suite.ts` invokes them: schema-conformance subset (5) →
+rpc-semantics subset (2) → adversity (5) → boundary subset (1).
 
-### [`unavailable`](./_helpers.ts#L114)
+### [`unavailable`](./_helpers.ts#L111)
 
 _Property_
 
@@ -281,7 +279,7 @@ _Property_
   readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
-### [`withToxicProxy`](./_helpers.ts#L124)
+### [`withToxicProxy`](./_helpers.ts#L121)
 
 _Function_
 

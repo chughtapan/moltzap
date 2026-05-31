@@ -17,7 +17,7 @@ export function registerSlowFirstDoesNotDelaySecondAck(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "first moderator round-trip blocks for N seconds; second dispatch/request ack arrives within << N (server-side fork, not blocking on first) (closes #358 P2)",
+    "first moderator round-trip blocks for N seconds; second dispatch/request ack arrives within << N (server-side fork, not blocking on first)",
     withDriver(
       ctx,
       (driver) =>

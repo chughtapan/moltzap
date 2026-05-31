@@ -1,9 +1,7 @@
 /**
- * Fan-out cardinality — spec §5 C1: messages/send ⇒ **exactly** N
- * inbound events (one per connection). Architect §4.4: tightened from
- * `>=1` to `===1`; a server that duplicates events now fails.
- *
- * Empty-counts side channel replaced with an explicit
+ * Fan-out cardinality — messages/send ⇒ **exactly** N inbound events
+ * (one per connection). The check is `=== N`, not `>= 1`, so a server
+ * that duplicates events fails. Empty counts surface as an explicit
  * `PropertyInvariantViolation`.
  */
 import * as fc from "fast-check";

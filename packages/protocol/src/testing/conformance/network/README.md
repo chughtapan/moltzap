@@ -3,27 +3,23 @@
 Connection / presence / subscription invariants. Every property here
 exercises `Connect`, `PresenceSubscribe`, or server-derived
 `presence/changed` notification semantics — the layer that brokers
-who sees whom. (Note: `PresenceUpdate` RPC was deleted in
-`2026.527.0`; presence is now server-derived from `LeaseRegistry`
-lifecycle. Properties referencing the deleted RPC are impl-staff
-scope to rewrite per architect plan #706 v10.)
+who sees whom. Presence is server-derived from `LeaseRegistry`
+lifecycle plus WS connect/disconnect; there is no client-driven
+`presence/update` RPC.
 
 ## Property files
 
-| File | Carved from |
-|---|---|
-| `presence-connect-broadcast.ts` | `presence.ts` |
-| `presence-disconnect-broadcast.ts` | `presence.ts` |
-| `presence-reconnect-storm.ts` | `presence.ts` |
-| `presence-same-state-no-double-fire.ts` | `presence.ts` |
-| `presence-multi-subscriber-fan-out.ts` | `presence.ts` |
-| `presence-subscribe-after-connect.ts` | `presence.ts` |
+- `presence-connect-broadcast.ts`
+- `presence-disconnect-broadcast.ts`
+- `presence-reconnect-storm.ts`
+- `presence-same-state-no-double-fire.ts`
+- `presence-multi-subscriber-fan-out.ts`
+- `presence-subscribe-after-connect.ts`
 
 ## Aggregation
 
 `index.ts` re-exports every `register*` by name and assembles
-`NETWORK_PROPERTIES` in the order legacy `_shared/suite.ts` invokes
-them.
+`NETWORK_PROPERTIES` in the order `_shared/suite.ts` invokes them.
 
 ## Future shape
 

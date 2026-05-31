@@ -54,9 +54,6 @@ function runConversationLifecycle(ctx: ConformanceRunContext) {
       const fixture = yield* acquirePropertyConversation(ctx, PROPERTY, "life");
       const participant = yield* firstParticipant(fixture, PROPERTY);
       yield* assertCreatedAndInitialSend(fixture, participant);
-      // Spec D3 D10 deletes the `conversations/update` RPC and its
-      // notification; the conversation rename branch retires with the
-      // legacy surface.
       yield* assertArchivePhase(fixture, participant);
       yield* assertUnarchivePhase(fixture, participant);
     }),

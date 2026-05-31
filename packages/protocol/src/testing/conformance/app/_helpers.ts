@@ -1,8 +1,5 @@
 /**
  * App-layer helpers shared across the 15 dispatch-admission properties.
- *
- * Carved verbatim from `conformance/dispatch-admission.ts@961a5c8`.
- * Body unchanged; import paths shift to the new layer location.
  */
 import { Effect, type Scope, Schema } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";

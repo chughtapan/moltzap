@@ -1,7 +1,7 @@
 /**
  * Caller-controlled appCallback timeout — `awaitServerRequest(method, undef,
  * timeoutMs)` returns a timeout error when no appCallback request arrives in the
- * window. Architect plan §3.4: timeout policy lives in the caller
+ * window. Timeout policy lives in the caller
  * (`Effect.timeout(manifestHookTimeout)` at the AppHost call site), NOT
  * in the schema. This property anchors the caller-side behaviour the
  * AppHost relies on.

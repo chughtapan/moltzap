@@ -1,6 +1,6 @@
 /**
  * Known-bad-server divergence proofs for the 15 dispatch-admission
- * conformance registrars carved into `app/dispatch-*.ts` /
+ * conformance registrars in `app/dispatch-*.ts` /
  * `app/dispatches-*.ts` / `app/same-conv-*.ts` /
  * `app/slow-first-*.ts` / `app/release-for-one-*.ts`.
  *
@@ -24,10 +24,6 @@
  * synthesized release vs. consumed-emit vs. dispatches/get response —
  * so each property body's named assertion path triggers without the
  * bad server having to emulate the whole real-server surface.
- *
- * Issue #535. Architect plan (#533) §6 deletion-only meant no
- * replacement bad-server proofs landed in #534; this file restores the
- * gate's coverage of the dispatch-admission row.
  */
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";

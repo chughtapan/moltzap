@@ -1,8 +1,7 @@
 /**
- * App-disconnect fail-policy — replacement for the deleted webhook
- * graceful-shutdown probe (architect plan §8.3).
+ * App-disconnect fail-policy.
  *
- * Architect contract:
+ * Contract:
  *   - When an app's WS severs while admission RPCs are in flight, the
  *     server's pending Deferreds fail with a typed close.
  *   - AppHost applies fail-CLOSED verdicts: `before_dispatch` →
@@ -15,16 +14,13 @@
  * to admit, dispatch proceeds (no admission gate); when an app IS wired
  * and severs mid-flight, dispatch sees the deny verdict.
  *
- * Phase 7 cutover removed `apps/createSession`'s session machinery. The
- * tasks/* layer creates a task without bootstrapping the
- * manifest-declared conversation map, so this property cannot
- * assemble the dispatch precondition (a non-empty conversation
- * attached to the task) without a TM-registration step that is
- * out of scope for the conformance fixture. Property reports
- * `PropertyUnavailable` until a follow-up issue wires the TM-topology
- * dispatch precondition. Property ID stays
- * `boundary/app-disconnect-fail-policy` to preserve the conformance
- * baseline (architect §7).
+ * The tasks/* layer creates a task without bootstrapping the
+ * manifest-declared conversation map, so this property cannot assemble
+ * the dispatch precondition (a non-empty conversation attached to the
+ * task) without a TM-registration step that is out of scope for the
+ * conformance fixture. Property reports `PropertyUnavailable` until a
+ * follow-up issue wires the TM-topology dispatch precondition. Property
+ * ID stays `boundary/app-disconnect-fail-policy`.
  */
 import { Effect, type Scope } from "effect";
 import { TaskRequest } from "../../../task/methods.js";
@@ -63,8 +59,8 @@ export function registerAppDisconnectFailPolicy(
 function runAppDisconnectFailPolicy(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
-      // D #705 CP9 — the moderator app is an `AppConnection` (HTTP register
-      // + `appKey` Connect); its scope is the surrounding `Effect.scoped`.
+      // The moderator app is an `AppConnection` (HTTP register + `appKey`
+      // Connect); its scope is the surrounding `Effect.scoped`.
       const app = yield* registerDisconnectFailApp(ctx);
       yield* app.dispatchAuthorize.silence;
       yield* acquireSenderClient(ctx);
@@ -129,7 +125,7 @@ function missingTopologyUnavailable() {
     new PropertyUnavailable({
       category: CATEGORY,
       name: PROPERTY,
-      reason: `${TaskRequest.name} does not bootstrap session conversations; covered in Phase 9 with TM topology (#318)`,
+      reason: `${TaskRequest.name} does not bootstrap session conversations; needs TM-topology dispatch precondition`,
     }),
   );
 }

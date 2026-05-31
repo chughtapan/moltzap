@@ -1,15 +1,13 @@
 /**
  * Test fixtures — branded-ID constructors + real-server agent registration.
  *
- * Phase 1B re-architect: merges the pre-reorg pair `testing/branded-ids.ts`
- * + `testing/agent-registration.ts`. Both files exist solely to construct
- * fixture data for conformance properties — `branded-ids` decodes string
- * literals into branded UserId/AgentId/ConversationId/etc.; the
- * registration helper POSTs `/api/v1/auth/register` and returns
- * `{ agentId, apiKey }`. Same role, adjacent shape; one file.
+ * Both halves exist solely to construct fixture data for conformance
+ * properties: the branded-ID constructors decode string literals into
+ * branded UserId/AgentId/ConversationId/etc.; the registration helper
+ * POSTs `/api/v1/auth/register` and returns `{ agentId, apiKey }`.
  *
- * Principle 3: registration returns
- * `Effect&lt;TestAgent, AgentRegistrationError>` — no bare throws.
+ * Registration returns `Effect&lt;TestAgent, AgentRegistrationError>` —
+ * no bare throws.
  */
 import {
   FetchHttpClient,
@@ -187,7 +185,7 @@ const parseRegistrationResponse = (
     catch: toRegistrationError,
   });
 
-// --- Real-server app registration (D #705 CP9) ---
+// --- Real-server app registration ---
 //
 // App principals register via the `/api/v1/apps/register` HTTP endpoint
 // (server-minted `{ appId, appKey }`), then `appKey`-Connect to bind an

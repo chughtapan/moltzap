@@ -114,9 +114,9 @@ function makeAgentRegisterRoute() {
   );
 }
 
-// D #705 CP9 — app registration: mint `{ appId, appKey }` + record the
-// manifest's dispatch-authorize timeout, keyed by appKey. The WS
-// `handleConnect` appKey arm reads this to bind the moderator.
+// App registration: mint `{ appId, appKey }` + record the manifest's
+// dispatch-authorize timeout, keyed by appKey. The WS `handleConnect`
+// appKey arm reads this to bind the moderator.
 function makeAppRegisterRoute(appRegistry: BadAppRegistry) {
   return HttpRouter.post(
     "/api/v1/apps/register",

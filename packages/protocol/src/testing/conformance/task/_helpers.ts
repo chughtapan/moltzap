@@ -1,6 +1,6 @@
 /**
  * Task-layer helpers shared by delivery / lifecycle / isolation
- * properties. Carved verbatim from `conformance/delivery.ts@961a5c8`.
+ * properties.
  */
 import {
   Chunk,
@@ -69,11 +69,11 @@ export interface ConversationFixture {
   readonly conversationId: ConversationId;
 
   /**
-   * D #705 CP9 — the app-principal `AppConnection` bound as the
-   * conversation's moderator. TM-admin RPCs (archive, unarchive,
-   * addParticipant, removeParticipant, close) are `callablePrincipal:
-   * "app"`, so they route through THIS client, not the agent `owner`.
-   * `owner` (an agent) still drives `task/request` + `messages/send`.
+   * The app-principal `AppConnection` bound as the conversation's
+   * moderator. TM-admin RPCs (archive, unarchive, addParticipant,
+   * removeParticipant, close) are `callablePrincipal: "app"`, so they
+   * route through THIS client, not the agent `owner`. `owner` (an agent)
+   * drives `task/request` + `messages/send`.
    */
   readonly moderatorClient: TestClient;
 }
@@ -83,10 +83,10 @@ export type ConversationActor = {
   readonly client: TestClient;
 
   /**
-   * Per-client historical notification buffer (#645): the consolidated
-   * `TestClient.subscribe` only emits frames arriving AFTER
-   * materialisation, so a sequential `send → awaitOneNotification` races
-   * the response frame. The buffer is fed by a long-lived
+   * Per-client historical notification buffer: `TestClient.subscribe`
+   * only emits frames arriving AFTER materialisation, so a sequential
+   * `send → awaitOneNotification` races the response frame. The buffer
+   * is fed by a long-lived
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
@@ -242,20 +242,16 @@ export function deliveryViolation(
 
 /**
  * Stream-based one-shot waiter for protocol-side conformance helpers.
- * Replaces the deleted `TestClient.waitForNotification(def, timeoutMs)`
- * polling shape (#645).
  *
  * Consumes the per-client historical `NotificationBuffer` populated by
  * the `subscribeAll()` pump installed at `acquireClient` time, so
- * sequential `send → awaitOneNotification` patterns observe frames
- * that arrived between the triggering RPC and the wait — the legacy
- * polling semantic preserved without resurrecting the deleted
- * per-definition dedup ring. Mirrors
+ * sequential `send → awaitOneNotification` patterns observe frames that
+ * arrived between the triggering RPC and the wait. Mirrors
  * `@moltzap/server-core/test-utils → awaitOneNotification`.
  *
  * Surfaces a single string message on either timeout or stream
- * exhaustion so call sites preserve the legacy `e.message`-style error
- * mapper without re-deriving a tagged error type per definition.
+ * exhaustion, so call sites use an `e.message`-style error mapper without
+ * a tagged error type per definition.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
@@ -718,13 +714,12 @@ export interface ModeratedHandle {
 }
 
 /**
- * D #705 CP9 — wire a SEPARATE app principal as moderator: HTTP-register
- * the manifest + `appKey`-Connect a `TestClient` whose implicit
- * registration binds it as the app's moderator endpoint. The grant-all
- * `DispatchAuthorize` + accept `TaskCreate` + forward-all
- * `MessagesAuthorize` callbacks run on THAT app connection (all are
- * server-initiated, app-principal round-trips). The agent `owner` still
- * drives `task/request` + `messages/send`.
+ * Wire a SEPARATE app principal as moderator: HTTP-register the manifest
+ * + `appKey`-Connect a `TestClient` whose implicit registration binds it
+ * as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
+ * accept `TaskCreate` + forward-all `MessagesAuthorize` callbacks run on
+ * THAT app connection (all are server-initiated, app-principal
+ * round-trips). The agent `owner` drives `task/request` + `messages/send`.
  *
  * Participant tracking stays on `owner.client` (an agent + conversation
  * participant): the `task/conversation/created` + participants/added/removed
@@ -776,9 +771,9 @@ export function acquireConversation(
       (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
       { concurrency: clamped },
     );
-    // Spec D3 + #677 + D #705 CP9: a separate app principal holds TM
-    // authority for TM-only RPCs (archive, addParticipant, close);
-    // DEFAULT_APP_ID has no TM. `owner` (agent) drives task/request below.
+    // A separate app principal holds TM authority for TM-only RPCs
+    // (archive, addParticipant, close); DEFAULT_APP_ID has no TM. `owner`
+    // (agent) drives task/request below.
     const moderator = yield* moderateAs(ctx, owner, namePrefix);
     const createResult = yield* owner.client
       .sendRpc(TaskRequest, {
