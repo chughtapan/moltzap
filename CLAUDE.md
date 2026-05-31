@@ -74,6 +74,59 @@ The only acceptable uses of `file.ts:NNN` are in PR descriptions, code
 review comments, and investigation reports — short-lived artifacts
 pinned to a specific commit.
 
+### Comment & canary discipline — cold-reader rule
+
+Write every comment for a cold reader who starts from `main` today
+with no memory of how the code got here. If a sentence only makes
+sense to someone who watched a spec get written or an issue get
+closed, it is debt — strip it.
+
+This extends the citation rule above from line numbers to migration
+history. `#560`, `Spec D3 R14b`, `Phase 9b`, `architect plan §3` rot
+the same way `file.ts:123` does, and for the same reason: a fresh
+reader cannot act on them. Provenance lives in the PR description, the
+CHANGELOG, and `git log` — never in long-lived code.
+
+**KEEP** (load-bearing for a cold reader):
+
+- Present-tense rationale — *why* the code is shaped this way, stated
+  as a current fact ("split into two schemas so callers that must not
+  see the privileged field cannot reference it").
+- Non-obvious invariants the types don't already state ("one-way
+  transition, enforced by `WHERE status = 'waiting'`").
+- Surprising-constant justifications ("capacity 8192 to hold the
+  burst envelope").
+- Cross-references by **symbol name** to the canonical owner (per
+  Cross-package DRY below) — never "see #683".
+- Mermaid diagrams in JSDoc (per Architecture documentation above).
+- `eslint-disable` / `@ts-expect-error` justifications — the *current*
+  reason the escape hatch is needed.
+
+**STRIP** (move to PR body + CHANGELOG + commit message):
+
+- Issue / PR / spec / plan numbers as inline labels (`#560`,
+  `Spec F (#617)`, `decision #11`, `risk R8`). No bare `see #NNN`
+  pointers either — cross-link by symbol name instead.
+- Change narration: `former`, `formerly`, `no longer`, `used to`,
+  `pre-cutover`, `deleted in`, `removed in`, `renamed from`,
+  `collapsed`, `replaces`, `was a bypassed gate`.
+- Design-alternatives-considered and future-work musings ("a future
+  ack-then-notify variant could…").
+- Comments that restate the next one to three lines of code.
+
+When you change a flow, rewrite the touched comment to present tense
+in the same PR — don't append a "now X (was Y)" breadcrumb. The diff
+plus the CHANGELOG entry carry the history; the code carries the
+truth.
+
+**Canaries (`*.types-check.ts`).** A canary header states the CURRENT
+type-level invariant it pins and why that invariant matters for the
+live public surface (e.g. "this client constructor requires a handler
+at the type level; the canary stops compiling if the slot becomes
+optional"). Never narrate how the surface changed, and never write a
+negative canary asserting a *deleted* thing is unreachable — pin what
+exists now.
+
 ### Cross-package DRY
 
 If a flow lives canonically in another package, **link by symbol
