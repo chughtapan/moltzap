@@ -27,12 +27,12 @@ export const waitUntil = (
 };
 
 /** Poll `probe` until it returns a defined value, then return it. */
-export const waitForValue = <A>(
-  probe: Effect.Effect<A | undefined>,
+export const waitForValue = <A, E = never, R = never>(
+  probe: Effect.Effect<A | undefined, E, R>,
   options?: { readonly pollMillis?: number },
-): Effect.Effect<A> => {
+): Effect.Effect<A, E, R> => {
   const interval = options?.pollMillis ?? DEFAULT_POLL_MILLIS;
-  const step: Effect.Effect<A> = Effect.flatMap(probe, (value) =>
+  const step: Effect.Effect<A, E, R> = Effect.flatMap(probe, (value) =>
     value !== undefined
       ? Effect.succeed(value)
       : Effect.flatMap(realSleep(interval), () => step),

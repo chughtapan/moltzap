@@ -26,10 +26,10 @@ added by the implement-staff modality (architect charter forbids
 _Function_
 
 ```ts
-export const waitForValue = <A>(
-  probe: Effect.Effect<A | undefined>,
+export const waitForValue = <A, E = never, R = never>(
+  probe: Effect.Effect<A | undefined, E, R>,
   options?: { readonly pollMillis?: number },
-): Effect.Effect<A>
+): Effect.Effect<A, E, R>
 ```
 
 Poll `probe` until it returns a defined value, then return it.

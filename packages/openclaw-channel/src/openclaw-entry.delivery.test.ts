@@ -13,9 +13,13 @@ import type { ServiceRpcError } from "@moltzap/client";
 import {
   AgentsLookup,
   MessagesSend,
+  type ConversationId,
+  type LeaseId,
+  type MessageId,
   type ParamsOf,
   type ResultOf,
   type RpcDefinition,
+  type TaskId,
 } from "@moltzap/protocol";
 import { TaskClosedError } from "@moltzap/protocol/task";
 import { RpcServerError } from "@moltzap/protocol/transport";
@@ -113,10 +117,10 @@ type DispatchCallWithContext = DispatchCall & {
   };
 };
 type SendFn = (
-  taskId: string,
-  conversationId: string,
+  taskId: TaskId,
+  conversationId: ConversationId,
   text: string,
-  opts?: { readonly replyTo?: string; readonly dispatchLeaseId?: string },
+  opts?: { readonly replyTo?: MessageId; readonly dispatchLeaseId?: LeaseId },
 ) => Effect.Effect<void, ServiceRpcError>;
 type SendToAgentFn = (
   agentName: string,
@@ -150,7 +154,6 @@ class SendToAgentTestFailure extends Data.TaggedError(
 
 const mockSend = vi.fn<SendFn>();
 const mockSendToAgent = vi.fn<SendToAgentFn>();
-const mockSendRpc = vi.fn<SendRpcFn>();
 
 let started: {
   readonly fixture: FakeChannelService;
@@ -228,11 +231,10 @@ function startGateway() {
 function createTestService(fixture: FakeChannelService): TestService {
   mockSend.mockImplementation(fixture.service.send);
   mockSendToAgent.mockReturnValue(Effect.void);
-  mockSendRpc.mockImplementation(sendRpcDefault);
   return {
     ...fixture.service,
     send: mockSend,
-    sendRpc: mockSendRpc,
+    sendRpc: sendRpcDefault,
     sendToAgent: mockSendToAgent,
   };
 }

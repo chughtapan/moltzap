@@ -4,7 +4,12 @@ import * as fc from "fast-check";
 import { Data, Effect, Stream } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
-import type { Message } from "@moltzap/protocol";
+import type {
+  AgentId,
+  ConversationId,
+  Message,
+  TaskId,
+} from "@moltzap/protocol";
 import { registerAndClaim, waitFor } from "./test-helpers.js";
 
 import {
@@ -101,19 +106,19 @@ function createStrippedClient(agentKey: string) {
 }
 
 interface DmBinding {
-  readonly taskId: string;
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
 }
 
 function createDmConversation(
   client: MoltZapAgentClient,
-  agentId: string,
+  invitee: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return client
     .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [agentId],
-      initialConversation: { participants: [agentId] },
+      invitedAgentIds: [invitee],
+      initialConversation: { participants: [invitee] },
     })
     .pipe(
       Effect.map((result) => ({
