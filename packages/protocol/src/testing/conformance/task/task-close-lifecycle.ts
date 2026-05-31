@@ -29,9 +29,8 @@ import {
   type ConversationActor,
 } from "./_helpers.js";
 
-// Property ID stays at `delivery/task-close-lifecycle` to preserve the
-// pre/post conformance baseline (#546 §7). Architect §7: "registry
-// `category` derived from the call-site, not file path."
+// Property ID stays `delivery/task-close-lifecycle`: the registry
+// `category` derives from the call-site, not the file path.
 const CATEGORY = "delivery" as const;
 const PROPERTY = "task-close-lifecycle";
 

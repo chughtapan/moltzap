@@ -22,10 +22,8 @@ import { registerConversationLifecycle } from "./conversation-lifecycle.js";
 import { registerTaskCloseLifecycle } from "./task-close-lifecycle.js";
 import { registerArchiveLifecycle } from "./archive-lifecycle.js";
 import { registerModelEquivalence } from "./model-equivalence.js";
-// Spec D1 (#598) — additive `task/*` + `task/conversation/*` family
-// per-method properties. Each `register*` exercises one new wire
-// method end-to-end on the new family. See plan §9 r2 + per-flow doc
-// §"Test alignment" for the property matrix.
+// `task/*` + `task/conversation/*` family per-method properties. Each
+// `register*` exercises one wire method end-to-end on the family.
 import {
   TASK_CONVERSATION_FAMILY_PROPERTIES,
   registerTaskConversationAddParticipant,
@@ -58,9 +56,9 @@ export {
 };
 
 /**
- * All task-layer property registrars, ordered per architect plan §2
- * (delivery subset first, then `model-equivalence` from rpc-semantics).
- * Spec D1 additions append to the delivery subset.
+ * All task-layer property registrars: delivery subset first, then the
+ * `task/conversation/*` family, then `model-equivalence` from
+ * rpc-semantics.
  */
 export const TASK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void

@@ -85,11 +85,11 @@ export interface ServerState {
 }
 
 /**
- * D #705 CP9 — app registry shared between the HTTP `/api/v1/apps/register`
- * route (which mints `{ appId, appKey }` + records the manifest's
- * dispatch-authorize timeout) and the WS `handleConnect` appKey arm (which
- * binds the connecting `AppConnection` as moderator on a known appKey). The
- * dead cross-principal WS `apps/register` RPC is gone.
+ * App registry shared between the HTTP `/api/v1/apps/register` route
+ * (which mints `{ appId, appKey }` + records the manifest's
+ * dispatch-authorize timeout) and the WS `handleConnect` appKey arm
+ * (which binds the connecting `AppConnection` as moderator on a known
+ * appKey).
  */
 export interface BadAppRegistration {
   readonly appId: string;

@@ -9,8 +9,7 @@
  *   - `yield* window.awaitHandshakeComplete` — wait for ready to settle
  *
  * Centralizing the prologue + teardown here keeps each property body
- * focused on its discriminating predicate (architect-195 / architect-197
- * anti-vacuity discipline).
+ * focused on its discriminating predicate (anti-vacuity discipline).
  *
  * Every helper below is Effect-native — no Promise return types, no raw
  * throws. Errors are mapped into `PropertyFailure` tags before surfacing.
@@ -107,8 +106,8 @@ export function acquireFixture(
  * observations (possibly empty) after `budgetMs` has elapsed or
  * `expected` matches have arrived, whichever comes first.
  *
- * Used by A2, C1, C3, C4, D1, D3, D4, E2 predicates that need to
- * discriminate real emissions from handshake-window noise.
+ * Used by predicates that need to discriminate real emissions from
+ * handshake-window noise.
  */
 export interface TaggedObservation {
   readonly tag: string;

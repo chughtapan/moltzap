@@ -7,13 +7,11 @@
  * `dispatch-admission` properties (request / authorize / release /
  * dispatches-consumed / dispatches-expired / dispatches-get / slow-first
  * / same-conv-concurrent / release-for-one-lease) plus app-disconnect
- * fail-policy, hook-gated delivery (executable since #560), multi-app FIFO
- * (tombstoned), spurious app-callback frame handling (tombstoned), and
- * idempotence.
+ * fail-policy, hook-gated delivery, multi-app FIFO (tombstone), spurious
+ * app-callback frame handling (tombstone), and idempotence.
  *
- * Each `register*` lives in its own file. The per-`dispatch-admission`
- * properties draw on the cross-impl driver in `app/_driver.ts` (carved
- * from legacy `conformance/test-server-driver.ts`).
+ * Each `register*` lives in its own file. The `dispatch-admission`
+ * properties draw on the cross-impl driver in `app/_driver.ts`.
  */
 import type { ConformanceRunContext } from "../_shared/runner.js";
 
@@ -62,10 +60,10 @@ export {
 };
 
 /**
- * All app-layer property registrars, ordered per architect plan §2:
- * 15 dispatch-admission registrars first, then the 5 cross-category
- * registrars (delivery tombstones, boundary unavailable, rpc-semantics
- * spurious-callback tombstone, rpc-semantics idempotence).
+ * All app-layer property registrars: 15 dispatch-admission registrars
+ * first, then the 5 cross-category registrars (delivery tombstones,
+ * boundary unavailable, rpc-semantics spurious-callback tombstone,
+ * rpc-semantics idempotence).
  */
 export const APP_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void

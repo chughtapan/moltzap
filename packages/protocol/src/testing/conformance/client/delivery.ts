@@ -1,22 +1,19 @@
 /**
- * Client-side delivery properties.
+ * Client-side delivery properties:
+ *   fan-out-cardinality
+ *   payload-opacity
+ *   task-boundary-isolation (client half of the both-sides property)
  *
- * Covers spec-amendment #200 §5:
- *   C1 — fan-out-cardinality (client-side new)
- *   C3 — payload-opacity (client-side new)
- *   C4 — task-boundary-isolation (client half of both-sides)
+ * Handshake-noise guard: every observation filters by `emissionTag`.
+ * fan-out-cardinality tags each of N emissions with a shared campaign
+ * id; predicate asserts exactly N observed frames with that campaign id.
+ * payload-opacity tags the one emission; predicate finds exactly one
+ * observed frame carrying the byte-identical payload. task-boundary-
+ * isolation tags task-A and task-B emissions with distinct campaigns;
+ * the task-A subscriber must observe zero task-B campaign emissions.
  *
- * Handshake-noise guard (O7): every observation filters by
- * `emissionTag`. C1 tags each of N emissions with a shared campaign
- * id; predicate asserts exactly N observed frames with that campaign
- * id. C3 tags the one emission; predicate finds exactly one observed
- * frame carrying the byte-identical payload. C4 tags task-A and
- * task-B emissions with distinct campaigns; task-A subscriber must
- * observe zero task-B campaign emissions.
- *
- * Exact-cardinality discipline (#195 §P1 on server-side C1 carries
- * over): `observedCount === N`, not `≥ 1` and not `≤ N`. Duplicates
- * and drops fail symmetrically.
+ * Exact-cardinality discipline: `observedCount === N`, not `≥ 1` and not
+ * `≤ N`. Duplicates and drops fail symmetrically.
  */
 import { Effect, type Scope } from "effect";
 import { notificationFrame } from "../../../transport/wire.js";
@@ -75,10 +72,11 @@ type DeliveryPropertyEffect = Effect.Effect<void, PropertyFailure, Scope.Scope>;
 type DeliveryAssertion = Effect.Effect<void, PropertyInvariantViolation>;
 
 /**
- * C1 client-side — TestServer emits N fan-out `NotificationFrame`s (one
- * per conversation participant position) to a real client subscribed
- * to the conversation. All N carry the same `emissionTag` campaign;
- * each carries a per-position `positionIndex` in the payload.
+ * Client-side `fan-out-cardinality` — TestServer emits N fan-out
+ * `NotificationFrame`s (one per conversation participant position) to a
+ * real client subscribed to the conversation. All N carry the same
+ * `emissionTag` campaign; each carries a per-position `positionIndex` in
+ * the payload.
  *
  * Predicate (conjunction):
  *   - `observedByCampaign.length === N`
@@ -219,10 +217,10 @@ function fanOutSlot(i: number): string {
 }
 
 /**
- * C3 client-side — TestServer emits a single `NotificationFrame` whose
- * payload contains a distinct byte-sequence token; real client's
- * subscriber surfaces a frame whose raw bytes still contain that
- * token.
+ * Client-side `payload-opacity` — TestServer emits a single
+ * `NotificationFrame` whose payload contains a distinct byte-sequence
+ * token; real client's subscriber surfaces a frame whose raw bytes still
+ * contain that token.
  *
  * Predicate (strict): the raw-bytes view of the surfaced notification
  * includes the emitted token byte-for-byte. A client that routes
@@ -321,10 +319,11 @@ function assertPayloadTokenObserved(
 }
 
 /**
- * C4 client half — TestServer emits N task-A notifications (tagged campaignA)
- * and M task-B notifications (tagged campaignB) to a real client subscribed
- * with a `conversationId` filter set to task-A. The client's task-A
- * subscriber surfaces zero campaignB events.
+ * Client half of `task-boundary-isolation` — TestServer emits N task-A
+ * notifications (tagged campaignA) and M task-B notifications (tagged
+ * campaignB) to a real client subscribed with a `conversationId` filter
+ * set to task-A. The client's task-A subscriber surfaces zero campaignB
+ * events.
  *
  * Predicate: `observedCampaignB.length === 0`.
  */

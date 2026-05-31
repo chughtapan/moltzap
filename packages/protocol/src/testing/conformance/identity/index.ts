@@ -18,7 +18,7 @@ import { registerAuthorityNegative } from "./authority-negative.js";
 export { registerAuthorityPositive, registerAuthorityNegative };
 
 /**
- * All identity-layer property registrars in legacy walk order
+ * All identity-layer property registrars, in suite walk order
  * (authority-positive → authority-negative).
  */
 export const IDENTITY_PROPERTIES: ReadonlyArray<

@@ -1,17 +1,15 @@
 /**
- * Client-side RPC-semantics properties.
+ * Client-side RPC-semantics properties:
+ *   model-equivalence (client half of the both-sides property)
+ *   request-id-uniqueness (client half of the both-sides property)
  *
- * Covers spec-amendment #200 §5:
- *   B1 — model-equivalence (client half of both-sides)
- *   B4 — request-id-uniqueness (client half of both-sides)
+ * Sampling discipline: the model-equivalence client half samples RPC
+ * methods the real client is known to originate during normal operation.
+ * The client mints its own request id; the property reads it off
+ * `RealClientHandle.call.outboundIdFeed` and filters by that id.
  *
- * Sampling discipline (#197 §2 carries over): B1 client half samples
- * RPC methods the real client is known to originate during normal
- * operation. The client mints its own request id; the property reads
- * it off `RealClientHandle.call.outboundIdFeed` and filters by that id.
- *
- * Typed-error precision (O6): B1 asserts `model-ok ⇒ client-ok`; B4
- * asserts set equality — no typed-error involvement.
+ * Typed-error precision: model-equivalence asserts `model-ok ⇒ client-ok`;
+ * request-id-uniqueness asserts set equality — no typed-error involvement.
  */
 import { Effect, type Scope } from "effect";
 import { responseFrame, type JsonRpcId } from "../../../transport/wire.js";
@@ -30,9 +28,10 @@ const PROPERTY_MODEL_EQUIVALENCE_CLIENT = "model-equivalence-client";
 const PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT = "request-id-uniqueness-client";
 
 /**
- * B1 client half — property issues `realClient.call("agents/list", {})`;
- * TestServer captures the inbound request id and emits a well-shaped
- * response; the client's pending call resolves with that result.
+ * Client half of `model-equivalence` — property issues
+ * `realClient.call("agents/list", {})`; TestServer captures the inbound
+ * request id and emits a well-shaped response; the client's pending call
+ * resolves with that result.
  *
  * Discriminates: a client that routes the response to the wrong
  * pending call (id-to-deferred mis-match) fails — the promise will
@@ -80,8 +79,9 @@ function runModelEquivalenceClient(
 }
 
 /**
- * B4 client half — TestServer emits a spurious response with marker payload
- * `{ __spurious: true }`, then a matching-id response with `{ agents: [] }`.
+ * Client half of `request-id-uniqueness` — TestServer emits a spurious
+ * response with marker payload `{ __spurious: true }`, then a matching-id
+ * response with `{ agents: [] }`.
  * A correctly correlating client returns the matching payload.
  */
 export function registerRequestIdUniquenessClient(

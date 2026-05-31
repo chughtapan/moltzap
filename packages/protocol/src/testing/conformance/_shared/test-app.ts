@@ -64,13 +64,12 @@ export interface TestAppManifestOptions {
 }
 
 /**
- * D #705 CP9 — `registerTestApp` now mints a SEPARATE app principal: it
- * HTTP-registers the manifest (`/api/v1/apps/register` → server-minted
+ * `registerTestApp` mints a SEPARATE app principal: it HTTP-registers
+ * the manifest (`/api/v1/apps/register` → server-minted
  * `{ appId, appKey }`) and opens an `appKey`-Connect `TestClient` whose
  * implicit registration binds it as the app's moderator endpoint. The
  * callers supply the real server's `baseUrl` (HTTP register) + `wsUrl`
- * (Connect), NOT a pre-built agent client — the cross-principal WS
- * `apps/register` RPC is gone.
+ * (Connect), NOT a pre-built agent client.
  */
 export interface RegisterTestAppOptions extends TestAppManifestOptions {
   readonly baseUrl: string;
@@ -177,8 +176,7 @@ function makeManifestHooks(
   options: TestAppManifestOptions,
 ): AppManifest["hooks"] {
   // Build a mutable shape locally; the returned `AppManifest["hooks"]` type is
-  // deeply `readonly` post-#723 (Effect Schema), so assemble then widen on
-  // return.
+  // deeply `readonly` (Effect Schema), so assemble then widen on return.
   const hooks: {
     dispatch_authorize?: { timeout_ms?: number };
     message_authorize?: { timeout_ms?: number };
