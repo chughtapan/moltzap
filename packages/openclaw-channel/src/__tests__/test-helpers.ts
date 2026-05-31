@@ -7,17 +7,18 @@
  */
 
 import { inject } from "vitest";
-import type { Message } from "@moltzap/protocol";
-import { Data, Effect } from "effect";
+import { AgentId, type Message } from "@moltzap/protocol";
+import { Data, Effect, Schema } from "effect";
 import { postJsonRequest } from "./node-boundary.js";
 
 const WAIT_FOR_POLL_INTERVAL_MS = 50;
 
-type RegisteredAgentClaim = {
-  apiKey: string;
-  agentId: string;
-  claimToken: string;
-};
+const RegisteredAgentClaim = Schema.Struct({
+  apiKey: Schema.String,
+  agentId: AgentId,
+  claimToken: Schema.String,
+  claimUrl: Schema.String,
+});
 
 class RegisterAndClaimError extends Data.TaggedError("RegisterAndClaimError")<{
   readonly message: string;
@@ -57,14 +58,15 @@ export function registerAndClaim(name: string) {
           }),
         );
       }
-      return yield* Effect.tryPromise({
-        try: () => res.json() as PromiseLike<RegisteredAgentClaim>,
+      const json = yield* Effect.tryPromise({
+        try: () => res.json(),
         catch: (cause) =>
           new RegisterAndClaimError({
-            message: `Register ${name} response decode failed`,
+            message: `Register ${name} response read failed`,
             cause,
           }),
       });
+      return yield* Schema.decodeUnknown(RegisteredAgentClaim)(json);
     }).pipe(Effect.withSpan("registerAndClaim")),
   );
 }
