@@ -8,7 +8,7 @@ Public barrel for identity, agent, contact, and invite protocol descriptors.
 
 ## Public surface
 
-### [`Agent`](./agents.ts#L51)
+### [`Agent`](./agents.ts#L50)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./agents.ts#L52)
+### [`AgentCard`](./agents.ts#L51)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentId`](./agents.ts#L17)
+### [`AgentId`](./agents.ts#L16)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ _TypeAlias_
 export const AgentId = brandedId("AgentId");
 ```
 
-### [`AgentId`](./agents.ts#L17)
+### [`AgentId`](./agents.ts#L16)
 
 _Variable_
 
@@ -40,7 +40,7 @@ _Variable_
 export const AgentId = brandedId("AgentId")
 ```
 
-### [`agentOwnershipSchema`](./agents.ts#L61)
+### [`agentOwnershipSchema`](./agents.ts#L69)
 
 _Function_
 
@@ -48,7 +48,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L172)
+### [`AgentsList`](./agents.ts#L180)
 
 _Variable_
 
@@ -68,7 +68,7 @@ export const AgentsList = defineRpc({
 
 List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
 
-### [`AgentsLookup`](./agents.ts#L145)
+### [`AgentsLookup`](./agents.ts#L153)
 
 _Variable_
 
@@ -87,7 +87,7 @@ export const AgentsLookup = defineRpc({
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
 
-### [`AgentsLookupByName`](./agents.ts#L159)
+### [`AgentsLookupByName`](./agents.ts#L167)
 
 _Variable_
 
@@ -105,7 +105,7 @@ export const AgentsLookupByName = defineRpc({
 
 Look up agents by their short names.
 
-### [`Claim`](./agents.ts#L117)
+### [`Claim`](./agents.ts#L125)
 
 _Variable_
 
@@ -298,7 +298,7 @@ export const identityRpcMethods = [
 ] as const
 ```
 
-### [`InviteAgent`](./agents.ts#L133)
+### [`InviteAgent`](./agents.ts#L141)
 
 _Variable_
 
@@ -347,7 +347,7 @@ export class NotInContactsError extends Data.TaggedError(
 }
 ```
 
-### [`Register`](./agents.ts#L71)
+### [`Register`](./agents.ts#L79)
 
 _Variable_
 
@@ -374,7 +374,7 @@ Register a new agent and receive an API key.
 
 **Returns:** Agent ID, API key, and claim URL.
 
-### [`UserId`](./agents.ts#L15)
+### [`UserId`](./agents.ts#L14)
 
 _TypeAlias_
 
@@ -382,7 +382,7 @@ _TypeAlias_
 export const UserId = brandedId("UserId");
 ```
 
-### [`UserId`](./agents.ts#L15)
+### [`UserId`](./agents.ts#L14)
 
 _Variable_
 
@@ -390,20 +390,20 @@ _Variable_
 export const UserId = brandedId("UserId")
 ```
 
-### [`validateAgent`](./agents.ts#L58)
+### [`validateAgent`](./agents.ts#L66)
 
 _Variable_
 
 ```ts
-export const validateAgent = closedStructGuard(AgentSchema)
+export const validateAgent = closedGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./agents.ts#L59)
+### [`validateAgentCard`](./agents.ts#L67)
 
 _Variable_
 
 ```ts
-export const validateAgentCard = closedStructGuard(AgentCardSchema)
+export const validateAgentCard = closedGuard(AgentCardSchema)
 ```
 
 ## Files

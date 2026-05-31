@@ -40,6 +40,23 @@ const UUID_RE =
 
 type RegisterParams = ParamsOf<typeof Register>;
 
+/**
+ * Strict boolean guard for an HTTP request body. The admin/register and claim
+ * routes accept operator-supplied JSON before any wire decode runs, so an
+ * extra key must reject (`{ onExcessProperty: "error" }`). Derived from the
+ * descriptor's surviving `paramsSchema` rather than the wire-path validator.
+ */
+const httpBodyGuard =
+  <A, I>(schema: Schema.Schema<A, I>) =>
+  (value: unknown): value is A =>
+    Either.match(
+      Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" }),
+      { onLeft: () => false, onRight: () => true },
+    );
+
+const validateRegisterBody = httpBodyGuard(Register.paramsSchema);
+const validateClaimBody = httpBodyGuard(Claim.paramsSchema);
+
 class HttpEarlyResponse extends Data.TaggedError("HttpEarlyResponse")<{
   readonly response: HttpServerResponse.HttpServerResponse;
 }> {}
@@ -148,7 +165,7 @@ function makeRegisterRoute(options: CoreHttpAppOptions) {
     handleEarlyResponse(
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const body = yield* readValidatedBody(request, Register.validateParams);
+        const body = yield* readValidatedBody(request, validateRegisterBody);
         yield* authorizeInviteCode(
           body.inviteCode,
           options.config.registrationSecret,
@@ -165,7 +182,7 @@ function makeClaimRoute(options: CoreHttpAppOptions) {
     handleEarlyResponse(
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const body = yield* readValidatedBody(request, Claim.validateParams);
+        const body = yield* readValidatedBody(request, validateClaimBody);
         yield* authorizeInviteCode(
           body.inviteCode,
           options.config.registrationSecret,
@@ -294,7 +311,7 @@ function readAdminRegisterPayload(
     const decoded = yield* readJsonRecord(request);
     const splitBody = splitAdminRegisterBody(decoded);
     const registerBody = splitBody.registerBody;
-    if (!Register.validateParams(registerBody)) {
+    if (!validateRegisterBody(registerBody)) {
       return yield* failResponse<AdminRegisterPayload>(
         invalidParametersResponse(),
       );

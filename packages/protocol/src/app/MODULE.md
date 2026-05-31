@@ -8,7 +8,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
-### [`appCallbackMethods`](./methods.ts#L500)
+### [`appCallbackMethods`](./methods.ts#L499)
 
 _Variable_
 
@@ -20,7 +20,7 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppManifest`](./methods.ts#L82)
+### [`AppManifest`](./methods.ts#L81)
 
 _TypeAlias_
 
@@ -28,7 +28,7 @@ _TypeAlias_
 export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 ```
 
-### [`AppManifestValidationResult`](./methods.ts#L90)
+### [`AppManifestValidationResult`](./methods.ts#L89)
 
 _TypeAlias_
 
@@ -39,7 +39,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L506)
+### [`appNotifications`](./methods.ts#L505)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](./methods.ts#L494)
+### [`appRpcMethods`](./methods.ts#L493)
 
 _Variable_
 
@@ -63,7 +63,7 @@ export const appRpcMethods = [
 ] as const
 ```
 
-### [`AppsRegister`](./methods.ts#L123)
+### [`AppsRegister`](./methods.ts#L122)
 
 _Variable_
 
@@ -77,7 +77,7 @@ export const AppsRegister = defineRpc({
 
 Register an app manifest for the current connection.
 
-### [`DispatchAuthorize`](./methods.ts#L237)
+### [`DispatchAuthorize`](./methods.ts#L236)
 
 _Variable_
 
@@ -95,7 +95,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 `LeaseRegistry.resolve`. Manifests opt in by declaring
 `hooks.dispatch_authorize`.
 
-### [`DispatchesConsumed`](./methods.ts#L276)
+### [`DispatchesConsumed`](./methods.ts#L275)
 
 _Variable_
 
@@ -118,7 +118,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./methods.ts#L293)
+### [`DispatchesExpired`](./methods.ts#L292)
 
 _Variable_
 
@@ -139,7 +139,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./methods.ts#L350)
+### [`DispatchesGet`](./methods.ts#L349)
 
 _Variable_
 
@@ -156,7 +156,7 @@ the handler: the calling connection must match the lease's
 `moderatorConnectionId` (the binding tuple recorded at mint time);
 non-moderator callers fail with `ForbiddenError`.
 
-### [`DispatchId`](./methods.ts#L199)
+### [`DispatchId`](./methods.ts#L198)
 
 _TypeAlias_
 
@@ -170,7 +170,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./methods.ts#L199)
+### [`DispatchId`](./methods.ts#L198)
 
 _Variable_
 
@@ -184,7 +184,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchRelease`](./methods.ts#L255)
+### [`DispatchRelease`](./methods.ts#L254)
 
 _Variable_
 
@@ -213,7 +213,7 @@ out via the standard EXPIRED path; no `leaseTimeoutMs` field needed
 on the hold arm because the grant TTL has not started yet (lease
 never reached GRANTED).
 
-### [`DispatchRequest`](./methods.ts#L211)
+### [`DispatchRequest`](./methods.ts#L210)
 
 _Variable_
 
@@ -244,7 +244,7 @@ Wire ordering: the ack and `dispatch/release` may race — the
 recipient absorbs the race via a client-side ring buffer + per-
 lease `Deferred` (see `packages/client/src/channel-core.ts`).
 
-### [`MessagesAuthorize`](./methods.ts#L410)
+### [`MessagesAuthorize`](./methods.ts#L409)
 
 _Variable_
 
@@ -269,7 +269,7 @@ participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`TaskCreate`](./methods.ts#L486)
+### [`TaskCreate`](./methods.ts#L485)
 
 _Variable_
 
@@ -309,7 +309,7 @@ waiting tasks are invisible to delivery (no conversation, no
 participants observe them) and are reaped by follow-up work (the
 stale-waiting-task sweep, #684).
 
-### [`validateAppManifest`](./methods.ts#L102)
+### [`validateAppManifest`](./methods.ts#L101)
 
 _Function_
 
@@ -319,11 +319,11 @@ export function validateAppManifest(
 ): AppManifestValidationResult
 ```
 
-Strict manifest validation. Decodes with `{ onExcessProperty: "error" }`
-(the former `new Ajv({ strict: true })` + `additionalProperties:false`
-rejected extra keys); on failure surfaces every `ParseError` leaf via
-`ParseResult.ArrayFormatter.formatErrorSync` (one issue → one string),
-replacing the AJV `.errors` `${instancePath} ${message}` adapter.
+Strict manifest validation. Decodes with `{ onExcessProperty: "error" }` so
+an extra key rejects the manifest at this trust boundary (an app manifest is
+operator-supplied configuration, not wire traffic). On failure surfaces every
+`ParseError` leaf via `ParseResult.ArrayFormatter.formatErrorSync` (one issue
+→ one string).
 
 ## Files
 
