@@ -13,8 +13,7 @@ import type { TaskReadAccessValue } from "./task-read-access.js";
  * handler-input — catches the "handler obtained capability for task A
  * but passed task B" bug at a token cost (one comparison).
  *
- * Variants below mirror each capability's carried-ID shape; new
- * capabilities add a sibling overload here as part of their Phase X PR.
+ * Variants below mirror each capability's carried-ID shape.
  */
 
 const ERR_CAP_TASK_MISMATCH = "capability/task mismatch";
@@ -64,9 +63,8 @@ const ERR_NOT_TASK_APP =
   "Caller is not the registered task manager for this task";
 
 /**
- * App-principal ownership gate (D #705 R6/R7). Asserts the calling app
- * IS the app bound to `task` — i.e. the app on whose behalf the task's
- * TM acts. Replaces the dissolved `TmAuthority` capability: the 8
+ * App-principal ownership gate. Asserts the calling app IS the app
+ * bound to `task` — the app on whose behalf the task's TM acts. The 8
  * task-admin RPCs (`task/close`, `task/addParticipant`,
  * `task/removeParticipant`, `task/conversation/{create,archive,
  * unarchive,addParticipant,removeParticipant}`) load the open task in
@@ -75,8 +73,7 @@ const ERR_NOT_TASK_APP =
  * `task.appId` rides as a wire `string`; the brand boundary is the type
  * system, so the equality check compares the branded `appId` argument to
  * the row value directly. Fails with `ForbiddenError` (wire -32001) when
- * the app does not own the task — preserving the pre-cutover "not the
- * registered task manager" 403 surface.
+ * the app does not own the task.
  */
 export const assertAppOwnsTask = (
   appId: AppId,

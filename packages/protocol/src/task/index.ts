@@ -11,8 +11,6 @@ export {
   ConversationArchivedError,
   ConversationFullError,
   HookBlockedError,
-  // Spec D1 (#598) — new tagged error for `task/conversation/*`
-  // participant invariant.
   ParticipantNotAdmittedError,
   MessagesSend,
   MessagesList,
@@ -20,7 +18,6 @@ export {
   TaskClose,
   TaskAddParticipant,
   TaskRemoveParticipant,
-  // Spec D1 — `task/*` + `task/conversation/*` family.
   AppId,
   DEFAULT_APP_ID,
   TaskRequest,
@@ -35,7 +32,6 @@ export {
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Spec D1 — `task/conversation/*` notifications.
   TaskConversationCreatedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,
@@ -44,7 +40,7 @@ export {
   validateDispatchDecision,
   dispatchDecisionSchema,
   messageWithDispatchDecisionSchema,
-  // Spec D3 R11 — per-kind catalog subsets.
+  // Per-kind catalog subsets.
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
 } from "./methods.js";
@@ -62,7 +58,6 @@ export type {
   MessageReceivedNotification,
   DispatchDecision,
   MessageWithDispatchDecision,
-  // Spec D1 surface types.
   InitialConversationInput,
   TaskConversationListItem,
   TaskConversationCreatedNotification,

@@ -4,22 +4,13 @@ import type { ConversationId, MessageId } from "../conversations.js";
 import type { AgentId } from "../../identity/index.js";
 
 /**
- * Composite capability for `MessageService.send` — Architect Decision A
- * in plan #606.
+ * Composite capability for `MessageService.send`.
  *
  * One tag carrying one payload shape. The handler obtains the value
  * via `provideServiceEffect`; the service body destructures the
- * carried proof rows directly.
- *
- * Earlier revisions of this surface modelled a three-arm discriminated
- * union (`forParticipantOnActiveTask | forTmBypass |
- * forTmBypassWithReply`) so the TM could bypass the
- * `refineTaskActive` gate when sending into a `failed` task. The
- * downstream `MessageService.sendInsert` never discriminated the
- * variants, no production caller exercised the failed-task window,
- * and the TM gate is now proved at obtain time via app-ownership of
- * the calling WS connection rather than a per-variant bypass flag.
- * The bypass mechanism was removed in the #673 follow-up.
+ * carried proof rows directly. TM authority to send into a task is
+ * proved at obtain time via app-ownership of the calling WS
+ * connection, so there is no per-variant bypass flag on the payload.
  */
 export interface MessageSendPermissionValue {
   readonly task: Task;
@@ -50,7 +41,7 @@ export class MessageSendPermission extends Context.Tag(
  */
 export interface ObtainMessageSendPermissionInput {
   /**
-   * Optional defensive cross-check. When supplied (e.g. by D1's
+   * Optional defensive cross-check. When supplied (e.g. by the
    * `TaskConversation*` handlers whose wire shape names `taskId`
    * independently of the conversation), `obtainMessageSendPermission`
    * runs an `assertConvBelongsToTask` defense against the conv lookup.

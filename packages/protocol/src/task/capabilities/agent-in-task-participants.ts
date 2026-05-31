@@ -4,10 +4,9 @@ import type { TaskId } from "../tasks.js";
 
 /**
  * Tier 2 capability — `agentId` is in `task_participants` for `taskId`.
- * Used by `TaskConversationAddParticipant` (D1's new handler) to prove
- * the agent being added to a conversation already participates in the
- * parent task — today's inline `task_participants` query becomes the
- * capability obtain.
+ * The `TaskConversationAddParticipant` handler requires it to prove the
+ * agent being added to a conversation already participates in the
+ * parent task.
  */
 export interface AgentInTaskParticipantsValue {
   readonly taskId: TaskId;

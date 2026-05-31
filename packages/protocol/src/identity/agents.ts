@@ -51,10 +51,10 @@ const AgentOwnershipSchema = Schema.Struct({
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 
-// Strict, excess-rejecting type guards (former `ajv.compile(schema)` strict
-// validators). `closedStructGuard` wraps a `Schema.decodeUnknownEither(...,
-// { onExcessProperty: "error" })` so extra keys are REJECTED — a bare
-// `Schema.is` would accept them and loosen the trust boundary.
+// Strict, excess-rejecting type guards. `closedStructGuard` wraps a
+// `Schema.decodeUnknownEither(..., { onExcessProperty: "error" })` so
+// extra keys are REJECTED — a bare `Schema.is` would accept them and
+// loosen the trust boundary.
 export const validateAgent = closedStructGuard(AgentSchema);
 export const validateAgentCard = closedStructGuard(AgentCardSchema);
 
