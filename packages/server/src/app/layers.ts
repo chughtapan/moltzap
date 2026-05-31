@@ -50,7 +50,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 >() {}
 
 /**
- * Request-scoped connection (D #705 CP4d). Provided per WebSocket RPC
+ * Request-scoped connection. Provided per WebSocket RPC
  * dispatch by the typed dispatcher from the live three-arm `Connection`
  * arm; read by handlers via `yield* ConnectionTag`. Handlers that only
  * need the id read `.connId`; handlers that need the principal narrow on
@@ -88,7 +88,7 @@ export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
   AuthService
 >() {}
 
-// The Connect handler's `appKey` branch (D #705 CP5 / Decision 4) reads
+// The Connect handler's `appKey` branch reads
 // `AppAuthService.authenticateApp` directly — the wire's discriminated
 // Connect params union IS the principal discriminator, so no resolver
 // sits between the wire and the auth services. Exported so
@@ -118,8 +118,8 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 >() {}
 
 /**
- * `LeaseRegistry` for the #529 reshape additive `dispatch/*` admission
- * surface. In-process state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
+ * `LeaseRegistry` for the `dispatch/*` admission surface. In-process
+ * state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
  * TTL fibers); no DB. Constructed once per server lifetime via
  * {@link LeaseRegistryLive}.
  */

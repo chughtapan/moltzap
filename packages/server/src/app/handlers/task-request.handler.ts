@@ -210,12 +210,12 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 }
 
 export const taskRequestHandlers: ServerRpcSlots = [
-  // D #705 #720 — the orthogonality proof site: `task/request` is
-  // AGENT-called (reads `ctx.agentId` as `initiatorAgentId`) yet binds via
-  // `defineAppMiddlewareMethod` (its body `yield*`s `AppHostTag` to fire the
-  // `task/create` callback). `callablePrincipal: "agent"` places it in the
-  // agent arm + hands the body an `AgentContext`; the app-layer binding
-  // admits `AppHostTag` in the R-channel. The two axes are independent.
+  // `task/request` is AGENT-called (reads `ctx.agentId` as
+  // `initiatorAgentId`) yet binds via `defineAppMiddlewareMethod` (its
+  // body `yield*`s `AppHostTag` to fire the `task/create` callback).
+  // `callablePrincipal: "agent"` places it in the agent arm + hands the
+  // body an `AgentContext`; the app-layer binding admits `AppHostTag` in
+  // the R-channel. The two axes are independent.
   //
   // `TaskRequest` declares `[ContactPolicyAllowsReach]` — woven as a static
   // single-step `weaveCaps` chain; the declared middleware tuple (2nd arg)

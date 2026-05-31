@@ -283,8 +283,8 @@ function publishOneFrame(
  * Send a `presence/changed` notification to every subscriber
  * connection. The subscriber set is snapshotted by the caller before
  * this runs, so concurrent `subscribe` / `removeConnection` mutations
- * cannot leak into the fan-out. Reads the three-arm `connectionsRef`
- * (D #705 CP4e); the per-arm `socket.write` is the wire.
+ * cannot leak into the fan-out. Reads the three-arm `connectionsRef`;
+ * the per-arm `socket.write` is the wire.
  */
 function fanOut(
   connections: ConnectionManager,

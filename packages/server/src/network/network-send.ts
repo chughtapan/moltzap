@@ -6,11 +6,9 @@
  * {@link ConnectionManager} for the writable socket. A Tag at
  * `app/layers.ts` provides this composition.
  *
- * Issue #673 cutover: the `EndpointAddress` brand + endpoint-kind
- * dispatch retired. Outbound routing is now strictly per-agent
- * ({@link send}) or per-agent-set ({@link broadcast}). App callbacks
- * write over the app's own `AppEndpoint` originator inside `AppHost`,
- * not through here.
+ * Outbound routing is strictly per-agent ({@link send}) or
+ * per-agent-set ({@link broadcast}). App callbacks write over the app's
+ * own `AppEndpoint` originator inside `AppHost`, not through here.
  */
 import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";

@@ -183,15 +183,14 @@ function makeClaimRoute(options: CoreHttpAppOptions) {
 }
 
 /**
- * D #705 CP9 — app-credential minting. The App-principal sibling of
+ * App-credential minting. The App-principal sibling of
  * `/api/v1/auth/register`: an operator POSTs an `AppManifest` and receives
  * the server-minted `{ appId, appKey }` exactly once (the `app_id` is issued
  * by `gen_random_uuid()`, never client-controlled). The returned `appKey` is
  * the credential an app client presents on the third Connect arm
  * (`connect.handlers.ts → handleConnect`'s `appKey` branch), where implicit
  * registration binds the live `AppConnection` as the app's moderator
- * endpoint. There is no WS `apps/register` RPC — cross-principal registration
- * (an agent connection registering an app) is the dissolved anti-pattern.
+ * endpoint.
  */
 function makeAppsRegisterRoute(options: CoreHttpAppOptions) {
   return HttpRouter.post(
@@ -522,10 +521,9 @@ function refreshClaimedConnections(
   agentId: AgentId,
   ownerUserId: UserId,
 ): Effect.Effect<void> {
-  // D #705 CP4d landed — the RPC dispatch context now sources auth from the
-  // three-arm `connectionsRef` arm, so rebuilding the agent arm's
-  // `AgentContext` is the ONLY write needed (the legacy `conn.auth`
-  // mutation that mirrored it is gone).
+  // The RPC dispatch context sources auth from the three-arm
+  // `connectionsRef` arm, so rebuilding the agent arm's `AgentContext` is
+  // the ONLY write needed.
   return connections.setOwnerUserIdForAgent(agentId, ownerUserId);
 }
 
