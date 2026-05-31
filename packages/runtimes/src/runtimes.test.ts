@@ -14,12 +14,15 @@ import {
   ClaudeCodeAdapter,
   type ClaudeCodeAdapterDeps,
 } from "./claude-code-adapter.js";
-import type {
-  Runtime,
-  RuntimeServerHandle,
-  SpawnInput,
-  LogSlice,
-  ReadyOutcome,
+import {
+  AgentName,
+  ApiKey,
+  ServerUrl,
+  type Runtime,
+  type RuntimeServerHandle,
+  type SpawnInput,
+  type LogSlice,
+  type ReadyOutcome,
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 
@@ -78,19 +81,12 @@ function stubDeps(): OpenClawAdapterDeps {
   };
 }
 
-function brand<T extends string>(
-  value: string,
-  _tag: T,
-): string & { readonly __brand: T } {
-  return value as string & { readonly __brand: T };
-}
-
 function stubSpawnInput(overrides?: Partial<SpawnInput>): SpawnInput {
   return {
-    agentName: brand(TEST_AGENT_NAME, "AgentName"),
-    apiKey: brand(TEST_API_KEY, "ApiKey"),
+    agentName: AgentName(TEST_AGENT_NAME),
+    apiKey: ApiKey(TEST_API_KEY),
     agentId: TEST_AGENT_ID,
-    serverUrl: brand(TEST_SERVER_URL, "ServerUrl"),
+    serverUrl: ServerUrl(TEST_SERVER_URL),
     ...overrides,
   };
 }
@@ -231,17 +227,17 @@ describe("ReadyOutcome", () => {
 
 describe("branded types", () => {
   it("AgentName brand compiles and round-trips", () => {
-    const name = brand(ALICE_AGENT_NAME, "AgentName");
+    const name = AgentName(ALICE_AGENT_NAME);
     expect(name).toBe(ALICE_AGENT_NAME);
   });
 
   it("ApiKey brand compiles and round-trips", () => {
-    const key = brand(ALICE_API_KEY, "ApiKey");
+    const key = ApiKey(ALICE_API_KEY);
     expect(key).toBe(ALICE_API_KEY);
   });
 
   it("ServerUrl brand compiles and round-trips", () => {
-    const url = brand(TEST_SERVER_URL, "ServerUrl");
+    const url = ServerUrl(TEST_SERVER_URL);
     expect(url).toBe(TEST_SERVER_URL);
   });
 });
@@ -408,7 +404,7 @@ function openClawTeardownSendsTerminateThenKill() {
       );
 
       const adapter = new OpenClawAdapter(stubDeps());
-      (adapter as OpenClawAdapterWithInjectedState).state = {
+      injectOpenClawAdapterState(adapter, {
         process: {
           exitFiber,
           kill: (signal: Signal) =>
@@ -421,7 +417,7 @@ function openClawTeardownSendsTerminateThenKill() {
         logBuffer: { value: "" },
         spawnInput: stubSpawnInput(),
         tornDown: false,
-      };
+      });
 
       try {
         const teardownPromise = Effect.runPromise(adapter.teardown());
@@ -519,9 +515,15 @@ interface InjectedOpenClawAdapterState {
   tornDown: boolean;
 }
 
-type OpenClawAdapterWithInjectedState = OpenClawAdapter & {
-  state: InjectedOpenClawAdapterState | null;
-};
+// `OpenClawAdapter.state` is private; teardown is the only path that reads it.
+// `Reflect.set` writes the field without a privacy-defeating cast. The injected
+// process omits `proc` because the teardown path under test never reads it.
+function injectOpenClawAdapterState(
+  adapter: OpenClawAdapter,
+  state: InjectedOpenClawAdapterState,
+): void {
+  Reflect.set(adapter, "state", state);
+}
 
 function runTest<A>(effect: Effect.Effect<A, never, never>) {
   return Effect.runPromise(effect);

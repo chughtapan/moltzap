@@ -85,7 +85,7 @@ function successfulFleetLaunchKeepsRuntimesUntilStopAll() {
         server: stubServer(),
         agents: alphaBetaAgentSpecs(),
         readyTimeoutMs: READY_TIMEOUT_MS,
-      });
+      }).pipe(Effect.orDie);
 
       expect(fleet.agents).toEqual([
         { name: ALPHA_AGENT_NAME, agentId: ALPHA_AGENT_ID },
@@ -193,6 +193,9 @@ function processSignalTearsDownInFlightFleet() {
       Either.match(result, {
         onLeft: (error) => {
           expect(error).toBeInstanceOf(RuntimeFleetStartupInterrupted);
+          if (error._tag !== "RuntimeFleetStartupInterrupted") {
+            return expect.fail();
+          }
           expect(error.signal).toBe(STARTUP_SIGNAL);
         },
         onRight: () => expect.fail(),

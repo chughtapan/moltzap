@@ -94,7 +94,7 @@ function stopServer() {
 function claudeCodeSpawnReadyTeardown() {
   return runTest(
     Effect.gen(function* () {
-      const paths = yield* resolveIntegrationPaths();
+      const paths = yield* resolveIntegrationPaths().pipe(Effect.orDie);
       if (paths.claudeBin === null) {
         expect(paths.claudeBin).toBeNull();
         return;
@@ -104,7 +104,7 @@ function claudeCodeSpawnReadyTeardown() {
       const reg = yield* registerAgent(
         runningServer.baseUrl,
         CLAUDE_AGENT_NAME,
-      );
+      ).pipe(Effect.orDie);
       const adapter = createWorkspaceClaudeCodeAdapter({
         server: runningServer.runtimeServer,
         claudeBin: paths.claudeBin,
