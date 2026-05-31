@@ -8,7 +8,7 @@ Public barrel for network and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentId`](./actor-model.ts#L41)
+### [`agentId`](./actor-model.ts#L40)
 
 _Property_
 
@@ -16,7 +16,7 @@ _Property_
   readonly agentId: AgentId;
 ```
 
-### [`AuthenticatedIdentity`](./actor-model.ts#L40)
+### [`AuthenticatedIdentity`](./actor-model.ts#L39)
 
 _TypeAlias_
 
@@ -32,8 +32,8 @@ The principal behind a connected agent — the post-`network/connect` view.
 Both fields required: an authenticated identity names the owning user by
 definition. The wire-layer `AgentSchema.ownerUserId` is `Optional` to
 accommodate the un-claimed `pending_claim` storage state; the actor-model
-layer only sees identities that have already passed authentication, so the
-optionality is collapsed here.
+layer only sees identities that have already passed authentication, so
+`userId` is required here.
 
 ### [`Connect`](./methods.ts#L60)
 
@@ -71,7 +71,7 @@ Authenticate a WebSocket connection. Must be the first message on a new connecti
 
 **Returns:** Connection metadata including agent ID, protocol version, conversations, and server policy.
 
-### [`ConnectionId`](./actor-model.ts#L28)
+### [`ConnectionId`](./actor-model.ts#L27)
 
 _TypeAlias_
 
@@ -93,7 +93,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`ConnectionId`](./actor-model.ts#L28)
+### [`ConnectionId`](./actor-model.ts#L27)
 
 _Variable_
 
@@ -313,7 +313,7 @@ export class ProtocolMismatchError extends Data.TaggedError(
 Reason discriminant carried in `ProtocolMismatchError.data.reason`.
 Architect plan #706 v8 (codex r7 P2 #1).
 
-### [`userId`](./actor-model.ts#L42)
+### [`userId`](./actor-model.ts#L41)
 
 _Property_
 

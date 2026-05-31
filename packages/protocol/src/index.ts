@@ -27,17 +27,8 @@
  */
 export {
   PROTOCOL_VERSION,
-  // v9 (codex r8 P2 #1): numeric segment-wise CalVer comparator.
   compareProtocolVersion,
-  // v10 (codex r9 P2 #1): protocol-range gate relocated to
-  // `version.ts` so regression tests can import it from
-  // `@moltzap/protocol` without an illegal seam through
-  // `connect.handlers.ts`.
   checkProtocolRange,
-  // P2 fix-roll (codex PR review #1 P2): typed error class for
-  // malformed version strings. Exported so the server-side handler
-  // can `Effect.catchTag("InvalidProtocolVersionError", ...)` and
-  // map to `InvalidParamsError`.
   InvalidProtocolVersionError,
 } from "./version.js";
 

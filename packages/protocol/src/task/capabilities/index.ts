@@ -5,7 +5,7 @@
  * an already-fetched row and need no server service). The `obtain*`
  * helpers that depend on server-side services live in
  * `@moltzap/server-core` — paired with their `CapabilityMiddleware` in
- * `app/capability-middlewares.ts` (#705 HALF-2), with the composites in
+ * `app/capability-middlewares.ts`, with the composites in
  * `task/services/`.
  */
 

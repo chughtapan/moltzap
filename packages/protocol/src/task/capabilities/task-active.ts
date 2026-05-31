@@ -7,11 +7,8 @@ import { TaskClosedError, type TaskStatus, type TaskId } from "../tasks.js";
  *
  * Refine-shape: takes a `SendConversationRow` already fetched by
  * `MessageService.readSendConversation` and validates the `task_status`
- * column inline. No DB call. Consumed by the composite
- * `MessageSendPermission.forParticipantOnActiveTask` obtain helper.
- *
- * The TM-bypass branch is NOT a `TaskActive` proof — it's modeled in
- * the composite `MessageSendPermission.forTmBypass` constructor instead.
+ * column inline. No DB call. Consumed by `obtainMessageSendPermission`
+ * when populating the composite `MessageSendPermission` value.
  *
  * ## Staleness window
  *
@@ -33,8 +30,7 @@ export class TaskActive extends Context.Tag("@moltzap/protocol/TaskActive")<
 
 /**
  * Refine constructor. Fails with `TaskClosedError` when status is
- * `closed` / `failed`. Consumed by `obtainMessageSendPermission` on
- * the non-TM-bypass branch.
+ * `closed` / `failed`. Consumed by `obtainMessageSendPermission`.
  */
 export const refineTaskActive = (
   taskId: TaskId,

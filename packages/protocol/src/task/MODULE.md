@@ -8,7 +8,7 @@ Public barrel for task, conversation, message, and task-manager protocol descrip
 
 ## Public surface
 
-### [`agentCallableTaskRpcMethods`](./methods.ts#L54)
+### [`agentCallableTaskRpcMethods`](./methods.ts#L50)
 
 _Variable_
 
@@ -22,7 +22,7 @@ export const agentCallableTaskRpcMethods = [
 ] as const
 ```
 
-### [`appCallableTaskRpcMethods`](./methods.ts#L62)
+### [`appCallableTaskRpcMethods`](./methods.ts#L58)
 
 _Variable_
 
@@ -760,7 +760,7 @@ export const TaskList = defineRpc({
 })
 ```
 
-### [`taskNotifications`](./methods.ts#L73)
+### [`taskNotifications`](./methods.ts#L69)
 
 _Variable_
 
@@ -770,8 +770,6 @@ export const taskNotifications = [
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Spec D3 canonical: only the task/conversation/* set survives the
-  // `conversations/*` notification deletion.
   TaskConversationCreatedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,
@@ -861,7 +859,7 @@ resolves (the handler awaits it). A future ack-then-notify variant
 could return `{ taskId }` immediately and let `task/created` /
 `task/failed` carry the outcome; that is not the current shape.
 
-### [`taskRpcMethods`](./methods.ts#L31)
+### [`taskRpcMethods`](./methods.ts#L30)
 
 _Variable_
 

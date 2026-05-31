@@ -7,8 +7,8 @@ import { defineRpc } from "../transport/method.js";
 export const InvitesCreateAgent = defineRpc({
   name: "invites/createAgent",
   params: Schema.Struct({}),
-  // Result shape hasn't been formalized yet. Keep it open rather than
-  // locking in a shape we haven't designed.
+  // Open result shape: accepts any string-keyed record so the
+  // response is not locked to an unformalized shape.
   result: Schema.Struct(
     {},
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),

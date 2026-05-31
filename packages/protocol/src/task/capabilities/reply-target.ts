@@ -11,12 +11,11 @@ import type { ConversationId, MessageId } from "../conversations.js";
  * `input.replyToId === undefined` obtains the zero-payload
  * `NoReplyTarget` constructor.
  *
- * Per Architect Decision A, these two tags are FOLDED into the
- * composite `MessageSendPermission` value (every constructor variant
- * carries one of the reply-target proofs) — they're not provided as
- * separate R-channel tags at the MessagesSend handler. They remain
- * standalone tags so D1 / future handlers can require them
- * independently if/when needed.
+ * These two tags are folded into the composite `MessageSendPermission`
+ * value (every constructor variant carries one of the reply-target
+ * proofs); they are not provided as separate R-channel tags at the
+ * `MessagesSend` handler. They stay standalone tags so a handler can
+ * require them independently.
  */
 export interface ValidReplyTargetValue {
   readonly conversationId: ConversationId;
