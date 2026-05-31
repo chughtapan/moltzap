@@ -4,8 +4,8 @@
   "packageManager": "pnpm@10.6.2",
   "scripts": {
     "build": "nx run-many -t build",
-    "test": "pnpm -r test",
-    "test:integration": "pnpm -r test:integration",
+    "test": "nx run-many -t test",
+    "test:integration": "nx run-many -t test:integration",
     "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0 && nx run-many -t lint && oxlint . --deny-warnings",
     "lint:root": "agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0",
     "format": "oxfmt .",
@@ -22,7 +22,8 @@
     "docs:check:no-hardcoded-constants": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts",
     "docs:check:doc-imports-resolve": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts",
     "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:affected": "nx affected -t test"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",

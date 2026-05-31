@@ -31,7 +31,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r build
+      - run: pnpm build
 
       - name: Start Toxiproxy
         run: docker compose -f docker-compose.conformance.yml up -d
