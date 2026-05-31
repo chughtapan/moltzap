@@ -1,33 +1,28 @@
 /**
  * Model-equivalence — conditional oracle over the model-derived
- * confident set (architect #195 §4.1 + #197 §2).
- *
- * Spec §5 B1: the server must produce what the model predicts when
+ * confident set: the server must produce what the model predicts when
  * the model is confident. `arbitraryConfidentCall()` draws calls via
- * the architect-literal shape `fc.constantFrom(...kept).chain(
- * arbitraryCallFor)` — probe and execution share the same generator
- * so confidence is checked on the same distribution the property
- * exercises (round-8 finding: a `.map(m => ({method: m, params: {}}))`
- * shortcut narrowed execution below the probe and hid real
- * param-dependent divergences).
+ * `fc.constantFrom(...kept).chain(arbitraryCallFor)` — probe and
+ * execution share the same generator so confidence is checked on the
+ * same distribution the property exercises. (A
+ * `.map(m => ({method: m, params: {}}))` shortcut would narrow execution
+ * below the probe and hide real param-dependent divergences.)
  *
- * Param-invariance safety net (#197 §2.2 + §6.1): if a drawn call
- * comes back `_tag: "error"` from the model, the single-probe
- * derivation has diverged from runtime truth (applyCall became
- * param-sensitive for that method under a later draw). The property
- * raises `PropertyInvariantViolation` instead of silently short-
- * circuiting; the fix is to widen the derivation (probe with K > 1
- * samples), not extend this property.
+ * Param-invariance safety net: if a drawn call comes back `_tag: "error"`
+ * from the model, the single-probe derivation has diverged from runtime
+ * truth (applyCall became param-sensitive for that method under a later
+ * draw). The property raises `PropertyInvariantViolation` instead of
+ * silently short-circuiting; the fix is to widen the derivation (probe
+ * with K > 1 samples), not extend this property.
  *
  * Current K = 1 (`network/ping` only). `agents/list` is not in the
  * confident set: it takes a server-validated `cursor` param, and a
  * schema-valid-but-undecodable cursor yields `InvalidParamsError`, so the
- * outcome is not param-invariantly ok. Architect #197 §2.3 notes
- * that "when K ≤ 2, the property is operating as a small number of hand-
- * picked examples; document it in JSDoc, don't pretend it's a fuzz
- * property." Widening K requires either teaching `applyCall` per-
- * method param filters (e.g. a list RPC confident only when `cursor`
- * is undefined/valid) or fixing server-side parsers that error on
+ * outcome is not param-invariantly ok. With K ≤ 2 the property operates
+ * as a small number of hand-picked examples, not a fuzz property.
+ * Widening K requires either teaching `applyCall` per-method param
+ * filters (e.g. a list RPC confident only when `cursor` is
+ * undefined/valid) or fixing server-side parsers that error on
  * pathological schema-valid params (e.g. `cursor: " "` → InvalidParams
  * on cursor decode).
  *
@@ -114,7 +109,7 @@ function paramInvariantViolation(
   return new PropertyInvariantViolation({
     category: CATEGORY,
     name: PROPERTY,
-    reason: `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to fc.sample-based check per architect #197 §2.2`,
+    reason: `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to an fc.sample-based check`,
   });
 }
 

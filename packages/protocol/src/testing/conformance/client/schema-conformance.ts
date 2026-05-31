@@ -1,23 +1,22 @@
 /**
- * Client-side schema-conformance properties.
- *
- * Covers spec-amendment #200 §5:
- *   A2 — notification-well-formedness (client-side new)
- *   A4 — malformed-frame-handling (client half of both-sides)
+ * Client-side schema-conformance properties:
+ *   notification-well-formedness
+ *   malformed-frame-handling (client half of the both-sides property)
  *
  * Predicate-authoring discipline:
- *   - P1 (#195): every predicate names a client-realistic misbehaviour.
- *     Here it's "real client surfaces a malformed or dropped notification."
- *   - P2 (#195): executable divergence proofs live under
+ *   - Every predicate names a client-realistic misbehaviour. Here it's
+ *     "real client surfaces a malformed or dropped notification."
+ *   - Executable divergence proofs live under
  *     `__divergence_proofs__/*-executable.proofs.test.ts`.
- *   - O7 (#200): every observation filters by property-authored
- *     `emissionTag` via `ClientHandshakeWindow.emitTaggedNotification` — auto-
- *     subscribe / hello / resume frames never satisfy a predicate.
- *   - O6 (#200): when spec names a typed error, assert exact match.
- *     A4 client half: `MalformedFrameError` is documented; the adapter
- *     exposes no typed error channel, so the predicate checks liveness
- *     only — a client that crashes on a malformed frame will disconnect,
- *     preventing the subsequent liveness probe from surfacing.
+ *   - Every observation filters by property-authored `emissionTag` via
+ *     `ClientHandshakeWindow.emitTaggedNotification` — auto-subscribe /
+ *     hello / resume frames never satisfy a predicate.
+ *   - When the spec names a typed error, assert exact match. For the
+ *     malformed-frame-handling client half, `MalformedFrameError` is
+ *     documented; the adapter exposes no typed error channel, so the
+ *     predicate checks liveness only — a client that crashes on a
+ *     malformed frame disconnects, preventing the subsequent liveness
+ *     probe from surfacing.
  */
 import { Effect } from "effect";
 import { decodesStrictly } from "../../../schema-primitives.js";
@@ -48,10 +47,10 @@ const PROPERTY_BUDGET_MS = 8_000;
 const NotificationFrameSchema = notificationFrameSchema();
 
 /**
- * A2 client-side — TestServer emits a property-sampled valid
- * `NotificationFrame` with a property-authored `emissionTag`; real client's
- * subscriber surfaces a notification whose payload schema-matches within
- * deadline.
+ * Client-side `notification-well-formedness` — TestServer emits a
+ * property-sampled valid `NotificationFrame` with a property-authored
+ * `emissionTag`; real client's subscriber surfaces a notification whose
+ * payload schema-matches within deadline.
  *
  * Predicate: `Value.Check(NotificationFrameSchema, observed.decoded)` passes
  * AND `params.__emissionTag === emissionTag`.
@@ -74,11 +73,12 @@ export function registerNotificationWellFormednessClient(
 }
 
 /**
- * A4 client half — TestServer emits a bit-flipped / truncated /
- * oversized frame; real client drops it silently. A subsequent tagged
- * valid notification still surfaces (liveness proof, mirrors #187 round-5
- * guard). A client that crashes on the malformed frame disconnects,
- * preventing the liveness probe from surfacing within the deadline.
+ * Client half of `malformed-frame-handling` — TestServer emits a
+ * bit-flipped / truncated / oversized frame; real client drops it
+ * silently. A subsequent tagged valid notification still surfaces
+ * (liveness proof). A client that crashes on the malformed frame
+ * disconnects, preventing the liveness probe from surfacing within the
+ * deadline.
  *
  * Predicate: liveness — next tagged notification surfaces within deadline.
  */

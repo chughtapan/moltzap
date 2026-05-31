@@ -22,7 +22,7 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "emit-time independence of leases (closes #358 P3)",
+    "emit-time independence of leases",
     withDriver(ctx, (driver) => assertReleaseIndependence(NAME, driver), {
       moderatorTimeoutMs: 15_000,
     }).pipe(Effect.withSpan("registerReleaseForOneLeaseDoesNotWaitOnAnother")),

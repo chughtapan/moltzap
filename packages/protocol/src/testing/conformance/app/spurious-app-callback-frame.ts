@@ -2,8 +2,8 @@
  * Spurious appCallback responses do not crash or poison the server.
  *
  * The server's app-callback channel routes outbound RPCs through the
- * Spec F (#617) typed `ServerConnection` originator, which tracks
- * server-originated request ids. An inbound response with no matching
+ * typed `ServerConnection` originator, which tracks server-originated
+ * request ids. An inbound response with no matching
  * pending request must be ignored and the connection must remain live
  * for ordinary client RPCs.
  */

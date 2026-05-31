@@ -1,8 +1,5 @@
 /**
  * Network-layer helpers shared by presence properties.
- *
- * Carved verbatim from `conformance/presence.ts@961a5c8`. Body
- * unchanged; import paths shift to the new layer location.
  */
 import { Effect, Option, Stream, Duration, type Scope } from "effect";
 
@@ -30,11 +27,8 @@ export const PRESENCE_CATEGORY = "presence" as const;
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000;
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256;
 
-// v7 (architect plan #706): narrowed from `["online", "offline",
-// "away"]` to `["online", "working", "offline"]` to match the
-// server-derived `PresenceStatusEnum`. Conformance properties
-// targeting the deleted `away` state migrate to `working` via the
-// LeaseRegistry-grant lifecycle (impl-staff §8 conformance bullet).
+// Matches the server-derived `PresenceStatusEnum`. `working` is driven
+// by the LeaseRegistry-grant lifecycle.
 export type PresenceStatus = "online" | "working" | "offline";
 
 export interface PresenceChangedPayload {
@@ -153,8 +147,7 @@ export function subscribePresence(
  *
  * `TestClient.subscribe(def)` filters by descriptor only, so we
  * consume the broad-union `subscribeAll()` Stream with a per-payload
- * predicate and timeout it ourselves (#645: replaces the legacy
- * polling `client.notifications` Stream).
+ * predicate and timeout it ourselves.
  */
 export function waitForPresenceWithStatus(
   client: TestClient,

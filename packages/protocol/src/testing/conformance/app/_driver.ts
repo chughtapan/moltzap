@@ -1,13 +1,12 @@
 /**
- * Cross-impl `dispatch-admission` test driver — implementation for the
- * row 13 reshape cutover (#533).
+ * Cross-impl `dispatch-admission` test driver.
  *
- * The 15 `dispatch-admission` properties registered in `dispatch-admission.ts`
- * cannot execute against a single TestClient: the round-trip needs TWO
- * TestClients scripted in lockstep against the same real server — a
- * recipient that issues `dispatch/request`, and a moderator that
- * receives `dispatch/authorize` and replies. The driver is the
- * conformance-tier helper that wires both ends.
+ * The 15 `dispatch-admission` properties cannot execute against a single
+ * TestClient: the round-trip needs TWO TestClients scripted in lockstep
+ * against the same real server — a recipient that issues
+ * `dispatch/request`, and a moderator that receives `dispatch/authorize`
+ * and replies. The driver is the conformance-tier helper that wires both
+ * ends.
  *
  * It does NOT subclass / wrap `TestServer` — TestServer is the byte-level
  * harness for fault-injection and stays untouched. The driver composes
@@ -16,15 +15,11 @@
  * injected `RealServerHandle` (already present on every conformance run
  * via the conformance `runner`).
  *
- * Architect plan #533 §3 + §7 + Revisions r1 (correction 2 dropped
- * `connectionId` from both handles).
- *
- * Principle 3 — every method's error channel is named
- * (`PropertyFailure` for property-level outcomes; tagged transport
- * errors otherwise).
- * Principle 4 — verdict shape and lease state are closed string-literal
- * unions; the driver re-exports the wire types so property authors
- * never re-construct them by hand.
+ * Every method's error channel is named (`PropertyFailure` for
+ * property-level outcomes; tagged transport errors otherwise). Verdict
+ * shape and lease state are closed string-literal unions; the driver
+ * re-exports the wire types so property authors never re-construct them
+ * by hand.
  */
 import {
   Cause,
@@ -98,8 +93,8 @@ export type DispatchVerdict =
 /**
  * Closed lease-state union mirroring `LeaseStateSchema`. The driver's
  * `assertLeaseState` polls `dispatches/get` until the registry settles
- * to the named state or the bound elapses (impl-staff picks the bound
- * per-property; default 5 s).
+ * to the named state or the bound elapses (the bound is per-property;
+ * default 5 s).
  */
 export type LeaseState =
   | "PENDING"
@@ -523,13 +518,12 @@ function acquireCloseableClient(
 }
 
 /**
- * #645: Spec B's `Stream.async` surface only emits frames that arrive
- * AFTER materialisation. Conformance properties rely on a polling-shape
- * "subscribe AFTER trigger" pattern; bridge by installing a long-lived
- * pump at handle-construction time that buffers each per-definition
- * frame into an unbounded Queue. `waitFor*` consumes from the Queue,
- * which preserves historical buffering semantics without leaking back
- * into the deleted polling shape.
+ * The `Stream.async` notification surface only emits frames that arrive
+ * AFTER materialisation. Conformance properties rely on a "subscribe
+ * AFTER trigger" pattern; bridge by installing a long-lived pump at
+ * handle-construction time that buffers each per-definition frame into an
+ * unbounded Queue. `waitFor*` consumes from the Queue, so a frame that
+ * arrives before the wait is still observed.
  */
 // #ignore-sloppy-code[async-keyword]: JSDoc reference to `Stream.async` Effect primitive, not a JS `async` modifier
 interface ReleaseBuffer {
@@ -588,11 +582,10 @@ function waitForRelease(
   predicate?: Parameters<RecipientHandle["waitForRelease"]>[0],
   timeoutMs = DEFAULT_WAIT_FOR_RELEASE_MS,
 ): ReturnType<RecipientHandle["waitForRelease"]> {
-  // #645: pull from the per-handle Queue populated by the long-lived
+  // Pull from the per-handle Queue populated by the long-lived
   // `subscribe(DispatchRelease)` pump installed in `buildRecipientHandle`.
-  // The pump preserves historical buffering semantics that the legacy
-  // polling shape provided implicitly; properties continue to call
-  // `waitForRelease` AFTER the triggering RPC without races.
+  // The Queue buffers frames that arrive before the wait, so properties
+  // call `waitForRelease` AFTER the triggering RPC without races.
   return takeMatchingFromQueue(buffer.queue, predicate, timeoutMs).pipe(
     Effect.mapError((reason) =>
       reason === "timeout"
@@ -684,7 +677,7 @@ function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
   const errorState = rpcErrorState(rpcErr);
   return Effect.succeed({
     // Sentinel placeholder on the error path — no message was created, so
-    // there is no real id to decode. (Was `"" as Static<MessageId>` pre-#723.)
+    // there is no real id to decode.
     // eslint-disable-next-line agent-code-guard/no-schema-type-cast -- sentinel empty-string id on an error path, not a wire decode
     messageId: "" as Schema.Schema.Type<typeof MessageId>,
     errorCode: rpcErr.code,
@@ -766,8 +759,8 @@ interface LeaseStateTimeoutInput {
 
 /**
  * Per-`ModeratorHandle` Queue buffers for the two observability
- * notification kinds (#645). Long-lived pumps subscribe to each
- * definition at handle-construction time and offer arrivals; the
+ * notification kinds. Long-lived pumps subscribe to each definition at
+ * handle-construction time and offer arrivals; the
  * `waitForObservability` API consumes the matching queue.
  */
 interface ObservabilityBuffers {
@@ -865,10 +858,10 @@ function waitForObservability<K extends "consumed" | "expired">(
   opts: Parameters<ModeratorHandle["waitForObservability"]>[1],
 ): Effect.Effect<ObservabilityNotification<K>, PropertyFailure> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_OBSERVABILITY_TIMEOUT_MS;
-  // #645: pull from the per-handle Queue populated by the long-lived
+  // Pull from the per-handle Queue populated by the long-lived
   // `subscribe(DispatchesConsumed|Expired)` pumps installed in
-  // `buildModeratorHandle`. The pump preserves historical-buffer
-  // semantics so properties can call `waitForObservability` after the
+  // `buildModeratorHandle`. The Queue buffers frames that arrive before
+  // the wait, so properties call `waitForObservability` after the
   // triggering action (e.g. `advanceTime`) without races.
   const queue =
     kind === "consumed"
@@ -942,7 +935,7 @@ function leaseResultFromWire(result: unknown): {
     state: lease["state"] as LeaseState,
     verdict: verdictFromWire(lease["verdict"]),
     // The wire `leaseId` is a server-minted UUID; decode it through the brand
-    // schema rather than a bare cast (post-#723 brand is an Effect `Schema`).
+    // schema rather than a bare cast (the brand is an Effect `Schema`).
     leaseId: Schema.decodeUnknownSync(LeaseId)(lease["leaseId"]),
   };
 }
@@ -962,11 +955,11 @@ export function makeDispatchTestDriver(
   const resolved = resolveDriverConfig(config ?? {});
   return Effect.gen(function* () {
     const agents = yield* acquireDriverAgents(ctx);
-    // D #705 CP9 — register the moderator app FIRST (HTTP + `appKey`
-    // Connect → an `AppConnection`); `task/request` then targets the
-    // server-minted `appId`. App-only RPCs + moderator callbacks +
-    // `dispatches/get` route through `app.client`; the agent
-    // `moderatorClient` only drives the agent-called `task/request`.
+    // Register the moderator app FIRST (HTTP + `appKey` Connect → an
+    // `AppConnection`); `task/request` then targets the server-minted
+    // `appId`. App-only RPCs + moderator callbacks + `dispatches/get`
+    // route through `app.client`; the agent `moderatorClient` only drives
+    // the agent-called `task/request`.
     const app = yield* registerDriverApp(ctx, resolved);
     const clients = yield* acquireDriverClients(ctx, agents, app);
     const taskAppId = app === null ? DEFAULT_APP_ID : app.appId;

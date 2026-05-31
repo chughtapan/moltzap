@@ -19,7 +19,7 @@ export function registerSameConversationDispatchesConcurrent(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "two dispatch/request calls in same (taskId, conversationId) reach the moderator without server-side serialization (closes #358 P1)",
+    "two dispatch/request calls in same (taskId, conversationId) reach the moderator without server-side serialization",
     withDriver(ctx, (driver) =>
       runSameConversationDispatchesConcurrent(NAME, driver),
     ).pipe(Effect.withSpan("registerSameConversationDispatchesConcurrent")),

@@ -3,12 +3,9 @@
  * mutates the recipient view, dynamically attached conversations enter
  * the hook pipeline.
  *
- * Phase 1A architect §5 disposition: RETOMBSTONE — flip-to-executable
- * needs hook-RPC infrastructure that the layered refactor reshaped, and
- * is implementer-tier behavior change outside Phase 1A's structural
- * scope. Property ID stays at `delivery/hook-gated-delivery` to preserve
- * the conformance baseline (architect §7 — registry category derives
- * from the call-site, not the file path).
+ * Tombstone: making this executable needs hook-RPC infrastructure not
+ * yet present. The property ID stays `delivery/hook-gated-delivery` —
+ * the registry category derives from the call-site, not the file path.
  */
 import { Effect } from "effect";
 import { TaskRequest } from "../../../task/methods.js";
@@ -30,7 +27,7 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
           new PropertyDeferred({
             category: CATEGORY,
             name: PROPERTY,
-            followUp: `deny/patch/attach assertions need TM-topology hook routing; reactivate alongside #554 (${TaskRequest.name} bootstrap)`,
+            followUp: `deny/patch/attach assertions need TM-topology hook routing (${TaskRequest.name} conversation bootstrap)`,
           }),
         );
       }).pipe(Effect.withSpan("registerHookGatedDelivery")),

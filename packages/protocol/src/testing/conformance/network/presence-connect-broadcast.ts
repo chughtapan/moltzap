@@ -1,6 +1,6 @@
 /**
  * Presence — `network/connect after subscribe` ⇒ subscriber receives
- * `presence/changed { online }`. Closes arena#252.
+ * `presence/changed { online }`.
  */
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";

@@ -44,10 +44,8 @@ export {
 
 /**
  * All transport-layer property registrars, in the order
- * `_shared/suite.ts` invokes them. Order matches the legacy
- * `registerAllProperties` walk for byte-equivalent baseline output:
- * schema-conformance subset (5) → rpc-semantics subset (2) →
- * adversity (5) → boundary subset (1).
+ * `_shared/suite.ts` invokes them: schema-conformance subset (5) →
+ * rpc-semantics subset (2) → adversity (5) → boundary subset (1).
  */
 export const TRANSPORT_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void

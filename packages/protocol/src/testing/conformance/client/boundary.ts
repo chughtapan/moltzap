@@ -1,11 +1,9 @@
 /**
  * Client-side boundary properties.
  *
- * Covers spec-amendment #200 §5:
- *   E2 — schema-exhaustive-fuzz (client half of both-sides)
- *
- * E1 (webhook-graceful-shutdown) is N/A on the client side per spec —
- * no client-observable surface.
+ * Covers schema-exhaustive-fuzz (client half of the both-sides property).
+ * webhook-graceful-shutdown is N/A on the client side — no
+ * client-observable surface.
  */
 import { Effect } from "effect";
 import * as fc from "fast-check";
@@ -26,9 +24,9 @@ const DEFAULT_FUZZ_BURST_RUNS = 10;
 const PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT = "schema-exhaustive-fuzz-client";
 
 /**
- * E2 client half — TestServer emits arbitrary `NotificationFrame`s across
- * many shapes to a real client. Properties interleave with a tagged
- * liveness probe and a task-boundary assertion.
+ * Client half of `schema-exhaustive-fuzz` — TestServer emits arbitrary
+ * `NotificationFrame`s across many shapes to a real client. Properties
+ * interleave with a tagged liveness probe and a task-boundary assertion.
  *
  * Predicate (both must hold):
  *   1. No crash — real client stays `ready`; no spurious closeSignal.

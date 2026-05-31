@@ -3,9 +3,9 @@
  * through a real TestClient against the real server and asserts every
  * returned frame parses against `ResponseFrameSchema`.
  *
- * Carved verbatim from `conformance/schema-conformance.ts@961a5c8`;
- * registry `category` string preserved as `"schema-conformance"` so
- * post-reorg property IDs match pre-reorg.
+ * The registry `category` is `"schema-conformance"`, not the file's
+ * `transport` layer name — property IDs derive from the call-site
+ * category, not the file path.
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";

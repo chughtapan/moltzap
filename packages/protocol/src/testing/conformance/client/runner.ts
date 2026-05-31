@@ -8,13 +8,12 @@
  * Scope>`; scope teardown closes the real client, drains the handshake-noise
  * guard (see `ClientHandshakeWindow` below), and releases the TestServer.
  *
- * Architect O5 decision: the factory returns an `Effect` that owns the real
- * client's lifetime via `Scope`. Consumers that already ship an Effect-native
- * construction path (`packages/client/MoltZapAgentClient` via its internal
- * `ManagedRuntime`) wrap it in `Effect.acquireRelease`. Channel packages
- * (`openclaw-channel`, `nanoclaw-channel`) add a narrow test-support subpath
- * export (see §4 O5 resolution in the design doc) that returns the same
- * factory shape.
+ * The factory returns an `Effect` that owns the real client's lifetime via
+ * `Scope`. Consumers that already ship an Effect-native construction path
+ * (`packages/client/MoltZapAgentClient` via its internal `ManagedRuntime`)
+ * wrap it in `Effect.acquireRelease`. Channel packages (`openclaw-channel`,
+ * `nanoclaw-channel`) add a narrow test-support subpath export that returns
+ * the same factory shape.
  */
 import {
   Config,
@@ -73,10 +72,10 @@ function randomTagSuffix(): string {
  * The consumer's factory returns this under a `Scope`; scope release runs
  * `close()`.
  *
- * Invariant I9: every field below is a **public** observable surface on
- * the real client — no private reads, no monkey-patching, no log
- * scraping. When a channel package's client is private, the consumer
- * exposes it via a test-support subpath export (O5 resolution).
+ * Every field below is a **public** observable surface on the real
+ * client — no private reads, no monkey-patching, no log scraping. When a
+ * channel package's client is private, the consumer exposes it via a
+ * test-support subpath export.
  */
 export interface RealClientHandle {
   /**
@@ -102,15 +101,16 @@ export interface RealClientHandle {
   readonly notifications: RealClientNotificationSubscriber;
 
   /**
-   * Real client's documented RPC caller. B1 / B4 / D5 predicates invoke
-   * this and assert on the returned promise's resolution / rejection.
+   * Real client's documented RPC caller. The model-equivalence,
+   * request-id-uniqueness, and adversity-timeout predicates invoke this
+   * and assert on the returned promise's resolution / rejection.
    */
   readonly call: RealClientRpcCaller;
 
   /**
-   * Real client's documented close / disconnect lifecycle signal. D6
-   * predicate awaits this on slow-close and asserts it resolves within
-   * the reap deadline.
+   * Real client's documented close / disconnect lifecycle signal. The
+   * adversity-slow-close predicate awaits this on slow-close and asserts
+   * it resolves within the reap deadline.
    */
   readonly closeSignal: Effect.Effect<RealClientCloseEvent>;
 
@@ -129,9 +129,7 @@ export interface RealClientHandle {
  * to this interface.
  *
  * `filter` is a predicate over `DecodedNotification`. Pass `undefined`
- * (or omit) for match-all (#645: replaced the three-field record
- * grammar that previously existed only so the adapter could
- * reconstruct it inline).
+ * (or omit) for match-all.
  */
 export interface RealClientNotificationSubscriber {
   readonly subscribe: (
@@ -148,7 +146,7 @@ export interface RealClientSubscription {
 /**
  * Predicate over a decoded notification frame. The conformance adapter
  * plumbs this directly to `MoltZapAgentClient.subscribeAll(refinement)` —
- * no inline grammar reconstruction. Absent = match-all (#645).
+ * no inline grammar reconstruction. Absent = match-all.
  */
 export type RealClientNotificationFilter = (
   notification: DecodedNotification<AnyNotificationDefinition>,
@@ -156,7 +154,7 @@ export type RealClientNotificationFilter = (
 
 /**
  * Observed notification after the real client has surfaced it on its public
- * subscriber API. `rawBytes` carries the payload byte-for-byte (C3);
+ * subscriber API. `rawBytes` carries the payload byte-for-byte;
  * `decoded` is unknown because divergence proofs intentionally model clients
  * that surface malformed notifications.
  */
@@ -171,7 +169,7 @@ export interface ObservedNotification {
  * Real client's RPC caller. Takes the raw JSON-RPC method + params;
  * returns the decoded response or a typed error. Contract: the real client
  * itself generates request IDs — the property does not mint them and does
- * not see them. Tests that need to verify id-correlation (B4) discriminate
+ * not see them. Tests that need to verify id-correlation discriminate
  * via the `result` content of the response: spurious responses carry a
  * marker payload that the matching response does not, so a correctly
  * correlating client returns the matching payload.
@@ -197,7 +195,7 @@ function newRealServerAcquireError(message: string): RealServerAcquireError {
   return new RealServerAcquireError({ cause: new Error(message) });
 }
 
-/** Typed error surface for real-client RPC calls (D5 predicate target). */
+/** Typed error surface for real-client RPC calls. */
 export class RealClientRpcError extends Data.TaggedError("RealClientRpcError")<{
   readonly cause: unknown;
   readonly documentedErrorTag: string | null;
@@ -217,7 +215,7 @@ export interface RealClientCloseEvent {
 }
 
 /**
- * Handshake-noise guard window (O7 resolution).
+ * Handshake-noise guard window.
  *
  * When a real client connects to TestServer, `packages/client` and the
  * channel packages emit hello + subscribe + presence frames **before**
@@ -230,8 +228,8 @@ export interface RealClientCloseEvent {
  * emission with a property-authored `emissionTag`; the
  * `RealClientNotificationSubscriber` filter drops untagged notifications.
  *
- * D6 is the only client-side property exempt (observes lifecycle
- * signals, not frames).
+ * adversity-slow-close is the only client-side property exempt (observes
+ * lifecycle signals, not frames).
  */
 export interface ClientHandshakeWindow {
   readonly freshEmissionTag: Effect.Effect<string>;
@@ -388,9 +386,9 @@ function makePlaceholderHandshakeWindow(): ClientHandshakeWindow {
  * Default tagged-notification emission: forward the notification through the
  * connection's real `emitNotification` and record the caller's `emissionTag`
  * keyed by the frame's stable wire content. Per-method `paramsSchema` is
- * `additionalProperties: false` post-Phase-12 (#222), so an injected
- * `__emissionTag` field would fail validation and the real client would drop
- * the frame. Instead we register the (rawBytes → tag) mapping in
+ * `additionalProperties: false`, so an injected `__emissionTag` field
+ * would fail validation and the real client would drop the frame.
+ * Instead we register the (rawBytes → tag) mapping in
  * `recordTagForEmittedFrame` and let `filterTagged` look up the tag from
  * the observed `rawBytes` rather than reading a payload-injected key.
  */
@@ -450,7 +448,7 @@ function emitTaggedResponseDefault(
 ): Effect.Effect<string> {
   // Response frames don't carry a free-form `params` field; responses are
   // correlated by `id` instead — the response's `id` IS its emission tag
-  // from the property's perspective (see B1 / B4 / D5 predicates).
+  // from the property's perspective.
   const tag = typeof base.id === "string" ? base.id : _emissionTag;
   return connection.emitResponse(base).pipe(
     Effect.orElseSucceed(() => undefined),
@@ -492,7 +490,7 @@ export function makeClientHandshakeWindow(
  *
  * Exposed as a helper so each property body can choose whether to run
  * the auto-responder or assert directly against the raw inbound stream
- * (e.g., B4 spurious-id test wants to observe the inbound ids).
+ * (e.g., the request-id-uniqueness test wants to observe the inbound ids).
  */
 export function runAutoHandshakeResponder(
   connection: TestServerConnection,

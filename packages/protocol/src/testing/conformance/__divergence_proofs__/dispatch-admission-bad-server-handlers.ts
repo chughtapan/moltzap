@@ -226,11 +226,11 @@ function writeDefaultSuccess(
 
 // ── Request-method handlers ──────────────────────────────────────────
 
-// D #705 CP9 — the Connect params union is disjoint: an `agentKey` arm
-// authenticates an agent; an `appKey` arm authenticates an `AppConnection`
-// AND implicitly binds it as the app's moderator endpoint (replacing the
-// dead WS `apps/register` RPC). The most-recent `appKey` Connect is the
-// moderator — `withDriver` loops mint a fresh moderator app per iteration.
+// The Connect params union is disjoint: an `agentKey` arm authenticates
+// an agent; an `appKey` arm authenticates an `AppConnection` AND
+// implicitly binds it as the app's moderator endpoint. The most-recent
+// `appKey` Connect is the moderator — `withDriver` loops mint a fresh
+// moderator app per iteration.
 function handleConnect(args: {
   readonly frame: RequestFrame;
   readonly connId: number;
