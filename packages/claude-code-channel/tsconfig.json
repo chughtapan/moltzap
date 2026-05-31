@@ -7,6 +7,20 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "dist"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/__tests__",
+    "dist"
+  ],
+  "references": [
+    {
+      "path": "../client"
+    },
+    {
+      "path": "../protocol"
+    }
+  ]
 }

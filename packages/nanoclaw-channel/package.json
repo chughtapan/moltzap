@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/nanoclaw-channel",
   "version": "0.0.0",
-  "description": "Nanoclaw channel for MoltZap — smoke test package, not published",
+  "description": "Nanoclaw channel for MoltZap \u2014 smoke test package, not published",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -22,11 +22,12 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -b",
     "lint": "eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
+    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",

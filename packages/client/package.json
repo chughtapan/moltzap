@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/client",
   "version": "2026.529.0",
-  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
+  "description": "MoltZap client service \u2014 connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -39,12 +39,13 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -b",
     "lint": "eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts",
-    "docs:generate": "tsc && pnpm exec tsx scripts/generate-cli-docs.ts"
+    "docs:generate": "tsc -b && pnpm exec tsx scripts/generate-cli-docs.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@effect/cli": "^0.75.1",
