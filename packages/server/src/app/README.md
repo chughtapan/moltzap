@@ -2,7 +2,7 @@
 
 App-host, app registration, capability middlewares, top-level
 server boot, layer composition, HTTP routes, WS socket handler. (The
-dispatch lease registry now lives in `task/leases/`.)
+dispatch lease registry lives in `task/leases/`.)
 
 ## Layer rules
 
@@ -30,9 +30,7 @@ dispatch lease registry now lives in `task/leases/`.)
   Forward{participants∖sender}`, `task/create → accept`).
 - `capability-middlewares.ts` — one `CapabilityMiddleware` per cap
   (`provides` / `derivePayload` / `obtain`), woven at the binding site by
-  `weaveCaps` (#705 HALF-2 — the descriptor `capabilities` array, the
-  `argsOf` resolver, the runtime `dischargeCaps` fold, and the positional
-  providers tuple are all gone). File-level JSDoc covers the full R-channel
+  `weaveCaps`. File-level JSDoc covers the full R-channel
   capability pattern and the recipe for new capabilities.
 - `http-routes.ts` — `makeCoreHttpApp`; `/health`, `/ws`, auth
   register / claim, optional admin route.

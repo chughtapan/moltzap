@@ -394,8 +394,8 @@ function completeAgentConnect(
       sessionValidator,
       db,
     );
-    // The agent arm is minted by the immutable transition below; there is
-    // no longer a legacy `conn.auth` mutation (the arm IS the auth store).
+    // The agent arm is minted by the immutable transition below; the
+    // arm IS the auth store.
     yield* mirrorAgentArmTransition(connections, connId, auth);
     yield* hydrateConnectionState(
       connections,
