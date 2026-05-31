@@ -42,6 +42,16 @@ table (the AgentClient kind's inbound catalog is empty); the factory
 accepts it for forward compatibility (if a future spec adds
 AgentClient-inbound RPCs, the slot table demands coverage).
 
+### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L76)
+
+_Variable_
+
+```ts
+export const AgentClientRpcGroup = groupFromCatalog(agentClientRpcMethods)
+```
+
+Outbound group callable from `MoltZapAgentClient`.
+
 ### [`AlreadyConnected`](./wire-errors.ts#L161)
 
 _Class_
@@ -85,6 +95,16 @@ Each element's `Params` is the OWNING method's decoded params type. The
 tuple narrows them at the descriptor literal (the same erasure-vs-recover
 pattern as `CapabilityDescriptor` / `CapabilitiesOf`).
 
+### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L79)
+
+_Variable_
+
+```ts
+export const AppCallableRpcGroup = groupFromCatalog(appCallableRpcMethods)
+```
+
+Outbound group callable from an app connection: superset of the agent-client group.
+
 ### [`AppCallbackHandlers`](./handlers.ts#L109)
 
 _TypeAlias_
@@ -116,6 +136,16 @@ REQUIRED (R14b); vacuous-deny moderators must write the handler
 explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the app's typed
 verdict drives the lifecycle transition.
+
+### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L73)
+
+_Variable_
+
+```ts
+export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods)
+```
+
+Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`.
 
 ### [`AppClientConnection`](./connection.ts#L197)
 
@@ -1445,6 +1475,21 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound app-callback path.
 
+### [`ServerRpcGroup`](./rpc-method-groups.ts#L70)
+
+_Variable_
+
+```ts
+export const ServerRpcGroup = groupFromCatalog(serverRpcMethods)
+```
+
+`@effect/rpc` groups for moltzap's four per-kind RPC catalogs, built from the
+`rpc-registry.ts` descriptor arrays. The native-engine cutover (#725) binds
+handlers onto these via `RpcGroup.toLayer` (server inbound) and derives typed
+clients via `RpcClient.make`; the dual-endpoint demux pairs
+ServerRpcGroup (client-to-server) with AppCallbackRpcGroup
+(server-to-client).
+
 ### [`SlotDispatchContext`](./erased-slot.ts#L41)
 
 _Interface_
@@ -1531,5 +1576,6 @@ Returns `null` when the failure isn't a registered wire-error class
 - `originator.ts`
 - `rpc-errors.ts`
 - `rpc-groups.ts`
+- `rpc-method-groups.ts`
 - `wire-errors.ts`
 - `wire.ts`
