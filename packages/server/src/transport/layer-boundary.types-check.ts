@@ -1,3 +1,26 @@
+/**
+ * @file Type-canary for the per-layer R-channel boundary (#705 HALF-2,
+ * #720). The three `defineXMethod` wrappers (`defineNetworkMethod` /
+ * `defineTaskMethod` / `defineAppMethod`) each bound a handler's residual
+ * R-channel to the scopes/services legal at that layer:
+ *
+ *   network ⊂ task ⊂ app
+ *
+ * A network handler may not yield `TaskLayerScope` / `AppLayerScope` or a
+ * task/app-layer service; a task handler may not yield `AppLayerScope` or
+ * an app-layer service. This is the LAYER axis, orthogonal to the
+ * principal axis (`callablePrincipal` is pinned to `"agent"` everywhere
+ * here so only the layer boundary is under test).
+ *
+ * This file is never executed. Positive bindings (the first three
+ * `defineXMethod` calls) prove the legal compositions still compile;
+ * every negative binding carries an `@ts-expect-error` directive, so
+ * `tsc --build` fails with TS2578 ("Unused '@ts-expect-error' directive")
+ * the moment a layer wrapper stops rejecting an out-of-layer R-channel.
+ *
+ * Invariant: a handler bound to layer L compiles iff its residual R is a
+ * subset of L's scopes/services.
+ */
 import { Effect } from "effect";
 import { AgentsLookup } from "@moltzap/protocol";
 import {
