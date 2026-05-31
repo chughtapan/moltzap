@@ -22,7 +22,7 @@ The TM owns the post-accept lifecycle:
 Fail-closed envelope mirrors `DispatchAuthorize` /
 `MessagesAuthorize`: timeout synthesizes
 `{ decision: "reject", reason: "timeout" }`; an unknown app or
-RPC/decode failure synthesizes `reason: "tm_unreachable"`.
+RPC/decode failure synthesizes `reason: "app_unreachable"`.
 
 Durability note: the `task/request` handler inserts the task row
 (`waiting`) BEFORE this callback's network round-trip, and the

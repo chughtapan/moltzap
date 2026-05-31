@@ -366,7 +366,7 @@ export const DispatchesGet = defineRpc({
 // Symmetric to `dispatch/authorize`: same context shape (`taskId`,
 // `appId`, `conversationId`, `message`, `receivedAt`, `clock`), same
 // fail-closed timeout posture (timeout / RPC error → synthesize Block
-// with reason `tm_unreachable`), different verdict union.
+// with reason `app_unreachable`), different verdict union.
 
 const MessagesAuthorizeContextSchema = Schema.Struct({
   taskId: TaskId,
@@ -397,7 +397,7 @@ const MessagesAuthorizeVerdictSchema = Schema.Union(
  * Triggered from `MessageService.sendCommit` after the durable insert
  * lands and before the broadcast. Manifests opt in by declaring
  * `hooks.message_authorize`. Failure / timeout in the round-trip
- * synthesizes a fail-closed `Block { reason: "tm_unreachable" }`
+ * synthesizes a fail-closed `Block { reason: "app_unreachable" }`
  * verdict at the AppHost envelope (mirrors `runAuthorizeDispatch`'s
  * `wrapHookEffectWithEnvelope` posture).
  *
@@ -472,7 +472,7 @@ const TaskCreateVerdictSchema = Schema.Union(
  * Fail-closed envelope mirrors `DispatchAuthorize` /
  * `MessagesAuthorize`: timeout synthesizes
  * `{ decision: "reject", reason: "timeout" }`; an unknown app or
- * RPC/decode failure synthesizes `reason: "tm_unreachable"`.
+ * RPC/decode failure synthesizes `reason: "app_unreachable"`.
  *
  * Durability note: the `task/request` handler inserts the task row
  * (`waiting`) BEFORE this callback's network round-trip, and the

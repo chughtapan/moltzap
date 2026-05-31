@@ -79,14 +79,14 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
   return MessagePartsSchema;
 }
 
-// ── tm_decision (#560) ──────────────────────────────────────────────
+// ── app_decision (#560) ─────────────────────────────────────────────
 //
-// Per-message TM fan-out verdict. Lives on `messages.tm_decision`
+// Per-message TM fan-out verdict. Lives on `messages.app_decision`
 // jsonb column server-side. Wire exposure is TM-caller-only:
 //
 // - `MessageSchema` (above) stays the canonical shape for non-TM
 //   callers — sender, recipient, any other agent. It does NOT carry
-//   `tm_decision`. Recipients see only `forward` rows where they
+//   `app_decision`. Recipients see only `forward` rows where they
 //   appear in `recipients` (filter applied server-side); they have
 //   no need to inspect the verdict.
 // - `MessageWithTmDecisionSchema` (below) extends `MessageSchema`

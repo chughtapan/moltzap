@@ -143,6 +143,6 @@ function unknownAppFailsClosed() {
       OTHER_APP_ID,
       messageAuthorizeContext(),
     );
-    expect(result).toEqual({ decision: "Block", reason: "tm_unreachable" });
+    expect(result).toEqual({ decision: "Block", reason: "app_unreachable" });
   });
 }

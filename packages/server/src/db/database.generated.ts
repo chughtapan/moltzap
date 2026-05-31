@@ -129,7 +129,7 @@ export interface Messages {
    * reason: "..."}`. Decoded via `TmDecisionSchema` at every read
    * site (Principle 2: schemas at boundaries).
    */
-  tm_decision: Generated<Json>;
+  app_decision: Generated<Json>;
 }
 
 export interface TaskParticipants {

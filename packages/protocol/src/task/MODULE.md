@@ -447,7 +447,7 @@ export const TaskConversationArchive = defineRpc({
 
 TM-only: archive one conversation. Task stays open.
 
-### [`TaskConversationArchivedNotification`](./tasks.ts#L485)
+### [`TaskConversationArchivedNotification`](./tasks.ts#L482)
 
 _TypeAlias_
 
@@ -457,7 +457,7 @@ export type TaskConversationArchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L506)
+### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L503)
 
 _Variable_
 
@@ -497,7 +497,7 @@ TM-only: mint a new conversation under an existing task. Every
 entry in `participants` MUST already appear in `task_participants`
 for `taskId`; violations return `ParticipantNotAdmittedError`.
 
-### [`TaskConversationCreatedNotification`](./tasks.ts#L482)
+### [`TaskConversationCreatedNotification`](./tasks.ts#L479)
 
 _TypeAlias_
 
@@ -507,7 +507,7 @@ export type TaskConversationCreatedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L499)
+### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L496)
 
 _Variable_
 
@@ -553,7 +553,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L491)
+### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L488)
 
 _TypeAlias_
 
@@ -563,7 +563,7 @@ export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L518)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L515)
 
 _Variable_
 
@@ -575,7 +575,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L494)
+### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L491)
 
 _TypeAlias_
 
@@ -586,7 +586,7 @@ export type TaskConversationParticipantsRemovedNotification =
   >;
 ```
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L524)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L521)
 
 _Variable_
 
@@ -632,7 +632,7 @@ export const TaskConversationUnarchive = defineRpc({
 
 TM-only: reverse of `task/conversation/archive`.
 
-### [`TaskConversationUnarchivedNotification`](./tasks.ts#L488)
+### [`TaskConversationUnarchivedNotification`](./tasks.ts#L485)
 
 _TypeAlias_
 
@@ -642,7 +642,7 @@ export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L512)
+### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L509)
 
 _Variable_
 

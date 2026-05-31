@@ -501,7 +501,6 @@ export const taskHandlers: ServerRpcSlots = [
               taskId: params.taskId,
               conversationId: params.conversationId,
               addedAgentId: params.agentId,
-              byAgentOrTm: "tm" as const,
             },
           );
           return {};
@@ -544,7 +543,7 @@ export const taskHandlers: ServerRpcSlots = [
               taskId: params.taskId,
               conversationId: params.conversationId,
               removedAgentId: params.agentId,
-              reason: "tm_remove" as const,
+              reason: "app_remove" as const,
             },
           );
           return {};

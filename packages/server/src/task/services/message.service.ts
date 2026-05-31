@@ -155,7 +155,7 @@ export interface MessageServiceDeps {
  *   verdict-scoped broadcast.
  *
  * The `messages/authorize` round-trip is the TM's gate: AppHost fails
- * closed (`Block { reason: "tm_unreachable" }`) on timeout, handler
+ * closed (`Block { reason: "app_unreachable" }`) on timeout, handler
  * error, or RPC failure. On Forward, `network.send` broadcasts to
  * `verdict.recipients`; on Block, the call fails with `HookBlocked`.
  *
@@ -196,7 +196,7 @@ export class MessageService {
   }
 
   /**
-   * CAS-guarded UPDATE of `messages.tm_decision` after the
+   * CAS-guarded UPDATE of `messages.app_decision` after the
    * `messages/authorize` gate resolves.
    *
    * Issue #560 inserts each row with `{tag: "pending"}` in {@link sendInsert};
@@ -222,9 +222,9 @@ export class MessageService {
       Effect.gen(this, function* () {
         // Kysely query-builder UPDATE with CAS predicate. Postgres sees:
         //   UPDATE messages
-        //   SET tm_decision = $1
+        //   SET app_decision = $1
         //   WHERE id = $2
-        //     AND tm_decision @> '{"tag":"pending"}'
+        //     AND app_decision @> '{"tag":"pending"}'
         //   RETURNING id
         // Containment (`@>`) is parameter-safe (Postgres binds the JSON
         // value as a query parameter); the project's no-raw-SQL rule
@@ -235,9 +235,9 @@ export class MessageService {
           try: () =>
             this.db
               .updateTable("messages")
-              .set({ tm_decision: verdict })
+              .set({ app_decision: verdict })
               .where("id", "=", messageId)
-              .where("tm_decision", "@>", JSON.stringify({ tag: "pending" }))
+              .where("app_decision", "@>", JSON.stringify({ tag: "pending" }))
               .returning("id")
               .execute(),
           catch: (cause) =>
@@ -393,7 +393,7 @@ export class MessageService {
    * `messages/authorize` gate:
    *   1. Resolve TM verdict via `appHost.runMessageAuthorize`.
    *   2. CAS-guarded `recordTmDecision` writes the verdict to
-   *      `messages.tm_decision`; loser of the race no-ops.
+   *      `messages.app_decision`; loser of the race no-ops.
    *   3. (winner only) On Block, fail closed with `HookBlockedError`.
    *      On Forward, broadcast to `verdict.recipients` (not all
    *      participants).
@@ -636,8 +636,8 @@ export class MessageService {
   /**
    * Run the `messages/authorize` gate via AppHost and translate the
    * verdict into the `TmDecision` shape persisted on
-   * `messages.tm_decision`. AppHost fails closed (`Block { reason:
-   * "tm_unreachable" }`) on timeout / handler error / RPC failure;
+   * `messages.app_decision`. AppHost fails closed (`Block { reason:
+   * "app_unreachable" }`) on timeout / handler error / RPC failure;
    * this method never errors.
    */
   private resolveSendVerdict(
@@ -680,7 +680,7 @@ export class MessageService {
   }
 
   /**
-   * Race-loser path: re-read `tm_decision` after CAS UPDATE fails
+   * Race-loser path: re-read `app_decision` after CAS UPDATE fails
    * (committed=false). The winner has already committed; this returns
    * the current persisted state so the loser mirrors the winner's
    * outcome on the wire.
@@ -693,7 +693,7 @@ export class MessageService {
         const rowOpt = yield* takeFirstOption(
           this.db
             .selectFrom("messages")
-            .select("tm_decision")
+            .select("app_decision")
             .where("id", "=", messageId),
         );
         if (Option.isNone(rowOpt)) {
@@ -701,8 +701,8 @@ export class MessageService {
           // sendCommit. Treat as Block for fail-closed posture.
           return { tag: "block" as const, reason: "row_missing" };
         }
-        // tm_decision is `Generated<Json>`; protocol owns the schema.
-        return yield* decodeTmDecision(rowOpt.value.tm_decision);
+        // app_decision is `Generated<Json>`; protocol owns the schema.
+        return yield* decodeTmDecision(rowOpt.value.app_decision);
       }),
     );
   }
@@ -839,7 +839,7 @@ export class MessageService {
   }): Effect.Effect<ReadonlyArray<MessageRow>, SqlError> {
     const { conversationId, requesterAgentId, sinceSeq, limit } = args;
     return Effect.gen(this, function* () {
-      // The participant-scoped `tm_decision` view always applies: a
+      // The participant-scoped `app_decision` view always applies: a
       // participant sees their own sends plus messages the TM forwarded
       // to them. There is no app-moderator full-log branch — apps are
       // never `conversation_participants` and observe via the
@@ -856,9 +856,9 @@ export class MessageService {
         eb.or([
           eb("sender_id", "=", requesterAgentId),
           eb.and([
-            eb("tm_decision", "@>", JSON.stringify({ tag: "forward" })),
+            eb("app_decision", "@>", JSON.stringify({ tag: "forward" })),
             eb(
-              "tm_decision",
+              "app_decision",
               "@>",
               JSON.stringify({ recipients: [requesterAgentId] }),
             ),
@@ -1148,5 +1148,5 @@ function unwrapConversationDek(
 
 function decodeTmDecision(raw: unknown): Effect.Effect<TmDecision> {
   if (validateTmDecision(raw)) return Effect.succeed(raw);
-  return Effect.die(`malformed tm_decision: ${JSON.stringify(raw)}`);
+  return Effect.die(`malformed app_decision: ${JSON.stringify(raw)}`);
 }

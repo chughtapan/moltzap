@@ -157,7 +157,7 @@ export class ConversationService {
    * Reduced-surface participant removal: NO authority gate. Used by
    * `AppHost.removeDeniedParticipant` for dispatch-deny eviction
    * (runs server-internally, not via a wire RPC). Broadcasts
-   * `TaskConversationParticipantsRemoved` with `reason: "tm_remove"`
+   * `TaskConversationParticipantsRemoved` with `reason: "app_remove"`
    * so the evicted agent and the remaining participants observe the
    * removal.
    * @internal
@@ -204,7 +204,7 @@ export class ConversationService {
               taskId,
               conversationId,
               removedAgentId: agentId,
-              reason: "tm_remove" as const,
+              reason: "app_remove" as const,
             },
           );
         }

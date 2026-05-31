@@ -1,6 +1,6 @@
 # network/
 
-Presence, ping, app-TM registry, agent-endpoint resolution, outbound
+Presence, ping, agent-endpoint resolution, outbound
 `send` and `broadcast`.
 
 ## Layer rules
@@ -15,8 +15,6 @@ Presence, ping, app-TM registry, agent-endpoint resolution, outbound
 - `agent-endpoint-resolver.ts` — `AgentId → HashSet<ConnId>` multimap
   kept fresh by `network/connect` success and the disconnect
   finalizer.
-- `app-tm-registry.ts` — `tm_endpoint_address` → app mapping; seeds
-  default DM / Group TMs at boot.
 - `network-send.ts` — `NetworkSendService` (the sole outbound
   routing surface; consumes the resolver + connection manager).
 - `handlers/ping.handlers.ts` — `network/ping` RPC handler.

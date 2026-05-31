@@ -9,7 +9,7 @@ Server → TM round-trip asking for the per-message fan-out verdict.
 Triggered from `MessageService.sendCommit` after the durable insert
 lands and before the broadcast. Manifests opt in by declaring
 `hooks.message_authorize`. Failure / timeout in the round-trip
-synthesizes a fail-closed `Block { reason: "tm_unreachable" }`
+synthesizes a fail-closed `Block { reason: "app_unreachable" }`
 verdict at the AppHost envelope (mirrors `runAuthorizeDispatch`'s
 `wrapHookEffectWithEnvelope` posture).
 

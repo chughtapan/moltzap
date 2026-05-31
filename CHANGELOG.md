@@ -91,9 +91,16 @@ and no per-provider `args as Shape` cast.
 The moderating-client SDK now matches the principal it speaks for: an **app**.
 Every `TaskMaster`/`TM` identifier on the client + protocol-transport surface is
 renamed to `App`, so the type you reach for is named after what it is. This is a
-pure rename — the wire dialect, JSON-RPC method names (`dispatch/*`,
-`messages/*`, `task/*`, `apps/register`), and the `tm_unreachable` / `tm_decision`
-/ `tm_policy` DB literals are byte-identical; no behavior changed.
+pure rename — the wire dialect and JSON-RPC method names (`dispatch/*`,
+`messages/*`, `task/*`, `apps/register`) are byte-identical; no behavior changed.
+The residual `tm_*` DB column and synthesized-value/reason literals
+(`messages.tm_decision` column + its `idx_messages_tm_decision_tag` index, the
+fail-closed `tm_unreachable` verdict reason, the `tm_remove` participant-removal
+reason, and the `tm_policy` conformance reject reason) are likewise renamed to
+their `app_*` form, and the speculative single-value `byAgentOrTm` enum field on
+`task/conversation/participants/added` (zero readers) is deleted. Pre-launch
+fresh-schema: `core-schema.sql` carries the renamed column directly and
+`database.generated.ts` reflects `app_decision` — no migration shim.
 
 - **BREAKING (`@moltzap/client`):** import `MoltZapAppClient` (was
   `MoltZapTMClient`) from `app-client.ts` (was `tm-client.ts`);
