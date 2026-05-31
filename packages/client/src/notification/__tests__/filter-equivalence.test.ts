@@ -60,6 +60,19 @@ const arbSequence = fc.array(arbGeneratedFrame, {
   maxLength: MAX_SEQUENCE_LENGTH,
 });
 
+// Property-generated predicate pool: each entry is deterministic and
+// total (no closure over external state — closing over an outer counter
+// would invalidate the oracle equivalence). `fc.constantFrom` picks one
+// per run so the property varies the filter across the status enum rather
+// than pinning a single hardcoded predicate.
+const predicatePool: ReadonlyArray<(params: PresenceParams) => boolean> = [
+  (params) => params.status === "online",
+  (params) => params.status === "offline",
+  () => true,
+  () => false,
+];
+const arbPredicate = fc.constantFrom(...predicatePool);
+
 /** Pure-JS reference oracle. Filters by definition identity + predicate. */
 function oracle(
   frames: ReadonlyArray<GeneratedFrame>,
@@ -109,13 +122,11 @@ function fakeOtherFrame(generated: GeneratedFrame): PresenceFrame {
 describe("Spec B filter-equivalence oracle", () => {
   it("Stream output equals pure-JS filter oracle for arbitrary inputs", () =>
     fc.assert(
-      fc.asyncProperty(arbSequence, async (frames) => {
-        // Property-generated predicate: deterministic, total, varies by
-        // status. Closing over an outer counter would invalidate the
-        // oracle equivalence.
-        const predicate = (params: PresenceParams) =>
-          params.status === "online";
-
+      fc.asyncProperty(arbSequence, arbPredicate, async (frames, predicate) => {
+        // `predicate` is property-generated from `predicatePool`:
+        // deterministic, total, varies by status across runs. The SAME
+        // predicate value is fed to both `subscribe` and the oracle below,
+        // so each run probes a different point in the filter space.
         const collected = await Effect.runPromise(
           Effect.gen(function* () {
             const registry = yield* makeSubscriberRegistry();
