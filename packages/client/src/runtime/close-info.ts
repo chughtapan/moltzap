@@ -3,28 +3,24 @@
  *
  * Responsibility: inspect an `Exit.Exit&lt;void, Socket.SocketError>` produced by
  * `Socket.runRaw(...)` and project it onto a caller-facing `CloseInfo`
- * (WebSocket `{code, reason}`). Spec #222 AC 5.4 requires the real close
- * metadata, not hardcoded constants, when upstream surfaces it; OQ-5 names
- * the defaults to synthesize when it does not.
+ * (WebSocket `{code, reason}`). Surfaces the real close metadata when the
+ * transport provides it, and synthesizes a default when it does not.
  *
  * Pure module: no I/O, no Refs, no fibers. Called exactly once per socket
- * lifetime from `MoltZapAgentClient`'s reader-fiber `Effect.onExit` hook
- * (`ws-client.ts:386-411` today — post-impl the extraction happens at that
- * same point before calling `onDisconnect(close)`).
+ * lifetime from `MoltZapAgentClient`'s reader-fiber `Effect.onExit` hook,
+ * before calling `onDisconnect(close)`.
  *
  * Error channel: `extractCloseInfo` is total — every possible `Exit` maps to
- * a `CloseInfo`. The defaults below are the resolution of OQ-5 (A). No
- * typed error surface on this module.
+ * a `CloseInfo`. No typed error surface on this module.
  */
 import { Cause, Data, Exit } from "effect";
 import * as Socket from "@effect/platform/Socket";
 
 /**
  * WebSocket close metadata surfaced to `AgentClientOptions.onDisconnect`
- * (required arg post-migration — see design doc §Deletions, OQ-6) and to
- * the conformance-adapter's `RealClientCloseEvent`. Mirrors the WHATWG
- * WebSocket `CloseEvent` fields restricted to `{code, reason}` — `wasClean`
- * is derivable from `code` and not worth its own field.
+ * and to the conformance-adapter's `RealClientCloseEvent`. Mirrors the
+ * WHATWG WebSocket `CloseEvent` fields restricted to `{code, reason}` —
+ * `wasClean` is derivable from `code` and not worth its own field.
  */
 export interface CloseInfo {
   readonly code: number;
@@ -64,8 +60,8 @@ export type CloseKind = Data.TaggedEnum<{
 const CloseKind = Data.taggedEnum<CloseKind>();
 
 /**
- * OQ-5 resolution defaults. Exported so the implementation, tests, and
- * the conformance-adapter's V7 proof share one source of truth.
+ * Synthesized close defaults. Exported so the implementation, tests, and
+ * the conformance-adapter share one source of truth.
  */
 export const DEFAULT_GRACEFUL_CLOSE: CloseInfo = {
   code: 1000,
@@ -93,7 +89,7 @@ function absurd(x: never): never {
  *        - "Read" / "Write" → `TransportFailure`
  *   3. Anything else (interrupt, unknown defect, no failure) →
  *      `Unknown`. The caller (`extractCloseInfo`) maps this to the
- *      OQ-5 abnormal default.
+ *      abnormal default.
  */
 export function classifyCloseCause(
   cause: Cause.Cause<Socket.SocketError>,

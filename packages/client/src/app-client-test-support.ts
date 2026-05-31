@@ -7,7 +7,7 @@
  * Setup: each test spins up a fresh `NodeSocketServer.makeWebSocket` bound to
  * `127.0.0.1:0` (OS-assigned port). An explicit host is required — omitting
  * it binds `::` which `server.address()` returns verbatim, yielding a
- * non-dialable `ws://:::PORT` URL on Linux/macOS (gotcha §4.11).
+ * non-dialable `ws://:::PORT` URL on Linux/macOS.
  */
 import { createServer } from "node:net";
 import { expect, it } from "vitest";
@@ -88,10 +88,7 @@ const effectTest = (
 };
 const scopedEffectTest = itEffect.scoped;
 
-// Test fixtures for dispatch/authorize round-trip tests below. The
-// previous partitioned-dispatcher harness provided these via
-// `app-callback-test-requests.ts`; that file was deleted in the
-// cutover. The simpler global-queue topology only needs valid
+// Test fixtures for dispatch/authorize round-trip tests below: valid
 // `dispatch/authorize` params shaped to the descriptor.
 const DISPATCH_TASK_A_UUID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DISPATCH_TASK_B_UUID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -411,11 +408,9 @@ const denyEverythingHandlers = (): AppCallbackHandlers<AppCallbackContext> => ({
 const ignoreDisconnect = (_close: CloseInfo): void => undefined;
 const ignoreReconnect = (_hello: unknown): void => undefined;
 
-// Spec B (#596): notification consumption is Stream-based. The legacy
-// `(frame: NotificationFrame) => Effect<void>` callback shape is preserved
-// here as a thin convenience for tests that previously stashed an
-// `onNotification` callback. The bridge reconstructs a wire
-// `NotificationFrame` shape from the decoded view.
+// Notification consumption is Stream-based. This adapts a
+// `(frame: NotificationFrame) => void` callback onto the Stream by
+// reconstructing a wire `NotificationFrame` shape from the decoded view.
 const notificationHandler =
   (cb: (evt: NotificationFrame) => void) =>
   (notification: DecodedNotification<AnyNotificationDefinition>) =>
@@ -623,7 +618,7 @@ function connectClientForServer(
 }
 
 /**
- * Build a Spec F (#617) app-callback handler-table fragment for the
+ * Build an app-callback handler-table fragment for the
  * `dispatch/authorize` slot that grants admission and records the
  * `taskId` it was invoked with into `observedTaskId`. Pass as
  * `appCallbackHandlers` to `makeClient` so the typed dispatcher sees
@@ -689,12 +684,10 @@ const closeWaitSocketOutput = Command.make(
 );
 
 /**
- * Build a `MoltZapAppClient`. Spec #222 OQ-4 deletion: `onNotification` is no
- * longer a constructor option; tests that previously stashed an
- * `onNotification` callback now register a `subscribe({}, …)` subscription
- * post-construction. The helper accepts the same `onNotification` callback as
- * a convenience and wires it through the new subscription registry,
- * keeping migration noise local to the helper.
+ * Build a `MoltZapAppClient`. `onNotification` is not a constructor option;
+ * the client surfaces notifications via Stream subscriptions. As a
+ * convenience, this helper accepts an `onNotification` callback and wires
+ * it through a `subscribeAll` subscription post-construction.
  */
 function makeClient(
   url: string,
@@ -714,12 +707,10 @@ function makeClient(
     handlers: handlers ?? denyEverythingHandlers(),
   });
   if (onNotification !== undefined) {
-    // Spec B (#596): the deleted `client.subscribe({}, handler)` shape is
-    // replaced by `client.subscribeAll().pipe(Stream.runForEach, …)` forked
-    // as a daemon fiber. The test-support helper is sync-runnable so we
-    // route through `Effect.runFork` — the fiber lives until the test ends
-    // and the client closes (which terminates the Stream with
-    // `NotConnectedError`, caught + logged).
+    // `subscribeAll().pipe(Stream.runForEach, …)` forked as a daemon
+    // fiber. The helper is sync-runnable, so route through `Effect.runFork`
+    // — the fiber lives until the test ends and the client closes (which
+    // terminates the Stream with `NotConnectedError`, caught + logged).
     Effect.runFork(
       client.subscribeAll().pipe(
         Stream.runForEach(notificationHandler(onNotification)),

@@ -1,7 +1,7 @@
 /**
  * Channel-base lease primitives.
  *
- * Public surface for spec C (#597):
+ * Public surface:
  * - `LeaseAlreadyConsumed`: canonical tagged error class. One definition site
  *   across all three channels (claude-code, openclaw, nanoclaw).
  * - `projectLeaseInvalid`: predicate that narrows a `RpcServerError` to
@@ -20,12 +20,9 @@ import { RpcServerError } from "@moltzap/protocol";
  * single-use-lease failure on a second `messages/send` for the same lease).
  *
  * Construction is **only** via `projectLeaseInvalid` (or `catchLeaseInvalid`).
- * The original `RpcServerError` is preserved on `cause` so hosts can inspect
- * the wire payload without re-fetching.
- *
- * See arch sub-issue #605 §3.1 for the shape rationale (cause field is the
- * verbatim wire error; consumedAt is `Clock.currentTimeMillis` at projection
- * time; message is derived from cause.message).
+ * `cause` is the verbatim wire error so hosts can inspect the payload without
+ * re-fetching; `consumedAt` is `Clock.currentTimeMillis` at projection time;
+ * `message` is derived from `cause.message`.
  */
 export class LeaseAlreadyConsumed extends Data.TaggedError(
   "LeaseAlreadyConsumed",
@@ -39,8 +36,8 @@ export class LeaseAlreadyConsumed extends Data.TaggedError(
 /**
  * Named alias for the error channel produced by `catchLeaseInvalid` over an
  * effect with residual error `E`. Equivalent to
- * `LeaseAlreadyConsumed | RpcServerError | E`, but referencable from external
- * consumers (per arch sub-issue #605 §5.1 named-error-union commitment).
+ * `LeaseAlreadyConsumed | RpcServerError | E`, named so consumers can
+ * reference the union directly.
  */
 export type LeaseInvalidProjectionError<E> =
   | LeaseAlreadyConsumed
@@ -53,9 +50,9 @@ function isLeaseInvalidData(data: unknown): boolean {
   if (typeof data !== "object" || data === null) return false;
   const reason = (data as { readonly reason?: unknown }).reason;
   const tag = (data as { readonly _tag?: unknown })._tag;
-  // Today's wire shape: `ForbiddenError.data.reason === "LeaseInvalid"`
-  // (arch sub-issue #605 §3.2). The `_tag` arm is forward-compat for a
-  // future server that emits the canonical tag in `data` directly.
+  // Current wire shape: `ForbiddenError.data.reason === "LeaseInvalid"`. The
+  // `_tag` arm matches a server that emits the canonical tag in `data`
+  // directly.
   return reason === "LeaseInvalid" || tag === "LeaseAlreadyConsumed";
 }
 
@@ -63,18 +60,17 @@ function isLeaseInvalidData(data: unknown): boolean {
  * Project an `RpcServerError` to `LeaseAlreadyConsumed` if it matches the
  * lease-invalid wire shape; otherwise return the original error unchanged.
  *
- * Predicate (architect-corrected per arch sub-issue #605 §3.2):
+ * Predicate:
  *   `err.data.reason === "LeaseInvalid"` OR
- *   `err.data._tag === "LeaseAlreadyConsumed"` (forward-compat for a future
- *   server that emits the canonical tag in data).
+ *   `err.data._tag === "LeaseAlreadyConsumed"` (matches a server that emits
+ *   the canonical tag in data).
  *
  * The wire code (-32001 / generic Forbidden) is intentionally NOT part of
  * the predicate because the code is too generic to discriminate on alone.
  *
  * `ctx.leaseId` (optional) is the lease the caller just sent. Caller-supplied
  * because the server's `ForbiddenError.data` shape does NOT carry leaseId.
- * Falls back to `"(unknown)"` when omitted (matches the pre-refactor
- * claude-code behavior).
+ * Falls back to `"(unknown)"` when omitted.
  *
  * `ctx.consumedAt` (required) is the epoch ms to stamp on the resulting
  * `LeaseAlreadyConsumed.consumedAt`. Required because `LeaseAlreadyConsumed`
