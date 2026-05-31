@@ -7,13 +7,11 @@ import type { Originator } from "../transport/connection.js";
  * The minimal server→app dispatch surface a registration needs: the
  * connection id (for close-time cleanup via `unregisterByConnection`) and
  * the outbound {@link Originator} (the `sendRpcToClient` channel). Minted from
- * the live `AppConnection` arm's `{ connId, originator }` at `apps/register`
- * (D #705 CP4d/CP5). The boot-installed default app carries an INERT endpoint
+ * the live `AppConnection` arm's `{ connId, originator }` at `apps/register`.
+ * The boot-installed default app carries an INERT endpoint
  * (`default-app.ts → makeDefaultAppEndpoint`) whose originator defects — its
  * hookless manifest routes every callback through AppHost's manifest-default
- * fast-path, so the originator is never invoked. Replaces the full
- * `MoltZapConnection` the registration used to carry — AppHost never read
- * anything else off it.
+ * fast-path, so the originator is never invoked.
  */
 export interface AppEndpoint {
   readonly connId: ConnectionId;
@@ -54,12 +52,12 @@ export class AppRegistry {
    * is already present. Never overwrites — the caller MUST unregister
    * first if they want to replace.
    *
-   * D #705 CP9 — keyed by the SERVER-MINTED `appId` (the authenticated
+   * Keyed by the SERVER-MINTED `appId` (the authenticated
    * `AppConnection.auth.appId`, or `DEFAULT_APP_ID` at boot), NOT by
-   * `manifest.appId`. The DB issues `app_id` via `gen_random_uuid()` and the
-   * manifest's `appId` field no longer participates in routing — `task/request`
-   * targets the appId the registrant received from `/api/v1/apps/register`,
-   * which is this same server-minted identity.
+   * `manifest.appId`. The DB issues `app_id` via `gen_random_uuid()`;
+   * the manifest's `appId` field does not participate in routing.
+   * `task/request` targets the appId the registrant received from
+   * `/api/v1/apps/register`, which is this same server-minted identity.
    */
   register(
     appId: AppId,

@@ -110,8 +110,8 @@ function agentsListPage(input: AgentsListPageInput) {
 export const agentsLookupHandlers: ServerRpcSlots = [
   defineNetworkMethod(AgentsLookup, {
     callablePrincipal: "agent",
-    // NOT contact-scoped. Per architect #481: "those are dereference-by-known-key,
-    // so the privacy concern is at the enumeration verb, not the lookup verb."
+    // NOT contact-scoped: this is a dereference-by-known-key, so the
+    // privacy concern is at the enumeration verb, not the lookup verb.
     // The client uses this RPC to resolve peer `AgentCard`s for UI rendering of
     // conversation messages (see `service.resolveAgentName` and the bulk-history
     // lookup in `packages/client/src/service.ts`); contact-scoping it would render
@@ -139,10 +139,10 @@ export const agentsLookupHandlers: ServerRpcSlots = [
   }),
   defineNetworkMethod(AgentsLookupByName, {
     callablePrincipal: "agent",
-    // Contact-scoped per #481/#506. Names are 1-32 chars and human-chosen,
-    // so a dictionary attack on the unfiltered RPC was tractable. The
-    // `active` status filter is preserved (existing semantics); the
-    // contact-graph filter is then layered on top of the name match.
+    // Contact-scoped. Names are 1-32 chars and human-chosen, so a
+    // dictionary attack on an unfiltered RPC would be tractable. The
+    // `active` status filter applies first; the contact-graph filter is
+    // then layered on top of the name match.
     handler: (params, ctx) =>
       catchSqlErrorAsDefect(
         Effect.gen(function* () {

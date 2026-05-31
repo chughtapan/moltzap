@@ -27,14 +27,12 @@ export const appHandlers: ServerRpcSlots = [
       Effect.gen(function* () {
         const appHost = yield* AppHostTag;
         const connection = yield* ConnectionTag;
-        // D #705 CP4f — mint the `AppEndpoint` straight off the live
-        // `Connection` arm (`{ connId, originator }` are `ConnectionBase`
-        // fields on every arm). The legacy-map bridge is gone — the arm IS
-        // the dispatch surface `AppHost` registers.
-        // D #705 CP9 — this cross-principal WS RPC is being dissolved in favor
-        // of `/api/v1/apps/register` (HTTP) + implicit registration on the
-        // `appKey` Connect arm; until its consumers migrate it keeps its
-        // legacy `manifest.appId` keying.
+        // Mint the `AppEndpoint` straight off the live `Connection` arm
+        // (`{ connId, originator }` are `ConnectionBase` fields on every
+        // arm) — the arm IS the dispatch surface `AppHost` registers.
+        // This WS RPC keys by `manifest.appId`; the HTTP
+        // `/api/v1/apps/register` route + `appKey` Connect arm key by the
+        // server-minted `appId` instead.
         const ok = appHost.registerApp(
           Schema.decodeUnknownSync(AppId)(params.manifest.appId),
           params.manifest,
@@ -57,11 +55,11 @@ export const appHandlers: ServerRpcSlots = [
   // round-trip, recipient observes the verdict via `dispatch/release`
   // notification.
   defineAppMethod(DispatchRequest, {
-    // D #705 #720 — agent-called yet `defineAppMethod`-bound (the
-    // orthogonality: `callablePrincipal: "agent"` for the table arm + ctx,
-    // `defineAppMethod` for the `AppHostTag` R-channel bound). Reads
-    // `ctx.agentId` as `recipientAgentId`; `requiresActive` fires on the
-    // live agent arm and is load-bearing.
+    // Agent-called yet `defineAppMethod`-bound: `callablePrincipal:
+    // "agent"` for the table arm + ctx, `defineAppMethod` for the
+    // `AppHostTag` R-channel bound. Reads `ctx.agentId` as
+    // `recipientAgentId`; `requiresActive` fires on the live agent arm
+    // and is load-bearing.
     callablePrincipal: "agent",
     requiresActive: true,
     handler: (params, ctx) =>

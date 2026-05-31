@@ -21,7 +21,7 @@ import {
  * {@link AuthService}. Reads/writes the `apps` table (`core-schema.sql`)
  * via Kysely; never touches raw SQL on the typed surface.
  *
- * The four methods carry distinct error channels (D #705 §2.4):
+ * The four methods carry distinct error channels:
  *
  * | Method             | Channel             | SQL failure | Domain failure |
  * |--------------------|---------------------|-------------|----------------|
@@ -165,7 +165,7 @@ export class AppAuthService {
    * Boot-time UPSERT for the default-app row. Takes `appId` EXPLICITLY —
    * the manifest does not carry it, so every registry-side surface that
    * needs the identity accepts it as a separate parameter. Reached only
-   * from the server boot path (D #705 §2.5); no wire surface exposes it.
+   * from the server boot path; no wire surface exposes it.
    * First boot INSERTs; subsequent boots UPDATE the same row with a
    * refreshed keyId + hash (per-boot key rotation).
    */

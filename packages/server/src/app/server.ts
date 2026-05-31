@@ -78,7 +78,7 @@ class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
 }> {}
 
 /**
- * D #705 §2.7 — typed fatal for boot failure. The `phase` discriminator names
+ * Typed fatal for boot failure. The `phase` discriminator names
  * which boot step failed:
  * - `"http-listen"` — step 5a's `NodeHttpServer.make` / `serverSvc.serve`
  *   typed `ServeError` (EADDRINUSE, EACCES, ...).
@@ -87,8 +87,7 @@ class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
  *
  * Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
  * and flow through the boot-failure `catchAllCause` envelope without a phase
- * tag. Wired into the `createCoreApp` boot-failure error channel at the
- * boot-orchestrator cutover (phase 4).
+ * tag.
  */
 export class ServerBootFailedError extends Data.TaggedError(
   "ServerBootFailedError",
@@ -98,15 +97,13 @@ export class ServerBootFailedError extends Data.TaggedError(
 }> {}
 
 /**
- * D #705 §2.7 — shared cleanup-error log-and-swallow envelope. `catchAllCause`
+ * Shared cleanup-error log-and-swallow envelope. `catchAllCause`
  * (not `catchAll`) so DEFECTS (throwing finalizers, sync exceptions,
  * `Effect.die`) are caught alongside typed failures — `catchAll` would let
  * them propagate through `Cause`. The resulting Effect has a `never` error
  * channel, so the close contract is honest: nothing escapes regardless of
  * what the cleanup step does. `Cause.pretty` provides structured diagnostics
  * without smuggling a raw `Cause` through an `unknown`-typed channel.
- *
- * Module-private — wired into `createCoreApp`'s cleanup body at phase 4.
  */
 const logAndSwallowCause =
   (label: string) =>
@@ -229,8 +226,8 @@ function makeCoreRpcMethods(): ServerRpcSlots {
 
 /**
  * Key the flat `ServerRpcSlots` array into the cast-free
- * {@link ServerRpcSlotTable} the dispatcher indexes by `frame.method`
- * (#705 HALF-1). Each slot is already a real `ErasedSlot` (from a
+ * {@link ServerRpcSlotTable} the dispatcher indexes by `frame.method`.
+ * Each slot is already a real `ErasedSlot` (from a
  * `defineXMethod` wrapper); this just keys it by `slot.definition.name`.
  * Duplicate method names collide on `table[name]` (impossible by
  * construction — each handler file exports a distinct method slice of the
@@ -287,14 +284,13 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  *   G --> H[config.dbCleanup — optional caller hook]
  * ```
  *
- * `leaseRegistry.shutdown()` runs FIRST, before any socket teardown
- * (#729 — see below). `messageService.close()` runs next so pending
- * delivery-webhook POSTs do not race the HTTP server teardown.
- * `appHost.destroy()` runs BEFORE per-connection shutdown: in-flight
- * RPCs may observe cleared manifests, and the `SHUTDOWN_DRAIN_MS`
- * sleep is the only mitigation today.
+ * `leaseRegistry.shutdown()` runs FIRST, before any socket teardown.
+ * `messageService.close()` runs next so pending delivery-webhook POSTs
+ * do not race the HTTP server teardown. `appHost.destroy()` runs BEFORE
+ * per-connection shutdown: in-flight RPCs may observe cleared manifests,
+ * and the `SHUTDOWN_DRAIN_MS` sleep is the only mitigation.
  *
- * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)` (#729):
+ * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)`:
  * closing the app scope interrupts every per-connection WS fiber, and each
  * runs its disconnect cleanup UNINTERRUPTIBLY. For a recipient holding a
  * GRANTED lease that cleanup emits a `dispatches/expired` frame to the
@@ -308,7 +304,7 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;
   return Effect.gen(function* () {
-    // #729 — drain the lease runtime FIRST, before any socket teardown. Both
+    // Drain the lease runtime FIRST, before any socket teardown. Both
     // the explicit `conn.socket.shutdown` loop below AND `Scope.close`'s
     // interrupt of the WS fibers trigger each connection's disconnect cleanup
     // (`socket-handler.ts → closeSocketSession → leaseRegistry.abandon`),
@@ -325,7 +321,7 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
     }
     yield* Effect.sleep(Duration.millis(SHUTDOWN_DRAIN_MS));
     yield* Scope.close(options.appScope, Exit.void);
-    // Best-effort cleanup (D #705 §2.7 boot-resource lifecycle table): both
+    // Best-effort cleanup: both
     // `dispatchRuntime.dispose()` and `dbCleanup()` log-and-swallow via the
     // shared defect-safe envelope so a failing finalizer never propagates out
     // of `close()`. `catchAllCause` also covers a sync throw inside the
