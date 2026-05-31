@@ -206,7 +206,7 @@ export interface BrandedStringOptions {
 
 Refinement options accepted by brandedString.
 
-### [`checkProtocolRange`](./version.ts#L155)
+### [`checkProtocolRange`](./version.ts#L143)
 
 _Function_
 
@@ -218,19 +218,17 @@ export function checkProtocolRange(
 ```
 
 Range-check the client's protocol-version interval against an
-injected server version. Raised by `network/connect` BEFORE auth
+injected server version. Runs at `network/connect` BEFORE auth
 resolution; the server-side handler in
 `@moltzap/server-core/identity/handlers/connect.handlers.ts`
 yields this Effect as the FIRST step of `handleConnect`.
 
-**Architect plan #706 v10 (codex r9 P2 #1) — relocated from
-`connect.handlers.ts` to here.** v9 made the function's signature
-testable (parameterized over `serverVersion`); v10 makes the
-function itself importable from `@moltzap/protocol` so regression
-tests can call it without an illegal test seam through the
-server-internal handler module.
+`serverVersion` is a parameter (not the `PROTOCOL_VERSION` constant)
+so regression tests can inject future-version values, and the
+function lives in `@moltzap/protocol` so tests can import it without
+a seam through the server-internal handler module.
 
-**Two error channels, both typed (codex PR review #1 P2).**
+Two error channels, both typed:
 
 - `ProtocolMismatchError` — versions are well-formed, just outside
   the supported range. Two `reason` discriminants in the wire
@@ -275,7 +273,7 @@ matching the former `ajv.compile(schema)` strict type guards. A bare
 standalone validators (`validateAgent`, `validateMessage`, …) wrap a
 strict `decodeUnknownEither` instead.
 
-### [`compareProtocolVersion`](./version.ts#L81)
+### [`compareProtocolVersion`](./version.ts#L71)
 
 _Function_
 
@@ -286,15 +284,13 @@ export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
 Numeric comparator for `PROTOCOL_VERSION` strings, ordered by their
 dotted numeric segments (NOT lexicographically).
 
-Architect plan #706 v5 (codex r4 P2 #1) — required because CalVer
-values of the form `YYYY.NNNN.M` carry variable-digit middle
-components and `"2026.1001.0".localeCompare("2026.527.0") === -1`
-(lex: `1001 < 527`), opposite of the chronological/numeric truth.
-The v4 plan's `checkProtocolRange` originally compared
-`client.maxProtocol < PROTOCOL_VERSION` via raw string ordering;
-v5 routes it through this helper so the "old client rejected at
-network/connect" gate stays correct as the publish workflow rolls
-the middle component past `999`.
+CalVer values of the form `YYYY.NNNN.M` carry variable-digit middle
+components, so lexicographic ordering is wrong:
+`"2026.1001.0".localeCompare("2026.527.0") === -1` (lex: `1001 <
+527`), opposite of the numeric truth. The `network/connect`
+old-client-rejection gate routes through this helper so it stays
+correct as the publish workflow rolls the middle component past
+`999`.
 
 Returns `-1 | 0 | 1` with conventional semantics:
 
@@ -309,16 +305,14 @@ function is intentionally strict — it does NOT accept SemVer
 pre-release suffixes (`2026.527.0-rc.1`) or build metadata
 (`2026.527.0+abc`). Empty segments (e.g., `"2026..0"`) and
 non-digit characters (`"abc"`) also reject — `Number("") === 0`
-would otherwise silently coerce, contradicting the
-"strict / fail-closed" JSDoc claim (review-senior P3 #2).
+would otherwise silently coerce, contradicting the strict /
+fail-closed contract.
 
-**Synchronous throw shape.** Throws
-InvalidProtocolVersionError (a `Data.TaggedError`) on any
-malformed segment. Untrusted client input MUST be funnelled
+Throws InvalidProtocolVersionError (a `Data.TaggedError`) on
+any malformed segment. Untrusted client input MUST be funnelled
 through checkProtocolRange, which wraps this call in
 `Effect.try` so the parse error flows through the Effect channel
-— never as a sync throw escaping into the JSON-RPC handler
-(codex PR review #1 P2).
+rather than escaping as a sync throw into the JSON-RPC handler.
 
 ### [`dateTimeStringSchema`](./schema-primitives.ts#L226)
 
@@ -487,7 +481,7 @@ fields that need a `format` but no brand (e.g. a `claimUrl` `uri`, a raw
 `uuid`-shaped id field). Emits the draft-07 `format` keyword for the docs
 walker and runs the regex/finiteness refinement at decode time.
 
-### [`InvalidProtocolVersionError`](./version.ts#L35)
+### [`InvalidProtocolVersionError`](./version.ts#L29)
 
 _Class_
 
@@ -507,22 +501,16 @@ carries a non-numeric or empty segment — e.g., SemVer pre-release
 suffixes like `2026.527.0-rc.1`, leading/trailing dots like
 `"2026..0"`, or non-digit characters like `"abc.def"`.
 
-**`Data.TaggedError` shape (codex PR review P2 + review-senior P3
-convergence).** Was a plain `Error` subclass in the first
-impl-staff drop; switched to `Data.TaggedError` so:
+A `Data.TaggedError` so the error flows through Effect's typed `E`
+channel cleanly (`Effect.catchTag("InvalidProtocolVersionError",
+...)` works in checkProtocolRange's caller) and matches the
+sibling ProtocolMismatchError convention in
+`network/methods.ts`.
 
-- The error flows through Effect's typed `E` channel cleanly
-  (`Effect.catchTag("InvalidProtocolVersionError", ...)` works in
-  checkProtocolRange's caller).
-- It matches the sibling ProtocolMismatchError convention
-  in `network/methods.ts` (both tagged, both registered if a wire
-  code is needed).
-
-This error is NOT a wire-protocol error — it is INPUT-VALIDATION
-for untrusted client-supplied version strings. The
-`network/connect` handler catches it and maps to
-`InvalidParamsError` (JSON-RPC -32602) so the client gets a typed
-malformed-input response, not a defect.
+This is INPUT-VALIDATION for untrusted client-supplied version
+strings, not a wire-protocol error. The `network/connect` handler
+catches it and maps to `InvalidParamsError` (JSON-RPC -32602) so the
+client gets a typed malformed-input response, not a defect.
 
 ### [`JsonValue`](./schema-primitives.ts#L251)
 
