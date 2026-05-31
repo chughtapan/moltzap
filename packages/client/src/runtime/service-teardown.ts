@@ -7,9 +7,7 @@ import { Effect, Exit, Scope } from "effect";
  * `subscribeAll → Stream.runForEach` fan-out fiber) BEFORE invoking the
  * ws-client's `close()`. Exposed as a top-level pure helper so the
  * ordering can be exercised by a regression test without spinning up
- * the full service. Codex r0 caught the original two-`runFork` race
- * here; the regression test in `service.test.ts` pins the structural
- * fix (P2-4 r1 cleanup).
+ * the full service.
  *
  * The chain is single-fork by construction (`Effect.zipRight`): the
  * ws-client `close()` does not begin until the scope finalizer chain

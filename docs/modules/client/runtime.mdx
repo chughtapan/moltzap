@@ -11,8 +11,7 @@ _`packages/client/src/runtime`_
 
 Local-service IPC primitives and runtime helpers for the client CLI.
 
-Spec B (#596) deleted the three-field `SubscriptionFilter` re-export — the
-notification consumption surface is now Stream-based via
+The notification consumption surface is Stream-based via
 `MoltZapAgentClient.subscribe(def, refinement?)`.
 
 ## Public surface
@@ -33,7 +32,7 @@ export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
 
 A name→agent lookup returned no results.
 
-### [`CloseInfo`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/runtime/close-info.ts#L29)
+### [`CloseInfo`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/runtime/close-info.ts#L25)
 
 _Interface_
 
@@ -45,10 +44,9 @@ export interface CloseInfo {
 ```
 
 WebSocket close metadata surfaced to `AgentClientOptions.onDisconnect`
-(required arg post-migration — see design doc §Deletions, OQ-6) and to
-the conformance-adapter's `RealClientCloseEvent`. Mirrors the WHATWG
-WebSocket `CloseEvent` fields restricted to `{code, reason}` — `wasClean`
-is derivable from `code` and not worth its own field.
+and to the conformance-adapter's `RealClientCloseEvent`. Mirrors the
+WHATWG WebSocket `CloseEvent` fields restricted to `{code, reason}` —
+`wasClean` is derivable from `code` and not worth its own field.
 
 ## Files
 

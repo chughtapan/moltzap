@@ -36,9 +36,9 @@ export {
   type RpcCallOptions,
 } from "./app-client.js";
 export type { CloseInfo } from "./runtime/close-info.js";
-// Spec B (#596) — tagged errors for the typed-Stream subscribe surface.
+// Tagged errors for the typed-Stream subscribe surface.
 // `NotificationConsumerError` is a type union (see notification/errors.ts
-// header for rationale, codex review r1 finding #8).
+// header for rationale).
 export {
   NotificationTimeoutError,
   StreamClosedError as NotificationStreamClosedError,

@@ -1,12 +1,12 @@
 /**
- * Tagged errors for the notification consumption surface (Spec B, #596).
+ * Tagged errors for the notification consumption surface.
  *
- * Per architect-revision r1 (codex review finding #8): `Data.TaggedError`
- * classes do NOT compose via class inheritance — extending one tagged
- * class from another produces broken `_tag` discrimination at runtime.
- * The shared abstraction is therefore a TYPE UNION (`NotificationConsumerError`)
- * not a base class. Catch sites that want to handle "any notification
- * consumer error" pattern-match on the union.
+ * `Data.TaggedError` classes do NOT compose via class inheritance —
+ * extending one tagged class from another produces broken `_tag`
+ * discrimination at runtime. The shared abstraction is therefore a TYPE
+ * UNION (`NotificationConsumerError`) not a base class. Catch sites that
+ * want to handle "any notification consumer error" pattern-match on the
+ * union.
  *
  * `NotificationTimeoutError` carries the timeout duration so callers can
  * log + retry with sane backoff. `StreamClosedError` fires when the

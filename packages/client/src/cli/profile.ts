@@ -1,20 +1,12 @@
 /**
  * Profile layer over `~/.moltzap/config.json`.
  *
- * Backward-compatible extension of the existing singleton: the top-level
- * `apiKey` / `agentName` fields (see cli/config.ts) remain the "default"
- * record; named profiles live under a new top-level `profiles` key.
+ * The top-level `apiKey` / `agentName` fields (see cli/config.ts) are the
+ * "default" record; named profiles live under a top-level `profiles` key.
+ * `loadLayeredConfig` reads the file directly for the profile-aware path.
  *
- * Spec sbd#177 rev 3 §5.2 (`--profile &lt;name>`, `--no-persist`),
- * Invariants §4.3 (coexistence) and §4.4 (no-disk-write guarantee).
- *
- * Architect note. The existing `cli/config.ts` pre-dates this branch and is
- * not edited here (architect rule: no edits to pre-dating files beyond one
- * barrel). `loadLayeredConfig` therefore reads the file directly for the
- * profile-aware path; impl-staff may collapse this back into `config.ts`
- * during implementation, at which point the profile module becomes a
- * named export of `config.ts`. The public interface defined below is the
- * contract impl-staff preserves regardless of layout.
+ * Supports `--profile &lt;name>` and `--no-persist`: named profiles coexist
+ * with the default record, and `--no-persist` guarantees no disk write.
  */
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -45,10 +37,9 @@ const getConfigFilePathSync = getMoltZapConfigPath;
 
 /**
  * One profile's auth record. Shape mirrors the singleton's auth subset.
- * `registeredAt` is OPTIONAL — legacy configs produced by pre-v2 `moltzap
- * register` never wrote the field. The profile layer tolerates its absence
- * so existing `~/.moltzap/config.json` files decode into `LayeredConfig`
- * without rewrite (Invariant §4.3).
+ * `registeredAt` is OPTIONAL — older configs may not carry the field. The
+ * profile layer tolerates its absence so existing `~/.moltzap/config.json`
+ * files decode into `LayeredConfig` without rewrite.
  */
 export interface ProfileRecord {
   readonly apiKey: string;
@@ -286,11 +277,11 @@ export const loadLayeredConfig: Effect.Effect<
 /**
  * Resolve the auth record for a given profile name.
  *
- * When `name` is `undefined`, the `default` record is returned (legacy
- * behavior for users who never pass `--profile`). When `name` is supplied
- * and no matching record exists, fails with ProfileNotFoundError — do not
- * silently fall back to `default`; that would violate Invariant §4.3's
- * "takes precedence" clause in the opposite direction.
+ * When `name` is `undefined`, the `default` record is returned (the path
+ * for users who never pass `--profile`). When `name` is supplied and no
+ * matching record exists, fails with ProfileNotFoundError — it does not
+ * silently fall back to `default`, since a named profile takes precedence
+ * over the default.
  */
 export const resolveProfileAuth = (
   name: ProfileName | undefined,
@@ -382,11 +373,11 @@ const writeRawConfig = (
 
 /**
  * Persist a new profile record under `profiles.&lt;name>`, or replace the
- * legacy top-level record when `name` is `"default"`.
+ * top-level record when `name` is `"default"`.
  *
- * When called with `"default"`, writes the legacy top-level `apiKey` /
- * `agentName` fields (not under `profiles`) so pre-profile-aware readers
- * keep working (Invariant §4.3).
+ * When called with `"default"`, writes the top-level `apiKey` /
+ * `agentName` fields (not under `profiles`) so readers that only know the
+ * top-level record keep working.
  */
 export const writeProfile = (
   name: ProfileName | DefaultProfileId,
@@ -398,10 +389,9 @@ export const writeProfile = (
   }).pipe(Effect.withSpan("writeProfile"));
 
 /**
- * `--no-persist` contract for `moltzap register`. Revised Invariant §4.4
- * per architect design doc rev 4 finding 2: no file under `$HOME/.moltzap/`
- * OR `$HOME/.openclaw/` is created or modified. Returns the record so the
- * caller can print it; does no I/O under either tree.
+ * `--no-persist` contract for `moltzap register`: no file under
+ * `$HOME/.moltzap/` OR `$HOME/.openclaw/` is created or modified. Returns
+ * the record so the caller can print it; does no I/O under either tree.
  *
  * The register command invokes either `writeProfile` + the existing
  * `writeOpenClawChannelConfig` (default) or `emitNoPersist` (when the flag

@@ -13,9 +13,6 @@ import {
 import { inviteCommand } from "./commands/invite.js";
 import { messagesCommand } from "./commands/messages.js";
 import { pingCommand } from "./commands/ping.js";
-// v7 (architect plan #706): `presence` CLI command deleted. Presence
-// is server-derived from LeaseRegistry; clients cannot set status
-// manually.
 import { registerCommand } from "./commands/register.js";
 import { sendCommand } from "./commands/send.js";
 import { startCommand } from "./commands/start.js";
@@ -150,13 +147,10 @@ const moltzapBase = Command.make("moltzap", {
     conversationsCommand,
     historyCommand,
     inviteCommand,
-    // v7: presenceCommand deleted (architect plan #706).
     pingCommand,
     statusCommand,
     agentsCommand,
-    // sbd#177 v2 additions:
     messagesCommand,
-    // Spec D2 (#599) — architect stub; impl-staff fills the handler body:
     startCommand,
   ]),
 );

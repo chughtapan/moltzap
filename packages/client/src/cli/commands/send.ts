@@ -59,8 +59,8 @@ const replyToOption = Options.text("reply-to").pipe(
  * `moltzap send task:&lt;taskId>:&lt;convId> &lt;message> [--reply-to &lt;id>]` —
  * socket-call into the local MoltZapService to enqueue an outbound
  * `messages/send` against an existing (taskId, conversationId) pair.
- * D3 (#600) made `taskId` REQUIRED on the wire, so the CLI target
- * always carries both ids; bare `agent:` / `conv:` shortcuts retire.
+ * `taskId` is REQUIRED on the wire, so the CLI target always carries both
+ * ids.
  *
  * Identity selection is driven by the parent `@effect/cli` options
  * wired in `cli/index.ts`:

@@ -1,18 +1,11 @@
 /**
- * `moltzap messages &lt;subcommand>` — handler for spec sbd#177 rev 3 §5.5.
- *
- * One subcommand in v1:
+ * `moltzap messages &lt;subcommand>` — subcommand group.
  *
  *   messages list → messages/list
  *
- * Architect pick (spec §"Architect picks"): new file, not an extension of
- * `commands/send.ts`. `send` is a one-shot top-level command; `messages`
- * is a subcommand group whose future v1.1 member (`messages tail`, deferred
- * per Non-goal §3.1) lands in the same file.
- *
- * Open question Q-M-1 (see design doc §8): `--cursor` has no server
- * backing in the current protocol; ESCALATED to spec rev 4. The flag is
- * deliberately absent from this interface until resolved.
+ * `messages` is a subcommand group (distinct from the one-shot top-level
+ * `send` command). `--cursor` is absent: it has no server backing in the
+ * current protocol.
  */
 import { Command, HelpDoc, Options } from "@effect/cli";
 import { Data, Effect, Option, Schema } from "effect";
@@ -38,9 +31,8 @@ class MessagesInputError extends Data.TaggedError("MessagesInputError")<{
 // ─── Input shapes ──────────────────────────────────────────────────────────
 
 /**
- * `moltzap messages list --conversation &lt;id> [--limit N]` — spec §5.5.
- * `cursor` deliberately absent from this interface until the open
- * question is resolved.
+ * `moltzap messages list --conversation &lt;id> [--limit N]`. `cursor` is
+ * absent: no server backing in the current protocol.
  */
 export interface MessagesListArgs {
   readonly taskId: TaskId;
@@ -52,12 +44,8 @@ export interface MessagesListArgs {
 
 /**
  * Wraps `messages/list`. Emits one message per line, tab-separated:
- * `&lt;createdAt>\t&lt;senderName ?? senderId>\t&lt;text>`. `seq` was removed
- * from the wire shape in PR #379 — only `id`, `senderId`, optional
- * `senderName`, `createdAt`, and `parts` survive.
- *
- * `--json` is a stretch flag added by impl if consistent with
- * `conversations list` output style (not fixed by spec).
+ * `&lt;createdAt>\t&lt;senderName ?? senderId>\t&lt;text>`. The wire shape carries
+ * `id`, `senderId`, optional `senderName`, `createdAt`, and `parts`.
  */
 export const messagesListHandler = (
   args: MessagesListArgs,

@@ -4,11 +4,9 @@
  * Wraps `MoltZapAgentClient` into the `RealClientHandle` shape that
  * `@moltzap/protocol/testing` `runClientConformanceSuite` consumes.
  *
- * Spec B (#596) migration: the deleted `SubscriptionFilter` grammar's
- * three-field shape is reconstructed as a per-frame refinement predicate
- * inside the adapter, bridging `RealClientNotificationFilter` onto the
- * Stream-based `MoltZapAgentClient.subscribeAll` surface. The conformance
- * suite contract is unchanged.
+ * `RealClientNotificationFilter` is a `(notification) => boolean`
+ * predicate; the adapter plumbs it directly onto the Stream-based
+ * `MoltZapAgentClient.subscribeAll` surface.
  *
  * Consumed by:
  *   - `packages/client/src/__tests__/conformance/suite.test.ts` directly
@@ -115,14 +113,6 @@ function rpcErrorForMethod(
 ): (cause: ClientRpcCause) => RealClientRpcError {
   return (cause) => rpcError(cause, method);
 }
-
-// #645: the legacy bridge that reconstructed the deleted three-field
-// `SubscriptionFilter` grammar inline (`asNotificationParamsRecord`,
-// `tagMatches`, `conversationMatches`, `notificationMatchesFilter`,
-// `refinementFromRealClientFilter`) has been deleted. The collapsed
-// `RealClientNotificationFilter` is itself a `(notification) => boolean`
-// predicate; `subscribeRealClient` passes it through directly to
-// `ws.subscribeAll(filter)` with no inline reconstruction.
 
 function logConformanceAdapterWarning(message: string, cause: unknown): void {
   Effect.runSync(
@@ -287,10 +277,8 @@ function waitForReady(
 
 /**
  * Subscribe to filtered notifications through the `subscribeAll` Stream.
- * The predicate is plumbed through directly (#645: the deleted
- * three-field `SubscriptionFilter` grammar's inline reconstruction
- * helpers were removed; `RealClientNotificationFilter` is now itself
- * a `(notification) => boolean` predicate).
+ * `RealClientNotificationFilter` is itself a `(notification) => boolean`
+ * predicate, plumbed through directly.
  *
  * The returned `RealClientSubscription` carries an `unsubscribe` Effect
  * that interrupts the forked consumer fiber, draining its Scope finalizer
