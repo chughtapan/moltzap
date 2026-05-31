@@ -12,4 +12,5 @@ fi
 
 pnpm check
 pnpm build
+pnpm exec nx run-many -t typecheck:tests
 ./scripts/sloppy-code-guard.sh
