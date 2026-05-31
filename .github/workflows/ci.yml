@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Nx Cloud has no CI access token here; NX_NO_CLOUD runs nx locally instead of
+# hard-failing on workspace auth. Local dev keeps the remote cache via nxCloudId
+# in nx.json.
+env:
+  NX_NO_CLOUD: "true"
+
 jobs:
   ci:
     runs-on: ubuntu-latest
