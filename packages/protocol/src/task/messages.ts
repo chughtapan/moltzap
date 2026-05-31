@@ -79,26 +79,26 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
   return MessagePartsSchema;
 }
 
-// ── app_decision (#560) ─────────────────────────────────────────────
+// ── dispatch_decision ───────────────────────────────────────────────
 //
-// Per-message TM fan-out verdict. Lives on `messages.app_decision`
-// jsonb column server-side. Wire exposure is TM-caller-only:
+// Per-message dispatch-authorization verdict resolved by the
+// `messages/authorize` round-trip. Lives on the `messages.dispatch_decision`
+// jsonb column server-side. Wire exposure is app-caller-only:
 //
-// - `MessageSchema` (above) stays the canonical shape for non-TM
+// - `MessageSchema` (above) stays the canonical shape for non-app
 //   callers — sender, recipient, any other agent. It does NOT carry
-//   `app_decision`. Recipients see only `forward` rows where they
+//   `dispatch_decision`. Recipients see only `forward` rows where they
 //   appear in `recipients` (filter applied server-side); they have
 //   no need to inspect the verdict.
-// - `MessageWithTmDecisionSchema` (below) extends `MessageSchema`
-//   with the verdict. The TM caller for a task sees this shape.
+// - `MessageWithDispatchDecisionSchema` (below) extends `MessageSchema`
+//   with the verdict. The app caller for a task sees this shape.
 //
-// Architect plan §3 picks two-schema (this file) over runtime-strip
-// (single optional field) to keep TS strict at non-TM read sites:
-// non-TM consumers literally cannot reference `tmDecision` because
-// the field is not in their type. See #560 architect comment §3
-// + risk R8 for the alternative.
+// Two-schema (this file) is chosen over runtime-strip (single optional
+// field) to keep TS strict at non-app read sites: non-app consumers
+// literally cannot reference `dispatchDecision` because the field is
+// not in their type.
 
-const TmDecisionSchema = Schema.Union(
+const DispatchDecisionSchema = Schema.Union(
   Schema.Struct({ tag: Schema.Literal("pending") }),
   Schema.Struct({
     tag: Schema.Literal("forward"),
@@ -110,28 +110,32 @@ const TmDecisionSchema = Schema.Union(
   }),
 );
 
-export type TmDecision = Schema.Schema.Type<typeof TmDecisionSchema>;
-// Strict, excess-rejecting guard over the verdict union (former
-// `ajv.compile`). Keeps the boolean-guard call shape the live cross-package
-// consumer `server/.../message.service.ts → validateTmDecision(raw)` relies
-// on, while preserving AJV `strict`'s excess rejection at the trust boundary.
-export const validateTmDecision = closedStructGuard(TmDecisionSchema);
-
-const MessageWithTmDecisionSchema = Schema.extend(
-  MessageSchema,
-  Schema.Struct({ tmDecision: TmDecisionSchema }),
+export type DispatchDecision = Schema.Schema.Type<
+  typeof DispatchDecisionSchema
+>;
+// Strict, excess-rejecting guard over the verdict union. Keeps the
+// boolean-guard call shape the live cross-package consumer
+// `server/.../message.service.ts → validateDispatchDecision(raw)` relies
+// on, rejecting excess properties at the trust boundary.
+export const validateDispatchDecision = closedStructGuard(
+  DispatchDecisionSchema,
 );
 
-export type MessageWithTmDecision = Schema.Schema.Type<
-  typeof MessageWithTmDecisionSchema
+const MessageWithDispatchDecisionSchema = Schema.extend(
+  MessageSchema,
+  Schema.Struct({ dispatchDecision: DispatchDecisionSchema }),
+);
+
+export type MessageWithDispatchDecision = Schema.Schema.Type<
+  typeof MessageWithDispatchDecisionSchema
 >;
 
-export function tmDecisionSchema(): typeof TmDecisionSchema {
-  return TmDecisionSchema;
+export function dispatchDecisionSchema(): typeof DispatchDecisionSchema {
+  return DispatchDecisionSchema;
 }
 
-export function messageWithTmDecisionSchema(): typeof MessageWithTmDecisionSchema {
-  return MessageWithTmDecisionSchema;
+export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema {
+  return MessageWithDispatchDecisionSchema;
 }
 
 /**

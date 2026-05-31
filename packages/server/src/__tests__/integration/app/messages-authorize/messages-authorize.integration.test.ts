@@ -179,18 +179,18 @@ function dbError(message: string, cause: unknown) {
   return new MessagesAuthorizeDbError({ message, cause });
 }
 
-function readTmDecision(
+function readDispatchDecision(
   messageId: string,
 ): Effect.Effect<unknown, MessagesAuthorizeDbError> {
   return Effect.tryPromise({
     try: () =>
       getKyselyDb()
         .selectFrom("messages")
-        .select("app_decision")
+        .select("dispatch_decision")
         .where("id", "=", toMessageId(messageId))
         .executeTakeFirstOrThrow(),
-    catch: (cause) => dbError("Unable to read app_decision", cause),
-  }).pipe(Effect.map((row) => row.app_decision));
+    catch: (cause) => dbError("Unable to read dispatch_decision", cause),
+  }).pipe(Effect.map((row) => row.dispatch_decision));
 }
 
 function readAllMessageIdsForConversation(
@@ -213,11 +213,14 @@ function attemptPendingCasBlock(messageId: string) {
       getKyselyDb()
         .updateTable("messages")
         .set({
-          app_decision: { tag: VERDICT_TAG_BLOCK, reason: RACE_LOSER_REASON },
+          dispatch_decision: {
+            tag: VERDICT_TAG_BLOCK,
+            reason: RACE_LOSER_REASON,
+          },
         })
         .where("id", "=", toMessageId(messageId))
         .where(
-          "app_decision",
+          "dispatch_decision",
           "@>",
           JSON.stringify({ tag: VERDICT_TAG_PENDING }),
         )
@@ -403,7 +406,7 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
 
     const ids = yield* readAllMessageIdsForConversation(binding.conversationId);
     expect(ids.length).toBe(1);
-    const decision = yield* readTmDecision(ids[0]!);
+    const decision = yield* readDispatchDecision(ids[0]!);
     expectDecisionTag(decision, VERDICT_TAG_BLOCK);
     expectDecisionReason(decision, BLOCK_REASON);
   });
@@ -473,7 +476,7 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
     yield* assertNoMessageReceived(bobCollector);
     yield* assertNoMessageReceived(daveCollector);
 
-    const decision = yield* readTmDecision(messageId);
+    const decision = yield* readDispatchDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
     expectDecisionRecipients(decision, [carol.agentId]);
   });
@@ -495,7 +498,7 @@ function forwardEmptySendsNoFanout() {
     const messageId = sent.message.id;
 
     yield* assertNoMessageReceived(bobCollector);
-    const decision = yield* readTmDecision(messageId);
+    const decision = yield* readDispatchDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
     expectDecisionRecipients(decision, []);
   });
@@ -613,10 +616,16 @@ function casGuardPreservesCommittedVerdict() {
     const sent = yield* sendText(alice, binding, TEXT_RACE);
     const messageId = sent.message.id;
 
-    expectDecisionTag(yield* readTmDecision(messageId), VERDICT_TAG_FORWARD);
+    expectDecisionTag(
+      yield* readDispatchDecision(messageId),
+      VERDICT_TAG_FORWARD,
+    );
     const updated = yield* attemptPendingCasBlock(messageId);
     expect(updated.length).toBe(0);
-    expectDecisionTag(yield* readTmDecision(messageId), VERDICT_TAG_FORWARD);
+    expectDecisionTag(
+      yield* readDispatchDecision(messageId),
+      VERDICT_TAG_FORWARD,
+    );
   });
 }
 
