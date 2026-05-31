@@ -26,6 +26,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
 import { describe, expect } from "vitest";
 import { signWebhookPayload } from "../../crypto/webhook-signature.js";
+import type { AppHost } from "../../app/app-host.js";
 import type { Db } from "../../db/client.js";
 import { MessageService } from "./message.service.js";
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -115,6 +116,20 @@ interface DeliveryHarness {
   close: () => Effect.Effect<void, never>;
 }
 
+// Minimal AppHost double. The delivery-webhook path never reaches
+// `runMessageAuthorize` (only `resolveSendVerdict` calls it, and this
+// harness drives `spawnDeliveryWebhooks` directly), so the verdict body
+// is unreachable here. It mirrors the send path's Forward verdict shape
+// so the double is honest about what the non-null AppHost represents.
+// AppHost is a nominal class with private fields, so a structural object
+// cannot assign without a cast; only `runMessageAuthorize` is reachable
+// on the send path, and it is unused on the delivery path under test.
+// eslint-disable-next-line agent-code-guard/as-unknown-as -- structural-class-double; see comment above
+const forwardAllAppHost = {
+  runMessageAuthorize: () =>
+    Effect.succeed({ decision: "Forward" as const, recipients: [] }),
+} as unknown as AppHost; // #ignore-sloppy-code[as-unknown-as]: structural-class-double; AppHost is nominal with private fields, only runMessageAuthorize is reachable on the send path and unused on the delivery path under test
+
 /** Construct a MessageService stub wired only enough to fire the delivery webhook. */
 function buildDeliveryHarness(
   httpClient: HttpClient.HttpClient,
@@ -131,7 +146,7 @@ function buildDeliveryHarness(
     encryption: null,
     deliveryWebhook: { url: DELIVERY_URL, secret: DELIVERY_SECRET },
     httpClient,
-    appHost: null,
+    appHost: forwardAllAppHost,
   });
   // eslint-disable-next-line agent-code-guard/as-unknown-as -- structural-private-access: cast to DeliveryHarness above; any MessageService.spawnDeliveryWebhooks signature drift breaks the assignment at compile time, equivalent to a typed guard
   return service as unknown as DeliveryHarness; // #ignore-sloppy-code[as-unknown-as]: structural-private-access; DeliveryHarness above pins the signature so any drift fails the cast at compile time

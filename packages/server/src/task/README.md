@@ -29,7 +29,7 @@ Conversations, messages, tasks, task-manager dispatch.
   fan-out, trace capture wiring.
 - `services/task.service.ts` — task lifecycle plus the
   `TaskConversation*` administrative methods.
-- `services/conversation/list-pagination.ts` — shared cursor +
+- `services/conversation-list-pagination.ts` — shared cursor +
   page-shape helpers consumed by `conversation.service.ts`.
 
 ## Handler shape
