@@ -22,6 +22,7 @@ import {
 import { encodeFrame } from "../_shared/frame-mutator.js";
 import { requestFrame } from "../../../transport/wire.js";
 import { serverRpcMethods } from "../../../rpc-registry.js";
+import type { AnyServerRpcDefinition } from "../../../rpc-registry.js";
 import { jsonRpcMethod } from "../../../transport/wire.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import {
@@ -235,7 +236,6 @@ type BadClientPendingMap = ReadonlyMap<string, BadClientPendingDeferred>;
 interface BadClientRuntime {
   readonly opts: BadClientOptions;
   readonly eventsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>;
-  readonly outboundIdsRef: Ref.Ref<ReadonlyArray<string>>;
   readonly closeRef: Ref.Ref<RealClientCloseEvent | null>;
   readonly connectionRef: Ref.Ref<TestServerConnection | null>;
   readonly pendingRef: Ref.Ref<BadClientPendingMap>;
@@ -283,7 +283,6 @@ function makeBadClientRuntime(
     return {
       opts,
       eventsRef: yield* Ref.make<ReadonlyArray<ObservedNotification>>([]),
-      outboundIdsRef: yield* Ref.make<ReadonlyArray<string>>([]),
       closeRef: yield* Ref.make<RealClientCloseEvent | null>(null),
       connectionRef: yield* Ref.make<TestServerConnection | null>(null),
       pendingRef: yield* Ref.make<BadClientPendingMap>(new Map()),
@@ -476,7 +475,6 @@ function makeNotificationSubscriber(
 function makeRpcCaller(runtime: BadClientRuntime): RealClientRpcCaller {
   return {
     call: (method, params) => callBadClientRpc(runtime, method, params),
-    outboundIdFeed: Ref.get(runtime.outboundIdsRef),
   };
 }
 
@@ -511,7 +509,6 @@ function openPendingRpc(runtime: BadClientRuntime): Effect.Effect<PendingRpc> {
       runtime.pendingRef,
       (pending) => new Map([...pending, [id, deferred]]),
     );
-    yield* Ref.update(runtime.outboundIdsRef, (ids) => [...ids, id]);
     return { id, deferred };
   });
 }
@@ -552,7 +549,8 @@ function makeProofRequest(
   params: unknown,
 ): Effect.Effect<RequestFrame> {
   return Effect.gen(function* () {
-    const definition = serverRpcMethods.find((def) => def.name === method);
+    const definition: AnyServerRpcDefinition | undefined =
+      serverRpcMethods.find((def) => def.name === method);
     if (definition === undefined || !definition.validateParams(params)) {
       return yield* Effect.die(new Error(`invalid proof RPC: ${method}`));
     }
@@ -594,17 +592,21 @@ function emitTaggedNotification(
   input: Parameters<ClientHandshakeWindow["emitTaggedNotification"]>[0],
 ): ReturnType<ClientHandshakeWindow["emitTaggedNotification"]> {
   registerEmittedFrameTag(JSON.stringify(input.base), input.emissionTag);
-  return input.connection
-    .emitNotification(input.base)
-    .pipe(Effect.as(input.emissionTag));
+  return input.connection.emitNotification(input.base).pipe(
+    Effect.orElseSucceed(() => undefined),
+    Effect.as(input.emissionTag),
+  );
 }
 
 function emitTaggedResponse(
   input: Parameters<ClientHandshakeWindow["emitTaggedResponse"]>[0],
 ): ReturnType<ClientHandshakeWindow["emitTaggedResponse"]> {
-  return input.connection
-    .emitResponse(input.base)
-    .pipe(Effect.as(input.base.id));
+  const tag =
+    typeof input.base.id === "string" ? input.base.id : input.emissionTag;
+  return input.connection.emitResponse(input.base).pipe(
+    Effect.orElseSucceed(() => undefined),
+    Effect.as(tag),
+  );
 }
 
 function makeBadClientRunContext(
@@ -647,9 +649,9 @@ function rpcBehavior(runtime: BadClientRuntime): RpcBehavior {
 }
 
 function stripNotificationName(frame: NotificationFrame): unknown {
-  const withoutMethod: Partial<NotificationFrame> = { ...frame };
-  delete withoutMethod.method;
-  return withoutMethod;
+  return Object.fromEntries(
+    Object.entries(frame).filter(([key]) => key !== "method"),
+  );
 }
 
 const EMPTY_OBJECT: Readonly<Record<string, unknown>> = {};
