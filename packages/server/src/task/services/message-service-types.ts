@@ -13,7 +13,6 @@ export interface SendInsertResult {
   readonly parts: ReadonlyArray<Part>;
   readonly conv: SendConversationRow;
   readonly excludeConnectionId: ConnectionId | undefined;
-  readonly bypassTmRouting: boolean;
 }
 
 export interface SendMessageInput {
@@ -22,12 +21,9 @@ export interface SendMessageInput {
   readonly senderAgentId: AgentId;
   readonly replyToId?: MessageId;
   readonly excludeConnectionId?: ConnectionId;
-  readonly bypassTmRouting?: boolean;
 }
 
-export interface SendInsertInput extends SendMessageInput {
-  readonly bypassTmRouting: boolean;
-}
+export type SendInsertInput = SendMessageInput;
 
 export interface SendCommitInput {
   readonly carrier: SendInsertResult;

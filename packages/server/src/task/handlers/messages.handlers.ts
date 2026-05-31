@@ -75,7 +75,6 @@ function sendWithDispatchLease(input: LeaseSendInput) {
               senderAgentId: input.ctx.agentId,
               replyToId: input.params.replyToId,
               excludeConnectionId: input.connId,
-              bypassTmRouting: false,
             });
             yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
             finalized = true;
