@@ -18,7 +18,7 @@ import {
   connectTestClient,
   adminRegisterAgent,
 } from "../helpers.js";
-import { userId, RpcResponseError } from "@moltzap/protocol/testing";
+import { agentId, userId, RpcResponseError } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
 import { NotInContactsError, PresenceSubscribe } from "@moltzap/protocol";
 
@@ -111,7 +111,7 @@ function rejectsInvisibleAgent() {
     });
     const exit = yield* Effect.exit(
       alice.client.sendRpc(PresenceSubscribe, {
-        agentIds: [carol.agentId],
+        agentIds: [agentId(carol.agentId)],
       }),
     );
 
@@ -138,7 +138,7 @@ function rejectsOnlyInvisibleSubset() {
     });
     const exit = yield* Effect.exit(
       alice.client.sendRpc(PresenceSubscribe, {
-        agentIds: [alice2.agentId, carol.agentId],
+        agentIds: [agentId(alice2.agentId), agentId(carol.agentId)],
       }),
     );
 

@@ -3,6 +3,7 @@ import { it as effectIt } from "@effect/vitest";
 
 import { Effect, Exit } from "effect";
 import { Connect, PROTOCOL_VERSION } from "@moltzap/protocol";
+import { agentId } from "@moltzap/protocol/testing";
 import { parseApiKey } from "../../../identity/services/agent-auth.js";
 import {
   startTestServerEffect,
@@ -89,52 +90,52 @@ function adminResponse(json: unknown) {
   return json as AdminRegisterResponse;
 }
 
-function selectAgentIdentity(agentId: string) {
+function selectAgentIdentity(id: string) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .selectFrom("agents")
       .select(["id", "owner_user_id", "name"])
-      .where("id", "=", agentId)
+      .where("id", "=", agentId(id))
       .executeTakeFirstOrThrow(),
   );
 }
 
-function selectAgentOwner(agentId: string) {
+function selectAgentOwner(id: string) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .selectFrom("agents")
       .select(["owner_user_id"])
-      .where("id", "=", agentId)
+      .where("id", "=", agentId(id))
       .executeTakeFirstOrThrow(),
   ).pipe(Effect.map((row) => row.owner_user_id));
 }
 
-function selectAgentStatus(agentId: string) {
+function selectAgentStatus(id: string) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .selectFrom("agents")
       .select(["status"])
-      .where("id", "=", agentId)
+      .where("id", "=", agentId(id))
       .executeTakeFirstOrThrow(),
   ).pipe(Effect.map((row) => row.status));
 }
 
-function selectLiveApiKeyId(agentId: string) {
+function selectLiveApiKeyId(id: string) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .selectFrom("agents")
       .select(["api_key_id"])
-      .where("id", "=", agentId)
+      .where("id", "=", agentId(id))
       .executeTakeFirstOrThrow(),
   ).pipe(Effect.map((row) => row.api_key_id));
 }
 
-function suspendAgent(agentId: string) {
+function suspendAgent(id: string) {
   return Effect.tryPromise(() =>
     getKyselyDb()
       .updateTable("agents")
       .set({ status: AGENT_STATUS_SUSPENDED })
-      .where("id", "=", agentId)
+      .where("id", "=", agentId(id))
       .execute(),
   ).pipe(Effect.asVoid);
 }
@@ -157,7 +158,7 @@ function sendConnect(client: ConnectedTestClient, key: string) {
     agentKey: key,
     minProtocol: PROTOCOL_VERSION,
     maxProtocol: PROTOCOL_VERSION,
-  }) as Effect.Effect<{ agentId: string }>;
+  });
 }
 
 function registersExplicitOwner() {
