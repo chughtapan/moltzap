@@ -16,8 +16,32 @@ added by the implement-staff modality (architect charter forbids
 
 ## Public surface
 
-_No exports surfaced from this folder._
+### [`waitForValue`](./wait.ts#L30)
+
+_Function_
+
+```ts
+export const waitForValue = <A>(
+  probe: Effect.Effect<A | undefined>,
+  options?: { readonly pollMillis?: number },
+): Effect.Effect<A>
+```
+
+Poll `probe` until it returns a defined value, then return it.
+
+### [`waitUntil`](./wait.ts#L18)
+
+_Function_
+
+```ts
+export const waitUntil = (
+  predicate: () => boolean,
+  options?: { readonly pollMillis?: number },
+): Effect.Effect<void>
+```
+
+Poll `predicate` until it returns true.
 
 ## Files
 
-_No source files tracked under this folder by TypeDoc._
+- `wait.ts`

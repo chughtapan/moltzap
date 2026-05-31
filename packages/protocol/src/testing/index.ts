@@ -54,6 +54,10 @@ export {
   makeTestServer,
 } from "./conformance/_shared/driver/index.js";
 
+// Starvation-immune async-wait primitives. Shared by every package's tests so
+// the parallel-flake fix (no wall-clock poll deadline) lives in one place.
+export { waitForValue, waitUntil } from "./wait.js";
+
 // Capture + codec primitives.
 export {
   type CaptureBuffer,

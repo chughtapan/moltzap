@@ -67,6 +67,8 @@ import {
   JSON_RPC_VERSION,
   validateRequestFrame,
   validateResponseFrame,
+  waitForValue,
+  waitUntil,
 } from "@moltzap/protocol/testing";
 
 const effectTest = (
@@ -122,20 +124,16 @@ const RECONNECT_AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const TEST_MESSAGE_ID = messageId("44444444-4444-4444-8444-444444444444");
 const NORMAL_CLOSE_CODE = 1000;
 const SERVER_ERROR_CLOSE_CODE = 1011;
-const WAIT_FOR_DEFAULT_TIMEOUT_MS = 2_000;
 const CONNECT_FAILURE_MAX_MS = 3_000;
 const REFUSED_CONNECT_MAX_MS = 15_000;
 const REFUSED_CONNECT_TEST_TIMEOUT_MS = 20_000;
-const REALTIME_POLL_TIMEOUT_MS = 2_000;
 const POST_TIMEOUT_SETTLE_MS = 50;
 const MALFORMED_FRAME_COUNT = 101;
 const MALFORMED_FRAME_FLUSH_MS = 300;
 const CLIENT_DRAIN_COUNT = 10;
 const CLOSE_PROPAGATION_TIMEOUT_MS = 1_000;
 const STALE_PORT_TEST_TIMEOUT_MS = 15_000;
-const CLOSE_INFO_WAIT_MS = 2_000;
 const HANDLER_REJECTION_CODE = ForbiddenError.code;
-const WAIT_FOR_POLL_INTERVAL_MS = 5;
 const NORMAL_CLOSE_REASON = "normal";
 const SERVER_ERROR_REASON = "boom";
 const SERVER_TEST_REQUEST_ID = "srv-test-1";
@@ -218,10 +216,6 @@ class ClosedLocalPortError extends Data.TaggedError("ClosedLocalPortError")<{
   readonly cause: unknown;
 }> {}
 
-class WaitForTimeoutError extends Data.TaggedError("WaitForTimeoutError")<{
-  readonly timeoutMs: number;
-}> {}
-
 function rawSocketDataToString(data: string | Uint8Array): string {
   return typeof data === "string"
     ? data
@@ -279,22 +273,18 @@ function findResponseRaw(server: TestServer, id: string): string | undefined {
 function waitForResponseRaw(
   server: TestServer,
   id: string,
-): Effect.Effect<string | undefined, WaitForTimeoutError> {
-  return waitFor(() => findResponseRaw(server, id) !== undefined, {
-    maxMs: CLOSE_INFO_WAIT_MS,
-  }).pipe(Effect.map(() => findResponseRaw(server, id)));
+): Effect.Effect<string> {
+  return waitForValue(Effect.sync(() => findResponseRaw(server, id)));
 }
 
 function waitForErrorResponse(
   server: TestServer,
   id: string,
-): Effect.Effect<void, WaitForTimeoutError> {
-  return waitFor(
-    () =>
-      firstConnection(server).received.some((raw) =>
-        errorResponseFrameHasId(raw, id),
-      ),
-    { maxMs: CLOSE_INFO_WAIT_MS },
+): Effect.Effect<void> {
+  return waitUntil(() =>
+    firstConnection(server).received.some((raw) =>
+      errorResponseFrameHasId(raw, id),
+    ),
   );
 }
 
@@ -680,32 +670,6 @@ const withTestServer = <A, E>(
   effect: Effect.Effect<A, E, Scope.Scope>,
 ): Effect.Effect<A, E> => Effect.scoped(effect);
 
-/**
- * Poll until `pred()` is true or `maxMs` elapses. The legacy test file used a
- * microtask-based loop; we keep that cadence to match the legacy behaviour
- * when synchronisation is driven by wall-clock timing in the test harness.
- */
-function waitFor(
-  pred: () => boolean,
-  { maxMs = WAIT_FOR_DEFAULT_TIMEOUT_MS }: { maxMs?: number } = {},
-): Effect.Effect<void, WaitForTimeoutError> {
-  const deadline = Date.now() + maxMs;
-  return Effect.async<void, WaitForTimeoutError>((resume) => {
-    const tick = (): void => {
-      if (pred()) {
-        resume(Effect.void);
-        return;
-      }
-      if (Date.now() > deadline) {
-        resume(Effect.fail(new WaitForTimeoutError({ timeoutMs: maxMs })));
-        return;
-      }
-      setTimeout(tick, WAIT_FOR_POLL_INTERVAL_MS);
-    };
-    tick();
-  });
-}
-
 const realSleep = (ms: number): Effect.Effect<void> =>
   Effect.async<void>((resume) => {
     const timer = setTimeout(() => resume(Effect.void), ms);
@@ -801,7 +765,6 @@ export {
   startReconnectServer,
   startTestServer,
   validateResponseFrame,
-  waitFor,
   realSleep,
   waitForErrorResponse,
   waitForResponseRaw,
@@ -819,13 +782,11 @@ export {
   CONNECT_FAILURE_MAX_MS,
   REFUSED_CONNECT_MAX_MS,
   REFUSED_CONNECT_TEST_TIMEOUT_MS,
-  REALTIME_POLL_TIMEOUT_MS,
   POST_TIMEOUT_SETTLE_MS,
   MALFORMED_FRAME_FLUSH_MS,
   CLIENT_DRAIN_COUNT,
   CLOSE_PROPAGATION_TIMEOUT_MS,
   STALE_PORT_TEST_TIMEOUT_MS,
-  CLOSE_INFO_WAIT_MS,
   HANDLER_REJECTION_CODE,
   NORMAL_CLOSE_REASON,
   SERVER_ERROR_REASON,
