@@ -131,3 +131,23 @@ export type {
 export { provideMiddleware } from "./capability-middleware.js";
 export type { GatedMiddlewareBody } from "./middleware-slot.js";
 export { makeMiddlewareSlot } from "./middleware-slot.js";
+
+// Channel-multiplexed `@effect/rpc` transport. One physical WebSocket
+// carries every logical endpoint, split by the `{ch, f}` envelope; each
+// channel owns its own serialization Parser and binds to the engine
+// through the low-level `RpcServer.Protocol.make` / `RpcClient.Protocol.make`
+// extension points. The live connection composes these builders.
+export {
+  makeServerChannelProtocol,
+  makeClientChannelProtocol,
+  runMuxReader,
+  routeInbound,
+  MUX_CLIENT_ID,
+} from "./native-mux.js";
+export type {
+  MuxChannel,
+  MuxEnvelope,
+  WireWrite,
+  ChannelProtocol,
+  ChannelSink,
+} from "./native-mux.js";
