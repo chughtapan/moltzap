@@ -377,7 +377,7 @@ function staleRemoteMessageBlocks() {
         makeTaskId("00000000-0000-4000-8000-000000ce5602"),
       ),
     );
-    expect(result).toEqual({ decision: "Block", reason: "tm_unreachable" });
+    expect(result).toEqual({ decision: "Block", reason: "app_unreachable" });
   });
 }
 
@@ -402,7 +402,7 @@ function malformedRemoteMessageBlocks() {
     );
     const verdict = yield* Fiber.join(fiber);
     yield* Scope.close(fixture.scope, Exit.void);
-    expect(verdict).toEqual({ decision: "Block", reason: "tm_unreachable" });
+    expect(verdict).toEqual({ decision: "Block", reason: "app_unreachable" });
   });
 }
 

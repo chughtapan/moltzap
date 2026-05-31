@@ -163,7 +163,7 @@ export const TaskRemoveParticipant = defineRpc({
 const TaskFailedNotificationSchema = Schema.Struct({
   taskId: TaskId,
   // Free-form one-liner. The task/create app-callback verdict's
-  // `reject.reason`, the synthesized `"tm_unreachable"` /
+  // `reject.reason`, the synthesized `"app_unreachable"` /
   // `"timeout"` strings from the fail-closed envelope, and any
   // future caller-supplied failure reason all flow through here.
   reason: Schema.optional(
@@ -467,16 +467,13 @@ const TaskConversationParticipantsAddedNotificationSchema = Schema.Struct({
   taskId: TaskId,
   conversationId: ConversationId,
   addedAgentId: AgentId,
-  // Authority is TM-only today; the enum is single-valued but kept
-  // open-shaped so the wire can widen without a schema rev.
-  byAgentOrTm: stringEnum(["tm"]),
 });
 
 const TaskConversationParticipantsRemovedNotificationSchema = Schema.Struct({
   taskId: TaskId,
   conversationId: ConversationId,
   removedAgentId: AgentId,
-  reason: stringEnum(["tm_remove", "task_leave"]),
+  reason: stringEnum(["app_remove", "task_leave"]),
 });
 
 export type TaskConversationCreatedNotification = Schema.Schema.Type<

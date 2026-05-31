@@ -204,5 +204,5 @@ CREATE INDEX idx_messages_task_seq ON messages(task_id, seq);
 -- Greenfield schema follows the project's existing pattern (no
 -- migration runner; column lands in `core-schema.sql` directly).
 ALTER TABLE messages
-  ADD COLUMN tm_decision JSONB NOT NULL DEFAULT '{"tag":"pending"}'::jsonb;
-CREATE INDEX idx_messages_tm_decision_tag ON messages ((tm_decision->>'tag'));
+  ADD COLUMN app_decision JSONB NOT NULL DEFAULT '{"tag":"pending"}'::jsonb;
+CREATE INDEX idx_messages_app_decision_tag ON messages ((app_decision->>'tag'));

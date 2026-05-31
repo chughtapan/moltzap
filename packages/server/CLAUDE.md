@@ -167,7 +167,7 @@ bound task (`assertAppOwnsTask`, see
 `packages/protocol/src/task/capabilities/assert-capability-matches-task.ts`):
 the 8 task-admin RPCs load the task and assert the calling
 `AppConnection`'s `appId` equals `tasks.app_id`. The schema does not
-carry a separate `tm_endpoint_address` column; TM endpoint identity is
+carry a separate endpoint-address column; app endpoint identity is
 derived from `app_id` at routing time.
 
 ## Tests

@@ -184,12 +184,12 @@ function dispatchVerdictToLeaseVerdict(
  * ```mermaid
  * flowchart TD
  *   Call[hook runner — dispatchAuthorizeHook / runMessageAuthorize / runTaskCreate] --> Lookup{apps.get appId}
- *   Lookup -- undefined --> FailClosed0[fail-closed synthetic verdict<br>deny app_unavailable / Block tm_unreachable / reject tm_unreachable]
+ *   Lookup -- undefined --> FailClosed0[fail-closed synthetic verdict<br>deny app_unavailable / Block app_unreachable / reject app_unreachable]
  *   Lookup -- found --> Hook{manifest.hooks omits this hook?}
  *   Hook -- yes --> Default[synthetic default<br>grant / Forward — recipients participants minus sender / accept]
  *   Hook -- no --> Rpc[callAppRpc entry.endpoint.originator, definition, params]
  *   Rpc --> Envelope[wrapHookEffectWithEnvelope<br>raw, timeoutMs, onTimeout, onError, log contexts]
- *   Envelope --> FailClosed[timeout, handler throw, RPC failure, decode failure<br>collapse to onTimeout / onError<br>e.g. messageAuthorize Block reason tm_unreachable]
+ *   Envelope --> FailClosed[timeout, handler throw, RPC failure, decode failure<br>collapse to onTimeout / onError<br>e.g. messageAuthorize Block reason app_unreachable]
  * ```
  *
  * Every fail-mode collapses to a deny-shaped verdict so callers
@@ -711,7 +711,7 @@ export class AppHost {
    * participant set in-process. The boot-installed default app declares
    * no hooks, so this fast-path produces its forward-all verdict
    * server-side (no app callback). Fails closed
-   * (`Block { reason: "tm_unreachable" }`) when no ConversationService
+   * (`Block { reason: "app_unreachable" }`) when no ConversationService
    * back-edge is wired (unit-test layer), mirroring the unknown-app
    * posture in {@link runMessageAuthorize}.
    */
@@ -722,7 +722,7 @@ export class AppHost {
     if (svc === null) {
       return Effect.succeed({
         decision: "Block" as const,
-        reason: "tm_unreachable",
+        reason: "app_unreachable",
       });
     }
     return svc.getParticipantAgentIds(ctx.conversationId).pipe(
@@ -750,7 +750,7 @@ export class AppHost {
    * moderator there's nobody to authorize the fan-out.
    *
    * Fail-closed posture: timeout / RPC error / decode failure all
-   * synthesize `Block { reason: "tm_unreachable" }`.
+   * synthesize `Block { reason: "app_unreachable" }`.
    */
   runMessageAuthorize(
     appId: AppId,
@@ -760,7 +760,7 @@ export class AppHost {
     if (entry === undefined) {
       return Effect.succeed({
         decision: "Block" as const,
-        reason: "tm_unreachable",
+        reason: "app_unreachable",
       });
     }
 
@@ -795,11 +795,11 @@ export class AppHost {
       errorLogContext: { taskId, appId },
       onTimeout: () => ({
         decision: "Block" as const,
-        reason: "tm_unreachable",
+        reason: "app_unreachable",
       }),
       onError: () => ({
         decision: "Block" as const,
-        reason: "tm_unreachable",
+        reason: "app_unreachable",
       }),
     });
   }
@@ -811,7 +811,7 @@ export class AppHost {
    * on reject or any fail-closed synthesis: timeout, RPC error,
    * decode failure).
    *
-   * Unknown app → fail-closed reject (synthesized `tm_unreachable`).
+   * Unknown app → fail-closed reject (synthesized `app_unreachable`).
    * Same posture as {@link runMessageAuthorize}.
    */
   runTaskCreate(
@@ -822,7 +822,7 @@ export class AppHost {
     if (entry === undefined) {
       return Effect.succeed({
         decision: "reject" as const,
-        reason: "tm_unreachable",
+        reason: "app_unreachable",
       });
     }
     // D #705 CP8 — manifest-default fast-path. A manifest that omits
@@ -854,7 +854,7 @@ export class AppHost {
       }),
       onError: () => ({
         decision: "reject" as const,
-        reason: "tm_unreachable",
+        reason: "app_unreachable",
       }),
     });
   }

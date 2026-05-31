@@ -185,7 +185,7 @@ const awaitTaskCreated = (actor: Actor, property: string) =>
 // ─── TaskRequest — TM reject path ────────────────────────────────────
 
 const TASK_REQUEST_REJECT_PROPERTY = "task-request-tm-reject";
-const REJECT_REASON = "tm_policy";
+const REJECT_REASON = "app_policy";
 
 // D #705 CP9 — register a SEPARATE app principal (HTTP + `appKey` Connect)
 // whose `task/create` callback always rejects. Returns the server-minted

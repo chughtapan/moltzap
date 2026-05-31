@@ -218,14 +218,14 @@ export type _D1ListItemCanary = _L1 | _L2 | _L3 | _L4;
 
 // ── Canary 5: ParticipantsRemoved reason enum ────────────────────────
 //
-// Locks the `reason` discriminator (`"tm_remove" | "task_leave"`).
+// Locks the `reason` discriminator (`"app_remove" | "task_leave"`).
 // Drives the exhaustive-switch impl-staff writes in the broadcast
 // helper; a third reason added without code coverage fails here.
 
 type _R1 = Expect<
   Equal<
     TaskConversationParticipantsRemovedNotification["reason"],
-    "tm_remove" | "task_leave"
+    "app_remove" | "task_leave"
   >
 >;
 type _R2 = Expect<

@@ -182,11 +182,11 @@ function readTmDecision(
     try: () =>
       getKyselyDb()
         .selectFrom("messages")
-        .select("tm_decision")
+        .select("app_decision")
         .where("id", "=", messageId)
         .executeTakeFirstOrThrow(),
-    catch: (cause) => dbError("Unable to read tm_decision", cause),
-  }).pipe(Effect.map((row) => row.tm_decision));
+    catch: (cause) => dbError("Unable to read app_decision", cause),
+  }).pipe(Effect.map((row) => row.app_decision));
 }
 
 function readAllMessageIdsForConversation(
@@ -209,11 +209,11 @@ function attemptPendingCasBlock(messageId: string) {
       getKyselyDb()
         .updateTable("messages")
         .set({
-          tm_decision: { tag: VERDICT_TAG_BLOCK, reason: RACE_LOSER_REASON },
+          app_decision: { tag: VERDICT_TAG_BLOCK, reason: RACE_LOSER_REASON },
         })
         .where("id", "=", messageId)
         .where(
-          "tm_decision",
+          "app_decision",
           "@>",
           JSON.stringify({ tag: VERDICT_TAG_PENDING }),
         )
