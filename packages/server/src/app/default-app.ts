@@ -18,7 +18,7 @@ const DEFAULT_APP_CONNECTION_ID = Schema.decodeUnknownSync(ConnectionId)(
 /**
  * The boot-installed default app declares NO hooks. Every server→app
  * callback (`dispatch/authorize`, `messages/authorize`, `task/create`)
- * is served by AppHost's manifest-default fast-path (D #705 CP8):
+ * is served by AppHost's manifest-default fast-path:
  *
  *   - `dispatch/authorize` absent → synthetic `grant` (unmoderated).
  *   - `message_authorize` absent → synthetic

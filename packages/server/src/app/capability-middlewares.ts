@@ -1,25 +1,21 @@
 /**
- * @file Capability middlewares — #705 HALF-2 slice-1 (cap-as-middleware).
+ * @file Capability middlewares for the methods whose capabilities are
+ * provided as middleware (`messages/send`, `messages/list`,
+ * `task/request`, the `task/conversation/*` admin RPCs). Each capability
+ * is one {@link CapabilityMiddleware} pairing:
+ *   - `provides`: the `Context.Tag` the handler `yield*`s;
+ *   - `derivePayload`: typed, payload-only derivation. Reads the decoded
+ *     params and the caller's id via `yield* callerAgentId`
+ *     (`CurrentPrincipal` read, not a `ctx` parameter);
+ *   - `obtain`: the effect producing the provided service value (input is
+ *     `derivePayload`'s output). Its failure rides the obtain `E` to the
+ *     dispatcher's `wireErrorFromInstance` `-32xxx` projection.
  *
- * The cast-free successors to the `capability-providers.ts` provider
- * functions for the middleware-converted methods (`messages/send`,
- * `messages/list`). Each capability is one {@link CapabilityMiddleware}
- * pairing:
- *   - `provides`: the Spec E `Context.Tag` the handler `yield*`s;
- *   - `derivePayload`: TYPED, payload-only derivation. Reads the decoded
- *     params (A9 — NOT `unknown`, NO `params as Shape` cast) and the
- *     caller's id via `yield* callerAgentId` (`CurrentPrincipal` read — NOT
- *     a `ctx` parameter, NO `narrowToDispatchContext`);
- *   - `obtain`: the effect producing the provided service value (the today
- *     provider body, now typed: input is `derivePayload`'s output, NO
- *     `args as Shape` cast). Its failure rides the obtain `E` → the
- *     dispatcher's existing `wireErrorFromInstance` `-32xxx` projection.
- *
- * The dispatcher weaves these into a STATIC per-arm `provideServiceEffect`
+ * The dispatcher weaves these into a static per-arm `provideServiceEffect`
  * chain at the binding site (`messages.handlers.ts`); the chain subtracts
- * each cap tag cast-free and the dispatcher's
- * `provideService(CurrentPrincipal, …)` subtracts the principal — residual
- * R bottoms out at `Env`, compiler-checked (no `dischargeCaps` carve-out).
+ * each cap tag and the dispatcher's `provideService(CurrentPrincipal, …)`
+ * subtracts the principal, so residual R bottoms out at `Env`,
+ * compiler-checked.
  */
 import { Effect } from "effect";
 import {
@@ -82,7 +78,7 @@ interface CreatorAndTargets {
   readonly targetAgentIds: readonly AgentId[];
 }
 
-// ── obtains (typed input, no `args as Shape`) ──────────────────────────
+// ── obtains (typed input) ───────────────────────────────────────────────
 
 const obtainTaskReadAccess = (input: TaskAndAgent) =>
   Effect.gen(function* () {
@@ -201,8 +197,8 @@ export const conversationInTaskForList: CapabilityMiddleware<
 > = conversationInTaskMiddleware<MessagesListParams>();
 
 // The four app-principal `task/conversation/*` admin RPCs share the
-// IDENTICAL `[ConversationInTask]` capability (D #705 R7 — app-ownership is
-// gated separately in the handler body via `assertCallerAppOwnsTask`). The
+// IDENTICAL `[ConversationInTask]` capability; app-ownership is gated
+// separately in the handler body via `assertCallerAppOwnsTask`. The
 // derive reads NO principal (pure `taskId`/`conversationId` params), so the
 // SAME `conversationInTaskMiddleware<Params>()` typed per the owning method's
 // params serves them all.
@@ -243,9 +239,8 @@ export const conversationInTaskForRemoveParticipant: CapabilityMiddleware<
  * `ContactPolicyAllowsReach` middleware (`task/request` cap[0]). The caller
  * (creator) id is read via `yield* callerAgentId` (principal-as-service —
  * `task/request` is `callablePrincipal: "agent"`); the targets are a typed
- * `params.invitedAgentIds` read. Empty targets provision a no-op proof (the
- * service-layer guards short-circuit on zero targets), preserving the legacy
- * semantics.
+ * `params.invitedAgentIds` read. Empty targets provision a no-op proof —
+ * the service-layer guards short-circuit on zero targets.
  */
 export const contactPolicyAllowsReachMiddleware: CapabilityMiddleware<
   TaskRequestParams,
@@ -268,9 +263,8 @@ export const contactPolicyAllowsReachMiddleware: CapabilityMiddleware<
 /**
  * `MessageSendPermission` middleware (`messages/send` cap[1]). Reads the
  * caller's id via `yield* callerAgentId`; the rest are typed `params`
- * reads. (The `conversationId`-via-DB-resolution caveat is unchanged —
- * `MessagesSend` declares `conversationId` explicitly in its wire shape,
- * so the typed derive needs no DB lookup here.)
+ * reads. `MessagesSend` declares `conversationId` explicitly in its wire
+ * shape, so the typed derive needs no DB lookup here.
  */
 export const messageSendPermissionMiddleware: CapabilityMiddleware<
   MessagesSendParams,

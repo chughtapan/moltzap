@@ -87,8 +87,7 @@ export class AuthService {
 
         // claimToken matches the `Register.result` protocol schema; it
         // is the credential the `auth/claim` route accepts to bind
-        // `owner_user_id` (#486). Pre-#486 it had no consumer, so the
-        // implementation diverged from the schema by omitting it.
+        // `owner_user_id`.
         return { agentId, apiKey, claimToken };
       }),
     );
@@ -171,7 +170,7 @@ export class AuthService {
    * repeat claim with the same `(claimToken, ownerUserId)` succeeds and
    * returns the existing binding. A repeat claim with a different
    * `ownerUserId` is rejected with `CLAIM_OWNER_MISMATCH` so the
-   * impersonation footgun (#486) cannot be reopened post-claim.
+   * impersonation footgun cannot be reopened post-claim.
    *
    * Atomicity: the WHERE on `owner_user_id IS NULL` lets concurrent
    * claims race safely — only one transaction's UPDATE binds the row;

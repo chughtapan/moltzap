@@ -19,8 +19,8 @@ export const presenceHandlers: ServerRpcSlots = [
   defineTaskMethod(PresenceSubscribe, {
     callablePrincipal: "agent",
     requiresActive: true,
-    // Contact-scoped per #481/#508: throw NotInContactsError when any
-    // requested agentId falls outside the caller's visibility set.
+    // Contact-scoped: throw NotInContactsError when any requested
+    // agentId falls outside the caller's visibility set.
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const presenceService = yield* PresenceServiceTag;

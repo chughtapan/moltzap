@@ -107,7 +107,7 @@ export interface CoreApp {
   setContactService: (checker: ContactService) => void;
 
   /**
-   * #529 reshape additive — server-local lease registry for the
+   * Server-local lease registry for the
    * `dispatch/{request, authorize, release}` admission surface.
    * Stable identity across the server lifetime. Tests + advanced
    * consumers can read lease state directly via this handle.
