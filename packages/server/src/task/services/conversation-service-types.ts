@@ -36,11 +36,10 @@ export interface CreateConversationOptions<TaskMintError = never> {
    * Creator-of-record FK (`conversations.created_by_id`). For the
    * agent-originated `task/request → mintInitialConversation` path this
    * is the requesting agent (who IS a participant). For the
-   * app-originated `task/conversation/create` path (D #705 R3) this is
+   * app-originated `task/conversation/create` path this is
    * `task.initiatorAgentId` — the agent that sent the initial
    * `task/request` — and is NOT seeded as a participant (see
-   * {@link seedCreatorAsParticipant}). Either way the FK stays a valid
-   * `AgentId` referencing `agents`, so no schema migration.
+   * {@link seedCreatorAsParticipant}).
    */
   readonly creatorAgentId: AgentId;
 
@@ -49,8 +48,7 @@ export interface CreateConversationOptions<TaskMintError = never> {
    * (and subscribed). Defaults to `true` for the agent path. The
    * app-originated `task/conversation/create` path passes `false`:
    * participants = exactly `params.participants`, never the
-   * TM-backing-agent creator-of-record (D #705 R3 — fixes the latent
-   * "creator silently added as a member" bug).
+   * TM-backing-agent creator-of-record.
    */
   readonly seedCreatorAsParticipant?: boolean;
   readonly mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>;

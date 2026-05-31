@@ -33,8 +33,8 @@ export const obtainConversationCreateAuthorization = (
 
 /**
  * Capacity-only authorization for the app-originated
- * `task/conversation/create` (D #705 R3). A TM minting a conversation on
- * the task's behalf has no agent contact-edges of its own; the targets
+ * `task/conversation/create`. A TM minting a conversation on the task's
+ * behalf has no agent contact-edges of its own; the targets
  * are already gated by `requireAgentsAreInTaskParticipants` in the
  * handler, so the creator contact-policy basis does NOT apply. Only the
  * group-capacity check runs. `ownerByAgentId` is still loaded (it

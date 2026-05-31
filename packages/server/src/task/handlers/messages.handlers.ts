@@ -124,11 +124,11 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
 
 // The capability middlewares are woven as a HAND-EXPANDED static chain per
 // arm via `provideMiddleware` (one CONCRETE-tag `provideServiceEffect` step
-// per declared cap — the load-bearing cast-free form, cap-reshape Concern 5,
-// NOT a runtime tuple-fold). Declaration order is preserved by listing the
-// FIRST-declared cap as the OUTERMOST `.pipe` step (LAST in source) for
-// Forbidden-before-state-probe. The declared `middlewares` tuple (2nd arg)
-// pins the totality lockstep so dropping a step fails the compile.
+// per declared cap — the cast-free form, NOT a runtime tuple-fold).
+// Declaration order is preserved by listing the FIRST-declared cap as the
+// OUTERMOST `.pipe` step (LAST in source) for Forbidden-before-state-probe.
+// The declared `middlewares` tuple (2nd arg) pins the totality lockstep so
+// dropping a step fails the compile.
 export const messageHandlers: ServerRpcSlots = [
   // `MessagesSend` declares `[ConversationInTask, MessageSendPermission]`
   // — the static chain weaves them in REVERSE declaration order so the

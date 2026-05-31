@@ -34,11 +34,7 @@ import type { MessageService } from "./message.service.js";
  *      `MessageService.readSendConversation` (joins `conversations ⋈
  *      tasks`).
  *   3. Refine `task.status` via `refineTaskActive` — fails closed on
- *      `closed`/`failed` tasks. (Pre-cutover this was a bypassed gate
- *      for the TM; the bypass mechanism was removed in the #673
- *      follow-up because no production caller exercised the
- *      failed-task window and the downstream `sendInsert` never
- *      discriminated the resulting variants.)
+ *      `closed`/`failed` tasks.
  *   4. Refine `conversation.archived_at IS NULL` via
  *      `refineConversationNotArchived` (no DB read; uses column).
  *   5. Fetch the task row via `TaskService.fetchTask` — carried in
@@ -101,8 +97,8 @@ const readSendConversationStrict = (
   });
 
 /**
- * Guards the `conv.task_id === input.taskId` invariant (codex review
- * #601 R1). Without this, the carried `task` payload (fetched by
+ * Guards the `conv.task_id === input.taskId` invariant. Without this,
+ * the carried `task` payload (fetched by
  * `taskService.fetchTask(input.taskId)`) could refer to a different
  * task than the `conv.task_status` column used for the
  * `refineTaskActive` gate.

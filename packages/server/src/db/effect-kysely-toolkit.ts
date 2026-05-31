@@ -124,7 +124,7 @@ export function makeEffectKysely<DB>(config: KyselyConfig): EffectKysely<DB> {
 
 /**
  * Take the first row of an Effect that produces an array, as `Option`.
- * Replaces `.executeTakeFirst()`.
+ * Effect equivalent of Kysely's `.executeTakeFirst()`.
  */
 export const takeFirstOption = <A, E, R>(
   query: Effect.Effect<ReadonlyArray<A>, E, R>,
@@ -132,8 +132,8 @@ export const takeFirstOption = <A, E, R>(
   query.pipe(Effect.map((rows) => Option.fromNullable(rows[0])));
 
 /**
- * Take the first row or fail with a caller-supplied error. Replaces
- * `.executeTakeFirst()` followed by a manual nullish check.
+ * Take the first row or fail with a caller-supplied error. Effect
+ * equivalent of `.executeTakeFirst()` followed by a manual nullish check.
  */
 export const takeFirstOrElse = <A, E, R, E2>(
   query: Effect.Effect<ReadonlyArray<A>, E, R>,
@@ -146,8 +146,8 @@ export const takeFirstOrElse = <A, E, R, E2>(
   );
 
 /**
- * Take the first row or fail with a `NoSuchElementException`. Replaces
- * `.executeTakeFirstOrThrow()`.
+ * Take the first row or fail with a `NoSuchElementException`. Effect
+ * equivalent of `.executeTakeFirstOrThrow()`.
  */
 export const takeFirstOrFail = <A, E, R>(
   query: Effect.Effect<ReadonlyArray<A>, E, R>,
@@ -162,8 +162,9 @@ export const takeFirstOrFail = <A, E, R>(
   );
 
 /**
- * Execute a Kysely raw `sql``...` builder and return the rows. Replaces
- * `sql``...`.execute(db)` + nullability/shape handling at the call site.
+ * Execute a Kysely raw `sql``...` builder and return the rows. Effect
+ * equivalent of `sql``...`.execute(db)` + nullability/shape handling at
+ * the call site.
  */
 export const rawQuery = <A extends object, DB>(
   db: EffectKysely<DB> | Kysely<DB>,
@@ -203,12 +204,10 @@ export const transaction = <A, DB>(
  * Service boundary helper: swallow DB-plumbing errors (`SqlError`,
  * `NoSuchElementException`) into defects.
  *
- * Kysely used to throw on driver errors, and call sites that called
- * `.executeTakeFirstOrThrow()` let a throw bubble up. Both paths were
- * treated as defects at the wire edge (→ `InternalError`). The Effect
- * bridge surfaces them as typed errors in the error channel. Applying
- * this at service boundaries preserves the existing semantics while
- * keeping public error channels as tagged-error classes only.
+ * DB-plumbing failures are infrastructure faults, not modeled outcomes,
+ * so they surface at the wire edge as `InternalError`. Applying this at
+ * service boundaries keeps public error channels as tagged-error
+ * classes only.
  */
 export const catchSqlErrorAsDefect = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
