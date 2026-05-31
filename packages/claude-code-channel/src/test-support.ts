@@ -1,8 +1,7 @@
 /**
  * `@moltzap/claude-code-channel/test-support` — narrow public subpath
  * export so the protocol conformance suite can instantiate a real
- * MoltZap WS client in the shape this channel ships (issue #254 / AC15-AC17
- * pattern from architect-201 §8 O5).
+ * MoltZap WS client in the shape this channel ships.
  *
  * The Claude Code channel embeds `MoltZapChannelCore` + `MoltZapService`
  * inside `bootClaudeCodeChannel`'s entry, exactly like the openclaw and

@@ -29,10 +29,8 @@ import {
 } from "@moltzap/client/channel-base";
 
 // `MoltZapChannelError` covers nanoclaw's host-shape failures that are NOT
-// lease-related (un-owned jid, etc.). The pre-refactor "lease already
-// consumed" stringly reason is gone — lease errors now flow through
-// channel-base's `LeaseAlreadyConsumed`. The class retains its other use
-// cases per spec C (#597) AC.
+// lease-related (un-owned jid, missing taskId). Lease errors flow through
+// channel-base's `LeaseAlreadyConsumed` instead.
 class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
   readonly reason: string;
 }> {
@@ -135,13 +133,13 @@ function loadMoltZapChannelEnv(): {
  */
 export class MoltZapChannel implements Channel {
   readonly name = "moltzap";
-  // Stale-entry-on-retry semantic preserved via `peek` (not `consume`): when a
-  // second sendMessage races a consumed lease, the server returns the typed
-  // wire error and channel-base projects to LeaseAlreadyConsumed. See arch
-  // sub-issue #605 §3.3 + §6.3.
+  // Stale-entry-on-retry semantic via `peek` (not `consume`): when a second
+  // sendMessage races a consumed lease, the entry stays in the store, the
+  // server returns the typed wire error, and channel-base projects it to
+  // `LeaseAlreadyConsumed`.
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
-  // Per-JID memory of the task that owns the most recent conversation we
-  // saw inbound on. Required by D3 because MessagesSend now needs taskId.
+  // Per-JID memory of the task that owns the most recent conversation seen
+  // inbound. `messages/send` requires the taskId.
   private readonly taskIdsByJid = new Map<string, TaskId>();
 
   constructor(
@@ -184,20 +182,16 @@ export class MoltZapChannel implements Channel {
   }
 
   /**
-   * Outbound reply path. Cutover #533 — single-use lease semantics:
-   * the FIRST send consumes the lease via `core.sendReply`. Any
-   * subsequent send for the same JID within the same dispatch finds
-   * the lease entry STILL in the store (peek-style, no removal) AND
-   * the lease in `CONSUMED` state server-side; the typed wire error
+   * Outbound reply path with single-use lease semantics: the FIRST send
+   * consumes the lease via `core.sendReply`. Any subsequent send for the
+   * same JID within the same dispatch finds the lease entry STILL in the
+   * store (peek-style, no removal) AND the lease in `CONSUMED` state
+   * server-side; the typed wire error
    * (`RpcServerError(data.reason="LeaseInvalid")`) flows through
    * channel-base's `catchLeaseInvalid` and surfaces to nanoclaw as the
-   * canonical `LeaseAlreadyConsumed` tagged error.
-   *
-   * Pre-cutover behaviour deleted the entry after the first send,
-   * which on a second send would silently fall back to an unleased
-   * `core.sendReply` — server side accepts it (no lease binding) but
-   * the moderator has no observability of the second message. The
-   * post-cutover surface is uniform.
+   * canonical `LeaseAlreadyConsumed` tagged error. Keeping the entry makes
+   * the duplicate-send surface uniform: a second send is rejected rather
+   * than silently re-sent unleased.
    */
   sendMessage(jid: string, text: string) {
     return Effect.runPromise(this.sendMessageEffect(jid, text));
@@ -278,8 +272,8 @@ export class MoltZapChannel implements Channel {
   }
 
   private maybeAutoRegister(chatJid: string, conversationId: string): void {
-    // SMOKE-TEST ONLY: auto-register unknown convs in MOLTZAP_EVAL_MODE.
-    // Remove when the runtime-adapter interface lands.
+    // Auto-register unknown conversations only in MOLTZAP_EVAL_MODE (smoke
+    // tests); production registration flows through the runtime adapter.
     if (this.evalMode) {
       this.ensureAutoRegistered(chatJid, conversationId);
     }
