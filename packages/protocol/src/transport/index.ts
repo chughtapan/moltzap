@@ -156,22 +156,27 @@ export type {
 } from "./native-mux.js";
 
 // Native `@effect/rpc` server engine over the mux. `ServerEngineLayer` runs
-// `RpcServer` for the middleware-attached `ServerEngineRpcGroup`;
+// `RpcServer` for the WS-dispatched `WsServerEngineRpcGroup`;
 // `makeServerProtocolLayer` builds the `RpcServer.Protocol` over a c→s
 // native-mux channel. The live connection composes these with
-// `ServerEngineRpcGroup.toLayer(handlers)`.
+// `WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`.
 export {
   makeServerProtocolLayer,
   ServerEngineLayer,
 } from "./native-server-engine.js";
 
-// The middleware-attached server engine group + the unauthenticated-method
-// allowlist that partitions it. `ServerEngineRpcGroup` gates every member
-// except `UNAUTHENTICATED_METHODS` with that method's own `*AuthMw`; the server
-// binds its handler map and derives its `principalKinds` policy from the same
-// single-source binding registry.
+// The middleware-attached server engine group + the WS-dispatched subset the
+// live engine binds + the unauthenticated-method allowlist that partitions it.
+// `ServerEngineRpcGroup` gates every member except `UNAUTHENTICATED_METHODS`
+// with that method's own `*AuthMw`; `WsServerEngineRpcGroup` is that group minus
+// the HTTP-only methods (which have no WS handler), so its members map one-to-one
+// onto the server's handler map. The server derives its `principalKinds` policy
+// from the same single-source binding registry.
 export {
   ServerEngineRpcGroup,
+  WsServerEngineRpcGroup,
+  WS_ENGINE_MEMBER_COUNT,
+  assertWsEngineSize,
   UNAUTHENTICATED_METHODS,
   isUnauthenticatedMethod,
   findEngineGatingMismatch,

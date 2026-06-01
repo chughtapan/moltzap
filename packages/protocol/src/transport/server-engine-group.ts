@@ -183,6 +183,76 @@ export const ServerEngineRpcGroup: RpcGroup.RpcGroup<
 > = RpcGroup.make(...engineMembers);
 
 /**
+ * Whether a wire tag is HTTP-only ({@link HTTP_ONLY_METHODS}) — the membership
+ * check the WS-subset group construction shares with the partition, so the two
+ * agree on which methods the WS engine omits.
+ */
+const isHttpOnlyMethod = (tag: string): boolean =>
+  (HTTP_ONLY_METHODS as readonly string[]).includes(tag);
+
+/**
+ * One WS-handled engine member: every {@link ServerEngineRpcGroup} member whose
+ * tag is NOT HTTP-only. `network/connect` (an unauthenticated WS method) stays.
+ * The type mirrors `native-handlers.types-check.ts → WsEngineRpcs`, so the
+ * runtime subset and the handler-map canary describe the same member set.
+ */
+type WsEngineMember = Exclude<
+  EngineMembers<typeof serverRpcMethods>[number],
+  { readonly _tag: JsonRpcMethod<HttpOnlyMethod> }
+>;
+
+/**
+ * The WS-dispatched subset of {@link ServerEngineRpcGroup}: the catalog group
+ * minus the four {@link HTTP_ONLY_METHODS} (served over `http-routes.ts`, no WS
+ * handler). The live server engine binds this group — its members map
+ * one-to-one onto `serverNativeHandlers`, so `WsServerEngineRpcGroup.toLayer`
+ * satisfies `HandlersFrom` (the full 31-member group would demand handlers for
+ * the four HTTP-only methods that have none). Each surviving member keeps its
+ * own `*AuthMw`, so the per-method gate rides the WS engine unchanged.
+ *
+ * The launder mirrors {@link ServerEngineRpcGroup}'s: `Array.prototype.filter`
+ * is typed to return the wide element union, so TS cannot prove the filtered
+ * array is exactly the {@link WsEngineMember} tuple. The runtime predicate keeps
+ * exactly the non-HTTP-only members; the type-level `Exclude` keeps exactly the
+ * same set. `server-engine-group.types-check.ts` pins
+ * `RpcGroup.Rpcs&lt;typeof WsServerEngineRpcGroup&gt; ≡ WsEngineRpcs`, and
+ * {@link assertWsEngineSize} pins the count at boot, so a predicate that drifts
+ * from the `Exclude` fails the build or the boot guard.
+ */
+const wsEngineMembers = engineMembers.filter(
+  (member) => !isHttpOnlyMethod(member._tag),
+);
+const wsEngineMemberTuple =
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- filter's element-union return cannot prove the precise WS-member tuple; the runtime predicate and the type-level Exclude keep the same set, pinned by server-engine-group.types-check.ts + assertWsEngineSize.
+  wsEngineMembers as unknown as readonly WsEngineMember[]; // #ignore-sloppy-code[as-unknown-as]: filter cannot prove the WS-member tuple; verified by server-engine-group.types-check.ts + the boot guard.
+
+export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
+  RpcGroup.make(...wsEngineMemberTuple);
+
+/**
+ * The number of WS-dispatched engine members: the full catalog
+ * (`serverRpcMethods`) minus the four {@link HTTP_ONLY_METHODS}. The live
+ * server's handler map (`serverNativeHandlers`) has exactly this many entries;
+ * the boot guard {@link assertWsEngineSize} pins the built group to it.
+ */
+export const WS_ENGINE_MEMBER_COUNT =
+  serverRpcMethods.length - HTTP_ONLY_METHODS.length;
+
+/**
+ * Boot-time backstop pinning {@link WsServerEngineRpcGroup}'s member count to
+ * {@link WS_ENGINE_MEMBER_COUNT}. The type-level canary pins the member SET; this
+ * inspects the ACTUAL built `.requests` map, so a filter regression that drops or
+ * duplicates a member is caught at boot rather than shipping a misbound engine.
+ * Returns the violation string, or `undefined` when the count matches.
+ */
+export const assertWsEngineSize = (): string | undefined => {
+  const size = WsServerEngineRpcGroup.requests.size;
+  return size === WS_ENGINE_MEMBER_COUNT
+    ? undefined
+    : `WsServerEngineRpcGroup has ${size} members, expected ${WS_ENGINE_MEMBER_COUNT}`;
+};
+
+/**
  * Walk the BUILT {@link ServerEngineRpcGroup} members and return the first whose
  * runtime middleware violates the partition: an authenticated tag that does not
  * carry its OWN `*AuthMw` (the registry entry's `key`), or an unauthenticated tag

@@ -310,6 +310,20 @@ export class AppsRegisterAuthMw extends RpcMiddleware.Tag<AppsRegisterAuthMw>()(
 ) {}
 ```
 
+### [`assertWsEngineSize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L248)
+
+_Function_
+
+```ts
+export const assertWsEngineSize = (): string | undefined
+```
+
+Boot-time backstop pinning WsServerEngineRpcGroup's member count to
+WS_ENGINE_MEMBER_COUNT. The type-level canary pins the member SET; this
+inspects the ACTUAL built `.requests` map, so a filter regression that drops or
+duplicates a member is caught at boot rather than shipping a misbound engine.
+Returns the violation string, or `undefined` when the count matches.
+
 ### [`AuthContextValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-context.ts#L87)
 
 _TypeAlias_
@@ -1068,7 +1082,7 @@ export function errorClassFor(code: number): RpcErrorClass | undefined
 
 Returns the registered class for a wire code, or `undefined`.
 
-### [`findEngineGatingMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L224)
+### [`findEngineGatingMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L294)
 
 _Function_
 
@@ -2296,29 +2310,31 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound app-callback path.
 
-### [`ServerEngineLayer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-server-engine.ts#L82)
+### [`ServerEngineLayer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-server-engine.ts#L84)
 
 _Variable_
 
 ```ts
-export const ServerEngineLayer = RpcServer.layer(ServerEngineRpcGroup)
+export const ServerEngineLayer = RpcServer.layer(WsServerEngineRpcGroup)
 ```
 
-The native server engine layer for ServerEngineRpcGroup — the
-middleware-attached group, NOT the un-gated `ServerRpcGroup`. Binding
-`ServerRpcGroup` here would run every method with no `*AuthMw` gate, an
-authorization bypass; the server-wiring guard canary
-(`native-server-engine.types-check.ts`) pins that this layer's requirement
-channel demands the per-method `*AuthMw`.
+The native server engine layer for WsServerEngineRpcGroup — the
+WS-dispatched subset of the middleware-attached engine group, NOT the un-gated
+`ServerRpcGroup` (binding that would run every method with no `*AuthMw` gate,
+an authorization bypass) and NOT the full catalog group (whose four HTTP-only
+members have no WS handler, so `HandlersFrom` could not be satisfied). The
+server-wiring guard canary (`native-server-engine.types-check.ts`) pins that
+this layer's requirement channel demands the per-method `*AuthMw`.
 
 `RpcServer.layer(group)` runs the dispatch loop over whatever
 `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
 requirement channel is
-`RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus every
+`RpcServer.Protocol | Rpc.ToHandler&lt;WsServerEngineRpcGroup&gt;` plus every
 member's `*AuthMw` — the live connection provides the Protocol via
 makeServerProtocolLayer, the handler bodies via
-`ServerEngineRpcGroup.toLayer(...)`, and each `*AuthMw` runtime via its
-per-socket server-supplied `Layer` (`auth-middleware-layers.ts`).
+`WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`, and each `*AuthMw`
+runtime via its per-socket server-supplied `Layer`
+(`auth-middleware-layers.ts`).
 
 ### [`ServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L181)
 
@@ -2791,6 +2807,29 @@ export type WireWrite = (
 The raw-write surface the mux drives. Mirrors the effect returned by
 `Socket.Socket["writer"]`: one call writes one chunk to the wire and
 fails with a Socket.SocketError if the socket is gone.
+
+### [`WS_ENGINE_MEMBER_COUNT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L238)
+
+_Variable_
+
+```ts
+export const WS_ENGINE_MEMBER_COUNT =
+  serverRpcMethods.length - HTTP_ONLY_METHODS.length
+```
+
+The number of WS-dispatched engine members: the full catalog
+(`serverRpcMethods`) minus the four HTTP_ONLY_METHODS. The live
+server's handler map (`serverNativeHandlers`) has exactly this many entries;
+the boot guard assertWsEngineSize pins the built group to it.
+
+### [`WsServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L229)
+
+_Variable_
+
+```ts
+export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
+  RpcGroup.make(...wsEngineMemberTuple)
+```
 
 ## Files
 
