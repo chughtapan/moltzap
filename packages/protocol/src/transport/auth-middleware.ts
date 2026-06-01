@@ -327,3 +327,49 @@ export class DispatchesGetAuthMw extends RpcMiddleware.Tag<DispatchesGetAuthMw>(
   "@moltzap/protocol/auth/mw/dispatches-get",
   { provides: DispatchesGetAuth, failure: WireErrorSchema },
 ) {}
+
+/**
+ * The `wire method name → that method's *AuthMw` registry. The single source the
+ * engine group reads to attach each authenticated member's OWN middleware
+ * (`server-engine-group.ts → buildEngineMember`/`EngineRpcFromDef`); the type
+ * {@link AuthMiddlewareByMethod} is the type-level map the per-tag conditional
+ * indexes. `network/connect` is absent (it is unauthenticated, no middleware).
+ *
+ * Keyed by the literal wire name so the engine's per-tag attach and the proof
+ * tag each member provides stay in lockstep with the descriptor catalog: a new
+ * authenticated method that forgets its `*AuthMw` entry is not in this map, so
+ * the partition canary (`server-engine-group.types-check.ts`) leaves it ungated
+ * and fails the build.
+ */
+export const authMiddlewareByMethod = {
+  "messages/send": MessagesSendAuthMw,
+  "messages/list": MessagesListAuthMw,
+  "task/list": TaskListAuthMw,
+  "task/request": TaskRequestAuthMw,
+  "task/leave": TaskLeaveAuthMw,
+  "task/conversation/list": TaskConversationListAuthMw,
+  "agents/lookup": AgentsLookupAuthMw,
+  "agents/lookupByName": AgentsLookupByNameAuthMw,
+  "agents/list": AgentsListAuthMw,
+  "contacts/list": ContactsListAuthMw,
+  "contacts/add": ContactsAddAuthMw,
+  "contacts/accept": ContactsAcceptAuthMw,
+  "contacts/byId": ContactsByIdAuthMw,
+  "dispatch/request": DispatchRequestAuthMw,
+  "network/ping": NetworkPingAuthMw,
+  "presence/subscribe": PresenceSubscribeAuthMw,
+  "task/close": TaskCloseAuthMw,
+  "task/addParticipant": TaskAddParticipantAuthMw,
+  "task/removeParticipant": TaskRemoveParticipantAuthMw,
+  "task/conversation/create": TaskConversationCreateAuthMw,
+  "task/conversation/archive": TaskConversationArchiveAuthMw,
+  "task/conversation/unarchive": TaskConversationUnarchiveAuthMw,
+  "task/conversation/participants/add": TaskConversationAddParticipantAuthMw,
+  "task/conversation/participants/remove":
+    TaskConversationRemoveParticipantAuthMw,
+  "apps/register": AppsRegisterAuthMw,
+  "dispatches/get": DispatchesGetAuthMw,
+} as const;
+
+/** The type-level `name → *AuthMw` map the engine's per-tag conditional indexes. */
+export type AuthMiddlewareByMethod = typeof authMiddlewareByMethod;

@@ -158,18 +158,16 @@ export type {
 // Native `@effect/rpc` server engine over the mux. `ServerEngineLayer` runs
 // `RpcServer` for the middleware-attached `ServerEngineRpcGroup`;
 // `makeServerProtocolLayer` builds the `RpcServer.Protocol` over a c→s
-// native-mux channel; `PrincipalResolution` is the middleware descriptor
-// providing `CurrentPrincipal`. The live connection composes these with
+// native-mux channel. The live connection composes these with
 // `ServerEngineRpcGroup.toLayer(handlers)`.
 export {
-  PrincipalResolution,
   makeServerProtocolLayer,
   ServerEngineLayer,
 } from "./native-server-engine.js";
 
 // The middleware-attached server engine group + the unauthenticated-method
 // allowlist that partitions it. `ServerEngineRpcGroup` gates every member
-// except `UNAUTHENTICATED_METHODS` with `PrincipalResolution`; the server
+// except `UNAUTHENTICATED_METHODS` with that method's own `*AuthMw`; the server
 // binds its handler map and derives its `principalKinds` policy from the same
 // single-source binding registry.
 export {

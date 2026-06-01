@@ -9,19 +9,20 @@
  * `ServerRpcGroup.toLayer` handler, and writes the `FromServerEncoded` reply
  * back through the same channel's Parser.
  *
- * The request's authenticated principal reaches a handler as a Context
- * service: {@link PrincipalResolution} is the `@effect/rpc` middleware
- * descriptor that provides `CurrentPrincipal`. Its descriptor lives here
- * (protocol-owned, alongside the `CurrentPrincipal` Tag it provides); the
- * runtime that resolves a `clientId` to its connection arm and narrows it to
- * the 2-arm {@link CurrentPrincipal.Principal} is supplied by the server as a
- * `Layer` over this descriptor, preserving the one-way protocol→server edge.
+ * A request's authentication reaches its handler as a Context service: each
+ * authenticated member carries its OWN `*AuthMw` middleware (the per-method
+ * principal-kind gate + caps, `auth-middleware.ts`), whose `provides` is that
+ * method's `AuthContext` proof tag. The proof tags live in the protocol
+ * (alongside the descriptors they project from); the runtime that resolves a
+ * `clientId` to its connection arm, narrows it, and runs the caps is supplied by
+ * the server as a per-socket `Layer` over each `*AuthMw`, preserving the one-way
+ * protocol→server edge.
  *
  * ```mermaid
  * flowchart LR
  *   socket["c→s native-mux channel"] -->|FromClientEncoded| ENG[RpcServer engine]
- *   ENG -->|clientId, rpc, payload, headers| MW[PrincipalResolution]
- *   MW -->|provides CurrentPrincipal| H["ServerRpcGroup.toLayer handler"]
+ *   ENG -->|clientId, rpc, payload, headers| MW["per-method *AuthMw"]
+ *   MW -->|provides the method AuthContext proof| H["ServerEngineRpcGroup.toLayer handler"]
  *   H -->|FromServerEncoded| socket
  * ```
  */
@@ -29,8 +30,6 @@ import { RpcServer } from "@effect/rpc";
 import { Effect, Layer, type Mailbox } from "effect";
 import { makeServerChannelProtocol, type WireWrite } from "./native-mux.js";
 import { ServerEngineRpcGroup } from "./server-engine-group.js";
-
-export { PrincipalResolution } from "./server-engine-group.js";
 
 /**
  * Build the `RpcServer.Protocol` layer over one server-side native-mux
@@ -66,18 +65,18 @@ export const makeServerProtocolLayer = (options: {
 /**
  * The native server engine layer for {@link ServerEngineRpcGroup} — the
  * middleware-attached group, NOT the un-gated `ServerRpcGroup`. Binding
- * `ServerRpcGroup` here would run every method with no `PrincipalResolution`
- * gate, an authorization bypass; the server-wiring guard canary
- * (`server-engine-group.types-check.ts`) pins that this layer's requirement
- * channel demands `PrincipalResolution`.
+ * `ServerRpcGroup` here would run every method with no `*AuthMw` gate, an
+ * authorization bypass; the server-wiring guard canary
+ * (`native-server-engine.types-check.ts`) pins that this layer's requirement
+ * channel demands the per-method `*AuthMw`.
  *
  * `RpcServer.layer(group)` runs the dispatch loop over whatever
  * `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
  * requirement channel is
- * `RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus
- * `PrincipalResolution` — the live connection provides the Protocol via
+ * `RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus every
+ * member's `*AuthMw` — the live connection provides the Protocol via
  * {@link makeServerProtocolLayer}, the handler bodies via
- * `ServerEngineRpcGroup.toLayer(...)`, and the {@link PrincipalResolution}
- * middleware runtime via its per-socket server-supplied `Layer`.
+ * `ServerEngineRpcGroup.toLayer(...)`, and each `*AuthMw` runtime via its
+ * per-socket server-supplied `Layer` (`auth-middleware-layers.ts`).
  */
 export const ServerEngineLayer = RpcServer.layer(ServerEngineRpcGroup);

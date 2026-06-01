@@ -1,7 +1,6 @@
 /**
- * @file The #720 principal-kind gate, shared by the per-connection
- * `PrincipalResolution` middleware (`principal-resolution-layer.ts`) and the
- * per-method `AuthMiddleware` impl Layers (`auth-middleware-layers.ts`).
+ * @file The #720 principal-kind gate, consumed by the per-method `AuthMiddleware`
+ * impl Layers (`auth-middleware-layers.ts`).
  *
  * The gate narrows the live 3-arm `Connection` to the 2-arm `Principal` a
  * method's policy demands, failing with the coded {@link WireError} envelope the
@@ -13,7 +12,6 @@ import { absurd, Effect, Option } from "effect";
 import {
   ForbiddenError,
   JSON_RPC_RESERVED_CODES,
-  UnauthorizedError,
   wireErrorFromInstance,
 } from "@moltzap/protocol";
 import type { Principal, WireError } from "@moltzap/protocol";
@@ -110,12 +108,6 @@ export const narrowByPolicy = (
       return absurd(callablePrincipal);
   }
 };
-
-/** The fail-closed rejection for a request whose method carries no policy. */
-export const noPolicy = (): WireError => ({
-  code: UnauthorizedError.code,
-  message: UnauthorizedError.message,
-});
 
 /**
  * Project a cap-obtain failure onto the coded wire envelope the middleware
