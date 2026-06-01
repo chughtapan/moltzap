@@ -34,6 +34,7 @@ import {
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
+import { API_KEY_PREFIX, APP_KEY_PREFIX } from "../services/agent-auth.js";
 import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
 import type { ConversationService } from "../../task/services/conversation.service.js";
@@ -47,11 +48,6 @@ import type { AppHost } from "../../app/app-host.js";
 import { toWireError } from "../../app/native-handlers-runtime.js";
 
 type ConnectParams = ParamsOf<typeof Connect>;
-
-/** Credential prefix selecting an agent principal. */
-const AGENT_CREDENTIAL_PREFIX = "moltzap_agent_";
-/** Credential prefix selecting an app principal. */
-const APP_CREDENTIAL_PREFIX = "moltzap_app_";
 
 /** The empty HelloOk — success is the only payload. */
 const HELLO_OK: HelloOk = {};
@@ -408,7 +404,7 @@ function handleConnect(params: ConnectParams) {
       // `completeAgentConnect`; neither prefix is `UnauthorizedError`. The
       // prefix is the principal selector — the security meaning is that an app
       // credential can never mint an agent arm and vice versa.
-      if (params.credential.startsWith(APP_CREDENTIAL_PREFIX)) {
+      if (params.credential.startsWith(APP_KEY_PREFIX)) {
         const { auth: appAuth, manifest } = yield* authenticateAppKey(
           params.credential,
           appAuthService,
@@ -423,7 +419,7 @@ function handleConnect(params: ConnectParams) {
         return HELLO_OK;
       }
 
-      if (params.credential.startsWith(AGENT_CREDENTIAL_PREFIX)) {
+      if (params.credential.startsWith(API_KEY_PREFIX)) {
         return yield* completeAgentConnect(params.credential, conn.connId);
       }
 

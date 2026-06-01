@@ -15,9 +15,9 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
  * (`scripts/generate-constants-snippets.ts`) reads this literal via
  * the TS compiler API so doc copy stays in lockstep.
  */
-const API_KEY_PREFIX = "moltzap_agent_";
+export const API_KEY_PREFIX = "moltzap_agent_";
 /** Stable string prefix on every app key. Sibling of `API_KEY_PREFIX`. */
-const APP_KEY_PREFIX = "moltzap_app_";
+export const APP_KEY_PREFIX = "moltzap_app_";
 const KEY_ID_BYTES = 8;
 const SECRET_BYTES = 24;
 const HEX_CHARS_PER_BYTE = 2;
