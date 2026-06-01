@@ -37,6 +37,7 @@ import {
 import { ServerRpcGroup, WireErrorSchema } from "./rpc-method-groups.js";
 import {
   ServerEngineRpcGroup,
+  WsServerEngineRpcGroup,
   UNAUTHENTICATED_METHODS,
   type UnauthenticatedMethod,
   type HttpOnlyMethod,
@@ -52,6 +53,7 @@ type Equal<A, B> =
 
 type EngineRpcs = RpcGroup.Rpcs<typeof ServerEngineRpcGroup>;
 type ServerRpcs = RpcGroup.Rpcs<typeof ServerRpcGroup>;
+type WsEngineRpcsBuilt = RpcGroup.Rpcs<typeof WsServerEngineRpcGroup>;
 
 /**
  * Brand a plain-literal tag union to `JsonRpcMethod&lt;...&gt;` — same idea as the
@@ -97,6 +99,24 @@ type _NoStrayTag = Expect<
 // The allowlist value is exactly the one literal — a new entry trips review.
 type _AllowlistExact = Expect<
   Equal<(typeof UNAUTHENTICATED_METHODS)[number], "network/connect">
+>;
+
+// ── WS-subset alignment: the built group equals the type-level subset ─────
+
+// The WS-handled member subset, type-level: the full engine members minus the
+// HTTP-only ones. Same `Exclude` shape `native-handlers.types-check.ts` uses, so
+// the runtime `WsServerEngineRpcGroup`, the handler-map keys, and this canary all
+// describe the SAME member set.
+type WsEngineRpcs = Exclude<EngineRpcs, { readonly _tag: HttpOnlyTags }>;
+// The runtime `WsServerEngineRpcGroup`'s member type equals that subset exactly.
+// A `.filter` predicate that drifts from the type-level `Exclude` (e.g. drops an
+// authenticated WS member, or fails to drop an HTTP-only one) breaks this
+// equality and fails the build; the boot guard `assertWsEngineSize` is the
+// runtime-count backstop for the same invariant.
+type _WsSubsetAligned = Expect<Equal<WsEngineRpcsBuilt, WsEngineRpcs>>;
+// No HTTP-only member survives into the WS group.
+type _WsNoHttpOnly = Expect<
+  [WsEngineRpcsBuilt["_tag"] & HttpOnlyTags] extends [never] ? true : false
 >;
 
 // ── E.4 mandatory, non-optional, per-method gate ─────────────────────────
@@ -187,6 +207,8 @@ export type {
   _UnauthExact,
   _NoStrayTag,
   _AllowlistExact,
+  _WsSubsetAligned,
+  _WsNoHttpOnly,
   _MSGatedByOwnMw,
   _GateNonOptional,
   _MSPresent,

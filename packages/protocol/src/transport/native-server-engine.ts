@@ -29,7 +29,7 @@
 import { RpcServer } from "@effect/rpc";
 import { Effect, Layer, type Mailbox } from "effect";
 import { makeServerChannelProtocol, type WireWrite } from "./native-mux.js";
-import { ServerEngineRpcGroup } from "./server-engine-group.js";
+import { WsServerEngineRpcGroup } from "./server-engine-group.js";
 
 /**
  * Build the `RpcServer.Protocol` layer over one server-side native-mux
@@ -63,20 +63,22 @@ export const makeServerProtocolLayer = (options: {
 };
 
 /**
- * The native server engine layer for {@link ServerEngineRpcGroup} — the
- * middleware-attached group, NOT the un-gated `ServerRpcGroup`. Binding
- * `ServerRpcGroup` here would run every method with no `*AuthMw` gate, an
- * authorization bypass; the server-wiring guard canary
- * (`native-server-engine.types-check.ts`) pins that this layer's requirement
- * channel demands the per-method `*AuthMw`.
+ * The native server engine layer for {@link WsServerEngineRpcGroup} — the
+ * WS-dispatched subset of the middleware-attached engine group, NOT the un-gated
+ * `ServerRpcGroup` (binding that would run every method with no `*AuthMw` gate,
+ * an authorization bypass) and NOT the full catalog group (whose four HTTP-only
+ * members have no WS handler, so `HandlersFrom` could not be satisfied). The
+ * server-wiring guard canary (`native-server-engine.types-check.ts`) pins that
+ * this layer's requirement channel demands the per-method `*AuthMw`.
  *
  * `RpcServer.layer(group)` runs the dispatch loop over whatever
  * `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
  * requirement channel is
- * `RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus every
+ * `RpcServer.Protocol | Rpc.ToHandler&lt;WsServerEngineRpcGroup&gt;` plus every
  * member's `*AuthMw` — the live connection provides the Protocol via
  * {@link makeServerProtocolLayer}, the handler bodies via
- * `ServerEngineRpcGroup.toLayer(...)`, and each `*AuthMw` runtime via its
- * per-socket server-supplied `Layer` (`auth-middleware-layers.ts`).
+ * `WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`, and each `*AuthMw`
+ * runtime via its per-socket server-supplied `Layer`
+ * (`auth-middleware-layers.ts`).
  */
-export const ServerEngineLayer = RpcServer.layer(ServerEngineRpcGroup);
+export const ServerEngineLayer = RpcServer.layer(WsServerEngineRpcGroup);
