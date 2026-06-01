@@ -19,9 +19,15 @@ let harness: PgliteHarness;
 const it = effectIt.effect;
 
 const MANIFEST_NAME = "test app";
+const OPEN_HOOKS = {
+  dispatch_authorize: { kind: "grant" },
+  message_authorize: { kind: "forwardAllExceptSender" },
+  task_create: { kind: "accept" },
+} as const;
 const MANIFEST = {
   appId: "ignored",
   name: MANIFEST_NAME,
+  hooks: OPEN_HOOKS,
 } satisfies AppManifest;
 const DEFAULT_APP_ID = makeAppId("00000000-0000-4000-8000-0000000005d0");
 const UUID_RE =
@@ -111,7 +117,11 @@ function registerAuthenticateRoundtripProperty() {
     const svc = new AppAuthService(harness.db);
     const names = fc.sample(fc.string({ minLength: 1 }), 25);
     for (const name of names) {
-      const manifest = { appId: "ignored", name } satisfies AppManifest;
+      const manifest = {
+        appId: "ignored",
+        name,
+        hooks: OPEN_HOOKS,
+      } satisfies AppManifest;
       const reg = yield* svc.registerApp({ manifest });
       const back = yield* svc.authenticateApp(reg.appKey);
       if (back === null) throw new Error("unreachable");
@@ -153,7 +163,8 @@ function failsUnauthorizedOnCorruptManifest() {
     const keyId = "c".repeat(16);
     const secret = "d".repeat(48);
     yield* insertAppRow({
-      // Missing the required `name` field → fails AppManifestSchema.
+      // Missing the required `name` and `hooks` fields → fails
+      // AppManifestSchema decode.
       manifestJson: { appId: "x" },
       keyId,
       secretHash: hashSecret(secret),

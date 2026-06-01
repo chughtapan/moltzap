@@ -14,6 +14,7 @@ import {
   DISPATCH_STATE_GRANTED,
   EXPECTED_TYPE_STRING,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
   createTaskConversationOnApp,
   createUnmoderatedDm,
@@ -40,6 +41,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);

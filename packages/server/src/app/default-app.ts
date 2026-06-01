@@ -16,27 +16,32 @@ const DEFAULT_APP_CONNECTION_ID = Schema.decodeUnknownSync(ConnectionId)(
 );
 
 /**
- * The boot-installed default app declares NO hooks. Every server→app
- * callback (`dispatch/authorize`, `messages/authorize`, `task/create`)
- * is served by AppHost's manifest-default fast-path:
+ * The boot-installed default app declares the three open policies
+ * explicitly:
  *
- *   - `dispatch/authorize` absent → synthetic `grant` (unmoderated).
- *   - `message_authorize` absent → synthetic
- *     `Forward { participants ∖ sender }`, read in-process via
+ *   - `dispatch_authorize: { kind: "grant" }` — unmoderated admission.
+ *   - `message_authorize: { kind: "forwardAllExceptSender" }` — fan out
+ *     to every participant except the sender, computed in-process via
  *     `ConversationService.getParticipantAgentIds`.
- *   - `task_create` absent → synthetic `accept` (auto-accept).
+ *   - `task_create: { kind: "accept" }` — auto-accept every task.
  *
- * Because no hook is declared, `AppHost.callAppRpc` is never reached
- * for `DEFAULT_APP_ID`, so the endpoint's `originator` is never
- * invoked. The registration still needs an {@link AppEndpoint} for its
- * `connId` (close-time keying), so the default app carries an inert
- * endpoint whose outbound channel defects — any call is a wiring bug
- * (a hook fired against a hookless manifest) that should crash the
- * server immediately.
+ * Each policy is a static arm AppHost resolves in-process, so
+ * `AppHost.callAppRpc` is never reached for `DEFAULT_APP_ID` and the
+ * endpoint's `originator` is never invoked. The registration still
+ * needs an {@link AppEndpoint} for its `connId` (close-time keying), so
+ * the default app carries an inert endpoint whose outbound channel
+ * defects — any call is a wiring bug (a `kind: "hook"` arm fired
+ * against a static-only manifest) that should crash the server
+ * immediately.
  */
 const DEFAULT_APP_MANIFEST = {
   appId: DEFAULT_APP_ID,
   name: "Default",
+  hooks: {
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "forwardAllExceptSender" },
+    task_create: { kind: "accept" },
+  },
 } satisfies AppManifest;
 
 function inertOriginatorOp(op: string): Effect.Effect<never> {
@@ -48,9 +53,9 @@ function inertOriginatorOp(op: string): Effect.Effect<never> {
 }
 
 /**
- * Build the inert {@link AppEndpoint} for the hookless default app. The
- * originator is never invoked (the fast-path serves every callback
- * server-side), so every method defects.
+ * Build the inert {@link AppEndpoint} for the default app. Every policy
+ * is a static arm resolved in-process, so the originator is never
+ * invoked and every method defects.
  */
 function makeDefaultAppEndpoint(): AppEndpoint {
   return {
@@ -67,19 +72,19 @@ function makeDefaultAppEndpoint(): AppEndpoint {
 }
 
 /**
- * Boot-time installation of the default app. Registers a HOOKLESS
- * manifest under {@link DEFAULT_APP_ID}; AppHost's manifest-default
- * fast-path produces every default verdict server-side (see
- * {@link DEFAULT_APP_MANIFEST}). No app round-trip is ever made.
+ * Boot-time installation of the default app. Registers the static-only
+ * manifest under {@link DEFAULT_APP_ID}; AppHost resolves every policy
+ * verdict in-process (see {@link DEFAULT_APP_MANIFEST}). No app
+ * round-trip is ever made.
  *
  * TM-admin RPCs (rebound to the app principal) remain unreachable on
  * `DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
  * the default app — its endpoint is a server-minted inert endpoint, not
  * a wire-registered `apps/register`.
  *
- * No `ConversationService` arg: the fast-path's `messages/authorize`
- * default reads participants through the ConversationService back-edge
- * AppHost already holds (wired by `server.ts → setConversationService`
+ * No `ConversationService` arg: the `forwardAllExceptSender` policy
+ * reads participants through the ConversationService back-edge AppHost
+ * already holds (wired by `server.ts → setConversationService`
  * immediately before this call).
  */
 export function installDefaultApp(appHost: AppHost): void {

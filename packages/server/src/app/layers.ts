@@ -321,7 +321,7 @@ const MessageServiceLive = Layer.effect(
 //   Tier 2.5 — NetworkSendService.
 //   Tier 2.6 — LeaseRegistry (consumes PresenceServiceTag as its transitionObserver).
 //   Tier 3 — AppHost (db + connections + leases; the boot-installed
-//            default app is served by the manifest-default fast-path).
+//            default app's static policies resolve in-process).
 //   Tier 4 — ConversationService (db + participants + connections + AppHost).
 //   Tier 5 — MessageService (every upstream + Encryption + DeliveryWebhook +
 //            Webhook + TraceCapture + AppHost).

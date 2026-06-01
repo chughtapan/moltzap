@@ -8,8 +8,8 @@ description: "Server → moderator request asking for the admission verdict."
 Server → moderator request asking for the admission verdict. Carried
 inside the forked moderator round-trip; failure / timeout in the
 round-trip synthesizes a fail-closed `deny` verdict at
-`LeaseRegistry.resolve`. Manifests opt in by declaring
-`hooks.dispatch_authorize`.
+`LeaseRegistry.resolve`. The server emits this RPC only for a manifest
+whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 
 ## Parameters
 

@@ -30,6 +30,7 @@ import {
   createTaskConversationOnApp,
   createUnmoderatedDm,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   moderatorAppClient,
   readLeaseByDispatchId,
   requestDispatch,
@@ -53,6 +54,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const WIRE_APP_MANIFEST: AppManifest = {
@@ -60,7 +62,12 @@ const WIRE_APP_MANIFEST: AppManifest = {
   name: "Wire Moderator Dispatch App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
   hooks: {
-    dispatch_authorize: { timeout_ms: DISPATCH_RELEASE_TIMEOUT_MS },
+    dispatch_authorize: {
+      kind: "hook",
+      timeoutMs: DISPATCH_RELEASE_TIMEOUT_MS,
+    },
+    message_authorize: { kind: "forwardAllExceptSender" },
+    task_create: { kind: "accept" },
   },
 };
 
@@ -77,10 +84,11 @@ function requestWireModeratedDispatch(
   recipient: ConnectedAgent,
 ) {
   return Effect.gen(function* () {
-    // D #705 CP9 — the grant verdict is answered by the fixture's moderator
+    // The grant verdict is answered by the fixture's moderator
     // `AppConnection` (a disjoint principal from `requester`), armed via the
-    // fixture hook. `WIRE_APP_MANIFEST`'s declared `dispatch_authorize` hook
-    // keeps the server off the hookless synthetic-grant fast-path.
+    // fixture hook. `WIRE_APP_MANIFEST`'s `kind: "hook"` dispatch policy
+    // routes the admission decision to that connection rather than resolving
+    // a static verdict in-process.
     fixture.setNextHookVerdict({ decision: "grant" });
     yield* attachDispatchAuthorizeHook(requester, fixture);
     const { conversationId } = yield* createTaskConversationOnApp(

@@ -47,7 +47,9 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Messages-Authorize Test App",
   hooks: {
-    message_authorize: { timeout_ms: 5_000 },
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "hook", timeoutMs: 5_000 },
+    task_create: { kind: "accept" },
   },
 };
 

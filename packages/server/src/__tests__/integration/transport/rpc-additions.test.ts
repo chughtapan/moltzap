@@ -79,6 +79,11 @@ it("apps/register: HTTP registers a valid manifest and the app can connect", () 
       appId: APP_ID,
       name: "My Test App",
       conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+      hooks: {
+        dispatch_authorize: { kind: "grant" },
+        message_authorize: { kind: "forwardAllExceptSender" },
+        task_create: { kind: "accept" },
+      },
     };
 
     const registered = yield* registerApp(getBaseUrl(), manifest);

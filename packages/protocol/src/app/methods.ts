@@ -20,44 +20,99 @@ const AppManifestConversationSchema = Schema.Struct({
   participantFilter: Schema.optional(stringEnum(["all", "initiator", "none"])),
 });
 
+const HookTimeoutMsSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.greaterThanOrEqualTo(1),
+);
+
 /**
- * Per-hook configuration entry. Every hook key accepts the same
- * shape — only `timeout_ms` is configurable.
+ * Receive-side admission policy. The app states ONE of:
+ *
+ * - `{ kind: "grant" }` — every recipient is admitted in-process, no
+ *   moderator round-trip.
+ * - `{ kind: "deny"; reason }` — every recipient is refused in-process
+ *   with the stated reason.
+ * - `{ kind: "hook"; timeoutMs }` — the server emits `dispatch/authorize`
+ *   to the bound moderator and waits up to `timeoutMs` for the verdict;
+ *   timeout / RPC failure collapses to a fail-closed deny.
+ *
+ * `reason` is required on the static `deny` arm: a policy that refuses
+ * by configuration must state why. `timeoutMs` is required on the
+ * `hook` arm so a moderated policy always carries its own TTL.
  */
-const HookEntrySchema = Schema.Struct({
-  timeout_ms: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
-  ),
+const DispatchAuthorizePolicySchema = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("grant") }),
+  Schema.Struct({ kind: Schema.Literal("deny"), reason: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal("hook"),
+    timeoutMs: HookTimeoutMsSchema,
+  }),
+);
+
+/**
+ * Send-side fan-out policy. The app states ONE of:
+ *
+ * - `{ kind: "forwardAllExceptSender" }` — every participant except the
+ *   sender receives the message, computed in-process from the
+ *   conversation's participant set.
+ * - `{ kind: "deny"; reason }` — the message reaches no one but the
+ *   sender's transcript, with the stated reason.
+ * - `{ kind: "hook"; timeoutMs }` — the server emits `messages/authorize`
+ *   to the bound TM for a `Forward { recipients } | Block { reason }`
+ *   verdict; timeout / RPC failure collapses to a fail-closed Block.
+ */
+const MessageAuthorizePolicySchema = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("forwardAllExceptSender") }),
+  Schema.Struct({ kind: Schema.Literal("deny"), reason: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal("hook"),
+    timeoutMs: HookTimeoutMsSchema,
+  }),
+);
+
+/**
+ * Task-creation policy. The app states ONE of:
+ *
+ * - `{ kind: "accept" }` — every requested task is admitted in-process,
+ *   transitioning `waiting → active`.
+ * - `{ kind: "reject"; reason }` — every requested task is refused
+ *   in-process, transitioning `waiting → failed` with the stated reason.
+ * - `{ kind: "hook"; timeoutMs }` — the server emits `task/create` to
+ *   the bound TM for the accept/reject verdict; timeout / RPC failure
+ *   collapses to a fail-closed reject.
+ */
+const TaskCreatePolicySchema = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("accept") }),
+  Schema.Struct({ kind: Schema.Literal("reject"), reason: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal("hook"),
+    timeoutMs: HookTimeoutMsSchema,
+  }),
+);
+
+/**
+ * Manifest hook map. Three required policies, one per server→app gate:
+ * `dispatch_authorize` (receive-side admission), `message_authorize`
+ * (send-side fan-out), `task_create` (task-creation gate). Each is a
+ * required discriminated union (see the per-policy schemas), so a
+ * manifest cannot leave a gate unspecified: omitting a policy is a
+ * compile error for an authored manifest and a decode rejection at the
+ * wire boundary. "No policy" is unrepresentable — the only absence-of-
+ * answer left is a runtime `hook` failure, which the server resolves to
+ * a deterministic deny.
+ */
+const AppManifestHooksSchema = Schema.Struct({
+  dispatch_authorize: DispatchAuthorizePolicySchema,
+  message_authorize: MessageAuthorizePolicySchema,
+  task_create: TaskCreatePolicySchema,
 });
 
 /**
- * Manifest hook map. Three hook keys:
- *
- * - `dispatch_authorize` (receive-side) — selects the moderator round-
- *   trip target for per-recipient admission verdicts; emits the
- *   matching `dispatch/authorize` S→C RPC.
- * - `message_authorize` (send-side) — selects the TM round-trip target
- *   for per-message fan-out verdicts; emits the matching
- *   `messages/authorize` S→C RPC. Restores the send-side gate that
- *   Phase 9b (#461) deleted by removing `apps/onBeforeMessageDelivery`
- *   without an equivalent on the new wire surface. Verdict is the
- *   minimum-viable subset of #142's 5-arm `TaskManagerAction`:
- *   `Forward { recipients } | Block { reason }`.
- * - `task_create` (task-creation gate) — selects the TM round-trip
- *   target for the per-task-request accept/reject verdict; emits the
- *   matching `task/create` S→C RPC. Distinct from the two per-message
- *   hooks: it gates the `waiting → active | failed` lifecycle
- *   transition, so it carries its own `timeout_ms` rather than
- *   borrowing the per-message tuning.
- *
- * All hook keys are optional. Default policy when `message_authorize`
- * is absent: `Forward { participants \ sender }`. When
- * `dispatch_authorize` is absent: `grant`. When `task_create` is
- * absent: the server uses the default app-hook timeout and the bound
- * app's registered `task/create` handler decides the verdict (the
- * boot-installed default app auto-accepts). See #560 for the
- * send-side design, #538/#536 for the receive-side history, and #683
- * for the task-creation gate.
+ * App manifest. `hooks` is required: every app declares an explicit
+ * policy for all three gates (see {@link AppManifestHooksSchema}). An
+ * app that wants the open posture states it — `{ kind: "grant" }` /
+ * `{ kind: "forwardAllExceptSender" }` / `{ kind: "accept" }` — rather
+ * than relying on an omission default.
  */
 const AppManifestSchema = Schema.Struct({
   appId: Schema.String,
@@ -69,13 +124,7 @@ const AppManifestSchema = Schema.Struct({
     }),
   ),
   conversations: Schema.optional(Schema.Array(AppManifestConversationSchema)),
-  hooks: Schema.optional(
-    Schema.Struct({
-      dispatch_authorize: Schema.optional(HookEntrySchema),
-      message_authorize: Schema.optional(HookEntrySchema),
-      task_create: Schema.optional(HookEntrySchema),
-    }),
-  ),
+  hooks: AppManifestHooksSchema,
 });
 
 export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
@@ -234,11 +283,9 @@ export const DispatchRequest = defineRpc({
  * Server → moderator request asking for the admission verdict. Carried
  * inside the forked moderator round-trip; failure / timeout in the
  * round-trip synthesizes a fail-closed `deny` verdict at
- * `LeaseRegistry.resolve`. Manifests opt in by declaring
- * `hooks.dispatch_authorize`.
+ * `LeaseRegistry.resolve`. The server emits this RPC only for a manifest
+ * whose `dispatch_authorize` policy is `{ kind: "hook" }`.
  */
-// Spec D3 R14b — REQUIRED slot. `MoltZapAppClient` constructor demands a
-// handler at type level; vacuous-deny moderators must wire it explicitly.
 export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
@@ -401,18 +448,18 @@ const MessagesAuthorizeVerdictSchema = Schema.Union(
 /**
  * Server → TM round-trip asking for the per-message fan-out verdict.
  * Triggered from `MessageService.sendCommit` after the durable insert
- * lands and before the broadcast. Manifests opt in by declaring
- * `hooks.message_authorize`. Failure / timeout in the round-trip
- * synthesizes a fail-closed `Block { reason: "app_unreachable" }`
- * verdict at the AppHost envelope (mirrors `runAuthorizeDispatch`'s
- * `wrapHookEffectWithEnvelope` posture).
+ * lands and before the broadcast. The server emits this RPC only for a
+ * manifest whose `message_authorize` policy is `{ kind: "hook" }`.
+ * Failure / timeout in the round-trip synthesizes a fail-closed
+ * `Block { reason: "app_unreachable" }` verdict at the AppHost envelope
+ * (mirrors the `dispatch/authorize` `wrapHookEffectWithEnvelope`
+ * posture).
  *
  * `Forward { recipients }` MUST be a subset of the conversation's
  * participants; the server does not re-fan to non-participants.
  * `Forward { recipients: [] }` is legal — message lands in the
  * sender's transcript but is delivered to no one else.
  */
-// Spec D3 R14b — REQUIRED slot. Symmetric with DispatchAuthorize.
 export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,

@@ -189,9 +189,10 @@ const registerRejectingTm = (ctx: ConformanceRunContext) =>
     wsUrl: ctx.realServer.wsUrl,
     appId: crypto.randomUUID(),
     name: "rejecting-tm",
-    // Declare the `task_create` hook so the server round-trips the
-    // task-admission decision to the app (a hookless manifest opts into the
-    // synthetic-accept fast-path, which would never reach the reject below).
+    // `task_create` becomes a `kind: "hook"` policy so the server
+    // round-trips the task-admission decision to the app; a static
+    // `accept` policy would resolve in-process and never reach the
+    // reject handler wired below.
     taskCreateTimeoutMs: 5_000,
   }).pipe(
     Effect.mapError((e) =>

@@ -286,9 +286,9 @@ interface Claim {
  * permitting a duplicate retry.
  *
  * Timer wheel / min-heap for TTLs runs on a single fiber; per-lease
- * scheduler fibers are forbidden. Manifest TTLs come from
- * `manifest.hooks.dispatch_authorize.timeout_ms` (moderator response)
- * and the verdict's `leaseTimeoutMs` (post-grant lease).
+ * scheduler fibers are forbidden. Manifest TTLs come from the
+ * `dispatch_authorize` `{ kind: "hook", timeoutMs }` policy (moderator
+ * response) and the verdict's `leaseTimeoutMs` (post-grant lease).
  */
 export interface LeaseRegistry {
   /**

@@ -117,7 +117,7 @@ export function makeTestAppManifest(
       ? { description: options.description }
       : {}),
     conversations: options.conversations ?? DEFAULT_CONVERSATIONS,
-    ...(hooks === undefined ? {} : { hooks }),
+    hooks,
   };
 }
 
@@ -172,32 +172,31 @@ export function registerTestApp(
   }).pipe(Effect.withSpan("registerTestApp"));
 }
 
+/**
+ * Build the three required hook policies. A slot with a `*TimeoutMs`
+ * option becomes a `{ kind: "hook", timeoutMs }` policy that round-trips
+ * to the test app's scripted handler; a slot without one takes its open
+ * static policy (`grant` / `forwardAllExceptSender` / `accept`), which
+ * the server resolves in-process to the same verdict the app's open
+ * handler would return.
+ */
 function makeManifestHooks(
   options: TestAppManifestOptions,
 ): AppManifest["hooks"] {
-  // Build a mutable shape locally; the returned `AppManifest["hooks"]` type is
-  // deeply `readonly` (Effect Schema), so assemble then widen on return.
-  const hooks: {
-    dispatch_authorize?: { timeout_ms?: number };
-    message_authorize?: { timeout_ms?: number };
-    task_create?: { timeout_ms?: number };
-  } = {};
-  if (options.dispatchAuthorizeTimeoutMs !== undefined) {
-    hooks.dispatch_authorize = {
-      timeout_ms: options.dispatchAuthorizeTimeoutMs,
-    };
-  }
-  if (options.messagesAuthorizeTimeoutMs !== undefined) {
-    hooks.message_authorize = {
-      timeout_ms: options.messagesAuthorizeTimeoutMs,
-    };
-  }
-  if (options.taskCreateTimeoutMs !== undefined) {
-    hooks.task_create = {
-      timeout_ms: options.taskCreateTimeoutMs,
-    };
-  }
-  return Object.keys(hooks).length === 0 ? undefined : hooks;
+  return {
+    dispatch_authorize:
+      options.dispatchAuthorizeTimeoutMs === undefined
+        ? { kind: "grant" }
+        : { kind: "hook", timeoutMs: options.dispatchAuthorizeTimeoutMs },
+    message_authorize:
+      options.messagesAuthorizeTimeoutMs === undefined
+        ? { kind: "forwardAllExceptSender" }
+        : { kind: "hook", timeoutMs: options.messagesAuthorizeTimeoutMs },
+    task_create:
+      options.taskCreateTimeoutMs === undefined
+        ? { kind: "accept" }
+        : { kind: "hook", timeoutMs: options.taskCreateTimeoutMs },
+  };
 }
 
 function makeCallbackScript<D extends ServerRpcDefinition>(

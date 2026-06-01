@@ -41,18 +41,16 @@ const TASK_ID = taskId("00000000-0000-4000-8000-00000000a560");
 const SENDER = agentId("00000000-0000-4000-8000-00000000b001");
 const RECIPIENT = agentId("00000000-0000-4000-8000-00000000b002");
 
-// Declares all three hooks so the dispatch-path tests below opt INTO
-// the app round-trip. D #705 CP8 added a manifest-default fast-path:
-// a manifest that OMITS a hook is served the synthetic default
-// server-side (no app dispatch), so a hookless manifest would never
-// reach the registered connection's callback.
+// Declares all three policies as `kind: "hook"` so the dispatch-path
+// tests below round-trip to the registered connection's callback; a
+// static policy would resolve in-process and never reach the handler.
 const APP_MANIFEST = {
   appId: APP_ID,
   name: "test app",
   hooks: {
-    dispatch_authorize: {},
-    message_authorize: {},
-    task_create: {},
+    dispatch_authorize: { kind: "hook", timeoutMs: 5_000 },
+    message_authorize: { kind: "hook", timeoutMs: 5_000 },
+    task_create: { kind: "hook", timeoutMs: 5_000 },
   },
 } satisfies AppManifest;
 

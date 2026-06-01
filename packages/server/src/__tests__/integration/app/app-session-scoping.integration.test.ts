@@ -44,15 +44,19 @@ import {
 
 const it = effectIt.live;
 
-// D #705 CP9 — `manifest.appId` no longer routes (the DB mints `app_id`);
-// the manifest supplies only name/conversations/hooks. The `task_create`
-// hook is declared so the app's `TaskCreate` callback is consulted (a
-// hookless manifest auto-accepts server-side).
+// `manifest.appId` does not route (the DB mints `app_id`); the manifest
+// supplies name / conversations / hooks. `task_create` is `kind: "hook"`
+// so the app's `TaskCreate` callback is consulted; the other two policies
+// take their open static verdict in-process.
 const APP_MANIFEST: AppManifest = {
   name: "App Session Scoping Test App",
   appId: "00000000-0000-4000-8000-000000010004",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
-  hooks: { task_create: {} },
+  hooks: {
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "forwardAllExceptSender" },
+    task_create: { kind: "hook", timeoutMs: 5_000 },
+  },
 };
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()), 60_000);

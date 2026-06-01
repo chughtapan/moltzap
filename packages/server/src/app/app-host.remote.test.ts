@@ -116,11 +116,13 @@ function makeAppHostFixture(): AppHostFixture {
   return { host, connections };
 }
 
-// Always declares `dispatch_authorize` so these tests exercise the
-// remote dispatch round-trip. D #705 CP8 added a manifest-default
-// fast-path: a manifest that OMITS `dispatch_authorize` is served the
-// synthetic `grant` server-side (no app dispatch), so a hookless
-// manifest would never reach the stub connection's originator.
+// `dispatch_authorize` is `kind: "hook"` so these tests exercise the
+// remote dispatch round-trip to the stub connection's originator; the
+// other two policies are static-open so they resolve in-process and the
+// manifest decodes. The undefined `hookTimeoutMs` case carries an
+// explicit 5_000ms timeout (a hook policy always states its own TTL).
+const REMOTE_HOOK_TIMEOUT_MS = 5_000;
+
 const baseManifest = (
   manifestAppId: string,
   hookTimeoutMs?: number,
@@ -129,8 +131,12 @@ const baseManifest = (
   name: `Test App ${manifestAppId}`,
   conversations: [],
   hooks: {
-    dispatch_authorize:
-      hookTimeoutMs === undefined ? {} : { timeout_ms: hookTimeoutMs },
+    dispatch_authorize: {
+      kind: "hook",
+      timeoutMs: hookTimeoutMs ?? REMOTE_HOOK_TIMEOUT_MS,
+    },
+    message_authorize: { kind: "forwardAllExceptSender" },
+    task_create: { kind: "accept" },
   },
 });
 
@@ -142,8 +148,12 @@ const messageAuthorizeManifest = (
   name: `Test App ${manifestAppId}`,
   conversations: [],
   hooks: {
-    message_authorize:
-      hookTimeoutMs === undefined ? {} : { timeout_ms: hookTimeoutMs },
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: {
+      kind: "hook",
+      timeoutMs: hookTimeoutMs ?? REMOTE_HOOK_TIMEOUT_MS,
+    },
+    task_create: { kind: "accept" },
   },
 });
 
