@@ -651,6 +651,24 @@ export function errorClassFor(code: number): RpcErrorClass | undefined
 
 Returns the registered class for a wire code, or `undefined`.
 
+### [`findEngineGatingMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L185)
+
+_Function_
+
+```ts
+export const findEngineGatingMismatch = (): string | undefined
+```
+
+Walk the BUILT ServerEngineRpcGroup members and return the first whose
+runtime middleware violates the partition: gated (carries
+PrincipalResolution) when it should be unauthenticated, or vice versa.
+`undefined` when every member matches. The boot-time backstop for the
+partition the group construction's single type assertion cannot prove — the
+type-level canary pins the asserted SHAPE; this inspects the ACTUAL runtime
+middleware, so a `buildEngineMember` regression that drops the gate on a
+protected method (or adds it to an unauth one) is caught at boot rather than
+shipping a runtime-ungated method the assertion still types as gated.
+
 ### [`ForbiddenError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L105)
 
 _Class_
@@ -778,6 +796,20 @@ export function isRegisteredErrorInstance(value: object): boolean
 ```
 
 Returns true iff `value`'s constructor is in the registered class set.
+
+### [`isUnauthenticatedMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L85)
+
+_Function_
+
+```ts
+export const isUnauthenticatedMethod = (tag: string): boolean
+```
+
+Whether a wire tag is in UNAUTHENTICATED_METHODS — the single
+membership check both the engine-group construction (which omits the gate
+for these) and the server's `principalKinds` projection (which omits them
+from the policy table) share, so the two agree on the partition by
+construction.
 
 ### [`JSON_RPC_RESERVED_CODES`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L6)
 
@@ -1735,7 +1767,7 @@ makeServerProtocolLayer, the handler bodies via
 `ServerEngineRpcGroup.toLayer(...)`, and the PrincipalResolution
 middleware runtime via its per-socket server-supplied `Layer`.
 
-### [`ServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L163)
+### [`ServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L170)
 
 _Variable_
 

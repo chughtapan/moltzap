@@ -75,6 +75,16 @@ export const UNAUTHENTICATED_METHODS = ["network/connect"] as const;
 /** A plain (unbranded) member of {@link UNAUTHENTICATED_METHODS}. */
 export type UnauthenticatedMethod = (typeof UNAUTHENTICATED_METHODS)[number];
 
+/**
+ * Whether a wire tag is in {@link UNAUTHENTICATED_METHODS} — the single
+ * membership check both the engine-group construction (which omits the gate
+ * for these) and the server's `principalKinds` projection (which omits them
+ * from the policy table) share, so the two agree on the partition by
+ * construction.
+ */
+export const isUnauthenticatedMethod = (tag: string): boolean =>
+  (UNAUTHENTICATED_METHODS as readonly string[]).includes(tag);
+
 type AnyRpcDefinition = RpcDefinition<
   string,
   Schema.Schema.AnyNoContext,
@@ -112,9 +122,6 @@ type EngineMembers<Defs extends readonly AnyRpcDefinition[]> = {
   readonly [K in keyof Defs]: EngineRpcFromDef<Defs[K]>;
 };
 
-const isUnauthenticated = (name: string): boolean =>
-  (UNAUTHENTICATED_METHODS as readonly string[]).includes(name);
-
 /**
  * Build one engine member from a descriptor: an `Rpc.make` gated with
  * {@link PrincipalResolution} unless its tag is unauthenticated. The runtime
@@ -127,7 +134,7 @@ const buildEngineMember = (definition: AnyRpcDefinition) => {
     success: definition.resultSchema,
     error: WireErrorSchema,
   });
-  return isUnauthenticated(definition.name)
+  return isUnauthenticatedMethod(definition.name)
     ? member
     : member.middleware(PrincipalResolution);
 };
@@ -163,3 +170,31 @@ const engineMembers = rawEngineMembers as unknown as EngineMemberTuple; // #igno
 export const ServerEngineRpcGroup: RpcGroup.RpcGroup<
   EngineMembers<typeof serverRpcMethods>[number]
 > = RpcGroup.make(...engineMembers);
+
+/**
+ * Walk the BUILT {@link ServerEngineRpcGroup} members and return the first whose
+ * runtime middleware violates the partition: gated (carries
+ * {@link PrincipalResolution}) when it should be unauthenticated, or vice versa.
+ * `undefined` when every member matches. The boot-time backstop for the
+ * partition the group construction's single type assertion cannot prove — the
+ * type-level canary pins the asserted SHAPE; this inspects the ACTUAL runtime
+ * middleware, so a `buildEngineMember` regression that drops the gate on a
+ * protected method (or adds it to an unauth one) is caught at boot rather than
+ * shipping a runtime-ungated method the assertion still types as gated.
+ */
+export const findEngineGatingMismatch = (): string | undefined => {
+  for (const [tag, rpc] of ServerEngineRpcGroup.requests) {
+    // Compare by the middleware Tag's `key`, not identity: the union member
+    // type narrows `middlewares` to `Set<never>`, so `.has(PrincipalResolution)`
+    // does not type-check. The runtime `key` match is exact (the set carries the
+    // `PrincipalResolution` Tag, whose `key` is its identifier).
+    const gated = [...rpc.middlewares].some(
+      (m) => m.key === PrincipalResolution.key,
+    );
+    const shouldGate = !isUnauthenticatedMethod(tag);
+    if (gated !== shouldGate) {
+      return `${tag}: carries PrincipalResolution=${gated}, expected=${shouldGate}`;
+    }
+  }
+  return undefined;
+};

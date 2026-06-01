@@ -13,7 +13,7 @@
  * (`app/server.ts → makeCoreRpcMethods` assembles it), so a method is in both
  * or neither — never one.
  */
-import { UNAUTHENTICATED_METHODS, type JsonRpcMethod } from "@moltzap/protocol";
+import { isUnauthenticatedMethod, type JsonRpcMethod } from "@moltzap/protocol";
 import type { PrincipalKind } from "./context.js";
 
 /**
@@ -59,8 +59,18 @@ export type PrincipalKindTable = ReadonlyMap<
   PrincipalKindPolicy
 >;
 
-const isUnauthenticated = (tag: string): boolean =>
-  (UNAUTHENTICATED_METHODS as readonly string[]).includes(tag);
+/**
+ * Impossible-state defect the projection and server boot raise when the binding
+ * registry violates the fail-closed partition: an authenticated binding carrying
+ * `callablePrincipal: "any"`, or a policy-table key set that does not EXACTLY
+ * equal the engine's gated tag set (a method reached the authenticated engine
+ * without a policy, or a policy names a tag the group lacks). Either is a wiring
+ * bug that must fail loudly, never a silent permissive default. Defense-in-depth
+ * behind the type-level partition canary.
+ */
+export class PrincipalKindRegistryError extends Error {
+  override readonly name = "PrincipalKindRegistryError";
+}
 
 /**
  * Project the principal-kind policy table from the single-source binding tuple:
@@ -72,13 +82,23 @@ const isUnauthenticated = (tag: string): boolean =>
  * This is one of the two projections of {@link ServerMethodBindings}; the engine
  * handler map is the other. Deriving both from the same tuple is the no-drift
  * guarantee: a method is in both projections or neither.
+ *
+ * An authenticated binding with `callablePrincipal: "any"` is rejected: `"any"`
+ * means "no principal to narrow", which is only sound for the unauthenticated
+ * Connect path. A gated method carrying `"any"` would provide no
+ * `CurrentPrincipal` to a handler that reads one — fail closed at projection.
  */
 export const projectPrincipalKinds = (
   bindings: ServerMethodBindings,
 ): PrincipalKindTable => {
   const table = new Map<JsonRpcMethod, PrincipalKindPolicy>();
   for (const b of bindings) {
-    if (isUnauthenticated(b.tag)) continue;
+    if (isUnauthenticatedMethod(b.tag)) continue;
+    if (b.callablePrincipal === "any") {
+      throw new PrincipalKindRegistryError(
+        `authenticated method has callablePrincipal "any" (only the unauthenticated Connect path may): ${b.tag}`,
+      );
+    }
     table.set(b.tag, {
       callablePrincipal: b.callablePrincipal,
       requiresActive: b.requiresActive,
@@ -86,18 +106,6 @@ export const projectPrincipalKinds = (
   }
   return table;
 };
-
-/**
- * Impossible-state defect the server boot raises when the binding registry's
- * authenticated tag set does not EXACTLY equal `expectedGatedTags` (the tag set
- * the partition canary pins at the type level). A mismatch means a method
- * reached the authenticated engine without a policy, or a policy names a tag the
- * group does not have — either is a wiring bug that must fail boot loudly, never
- * a silent permissive default. Defense-in-depth behind the type-level partition.
- */
-export class PrincipalKindRegistryError extends Error {
-  override readonly name = "PrincipalKindRegistryError";
-}
 
 /**
  * Validate at boot that the projected policy table's keys EXACTLY equal the
