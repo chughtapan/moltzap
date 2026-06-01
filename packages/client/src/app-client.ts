@@ -724,23 +724,15 @@ export class MoltZapAppClient {
   private awaitConnectAuth(
     handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
   ): Effect.Effect<ConnectResult, ConnectError> {
-    // D #705 CP8 — dispatch the disjoint Connect params union on the
-    // configured credential: an `appKey` authenticates as an `AppConnection`
-    // (no `agentId` in the HelloOk); otherwise fall back to the `agentKey`
-    // agent arm. The two arms are structurally disjoint at the wire so the
-    // server's `network/connect` handler routes on the present field.
-    const handshakeParams: ParamsOf<typeof Connect> =
-      this.options.appKey !== undefined
-        ? {
-            appKey: this.options.appKey,
-            minProtocol: PROTOCOL_VERSION,
-            maxProtocol: PROTOCOL_VERSION,
-          }
-        : {
-            agentKey: this.options.agentKey,
-            minProtocol: PROTOCOL_VERSION,
-            maxProtocol: PROTOCOL_VERSION,
-          };
+    // The single `credential` carries the principal prefix the server
+    // resolves: a configured `appKey` (`moltzap_app_`) mints an
+    // `AppConnection`, otherwise the `agentKey` (`moltzap_agent_`) runs the
+    // agent arm.
+    const handshakeParams: ParamsOf<typeof Connect> = {
+      credential: this.options.appKey ?? this.options.agentKey,
+      minProtocol: PROTOCOL_VERSION,
+      maxProtocol: PROTOCOL_VERSION,
+    };
     const authEffect = this.sendRpc(Connect, handshakeParams);
     return Effect.raceFirst(authEffect, Deferred.await(handshakeSettled)).pipe(
       Effect.tap((value) =>
