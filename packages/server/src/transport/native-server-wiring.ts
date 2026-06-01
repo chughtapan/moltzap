@@ -20,6 +20,7 @@
  * closed-over `connId` is the only connection key. The 2-concurrent-socket
  * cross-principal isolation test is the regression proof.
  */
+import { RpcGroup } from "@effect/rpc";
 import { Effect, Layer, type Mailbox } from "effect";
 import {
   ServerEngineLayer,
@@ -129,13 +130,29 @@ const makeAuthMwLayer = (connId: ConnectionId) =>
  * bodies + AuthMw caps demand (every service tag) plus `ConnectionManagerTag`
  * — provided by the surrounding application runtime.
  */
+/**
+ * The handler map under the engine group's `HandlersFrom` shape. The runtime
+ * map (`native-handlers.ts → serverNativeHandlers`) keys by PLAIN wire-string
+ * literals; the group members key by the BRANDED `JsonRpcMethod<...>` tags. The
+ * two are structurally identical (the brand is a phantom), but `toLayer`'s
+ * `ExcludeProvides` keys its per-handler proof exclusion on `K extends
+ * Rpcs["_tag"]` — a plain-string key never matches the branded member tag, so
+ * the per-method `*Auth` proof would leak into the bound Layer's requirement
+ * channel as an unsatisfiable static dependency. Relabelling the keys to the
+ * branded `HandlersFrom` shape lets `ExcludeProvides` fire: each handler's own
+ * proof drops out (the per-method `*AuthMw` provides it at request time).
+ */
+const brandedHandlers = serverNativeHandlers as unknown as RpcGroup.HandlersFrom<
+  RpcGroup.Rpcs<typeof WsServerEngineRpcGroup>
+>;
+
 export const makeSocketEngineLayer = (options: {
   readonly connId: ConnectionId;
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
 }) =>
   ServerEngineLayer.pipe(
-    Layer.provide(WsServerEngineRpcGroup.toLayer(serverNativeHandlers)),
+    Layer.provide(WsServerEngineRpcGroup.toLayer(brandedHandlers)),
     Layer.provide(makeAuthMwLayer(options.connId)),
     Layer.provide(makeConnectionTagLayer(options.connId)),
     Layer.provide(
