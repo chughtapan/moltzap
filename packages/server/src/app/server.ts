@@ -17,6 +17,17 @@ import type {
   ServerRpcSlots,
   ServerRpcSlotTable,
 } from "../transport/context.js";
+import {
+  projectPrincipalKinds,
+  validatePrincipalKinds,
+  PrincipalKindRegistryError,
+  type ServerMethodBindings,
+  type PrincipalKindTable,
+} from "../transport/server-method-bindings.js";
+import {
+  ServerEngineRpcGroup,
+  UNAUTHENTICATED_METHODS,
+} from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
 // Handlers
@@ -162,6 +173,10 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const { dispatchRuntime, services } = makeCoreRuntime(config);
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
+  // Fail-closed backstop: the projected `principalKinds` keys must EXACTLY equal
+  // the engine's gated tag set, else a method reached the authenticated engine
+  // without a policy. Validated at boot, before any socket is served.
+  validateCorePrincipalKinds();
   const slots = buildServerSlots(makeCoreRpcMethods());
   const handleSocket = makeSocketHandler({
     services,
@@ -239,6 +254,66 @@ function buildServerSlots(methods: ServerRpcSlots): ServerRpcSlotTable {
     table[slot.definition.name] = slot;
   }
   return table;
+}
+
+/**
+ * Assemble the single-source {@link ServerMethodBindings} tuple from the slots'
+ * `binding` field — the #720 policy each `define*Method` wrapper surfaced. The
+ * native engine's handler map and the `principalKinds` policy table are both
+ * projections of this tuple, so they cannot drift.
+ */
+function serverMethodBindings(methods: ServerRpcSlots): ServerMethodBindings {
+  return methods.map((slot) => slot.binding);
+}
+
+/**
+ * Project the principal-kind policy table the native engine's per-connection
+ * gate reads. One entry per authenticated binding (every tag NOT in
+ * `UNAUTHENTICATED_METHODS`); a gate lookup miss fails CLOSED.
+ */
+function corePrincipalKinds(): PrincipalKindTable {
+  return projectPrincipalKinds(serverMethodBindings(makeCoreRpcMethods()));
+}
+
+/**
+ * The authenticated tag set the native engine gates: every WS-dispatched
+ * `define*Method` binding MINUS the unauthenticated allowlist. Derived from the
+ * binding registry (the WS surface), NOT from the full `serverRpcMethods`
+ * catalog: that catalog also carries the HTTP-only `agents/register`,
+ * `agents/claim`, `agents/invite`, and `invites/createAgent` methods, which have
+ * no WS handler slot (served over `http-routes.ts`) — the WS engine never
+ * dispatches them, so they are not part of its gated surface.
+ *
+ * Every gated tag is also a {@link ServerEngineRpcGroup} member (the group is
+ * catalog-derived and a superset of the WS surface); a policy naming a tag the
+ * group lacks would be a wiring defect, caught by the stray-key check.
+ */
+function expectedGatedTags(): ReadonlySet<string> {
+  const unauth = new Set<string>(UNAUTHENTICATED_METHODS);
+  const engineMembers = new Set<string>(ServerEngineRpcGroup.requests.keys());
+  const gated = new Set<string>();
+  for (const b of serverMethodBindings(makeCoreRpcMethods())) {
+    if (unauth.has(b.tag)) continue;
+    if (!engineMembers.has(b.tag)) {
+      throw new PrincipalKindRegistryError(
+        `binding tag is not a ServerEngineRpcGroup member: ${b.tag}`,
+      );
+    }
+    gated.add(b.tag);
+  }
+  return gated;
+}
+
+/**
+ * Boot-time fail-closed backstop (#720 §D.3): assert the projected
+ * `principalKinds` keys EXACTLY equal the gated WS-binding tag set. A method that
+ * reached the authenticated engine without a policy, or a policy naming a tag
+ * the WS surface lacks, throws here rather than defaulting permissively. The
+ * type-level partition canary pins the static shape; this catches a build that
+ * somehow skipped it.
+ */
+function validateCorePrincipalKinds(): void {
+  validatePrincipalKinds(corePrincipalKinds(), expectedGatedTags());
 }
 
 type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

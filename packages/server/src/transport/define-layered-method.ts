@@ -11,9 +11,11 @@ import {
   defineMiddlewareMethod,
   defineUnauthMethod,
   type CtxForKind,
+  type PrincipalKind,
 } from "./context.js";
 import type { ConnectionTag } from "../app/layers.js";
 import type { Connection } from "./connection.js";
+import type { ServerMethodBinding } from "./server-method-bindings.js";
 import {
   AppLayerScope,
   NetworkLayerScope,
@@ -33,6 +35,31 @@ import type { AppTags, NetworkTags, TaskTags } from "./layer-tags.js";
 type NetworkSlotEnv = Exclude<NetworkTags, ConnectionTag>;
 type TaskSlotEnv = Exclude<TaskTags, ConnectionTag>;
 type AppSlotEnv = Exclude<AppTags, ConnectionTag>;
+
+/**
+ * An {@link ErasedSlot} carrying its {@link ServerMethodBinding}. Every wrapper
+ * returns one: the `ErasedSlot.invoke` is the live dispatch surface; `binding`
+ * surfaces the #720 policy (`callablePrincipal`/`requiresActive`) the wrapper
+ * holds in its closure into the single-source registry `makeCoreRpcMethods`
+ * assembles.
+ */
+type BoundSlot<Env> = ErasedSlot<Env, Connection> & {
+  readonly binding: ServerMethodBinding;
+};
+
+/**
+ * Attach the #720 policy the wrapper holds to its slot. The wire `tag` is the
+ * descriptor's branded `name`, so the binding tag can never drift from the
+ * slot's own method.
+ */
+const withBinding = <Env>(
+  slot: ErasedSlot<Env, Connection>,
+  callablePrincipal: PrincipalKind,
+  requiresActive: boolean,
+): BoundSlot<Env> => ({
+  ...slot,
+  binding: { tag: slot.definition.name, callablePrincipal, requiresActive },
+});
 
 /**
  * The `*LayerScope` marker union each per-layer wrapper provides
@@ -212,22 +239,19 @@ function buildMiddlewareSlot<
     SlotEnv,
     E
   >,
-): ErasedSlot<SlotEnv, Connection> {
-  const body = defineMiddlewareMethod<
-    P,
-    R,
-    K,
-    E,
-    EW,
-    CapIdentsFrom<Middlewares>,
-    SlotEnv
-  >({
+): BoundSlot<SlotEnv> {
+  // prettier-ignore
+  const body = defineMiddlewareMethod<P, R, K, E, EW, CapIdentsFrom<Middlewares>, SlotEnv>({
     callablePrincipal: def.callablePrincipal,
     requiresActive: def.requiresActive,
     handler: (params, ctx) => provideScopes(def.handler(params, ctx)),
     weaveCaps: def.weaveCaps,
   });
-  return makeMiddlewareSlot<Name, P, R, Connection, SlotEnv>(definition, body);
+  const slot = makeMiddlewareSlot<Name, P, R, Connection, SlotEnv>(
+    definition,
+    body,
+  );
+  return withBinding(slot, def.callablePrincipal, def.requiresActive ?? false);
 }
 
 /**
@@ -259,7 +283,7 @@ function defineNetworkMiddlewareMethod<
     E,
     EW
   >,
-): ErasedSlot<NetworkSlotEnv, Connection> {
+): BoundSlot<NetworkSlotEnv> {
   return buildMiddlewareSlot<
     Name,
     P,
@@ -308,7 +332,7 @@ export function defineTaskMiddlewareMethod<
     E,
     EW
   >,
-): ErasedSlot<TaskSlotEnv, Connection> {
+): BoundSlot<TaskSlotEnv> {
   return buildMiddlewareSlot<
     Name,
     P,
@@ -355,7 +379,7 @@ export function defineAppMiddlewareMethod<
     E,
     EW
   >,
-): ErasedSlot<AppSlotEnv, Connection> {
+): BoundSlot<AppSlotEnv> {
   return buildMiddlewareSlot<
     Name,
     P,
@@ -417,7 +441,7 @@ export function defineNetworkMethod<
 >(
   definition: RpcDefinition<Name, P, R>,
   def: CaplessMethodDef<P, R, K, Reqs, NetworkScopes, E>,
-): ErasedSlot<NetworkSlotEnv, Connection> {
+): BoundSlot<NetworkSlotEnv> {
   return defineNetworkMiddlewareMethod<Name, P, R, K, readonly [], E, E, Reqs>(
     definition,
     [],
@@ -443,7 +467,7 @@ export function defineTaskMethod<
 >(
   definition: RpcDefinition<Name, P, R>,
   def: CaplessMethodDef<P, R, K, Reqs, TaskScopes, E>,
-): ErasedSlot<TaskSlotEnv, Connection> {
+): BoundSlot<TaskSlotEnv> {
   return defineTaskMiddlewareMethod<Name, P, R, K, readonly [], E, E, Reqs>(
     definition,
     [],
@@ -469,7 +493,7 @@ export function defineAppMethod<
 >(
   definition: RpcDefinition<Name, P, R>,
   def: CaplessMethodDef<P, R, K, Reqs, AppScopes, E>,
-): ErasedSlot<AppSlotEnv, Connection> {
+): BoundSlot<AppSlotEnv> {
   return defineAppMiddlewareMethod<Name, P, R, K, readonly [], E, E, Reqs>(
     definition,
     [],
@@ -507,7 +531,7 @@ export function defineConnectMethod<
       ctx: undefined,
     ) => Effect.Effect<Schema.Schema.Type<R>, E, Reqs | AppScopes>;
   },
-): ErasedSlot<AppSlotEnv, Connection> {
+): BoundSlot<AppSlotEnv> {
   const body = defineUnauthMethod<P, R, E, AppSlotEnv>({
     handler: (params, ctx) =>
       def
@@ -518,8 +542,9 @@ export function defineConnectMethod<
           Effect.provideService(AppLayerScope, undefined),
         ),
   });
-  return makeMiddlewareSlot<Name, P, R, Connection, AppSlotEnv>(
+  const slot = makeMiddlewareSlot<Name, P, R, Connection, AppSlotEnv>(
     definition,
     body,
   );
+  return withBinding(slot, "any", false);
 }

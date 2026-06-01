@@ -21,7 +21,13 @@ import {
  * not a per-member Schema union — the wire only ever carries the coded
  * envelope.
  */
-const WireErrorSchema = Schema.Struct({
+// The canonical wire-error envelope is the `error` Schema of every group
+// member AND the `failure` Schema of the `PrincipalResolution` middleware
+// (`server-engine-group.ts`) — one envelope across both surfaces so the gate's
+// rejection rides the same coded wire shape as a handler failure. Exported for
+// that single cross-file reuse.
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the wire-error envelope is shared cross-file: it is every group member's `error` Schema AND the `PrincipalResolution` middleware `failure` Schema, so it is exported once for that reuse rather than duplicated.
+export const WireErrorSchema = Schema.Struct({
   code: Schema.Number.pipe(Schema.int()),
   message: Schema.String,
   data: Schema.optional(Schema.Unknown),

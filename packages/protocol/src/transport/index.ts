@@ -4,9 +4,10 @@
 // Wire (frame types only — request/response/notification frame builders
 // are per-def `encode*` methods on RpcDefinition / NotificationDefinition.
 // `encodeErrorResponse` is the single method-agnostic wire encoder.)
-export { encodeErrorResponse } from "./wire.js";
+export { encodeErrorResponse, jsonRpcMethod } from "./wire.js";
 export type {
   JsonRpcId,
+  JsonRpcMethod,
   RequestFrame,
   ResponseFrame,
   NotificationFrame,
@@ -153,12 +154,24 @@ export type {
 } from "./native-mux.js";
 
 // Native `@effect/rpc` server engine over the mux. `ServerEngineLayer` runs
-// `RpcServer` for `ServerRpcGroup`; `makeServerProtocolLayer` builds the
-// `RpcServer.Protocol` over a c→s native-mux channel; `PrincipalResolution`
-// is the middleware descriptor providing `CurrentPrincipal`. The live
-// connection composes these with `ServerRpcGroup.toLayer(handlers)`.
+// `RpcServer` for the middleware-attached `ServerEngineRpcGroup`;
+// `makeServerProtocolLayer` builds the `RpcServer.Protocol` over a c→s
+// native-mux channel; `PrincipalResolution` is the middleware descriptor
+// providing `CurrentPrincipal`. The live connection composes these with
+// `ServerEngineRpcGroup.toLayer(handlers)`.
 export {
   PrincipalResolution,
   makeServerProtocolLayer,
   ServerEngineLayer,
 } from "./native-server-engine.js";
+
+// The middleware-attached server engine group + the unauthenticated-method
+// allowlist that partitions it. `ServerEngineRpcGroup` gates every member
+// except `UNAUTHENTICATED_METHODS` with `PrincipalResolution`; the server
+// binds its handler map and derives its `principalKinds` policy from the same
+// single-source binding registry.
+export {
+  ServerEngineRpcGroup,
+  UNAUTHENTICATED_METHODS,
+} from "./server-engine-group.js";
+export type { UnauthenticatedMethod } from "./server-engine-group.js";

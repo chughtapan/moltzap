@@ -11,6 +11,7 @@ import { ConnectionTag } from "../app/layers.js";
 import type { Connection } from "./connection.js";
 import type { AppTags } from "./layer-tags.js";
 import type { AgentId, UserId } from "../app/types.js";
+import type { ServerMethodBinding } from "./server-method-bindings.js";
 
 /**
  * Closed agent lifecycle states. Mirrors
@@ -81,7 +82,7 @@ export function agentContextFrom(parts: {
  * `callablePrincipal: "agent"` (e.g. `task/request`, `dispatch/request` — they
  * `yield* AppHostTag` yet read `ctx.agentId`).
  */
-type PrincipalKind = "agent" | "app" | "any";
+export type PrincipalKind = "agent" | "app" | "any";
 
 /**
  * #705 #720 §B1 — the value→type binding that makes wrong-principal wiring a
@@ -128,8 +129,17 @@ type DispatchContext = SlotDispatchContext<Connection>;
  * NetworkTags`), and Effect's `R` channel is covariant, so a
  * narrower-`Env` slot assigns up to `ServerRpcSlot`. `Conn` is the
  * server's three-arm {@link Connection}.
+ *
+ * Each slot also carries its {@link ServerMethodBinding} — the wire tag + the
+ * #720 principal-kind policy the `define*Method` wrapper held in its closure.
+ * `makeCoreRpcMethods` reads `slot.binding` to assemble the single-source
+ * binding registry that projects `principalKinds` (and, post-cutover, the
+ * engine handler map). The native engine binds handlers off the registry; the
+ * `ErasedSlot.invoke` is the pre-cutover live dispatch surface.
  */
-type ServerRpcSlot = ErasedSlot<Exclude<AppTags, ConnectionTag>, Connection>;
+type ServerRpcSlot = ErasedSlot<Exclude<AppTags, ConnectionTag>, Connection> & {
+  readonly binding: ServerMethodBinding;
+};
 
 /**
  * A per-handler-file slice of the server's inbound catalog. Each
