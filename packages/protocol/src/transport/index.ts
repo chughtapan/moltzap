@@ -103,7 +103,9 @@ export {
   buildServerDispatcher,
   buildAgentClientDispatcher,
   buildAppClientDispatcher,
+  wireErrorFromInstance,
 } from "./dispatch.js";
+export type { WireError } from "./dispatch.js";
 
 // #705 — the existential `ErasedSlot` the dispatcher indexes by runtime
 // method string (supersedes the `RpcMethodBinding[]` + erasure-cast

@@ -337,7 +337,7 @@ the cap proofs, both projected from the descriptor's own
 `callablePrincipal` is `"agent"` carries an agent-narrowed `principal`; adding
 a cap to its `caps` adds that cap's proof field.
 
-### [`buildAgentClientDispatcher`](./dispatch.ts#L104)
+### [`buildAgentClientDispatcher`](./dispatch.ts#L111)
 
 _Function_
 
@@ -353,7 +353,7 @@ so `config.slots` is the empty table `{}`). The empty `notify` shape
 is `never`-typed at the type level (no call site can satisfy the
 constraint).
 
-### [`buildAppClientDispatcher`](./dispatch.ts#L132)
+### [`buildAppClientDispatcher`](./dispatch.ts#L139)
 
 _Function_
 
@@ -369,7 +369,7 @@ Build the app-client dispatcher. Wires both the inbound dispatch loop
 REQUIRED: callers must register a handler for each catalog method;
 vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
-### [`buildServerDispatcher`](./dispatch.ts#L77)
+### [`buildServerDispatcher`](./dispatch.ts#L84)
 
 _Function_
 
@@ -543,6 +543,25 @@ export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
 )
 ```
 
+### [`code`](./dispatch.ts#L73)
+
+_Property_
+
+```ts
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+};
+
+/**
+ * Build the server-side dispatcher. Wires the inbound slot-table
+ * dispatch loop + the outbound originator (app-callback path) into a
+ * single `ServerConnection` value. `Env` is the slot table's residual
+ * service-tag union; `Conn` is the server's three-arm `Connection`.
+ */
+export function buildServerDispatcher<Env, Conn>(
+```
+
 ### [`ConflictError`](./wire-errors.ts#L123)
 
 _Class_
@@ -667,6 +686,23 @@ it WITHOUT importing the server; the server SATISFIES it by
 Provided ONLY on authenticated/capability-bearing methods — capabilities
 never run on the unauth Connect frame — so the unauth arm is never a
 concern here.
+
+### [`data`](./dispatch.ts#L75)
+
+_Property_
+
+```ts
+  readonly data?: unknown;
+};
+
+/**
+ * Build the server-side dispatcher. Wires the inbound slot-table
+ * dispatch loop + the outbound originator (app-callback path) into a
+ * single `ServerConnection` value. `Env` is the slot table's residual
+ * service-tag union; `Conn` is the server's three-arm `Connection`.
+ */
+export function buildServerDispatcher<Env, Conn>(
+```
 
 ### [`DecodedFrame`](./wire.ts#L133)
 
@@ -1379,6 +1415,24 @@ export class MalformedFrameError extends Data.TaggedError(
 ```
 
 Inbound frame failed to parse as JSON or did not match the expected shape.
+
+### [`message`](./dispatch.ts#L74)
+
+_Property_
+
+```ts
+  readonly message: string;
+  readonly data?: unknown;
+};
+
+/**
+ * Build the server-side dispatcher. Wires the inbound slot-table
+ * dispatch loop + the outbound originator (app-callback path) into a
+ * single `ServerConnection` value. `Env` is the slot table's residual
+ * service-tag union; `Conn` is the server's three-arm `Connection`.
+ */
+export function buildServerDispatcher<Env, Conn>(
+```
 
 ### [`MessagesListAuth`](./auth-middleware.ts#L96)
 
@@ -2670,7 +2724,25 @@ _Function_
 export const validateResponseFrame = (v: unknown): v is ResponseFrame
 ```
 
-### [`wireErrorFromInstance`](./dispatch.ts#L365)
+### [`WireError`](./dispatch.ts#L72)
+
+_TypeAlias_
+
+```ts
+export type WireError = {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+};
+```
+
+The JSON-RPC error envelope a handler/middleware failure encodes onto: the
+coded `error` sub-object the client reconstructs the typed tagged error from
+via `wire-errors.ts → errorClassFor`. The same shape `WireErrorSchema`
+decodes to and the `PrincipalResolution` / per-method `AuthMiddleware`
+`failure` channels carry.
+
+### [`wireErrorFromInstance`](./dispatch.ts#L372)
 
 _Function_
 
