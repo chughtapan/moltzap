@@ -13,38 +13,15 @@ import {
 
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
-import type {
-  ServerRpcSlots,
-  ServerRpcSlotTable,
-} from "../transport/context.js";
-import {
-  projectPrincipalKinds,
-  validatePrincipalKinds,
-  PrincipalKindRegistryError,
-  type ServerMethodBindings,
-} from "../transport/server-method-bindings.js";
-import {
-  ServerEngineRpcGroup,
-  UNAUTHENTICATED_METHODS,
-  findEngineGatingMismatch,
-} from "@moltzap/protocol";
+import { PrincipalKindRegistryError } from "../transport/server-method-bindings.js";
+import { assertWsEngineSize, findEngineGatingMismatch } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
-
-// Handlers
-import { agentsLookupHandlers } from "../identity/handlers/agents-lookup.handlers.js";
-import { pingHandlers } from "../network/handlers/ping.handlers.js";
-import { connectHandlers } from "../identity/handlers/connect.handlers.js";
-import { messageHandlers } from "../task/handlers/messages.handlers.js";
-import { presenceHandlers } from "../network/handlers/presence.handlers.js";
-import { contactHandlers } from "../identity/handlers/contacts.handlers.js";
-import { taskHandlers } from "../task/handlers/tasks.handlers.js";
-import { appHandlers } from "./handlers/apps.handlers.js";
-import { taskRequestHandlers } from "./handlers/task-request.handler.js";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "../config.js";
 import {
   AppHostTag,
+  ConnectionHooksTag,
   ConversationServiceTag,
   DbTag,
   DeliveryWebhookTag,
@@ -135,6 +112,8 @@ function resolveSpanProcessor(
 }
 
 function makeCoreRuntime(config: CoreConfig) {
+  // Fail-closed boot gate over the native WS engine before any socket opens.
+  validateEngineGating();
   const envelope = config.encryptionMasterSecret
     ? new EnvelopeEncryption(config.encryptionMasterSecret)
     : null;
@@ -160,21 +139,29 @@ function makeCoreRuntime(config: CoreConfig) {
     WireConversationIntoAppHost,
     ServicesWithBase,
   );
+  // The connection/disconnection hook arrays are created here so the native
+  // `network/connect` handler can fire the connection hooks via
+  // `ConnectionHooksTag`. They are mutable references the `CoreApp.onConnection`
+  // / `onDisconnection` accessors push into AFTER this runtime is built; the
+  // native handler reads the live array contents per connect.
+  const connectionHooks: ConnectionHook[] = [];
+  const disconnectionHooks: DisconnectionHook[] = [];
+  const HooksLive = Layer.succeed(ConnectionHooksTag, {
+    connectionHooks,
+    disconnectionHooks,
+  });
   const dispatchRuntime = ManagedRuntime.make(
-    Layer.mergeAll(NodeHttpServer.layerContext, FullLive, TracingLive),
+    Layer.mergeAll(NodeHttpServer.layerContext, FullLive, HooksLive, TracingLive),
   );
   const services = dispatchRuntime.runSync(resolveServices);
-  return { dispatchRuntime, services };
+  return { dispatchRuntime, services, connectionHooks, disconnectionHooks };
 }
 
 export function createCoreApp(config: CoreConfig): CoreApp {
-  const { dispatchRuntime, services } = makeCoreRuntime(config);
-  const connectionHooks: ConnectionHook[] = [];
-  const disconnectionHooks: DisconnectionHook[] = [];
-  const slots = buildValidatedServerSlots();
+  const { dispatchRuntime, services, connectionHooks, disconnectionHooks } =
+    makeCoreRuntime(config);
   const handleSocket = makeSocketHandler({
     services,
-    slots,
     connectionHooks,
     disconnectionHooks,
   });
@@ -219,112 +206,31 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   });
 }
 
-function makeCoreRpcMethods(): ServerRpcSlots {
-  return [
-    ...connectHandlers,
-    ...agentsLookupHandlers,
-    ...messageHandlers,
-    ...presenceHandlers,
-    ...appHandlers,
-    ...taskRequestHandlers,
-    ...contactHandlers,
-    ...taskHandlers,
-    ...pingHandlers,
-  ];
-}
-
 /**
- * Key the flat `ServerRpcSlots` array into the cast-free
- * {@link ServerRpcSlotTable} the dispatcher indexes by `frame.method`.
- * Each slot is already a real `ErasedSlot` (from a
- * `defineXMethod` wrapper); this just keys it by `slot.definition.name`.
- * Duplicate method names collide on `table[name]` (impossible by
- * construction — each handler file exports a distinct method slice of the
- * catalog). NO erasure cast: the `ErasedSlot` IS the dispatch surface.
+ * Boot-time fail-closed gating backstop for the native WS engine. Two runtime
+ * guards over the actually-built `WsServerEngineRpcGroup`:
+ *
+ *  - `findEngineGatingMismatch()` walks every built member and asserts each
+ *    authenticated tag carries its OWN `*AuthMw` (and each ungated tag carries
+ *    none) — catching a `buildEngineMember` regression that drops a gate on a
+ *    protected method, which the group's single type assertion cannot prove.
+ *  - `assertWsEngineSize()` pins the built WS-subset member count to the
+ *    catalog minus the four HTTP-only methods — catching a filter regression
+ *    that drops or duplicates a member.
+ *
+ * A violation throws at boot rather than shipping a mis-gated engine.
  */
-function buildServerSlots(methods: ServerRpcSlots): ServerRpcSlotTable {
-  const table: Record<string, ServerRpcSlots[number]> = {};
-  for (const slot of methods) {
-    table[slot.definition.name] = slot;
-  }
-  return table;
-}
-
-/**
- * Assemble the dispatch slot table, validating the #720 principal-kind policy
- * registry at boot first. The slots are built once and threaded through both
- * the fail-closed check and the table keying.
- */
-function buildValidatedServerSlots(): ServerRpcSlotTable {
-  const methods = makeCoreRpcMethods();
-  // Runtime gate-presence backstop: every engine member carries its OWN
-  // `*AuthMw` iff it is not unauthenticated. Inspects the actual built
-  // middleware, which the group's single type assertion cannot prove.
+function validateEngineGating(): void {
   const gatingMismatch = findEngineGatingMismatch();
   if (gatingMismatch !== undefined) {
     throw new PrincipalKindRegistryError(
-      `ServerEngineRpcGroup gating mismatch for ${gatingMismatch}`,
+      `WsServerEngineRpcGroup gating mismatch for ${gatingMismatch}`,
     );
   }
-  validateCorePrincipalKinds(methods);
-  return buildServerSlots(methods);
-}
-
-/**
- * Assemble the single-source {@link ServerMethodBindings} tuple from the slots'
- * `binding` field — the #720 policy each `define*Method` wrapper surfaced. The
- * native engine's handler map and the `principalKinds` policy table are both
- * projections of this tuple, so they cannot drift.
- */
-function serverMethodBindings(methods: ServerRpcSlots): ServerMethodBindings {
-  return methods.map((slot) => slot.binding);
-}
-
-/**
- * The authenticated tag set the native engine gates: every WS-dispatched
- * `define*Method` binding MINUS the unauthenticated allowlist. Derived from the
- * binding registry (the WS surface), NOT from the full `serverRpcMethods`
- * catalog: that catalog also carries the HTTP-only `agents/register`,
- * `agents/claim`, `agents/invite`, and `invites/createAgent` methods, which have
- * no WS handler slot (served over `http-routes.ts`) — the WS engine never
- * dispatches them, so they are not part of its gated surface.
- *
- * Every gated tag is also a {@link ServerEngineRpcGroup} member (the group is
- * catalog-derived and a superset of the WS surface); a policy naming a tag the
- * group lacks would be a wiring defect, caught by the stray-key check.
- */
-function expectedGatedTags(
-  bindings: ServerMethodBindings,
-): ReadonlySet<string> {
-  const unauth = new Set<string>(UNAUTHENTICATED_METHODS);
-  const engineMembers = new Set<string>(ServerEngineRpcGroup.requests.keys());
-  const gated = new Set<string>();
-  for (const b of bindings) {
-    if (unauth.has(b.tag)) continue;
-    if (!engineMembers.has(b.tag)) {
-      throw new PrincipalKindRegistryError(
-        `binding tag is not a ServerEngineRpcGroup member: ${b.tag}`,
-      );
-    }
-    gated.add(b.tag);
+  const sizeMismatch = assertWsEngineSize();
+  if (sizeMismatch !== undefined) {
+    throw new PrincipalKindRegistryError(sizeMismatch);
   }
-  return gated;
-}
-
-/**
- * Boot-time fail-closed backstop (#720 §D.3): assert the projected
- * `principalKinds` keys EXACTLY equal the gated WS-binding tag set. A method that
- * reached the authenticated engine without a policy, or a policy naming a tag
- * the WS surface lacks, throws here rather than defaulting permissively. The
- * type-level partition canary pins the static shape; this catches a build that
- * somehow skipped it.
- */
-function validateCorePrincipalKinds(methods: ServerRpcSlots): void {
-  const bindings = serverMethodBindings(methods);
-  validatePrincipalKinds(
-    projectPrincipalKinds(bindings),
-    expectedGatedTags(bindings),
-  );
 }
 
 type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

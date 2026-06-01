@@ -24,9 +24,11 @@ import {
   AppAuthServiceTag,
   AppHostTag,
   AuthServiceTag,
+  ConnectionHooksTag,
   ConnectionTag,
   ConnectionManagerTag,
   ConversationServiceTag,
+  DbTag,
   PresenceServiceTag,
 } from "../../app/layers.js";
 import type { ConnectionId } from "@moltzap/protocol/network";
@@ -331,8 +333,56 @@ function completeAgentConnect(
       connId,
       auth,
     );
-    return yield* buildHelloOk(auth, connId, presenceService);
+    const helloOk = yield* buildHelloOk(auth, connId, presenceService);
+    yield* fireConnectionHooks(auth, connId);
+    return helloOk;
   }).pipe(Effect.withSpan("connect.completeAgentConnect"));
+}
+
+/**
+ * Fire every registered connection hook for a freshly-authenticated agent arm.
+ * Hooks carry `agentId`, the agent's display name (DB lookup, falling back to
+ * the id), `ownerUserId`, and `connId`. Each runs with a 2-second timeout;
+ * a throw or timeout is logged and does not fail the Connect.
+ */
+function fireConnectionHooks(auth: AgentContext, connId: ConnectionId) {
+  return Effect.gen(function* () {
+    const hooks = yield* ConnectionHooksTag;
+    if (hooks.connectionHooks.length === 0) return;
+    const db = yield* DbTag;
+    const row = yield* Effect.tryPromise(() =>
+      db
+        .selectFrom("agents")
+        .select("name")
+        .where("id", "=", auth.agentId)
+        .executeTakeFirst(),
+    ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    const agentName = row?.name ?? auth.agentId;
+    for (const hook of hooks.connectionHooks) {
+      yield* Effect.tryPromise({
+        try: () =>
+          Promise.resolve(
+            hook({
+              agentId: auth.agentId,
+              agentName,
+              ownerUserId: auth.ownerUserId,
+              connId,
+            }),
+          ),
+        catch: (err) => err,
+      }).pipe(
+        Effect.timeoutFail({
+          duration: "2 seconds",
+          onTimeout: () => new Error("Connection hook timed out"),
+        }),
+        Effect.catchAll((err) =>
+          Effect.logWarning("Connection hook error").pipe(
+            Effect.annotateLogs({ err, agentId: auth.agentId, connId }),
+          ),
+        ),
+      );
+    }
+  }).pipe(Effect.withSpan("connect.fireConnectionHooks"));
 }
 
 function handleConnect(params: ConnectParams) {
@@ -367,7 +417,13 @@ function handleConnect(params: ConnectParams) {
       // arm-appropriate `HelloOk`: the agent arm re-hydrates its agent shape;
       // the app arm re-emits the agentId-less app shape.
       if (conn._tag === "AgentConnection") {
-        return yield* buildHelloOk(conn.auth, conn.connId, presenceService);
+        const helloOk = yield* buildHelloOk(
+          conn.auth,
+          conn.connId,
+          presenceService,
+        );
+        yield* fireConnectionHooks(conn.auth, conn.connId);
+        return helloOk;
       }
       if (conn._tag === "AppConnection") {
         return buildAppHelloOk();
@@ -396,22 +452,6 @@ function handleConnect(params: ConnectParams) {
     }).pipe(Effect.withSpan("network.connect")),
   );
 }
-
-export const connectHandlers: ServerRpcSlots = [
-  // Connect is bound at the APP layer: its `appKey` arm pulls
-  // `AppHostTag` to implicitly register the app's `AppEndpoint` off the live
-  // `AppConnection` arm (replacing the deleted WS `apps/register` RPC). The
-  // `agentKey` arm rides the same handler and yields no app-layer tags.
-  // `network/connect` is the ONLY any-principal method: it is dispatched
-  // while the arm is still `UnauthenticatedConnection`, and the handler
-  // dispatches on the credential union itself (not on `ctx`). It binds via
-  // `defineConnectMethod` (the lone `"any"` wrapper) — no `CurrentPrincipal`
-  // is provided on the unauthenticated arm; the body reads the live arm via
-  // `ConnectionTag`.
-  defineConnectMethod(Connect, {
-    handler: (params) => handleConnect(params),
-  }),
-];
 
 // ── Native @effect/rpc handler body ─────────────────────────────────────────
 //
