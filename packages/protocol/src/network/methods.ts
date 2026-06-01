@@ -151,6 +151,7 @@ export const NetworkPing = defineRpc({
   name: "network/ping",
   params: Schema.Struct({}),
   result: Schema.Struct({ ts: DateTimeString }),
+  callablePrincipal: "agent",
 });
 
 // ── presence/* ───────────────────────────────────────────────────────
@@ -170,6 +171,8 @@ export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
   params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
   result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
+  callablePrincipal: "agent",
+  requiresActive: true,
 });
 
 const PresenceChangedNotificationSchema = Schema.Struct({

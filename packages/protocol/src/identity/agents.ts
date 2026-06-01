@@ -159,6 +159,7 @@ export const AgentsLookup = defineRpc({
     ),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
+  callablePrincipal: "agent",
 });
 
 /**
@@ -172,6 +173,7 @@ export const AgentsLookupByName = defineRpc({
     ).pipe(Schema.minItems(1), Schema.maxItems(100)),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
+  callablePrincipal: "agent",
 });
 
 /**
@@ -187,4 +189,6 @@ export const AgentsList = defineRpc({
     agents: Schema.Array(AgentCardSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
+  callablePrincipal: "agent",
+  requiresActive: true,
 });

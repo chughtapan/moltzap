@@ -13,6 +13,10 @@ import {
 } from "../transport/wire-errors.js";
 import { ConversationId, conversationSchema } from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
+import {
+  ConversationInTask,
+  ContactPolicyAllowsReach,
+} from "./capabilities/index.js";
 // #705 HALF-2 — `task/request`'s `ContactPolicyAllowsReach` and the four
 // `task/conversation/*` `ConversationInTask` capabilities are declared at
 // the server binding site as `CapabilityMiddleware` tuples (reading the
@@ -134,12 +138,14 @@ export const TaskList = defineRpc({
     tasks: Schema.Array(TaskSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
+  callablePrincipal: "agent",
 });
 
 export const TaskClose = defineRpc({
   name: "task/close",
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({ task: TaskSchema }),
+  callablePrincipal: "app",
 });
 
 export const TaskAddParticipant = defineRpc({
@@ -149,6 +155,7 @@ export const TaskAddParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({ participant: TaskParticipantSchema }),
+  callablePrincipal: "app",
 });
 
 export const TaskRemoveParticipant = defineRpc({
@@ -158,6 +165,7 @@ export const TaskRemoveParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({}),
+  callablePrincipal: "app",
 });
 
 const TaskFailedNotificationSchema = Schema.Struct({
@@ -314,6 +322,9 @@ export const TaskRequest = defineRpc({
     task: TaskSchema,
     conversation: Schema.Union(ConversationSchema, Schema.Null),
   }),
+  callablePrincipal: "agent",
+  requiresActive: true,
+  caps: [ContactPolicyAllowsReach],
 });
 
 /**
@@ -333,6 +344,8 @@ export const TaskLeave = defineRpc({
   name: "task/leave",
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({}),
+  callablePrincipal: "agent",
+  requiresActive: true,
 });
 
 /**
@@ -350,11 +363,11 @@ export const TaskConversationCreate = defineRpc({
     participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
   }),
   result: Schema.Struct({ conversation: ConversationSchema }),
-  // No descriptor-side capabilities (D #705 R3/R7). App-ownership is
-  // gated by the app-arm handler's `assertCallerAppOwnsTask`, and
-  // `ConversationCreateAuthorization` is provided INLINE by the handler
-  // as a capacity-only proof (a TM minting on the task's behalf has no
-  // agent contact-edges; targets are gated by
+  callablePrincipal: "app",
+  // No caps. App-ownership is gated by the app-arm handler's
+  // `assertCallerAppOwnsTask`; `ConversationCreateAuthorization` is provided
+  // inline by the handler as a capacity-only proof (a TM minting on the task's
+  // behalf has no agent contact-edges; targets are gated by
   // `requireAgentsAreInTaskParticipants`).
 });
 
@@ -374,6 +387,8 @@ export const TaskConversationList = defineRpc({
     items: Schema.Array(TaskConversationListItemSchema),
     nextCursor: Schema.optional(Schema.String),
   }),
+  callablePrincipal: "agent",
+  requiresActive: true,
 });
 
 // The four conversation-targeted descriptors below share the IDENTICAL
@@ -387,6 +402,8 @@ export const TaskConversationArchive = defineRpc({
   name: "task/conversation/archive",
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
+  callablePrincipal: "app",
+  caps: [ConversationInTask],
 });
 
 /** TM-only: reverse of `task/conversation/archive`. */
@@ -394,6 +411,8 @@ export const TaskConversationUnarchive = defineRpc({
   name: "task/conversation/unarchive",
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
+  callablePrincipal: "app",
+  caps: [ConversationInTask],
 });
 
 /**
@@ -409,11 +428,11 @@ export const TaskConversationAddParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({}),
-  // App-ownership is gated by the app-arm handler's
-  // `assertCallerAppOwnsTask` BEFORE `requireAgentsAreInTaskParticipants`
-  // (so a non-owner sees `ForbiddenError`, not the participant-admitted
-  // state probe). `ConversationInTask` is woven by the server binding's
-  // `CapabilityMiddleware` (#705 HALF-2).
+  callablePrincipal: "app",
+  // App-ownership is gated by the app-arm handler's `assertCallerAppOwnsTask`
+  // BEFORE `requireAgentsAreInTaskParticipants` (so a non-owner sees
+  // `ForbiddenError`, not the participant-admitted state probe).
+  caps: [ConversationInTask],
 });
 
 /**
@@ -429,6 +448,8 @@ export const TaskConversationRemoveParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({}),
+  callablePrincipal: "app",
+  caps: [ConversationInTask],
 });
 
 // ─── task/conversation/* notifications ──────────────────────────────

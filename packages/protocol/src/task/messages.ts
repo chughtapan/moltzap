@@ -9,6 +9,11 @@ import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ConversationId, MessageId } from "./conversations.js";
 import { TaskId } from "./ids.js";
+import {
+  ConversationInTask,
+  MessageSendPermission,
+  TaskReadAccess,
+} from "./capabilities/index.js";
 
 export const LeaseId = brandedId("LeaseId");
 export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
@@ -170,6 +175,12 @@ export const MessagesSend = defineRpc({
     dispatchLeaseId: Schema.optional(LeaseId),
   }),
   result: Schema.Struct({ message: MessageSchema }),
+  callablePrincipal: "agent",
+  requiresActive: true,
+  // Run order: `ConversationInTask` resolves the conversation's task membership
+  // first, so `MessageSendPermission` obtains against an already-verified
+  // conversation.
+  caps: [ConversationInTask, MessageSendPermission],
 });
 
 /**
@@ -193,6 +204,11 @@ export const MessagesList = defineRpc({
     messages: Schema.Array(MessageSchema),
     hasMore: Schema.Boolean,
   }),
+  callablePrincipal: "agent",
+  requiresActive: true,
+  // Run order: `TaskReadAccess` proves the caller may read the task before
+  // `ConversationInTask` resolves the conversation's task membership.
+  caps: [TaskReadAccess, ConversationInTask],
 });
 
 const MessageReceivedNotificationSchema = Schema.Struct({
