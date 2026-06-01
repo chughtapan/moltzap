@@ -477,7 +477,7 @@ _Function_
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskConversationAddParticipant`](./task-conversation-family.ts#L546)
+### [`registerTaskConversationAddParticipant`](./task-conversation-family.ts#L547)
 
 _Function_
 
@@ -487,7 +487,7 @@ export function registerTaskConversationAddParticipant(
 ): void
 ```
 
-### [`registerTaskConversationArchiveDenied`](./task-conversation-family.ts#L530)
+### [`registerTaskConversationArchiveDenied`](./task-conversation-family.ts#L531)
 
 _Function_
 
@@ -497,7 +497,7 @@ export function registerTaskConversationArchiveDenied(
 ): void
 ```
 
-### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L430)
+### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L431)
 
 _Function_
 
@@ -507,7 +507,7 @@ export function registerTaskConversationCreateAndList(
 ): void
 ```
 
-### [`registerTaskConversationCreateDenied`](./task-conversation-family.ts#L629)
+### [`registerTaskConversationCreateDenied`](./task-conversation-family.ts#L630)
 
 _Function_
 
@@ -517,7 +517,7 @@ export function registerTaskConversationCreateDenied(
 ): void
 ```
 
-### [`registerTaskConversationRemoveParticipant`](./task-conversation-family.ts#L589)
+### [`registerTaskConversationRemoveParticipant`](./task-conversation-family.ts#L590)
 
 _Function_
 
@@ -535,7 +535,7 @@ _Function_
 export function registerTaskCreate(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskLeave`](./task-conversation-family.ts#L338)
+### [`registerTaskLeave`](./task-conversation-family.ts#L339)
 
 _Function_
 
@@ -543,7 +543,7 @@ _Function_
 export function registerTaskLeave(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskRequestReject`](./task-conversation-family.ts#L266)
+### [`registerTaskRequestReject`](./task-conversation-family.ts#L267)
 
 _Function_
 
@@ -564,7 +564,7 @@ export function sendText(
 )
 ```
 
-### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L677)
+### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L678)
 
 _Variable_
 

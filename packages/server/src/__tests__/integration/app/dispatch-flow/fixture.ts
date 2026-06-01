@@ -115,32 +115,28 @@ interface ModeratorApp {
 let moderatorApp: ModeratorApp | null = null;
 let attachedFixture: DispatchFlowFixture | null = null;
 
+const MODERATOR_HOOK_TIMEOUT_MS = 5_000;
+
 /**
- * Inject the `dispatch_authorize` hook declaration so the server round-trips
- * the dispatch-admission decision to the app (a hookless manifest opts into
- * the synthetic-grant fast-path). `task_create` is deliberately NOT declared:
- * these scenarios exercise the dispatch lifecycle, so the server's hookless
- * `task/create` fast-path auto-accepts the task without an app round-trip.
+ * Hook policy set for a moderated dispatch app: `dispatch_authorize` is
+ * `kind: "hook"` so the server round-trips the admission decision to the
+ * app's connection (the fixture answers it via {@link setNextHookVerdict}).
+ * `task_create` stays `accept` (static) — these scenarios exercise the
+ * dispatch lifecycle, so the task auto-accepts in-process. Dispatch-flow
+ * manifests declare `hooks: MODERATED_HOOKS` directly.
  */
-function withModeratorHooks(manifest: AppManifest): AppManifest {
-  return {
-    ...manifest,
-    hooks: {
-      dispatch_authorize: {},
-      ...manifest.hooks,
-    },
-  };
-}
+export const MODERATED_HOOKS: AppManifest["hooks"] = {
+  dispatch_authorize: { kind: "hook", timeoutMs: MODERATOR_HOOK_TIMEOUT_MS },
+  message_authorize: { kind: "forwardAllExceptSender" },
+  task_create: { kind: "accept" },
+};
 
 function ensureModeratorApp(
   manifest: AppManifest,
 ): Effect.Effect<AppId, unknown> {
   return Effect.gen(function* () {
     if (moderatorApp !== null) return moderatorApp.appId;
-    const registered = yield* registerApp(
-      getBaseUrl(),
-      withModeratorHooks(manifest),
-    );
+    const registered = yield* registerApp(getBaseUrl(), manifest);
     const client = yield* connectAppClient(registered.appKey);
     moderatorApp = { appId: registered.appId, client };
     yield* wireModeratorCallbacks(client);

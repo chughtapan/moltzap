@@ -10,8 +10,8 @@ import type { Originator } from "../transport/connection.js";
  * the live `AppConnection` arm's `{ connId, originator }` at `apps/register`.
  * The boot-installed default app carries an INERT endpoint
  * (`default-app.ts → makeDefaultAppEndpoint`) whose originator defects — its
- * hookless manifest routes every callback through AppHost's manifest-default
- * fast-path, so the originator is never invoked.
+ * manifest declares only static policies, which AppHost resolves in-process,
+ * so the originator is never invoked.
  */
 export interface AppEndpoint {
   readonly connId: ConnectionId;
@@ -24,10 +24,10 @@ export interface AppEndpoint {
  * {@link AppEndpoint}. Wire-registered apps hold the `{ connId, originator }`
  * minted from the `AppConnection` arm their `apps/register` call arrived on;
  * the default app holds an inert endpoint (see
- * `default-app.ts → makeDefaultAppEndpoint`) and declares no hooks, so AppHost
- * serves its callbacks via the manifest-default fast-path rather than the
- * `sendRpcToClient(entry.endpoint.originator, …)` path used for hook-declaring
- * apps. AppHost sees ONE registration shape regardless.
+ * `default-app.ts → makeDefaultAppEndpoint`) and declares only static
+ * policies, which AppHost resolves in-process rather than over the
+ * `sendRpcToClient(entry.endpoint.originator, …)` path a `kind: "hook"` policy
+ * uses. AppHost sees ONE registration shape regardless.
  */
 export interface AppRegistration {
   readonly appId: AppId;

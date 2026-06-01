@@ -31,16 +31,24 @@ const manifestIsInvalid = (manifest: unknown): boolean =>
     onRight: () => false,
   });
 
+const OPEN_HOOKS = {
+  dispatch_authorize: { kind: "grant" },
+  message_authorize: { kind: "forwardAllExceptSender" },
+  task_create: { kind: "accept" },
+} as const;
+
 const minimalManifestArbitrary = fc.record({
   appId: fc.string(),
   name: fc.string(),
+  hooks: fc.constant(OPEN_HOOKS),
 });
 
 describe("AppManifestSchema required shape", () => {
-  it("accepts a valid manifest", () => {
+  it("accepts a manifest with all three policies declared", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
+      hooks: OPEN_HOOKS,
     };
     expect(manifestIsValid(manifest)).toBe(true);
   });
@@ -55,20 +63,38 @@ describe("AppManifestSchema required shape", () => {
         { key: "town_square", name: "Town Square", participantFilter: "all" },
         { key: "den", name: "Werewolf Den", participantFilter: "none" },
       ],
+      hooks: OPEN_HOOKS,
     };
     expect(manifestIsValid(manifest)).toBe(true);
   });
 
-  it("accepts generated minimal manifests", () => {
+  it("accepts generated manifests with all policies declared", () => {
     const property = fc.property(minimalManifestArbitrary, manifestIsValid);
     fc.assert(property, { numRuns: MANIFEST_PROPERTY_RUNS });
-    expect(manifestIsValid({ appId: "", name: "" })).toBe(true);
+    expect(manifestIsValid({ appId: "", name: "", hooks: OPEN_HOOKS })).toBe(
+      true,
+    );
   });
 
-  it("rejects manifest missing required fields", () => {
-    expect(manifestIsInvalid({ appId: "test" })).toBe(true);
-    expect(manifestIsInvalid({ name: "test" })).toBe(true);
+  it("rejects manifest missing a required field or policy", () => {
+    // appId / name / hooks are all required, as is each policy within hooks.
+    expect(manifestIsInvalid({ appId: "test", hooks: OPEN_HOOKS })).toBe(true);
+    expect(manifestIsInvalid({ name: "test", hooks: OPEN_HOOKS })).toBe(true);
     expect(manifestIsInvalid({})).toBe(true);
+    expect(manifestIsInvalid({ appId: "test", name: "Test" })).toBe(true);
+    expect(manifestIsInvalid({ appId: "test", name: "Test", hooks: {} })).toBe(
+      true,
+    );
+    expect(
+      manifestIsInvalid({
+        appId: "test",
+        name: "Test",
+        hooks: {
+          dispatch_authorize: { kind: "grant" },
+          message_authorize: { kind: "forwardAllExceptSender" },
+        },
+      }),
+    ).toBe(true);
   });
 });
 
@@ -77,6 +103,7 @@ describe("AppManifestSchema closed shape", () => {
     const manifest = {
       appId: "test",
       name: "Test",
+      hooks: OPEN_HOOKS,
       conversations: [
         { key: "main", name: "Main", participantFilter: "invalid" },
       ],
@@ -88,6 +115,7 @@ describe("AppManifestSchema closed shape", () => {
     const manifest = {
       appId: "test",
       name: "Test",
+      hooks: OPEN_HOOKS,
       extra: "nope",
     };
     expect(manifestIsInvalid(manifest)).toBe(true);
@@ -99,6 +127,7 @@ describe("AppManifestSchema retired fields", () => {
     const manifest = {
       appId: "test",
       name: "Test",
+      hooks: OPEN_HOOKS,
       permissions: { required: [], optional: [] },
     };
     expect(manifestIsInvalid(manifest)).toBe(true);
@@ -108,71 +137,77 @@ describe("AppManifestSchema retired fields", () => {
     const manifest = {
       appId: "test",
       name: "Test",
+      hooks: OPEN_HOOKS,
       permissionTimeoutMs: 30000,
     };
     expect(manifestIsInvalid(manifest)).toBe(true);
   });
 });
 
-describe("AppManifestSchema hooks", () => {
-  it("accepts manifest with dispatch_authorize timeout", () => {
-    const manifest = {
-      appId: "werewolf",
-      name: "Werewolf",
-      hooks: {
-        dispatch_authorize: { timeout_ms: 3000 },
-      },
-    };
-    expect(manifestIsValid(manifest)).toBe(true);
+const withDispatch = (policy: unknown) => ({
+  ...OPEN_HOOKS,
+  dispatch_authorize: policy,
+});
+
+const manifestWithHooks = (hooks: unknown) => ({
+  appId: "w",
+  name: "W",
+  hooks,
+});
+
+// Every dispatch policy shape the schema must reject. The decode
+// contract is "a `dispatch_authorize` slot is exactly one of the three
+// declared arms, fully populated"; each entry is a way to violate it.
+const REJECTED_DISPATCH_POLICIES: ReadonlyArray<readonly [string, unknown]> = [
+  ["non-positive hook timeout", { kind: "hook", timeoutMs: 0 }],
+  ["static deny without a reason", { kind: "deny" }],
+  ["hook policy without a timeout", { kind: "hook" }],
+  ["unknown policy kind", { kind: "defer" }],
+  ["excess property on a policy arm", { kind: "grant", unexpected: "value" }],
+];
+
+// @agent-code-guard/regression-only: pins each declared policy arm of the
+// decode contract; the structural property over generated manifests lives
+// in the "required shape" scope above.
+describe("AppManifestSchema hook policies", () => {
+  it("accepts the static open policies", () => {
+    expect(manifestIsValid({ appId: "w", name: "W", hooks: OPEN_HOOKS })).toBe(
+      true,
+    );
   });
 
-  it("accepts manifest with task_create timeout", () => {
-    const manifest = {
-      appId: "werewolf",
-      name: "Werewolf",
-      hooks: {
-        task_create: { timeout_ms: 3000 },
-      },
+  it("accepts the static deny / reject policies with a reason", () => {
+    const hooks = {
+      dispatch_authorize: { kind: "deny", reason: "closed" },
+      message_authorize: { kind: "deny", reason: "muted" },
+      task_create: { kind: "reject", reason: "not recruiting" },
     };
-    expect(manifestIsValid(manifest)).toBe(true);
+    expect(manifestIsValid(manifestWithHooks(hooks))).toBe(true);
+  });
+
+  it("accepts a hook policy with a timeout", () => {
+    const hooks = {
+      dispatch_authorize: { kind: "hook", timeoutMs: 3000 },
+      message_authorize: { kind: "hook", timeoutMs: 3000 },
+      task_create: { kind: "hook", timeoutMs: 3000 },
+    };
+    expect(manifestIsValid(manifestWithHooks(hooks))).toBe(true);
   });
 
   it("accepts hook timeouts above 30s (no upper cap)", () => {
-    // Werewolf Phase 2 declares `dispatch_authorize: 900_000ms` (15 min)
-    // for the player-input waiter pattern; AppHost enforces the declared
-    // timeout via `Effect.timeout(manifestMs)`.
-    const manifest = {
-      appId: "werewolf",
-      name: "Werewolf",
-      hooks: {
-        dispatch_authorize: { timeout_ms: 900_000 },
-      },
-    };
-    expect(manifestIsValid(manifest)).toBe(true);
-  });
-});
-
-describe("AppManifestSchema invalid hooks", () => {
-  it("rejects non-positive hook timeouts", () => {
-    const manifest = {
-      appId: "werewolf",
-      name: "Werewolf",
-      hooks: {
-        dispatch_authorize: { timeout_ms: 0 },
-      },
-    };
-    expect(manifestIsInvalid(manifest)).toBe(true);
+    // A 900_000ms (15 min) moderator timeout for a player-input waiter
+    // pattern is legal; AppHost enforces it via `Effect.timeout(timeoutMs)`.
+    const hooks = withDispatch({ kind: "hook", timeoutMs: 900_000 });
+    expect(manifestIsValid(manifestWithHooks(hooks))).toBe(true);
   });
 
-  it("rejects additional properties on hook entries", () => {
-    const manifest = {
-      appId: "test",
-      name: "Test",
-      hooks: {
-        dispatch_authorize: { unexpected: "value" },
-      },
-    };
-    expect(manifestIsInvalid(manifest)).toBe(true);
+  it("rejects every malformed dispatch policy shape", () => {
+    for (const [label, policy] of REJECTED_DISPATCH_POLICIES) {
+      expect(
+        manifestIsInvalid(manifestWithHooks(withDispatch(policy))),
+        label,
+      ).toBe(true);
+    }
   });
 });
 
@@ -188,7 +223,7 @@ describe("AppManifestSchema retired hooks", () => {
       const manifest = {
         appId: "test",
         name: "Test",
-        hooks: { [key]: { timeout_ms: 1000 } },
+        hooks: { ...OPEN_HOOKS, [key]: { kind: "hook", timeoutMs: 1000 } },
       };
       expect(manifestIsInvalid(manifest)).toBe(true);
     }

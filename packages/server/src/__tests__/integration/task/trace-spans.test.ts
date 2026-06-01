@@ -35,7 +35,9 @@ const TRACE_APP_MANIFEST: AppManifest = {
   appId: TRACE_APP_ID,
   name: "Trace Span Test App",
   hooks: {
-    message_authorize: { timeout_ms: 5_000 },
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "hook", timeoutMs: 5_000 },
+    task_create: { kind: "accept" },
   },
 };
 

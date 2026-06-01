@@ -129,6 +129,14 @@ it("TM authority: only the app principal may mutate task membership", () =>
       {
         appId: "00000000-0000-4000-8000-000000010007",
         name: "tm-test-app",
+        // `task_create` is `kind: "hook"` so the `TaskCreate` callback
+        // wired below is consulted; the other two take their open
+        // static verdict.
+        hooks: {
+          dispatch_authorize: { kind: "grant" },
+          message_authorize: { kind: "forwardAllExceptSender" },
+          task_create: { kind: "hook", timeoutMs: 5_000 },
+        },
       },
       REGISTRATION_SECRET,
     );

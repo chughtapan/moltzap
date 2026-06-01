@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: manifest hook policies are required — close the fail-open `dispatch_authorize` hole (#735)
+
+The receive-side dispatch authorization gate was fail-open on hook omission:
+an app manifest that omitted `dispatch_authorize` (or the whole `hooks` block)
+was silently granted admission for every recipient, reachable by any
+wire-registered app. Each manifest hook policy is now a required discriminated
+union, so "no policy" is unrepresentable — a compile error for in-code
+manifests and a decode rejection at the wire boundary.
+
+- **Wire (`@moltzap/protocol`):** `AppManifestSchema.hooks` and each of its
+  three slots are required. Each slot is one of three policies:
+  - `dispatch_authorize`: `{ kind: "grant" }` | `{ kind: "deny"; reason }` |
+    `{ kind: "hook"; timeoutMs }`.
+  - `message_authorize`: `{ kind: "forwardAllExceptSender" }` |
+    `{ kind: "deny"; reason }` | `{ kind: "hook"; timeoutMs }`.
+  - `task_create`: `{ kind: "accept" }` | `{ kind: "reject"; reason }` |
+    `{ kind: "hook"; timeoutMs }`.
+  The per-hook `{ timeout_ms }` entry is replaced by `timeoutMs` on the
+  `hook` arm; `HookEntrySchema` is deleted. A static policy resolves the
+  verdict in-process with no app round-trip; only `kind: "hook"` reaches the
+  app over the wire under the fail-closed timeout envelope.
+- **Server (`@moltzap/server-core`):** each hook runner switches exhaustively
+  on `policy.kind` (no `default`, trailing `never` assertion). The
+  unknown-app fail-closed arms are unchanged. The boot-installed default app
+  declares the three open policies (`grant` / `forwardAllExceptSender` /
+  `accept`) explicitly; its endpoint stays inert. The synthesized
+  omission-default timeout fallback is removed.
+- **Docs:** the app-building guide drops the omission-default prose and the
+  `timeout_ms` field; every example declares all three policies explicitly.
+
+**Migration:** there is no back-compat shim. An app row persisted under the
+old schema (omitting policies) fails decode on read and must be re-registered.
+The default-app row self-heals via the boot upsert; for dev/ephemeral
+databases a fresh boot resets the rows. Any environment with persisted
+non-default app rows must re-register those apps with explicit policies.
+
 ### Removed: external-bearer / webhook-session auth path (#725)
 
 The `sessionToken` connect credential and its webhook-backed validator are

@@ -174,7 +174,18 @@ it("TaskRequest (different appId) does NOT dedup across apps", () =>
     // mint distinct tasks.
     const registered = yield* registerApp(
       baseUrl,
-      { appId: "11111111-2222-4333-8444-555555555555", name: "other-app" },
+      {
+        appId: "11111111-2222-4333-8444-555555555555",
+        name: "other-app",
+        // `task_create` is `kind: "hook"` so the `TaskCreate` callback
+        // wired below is consulted; the other two take their open
+        // static verdict.
+        hooks: {
+          dispatch_authorize: { kind: "grant" },
+          message_authorize: { kind: "forwardAllExceptSender" },
+          task_create: { kind: "hook", timeoutMs: 5_000 },
+        },
+      },
       REGISTRATION_SECRET,
     );
     const appClient = yield* connectAppClient(registered.appKey);

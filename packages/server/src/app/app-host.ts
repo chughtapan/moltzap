@@ -54,7 +54,6 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const EMPTY_TASK_ID = "" as TaskId;
 // Placeholder app id used by the dispatchBindingForLookup default-grant
 // branch; the binding is consumed only by the registry mint path, which
@@ -185,18 +184,18 @@ function dispatchVerdictToLeaseVerdict(
  * flowchart TD
  *   Call[hook runner — dispatchAuthorizeHook / runMessageAuthorize / runTaskCreate] --> Lookup{apps.get appId}
  *   Lookup -- undefined --> FailClosed0[fail-closed synthetic verdict<br>deny app_unavailable / Block app_unreachable / reject app_unreachable]
- *   Lookup -- found --> Hook{manifest.hooks omits this hook?}
- *   Hook -- yes --> Default[synthetic default<br>grant / Forward — recipients participants minus sender / accept]
- *   Hook -- no --> Rpc[callAppRpc entry.endpoint.originator, definition, params]
+ *   Lookup -- found --> Policy{switch manifest hook policy.kind}
+ *   Policy -- grant / deny / forwardAllExceptSender / accept / reject --> Static[static verdict resolved in-process<br>zero wire round-trip]
+ *   Policy -- hook --> Rpc[callAppRpc entry.endpoint.originator, definition, params]
  *   Rpc --> Envelope[wrapHookEffectWithEnvelope<br>raw, timeoutMs, onTimeout, onError, log contexts]
  *   Envelope --> FailClosed[timeout, handler throw, RPC failure, decode failure<br>collapse to onTimeout / onError<br>e.g. messageAuthorize Block reason app_unreachable]
  * ```
  *
- * Every fail-mode collapses to a deny-shaped verdict so callers
- * never see an Effect failure on the hook channel — the envelope IS
- * the contract. The synthetic-default arm and the fail-closed
- * unknown-app arm are pure (no app round-trip); only the third arm
- * touches the wire.
+ * Every fail-mode collapses to a deny-shaped verdict so callers never
+ * see an Effect failure on the hook channel — the envelope IS the
+ * contract. The static-policy arms and the fail-closed unknown-app arm
+ * are pure (no app round-trip); only the `kind: "hook"` arm touches the
+ * wire, and it is the only arm under the timeout envelope.
  */
 export class AppHost {
   /**
@@ -204,9 +203,9 @@ export class AppHost {
    * one `AppRegistration` carrying its `AppEndpoint` (`{ connId, originator }`)
    * — minted from the live `AppConnection` arm for wire-registered apps, or an
    * inert endpoint for the boot-installed default app (`DEFAULT_APP_ID`).
-   * AppHost dispatches via the endpoint's `originator` for hook-declaring apps;
-   * the hookless default app is served entirely by the manifest-default
-   * fast-path (its originator is never invoked). See `./app-registration.ts`.
+   * AppHost dispatches via the endpoint's `originator` only for a policy whose
+   * `kind` is `"hook"`; an app whose policies are all static (the default app)
+   * never has its originator invoked. See `./app-registration.ts`.
    */
   private apps = new AppRegistry();
 
@@ -351,10 +350,12 @@ export class AppHost {
    *    resolve immediately. Recipient sees `dispatch/release{grant}`
    *    after the ack lands.
    *  - `ConversationArchived`: synthesize `deny{conversation_archived}`.
-   *  - `AppBound` with no hook: synthesize `hold{moderator_unavailable}`
-   *    (load-bearing — does NOT call `removeParticipant`).
-   *  - `AppBound` with hook: forked round-trip; verdict-deny + timeout-
-   *    deny call `resolve(deny)` and the caller is responsible for
+   *  - `AppBound` whose app has no live registration (WS dropped):
+   *    synthesize `hold{moderator_unavailable}` (load-bearing — does NOT
+   *    call `removeParticipant`).
+   *  - `AppBound` with a live registration: run the
+   *    `dispatch_authorize` policy switch; a verdict-deny + timeout-deny
+   *    call `resolve(deny)` and the caller is responsible for
    *    `removeParticipant` via the standard verdict-deny path.
    *
    * Returns immediately with `{leaseId, dispatchId}` (or fails closed
@@ -607,11 +608,11 @@ export class AppHost {
   }
 
   /**
-   * Dispatch a `dispatch/authorize` hook. The two-arm resolution is
-   * made INSIDE the helper; callers see one signature and one return
-   * type. Synthesizes `{ decision: "grant" }` when the manifest omits
-   * the hook. Fail-closed on unknown app / timeout / handler error /
-   * RPC failure.
+   * Resolve the receive-side admission verdict. Switches on the
+   * manifest's `dispatch_authorize` policy: `grant` / `deny` resolve
+   * in-process with zero wire round-trip, `hook` round-trips to the
+   * bound moderator under the fail-closed envelope. Fail-closed on
+   * unknown app / timeout / handler error / RPC failure.
    *
    * ```mermaid
    * sequenceDiagram
@@ -624,14 +625,16 @@ export class AppHost {
    *   Caller->>AH: ctx {taskId, appId, conversationId, parts, ...}
    *   alt apps.get(appId) undefined
    *     AH-->>AH: synthetic deny reason app_unavailable
-   *   else manifest omits dispatch_authorize
-   *     AH-->>AH: synthetic grant
-   *   else hook declared
+   *   else policy.kind grant
+   *     AH-->>AH: grant resolved in-process
+   *   else policy.kind deny
+   *     AH-->>AH: deny reason policy.reason resolved in-process
+   *   else policy.kind hook
    *     AH->>App: callAppRpc(entry.endpoint.originator, DispatchAuthorize, params)
    *     Note over App: decodeServerInbound → ServerRequest<br>client TypedDispatcher.handle<br>taskCallbackHandlers["dispatch/authorize"]
    *     App-->>AH: response frame — verdict {grant|deny|hold}
+   *     Note over AH: wrapHookEffectWithEnvelope<br>timeout → deny reason timeout<br>RPC error → deny reason "dispatch/authorize error"
    *   end
-   *   Note over AH: wrapHookEffectWithEnvelope<br>timeout → deny reason timeout<br>RPC error → deny reason "dispatch/authorize error"
    *   AH->>LR: leaseRegistry.resolve(leaseId, verdict)
    *   alt deny
    *     LR-->>AH: DENIED → conversationService.removeParticipant
@@ -667,55 +670,53 @@ export class AppHost {
         reason: "app_unavailable",
       });
     }
-    // D #705 CP8 — manifest-default fast-path. A manifest that omits
-    // `dispatch_authorize` opts out of the receive-side gate: the
-    // server synthesizes the documented default (`grant`) without an
-    // app round-trip. Realizes the schema contract in
-    // `@moltzap/protocol app/methods.ts → AppManifestSchema` JSDoc
-    // ("When `dispatch_authorize` is absent: `grant`.") — the
-    // boot-installed default app (no hooks) is served entirely here.
-    if (entry.manifest.hooks?.dispatch_authorize === undefined) {
-      return Effect.succeed({ decision: "grant" as const });
+    const policy = entry.manifest.hooks.dispatch_authorize;
+    switch (policy.kind) {
+      case "grant":
+        return Effect.succeed({ decision: "grant" as const });
+      case "deny":
+        return Effect.succeed({
+          decision: "deny" as const,
+          reason: policy.reason,
+        });
+      case "hook": {
+        const taskId = ctx.taskId;
+        const timeoutMs = policy.timeoutMs;
+        return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
+          raw: this.callAppRpc(
+            entry,
+            DispatchAuthorize,
+            this.authorizeDispatchParamsForWire(ctx),
+          ).pipe(Effect.map((envelope) => envelope.admission)),
+          timeoutMs,
+          timeoutLogMessage: "dispatch/authorize timed out",
+          timeoutLogContext: { taskId, appId, timeoutMs },
+          errorLogMessage: "dispatch/authorize error",
+          errorLogContext: { taskId, appId },
+          onTimeout: () => ({
+            decision: "deny" as const,
+            reason: "timeout",
+          }),
+          onError: () => ({
+            decision: "deny" as const,
+            reason: "dispatch/authorize error",
+          }),
+        });
+      }
     }
-    const timeoutMs =
-      entry.manifest.hooks.dispatch_authorize.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS;
-    const taskId = ctx.taskId;
-
-    return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
-      raw: this.callAppRpc(
-        entry,
-        DispatchAuthorize,
-        this.authorizeDispatchParamsForWire(ctx),
-      ).pipe(Effect.map((envelope) => envelope.admission)),
-      timeoutMs,
-      timeoutLogMessage: "dispatch/authorize timed out",
-      timeoutLogContext: { taskId, appId, timeoutMs },
-      errorLogMessage: "dispatch/authorize error",
-      errorLogContext: { taskId, appId },
-      onTimeout: () => ({
-        decision: "deny" as const,
-        reason: "timeout",
-      }),
-      onError: () => ({
-        decision: "deny" as const,
-        reason: "dispatch/authorize error",
-      }),
-    });
+    const _exhaustive: never = policy;
+    return _exhaustive;
   }
 
   /**
-   * D #705 CP8 — synthesize the manifest-default `messages/authorize`
-   * verdict for an app that declares no `message_authorize` hook:
+   * Compute the `forwardAllExceptSender` policy verdict in-process:
    * `Forward { participants ∖ sender }`, reading the conversation's
-   * participant set in-process. The boot-installed default app declares
-   * no hooks, so this fast-path produces its forward-all verdict
-   * server-side (no app callback). Fails closed
+   * participant set via the ConversationService back-edge. Fails closed
    * (`Block { reason: "app_unreachable" }`) when no ConversationService
-   * back-edge is wired (unit-test layer), mirroring the unknown-app
-   * posture in {@link runMessageAuthorize}.
+   * is wired (unit-test layer), mirroring the unknown-app posture in
+   * {@link runMessageAuthorize}.
    */
-  private defaultMessageAuthorize(
+  private forwardAllExceptSender(
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
     const svc = this.conversationService;
@@ -732,18 +733,17 @@ export class AppHost {
           (id) => id !== ctx.message.senderAgentId,
         ),
       })),
-      Effect.withSpan("appHost.messageAuthorize.default"),
+      Effect.withSpan("appHost.messageAuthorize.forwardAllExceptSender"),
     );
   }
 
   /**
    * Resolve the per-message fan-out verdict for a `messages/send`.
-   * Dispatches `messages/authorize` over the app's connection (the
-   * wire-registered app's WebSocket) when its manifest declares the
-   * hook, then applies the uniform fail-closed envelope. When the
-   * manifest omits `message_authorize` (the boot-installed default app
-   * declares no hooks), the default fast-path
-   * ({@link defaultMessageAuthorize}) synthesizes `Forward` instead.
+   * Switches on the manifest's `message_authorize` policy:
+   * `forwardAllExceptSender` / `deny` resolve in-process,
+   * `hook` round-trips `messages/authorize` over the app's connection
+   * (the wire-registered app's WebSocket) under the uniform fail-closed
+   * envelope.
    *
    * Unknown-app: fail-closed Block. Reaching this branch means the
    * app's WS dropped after the conversation was created; without a
@@ -764,20 +764,30 @@ export class AppHost {
       });
     }
 
-    // D #705 CP8 — manifest-default fast-path. A manifest that omits
-    // `message_authorize` opts out of the send-side gate: the server
-    // synthesizes the documented default `Forward { participants ∖
-    // sender }` without an app round-trip (see
-    // {@link defaultMessageAuthorize}).
-    if (entry.manifest.hooks?.message_authorize === undefined) {
-      return this.defaultMessageAuthorize(ctx);
+    const policy = entry.manifest.hooks.message_authorize;
+    switch (policy.kind) {
+      case "forwardAllExceptSender":
+        return this.forwardAllExceptSender(ctx);
+      case "deny":
+        return Effect.succeed({
+          decision: "Block" as const,
+          reason: policy.reason,
+        });
+      case "hook":
+        return this.messageAuthorizeHook(entry, appId, ctx, policy.timeoutMs);
     }
+    const _exhaustive: never = policy;
+    return _exhaustive;
+  }
 
-    const timeoutMs =
-      entry.manifest.hooks.message_authorize.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS;
+  /** Round-trip `messages/authorize` to the bound TM under the envelope. */
+  private messageAuthorizeHook(
+    entry: AppRegistration,
+    appId: AppId,
+    ctx: MessageAuthorizeContext,
+    timeoutMs: number,
+  ): Effect.Effect<MessageAuthorizeResult, never> {
     const taskId = ctx.taskId;
-
     return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
       raw: this.callAppRpc(
         entry,
@@ -786,11 +796,7 @@ export class AppHost {
       ).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
       timeoutLogMessage: "messages/authorize timed out",
-      timeoutLogContext: {
-        taskId,
-        appId,
-        timeoutMs,
-      },
+      timeoutLogContext: { taskId, appId, timeoutMs },
       errorLogMessage: "messages/authorize error",
       errorLogContext: { taskId, appId },
       onTimeout: () => ({
@@ -825,47 +831,50 @@ export class AppHost {
         reason: "app_unreachable",
       });
     }
-    // D #705 CP8 — manifest-default fast-path. A manifest that omits
-    // `task_create` opts out of the task-creation gate: the server
-    // auto-accepts without an app round-trip. Realizes the schema
-    // contract in `@moltzap/protocol app/methods.ts → AppManifestSchema`
-    // JSDoc ("the boot-installed default app auto-accepts") so the
-    // default app (no hooks) needs no `task/create` callback.
-    if (entry.manifest.hooks?.task_create === undefined) {
-      return Effect.succeed({ decision: "accept" as const });
+    const policy = entry.manifest.hooks.task_create;
+    switch (policy.kind) {
+      case "accept":
+        return Effect.succeed({ decision: "accept" as const });
+      case "reject":
+        return Effect.succeed({
+          decision: "reject" as const,
+          reason: policy.reason,
+        });
+      case "hook": {
+        const timeoutMs = policy.timeoutMs;
+        return this.wrapHookEffectWithEnvelope<
+          ResultOf<typeof TaskCreate>["verdict"]
+        >({
+          raw: this.callAppRpc(entry, TaskCreate, ctx).pipe(
+            Effect.map((envelope) => envelope.verdict),
+          ),
+          timeoutMs,
+          timeoutLogMessage: "task/create timed out",
+          timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
+          errorLogMessage: "task/create error",
+          errorLogContext: { taskId: ctx.taskId, appId },
+          onTimeout: () => ({
+            decision: "reject" as const,
+            reason: "timeout",
+          }),
+          onError: () => ({
+            decision: "reject" as const,
+            reason: "app_unreachable",
+          }),
+        });
+      }
     }
-    const timeoutMs =
-      entry.manifest.hooks.task_create.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS;
-    return this.wrapHookEffectWithEnvelope<
-      ResultOf<typeof TaskCreate>["verdict"]
-    >({
-      raw: this.callAppRpc(entry, TaskCreate, ctx).pipe(
-        Effect.map((envelope) => envelope.verdict),
-      ),
-      timeoutMs,
-      timeoutLogMessage: "task/create timed out",
-      timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
-      errorLogMessage: "task/create error",
-      errorLogContext: { taskId: ctx.taskId, appId },
-      onTimeout: () => ({
-        decision: "reject" as const,
-        reason: "timeout",
-      }),
-      onError: () => ({
-        decision: "reject" as const,
-        reason: "app_unreachable",
-      }),
-    });
+    const _exhaustive: never = policy;
+    return _exhaustive;
   }
 
   /**
    * Dispatch a task-callback RPC over the app's connection. Reached
-   * only for hook-declaring (wire-registered) apps — the hookless
-   * default app short-circuits to the manifest-default fast-path
-   * before any hook runner calls here. Errors (NotConnectedError, RPC
-   * response error, socket error, decode failure) fold into the
-   * fail-closed envelope upstream via `wrapHookEffectWithEnvelope`.
+   * only from a `kind: "hook"` policy arm — an app whose policies are
+   * all static (the default app) resolves every verdict in-process and
+   * never calls here. Errors (NotConnectedError, RPC response error,
+   * socket error, decode failure) fold into the fail-closed envelope
+   * upstream via `wrapHookEffectWithEnvelope`.
    */
   private callAppRpc<D extends AnyAppCallbackRpcDefinition>(
     entry: AppRegistration,

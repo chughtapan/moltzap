@@ -19,7 +19,7 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    'moderator never replies within timeout_ms; server emits dispatch/release{deny, reason: "timeout"} (and removes the recipient as a participant)',
+    'moderator never replies within the hook policy timeoutMs; server emits dispatch/release{deny, reason: "timeout"} (and removes the recipient as a participant)',
     withDriver(
       ctx,
       (driver) =>

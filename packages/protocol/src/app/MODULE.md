@@ -8,7 +8,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
-### [`appCallbackMethods`](./methods.ts#L506)
+### [`appCallbackMethods`](./methods.ts#L553)
 
 _Variable_
 
@@ -20,7 +20,7 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppManifest`](./methods.ts#L81)
+### [`AppManifest`](./methods.ts#L130)
 
 _TypeAlias_
 
@@ -28,7 +28,7 @@ _TypeAlias_
 export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 ```
 
-### [`AppManifestValidationResult`](./methods.ts#L89)
+### [`AppManifestValidationResult`](./methods.ts#L138)
 
 _TypeAlias_
 
@@ -39,7 +39,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L512)
+### [`appNotifications`](./methods.ts#L559)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](./methods.ts#L500)
+### [`appRpcMethods`](./methods.ts#L547)
 
 _Variable_
 
@@ -63,7 +63,7 @@ export const appRpcMethods = [
 ] as const
 ```
 
-### [`AppsRegister`](./methods.ts#L122)
+### [`AppsRegister`](./methods.ts#L171)
 
 _Variable_
 
@@ -78,7 +78,7 @@ export const AppsRegister = defineRpc({
 
 Register an app manifest for the current connection.
 
-### [`DispatchAuthorize`](./methods.ts#L242)
+### [`DispatchAuthorize`](./methods.ts#L289)
 
 _Variable_
 
@@ -93,10 +93,10 @@ export const DispatchAuthorize = defineRpc({
 Server → moderator request asking for the admission verdict. Carried
 inside the forked moderator round-trip; failure / timeout in the
 round-trip synthesizes a fail-closed `deny` verdict at
-`LeaseRegistry.resolve`. Manifests opt in by declaring
-`hooks.dispatch_authorize`.
+`LeaseRegistry.resolve`. The server emits this RPC only for a manifest
+whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 
-### [`DispatchesConsumed`](./methods.ts#L281)
+### [`DispatchesConsumed`](./methods.ts#L328)
 
 _Variable_
 
@@ -119,7 +119,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./methods.ts#L298)
+### [`DispatchesExpired`](./methods.ts#L345)
 
 _Variable_
 
@@ -140,7 +140,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./methods.ts#L355)
+### [`DispatchesGet`](./methods.ts#L402)
 
 _Variable_
 
@@ -158,7 +158,7 @@ the handler: the calling connection must match the lease's
 `moderatorConnectionId` (the binding tuple recorded at mint time);
 non-moderator callers fail with `ForbiddenError`.
 
-### [`DispatchId`](./methods.ts#L199)
+### [`DispatchId`](./methods.ts#L248)
 
 _TypeAlias_
 
@@ -172,7 +172,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./methods.ts#L199)
+### [`DispatchId`](./methods.ts#L248)
 
 _Variable_
 
@@ -186,7 +186,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchRelease`](./methods.ts#L260)
+### [`DispatchRelease`](./methods.ts#L307)
 
 _Variable_
 
@@ -215,7 +215,7 @@ out via the standard EXPIRED path; no `leaseTimeoutMs` field needed
 on the hold arm because the grant TTL has not started yet (lease
 never reached GRANTED).
 
-### [`DispatchRequest`](./methods.ts#L211)
+### [`DispatchRequest`](./methods.ts#L260)
 
 _Variable_
 
@@ -251,7 +251,17 @@ Wire ordering: the ack and `dispatch/release` may race — the
 recipient absorbs the race via a client-side ring buffer + per-
 lease `Deferred` (see `packages/client/src/channel-core.ts`).
 
-### [`MessagesAuthorize`](./methods.ts#L416)
+### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L102)
+
+_Variable_
+
+```ts
+export const manifestPolicyCanaries =
+```
+
+Aggregate so each binding is referenced (no unused-variable lint).
+
+### [`MessagesAuthorize`](./methods.ts#L463)
 
 _Variable_
 
@@ -265,18 +275,19 @@ export const MessagesAuthorize = defineRpc({
 
 Server → TM round-trip asking for the per-message fan-out verdict.
 Triggered from `MessageService.sendCommit` after the durable insert
-lands and before the broadcast. Manifests opt in by declaring
-`hooks.message_authorize`. Failure / timeout in the round-trip
-synthesizes a fail-closed `Block { reason: "app_unreachable" }`
-verdict at the AppHost envelope (mirrors `runAuthorizeDispatch`'s
-`wrapHookEffectWithEnvelope` posture).
+lands and before the broadcast. The server emits this RPC only for a
+manifest whose `message_authorize` policy is `{ kind: "hook" }`.
+Failure / timeout in the round-trip synthesizes a fail-closed
+`Block { reason: "app_unreachable" }` verdict at the AppHost envelope
+(mirrors the `dispatch/authorize` `wrapHookEffectWithEnvelope`
+posture).
 
 `Forward { recipients }` MUST be a subset of the conversation's
 participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`TaskCreate`](./methods.ts#L492)
+### [`TaskCreate`](./methods.ts#L539)
 
 _Variable_
 
@@ -316,7 +327,7 @@ waiting tasks are invisible to delivery (no conversation, no
 participants observe them) and are reaped by follow-up work (the
 stale-waiting-task sweep, #684).
 
-### [`validateAppManifest`](./methods.ts#L101)
+### [`validateAppManifest`](./methods.ts#L150)
 
 _Function_
 
@@ -334,4 +345,5 @@ operator-supplied configuration, not wire traffic). On failure surfaces every
 
 ## Files
 
+- `manifest-policy.types-check.ts`
 - `methods.ts`

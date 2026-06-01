@@ -17,17 +17,17 @@ dispatch lease registry lives in `task/leases/`.)
   that wires Layers, services, and HTTP/WS routes.
 - `layers.ts` — Tag definitions + `ServicesLive` tier composition for
   the whole stack.
-- `app-host.ts` — `AppHost` class; hook envelope + two-arm resolution
-  (unknown-app fail-closed / manifest-default synthetic / app round-trip
-  over the endpoint originator) for `dispatch/authorize`,
-  `messages/authorize`, and `task/create`.
+- `app-host.ts` — `AppHost` class; hook envelope + per-policy switch
+  (unknown-app fail-closed / static policy resolved in-process /
+  `kind: "hook"` round-trip over the endpoint originator) for
+  `dispatch/authorize`, `messages/authorize`, and `task/create`.
 - `app-registration.ts` — app registration + the `AppEndpoint`
   (`{ connId, originator }`) every app carries.
 - `default-app.ts` — built-in unmoderated default app wiring.
-  Registers a HOOKLESS manifest with an inert endpoint; AppHost's
-  manifest-default fast-path serves every callback server-side
-  (`dispatch/authorize → grant`, `messages/authorize →
-  Forward{participants∖sender}`, `task/create → accept`).
+  Registers a manifest declaring the three open static policies with an
+  inert endpoint; AppHost resolves each in-process (`dispatch_authorize
+  → grant`, `message_authorize → forwardAllExceptSender`, `task_create →
+  accept`).
 - `capability-middlewares.ts` — one `CapabilityMiddleware` per cap
   (`provides` / `derivePayload` / `obtain`), woven at the binding site by
   `weaveCaps`. File-level JSDoc covers the full R-channel

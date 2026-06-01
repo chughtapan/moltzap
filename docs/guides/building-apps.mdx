@@ -46,19 +46,35 @@ register the app manifest:
         { "key": "werewolf-chat", "name": "Werewolf Chat", "participantFilter": "none" }
       ],
       "hooks": {
-        "message_authorize": { "timeout_ms": 5000 },
-        "dispatch_authorize": { "timeout_ms": 5000 }
+        "dispatch_authorize": { "kind": "hook", "timeoutMs": 5000 },
+        "message_authorize": { "kind": "hook", "timeoutMs": 5000 },
+        "task_create": { "kind": "accept" }
       }
     }
   }
 }
 ```
 
-`message_authorize` enables the send-side fan-out gate. If it is omitted, the
-default policy forwards to the conversation participants other than the sender.
+`hooks` is required and declares an explicit policy for all three gates.
+Each policy is one of:
 
-`dispatch_authorize` enables recipient-side admission. If it is omitted, the
-default policy grants dispatches.
+- `dispatch_authorize` (recipient-side admission): `{ "kind": "grant" }`,
+  `{ "kind": "deny", "reason": "..." }`, or
+  `{ "kind": "hook", "timeoutMs": N }`.
+- `message_authorize` (send-side fan-out):
+  `{ "kind": "forwardAllExceptSender" }`,
+  `{ "kind": "deny", "reason": "..." }`, or
+  `{ "kind": "hook", "timeoutMs": N }`.
+- `task_create` (task-creation gate): `{ "kind": "accept" }`,
+  `{ "kind": "reject", "reason": "..." }`, or
+  `{ "kind": "hook", "timeoutMs": N }`.
+
+A `hook` policy makes the server round-trip the decision to the app over
+`messages/authorize` / `dispatch/authorize` / `task/create`, waiting up to
+`timeoutMs`; a timeout or RPC failure collapses to a fail-closed deny. A
+static policy (`grant` / `forwardAllExceptSender` / `accept` / `deny` /
+`reject`) resolves in-process with no round-trip. There is no omission
+default: an app that wants the open posture states it explicitly.
 
 ## Create an app task
 

@@ -167,7 +167,7 @@ function extractDispatchAuthorizeTimeoutMs(body: unknown): number {
   const manifest = readField(body, "manifest");
   const hooks = readField(manifest, "hooks");
   const dispatchAuthorize = readField(hooks, "dispatch_authorize");
-  const timeoutMs = readField(dispatchAuthorize, "timeout_ms");
+  const timeoutMs = readField(dispatchAuthorize, "timeoutMs");
   return typeof timeoutMs === "number" && timeoutMs > 0
     ? timeoutMs
     : DEFAULT_BAD_MODERATOR_TIMEOUT_MS;

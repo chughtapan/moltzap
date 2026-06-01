@@ -322,9 +322,9 @@ export interface DispatchTestDriver {
  * (none today; reserved for future) pass `taskAppId: null`.
  *
  * `moderatorTimeoutMs` is propagated to the manifest's
- * `hooks.dispatch_authorize.timeout_ms`. Properties that exercise the
- * moderator-response TTL pass a small value (e.g., 200 ms); properties
- * that don't care pass the default 5_000 ms.
+ * `dispatch_authorize` `{ kind: "hook", timeoutMs }` policy. Properties
+ * that exercise the moderator-response TTL pass a small value (e.g.,
+ * 200 ms); properties that don't care pass the default 5_000 ms.
  */
 export interface DispatchTestDriverConfig {
   readonly taskAppId?: string | null;

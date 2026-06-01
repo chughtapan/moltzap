@@ -27,6 +27,7 @@ import {
   createTaskConversationOnApp,
   createUnmoderatedDm,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
@@ -44,6 +45,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
