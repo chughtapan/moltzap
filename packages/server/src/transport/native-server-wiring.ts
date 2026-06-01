@@ -21,11 +21,12 @@
  * cross-principal isolation test is the regression proof.
  */
 import { RpcGroup } from "@effect/rpc";
-import { Effect, Layer, type Mailbox } from "effect";
+import { Effect, Layer, type Deferred, type Mailbox } from "effect";
 import {
   ServerEngineLayer,
   WsServerEngineRpcGroup,
   makeServerProtocolLayer,
+  type ChannelSink,
   type WireWrite,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
@@ -150,6 +151,7 @@ export const makeSocketEngineLayer = (options: {
   readonly connId: ConnectionId;
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
+  readonly sinkReady: Deferred.Deferred<ChannelSink>;
 }) =>
   ServerEngineLayer.pipe(
     Layer.provide(WsServerEngineRpcGroup.toLayer(brandedHandlers)),
@@ -159,6 +161,7 @@ export const makeSocketEngineLayer = (options: {
       makeServerProtocolLayer({
         write: options.write,
         disconnects: options.disconnects,
+        sinkReady: options.sinkReady,
       }),
     ),
   );

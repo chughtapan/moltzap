@@ -27,8 +27,12 @@
  * ```
  */
 import { RpcServer } from "@effect/rpc";
-import { Effect, Layer, type Mailbox } from "effect";
-import { makeServerChannelProtocol, type WireWrite } from "./native-mux.js";
+import { Deferred, Effect, Layer, type Mailbox } from "effect";
+import {
+  makeServerChannelProtocol,
+  type ChannelSink,
+  type WireWrite,
+} from "./native-mux.js";
 import { WsServerEngineRpcGroup } from "./server-engine-group.js";
 
 /**
@@ -37,8 +41,16 @@ import { WsServerEngineRpcGroup } from "./server-engine-group.js";
  * injector to {@link makeServerChannelProtocol}'s builder, which returns the
  * protocol impl record (the engine binds to) plus the channel sink (the mux
  * demux feeds decoded inbound frames into). Only the impl crosses into the
- * `Protocol` Tag here; the live connection owns the sink registration and the
- * `disconnects` Mailbox wiring.
+ * `Protocol` Tag; the built {@link ChannelSink} is fulfilled into the
+ * caller-provided `sinkReady` Deferred so the live connection's
+ * `runMuxReader` can route inbound `c2s` chunks into the engine.
+ *
+ * The sink's `inject` closes over the SAME `write` injector the engine handed
+ * the builder, so a chunk routed to the sink enters the engine's dispatch
+ * loop. The Deferred handoff is necessary because the sink is only knowable
+ * after the engine builds the Protocol (the `write` injector does not exist
+ * until then), and `runMuxReader` must register it before the socket reader
+ * forks.
  *
  * `write` is the raw-write surface of the shared socket (one call writes one
  * enveloped chunk; the live connection passes `Socket.Socket["writer"]`).
@@ -48,6 +60,7 @@ import { WsServerEngineRpcGroup } from "./server-engine-group.js";
 export const makeServerProtocolLayer = (options: {
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
+  readonly sinkReady: Deferred.Deferred<ChannelSink>;
 }): Layer.Layer<RpcServer.Protocol> => {
   const builder = makeServerChannelProtocol({
     channel: "c2s",
@@ -57,7 +70,12 @@ export const makeServerProtocolLayer = (options: {
   return Layer.scoped(
     RpcServer.Protocol,
     RpcServer.Protocol.make((write) =>
-      builder(write).pipe(Effect.map((built) => built.impl)),
+      builder(write).pipe(
+        Effect.tap((built) =>
+          Deferred.succeed(options.sinkReady, built.sink),
+        ),
+        Effect.map((built) => built.impl),
+      ),
     ),
   );
 };
