@@ -12,6 +12,8 @@
  */
 import { Data } from "effect";
 import type { JsonRpcMethod } from "./wire.js";
+import { errorClassFor } from "./wire-errors.js";
+import type { RegisteredTaggedError } from "../rpc-registry.js";
 
 /** The socket is not in the OPEN state when an RPC was attempted. */
 export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
@@ -30,3 +32,47 @@ export class RpcServerError extends Data.TaggedError("RpcServerError")<{
   readonly message: string;
   readonly data?: unknown;
 }> {}
+
+/**
+ * The error union a descriptor-driven RPC call can surface: a transport-level
+ * `NotConnectedError`, a registered tagged error reconstructed from the wire
+ * code, or `RpcServerError` for an unregistered code. The native client's flat
+ * engine yields the group's `WireError` envelope on a server-side failure;
+ * {@link wireErrorToRpcCallError} reconstructs it onto this union.
+ */
+export type RpcCallError =
+  | NotConnectedError
+  | RpcServerError
+  | RegisteredTaggedError;
+
+/**
+ * Reconstruct a wire-error envelope (`{ code, message, data? }`) into a typed
+ * {@link RpcCallError}: a registered tagged error when the code is in the
+ * registry (so `catchTag` callers narrow the concrete class), else
+ * `RpcServerError`. Forwarding both `message` and `data` keeps the decoded
+ * instance reflecting the server's error text + payload.
+ */
+export function wireErrorToRpcCallError(error: {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+}): RpcCallError {
+  const cls = errorClassFor(error.code);
+  if (cls === undefined) {
+    return new RpcServerError({
+      code: error.code,
+      message: error.message,
+      data: error.data,
+    });
+  }
+  // The registry stores the class factory keyed by code; the constructor
+  // produces a concrete tagged-error instance whose runtime tag matches one of
+  // the `RegisteredTaggedError` union arms. TS cannot see through the open
+  // `new (...) => { _tag: string }` factory shape, so the cast bridges the
+  // static factory to the closed runtime union.
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- registry factory → closed RegisteredTaggedError union; runtime tag is one of the arms by construction
+  return new cls({
+    message: error.message,
+    data: error.data,
+  } as never) as RegisteredTaggedError; // #ignore-sloppy-code[as-unknown-as]: registry factory bridge to the closed RegisteredTaggedError union.
+}

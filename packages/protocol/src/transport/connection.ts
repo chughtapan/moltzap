@@ -29,7 +29,7 @@ import type {
   ResultOf,
   RpcDefinition,
 } from "./method.js";
-import type { RpcCallError } from "./originator.js";
+import type { RpcCallError } from "./rpc-errors.js";
 import type { NotConnectedError } from "./rpc-errors.js";
 import type { ErasedSlotTable, SlotDispatchContext } from "./erased-slot.js";
 import type { RequestFrame, ResponseFrame } from "./wire.js";
