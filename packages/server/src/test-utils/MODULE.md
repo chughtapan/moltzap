@@ -156,7 +156,7 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L55)
+### [`CoreTestRuntimeServerHandle`](./server.ts#L54)
 
 _Interface_
 
@@ -169,7 +169,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L111)
+### [`CoreTestServer`](./server.ts#L110)
 
 _Interface_
 
@@ -214,7 +214,7 @@ Asserts the RPC effect fails with `RpcServerError(code)` and returns the
 narrowed error for follow-up assertions. `catchTags` routes by tag name
 declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](./server.ts#L386)
+### [`getBaseUrl`](./server.ts#L376)
 
 _Function_
 
@@ -222,7 +222,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L378)
+### [`getCoreApp`](./server.ts#L368)
 
 _Function_
 
@@ -230,7 +230,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](./server.ts#L363)
+### [`getCoreDb`](./server.ts#L353)
 
 _Function_
 
@@ -238,7 +238,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L371)
+### [`getCoreEncryptionEnvelope`](./server.ts#L361)
 
 _Function_
 
@@ -246,7 +246,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L391)
+### [`getWsUrl`](./server.ts#L381)
 
 _Function_
 
@@ -490,7 +490,7 @@ export function registerOnly(name: string): Effect.Effect<
 
 Register an agent without connecting (for tests that need the raw client).
 
-### [`resetCoreTestDb`](./server.ts#L337)
+### [`resetCoreTestDb`](./server.ts#L327)
 
 _Function_
 
@@ -552,7 +552,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L298)
+### [`startCoreTestServer`](./server.ts#L288)
 
 _Function_
 
@@ -560,7 +560,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L311)
+### [`stopCoreTestServer`](./server.ts#L301)
 
 _Function_
 

@@ -34,7 +34,6 @@ import { Value } from "@sinclair/typebox/value";
 import type { ConfigError } from "effect/ConfigError";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Db } from "./db/client.js";
-import type { SessionValidator } from "./identity/services/session-validator.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Public: CoreConfig — `createCoreApp` boot input
@@ -53,19 +52,9 @@ export interface CoreConfig {
    * When set, agents registered via the default `/api/v1/auth/register`
    * route are given this user id as their `owner_user_id`, skipping the
    * claim step. Intended for local dev / quickstart. Production MUST
-   * leave this unset and perform claim through an external auth
-   * provider — wire it via `services.sessions: { type: webhook }` in
-   * `moltzap.yaml` (see `moltzap.example.yaml` and
-   * `packages/server/src/standalone.ts → makeSessionValidator`).
+   * leave this unset and perform claim through an external auth provider.
    */
   devModeUserId?: string;
-
-  /**
-   * Optional bearer-token session validator (called from `network/connect`
-   * when the caller authenticates with a `sessionToken`). Unset → bearer-
-   * token auth is unsupported; only `agentKey` auth works.
-   */
-  sessionValidator?: SessionValidator;
 
   /**
    * When true, core does not mount its default `/api/v1/auth/register`
@@ -125,8 +114,6 @@ export interface StandaloneBootPlan {
 
   readonly registrationSecret: string | undefined;
 
-  /** YAML `services.sessions: { type: "webhook" }` — drives `WebhookSessionValidator` wiring. */
-  readonly sessionWebhook: WebhookServiceBinding | undefined;
   /** YAML `services.contacts: { type: "webhook" }` — drives `WebhookContactService` wiring. */
   readonly contactWebhook: WebhookServiceBinding | undefined;
 
@@ -227,7 +214,6 @@ interface YamlConfig {
   readonly database?: { readonly url?: string; readonly data_dir?: string };
   readonly encryption?: { readonly master_secret?: string };
   readonly services?: {
-    readonly sessions?: YamlServiceConfig;
     readonly contacts?: YamlServiceConfig;
   };
   readonly registration?: { readonly secret?: string };
@@ -255,7 +241,6 @@ const YamlConfigSchema: Config.Config<YamlConfig> = Config.all({
   ),
   services: opt(
     Config.all({
-      sessions: opt(YamlServiceBlock.pipe(Config.nested("sessions"))),
       contacts: opt(YamlServiceBlock.pipe(Config.nested("contacts"))),
     }).pipe(Config.nested("services")),
   ),
@@ -347,7 +332,6 @@ const MoltZapConfigShape = Type.Object(
     services: Type.Optional(
       Type.Object(
         {
-          sessions: Type.Optional(ServiceShape),
           contacts: Type.Optional(ServiceShape),
         },
         { additionalProperties: false },
@@ -823,7 +807,6 @@ interface YamlDerived {
   readonly encryptionFromYaml: string | undefined;
   readonly devMode: { enabled: boolean; userId: string | undefined };
   readonly registrationSecret: string | undefined;
-  readonly sessionWebhook: WebhookServiceBinding | undefined;
   readonly contactWebhook: WebhookServiceBinding | undefined;
   readonly apps: ReadonlyArray<{ readonly manifest: string }>;
 }
@@ -842,7 +825,6 @@ function projectYaml(yaml: YamlConfig): YamlDerived {
     encryptionFromYaml: yaml.encryption?.master_secret,
     devMode: projectYamlDevMode(yaml),
     registrationSecret: yaml.registration?.secret,
-    sessionWebhook: webhookBinding(yaml.services?.sessions),
     contactWebhook: webhookBinding(yaml.services?.contacts),
     apps: yaml.apps ?? [],
   };
@@ -865,7 +847,6 @@ function assembleBootPlan(
     devModeEnabled: ymlDerived.devMode.enabled,
     devModeUserId: ymlDerived.devMode.userId,
     registrationSecret: ymlDerived.registrationSecret,
-    sessionWebhook: ymlDerived.sessionWebhook,
     contactWebhook: ymlDerived.contactWebhook,
     apps: ymlDerived.apps,
     configDirectory: inputs.configDirectory,

@@ -179,11 +179,10 @@ the `moltzap-server` bin (Standalone Mode above). To build on MoltZap
 you have two supported surfaces:
 
 - **Host a server.** Run the bin (`npx @moltzap/server-core`) and
-  configure it with `moltzap.yaml`. Custom identity and contacts are
-  delegated over HTTP via `services.sessions: { type: webhook }` and
-  `services.contacts: { type: webhook }` — see `moltzap.example.yaml`
-  and `packages/server/src/standalone.ts` →
-  `makeSessionValidator` / `installContactService` for the wiring.
+  configure it with `moltzap.yaml`. Custom contacts are delegated over
+  HTTP via `services.contacts: { type: webhook }` — see
+  `moltzap.example.yaml` and `packages/server/src/standalone.ts` →
+  `installContactService` for the wiring.
 - **Build apps and task managers.** Use `@moltzap/client` (CLI +
   TypeScript client) to connect over the wire, register an app
   manifest via `apps/register`, and handle the server-initiated

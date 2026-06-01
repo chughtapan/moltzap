@@ -18,18 +18,9 @@ const APP_ORIGIN = "https://app.example.com";
 const WWW_ORIGIN = "https://www.example.com";
 const SECRET = "secret-key";
 const INTERPOLATED = "interpolated-value";
-const SESSION_URL = "https://example.com/sessions";
-const SESSION_TIMEOUT = 5000;
 const DEFAULT_PORT = 3000;
 const OVERRIDE_PORT = 8080;
 const VALIDATION_ERROR_KIND: ConfigLoadError["kind"] = "validation";
-
-const SESSIONS_YAML = `services:
-  sessions:
-    type: webhook
-    webhook_url: ${SESSION_URL}
-    timeout_ms: ${SESSION_TIMEOUT}
-`;
 
 const APPS_YAML = `apps:
   - manifest: ./app1.json
@@ -61,10 +52,10 @@ const ENCRYPTION_CAMELCASE_YAML = `encryption:\n  masterSecret: a-real-secret\n`
 const UNKNOWN_TOPLEVEL_YAML = `database:\n  url: ${PG_URL}\nbogus: true\n`;
 const RETIRED_SEED_YAML = `database:\n  url: ${PG_URL}\nseed:\n  agents:\n    - name: alice\n`;
 const UNKNOWN_NESTED_YAML = `server:\n  port: 3000\n  extra: nope\n`;
-const BAD_WEBHOOK_URL_YAML = `services:\n  sessions:\n    type: webhook\n    webhook_url: not-a-url\n`;
-const SMALL_TIMEOUT_YAML = `services:\n  sessions:\n    type: webhook\n    webhook_url: ${SESSION_URL}\n    timeout_ms: 50\n`;
+const BAD_WEBHOOK_URL_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: not-a-url\n`;
+const SMALL_TIMEOUT_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: ${CONTACT_URL}\n    timeout_ms: 50\n`;
 const BAD_LOG_LEVEL_YAML = `log_level: verbose\n`;
-const BAD_SERVICE_TYPE_YAML = `services:\n  sessions:\n    type: grpc\n`;
+const BAD_SERVICE_TYPE_YAML = `services:\n  contacts:\n    type: grpc\n`;
 // Empty database.url must FAIL (minLength: 1) rather than be read as a
 // blank URL — main's Ajv rejected it; an empty string here is a typo, not
 // a request for the PGlite fallback (that path is "no database.url at all").
@@ -77,11 +68,11 @@ const CONTACTS_YAML = `services:
     timeout_ms: ${CONTACT_TIMEOUT}
 `;
 
-const SESSION_WITH_CALLBACK_YAML = `services:
-  sessions:
+const CONTACT_WITH_CALLBACK_YAML = `services:
+  contacts:
     type: webhook
-    webhook_url: ${SESSION_URL}
-    timeout_ms: ${SESSION_TIMEOUT}
+    webhook_url: ${CONTACT_URL}
+    timeout_ms: ${CONTACT_TIMEOUT}
     callback_token: ${CALLBACK_TOKEN}
 `;
 
@@ -213,22 +204,6 @@ function envInterpolation() {
   );
 }
 
-function sessionsBinding() {
-  return withTempConfig(SESSIONS_YAML, (configPath) =>
-    Effect.gen(function* () {
-      const result = yield* loadStandaloneConfig({
-        configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
-      });
-      expect(result.sessionWebhook).toEqual({
-        url: SESSION_URL,
-        timeoutMs: SESSION_TIMEOUT,
-      });
-      expect(result.contactWebhook).toBeUndefined();
-    }),
-  );
-}
-
 function appsPassthrough() {
   return withTempConfig(APPS_YAML, (configPath) =>
     Effect.gen(function* () {
@@ -291,24 +266,25 @@ function contactsBinding() {
         url: CONTACT_URL,
         timeoutMs: CONTACT_TIMEOUT,
       });
-      expect(result.sessionWebhook).toBeUndefined();
     }),
   );
 }
 
-function sessionCallbackTokenBothPresent() {
-  return withTempConfig(SESSION_WITH_CALLBACK_YAML, (configPath) =>
+function contactCallbackTokenBothPresent() {
+  return withTempConfig(CONTACT_WITH_CALLBACK_YAML, (configPath) =>
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
         processEnv: { CORS_ORIGINS: APP_ORIGIN },
       });
-      // Both timeout_ms and callback_token present must both survive the
-      // YAML service decode (regression: an earlier projection dropped
-      // callback_token whenever timeout_ms was also set).
-      expect(result.sessionWebhook).toEqual({
-        url: SESSION_URL,
-        timeoutMs: SESSION_TIMEOUT,
+      // The shared webhook parser accepts both timeout_ms and
+      // callback_token; both present must survive the YAML service decode
+      // (regression: an earlier projection dropped callback_token whenever
+      // timeout_ms was also set). callback_token is not projected into the
+      // boot-plan binding, so only the url + timeoutMs surface.
+      expect(result.contactWebhook).toEqual({
+        url: CONTACT_URL,
+        timeoutMs: CONTACT_TIMEOUT,
       });
     }),
   );
@@ -328,18 +304,14 @@ describe("loadStandaloneConfig YAML", () => {
   it("rejects an out-of-range port with a validation ConfigLoadError", () =>
     rejectsInvalidPort());
   it("env interpolation: ${VAR} resolves against processEnv", envInterpolation);
-  it(
-    "services.sessions: webhook produces sessionWebhook binding",
-    sessionsBinding,
-  );
   it("apps[] passes through to bootPlan", appsPassthrough);
   it(
     "services.contacts: webhook produces contactWebhook binding",
     contactsBinding,
   );
   it(
-    "services.sessions: keeps both timeout_ms and callback_token",
-    sessionCallbackTokenBothPresent,
+    "services.contacts: keeps both timeout_ms and callback_token",
+    contactCallbackTokenBothPresent,
   );
   it("does not mutate a reused processEnv during interpolation", () =>
     doesNotMutateReusedEnv());

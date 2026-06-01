@@ -27,23 +27,16 @@ import {
   ConnectionTag,
   ConnectionManagerTag,
   ConversationServiceTag,
-  DbTag,
   PresenceServiceTag,
-  SessionValidatorTag,
 } from "../../app/layers.js";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
 import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
-import type { SessionValidator } from "../../identity/services/session-validator.js";
-import type { Db } from "../../db/client.js";
 import type { ConversationService } from "../../task/services/conversation.service.js";
 import { InvalidParamsError } from "@moltzap/protocol";
-import {
-  catchSqlErrorAsDefect,
-  takeFirstOption,
-} from "../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type {
   ConnectionManager,
   Originator,
@@ -88,58 +81,6 @@ function authenticateAgentKey(
   }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
 }
 
-/**
- * App-minted bearer-token path. Resolves the session via
- * `SessionValidator.validateSession`, then looks up the agent status so
- * `requiresActive` gating still works for the bearer path.
- */
-function authenticateSession(
-  token: string,
-  sessionValidator: SessionValidator | null,
-  db: Db,
-): Effect.Effect<AgentContext, UnauthorizedError> {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      if (!sessionValidator) {
-        return yield* Effect.fail(
-          new UnauthorizedError({
-            message: "Session tokens not supported by this server",
-          }),
-        );
-      }
-      const result = yield* sessionValidator.validateSession(token);
-      if (!result.valid) {
-        return yield* Effect.fail(
-          new UnauthorizedError({ message: "Authentication failed" }),
-        );
-      }
-      if (result.agentStatus !== undefined) {
-        return yield* agentContextFrom({
-          agentId: result.agentId,
-          agentStatus: result.agentStatus,
-          ownerUserId: result.ownerUserId,
-        });
-      }
-      const rowOpt = yield* takeFirstOption(
-        db
-          .selectFrom("agents")
-          .select("status")
-          .where("id", "=", result.agentId),
-      );
-      if (Option.isNone(rowOpt)) {
-        return yield* Effect.fail(
-          new UnauthorizedError({ message: "Authentication failed" }),
-        );
-      }
-      return yield* agentContextFrom({
-        agentId: result.agentId,
-        agentStatus: rowOpt.value.status,
-        ownerUserId: result.ownerUserId,
-      });
-    }).pipe(Effect.withSpan("connect.authenticateSession")),
-  );
-}
-
 function buildHelloOk(
   ctx: AgentContext,
   connId: ConnectionId,
@@ -155,21 +96,6 @@ function buildHelloOk(
       policy: SERVER_POLICY,
     };
   }).pipe(Effect.withSpan("connect.buildHelloOk"));
-}
-
-function resolveAuthenticatedContext(
-  // The `appKey` arm is dispatched + returned early in `handleConnect`,
-  // so this agent-side resolver only ever sees the agent/session
-  // arms — narrow the parameter to exclude `appKey`.
-  params: Exclude<ConnectParams, { readonly appKey: string }>,
-  authService: AuthService,
-  sessionValidator: SessionValidator | null,
-  db: Db,
-): Effect.Effect<AgentContext, UnauthorizedError> {
-  if ("sessionToken" in params) {
-    return authenticateSession(params.sessionToken, sessionValidator, db);
-  }
-  return authenticateAgentKey(params.agentKey, authService);
 }
 
 /**
@@ -369,10 +295,10 @@ function mirrorAgentArmTransition(
 }
 
 /**
- * Agent/session post-auth flow. Resolves the credential to an
+ * Agent post-auth flow. Resolves the `agentKey` credential to an
  * `AgentContext`, mints the agent arm via the immutable transition, hydrates
  * the conversation-id subscription set + agent-endpoint registration, then
- * emits the agent-shaped `HelloOk`. Reached only for the non-`appKey` arms
+ * emits the agent-shaped `HelloOk`. Reached only for the `agentKey` arm
  * (the `appKey` arm returns early in {@link handleConnect}).
  */
 function completeAgentConnect(
@@ -385,15 +311,10 @@ function completeAgentConnect(
     const presenceService = yield* PresenceServiceTag;
     const connections = yield* ConnectionManagerTag;
     const agentEndpointResolver = yield* AgentEndpointResolverTag;
-    const db = yield* DbTag;
-    const sessionValidator = yield* SessionValidatorTag;
 
-    const auth = yield* resolveAuthenticatedContext(
-      params,
-      authService,
-      sessionValidator,
-      db,
-    );
+    // The `appKey` arm returns early in `handleConnect`, so `params` here is
+    // narrowed to the `agentKey` arm.
+    const auth = yield* authenticateAgentKey(params.agentKey, authService);
     // The agent arm is minted by the immutable transition below; the
     // arm IS the auth store.
     yield* mirrorAgentArmTransition(connections, connId, auth);
@@ -453,7 +374,7 @@ function handleConnect(params: ConnectParams) {
 
       // Structural credential dispatch over the Connect params
       // union. The `appKey` arm mints an `AppConnection` (no agent identity,
-      // no conversation/presence hydration); the agent/session arms run the
+      // no conversation/presence hydration); the `agentKey` arm runs the
       // full agent-side hydration in `completeAgentConnect`.
       if ("appKey" in params) {
         const { auth: appAuth, manifest } = yield* authenticateAppKey(
@@ -479,7 +400,7 @@ export const connectHandlers: ServerRpcSlots = [
   // Connect is bound at the APP layer: its `appKey` arm pulls
   // `AppHostTag` to implicitly register the app's `AppEndpoint` off the live
   // `AppConnection` arm (replacing the deleted WS `apps/register` RPC). The
-  // agent/session arms ride the same handler and yield no app-layer tags.
+  // `agentKey` arm rides the same handler and yields no app-layer tags.
   // `network/connect` is the ONLY any-principal method: it is dispatched
   // while the arm is still `UnauthenticatedConnection`, and the handler
   // dispatches on the credential union itself (not on `ctx`). It binds via

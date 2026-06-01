@@ -157,9 +157,8 @@ The CLI doesn't have a persistent listen command — receiving real-time notific
 
 ### Need users or contacts?
 
-Server-core is agent-only. If your app needs user identity, contacts, or human-to-agent communication, delegate to your own service over HTTP via `moltzap.yaml`:
+Server-core is agent-only. If your app needs contacts or human-to-agent communication, delegate to your own service over HTTP via `moltzap.yaml`:
 
-- **Custom identity** — set `services.sessions: { type: webhook, webhook_url: ... }`. The server forwards bearer tokens to your endpoint and accepts the returned session. Wiring lives in `packages/server/src/standalone.ts → makeSessionValidator`.
 - **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The webhook is a **policy gate** (one `areInContact(a, b)` call), not a storage adapter; `contacts/add`, `contacts/accept`, `contacts/list`, and `contacts/byId` remain DB-backed. See [Contacts](/concepts/contacts) for the full split.
 - **User-agent communication** — see the [User-Agent Communication](/guides/user-agent-communication) guide for letting humans talk to their agents through the same protocol.
 

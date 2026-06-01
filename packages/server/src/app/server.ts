@@ -50,7 +50,6 @@ import {
   DeliveryWebhookTag,
   EncryptionTag,
   ServicesLive,
-  SessionValidatorTag,
   resolveServices,
 } from "./layers.js";
 import { installDefaultApp } from "./default-app.js";
@@ -145,7 +144,6 @@ function makeCoreRuntime(config: CoreConfig) {
   const BaseLive = Layer.mergeAll(
     Layer.succeed(DbTag, config.db),
     Layer.succeed(EncryptionTag, envelope),
-    Layer.succeed(SessionValidatorTag, config.sessionValidator ?? null),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
     HttpClientLive,
   );

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: external-bearer / webhook-session auth path (#725)
+
+The `sessionToken` connect credential and its webhook-backed validator are
+removed. `network/connect` now authenticates exactly two credentials:
+`agentKey` (agent principals) and `appKey` (app principals). There is no
+external-bearer token arm and no `services.sessions` config block.
+
+- **Wire (`@moltzap/protocol`):** the `network/connect` params union drops its
+  `{ sessionToken }` arm — only `{ agentKey }` and `{ appKey }` remain.
+- **Server (`@moltzap/server-core`):** deletes the `SessionValidator`
+  interface, the `WebhookSessionValidator` adapter, `SessionValidatorTag`,
+  `CoreConfig.sessionValidator`, the connect handler's `authenticateSession`
+  branch, and the `StandaloneBootPlan.sessionWebhook` boot-plan field +
+  `standalone.ts → makeSessionValidator` wiring.
+- **Config:** the YAML `services.sessions` arm is removed. `services.contacts`
+  and the shared webhook parser (`WebhookServiceBinding` / `YamlServiceBlock`)
+  are unchanged — contacts still delegate over HTTP.
+- **Docs / example:** the `services.sessions` / bearer-token claims are
+  dropped from the README, quickstart, introduction, the generated
+  `network/connect` reference, and `moltzap.example.yaml`.
+
+This is a deliberate feature removal: an external auth provider integrates by
+minting `agentKey` / `appKey` credentials, not by validating bearer tokens at
+connect time.
+
 ### Changed: wire validation engine TypeBox + AJV → Effect `Schema` (Half-2 slice 3, #723)
 
 The wire-validation ENGINE moves off TypeBox + AJV onto Effect `Schema` —
@@ -145,7 +170,7 @@ process (or a third party) instead of being wired into the server.
   owner/claim/status).
 - **New (protocol):** the `network/connect` params union gains an `appKey`
   arm (`{ appKey, minProtocol, maxProtocol }`), disjoint from the
-  `agentKey` / `sessionToken` arms. A successful `appKey` handshake returns
+  `agentKey` arm. A successful `appKey` handshake returns
   a `HelloOk` with NO `agentId` (apps have no agent identity). The wire app
   client selects the arm by setting `TMClientOptions.appKey`.
 - **Changed (`@moltzap/server-core`):** the connections map is now a
@@ -257,9 +282,7 @@ the project's Effect-native transport convention.
   `identity/services/webhook-contact-service.test.ts` (7 cases —
   wire shape, success branches, every fail-closed branch, plus a
   `fast-check` property asserting fail-closed across the full
-  remote-failure space) and
-  `identity/services/webhook-session-validator.test.ts` (9 cases,
-  same shape with the discriminated-union response schema). A new
+  remote-failure space). A new
   `task/services/message-service-delivery-hmac.test.ts` pins the
   HMAC-byte-exactness contract: the `X-MoltZap-Signature` header
   equals `signWebhookPayload(secret, captured_body_bytes)` for the
@@ -271,32 +294,12 @@ the project's Effect-native transport convention.
   `Effect.cached`, so the subsequent `schemaBodyJson` reuses the
   buffer on 2xx; on non-2xx the socket buffer no longer waits for
   the FinalizationRegistry to reap it.
-- **Changed (`@moltzap/server-core`):** `webhook-session-validator.ts`
-  no longer reaches the `as AgentId` / `as UserId` escape hatches
-  that the original cut carried over from main. The validator now
-  runs the response `agentId` / `ownerUserId` strings through
-  `Value.Decode(AgentId, ...)` / `Value.Decode(UserId, ...)` from
-  the canonical TypeBox schemas in `@moltzap/protocol/identity`,
-  attaching the brand at runtime via the same `format: "uuid"` check
-  the wire types are defined under. A malformed id (empty string,
-  non-UUID, etc.) raises a typed
-  `SessionValidationBrandDecodeFailed` that flows into the existing
-  `catchAllCause` fail-closed handler and collapses to
-  `{ valid: false }`, matching the rest of the validator's
-  fail-closed posture. Three new tests pin the contract: empty
-  `agentId`, non-UUID `agentId`, non-UUID `ownerUserId` all return
-  `{ valid: false }`. The 5 other `as AgentId` casts in
-  `app-host.ts`, `agent-visibility.ts`, `presence.service.ts`, and
-  `message.service.ts` are unchanged here; they have their own
-  contexts and are tracked for a separate follow-up.
 - **Changed (`@moltzap/protocol`):** `@moltzap/protocol/identity`
   now also re-exports the runtime TypeBox schemas for `AgentId` /
   `UserId` / `ContactId` (previously the barrel exposed only the
   static types). Matches the convention `@moltzap/protocol/task`
   already uses for `AppId` / `ConversationId` / etc.; existing
-  `import type` consumers are unaffected. Required so consumers like
-  the session validator above can `Value.Decode(AgentId, ...)`
-  without reaching for the implementation module directly.
+  `import type` consumers are unaffected.
 
 ### Documentation restructure — JSDoc as canonical home for flow diagrams
 
@@ -423,8 +426,8 @@ their concept-owning folders. No logic, wire, or config change; the
 - **Internal (`@moltzap/server-core`):** Three RPC handlers move out of
   `task/handlers/` into the folder that owns their concept — `presence`
   to `network/handlers/`, `contacts` and `connect` to
-  `identity/handlers/` (the Connect handshake validates `agentKey` /
-  `sessionToken`, an identity concern). Every importer is repointed
+  `identity/handlers/` (the Connect handshake validates the connect
+  credential, an identity concern). Every importer is repointed
   (`app/server.ts` handler barrel, `transport/layer-tags.ts` doc
   citations) and the docs constants generators (`generate-cli-docs.ts`,
   `generate-constants-snippets.ts`) that read HELLO-policy numbers from
@@ -435,12 +438,6 @@ their concept-owning folders. No logic, wire, or config change; the
   `adapters/webhook-contact-service.ts` now reaches into identity (a
   lower layer) instead of back into `app/`, removing an adapters→app
   reverse-layer edge.
-- **Internal (`@moltzap/server-core`):** The `WebhookSessionValidator`
-  implementation moves from `identity/services/session-validator.ts` to
-  `adapters/webhook-session-validator.ts` (it depends on `WebhookClient`,
-  an adapter dep). The `SessionValidator` interface + `SessionValidation`
-  result type stay in identity as the contract; the adapter imports
-  `AgentId` / `UserId` from `@moltzap/protocol/identity` directly.
 - **Changed:** Per-folder server READMEs
   (`src/{task,network,identity}/README.md`) updated to list each
   handler under its new owning folder.

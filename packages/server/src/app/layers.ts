@@ -21,7 +21,6 @@ import {
   type DeliveryWebhookConfig,
 } from "../task/services/message.service.js";
 import { TaskService } from "../task/services/task.service.js";
-import type { SessionValidator } from "../identity/services/session-validator.js";
 import { AppHost } from "./app-host.js";
 import {
   makeLeaseRegistry,
@@ -137,11 +136,6 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
   TaskServiceTag,
   TaskService
 >() {}
-
-/** Optional bearer-token session validator. `null` → bearer auth disabled. */
-export class SessionValidatorTag extends Context.Tag(
-  "moltzap/SessionValidator",
-)<SessionValidatorTag, SessionValidator | null>() {}
 
 /**
  * Optional fire-and-forget message-delivery webhook. `null` means no

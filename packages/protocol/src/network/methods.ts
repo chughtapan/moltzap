@@ -54,7 +54,7 @@ const HelloOkSchema = Schema.Struct({
 /**
  * Authenticate a WebSocket connection. Must be the first message on a new connection.
  * @returns Connection metadata including agent ID, protocol version, conversations, and server policy.
- * @error UnauthorizedError when Invalid API key or JWT
+ * @error UnauthorizedError when Invalid API key
  * @error ProtocolMismatchError when Client protocol version not supported
  */
 export const Connect = defineRpc({
@@ -65,12 +65,7 @@ export const Connect = defineRpc({
       minProtocol: Schema.String,
       maxProtocol: Schema.String,
     }),
-    Schema.Struct({
-      sessionToken: Schema.String,
-      minProtocol: Schema.String,
-      maxProtocol: Schema.String,
-    }),
-    // D #705 CP5 — app-principal Connect arm. The `appKey` credential
+    // App-principal Connect arm. The `appKey` credential
     // (prefix `moltzap_app_`) resolves to an `AppContext` via
     // `AppAuthService.authenticateApp`; the handler dispatches
     // structurally on `"appKey" in params` and mints an `AppConnection`.
