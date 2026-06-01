@@ -34,12 +34,14 @@ export type {
   NotificationParamsOf,
 } from "./method.js";
 
-// Transport-layer call errors (raised by Originator + ws-client).
+// Transport-layer call errors (raised by the native client + ws-client).
 export {
   NotConnectedError,
   RpcTimeoutError,
   RpcServerError,
+  wireErrorToRpcCallError,
 } from "./rpc-errors.js";
+export type { RpcCallError } from "./rpc-errors.js";
 
 // Wire-coded tagged errors. `registerErrorClass` is intentionally NOT
 // re-exported here: the registered-class set is closed (mirrored by the
@@ -73,10 +75,6 @@ export type { RpcErrorClass, RpcErrorPayload } from "./wire-errors.js";
 // public surface.
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 export { isDecodedNotification } from "./rpc-groups.js";
-
-// JSON-RPC originator error surface — outbound RPC error type used by
-// every `Connection.call` signature.
-export type { RpcCallError } from "./originator.js";
 
 // Spec F (#617) — typed dispatcher. Per-kind static handler tables and
 // three connection factories (`make{Server,AgentClient,AppClient}Connection`).

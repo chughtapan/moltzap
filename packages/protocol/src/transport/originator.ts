@@ -5,11 +5,15 @@ import {
   type ResultOf,
   type RpcDefinition,
 } from "./method.js";
-import { JSON_RPC_RESERVED_CODES, errorClassFor } from "./wire-errors.js";
-import { NotConnectedError, RpcServerError } from "./rpc-errors.js";
+import { JSON_RPC_RESERVED_CODES } from "./wire-errors.js";
+import {
+  NotConnectedError,
+  RpcServerError,
+  wireErrorToRpcCallError,
+  type RpcCallError,
+} from "./rpc-errors.js";
 import type { JsonRpcId } from "./wire.js";
 import { requestFrame, type ResponseFrame } from "./wire.js";
-import type { RegisteredTaggedError } from "../rpc-registry.js";
 
 type AnyServerRpcDefinition = RpcDefinition<
   string,
@@ -22,11 +26,6 @@ interface PendingCall {
   readonly definition: AnyServerRpcDefinition;
   readonly deferred: Deferred.Deferred<unknown, RpcCallError>;
 }
-
-export type RpcCallError =
-  | NotConnectedError
-  | RpcServerError
-  | RegisteredTaggedError;
 
 /**
  * Originator side of a JSON-RPC connection. Scope-bound: closing the
@@ -74,33 +73,6 @@ function takePendingEntry(
   HashMap.HashMap<JsonRpcId, PendingCall>,
 ] {
   return (pending) => [HashMap.get(pending, id), HashMap.remove(pending, id)];
-}
-
-function wireErrorToRpcCallError(error: {
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-}): RpcCallError {
-  const cls = errorClassFor(error.code);
-  if (cls === undefined) {
-    return new RpcServerError({
-      code: error.code,
-      message: error.message,
-      data: error.data,
-    });
-  }
-  // The wire-error registry stores the class factory keyed by code; the
-  // constructor produces a concrete tagged-error instance whose runtime tag
-  // matches one of the union arms in `RegisteredTaggedError`. The type system
-  // can't see through the open-ended `new (...) => { _tag: string }` factory
-  // shape, so the cast bridges the static factory to the closed runtime union.
-  // Forward both `message` and `data` so the decoded instance reflects the
-  // wire payload — without `message`, `Data.TaggedError` defaults it to the
-  // empty string and a `catchTag` caller loses the server's error text (#511).
-  return new cls({
-    message: error.message,
-    data: error.data,
-  } as never) as RegisteredTaggedError;
 }
 
 function failAllPendingFromRef(
