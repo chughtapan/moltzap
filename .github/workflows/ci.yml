@@ -5,11 +5,11 @@ on:
     branches: [main]
   pull_request:
 
-# Nx Cloud has no CI access token here; NX_NO_CLOUD runs nx locally instead of
-# hard-failing on workspace auth. Local dev keeps the remote cache via nxCloudId
-# in nx.json.
+# Nx Cloud remote cache: CI authenticates with a read-only access token, so
+# `nx run-many`/`affected` reuse cached task outputs across runs. Read-only means
+# CI reads but never writes the cache; local read-write builds populate it.
 env:
-  NX_NO_CLOUD: "true"
+  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
 
 jobs:
   ci:
