@@ -22,11 +22,11 @@ import {
  * envelope.
  */
 // The canonical wire-error envelope is the `error` Schema of every group
-// member AND the `failure` Schema of the `PrincipalResolution` middleware
-// (`server-engine-group.ts`) — one envelope across both surfaces so the gate's
+// member AND the `failure` Schema of every per-method `*AuthMw` middleware
+// (`auth-middleware.ts`) — one envelope across both surfaces so a gate/cap
 // rejection rides the same coded wire shape as a handler failure. Exported for
-// that single cross-file reuse.
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the wire-error envelope is shared cross-file: it is every group member's `error` Schema AND the `PrincipalResolution` middleware `failure` Schema, so it is exported once for that reuse rather than duplicated.
+// that cross-file reuse.
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the wire-error envelope is shared cross-file: it is every group member's `error` Schema AND every per-method `*AuthMw` `failure` Schema, so it is exported once for that reuse rather than duplicated.
 export const WireErrorSchema = Schema.Struct({
   code: Schema.Number.pipe(Schema.int()),
   message: Schema.String,

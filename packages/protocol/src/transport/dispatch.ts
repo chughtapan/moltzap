@@ -66,8 +66,7 @@ import type { ErasedSlotTable, SlotDispatchContext } from "./erased-slot.js";
  * The JSON-RPC error envelope a handler/middleware failure encodes onto: the
  * coded `error` sub-object the client reconstructs the typed tagged error from
  * via `wire-errors.ts → errorClassFor`. The same shape `WireErrorSchema`
- * decodes to and the `PrincipalResolution` / per-method `AuthMiddleware`
- * `failure` channels carry.
+ * decodes to and every per-method `*AuthMw` `failure` channel carries.
  */
 export type WireError = {
   readonly code: number;

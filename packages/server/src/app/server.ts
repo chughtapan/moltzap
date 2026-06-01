@@ -257,9 +257,9 @@ function buildServerSlots(methods: ServerRpcSlots): ServerRpcSlotTable {
  */
 function buildValidatedServerSlots(): ServerRpcSlotTable {
   const methods = makeCoreRpcMethods();
-  // Runtime gate-presence backstop: every engine member carries
-  // `PrincipalResolution` iff it is not unauthenticated. Inspects the actual
-  // built middleware, which the group's single type assertion cannot prove.
+  // Runtime gate-presence backstop: every engine member carries its OWN
+  // `*AuthMw` iff it is not unauthenticated. Inspects the actual built
+  // middleware, which the group's single type assertion cannot prove.
   const gatingMismatch = findEngineGatingMismatch();
   if (gatingMismatch !== undefined) {
     throw new PrincipalKindRegistryError(

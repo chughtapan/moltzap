@@ -21,7 +21,7 @@ import type { PrincipalKind } from "./context.js";
  * may call it, and (agent-arm only) whether the agent must be claimed/active.
  * The `principalKinds` table maps each authenticated tag to one of these.
  */
-export interface PrincipalKindPolicy {
+interface PrincipalKindPolicy {
   readonly callablePrincipal: PrincipalKind;
   readonly requiresActive: boolean;
 }
@@ -48,10 +48,10 @@ export interface ServerMethodBinding<Tag extends string = string> {
 export type ServerMethodBindings = ReadonlyArray<ServerMethodBinding>;
 
 /**
- * The principal-kind policy table the {@link makePrincipalResolutionLayer} gate
- * reads, keyed by branded wire tag. Built by {@link projectPrincipalKinds} from
- * the authenticated bindings (every binding NOT in `UNAUTHENTICATED_METHODS`).
- * A `get(tag)` miss fails CLOSED (the gate rejects with `ForbiddenError`), never
+ * The principal-kind policy table the server boot validates each gated method's
+ * `*AuthMw` against, keyed by branded wire tag. Built by
+ * {@link projectPrincipalKinds} from the authenticated bindings (every binding
+ * NOT in `UNAUTHENTICATED_METHODS`). A `get(tag)` miss fails CLOSED, never
  * defaults to a permissive `"any"`.
  */
 export type PrincipalKindTable = ReadonlyMap<

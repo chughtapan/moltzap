@@ -323,6 +323,36 @@ method-narrowed principal plus the cap proofs derived from its `caps` tuple.
 The handler reads `principal` (narrowed, no kind re-check) and each cap value
 by the cap tag's identifier.
 
+### [`authMiddlewareByMethod`](./auth-middleware.ts#L344)
+
+_Variable_
+
+```ts
+export const authMiddlewareByMethod =
+```
+
+The `wire method name → that method's *AuthMw` registry. The single source the
+engine group reads to attach each authenticated member's OWN middleware
+(`server-engine-group.ts → buildEngineMember`/`EngineRpcFromDef`); the type
+AuthMiddlewareByMethod is the type-level map the per-tag conditional
+indexes. `network/connect` is absent (it is unauthenticated, no middleware).
+
+Keyed by the literal wire name so the engine's per-tag attach and the proof
+tag each member provides stay in lockstep with the descriptor catalog: a new
+authenticated method that forgets its `*AuthMw` entry is not in this map, so
+the partition canary (`server-engine-group.types-check.ts`) leaves it ungated
+and fails the build.
+
+### [`AuthMiddlewareByMethod`](./auth-middleware.ts#L375)
+
+_TypeAlias_
+
+```ts
+export type AuthMiddlewareByMethod = typeof authMiddlewareByMethod;
+```
+
+The type-level `name → *AuthMw` map the engine's per-tag conditional indexes.
+
 ### [`AuthProof`](./auth-middleware.ts#L79)
 
 _TypeAlias_
@@ -337,7 +367,7 @@ the cap proofs, both projected from the descriptor's own
 `callablePrincipal` is `"agent"` carries an agent-narrowed `principal`; adding
 a cap to its `caps` adds that cap's proof field.
 
-### [`buildAgentClientDispatcher`](./dispatch.ts#L111)
+### [`buildAgentClientDispatcher`](./dispatch.ts#L110)
 
 _Function_
 
@@ -353,7 +383,7 @@ so `config.slots` is the empty table `{}`). The empty `notify` shape
 is `never`-typed at the type level (no call site can satisfy the
 constraint).
 
-### [`buildAppClientDispatcher`](./dispatch.ts#L139)
+### [`buildAppClientDispatcher`](./dispatch.ts#L138)
 
 _Function_
 
@@ -369,7 +399,7 @@ Build the app-client dispatcher. Wires both the inbound dispatch loop
 REQUIRED: callers must register a handler for each catalog method;
 vacuous-deny moderators bind an explicit `ForbiddenError` handler.
 
-### [`buildServerDispatcher`](./dispatch.ts#L84)
+### [`buildServerDispatcher`](./dispatch.ts#L83)
 
 _Function_
 
@@ -543,7 +573,7 @@ export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
 )
 ```
 
-### [`code`](./dispatch.ts#L73)
+### [`code`](./dispatch.ts#L72)
 
 _Property_
 
@@ -687,7 +717,7 @@ Provided ONLY on authenticated/capability-bearing methods — capabilities
 never run on the unauth Connect frame — so the unauth arm is never a
 concern here.
 
-### [`data`](./dispatch.ts#L75)
+### [`data`](./dispatch.ts#L74)
 
 _Property_
 
@@ -1033,23 +1063,13 @@ export function errorClassFor(code: number): RpcErrorClass | undefined
 
 Returns the registered class for a wire code, or `undefined`.
 
-### [`findEngineGatingMismatch`](./server-engine-group.ts#L185)
+### [`findEngineGatingMismatch`](./server-engine-group.ts#L224)
 
 _Function_
 
 ```ts
 export const findEngineGatingMismatch = (): string | undefined
 ```
-
-Walk the BUILT ServerEngineRpcGroup members and return the first whose
-runtime middleware violates the partition: gated (carries
-PrincipalResolution) when it should be unauthenticated, or vice versa.
-`undefined` when every member matches. The boot-time backstop for the
-partition the group construction's single type assertion cannot prove — the
-type-level canary pins the asserted SHAPE; this inspects the ACTUAL runtime
-middleware, so a `buildEngineMember` regression that drops the gate on a
-protected method (or adds it to an unauth one) is caught at boot rather than
-shipping a runtime-ungated method the assertion still types as gated.
 
 ### [`ForbiddenError`](./wire-errors.ts#L105)
 
@@ -1140,6 +1160,16 @@ totality lockstep that the server side enforces lives on the
 `defineXMiddlewareMethod` `weaveCaps` bound
 (`server-core` `middleware-slot.types-check.ts`).
 
+### [`HttpOnlyMethod`](./server-engine-group.ts#L72)
+
+_TypeAlias_
+
+```ts
+export type HttpOnlyMethod = (typeof HTTP_ONLY_METHODS)[number];
+```
+
+A plain (unbranded) member of HTTP_ONLY_METHODS.
+
 ### [`InvalidParamsError`](./wire-errors.ts#L137)
 
 _Class_
@@ -1179,7 +1209,7 @@ export function isRegisteredErrorInstance(value: object): boolean
 
 Returns true iff `value`'s constructor is in the registered class set.
 
-### [`isUnauthenticatedMethod`](./server-engine-group.ts#L85)
+### [`isUnauthenticatedMethod`](./server-engine-group.ts#L81)
 
 _Function_
 
@@ -1377,7 +1407,7 @@ Factory — server side. Delegates to `buildServerDispatcher`
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
-### [`makeServerProtocolLayer`](./native-server-engine.ts#L49)
+### [`makeServerProtocolLayer`](./native-server-engine.ts#L48)
 
 _Function_
 
@@ -1416,7 +1446,7 @@ export class MalformedFrameError extends Data.TaggedError(
 
 Inbound frame failed to parse as JSON or did not match the expected shape.
 
-### [`message`](./dispatch.ts#L74)
+### [`message`](./dispatch.ts#L73)
 
 _Property_
 
@@ -1812,39 +1842,6 @@ gate narrows the live connection to exactly this arm, so the handler reads
 `"any"` resolves to `never`: the lone unauthenticated method
 (`network/connect`) carries no proof — it reads the live arm via
 `ConnectionTag` — so it never instantiates an `AuthContext`.
-
-### [`PrincipalResolution`](./server-engine-group.ts#L59)
-
-_Class_
-
-```ts
-export class PrincipalResolution extends RpcMiddleware.Tag<PrincipalResolution>()(
-  "@moltzap/protocol/PrincipalResolution",
-  { provides: CurrentPrincipal, failure: WireErrorSchema },
-) {}
-```
-
-The `@effect/rpc` middleware descriptor that provides the request's
-authenticated CurrentPrincipal.Principal into every gated handler's
-Context. `provides: CurrentPrincipal` makes the middleware's service value
-the 2-arm principal, so a handler reads identity via `yield* CurrentPrincipal`
-with no `ctx` parameter and no cast.
-
-The descriptor is protocol-owned because the Tag it provides
-(`CurrentPrincipal`) is protocol-owned; the implementation that resolves a
-connection to its live arm (via the server's `ConnectionManager`) and narrows
-the 3-arm connection union to the 2-arm principal is a server concern,
-supplied as a per-socket `Layer` over this Tag. The middleware impl shape
-`@effect/rpc` derives from this descriptor is
-`({ clientId, rpc, payload, headers }) => Effect&lt;Principal, WireError&gt;` —
-payload-only, no `ctx`.
-
-`failure: WireErrorSchema` types the gate's rejection as the same coded wire
-envelope every member's `error` carries, so a wrong-principal/inactive frame
-fails the middleware effect with a typed `WireError` the client reconstructs
-via `wire-errors.ts → errorClassFor`. Non-optional (no `optional: true`): an
-optional middleware's runtime fold falls through to the handler on failure,
-which would let a rejected principal reach the body — the gate must HARD-fail.
 
 ### [`provideMiddleware`](./capability-middleware.ts#L145)
 
@@ -2294,7 +2291,7 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound app-callback path.
 
-### [`ServerEngineLayer`](./native-server-engine.ts#L83)
+### [`ServerEngineLayer`](./native-server-engine.ts#L82)
 
 _Variable_
 
@@ -2304,21 +2301,21 @@ export const ServerEngineLayer = RpcServer.layer(ServerEngineRpcGroup)
 
 The native server engine layer for ServerEngineRpcGroup — the
 middleware-attached group, NOT the un-gated `ServerRpcGroup`. Binding
-`ServerRpcGroup` here would run every method with no `PrincipalResolution`
-gate, an authorization bypass; the server-wiring guard canary
-(`server-engine-group.types-check.ts`) pins that this layer's requirement
-channel demands `PrincipalResolution`.
+`ServerRpcGroup` here would run every method with no `*AuthMw` gate, an
+authorization bypass; the server-wiring guard canary
+(`native-server-engine.types-check.ts`) pins that this layer's requirement
+channel demands the per-method `*AuthMw`.
 
 `RpcServer.layer(group)` runs the dispatch loop over whatever
 `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
 requirement channel is
-`RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus
-`PrincipalResolution` — the live connection provides the Protocol via
+`RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus every
+member's `*AuthMw` — the live connection provides the Protocol via
 makeServerProtocolLayer, the handler bodies via
-`ServerEngineRpcGroup.toLayer(...)`, and the PrincipalResolution
-middleware runtime via its per-socket server-supplied `Layer`.
+`ServerEngineRpcGroup.toLayer(...)`, and each `*AuthMw` runtime via its
+per-socket server-supplied `Layer` (`auth-middleware-layers.ts`).
 
-### [`ServerEngineRpcGroup`](./server-engine-group.ts#L170)
+### [`ServerEngineRpcGroup`](./server-engine-group.ts#L181)
 
 _Variable_
 
@@ -2661,7 +2658,7 @@ export class TaskRequestAuthMw extends RpcMiddleware.Tag<TaskRequestAuthMw>()(
 ) {}
 ```
 
-### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L73)
+### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L49)
 
 _Variable_
 
@@ -2669,15 +2666,15 @@ _Variable_
 export const UNAUTHENTICATED_METHODS = ["network/connect"] as const
 ```
 
-The ONLY methods callable on an unauthenticated connection. Built WITHOUT
-PrincipalResolution (no principal exists pre-auth); they read the live
-3-arm `Connection` via `ConnectionTag`. EXHAUSTIVE: every other
-`ServerRpcGroup` method is authenticated and carries the gate. Adding a method
-here is a deliberate, reviewed security decision — the partition canary
+The ONLY methods callable on an unauthenticated connection. Built WITHOUT any
+`*AuthMw` (no principal exists pre-auth); they read the live 3-arm `Connection`
+via `ConnectionTag`. EXHAUSTIVE: every other `ServerRpcGroup` method is
+authenticated and carries its `*AuthMw`. Adding a method here is a deliberate,
+reviewed security decision — the partition canary
 (`server-engine-group.types-check.ts`) FAILS the build if a method is in
 neither partition or both.
 
-### [`UnauthenticatedMethod`](./server-engine-group.ts#L76)
+### [`UnauthenticatedMethod`](./server-engine-group.ts#L52)
 
 _TypeAlias_
 
@@ -2724,7 +2721,7 @@ _Function_
 export const validateResponseFrame = (v: unknown): v is ResponseFrame
 ```
 
-### [`WireError`](./dispatch.ts#L72)
+### [`WireError`](./dispatch.ts#L71)
 
 _TypeAlias_
 
@@ -2739,10 +2736,9 @@ export type WireError = {
 The JSON-RPC error envelope a handler/middleware failure encodes onto: the
 coded `error` sub-object the client reconstructs the typed tagged error from
 via `wire-errors.ts → errorClassFor`. The same shape `WireErrorSchema`
-decodes to and the `PrincipalResolution` / per-method `AuthMiddleware`
-`failure` channels carry.
+decodes to and every per-method `*AuthMw` `failure` channel carries.
 
-### [`wireErrorFromInstance`](./dispatch.ts#L372)
+### [`wireErrorFromInstance`](./dispatch.ts#L371)
 
 _Function_
 

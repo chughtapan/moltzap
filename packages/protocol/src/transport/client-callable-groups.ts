@@ -6,9 +6,9 @@
  * app calling an agent-only RPC (or vice versa) should be a COMPILE error, not a
  * runtime `ForbiddenError` discovered in production. `agent-client.ts` types
  * against {@link AgentCallableGroup}; `app-client.ts` against
- * {@link AppCallableGroup}. The runtime principal gate
- * (`server-engine-group.ts → PrincipalResolution`) stays as the untrusted-peer
- * backstop; these groups are the first-party compile-time layer ON TOP of it.
+ * {@link AppCallableGroup}. The runtime principal gate (each method's `*AuthMw`,
+ * `auth-middleware.ts`) stays as the untrusted-peer backstop; these groups are
+ * the first-party compile-time layer ON TOP of it.
  *
  * Single source: the partition reads each `defineRpc` descriptor's
  * `callablePrincipal` (the same axis the server gate reads), so the client bound
