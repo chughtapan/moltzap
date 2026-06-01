@@ -99,7 +99,23 @@ const routesToMatchingSink = (frame: Record<string, unknown>) =>
     expect(s2c.received).toEqual([]);
   });
 
-const jsonFrame = fc.dictionary(fc.string(), fc.jsonValue());
+// `fc.jsonValue()` can produce `-0`, which `JSON.stringify` renders as `"0"`
+// and parses back to `+0` — a value the JSON wire genuinely cannot preserve.
+// The envelope's contract is that a JSON-serializable frame round-trips; reject
+// the `-0` outliers so the property pins exactly that, without asserting the
+// wire preserves a distinction JSON does not carry.
+const hasNegativeZero = (value: unknown): boolean => {
+  if (Object.is(value, -0)) return true;
+  if (Array.isArray(value)) return value.some(hasNegativeZero);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).some(hasNegativeZero);
+  }
+  return false;
+};
+
+const jsonFrame: fc.Arbitrary<Record<string, unknown>> = fc
+  .dictionary(fc.string(), fc.jsonValue())
+  .filter((d) => !hasNegativeZero(d));
 
 describe("native-mux envelope", () => {
   it("server send wraps the frame in a {ch, f} envelope that roundtrips", () => {
