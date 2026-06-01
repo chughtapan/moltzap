@@ -118,7 +118,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L196)
+### [`networkNotifications`](./methods.ts#L199)
 
 _Variable_
 
@@ -137,12 +137,13 @@ export const NetworkPing = defineRpc({
   name: "network/ping",
   params: Schema.Struct({}),
   result: Schema.Struct({ ts: DateTimeString }),
+  callablePrincipal: "agent",
 })
 ```
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L190)
+### [`networkRpcMethods`](./methods.ts#L193)
 
 _Variable_
 
@@ -154,7 +155,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L185)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L188)
 
 _Variable_
 
@@ -169,7 +170,7 @@ Pushed when a subscribed participant's presence status changes.
 Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
 connect/disconnect; there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L169)
+### [`PresenceSubscribe`](./methods.ts#L170)
 
 _Variable_
 
@@ -178,6 +179,8 @@ export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
   params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
   result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
+  callablePrincipal: "agent",
+  requiresActive: true,
 })
 ```
 

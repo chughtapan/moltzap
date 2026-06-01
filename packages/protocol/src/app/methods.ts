@@ -123,6 +123,7 @@ export const AppsRegister = defineRpc({
   name: "apps/register",
   params: Schema.Struct({ manifest: AppManifestSchema }),
   result: Schema.Struct({ appId: Schema.String }),
+  callablePrincipal: "app",
 });
 
 const DispatchAdmissionDecisionSchema = Schema.Union(
@@ -222,6 +223,11 @@ export const DispatchRequest = defineRpc({
     ),
   }),
   result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
+  // Agent-originated even though the recipient handler runs in the app layer:
+  // an agent posts a dispatch to a conversation it sends into; the gate
+  // narrows the agent arm and `requiresActive` enforces a claimed agent.
+  callablePrincipal: "agent",
+  requiresActive: true,
 });
 
 /**
@@ -350,6 +356,7 @@ export const DispatchesGet = defineRpc({
   name: "dispatches/get",
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
+  callablePrincipal: "app",
 });
 
 // ── messages/authorize (send-side fan-out gate) ─────────────────────

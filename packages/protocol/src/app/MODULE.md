@@ -8,7 +8,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
-### [`appCallbackMethods`](./methods.ts#L499)
+### [`appCallbackMethods`](./methods.ts#L506)
 
 _Variable_
 
@@ -39,7 +39,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L505)
+### [`appNotifications`](./methods.ts#L512)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](./methods.ts#L493)
+### [`appRpcMethods`](./methods.ts#L500)
 
 _Variable_
 
@@ -72,12 +72,13 @@ export const AppsRegister = defineRpc({
   name: "apps/register",
   params: Schema.Struct({ manifest: AppManifestSchema }),
   result: Schema.Struct({ appId: Schema.String }),
+  callablePrincipal: "app",
 })
 ```
 
 Register an app manifest for the current connection.
 
-### [`DispatchAuthorize`](./methods.ts#L236)
+### [`DispatchAuthorize`](./methods.ts#L242)
 
 _Variable_
 
@@ -95,7 +96,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 `LeaseRegistry.resolve`. Manifests opt in by declaring
 `hooks.dispatch_authorize`.
 
-### [`DispatchesConsumed`](./methods.ts#L275)
+### [`DispatchesConsumed`](./methods.ts#L281)
 
 _Variable_
 
@@ -118,7 +119,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./methods.ts#L292)
+### [`DispatchesExpired`](./methods.ts#L298)
 
 _Variable_
 
@@ -139,7 +140,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./methods.ts#L349)
+### [`DispatchesGet`](./methods.ts#L355)
 
 _Variable_
 
@@ -148,6 +149,7 @@ export const DispatchesGet = defineRpc({
   name: "dispatches/get",
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
+  callablePrincipal: "app",
 })
 ```
 
@@ -156,7 +158,7 @@ the handler: the calling connection must match the lease's
 `moderatorConnectionId` (the binding tuple recorded at mint time);
 non-moderator callers fail with `ForbiddenError`.
 
-### [`DispatchId`](./methods.ts#L198)
+### [`DispatchId`](./methods.ts#L199)
 
 _TypeAlias_
 
@@ -170,7 +172,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./methods.ts#L198)
+### [`DispatchId`](./methods.ts#L199)
 
 _Variable_
 
@@ -184,7 +186,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchRelease`](./methods.ts#L254)
+### [`DispatchRelease`](./methods.ts#L260)
 
 _Variable_
 
@@ -213,7 +215,7 @@ out via the standard EXPIRED path; no `leaseTimeoutMs` field needed
 on the hold arm because the grant TTL has not started yet (lease
 never reached GRANTED).
 
-### [`DispatchRequest`](./methods.ts#L210)
+### [`DispatchRequest`](./methods.ts#L211)
 
 _Variable_
 
@@ -233,6 +235,11 @@ export const DispatchRequest = defineRpc({
     ),
   }),
   result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
+  // Agent-originated even though the recipient handler runs in the app layer:
+  // an agent posts a dispatch to a conversation it sends into; the gate
+  // narrows the agent arm and `requiresActive` enforces a claimed agent.
+  callablePrincipal: "agent",
+  requiresActive: true,
 })
 ```
 
@@ -244,7 +251,7 @@ Wire ordering: the ack and `dispatch/release` may race — the
 recipient absorbs the race via a client-side ring buffer + per-
 lease `Deferred` (see `packages/client/src/channel-core.ts`).
 
-### [`MessagesAuthorize`](./methods.ts#L409)
+### [`MessagesAuthorize`](./methods.ts#L416)
 
 _Variable_
 
@@ -269,7 +276,7 @@ participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`TaskCreate`](./methods.ts#L485)
+### [`TaskCreate`](./methods.ts#L492)
 
 _Variable_
 

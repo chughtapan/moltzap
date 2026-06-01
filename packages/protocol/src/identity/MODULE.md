@@ -48,7 +48,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L180)
+### [`AgentsList`](./agents.ts#L182)
 
 _Variable_
 
@@ -63,6 +63,8 @@ export const AgentsList = defineRpc({
     agents: Schema.Array(AgentCardSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
+  callablePrincipal: "agent",
+  requiresActive: true,
 })
 ```
 
@@ -82,12 +84,13 @@ export const AgentsLookup = defineRpc({
     ),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
+  callablePrincipal: "agent",
 })
 ```
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
 
-### [`AgentsLookupByName`](./agents.ts#L167)
+### [`AgentsLookupByName`](./agents.ts#L168)
 
 _Variable_
 
@@ -100,6 +103,7 @@ export const AgentsLookupByName = defineRpc({
     ).pipe(Schema.minItems(1), Schema.maxItems(100)),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
+  callablePrincipal: "agent",
 })
 ```
 
@@ -160,7 +164,7 @@ _TypeAlias_
 export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 ```
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L105)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L109)
 
 _Variable_
 
@@ -189,7 +193,7 @@ _Variable_
 export const ContactId = brandedId("ContactId")
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L97)
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L101)
 
 _Variable_
 
@@ -202,7 +206,7 @@ export const ContactRequestNotificationDefinition = defineNotification({
 
 Pushed when an agent receives a contact request.
 
-### [`ContactsAccept`](./contacts.ts#L71)
+### [`ContactsAccept`](./contacts.ts#L73)
 
 _Variable_
 
@@ -211,12 +215,13 @@ export const ContactsAccept = defineRpc({
   name: "contacts/accept",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 })
 ```
 
 Accept a pending contact request.
 
-### [`ContactsAdd`](./contacts.ts#L59)
+### [`ContactsAdd`](./contacts.ts#L60)
 
 _Variable_
 
@@ -228,12 +233,13 @@ export const ContactsAdd = defineRpc({
     relationship: Schema.optional(Schema.String),
   }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 })
 ```
 
 Create a contact request.
 
-### [`ContactsById`](./contacts.ts#L80)
+### [`ContactsById`](./contacts.ts#L83)
 
 _Variable_
 
@@ -242,6 +248,7 @@ export const ContactsById = defineRpc({
   name: "contacts/byId",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 })
 ```
 
@@ -262,6 +269,7 @@ export const ContactsList = defineRpc({
     contacts: Schema.Array(ContactSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
+  callablePrincipal: "agent",
 })
 ```
 

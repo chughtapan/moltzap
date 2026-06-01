@@ -53,7 +53,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L180)
+### [`AgentsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L182)
 
 _Variable_
 
@@ -68,6 +68,8 @@ export const AgentsList = defineRpc({
     agents: Schema.Array(AgentCardSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
+  callablePrincipal: "agent",
+  requiresActive: true,
 })
 ```
 
@@ -87,12 +89,13 @@ export const AgentsLookup = defineRpc({
     ),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
+  callablePrincipal: "agent",
 })
 ```
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
 
-### [`AgentsLookupByName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L167)
+### [`AgentsLookupByName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L168)
 
 _Variable_
 
@@ -105,6 +108,7 @@ export const AgentsLookupByName = defineRpc({
     ).pipe(Schema.minItems(1), Schema.maxItems(100)),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
+  callablePrincipal: "agent",
 })
 ```
 
@@ -165,7 +169,7 @@ _TypeAlias_
 export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 ```
 
-### [`ContactAcceptedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L105)
+### [`ContactAcceptedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L109)
 
 _Variable_
 
@@ -194,7 +198,7 @@ _Variable_
 export const ContactId = brandedId("ContactId")
 ```
 
-### [`ContactRequestNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L97)
+### [`ContactRequestNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L101)
 
 _Variable_
 
@@ -207,7 +211,7 @@ export const ContactRequestNotificationDefinition = defineNotification({
 
 Pushed when an agent receives a contact request.
 
-### [`ContactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L71)
+### [`ContactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L73)
 
 _Variable_
 
@@ -216,12 +220,13 @@ export const ContactsAccept = defineRpc({
   name: "contacts/accept",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 })
 ```
 
 Accept a pending contact request.
 
-### [`ContactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L59)
+### [`ContactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L60)
 
 _Variable_
 
@@ -233,12 +238,13 @@ export const ContactsAdd = defineRpc({
     relationship: Schema.optional(Schema.String),
   }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 })
 ```
 
 Create a contact request.
 
-### [`ContactsById`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L80)
+### [`ContactsById`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L83)
 
 _Variable_
 
@@ -247,6 +253,7 @@ export const ContactsById = defineRpc({
   name: "contacts/byId",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 })
 ```
 
@@ -267,6 +274,7 @@ export const ContactsList = defineRpc({
     contacts: Schema.Array(ContactSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
+  callablePrincipal: "agent",
 })
 ```
 

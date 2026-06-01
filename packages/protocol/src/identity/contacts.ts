@@ -51,6 +51,7 @@ export const ContactsList = defineRpc({
     contacts: Schema.Array(ContactSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
+  callablePrincipal: "agent",
 });
 
 /**
@@ -63,6 +64,7 @@ export const ContactsAdd = defineRpc({
     relationship: Schema.optional(Schema.String),
   }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 });
 
 /**
@@ -72,6 +74,7 @@ export const ContactsAccept = defineRpc({
   name: "contacts/accept",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 });
 
 /**
@@ -81,6 +84,7 @@ export const ContactsById = defineRpc({
   name: "contacts/byId",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
+  callablePrincipal: "agent",
 });
 
 const ContactRequestNotificationSchema = Schema.Struct({
