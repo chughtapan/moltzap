@@ -10,7 +10,6 @@ import {
   getCoreEncryptionEnvelope,
   getBaseUrl,
 } from "../../test-utils/index.js";
-import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { NotificationFrame } from "@moltzap/protocol";
 import type { Part } from "@moltzap/protocol/task";
@@ -102,8 +101,6 @@ let _coreApp: CoreApp | null = null;
 type StartTestServerOptions = {
   devMode?: boolean;
   encryption?: boolean;
-  /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
-  sessionValidator?: SessionValidator;
 
   /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
   registrationSecret?: string;
@@ -172,7 +169,6 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
         pgHost,
         pgPort,
         encryption: opts.encryption,
-        sessionValidator: opts.sessionValidator,
         registrationSecret: opts.registrationSecret,
         devModeUserId: opts.devModeUserId,
         spanProcessor: opts.spanProcessor,

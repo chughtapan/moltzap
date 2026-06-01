@@ -12,7 +12,6 @@ import { seedInitialKek } from "../crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { CoreApp } from "../app/types.js";
 import type { Database } from "../db/database.js";
-import type { SessionValidator } from "../identity/services/session-validator.js";
 import {
   makeEffectKysely,
   type EffectKysely,
@@ -138,14 +137,6 @@ type StartCoreTestServerOptions = {
   encryption?: boolean;
 
   /**
-   * Optional user validator injected into the AppHost. Tests that exercise
-   * admission coalescing or validator short-circuiting pass a counting fake;
-   * default `undefined` preserves the open-access behavior of the original
-   * harness (admit all owners).
-   */
-  sessionValidator?: SessionValidator;
-
-  /**
    * When set, the server requires `inviteCode` matching this value on
    * `/api/v1/auth/register` and enables the `/api/v1/admin/register-agent`
    * route. Default `undefined` keeps the open-registration behavior the
@@ -261,7 +252,6 @@ function createCoreTestApp(
     corsOrigins: ["*"],
     devMode: true,
     devModeUserId: opts.devModeUserId,
-    sessionValidator: opts.sessionValidator,
     registrationSecret: opts.registrationSecret,
     spanProcessor: resolveTestSpanProcessor(opts),
   });

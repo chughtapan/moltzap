@@ -14,7 +14,7 @@ flowchart LR
   T["TransportTags<br>ConnId, Db"]
   I["IdentityTags<br>+ Auth"]
   N["NetworkTags<br>+ Presence, ResolverSvc, NetworkSend, ConnMgr"]
-  K["TaskTags<br>+ Message, Conv, TaskSvc, Contacts, LeaseRegistry, SessionValidator, AppAuthSvc"]
+  K["TaskTags<br>+ Message, Conv, TaskSvc, Contacts, LeaseRegistry, AppAuthSvc"]
   A["AppTags<br>+ AppHost"]
 
   T -->|"subset of"| I -->|"subset of"| N -->|"subset of"| K -->|"subset of"| A

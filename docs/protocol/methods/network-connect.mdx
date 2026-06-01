@@ -21,10 +21,6 @@ Authenticate a WebSocket connection. Must be the first message on a new connecti
   The maxProtocol field.
 </ParamField>
 
-<ParamField path="sessionToken" type="string">
-  The sessionToken field.
-</ParamField>
-
 <ParamField path="appKey" type="string">
   The appKey field.
 </ParamField>
@@ -49,5 +45,5 @@ Connection metadata including agent ID, protocol version, conversations, and ser
 
 | Type | When |
 |------|------|
-| `UnauthorizedError` | Invalid API key or JWT |
+| `UnauthorizedError` | Invalid API key |
 | `ProtocolMismatchError` | Client protocol version not supported |

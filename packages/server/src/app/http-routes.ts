@@ -427,9 +427,9 @@ function handleClaimResult(
   switch (result._tag) {
     case CLAIM_SUCCESS:
       return Effect.gen(function* () {
-        // Brand the request-supplied owner id at the trust boundary (the same
-        // `Schema.decodeUnknownSync(UserId)(...)` pattern as webhook-session-validator);
-        // the claim path already validated it as a non-empty string upstream.
+        // Brand the request-supplied owner id at the trust boundary via
+        // `Schema.decodeUnknownSync(UserId)(...)`; the claim path already
+        // validated it as a non-empty string upstream.
         const ownerUserId = Schema.decodeUnknownSync(UserId)(
           result.ownerUserId,
         );

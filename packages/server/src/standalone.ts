@@ -19,7 +19,6 @@ import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import { WebhookContactService } from "./identity/services/webhook-contact-service.js";
-import { WebhookSessionValidator } from "./identity/services/webhook-session-validator.js";
 import type { CoreApp } from "./app/types.js";
 import type { Database } from "./db/database.js";
 import type { Db } from "./db/client.js";
@@ -278,16 +277,16 @@ function startServerEffect(
     const database = yield* createStandaloneDatabase(bootPlan);
     yield* logDatabaseSelection(database.usePgLite);
     yield* migrateStandaloneDatabase(database.handle, bootPlan);
-    // The standalone HttpClient backs the YAML-wired
-    // {session,contact}-webhook validators. Two wiring concerns:
+    // The standalone HttpClient backs the YAML-wired contact-webhook
+    // service. Two wiring concerns:
     //
     // 1. Dispatcher lifecycle. We use the process-global Undici
     //    dispatcher (`dispatcherLayerGlobal`) instead of `layerUndici`
     //    — the latter is `Layer.scoped` over a fresh `Undici.Agent`
     //    whose finalizer would `dispatcher.destroy()` it the moment
     //    the surrounding `Effect.provide` scope closes (the line
-    //    below). The validators would then issue requests against a
-    //    destroyed Agent. The process-global dispatcher has no
+    //    below). The contact service would then issue requests against
+    //    a destroyed Agent. The process-global dispatcher has no
     //    per-instance lifecycle, matching this client's server-
     //    lifetime role. The CoreApp constructs its own scoped Undici
     //    client for delivery webhooks (see `app/server.ts →
@@ -297,9 +296,8 @@ function startServerEffect(
     // 2. Outbound-webhook concurrency cap. We apply
     //    {@link applyOutboundWebhookCap} so this client pulls from the
     //    SAME process-wide `Effect.Semaphore(10)` as the CoreApp's
-    //    `HttpClientLive`. Result: one shared cap covers all three
-    //    outbound webhook paths (delivery + contacts + sessions),
-    //    matching the prior bespoke `WebhookClient(10)` behavior.
+    //    `HttpClientLive`. Result: one shared cap covers both outbound
+    //    webhook paths (delivery + contacts).
     const rawHttpClient = yield* HttpClient.HttpClient.pipe(
       Effect.provide(
         NodeHttpClient.layerUndiciWithoutDispatcher.pipe(
@@ -308,14 +306,12 @@ function startServerEffect(
       ),
     );
     const httpClient = applyOutboundWebhookCap(rawHttpClient);
-    const sessionValidator = makeSessionValidator(bootPlan, httpClient);
     const devModeUserId = resolveDevModeUserId(bootPlan);
     yield* warnDevModeUserId(devModeUserId);
     const coreConfig = makeCoreConfig({
       bootPlan,
       handle: database.handle,
       devModeUserId,
-      sessionValidator,
     });
     const app = createCoreApp(coreConfig);
     yield* installContactService(app, bootPlan, httpClient);
@@ -353,19 +349,6 @@ function migrateStandaloneDatabase(
   );
 }
 
-function makeSessionValidator(
-  bootPlan: StandaloneBootPlan,
-  httpClient: HttpClient.HttpClient,
-): CoreConfig["sessionValidator"] {
-  const binding = bootPlan.sessionWebhook;
-  if (binding === undefined) return undefined;
-  return new WebhookSessionValidator(
-    httpClient,
-    binding.url,
-    binding.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
-  );
-}
-
 function resolveDevModeUserId(
   bootPlan: StandaloneBootPlan,
 ): string | undefined {
@@ -386,7 +369,6 @@ function makeCoreConfig(options: {
   readonly bootPlan: StandaloneBootPlan;
   readonly handle: DbHandle;
   readonly devModeUserId: string | undefined;
-  readonly sessionValidator: CoreConfig["sessionValidator"];
 }): CoreConfig {
   const { bootPlan, handle } = options;
   return {
@@ -398,7 +380,6 @@ function makeCoreConfig(options: {
     registrationSecret: bootPlan.registrationSecret,
     devMode: bootPlan.devMode,
     devModeUserId: options.devModeUserId,
-    sessionValidator: options.sessionValidator,
   };
 }
 

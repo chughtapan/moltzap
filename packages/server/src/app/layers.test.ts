@@ -17,7 +17,6 @@ import {
   DeliveryWebhookTag,
   EncryptionTag,
   ServicesLive,
-  SessionValidatorTag,
   resolveServices,
 } from "./layers.js";
 
@@ -34,7 +33,6 @@ const fakeDb = {} as Db;
 const BaseLive = Layer.mergeAll(
   Layer.succeed(DbTag, fakeDb),
   Layer.succeed(EncryptionTag, null),
-  Layer.succeed(SessionValidatorTag, null),
   Layer.succeed(DeliveryWebhookTag, null),
   // Wiring-only test — no service body issues outbound requests during the
   // resolveServices probe, so the fetch-backed layer is purely structural
