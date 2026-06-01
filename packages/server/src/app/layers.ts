@@ -27,6 +27,7 @@ import {
   type LeaseRegistry,
 } from "../task/leases/lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
+import type { ConnectionHook, DisconnectionHook } from "./types.js";
 
 /** Default retention window for terminal lease records: 5 minutes. */
 const LEASE_RETENTION_MINUTES = 5;
@@ -64,6 +65,26 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 export class ConnectionManagerTag extends Context.Tag(
   "moltzap/ConnectionManager",
 )<ConnectionManagerTag, ConnectionManager>() {}
+
+/**
+ * The server-app's connection / disconnection hook arrays, read by the native
+ * `network/connect` handler on a successful AGENT connect (it fires the
+ * connection hooks once the agent arm is minted) and by the socket-close
+ * finalizer (it fires the disconnection hooks). The arrays are the mutable
+ * registration surface the `CoreApp.onConnection` / `onDisconnection`
+ * accessors push into; the tag carries them into the request-scoped engine so
+ * the native handler can fire them in place of the bare-frame
+ * `fireConnectionHooks` path.
+ */
+export interface ConnectionHooks {
+  readonly connectionHooks: readonly ConnectionHook[];
+  readonly disconnectionHooks: readonly DisconnectionHook[];
+}
+
+export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
+  ConnectionHooksTag,
+  ConnectionHooks
+>() {}
 
 /**
  * `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
