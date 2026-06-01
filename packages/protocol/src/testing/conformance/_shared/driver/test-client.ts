@@ -1123,21 +1123,15 @@ function awaitEntryResult(
 function autoConnect(
   runtime: TestClientRuntime,
 ): Effect.Effect<void, TransportClosedError | TransportIoError> {
-  // D #705 CP5/CP7 — dispatch the disjoint Connect params union on the
-  // configured credential: an `appKey` authenticates as an `AppConnection`;
-  // otherwise the agent `agentKey` arm runs.
-  const handshakeParams: ParamsOf<typeof Connect> =
-    runtime.config.appKey !== undefined
-      ? {
-          appKey: runtime.config.appKey,
-          minProtocol: PROTOCOL_VERSION,
-          maxProtocol: PROTOCOL_VERSION,
-        }
-      : {
-          agentKey: runtime.config.agentKey,
-          minProtocol: PROTOCOL_VERSION,
-          maxProtocol: PROTOCOL_VERSION,
-        };
+  // The single `credential` carries the principal prefix: a configured app
+  // credential authenticates as an `AppConnection`, otherwise the agent
+  // credential runs. The server prefix-resolves `moltzap_app_` /
+  // `moltzap_agent_`.
+  const handshakeParams: ParamsOf<typeof Connect> = {
+    credential: runtime.config.appKey ?? runtime.config.agentKey,
+    minProtocol: PROTOCOL_VERSION,
+    maxProtocol: PROTOCOL_VERSION,
+  };
   return sendClientRpc(runtime, {
     definition: Connect,
     params: handshakeParams,

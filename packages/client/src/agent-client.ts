@@ -342,7 +342,7 @@ export class MoltZapAgentClient {
     handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
   ): Effect.Effect<ConnectResult, ConnectError> {
     const authEffect = this.sendRpc(Connect, {
-      agentKey: this.options.agentKey,
+      credential: this.options.agentKey,
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
     });

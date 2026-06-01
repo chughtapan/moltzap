@@ -56,7 +56,7 @@ const sameStateNoDoubleFire = (ctx: ConformanceRunContext, name: string) =>
 
       yield* aClient
         .sendRpc(Connect, {
-          agentKey: a.apiKey,
+          credential: a.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
         })

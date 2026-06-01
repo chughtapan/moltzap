@@ -24,57 +24,31 @@ const PresenceEntrySchema = Schema.Struct({
 
 // ── network/connect ──────────────────────────────────────────────────
 
-const RateLimitsSchema = Schema.Struct({
-  messagesPerMinute: Schema.Number.pipe(Schema.int()),
-  requestsPerMinute: Schema.Number.pipe(Schema.int()),
-});
-
-const PolicySchema = Schema.Struct({
-  maxMessageBytes: Schema.Number.pipe(Schema.int()),
-  maxPartsPerMessage: Schema.Number.pipe(Schema.int()),
-  maxTextLength: Schema.Number.pipe(Schema.int()),
-  maxGroupParticipants: Schema.Number.pipe(Schema.int()),
-  heartbeatIntervalMs: Schema.Number.pipe(Schema.int()),
-  rateLimits: RateLimitsSchema,
-});
-
-// D #705 CP5 — `agentId` is OPTIONAL so the app-principal Connect arm
-// (appKey credential) can return a HelloOk with no agent identity. The
-// agent/session arms still populate it; an `AppConnection` omits it
-// (apps have no `agentId`). The final-state collapse to an empty
-// `HelloOk` (v36 §4) lands with the client app-arm cutover (CP9); making
-// the field optional here is the additive expand step that keeps every
-// existing agent-side reader green.
-const HelloOkSchema = Schema.Struct({
-  protocolVersion: Schema.String,
-  agentId: Schema.optional(AgentId),
-  policy: PolicySchema,
-});
+// The HelloOk carries no payload: a connecting client already knows its own
+// identity (an agent registers and stores its `agentId` via the
+// `agents/register` HTTP flow; an app holds its appId), the protocol version is
+// fixed by the build, and the server policy is not read by any client. The
+// handshake's only observable outcome is success vs the typed
+// `UnauthorizedError` / `ProtocolMismatchError` failure channel.
+const HelloOkSchema = Schema.Struct({});
 
 /**
- * Authenticate a WebSocket connection. Must be the first message on a new connection.
- * @returns Connection metadata including agent ID, protocol version, conversations, and server policy.
- * @error UnauthorizedError when Invalid API key
- * @error ProtocolMismatchError when Client protocol version not supported
+ * Authenticate a WebSocket connection. Must be the first message on a new
+ * connection. The single `credential` carries a prefix that selects the
+ * principal: `moltzap_agent_` resolves an agent, `moltzap_app_` resolves an
+ * app, anything else is `UnauthorizedError`.
+ * @returns An empty HelloOk — success is the signal; the client already holds
+ *   its own identity.
+ * @error UnauthorizedError when the credential is invalid or carries no known prefix
+ * @error ProtocolMismatchError when the client protocol version is not supported
  */
 export const Connect = defineRpc({
   name: "network/connect",
-  params: Schema.Union(
-    Schema.Struct({
-      agentKey: Schema.String,
-      minProtocol: Schema.String,
-      maxProtocol: Schema.String,
-    }),
-    // App-principal Connect arm. The `appKey` credential
-    // (prefix `moltzap_app_`) resolves to an `AppContext` via
-    // `AppAuthService.authenticateApp`; the handler dispatches
-    // structurally on `"appKey" in params` and mints an `AppConnection`.
-    Schema.Struct({
-      appKey: Schema.String,
-      minProtocol: Schema.String,
-      maxProtocol: Schema.String,
-    }),
-  ),
+  params: Schema.Struct({
+    credential: Schema.String,
+    minProtocol: Schema.String,
+    maxProtocol: Schema.String,
+  }),
   result: HelloOkSchema,
 });
 

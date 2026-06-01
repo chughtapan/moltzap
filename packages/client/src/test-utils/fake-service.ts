@@ -53,11 +53,13 @@ export class FakeMoltZapService extends MoltZapService {
     opts: {
       serverUrl?: string;
       agentKey?: string;
+      agentId?: string;
     } = {},
   ) {
     super({
       serverUrl: opts.serverUrl ?? "ws://test.invalid",
       agentKey: opts.agentKey ?? "test-key",
+      agentId: opts.agentId ?? "test-agent",
     });
   }
 

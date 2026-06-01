@@ -48,21 +48,13 @@ import { toWireError } from "../../app/native-handlers-runtime.js";
 
 type ConnectParams = ParamsOf<typeof Connect>;
 
-// Server policy block shared by both HelloOk shapes (agent + app arm). The
-// app arm's HelloOk differs from the agent's only by the absent `agentId`;
-// the policy is identical, so it lives once here rather than copy-pasted
-// into each builder.
-const SERVER_POLICY: HelloOk["policy"] = {
-  maxMessageBytes: 65536,
-  maxPartsPerMessage: 10,
-  maxTextLength: 32768,
-  maxGroupParticipants: 256,
-  heartbeatIntervalMs: 30000,
-  rateLimits: {
-    messagesPerMinute: 60,
-    requestsPerMinute: 120,
-  },
-};
+/** Credential prefix selecting an agent principal. */
+const AGENT_CREDENTIAL_PREFIX = "moltzap_agent_";
+/** Credential prefix selecting an app principal. */
+const APP_CREDENTIAL_PREFIX = "moltzap_app_";
+
+/** The empty HelloOk — success is the only payload. */
+const HELLO_OK: HelloOk = {};
 
 /** Agent API-key path — mints the closed-union `AgentContext` arm directly. */
 function authenticateAgentKey(
@@ -84,34 +76,21 @@ function authenticateAgentKey(
   }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
 }
 
+/**
+ * Emit the agent's `online` presence on connect, then return the empty HelloOk.
+ * `onAgentConnect(agentId, connId)` threads `connId` for the fast-reconnect
+ * race guard. The handshake carries no agent identity back — the client already
+ * holds its registered `agentId`.
+ */
 function buildHelloOk(
   ctx: AgentContext,
   connId: ConnectionId,
   presenceService: PresenceService,
 ): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
-  // WS connect emits via `onAgentConnect(agentId, connId)`. connId is
-  // threaded for the fast-reconnect race guard.
   return Effect.gen(function* () {
     yield* presenceService.onAgentConnect(ctx.agentId, connId);
-    return {
-      protocolVersion: PROTOCOL_VERSION,
-      agentId: ctx.agentId,
-      policy: SERVER_POLICY,
-    };
+    return HELLO_OK;
   }).pipe(Effect.withSpan("connect.buildHelloOk"));
-}
-
-/**
- * App-principal Connect builder. The `AppConnection` HelloOk carries
- * NO `agentId` (apps have no agent identity) and skips agent-only
- * hydration (conversation-id seeding, presence, endpoint registration). The
- * server policy is shared with the agent path.
- */
-function buildAppHelloOk(): HelloOk {
-  return {
-    protocolVersion: PROTOCOL_VERSION,
-    policy: SERVER_POLICY,
-  };
 }
 
 /**
@@ -298,16 +277,13 @@ function mirrorAgentArmTransition(
 }
 
 /**
- * Agent post-auth flow. Resolves the `agentKey` credential to an
+ * Agent post-auth flow. Resolves the `moltzap_agent_`-prefixed credential to an
  * `AgentContext`, mints the agent arm via the immutable transition, hydrates
  * the conversation-id subscription set + agent-endpoint registration, then
- * emits the agent-shaped `HelloOk`. Reached only for the `agentKey` arm
- * (the `appKey` arm returns early in {@link handleConnect}).
+ * emits the empty `HelloOk`. Reached only for the agent-prefixed credential
+ * (the app-prefixed credential returns early in {@link handleConnect}).
  */
-function completeAgentConnect(
-  params: Exclude<ConnectParams, { readonly appKey: string }>,
-  connId: ConnectionId,
-) {
+function completeAgentConnect(credential: string, connId: ConnectionId) {
   return Effect.gen(function* () {
     const authService = yield* AuthServiceTag;
     const conversationService = yield* ConversationServiceTag;
@@ -315,9 +291,7 @@ function completeAgentConnect(
     const connections = yield* ConnectionManagerTag;
     const agentEndpointResolver = yield* AgentEndpointResolverTag;
 
-    // The `appKey` arm returns early in `handleConnect`, so `params` here is
-    // narrowed to the `agentKey` arm.
-    const auth = yield* authenticateAgentKey(params.agentKey, authService);
+    const auth = yield* authenticateAgentKey(credential, authService);
     // The agent arm is minted by the immutable transition below; the
     // arm IS the auth store.
     yield* mirrorAgentArmTransition(connections, connId, auth);
@@ -414,8 +388,7 @@ function handleConnect(params: ConnectParams) {
 
       // Connect dispatches on the live arm. A re-Connect on an
       // already-authenticated arm is an idempotent no-op that re-emits the
-      // arm-appropriate `HelloOk`: the agent arm re-hydrates its agent shape;
-      // the app arm re-emits the agentId-less app shape.
+      // empty HelloOk.
       if (conn._tag === "AgentConnection") {
         const helloOk = yield* buildHelloOk(
           conn.auth,
@@ -426,16 +399,18 @@ function handleConnect(params: ConnectParams) {
         return helloOk;
       }
       if (conn._tag === "AppConnection") {
-        return buildAppHelloOk();
+        return HELLO_OK;
       }
 
-      // Structural credential dispatch over the Connect params
-      // union. The `appKey` arm mints an `AppConnection` (no agent identity,
-      // no conversation/presence hydration); the `agentKey` arm runs the
-      // full agent-side hydration in `completeAgentConnect`.
-      if ("appKey" in params) {
+      // Prefix-resolve the single `credential`: `moltzap_app_` mints an
+      // `AppConnection` (no agent identity, no conversation/presence
+      // hydration); `moltzap_agent_` runs the full agent-side hydration in
+      // `completeAgentConnect`; neither prefix is `UnauthorizedError`. The
+      // prefix is the principal selector — the security meaning is that an app
+      // credential can never mint an agent arm and vice versa.
+      if (params.credential.startsWith(APP_CREDENTIAL_PREFIX)) {
         const { auth: appAuth, manifest } = yield* authenticateAppKey(
-          params.appKey,
+          params.credential,
           appAuthService,
         );
         yield* registerAppArmTransition({
@@ -445,10 +420,18 @@ function handleConnect(params: ConnectParams) {
           auth: appAuth,
           manifest,
         });
-        return buildAppHelloOk();
+        return HELLO_OK;
       }
 
-      return yield* completeAgentConnect(params, conn.connId);
+      if (params.credential.startsWith(AGENT_CREDENTIAL_PREFIX)) {
+        return yield* completeAgentConnect(params.credential, conn.connId);
+      }
+
+      return yield* Effect.fail(
+        new UnauthorizedError({
+          message: "Credential has no recognized principal prefix",
+        }),
+      );
     }).pipe(Effect.withSpan("network.connect")),
   );
 }

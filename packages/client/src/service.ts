@@ -205,6 +205,13 @@ export function formatCrossConversationBlock(
 export interface ServiceOptions {
   serverUrl: string;
   agentKey: string;
+  /**
+   * The agent's own id, registered and stored by the client via the
+   * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries
+   * no identity back, so `ownAgentId` (isFromMe, the `~/.moltzap/<agentId>`
+   * socket path, status, trace records) sources from here.
+   */
+  agentId: string;
 }
 
 type NotificationHandler<T> = (data: T) => void;
@@ -426,7 +433,11 @@ export class MoltZapService {
 
   private _ownAgentId: string | undefined;
 
-  constructor(private opts: ServiceOptions) {}
+  constructor(private opts: ServiceOptions) {
+    // The empty HelloOk carries no identity; `ownAgentId` is the client's
+    // registered/stored id, available before the handshake.
+    this._ownAgentId = opts.agentId;
+  }
 
   get connected(): boolean {
     return this._connected;
@@ -485,7 +496,6 @@ export class MoltZapService {
 
       const helloOk = yield* client.connect();
       this._connected = true;
-      this._ownAgentId = helloOk.agentId;
       return helloOk;
     });
   }
