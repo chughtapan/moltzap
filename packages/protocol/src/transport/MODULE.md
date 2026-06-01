@@ -231,6 +231,31 @@ dispatch loop + the outbound originator (app-callback path) into a
 single `ServerConnection` value. `Env` is the slot table's residual
 service-tag union; `Conn` is the server's three-arm `Connection`.
 
+### [`CallablePrincipal`](./method.ts#L23)
+
+_TypeAlias_
+
+```ts
+export type CallablePrincipal = "agent" | "app" | "any";
+
+/**
+ * A capability tag a method requires: the `Context.Tag` the per-method
+ * `AuthMiddleware` provides as a field of the method's `AuthContext` proof. The
+ * cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
+ * caps the method requires and in what order. `Context.Tag<any, any>` is the
+ * variance-agnostic carrier (a concrete class tag is not assignable to
+ * `Context.Tag<unknown, unknown>`), matching `capability-middleware.ts`'s
+ * `AnyContextTag`.
+ */
+export type RpcCapTag = Context.Tag<any, any>;
+```
+
+The calling-principal axis of one RPC: which principal arm may originate it.
+`"agent"`/`"app"` gate the method to that arm; `"any"` is the lone
+unauthenticated method (`network/connect`, dispatched while the arm is still
+unauthenticated). This is the single descriptor-level source the client
+groups partition on and the server's principal gate reads.
+
 ### [`callerAgentId`](./current-principal.ts#L67)
 
 _Variable_
@@ -469,7 +494,7 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](./method.ts#L225)
+### [`decodeRpcParams`](./method.ts#L293)
 
 _Function_
 
@@ -500,7 +525,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L238)
+### [`decodeRpcResult`](./method.ts#L306)
 
 _Function_
 
@@ -515,7 +540,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L185)
+### [`defineNotification`](./method.ts#L253)
 
 _Function_
 
@@ -530,7 +555,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L115)
+### [`defineRpc`](./method.ts#L161)
 
 _Function_
 
@@ -539,7 +564,16 @@ export function defineRpc<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
->(def: { name: Name; params: P; result: R }): RpcDefinition<Name, P, R>
+  const K extends CallablePrincipal = "any",
+  const Caps extends ReadonlyArray<RpcCapTag> = readonly [],
+>(def: {
+  name: Name;
+  params: P;
+  result: R;
+  callablePrincipal?: K;
+  requiresActive?: boolean;
+  caps?: Caps;
+}): RpcDefinition<Name, P, R, K, Caps>
 ```
 
 Create one wire method's frozen descriptor: name, Effect `Schema` shapes,
@@ -1162,7 +1196,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L162)
+### [`NotificationDefinition`](./method.ts#L230)
 
 _Interface_
 
@@ -1231,7 +1265,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L173)
+### [`NotificationParamsOf`](./method.ts#L241)
 
 _TypeAlias_
 
@@ -1261,7 +1295,7 @@ export interface Originator {
 Originator side of a JSON-RPC connection. Scope-bound: closing the
 scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
 
-### [`ParamsOf`](./method.ts#L58)
+### [`ParamsOf`](./method.ts#L104)
 
 _TypeAlias_
 
@@ -1459,7 +1493,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L70)
+### [`ResultOf`](./method.ts#L116)
 
 _TypeAlias_
 
@@ -1517,7 +1551,23 @@ export interface Originator {
 }
 ```
 
-### [`RpcDefinition`](./method.ts#L37)
+### [`RpcCapTag`](./method.ts#L34)
+
+_TypeAlias_
+
+```ts
+export type RpcCapTag = Context.Tag<any, any>;
+```
+
+A capability tag a method requires: the `Context.Tag` the per-method
+`AuthMiddleware` provides as a field of the method's `AuthContext` proof. The
+cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
+caps the method requires and in what order. `Context.Tag<any, any>` is the
+variance-agnostic carrier (a concrete class tag is not assignable to
+`Context.Tag<unknown, unknown>`), matching `capability-middleware.ts`'s
+`AnyContextTag`.
+
+### [`RpcDefinition`](./method.ts#L57)
 
 _Interface_
 
@@ -1526,10 +1576,36 @@ export interface RpcDefinition<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
+  K extends CallablePrincipal = CallablePrincipal,
+  Caps extends ReadonlyArray<RpcCapTag> = ReadonlyArray<RpcCapTag>,
 > {
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
   readonly resultSchema: R;
+
+  /**
+   * The calling-principal axis (the single descriptor-level source). The client
+   * groups partition on it; the server principal gate reads it. Defaults to
+   * `"any"` for descriptors that do not declare it (only `network/connect`
+   * stays `"any"` at the gate, but an undeclared descriptor is never
+   * engine-gated).
+   */
+  readonly callablePrincipal: K;
+
+  /**
+   * Whether the agent arm must be claimed/active to call this method
+   * (agent-arm only). Read by the server gate; ignored for `"app"`/`"any"`.
+   */
+  readonly requiresActive: boolean;
+
+  /**
+   * The capability tags this method requires, in run order. The per-method
+   * `AuthMiddleware` runs each cap's derive/obtain (server-side) after
+   * resolving the principal, then provides the combined proof. Empty for a
+   * method with no caps.
+   */
+  readonly caps: Caps;
+
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
   // `unknown` for variance compatibility with the
@@ -1600,7 +1676,7 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](./method.ts#L203)
+### [`RpcParamsDecodeError`](./method.ts#L271)
 
 _Class_
 
@@ -1633,7 +1709,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L214)
+### [`RpcResultDecodeError`](./method.ts#L282)
 
 _Class_
 
