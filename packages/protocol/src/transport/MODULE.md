@@ -8,6 +8,20 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
+### [`AgentCallableGroup`](./client-callable-groups.ts#L118)
+
+_Variable_
+
+```ts
+export const AgentCallableGroup: RpcGroup.RpcGroup<
+  MembersWhereKind<typeof serverRpcMethods, "agent" | "any">
+> = callableGroup(["agent", "any"])
+```
+
+The outbound group a first-party AGENT client may originate: every
+`serverRpcMethods` member whose `callablePrincipal` is `"agent"` or `"any"`. A
+first-party `agentClient.taskClose(...)` (app-only) does not typecheck.
+
 ### [`AgentClientConnection`](./connection.ts#L171)
 
 _Interface_
@@ -94,6 +108,21 @@ Each element's `Params` is the OWNING method's decoded params type. The
 `unknown`/`never` slots are intentionally wide here — the per-method
 tuple narrows them at the descriptor literal (the same erasure-vs-recover
 pattern as `CapabilityDescriptor` / `CapabilitiesOf`).
+
+### [`AppCallableGroup`](./client-callable-groups.ts#L128)
+
+_Variable_
+
+```ts
+export const AppCallableGroup: RpcGroup.RpcGroup<
+  MembersWhereKind<typeof serverRpcMethods, "app" | "any">
+> = callableGroup(["app", "any"])
+```
+
+The outbound group a first-party APP client may originate: every
+`serverRpcMethods` member whose `callablePrincipal` is `"app"` or `"any"`. A
+first-party `appClient.taskRequest(...)` (agent-only) does not typecheck — the
+compile-time Principle-1 win.
 
 ### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L114)
 
@@ -2011,6 +2040,7 @@ fails with a Socket.SocketError if the socket is gone.
 ## Files
 
 - `capability-middleware.ts`
+- `client-callable-groups.ts`
 - `connection.ts`
 - `current-principal.ts`
 - `dispatch.ts`

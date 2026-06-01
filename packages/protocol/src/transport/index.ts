@@ -177,3 +177,13 @@ export {
   findEngineGatingMismatch,
 } from "./server-engine-group.js";
 export type { UnauthenticatedMethod } from "./server-engine-group.js";
+
+// §F — the two first-party client-callable group projections of the
+// `serverRpcMethods` catalog, partitioned by each descriptor's
+// `callablePrincipal`. An agent client types against `AgentCallableGroup`, an
+// app client against `AppCallableGroup`, so a cross-principal call is a compile
+// error (the runtime gate stays the untrusted-peer backstop).
+export {
+  AgentCallableGroup,
+  AppCallableGroup,
+} from "./client-callable-groups.js";
