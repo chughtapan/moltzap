@@ -27,9 +27,11 @@ import {
   TaskFailedNotificationDefinition,
   TaskRejectedError,
   TaskRequest,
+  TaskRequestAuth,
   provideMiddleware,
   type AppId,
   type Conversation,
+  type ParamsOf,
   type Task,
 } from "@moltzap/protocol";
 import {
@@ -48,6 +50,7 @@ import { broadcastNotificationToAgents } from "../../task/handlers/notification-
 import { defineAppMiddlewareMethod } from "../../transport/define-layered-method.js";
 import type { ServerRpcSlots } from "../../transport/context.js";
 import { contactPolicyAllowsReachMiddleware } from "../capability-middlewares.js";
+import { agentArm, toWireError } from "../native-handlers-runtime.js";
 
 type TaskRequestParams = {
   readonly appId: AppId;
@@ -234,3 +237,19 @@ export const taskRequestHandlers: ServerRpcSlots = [
     },
   ),
 ];
+
+// ── Native @effect/rpc handler body ─────────────────────────────────────────
+//
+// `ContactPolicyAllowsReach` is provided off the `TaskRequestAuth` proof; the
+// body drains the tag as a precondition of `taskService.create`.
+export const nativeTaskRequest = (params: ParamsOf<typeof TaskRequest>) =>
+  Effect.gen(function* () {
+    const auth = yield* TaskRequestAuth;
+    const ctx = yield* agentArm;
+    return yield* taskRequestBody(params, ctx).pipe(
+      Effect.provideService(
+        ContactPolicyAllowsReach,
+        auth[ContactPolicyAllowsReach.key],
+      ),
+    );
+  }).pipe(Effect.withSpan("nativeTaskRequest"), Effect.mapError(toWireError));

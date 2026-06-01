@@ -9,13 +9,19 @@ import {
 import {
   MessagesSend,
   MessagesList,
+  MessagesSendAuth,
+  MessagesListAuth,
   NotFoundError,
   ForbiddenError,
+  ConversationInTask,
+  MessageSendPermission,
+  TaskReadAccess,
   provideMiddleware,
   type LeaseId,
   type ParamsOf,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
+import { agentArm, toWireError } from "../../app/native-handlers-runtime.js";
 import { Effect, Exit } from "effect";
 import type { AgentContext } from "../../transport/context.js";
 import {
@@ -160,18 +166,7 @@ export const messageHandlers: ServerRpcSlots = [
     {
       callablePrincipal: "agent",
       requiresActive: true,
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const messageService = yield* MessageServiceTag;
-          return yield* messageService.list(
-            params.conversationId,
-            ctx.agentId,
-            {
-              limit: params.limit,
-              sinceSeq: params.sinceSeq,
-            },
-          );
-        }).pipe(Effect.withSpan("messages.list")),
+      handler: handleMessageList,
       // REVERSE declaration order: FIRST-declared (TaskReadAccess) outermost.
       weaveCaps: (handlerEffect, params) =>
         handlerEffect.pipe(
@@ -181,3 +176,48 @@ export const messageHandlers: ServerRpcSlots = [
     },
   ),
 ];
+
+function handleMessageList(
+  params: ParamsOf<typeof MessagesList>,
+  ctx: AgentContext,
+) {
+  return Effect.gen(function* () {
+    const messageService = yield* MessageServiceTag;
+    return yield* messageService.list(params.conversationId, ctx.agentId, {
+      limit: params.limit,
+      sinceSeq: params.sinceSeq,
+    });
+  }).pipe(Effect.withSpan("messages.list"));
+}
+
+// ── Native @effect/rpc handler bodies ───────────────────────────────────────
+//
+// Each reads its method's `*Auth` proof for the cap proofs (the per-method
+// `*AuthMw` ran them and keyed each by its cap tag's `key`), provides them as
+// services, narrows the arm via `agentArm`, and runs the SAME body the live slot
+// path runs. The domain error channel maps to the wire envelope each member
+// carries; `ConnectionTag` + the service tags ride out, provided by the request
+// runtime; the native engine excludes the proof tag.
+
+export const nativeMessagesSend = (params: MessagesSendParams) =>
+  Effect.gen(function* () {
+    const auth = yield* MessagesSendAuth;
+    const ctx = yield* agentArm;
+    return yield* handleMessageSend(params, ctx).pipe(
+      Effect.provideService(
+        MessageSendPermission,
+        auth[MessageSendPermission.key],
+      ),
+      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
+    );
+  }).pipe(Effect.withSpan("nativeMessagesSend"), Effect.mapError(toWireError));
+
+export const nativeMessagesList = (params: ParamsOf<typeof MessagesList>) =>
+  Effect.gen(function* () {
+    const auth = yield* MessagesListAuth;
+    const ctx = yield* agentArm;
+    return yield* handleMessageList(params, ctx).pipe(
+      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
+      Effect.provideService(TaskReadAccess, auth[TaskReadAccess.key]),
+    );
+  }).pipe(Effect.withSpan("nativeMessagesList"), Effect.mapError(toWireError));

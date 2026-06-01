@@ -176,7 +176,10 @@ export {
   isUnauthenticatedMethod,
   findEngineGatingMismatch,
 } from "./server-engine-group.js";
-export type { UnauthenticatedMethod } from "./server-engine-group.js";
+export type {
+  UnauthenticatedMethod,
+  HttpOnlyMethod,
+} from "./server-engine-group.js";
 
 // §F — the two first-party client-callable group projections of the
 // `serverRpcMethods` catalog, partitioned by each descriptor's

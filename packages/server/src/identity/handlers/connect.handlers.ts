@@ -42,6 +42,7 @@ import type {
   Originator,
 } from "../../transport/connection.js";
 import type { AppHost } from "../../app/app-host.js";
+import { toWireError } from "../../app/native-handlers-runtime.js";
 
 type ConnectParams = ParamsOf<typeof Connect>;
 
@@ -411,3 +412,15 @@ export const connectHandlers: ServerRpcSlots = [
     handler: (params) => handleConnect(params),
   }),
 ];
+
+// ── Native @effect/rpc handler body ─────────────────────────────────────────
+//
+// `network/connect` is the lone unauthenticated method: it carries no `*Auth`
+// proof. The body dispatches on the credential union itself, reading the live
+// `UnauthenticatedConnection` arm via `ConnectionTag`. Its domain errors map to
+// the coded wire envelope the engine member's `error` schema carries.
+export const nativeConnect = (params: ConnectParams) =>
+  handleConnect(params).pipe(
+    Effect.withSpan("nativeConnect"),
+    Effect.mapError(toWireError),
+  );
