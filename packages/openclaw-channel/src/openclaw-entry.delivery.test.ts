@@ -242,12 +242,16 @@ function createTestService(fixture: FakeChannelService): TestService {
 function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
   definition: D,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  if (definition === AgentsLookup) {
+  // Match by branded wire name (each descriptor's `name` is its unique
+  // identity). A direct `definition === AgentsLookup` reference comparison
+  // narrows `D` against the concrete descriptor's literal type params, which
+  // TS reads as non-overlapping; the name compare is identity-equivalent.
+  if (definition.name === AgentsLookup.name) {
     return Effect.succeed({
       agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
     } as ResultOf<D>);
   }
-  if (definition === MessagesSend) {
+  if (definition.name === MessagesSend.name) {
     return Effect.succeed({ message: { id: "sent-1" } } as ResultOf<D>);
   }
   return Effect.succeed({} as ResultOf<D>);

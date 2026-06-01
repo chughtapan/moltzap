@@ -1,5 +1,5 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Schema, type Context } from "effect";
 import { closedStructGuard } from "../schema-primitives.js";
 import {
   jsonRpcMethod,
@@ -12,6 +12,26 @@ import {
   type RequestFrame,
   type ResponseFrame,
 } from "./wire.js";
+
+/**
+ * The calling-principal axis of one RPC: which principal arm may originate it.
+ * `"agent"`/`"app"` gate the method to that arm; `"any"` is the lone
+ * unauthenticated method (`network/connect`, dispatched while the arm is still
+ * unauthenticated). This is the single descriptor-level source the client
+ * groups partition on and the server's principal gate reads.
+ */
+export type CallablePrincipal = "agent" | "app" | "any";
+
+/**
+ * A capability tag a method requires: the `Context.Tag` the per-method
+ * `AuthMiddleware` provides as a field of the method's `AuthContext` proof. The
+ * cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
+ * caps the method requires and in what order. `Context.Tag<any, any>` is the
+ * variance-agnostic carrier (a concrete class tag is not assignable to
+ * `Context.Tag<unknown, unknown>`), matching `capability-middleware.ts`'s
+ * `AnyContextTag`.
+ */
+export type RpcCapTag = Context.Tag<any, any>;
 
 /**
  * Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
@@ -38,10 +58,36 @@ export interface RpcDefinition<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
+  K extends CallablePrincipal = CallablePrincipal,
+  Caps extends ReadonlyArray<RpcCapTag> = ReadonlyArray<RpcCapTag>,
 > {
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
   readonly resultSchema: R;
+
+  /**
+   * The calling-principal axis (the single descriptor-level source). The client
+   * groups partition on it; the server principal gate reads it. Defaults to
+   * `"any"` for descriptors that do not declare it (only `network/connect`
+   * stays `"any"` at the gate, but an undeclared descriptor is never
+   * engine-gated).
+   */
+  readonly callablePrincipal: K;
+
+  /**
+   * Whether the agent arm must be claimed/active to call this method
+   * (agent-arm only). Read by the server gate; ignored for `"app"`/`"any"`.
+   */
+  readonly requiresActive: boolean;
+
+  /**
+   * The capability tags this method requires, in run order. The per-method
+   * `AuthMiddleware` runs each cap's derive/obtain (server-side) after
+   * resolving the principal, then provides the combined proof. Empty for a
+   * method with no caps.
+   */
+  readonly caps: Caps;
+
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
   // `unknown` for variance compatibility with the
@@ -116,11 +162,33 @@ export function defineRpc<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
->(def: { name: Name; params: P; result: R }): RpcDefinition<Name, P, R> {
-  const d: RpcDefinition<Name, P, R> = {
+  const K extends CallablePrincipal = "any",
+  const Caps extends ReadonlyArray<RpcCapTag> = readonly [],
+>(def: {
+  name: Name;
+  params: P;
+  result: R;
+  callablePrincipal?: K;
+  requiresActive?: boolean;
+  caps?: Caps;
+}): RpcDefinition<Name, P, R, K, Caps> {
+  const d: RpcDefinition<Name, P, R, K, Caps> = {
     name: jsonRpcMethod(def.name),
     paramsSchema: def.params,
     resultSchema: def.result,
+    // §F.3a auth axis — the single descriptor-level source. Defaults keep
+    // existing `defineRpc` call sites compiling unchanged: an undeclared
+    // method is `"any"`/no-caps, populated per-method as the server cutover
+    // reads them. `K extends "any"`'s default + the `?? "any"` runtime default
+    // agree, so the type and the value match.
+    callablePrincipal: def.callablePrincipal ?? ("any" as K),
+    requiresActive: def.requiresActive ?? false,
+    // When `def.caps` is omitted, `Caps` infers to its default `readonly []`,
+    // for which the empty tuple is the sound value; the no-arg branch only
+    // reaches the default when `Caps` is exactly that, so the assertion is the
+    // generic-default laundering TS cannot express on the union of the two arms.
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- generic-default laundering: the `?? []` branch is reached only when `def.caps` is omitted, where `Caps` infers to `readonly []` and `[]` is its sound value.
+    caps: def.caps ?? ([] as unknown as Caps), // #ignore-sloppy-code[as-unknown-as]: generic-default laundering, the empty tuple is the sound value of the inferred `readonly []` default.
     validateParams: closedStructGuard(def.params),
     validateResult: closedStructGuard(def.result),
     // `params` is `unknown` ONLY because the descriptor's `encodeRequest`
