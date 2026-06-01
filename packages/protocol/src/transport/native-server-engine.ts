@@ -25,32 +25,12 @@
  *   H -->|FromServerEncoded| socket
  * ```
  */
-import { RpcMiddleware, RpcServer } from "@effect/rpc";
+import { RpcServer } from "@effect/rpc";
 import { Effect, Layer, type Mailbox } from "effect";
-import { CurrentPrincipal } from "./current-principal.js";
 import { makeServerChannelProtocol, type WireWrite } from "./native-mux.js";
-import { ServerRpcGroup } from "./rpc-method-groups.js";
+import { ServerEngineRpcGroup } from "./server-engine-group.js";
 
-/**
- * The `@effect/rpc` middleware descriptor that provides the request's
- * authenticated {@link CurrentPrincipal.Principal} into every handler's
- * Context. `provides: CurrentPrincipal` makes the middleware's service value
- * the 2-arm principal, so a handler reads identity via `yield* CurrentPrincipal`
- * with no `ctx` parameter and no cast.
- *
- * The descriptor is protocol-owned because the Tag it provides
- * (`CurrentPrincipal`) is protocol-owned; the implementation that resolves a
- * `clientId` to its live connection arm (via the server's `ConnectionManager`)
- * and narrows the 3-arm connection union to the 2-arm principal is a server
- * concern, supplied as a `Layer` over this Tag. The middleware impl shape
- * `@effect/rpc` derives from this descriptor is
- * `({ clientId, rpc, payload, headers }) => Effect&lt;Principal&gt;` —
- * payload-only, no `ctx`.
- */
-export class PrincipalResolution extends RpcMiddleware.Tag<PrincipalResolution>()(
-  "@moltzap/protocol/PrincipalResolution",
-  { provides: CurrentPrincipal },
-) {}
+export { PrincipalResolution } from "./server-engine-group.js";
 
 /**
  * Build the `RpcServer.Protocol` layer over one server-side native-mux
@@ -84,14 +64,20 @@ export const makeServerProtocolLayer = (options: {
 };
 
 /**
- * The native server engine layer for {@link ServerRpcGroup}.
+ * The native server engine layer for {@link ServerEngineRpcGroup} — the
+ * middleware-attached group, NOT the un-gated `ServerRpcGroup`. Binding
+ * `ServerRpcGroup` here would run every method with no `PrincipalResolution`
+ * gate, an authorization bypass; the server-wiring guard canary
+ * (`server-engine-group.types-check.ts`) pins that this layer's requirement
+ * channel demands `PrincipalResolution`.
+ *
  * `RpcServer.layer(group)` runs the dispatch loop over whatever
  * `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
  * requirement channel is
- * `RpcServer.Protocol | Rpc.ToHandler&lt;ServerRpcGroup&gt;` plus the group's
- * Context/Middleware — the live connection provides the
- * Protocol via {@link makeServerProtocolLayer}, the handler bodies via
- * `ServerRpcGroup.toLayer(...)`, and the {@link PrincipalResolution} middleware
- * runtime via its server-supplied `Layer`.
+ * `RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus
+ * `PrincipalResolution` — the live connection provides the Protocol via
+ * {@link makeServerProtocolLayer}, the handler bodies via
+ * `ServerEngineRpcGroup.toLayer(...)`, and the {@link PrincipalResolution}
+ * middleware runtime via its per-socket server-supplied `Layer`.
  */
-export const ServerEngineLayer = RpcServer.layer(ServerRpcGroup);
+export const ServerEngineLayer = RpcServer.layer(ServerEngineRpcGroup);

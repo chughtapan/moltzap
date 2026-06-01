@@ -42,7 +42,7 @@ table (the AgentClient kind's inbound catalog is empty); the factory
 accepts it for forward compatibility (if a future spec adds
 AgentClient-inbound RPCs, the slot table demands coverage).
 
-### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L105)
+### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L111)
 
 _Variable_
 
@@ -95,7 +95,7 @@ Each element's `Params` is the OWNING method's decoded params type. The
 tuple narrows them at the descriptor literal (the same erasure-vs-recover
 pattern as `CapabilityDescriptor` / `CapabilitiesOf`).
 
-### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L108)
+### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L114)
 
 _Variable_
 
@@ -137,7 +137,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the app's typed
 verdict drives the lifecycle transition.
 
-### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L102)
+### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L108)
 
 _Variable_
 
@@ -958,7 +958,7 @@ Factory — server side. Delegates to `buildServerDispatcher`
     pending Deferreds. Scope finalizer drains pending Deferreds with
     `NotConnectedError`.
 
-### [`makeServerProtocolLayer`](./native-server-engine.ts#L69)
+### [`makeServerProtocolLayer`](./native-server-engine.ts#L49)
 
 _Function_
 
@@ -1267,31 +1267,38 @@ extra fields are fine for a read-only consumer), so the server provides
 the live narrowed arm directly. The `appId` of the app arm is sourced
 from the live `AppConnection.auth` minted at auth time, NOT hardcoded.
 
-### [`PrincipalResolution`](./native-server-engine.ts#L50)
+### [`PrincipalResolution`](./server-engine-group.ts#L59)
 
 _Class_
 
 ```ts
 export class PrincipalResolution extends RpcMiddleware.Tag<PrincipalResolution>()(
   "@moltzap/protocol/PrincipalResolution",
-  { provides: CurrentPrincipal },
+  { provides: CurrentPrincipal, failure: WireErrorSchema },
 ) {}
 ```
 
 The `@effect/rpc` middleware descriptor that provides the request's
-authenticated CurrentPrincipal.Principal into every handler's
+authenticated CurrentPrincipal.Principal into every gated handler's
 Context. `provides: CurrentPrincipal` makes the middleware's service value
 the 2-arm principal, so a handler reads identity via `yield* CurrentPrincipal`
 with no `ctx` parameter and no cast.
 
 The descriptor is protocol-owned because the Tag it provides
 (`CurrentPrincipal`) is protocol-owned; the implementation that resolves a
-`clientId` to its live connection arm (via the server's `ConnectionManager`)
-and narrows the 3-arm connection union to the 2-arm principal is a server
-concern, supplied as a `Layer` over this Tag. The middleware impl shape
+connection to its live arm (via the server's `ConnectionManager`) and narrows
+the 3-arm connection union to the 2-arm principal is a server concern,
+supplied as a per-socket `Layer` over this Tag. The middleware impl shape
 `@effect/rpc` derives from this descriptor is
-`({ clientId, rpc, payload, headers }) => Effect&lt;Principal&gt;` —
+`({ clientId, rpc, payload, headers }) => Effect&lt;Principal, WireError&gt;` —
 payload-only, no `ctx`.
+
+`failure: WireErrorSchema` types the gate's rejection as the same coded wire
+envelope every member's `error` carries, so a wrong-principal/inactive frame
+fails the middleware effect with a typed `WireError` the client reconstructs
+via `wire-errors.ts → errorClassFor`. Non-optional (no `optional: true`): an
+optional middleware's runtime fold falls through to the handler on failure,
+which would let a rejected principal reach the body — the gate must HARD-fail.
 
 ### [`provideMiddleware`](./capability-middleware.ts#L145)
 
@@ -1699,23 +1706,39 @@ is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
 supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
 for the outbound app-callback path.
 
-### [`ServerEngineLayer`](./native-server-engine.ts#L97)
+### [`ServerEngineLayer`](./native-server-engine.ts#L83)
 
 _Variable_
 
 ```ts
-export const ServerEngineLayer = RpcServer.layer(ServerRpcGroup)
+export const ServerEngineLayer = RpcServer.layer(ServerEngineRpcGroup)
 ```
 
-The native server engine layer for ServerRpcGroup.
+The native server engine layer for ServerEngineRpcGroup — the
+middleware-attached group, NOT the un-gated `ServerRpcGroup`. Binding
+`ServerRpcGroup` here would run every method with no `PrincipalResolution`
+gate, an authorization bypass; the server-wiring guard canary
+(`server-engine-group.types-check.ts`) pins that this layer's requirement
+channel demands `PrincipalResolution`.
+
 `RpcServer.layer(group)` runs the dispatch loop over whatever
 `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
 requirement channel is
-`RpcServer.Protocol | Rpc.ToHandler&lt;ServerRpcGroup&gt;` plus the group's
-Context/Middleware — the live connection provides the
-Protocol via makeServerProtocolLayer, the handler bodies via
-`ServerRpcGroup.toLayer(...)`, and the PrincipalResolution middleware
-runtime via its server-supplied `Layer`.
+`RpcServer.Protocol | Rpc.ToHandler&lt;ServerEngineRpcGroup&gt;` plus
+`PrincipalResolution` — the live connection provides the Protocol via
+makeServerProtocolLayer, the handler bodies via
+`ServerEngineRpcGroup.toLayer(...)`, and the PrincipalResolution
+middleware runtime via its per-socket server-supplied `Layer`.
+
+### [`ServerEngineRpcGroup`](./server-engine-group.ts#L163)
+
+_Variable_
+
+```ts
+export const ServerEngineRpcGroup: RpcGroup.RpcGroup<
+  EngineMembers<typeof serverRpcMethods>[number]
+> = RpcGroup.make(...engineMembers)
+```
 
 ### [`serverProtocolCanary`](./native-mux.types-check.ts#L37)
 
@@ -1727,7 +1750,7 @@ export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
 )
 ```
 
-### [`ServerRpcGroup`](./rpc-method-groups.ts#L99)
+### [`ServerRpcGroup`](./rpc-method-groups.ts#L105)
 
 _Variable_
 
@@ -1764,6 +1787,32 @@ does not depend on `@moltzap/server-core`. The slot factory is generic over
 `DispatchContext` (`transport/context.ts`) is just `SlotDispatchContext<
 Connection>` — the SAME type, one name per role (#705 HALF-2 collapsed the
 former duplicate server-local + argsOf-resolver `DispatchContext`s here).
+
+### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L73)
+
+_Variable_
+
+```ts
+export const UNAUTHENTICATED_METHODS = ["network/connect"] as const
+```
+
+The ONLY methods callable on an unauthenticated connection. Built WITHOUT
+PrincipalResolution (no principal exists pre-auth); they read the live
+3-arm `Connection` via `ConnectionTag`. EXHAUSTIVE: every other
+`ServerRpcGroup` method is authenticated and carries the gate. Adding a method
+here is a deliberate, reviewed security decision — the partition canary
+(`server-engine-group.types-check.ts`) FAILS the build if a method is in
+neither partition or both.
+
+### [`UnauthenticatedMethod`](./server-engine-group.ts#L76)
+
+_TypeAlias_
+
+```ts
+export type UnauthenticatedMethod = (typeof UNAUTHENTICATED_METHODS)[number];
+```
+
+A plain (unbranded) member of UNAUTHENTICATED_METHODS.
 
 ### [`UnauthorizedError`](./wire-errors.ts#L96)
 
@@ -1814,6 +1863,29 @@ Reads wire metadata (code/message/data) off an `RpcErrorClass` instance.
 Returns `null` when the failure isn't a registered wire-error class
 (caller routes to InternalError).
 
+### [`WireErrorSchema`](./rpc-method-groups.ts#L30)
+
+_Variable_
+
+```ts
+export const WireErrorSchema = Schema.Struct({
+  code: Schema.Number.pipe(Schema.int()),
+  message: Schema.String,
+  data: Schema.optional(Schema.Unknown),
+})
+```
+
+The JSON-RPC error envelope every wire response carries on its `error`
+sub-object: code, message, and optional data. This is the Schema form of the
+`WireError` shape `transport/dispatch.ts → wireErrorFromInstance` projects a
+registered tagged-error instance onto, so it is the `Rpc.make` error Schema
+for every group member: the engine encodes a handler failure onto these
+three fields, and the client side reconstructs the typed tagged error from
+the code via `wire-errors.ts → errorClassFor`. Per-tag error narrowing stays
+a registry concern (the `RegisteredTaggedError` union in `rpc-registry.ts`),
+not a per-member Schema union — the wire only ever carries the coded
+envelope.
+
 ### [`WireWrite`](./native-mux.ts#L79)
 
 _TypeAlias_
@@ -1845,5 +1917,6 @@ fails with a Socket.SocketError if the socket is gone.
 - `rpc-errors.ts`
 - `rpc-groups.ts`
 - `rpc-method-groups.ts`
+- `server-engine-group.ts`
 - `wire-errors.ts`
 - `wire.ts`
