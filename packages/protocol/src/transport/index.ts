@@ -173,5 +173,7 @@ export {
 export {
   ServerEngineRpcGroup,
   UNAUTHENTICATED_METHODS,
+  isUnauthenticatedMethod,
+  findEngineGatingMismatch,
 } from "./server-engine-group.js";
 export type { UnauthenticatedMethod } from "./server-engine-group.js";

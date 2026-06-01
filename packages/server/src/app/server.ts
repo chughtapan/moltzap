@@ -22,11 +22,11 @@ import {
   validatePrincipalKinds,
   PrincipalKindRegistryError,
   type ServerMethodBindings,
-  type PrincipalKindTable,
 } from "../transport/server-method-bindings.js";
 import {
   ServerEngineRpcGroup,
   UNAUTHENTICATED_METHODS,
+  findEngineGatingMismatch,
 } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
@@ -173,11 +173,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const { dispatchRuntime, services } = makeCoreRuntime(config);
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
-  // Fail-closed backstop: the projected `principalKinds` keys must EXACTLY equal
-  // the engine's gated tag set, else a method reached the authenticated engine
-  // without a policy. Validated at boot, before any socket is served.
-  validateCorePrincipalKinds();
-  const slots = buildServerSlots(makeCoreRpcMethods());
+  const slots = buildValidatedServerSlots();
   const handleSocket = makeSocketHandler({
     services,
     slots,
@@ -257,6 +253,26 @@ function buildServerSlots(methods: ServerRpcSlots): ServerRpcSlotTable {
 }
 
 /**
+ * Assemble the dispatch slot table, validating the #720 principal-kind policy
+ * registry at boot first. The slots are built once and threaded through both
+ * the fail-closed check and the table keying.
+ */
+function buildValidatedServerSlots(): ServerRpcSlotTable {
+  const methods = makeCoreRpcMethods();
+  // Runtime gate-presence backstop: every engine member carries
+  // `PrincipalResolution` iff it is not unauthenticated. Inspects the actual
+  // built middleware, which the group's single type assertion cannot prove.
+  const gatingMismatch = findEngineGatingMismatch();
+  if (gatingMismatch !== undefined) {
+    throw new PrincipalKindRegistryError(
+      `ServerEngineRpcGroup gating mismatch for ${gatingMismatch}`,
+    );
+  }
+  validateCorePrincipalKinds(methods);
+  return buildServerSlots(methods);
+}
+
+/**
  * Assemble the single-source {@link ServerMethodBindings} tuple from the slots'
  * `binding` field — the #720 policy each `define*Method` wrapper surfaced. The
  * native engine's handler map and the `principalKinds` policy table are both
@@ -264,15 +280,6 @@ function buildServerSlots(methods: ServerRpcSlots): ServerRpcSlotTable {
  */
 function serverMethodBindings(methods: ServerRpcSlots): ServerMethodBindings {
   return methods.map((slot) => slot.binding);
-}
-
-/**
- * Project the principal-kind policy table the native engine's per-connection
- * gate reads. One entry per authenticated binding (every tag NOT in
- * `UNAUTHENTICATED_METHODS`); a gate lookup miss fails CLOSED.
- */
-function corePrincipalKinds(): PrincipalKindTable {
-  return projectPrincipalKinds(serverMethodBindings(makeCoreRpcMethods()));
 }
 
 /**
@@ -288,11 +295,13 @@ function corePrincipalKinds(): PrincipalKindTable {
  * catalog-derived and a superset of the WS surface); a policy naming a tag the
  * group lacks would be a wiring defect, caught by the stray-key check.
  */
-function expectedGatedTags(): ReadonlySet<string> {
+function expectedGatedTags(
+  bindings: ServerMethodBindings,
+): ReadonlySet<string> {
   const unauth = new Set<string>(UNAUTHENTICATED_METHODS);
   const engineMembers = new Set<string>(ServerEngineRpcGroup.requests.keys());
   const gated = new Set<string>();
-  for (const b of serverMethodBindings(makeCoreRpcMethods())) {
+  for (const b of bindings) {
     if (unauth.has(b.tag)) continue;
     if (!engineMembers.has(b.tag)) {
       throw new PrincipalKindRegistryError(
@@ -312,8 +321,12 @@ function expectedGatedTags(): ReadonlySet<string> {
  * type-level partition canary pins the static shape; this catches a build that
  * somehow skipped it.
  */
-function validateCorePrincipalKinds(): void {
-  validatePrincipalKinds(corePrincipalKinds(), expectedGatedTags());
+function validateCorePrincipalKinds(methods: ServerRpcSlots): void {
+  const bindings = serverMethodBindings(methods);
+  validatePrincipalKinds(
+    projectPrincipalKinds(bindings),
+    expectedGatedTags(bindings),
+  );
 }
 
 type CoreRuntime = ReturnType<typeof makeCoreRuntime>;
