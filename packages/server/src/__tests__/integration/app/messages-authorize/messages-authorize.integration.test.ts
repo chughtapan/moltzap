@@ -280,7 +280,7 @@ function expectHookBlocked(
   Either.match(outcome, {
     onLeft: (error) => {
       const wire = error as { code?: number; message?: string };
-      expect(wire.code).toBe(HookBlockedError.code);
+      expect(wire.code).toBe("HookBlocked");
       if (messagePattern !== undefined) {
         expect(String(wire.message)).toMatch(messagePattern);
       }

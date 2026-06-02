@@ -78,7 +78,7 @@ it("non-owner/admin member gets 403 on archive", () =>
 
     const err = yield* expectRpcFailure(
       bob.client.sendRpc(TaskConversationArchive, { taskId, conversationId }),
-      ForbiddenError.code,
+      "Forbidden",
     );
-    expect(err.code).toBe(ForbiddenError.code);
+    expect(err.tag).toBe("Forbidden");
   }));

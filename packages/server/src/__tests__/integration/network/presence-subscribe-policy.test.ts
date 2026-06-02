@@ -116,7 +116,7 @@ function rejectsInvisibleAgent() {
     );
 
     const err = extractRpcResponseError(exit);
-    expect(err.code).toBe(NotInContactsError.code);
+    expect(err.tag).toBe("NotInContacts");
     const data = err.data as { agentIds: string[] } | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
   });
@@ -143,7 +143,7 @@ function rejectsOnlyInvisibleSubset() {
     );
 
     const err = extractRpcResponseError(exit);
-    expect(err.code).toBe(NotInContactsError.code);
+    expect(err.tag).toBe("NotInContacts");
     const data = err.data as { agentIds: string[] } | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
     expect(data?.agentIds).not.toContain(alice2.agentId);

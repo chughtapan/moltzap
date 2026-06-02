@@ -22,9 +22,11 @@ import {
   registerAndConnect,
 } from "../helpers.js";
 import { getWsUrl } from "../../../test-utils/index.js";
-import { JSON_RPC_RESERVED_CODES } from "@moltzap/protocol";
 
 const RESPONSE_FLUSH_WAIT_MS = 200;
+// JSON-RPC parse-error code the engine serialization layer emits for
+// unparseable frames (engine-level wire format, not a method error union).
+const PARSE_ERROR_CODE = -32700;
 const GARBAGE_FRAME_COUNT = 101;
 const MIN_PARSE_ERROR_RESPONSES = 95;
 
@@ -103,7 +105,7 @@ it("responds with ParseError to 101 garbage frames and server survives", () =>
     // least most came back" instead of an exact count.
     const parseErrors = responses.filter((r) => {
       const f = r as { error?: { code?: number } };
-      return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
+      return f.error?.code === PARSE_ERROR_CODE;
     });
     expect(parseErrors.length).toBeGreaterThanOrEqual(
       MIN_PARSE_ERROR_RESPONSES,
@@ -122,7 +124,7 @@ it("parse-error response uses id:null for frames the server cannot parse", () =>
 
     const parseErrors = responses.filter((r) => {
       const f = r as { error?: { code?: number } };
-      return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
+      return f.error?.code === PARSE_ERROR_CODE;
     });
     expect(parseErrors.length).toBeGreaterThanOrEqual(1);
     const first = parseErrors[0] as {
