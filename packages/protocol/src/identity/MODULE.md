@@ -4,7 +4,7 @@ _`packages/protocol/src/identity`_
 
 ## Purpose
 
-Public barrel for identity, agent, contact, and invite protocol descriptors.
+Public barrel for identity, agent, and contact protocol descriptors.
 
 ## Public surface
 
@@ -48,7 +48,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L192)
+### [`AgentsList`](./agents.ts#L179)
 
 _Variable_
 
@@ -71,7 +71,7 @@ export const AgentsList = defineRpc({
 
 List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
 
-### [`AgentsLookup`](./agents.ts#L161)
+### [`AgentsLookup`](./agents.ts#L148)
 
 _Variable_
 
@@ -92,7 +92,7 @@ export const AgentsLookup = defineRpc({
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
 
-### [`AgentsLookupByName`](./agents.ts#L177)
+### [`AgentsLookupByName`](./agents.ts#L164)
 
 _Variable_
 
@@ -298,7 +298,7 @@ export const ContactsList = defineRpc({
 
 List contacts for the authenticated agent.
 
-### [`identityNotifications`](./methods.ts#L37)
+### [`identityNotifications`](./methods.ts#L28)
 
 _Variable_
 
@@ -309,15 +309,12 @@ export const identityNotifications = [
 ] as const
 ```
 
-### [`identityRpcMethods`](./methods.ts#L23)
+### [`identityRpcMethods`](./methods.ts#L18)
 
 _Variable_
 
 ```ts
 export const identityRpcMethods = [
-  Register,
-  Claim,
-  InviteAgent,
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
@@ -325,47 +322,8 @@ export const identityRpcMethods = [
   ContactsAdd,
   ContactsAccept,
   ContactsById,
-  InvitesCreateAgent,
 ] as const
 ```
-
-### [`InviteAgent`](./agents.ts#L148)
-
-_Variable_
-
-```ts
-export const InviteAgent = defineRpc({
-  name: "agents/invite",
-  params: Schema.Struct({ phone: Schema.optional(Schema.String) }),
-  result: Schema.Struct(
-    {},
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  ),
-  errors: [],
-})
-```
-
-Create an agent invite for a phone number.
-
-### [`InvitesCreateAgent`](./invites.ts#L7)
-
-_Variable_
-
-```ts
-export const InvitesCreateAgent = defineRpc({
-  name: "invites/createAgent",
-  params: Schema.Struct({}),
-  // Open result shape: accepts any string-keyed record so the
-  // response is not locked to an unformalized shape.
-  result: Schema.Struct(
-    {},
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  ),
-  errors: [],
-})
-```
-
-Create an agent invite.
 
 ### [`NotInContactsError`](./contacts.ts#L16)
 
@@ -444,5 +402,4 @@ export const validateAgentCard = closedGuard(AgentCardSchema)
 
 - `agents.ts`
 - `contacts.ts`
-- `invites.ts`
 - `methods.ts`

@@ -99,7 +99,7 @@ function makeEnvelopeEncoder(
     const wire = parser.encode(frame);
     if (typeof wire !== "string") {
       return Effect.dieMessage(
-        `native-mux: JSON parser produced a non-string frame on channel ${channel}`,
+        `mux: JSON parser produced a non-string frame on channel ${channel}`,
       );
     }
     return Effect.succeed(
@@ -191,19 +191,19 @@ function resolveRoute(
       Effect.option,
     );
     if (Option.isNone(parsed)) {
-      yield* onMalformed("native-mux: non-JSON socket chunk", "c2s");
+      yield* onMalformed("mux: non-JSON socket chunk", "c2s");
       return Option.none();
     }
     return yield* decodeEnvelope(parsed.value).pipe(
       Either.match({
         onLeft: () =>
-          onMalformed("native-mux: malformed envelope", "c2s").pipe(
+          onMalformed("mux: malformed envelope", "c2s").pipe(
             Effect.as(Option.none<RoutedChunk>()),
           ),
         onRight: (env) => {
           const matched = sinks[env.ch];
           return matched === undefined
-            ? onMalformed("native-mux: chunk for unknown channel", env.ch).pipe(
+            ? onMalformed("mux: chunk for unknown channel", env.ch).pipe(
                 Effect.as(Option.none<RoutedChunk>()),
               )
             : Effect.succeedSome([matched, env.ch, env.f] as const);
@@ -227,13 +227,13 @@ export function routeInbound(
       channelSink.parser.decode(wire),
     ).pipe(Effect.option);
     if (Option.isNone(frames)) {
-      yield* onMalformed("native-mux: undecodable inner frame", channel);
+      yield* onMalformed("mux: undecodable inner frame", channel);
       return;
     }
     for (const frame of frames.value) {
       yield* channelSink.inject(frame);
     }
-  }).pipe(Effect.withSpan("native-mux.routeInbound"));
+  }).pipe(Effect.withSpan("mux.routeInbound"));
 }
 
 /**
@@ -315,7 +315,7 @@ export function makeServerChannelProtocol(options: {
           encode(response).pipe(
             Effect.flatMap(options.write),
             Effect.catchAll((err) =>
-              Effect.logWarning("native-mux: server send failed").pipe(
+              Effect.logWarning("mux: server send failed").pipe(
                 Effect.annotateLogs({ err, channel: options.channel }),
               ),
             ),
@@ -358,7 +358,7 @@ export function makeClientChannelProtocol(options: {
           encode(request).pipe(
             Effect.flatMap(options.write),
             Effect.catchAll((err) =>
-              Effect.logWarning("native-mux: client send failed").pipe(
+              Effect.logWarning("mux: client send failed").pipe(
                 Effect.annotateLogs({ err, channel: options.channel }),
               ),
             ),

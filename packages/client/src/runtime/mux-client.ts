@@ -1,6 +1,6 @@
 /**
- * @file The client-side native `@effect/rpc` engine over the channel-mux
- * transport (`@moltzap/protocol transport/native-mux.ts`).
+ * @file The client-side `@effect/rpc` engine over the channel-mux
+ * transport (`@moltzap/protocol transport/mux.ts`).
  *
  * One physical WebSocket carries the `c2s` outbound RPC channel (this module)
  * and, after the callback role-inversion, the `s2c` server-originated callback
@@ -27,7 +27,7 @@ import {
 } from "@moltzap/protocol";
 
 /**
- * Build the native client engine over one socket channel. Returns the non-flat
+ * Build the client engine over one socket channel. Returns the non-flat
  * per-method `RpcClient` (the record the high-level clients view as a
  * `TypedDispatchMap` and dispatch `client[tag](payload)` through cast-free) plus
  * a `Deferred` already resolved with the `c2s` sink. The engine reader is forked
@@ -38,7 +38,7 @@ import {
  * `From` key-remapping does not reduce against an abstract `Rpcs`). The caller
  * binds the result into a concrete `TypedDispatchMap&lt;ConcreteRpcs, …>` field.
  */
-export const buildNativeClient = <Rpcs extends Rpc.Any>(options: {
+export const buildClient = <Rpcs extends Rpc.Any>(options: {
   readonly group: RpcGroup.RpcGroup<Rpcs>;
   readonly write: WireWrite;
   readonly scope: Scope.Scope;
@@ -67,4 +67,4 @@ export const buildNativeClient = <Rpcs extends Rpc.Any>(options: {
     );
     const sink = yield* Deferred.await(sinkReady);
     return { client, sink };
-  }).pipe(Effect.withSpan("buildNativeClient"));
+  }).pipe(Effect.withSpan("buildClient"));

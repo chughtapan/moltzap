@@ -11,7 +11,7 @@ import {
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { AgentId as ServerAgentId } from "../../app/types.js";
 import type { AgentContext } from "../../transport/context.js";
-import { agentArm } from "../../app/native-handlers-runtime.js";
+import { agentArm } from "../../app/server-handlers-runtime.js";
 import { DbTag } from "../../app/layers.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
@@ -197,21 +197,21 @@ function agentsListBody(
   }).pipe(Effect.withSpan("agents.list.handler"));
 }
 
-// ── Native @effect/rpc handler bodies ───────────────────────────────────────
+// ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const nativeAgentsLookup = (params: ParamsOf<typeof AgentsLookup>) =>
+export const agentsLookup = (params: ParamsOf<typeof AgentsLookup>) =>
   Effect.gen(function* () {
     return yield* agentsLookupBody(params);
-  }).pipe(Effect.withSpan("nativeAgentsLookup"));
+  }).pipe(Effect.withSpan("agentsLookup"));
 
-export const nativeAgentsLookupByName = (
+export const agentsLookupByName = (
   params: ParamsOf<typeof AgentsLookupByName>,
 ) =>
   Effect.gen(function* () {
     return yield* agentsLookupByNameBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeAgentsLookupByName"));
+  }).pipe(Effect.withSpan("agentsLookupByName"));
 
-export const nativeAgentsList = (params: ParamsOf<typeof AgentsList>) =>
+export const agentsList = (params: ParamsOf<typeof AgentsList>) =>
   Effect.gen(function* () {
     return yield* agentsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeAgentsList"));
+  }).pipe(Effect.withSpan("agentsList"));

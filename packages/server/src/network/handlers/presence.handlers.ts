@@ -8,7 +8,7 @@ import type { AgentId as ServerAgentId } from "../../app/types.js";
 import { Effect } from "effect";
 import { ConnectionTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
-import { agentArm } from "../../app/native-handlers-runtime.js";
+import { agentArm } from "../../app/server-handlers-runtime.js";
 
 /**
  * `presence/subscribe` registers fan-out interest via
@@ -54,11 +54,9 @@ function presenceSubscribeBody(
   }).pipe(Effect.withSpan("presence.subscribe"));
 }
 
-// ── Native @effect/rpc handler body ─────────────────────────────────────────
+// ── @effect/rpc handler body ─────────────────────────────────────────
 
-export const nativePresenceSubscribe = (
-  params: ParamsOf<typeof PresenceSubscribe>,
-) =>
+export const presenceSubscribe = (params: ParamsOf<typeof PresenceSubscribe>) =>
   Effect.gen(function* () {
     return yield* presenceSubscribeBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativePresenceSubscribe"));
+  }).pipe(Effect.withSpan("presenceSubscribe"));

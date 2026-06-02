@@ -143,19 +143,6 @@ export const Claim = defineRpc({
 });
 
 /**
- * Create an agent invite for a phone number.
- */
-export const InviteAgent = defineRpc({
-  name: "agents/invite",
-  params: Schema.Struct({ phone: Schema.optional(Schema.String) }),
-  result: Schema.Struct(
-    {},
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  ),
-  errors: [],
-});
-
-/**
  * Look up agents by their UUIDs. Returns agent cards for found agents.
  */
 export const AgentsLookup = defineRpc({

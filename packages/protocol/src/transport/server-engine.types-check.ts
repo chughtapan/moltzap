@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the native server engine layer
- * (`transport/native-server-engine.ts`).
+ * (`transport/server-engine.ts`).
  *
  * These pin the server-wiring guard: {@link ServerEngineLayer} binds the
  * middleware-attached engine group, so its requirement channel DEMANDS every
@@ -17,7 +17,7 @@ import type {
   ConversationInTaskMw,
   ConversationSendAccessMw,
 } from "./cap-middlewares.js";
-import { ServerEngineLayer } from "./native-server-engine.js";
+import { ServerEngineLayer } from "./server-engine.js";
 
 // Compile-time assertion helper.
 type Expect<T extends true> = T;

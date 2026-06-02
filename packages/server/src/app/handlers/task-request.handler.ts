@@ -45,7 +45,7 @@ import {
 } from "../layers.js";
 import { obtainConversationCreateAuthorization } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
-import { agentArm } from "../native-handlers-runtime.js";
+import { agentArm } from "../server-handlers-runtime.js";
 
 type TaskRequestParams = {
   readonly appId: AppId;
@@ -207,13 +207,13 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   }).pipe(Effect.withSpan("task.request"));
 }
 
-// ── Native @effect/rpc handler body ─────────────────────────────────────────
+// ── @effect/rpc handler body ─────────────────────────────────────────
 //
 // The `ContactPolicyAllowsReach` cap middleware gates the frame and provides the
 // proof into context; the body drains the tag as a precondition of
 // `taskService.create`. `agentArm` reads the narrowed principal.
-export const nativeTaskRequest = (params: ParamsOf<typeof TaskRequest>) =>
+export const taskRequest = (params: ParamsOf<typeof TaskRequest>) =>
   Effect.gen(function* () {
     const ctx = yield* agentArm;
     return yield* taskRequestBody(params, ctx);
-  }).pipe(Effect.withSpan("nativeTaskRequest"));
+  }).pipe(Effect.withSpan("taskRequest"));

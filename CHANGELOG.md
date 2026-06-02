@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: transport-surface cleanup — drop the `native-` prefix, dead groups, and vestigial HTTP-only descriptors (#728)
+
+The transport layer carried scaffolding names and dead surface from the
+`@effect/rpc` cutover. This pass strips them so a cold reader meets the
+shipped shape, not its migration history.
+
+- **`native-` prefix removed.** The transport files (`native-mux.ts` →
+  `mux.ts`, `native-server-engine.ts` → `server-engine.ts`,
+  `native-mux-client.ts` → `mux-client.ts`, `native-handlers.ts` →
+  `server-handlers.ts`, `native-handlers-runtime.ts` →
+  `server-handlers-runtime.ts`, `native-server-wiring.ts` →
+  `server-wiring.ts`) and their symbols (`serverNativeHandlers` →
+  `serverHandlers`, `buildNativeClient` → `buildClient`, every `nativeXxx`
+  handler const → `xxx`) drop the `native` qualifier. `mux`/`channel`/`engine`/
+  `wiring` stay — they are load-bearing.
+- **Dead RPC groups deleted.** `ServerRpcGroup`, `AppCallbackRpcGroup`,
+  `AgentClientRpcGroup`, and `AppCallableRpcGroup` had zero live consumers (the
+  live surface is `WsServerEngineRpcGroup`, `ReverseRpcGroup`,
+  `AgentCallableGroup`, `AppCallableGroup`); they and the `groupFromCatalog`
+  helper are gone. The two type-only canaries repoint to the live groups.
+- **Vestigial HTTP-only descriptors removed.** `agents/invite` and
+  `invites/createAgent` are deleted outright. `agents/register` and
+  `agents/claim` stay as `defineRpc` descriptors (their `paramsSchema` is the
+  HTTP body schema in `http-routes.ts`) but leave the `serverRpcMethods`
+  catalog — they were never WS-dispatched. With no HTTP-only methods left, the
+  three-arm engine-gating partition (gated / unauthenticated / HTTP-only)
+  collapses to two arms (gated / unauthenticated), and `WsServerEngineRpcGroup`
+  is now the full catalog group.
+
 ### Changed: per-method typed error channels + cast-free non-flat clients (#705)
 
 Every RPC method now declares its own typed error channel and the wire

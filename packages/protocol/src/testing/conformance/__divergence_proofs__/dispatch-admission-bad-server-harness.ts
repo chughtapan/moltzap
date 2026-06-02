@@ -215,7 +215,7 @@ function runBadDispatchConnection(
     const connId = yield* Ref.updateAndGet(refs.connCounter, (n) => n + 1);
     const writer = yield* socket.writer;
     // The live transport multiplexes the socket with a `{ ch, f }` envelope
-    // (`native-mux.ts`). Mirror that framing at the transport boundary so the
+    // (`mux.ts`). Mirror that framing at the transport boundary so the
     // raw-frame handlers below stay envelope-agnostic: wrap every outbound
     // reply on the c2s channel, unwrap every inbound chunk before decode.
     const writeEffect = (raw: string) =>

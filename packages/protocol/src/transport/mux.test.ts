@@ -1,5 +1,5 @@
 /**
- * Unit tests for the channel-multiplexed transport (`native-mux.ts`).
+ * Unit tests for the channel-multiplexed transport (`mux.ts`).
  *
  * Two invariants:
  *   - the `{ch, f}` envelope a channel `send` writes carries the frame
@@ -20,7 +20,7 @@ import {
   routeInbound,
   type ChannelSink,
   type MuxChannel,
-} from "./native-mux.js";
+} from "./mux.js";
 
 interface CapturedEnvelope {
   readonly ch: MuxChannel;
@@ -144,7 +144,7 @@ const hasNegativeZero = (value: unknown): boolean => {
   return false;
 };
 
-describe("native-mux envelope", () => {
+describe("mux envelope", () => {
   it("server send wraps the frame in a {ch, f} envelope that roundtrips", () => {
     const property = fc.property(
       fc.jsonValue().filter((v) => !hasNegativeZero(v)),
@@ -170,7 +170,7 @@ describe("native-mux envelope", () => {
     ));
 });
 
-describe("native-mux routeInbound", () => {
+describe("mux routeInbound", () => {
   it("routes any well-formed envelope verbatim to the matching sink", () => {
     const property = fc.property(
       fc.jsonValue().filter((v) => !hasNegativeZero(v)),

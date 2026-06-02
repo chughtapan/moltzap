@@ -3,10 +3,7 @@ import { Schema } from "effect";
 import type { NotificationDefinition, RpcDefinition } from "./method.js";
 import type { JsonRpcMethod } from "./wire.js";
 import {
-  serverRpcMethods,
   appCallbackMethods,
-  agentClientRpcMethods,
-  appCallableRpcMethods,
   notificationDefinitions,
 } from "../rpc-registry.js";
 
@@ -41,57 +38,6 @@ type RpcFromDef<D> =
 type GroupMembers<Defs extends readonly AnyRpcDefinition[]> = {
   readonly [K in keyof Defs]: RpcFromDef<Defs[K]>;
 };
-
-/**
- * Build the `@effect/rpc` `RpcGroup` for one per-kind descriptor catalog. Each
- * `defineRpc` descriptor maps to an `Rpc.make` whose payload and success are
- * the descriptor's Effect `Schema`s verbatim and whose error is the method's
- * own `errorSchema` (its `_tag`-discriminated error union); the descriptor's
- * branded wire `name` becomes the member tag.
- *
- * Members are derived by mapping the catalog rather than hand-listing each
- * method, so the group can never drift from `rpc-registry.ts`. {@link
- * GroupMembers} re-types the mapped result as the per-slot tuple so each
- * member's tag/payload/success correlation survives for downstream
- * `RpcClient.make` / `RpcGroup.toLayer`.
- */
-const groupFromCatalog = <const Defs extends readonly AnyRpcDefinition[]>(
-  defs: Defs,
-): RpcGroup.RpcGroup<GroupMembers<Defs>[number]> =>
-  RpcGroup.make(
-    // `Array.prototype.map` is typed to return a homogeneous element array;
-    // TypeScript alone cannot prove it preserves the catalog's tuple length.
-    // At runtime it yields exactly one `Rpc` per descriptor in source order,
-    // which is precisely the per-slot tuple `GroupMembers<Defs>` describes, so
-    // the assertion is sound. The per-tag tag↔payload correlation it claims is
-    // type-verified by `rpc-method-groups.types-check.ts` (the group stops
-    // compiling there if the mapped type drifts).
-    ...(defs.map((definition) =>
-      Rpc.make(definition.name, {
-        payload: definition.paramsSchema,
-        success: definition.resultSchema,
-        error: definition.errorSchema,
-      }),
-    ) as GroupMembers<Defs>),
-  );
-
-/**
- * `@effect/rpc` groups for moltzap's four per-kind RPC catalogs, built from the
- * `rpc-registry.ts` descriptor arrays. The native-engine cutover binds handlers
- * onto these via `RpcGroup.toLayer` (server inbound) and derives typed clients
- * via `RpcClient.make`; the dual-endpoint demux pairs {@link ServerRpcGroup}
- * (client-to-server) with {@link AppCallbackRpcGroup} (server-to-client).
- */
-export const ServerRpcGroup = groupFromCatalog(serverRpcMethods);
-
-/** Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`. */
-export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods);
-
-/** Outbound group callable from `MoltZapAgentClient`. */
-export const AgentClientRpcGroup = groupFromCatalog(agentClientRpcMethods);
-
-/** Outbound group callable from an app connection: superset of the agent-client group. */
-export const AppCallableRpcGroup = groupFromCatalog(appCallableRpcMethods);
 
 type AnyNotificationDefinition = NotificationDefinition<
   string,
@@ -132,12 +78,11 @@ const groupFromNotifications = <
   defs: Defs,
 ): RpcGroup.RpcGroup<NotificationGroupMembers<Defs>[number]> =>
   RpcGroup.make(
-    // Same homogeneous-map laundering as `groupFromCatalog`: `Array.map`'s
-    // element type cannot prove the per-slot tuple, but at runtime it yields one
-    // `void`-result `Rpc` per notification descriptor in source order, precisely
-    // the `NotificationGroupMembers` tuple. Verified by
+    // `Array.map`'s element type cannot prove the per-slot tuple, but at runtime
+    // it yields one `void`-result `Rpc` per notification descriptor in source
+    // order, precisely the `NotificationGroupMembers` tuple. Verified by
     // `rpc-method-groups.types-check.ts`.
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- tuple-keying proof TS cannot express, same single assertion `groupFromCatalog` uses, verified by rpc-method-groups.types-check.ts
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- tuple-keying proof TS cannot express; verified by rpc-method-groups.types-check.ts
     ...(defs.map((definition) =>
       Rpc.make(definition.name, {
         payload: definition.paramsSchema,
@@ -152,7 +97,7 @@ const groupFromNotifications = <
  * as a fire-and-forget `void`-result RPC on a target connection's reverse
  * channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
  * each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
- * machinery as {@link AppCallbackRpcGroup}.
+ * machinery as the moderator callbacks folded into {@link ReverseRpcGroup}.
  */
 export const NotificationRpcGroup = groupFromNotifications(
   notificationDefinitions,
@@ -176,7 +121,7 @@ type ReverseRpcMember = ReverseRpcMemberTuple[number];
 
 /**
  * The full server→client reverse group: the moderator callbacks
- * ({@link AppCallbackRpcGroup}) ∪ the notifications ({@link NotificationRpcGroup}),
+ * (`appCallbackMethods`) ∪ the notifications ({@link NotificationRpcGroup}),
  * built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
  * server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
  * awaiting a verdict, fires notifications fork-and-forget); the agent + app
@@ -187,13 +132,12 @@ type ReverseRpcMember = ReverseRpcMemberTuple[number];
  */
 export const ReverseRpcGroup: RpcGroup.RpcGroup<ReverseRpcMember> =
   RpcGroup.make(
-    // Same homogeneous-map laundering as `groupFromCatalog` /
-    // `groupFromNotifications`: `Array.map`'s element type cannot prove the
-    // per-slot tuple, but at runtime each callback maps to a result-bearing
-    // `Rpc` and each notification to a `void`-result `Rpc`, in source order —
-    // precisely the `ReverseRpcMember` union. Verified by
-    // `rpc-method-groups.types-check.ts`.
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- combined-tuple keying proof TS cannot express, the same single assertion the per-catalog builders use, verified by rpc-method-groups.types-check.ts
+    // Same homogeneous-map laundering as `groupFromNotifications`: `Array.map`'s
+    // element type cannot prove the per-slot tuple, but at runtime each callback
+    // maps to a result-bearing `Rpc` and each notification to a `void`-result
+    // `Rpc`, in source order — precisely the `ReverseRpcMember` union. Verified
+    // by `rpc-method-groups.types-check.ts`.
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- combined-tuple keying proof TS cannot express; verified by rpc-method-groups.types-check.ts
     ...([
       ...appCallbackMethods.map((definition) =>
         Rpc.make(definition.name, {

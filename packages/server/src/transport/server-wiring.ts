@@ -1,5 +1,5 @@
 /**
- * @file Per-socket native `@effect/rpc` server engine composition.
+ * @file Per-socket `@effect/rpc` server engine composition.
  *
  * Stands one `RpcServer&lt;WsServerEngineRpcGroup>` per WebSocket inside the
  * connection's `Scope`. The engine needs three per-socket layers, each
@@ -11,7 +11,7 @@
  *   method, each peeking the live arm and running the method's principal gate
  *   + caps (`auth-middleware-layers.ts`). Merged via `Layer.mergeAll`.
  * - `makeConnectionTagLayer(connId)` — the request-scoped full-arm read the
- *   native handler bodies (`native-handlers-runtime.ts → agentArm/appArm`)
+ *   handler bodies (`server-handlers-runtime.ts → agentArm/appArm`)
  *   type against, resolved per access off `ConnectionManagerTag`.
  *
  * These are NEVER app-memoized: each closes over `connId`, so two concurrent
@@ -31,7 +31,7 @@ import {
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import { ConnectionManagerTag, ConnectionTag } from "../app/layers.js";
-import { serverNativeHandlers } from "../app/native-handlers.js";
+import { serverHandlers } from "../app/server-handlers.js";
 import { peekLiveArm } from "./principal-gate.js";
 import { makeCapMiddlewareLayers } from "./auth-middleware-layers.js";
 
@@ -40,7 +40,7 @@ import { makeCapMiddlewareLayers } from "./auth-middleware-layers.js";
  * the layer body once per `RpcServer` build (per socket); the body reads the
  * live arm off `ConnectionManagerTag` keyed by the closed-over `connId`. The
  * arm read is `peekLiveArm`, which returns the FULL live `Connection` (any
- * arm), so a native handler body narrowing on `_tag` after its `*AuthMw` gate
+ * arm), so a handler body narrowing on `_tag` after its `*AuthMw` gate
  * sees the arm the gate already promoted.
  *
  * `ConnectionTag` carries the socket-fixed `connId` and resolves the arm at
@@ -71,7 +71,7 @@ const makeAuthMwLayer = (connId: ConnectionId) =>
 
 /**
  * The handler map under the engine group's `HandlersFrom` shape. The runtime
- * map (`native-handlers.ts → serverNativeHandlers`) keys by PLAIN wire-string
+ * map (`server-handlers.ts → serverHandlers`) keys by PLAIN wire-string
  * literals; the group members key by the BRANDED `JsonRpcMethod&lt;...>` tags. The
  * two are structurally identical (the brand is a phantom), but `toLayer`'s
  * `ExcludeProvides` keys its per-handler proof exclusion on `K extends
@@ -85,12 +85,12 @@ const makeAuthMwLayer = (connId: ConnectionId) =>
  */
 const brandedHandlers: RpcGroup.HandlersFrom<
   RpcGroup.Rpcs<typeof WsServerEngineRpcGroup>
-> = serverNativeHandlers;
+> = serverHandlers;
 
 /**
  * Build the full per-socket engine Layer: `RpcServer.layer` (the dispatch
  * loop) provided with the handler-map binding
- * (`WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`), the 26 `*AuthMw`
+ * (`WsServerEngineRpcGroup.toLayer(serverHandlers)`), the 26 `*AuthMw`
  * impl Layers, the per-socket `ConnectionTag`, and the `c2s` Protocol. The
  * returned Layer's residual requirement is the application Env the handler
  * bodies + AuthMw caps demand (every service tag) plus `ConnectionManagerTag`

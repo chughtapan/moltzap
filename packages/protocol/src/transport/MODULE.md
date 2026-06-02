@@ -8,7 +8,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./client-callable-groups.ts#L117)
+### [`AgentCallableGroup`](./client-callable-groups.ts#L116)
 
 _Variable_
 
@@ -21,16 +21,6 @@ export const AgentCallableGroup: RpcGroup.RpcGroup<
 The outbound group a first-party AGENT client may originate: every
 `serverRpcMethods` member whose `callablePrincipal` is `"agent"` or `"any"`. A
 first-party `agentClient.taskClose(...)` (app-only) does not typecheck.
-
-### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L91)
-
-_Variable_
-
-```ts
-export const AgentClientRpcGroup = groupFromCatalog(agentClientRpcMethods)
-```
-
-Outbound group callable from `MoltZapAgentClient`.
 
 ### [`AlreadyConnected`](./wire-errors.ts#L76)
 
@@ -49,7 +39,7 @@ export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
 A principal (agent or app) already holds an active connection. The
 `principal` discriminator names which arm the conflict is on.
 
-### [`AppCallableGroup`](./client-callable-groups.ts#L127)
+### [`AppCallableGroup`](./client-callable-groups.ts#L126)
 
 _Variable_
 
@@ -63,16 +53,6 @@ The outbound group a first-party APP client may originate: every
 `serverRpcMethods` member whose `callablePrincipal` is `"app"` or `"any"`. A
 first-party `appClient.taskRequest(...)` (agent-only) does not typecheck — the
 compile-time Principle-1 win.
-
-### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L94)
-
-_Variable_
-
-```ts
-export const AppCallableRpcGroup = groupFromCatalog(appCallableRpcMethods)
-```
-
-Outbound group callable from an app connection: superset of the agent-client group.
 
 ### [`AppCallbackHandlers`](./handlers.ts#L98)
 
@@ -106,17 +86,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the app's typed
 verdict drives the lifecycle transition.
 
-### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L88)
-
-_Variable_
-
-```ts
-export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods)
-```
-
-Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`.
-
-### [`assertWsEngineSize`](./server-engine-group.ts#L276)
+### [`assertWsEngineSize`](./server-engine-group.ts#L212)
 
 _Function_
 
@@ -242,7 +212,7 @@ middleware param carries the EXACT cap mws, keeping the per-cap `provides`
 type-visible (a handler that `yield*`s a cap Tag has it stripped from the
 Layer's residual requirement — the proof-exclusion guarantee).
 
-### [`ChannelProtocol`](./native-mux.ts#L284)
+### [`ChannelProtocol`](./mux.ts#L284)
 
 _Interface_
 
@@ -259,7 +229,7 @@ demux registers so inbound frames on this channel reach the engine.
 The two are split so the `Protocol.make` callback returns only `impl`
 (no excess fields), while the demux owns `sink`.
 
-### [`ChannelSink`](./native-mux.ts#L116)
+### [`ChannelSink`](./mux.ts#L116)
 
 _Interface_
 
@@ -274,7 +244,7 @@ The per-channel inbound sinks the demux routes decoded wire strings
 into. Each sink owns its endpoint's Parser and the engine-side
 `write` injector the Parser feeds.
 
-### [`clientProtocolCanary`](./native-mux.types-check.ts#L47)
+### [`clientProtocolCanary`](./mux.types-check.ts#L47)
 
 _Variable_
 
@@ -642,7 +612,7 @@ export type ErrorForTag<
 
 The method's own tagged-error union for one tag (from its `errorSchema`).
 
-### [`findEngineGatingMismatch`](./server-engine-group.ts#L352)
+### [`findEngineGatingMismatch`](./server-engine-group.ts#L285)
 
 _Function_
 
@@ -704,16 +674,6 @@ on which `Context.Tag`s the handler's R channel may reference; the
 app-callback catalog declares no capabilities, so callers bind `Caps =
 never`. The app client's reverse `RpcServer` serves each slot's `handle`.
 
-### [`HttpOnlyMethod`](./server-engine-group.ts#L72)
-
-_TypeAlias_
-
-```ts
-export type HttpOnlyMethod = (typeof HTTP_ONLY_METHODS)[number];
-```
-
-A plain (unbranded) member of HTTP_ONLY_METHODS.
-
 ### [`InvalidParamsError`](./wire-errors.ts#L65)
 
 _Class_
@@ -740,20 +700,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`isHttpOnlyMethod`](./server-engine-group.ts#L90)
-
-_Function_
-
-```ts
-export const isHttpOnlyMethod = (tag: string): boolean
-```
-
-Whether a wire tag is HTTP-only (HTTP_ONLY_METHODS) — the membership
-check the WS-subset group construction shares with the partition, so the two
-agree on which methods the WS engine omits. Declared before
-buildEngineMember (which reads it at module-load) to avoid a TDZ.
-
-### [`isUnauthenticatedMethod`](./server-engine-group.ts#L81)
+### [`isUnauthenticatedMethod`](./server-engine-group.ts#L53)
 
 _Function_
 
@@ -805,7 +752,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeClientChannelProtocol`](./native-mux.ts#L346)
+### [`makeClientChannelProtocol`](./mux.ts#L346)
 
 _Function_
 
@@ -826,7 +773,7 @@ feeds decoded inbound `FromServerEncoded` frames into the engine. The
 client engine has no `disconnects` Mailbox — socket close fails the
 client call channel through the underlying socket.
 
-### [`makeServerChannelProtocol`](./native-mux.ts#L301)
+### [`makeServerChannelProtocol`](./mux.ts#L301)
 
 _Function_
 
@@ -851,7 +798,7 @@ writes the enveloped wire string. The sink's `inject` feeds decoded
 inbound `FromClientEncoded` frames into the engine via `write`.
 Socket close is surfaced through the shared `disconnects` Mailbox.
 
-### [`makeServerProtocolLayer`](./native-server-engine.ts#L60)
+### [`makeServerProtocolLayer`](./server-engine.ts#L60)
 
 _Function_
 
@@ -870,7 +817,7 @@ export const makeServerProtocolLayer = (options: {
 }): Layer.Layer<RpcServer.Protocol>
 ```
 
-Build the `RpcServer.Protocol` layer over one server-side native-mux
+Build the `RpcServer.Protocol` layer over one server-side mux
 channel. `RpcServer.Protocol.make` hands the engine's inbound `write`
 injector to makeServerChannelProtocol's builder, which returns the
 protocol impl record (the engine binds to) plus the channel sink (the mux
@@ -934,7 +881,7 @@ Inbound frame failed to parse as JSON or did not match the expected shape.
 Transport-internal — not a wire `error` union member (never crosses the wire
 as a method failure).
 
-### [`MUX_CLIENT_ID`](./native-mux.ts#L244)
+### [`MUX_CLIENT_ID`](./mux.ts#L244)
 
 _Variable_
 
@@ -946,7 +893,7 @@ The single physical client every endpoint on one socket shares. The
 server `Protocol` keys per-client state by id; a mux carries one
 socket, so every channel reports the same id.
 
-### [`MuxChannel`](./native-mux.ts#L51)
+### [`MuxChannel`](./mux.ts#L51)
 
 _TypeAlias_
 
@@ -971,7 +918,7 @@ client→server RPC group; `s2c` carries the server-originated callback
 group (the role-inverted endpoint). Adding a logical endpoint adds a
 channel here so the demux stays exhaustive.
 
-### [`MuxEnvelope`](./native-mux.ts#L70)
+### [`MuxEnvelope`](./mux.ts#L70)
 
 _TypeAlias_
 
@@ -1141,7 +1088,7 @@ export type NotificationParamsOf<
 
 Type-only accessor for a notification's params payload.
 
-### [`NotificationRpcGroup`](./rpc-method-groups.ts#L157)
+### [`NotificationRpcGroup`](./rpc-method-groups.ts#L102)
 
 _Variable_
 
@@ -1155,7 +1102,7 @@ Server→client reverse notification group. The server fires each notification
 as a fire-and-forget `void`-result RPC on a target connection's reverse
 channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
-machinery as AppCallbackRpcGroup.
+machinery as the moderator callbacks folded into ReverseRpcGroup.
 
 ### [`ParamsOf`](./method.ts#L161)
 
@@ -1357,20 +1304,19 @@ export type ResultOf<
 
 Type-only accessor for a definition's result payload.
 
-### [`ReverseRpcGroup`](./rpc-method-groups.ts#L188)
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L133)
 
 _Variable_
 
 ```ts
 export const ReverseRpcGroup: RpcGroup.RpcGroup<ReverseRpcMember> =
   RpcGroup.make(
-    // Same homogeneous-map laundering as `groupFromCatalog` /
-    // `groupFromNotifications`: `Array.map`'s element type cannot prove the
-    // per-slot tuple, but at runtime each callback maps to a result-bearing
-    // `Rpc` and each notification to a `void`-result `Rpc`, in source order —
-    // precisely the `ReverseRpcMember` union. Verified by
-    // `rpc-method-groups.types-check.ts`.
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- combined-tuple keying proof TS cannot express, the same single assertion the per-catalog builders use, verified by rpc-method-groups.types-check.ts
+    // Same homogeneous-map laundering as `groupFromNotifications`: `Array.map`'s
+    // element type cannot prove the per-slot tuple, but at runtime each callback
+    // maps to a result-bearing `Rpc` and each notification to a `void`-result
+    // `Rpc`, in source order — precisely the `ReverseRpcMember` union. Verified
+    // by `rpc-method-groups.types-check.ts`.
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- combined-tuple keying proof TS cannot express; verified by rpc-method-groups.types-check.ts
     ...([
       ...appCallbackMethods.map((definition) =>
         Rpc.make(definition.name, {
@@ -1391,7 +1337,7 @@ export const ReverseRpcGroup: RpcGroup.RpcGroup<ReverseRpcMember> =
 ```
 
 The full server→client reverse group: the moderator callbacks
-(AppCallbackRpcGroup) ∪ the notifications (NotificationRpcGroup),
+(`appCallbackMethods`) ∪ the notifications (NotificationRpcGroup),
 built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
 server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
 awaiting a verdict, fires notifications fork-and-forget); the agent + app
@@ -1400,7 +1346,7 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`routeInbound`](./native-mux.ts#L216)
+### [`routeInbound`](./mux.ts#L216)
 
 _Function_
 
@@ -1622,7 +1568,7 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`runMuxReader`](./native-mux.ts#L382)
+### [`runMuxReader`](./mux.ts#L382)
 
 _Function_
 
@@ -1640,7 +1586,7 @@ the channel sink named by its envelope. The owner forks this and
 surfaces socket close to the server engine's `disconnects` Mailbox so
 per-client teardown runs.
 
-### [`ServerEngineLayer`](./native-server-engine.ts#L107)
+### [`ServerEngineLayer`](./server-engine.ts#L105)
 
 _Variable_
 
@@ -1648,13 +1594,11 @@ _Variable_
 export const ServerEngineLayer = RpcServer.layer(WsServerEngineRpcGroup)
 ```
 
-The native server engine layer for WsServerEngineRpcGroup — the
-WS-dispatched subset of the middleware-attached engine group, NOT the un-gated
-`ServerRpcGroup` (binding that would run every method with no `*AuthMw` gate,
-an authorization bypass) and NOT the full catalog group (whose four HTTP-only
-members have no WS handler, so `HandlersFrom` could not be satisfied). The
-server-wiring guard canary (`native-server-engine.types-check.ts`) pins that
-this layer's requirement channel demands the per-method `*AuthMw`.
+The server engine layer for WsServerEngineRpcGroup — the WS-dispatched
+members, each carrying its per-method `*AuthMw`. Binding a group whose members
+lacked the `*AuthMw` gate would run methods with no authorization gate. The
+server-wiring guard canary (`server-engine.types-check.ts`) pins that this
+layer's requirement channel demands the per-method `*AuthMw`.
 
 `RpcServer.layer(group)` runs the dispatch loop over whatever
 `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
@@ -1662,11 +1606,11 @@ requirement channel is
 `RpcServer.Protocol | Rpc.ToHandler&lt;WsServerEngineRpcGroup&gt;` plus every
 member's `*AuthMw` — the live connection provides the Protocol via
 makeServerProtocolLayer, the handler bodies via
-`WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`, and each `*AuthMw`
+`WsServerEngineRpcGroup.toLayer(serverHandlers)`, and each `*AuthMw`
 runtime via its per-socket server-supplied `Layer`
 (`auth-middleware-layers.ts`).
 
-### [`ServerEngineRpcGroup`](./server-engine-group.ts#L217)
+### [`ServerEngineRpcGroup`](./server-engine-group.ts#L174)
 
 _Variable_
 
@@ -1676,7 +1620,7 @@ export const ServerEngineRpcGroup: RpcGroup.RpcGroup<
 > = RpcGroup.make(...engineMembers)
 ```
 
-### [`serverProtocolCanary`](./native-mux.types-check.ts#L37)
+### [`serverProtocolCanary`](./mux.types-check.ts#L37)
 
 _Variable_
 
@@ -1685,20 +1629,6 @@ export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
   serverBuilder(write).pipe(Effect.map((built) => built.impl)),
 )
 ```
-
-### [`ServerRpcGroup`](./rpc-method-groups.ts#L85)
-
-_Variable_
-
-```ts
-export const ServerRpcGroup = groupFromCatalog(serverRpcMethods)
-```
-
-`@effect/rpc` groups for moltzap's four per-kind RPC catalogs, built from the
-`rpc-registry.ts` descriptor arrays. The native-engine cutover binds handlers
-onto these via `RpcGroup.toLayer` (server inbound) and derives typed clients
-via `RpcClient.make`; the dual-endpoint demux pairs ServerRpcGroup
-(client-to-server) with AppCallbackRpcGroup (server-to-client).
 
 ### [`SuccessForTag`](./typed-dispatch.ts#L32)
 
@@ -1741,7 +1671,7 @@ keyed by every member tag, each value the method's typed call
 `(payload) => Effect&lt;success, methodErrors | E>`. `E` is the engine's
 transport error (`RpcClientError`) the caller folds into its own channel.
 
-### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L49)
+### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L41)
 
 _Variable_
 
@@ -1751,13 +1681,13 @@ export const UNAUTHENTICATED_METHODS = ["network/connect"] as const
 
 The ONLY methods callable on an unauthenticated connection. Built WITHOUT any
 `*AuthMw` (no principal exists pre-auth); they read the live 3-arm `Connection`
-via `ConnectionTag`. EXHAUSTIVE: every other `ServerRpcGroup` method is
+via `ConnectionTag`. EXHAUSTIVE: every other catalog method is
 authenticated and carries its `*AuthMw`. Adding a method here is a deliberate,
 reviewed security decision — the partition canary
 (`server-engine-group.types-check.ts`) FAILS the build if a method is in
 neither partition or both.
 
-### [`UnauthenticatedMethod`](./server-engine-group.ts#L52)
+### [`UnauthenticatedMethod`](./server-engine-group.ts#L44)
 
 _TypeAlias_
 
@@ -1806,7 +1736,7 @@ _Function_
 export const validateResponseFrame = (v: unknown): v is ResponseFrame
 ```
 
-### [`WireWrite`](./native-mux.ts#L79)
+### [`WireWrite`](./mux.ts#L79)
 
 _TypeAlias_
 
@@ -1820,28 +1750,34 @@ The raw-write surface the mux drives. Mirrors the effect returned by
 `Socket.Socket["writer"]`: one call writes one chunk to the wire and
 fails with a Socket.SocketError if the socket is gone.
 
-### [`WS_ENGINE_MEMBER_COUNT`](./server-engine-group.ts#L266)
+### [`WS_ENGINE_MEMBER_COUNT`](./server-engine-group.ts#L203)
 
 _Variable_
 
 ```ts
-export const WS_ENGINE_MEMBER_COUNT =
-  serverRpcMethods.length - HTTP_ONLY_METHODS.length
+export const WS_ENGINE_MEMBER_COUNT = serverRpcMethods.length
 ```
 
-The number of WS-dispatched engine members: the full catalog
-(`serverRpcMethods`) minus the four HTTP_ONLY_METHODS. The live
-server's handler map (`serverNativeHandlers`) has exactly this many entries;
-the boot guard assertWsEngineSize pins the built group to it.
+The number of WS-dispatched engine members — the full catalog
+(`serverRpcMethods`). The live server's handler map (`serverHandlers`) has
+exactly this many entries; the boot guard assertWsEngineSize pins the
+built group to it.
 
-### [`WsServerEngineRpcGroup`](./server-engine-group.ts#L257)
+### [`WsServerEngineRpcGroup`](./server-engine-group.ts#L194)
 
 _Variable_
 
 ```ts
 export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
-  RpcGroup.make(...wsEngineMemberTuple)
+  RpcGroup.make(...engineMembers)
 ```
+
+The group the live server engine binds: every catalog member, each carrying
+its own `*AuthMw`. Its members map one-to-one onto `serverHandlers`, so
+`WsServerEngineRpcGroup.toLayer` satisfies `HandlersFrom`.
+`server-engine-group.types-check.ts` pins
+`RpcGroup.Rpcs&lt;typeof WsServerEngineRpcGroup&gt; ≡ EngineRpcs`, and
+assertWsEngineSize pins the count at boot.
 
 ## Files
 
@@ -1850,13 +1786,13 @@ export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
 - `current-principal.ts`
 - `handlers.ts`
 - `method.ts`
-- `native-mux.ts`
-- `native-mux.types-check.ts`
-- `native-server-engine.ts`
+- `mux.ts`
+- `mux.types-check.ts`
 - `rpc-errors.ts`
 - `rpc-groups.ts`
 - `rpc-method-groups.ts`
 - `server-engine-group.ts`
+- `server-engine.ts`
 - `typed-dispatch.ts`
 - `wire-errors.ts`
 - `wire.ts`

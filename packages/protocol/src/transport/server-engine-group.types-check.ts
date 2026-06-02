@@ -2,9 +2,8 @@
  * @file Type canaries for the middleware-attached server engine group
  * (`transport/server-engine-group.ts`).
  *
- * The group is built ahead of the live-connection cutover. These canaries are
- * its live type consumer AND the fail-closed invariants the native cutover
- * relies on:
+ * These canaries are the group's live type consumer AND the fail-closed
+ * invariants it relies on:
  *
  *   E.1 non-vacuous proof exclusion — a gated handler that `yield*`s its method's
  *       `*Auth` proof produces a Layer that EXCLUDES that proof (the middleware's
@@ -12,13 +11,11 @@
  *   E.2 full-scale per-tag correlation — payload/success/error correlate per tag
  *       SURVIVING the `Rpc#middleware` attach across the full group, and a
  *       complete `HandlersFrom` literal is the engine's handler map.
- *   E.3 partition totality + disjointness — every `ServerRpcGroup` tag is gated
- *       XOR unauth-allowlisted. The gated set is the `authMiddlewareByMethod`
- *       registry keys, taken INDEPENDENTLY of the engine group (NOT recovered by
- *       filtering the group's own members), and `ServerTags` is the full
- *       catalog-derived `ServerRpcGroup` tag set — so a new authenticated method
- *       that forgets its `*AuthMw` registry entry is in neither partition and
- *       fails the build.
+ *   E.3 partition totality + disjointness — every catalog tag is gated XOR
+ *       unauth-allowlisted XOR HTTP-only. `ServerTags` is the full
+ *       catalog-derived `ServerEngineRpcGroup` tag set, so a new authenticated
+ *       method that forgets its `*AuthMw` registry entry is in neither the gated
+ *       nor the allowlisted arm and fails the build.
  *   E.4 mandatory, non-optional, per-method gate — every gated member carries its
  *       OWN `*AuthMw` (NOT a uniform one); each `*AuthMw`'s `optional` is `false`
  *       (a gate that can fall through is a security hole).
@@ -31,13 +28,11 @@ import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { Layer } from "effect";
 import { PrincipalGateMw } from "./cap-middlewares.js";
 import { ConversationInTask } from "../task/capabilities/index.js";
-import { ServerRpcGroup } from "./rpc-method-groups.js";
 import {
   ServerEngineRpcGroup,
   WsServerEngineRpcGroup,
   UNAUTHENTICATED_METHODS,
   type UnauthenticatedMethod,
-  type HttpOnlyMethod,
 } from "./server-engine-group.js";
 import { jsonRpcMethod, type JsonRpcMethod } from "./wire.js";
 
@@ -49,7 +44,6 @@ type Equal<A, B> =
     : false;
 
 type EngineRpcs = RpcGroup.Rpcs<typeof ServerEngineRpcGroup>;
-type ServerRpcs = RpcGroup.Rpcs<typeof ServerRpcGroup>;
 type WsEngineRpcsBuilt = RpcGroup.Rpcs<typeof WsServerEngineRpcGroup>;
 
 /**
@@ -63,34 +57,24 @@ type AsMethod<Names extends string> = Names extends Names
 
 // ── E.3 partition totality + disjointness (NON-VACUOUS) ──────────────────
 
-type ServerTags = ServerRpcs["_tag"];
+type ServerTags = EngineRpcs["_tag"];
 type UnauthTags = AsMethod<UnauthenticatedMethod>;
-type HttpOnlyTags = AsMethod<HttpOnlyMethod>;
-// Every authenticated WS method is gated by construction: `buildEngineMember`
+// Every authenticated method is gated by construction: `buildEngineMember`
 // stacks `PrincipalGateMw` + the declared caps' middlewares on every tag NOT in
-// the two allowlists. The gated arm is therefore the catalog minus the two
-// allowlists; the partition's job is to pin that the allowlists are exact and
+// the unauth allowlist. The gated arm is therefore the catalog minus the
+// allowlist; the partition's job is to pin that the allowlist is exact and
 // disjoint, and the boot guard `findEngineGatingMismatch` is the runtime backstop
 // that each gated member carries the principal gate + its declared cap mws.
-type GatedTags = Exclude<ServerTags, UnauthTags | HttpOnlyTags>;
+type GatedTags = Exclude<ServerTags, UnauthTags>;
 
-// Exhaustive three-arm partition: every ServerRpcGroup tag is WS-gated (carries
-// its `*AuthMw`) OR unauth-allowlisted OR HTTP-only (no WS handler, no gate).
-type _Exhaustive = Expect<
-  Equal<GatedTags | UnauthTags | HttpOnlyTags, ServerTags>
->;
-// Disjoint: the three arms share no tag.
-type _Disjoint = Expect<
-  Equal<
-    | (GatedTags & UnauthTags)
-    | (GatedTags & HttpOnlyTags)
-    | (UnauthTags & HttpOnlyTags),
-    never
-  >
->;
+// Exhaustive two-arm partition: every catalog tag is WS-gated (carries its
+// `*AuthMw`) OR unauth-allowlisted.
+type _Exhaustive = Expect<Equal<GatedTags | UnauthTags, ServerTags>>;
+// Disjoint: the two arms share no tag.
+type _Disjoint = Expect<Equal<GatedTags & UnauthTags, never>>;
 // Unauth set is EXACTLY network/connect (branded both sides).
 type _UnauthExact = Expect<Equal<UnauthTags, JsonRpcMethod<"network/connect">>>;
-// Every engine tag is a real ServerRpcGroup tag — no stray member.
+// Every engine tag is a real catalog tag — no stray member.
 type _NoStrayTag = Expect<
   [EngineRpcs["_tag"]] extends [ServerTags] ? true : false
 >;
@@ -99,23 +83,14 @@ type _AllowlistExact = Expect<
   Equal<(typeof UNAUTHENTICATED_METHODS)[number], "network/connect">
 >;
 
-// ── WS-subset alignment: the built group equals the type-level subset ─────
+// ── WS-group alignment: the built group equals the catalog group ──────────
 
-// The WS-handled member subset, type-level: the full engine members minus the
-// HTTP-only ones. Same `Exclude` shape `native-handlers.types-check.ts` uses, so
-// the runtime `WsServerEngineRpcGroup`, the handler-map keys, and this canary all
-// describe the SAME member set.
-type WsEngineRpcs = Exclude<EngineRpcs, { readonly _tag: HttpOnlyTags }>;
-// The runtime `WsServerEngineRpcGroup`'s member type equals that subset exactly.
-// A `.filter` predicate that drifts from the type-level `Exclude` (e.g. drops an
-// authenticated WS member, or fails to drop an HTTP-only one) breaks this
-// equality and fails the build; the boot guard `assertWsEngineSize` is the
-// runtime-count backstop for the same invariant.
-type _WsSubsetAligned = Expect<Equal<WsEngineRpcsBuilt, WsEngineRpcs>>;
-// No HTTP-only member survives into the WS group.
-type _WsNoHttpOnly = Expect<
-  [WsEngineRpcsBuilt["_tag"] & HttpOnlyTags] extends [never] ? true : false
->;
+// Every catalog method is WS-dispatched, so the WS group's member set is the
+// full engine member set. The runtime `WsServerEngineRpcGroup`'s member type
+// equals that exactly; a construction drift (drops or duplicates a member) breaks
+// this equality and fails the build, and the boot guard `assertWsEngineSize` is
+// the runtime-count backstop for the same invariant.
+type _WsSubsetAligned = Expect<Equal<WsEngineRpcsBuilt, EngineRpcs>>;
 
 // ── E.4 mandatory, non-optional, per-method gate ─────────────────────────
 
@@ -189,7 +164,6 @@ export type {
   _NoStrayTag,
   _AllowlistExact,
   _WsSubsetAligned,
-  _WsNoHttpOnly,
   _GateNonOptional,
   _MSPresent,
   _HandlerKeysTotal,

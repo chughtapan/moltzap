@@ -625,7 +625,7 @@ function writeFrame(
       );
     }
     // The live server multiplexes the socket with a `{ ch, f }` envelope
-    // (`native-mux.ts`). A fresh request goes on the `c2s` (client→server)
+    // (`mux.ts`). A fresh request goes on the `c2s` (client→server)
     // endpoint; a REPLY to a server-originated callback goes back on `s2c` — the
     // channel that callback request arrived on — so the s2c engine correlates it.
     const enveloped = JSON.stringify({ ch: channel, f: raw });
@@ -908,7 +908,7 @@ function startSocketReader(
 }
 
 /**
- * The channel-mux envelope every wire chunk rides in (`native-mux.ts`). The
+ * The channel-mux envelope every wire chunk rides in (`mux.ts`). The
  * driver decodes `f` — the JSON-RPC frame — and ignores `ch` (it serves the
  * single c2s endpoint plus the s2c reverse frames the server pushes).
  */

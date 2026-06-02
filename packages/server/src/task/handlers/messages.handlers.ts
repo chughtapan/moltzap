@@ -8,7 +8,7 @@ import {
   type ParamsOf,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
-import { agentArm } from "../../app/native-handlers-runtime.js";
+import { agentArm } from "../../app/server-handlers-runtime.js";
 import { Effect, Exit } from "effect";
 import type { AgentContext } from "../../transport/context.js";
 import {
@@ -144,7 +144,7 @@ function handleMessageList(
   }).pipe(Effect.withSpan("messages.list"));
 }
 
-// ── Native @effect/rpc handler bodies ───────────────────────────────────────
+// ── @effect/rpc handler bodies ───────────────────────────────────────
 //
 // Each reads its method's `*Auth` proof for the cap proofs (the per-method
 // `*AuthMw` ran them and keyed each by its cap tag's `key`), provides them as
@@ -153,19 +153,19 @@ function handleMessageList(
 // carries; `ConnectionTag` + the service tags ride out, provided by the request
 // runtime; the native engine excludes the proof tag.
 
-export const nativeMessagesSend = (params: MessagesSendParams) =>
+export const messagesSend = (params: MessagesSendParams) =>
   Effect.gen(function* () {
     // The send-permission cap middlewares gated this frame in the engine stack
     // before this handler runs; the body trusts the gated `params` and reads no
     // cap proof. `agentArm` reads the narrowed principal off `ConnectionTag`.
     const ctx = yield* agentArm;
     return yield* handleMessageSend(params, ctx);
-  }).pipe(Effect.withSpan("nativeMessagesSend"));
+  }).pipe(Effect.withSpan("messagesSend"));
 
-export const nativeMessagesList = (params: ParamsOf<typeof MessagesList>) =>
+export const messagesList = (params: ParamsOf<typeof MessagesList>) =>
   Effect.gen(function* () {
     // Gated by the `TaskReadAccess` + `ConversationInTask` cap middlewares in the
     // engine stack; the body reads no cap proof and trusts the gated `params`.
     const ctx = yield* agentArm;
     return yield* handleMessageList(params, ctx);
-  }).pipe(Effect.withSpan("nativeMessagesList"));
+  }).pipe(Effect.withSpan("messagesList"));
