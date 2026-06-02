@@ -61,6 +61,7 @@ export const makeServerProtocolLayer = (options: {
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
   readonly sinkReady: Deferred.Deferred<ChannelSink>;
+
   /**
    * Which mux channel this server engine binds. The live server's inbound
    * engine binds `c2s`; the client's reverse notification/callback server binds

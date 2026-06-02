@@ -82,7 +82,7 @@ type ConnectResult = ResultOf<typeof Connect>;
 
 /**
  * The native client's descriptor-driven outbound call surface
- * (`buildNativeClient`): `(def, params) => Effect<result, RpcCallError>` over
+ * (`buildNativeClient`): `(def, params) => Effect&lt;result, RpcCallError>` over
  * the c2s channel.
  */
 type NativeCall = <D extends RpcDefinition<string, any, any>>(

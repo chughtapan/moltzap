@@ -70,9 +70,8 @@ export function wireErrorToRpcCallError(error: {
   // the `RegisteredTaggedError` union arms. TS cannot see through the open
   // `new (...) => { _tag: string }` factory shape, so the cast bridges the
   // static factory to the closed runtime union.
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- registry factory → closed RegisteredTaggedError union; runtime tag is one of the arms by construction
   return new cls({
     message: error.message,
     data: error.data,
-  } as never) as RegisteredTaggedError; // #ignore-sloppy-code[as-unknown-as]: registry factory bridge to the closed RegisteredTaggedError union.
+  } as never) as RegisteredTaggedError;
 }
