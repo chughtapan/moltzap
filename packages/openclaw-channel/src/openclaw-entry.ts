@@ -22,6 +22,7 @@ import {
   type ChannelService,
   type CrossConvMessage,
   type EnrichedInboundMessage,
+  type SendRpcFn,
   type ServiceRpcError,
 } from "@moltzap/client";
 import {
@@ -52,7 +53,6 @@ import {
   TaskId,
   type LeaseId,
 } from "@moltzap/protocol/task";
-import { RpcServerError } from "@moltzap/protocol/transport";
 
 const DEFAULT_ACCOUNT_ID = "default";
 const CHANNEL_ID = "moltzap" as const;
@@ -240,10 +240,11 @@ interface InboundDispatchInput {
 }
 
 interface OpenClawClientService extends ChannelService {
-  sendRpc?<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, ServiceRpcError>;
+  /**
+   * The agent service's typed per-method call (`MoltZapService.call`). Optional
+   * because the fake channel service used in tests may omit it.
+   */
+  call?: MoltZapService["call"];
   sendToAgent?(
     agentName: string,
     text: string,
@@ -352,8 +353,8 @@ function logOutboundReply(
   });
 }
 
-function isTaskClosedRpcError(err: unknown): err is RpcServerError {
-  return err instanceof RpcServerError && err.code === TaskClosedError.code;
+function isTaskClosedRpcError(err: unknown): err is TaskClosedError {
+  return err instanceof TaskClosedError;
 }
 
 function handleReplyFailure(
@@ -366,7 +367,7 @@ function handleReplyFailure(
       log?.warn?.(
         {
           conversationId,
-          code: err.code,
+          tag: err._tag,
           msg: err.message,
         },
         "MoltZap: send rejected; task closed, dropping without retry",
@@ -623,8 +624,26 @@ function getActiveService(
 // id set in <=100-id chunks to stay under the wire cap.
 const AGENTS_LOOKUP_MAX_IDS = 100;
 
+/**
+ * Bridge an agent service's typed `call` to the def-based `SendRpcFn` the
+ * pagination drainer + chunked lookup speak. The list/lookup RPCs are
+ * agent-callable, so the descriptor's name is a valid `call` tag; the launder
+ * is the runtime def → agent-tag bridge the typed `call` cannot express
+ * statically over a generic descriptor.
+ */
+function callAsSendRpc(
+  service: { readonly call: MoltZapService["call"] },
+): SendRpcFn<ServiceRpcError> {
+  return (definition, params) =>
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- generic descriptor → agent-callable tag launder; the drained list/lookup RPCs are all agent-callable.
+    service.call(
+      definition.name as Parameters<MoltZapService["call"]>[0],
+      params as Parameters<MoltZapService["call"]>[1],
+    );
+}
+
 function lookupAgentsInChunks(
-  sendRpc: NonNullable<OpenClawClientService["sendRpc"]>,
+  sendRpc: SendRpcFn<ServiceRpcError>,
   agentIds: ReadonlyArray<string>,
 ): Effect.Effect<ReadonlyArray<AgentDirectoryEntry>, ServiceRpcError> {
   return Effect.gen(function* () {
@@ -649,13 +668,14 @@ function listPeersEffect(
 ) {
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
-    if (!service?.sendRpc) return [];
-    // `service.sendRpc` is a prototype method reading `this.client` inside
+    if (!service?.call) return [];
+    // `service.call` is a prototype method reading `this.client` inside
     // `Effect.suspend`; passed as a bare reference its receiver is stripped,
     // so the suspend thunk dies with a `this`-undefined TypeError that
     // `catchAll` (a failure-channel handler) cannot absorb. Bind once so both
     // drain consumers keep the service receiver.
-    const sendRpc = service.sendRpc.bind(service);
+    const boundCall = service.call.bind(service);
+    const sendRpc = callAsSendRpc({ call: boundCall });
     // Drain ALL contact pages so every peer in the directory resolves.
     const contacts = (yield* drainPaginatedList(
       sendRpc,
@@ -682,11 +702,11 @@ function listGroupsEffect(
 ) {
   return Effect.gen(function* () {
     const service = getActiveService(activeClients, params.accountId);
-    if (!service?.sendRpc) return [];
+    if (!service?.call) return [];
     // The decoded result is deeply `readonly` (Effect Schema); the wire
     // `conversation` is a structural supertype of `ConversationDirectoryEntry`,
     // so a single readonly cast bridges it.
-    const result = (yield* service.sendRpc(TaskConversationList, {})) as {
+    const result = (yield* service.call(TaskConversationList.name, {})) as {
       readonly items: ReadonlyArray<{
         readonly taskId: string;
         readonly conversation: ConversationDirectoryEntry;
