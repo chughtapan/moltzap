@@ -214,9 +214,7 @@ export const nativeAgentsLookupByName = (
   Effect.gen(function* () {
     yield* AgentsLookupByNameAuth;
     return yield* agentsLookupByNameBody(params, yield* agentArm);
-  }).pipe(
-    Effect.withSpan("nativeAgentsLookupByName"),
-  );
+  }).pipe(Effect.withSpan("nativeAgentsLookupByName"));
 
 export const nativeAgentsList = (params: ParamsOf<typeof AgentsList>) =>
   Effect.gen(function* () {

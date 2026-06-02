@@ -63,6 +63,4 @@ export const nativePresenceSubscribe = (
   Effect.gen(function* () {
     yield* PresenceSubscribeAuth;
     return yield* presenceSubscribeBody(params, yield* agentArm);
-  }).pipe(
-    Effect.withSpan("nativePresenceSubscribe"),
-  );
+  }).pipe(Effect.withSpan("nativePresenceSubscribe"));

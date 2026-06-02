@@ -92,7 +92,12 @@ function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
   const v = failure.value;
-  return typeof v === "object" && v !== null && "_tag" in v && typeof v._tag === "string" ? v._tag : null;
+  return typeof v === "object" &&
+    v !== null &&
+    "_tag" in v &&
+    typeof v._tag === "string"
+    ? v._tag
+    : null;
 }
 
 // D #705 R7 — the `TmAuthority` capability is dissolved; the

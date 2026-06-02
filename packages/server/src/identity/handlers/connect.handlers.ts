@@ -463,6 +463,4 @@ function handleConnect(params: ConnectParams) {
 // `UnauthenticatedConnection` arm via `ConnectionTag`. Its domain errors map to
 // the coded wire envelope the engine member's `error` schema carries.
 export const nativeConnect = (params: ConnectParams) =>
-  handleConnect(params).pipe(
-    Effect.withSpan("nativeConnect"),
-  );
+  handleConnect(params).pipe(Effect.withSpan("nativeConnect"));

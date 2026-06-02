@@ -36,10 +36,7 @@ import {
   type ResultOf,
 } from "@moltzap/protocol";
 import type { RpcGroup, Rpc } from "@effect/rpc";
-import type {
-  PayloadForTag,
-  SuccessForTag,
-} from "./runtime/typed-dispatch.js";
+import type { PayloadForTag, SuccessForTag } from "./runtime/typed-dispatch.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId,
@@ -1235,10 +1232,7 @@ export class MoltZapService {
     tag: Tag,
     payload: PayloadForTag<AgentCallableRpcs, Tag>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<
-    SuccessForTag<AgentCallableRpcs, Tag>,
-    ServiceRpcError
-  > {
+  ): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, ServiceRpcError> {
     return Effect.suspend(() => {
       const client = this.client;
       if (!client) {

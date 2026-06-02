@@ -46,10 +46,7 @@ import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
 import { obtainConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
-import {
-  agentArm,
-  appArm,
-} from "../../app/native-handlers-runtime.js";
+import { agentArm, appArm } from "../../app/native-handlers-runtime.js";
 
 /**
  * App-arm authority gate for the task-admin RPCs: the app must own the
@@ -503,9 +500,7 @@ export const nativeTaskConversationList = (
   Effect.gen(function* () {
     yield* TaskConversationListAuth;
     return yield* taskConversationListBody(params, yield* agentArm);
-  }).pipe(
-    Effect.withSpan("nativeTaskConversationList"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskConversationList"));
 
 export const nativeTaskClose = (params: ParamsOf<typeof TaskClose>) =>
   Effect.gen(function* () {
@@ -519,9 +514,7 @@ export const nativeTaskAddParticipant = (
   Effect.gen(function* () {
     yield* TaskAddParticipantAuth;
     return yield* taskAddParticipantBody(params, yield* appArm);
-  }).pipe(
-    Effect.withSpan("nativeTaskAddParticipant"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskAddParticipant"));
 
 export const nativeTaskRemoveParticipant = (
   params: ParamsOf<typeof TaskRemoveParticipant>,
@@ -529,9 +522,7 @@ export const nativeTaskRemoveParticipant = (
   Effect.gen(function* () {
     yield* TaskRemoveParticipantAuth;
     return yield* taskRemoveParticipantBody(params, yield* appArm);
-  }).pipe(
-    Effect.withSpan("nativeTaskRemoveParticipant"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskRemoveParticipant"));
 
 export const nativeTaskConversationCreate = (
   params: ParamsOf<typeof TaskConversationCreate>,
@@ -539,9 +530,7 @@ export const nativeTaskConversationCreate = (
   Effect.gen(function* () {
     yield* TaskConversationCreateAuth;
     return yield* taskConversationCreateBody((yield* appArm).appId, params);
-  }).pipe(
-    Effect.withSpan("nativeTaskConversationCreate"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskConversationCreate"));
 
 export const nativeTaskConversationArchive = (
   params: ParamsOf<typeof TaskConversationArchive>,
@@ -551,9 +540,7 @@ export const nativeTaskConversationArchive = (
     return yield* taskConversationArchiveBody(params, yield* appArm).pipe(
       Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
     );
-  }).pipe(
-    Effect.withSpan("nativeTaskConversationArchive"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskConversationArchive"));
 
 export const nativeTaskConversationUnarchive = (
   params: ParamsOf<typeof TaskConversationUnarchive>,
@@ -563,9 +550,7 @@ export const nativeTaskConversationUnarchive = (
     return yield* taskConversationUnarchiveBody(params, yield* appArm).pipe(
       Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
     );
-  }).pipe(
-    Effect.withSpan("nativeTaskConversationUnarchive"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskConversationUnarchive"));
 
 export const nativeTaskConversationAddParticipant = (
   params: ParamsOf<typeof TaskConversationAddParticipant>,
@@ -578,9 +563,7 @@ export const nativeTaskConversationAddParticipant = (
     ).pipe(
       Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
     );
-  }).pipe(
-    Effect.withSpan("nativeTaskConversationAddParticipant"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskConversationAddParticipant"));
 
 export const nativeTaskConversationRemoveParticipant = (
   params: ParamsOf<typeof TaskConversationRemoveParticipant>,
@@ -593,6 +576,4 @@ export const nativeTaskConversationRemoveParticipant = (
     ).pipe(
       Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
     );
-  }).pipe(
-    Effect.withSpan("nativeTaskConversationRemoveParticipant"),
-  );
+  }).pipe(Effect.withSpan("nativeTaskConversationRemoveParticipant"));

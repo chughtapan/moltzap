@@ -313,10 +313,12 @@ const capBearingImpl =
       // Cap obtains fail with their declared tagged-error instances; the engine
       // encodes them against the method's per-method error union (the
       // middleware `failure` schema). No coded-envelope projection.
-      return yield* spec.runCaps(principal, payload).pipe(
-        Effect.provide(env),
-        Effect.provideService(CurrentPrincipal, principal),
-      );
+      return yield* spec
+        .runCaps(principal, payload)
+        .pipe(
+          Effect.provide(env),
+          Effect.provideService(CurrentPrincipal, principal),
+        );
     }).pipe(Effect.withSpan(spec.span));
 
 /** Build a cap-bearing Layer from a {@link CapBearingSpec}. */

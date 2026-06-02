@@ -7,5 +7,4 @@ const pingBody = () => Effect.sync(() => ({ ts: new Date().toISOString() }));
  * `NetworkPingAuth` proof only witnesses the agent gate ran; the reply is a
  * server timestamp with no principal read.
  */
-export const nativePing = () =>
-  pingBody().pipe(Effect.withSpan("nativePing"));
+export const nativePing = () => pingBody().pipe(Effect.withSpan("nativePing"));

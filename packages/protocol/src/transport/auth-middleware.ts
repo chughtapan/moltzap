@@ -135,7 +135,10 @@ export class TaskConversationListAuth extends Context.Tag(
 )<TaskConversationListAuth, AuthProof<typeof TaskConversationList>>() {}
 export class TaskConversationListAuthMw extends RpcMiddleware.Tag<TaskConversationListAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-list",
-  { provides: TaskConversationListAuth, failure: TaskConversationList.errorSchema },
+  {
+    provides: TaskConversationListAuth,
+    failure: TaskConversationList.errorSchema,
+  },
 ) {}
 
 /** `agents/lookup` proof: agent principal, no caps. */
@@ -254,7 +257,10 @@ export class TaskRemoveParticipantAuth extends Context.Tag(
 )<TaskRemoveParticipantAuth, AuthProof<typeof TaskRemoveParticipant>>() {}
 export class TaskRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskRemoveParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-remove-participant",
-  { provides: TaskRemoveParticipantAuth, failure: TaskRemoveParticipant.errorSchema },
+  {
+    provides: TaskRemoveParticipantAuth,
+    failure: TaskRemoveParticipant.errorSchema,
+  },
 ) {}
 
 /** `task/conversation/create` proof: app principal, no caps. */
@@ -263,7 +269,10 @@ export class TaskConversationCreateAuth extends Context.Tag(
 )<TaskConversationCreateAuth, AuthProof<typeof TaskConversationCreate>>() {}
 export class TaskConversationCreateAuthMw extends RpcMiddleware.Tag<TaskConversationCreateAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-create",
-  { provides: TaskConversationCreateAuth, failure: TaskConversationCreate.errorSchema },
+  {
+    provides: TaskConversationCreateAuth,
+    failure: TaskConversationCreate.errorSchema,
+  },
 ) {}
 
 /** `task/conversation/archive` proof: app principal + `ConversationInTask`. */
@@ -272,7 +281,10 @@ export class TaskConversationArchiveAuth extends Context.Tag(
 )<TaskConversationArchiveAuth, AuthProof<typeof TaskConversationArchive>>() {}
 export class TaskConversationArchiveAuthMw extends RpcMiddleware.Tag<TaskConversationArchiveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-archive",
-  { provides: TaskConversationArchiveAuth, failure: TaskConversationArchive.errorSchema },
+  {
+    provides: TaskConversationArchiveAuth,
+    failure: TaskConversationArchive.errorSchema,
+  },
 ) {}
 
 /** `task/conversation/unarchive` proof: app principal + `ConversationInTask`. */
@@ -284,7 +296,10 @@ export class TaskConversationUnarchiveAuth extends Context.Tag(
 >() {}
 export class TaskConversationUnarchiveAuthMw extends RpcMiddleware.Tag<TaskConversationUnarchiveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-unarchive",
-  { provides: TaskConversationUnarchiveAuth, failure: TaskConversationUnarchive.errorSchema },
+  {
+    provides: TaskConversationUnarchiveAuth,
+    failure: TaskConversationUnarchive.errorSchema,
+  },
 ) {}
 
 /** `task/conversation/participants/add` proof: app principal + `ConversationInTask`. */
@@ -296,7 +311,10 @@ export class TaskConversationAddParticipantAuth extends Context.Tag(
 >() {}
 export class TaskConversationAddParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationAddParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-add-participant",
-  { provides: TaskConversationAddParticipantAuth, failure: TaskConversationAddParticipant.errorSchema },
+  {
+    provides: TaskConversationAddParticipantAuth,
+    failure: TaskConversationAddParticipant.errorSchema,
+  },
 ) {}
 
 /** `task/conversation/participants/remove` proof: app principal + `ConversationInTask`. */
@@ -308,7 +326,10 @@ export class TaskConversationRemoveParticipantAuth extends Context.Tag(
 >() {}
 export class TaskConversationRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationRemoveParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-remove-participant",
-  { provides: TaskConversationRemoveParticipantAuth, failure: TaskConversationRemoveParticipant.errorSchema },
+  {
+    provides: TaskConversationRemoveParticipantAuth,
+    failure: TaskConversationRemoveParticipant.errorSchema,
+  },
 ) {}
 
 /** `apps/register` proof: app principal, no caps. */

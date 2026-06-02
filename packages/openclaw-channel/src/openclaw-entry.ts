@@ -631,9 +631,9 @@ const AGENTS_LOOKUP_MAX_IDS = 100;
  * is the runtime def → agent-tag bridge the typed `call` cannot express
  * statically over a generic descriptor.
  */
-function callAsSendRpc(
-  service: { readonly call: MoltZapService["call"] },
-): SendRpcFn<ServiceRpcError> {
+function callAsSendRpc(service: {
+  readonly call: MoltZapService["call"];
+}): SendRpcFn<ServiceRpcError> {
   return (definition, params) =>
     // eslint-disable-next-line agent-code-guard/as-unknown-as -- generic descriptor → agent-callable tag launder; the drained list/lookup RPCs are all agent-callable.
     service.call(

@@ -91,9 +91,7 @@ type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];
 
 /** The handshake's error channel: `network/connect`'s errors plus transport. */
-type ConnectError = Effect.Effect.Error<
-  ReturnType<MoltZapAgentClient["call"]>
->;
+type ConnectError = Effect.Effect.Error<ReturnType<MoltZapAgentClient["call"]>>;
 
 interface ConnState {
   readonly write: (
