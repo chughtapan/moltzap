@@ -17,11 +17,25 @@
  * Pure: no Refs, no fibers held here. `openSocket` takes the closing
  * callback as a parameter so each client keeps owning its own runtime.
  */
-import { Duration, Effect, Either, Schedule, Scope, Data } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Either,
+  Exit,
+  Fiber,
+  Schedule,
+  Scope,
+  Data,
+} from "effect";
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 
-import { NotConnectedError } from "@moltzap/protocol";
+import {
+  NotConnectedError,
+  RpcTimeoutError,
+  type JsonRpcMethod,
+} from "@moltzap/protocol";
 
 /** Reconnect backoff: 1s base, doubling per attempt up to the cap. */
 const BASE_RECONNECT_DELAY_MS = 1000;
@@ -30,7 +44,13 @@ const RECONNECT_BACKOFF_FACTOR = 2;
 const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
 
 /** Normal WebSocket close code (RFC 6455). */
-export const NORMAL_CLOSE_CODE = 1000;
+const NORMAL_CLOSE_CODE = 1000;
+
+/**
+ * Upper bound on the graceful 1000 close-frame write during `close()`. A stalled
+ * socket write must not wedge scope teardown + runtime disposal behind it.
+ */
+const GRACEFUL_CLOSE_WRITE_TIMEOUT = Duration.seconds(1);
 
 /** Preview length when logging a malformed inbound frame. */
 
@@ -51,6 +71,87 @@ const MSG_NOT_CONNECTED = "WebSocket not connected";
 
 export const makeNotConnectedError = (): NotConnectedError =>
   new NotConnectedError({ message: MSG_NOT_CONNECTED });
+
+/**
+ * The connection-teardown both clients fork during `close()`. On a completed
+ * handshake, write the graceful 1000 close frame BEFORE closing the scope so the
+ * server sees a clean handshake (no lingering CLOSE_WAIT); the write is bounded
+ * by {@link GRACEFUL_CLOSE_WRITE_TIMEOUT} so a stalled socket cannot wedge the
+ * scope close behind it. Pre-handshake there is nothing to drain, so the scope
+ * closes directly. Closing the scope also fails the engine's in-flight RPCs.
+ */
+export const drainConnectionEffect = (input: {
+  readonly write: (
+    chunk: Socket.CloseEvent,
+  ) => Effect.Effect<void, Socket.SocketError>;
+  readonly scope: Scope.CloseableScope;
+  readonly hasCompletedHandshake: boolean;
+}): Effect.Effect<void> => {
+  const closeScope = Scope.close(input.scope, Exit.void);
+  if (!input.hasCompletedHandshake) return closeScope;
+  return input
+    .write(new Socket.CloseEvent(NORMAL_CLOSE_CODE, "normal"))
+    .pipe(
+      Effect.timeout(GRACEFUL_CLOSE_WRITE_TIMEOUT),
+      Effect.ignore,
+      Effect.zipRight(closeScope),
+    );
+};
+
+/**
+ * Run one transport call under a per-call deadline that stays LOCAL to the
+ * caller. The call is forked into the connection scope and awaited; on timeout
+ * the caller fails with `RpcTimeoutError` while the forked engine fiber is left
+ * untouched — so the deadline emits no wire-level cancel (`@effect/rpc/Interrupt`)
+ * and does not drop the shared socket. The pending engine request then settles
+ * naturally on the next server response or, on disconnect, when the connection
+ * scope closes. A straight `Effect.timeoutFail` would interrupt the engine fiber
+ * instead, which the native engine answers by writing an `Interrupt` frame and
+ * closing the transport.
+ *
+ * `timeoutMs` bounds the CALLER's wait, not the forked fiber's lifetime: a
+ * timed-out request lingers (one parked fiber + one pending engine entry) until
+ * the server replies or the connection scope closes. The bound is the
+ * connection lifetime, not per-call — a peer that holds the socket open and
+ * withholds responses can park one fiber per timed-out call until the client
+ * disconnects. That is the accepted cost of keeping the deadline off the wire;
+ * the alternative (interrupting the request) re-introduces the `Interrupt`
+ * frame and socket drop this function exists to avoid.
+ *
+ * Because the call is forked into the connection scope, the ONLY thing that
+ * interrupts it is that scope tearing down on disconnect — the caller's own
+ * fiber is the `Fiber.await` here, not the forked call. So an interrupt-only
+ * exit of the forked fiber always means the transport went away (the engine
+ * clears a pending value RPC this way on socket close, including a graceful 1000
+ * close), and it surfaces as `NotConnectedError`. Void/notification RPCs do not
+ * go through this forward-call path, so their graceful-close resolution is
+ * untouched.
+ */
+export const callWithTimeout = <A, E>(
+  scope: Scope.Scope,
+  call: Effect.Effect<A, E>,
+  options: { readonly method: JsonRpcMethod; readonly timeoutMs: number },
+): Effect.Effect<A, E | NotConnectedError | RpcTimeoutError> =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkIn(call, scope);
+    // Time out the AWAIT, not the forked call: a deadline interrupts this
+    // `Fiber.await` and fails with `RpcTimeoutError`, leaving the forked fiber
+    // (and its engine request) running.
+    const exit = yield* Fiber.await(fiber).pipe(
+      Effect.timeoutFail({
+        duration: Duration.millis(options.timeoutMs),
+        onTimeout: () =>
+          new RpcTimeoutError({
+            method: options.method,
+            timeoutMs: options.timeoutMs,
+          }),
+      }),
+    );
+    if (Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)) {
+      return yield* Effect.fail(makeNotConnectedError());
+    }
+    return yield* exit;
+  }).pipe(Effect.withSpan("callWithTimeout"));
 
 /**
  * The reconnect loop fails each unsuccessful attempt with this so the
