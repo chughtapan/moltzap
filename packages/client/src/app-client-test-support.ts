@@ -57,6 +57,7 @@ import {
   type DecodedNotification,
   type NotificationFrame,
   type RequestFrame,
+  type ResultOf,
   type RpcDefinition,
 } from "@moltzap/protocol";
 import {
@@ -428,11 +429,23 @@ const notificationHandler =
 
 const connectClient = (client: MoltZapAppClient) => client.connect();
 
-const sendRpcEffect = <Tag extends Parameters<MoltZapAppClient["call"]>[0]>(
+/**
+ * Drive an arbitrary descriptor through the app client's typed `call` for these
+ * transport-resilience tests. The tests exercise the socket lifecycle (timeout,
+ * reconnect, close), not method semantics, so they pass any descriptor; the
+ * launder bridges the descriptor's name to the `call` tag. Production callers
+ * use the typed per-method `call` directly.
+ */
+const sendRpcEffect = <D extends RpcDefinition<string, any, any>>(
   client: MoltZapAppClient,
-  tag: Tag,
-  payload: Parameters<MoltZapAppClient["call"]>[1],
-) => client.call(tag, payload);
+  definition: D,
+  params: ParamsOf<D>,
+): Effect.Effect<ResultOf<D>, unknown> =>
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- transport-test fixture: any descriptor drives the socket lifecycle; not the production typed surface, so the result is named off the passed descriptor.
+  client.call(
+    definition.name as Parameters<MoltZapAppClient["call"]>[0],
+    params as Parameters<MoltZapAppClient["call"]>[1],
+  ) as unknown as Effect.Effect<ResultOf<D>, unknown>;
 
 function expectEffectFailure<A, E, R>(
   effect: Effect.Effect<A, E, R>,
