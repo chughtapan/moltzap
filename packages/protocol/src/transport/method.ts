@@ -272,8 +272,12 @@ export function effectiveErrorClasses(
 function makeErrorSchema(
   classes: ReadonlyArray<RpcErrorClass>,
 ): Schema.Schema.AnyNoContext {
-  if (classes.length === 0) return Schema.Never;
-  if (classes.length === 1) return classes[0]!;
+  // `Schema.Union` over the effective error classes — discriminated by `_tag`.
+  // The zero-arg union is the empty (never) error arm for a method that raises
+  // no typed wire error (the unauthenticated `network/connect`); the one-arg
+  // union is that single error. One construction path keeps the variance
+  // uniform (`Schema.Never`'s narrow `annotations` signature is not assignable
+  // to the descriptor's `Schema<any, any, never>` slot).
   return Schema.Union(...classes);
 }
 
