@@ -19,5 +19,7 @@ export interface ConversationInTaskValue {
 export class ConversationInTask extends Context.Tag(
   "@moltzap/protocol/ConversationInTask",
 )<ConversationInTask, ConversationInTaskValue>() {
-  static readonly errors = [ConversationNotFoundError] as const;
+  static get errors() {
+    return [ConversationNotFoundError] as const;
+  }
 }

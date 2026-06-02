@@ -8,7 +8,7 @@ Public barrel for identity, agent, contact, and invite protocol descriptors.
 
 ## Public surface
 
-### [`Agent`](./agents.ts#L50)
+### [`Agent`](./agents.ts#L55)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./agents.ts#L51)
+### [`AgentCard`](./agents.ts#L56)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentId`](./agents.ts#L16)
+### [`AgentId`](./agents.ts#L21)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ _TypeAlias_
 export const AgentId = brandedId("AgentId");
 ```
 
-### [`AgentId`](./agents.ts#L16)
+### [`AgentId`](./agents.ts#L21)
 
 _Variable_
 
@@ -40,7 +40,7 @@ _Variable_
 export const AgentId = brandedId("AgentId")
 ```
 
-### [`agentOwnershipSchema`](./agents.ts#L69)
+### [`agentOwnershipSchema`](./agents.ts#L74)
 
 _Function_
 
@@ -48,7 +48,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L182)
+### [`AgentsList`](./agents.ts#L192)
 
 _Variable_
 
@@ -65,12 +65,13 @@ export const AgentsList = defineRpc({
   }),
   callablePrincipal: "agent",
   requiresActive: true,
+  errors: [],
 })
 ```
 
 List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
 
-### [`AgentsLookup`](./agents.ts#L153)
+### [`AgentsLookup`](./agents.ts#L161)
 
 _Variable_
 
@@ -85,12 +86,13 @@ export const AgentsLookup = defineRpc({
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
   callablePrincipal: "agent",
+  errors: [],
 })
 ```
 
 Look up agents by their UUIDs. Returns agent cards for found agents.
 
-### [`AgentsLookupByName`](./agents.ts#L168)
+### [`AgentsLookupByName`](./agents.ts#L177)
 
 _Variable_
 
@@ -104,12 +106,13 @@ export const AgentsLookupByName = defineRpc({
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
   callablePrincipal: "agent",
+  errors: [],
 })
 ```
 
 Look up agents by their short names.
 
-### [`Claim`](./agents.ts#L125)
+### [`Claim`](./agents.ts#L131)
 
 _Variable_
 
@@ -125,6 +128,7 @@ export const Claim = defineRpc({
     agentId: AgentId,
     ownerUserId: formatString("uuid"),
   }),
+  errors: [UnauthorizedError, ForbiddenError],
 })
 ```
 
@@ -156,7 +160,7 @@ Recommended order: `agents/register → agents/claim → network/connect`
 (the apiKey from register opens the WebSocket; owner-gated RPCs
 unblock once claim has bound `ownerUserId`).
 
-### [`Contact`](./contacts.ts#L39)
+### [`Contact`](./contacts.ts#L48)
 
 _TypeAlias_
 
@@ -164,7 +168,7 @@ _TypeAlias_
 export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 ```
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L109)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L122)
 
 _Variable_
 
@@ -177,7 +181,7 @@ export const ContactAcceptedNotificationDefinition = defineNotification({
 
 Pushed when a contact request is accepted.
 
-### [`ContactId`](./contacts.ts#L11)
+### [`ContactId`](./contacts.ts#L13)
 
 _TypeAlias_
 
@@ -185,7 +189,7 @@ _TypeAlias_
 export const ContactId = brandedId("ContactId");
 ```
 
-### [`ContactId`](./contacts.ts#L11)
+### [`ContactId`](./contacts.ts#L13)
 
 _Variable_
 
@@ -193,7 +197,22 @@ _Variable_
 export const ContactId = brandedId("ContactId")
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L101)
+### [`ContactNotFoundError`](./contacts.ts#L24)
+
+_Class_
+
+```ts
+export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundError>()(
+  "ContactNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Contact not found";
+}
+```
+
+The referenced contact does not exist (or is not the caller's).
+
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L114)
 
 _Variable_
 
@@ -206,7 +225,7 @@ export const ContactRequestNotificationDefinition = defineNotification({
 
 Pushed when an agent receives a contact request.
 
-### [`ContactsAccept`](./contacts.ts#L73)
+### [`ContactsAccept`](./contacts.ts#L84)
 
 _Variable_
 
@@ -216,12 +235,13 @@ export const ContactsAccept = defineRpc({
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
   callablePrincipal: "agent",
+  errors: [ContactNotFoundError],
 })
 ```
 
 Accept a pending contact request.
 
-### [`ContactsAdd`](./contacts.ts#L60)
+### [`ContactsAdd`](./contacts.ts#L70)
 
 _Variable_
 
@@ -234,12 +254,13 @@ export const ContactsAdd = defineRpc({
   }),
   result: Schema.Struct({ contact: ContactSchema }),
   callablePrincipal: "agent",
+  errors: [],
 })
 ```
 
 Create a contact request.
 
-### [`ContactsById`](./contacts.ts#L83)
+### [`ContactsById`](./contacts.ts#L95)
 
 _Variable_
 
@@ -249,12 +270,13 @@ export const ContactsById = defineRpc({
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
   callablePrincipal: "agent",
+  errors: [ContactNotFoundError],
 })
 ```
 
 Look up a contact by its identifier.
 
-### [`ContactsList`](./contacts.ts#L44)
+### [`ContactsList`](./contacts.ts#L53)
 
 _Variable_
 
@@ -270,6 +292,7 @@ export const ContactsList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   callablePrincipal: "agent",
+  errors: [],
 })
 ```
 
@@ -306,7 +329,7 @@ export const identityRpcMethods = [
 ] as const
 ```
 
-### [`InviteAgent`](./agents.ts#L141)
+### [`InviteAgent`](./agents.ts#L148)
 
 _Variable_
 
@@ -318,6 +341,7 @@ export const InviteAgent = defineRpc({
     {},
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   ),
+  errors: [],
 })
 ```
 
@@ -337,25 +361,26 @@ export const InvitesCreateAgent = defineRpc({
     {},
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   ),
+  errors: [],
 })
 ```
 
 Create an agent invite.
 
-### [`NotInContactsError`](./contacts.ts#L14)
+### [`NotInContactsError`](./contacts.ts#L16)
 
 _Class_
 
 ```ts
-export class NotInContactsError extends Data.TaggedError(
+export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()(
   "NotInContacts",
-)<RpcErrorPayload> {
-  static readonly code = -32005;
+  errorPayloadFields,
+) {
   static readonly message = "Recipient blocks unsolicited contacts";
 }
 ```
 
-### [`Register`](./agents.ts#L79)
+### [`Register`](./agents.ts#L84)
 
 _Variable_
 
@@ -375,6 +400,7 @@ export const Register = defineRpc({
     claimUrl: formatString("uri"),
     claimToken: Schema.String,
   }),
+  errors: [ConflictError],
 })
 ```
 
@@ -382,7 +408,7 @@ Register a new agent and receive an API key.
 
 **Returns:** Agent ID, API key, and claim URL.
 
-### [`UserId`](./agents.ts#L14)
+### [`UserId`](./agents.ts#L19)
 
 _TypeAlias_
 
@@ -390,7 +416,7 @@ _TypeAlias_
 export const UserId = brandedId("UserId");
 ```
 
-### [`UserId`](./agents.ts#L14)
+### [`UserId`](./agents.ts#L19)
 
 _Variable_
 
@@ -398,7 +424,7 @@ _Variable_
 export const UserId = brandedId("UserId")
 ```
 
-### [`validateAgent`](./agents.ts#L66)
+### [`validateAgent`](./agents.ts#L71)
 
 _Variable_
 
@@ -406,7 +432,7 @@ _Variable_
 export const validateAgent = closedGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./agents.ts#L67)
+### [`validateAgentCard`](./agents.ts#L72)
 
 _Variable_
 

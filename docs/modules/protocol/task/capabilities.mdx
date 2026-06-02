@@ -127,17 +127,27 @@ export const assertTaskReadAccessMatchesTask = (
 Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. A
 separate overload keeps the type narrowed at the call site.
 
-### [`ContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L9)
+### [`ContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L17)
 
 _Class_
 
 ```ts
 export class ContactPolicyAllowsReach extends Context.Tag(
   "@moltzap/protocol/ContactPolicyAllowsReach",
-)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {}
+)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {
+  static get errors() {
+    return [NotInContactsError] as const;
+  }
+}
 ```
 
-### [`ContactPolicyAllowsReachValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L4)
+Capability-as-middleware: resolves whether the creator may reach every
+target under the recipients' contact policy. Its `obtain` (server-side) fails
+with `NotInContactsError`; the descriptor unions that into every method that
+requires this cap, so the failure is part of the method's typed error channel
+with no server-side error definition of its own.
+
+### [`ContactPolicyAllowsReachValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L5)
 
 _Interface_
 
@@ -168,17 +178,21 @@ export interface ConversationCreateAuthorizationValue {
 }
 ```
 
-### [`ConversationInTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L18)
+### [`ConversationInTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L19)
 
 _Class_
 
 ```ts
 export class ConversationInTask extends Context.Tag(
   "@moltzap/protocol/ConversationInTask",
-)<ConversationInTask, ConversationInTaskValue>() {}
+)<ConversationInTask, ConversationInTaskValue>() {
+  static get errors() {
+    return [ConversationNotFoundError] as const;
+  }
+}
 ```
 
-### [`ConversationInTaskValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L13)
+### [`ConversationInTaskValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L14)
 
 _Interface_
 
@@ -252,17 +266,26 @@ Value payload carries `(creatorAgentId, invitedAgentIds)` to match
 the obtain-time argument set; service methods consuming the capability
 verify the count matches handler input.
 
-### [`MessageSendPermission`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L31)
+### [`MessageSendPermission`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L37)
 
 _Class_
 
 ```ts
 export class MessageSendPermission extends Context.Tag(
   "@moltzap/protocol/MessageSendPermission",
-)<MessageSendPermission, MessageSendPermissionValue>() {}
+)<MessageSendPermission, MessageSendPermissionValue>() {
+  static get errors() {
+    return [
+    ConversationNotFoundError,
+    NotAParticipantError,
+    ConversationArchivedError,
+    TaskClosedError,
+  ] as const;
+  }
+}
 ```
 
-### [`MessageSendPermissionValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L15)
+### [`MessageSendPermissionValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L21)
 
 _Interface_
 
@@ -335,7 +358,7 @@ export interface ObtainConversationCreateAuthorizationInput {
 }
 ```
 
-### [`ObtainMessageSendPermissionInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L42)
+### [`ObtainMessageSendPermissionInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/message-send-permission.ts#L57)
 
 _Interface_
 
@@ -429,17 +452,23 @@ to call inside the same transaction that reads the task row;
 cross-transaction reuse is a defect (re-obtain by re-reading the
 column).
 
-### [`TaskReadAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L21)
+### [`TaskReadAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L22)
 
 _Class_
 
 ```ts
 export class TaskReadAccess extends Context.Tag(
   "@moltzap/protocol/TaskReadAccess",
-)<TaskReadAccess, TaskReadAccessValue>() {}
+)<TaskReadAccess, TaskReadAccessValue>() {
+  // Fails closed as not-found (rather than a distinct forbidden) so the obtain
+  // does not leak task existence to a caller without read access.
+  static get errors() {
+    return [TaskNotFoundError] as const;
+  }
+}
 ```
 
-### [`TaskReadAccessValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L16)
+### [`TaskReadAccessValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L17)
 
 _Interface_
 

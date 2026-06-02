@@ -37,12 +37,14 @@ export interface MessageSendPermissionValue {
 export class MessageSendPermission extends Context.Tag(
   "@moltzap/protocol/MessageSendPermission",
 )<MessageSendPermission, MessageSendPermissionValue>() {
-  static readonly errors = [
+  static get errors() {
+    return [
     ConversationNotFoundError,
     NotAParticipantError,
     ConversationArchivedError,
     TaskClosedError,
   ] as const;
+  }
 }
 
 /**

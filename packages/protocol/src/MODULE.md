@@ -32,7 +32,7 @@ own home layer.
 
 ## Public surface
 
-### [`agentClientRpcMethods`](./rpc-registry.ts#L100)
+### [`agentClientRpcMethods`](./rpc-registry.ts#L41)
 
 _Variable_
 
@@ -45,7 +45,7 @@ export const agentClientRpcMethods = [
 ] as const
 ```
 
-### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L128)
+### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L69)
 
 _TypeAlias_
 
@@ -54,7 +54,7 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
-### [`AnyAppCallableRpcDefinition`](./rpc-registry.ts#L130)
+### [`AnyAppCallableRpcDefinition`](./rpc-registry.ts#L71)
 
 _TypeAlias_
 
@@ -63,7 +63,7 @@ export type AnyAppCallableRpcDefinition =
   (typeof appCallableRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
-### [`AnyAppCallbackRpcDefinition`](./rpc-registry.ts#L133)
+### [`AnyAppCallbackRpcDefinition`](./rpc-registry.ts#L74)
 
 _TypeAlias_
 
@@ -71,7 +71,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](./rpc-registry.ts#L135)
+### [`AnyNotificationDefinition`](./rpc-registry.ts#L76)
 
 _TypeAlias_
 
@@ -80,7 +80,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-registry.ts#L126)
+### [`AnyServerRpcDefinition`](./rpc-registry.ts#L67)
 
 _TypeAlias_
 
@@ -88,7 +88,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
 ```
 
-### [`appCallableRpcMethods`](./rpc-registry.ts#L107)
+### [`appCallableRpcMethods`](./rpc-registry.ts#L48)
 
 _Variable_
 
@@ -257,7 +257,7 @@ minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
 `ProtocolMismatchError` whose `data.reason` is
 `"server-above-client-max"`.
 
-### [`closedStructGuard`](./schema-primitives.ts#L298)
+### [`closedStructGuard`](./schema-primitives.ts#L285)
 
 _Function_
 
@@ -325,7 +325,7 @@ export function dateTimeStringSchema(): typeof DateTimeStringSchema
 Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
 can keep `as const` references stable while the schema body is owned here.
 
-### [`decodeClientInbound`](./rpc-registry.ts#L280)
+### [`decodeClientInbound`](./rpc-registry.ts#L221)
 
 _Function_
 
@@ -343,7 +343,7 @@ on the request arm.
 Fails closed with `MalformedFrameError` on any mismatch, including
 a response frame whose `id` is `null` (no pending call to settle).
 
-### [`DecodedClientInbound`](./rpc-registry.ts#L178)
+### [`DecodedClientInbound`](./rpc-registry.ts#L119)
 
 _TypeAlias_
 
@@ -358,7 +358,7 @@ Decoded shape of a frame inbound to the server (from client):
 a client RPC request, a response (success XOR error) to a
 server-initiated callback, or a notification.
 
-### [`DecodedResponseError`](./rpc-registry.ts#L152)
+### [`DecodedResponseError`](./rpc-registry.ts#L93)
 
 _Class_
 
@@ -374,7 +374,7 @@ Discriminated error arm of a decoded JSON-RPC response — wire-frame
 decoder discriminator, not an Effect tagged error (the wire `error`
 sub-object carries `code`/`message`/`data`, no Effect machinery).
 
-### [`DecodedResponseSuccess`](./rpc-registry.ts#L139)
+### [`DecodedResponseSuccess`](./rpc-registry.ts#L80)
 
 _Class_
 
@@ -390,7 +390,7 @@ export class DecodedResponseSuccess extends Data.TaggedClass(
 
 Discriminated success arm of a decoded JSON-RPC response.
 
-### [`DecodedServerInbound`](./rpc-registry.ts#L163)
+### [`DecodedServerInbound`](./rpc-registry.ts#L104)
 
 _TypeAlias_
 
@@ -407,7 +407,7 @@ Decoded shape of a frame inbound to the client (from server):
 a response (success XOR error), a server-initiated task-callback
 request, or a notification.
 
-### [`decodeServerInbound`](./rpc-registry.ts#L246)
+### [`decodeServerInbound`](./rpc-registry.ts#L187)
 
 _Function_
 
@@ -443,7 +443,7 @@ pending call to resolve.
 Sibling: decodeClientInbound — same pipeline, but admits
 the full `rpcMethods` set on the request arm (server-side use).
 
-### [`decodesStrictly`](./schema-primitives.ts#L281)
+### [`decodesStrictly`](./schema-primitives.ts#L268)
 
 _Function_
 
@@ -512,19 +512,6 @@ strings, not a wire-protocol error. The `network/connect` handler
 catches it and maps to `InvalidParamsError` (JSON-RPC -32602) so the
 client gets a typed malformed-input response, not a defect.
 
-### [`JsonValue`](./schema-primitives.ts#L251)
-
-_TypeAlias_
-
-```ts
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<JsonValue>
-```
-
 ### [`ListCursor`](./schema-primitives.ts#L233)
 
 _TypeAlias_
@@ -563,7 +550,7 @@ _Variable_
 export const MAX_PAGE_LIMIT = 200
 ```
 
-### [`notificationDefinitions`](./rpc-registry.ts#L119)
+### [`notificationDefinitions`](./rpc-registry.ts#L60)
 
 _Variable_
 
@@ -584,22 +571,7 @@ _Variable_
 export const PROTOCOL_VERSION = "2026.529.0"
 ```
 
-### [`RegisteredTaggedError`](./rpc-registry.ts#L90)
-
-_TypeAlias_
-
-```ts
-export type RegisteredTaggedError = InstanceType<
-  (typeof registeredTaggedErrorClasses)[number]
->;
-```
-
-Closed union of every wire-registered tagged-error class instance.
-Drives `RpcCallError` so consumers can `Effect.catchTag(...)` against
-concrete tags (e.g. "Forbidden", "NotInContacts"). Derived from
-registeredTaggedErrorClasses — the single source of truth.
-
-### [`serverRpcMethods`](./rpc-registry.ts#L112)
+### [`serverRpcMethods`](./rpc-registry.ts#L53)
 
 _Variable_
 
@@ -612,7 +584,7 @@ export const serverRpcMethods = [
 ] as const
 ```
 
-### [`STRICT_DECODE`](./schema-primitives.ts#L273)
+### [`STRICT_DECODE`](./schema-primitives.ts#L260)
 
 _Variable_
 
