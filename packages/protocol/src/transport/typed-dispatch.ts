@@ -13,7 +13,8 @@
  * needed.
  */
 import type { Rpc } from "@effect/rpc";
-import type { Effect } from "effect";
+import type { RpcClientError } from "@effect/rpc/RpcClientError";
+import { Effect } from "effect";
 
 /** The `Rpc` member of `Rpcs` whose tag is `K`. */
 export type RpcForTag<
@@ -64,4 +65,32 @@ export function dispatchCall<Rpcs extends Rpc.Any, E, K extends Rpcs["_tag"]>(
   payload: PayloadForTag<Rpcs, K>,
 ): Effect.Effect<SuccessForTag<Rpcs, K>, ErrorForTag<Rpcs, K> | E> {
   return map[tag](payload);
+}
+
+/**
+ * Bind a non-flat `RpcClient` (viewed as a {@link TypedDispatchMap}) into a
+ * per-method `call(tag, payload)` that folds the engine's transport-level
+ * `RpcClientError` (a closed socket) into the caller's own `TransportError`.
+ *
+ * Generic over `Rpcs`: the body type-checks `dispatchCall` against the abstract
+ * `SuccessForTag&lt;Rpcs, Tag>`, so the per-tag success reduces at every concrete
+ * instantiation — including the combined callback ∪ notification group — with
+ * no value-boundary cast. Every endpoint that stands a non-flat client (the
+ * agent + app clients, the server's reverse client) shares this one bridge, so
+ * the transport-error fold is written once.
+ */
+export function makeTypedTransportCall<Rpcs extends Rpc.Any, TransportError>(
+  client: TypedDispatchMap<Rpcs, RpcClientError>,
+  onTransportError: () => TransportError,
+): <Tag extends Rpcs["_tag"]>(
+  tag: Tag,
+  payload: PayloadForTag<Rpcs, Tag>,
+) => Effect.Effect<
+  SuccessForTag<Rpcs, Tag>,
+  ErrorForTag<Rpcs, Tag> | TransportError
+> {
+  return (tag, payload) =>
+    dispatchCall(client, tag, payload).pipe(
+      Effect.catchTag("RpcClientError", () => Effect.fail(onTransportError())),
+    );
 }

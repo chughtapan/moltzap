@@ -32,7 +32,7 @@ import {
 } from "@moltzap/protocol";
 import { buildNativeClient } from "./runtime/native-mux-client.js";
 import {
-  dispatchCall,
+  makeTypedTransportCall,
   type TypedDispatchMap,
   type PayloadForTag,
   type SuccessForTag,
@@ -611,12 +611,11 @@ export class MoltZapAppClient {
       Effect.flatMap((state) => {
         const client = Option.isSome(state) ? state.value.client : undefined;
         if (client === undefined) return Effect.fail(makeNotConnectedError());
-        return dispatchCall(client, tag, payload).pipe(
-          // The engine surfaces a closed socket as `RpcClientError`; the
-          // client's transport-level contract is `NotConnectedError`.
-          Effect.catchTag("RpcClientError", () =>
-            Effect.fail(makeNotConnectedError()),
-          ),
+        // The same `makeTypedTransportCall` bridge the reverse client uses: a
+        // closed socket (`RpcClientError`) folds into `NotConnectedError`, the
+        // per-tag success + the method's typed errors reduce cast-free.
+        const call = makeTypedTransportCall(client, makeNotConnectedError);
+        return call(tag, payload).pipe(
           Effect.timeoutFail({
             duration: `${timeoutMs} millis`,
             onTimeout: () => new RpcTimeoutError({ method: tag, timeoutMs }),
