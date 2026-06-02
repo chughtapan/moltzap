@@ -9,9 +9,8 @@
  * by the LOWEST layer that yields the Tag in a handler body — placing a
  * Tag higher loses lint signal at lower layers.
  *
- * The `defineXMethod` wrappers in `define-layered-method.ts` use these as
- * generic-constraint upper bounds so a handler at layer L cannot pull a
- * service that only layer L+1 owns.
+ * These layer Tag unions bound a handler's residual R-channel so a handler at
+ * layer L cannot pull a service that only layer L+1 owns.
  *
  * **Audit method.** Each Tag below is placed at the lowest layer whose
  * handlers yield it post-Phase-2A.0 DI migration. The audit ran against
@@ -107,10 +106,6 @@ type TaskTags =
 export type AppTags = TaskTags | AppHostTag;
 
 // #705 — the former `CapabilityTags` SIBLING alias (Spec E #601) is
-// retired. Per-frame capability tags are no longer admitted into the
-// binding's `Reqs` bound as a single global union; instead each method
-// declares its OWN `CapabilityMiddleware` tuple (#705 HALF-2), and the
-// per-method cap idents are pinned from that tuple via `MiddlewaresOf`. The
-// handler-R / cap-totality lockstep lives on the `weaveCaps` bound
-// (`middleware-slot.types-check.ts`); the global alias has no remaining
-// consumer.
+// retired. Per-frame capability tags are not admitted into a global union;
+// each method's caps ride its own `*AuthMw` proof (server-core
+// `auth-middleware-layers.ts`), so the global cap alias has no consumer.

@@ -73,11 +73,10 @@ function assertCallerAppOwnsTask(appId: AppId, taskId: TaskId) {
   }).pipe(Effect.withSpan("task.assertCallerAppOwnsTask"));
 }
 
-// `task/request` lives in `packages/server/src/app/handlers/task-request.handler.ts`
-// — its handler binds via `defineAppMiddlewareMethod` because it dispatches
-// the `task/create` TM callback through `AppHost`, which is an app-layer
-// service. The descriptor itself stays in `@moltzap/protocol/task`;
-// only the binding moves up a layer.
+// `task/request`'s native handler lives in
+// `packages/server/src/app/handlers/task-request.handler.ts` — it fires the
+// `task/create` TM callback through `AppHost` (an app-layer service). The
+// descriptor itself stays in `@moltzap/protocol/task`.
 
 function taskConversationCreateBody(
   appId: AppId,

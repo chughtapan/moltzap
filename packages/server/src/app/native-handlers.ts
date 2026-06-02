@@ -5,7 +5,7 @@
  * method's native handler body (`*.handlers.ts` `native*` export). Each handler
  * is `(payload, { clientId, headers }) => Effect`: it reads its `*Auth` proof
  * for the narrowed principal + cap proofs, provides the caps as services, and
- * runs the same body the live `ErasedSlot` slot path runs.
+ * runs its handler body.
  *
  * `ServerEngineRpcGroup.toLayer(serverNativeHandlers)` binds this map onto the
  * native engine. The HTTP-only catalog methods (`agents/register`,
