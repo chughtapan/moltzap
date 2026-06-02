@@ -18,12 +18,11 @@ import {
 export const LeaseId = brandedId("LeaseId");
 export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
 
-// #705 HALF-2 — `messages/send` + `messages/list` are agent-originated; their
-// per-frame capabilities (`ConversationInTask`, `MessageSendPermission`,
-// `TaskReadAccess`) are now declared at the server binding site as
-// `CapabilityMiddleware` tuples and read the caller via `CurrentPrincipal`,
-// NOT as descriptor `capabilities` + `argsOf` resolvers. The wire descriptor
-// here carries only the params/result shape.
+// `messages/send` + `messages/list` are agent-originated; their per-frame
+// capabilities (`ConversationInTask`, `MessageSendPermission`, `TaskReadAccess`)
+// are run by the server's per-method `*AuthMw` (server-core
+// `auth-middleware-layers.ts`); the wire descriptor here carries only the
+// params/result shape.
 
 const DateTimeString = dateTimeStringSchema();
 

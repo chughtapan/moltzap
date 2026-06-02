@@ -1,17 +1,13 @@
 /**
  * @file app-callback handler-table type aliases.
  *
- * The server-side inbound surface flipped to the cast-free
- * {@link ErasedSlotTable} at #705 HALF-1 (`ServerHandlers` /
- * `HandlerTable` / `CapsUnionOf` / `AgentClientHandlers` retired). What
- * REMAINS here is the app-callback authoring surface: clients acting as
- * an app (and the conformance harness) write an
- * {@link AppCallbackHandlers} literal — a `{ definition, handle }` slot
- * per `appCallbackMethods` member — which the WS client converts to an
- * `ErasedSlotTable` (cap-less) at connection time via
- * {@link makeMiddlewareSlot}. Every slot is REQUIRED (Spec D3 R14b retired
- * the `forbidden` / `noOpNotification` sentinels); omitting any key fails
- * TS2741 at the factory call.
+ * The app-callback authoring surface: a client acting as an app (and the
+ * conformance harness) writes an {@link AppCallbackHandlers} literal — a
+ * `{ definition, handle }` slot per `appCallbackMethods` member. The app
+ * client's reverse `RpcServer&lt;ReverseRpcGroup>` adapts each authored
+ * `handle` into a per-tag reverse handler the server fires over the s2c
+ * channel (`@moltzap/client runtime/reverse-rpc-server.ts`). Every slot is
+ * REQUIRED; omitting any key fails TS2741 at the factory call.
  */
 import type { Context, Effect, Schema } from "effect";
 
@@ -20,18 +16,11 @@ import type { AnyAppCallbackRpcDefinition } from "../rpc-registry.js";
 import type { ParamsOf, ResultOf, RpcDefinition } from "./method.js";
 
 /**
- * Per-definition handler slot (app-callback authoring shape). `Ctx` is
- * the per-frame context the client hands every handler. `Caps` is the
- * upper bound on which `Context.Tag`s the handler's R channel may
- * reference; the app-callback catalog declares no capabilities, so
- * callers bind `Caps = never`.
- *
- * The WS client wraps each authored slot into an `ErasedSlot` (cap-less)
- * at connection time via {@link makeMiddlewareSlot}; the slot's `invoke`
- * decodes params and runs `handle`. The cross-package handler-R / cap
- * totality lockstep that the server side enforces lives on the
- * `defineXMiddlewareMethod` `weaveCaps` bound
- * (`server-core` `middleware-slot.types-check.ts`).
+ * Per-definition handler slot (app-callback authoring shape). `Ctx` is the
+ * per-frame context the client hands every handler. `Caps` is the upper bound
+ * on which `Context.Tag`s the handler's R channel may reference; the
+ * app-callback catalog declares no capabilities, so callers bind `Caps =
+ * never`. The app client's reverse `RpcServer` serves each slot's `handle`.
  */
 export interface HandlerSlot<
   D extends RpcDefinition<

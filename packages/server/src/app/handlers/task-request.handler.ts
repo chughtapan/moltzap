@@ -179,7 +179,7 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const appHost = yield* AppHostTag;
-    // Contact-policy gate. The binding's `weaveCaps` chain provides
+    // Contact-policy gate. The per-method `TaskRequestAuthMw` provides
     // `ContactPolicyAllowsReach` (via `contactPolicyAllowsReachMiddleware`)
     // before this body runs; draining the tag here makes the gate a
     // precondition of `taskService.create`. Empty `invitedAgentIds`

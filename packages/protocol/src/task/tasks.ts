@@ -17,11 +17,10 @@ import {
   ConversationInTask,
   ContactPolicyAllowsReach,
 } from "./capabilities/index.js";
-// #705 HALF-2 — `task/request`'s `ContactPolicyAllowsReach` and the four
-// `task/conversation/*` `ConversationInTask` capabilities are declared at
-// the server binding site as `CapabilityMiddleware` tuples (reading the
-// caller via `CurrentPrincipal`), NOT as descriptor `capabilities` + `argsOf`
-// resolvers. The wire descriptors below carry only their params/result shape.
+// `task/request`'s `ContactPolicyAllowsReach` and the four
+// `task/conversation/*` `ConversationInTask` capabilities are run by the
+// server's per-method `*AuthMw` (server-core `auth-middleware-layers.ts`); the
+// wire descriptors below carry only their params/result shape.
 
 // `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
 // re-exported here for backward compatibility of import paths.

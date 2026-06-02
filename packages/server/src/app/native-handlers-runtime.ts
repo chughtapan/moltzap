@@ -3,8 +3,8 @@
  * (`*.handlers.ts` `native*` exports, assembled in `native-handlers.ts`).
  *
  * A native handler reads its method's `*Auth` proof for the narrowed principal
- * id and the cap proofs, then runs the same body the live `ErasedSlot` path
- * runs. The body types its `ctx` against the FULL {@link AgentContext} /
+ * id and the cap proofs, then runs the handler body
+ * The body types its `ctx` against the FULL {@link AgentContext} /
  * {@link AppContext} (it reads `ownerUserId`/`agentStatus`, which the proof's
  * `PrincipalForKind` projection does not expose). The full arm is read off the
  * request-scoped {@link ConnectionTag}; the per-method `*AuthMw` has already

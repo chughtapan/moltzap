@@ -28,8 +28,7 @@ export type CallablePrincipal = "agent" | "app" | "any";
  * cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
  * caps the method requires and in what order. `Context.Tag<any, any>` is the
  * variance-agnostic carrier (a concrete class tag is not assignable to
- * `Context.Tag<unknown, unknown>`), matching `capability-middleware.ts`'s
- * `AnyContextTag`.
+ * `Context.Tag<unknown, unknown>`).
  */
 export type RpcCapTag = Context.Tag<any, any>;
 
@@ -47,12 +46,10 @@ export type RpcCapTag = Context.Tag<any, any>;
  * `Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" })`
  * to preserve AJV `strict` rejection at the trust boundary.
  *
- * #705 HALF-2 — a method's per-frame capabilities are NO LONGER descriptor
- * metadata. They are declared at the server binding site as
- * `CapabilityMiddleware` tuples woven by `defineXMiddlewareMethod`; the
- * descriptor carries only the wire shape. The former optional
- * `capabilities` field (+ its `argsOf` resolvers) and the runtime
- * `dischargeCaps` fold that read it are gone.
+ * A method's per-frame capabilities are NOT descriptor metadata: the
+ * descriptor carries only the wire shape. The server's per-method `*AuthMw`
+ * impl Layer runs each declared cap's derive/obtain
+ * (`server-core auth-middleware-layers.ts`).
  */
 export interface RpcDefinition<
   Name extends string,
@@ -144,9 +141,8 @@ export type ResultOf<
  *
  * - Every slot is REQUIRED in the handler table (Spec D3 R14b);
  *   omitting any key fails TS2741 at the factory call.
- * - #705 HALF-2: capabilities are NOT descriptor metadata. They are
- *   declared at the server binding site as `CapabilityMiddleware` tuples;
- *   `defineRpc` carries only the wire shape.
+ * - Capabilities are NOT descriptor metadata; `defineRpc` carries only the
+ *   wire shape, and the server's per-method `*AuthMw` runs the caps.
  * - The validators reject excess keys (`closedStructGuard`), preserving the
  *   AJV `strict` + `additionalProperties:false` rejection the conformance
  *   suite's `extra-property` / `oversized` mutators assert.
