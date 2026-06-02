@@ -1,16 +1,18 @@
 import { Effect } from "effect";
-import {
-  JSON_RPC_RESERVED_CODES,
-  UnauthorizedError,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
-} from "@moltzap/protocol";
+import { AgentCallableGroup } from "@moltzap/protocol";
+import type { RpcGroup } from "@effect/rpc";
 import {
   TransportRpcError,
   type Transport as TransportSurface,
   type TransportError,
 } from "../transport.js";
+import type {
+  PayloadForTag,
+  SuccessForTag,
+} from "../../runtime/typed-dispatch.js";
+
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type AgentCallableTag = AgentCallableRpcs["_tag"];
 
 export interface TestTransportCall {
   readonly method: string;
@@ -26,33 +28,27 @@ export const makeFakeTransport = (
   const calls: TestTransportCall[] = [];
   const transport: TransportSurface = {
     kind: "test",
-    rpc: <D extends RpcDefinition<string, any, any>>(
-      definition: D,
-      params: ParamsOf<D>,
-    ): Effect.Effect<ResultOf<D>, TransportError> => {
-      const call = { method: definition.name, params };
+    rpc: <Tag extends AgentCallableTag>(
+      tag: Tag,
+      payload: PayloadForTag<AgentCallableRpcs, Tag>,
+    ): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, TransportError> => {
+      const call = { method: tag, params: payload };
       calls.push(call);
       const out = respond(call);
       if (out instanceof Error) {
         return Effect.fail(
           new TransportRpcError({
-            method: definition.name,
-            code: UnauthorizedError.code,
+            method: tag,
+            tag: "Unauthorized",
             message: out.message,
           }),
         );
       }
-      if (!definition.validateResult(out)) {
-        return Effect.fail(
-          new TransportRpcError({
-            method: definition.name,
-            code: JSON_RPC_RESERVED_CODES.InternalError,
-            message: `Invalid fake response for ${definition.name}`,
-            data: out,
-          }),
-        );
-      }
-      return Effect.succeed(out as ResultOf<D>);
+      // The fake harness asserts on the recorded `calls`, not on the typed
+      // result; the canned response is the matching method's success by test
+      // construction.
+      // eslint-disable-next-line agent-code-guard/as-unknown-as -- test fixture: the canned `respond` value stands in for the method's success type, asserted via `calls`.
+      return Effect.succeed(out as SuccessForTag<AgentCallableRpcs, Tag>);
     },
   };
   return { calls, transport };

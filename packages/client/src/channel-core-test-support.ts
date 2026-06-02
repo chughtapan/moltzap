@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import { RpcServerError, type Message } from "@moltzap/protocol";
+import { ForbiddenError, type Message } from "@moltzap/protocol";
 import type { LeaseId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 
@@ -27,7 +27,7 @@ import {
 
 export {
   MoltZapChannelCore,
-  RpcServerError,
+  ForbiddenError,
   buildMessage,
   createFakeChannelService,
   flushDispatchChainEffect,
