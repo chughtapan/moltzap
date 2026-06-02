@@ -13,6 +13,8 @@ import {
   Scope,
   Stream,
 } from "effect";
+import { type RpcGroup } from "@effect/rpc";
+import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import {
   PROTOCOL_VERSION,
   AppCallableGroup,
@@ -26,11 +28,16 @@ import {
   type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
-  type RpcCallError,
-  type RpcDefinition,
   type AppCallbackHandlers,
 } from "@moltzap/protocol";
 import { buildNativeClient } from "./runtime/native-mux-client.js";
+import {
+  dispatchCall,
+  type TypedDispatchMap,
+  type PayloadForTag,
+  type SuccessForTag,
+  type ErrorForTag,
+} from "./runtime/typed-dispatch.js";
 import { buildReverseServer } from "./runtime/reverse-rpc-server.js";
 import {
   makeSubscriberRegistry,
@@ -66,23 +73,20 @@ export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
 
-type ConnectError = RpcCallError | RpcTimeoutError;
-
 type ConnectResult = ResultOf<typeof Connect>;
 
-/**
- * The native client's descriptor-driven outbound call surface
- * (`buildNativeClient`): `(def, params) => Effect<result, RpcCallError>` over
- * the c2s channel.
- */
-type NativeCall = <D extends RpcDefinition<string, any, any>>(
-  definition: D,
-  params: ParamsOf<D>,
-) => Effect.Effect<ResultOf<D>, RpcCallError>;
+/** The app group's member `Rpc`s — the tag-keyed dispatch surface. */
+type AppCallableRpcs = RpcGroup.Rpcs<typeof AppCallableGroup>;
+
+/** The branded wire tags the app client may originate. */
+type AppCallableTag = AppCallableRpcs["_tag"];
+
+/** The handshake's error channel: `network/connect`'s errors plus transport. */
+type ConnectError = Effect.Effect.Error<ReturnType<MoltZapAppClient["call"]>>;
 
 /**
- * Per-connection runtime state. `None` = not connected → `sendRpc` fails fast
- * with `NotConnectedError`. The c2s native client's `call` is the outbound
+ * Per-connection runtime state. `None` = not connected → `call` fails fast with
+ * `NotConnectedError`. The c2s native non-flat client is the outbound dispatch
  * surface; the s2c reverse `RpcServer` (built in `connectEffect`) serves the
  * moderator callbacks + notifications and is owned by the connection scope.
  */
@@ -92,7 +96,7 @@ interface ConnState {
   ) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
-  readonly call: NativeCall;
+  readonly client: TypedDispatchMap<AppCallableRpcs, RpcClientError>;
 
   /**
    * Settled when the reader fiber exits, letting `connect()` race against
@@ -328,22 +332,22 @@ export class MoltZapAppClient {
   }
 
   /**
-   * Send an RPC. Fails with a typed error:
-   *   - `NotConnectedError` if the socket isn't OPEN or closes mid-RPC
-   *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
-   *   - a registered tagged error for known protocol error codes
-   *   - `RpcServerError` for unknown protocol error codes
-   *
-   * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
-   * client extracts the wire method only inside the encoder path.
+   * Outbound RPC, typed per method. `call("task/close", payload)` returns
+   * `Effect<TaskCloseResult, <that method's errors> | NotConnectedError |
+   * RpcTimeoutError>` — the result and tagged-error union are recovered per tag
+   * from `AppCallableGroup`. The app group's tags are the only callable
+   * surface; an agent-only method does not typecheck.
    */
-  sendRpc<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
+  call<Tag extends AppCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AppCallableRpcs, Tag>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ConnectError> {
+  ): Effect.Effect<
+    SuccessForTag<AppCallableRpcs, Tag>,
+    ErrorForTag<AppCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
+  > {
     const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.sendRpcEffect(definition, params, timeoutMs);
+    return this.callEffect(tag, payload, timeoutMs);
   }
 
   /**
@@ -525,7 +529,7 @@ export class MoltZapAppClient {
         write,
         readerFiber,
         scope,
-        call: native.call,
+        client: native.client,
         handshakeSettled,
       });
       return yield* this.awaitConnectAuth(handshakeSettled);
@@ -585,7 +589,7 @@ export class MoltZapAppClient {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
     };
-    const authEffect = this.sendRpc(Connect, handshakeParams);
+    const authEffect = this.call(Connect.name, handshakeParams);
     return Effect.raceFirst(authEffect, Deferred.await(handshakeSettled)).pipe(
       Effect.tap((value) =>
         Effect.sync(() => {
@@ -595,24 +599,31 @@ export class MoltZapAppClient {
     );
   }
 
-  private sendRpcEffect<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
+  private callEffect<Tag extends AppCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AppCallableRpcs, Tag>,
     timeoutMs: number,
-  ): Effect.Effect<ResultOf<D>, ConnectError> {
-    return Effect.gen(this, function* () {
-      const state = yield* Ref.get(this.stateRef);
-      if (Option.isNone(state)) {
-        return yield* Effect.fail(makeNotConnectedError());
-      }
-      return yield* state.value.call(definition, params).pipe(
-        Effect.timeoutFail({
-          duration: `${timeoutMs} millis`,
-          onTimeout: () =>
-            new RpcTimeoutError({ method: definition.name, timeoutMs }),
-        }),
-      );
-    });
+  ): Effect.Effect<
+    SuccessForTag<AppCallableRpcs, Tag>,
+    ErrorForTag<AppCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
+  > {
+    return Ref.get(this.stateRef).pipe(
+      Effect.flatMap((state) => {
+        const client = Option.isSome(state) ? state.value.client : undefined;
+        if (client === undefined) return Effect.fail(makeNotConnectedError());
+        return dispatchCall(client, tag, payload).pipe(
+          // The engine surfaces a closed socket as `RpcClientError`; the
+          // client's transport-level contract is `NotConnectedError`.
+          Effect.catchTag("RpcClientError", () =>
+            Effect.fail(makeNotConnectedError()),
+          ),
+          Effect.timeoutFail({
+            duration: `${timeoutMs} millis`,
+            onTimeout: () => new RpcTimeoutError({ method: tag, timeoutMs }),
+          }),
+        );
+      }),
+    );
   }
 
   /**
