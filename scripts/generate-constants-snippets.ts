@@ -239,7 +239,7 @@ const collect = (): readonly Constant[] => {
     process.exit(1);
   }
 
-  return [...constants.filter((c): c is Constant => c !== null)];
+  return constants.filter((c): c is Constant => c !== null);
 };
 
 // ─── Render ──────────────────────────────────────────────────────────────

@@ -259,4 +259,3 @@ function runUserHook<TArgs>(
   );
 }
 
-export { runUserHook };

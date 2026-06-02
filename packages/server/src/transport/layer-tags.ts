@@ -74,7 +74,7 @@ type IdentityTags = TransportTags | AuthServiceTag;
  * Tag is yielded by the presence handler at `network/handlers/`, which
  * fans out via PresenceService.
  */
-export type NetworkTags =
+type NetworkTags =
   | IdentityTags
   | AgentEndpointResolverTag
   | ConnectionManagerTag
@@ -91,7 +91,7 @@ export type NetworkTags =
  * cross-cutting services spanning network (connections, presence) AND
  * task (conversation resolution for presence fan-out).
  */
-export type TaskTags =
+type TaskTags =
   | NetworkTags
   | MessageServiceTag
   | ConversationServiceTag
