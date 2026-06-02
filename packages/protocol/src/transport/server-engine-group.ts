@@ -329,7 +329,9 @@ export const findEngineGatingMismatch = (): string | undefined => {
     // Compare by each middleware Tag's `key`, not identity: the union member type
     // narrows `middlewares` to `Set<never>`, so `.has(mw)` does not type-check.
     const keys = new Set(
-      [...rpc.middlewares].map((m) => (m as { readonly key: string }).key),
+      [...rpc.middlewares].map(
+        (m) => (m as unknown as { readonly key: string }).key,
+      ),
     );
     const mismatch = memberGatingMismatch(tag, keys);
     if (mismatch !== undefined) {
