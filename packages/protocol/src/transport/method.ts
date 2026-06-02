@@ -36,19 +36,30 @@ export type RpcErrorClass = Schema.Schema.AnyNoContext &
 
 /**
  * A capability tag a method requires: a `Context.Tag` (the proof the per-method
- * middleware provides) that ALSO declares its own `errors` — the tagged-error
- * classes its derive/obtain can fail with. A capability IS a middleware: it
- * resolves a proof into context and fails with a typed, declared error set. The
- * descriptor unions every declared cap's `errors` into the method's effective
- * error channel ({@link EffectiveErrorClassesOf}), so a method that requires a
- * cap inherits that cap's failure modes with no re-declaration.
+ * middleware provides). A capability IS a middleware — it resolves a proof into
+ * context and declares its own `errors` (the tagged-error classes its
+ * derive/obtain can fail with) as a static tuple on the tag class. The
+ * descriptor unions every cap's `errors` into the method's effective error
+ * channel ({@link CapErrorsOf}), so a method that requires a cap inherits that
+ * cap's failure modes with no re-declaration.
  *
- * `Context.Tag<any, any>` is the variance-agnostic proof carrier; `errors` is the
- * static tuple read by the descriptor's error derivation.
+ * The type is the plain `Context.Tag<any, any>` (not intersected with an
+ * `errors` member): a concrete tag class does not match an intersection whose
+ * other arm is the variance-laden Tag, so the `errors` static is read
+ * structurally by {@link CapErrorClassesOf} rather than constrained here.
  */
-export type RpcCapTag = Context.Tag<any, any> & {
-  readonly errors: ReadonlyArray<RpcErrorClass>;
-};
+export type RpcCapTag = Context.Tag<any, any>;
+
+/**
+ * The error class tuple a cap tag declares as its static `errors`, or `[]` when
+ * the cap declares none. Read structurally off the tag class so `RpcCapTag` can
+ * stay the plain Tag type.
+ */
+export type CapErrorClassesOf<C> = C extends {
+  readonly errors: infer E extends ReadonlyArray<RpcErrorClass>;
+}
+  ? E
+  : readonly [];
 
 /**
  * Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
@@ -180,10 +191,10 @@ export type PrincipalErrorClassesOf<K extends CallablePrincipal> =
   K extends "any" ? readonly [] : typeof principalGateErrorClasses;
 
 /**
- * The union of error instance types a single cap tag declares (its `errors`
- * tuple's instance union).
+ * The union of error instance types a single cap tag declares (its static
+ * `errors` tuple's instance union), read structurally.
  */
-type CapErrorInstances<C extends RpcCapTag> = InstanceType<C["errors"][number]>;
+type CapErrorInstances<C> = InstanceType<CapErrorClassesOf<C>[number]>;
 
 /**
  * The union of every declared cap's error instances for a `caps` tuple.
@@ -257,10 +268,22 @@ export function effectiveErrorClasses(
     callablePrincipal === "any" ? [] : principalGateErrorClasses;
   const all = [
     ...principal,
-    ...caps.flatMap((cap) => cap.errors),
+    ...caps.flatMap(capErrorClasses),
     ...handlerErrors,
   ];
   return [...new Set(all)];
+}
+
+/**
+ * Read a cap tag's declared static `errors`, or `[]` when it declares none.
+ * The `errors` static is not part of the `RpcCapTag` type (a concrete tag
+ * class will not match an intersection with the variance-laden Tag), so it is
+ * read structurally here — the runtime mirror of {@link CapErrorClassesOf}.
+ */
+function capErrorClasses(cap: RpcCapTag): ReadonlyArray<RpcErrorClass> {
+  const errors = (cap as { readonly errors?: ReadonlyArray<RpcErrorClass> })
+    .errors;
+  return errors ?? [];
 }
 
 /**
