@@ -3,17 +3,14 @@
  * and downstream consumers (nanoclaw, openclaw).
  *
  * Strategy: extend the real `MoltZapService`, keeping all stateful logic
- * intact, and override only `sendRpc` so every RPC is answered from a
+ * intact, and override only `call` so every RPC is answered from a
  * canned-response map. `setResponse` indexes by protocol descriptor so a
  * typo in the wire name cannot compile.
  *
- * Motivation: the `sendToAgent` contract drift bug (A7) happened because a
+ * Motivation: the `sendToAgent` contract drift bug happened because a
  * hand-maintained mock drifted from the real wire shape. Typed method names
  * surface renames and additions to the RPC surface as compile errors across
  * every test that uses the fake.
- *
- * Canned responses are validated through the descriptor's result schema before
- * they are returned, matching the real transport boundary.
  */
 
 import type {
@@ -21,21 +18,20 @@ import type {
   AnyNotificationDefinition,
   NotificationFrame,
   Message,
-  ParamsOf,
   ResultOf,
   RpcDefinition,
 } from "@moltzap/protocol";
 import {
   decodeServerInbound,
-  JSON_RPC_RESERVED_CODES,
-  RpcServerError,
+  NotFoundError,
+  MalformedFrameError,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import type { RpcCallOptions } from "@moltzap/client";
 import { testAgentId } from "./ids.js";
 
-/** A tracked `sendRpc` invocation. */
+/** A tracked `call` invocation. */
 export interface RecordedCall {
   method: string;
   params: unknown;
@@ -46,7 +42,7 @@ export class FakeMoltZapService extends MoltZapService {
   calls: RecordedCall[] = [];
   private readonly responses = new Map<
     string,
-    (params: unknown) => Effect.Effect<unknown, ServiceRpcError>
+    () => Effect.Effect<unknown, ServiceRpcError>
   >();
 
   constructor(
@@ -82,38 +78,26 @@ export class FakeMoltZapService extends MoltZapService {
     this.responses.delete(definition.name);
   }
 
-  override sendRpc<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
+  override call<Tag extends Parameters<MoltZapService["call"]>[0]>(
+    tag: Tag,
+    payload: Parameters<MoltZapService["call"]>[1],
     opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
+  ): ReturnType<MoltZapService["call"]> {
     return Effect.suspend(() => {
-      const method = definition.name;
       this.calls.push(
-        opts === undefined ? { method, params } : { method, params, opts },
+        opts === undefined
+          ? { method: tag, params: payload }
+          : { method: tag, params: payload, opts },
       );
-      const responder = this.responses.get(method);
+      const responder = this.responses.get(tag);
       if (responder !== undefined) {
-        return responder(params).pipe(
-          Effect.flatMap((result) =>
-            definition.validateResult(result)
-              ? Effect.succeed(result as ResultOf<D>)
-              : Effect.fail(
-                  new RpcServerError({
-                    code: JSON_RPC_RESERVED_CODES.InternalError,
-                    message: `FakeMoltZapService: invalid result for ${method}`,
-                    data: result,
-                  }),
-                ),
-          ),
-        );
+        return responder() as ReturnType<MoltZapService["call"]>;
       }
       return Effect.fail(
-        new RpcServerError({
-          code: JSON_RPC_RESERVED_CODES.MethodNotFound,
-          message: `FakeMoltZapService: no canned response for ${method}`,
+        new NotFoundError({
+          message: `FakeMoltZapService: no canned response for ${tag}`,
         }),
-      );
+      ) as ReturnType<MoltZapService["call"]>;
     });
   }
 
@@ -142,20 +126,16 @@ export class FakeMoltZapService extends MoltZapService {
       decodeServerInbound(event).pipe(
         Effect.catchTag("MalformedFrameError", (cause) =>
           Effect.fail(
-            new RpcServerError({
-              code: JSON_RPC_RESERVED_CODES.InvalidParams,
-              message: `FakeMoltZapService: invalid notification ${event.method}`,
-              data: { params: event.params, raw: cause.raw },
+            new MalformedFrameError({
+              raw: `FakeMoltZapService: invalid notification ${event.method}: ${cause.raw}`,
             }),
           ),
         ),
       ),
     );
     if (decoded._tag !== "Notification") {
-      throw new RpcServerError({
-        code: JSON_RPC_RESERVED_CODES.InvalidParams,
-        message: `FakeMoltZapService: emitEvent expects a notification frame, got ${decoded._tag}`,
-        data: event,
+      throw new MalformedFrameError({
+        raw: `FakeMoltZapService: emitEvent expects a notification frame, got ${decoded._tag}`,
       });
     }
     this.emitNotification(decoded);

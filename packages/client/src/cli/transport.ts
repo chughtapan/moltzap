@@ -176,7 +176,6 @@ export type TransportDecision =
 
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 const DAEMON_TIMEOUT_MS = 10_000;
-const JSON_RPC_SERVER_ERROR_CODE = -32000;
 const PROBE_DAEMON_TIMEOUT_MS = 250;
 
 const EnvServerUrl = Config.option(Config.string("MOLTZAP_SERVER_URL"));

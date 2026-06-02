@@ -130,7 +130,7 @@ const MALFORMED_FRAME_FLUSH_MS = 300;
 const CLIENT_DRAIN_COUNT = 10;
 const CLOSE_PROPAGATION_TIMEOUT_MS = 1_000;
 const STALE_PORT_TEST_TIMEOUT_MS = 15_000;
-const HANDLER_REJECTION_CODE = ForbiddenError.code;
+const HANDLER_REJECTION_TAG = "Forbidden";
 const NORMAL_CLOSE_REASON = "normal";
 const SERVER_ERROR_REASON = "boom";
 const SERVER_TEST_REQUEST_ID = "srv-test-1";
@@ -428,11 +428,11 @@ const notificationHandler =
 
 const connectClient = (client: MoltZapAppClient) => client.connect();
 
-const sendRpcEffect = <D extends RpcDefinition<string, any, any>>(
+const sendRpcEffect = <Tag extends Parameters<MoltZapAppClient["call"]>[0]>(
   client: MoltZapAppClient,
-  definition: D,
-  params: ParamsOf<D>,
-) => client.sendRpc(definition, params);
+  tag: Tag,
+  payload: Parameters<MoltZapAppClient["call"]>[1],
+) => client.call(tag, payload);
 
 function expectEffectFailure<A, E, R>(
   effect: Effect.Effect<A, E, R>,
@@ -778,7 +778,7 @@ export {
   CLIENT_DRAIN_COUNT,
   CLOSE_PROPAGATION_TIMEOUT_MS,
   STALE_PORT_TEST_TIMEOUT_MS,
-  HANDLER_REJECTION_CODE,
+  HANDLER_REJECTION_TAG,
   NORMAL_CLOSE_REASON,
   SERVER_ERROR_REASON,
   SERVER_TEST_REQUEST_ID,
