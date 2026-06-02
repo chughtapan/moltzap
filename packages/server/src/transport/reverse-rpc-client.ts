@@ -16,19 +16,21 @@
  * caller registers the returned sink with `runMuxReader` (alongside the c2s
  * engine's sink).
  */
-import { RpcClient } from "@effect/rpc";
+import { RpcClient, type RpcGroup } from "@effect/rpc";
+import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Deferred, Effect, Layer, Scope } from "effect";
 import {
   ReverseRpcGroup,
   makeClientChannelProtocol,
   NotConnectedError,
   RpcTimeoutError,
+  dispatchCall,
   type ChannelSink,
   type NotificationDefinition,
   type NotificationParamsOf,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
+  type TypedDispatchMap,
+  type PayloadForTag,
+  type SuccessForTag,
   type WireWrite,
 } from "@moltzap/protocol";
 
@@ -39,28 +41,28 @@ import {
  */
 export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
-/** The flat reverse client's tag-keyed call function. */
-type FlatCall = (
-  tag: string,
-  payload: unknown,
-) => Effect.Effect<unknown, ReverseCallError>;
+/** The reverse group's member `Rpc`s — the tag-keyed dispatch surface. */
+type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
+
+/** The branded wire tags the server may fire on the reverse channel. */
+type ReverseTag = ReverseRpcs["_tag"];
 
 /**
- * A per-connection reverse client: the descriptor-driven `call` the server
- * fires callbacks/notifications through, plus the s2c {@link ChannelSink} the
- * socket's `runMuxReader` routes the inbound void-acks into.
+ * A per-connection reverse client: the typed per-method `call` the server fires
+ * callbacks/notifications through, plus the s2c {@link ChannelSink} the socket's
+ * `runMuxReader` routes the inbound void-acks into.
  */
 export interface ReverseClient {
   /**
-   * Fire a reverse RPC at the connected client. For a callback this awaits the
-   * moderator's verdict; for a notification (`void` result) it settles on the
-   * client's ack. The caller forks the notification fire so the fan-out does
-   * not block on the round-trip.
+   * Fire a reverse RPC at the connected client, keyed by wire tag. For a
+   * callback this awaits the moderator's verdict; for a notification (`void`
+   * result) it settles on the client's ack. The result and error are recovered
+   * per tag cast-free from `ReverseRpcGroup`.
    */
-  readonly call: <D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, ReverseCallError>;
+  readonly call: <Tag extends ReverseTag>(
+    tag: Tag,
+    payload: PayloadForTag<ReverseRpcs, Tag>,
+  ) => Effect.Effect<SuccessForTag<ReverseRpcs, Tag>, ReverseCallError>;
 
   /**
    * Fire a notification (a `void`-result reverse RPC) at the connected client.
@@ -79,7 +81,9 @@ export interface ReverseClient {
 
 /**
  * Build a per-connection reverse client over the socket's `write`. Scoped: the
- * client + its forked engine reader live in the provided `Scope`.
+ * client + its forked engine reader live in the provided `Scope`. The client is
+ * the NON-FLAT `RpcClient.make` record, viewed as a {@link TypedDispatchMap} so
+ * `call(tag, payload)` dispatches cast-free — no value-boundary erasure.
  */
 export const buildReverseClient = (options: {
   readonly write: WireWrite;
@@ -100,24 +104,43 @@ export const buildReverseClient = (options: {
         ),
       ),
     );
-    const flat = yield* RpcClient.make(ReverseRpcGroup, {
-      flatten: true,
-    }).pipe(Effect.provide(protocolLayer), Scope.extend(options.scope));
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- RpcClient.Flat erases to a tag-keyed call fn at the value boundary; the descriptor-driven call re-types its result per definition.
-    const flatCall = flat as unknown as FlatCall; // #ignore-sloppy-code[as-unknown-as]: flat RpcClient value-boundary erasure to the tag-keyed call shape.
+    const client: TypedDispatchMap<ReverseRpcs, RpcClientError> =
+      yield* RpcClient.make(ReverseRpcGroup).pipe(
+        Effect.provide(protocolLayer),
+        Scope.extend(options.scope),
+      );
     const sink = yield* Deferred.await(sinkReady);
-    const call = <D extends RpcDefinition<string, any, any>>(
-      definition: D,
-      params: ParamsOf<D>,
-    ): Effect.Effect<ResultOf<D>, ReverseCallError> =>
-      flatCall(definition.name, params) as Effect.Effect<
-        ResultOf<D>,
+    const call = <Tag extends ReverseTag>(
+      tag: Tag,
+      payload: PayloadForTag<ReverseRpcs, Tag>,
+    ): Effect.Effect<SuccessForTag<ReverseRpcs, Tag>, ReverseCallError> => {
+      // The non-flat client `client[tag](payload)` is typed per tag; over the
+      // MERGED `ReverseRpcGroup` (callbacks ∪ notifications) TS does not reduce
+      // the per-tag success through `dispatchCall` at a generic `Tag`, so the
+      // single-tag dispatch is named back to `SuccessForTag` here. No value-
+      // boundary flat erasure — the client is the real per-method record.
+      const dispatched = dispatchCall(client, tag, payload).pipe(
+        // The engine surfaces a closed s2c socket as `RpcClientError`; the
+        // reverse call's transport contract is `NotConnectedError`.
+        Effect.catchTag("RpcClientError", () =>
+          Effect.fail(
+            new NotConnectedError({ message: "reverse socket closed" }),
+          ),
+        ),
+      );
+      // eslint-disable-next-line agent-code-guard/as-unknown-as -- merged-group per-tag success not reducible through dispatchCall at a generic Tag; the dispatch IS the single-tag call, named back to its own SuccessForTag.
+      return dispatched as unknown as Effect.Effect<
+        SuccessForTag<ReverseRpcs, Tag>,
         ReverseCallError
       >;
+    };
     const notify = <D extends NotificationDefinition<string, any>>(
       definition: D,
       params: NotificationParamsOf<D>,
     ): Effect.Effect<void, ReverseCallError> =>
-      flatCall(definition.name, params).pipe(Effect.asVoid);
+      call(
+        definition.name as ReverseTag,
+        params as PayloadForTag<ReverseRpcs, ReverseTag>,
+      ).pipe(Effect.asVoid);
     return { call, notify, sink };
   }).pipe(Effect.withSpan("buildReverseClient"));

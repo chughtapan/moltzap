@@ -50,7 +50,17 @@ export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, ReverseCallError, never> {
-  return originator.call(definition, params);
+  // Each app-callback method's wire `name` is a reverse-channel tag; the
+  // reverse client's typed `call` recovers the result + transport error per
+  // tag. This def-driven wrapper is the one generic site over the callback
+  // union: inside it the per-tag payload/result correlation is not statically
+  // recoverable, so the descriptor (validated by `AnyAppCallbackRpcDefinition`)
+  // pins the types and the dispatch launders the generic tag.
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- generic callback-def → reverse tag launder; each call site passes a concrete callback descriptor whose name IS a reverse-channel tag.
+  return originator.call(
+    definition.name as never,
+    params as never,
+  ) as Effect.Effect<ResultOf<D>, ReverseCallError, never>;
 }
 
 // ===========================================================================
