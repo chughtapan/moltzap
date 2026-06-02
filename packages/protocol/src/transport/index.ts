@@ -99,33 +99,10 @@ export {
 export { wireErrorFromInstance } from "./wire-errors.js";
 export type { WireError } from "./wire-errors.js";
 
-// #705 — the existential `ErasedSlot` the dispatcher indexes by runtime
-// method string (supersedes the `RpcMethodBinding[]` + erasure-cast
-// cascade). Every slot is built by `makeMiddlewareSlot` (HALF-2); the
-// legacy `makeErasedSlot` + `dischargeCaps` + positional `CapProviders`
-// tuple + `argsOf` erasure are gone.
-export type {
-  ErasedSlot,
-  ErasedSlotTable,
-  SlotDispatchContext,
-} from "./erased-slot.js";
-
-// #705 HALF-2 — principal-as-service + cap-as-middleware. The
-// cast-free successor surface for middleware-converted methods: the
-// protocol-owned `CurrentPrincipal` Tag (read via `yield*` in
-// `derivePayload`), the `CapabilityMiddleware` carrier, and the
-// `makeMiddlewareSlot` builder (no `dischargeCaps` runtime fold, no
-// `narrowToDispatchContext`, no `argsOf(unknown, unknown)` erasure).
+// Principal-as-service: the protocol-owned `CurrentPrincipal` Tag a cap
+// middleware reads (`yield* CurrentPrincipal`) when deriving its payload.
 export type { Principal } from "./current-principal.js";
 export { CurrentPrincipal, callerAgentId } from "./current-principal.js";
-export type {
-  CapabilityMiddleware,
-  AnyCapabilityMiddleware,
-  MiddlewaresOf,
-} from "./capability-middleware.js";
-export { provideMiddleware } from "./capability-middleware.js";
-export type { GatedMiddlewareBody } from "./middleware-slot.js";
-export { makeMiddlewareSlot } from "./middleware-slot.js";
 
 // Channel-multiplexed `@effect/rpc` transport. One physical WebSocket
 // carries every logical endpoint, split by the `{ch, f}` envelope; each
