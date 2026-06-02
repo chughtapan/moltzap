@@ -8,7 +8,7 @@ import type { ConnectionId } from "@moltzap/protocol/network";
 
 import type {
   ConnectionManager,
-  WebSocketRef,
+  Originator,
 } from "../../transport/connection.js";
 import {
   type AgentPresenceEntry,
@@ -258,24 +258,20 @@ function statusForAgent(
  * `Effect.annotateLogs` carries the connection + transition context
  * once per fork so every log inside the forked fiber inherits it.
  */
-function publishOneFrame(
-  socket: WebSocketRef,
-  raw: string,
-  context: {
-    readonly connId: ConnectionId;
-    readonly agentId: AgentId;
-    readonly status: DerivedPresenceStatus;
-  },
+function fireOneNotification(
+  originator: Originator,
+  params: { readonly agentId: AgentId; readonly status: DerivedPresenceStatus },
 ): void {
   Effect.runFork(
-    socket.write(raw).pipe(
-      Effect.catchAll((cause) =>
-        Effect.logDebug("presence/changed fan-out write failed").pipe(
-          Effect.annotateLogs({ cause }),
+    originator
+      .notify(PresenceChangedNotificationDefinition, params)
+      .pipe(
+        Effect.catchAll((cause) =>
+          Effect.logDebug("presence/changed fan-out fire failed").pipe(
+            Effect.annotateLogs({ cause, ...params }),
+          ),
         ),
       ),
-      Effect.annotateLogs(context),
-    ),
   );
 }
 
@@ -294,13 +290,10 @@ function fanOut(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     if (subscriberConnIds.size === 0) return;
-    const raw = JSON.stringify(
-      PresenceChangedNotificationDefinition.encode({ agentId, status }),
-    );
     for (const connId of subscriberConnIds) {
       const connOpt = yield* connections.peek(connId);
       if (Option.isSome(connOpt)) {
-        publishOneFrame(connOpt.value.socket, raw, { connId, agentId, status });
+        fireOneNotification(connOpt.value.originator, { agentId, status });
       }
     }
   });

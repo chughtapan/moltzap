@@ -18,6 +18,8 @@ import {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
+  type NotificationDefinition,
+  type NotificationParamsOf,
 } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../transport/connection.js";
 import type { LeaseTransitionObserver } from "../../network/services/presence-types.js";
@@ -583,31 +585,32 @@ function invalidLeaseState(
   return new LeaseInvalidError({ leaseId, state, expected, operation });
 }
 
-function writeFrame(
+function fireNotification<D extends NotificationDefinition<string, any>>(
   state: LeaseRegistryState,
   connId: ConnectionId,
-  raw: string,
+  definition: D,
+  params: NotificationParamsOf<D>,
 ): Effect.Effect<void, never, never> {
-  // Once the registry is shutting down, every connection is being torn
-  // down concurrently. A peer's `socket.write` parks on its closed
-  // write-latch (`Socket.fromWebSocket`'s `latch.whenOpen`), and because
-  // disconnect cleanup runs uninterruptibly that park would block
-  // `Scope.close(appScope)` forever. Drop the notification
-  // deterministically — no consumer remains at shutdown.
+  // Once the registry is shutting down, every connection is being torn down
+  // concurrently. Drop the notification deterministically — no consumer
+  // remains at shutdown.
   return Ref.get(state.closedRef).pipe(
     Effect.flatMap((closed) =>
-      closed ? Effect.void : writeFrameToConnection(state, connId, raw),
+      closed
+        ? Effect.void
+        : fireNotificationToConnection(state, connId, definition, params),
     ),
   );
 }
 
-function writeFrameToConnection(
+function fireNotificationToConnection<
+  D extends NotificationDefinition<string, any>,
+>(
   state: LeaseRegistryState,
   connId: ConnectionId,
-  raw: string,
+  definition: D,
+  params: NotificationParamsOf<D>,
 ): Effect.Effect<void, never, never> {
-  // Read the three-arm `connectionsRef`; the per-arm `socket.write` is
-  // the wire.
   return state.deps.connections.peek(connId).pipe(
     Effect.flatMap((connOpt) => {
       if (Option.isNone(connOpt)) {
@@ -615,11 +618,13 @@ function writeFrameToConnection(
           "lease-registry: target connection gone; dropping notification",
         ).pipe(Effect.annotateLogs({ connId }));
       }
-      return connOpt.value.socket
-        .write(raw)
+      // Fire the notification over the target connection's reverse client; the
+      // void result settles on the client's ack.
+      return connOpt.value.originator
+        .notify(definition, params)
         .pipe(
           Effect.catchAll((cause) =>
-            Effect.logWarning("lease-registry: socket write failed").pipe(
+            Effect.logWarning("lease-registry: notification fire failed").pipe(
               Effect.annotateLogs({ connId, cause: String(cause) }),
             ),
           ),
@@ -635,7 +640,7 @@ function emitDispatchRelease(
 ): Effect.Effect<void, never, never> {
   const wire = leaseVerdictToWire(verdict);
   if (wire === null) return Effect.void;
-  const frame = DispatchRelease.encode({
+  return fireNotification(state, record.binding.recipientConnectionId, DispatchRelease, {
     dispatchId: record.dispatchId,
     leaseId: record.leaseId,
     verdict: wire,
@@ -643,11 +648,6 @@ function emitDispatchRelease(
       ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
       : {}),
   });
-  return writeFrame(
-    state,
-    record.binding.recipientConnectionId,
-    JSON.stringify(frame),
-  );
 }
 
 function emitDispatchesConsumed(
@@ -656,18 +656,13 @@ function emitDispatchesConsumed(
   messageId: MessageId,
   consumedAt: string,
 ): Effect.Effect<void, never, never> {
-  const frame = DispatchesConsumed.encode({
+  return fireNotification(state, record.binding.moderatorConnectionId, DispatchesConsumed, {
     dispatchId: record.dispatchId,
     leaseId: record.leaseId,
     conversationId: record.binding.conversationId,
     messageId,
     consumedAt,
   });
-  return writeFrame(
-    state,
-    record.binding.moderatorConnectionId,
-    JSON.stringify(frame),
-  );
 }
 
 function emitDispatchesExpired(
@@ -675,17 +670,12 @@ function emitDispatchesExpired(
   record: LeaseRecord,
   expiredAt: string,
 ): Effect.Effect<void, never, never> {
-  const frame = DispatchesExpired.encode({
+  return fireNotification(state, record.binding.moderatorConnectionId, DispatchesExpired, {
     dispatchId: record.dispatchId,
     leaseId: record.leaseId,
     conversationId: record.binding.conversationId,
     expiredAt,
   });
-  return writeFrame(
-    state,
-    record.binding.moderatorConnectionId,
-    JSON.stringify(frame),
-  );
 }
 
 function replaceEntry(
