@@ -13,4 +13,5 @@ export const InvitesCreateAgent = defineRpc({
     {},
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   ),
+  errors: [],
 });

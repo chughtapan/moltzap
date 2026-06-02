@@ -1,23 +1,32 @@
-import { Data, Schema } from "effect";
+import { Schema } from "effect";
 import { brandedId, listCursorSchema } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
-import {
-  registerErrorClass,
-  type RpcErrorPayload,
-} from "../transport/wire-errors.js";
 import { UserId } from "./agents.js";
+
+/** Optional supplemental wire fields every domain tagged-error carries. */
+const errorPayloadFields = {
+  message: Schema.optional(Schema.String),
+  data: Schema.optional(Schema.Unknown),
+} as const;
 
 export const ContactId = brandedId("ContactId");
 export type ContactId = Schema.Schema.Type<typeof ContactId>;
 
-export class NotInContactsError extends Data.TaggedError(
+export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()(
   "NotInContacts",
-)<RpcErrorPayload> {
-  static readonly code = -32005;
+  errorPayloadFields,
+) {
   static readonly message = "Recipient blocks unsolicited contacts";
 }
-registerErrorClass(NotInContactsError);
+
+/** The referenced contact does not exist (or is not the caller's). */
+export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundError>()(
+  "ContactNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Contact not found";
+}
 
 const RelationshipType = Schema.String;
 
@@ -52,6 +61,7 @@ export const ContactsList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   callablePrincipal: "agent",
+  errors: [],
 });
 
 /**
@@ -65,6 +75,7 @@ export const ContactsAdd = defineRpc({
   }),
   result: Schema.Struct({ contact: ContactSchema }),
   callablePrincipal: "agent",
+  errors: [],
 });
 
 /**
@@ -75,6 +86,7 @@ export const ContactsAccept = defineRpc({
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
   callablePrincipal: "agent",
+  errors: [ContactNotFoundError],
 });
 
 /**
@@ -85,6 +97,7 @@ export const ContactsById = defineRpc({
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
   callablePrincipal: "agent",
+  errors: [ContactNotFoundError],
 });
 
 const ContactRequestNotificationSchema = Schema.Struct({

@@ -1,5 +1,6 @@
 import { Context } from "effect";
 import type { Task } from "../tasks.js";
+import { TaskNotFoundError } from "../tasks.js";
 import type { AgentId } from "../../identity/index.js";
 
 /**
@@ -20,4 +21,8 @@ export interface TaskReadAccessValue {
 
 export class TaskReadAccess extends Context.Tag(
   "@moltzap/protocol/TaskReadAccess",
-)<TaskReadAccess, TaskReadAccessValue>() {}
+)<TaskReadAccess, TaskReadAccessValue>() {
+  // Fails closed as not-found (rather than a distinct forbidden) so the obtain
+  // does not leak task existence to a caller without read access.
+  static readonly errors = [TaskNotFoundError] as const;
+}

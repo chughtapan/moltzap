@@ -1,6 +1,12 @@
 import { Context } from "effect";
 import type { Task, TaskId } from "../tasks.js";
+import { TaskClosedError } from "../tasks.js";
 import type { ConversationId, MessageId } from "../conversations.js";
+import {
+  ConversationNotFoundError,
+  ConversationArchivedError,
+  NotAParticipantError,
+} from "../conversations.js";
 import type { AgentId } from "../../identity/index.js";
 
 /**
@@ -30,7 +36,14 @@ export interface MessageSendPermissionValue {
 
 export class MessageSendPermission extends Context.Tag(
   "@moltzap/protocol/MessageSendPermission",
-)<MessageSendPermission, MessageSendPermissionValue>() {}
+)<MessageSendPermission, MessageSendPermissionValue>() {
+  static readonly errors = [
+    ConversationNotFoundError,
+    NotAParticipantError,
+    ConversationArchivedError,
+    TaskClosedError,
+  ] as const;
+}
 
 /**
  * Input shape consumed by the dispatch-time smart constructor. The

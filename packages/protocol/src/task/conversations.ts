@@ -32,6 +32,14 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
   static readonly message = "Conversation not found";
 }
 
+/** The caller is not a participant in the conversation it is acting on. */
+export class NotAParticipantError extends Schema.TaggedError<NotAParticipantError>()(
+  "NotAParticipant",
+  errorPayloadFields,
+) {
+  static readonly message = "Not a participant in the conversation";
+}
+
 export class ConversationArchivedError extends Schema.TaggedError<ConversationArchivedError>()(
   "ConversationArchived",
   errorPayloadFields,

@@ -8,6 +8,21 @@ import {
   stringEnum,
 } from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
+import { ConflictError } from "../transport/wire-errors.js";
+
+/** Optional supplemental wire fields every domain tagged-error carries. */
+const errorPayloadFields = {
+  message: Schema.optional(Schema.String),
+  data: Schema.optional(Schema.Unknown),
+} as const;
+
+/** The referenced dispatch lease does not exist (or the caller is not its moderator). */
+export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
+  "DispatchNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Dispatch lease not found";
+}
 
 const DateTimeString = dateTimeStringSchema();
 const AgentOwnershipSchema = agentOwnershipSchema();
@@ -131,9 +146,10 @@ export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 
 const decodeAppManifest = Schema.decodeUnknownEither(AppManifestSchema);
 
-class AppManifestInvalid extends Data.TaggedError("AppManifestInvalid")<{
-  readonly errors: readonly string[];
-}> {}
+export class AppManifestInvalid extends Schema.TaggedError<AppManifestInvalid>()(
+  "AppManifestInvalid",
+  { errors: Schema.Array(Schema.String) },
+) {}
 
 export type AppManifestValidationResult = Either.Either<
   AppManifest,
@@ -173,6 +189,7 @@ export const AppsRegister = defineRpc({
   params: Schema.Struct({ manifest: AppManifestSchema }),
   result: Schema.Struct({ appId: Schema.String }),
   callablePrincipal: "app",
+  errors: [ConflictError],
 });
 
 const DispatchAdmissionDecisionSchema = Schema.Union(
@@ -277,6 +294,7 @@ export const DispatchRequest = defineRpc({
   // narrows the agent arm and `requiresActive` enforces a claimed agent.
   callablePrincipal: "agent",
   requiresActive: true,
+  errors: [],
 });
 
 /**
@@ -290,6 +308,7 @@ export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
   result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
+  errors: [],
 });
 
 /**
@@ -404,6 +423,7 @@ export const DispatchesGet = defineRpc({
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
   callablePrincipal: "app",
+  errors: [DispatchNotFoundError],
 });
 
 // ── messages/authorize (send-side fan-out gate) ─────────────────────
@@ -464,6 +484,7 @@ export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
   result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
+  errors: [],
 });
 
 // ── task/create (TM recruitment) ────────────────────────────────────
@@ -540,6 +561,7 @@ export const TaskCreate = defineRpc({
   name: "task/create",
   params: TaskCreateContextSchema,
   result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
+  errors: [],
 });
 
 // ── Aggregators ─────────────────────────────────────────────────────
