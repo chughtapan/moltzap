@@ -168,3 +168,55 @@ export class AlreadyConnected extends Data.TaggedError("AlreadyConnected")<
     "Principal already has an active connection. Disconnect the prior session first.";
 }
 registerErrorClass(AlreadyConnected);
+
+/**
+ * The JSON-RPC error envelope a wire response carries: code, message, optional
+ * data. The shape `WireErrorSchema` decodes to, every per-method `*AuthMw`
+ * `failure` channel carries, and {@link wireErrorFromInstance} projects a
+ * registered tagged-error instance onto.
+ */
+export type WireError = {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+};
+
+const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
+  typeof value === "object" && value !== null;
+
+const stringProperty = (
+  value: Record<PropertyKey, unknown>,
+  key: PropertyKey,
+): string | undefined => {
+  const property = value[key];
+  return typeof property === "string" ? property : undefined;
+};
+
+const wireErrorPayload = (
+  cls: RpcErrorClass,
+  message: string,
+  data: unknown,
+): WireError =>
+  data === undefined
+    ? { code: cls.code, message }
+    : { code: cls.code, message, data };
+
+/**
+ * Read wire metadata (code/message/data) off an `RpcErrorClass` instance.
+ * Returns `null` when the failure is not a registered wire-error class (the
+ * caller routes to InternalError). A `Data.TaggedError` inherits `message: ""`
+ * from `Error`, so an empty instance message is treated as absent and the
+ * class's static default reaches the wire.
+ */
+export function wireErrorFromInstance(value: unknown): WireError | null {
+  if (!isRecord(value) || !isRegisteredErrorInstance(value)) {
+    return null;
+  }
+  const cls = value.constructor as RpcErrorClass;
+  const instanceMessage = stringProperty(value, "message");
+  const message =
+    instanceMessage !== undefined && instanceMessage.length > 0
+      ? instanceMessage
+      : cls.message;
+  return wireErrorPayload(cls, message, value.data);
+}

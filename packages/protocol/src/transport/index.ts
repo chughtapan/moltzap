@@ -84,20 +84,6 @@ export type {
   AppCallbackHandlers,
   AppCallbackInboundRpcDefinition,
 } from "./handlers.js";
-export type {
-  ServerConnection,
-  AgentClientConnection,
-  AppClientConnection,
-  ServerConnectionConfig,
-  AgentClientConnectionConfig,
-  AppClientConnectionConfig,
-} from "./connection.js";
-export {
-  makeServerConnection,
-  makeAgentClientConnection,
-  makeAppClientConnection,
-} from "./connection.js";
-
 // Reverse server→client RPC groups (the s2c channel). `AppCallbackRpcGroup`
 // carries the moderator callbacks (`dispatch/authorize`, `messages/authorize`,
 // `task/create`); `NotificationRpcGroup` carries every `defineNotification` as
@@ -110,13 +96,8 @@ export {
   ReverseRpcGroup,
   ServerRpcGroup,
 } from "./rpc-method-groups.js";
-export {
-  buildServerDispatcher,
-  buildAgentClientDispatcher,
-  buildAppClientDispatcher,
-  wireErrorFromInstance,
-} from "./dispatch.js";
-export type { WireError } from "./dispatch.js";
+export { wireErrorFromInstance } from "./wire-errors.js";
+export type { WireError } from "./wire-errors.js";
 
 // #705 — the existential `ErasedSlot` the dispatcher indexes by runtime
 // method string (supersedes the `RpcMethodBinding[]` + erasure-cast
