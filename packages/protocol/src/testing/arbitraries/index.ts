@@ -1,7 +1,7 @@
 /**
  * @file Public barrel for schema-derived protocol arbitraries used by tests.
  */
-export { arbitraryFromSchema, arbitraryForParams } from "./from-typebox.js";
+export { arbitraryFromSchema } from "./schema-arbitrary.js";
 export {
   arbitraryCallFor,
   arbitraryAnyCall,

@@ -30,7 +30,7 @@ The server projects presence over the dispatch-lease state machine. Each agent's
 Three transitions move the projection forward:
 
 - **WS connect** → entry created, `online` emitted on the agent's `presence/changed` channel.
-- **`LeaseRegistry.resolve(grant)`** (a moderator's verdict promotes the lease from `PENDING` to `GRANTED`) → the lease joins the agent's active set. If the agent was previously `online`, the derived status flips to `working`. A second concurrent `GRANTED` while already `working` produces no notification (dedup is structural, not opportunistic — see the `emitPresenceTransition` algebraic gate).
+- **`LeaseRegistry.resolve(grant)`** (a moderator's verdict promotes the lease from `PENDING` to `GRANTED`) → the lease joins the agent's active set. If the agent was previously `online`, the derived status flips to `working`. A second concurrent `GRANTED` while already `working` produces no notification (dedup is structural, not opportunistic — see the `dedupePresenceStatus` algebraic gate).
 - **Terminal lease exits** (`CLAIMED → CONSUMED` via `claim.finalize`, `GRANTED → EXPIRED` via TTL, or `GRANTED|CLAIMED → EXPIRED` via disconnect-driven cleanup) → the lease leaves the agent's active set. If it was the last active lease, the agent flips back to `online`.
 - **WS close** → entry dropped, `offline` emitted (single-source: even if leases are still active when the socket closes, the disconnect path runs first and the subsequent lease-end callbacks are correctly audited as `LeaseEndAfterDisconnect` without re-emitting).
 

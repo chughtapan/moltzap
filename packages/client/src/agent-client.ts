@@ -114,7 +114,7 @@ export interface AgentClientOptions {
 /**
  * MoltZap agent client — outbound RPC only, no app-callback inbound
  * dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; app-only
- * methods are unreachable at compile time (Spec D3 R11/R13).
+ * methods are unreachable at compile time.
  */
 export class MoltZapAgentClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;

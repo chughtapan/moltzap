@@ -32,7 +32,7 @@ import { MalformedFrameError } from "./transport/wire-errors.js";
 
 export { appCallbackMethods };
 
-// Spec D3 R11 — per-kind outbound catalogs.
+// Per-kind outbound catalogs.
 //   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.
 //   `appCallableRpcMethods`  — superset; adds app-only operations.
 //   `serverRpcMethods`      — server inbound; full union (still
@@ -68,8 +68,6 @@ export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
   RpcDefinition<string, any, any>;
 export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
-export type AnyAppCallableRpcDefinition =
-  (typeof appCallableRpcMethods)[number] & RpcDefinition<string, any, any>;
 
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 
@@ -107,21 +105,6 @@ export type DecodedServerInbound =
   | ({
       readonly _tag: "ServerRequest";
     } & DecodedRpcRequest<AnyAppCallbackRpcDefinition>)
-  | ({
-      readonly _tag: "Notification";
-    } & DecodedNotification<AnyNotificationDefinition>);
-
-/**
- * Decoded shape of a frame inbound to the server (from client):
- * a client RPC request, a response (success XOR error) to a
- * server-initiated callback, or a notification.
- */
-export type DecodedClientInbound =
-  | ({
-      readonly _tag: "ClientRequest";
-    } & DecodedRpcRequest<AnyServerRpcDefinition>)
-  | DecodedResponseSuccess
-  | DecodedResponseError
   | ({
       readonly _tag: "Notification";
     } & DecodedNotification<AnyNotificationDefinition>);
@@ -180,9 +163,6 @@ function decodeResponseFrame(
  * back into the client — `dispatch/authorize`, etc.). Response
  * frames with `id === null` fail closed since a null id has no
  * pending call to resolve.
- *
- * Sibling: {@link decodeClientInbound} — same pipeline, but admits
- * the full `rpcMethods` set on the request arm (server-side use).
  */
 export function decodeServerInbound(
   parsed: unknown,
@@ -199,40 +179,6 @@ export function decodeServerInbound(
           return decodeRpcRequest(appCallbackMethods, decoded.frame).pipe(
             Effect.mapError(wrap),
             Effect.map((req) => ({ ...req, _tag: "ServerRequest" as const })),
-          );
-        return decodeNotification(notificationDefinitions, decoded.frame).pipe(
-          Effect.mapError(wrap),
-          Effect.map((n) => ({ ...n, _tag: "Notification" as const })),
-        );
-      },
-    ),
-  );
-}
-
-/**
- * Typed entry point for server-inbound frames (used by the server to
- * decode what a client sends). Same shape as
- * {@link decodeServerInbound} but admits the FULL `rpcMethods` set
- * on the request arm.
- *
- * Fails closed with `MalformedFrameError` on any mismatch, including
- * a response frame whose `id` is `null` (no pending call to settle).
- */
-export function decodeClientInbound(
-  parsed: unknown,
-): Effect.Effect<DecodedClientInbound, MalformedFrameError> {
-  const raw = typeof parsed === "string" ? parsed : safeStringify(parsed);
-  const wrap = (cause: unknown) => new MalformedFrameError({ raw, cause });
-  return decodeFrame(parsed).pipe(
-    Effect.mapError(wrap),
-    Effect.flatMap(
-      (decoded): Effect.Effect<DecodedClientInbound, MalformedFrameError> => {
-        if (decoded._tag === "Response")
-          return decodeResponseFrame(decoded.frame, raw);
-        if (decoded._tag === "Request")
-          return decodeRpcRequest(serverRpcMethods, decoded.frame).pipe(
-            Effect.mapError(wrap),
-            Effect.map((req) => ({ ...req, _tag: "ClientRequest" as const })),
           );
         return decodeNotification(notificationDefinitions, decoded.frame).pipe(
           Effect.mapError(wrap),

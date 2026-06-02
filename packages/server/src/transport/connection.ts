@@ -64,10 +64,9 @@ export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
 }
 
 // ===========================================================================
-// D #705 §1.1 / §3 — three-arm discriminated-union connection state. This IS
-// the connections map's only entry shape (the legacy `MoltZapConnection` was
-// deleted at CP4f). Handlers consume `AgentConnection` / `AppConnection` via
-// `ConnectionTag`; the sanctioned construction + transition surface
+// Three-arm discriminated-union connection state. This IS the connections
+// map's only entry shape. Handlers consume `AgentConnection` / `AppConnection`
+// via `ConnectionTag`; the sanctioned construction + transition surface
 // (`addUnauthenticated` / `authenticate` / `rollbackToUnauthenticated` /
 // `removeAndReturn`) is the only mutator of `connectionsRef`.
 // ===========================================================================
@@ -116,14 +115,14 @@ interface ConnectionBase {
 // `import type { AgentConnection }` parameter slot. The private member is
 // unreachable from outside the class declaration (TS2741 / TS18013 at the use
 // site), so external code cannot synthesize a value of any arm.
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal (§3.3), not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class UnauthenticatedConnection extends Data.TaggedClass(
   "UnauthenticatedConnection",
 )<ConnectionBase> {
   private readonly __brand: never = undefined as never;
 }
 
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal (§3.3), not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
   ConnectionBase & {
     readonly auth: AgentContext;
@@ -137,9 +136,8 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
      * `ConversationService.removeParticipant`. App-armed connections have no
      * conversation membership, so this field lives on the agent arm only.
      *
-     * The per-connection cache is a known denormalization smell tracked as a
-     * first-class-subscription-index redesign in chughtapan/moltzap#718 — out
-     * of scope for #705; carried forward branded here.
+     * The per-connection cache is a known denormalization smell — a
+     * first-class subscription index would replace it.
      */
     readonly conversationIds: Set<ConversationId>;
   }
@@ -147,7 +145,7 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
   private readonly __brand: never = undefined as never;
 }
 
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal (§3.3), not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AppConnection extends Data.TaggedClass("AppConnection")<
   ConnectionBase & { readonly auth: AppContext }
 > {
@@ -178,8 +176,8 @@ export type TransitionOutcome =
   | { readonly kind: "ok-app"; readonly authed: AppConnection };
 
 /**
- * The ONE surviving site of the `auth._tag` runtime check (§1.1 v21): mint
- * the connection arm matching the resolved principal. Module-private —
+ * The ONE site of the `auth._tag` runtime check: mint the connection arm
+ * matching the resolved principal. Module-private —
  * `ConnectionManager.authenticate` is the only caller. Splits the success
  * outcome per arm so the caller narrows `authed` without a cast.
  */
@@ -208,19 +206,17 @@ const mintAuthedArm = (
 
 export class ConnectionManager {
   /**
-   * D #705 §1.1 — the three-arm connections map. Module-private; the only
-   * mutators are `addUnauthenticated` / `authenticate` /
-   * `rollbackToUnauthenticated` / `removeAndReturn` below. The legacy
-   * `MoltZapConnection` map it replaced was deleted at CP4f (no reader
-   * remained once `apps/register` minted its `AppEndpoint` off the live arm).
+   * The three-arm connections map. Module-private; the only mutators are
+   * `addUnauthenticated` / `authenticate` / `rollbackToUnauthenticated` /
+   * `removeAndReturn` below.
    */
   private readonly connectionsRef: Ref.Ref<
     HashMap.HashMap<ConnectionId, Connection>
   > = Effect.runSync(Ref.make(HashMap.empty<ConnectionId, Connection>()));
 
   // =========================================================================
-  // D #705 §5.2 — sanctioned construction + transition surface over the
-  // three-arm `connectionsRef`. Every method below accepts only primitives or
+  // Sanctioned construction + transition surface over the three-arm
+  // `connectionsRef`. Every method below accepts only primitives or
   // publicly-constructible types (`AgentContext` / `AppContext` are exported
   // `Data.TaggedClass`); none accept an arm value, since the arm constructors
   // are module-private. Return types ARE the arms, since callers only READ.
@@ -254,9 +250,8 @@ export class ConnectionManager {
   }
 
   /**
-   * Snapshot of every connection arm (§5.2). Replaces the legacy `all()`;
-   * callers iterate + discriminate on `_tag` (e.g. the shutdown loop reads
-   * `arm.socket.shutdown`).
+   * Snapshot of every connection arm. Callers iterate + discriminate on `_tag`
+   * (e.g. the shutdown loop reads `arm.socket.shutdown`).
    */
   allConnections(): Effect.Effect<readonly Connection[]> {
     return Ref.get(this.connectionsRef).pipe(
@@ -264,7 +259,7 @@ export class ConnectionManager {
     );
   }
 
-  /** Current connection count (§5.2). Replaces the legacy `size` getter. */
+  /** Current connection count. */
   currentSize(): Effect.Effect<number> {
     return Ref.get(this.connectionsRef).pipe(
       Effect.map((map) => HashMap.size(map)),
@@ -272,7 +267,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Atomic per-connection authentication gate (§3 STEP C). Pattern-matches on
+   * Atomic per-connection authentication gate. Pattern-matches on
    * `auth._tag` ONCE to decide which arm to mint — the only surviving site of
    * that runtime check. Returns a split-per-arm `TransitionOutcome` so the
    * caller narrows without a cast.
@@ -321,8 +316,8 @@ export class ConnectionManager {
   }
 
   /**
-   * Roll an authenticated arm back to `UnauthenticatedConnection` (§3 STEP D
-   * failure). Idempotent: no-op when the entry is absent or already
+   * Roll an authenticated arm back to `UnauthenticatedConnection` on a
+   * post-auth failure. Idempotent: no-op when the entry is absent or already
    * unauthenticated — safe against a racing close handler.
    */
   rollbackToUnauthenticated(connId: ConnectionId): Effect.Effect<void> {
@@ -352,7 +347,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Atomic delete + return (§8.2 close handler STEP 0). Returns the removed
+   * Atomic delete + return. Returns the removed
    * arm (or `undefined`) so the caller `Match.tag`s for auth-gated cleanup.
    */
   removeAndReturn(connId: ConnectionId): Effect.Effect<Connection | undefined> {
@@ -369,7 +364,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Read-only lookup narrowed to the agent arm (§5.2). App lookups go through
+   * Read-only lookup narrowed to the agent arm. App lookups go through
    * `AppRegistry` by `appId`; `UnauthenticatedConnection` and `AppConnection`
    * entries are skipped structurally (no `auth.agentId` to compare).
    */
@@ -392,11 +387,10 @@ export class ConnectionManager {
   }
 
   /**
-   * Every live agent-arm connection of `agentId` (§5.2). Multi-tab agents
-   * have one arm per socket; the per-connection `conversationIds`
-   * subscription gate is maintained on each. Replaces the legacy
-   * `getByAgent` for the agent-only consumers (fan-out, conversation
-   * subscription maintenance).
+   * Every live agent-arm connection of `agentId`. Multi-tab agents have one arm
+   * per socket; the per-connection `conversationIds` subscription gate is
+   * maintained on each. The agent-only consumers (fan-out, conversation
+   * subscription maintenance) read this.
    */
   agentConnections(
     agentId: AgentId,
@@ -419,11 +413,11 @@ export class ConnectionManager {
 
   /**
    * Rebind `ownerUserId` on every connected agent arm of `agentId` after a
-   * successful claim (§5.2). The `AgentContext` arm field is immutable, so each
+   * successful claim. The `AgentContext` arm field is immutable, so each
    * matching `AgentConnection` is rebuilt with a fresh `AgentContext` carrying
    * the new owner (its `conversationIds` Set + socket/originator are carried
-   * forward by reference). Replaces the legacy in-place `conn.auth` mutation in
-   * `http-routes.ts → refreshClaimedConnections`.
+   * forward by reference). `http-routes.ts → refreshClaimedConnections` calls
+   * this.
    */
   setOwnerUserIdForAgent(
     agentId: AgentId,
@@ -457,11 +451,9 @@ export class ConnectionManager {
   /**
    * Add `conversationId` to the subscription set of every currently-connected
    * agent arm in `agentIds`. Idempotent (Set semantics); returns the
-   * subscribed connection ids for observability. Replaces the legacy
-   * `subscribeAgentsToConversation`. The arm's `conversationIds` Set is
-   * mutated in place (the `Data.TaggedClass` field is a `readonly` reference
-   * to a mutable Set — the reference never changes, matching the legacy
-   * per-connection cache mutation).
+   * subscribed connection ids for observability. The arm's `conversationIds`
+   * Set is mutated in place (the `Data.TaggedClass` field is a `readonly`
+   * reference to a mutable Set — the reference never changes).
    */
   addConversationToAgents(
     agentIds: readonly AgentId[],
@@ -487,7 +479,7 @@ export class ConnectionManager {
 
   /**
    * Seed the subscription set of a SINGLE agent-arm connection from its
-   * persisted `conversation_participants` rows at connect time (§5.2). No-op
+   * persisted `conversation_participants` rows at connect time. No-op
    * if the entry is absent (close race) or not an agent arm. Mirrors the
    * legacy per-connection `hydrateConnectionState` loop.
    */

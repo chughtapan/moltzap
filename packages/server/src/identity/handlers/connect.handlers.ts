@@ -32,7 +32,7 @@ import {
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
-import { API_KEY_PREFIX, APP_KEY_PREFIX } from "../services/agent-auth.js";
+import { API_KEY_PREFIX, APP_KEY_PREFIX } from "../services/credential-keys.js";
 import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
 import type { ConversationService } from "../../task/services/conversation.service.js";

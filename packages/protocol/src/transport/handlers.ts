@@ -54,8 +54,7 @@ type NameOf<D> =
     : never;
 
 /**
- * Per-slot value type. Every slot is a real `HandlerSlot&lt;D, Ctx, Caps>`;
- * Spec D3 R14b removed the sentinel widening.
+ * Per-slot value type. Every slot is a real `HandlerSlot&lt;D, Ctx, Caps>`.
  */
 type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> =
   D extends RpcDefinition<
@@ -69,8 +68,7 @@ type SlotValue<D, Ctx, Caps extends Context.Tag<any, any>> =
 /**
  * Closed handler-table type generated from a definition union. Every
  * catalog member appears as a structurally-required key whose value is
- * a real `HandlerSlot&lt;D, Ctx, Caps&gt;` (Spec D3 R14b retired the
- * sentinel widening — no slot is optional).
+ * a real `HandlerSlot&lt;D, Ctx, Caps&gt;` — no slot is optional.
  */
 type HandlerTable<
   Defs extends RpcDefinition<

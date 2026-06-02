@@ -64,13 +64,13 @@ const EMPTY_APP_ID = "" as AppId;
 const EMPTY_CONNECTION_ID = "" as ConnectionId;
 
 /**
- * Structural slice of {@link ConversationService} that AppHost +
+ * Structural slice of `ConversationService` that AppHost +
  * `installDefaultApp` depend on. Defined locally rather than
  * importing the concrete service to avoid a circular import — the
  * layer order has ConversationService depending on AppHost.
  *
- *  - `removeParticipant`: #529 reshape deny arm (forked moderator
- *    round-trip drops the recipient on deny).
+ *  - `removeParticipant`: the deny arm (forked moderator round-trip drops the
+ *    recipient on deny).
  *  - `getParticipantAgentIds`: default-app `messages/authorize`
  *    forward-all policy reads the conversation's participant set
  *    here instead of re-implementing the SQL.
@@ -104,7 +104,7 @@ type PendingDispatchMessage = Readonly<{
   createdAt: string;
   receivedAt: string;
   clock?: LogicalClock;
-  // Post-#723: wire `pending[].parts` decodes to `readonly Part[]`.
+  // Wire `pending[].parts` decodes to `readonly Part[]`.
   parts?: ReadonlyArray<Part>;
 }>;
 
@@ -114,8 +114,8 @@ interface EnqueueDispatchRequestArgs {
   readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  // Post-#723: wire params decode to deeply-`readonly` Effect Schema types;
-  // these inputs are never mutated here, so accept `ReadonlyArray`.
+  // Wire params decode to deeply-`readonly` Effect Schema types; these inputs
+  // are never mutated here, so accept `ReadonlyArray`.
   readonly parts?: ReadonlyArray<Part>;
   readonly attempt?: number;
   readonly receivedAt?: string;
@@ -212,7 +212,7 @@ export class AppHost {
   private contactService: ContactService | null = null;
 
   /**
-   * Optional lease registry for the #529 reshape surface.
+   * Optional lease registry for the dispatch-admission surface.
    * Set post-construction by the layer wiring (see {@link setLeaseRegistry}).
    * Consumed exclusively by `enqueueDispatchRequest`. Kept optional so
    * existing tests that construct AppHost directly without a registry
@@ -221,12 +221,11 @@ export class AppHost {
   private leaseRegistry: LeaseRegistry | null = null;
 
   /**
-   * Optional conversation service for the #529 reshape additive deny
-   * arm. Wired post-construction by the server layer (see
-   * {@link setConversationService}). Used by the forked moderator
-   * round-trip to call `removeParticipant` on verdict-deny / synthesized
-   * timeout-deny — the architect §3 state-machine rule "On `deny`
-   * verdict, registry calls `conversationService.removeParticipant(...)`".
+   * Optional conversation service for the deny arm. Wired post-construction by
+   * the server layer (see {@link setConversationService}). Used by the forked
+   * moderator round-trip to call `removeParticipant` on verdict-deny /
+   * synthesized timeout-deny — on a `deny` verdict the registry calls
+   * `conversationService.removeParticipant(...)`.
    * Synthesized infra-hold (no hook registered) does NOT call
    * removeParticipant — that is the prereq-2 hold case.
    */
@@ -263,7 +262,7 @@ export class AppHost {
    * overwrites unconditionally — returns false when `appId` is already
    * registered. `appId` is the SERVER-MINTED identity (the authenticated
    * `AppConnection.auth.appId` on the implicit-registration path, or
-   * `DEFAULT_APP_ID` at boot), NOT `manifest.appId` (D #705 CP9). Callers
+   * `DEFAULT_APP_ID` at boot), NOT `manifest.appId`. Callers
    * (the appKey-Connect path and `installDefaultApp`) decide how to surface
    * false (typed `UnauthorizedError` over the wire; exception at boot).
    */
@@ -326,7 +325,7 @@ export class AppHost {
 
   /**
    * Read-side accessor used by peer services (notably
-   * {@link ConversationService}) that must consult the same contact policy
+   * `ConversationService`) that must consult the same contact policy
    * AppHost uses for app-session admission. Returns `null` when no policy
    * is wired — callers treat that as "allow all" to preserve dev-mode
    * defaults.
@@ -587,11 +586,10 @@ export class AppHost {
     if (verdict.decision !== "deny") return Effect.void;
     const svc = this.conversationService;
     if (svc === null) return Effect.void;
-    // D #705 CP9 — the moderator is an `AppConnection` (no `agentId`), so the
-    // deny-removal no longer resolves an actor agentId from the moderator
-    // connection: `conversationService.removeParticipant` does not consume one
-    // (the dead `_requesterAgentId` arg was dropped). The eviction targets the
-    // recipient; provenance is structurally the task's bound app.
+    // The moderator is an `AppConnection` (no `agentId`), so deny-removal does
+    // not resolve an actor agentId from the moderator connection:
+    // `conversationService.removeParticipant` does not consume one. The eviction
+    // targets the recipient; provenance is structurally the task's bound app.
     return svc
       .removeParticipant(params.conversationId, params.recipientAgentId)
       .pipe(
@@ -882,7 +880,7 @@ export class AppHost {
     params: ParamsOf<D>,
   ): Effect.Effect<ResultOf<D>, Error> {
     return sendRpcToClient(entry.endpoint.originator, definition, params).pipe(
-      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Upstream `wrapHookEffectWithEnvelope` collapses every Effect failure into a fail-closed verdict; per-tag handling cannot influence the outcome. The `RemoteHookError` here preserves call-context (appId, method, connectionId) in the log message and is the documented `messageAuthorizeRaw`/`dispatchAuthorizeRaw` envelope shape from #529.
+      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Upstream `wrapHookEffectWithEnvelope` collapses every Effect failure into a fail-closed verdict; per-tag handling cannot influence the outcome. The `RemoteHookError` here preserves call-context (appId, method, connectionId) in the log message and is the `messageAuthorizeRaw`/`dispatchAuthorizeRaw` envelope shape.
       Effect.mapError(
         (cause) =>
           new RemoteHookError({
@@ -932,9 +930,9 @@ export class AppHost {
 
   // ── Uniform hook dispatch (in-process + remote) ────────────────────
   //
-  // Per architect plan §3.4: every hook returns `Effect<Verdict, never>`
-  // regardless of source. The branching between in-process and remote is
-  // INSIDE the dispatch helpers; call sites observe one type. Failure
+  // Every hook returns `Effect<Verdict, never>` regardless of source. The
+  // branching between in-process and remote is INSIDE the dispatch helpers;
+  // call sites observe one type. Failure
   // modes (timeout, throw, RPC error, NotConnectedError, decode failure)
   // collapse into fail-closed verdicts (`deny`).
 

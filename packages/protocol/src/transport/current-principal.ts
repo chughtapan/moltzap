@@ -1,13 +1,13 @@
 /**
  * @file `CurrentPrincipal` — the request's authenticated principal as a
- * first-class Effect Context service (#705 HALF-2, principal-as-service).
+ * first-class Effect Context service.
  *
  * The capability middleware reads the caller's identity NOT from a `ctx`
  * parameter threaded through the descriptor surface, but as a SERVICE it
  * `yield*`s. `CurrentPrincipal` is a protocol-owned `Context.Tag` whose
  * value is the 2-arm authenticated principal; the server SATISFIES it with
  * `provideService(CurrentPrincipal, arm)` at the dispatch site, from the
- * same narrowed arm the #720 principal-kind gate already computed.
+ * same narrowed arm the principal-kind gate already computed.
  *
  * This is the same protocol-owned / server-satisfied split the four
  * capability tags (`TaskReadAccess`, `ConversationInTask`, …) already use:
@@ -15,8 +15,7 @@
  * value. The one-way protocol→server edge is preserved (protocol never
  * imports the server).
  *
- * HALF-2 slice-1 (this file): provides `CurrentPrincipal` only for the
- * middleware-converted methods (`messages/send`, `messages/list`). The
+ * `CurrentPrincipal` is provided only for the middleware-gated methods. The
  * unauth Connect path (`network/connect`, `callablePrincipal: "any"`)
  * declares zero middlewares, so nothing `yield*`s `CurrentPrincipal`
  * there and it is never provided on the unauthenticated arm.

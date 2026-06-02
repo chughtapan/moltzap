@@ -8,7 +8,7 @@ Public barrel for protocol reference-model helpers.
 
 ## Public surface
 
-### [`applyCall`](./dispatch.ts#L186)
+### [`applyCall`](./dispatch.ts#L185)
 
 _Function_
 
@@ -30,7 +30,7 @@ server's *observable* outcome (success vs typed error), not its full
 result shape. Tier B canonicalizers downgrade server responses to the
 same projection before comparing.
 
-### [`authorizationOutcome`](./dispatch.ts#L140)
+### [`authorizationOutcome`](./dispatch.ts#L139)
 
 _Function_
 
@@ -42,11 +42,10 @@ export function authorizationOutcome(
 ): "allow" | "deny-unauthenticated" | "deny-forbidden"
 ```
 
-Authorization oracle (B2 / B3). Returns the expected typed outcome for a
-call made by `agentId`. Property code compares the real server's error
-to this.
+Authorization oracle. Returns the expected typed outcome for a call made by
+`agentId`; property code compares the real server's error to this.
 
-Rules (mirrored from `packages/server/src/app/authz.ts` contract):
+Rules (the server enforces the same contract in `principal-gate.ts`):
   - Unregistered agent + non-connect method → deny-unauthenticated.
   - Conversation-scoped method + `authz` entry "denied" → deny-forbidden.
   - Otherwise allow.

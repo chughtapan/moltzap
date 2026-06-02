@@ -68,22 +68,7 @@ K > 1 samples and keep only methods where every probe predicts ok)
 per the architect's contract. Single-probe is sufficient when
 `applyCall` is method-only (today).
 
-### [`arbitraryForParams`](./from-typebox.ts#L41)
-
-_Function_
-
-```ts
-export function arbitraryForParams<S extends Schema.Schema.AnyNoContext>(
-  schema: S,
-): FastCheck.Arbitrary<Schema.Schema.Type<S>>
-```
-
-Narrowing alias kept for call-site intent. The former hand-roll narrowed
-to "small typical" values; `Arbitrary.make` already reads the schema's
-`maxItems` / `maxLength` / `between` bounds, so this delegates to
-arbitraryFromSchema.
-
-### [`arbitraryFromSchema`](./from-typebox.ts#L29)
+### [`arbitraryFromSchema`](./schema-arbitrary.ts#L23)
 
 _Function_
 
@@ -201,5 +186,5 @@ single-probe form to an `fc.sample`-based invariant check.
 ## Files
 
 - `frames.ts`
-- `from-typebox.ts`
 - `rpc.ts`
+- `schema-arbitrary.ts`

@@ -17,11 +17,7 @@ const URI_RE = /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/;
 export type BrandedString<BrandName extends string> = string &
   Brand.Brand<BrandName>;
 
-/** A `number` carrying a nominal `Brand.Brand&lt;BrandName>` tag. */
-export type BrandedNumber<BrandName extends string> = number &
-  Brand.Brand<BrandName>;
-
-/** The three wire string formats (former AJV `FormatRegistry` entries). */
+/** The three wire string formats. */
 export type WireStringFormat = "uuid" | "uri" | "date-time";
 
 /** Refinement options accepted by {@link brandedString}. */
@@ -33,21 +29,13 @@ export interface BrandedStringOptions {
   readonly description?: string;
 }
 
-/** Refinement options accepted by {@link brandedNumber}. */
-export interface BrandedNumberOptions {
-  readonly minimum?: number;
-  readonly maximum?: number;
-  readonly description?: string;
-}
-
 /**
  * Effect `Schema` whose decoded type is `BrandedString&lt;BrandName>`. The
  * brand exists only at the type level — decode runs against the underlying
- * string with the requested refinements (`minLength`, `maxLength`,
- * `pattern`, and the three wire `format` checkers below). Replaces the
- * former TypeBox `Type.String` + AJV `format` registry: the regex/finiteness
- * checks are now `Schema.pattern` / `Schema.filter` refinements that run
- * inside the same `Schema.decode*` engine as everything else.
+ * string with the requested refinements (`minLength`, `maxLength`, `pattern`,
+ * and the three wire `format` checkers below) as `Schema.pattern` /
+ * `Schema.filter` refinements inside the same `Schema.decode*` engine as
+ * everything else.
  *
  * `format` annotates the schema with `{ jsonSchema: { format } }` so
  * `JSONSchema.make` re-emits the draft-07 `format` keyword the docs walker
@@ -95,10 +83,10 @@ const dateTimeArbitrary =
     fc.date({ noInvalidDate: true }).map((d) => d.toISOString());
 
 /**
- * Apply one of the three wire string-format checkers (the former AJV
- * `FormatRegistry` entries) as a decode-time refinement, annotating the
- * schema so `JSONSchema.make` re-emits the draft-07 `format` keyword AND so
- * `Arbitrary.make` generates valid values directly (not by filter-rejection).
+ * Apply one of the three wire string-format checkers as a decode-time
+ * refinement, annotating the schema so `JSONSchema.make` re-emits the draft-07
+ * `format` keyword AND so `Arbitrary.make` generates valid values directly
+ * (not by filter-rejection).
  *
  * - `uuid` / `uri` are pure regex (`Schema.pattern`) + an `fc.uuid()` /
  *   `fc.webUrl()` arbitrary.
@@ -146,29 +134,6 @@ function applyStringFormat(
 }
 
 /**
- * Effect `Schema` whose decoded type is `BrandedNumber&lt;BrandName>`. Same
- * shape as {@link brandedString} for the numeric case.
- */
-export function brandedNumber<const BrandName extends string>(
-  brand: BrandName,
-  options: BrandedNumberOptions = {},
-): Schema.Schema<BrandedNumber<BrandName>, number> {
-  let base: Schema.Schema<number> = Schema.Number;
-  if (options.minimum !== undefined) {
-    base = base.pipe(Schema.greaterThanOrEqualTo(options.minimum));
-  }
-  if (options.maximum !== undefined) {
-    base = base.pipe(Schema.lessThanOrEqualTo(options.maximum));
-  }
-  return base.pipe(
-    Schema.brand(brand),
-    Schema.annotations({
-      description: options.description ?? `Branded ${brand}`,
-    }),
-  );
-}
-
-/**
  * Convenience over {@link brandedString} that adds the `uuid` format. The
  * canonical way to define wire id types in this package
  * (`AgentId = brandedId("AgentId")`, `TaskId = brandedId("TaskId")`, etc.).
@@ -183,11 +148,11 @@ export function brandedId<const BrandName extends string>(brand: BrandName) {
 }
 
 /**
- * Unbranded `Schema.String` carrying one of the three wire `format` checkers
- * (the former AJV `FormatRegistry` formats). Use for `result`/nested string
- * fields that need a `format` but no brand (e.g. a `claimUrl` `uri`, a raw
- * `uuid`-shaped id field). Emits the draft-07 `format` keyword for the docs
- * walker and runs the regex/finiteness refinement at decode time.
+ * Unbranded `Schema.String` carrying one of the three wire `format` checkers.
+ * Use for `result`/nested string fields that need a `format` but no brand
+ * (e.g. a `claimUrl` `uri`, a raw `uuid`-shaped id field). Emits the draft-07
+ * `format` keyword for the docs walker and runs the regex/finiteness
+ * refinement at decode time.
  */
 export function formatString(format: WireStringFormat): Schema.Schema<string> {
   return applyStringFormat(Schema.String, format);
@@ -195,9 +160,8 @@ export function formatString(format: WireStringFormat): Schema.Schema<string> {
 
 /**
  * `Schema.Literal(...values)` typed as the union of the literal values. Use
- * instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` —
- * same wire shape, simpler schema. Replaces the former TypeBox
- * `Type.String({ enum })`; `JSONSchema.make` renders a literal union as
+ * instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` — same
+ * wire shape, simpler schema. `JSONSchema.make` renders a literal union as
  * `{ "enum": [...] }` (string-valued), which the docs walker reads off
  * `.enum`.
  */
@@ -212,10 +176,8 @@ export function stringEnum<T extends string[]>(
 
 /**
  * ISO-8601 date-time string. Validated by the `date-time` `pattern` +
- * `Date.parse` finiteness `filter` (formerly the AJV `FormatRegistry`
- * `date-time` checker). Derive the type off `dateTimeStringSchema()` where
- * needed — the standalone `DateTimeString` alias was unused and dropped in
- * #723.
+ * `Date.parse` finiteness `filter`. Derive the type off `dateTimeStringSchema()`
+ * where needed.
  */
 const DateTimeStringSchema = applyStringFormat(Schema.String, "date-time");
 
@@ -251,11 +213,10 @@ export function listCursorSchema(): typeof ListCursorSchema {
  * Effect's `Schema.Struct` STRIPS excess keys by default
  * (`onExcessProperty:"ignore"`) — `Schema.decodeUnknownEither(S)({a,extra})`
  * returns `Right` with `extra` silently dropped, and `Schema.is(S)` returns
- * `true`. The former wire engine was `new Ajv({ strict: true })` +
- * `additionalProperties:false`, which REJECTED excess at every boundary, and
- * the conformance `extra-property` / `oversized` mutators assert frames with
- * an extra key still FAIL. So every ported decode boundary MUST pass this
- * option (or use {@link closedStructGuard}) to preserve that rejection.
+ * `true`. The wire boundary must REJECT excess instead: the conformance
+ * `extra-property` / `oversized` mutators assert that a frame with an extra
+ * key FAILS. So every decode boundary MUST pass this option (or use
+ * {@link closedStructGuard}) to enforce that rejection.
  */
 export const STRICT_DECODE = { onExcessProperty: "error" } as const;
 

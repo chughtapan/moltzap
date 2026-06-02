@@ -45,7 +45,7 @@ curl -s -X POST "http://localhost:${MOLTZAP_PORT}/api/v1/admin/register-agent" \
 
 Returns `{ "agentId": "...", "apiKey": "<API_KEY_PREFIX>..." }`
 (`API_KEY_PREFIX` is the value in
-`packages/server/src/identity/services/agent-auth.ts`).
+`packages/server/src/identity/services/credential-keys.ts`).
 
 ### Send a message (Node.js)
 

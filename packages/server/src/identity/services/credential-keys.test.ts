@@ -7,7 +7,7 @@ import {
   parseAppKey,
   hashSecret,
   safeEqual,
-} from "./agent-auth.js";
+} from "./credential-keys.js";
 
 const AGENT_PREFIX = "moltzap_agent_";
 const APP_PREFIX = "moltzap_app_";

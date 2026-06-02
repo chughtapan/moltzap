@@ -174,22 +174,19 @@ export interface AppClientOptions {
   appKey?: string;
 
   /**
-   * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
-   * `close` is the typed close metadata — real WebSocket `{code, reason}`
-   * when the transport surfaces them, OQ-5 defaults otherwise.
+   * Called once per disconnect (not reconnect). `close` is the typed close
+   * metadata — real WebSocket `{code, reason}` when the transport surfaces
+   * them, synthesized defaults otherwise.
    *
-   * Migration note (spec #596): the previous `subscribe(filter, handler)` /
-   * `waitForNotification` / `notificationsBufferRef` surface was deleted in
-   * Spec B. Callers consume notifications via `subscribe(def, refinement?)`
-   * returning a `Stream`, or `subscribeAll(refinement?)` for the broad-union
-   * escape hatch.
+   * Callers consume notifications via `subscribe(def, refinement?)` returning a
+   * `Stream`, or `subscribeAll(refinement?)` for the broad-union escape hatch.
    */
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: ConnectResult) => void;
 
   /**
-   * Spec D3 R14b — REQUIRED. app-callback handler table immutable at
-   * construction (Spec F I1). Keys are catalog method names
+   * REQUIRED. app-callback handler table immutable at construction. Keys are
+   * catalog method names
    * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
    * the matching `defineRpc` descriptor and its handler effect.
    * Vacuous-deny moderators write the explicit ForbiddenError handler.
@@ -352,15 +349,14 @@ export class MoltZapAppClient {
   }
 
   /**
-   * Typed-payload subscribe (spec #596 Goal #1). Returns a Stream of
-   * `DecodedNotification<D>` whose error channel is `NotConnectedError`
-   * and whose requirement set is `never`.
+   * Typed-payload subscribe. Returns a Stream of `DecodedNotification<D>` whose
+   * error channel is `NotConnectedError` and whose requirement set is `never`.
    *
    * `refinement` is a typed predicate over the definition's params shape.
    * The user-defined-type-guard overload (signature below) narrows the
    * Stream's payload to `DecodedNotification<D, R>`.
    *
-   * Lifecycle (spec §"Stream lifecycle contract"):
+   * Lifecycle:
    *   - Subscription construction is pure (no I/O, no scope). Legal
    *     pre-`connect()`.
    *   - First-pull suspends until the first matching frame arrives or
@@ -390,9 +386,9 @@ export class MoltZapAppClient {
   }
 
   /**
-   * Broad-union escape hatch (spec #596 Goal #2). Returns a Stream of every
-   * inbound notification regardless of definition. Payload narrowing is
-   * intentionally lost — callers wanting typed payloads use `subscribe`.
+   * Broad-union escape hatch. Returns a Stream of every inbound notification
+   * regardless of definition. Payload narrowing is intentionally lost — callers
+   * wanting typed payloads use `subscribe`.
    *
    * The only intended in-tree consumer is `MoltZapService.connect`'s
    * service-wide notification fanout.

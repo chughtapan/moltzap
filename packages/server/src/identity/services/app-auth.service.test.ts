@@ -12,7 +12,7 @@ import {
 } from "../../test-utils/index.js";
 import { AppContext } from "../../transport/context.js";
 import { AppAuthService } from "./app-auth.service.js";
-import { hashSecret, parseAppKey } from "./agent-auth.js";
+import { hashSecret, parseAppKey } from "./credential-keys.js";
 
 let harness: PgliteHarness;
 

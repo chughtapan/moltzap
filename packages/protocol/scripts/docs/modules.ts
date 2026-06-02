@@ -377,12 +377,48 @@ function renderPublicSurface(
   return lines;
 }
 
+/**
+ * Escape MDX-significant characters in JSDoc prose. MDX parses a bare open-angle
+ * as a JSX tag and a bare open-brace as an expression, so an un-fenced
+ * `Schema&lt;T>` or `{ onExcessProperty }` in a summary is a parse error on the
+ * Mintlify page. Escape both to their HTML entities — but only OUTSIDE
+ * inline-code backtick spans, where MDX already treats the content literally.
+ * The MODULE.md twin (GitHub-rendered Markdown) needs no escaping, so this runs
+ * only in `mdx` mode.
+ */
+function escapeMdxProse(text: string): string {
+  let inFence = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (line.trimStart().startsWith("```")) {
+        inFence = !inFence;
+        return line;
+      }
+      // Inside a fenced block, or an indented (4-space) code block, MDX already
+      // treats the content literally — leave it untouched.
+      if (inFence || /^ {4,}/.test(line)) return line;
+      // Prose line: escape `<`/`{` outside inline-code backtick spans.
+      return line
+        .split(/(`[^`]*`)/)
+        .map((segment, i) =>
+          i % 2 === 1
+            ? segment
+            : segment.replaceAll("<", "&lt;").replaceAll("{", "&#123;"),
+        )
+        .join("");
+    })
+    .join("\n");
+}
+
 function renderExport(
   ex: EnrichedExport,
   folder: string,
   path: Path.Path,
   link: LinkContext,
 ): string[] {
+  const prose = (text: string) =>
+    link.mode === "mdx" ? escapeMdxProse(text) : text;
   const lines: string[] = [
     `### ${exportLink(ex, folder, path, link)}`,
     "",
@@ -391,10 +427,10 @@ function renderExport(
   ];
   if (ex.signatureText) lines.push("```ts", ex.signatureText, "```", "");
   const summary = ex.comment?.summary.trim();
-  if (summary && summary.length > 0) lines.push(summary, "");
+  if (summary && summary.length > 0) lines.push(prose(summary), "");
   lines.push(...renderFailures(ex));
   const returns = ex.comment?.tags.find((t) => t.tag === "@returns")?.content;
-  if (returns) lines.push(`**Returns:** ${returns}`, "");
+  if (returns) lines.push(`**Returns:** ${prose(returns)}`, "");
   return lines;
 }
 

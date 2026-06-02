@@ -405,14 +405,14 @@ export interface LeaseRegistry {
    * (`socket-handler.ts → closeSocketSession`) in an UNINTERRUPTIBLE
    * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
    * connection holding a GRANTED lease, `abandon` emits a `dispatches/expired`
-   * frame to the MODERATOR connection via {@link writeFrame}. When the
+   * frame to the MODERATOR connection via {@link fireNotification}. When the
    * moderator socket is being torn down concurrently its write-latch is
    * closed, so the cross-connection write SUSPENDS forever — inside the
    * uninterruptible region — and `Scope.close` blocks awaiting that
    * fiber. That is the teardown deadlock this method prevents.
    *
    * `shutdown` breaks the deadlock at its source: it flips the registry into
-   * a closed state so {@link writeFrame} drops (rather than parks on) every
+   * a closed state so {@link fireNotification} drops (rather than parks on) every
    * subsequent cross-connection notification, and it interrupts the live
    * per-lease TTL/round-trip fibers so none survive into `Scope.close`.
    * Idempotent; safe to call when no leases are live. Error channel `never` —
@@ -558,7 +558,7 @@ interface LeaseRegistryState {
 
   /**
    * Set by {@link shutdownRegistry} at `CoreApp.close`. Once `true`,
-   * {@link writeFrame} drops cross-connection notifications instead of
+   * {@link fireNotification} drops cross-connection notifications instead of
    * parking on a dead peer's closed write-latch — see {@link LeaseRegistry.shutdown}.
    */
   readonly closedRef: Ref.Ref<boolean>;
@@ -1199,7 +1199,7 @@ function abandonConnectionLeases(
  * Drain the registry at app shutdown (see {@link LeaseRegistry.shutdown}).
  *
  * Order matters: flip `closedRef` FIRST so any disconnect-driven
- * {@link writeFrame} that races this (the WS-interruption cascade may already
+ * {@link fireNotification} that races this (the WS-interruption cascade may already
  * be running) drops instead of parking on a dead peer. Then snapshot the live
  * entries, clear them, and interrupt the per-lease TTL + round-trip fibers so
  * none survive into `Scope.close(appScope)`. `Fiber.interruptFork` is

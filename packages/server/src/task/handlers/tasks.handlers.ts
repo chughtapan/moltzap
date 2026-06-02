@@ -58,7 +58,7 @@ function assertCallerAppOwnsTask(appId: AppId, taskId: TaskId) {
 }
 
 // `task/request`'s native handler lives in
-// `packages/server/src/app/handlers/task-request.handler.ts` — it fires the
+// `packages/server/src/app/handlers/task-request.handlers.ts` — it fires the
 // `task/create` TM callback through `AppHost` (an app-layer service). The
 // descriptor itself stays in `@moltzap/protocol/task`.
 

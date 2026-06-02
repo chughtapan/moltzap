@@ -14,7 +14,7 @@ import {
   hashSecret,
   parseAppKey,
   safeEqual,
-} from "./agent-auth.js";
+} from "./credential-keys.js";
 
 /**
  * SQL-backed app authentication — the App-principal sibling of
@@ -178,9 +178,9 @@ export class AppAuthService {
       Effect.gen(this, function* () {
         const parsed = parseAppKey(appKey);
         if (!parsed) {
-          // The appKey is minted by `generateAppKey()` at the same boot
-          // (§2.6 step 5b); an unparseable key is a programmer-invariant
-          // violation, not an operational state.
+          // The appKey is minted by `generateAppKey()` at the same boot; an
+          // unparseable key is a programmer-invariant violation, not an
+          // operational state.
           return yield* Effect.die(
             new Error("installDefaultApp: appKey failed parseAppKey"),
           );

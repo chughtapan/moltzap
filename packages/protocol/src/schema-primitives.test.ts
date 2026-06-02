@@ -4,7 +4,6 @@ import {
   stringEnum,
   brandedId,
   brandedString,
-  brandedNumber,
   formatString,
   dateTimeStringSchema,
   decodesStrictly,
@@ -70,21 +69,6 @@ describe("brandedString", () => {
     const custom = "the color value";
     const schema = brandedString("Color", { description: custom });
     expect(jsonDescription(schema)).toContain(custom);
-  });
-});
-
-describe("brandedNumber", () => {
-  it("validates numbers and honors min/max bounds", () => {
-    const schema = brandedNumber("Year", { minimum: 1900, maximum: 2100 });
-    expect(accepts(schema, 2026)).toBe(true);
-    expect(accepts(schema, 1899)).toBe(false);
-    expect(accepts(schema, 2101)).toBe(false);
-    expect(accepts(schema, "2026")).toBe(false);
-  });
-
-  it("defaults description with brand name embedded when caller omits it", () => {
-    const schema = brandedNumber("Year");
-    expect(jsonDescription(schema)).toMatch(/Year/);
   });
 });
 

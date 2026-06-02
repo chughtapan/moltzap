@@ -13,7 +13,7 @@ import { AgentId, UserId } from "@moltzap/protocol/identity";
 
 import type { AppTags } from "../transport/layer-tags.js";
 import type { ConnectionTag, ResolvedServices } from "./layers.js";
-import { safeEqual } from "../identity/services/agent-auth.js";
+import { safeEqual } from "../identity/services/credential-keys.js";
 import {
   CLAIM_NOT_FOUND,
   CLAIM_OWNER_MISMATCH,

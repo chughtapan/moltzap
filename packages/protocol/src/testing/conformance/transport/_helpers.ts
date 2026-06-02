@@ -94,13 +94,15 @@ export function acquireProxiedClient(opts: {
  * Body params — `attachToxic` attaches the toxic inside the caller's
  * scope. Nesting matters: the caller typically does
  *
- *   Effect.scoped(gen(function* () {
- *     const client = yield* acquireProxiedClient(...)  // outer
- *     yield* Effect.scoped(gen(function* () {
- *       yield* attachToxic                             // inner
- *       yield* assertion(client)
- *     }))                                              // toxic removed
- *   }))                                                // client close OK
+ * ```ts
+ * Effect.scoped(gen(function* () {
+ *   const client = yield* acquireProxiedClient(...)  // outer
+ *   yield* Effect.scoped(gen(function* () {
+ *     yield* attachToxic                             // inner
+ *     yield* assertion(client)
+ *   }))                                              // toxic removed
+ * }))                                                // client close OK
+ * ```
  *
  * so the toxic is removed BEFORE TestClient's socket close. Under
  * disruptive toxics (timeout, reset_peer), this lets the WS close

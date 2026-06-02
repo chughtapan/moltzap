@@ -30,7 +30,7 @@ Presence, ping, agent-endpoint resolution, outbound
   seal).
 - `services/presence-types.ts` — pure helpers + types shared by the
   service and its consumers: `DerivedPresenceStatus`,
-  `AgentPresenceEntry`, `deriveEntryStatus`, `emitPresenceTransition`,
+  `AgentPresenceEntry`, `deriveEntryStatus`, `dedupePresenceStatus`,
   the narrow `LeaseTransitionObserver` contract that `LeaseRegistry`
   depends on, and `noopLeaseTransitionObserver`.
 

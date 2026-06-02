@@ -15,7 +15,7 @@ Registration, claim, login, contacts, participants, agent visibility.
 - `services/contact.service.ts` (from `services/`)
 - `services/participant.service.ts` (from `services/`)
 - `services/agent-visibility.ts` (from `services/`)
-- `services/agent-auth.ts` (from `auth/`)
+- `services/credential-keys.ts` (from `auth/`)
 - `services/contact-policy.ts` — `ContactService` policy contract
   (the cross-user reach predicate `AppHost` asks at runtime).
 - `services/webhook-contact-service.ts` — webhook-backed

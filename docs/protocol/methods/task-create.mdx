@@ -30,8 +30,8 @@ terminal `setStatus` runs AFTER it. The sequence is not atomic
 (the callback is a network call, not a DB op), so a crash or fiber
 interrupt in that window can strand a task in `waiting`. Stranded
 waiting tasks are invisible to delivery (no conversation, no
-participants observe them) and are reaped by follow-up work (the
-stale-waiting-task sweep, #684).
+participants observe them) and would be reaped by a stale-waiting-task
+sweep.
 
 ## Parameters
 
