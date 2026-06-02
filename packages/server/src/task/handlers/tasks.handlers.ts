@@ -30,7 +30,6 @@ import {
   TaskConversationRemoveParticipantAuth,
   ConversationInTask,
   InvalidParamsError,
-  provideMiddleware,
   type Conversation,
   type ParamsOf,
   type TaskConversationListItem,
@@ -42,21 +41,9 @@ import {
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
-import {
-  defineAppMethod,
-  defineAppMiddlewareMethod,
-  defineTaskMethod,
-} from "../../transport/define-layered-method.js";
-import type { ServerRpcSlots } from "../../transport/context.js";
 import type { AgentContext, AppContext } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-import {
-  conversationInTaskForArchive,
-  conversationInTaskForUnarchive,
-  conversationInTaskForAddParticipant,
-  conversationInTaskForRemoveParticipant,
-} from "../../app/capability-middlewares.js";
 import { obtainConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 import {
@@ -494,101 +481,6 @@ function taskConversationRemoveParticipantBody(
 // family-overview header block in `packages/protocol/src/task/tasks.ts` (above
 // `InitialConversationSchema`).
 //
-// The task-admin RPCs bind at the app layer: each handler runs
-// `assertCallerAppOwnsTask` before any service mutation. The four
-// conversation-targeted RPCs bind via `defineAppMiddlewareMethod` and weave
-// `ConversationInTask` as a `CapabilityMiddleware`; the rest are cap-less.
-export const taskHandlers: ServerRpcSlots = [
-  defineTaskMethod(TaskList, {
-    callablePrincipal: "agent",
-    handler: taskListBody,
-  }),
-
-  defineAppMethod(TaskClose, {
-    callablePrincipal: "app",
-    handler: taskCloseBody,
-  }),
-
-  defineAppMethod(TaskAddParticipant, {
-    callablePrincipal: "app",
-    handler: taskAddParticipantBody,
-  }),
-
-  defineAppMethod(TaskRemoveParticipant, {
-    callablePrincipal: "app",
-    handler: taskRemoveParticipantBody,
-  }),
-
-  defineTaskMethod(TaskLeave, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: (params, ctx) => taskLeaveBody(params, ctx),
-  }),
-
-  defineAppMethod(TaskConversationCreate, {
-    callablePrincipal: "app",
-    handler: (params, ctx) => taskConversationCreateBody(ctx.appId, params),
-  }),
-
-  defineTaskMethod(TaskConversationList, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: taskConversationListBody,
-  }),
-
-  defineAppMiddlewareMethod(
-    TaskConversationArchive,
-    [conversationInTaskForArchive] as const,
-    {
-      callablePrincipal: "app",
-      handler: taskConversationArchiveBody,
-      weaveCaps: (handlerEffect, params) =>
-        handlerEffect.pipe(
-          provideMiddleware(conversationInTaskForArchive, params),
-        ),
-    },
-  ),
-
-  defineAppMiddlewareMethod(
-    TaskConversationUnarchive,
-    [conversationInTaskForUnarchive] as const,
-    {
-      callablePrincipal: "app",
-      handler: taskConversationUnarchiveBody,
-      weaveCaps: (handlerEffect, params) =>
-        handlerEffect.pipe(
-          provideMiddleware(conversationInTaskForUnarchive, params),
-        ),
-    },
-  ),
-
-  defineAppMiddlewareMethod(
-    TaskConversationAddParticipant,
-    [conversationInTaskForAddParticipant] as const,
-    {
-      callablePrincipal: "app",
-      handler: taskConversationAddParticipantBody,
-      weaveCaps: (handlerEffect, params) =>
-        handlerEffect.pipe(
-          provideMiddleware(conversationInTaskForAddParticipant, params),
-        ),
-    },
-  ),
-
-  defineAppMiddlewareMethod(
-    TaskConversationRemoveParticipant,
-    [conversationInTaskForRemoveParticipant] as const,
-    {
-      callablePrincipal: "app",
-      handler: taskConversationRemoveParticipantBody,
-      weaveCaps: (handlerEffect, params) =>
-        handlerEffect.pipe(
-          provideMiddleware(conversationInTaskForRemoveParticipant, params),
-        ),
-    },
-  ),
-];
-
 // ── Native @effect/rpc handler bodies ───────────────────────────────────────
 //
 // The cap-less app/agent methods read only their `*Auth` proof for the gate.

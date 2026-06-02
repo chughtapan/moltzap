@@ -19,9 +19,7 @@ import {
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AuthService } from "../../identity/services/auth.service.js";
 import { opaquePayload } from "../../network/network-send.js";
-import type { ServerRpcSlots } from "../../transport/context.js";
 import type { AgentContext } from "../../transport/context.js";
-import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   AuthServiceTag,
   ContactsServiceTag,
@@ -118,25 +116,6 @@ function contactsByIdBody(
     return { contact };
   }).pipe(Effect.withSpan("contacts.byId"));
 }
-
-export const contactHandlers: ServerRpcSlots = [
-  defineTaskMethod(ContactsList, {
-    callablePrincipal: "agent",
-    handler: contactsListBody,
-  }),
-  defineTaskMethod(ContactsAdd, {
-    callablePrincipal: "agent",
-    handler: contactsAddBody,
-  }),
-  defineTaskMethod(ContactsAccept, {
-    callablePrincipal: "agent",
-    handler: contactsAcceptBody,
-  }),
-  defineTaskMethod(ContactsById, {
-    callablePrincipal: "agent",
-    handler: contactsByIdBody,
-  }),
-];
 
 // ── Native @effect/rpc handler bodies ───────────────────────────────────────
 

@@ -1,4 +1,3 @@
-import type { ServerRpcSlots } from "../../transport/context.js";
 import type { AgentContext } from "../../transport/context.js";
 import {
   AppsRegister,
@@ -13,7 +12,6 @@ import {
 import { AppId } from "@moltzap/protocol/task";
 import { Effect, Schema } from "effect";
 import { AppHostTag, ConnectionTag } from "../layers.js";
-import { defineAppMethod } from "../../transport/define-layered-method.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
 import { agentArm, toWireError } from "../native-handlers-runtime.js";
 
@@ -112,21 +110,6 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
   }).pipe(Effect.withSpan("dispatches.get"));
 }
 
-export const appHandlers: ServerRpcSlots = [
-  defineAppMethod(AppsRegister, {
-    callablePrincipal: "app",
-    handler: (params) => appsRegisterBody(params),
-  }),
-  defineAppMethod(DispatchRequest, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: dispatchRequestBody,
-  }),
-  defineAppMethod(DispatchesGet, {
-    callablePrincipal: "app",
-    handler: (params) => dispatchesGetBody(params),
-  }),
-];
 
 // ── Native @effect/rpc handler bodies ───────────────────────────────────────
 

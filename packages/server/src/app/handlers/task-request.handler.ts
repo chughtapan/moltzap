@@ -28,7 +28,6 @@ import {
   TaskRejectedError,
   TaskRequest,
   TaskRequestAuth,
-  provideMiddleware,
   type AppId,
   type Conversation,
   type ParamsOf,
@@ -47,9 +46,6 @@ import {
 } from "../layers.js";
 import { obtainConversationCreateAuthorization } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
-import { defineAppMiddlewareMethod } from "../../transport/define-layered-method.js";
-import type { ServerRpcSlots } from "../../transport/context.js";
-import { contactPolicyAllowsReachMiddleware } from "../capability-middlewares.js";
 import { agentArm, toWireError } from "../native-handlers-runtime.js";
 
 type TaskRequestParams = {
@@ -211,32 +207,6 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
       : yield* handleAccept(waitingTask.id, params, ctx);
   }).pipe(Effect.withSpan("task.request"));
 }
-
-export const taskRequestHandlers: ServerRpcSlots = [
-  // `task/request` is AGENT-called (reads `ctx.agentId` as
-  // `initiatorAgentId`) yet binds via `defineAppMiddlewareMethod` (its
-  // body `yield*`s `AppHostTag` to fire the `task/create` callback).
-  // `callablePrincipal: "agent"` places it in the agent arm + hands the
-  // body an `AgentContext`; the app-layer binding admits `AppHostTag` in
-  // the R-channel. The two axes are independent.
-  //
-  // `TaskRequest` declares `[ContactPolicyAllowsReach]` — woven as a static
-  // single-step `weaveCaps` chain; the declared middleware tuple (2nd arg)
-  // pins the totality lockstep.
-  defineAppMiddlewareMethod(
-    TaskRequest,
-    [contactPolicyAllowsReachMiddleware] as const,
-    {
-      callablePrincipal: "agent",
-      requiresActive: true,
-      handler: (params, ctx) => taskRequestBody(params, ctx),
-      weaveCaps: (handlerEffect, params) =>
-        handlerEffect.pipe(
-          provideMiddleware(contactPolicyAllowsReachMiddleware, params),
-        ),
-    },
-  ),
-];
 
 // ── Native @effect/rpc handler body ─────────────────────────────────────────
 //
