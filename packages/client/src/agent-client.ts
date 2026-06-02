@@ -5,6 +5,7 @@ import {
   Effect,
   Exit,
   Fiber,
+  Mailbox,
   ManagedRuntime,
   Option,
   Ref,
@@ -13,21 +14,21 @@ import {
 } from "effect";
 import {
   PROTOCOL_VERSION,
+  AgentCallableGroup,
   Connect,
   NotConnectedError,
   RpcTimeoutError,
-  makeAgentClientConnection,
-  type AgentClientConnection,
   type AnyNotificationDefinition,
   type DecodedNotification,
-  type DecodedServerInbound,
   type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
   type RpcCallError,
   type RpcDefinition,
 } from "@moltzap/protocol";
-import { decodeFrames } from "./runtime/frame.js";
+import { buildNativeClient } from "./runtime/native-mux-client.js";
+import { buildReverseServer } from "./runtime/reverse-rpc-server.js";
+import { runMuxReader } from "@moltzap/protocol";
 import {
   makeSubscriberRegistry,
   type SubscriberRegistry,
@@ -38,14 +39,10 @@ import {
 } from "./notification/stream.js";
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
 import {
-  MALFORMED_FRAME_PREVIEW_CHARS,
-  MSG_NOT_CONNECTED,
   NORMAL_CLOSE_CODE,
-  UTF8_DECODER,
   makeNotConnectedError,
   makeReconnectLoop,
   openSocket,
-  shouldLogMalformedFrame,
   webSocketUrl,
   type ClientWebSocket,
 } from "./runtime/reconnect.js";
@@ -55,6 +52,26 @@ export type { CloseInfo };
 /** Default per-RPC timeout. */
 const RPC_TIMEOUT_MS = 30_000;
 
+/**
+ * The moderator-callback handlers for an agent client's reverse `RpcServer`. An
+ * agent is never a moderator, so the three callback methods
+ * (`dispatch/authorize`, `messages/authorize`, `task/create`) are never fired
+ * at it — but the reverse handler map must cover every `ReverseRpcGroup`
+ * member, so each rejects as an impossible-state defect.
+ */
+const makeAgentCallbackHandlers = (): Record<
+  string,
+  (params: unknown) => Effect.Effect<unknown, unknown>
+> => {
+  const reject = (method: string) => () =>
+    Effect.dieMessage(`agent client received unexpected callback ${method}`);
+  return {
+    "dispatch/authorize": reject("dispatch/authorize"),
+    "messages/authorize": reject("messages/authorize"),
+    "task/create": reject("task/create"),
+  };
+};
+
 export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
@@ -62,21 +79,16 @@ export interface RpcCallOptions {
 type ConnectError = RpcCallError | RpcTimeoutError;
 
 type ConnectResult = ResultOf<typeof Connect>;
-type DecodedIncomingFrame = Effect.Effect.Success<
-  ReturnType<typeof decodeFrames>
->[number];
-type DecodedIncomingResponse = Extract<
-  DecodedIncomingFrame,
-  { readonly _tag: "ResponseSuccess" | "ResponseError" }
->;
-type DecodedIncomingNotification = Extract<
-  DecodedIncomingFrame,
-  { readonly _tag: "Notification" }
->;
-type DecodedServerRequest = Extract<
-  DecodedServerInbound,
-  { readonly _tag: "ServerRequest" }
->;
+
+/**
+ * The native client's descriptor-driven outbound call surface
+ * (`buildNativeClient`): `(def, params) => Effect<result, RpcCallError>` over
+ * the c2s channel.
+ */
+type NativeCall = <D extends RpcDefinition<string, any, any>>(
+  definition: D,
+  params: ParamsOf<D>,
+) => Effect.Effect<ResultOf<D>, RpcCallError>;
 
 interface ConnState {
   readonly write: (
@@ -84,7 +96,7 @@ interface ConnState {
   ) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
-  readonly agentConn: AgentClientConnection;
+  readonly call: NativeCall;
   readonly handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>;
 }
 
@@ -102,7 +114,6 @@ export interface AgentClientOptions {
  */
 export class MoltZapAgentClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
-  private readonly malformedRef: Ref.Ref<number>;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
@@ -117,7 +128,6 @@ export class MoltZapAgentClient {
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
-    this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
   }
 
@@ -196,7 +206,8 @@ export class MoltZapAgentClient {
         this.reconnectFiber = null;
         yield* Effect.forkDaemon(Fiber.interrupt(f));
       }
-      yield* this.failAllPending(MSG_NOT_CONNECTED);
+      // The native engine fails its in-flight RPCs with `NotConnectedError`
+      // when the connection scope closes below; no separate pending-drain.
       yield* this.subscribers.closeAll;
       const state = yield* Ref.getAndSet(this.stateRef, Option.none());
       if (Option.isSome(state)) {
@@ -227,8 +238,8 @@ export class MoltZapAgentClient {
     const state = this.runtime.runSync(Ref.get(this.stateRef));
     if (Option.isNone(state)) return;
     this.runtime.runSync(Ref.set(this.stateRef, Option.none()));
-    this.runtime.runFork(this.failConnectionPending(state.value));
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
+    // Closing the scope drains the native engine's in-flight RPCs.
     this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
   }
 
@@ -252,31 +263,49 @@ export class MoltZapAgentClient {
       const scope = yield* Scope.make();
       const socket = yield* this.openSocket(url, scope);
       const write = yield* Scope.extend(socket.writer, scope);
-      const agentConn = yield* Scope.extend(
-        makeAgentClientConnection<never, never>({
-          id: "agent-client",
-          // #705 HALF-1 — the AgentClient kind has an empty inbound
-          // catalog, so its slot table is `{}` (no inbound dispatch; the
-          // factory wires the originator only).
-          slots: {},
-          write: (raw) => write(raw),
-          idPrefix: "rpc",
-        }),
+      // The native engines write only enveloped frame strings; the socket
+      // close path writes a `CloseEvent`. `WireWrite` is string-only, so the
+      // engines bind this narrowed writer.
+      const wireWrite = (chunk: string) => write(chunk);
+
+      // c2s: the native outbound client (descriptor-driven `call`).
+      const native = yield* buildNativeClient({
+        group: AgentCallableGroup,
+        write: wireWrite,
         scope,
-      );
+      });
+      // s2c: the reverse server serving notifications into the subscriber
+      // registry. An agent is never a moderator, so the three callback handlers
+      // reject (never invoked).
+      const reverse = yield* buildReverseServer({
+        registry: this.subscribers,
+        callbackHandlers: makeAgentCallbackHandlers(),
+        write: wireWrite,
+        scope,
+      });
+
       const handshakeSettled = yield* Deferred.make<
         ConnectResult,
         ConnectError
       >();
+      const disconnects = yield* Mailbox.make<number>();
       const readerFiber = this.runtime.runFork(
-        this.readerEffect(socket, handshakeSettled),
+        runMuxReader(
+          socket,
+          { c2s: native.sink, s2c: reverse.sink },
+          disconnects,
+        ).pipe(
+          Effect.onExit((exit) =>
+            this.handleReaderExit(exit, handshakeSettled),
+          ),
+        ),
       );
 
       yield* this.publishConnectionState({
         write,
         readerFiber,
         scope,
-        agentConn,
+        call: native.call,
         handshakeSettled,
       });
       return yield* this.awaitConnectAuth(handshakeSettled);
@@ -300,21 +329,6 @@ export class MoltZapAgentClient {
     });
   }
 
-  private readerEffect(
-    socket: ClientWebSocket,
-    handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
-  ): Effect.Effect<void, Socket.SocketError> {
-    return socket
-      .runRaw((data) =>
-        this.handleIncoming(
-          typeof data === "string" ? data : UTF8_DECODER.decode(data),
-        ),
-      )
-      .pipe(
-        Effect.onExit((exit) => this.handleReaderExit(exit, handshakeSettled)),
-      );
-  }
-
   private handleReaderExit(
     exit: Exit.Exit<void, Socket.SocketError>,
     handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
@@ -324,7 +338,6 @@ export class MoltZapAgentClient {
         yield* Effect.logWarning("WebSocket error", exit.cause);
       }
       this._helloOk = null;
-      yield* this.failAllPending(MSG_NOT_CONNECTED);
       yield* Deferred.fail(handshakeSettled, makeNotConnectedError()).pipe(
         Effect.ignore,
       );
@@ -365,104 +378,12 @@ export class MoltZapAgentClient {
       if (Option.isNone(state)) {
         return yield* Effect.fail(makeNotConnectedError());
       }
-      const call = state.value.agentConn.call as <
-        D2 extends RpcDefinition<string, any, any>,
-      >(
-        definition: D2,
-        params: ParamsOf<D2>,
-      ) => Effect.Effect<ResultOf<D2>, ConnectError>;
-      return yield* call(definition, params).pipe(
+      return yield* state.value.call(definition, params).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
           onTimeout: () =>
             new RpcTimeoutError({ method: definition.name, timeoutMs }),
         }),
-      );
-    });
-  }
-
-  private recordMalformedFrame(err: {
-    readonly raw: string;
-  }): Effect.Effect<null> {
-    return Effect.gen(this, function* () {
-      const count = yield* Ref.updateAndGet(this.malformedRef, (n) => n + 1);
-      if (shouldLogMalformedFrame(count)) {
-        yield* Effect.logWarning(`Malformed frame (#${count})`).pipe(
-          Effect.annotateLogs({
-            rawPreview: err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
-          }),
-        );
-      }
-      return null;
-    });
-  }
-
-  private handleDecodedResponse(
-    decoded: DecodedIncomingResponse,
-  ): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const state = yield* Ref.get(this.stateRef);
-      if (Option.isNone(state)) return;
-      yield* state.value.agentConn.resolve(decoded.frame).pipe(Effect.asVoid);
-    });
-  }
-
-  // Agent clients receive no inbound RPC; if a malicious or stray
-  // ServerRequest arrives, log + drop.
-  private handleDecodedServerRequest(
-    decoded: DecodedServerRequest,
-  ): Effect.Effect<void> {
-    return Effect.logWarning(
-      "AgentClient received unexpected ServerRequest",
-    ).pipe(Effect.annotateLogs({ method: decoded.frame.method }));
-  }
-
-  private handleDecodedNotification(
-    decoded: DecodedIncomingNotification,
-  ): Effect.Effect<void> {
-    return this.subscribers.dispatch(decoded);
-  }
-
-  private handleDecodedFrame(
-    decoded: DecodedIncomingFrame,
-  ): Effect.Effect<void> {
-    switch (decoded._tag) {
-      case "ResponseSuccess":
-      case "ResponseError":
-        return this.handleDecodedResponse(decoded);
-      case "ServerRequest":
-        return this.handleDecodedServerRequest(decoded);
-      case "Notification":
-        return this.handleDecodedNotification(decoded);
-    }
-  }
-
-  private handleIncoming(raw: string): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const decodedFrames = yield* decodeFrames(raw).pipe(
-        Effect.catchTag("MalformedFrameError", (err) =>
-          this.recordMalformedFrame(err),
-        ),
-      );
-      if (decodedFrames === null) return;
-      for (const decoded of decodedFrames) {
-        yield* this.handleDecodedFrame(decoded);
-      }
-    });
-  }
-
-  private failConnectionPending(state: ConnState): Effect.Effect<void> {
-    return state.agentConn.failAllPending(
-      new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-    );
-  }
-
-  private failAllPending(message: string): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const state = yield* Ref.get(this.stateRef);
-      if (Option.isNone(state)) return;
-      yield* state.value.agentConn.failAllPending(
-        new NotConnectedError({ message }),
       );
     });
   }
