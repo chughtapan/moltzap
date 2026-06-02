@@ -134,6 +134,17 @@ export interface RpcDefinition<
    */
   readonly errorSchema: Schema.Schema.AnyNoContext;
 
+  /**
+   * The wire `error` Schema for the HANDLER-DOMAIN errors ALONE
+   * (`Schema.Union(...errors)`) — what the server engine member sets as its
+   * `error`. The principal-gate and cap errors are NOT here; they ride each
+   * stacked middleware's own `failure`, and the engine unions them into the
+   * method's error (`Rpc.ErrorSchema = _Error | _Middleware`). The catalog/client
+   * group uses the full {@link errorSchema} (the client carries no middleware,
+   * so it needs the aggregate union for its typed error channel).
+   */
+  readonly handlerErrorSchema: Schema.Schema.AnyNoContext;
+
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
   // `unknown` for variance compatibility with the
@@ -384,6 +395,9 @@ export function defineRpc<
     errorSchema: makeErrorSchema(
       effectiveErrorClasses(callablePrincipal, caps, def.errors),
     ),
+    // Handler-domain errors ALONE: the engine member's `error`. Principal-gate +
+    // cap errors come from the stacked middlewares' `failure`.
+    handlerErrorSchema: makeErrorSchema(def.errors),
     validateParams: closedStructGuard(def.params),
     validateResult: closedStructGuard(def.result),
     // `params` is `unknown` ONLY because the descriptor's `encodeRequest`

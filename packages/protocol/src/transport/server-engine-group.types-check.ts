@@ -29,11 +29,8 @@
  */
 import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { Layer } from "effect";
-import {
-  authMiddlewareByMethod,
-  MessagesSendAuth,
-  MessagesSendAuthMw,
-} from "./auth-middleware.js";
+import { PrincipalGateMw } from "./cap-middlewares.js";
+import { ConversationInTask } from "../task/capabilities/index.js";
 import { ServerRpcGroup } from "./rpc-method-groups.js";
 import {
   ServerEngineRpcGroup,
@@ -69,12 +66,13 @@ type AsMethod<Names extends string> = Names extends Names
 type ServerTags = ServerRpcs["_tag"];
 type UnauthTags = AsMethod<UnauthenticatedMethod>;
 type HttpOnlyTags = AsMethod<HttpOnlyMethod>;
-// Gated tags are the registry keys, taken INDEPENDENTLY of the engine group: the
-// registry is the single source the engine reads to attach gates, so deriving the
-// partition from the SAME group it gates would be vacuous (it could only ever
-// agree with itself). A WS method authenticated by the descriptor catalog but
-// absent from the registry is in none of the three arms — `_Exhaustive` fails.
-type GatedTags = AsMethod<keyof typeof authMiddlewareByMethod & string>;
+// Every authenticated WS method is gated by construction: `buildEngineMember`
+// stacks `PrincipalGateMw` + the declared caps' middlewares on every tag NOT in
+// the two allowlists. The gated arm is therefore the catalog minus the two
+// allowlists; the partition's job is to pin that the allowlists are exact and
+// disjoint, and the boot guard `findEngineGatingMismatch` is the runtime backstop
+// that each gated member carries the principal gate + its declared cap mws.
+type GatedTags = Exclude<ServerTags, UnauthTags | HttpOnlyTags>;
 
 // Exhaustive three-arm partition: every ServerRpcGroup tag is WS-gated (carries
 // its `*AuthMw`) OR unauth-allowlisted OR HTTP-only (no WS handler, no gate).
@@ -133,20 +131,12 @@ type MemberWithTag<Name extends string> = EngineRpcs extends infer R
     : never
   : never;
 
-// Each gated member carries its OWN `*AuthMw`, not a uniform one. `messages/send`
-// carries `MessagesSendAuthMw` (a cap-bearing agent method); selecting another
-// method would yield a DIFFERENT middleware identifier, so this equality pins the
-// per-method attach (a uniform attach would make every member's middleware the
-// same type and fail one of these per-method checks).
+// The principal gate is stacked on every authenticated member and is
+// non-optional: an `optional: true` middleware falls through to the handler on
+// failure, which would let a rejected principal reach the body.
 type MessagesSendMember = MemberWithTag<"messages/send">;
-type _MSGatedByOwnMw = Expect<
-  Equal<Rpc.Middleware<MessagesSendMember>, MessagesSendAuthMw>
->;
-// The per-method gate is non-optional: an `optional: true` middleware falls
-// through to the handler on failure, which would let a rejected principal/cap
-// reach the body. Every `*AuthMw.optional` is `false` by construction.
 type _GateNonOptional = Expect<
-  Equal<(typeof MessagesSendAuthMw)["optional"], false>
+  Equal<(typeof PrincipalGateMw)["optional"], false>
 >;
 
 // ── E.2 full-scale per-tag correlation ──────────────────────────────────
@@ -169,16 +159,16 @@ type _HandlerKeysTotal = Expect<
 // ── E.1 non-vacuous proof exclusion ─────────────────────────────────────
 
 // A concrete handler for the gated `messages/send` member whose body REQUIRES the
-// method's `MessagesSendAuth` proof — typed via
-// `Rpc.ToHandlerFn<member, MessagesSendAuth>` so the handler's `R` is
-// `MessagesSendAuth`, NOT the vacuous `any` default. Bound in isolation via
+// `ConversationInTask` cap proof — typed via
+// `Rpc.ToHandlerFn<member, ConversationInTask>` so the handler's `R` is
+// `ConversationInTask`, NOT the vacuous `any` default. Bound in isolation via
 // `toLayerHandler` (not `toLayer`, whose `HandlersFrom` map re-introduces the
 // `any` default for the other keys and lets `any` dominate the intersection). The
-// resulting Layer's residual requirement must EXCLUDE `MessagesSendAuth` — the
-// middleware's `provides` stripped it.
+// resulting Layer's residual requirement must EXCLUDE `ConversationInTask` — the
+// stacked `ConversationInTaskMw`'s `provides` stripped it.
 declare const sendHandler: Rpc.ToHandlerFn<
   MessagesSendMember,
-  MessagesSendAuth
+  ConversationInTask
 >;
 const sendLayer = ServerEngineRpcGroup.toLayerHandler(
   jsonRpcMethod("messages/send"),
@@ -189,7 +179,7 @@ type SendLayerRX =
     ? RIn
     : never;
 type _ProofExcluded = Expect<
-  Equal<[MessagesSendAuth] extends [SendLayerRX] ? true : false, false>
+  Equal<[ConversationInTask] extends [SendLayerRX] ? true : false, false>
 >;
 
 export type {
@@ -200,7 +190,6 @@ export type {
   _AllowlistExact,
   _WsSubsetAligned,
   _WsNoHttpOnly,
-  _MSGatedByOwnMw,
   _GateNonOptional,
   _MSPresent,
   _HandlerKeysTotal,
