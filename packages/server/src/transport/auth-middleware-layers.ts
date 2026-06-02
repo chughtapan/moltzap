@@ -118,7 +118,13 @@ const asAppPrincipal = (principal: {
  * `CurrentPrincipal`) → `obtain`. Generic over the OWNING method's params type;
  * the caller provides `CurrentPrincipal` + `MwEnv` around the assembled chain.
  */
-const runCap = <Params, Provides extends Context.Tag<any, any>, Input, Fail>(
+const runCap = <
+  Params,
+  Provides extends Context.Tag<any, any>,
+  Input,
+  Fail,
+  ObtainR = never,
+>(
   mw: {
     readonly provides: Provides;
     readonly derivePayload: (
@@ -126,13 +132,13 @@ const runCap = <Params, Provides extends Context.Tag<any, any>, Input, Fail>(
     ) => Effect.Effect<Input, never, CurrentPrincipal>;
     readonly obtain: (
       i: Input,
-    ) => Effect.Effect<Context.Tag.Service<Provides>, Fail, MwEnv>;
+    ) => Effect.Effect<Context.Tag.Service<Provides>, Fail, MwEnv | ObtainR>;
   },
   params: Params,
 ): Effect.Effect<
   Context.Tag.Service<Provides>,
   Fail,
-  MwEnv | CurrentPrincipal
+  MwEnv | CurrentPrincipal | ObtainR
 > => mw.derivePayload(params).pipe(Effect.flatMap(mw.obtain));
 
 /** Build the `MwEnv` Context snapshot the cap obtains run under. */
