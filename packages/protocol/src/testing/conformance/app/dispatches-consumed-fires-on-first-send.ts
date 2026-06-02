@@ -45,7 +45,7 @@ const dispatchesConsumedFiresOnFirstSend = (
         leaseId: ack.leaseId,
         text: "consumed",
       });
-      yield* assertMessageSendSucceeded(propertyName, sent.errorCode);
+      yield* assertMessageSendSucceeded(propertyName, sent.errorTag);
       const consumed = yield* driver.moderator.waitForObservability(
         "consumed",
         { dispatchId: ack.dispatchId },
@@ -58,14 +58,14 @@ const dispatchesConsumedFiresOnFirstSend = (
 
 const assertMessageSendSucceeded = (
   propertyName: string,
-  errorCode: unknown,
+  errorTag: unknown,
 ): Effect.Effect<void, PropertyInvariantViolation> =>
-  errorCode === undefined
+  errorTag === undefined
     ? Effect.void
     : Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `messages/send unexpectedly failed: code=${String(errorCode)}`,
+          `messages/send unexpectedly failed: code=${String(errorTag)}`,
         ),
       );
 

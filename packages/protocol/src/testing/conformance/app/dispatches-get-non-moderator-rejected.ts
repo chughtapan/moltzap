@@ -3,7 +3,7 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
-  FORBIDDEN_ERROR_CODE,
+  FORBIDDEN_ERROR_TAG,
   dispatchAdmissionViolation,
   freshMessageId,
   withDriver,
@@ -30,11 +30,11 @@ export function registerDispatchesGetNonModeratorRejected(
         });
         yield* driver.recipient.waitForRelease();
         const result = yield* driver.getLeaseFromNonModerator(ack.dispatchId);
-        if (result.errorCode !== FORBIDDEN_ERROR_CODE) {
+        if (result.errorTag !== FORBIDDEN_ERROR_TAG) {
           return yield* Effect.fail(
             dispatchAdmissionViolation(
               NAME,
-              `expected Forbidden(${FORBIDDEN_ERROR_CODE}), got ${result.errorCode}`,
+              `expected Forbidden(${FORBIDDEN_ERROR_TAG}), got ${result.errorTag}`,
             ),
           );
         }

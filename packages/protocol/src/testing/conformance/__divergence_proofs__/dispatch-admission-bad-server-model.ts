@@ -16,7 +16,7 @@ export type BadServerBehavior =
   | "serialize-second-ack"
   | "release-out-of-order";
 
-export const FORBIDDEN_ERROR_CODE = -32001;
+export const FORBIDDEN_ERROR_TAG = "Forbidden";
 export const DEFAULT_LEASE_TIMEOUT_MS = 5_000;
 export const SERIALIZE_DELAY_MS = 2_000;
 

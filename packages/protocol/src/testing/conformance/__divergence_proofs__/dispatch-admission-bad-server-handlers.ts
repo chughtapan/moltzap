@@ -1,6 +1,5 @@
 import { Deferred, Duration, Effect, Either, Fiber, Ref } from "effect";
 import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
-import { JSON_RPC_RESERVED_CODES } from "../../../transport/wire-errors.js";
 import { Connect } from "../../../network/methods.js";
 import {
   decodeFrame,
@@ -17,7 +16,7 @@ import type {
   ServerState,
 } from "./dispatch-admission-bad-server-model.js";
 import {
-  FORBIDDEN_ERROR_CODE,
+  FORBIDDEN_ERROR_TAG,
   SERIALIZE_DELAY_MS,
   badServerAgentId,
   encodeRawWireFrame,
@@ -449,7 +448,7 @@ function writeLeaseInvalid(
 ): Effect.Effect<void> {
   return writeResponse(args.opts.stateRef, args.connId, args.frame.id, {
     error: {
-      code: FORBIDDEN_ERROR_CODE,
+      _tag: FORBIDDEN_ERROR_TAG,
       message: "lease invalid",
       data: { state },
     },
@@ -486,13 +485,13 @@ function rejectNonModeratorDispatchesGet(args: {
   readonly connId: number;
   readonly opts: HandleInboundFrameOpts;
 }): Effect.Effect<void> {
-  const code =
+  const tag =
     args.opts.behavior === "getlease-allow-non-moderator"
-      ? JSON_RPC_RESERVED_CODES.InternalError
-      : FORBIDDEN_ERROR_CODE;
+      ? "InternalError"
+      : FORBIDDEN_ERROR_TAG;
   return writeResponse(args.opts.stateRef, args.connId, args.frame.id, {
     error: {
-      code,
+      _tag: tag,
       message: "non-moderator dispatches/get rejected",
     },
   });
@@ -508,7 +507,7 @@ function writeDispatchesGetInvalidParams(
 ): Effect.Effect<void> {
   return writeResponse(args.opts.stateRef, args.connId, args.frame.id, {
     error: {
-      code: JSON_RPC_RESERVED_CODES.InvalidParams,
+      _tag: "InvalidParamsError",
       message,
     },
   });
@@ -848,7 +847,7 @@ function handleAuthorizeResponse(args: {
     const resolve = waiters.get(id);
     if (resolve === undefined) return;
     if ("error" in args.frame) {
-      yield* resolve({ _tag: "error", reason: String(args.frame.error.code) });
+      yield* resolve({ _tag: "error", reason: args.frame.error._tag });
       return;
     }
     const verdict = parseVerdictFromAdmission(

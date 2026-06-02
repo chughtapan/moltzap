@@ -488,3 +488,24 @@ export function decodeRpcResult<
     ? Effect.succeed(data)
     : Effect.fail(new RpcResultDecodeError({ definition, data }));
 }
+
+/**
+ * Decode a wire `error` payload (`{ _tag, message, data? }`) against a method's
+ * effective error union (`definition.errorSchema`). Returns the reconstructed
+ * domain tagged-error INSTANCE — the real `TaskRejectedError` / `Forbidden` /
+ * etc. — so a consumer discriminates it with `Effect.catchTag(...)` rather than
+ * matching a string. Fails with `RpcResultDecodeError` when the payload's `_tag`
+ * is not in the method's union (a server/method contract violation).
+ */
+export function decodeRpcError(
+  definition: RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
+  wire: unknown,
+): Effect.Effect<unknown, RpcResultDecodeError> {
+  return Schema.decodeUnknown(definition.errorSchema)(wire).pipe(
+    Effect.mapError(() => new RpcResultDecodeError({ definition, data: wire })),
+  );
+}

@@ -181,7 +181,7 @@ export function writeResponse(
   id: ResponseFrame["id"],
   body:
     | { result: unknown }
-    | { error: { code: number; message: string; data?: unknown } },
+    | { error: { _tag: string; message: string; data?: unknown } },
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     const state = yield* Ref.get(stateRef);
