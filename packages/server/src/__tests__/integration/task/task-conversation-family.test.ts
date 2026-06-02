@@ -322,15 +322,15 @@ it("TaskConversationCreate denies non-TM caller BEFORE the participant invariant
       }),
     );
     const err = expectEitherLeft(outcome) as {
-      code?: number;
+      tag?: string;
       message?: string;
     };
-    expect(err.code).not.toBe(ParticipantNotAdmittedError.code);
+    expect(err.tag).not.toBe("ParticipantNotAdmitted");
     // The actual code is `ForbiddenError` (-32001) per Spec E
     // capability-shape. Pin the negative invariant (not Admitted)
     // separately so renaming the error code doesn't regress the
     // security property.
-    expect(err.code).toBeDefined();
+    expect(err.tag).toBeDefined();
   }));
 
 // ─── TaskConversationList ────────────────────────────────────────────
@@ -423,13 +423,13 @@ it("TaskConversationAddParticipant: non-TM caller denied BEFORE the participant 
         agentId: carol.agentId,
       }),
     );
-    const err = expectEitherLeft(outcome) as { code?: number };
+    const err = expectEitherLeft(outcome) as { tag?: string };
     // Per codex review finding 2: a non-TM caller MUST NOT learn
     // whether `carol` is in `task_participants`. Authority denial
     // fires before the invariant runs; tag must NOT be
     // `ParticipantNotAdmitted`.
-    expect(err.code).not.toBe(ParticipantNotAdmittedError.code);
-    expect(err.code).toBeDefined();
+    expect(err.tag).not.toBe("ParticipantNotAdmitted");
+    expect(err.tag).toBeDefined();
   }));
 
 it("TaskConversationRemoveParticipant on absent agent is idempotent", () =>

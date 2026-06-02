@@ -1,12 +1,7 @@
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Cause, Effect, Exit } from "effect";
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-} from "@moltzap/protocol";
-import { userId, wireErrorFromInstance } from "@moltzap/protocol/testing";
+import { userId } from "@moltzap/protocol/testing";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -35,11 +30,17 @@ function freshDb(): Effect.Effect<void, unknown> {
   );
 }
 
-function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
+function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
-  return wireErrorFromInstance(failure.value)?.code ?? null;
+  const value = failure.value;
+  return typeof value === "object" &&
+    value !== null &&
+    "_tag" in value &&
+    typeof value._tag === "string"
+    ? value._tag
+    : null;
 }
 
 function createsPendingContact() {
@@ -54,7 +55,7 @@ function rejectsSelfAdd() {
   return Effect.gen(function* () {
     const svc = new ContactsService(db);
     const exit = yield* Effect.exit(svc.add(ALICE, { contactUserId: ALICE }));
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcFailureTag(exit)).toBe("Forbidden");
   });
 }
 
@@ -63,7 +64,7 @@ function rejectsDuplicateAdd() {
     const svc = new ContactsService(db);
     yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.add(ALICE, { contactUserId: BOB }));
-    expect(rpcFailureCode(exit)).toBe(ConflictError.code);
+    expect(rpcFailureTag(exit)).toBe("Conflict");
   });
 }
 
@@ -85,7 +86,7 @@ function rejectsUnknownContactAccept() {
     const exit = yield* Effect.exit(
       svc.accept(BOB, "00000000-0000-4000-8000-000000000404" as never),
     );
-    expect(rpcFailureCode(exit)).toBe(NotFoundError.code);
+    expect(rpcFailureTag(exit)).toBe("NotFound");
   });
 }
 
@@ -94,7 +95,7 @@ function rejectsRequesterAcceptingOwnRequest() {
     const svc = new ContactsService(db);
     const requested = yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.accept(ALICE, requested.id));
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcFailureTag(exit)).toBe("Forbidden");
   });
 }
 
@@ -103,7 +104,7 @@ function rejectsUnrelatedAcceptor() {
     const svc = new ContactsService(db);
     const requested = yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.accept(CAROL, requested.id));
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcFailureTag(exit)).toBe("Forbidden");
   });
 }
 
@@ -149,7 +150,7 @@ function byIdDoesNotLeakOtherOwnersRows() {
     const svc = new ContactsService(db);
     const created = yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.byId(CAROL, created.id));
-    expect(rpcFailureCode(exit)).toBe(NotFoundError.code);
+    expect(rpcFailureTag(exit)).toBe("NotFound");
   });
 }
 

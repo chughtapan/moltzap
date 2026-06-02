@@ -104,7 +104,7 @@ function attachBlockingMessageAuthorize(appClient: ServerTestClient) {
 function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
   Either.match(outcome, {
     onLeft: (error) => {
-      expect((error as { code?: number }).code).toBe(HookBlockedError.code);
+      expect((error as { code?: number }).code).toBe("HookBlocked");
     },
     onRight: () => expect.fail("expected HookBlockedError"),
   });

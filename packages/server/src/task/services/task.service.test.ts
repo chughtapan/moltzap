@@ -1,12 +1,10 @@
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Cause, Effect, Exit } from "effect";
-import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import {
   agentId,
   appId as makeAppId,
   taskId as makeTaskId,
-  wireErrorFromInstance,
 } from "@moltzap/protocol/testing";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskService } from "./task.service.js";
@@ -89,11 +87,12 @@ function makeService() {
   return new TaskService(harness.db, STUB_CONV, STUB_MSG);
 }
 
-function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
+function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
-  return wireErrorFromInstance(failure.value)?.code ?? null;
+  const v = failure.value;
+  return typeof v === "object" && v !== null && "_tag" in v && typeof v._tag === "string" ? v._tag : null;
 }
 
 // D #705 R7 — the `TmAuthority` capability is dissolved; the
@@ -241,7 +240,7 @@ function rejectsGetForNonParticipant() {
     const exit = yield* Effect.exit(
       svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
     );
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcFailureTag(exit)).toBe("Forbidden");
   });
 }
 
@@ -253,7 +252,7 @@ function rejectsUnknownTaskGet() {
         .get(UNKNOWN_TASK_ID, ALICE)
         .pipe(withReadAccess(UNKNOWN_TASK_ID, ALICE, svc)),
     );
-    expect(rpcFailureCode(exit)).toBe(NotFoundError.code);
+    expect(rpcFailureTag(exit)).toBe("NotFound");
   });
 }
 
@@ -302,7 +301,7 @@ function loadOpenTaskRejectsAfterClose() {
     const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
     yield* svc.close(task.id);
     const exit = yield* Effect.exit(svc.loadOpenTask(task.id));
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcFailureTag(exit)).toBe("Forbidden");
   });
 }
 
@@ -324,7 +323,7 @@ function deniesReadAccessToPendingInvitee() {
     const exit = yield* Effect.exit(
       svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
     );
-    expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcFailureTag(exit)).toBe("Forbidden");
   });
 }
 

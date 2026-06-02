@@ -67,8 +67,8 @@ function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): number | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
-  const err = failure.value as { readonly code?: unknown };
-  return typeof err.code === "number" ? err.code : null;
+  const err = failure.value as { readonly tag?: string };
+  return typeof err.tag === "number" ? err.tag : null;
 }
 
 /**
@@ -122,7 +122,7 @@ function agentConnFailsTmGate() {
         participants: [bob.agentId],
       }),
     );
-    expect(rpcErrorCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcErrorCode(exit)).toBe("Forbidden");
   });
 }
 
@@ -148,7 +148,7 @@ function nonOwningAppFailsTmGate() {
         participants: [bob.agentId],
       }),
     );
-    expect(rpcErrorCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcErrorCode(exit)).toBe("Forbidden");
   });
 }
 
