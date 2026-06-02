@@ -107,7 +107,7 @@ const appendReceivedData =
   ];
 
 // The TestClient multiplexes the socket with a `{ ch, f }` envelope
-// (`native-mux.ts`): it wraps every outbound frame and unwraps every inbound
+// (`mux.ts`): it wraps every outbound frame and unwraps every inbound
 // one. This scripted server mirrors that framing — record the inner frame so
 // assertions read the bare JSON-RPC reply, and send server-originated callbacks
 // wrapped on the `s2c` channel the client's reverse reader consumes.

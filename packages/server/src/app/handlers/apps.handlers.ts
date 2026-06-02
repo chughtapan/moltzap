@@ -10,7 +10,7 @@ import { AppId } from "@moltzap/protocol/task";
 import { Effect, Schema } from "effect";
 import { AppHostTag, ConnectionTag } from "../layers.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
-import { agentArm } from "../native-handlers-runtime.js";
+import { agentArm } from "../server-handlers-runtime.js";
 
 // A client-originated `apps/register` stores the calling WS connection as the
 // moderator endpoint for `manifest.appId`. `dispatch/authorize` and
@@ -107,21 +107,19 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
   }).pipe(Effect.withSpan("dispatches.get"));
 }
 
-// ── Native @effect/rpc handler bodies ───────────────────────────────────────
+// ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const nativeAppsRegister = (params: ParamsOf<typeof AppsRegister>) =>
+export const appsRegister = (params: ParamsOf<typeof AppsRegister>) =>
   Effect.gen(function* () {
     return yield* appsRegisterBody(params);
-  }).pipe(Effect.withSpan("nativeAppsRegister"));
+  }).pipe(Effect.withSpan("appsRegister"));
 
-export const nativeDispatchRequest = (
-  params: ParamsOf<typeof DispatchRequest>,
-) =>
+export const dispatchRequest = (params: ParamsOf<typeof DispatchRequest>) =>
   Effect.gen(function* () {
     return yield* dispatchRequestBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeDispatchRequest"));
+  }).pipe(Effect.withSpan("dispatchRequest"));
 
-export const nativeDispatchesGet = (params: ParamsOf<typeof DispatchesGet>) =>
+export const dispatchesGet = (params: ParamsOf<typeof DispatchesGet>) =>
   Effect.gen(function* () {
     return yield* dispatchesGetBody(params);
-  }).pipe(Effect.withSpan("nativeDispatchesGet"));
+  }).pipe(Effect.withSpan("dispatchesGet"));

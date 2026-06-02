@@ -96,18 +96,13 @@ export type {
   AppCallbackHandlers,
   AppCallbackInboundRpcDefinition,
 } from "./handlers.js";
-// Reverse server→client RPC groups (the s2c channel). `AppCallbackRpcGroup`
-// carries the moderator callbacks (`dispatch/authorize`, `messages/authorize`,
-// `task/create`); `NotificationRpcGroup` carries every `defineNotification` as
-// a fire-and-forget `void`-result RPC. The server holds the `RpcClient`; the
-// client stands the `RpcServer` (the notification handlers route into the
-// `SubscriberRegistry`).
-export {
-  AppCallbackRpcGroup,
-  NotificationRpcGroup,
-  ReverseRpcGroup,
-  ServerRpcGroup,
-} from "./rpc-method-groups.js";
+// Reverse server→client RPC groups (the s2c channel). `ReverseRpcGroup` carries
+// the moderator callbacks (`dispatch/authorize`, `messages/authorize`,
+// `task/create`) ∪ every notification; `NotificationRpcGroup` carries every
+// `defineNotification` as a fire-and-forget `void`-result RPC. The server holds
+// the `RpcClient`; the client stands the `RpcServer` (the notification handlers
+// route into the `SubscriberRegistry`).
+export { NotificationRpcGroup, ReverseRpcGroup } from "./rpc-method-groups.js";
 
 // Principal-as-service: the protocol-owned `CurrentPrincipal` Tag a cap
 // middleware reads (`yield* CurrentPrincipal`) when deriving its payload.
@@ -125,32 +120,29 @@ export {
   runMuxReader,
   routeInbound,
   MUX_CLIENT_ID,
-} from "./native-mux.js";
+} from "./mux.js";
 export type {
   MuxChannel,
   MuxEnvelope,
   WireWrite,
   ChannelProtocol,
   ChannelSink,
-} from "./native-mux.js";
+} from "./mux.js";
 
-// Native `@effect/rpc` server engine over the mux. `ServerEngineLayer` runs
+// `@effect/rpc` server engine over the mux. `ServerEngineLayer` runs
 // `RpcServer` for the WS-dispatched `WsServerEngineRpcGroup`;
 // `makeServerProtocolLayer` builds the `RpcServer.Protocol` over a c→s
-// native-mux channel. The live connection composes these with
-// `WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`.
-export {
-  makeServerProtocolLayer,
-  ServerEngineLayer,
-} from "./native-server-engine.js";
+// mux channel. The live connection composes these with
+// `WsServerEngineRpcGroup.toLayer(serverHandlers)`.
+export { makeServerProtocolLayer, ServerEngineLayer } from "./server-engine.js";
 
 // The middleware-attached server engine group + the WS-dispatched subset the
 // live engine binds + the unauthenticated-method allowlist that partitions it.
 // `ServerEngineRpcGroup` gates every member except `UNAUTHENTICATED_METHODS`
-// with that method's own `*AuthMw`; `WsServerEngineRpcGroup` is that group minus
-// the HTTP-only methods (which have no WS handler), so its members map one-to-one
-// onto the server's handler map. The server derives its `principalKinds` policy
-// from the same single-source binding registry.
+// with that method's own `*AuthMw`; `WsServerEngineRpcGroup` is the same group
+// (every catalog method is WS-dispatched), so its members map one-to-one onto
+// the server's handler map. The server derives its `principalKinds` policy from
+// the same single-source binding registry.
 export {
   ServerEngineRpcGroup,
   WsServerEngineRpcGroup,
@@ -160,10 +152,7 @@ export {
   isUnauthenticatedMethod,
   findEngineGatingMismatch,
 } from "./server-engine-group.js";
-export type {
-  UnauthenticatedMethod,
-  HttpOnlyMethod,
-} from "./server-engine-group.js";
+export type { UnauthenticatedMethod } from "./server-engine-group.js";
 
 // §F — the two first-party client-callable group projections of the
 // `serverRpcMethods` catalog, partitioned by each descriptor's

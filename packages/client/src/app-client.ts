@@ -30,7 +30,7 @@ import {
   type ResultOf,
   type AppCallbackHandlers,
 } from "@moltzap/protocol";
-import { buildNativeClient } from "./runtime/native-mux-client.js";
+import { buildClient } from "./runtime/mux-client.js";
 import {
   makeTypedTransportCall,
   type TypedDispatchMap,
@@ -492,7 +492,7 @@ export class MoltZapAppClient {
       const wireWrite = (chunk: string) => write(chunk);
 
       // c2s: the native outbound client (app-callable surface).
-      const native = yield* buildNativeClient({
+      const engine = yield* buildClient({
         group: AppCallableGroup,
         write: wireWrite,
         scope,
@@ -514,7 +514,7 @@ export class MoltZapAppClient {
       const readerFiber = this.runtime.runFork(
         runMuxReader(
           socket,
-          { c2s: native.sink, s2c: reverse.sink },
+          { c2s: engine.sink, s2c: reverse.sink },
           disconnects,
         ).pipe(
           Effect.onExit((exit) =>
@@ -527,7 +527,7 @@ export class MoltZapAppClient {
         write,
         readerFiber,
         scope,
-        client: native.client,
+        client: engine.client,
         handshakeSettled,
       });
       return yield* this.awaitConnectAuth(handshakeSettled);

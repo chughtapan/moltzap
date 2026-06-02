@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the channel-multiplexed `@effect/rpc` transport
- * (`transport/native-mux.ts`).
+ * (`transport/mux.ts`).
  *
  * The mux is built ahead of the live-connection cutover and is wired to no
  * socket yet. These canaries are its live type consumer (so the unused-export
@@ -21,7 +21,7 @@ import {
   makeClientChannelProtocol,
   makeServerChannelProtocol,
   type WireWrite,
-} from "./native-mux.js";
+} from "./mux.js";
 
 declare const wireWrite: WireWrite;
 declare const serverDisconnects: Mailbox.Mailbox<number>;

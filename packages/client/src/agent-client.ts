@@ -25,7 +25,7 @@ import {
   type NotificationParamsOf,
   type ResultOf,
 } from "@moltzap/protocol";
-import { buildNativeClient } from "./runtime/native-mux-client.js";
+import { buildClient } from "./runtime/mux-client.js";
 import {
   makeTypedTransportCall,
   type TypedDispatchMap,
@@ -276,7 +276,7 @@ export class MoltZapAgentClient {
       const wireWrite = (chunk: string) => write(chunk);
 
       // c2s: the native outbound client (descriptor-driven `call`).
-      const native = yield* buildNativeClient({
+      const engine = yield* buildClient({
         group: AgentCallableGroup,
         write: wireWrite,
         scope,
@@ -299,7 +299,7 @@ export class MoltZapAgentClient {
       const readerFiber = this.runtime.runFork(
         runMuxReader(
           socket,
-          { c2s: native.sink, s2c: reverse.sink },
+          { c2s: engine.sink, s2c: reverse.sink },
           disconnects,
         ).pipe(
           Effect.onExit((exit) =>
@@ -312,7 +312,7 @@ export class MoltZapAgentClient {
         write,
         readerFiber,
         scope,
-        client: native.client,
+        client: engine.client,
         handshakeSettled,
       });
       return yield* this.awaitConnectAuth(handshakeSettled);

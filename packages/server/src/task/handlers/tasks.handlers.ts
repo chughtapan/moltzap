@@ -34,7 +34,7 @@ import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
 import { obtainConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
-import { agentArm, appArm } from "../../app/native-handlers-runtime.js";
+import { agentArm, appArm } from "../../app/server-handlers-runtime.js";
 
 /**
  * App-arm authority gate for the task-admin RPCs: the app must own the
@@ -464,79 +464,79 @@ function taskConversationRemoveParticipantBody(
 // family-overview header block in `packages/protocol/src/task/tasks.ts` (above
 // `InitialConversationSchema`).
 //
-// ── Native @effect/rpc handler bodies ───────────────────────────────────────
+// ── @effect/rpc handler bodies ───────────────────────────────────────
 //
 // The cap-less app/agent methods read only their `*Auth` proof for the gate.
 // The four `task/conversation/*` admin methods provide their `ConversationInTask`
 // proof off the `*Auth` proof as a service before running the shared body.
 
-export const nativeTaskList = (params: ParamsOf<typeof TaskList>) =>
+export const taskList = (params: ParamsOf<typeof TaskList>) =>
   Effect.gen(function* () {
     return yield* taskListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeTaskList"));
+  }).pipe(Effect.withSpan("taskList"));
 
-export const nativeTaskLeave = (params: ParamsOf<typeof TaskLeave>) =>
+export const taskLeave = (params: ParamsOf<typeof TaskLeave>) =>
   Effect.gen(function* () {
     return yield* taskLeaveBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeTaskLeave"));
+  }).pipe(Effect.withSpan("taskLeave"));
 
-export const nativeTaskConversationList = (
+export const taskConversationList = (
   params: ParamsOf<typeof TaskConversationList>,
 ) =>
   Effect.gen(function* () {
     return yield* taskConversationListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeTaskConversationList"));
+  }).pipe(Effect.withSpan("taskConversationList"));
 
-export const nativeTaskClose = (params: ParamsOf<typeof TaskClose>) =>
+export const taskClose = (params: ParamsOf<typeof TaskClose>) =>
   Effect.gen(function* () {
     return yield* taskCloseBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskClose"));
+  }).pipe(Effect.withSpan("taskClose"));
 
-export const nativeTaskAddParticipant = (
+export const taskAddParticipant = (
   params: ParamsOf<typeof TaskAddParticipant>,
 ) =>
   Effect.gen(function* () {
     return yield* taskAddParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskAddParticipant"));
+  }).pipe(Effect.withSpan("taskAddParticipant"));
 
-export const nativeTaskRemoveParticipant = (
+export const taskRemoveParticipant = (
   params: ParamsOf<typeof TaskRemoveParticipant>,
 ) =>
   Effect.gen(function* () {
     return yield* taskRemoveParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskRemoveParticipant"));
+  }).pipe(Effect.withSpan("taskRemoveParticipant"));
 
-export const nativeTaskConversationCreate = (
+export const taskConversationCreate = (
   params: ParamsOf<typeof TaskConversationCreate>,
 ) =>
   Effect.gen(function* () {
     return yield* taskConversationCreateBody((yield* appArm).appId, params);
-  }).pipe(Effect.withSpan("nativeTaskConversationCreate"));
+  }).pipe(Effect.withSpan("taskConversationCreate"));
 
-export const nativeTaskConversationArchive = (
+export const taskConversationArchive = (
   params: ParamsOf<typeof TaskConversationArchive>,
 ) =>
   Effect.gen(function* () {
     return yield* taskConversationArchiveBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskConversationArchive"));
+  }).pipe(Effect.withSpan("taskConversationArchive"));
 
-export const nativeTaskConversationUnarchive = (
+export const taskConversationUnarchive = (
   params: ParamsOf<typeof TaskConversationUnarchive>,
 ) =>
   Effect.gen(function* () {
     return yield* taskConversationUnarchiveBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskConversationUnarchive"));
+  }).pipe(Effect.withSpan("taskConversationUnarchive"));
 
-export const nativeTaskConversationAddParticipant = (
+export const taskConversationAddParticipant = (
   params: ParamsOf<typeof TaskConversationAddParticipant>,
 ) =>
   Effect.gen(function* () {
     return yield* taskConversationAddParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskConversationAddParticipant"));
+  }).pipe(Effect.withSpan("taskConversationAddParticipant"));
 
-export const nativeTaskConversationRemoveParticipant = (
+export const taskConversationRemoveParticipant = (
   params: ParamsOf<typeof TaskConversationRemoveParticipant>,
 ) =>
   Effect.gen(function* () {
     return yield* taskConversationRemoveParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskConversationRemoveParticipant"));
+  }).pipe(Effect.withSpan("taskConversationRemoveParticipant"));

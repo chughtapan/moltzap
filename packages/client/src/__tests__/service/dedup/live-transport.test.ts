@@ -162,7 +162,7 @@ function decodeServerData(data: string | Uint8Array): string {
 }
 
 // The production `MoltZapService` multiplexes the socket with a `{ ch, f }`
-// envelope (`native-mux.ts`) and the native engine mints NUMERIC ids the strict
+// envelope (`mux.ts`) and the native engine mints NUMERIC ids the strict
 // wire schema brands as strings. The in-process server mirrors that framing:
 // unwrap + strip native extras + stringify a numeric id on receipt, wrap on
 // send (responses on `c2s`, server-pushed notifications on `s2c`).

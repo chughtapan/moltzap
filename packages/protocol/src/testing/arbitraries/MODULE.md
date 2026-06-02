@@ -8,7 +8,7 @@ Public barrel for schema-derived protocol arbitraries used by tests.
 
 ## Public surface
 
-### [`allRpcMethods`](./rpc.ts#L42)
+### [`allRpcMethods`](./rpc.ts#L41)
 
 _Variable_
 
@@ -22,7 +22,7 @@ Ordered list of every wire method name. Exposed so properties can
 assert "every method exercised at least once" without going through
 `RpcMap` directly.
 
-### [`arbitraryAnyCall`](./rpc.ts#L75)
+### [`arbitraryAnyCall`](./rpc.ts#L74)
 
 _Function_
 
@@ -33,7 +33,7 @@ export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall>
 Arbitrary that draws any method name + matching params. Used by Tier A
 A5 and by Tier E E2's cross-RPC fuzz.
 
-### [`arbitraryCallFor`](./rpc.ts#L52)
+### [`arbitraryCallFor`](./rpc.ts#L51)
 
 _Function_
 
@@ -45,7 +45,7 @@ export function arbitraryCallFor(
 
 Arbitrary of a valid params tree for a single, fixed RPC.
 
-### [`arbitraryConfidentCall`](./rpc.ts#L136)
+### [`arbitraryConfidentCall`](./rpc.ts#L132)
 
 _Function_
 
@@ -147,7 +147,7 @@ _Function_
 export function arbitraryResponseFrame(): fc.Arbitrary<ResponseFrame>
 ```
 
-### [`ArbitraryRpcCall`](./rpc.ts#L31)
+### [`ArbitraryRpcCall`](./rpc.ts#L30)
 
 _Interface_
 
@@ -162,7 +162,7 @@ export interface ArbitraryRpcCall {
 A single drawn RPC invocation: the method name carries through to the
 reference model so it can pick the matching reducer.
 
-### [`confidentOracleMethods`](./rpc.ts#L106)
+### [`confidentOracleMethods`](./rpc.ts#L102)
 
 _Variable_
 

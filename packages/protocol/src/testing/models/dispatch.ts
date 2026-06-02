@@ -22,8 +22,6 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type AgentId,
-  InviteAgent,
-  Register,
 } from "../../identity/methods.js";
 import { Connect } from "../../network/methods.js";
 import {
@@ -51,7 +49,6 @@ import {
   TaskConversationUnarchive,
   TaskLeave,
 } from "../../task/methods.js";
-import { InvitesCreateAgent } from "../../identity/methods.js";
 import { MessagesList, MessagesSend } from "../../task/methods.js";
 // v7 (architect plan #706): PresenceUpdate deleted in the cutover.
 import { PresenceSubscribe } from "../../network/methods.js";
@@ -100,8 +97,6 @@ type ModelMethodOutcome = "ok" | "uncertain";
 
 const MODEL_METHOD_OUTCOMES = {
   [Connect.name]: "uncertain",
-  [Register.name]: "uncertain",
-  [InviteAgent.name]: "uncertain",
   // `agents/list` takes a server-validated `cursor`: a
   // schema-valid-but-undecodable cursor yields `InvalidParamsError`, so
   // the outcome is not param-invariantly ok. Marked uncertain to
@@ -123,8 +118,6 @@ const MODEL_METHOD_OUTCOMES = {
   [ContactsAdd.name]: "uncertain",
   [ContactsAccept.name]: "uncertain",
   [ContactsById.name]: "uncertain",
-  [InvitesCreateAgent.name]: "uncertain",
-  // v7 (architect plan #706): PresenceUpdate row deleted alongside the descriptor.
   [PresenceSubscribe.name]: "uncertain",
   [AppsRegister.name]: "uncertain",
   [DispatchRequest.name]: "uncertain",
@@ -149,9 +142,8 @@ export function authorizationOutcome(
   call: ArbitraryRpcCall,
   agentId: AgentId,
 ): "allow" | "deny-unauthenticated" | "deny-forbidden" {
-  // `connect` + `register` establish identity; pre-identity they are always allowed.
-  if (call.method === Connect.name || call.method === Register.name)
-    return "allow";
+  // `connect` establishes identity; pre-identity it is always allowed.
+  if (call.method === Connect.name) return "allow";
   if (!state.agents.has(agentId)) return "deny-unauthenticated";
 
   const conversationId = extractConversationId(call.params);

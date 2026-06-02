@@ -12,7 +12,7 @@ import {
 // ── Mux envelope helpers ─────────────────────────────────────────────────────
 //
 // The live transport multiplexes the socket with a `{ ch, f }` envelope
-// (`native-mux.ts`): the driver wraps every outbound request and unwraps every
+// (`mux.ts`): the driver wraps every outbound request and unwraps every
 // inbound frame. The known-bad servers mirror that framing so their raw
 // JSON-RPC handlers stay envelope-agnostic — unwrap each inbound chunk before
 // decode, wrap each reply on the `c2s` channel where its request arrived.

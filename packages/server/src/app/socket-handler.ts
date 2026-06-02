@@ -13,7 +13,7 @@ import type { ChannelSink } from "@moltzap/protocol";
 import { runMuxReader } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import { acquireConnectionRpcClient } from "../transport/connection.js";
-import { makeSocketEngineLayer } from "../transport/native-server-wiring.js";
+import { makeSocketEngineLayer } from "../transport/server-wiring.js";
 
 import type { AgentContext } from "../transport/context.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";

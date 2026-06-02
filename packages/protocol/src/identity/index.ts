@@ -1,5 +1,5 @@
 /**
- * @file Public barrel for identity, agent, contact, and invite protocol descriptors.
+ * @file Public barrel for identity, agent, and contact protocol descriptors.
  */
 
 // Runtime TypeBox schemas for the branded id types. Matches the
@@ -13,7 +13,6 @@ export { AgentId, ContactId, UserId } from "./methods.js";
 export {
   Register,
   Claim,
-  InviteAgent,
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
@@ -21,7 +20,6 @@ export {
   ContactsAdd,
   ContactsAccept,
   ContactsById,
-  InvitesCreateAgent,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   NotInContactsError,

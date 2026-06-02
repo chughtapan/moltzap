@@ -456,11 +456,11 @@ function handleConnect(params: ConnectParams) {
   );
 }
 
-// ── Native @effect/rpc handler body ─────────────────────────────────────────
+// ── @effect/rpc handler body ─────────────────────────────────────────
 //
 // `network/connect` is the lone unauthenticated method: it carries no `*Auth`
 // proof. The body dispatches on the credential union itself, reading the live
 // `UnauthenticatedConnection` arm via `ConnectionTag`. Its domain errors map to
 // the coded wire envelope the engine member's `error` schema carries.
-export const nativeConnect = (params: ConnectParams) =>
-  handleConnect(params).pipe(Effect.withSpan("nativeConnect"));
+export const connect = (params: ConnectParams) =>
+  handleConnect(params).pipe(Effect.withSpan("connect"));

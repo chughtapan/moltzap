@@ -1,11 +1,10 @@
 /**
- * @file Type canaries for the additive `@effect/rpc` `RpcGroup` construction
+ * @file Type canaries for the reverse `@effect/rpc` `RpcGroup` construction
  * (`transport/rpc-method-groups.ts`).
  *
- * The groups are built ahead of the native-engine cutover and are wired to no
- * dispatcher yet. These canaries are the groups' live type consumer (so the
- * unused-export pass does not flag the exports dead) AND the documented
- * invariants the build guarantees:
+ * These canaries are the groups' live type consumer (so the unused-export pass
+ * does not flag the exports dead) AND the documented invariants the build
+ * guarantees:
  *
  *   1. every group is a non-empty `RpcGroup`;
  *   2. each member's tag correlates with its own payload Schema — the group's
@@ -24,13 +23,7 @@
  */
 import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
-import {
-  ServerRpcGroup,
-  AppCallbackRpcGroup,
-  AgentClientRpcGroup,
-  AppCallableRpcGroup,
-  ReverseRpcGroup,
-} from "./rpc-method-groups.js";
+import { NotificationRpcGroup, ReverseRpcGroup } from "./rpc-method-groups.js";
 import type { JsonRpcMethod } from "./wire.js";
 
 // Compile-time equality helper.
@@ -57,37 +50,13 @@ type PayloadTypeOf<R> =
     ? Schema.Schema.Type<Payload>
     : never;
 
-// Canary 1: the four group exports are non-empty `RpcGroup`s.
+// Canary 1: both reverse group exports are non-empty `RpcGroup`s.
 //
 // Live type references to each export. A regression that built an empty group
 // (no catalog members) collapses `MemberOf` to `never`, flipping each `IsNever`
 // assertion to `true`.
-type _N1 = Expect<Equal<IsNever<MemberOf<typeof ServerRpcGroup>>, false>>;
-type _N2 = Expect<Equal<IsNever<MemberOf<typeof AppCallbackRpcGroup>>, false>>;
-type _N3 = Expect<Equal<IsNever<MemberOf<typeof AgentClientRpcGroup>>, false>>;
-type _N4 = Expect<Equal<IsNever<MemberOf<typeof AppCallableRpcGroup>>, false>>;
-
-// Canary 2: per-tag payload correlation survives the catalog map.
-//
-// `dispatch/authorize` carries the `DispatchAuthorize` context payload, whose
-// `attempt` field is unique to it among the callback members: `messages/authorize`
-// and `task/create` carry no `attempt`. Selecting the member by tag and reading
-// its payload type therefore yields THIS method's payload, not a union across
-// the catalog. If the group's member type widened to a single element (the
-// failure mode when the construction loses per-slot types), `MemberWithTag`
-// either collapses to `never` (flipping `_C0` to `true`) or returns a payload
-// whose `attempt` is absent or non-`number` (failing `_C1`).
-type DispatchAuthorizeMember = MemberWithTag<
-  typeof AppCallbackRpcGroup,
-  "dispatch/authorize"
->;
-type _C0 = Expect<Equal<IsNever<DispatchAuthorizeMember>, false>>;
-type _C1 = Expect<
-  Equal<
-    Pick<PayloadTypeOf<DispatchAuthorizeMember>, "attempt">,
-    { readonly attempt: number }
-  >
->;
+type _N1 = Expect<Equal<IsNever<MemberOf<typeof ReverseRpcGroup>>, false>>;
+type _N2 = Expect<Equal<IsNever<MemberOf<typeof NotificationRpcGroup>>, false>>;
 
 // Canary 3: `ReverseRpcGroup` is one group over the COMBINED callback ∪
 // notification member tuple (not `RpcGroup.merge`), so a generic `Tag`'s success

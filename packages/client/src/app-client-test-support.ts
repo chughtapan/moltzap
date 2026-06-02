@@ -254,7 +254,7 @@ const NATIVE_FRAME_EXTRAS = [
 ] as const;
 
 // The native client multiplexes the socket with a `{ ch, f }` envelope
-// (`@moltzap/protocol transport/native-mux.ts`): it wraps every outbound frame
+// (`@moltzap/protocol transport/mux.ts`): it wraps every outbound frame
 // and unwraps every inbound one. This scripted server mirrors that framing so
 // its raw handlers stay envelope-agnostic. Unwrap strips the envelope AND the
 // native extras, then stringifies the numeric engine id the branded string

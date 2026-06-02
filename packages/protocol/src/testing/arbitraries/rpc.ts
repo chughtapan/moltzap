@@ -11,7 +11,6 @@ import {
   serverRpcMethods,
   type AnyServerRpcDefinition,
 } from "../../rpc-registry.js";
-import { isHttpOnlyMethod } from "../../transport/server-engine-group.js";
 import { applyCall } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
 import { arbitraryForParams } from "./from-typebox.js";
@@ -73,17 +72,14 @@ export function arbitraryCallFor(
  * A5 and by Tier E E2's cross-RPC fuzz.
  */
 export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
-  // HTTP-only methods (`agents/register`, `agents/claim`, `agents/invite`,
-  // `invites/createAgent`) have no WS handler; a TestClient request to one over
-  // the socket never receives a reply. The WS-driven properties sample only the
-  // WS-callable subset so they don't false-fail on an unanswerable method.
-  const wsMethods = allRpcMethods.filter((m) => !isHttpOnlyMethod(m));
-  if (wsMethods.length === 0) {
+  // Every catalog method is WS-dispatched, so the WS-driven properties sample
+  // the whole catalog.
+  if (allRpcMethods.length === 0) {
     throw new RpcArbitraryInvariantError({
       message: "arbitraryAnyCall: no WS-callable methods",
     });
   }
-  return fc.constantFrom(...wsMethods).chain((m) => arbitraryCallFor(m));
+  return fc.constantFrom(...allRpcMethods).chain((m) => arbitraryCallFor(m));
 }
 
 /**

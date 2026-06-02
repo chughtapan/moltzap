@@ -83,9 +83,8 @@ const callableBy = (
  * by principal kind. The runtime `.filter` selects the same members the
  * type-level {@link MembersWhereKind} keeps; the single sanctioned assertion
  * launders `Array.prototype.filter`/`map`'s homogeneous-return into the per-slot
- * member union the type describes (the SAME tuple-keying proof
- * {@link rpc-method-groups.groupFromCatalog} cannot express either, verified by
- * `client-callable-groups.types-check.ts`).
+ * member union the type describes (a tuple-keying proof TS cannot express,
+ * verified by `client-callable-groups.types-check.ts`).
  */
 const callableGroup = <Kinds extends CallablePrincipal>(
   kinds: readonly Kinds[],
@@ -97,7 +96,7 @@ const callableGroup = <Kinds extends CallablePrincipal>(
     // `callablePrincipal` is in `kinds`, mapped to one `Rpc` each — precisely
     // that union. The per-tag tag↔payload correlation is type-verified by
     // `client-callable-groups.types-check.ts`.
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- tuple-filter/keying proof TS cannot express; the homogeneous filter/map source does not overlap the precise per-slot member union, the same single assertion `groupFromCatalog` uses, verified by `client-callable-groups.types-check.ts`.
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- tuple-filter/keying proof TS cannot express; the homogeneous filter/map source does not overlap the precise per-slot member union, verified by `client-callable-groups.types-check.ts`.
     ...(serverRpcMethods
       .filter((definition) => callableBy(definition, kinds))
       .map((definition) =>

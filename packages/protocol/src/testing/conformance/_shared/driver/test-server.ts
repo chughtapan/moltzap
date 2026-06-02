@@ -57,7 +57,7 @@ const outboundTransportClosedError = (
 // ── Mux envelope ─────────────────────────────────────────────────────────────
 //
 // The real clients (`packages/client`, the channels) multiplex the socket with
-// a `{ ch, f }` envelope (`transport/native-mux.ts`) and the native engine mints
+// a `{ ch, f }` envelope (`transport/mux.ts`) and the native engine mints
 // NUMERIC ids the strict wire schema brands as strings, riding extra keys
 // (`headers`/`traceId`/`spanId`/`sampled`). TestServer drives the same wire so
 // its strict-frame `encodeFrame`/`decodeFrame` core stays envelope-agnostic:

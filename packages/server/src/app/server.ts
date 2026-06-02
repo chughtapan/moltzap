@@ -115,7 +115,7 @@ function resolveSpanProcessor(
 }
 
 function makeCoreRuntime(config: CoreConfig) {
-  // Fail-closed boot gate over the native WS engine before any socket opens.
+  // Fail-closed boot gate over the WS engine before any socket opens.
   validateEngineGating();
   const envelope = config.encryptionMasterSecret
     ? new EnvelopeEncryption(config.encryptionMasterSecret)
@@ -215,16 +215,15 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 }
 
 /**
- * Boot-time fail-closed gating backstop for the native WS engine. Two runtime
+ * Boot-time fail-closed gating backstop for the WS engine. Two runtime
  * guards over the actually-built `WsServerEngineRpcGroup`:
  *
  *  - `findEngineGatingMismatch()` walks every built member and asserts each
  *    authenticated tag carries its OWN `*AuthMw` (and each ungated tag carries
  *    none) — catching a `buildEngineMember` regression that drops a gate on a
  *    protected method, which the group's single type assertion cannot prove.
- *  - `assertWsEngineSize()` pins the built WS-subset member count to the
- *    catalog minus the four HTTP-only methods — catching a filter regression
- *    that drops or duplicates a member.
+ *  - `assertWsEngineSize()` pins the built member count to the full catalog —
+ *    catching a construction regression that drops or duplicates a member.
  *
  * A violation throws at boot rather than shipping a mis-gated engine.
  */

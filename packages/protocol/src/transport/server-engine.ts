@@ -1,13 +1,13 @@
 /**
- * @file The native `@effect/rpc` server engine over the channel-multiplexed
- * transport (`transport/native-mux.ts`).
+ * @file The `@effect/rpc` server engine over the channel-multiplexed
+ * transport (`transport/mux.ts`).
  *
- * `RpcServer.make`/`RpcServer.layer` bind {@link rpc-method-groups.ServerRpcGroup}
- * to a `RpcServer.Protocol` built from the server-side native-mux channel
+ * `RpcServer.make`/`RpcServer.layer` bind {@link WsServerEngineRpcGroup}
+ * to a `RpcServer.Protocol` built from the server-side mux channel
  * (`makeServerChannelProtocol`). The engine reads inbound `FromClientEncoded`
  * frames the mux demuxes off the c→s channel, dispatches each to the matching
- * `ServerRpcGroup.toLayer` handler, and writes the `FromServerEncoded` reply
- * back through the same channel's Parser.
+ * `WsServerEngineRpcGroup.toLayer` handler, and writes the `FromServerEncoded`
+ * reply back through the same channel's Parser.
  *
  * A request's authentication reaches its handler as a Context service: each
  * authenticated member carries its OWN `*AuthMw` middleware (the per-method
@@ -20,7 +20,7 @@
  *
  * ```mermaid
  * flowchart LR
- *   socket["c→s native-mux channel"] -->|FromClientEncoded| ENG[RpcServer engine]
+ *   socket["c→s mux channel"] -->|FromClientEncoded| ENG[RpcServer engine]
  *   ENG -->|clientId, rpc, payload, headers| MW["per-method *AuthMw"]
  *   MW -->|provides the method AuthContext proof| H["ServerEngineRpcGroup.toLayer handler"]
  *   H -->|FromServerEncoded| socket
@@ -32,11 +32,11 @@ import {
   makeServerChannelProtocol,
   type ChannelSink,
   type WireWrite,
-} from "./native-mux.js";
+} from "./mux.js";
 import { WsServerEngineRpcGroup } from "./server-engine-group.js";
 
 /**
- * Build the `RpcServer.Protocol` layer over one server-side native-mux
+ * Build the `RpcServer.Protocol` layer over one server-side mux
  * channel. `RpcServer.Protocol.make` hands the engine's inbound `write`
  * injector to {@link makeServerChannelProtocol}'s builder, which returns the
  * protocol impl record (the engine binds to) plus the channel sink (the mux
@@ -86,13 +86,11 @@ export const makeServerProtocolLayer = (options: {
 };
 
 /**
- * The native server engine layer for {@link WsServerEngineRpcGroup} — the
- * WS-dispatched subset of the middleware-attached engine group, NOT the un-gated
- * `ServerRpcGroup` (binding that would run every method with no `*AuthMw` gate,
- * an authorization bypass) and NOT the full catalog group (whose four HTTP-only
- * members have no WS handler, so `HandlersFrom` could not be satisfied). The
- * server-wiring guard canary (`native-server-engine.types-check.ts`) pins that
- * this layer's requirement channel demands the per-method `*AuthMw`.
+ * The server engine layer for {@link WsServerEngineRpcGroup} — the WS-dispatched
+ * members, each carrying its per-method `*AuthMw`. Binding a group whose members
+ * lacked the `*AuthMw` gate would run methods with no authorization gate. The
+ * server-wiring guard canary (`server-engine.types-check.ts`) pins that this
+ * layer's requirement channel demands the per-method `*AuthMw`.
  *
  * `RpcServer.layer(group)` runs the dispatch loop over whatever
  * `RpcServer.Protocol` is in scope; there is no `RpcServer.toLayer`. Its
@@ -100,7 +98,7 @@ export const makeServerProtocolLayer = (options: {
  * `RpcServer.Protocol | Rpc.ToHandler&lt;WsServerEngineRpcGroup&gt;` plus every
  * member's `*AuthMw` — the live connection provides the Protocol via
  * {@link makeServerProtocolLayer}, the handler bodies via
- * `WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`, and each `*AuthMw`
+ * `WsServerEngineRpcGroup.toLayer(serverHandlers)`, and each `*AuthMw`
  * runtime via its per-socket server-supplied `Layer`
  * (`auth-middleware-layers.ts`).
  */
