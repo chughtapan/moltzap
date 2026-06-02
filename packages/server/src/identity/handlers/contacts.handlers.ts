@@ -138,9 +138,7 @@ export const nativeContactsAccept = (params: ParamsOf<typeof ContactsAccept>) =>
   Effect.gen(function* () {
     yield* ContactsAcceptAuth;
     return yield* contactsAcceptBody(params, yield* agentArm);
-  }).pipe(
-    Effect.withSpan("nativeContactsAccept"),
-  );
+  }).pipe(Effect.withSpan("nativeContactsAccept"));
 
 export const nativeContactsById = (params: ParamsOf<typeof ContactsById>) =>
   Effect.gen(function* () {

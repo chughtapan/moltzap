@@ -9,14 +9,17 @@
  *
  * This is the cast-free bridge the redesign turns on: a literal-keyed total map.
  * A caller that has a generic tag `K extends Rpcs["_tag"]` dispatches through it
- * without the flat-client value-boundary erasure (`flat as unknown as ...`).
+ * without the flat-client value-boundary erasure the old descriptor-driven call
+ * needed.
  */
 import type { Rpc } from "@effect/rpc";
 import type { Effect } from "effect";
 
 /** The `Rpc` member of `Rpcs` whose tag is `K`. */
-export type RpcForTag<Rpcs extends Rpc.Any, K extends Rpcs["_tag"]> =
-  Rpc.ExtractTag<Rpcs, K>;
+export type RpcForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.ExtractTag<Rpcs, K>;
 
 /** The payload type one tag accepts. */
 export type PayloadForTag<

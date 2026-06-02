@@ -124,9 +124,7 @@ export const nativeDispatchRequest = (
   Effect.gen(function* () {
     yield* DispatchRequestAuth;
     return yield* dispatchRequestBody(params, yield* agentArm);
-  }).pipe(
-    Effect.withSpan("nativeDispatchRequest"),
-  );
+  }).pipe(Effect.withSpan("nativeDispatchRequest"));
 
 export const nativeDispatchesGet = (params: ParamsOf<typeof DispatchesGet>) =>
   Effect.gen(function* () {
