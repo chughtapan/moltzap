@@ -181,7 +181,7 @@ const AGENT_DISPATCH: ReadonlyMap<string, AgentDispatchEntry> = new Map(
   [...AgentCallableGroup.requests.keys()].map((tag) => [
     tag,
     (service: MoltZapService, params: LocalDaemonParams) =>
-      // eslint-disable-next-line agent-code-guard/as-unknown-as -- runtime request-key → AgentCallableTag launder; the live request set IS the agent-callable tags, and params are descriptor-validated before reaching here.
+       
       service.call(
         tag as AgentCallableTag,
         params as PayloadForTag<AgentCallableRpcs, AgentCallableTag>,

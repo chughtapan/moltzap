@@ -340,7 +340,7 @@ const AGENT_CALL_DISPATCH: ReadonlyMap<
   [...AgentCallableGroup.requests.keys()].map((tag) => [
     tag,
     (ws: MoltZapAgentClient, params: unknown) =>
-      // eslint-disable-next-line agent-code-guard/as-unknown-as -- runtime request-key → AgentCallableTag launder; the live request set IS the agent-callable tags, and params are descriptor-validated before reaching here.
+       
       ws.call(
         tag as Parameters<MoltZapAgentClient["call"]>[0],
         params as Parameters<MoltZapAgentClient["call"]>[1],

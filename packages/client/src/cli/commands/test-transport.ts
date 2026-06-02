@@ -47,7 +47,7 @@ export const makeFakeTransport = (
       // The fake harness asserts on the recorded `calls`, not on the typed
       // result; the canned response is the matching method's success by test
       // construction.
-      // eslint-disable-next-line agent-code-guard/as-unknown-as -- test fixture: the canned `respond` value stands in for the method's success type, asserted via `calls`.
+       
       return Effect.succeed(out as SuccessForTag<AgentCallableRpcs, Tag>);
     },
   };
