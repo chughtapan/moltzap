@@ -124,26 +124,6 @@ already authenticated as either arm) and at the per-principal gate
 binding). The `principal` discriminator names which arm the conflict is
 on; the wire code is shared.
 
-### [`AnyCapabilityMiddleware`](./capability-middleware.ts#L99)
-
-_TypeAlias_
-
-```ts
-export type AnyCapabilityMiddleware = CapabilityMiddleware<
-  never,
-  AnyContextTag,
-  any,
-  any,
-  any
->;
-```
-
-The tuple of middlewares carried on a definition's `middlewares` field.
-Each element's `Params` is the OWNING method's decoded params type. The
-`unknown`/`never` slots are intentionally wide here — the per-method
-tuple narrows them at the descriptor literal (the same erasure-vs-recover
-pattern as `CapabilityDescriptor` / `CapabilitiesOf`).
-
 ### [`AppCallableGroup`](./client-callable-groups.ts#L128)
 
 _Variable_
@@ -361,45 +341,6 @@ and found a NON-agent arm. Every live descriptor cap is agent-originated
 guarantees an agent caller; an app arm here is a wiring defect, not a
 caller-actionable error. Effect.die (not a caller-visible error)
 because the principal-kind gate already rejected non-agent callers.
-
-### [`CapabilityMiddleware`](./capability-middleware.ts#L57)
-
-_Interface_
-
-```ts
-export interface CapabilityMiddleware<
-  Params,
-  Provides extends AnyContextTag,
-  Input,
-  Env,
-  Fail = never,
-> {
-  /** The service Tag the middleware PROVIDES (effect's `provides`). */
-  readonly provides: Provides;
-
-  /**
-   * Typed, payload-only payload-derivation (was `CapabilityDescriptor.argsOf`).
-   * Reads the DECODED per-method params (A9: `Params`, not `unknown`) and
-   * the principal via `yield* CurrentPrincipal` (NO `ctx` parameter). The
-   * `R` channel declares `CurrentPrincipal`; the dispatcher provides it.
-   */
-  readonly derivePayload: (
-    params: Params,
-  ) => Effect.Effect<Input, never, CurrentPrincipal>;
-
-  /**
-   * Obtain the service value under `Env` (the today
-   * `serverCapabilityProviders` entry, now typed: input is `derivePayload`'s
-   * output, output is the `Provides` service value).
-   */
-  readonly obtain: (
-    input: Input,
-  ) => Effect.Effect<Context.Tag.Service<Provides>, Fail, Env>;
-}
-```
-
-A per-rpc capability middleware. The carrier for the middleware-reshaped
-descriptor caps.
 
 ### [`CapProofs`](./auth-context.ts#L58)
 
@@ -715,21 +656,6 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcParams`](./method.ts#L293)
-
-_Function_
-
-```ts
-export function decodeRpcParams<
-  Name extends string,
-  P extends Schema.Schema.AnyNoContext,
-  R extends Schema.Schema.AnyNoContext,
->(
-  definition: RpcDefinition<Name, P, R>,
-  data: unknown,
-): Effect.Effect<Schema.Schema.Type<P>, RpcParamsDecodeError>
-```
-
 ### [`decodeRpcRequest`](./rpc-groups.ts#L98)
 
 _Function_
@@ -746,7 +672,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L306)
+### [`decodeRpcResult`](./method.ts#L283)
 
 _Function_
 
@@ -891,52 +817,6 @@ Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
 
-### [`ErasedSlot`](./erased-slot.ts#L59)
-
-_Interface_
-
-```ts
-export interface ErasedSlot<Env, Conn> {
-  readonly definition: RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >;
-  readonly invoke: (
-    params: unknown,
-    ctx: SlotDispatchContext<Conn>,
-  ) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env>;
-}
-```
-
-Existential slot the dispatcher indexes by runtime method string.
-
-`Env` is the `FullLive` service-tag union the dispatcher's
-`ManagedRuntime` resolves at request time (the layer service tags
-MINUS the per-frame capability tags, which are discharged inside
-`invoke`). `Conn` is the server's three-arm `Connection` union.
-
-`invoke` decodes `params` via the method's own validator (the Effect
-`Schema`-backed `validateParams` guard, post-#723), runs the
-pre-composed gated body (caps + principal discharged inside), and returns
-the `Exit`. `R = Env` (NOT `never`). NO double-erasure cast, NO
-`Context.Tag&lt;unknown, unknown>`.
-
-### [`ErasedSlotTable`](./erased-slot.ts#L77)
-
-_TypeAlias_
-
-```ts
-export type ErasedSlotTable<Env, Conn> = Readonly<
-  Record<string, ErasedSlot<Env, Conn> | undefined>
->;
-```
-
-The keyed table the dispatcher indexes by runtime method string. The
-`| undefined` value type makes the wire-dynamic lookup honest: an
-unknown method string yields `undefined` → wire `MethodNotFound`
--32601.
-
 ### [`errorClassFor`](./wire-errors.ts#L73)
 
 _Function_
@@ -980,34 +860,6 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
   readonly id: JsonRpcId | null;
 }> {}
 ```
-
-### [`GatedMiddlewareBody`](./middleware-slot.ts#L53)
-
-_TypeAlias_
-
-```ts
-export type GatedMiddlewareBody<
-  P extends Schema.Schema.AnyNoContext,
-  Conn,
-  Env,
-> = (
-  params: Schema.Schema.Type<P>,
-  ctx: SlotDispatchContext<Conn>,
-) => Effect.Effect<Exit.Exit<unknown, unknown>, never, Env>;
-```
-
-The fully-composed gated body the binding site hands `makeMiddlewareSlot`.
-
-It is the #720-gated handler with its STATIC per-arm capability
-`provideServiceEffect` chain ALREADY woven AND the dispatcher's
-`provideService(CurrentPrincipal, …)` + `provideService(ConnectionTag,
-…)` ALREADY applied — so its residual `R` is exactly `Env` (cap tags and
-`CurrentPrincipal` and `ConnectionTag` all subtracted, compiler-checked).
-`makeMiddlewareSlot` only adds the param decode + the `Exit` projection.
-
-`E` is `never` because the gated body has already `Effect.exit`'d its
-outcome into the success channel (mirrors `makeErasedSlot.invoke`, which
-returns `Effect&lt;Exit&lt;…&gt;, never, Env&gt;`).
 
 ### [`HandlerSlot`](./handlers.ts#L36)
 
@@ -1176,30 +1028,6 @@ feeds decoded inbound `FromServerEncoded` frames into the engine. The
 client engine has no `disconnects` Mailbox — socket close fails the
 client call channel through the underlying socket.
 
-### [`makeMiddlewareSlot`](./middleware-slot.ts#L70)
-
-_Function_
-
-```ts
-export function makeMiddlewareSlot<
-  Name extends string,
-  P extends Schema.Schema.AnyNoContext,
-  R extends Schema.Schema.AnyNoContext,
-  Conn,
-  Env,
->(
-  definition: RpcDefinition<Name, P, R>,
-  body: GatedMiddlewareBody<P, Conn, Env>,
-): ErasedSlot<Env, Conn>
-```
-
-Build a real ErasedSlot from a definition + a fully-composed,
-cast-free GatedMiddlewareBody. The body's caps were discharged by
-a STATIC per-arm `provideServiceEffect` chain at the binding site, so
-there is no runtime-fold carve-out to subtract R — the residual `R = Env`
-is the body's own honest type. `invoke` adds the param decode; on decode
-success it runs the body (which already returns the inner `Exit`).
-
 ### [`makeServerChannelProtocol`](./native-mux.ts#L228)
 
 _Function_
@@ -1337,26 +1165,6 @@ export class MessagesSendAuthMw extends RpcMiddleware.Tag<MessagesSendAuthMw>()(
   { provides: MessagesSendAuth, failure: WireErrorSchema },
 ) {}
 ```
-
-### [`MiddlewaresOf`](./capability-middleware.ts#L118)
-
-_TypeAlias_
-
-```ts
-export type MiddlewaresOf<D> = D extends {
-  readonly middlewares: ReadonlyArray<infer M>;
-}
-```
-
-Type-level extractor: the union of cap-tag IDENTIFIERS the `middlewares`
-tuple on a definition `D` PROVIDES — i.e. the `Context.Tag.Identifier`
-(= `Self` instance type, for the repo's class tags) of each `provides`
-tag, which is the type a handler's R-channel actually holds AND the type
-`provideServiceEffect(tag, …)` subtracts. (Projecting to the raw `provides`
-tag VALUE type `typeof Tag` would be WRONG — that is not what R holds, so
-the totality bound would never subtract.) Mirrors `CapIdentsOf` for the
-middleware surface. When `D["middlewares"]` is absent, resolves to
-`never` (the method contributes no capability requirements).
 
 ### [`MUX_CLIENT_ID`](./native-mux.ts#L171)
 
@@ -1668,34 +1476,6 @@ gate narrows the live connection to exactly this arm, so the handler reads
 `"any"` resolves to `never`: the lone unauthenticated method
 (`network/connect`) carries no proof — it reads the live arm via
 `ConnectionTag` — so it never instantiates an `AuthContext`.
-
-### [`provideMiddleware`](./capability-middleware.ts#L145)
-
-_Function_
-
-```ts
-export const provideMiddleware =
-  <Params, Provides extends AnyContextTag, Input, Env, Fail>(
-    mw: CapabilityMiddleware<Params, Provides, Input, Env, Fail>,
-    params: Params,
-  )
-```
-
-Apply ONE CapabilityMiddleware as a `provideServiceEffect` step:
-`derivePayload(params)` (reads `CurrentPrincipal` via `yield*`) →
-`flatMap(obtain)` → `provideServiceEffect(mw.provides, …)`. Returns a
-`pipe`-able function so a binding site composes its method's chain by
-listing one `provideMiddleware(mw, params)` per declared cap in REVERSE
-declaration order (FIRST-declared = OUTERMOST, for
-Forbidden-before-state-probe).
-
-This is a PER-MIDDLEWARE step, NOT a variadic tuple-fold (cap-reshape
-Concern 5 — a tuple-fold is unproven cast-free). `mw.provides` is a
-CONCRETE tag at each call, so TS subtracts exactly that tag's `Identifier`
-from the accumulator R — the spike-proven EXIT-0 R-subtraction, no cast.
-The `CurrentPrincipal` requirement of `derivePayload` rides out on the
-step's R; the dispatcher's `provideService(CurrentPrincipal, …)` (around
-the whole arm) discharges it.
 
 ### [`registerErrorClass`](./wire-errors.ts#L61)
 
@@ -2020,23 +1800,6 @@ Optional per-instance overrides for tagged-error classes. The static
 specific message and/or supplemental `data` payload that TypedDispatcher
 forwards to the wire response.
 
-### [`RpcParamsDecodeError`](./method.ts#L271)
-
-_Class_
-
-```ts
-export class RpcParamsDecodeError extends Data.TaggedError(
-  "RpcParamsDecodeError",
-)<{
-  readonly definition: RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >;
-  readonly data: unknown;
-}> {}
-```
-
 ### [`RpcRequestDecodeError`](./rpc-groups.ts#L77)
 
 _TypeAlias_
@@ -2053,7 +1816,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L282)
+### [`RpcResultDecodeError`](./method.ts#L272)
 
 _Class_
 
@@ -2173,30 +1936,6 @@ export const ServerRpcGroup = groupFromCatalog(serverRpcMethods)
 onto these via `RpcGroup.toLayer` (server inbound) and derives typed clients
 via `RpcClient.make`; the dual-endpoint demux pairs ServerRpcGroup
 (client-to-server) with AppCallbackRpcGroup (server-to-client).
-
-### [`SlotDispatchContext`](./erased-slot.ts#L41)
-
-_Interface_
-
-```ts
-export interface SlotDispatchContext<Conn> {
-  readonly connection: Conn;
-}
-```
-
-The dispatcher-boundary `ctx` a slot's `invoke` receives. The live
-THREE-arm `Connection` union whose unauthenticated arm has no `auth`. The
-slot narrows `ctx.connection._tag` INSIDE `invoke` (the #720
-principal-kind gate); it MUST be the 3-arm union because the Connect frame
-(`agent/connect` / `app/connect`) is dispatched while the arm is still
-unauthenticated, so the unauth arm reaches `invoke` unnarrowed.
-
-Kept structural (not an import of the server type) so the protocol package
-does not depend on `@moltzap/server-core`. The slot factory is generic over
-`Conn`, which the server pins to its `Connection` union. The server's
-`DispatchContext` (`transport/context.ts`) is just `SlotDispatchContext<
-Connection>` — the SAME type, one name per role (#705 HALF-2 collapsed the
-former duplicate server-local + argsOf-resolver `DispatchContext`s here).
 
 ### [`TaskAddParticipantAuth`](./auth-middleware.ts#L242)
 
@@ -2659,13 +2398,10 @@ export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
 
 - `auth-context.ts`
 - `auth-middleware.ts`
-- `capability-middleware.ts`
 - `client-callable-groups.ts`
 - `current-principal.ts`
-- `erased-slot.ts`
 - `handlers.ts`
 - `method.ts`
-- `middleware-slot.ts`
 - `native-mux.ts`
 - `native-mux.types-check.ts`
 - `native-server-engine.ts`
