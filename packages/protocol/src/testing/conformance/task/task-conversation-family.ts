@@ -29,7 +29,6 @@ import {
   TaskConversationUnarchive,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  TaskRejectedError,
   TaskRequest,
   TaskLeave,
   type Conversation,

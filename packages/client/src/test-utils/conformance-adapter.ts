@@ -340,7 +340,6 @@ const AGENT_CALL_DISPATCH: ReadonlyMap<
   [...AgentCallableGroup.requests.keys()].map((tag) => [
     tag,
     (ws: MoltZapAgentClient, params: unknown) =>
-       
       ws.call(
         tag as Parameters<MoltZapAgentClient["call"]>[0],
         params as Parameters<MoltZapAgentClient["call"]>[1],

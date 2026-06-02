@@ -7,6 +7,7 @@
  * - `catchLeaseInvalid` Effect-pipe wrapper (typed branch + pass-through).
  */
 
+import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Equal, Match, TestClock, TestContext } from "effect";
@@ -21,9 +22,6 @@ const FIXED_TS = 1_700_000_000_000;
 const SAMPLE_LEASE_ID = "lease-abc-123";
 const NON_LEASE_ERROR_MESSAGE = "boom";
 const LEASE_MESSAGE = "lease consumed";
-const FORBIDDEN_ERROR_CODE = -32001;
-const FORWARD_COMPAT_TAG_CODE = -32099;
-const INTERNAL_ERROR_CODE = -32603;
 const LEASE_ID_FALLBACK = "(unknown)";
 // Forward-compat: server may later emit the canonical lease-error tag inside
 // the wire payload's `data._tag`. The predicate accepts that shape too.
@@ -202,7 +200,7 @@ function preservesCauseForHosts(): void {
       consumedAt: FIXED_TS,
     }),
   );
-  expect(typed.cause._tag).toBe("Forbidden");
+  expect(typed.cause._tag).toBe(WIRE_ERROR_TAG.Forbidden);
   expect(typed.cause.data).toEqual({
     reason: "LeaseInvalid",
     state: "CONSUMED",

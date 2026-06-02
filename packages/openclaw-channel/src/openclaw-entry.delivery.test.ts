@@ -82,7 +82,6 @@ const PARENT_MESSAGE_ID = testMessageId("550e8400-e29b-41d4-a716-446655440410");
 const LOOKUP_FAILED_MESSAGE = "lookup failed";
 const SERVER_REJECTED_MESSAGE = "Server rejected";
 const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
-const NON_TASK_CLOSED_CODE = -32001;
 const TEXT_PART_TYPE = "text";
 const FINAL_KIND = "final";
 const TOOL_KIND = "tool";

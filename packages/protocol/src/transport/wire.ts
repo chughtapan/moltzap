@@ -227,6 +227,11 @@ export function requestFrame<
   };
 }
 
+// The wire shape of a response-frame `error` sub-object: the tagged error's
+// `_tag` discriminant plus message/data. This is the WIRE projection a tagged
+// error encodes to, not a tagged-error class itself, so it declares `_tag`
+// structurally.
+// eslint-disable-next-line agent-code-guard/manual-tagged-error -- wire envelope type (the `_tag` projection of a `Schema.TaggedError`), not a tagged-error class
 type ResponseFrameError = {
   _tag: string;
   message: string;

@@ -42,9 +42,6 @@ import {
   AgentsLookup,
   ContactsList,
   TaskConversationList,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
 } from "@moltzap/protocol";
 import {
   ConversationId,
@@ -635,7 +632,6 @@ function callAsSendRpc(service: {
   readonly call: MoltZapService["call"];
 }): SendRpcFn<ServiceRpcError> {
   return (definition, params) =>
-     
     service.call(
       definition.name as Parameters<MoltZapService["call"]>[0],
       params as Parameters<MoltZapService["call"]>[1],

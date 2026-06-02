@@ -4,7 +4,6 @@ import { Effect, Either, Exit } from "effect";
 import type { Message, ResultOf } from "@moltzap/protocol";
 import {
   TaskConversationList,
-  ConversationArchivedError,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,

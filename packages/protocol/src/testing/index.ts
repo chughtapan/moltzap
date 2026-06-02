@@ -32,6 +32,7 @@ export {
 } from "../transport/wire.js";
 export type { JsonRpcMethod } from "../transport/wire.js";
 export { TaskFailedNotificationDefinition } from "../task/methods.js";
+export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 
 // Primitives.
 export {

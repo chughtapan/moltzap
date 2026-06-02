@@ -18,9 +18,14 @@ import {
   connectTestClient,
   adminRegisterAgent,
 } from "../helpers.js";
-import { agentId, userId, RpcResponseError } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  userId,
+  RpcResponseError,
+  WIRE_ERROR_TAG,
+} from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
-import { NotInContactsError, PresenceSubscribe } from "@moltzap/protocol";
+import { PresenceSubscribe } from "@moltzap/protocol";
 
 const it = effectIt.live;
 
@@ -116,7 +121,7 @@ function rejectsInvisibleAgent() {
     );
 
     const err = extractRpcResponseError(exit);
-    expect(err.tag).toBe("NotInContacts");
+    expect(err.tag).toBe(WIRE_ERROR_TAG.NotInContacts);
     const data = err.data as { agentIds: string[] } | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
   });
@@ -143,7 +148,7 @@ function rejectsOnlyInvisibleSubset() {
     );
 
     const err = extractRpcResponseError(exit);
-    expect(err.tag).toBe("NotInContacts");
+    expect(err.tag).toBe(WIRE_ERROR_TAG.NotInContacts);
     const data = err.data as { agentIds: string[] } | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
     expect(data?.agentIds).not.toContain(alice2.agentId);

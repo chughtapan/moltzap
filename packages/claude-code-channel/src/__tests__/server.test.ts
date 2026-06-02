@@ -63,7 +63,6 @@ const FILE_A = "a.png";
 const FILE_B = "b.png";
 const LEASE_ID = "lease-cc-test";
 const LEASE_CONSUMED_AT = 1_700_000_000_000;
-const LEASE_FORBIDDEN_CODE = -32001;
 const LEASE_FORBIDDEN_MESSAGE = "lease consumed";
 
 const EXPECTED_CHANNEL_CAPABILITIES = {

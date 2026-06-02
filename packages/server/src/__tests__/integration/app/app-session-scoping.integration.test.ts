@@ -20,6 +20,7 @@
  * client's auto-connect, so a meaningful assertion there is not available
  * without a raw Connect-frame driver; the unit test is the canonical proof.
  */
+import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { it as effectIt } from "@effect/vitest";
 import {
   TaskCreate,
@@ -27,7 +28,6 @@ import {
   TaskRequest,
   type AppId,
   type AppManifest,
-  ForbiddenError,
 } from "@moltzap/protocol";
 import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
@@ -122,7 +122,7 @@ function agentConnFailsTmGate() {
         participants: [bob.agentId],
       }),
     );
-    expect(rpcErrorCode(exit)).toBe("Forbidden");
+    expect(rpcErrorCode(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 
@@ -148,7 +148,7 @@ function nonOwningAppFailsTmGate() {
         participants: [bob.agentId],
       }),
     );
-    expect(rpcErrorCode(exit)).toBe("Forbidden");
+    expect(rpcErrorCode(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 

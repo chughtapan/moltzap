@@ -1,11 +1,8 @@
+import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import * as fc from "fast-check";
 import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
 import { Effect } from "effect";
-import {
-  ForbiddenError,
-  TaskConversationArchive,
-  type TaskId,
-} from "@moltzap/protocol";
+import { TaskConversationArchive, type TaskId } from "@moltzap/protocol";
 import {
   it,
   startTestServerEffect,
@@ -80,5 +77,5 @@ it("non-owner/admin member gets 403 on archive", () =>
       bob.client.sendRpc(TaskConversationArchive, { taskId, conversationId }),
       "Forbidden",
     );
-    expect(err.tag).toBe("Forbidden");
+    expect(err.tag).toBe(WIRE_ERROR_TAG.Forbidden);
   }));
