@@ -484,7 +484,7 @@ class RuntimeTestClient implements TestClient {
   sendResponseFrame(
     frame: ResponseFrame,
   ): ReturnType<TestClient["sendResponseFrame"]> {
-    return writeOutboundFrame(this.runtime, frame);
+    return writeOutboundFrame(this.runtime, frame, "s2c");
   }
 
   subscribe<D extends AnyNotificationDefinition>(
@@ -607,6 +607,7 @@ function openTestClientRuntime(
 function writeFrame(
   runtime: TestClientRuntime,
   raw: string,
+  channel: "c2s" | "s2c",
 ): Effect.Effect<void, TransportClosedError | TransportIoError> {
   return Effect.gen(function* () {
     const state = yield* Ref.get(runtime.closeRef);
@@ -620,9 +621,10 @@ function writeFrame(
       );
     }
     // The live server multiplexes the socket with a `{ ch, f }` envelope
-    // (`native-mux.ts`); the driver is the c2s (client→server) endpoint. `f` is
-    // the JSON-RPC frame the server's `RpcSerialization.jsonRpc` parser decodes.
-    const enveloped = JSON.stringify({ ch: "c2s", f: raw });
+    // (`native-mux.ts`). A fresh request goes on the `c2s` (client→server)
+    // endpoint; a REPLY to a server-originated callback goes back on `s2c` — the
+    // channel that callback request arrived on — so the s2c engine correlates it.
+    const enveloped = JSON.stringify({ ch: channel, f: raw });
     yield* runtime
       .writer(enveloped)
       .pipe(Effect.mapError(outboundTransportIoError));
@@ -633,16 +635,17 @@ function writeReply(
   runtime: TestClientRuntime,
   reply: ResponseFrame,
 ): Effect.Effect<void> {
-  return writeOutboundFrame(runtime, reply).pipe(Effect.ignore);
+  return writeOutboundFrame(runtime, reply, "s2c").pipe(Effect.ignore);
 }
 
 function writeOutboundFrame(
   runtime: TestClientRuntime,
   frame: AnyFrame,
+  channel: "c2s" | "s2c",
 ): Effect.Effect<void, TransportClosedError | TransportIoError> {
   const raw = encodeFrame(frame);
   return recordFrame(runtime.captures, "outbound", raw, frame).pipe(
-    Effect.zipRight(writeFrame(runtime, raw)),
+    Effect.zipRight(writeFrame(runtime, raw, channel)),
   );
 }
 
@@ -1046,7 +1049,7 @@ function sendClientRpc<D extends AnyServerRpcDefinition>(
     >();
     runtime.pending.set(request.id, deferred);
     yield* recordFrame(runtime.captures, "outbound", raw, request);
-    yield* writeFrame(runtime, raw);
+    yield* writeFrame(runtime, raw, "c2s");
     const response = yield* awaitPendingRpcResponse(runtime, deferred, {
       id: request.id,
       method: input.definition.name,
@@ -1137,7 +1140,7 @@ function sendMalformedFrame<D extends AnyServerRpcDefinition>(
     >();
     runtime.pending.set(baseFrame.id, deferred);
     yield* recordMalformed(runtime.captures, raw, opts.kind);
-    yield* writeFrame(runtime, raw);
+    yield* writeFrame(runtime, raw, "c2s");
     return yield* waitForMalformedOutcome(runtime, deferred, baseFrame.id);
   });
 }
