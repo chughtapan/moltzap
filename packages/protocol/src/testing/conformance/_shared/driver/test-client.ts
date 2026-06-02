@@ -343,10 +343,14 @@ const DEFAULT_MALFORMED_QUIESCENCE_MS = 500;
 const HANDLER_DEFECT_MESSAGE_LIMIT = 200;
 
 // The native engine parses the wire request id with `BigInt(id)`
-// (`@effect/rpc/RpcMessage → RequestId`), so the driver's id must be
-// numeric. A process-start epoch base keeps ids unique across clients on one
-// socket without colliding with another client's counter.
-const REQUEST_ID_BASE = Date.now() * 1_000_000;
+// (`@effect/rpc/RpcMessage → RequestId`) and the JSON-RPC serialization
+// round-trips it through `Number(id)`, so the driver's id must be a numeric
+// value within `Number.MAX_SAFE_INTEGER` — beyond it, distinct ids collapse to
+// the same `Number`, misrouting concurrent responses to the wrong pending call.
+// A process-start epoch base (no sub-millisecond multiplier) plus the monotonic
+// `requestIdCounter` keeps ids unique across every client on one socket while
+// staying safe-integer for the lifetime of a test run.
+const REQUEST_ID_BASE = Date.now();
 
 const outboundTransportIoError = (cause: unknown): TransportIoError =>
   new TransportIoError({ direction: "outbound", cause });
@@ -730,12 +734,45 @@ function handleRequestFrame(
   runtime: TestClientRuntime,
   frame: RequestFrame,
 ): Effect.Effect<void> {
+  // The server fires notifications as void-result s2c RPCs and parks until the
+  // client acks. Fan the frame out to subscribers + awaiters, then reply with
+  // the void ack so the server-side round-trip unblocks.
+  if (NOTIFICATION_METHODS.has(frame.method)) {
+    return handleNotificationRequestFrame(runtime, frame);
+  }
   return decodeRpcRequest(appCallbackMethods, frame).pipe(
     Effect.matchEffect({
       onFailure: () => writeReply(runtime, invalidCallbackRequestReply(frame)),
       onSuccess: (request) => handleDecodedServerRequest(runtime, request),
     }),
   );
+}
+
+function handleNotificationRequestFrame(
+  runtime: TestClientRuntime,
+  frame: RequestFrame,
+): Effect.Effect<void> {
+  return decodeNotification(notificationDefinitions, asNotificationFrame(frame))
+    .pipe(
+      Effect.matchEffect({
+        onFailure: () => Effect.void,
+        onSuccess: (notification) => runtime.subscribers.dispatch(notification),
+      }),
+    )
+    .pipe(
+      Effect.zipRight(
+        writeReply(runtime, responseFrame(frame.id, { result: {} })),
+      ),
+    );
+}
+
+/** Re-shape a notification carried as an s2c request into a notification frame. */
+function asNotificationFrame(frame: RequestFrame): NotificationFrame {
+  return {
+    jsonrpc: "2.0",
+    method: frame.method,
+    ...(frame.params !== undefined ? { params: frame.params } : {}),
+  };
 }
 
 function invalidCallbackRequestReply(frame: RequestFrame): ResponseFrame {
@@ -881,11 +918,14 @@ const MuxEnvelopeSchema = Schema.Struct({
 });
 const decodeMuxEnvelope = Schema.decodeUnknownEither(MuxEnvelopeSchema);
 
-// The wire-method names the server fires as fire-and-forget NOTIFICATIONS (no
-// reply expected). `RpcSerialization.jsonRpc` carries every server→client frame
-// as a Request (with an `id`); the driver demotes a known-notification frame to
-// a no-`id` notification so `isNotificationFrame` routes it to subscribers, and
-// keeps the `id` on the app-callback methods (genuine s2c requests).
+// The wire-method names the server fires as NOTIFICATIONS. The server stands
+// these on the s2c reverse `RpcClient` as void-result RPCs (`originator.notify`)
+// and AWAITS the client's void ack — a server-side round-trip stays parked until
+// the reply lands. So the driver keeps the `id` on a known-notification frame
+// (it is a genuine s2c request) and `handleRequestFrame` both fans it out to
+// subscribers and replies with the void ack, mirroring the production client's
+// engine auto-reply. Dropping the `id` here would strand every server round-trip
+// that fires a notification (e.g. the dispatch deny-removal sequence).
 const NOTIFICATION_METHODS = new Set<string>(
   notificationDefinitions.map((d) => d.name as string),
 );
@@ -907,9 +947,9 @@ function decodeSocketData(data: string | Uint8Array): string {
  * JSON-RPC frame schema:
  *   - strip the native-engine extras (`headers`, `traceId`, `spanId`,
  *     `sampled`) the strict schema rejects as excess keys;
- *   - re-stringify a numeric top-level `id` (the driver brands a STRING id);
- *   - drop the `id` entirely for a known-notification method, so it classifies
- *     as a notification, not a request.
+ *   - re-stringify a numeric top-level `id` (the driver brands a STRING id).
+ * A server-pushed notification keeps its `id`: the server awaits a void ack, so
+ * the frame stays a request and `handleRequestFrame` both fans it out and acks.
  * A payload the bridge does not recognize passes through unchanged.
  */
 function normalizeNativeFrame(frame: string): string {
@@ -918,8 +958,6 @@ function normalizeNativeFrame(frame: string): string {
   return Either.match(decodeNativeFrame(parsed), {
     onLeft: () => frame,
     onRight: ({ id, method, rest }) => {
-      const isNotification =
-        method !== undefined && NOTIFICATION_METHODS.has(method);
       const flat =
         "error" in rest
           ? { ...rest, error: unwrapCauseError(rest["error"]) }
@@ -927,7 +965,7 @@ function normalizeNativeFrame(frame: string): string {
       return JSON.stringify({
         ...flat,
         ...(method !== undefined ? { method } : {}),
-        ...(id !== undefined && !isNotification ? { id: String(id) } : {}),
+        ...(id !== undefined ? { id: String(id) } : {}),
       });
     },
   });

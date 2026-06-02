@@ -63,12 +63,12 @@ beforeAll(() => Effect.runPromise(startTestServerEffect()), 60_000);
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): number | null {
+function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): string | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
   const err = failure.value as { readonly tag?: string };
-  return typeof err.tag === "number" ? err.tag : null;
+  return typeof err.tag === "string" ? err.tag : null;
 }
 
 /**
