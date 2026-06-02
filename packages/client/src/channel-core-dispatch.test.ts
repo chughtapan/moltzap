@@ -26,7 +26,7 @@ import {
   type ChannelService,
   type EnrichedInboundMessage,
   MoltZapChannelCore,
-  RpcServerError,
+  ForbiddenError,
 } from "./channel-core-test-support.js";
 
 let fake: ChannelCoreFixture["fake"];
@@ -679,8 +679,7 @@ function failsClosedWhenDispatchAdmissionErrors() {
     installReceivedRecorder(core, received);
     installAdmission(fake, () =>
       Effect.fail(
-        new RpcServerError({
-          code: -32603,
+        new ForbiddenError({
           message: "admission service unavailable",
         }),
       ),

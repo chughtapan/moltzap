@@ -76,7 +76,7 @@ it("non-text message parts render as markers in socket history", () =>
         initialConversation: { participants: [regB.agentId] },
       });
 
-      yield* regB.client.sendRpc(H.MessagesSend, {
+      yield* regB.client.call(H.MessagesSend.name, {
         taskId: conv.task.id,
         conversationId: conv.conversation!.id,
         parts: [

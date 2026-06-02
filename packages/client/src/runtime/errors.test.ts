@@ -3,13 +3,10 @@ import { AgentNotFoundError, MalformedFrameError } from "./errors.js";
 import {
   MessagesSend,
   NotConnectedError,
-  RpcServerError,
   RpcTimeoutError,
 } from "@moltzap/protocol";
 
 const RPC_TIMEOUT_MS = 30_000;
-const METHOD_NOT_FOUND_CODE = -32601;
-const INTERNAL_ERROR_CODE = -32603;
 const AGENT_NAME = "foo";
 const OTHER_AGENT_NAME = "bar";
 const AGENT_NOT_FOUND_TAG = "AgentNotFoundError";
@@ -17,9 +14,6 @@ const AGENT_NOT_FOUND_MESSAGE = "Agent not found: foo";
 const NOT_CONNECTED_TAG = "NotConnectedError";
 const SOCKET_CLOSED_MESSAGE = "socket closed";
 const RPC_TIMEOUT_TAG = "RpcTimeoutError";
-const RPC_SERVER_TAG = "RpcServerError";
-const METHOD_NOT_FOUND_MESSAGE = "method not found";
-const RPC_SERVER_HINT = "check spelling";
 const MALFORMED_FRAME_TAG = "MalformedFrameError";
 const MALFORMED_RAW_PAYLOAD = "not json";
 
@@ -57,28 +51,6 @@ describe("RpcTimeoutError", () => {
     expect(err._tag).toBe(RPC_TIMEOUT_TAG);
     expect(err.method).toBe(MessagesSend.name);
     expect(err.timeoutMs).toBe(RPC_TIMEOUT_MS);
-  });
-});
-
-describe("RpcServerError", () => {
-  it("carries code, message, and optional data", () => {
-    const err = new RpcServerError({
-      code: METHOD_NOT_FOUND_CODE,
-      message: METHOD_NOT_FOUND_MESSAGE,
-      data: { hint: RPC_SERVER_HINT },
-    });
-    expect(err._tag).toBe(RPC_SERVER_TAG);
-    expect(err.code).toBe(METHOD_NOT_FOUND_CODE);
-    expect(err.message).toBe(METHOD_NOT_FOUND_MESSAGE);
-    expect(err.data).toEqual({ hint: RPC_SERVER_HINT });
-  });
-
-  it("treats `data` as optional (undefined when omitted)", () => {
-    const err = new RpcServerError({
-      code: INTERNAL_ERROR_CODE,
-      message: "oops",
-    });
-    expect(err.data).toBeUndefined();
   });
 });
 

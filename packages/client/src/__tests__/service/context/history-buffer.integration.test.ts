@@ -19,7 +19,7 @@ it("buffer stores all messages without eviction", () =>
     const convC = yield* H.createDm(service, regC.agentId);
 
     for (let i = 0; i < H.HISTORY_MESSAGE_COUNT; i++) {
-      yield* regC.client.sendRpc(H.MessagesSend, {
+      yield* regC.client.call(H.MessagesSend.name, {
         taskId: convC.task.id,
         conversationId: convC.conversation!.id,
         parts: [{ type: "text", text: `msg-${i}` }],

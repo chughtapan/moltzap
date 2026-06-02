@@ -20,7 +20,7 @@ it("history via socket returns messages with isOwn labels", () =>
         initialConversation: { participants: [regB.agentId] },
       });
 
-      yield* H.socketRpcRequest(H.MessagesSend, {
+      yield* H.socketRpcRequest(H.MessagesSend.name, {
         taskId: conv.task.id,
         conversationId: conv.conversation!.id,
         parts: [{ type: "text", text: "Hello from A" }],

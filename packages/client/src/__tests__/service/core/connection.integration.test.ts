@@ -38,7 +38,7 @@ it("task/conversation/list returns existing conversations after connect", () =>
     const service = yield* H.connectService(regB.apiKey);
     expect(service.getConversation(conv.conversation!.id)).toBeUndefined();
 
-    const list = yield* service.sendRpc(H.TaskConversationList, {});
+    const list = yield* service.call(H.TaskConversationList.name, {});
     const found = list.items.find(
       (c) => c.conversation.id === conv.conversation!.id,
     );

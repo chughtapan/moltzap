@@ -9,7 +9,7 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import {
   NotConnectedError,
-  RpcServerError,
+  NotFoundError,
   RpcTimeoutError,
 } from "@moltzap/protocol";
 import {
@@ -56,10 +56,9 @@ const DIRECT_TEST_SERVER_URL = "wss://test.example";
 function makeMockWsClient() {
   return {
     connect: () => Effect.void,
-    sendRpc: () =>
+    call: () =>
       Effect.fail(
-        new RpcServerError({
-          code: SESSION_NOT_FOUND_CODE,
+        new NotFoundError({
           message: ITEM_NOT_FOUND_MESSAGE,
         }),
       ),
@@ -250,15 +249,14 @@ function rpcServerErrorMapsToTransportRpcError() {
   return Effect.sync(() => {
     const err = tagWsError(
       TaskList.name,
-      new RpcServerError({
-        code: SESSION_NOT_FOUND_CODE,
+      new NotFoundError({
         message: SESSION_NOT_FOUND_MESSAGE,
       }),
     );
     expect(err).toBeInstanceOf(TransportRpcError);
     expect(err._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
     if (err instanceof TransportRpcError) {
-      expect(err.code).toBe(SESSION_NOT_FOUND_CODE);
+      expect(err.tag).toBe("NotFound");
       expect(err.message).toBe(SESSION_NOT_FOUND_MESSAGE);
     }
   });
@@ -279,7 +277,7 @@ function registeredWireErrorMapsToTransportRpcError() {
     expect(err).toBeInstanceOf(TransportRpcError);
     expect(err._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
     if (err instanceof TransportRpcError) {
-      expect(err.code).toBe(TaskRejectedError.code);
+      expect(err.tag).toBe("TaskRejected");
       expect(err.message).toBe(TaskRejectedError.message);
       expect(err.data).toEqual({ taskId: "task-1" });
     }

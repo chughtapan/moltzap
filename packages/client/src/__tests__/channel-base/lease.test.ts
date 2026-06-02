@@ -10,7 +10,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Equal, Match, TestClock, TestContext } from "effect";
-import { RpcServerError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol";
 import {
   LeaseAlreadyConsumed,
   catchLeaseInvalid,
@@ -29,33 +29,30 @@ const LEASE_ID_FALLBACK = "(unknown)";
 // the wire payload's `data._tag`. The predicate accepts that shape too.
 const FORWARD_COMPAT_LEASE_TAG = "LeaseAlreadyConsumed";
 
-function leaseInvalidWire(): RpcServerError {
-  return new RpcServerError({
-    code: FORBIDDEN_ERROR_CODE,
+function leaseInvalidWire(): ForbiddenError {
+  return new ForbiddenError({
     message: LEASE_MESSAGE,
     data: { reason: "LeaseInvalid", state: "CONSUMED", expected: "OPEN" },
   });
 }
 
-function leaseTagInvalidWire(): RpcServerError {
-  return new RpcServerError({
-    code: FORWARD_COMPAT_TAG_CODE,
+function leaseTagInvalidWire(): ForbiddenError {
+  return new ForbiddenError({
     message: LEASE_MESSAGE,
     // eslint-disable-next-line agent-code-guard/manual-tagged-error -- simulating wire payload shape; this is the literal predicate input the projector must accept
     data: { _tag: FORWARD_COMPAT_LEASE_TAG, leaseId: SAMPLE_LEASE_ID },
   });
 }
 
-function genericWire(): RpcServerError {
-  return new RpcServerError({
-    code: INTERNAL_ERROR_CODE,
+function genericWire(): ForbiddenError {
+  return new ForbiddenError({
     message: NON_LEASE_ERROR_MESSAGE,
     data: { reason: "InternalError" },
   });
 }
 
 function projectedToTyped(
-  err: LeaseAlreadyConsumed | RpcServerError,
+  err: LeaseAlreadyConsumed | ForbiddenError,
 ): LeaseAlreadyConsumed {
   if (!(err instanceof LeaseAlreadyConsumed)) {
     throw new Error("expected typed LeaseAlreadyConsumed projection");
@@ -74,14 +71,14 @@ describe("LeaseAlreadyConsumed canonical shape", () => {
     structuralEqualityHolds,
   );
   it(
-    "preserves the original RpcServerError on cause for host inspection",
+    "preserves the original ForbiddenError on cause for host inspection",
     preservesCauseForHosts,
   );
 });
 
 describe("projectLeaseInvalid predicate", () => {
   it(
-    "property: every RpcServerError with data.reason='LeaseInvalid' projects",
+    "property: every ForbiddenError with data.reason='LeaseInvalid' projects",
     propertyReasonArmProjects,
   );
   it(
@@ -102,7 +99,7 @@ describe("catchLeaseInvalid Effect-pipe wrapper", () => {
         yield* TestClock.setTime(FIXED_TS);
         const wire = leaseInvalidWire();
         const result = yield* Effect.either(
-          Effect.fail<RpcServerError>(wire).pipe(
+          Effect.fail<ForbiddenError>(wire).pipe(
             catchLeaseInvalid({ leaseId: SAMPLE_LEASE_ID }),
           ),
         );
@@ -121,12 +118,12 @@ describe("catchLeaseInvalid Effect-pipe wrapper", () => {
         });
       }).pipe(Effect.provide(TestContext.TestContext)),
     ));
-  it("re-raises non-matching RpcServerError unchanged (pass-through)", () =>
+  it("re-raises non-matching ForbiddenError unchanged (pass-through)", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const wire = genericWire();
         const result = yield* Effect.either(
-          Effect.fail<RpcServerError>(wire).pipe(
+          Effect.fail<ForbiddenError>(wire).pipe(
             catchLeaseInvalid({ leaseId: SAMPLE_LEASE_ID }),
           ),
         );
@@ -174,7 +171,7 @@ function narrowsViaMatchTag(): void {
   });
   const branch = Match.value(projected).pipe(
     Match.tag("LeaseAlreadyConsumed", (e) => `typed:${e.leaseId}`),
-    Match.tag("RpcServerError", () => "rpc"),
+    Match.tag("Forbidden", () => "rpc"),
     Match.exhaustive,
   );
   expect(branch).toBe(`typed:${SAMPLE_LEASE_ID}`);
@@ -205,7 +202,7 @@ function preservesCauseForHosts(): void {
       consumedAt: FIXED_TS,
     }),
   );
-  expect(typed.cause.code).toBe(FORBIDDEN_ERROR_CODE);
+  expect(typed.cause._tag).toBe("Forbidden");
   expect(typed.cause.data).toEqual({
     reason: "LeaseInvalid",
     state: "CONSUMED",
