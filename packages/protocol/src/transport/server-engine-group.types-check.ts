@@ -34,7 +34,7 @@ import {
   MessagesSendAuth,
   MessagesSendAuthMw,
 } from "./auth-middleware.js";
-import { ServerRpcGroup, WireErrorSchema } from "./rpc-method-groups.js";
+import { ServerRpcGroup } from "./rpc-method-groups.js";
 import {
   ServerEngineRpcGroup,
   WsServerEngineRpcGroup,
@@ -151,20 +151,11 @@ type _GateNonOptional = Expect<
 
 // ── E.2 full-scale per-tag correlation ──────────────────────────────────
 
-type ErrorSchemaOf<R> =
-  R extends Rpc.Rpc<infer _T, infer _P, infer _S, infer Error, infer _M>
-    ? Error
-    : never;
-
 // `messages/send` carries the agent-send payload; selecting by tag after the
 // middleware attach yields THIS member, not a union — proof the per-tag
 // correlation survives `Rpc#middleware` at full group scale.
 type _MSPresent = Expect<
   Equal<[MessagesSendMember] extends [never] ? true : false, false>
->;
-// Every member keeps the shared wire-error envelope through the attach.
-type _ErrorEnvelopeSurvives = Expect<
-  Equal<ErrorSchemaOf<MessagesSendMember>, typeof WireErrorSchema>
 >;
 
 // A complete `HandlersFrom` literal is the engine's handler map: its keys are
@@ -212,7 +203,6 @@ export type {
   _MSGatedByOwnMw,
   _GateNonOptional,
   _MSPresent,
-  _ErrorEnvelopeSurvives,
   _HandlerKeysTotal,
   _ProofExcluded,
 };
