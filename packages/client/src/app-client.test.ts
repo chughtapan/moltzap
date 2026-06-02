@@ -7,14 +7,12 @@ import { Cause, Effect, Exit, Option } from "effect";
 import { MessagesAuthorize, TaskCreate } from "@moltzap/protocol";
 import { waitUntil } from "@moltzap/protocol/testing";
 import {
-  AgentsLookupByName,
-  TaskList,
+  TaskClose,
   DispatchAuthorize,
   Duration,
   Fiber,
   ForbiddenError,
   MessageReceivedNotificationDefinition,
-  MessagesSend,
   RpcTimeoutError,
   TestClock,
   closeClient,
@@ -36,7 +34,7 @@ import {
   sendRpcEffect,
   setRef,
   scopedEffectTest,
-  startAgentsLookupByNameServer,
+  startTaskCloseServer,
   startDispatchAuthorizeServer,
   startHandshakingServer,
   startReconnectServer,
@@ -70,7 +68,6 @@ import {
   SERVER_TEST_REQUEST_ID,
   STALE_PORT_TEST_TIMEOUT_MS,
   TEST_AGENT_ID,
-  TEST_CONVERSATION_ID,
   TEST_TASK_ID,
   type CloseInfo,
   type MutableRef,
@@ -178,11 +175,7 @@ effectTest("rejects pending sendRpc calls when disconnect() is called", () =>
       yield* connectClient(client);
 
       const rpcFiber = yield* Effect.fork(
-        sendRpcEffect(client, MessagesSend, {
-          taskId: TEST_TASK_ID,
-          conversationId: TEST_CONVERSATION_ID,
-          parts: [{ type: "text", text: "hi" }],
-        }),
+        sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }),
       );
       // Wait for the RPC frame to land on the server.
       yield* waitUntil(() => server.connections[0]!.received.length >= 2);
@@ -232,11 +225,7 @@ scopedEffectTest(
         const beforeCount = serverConn.received.length;
 
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, MessagesSend, {
-            taskId: TEST_TASK_ID,
-            conversationId: TEST_CONVERSATION_ID,
-            parts: [{ type: "text", text: "payload" }],
-          }),
+          sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }),
         );
 
         yield* waitUntil(() => serverConn.received.length > beforeCount);
@@ -257,7 +246,7 @@ scopedEffectTest(
             const err = failed.value;
             expect(err).toBeInstanceOf(RpcTimeoutError);
             if (err instanceof RpcTimeoutError) {
-              expect(err.method).toBe(MessagesSend.name);
+              expect(err.method).toBe(TaskClose.name);
               expect(err.timeoutMs).toBe(RPC_TIMEOUT_MS);
             }
           }
@@ -339,10 +328,12 @@ effectTest(
         const client = makeClient(server.url);
         yield* connectClient(client);
 
-        const result = (yield* sendRpcEffect(client, TaskList, {})) as {
-          tasks: unknown[];
+        const result = (yield* sendRpcEffect(client, TaskClose, {
+          taskId: TEST_TASK_ID,
+        })) as {
+          task: { id: string };
         };
-        expect(result.tasks).toEqual([]);
+        expect(result.task.id).toBe(TEST_TASK_ID);
         yield* closeClient(client);
       }),
     ),
@@ -363,7 +354,9 @@ effectTest(
         yield* connectClient(client);
 
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
+          sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }).pipe(
+            Effect.ignore,
+          ),
         );
         yield* realSleep(POST_TIMEOUT_SETTLE_MS);
 
@@ -391,7 +384,9 @@ effectTest("routes a well-formed notification frame to onNotification", () =>
       // rather than an RPC response, so the noop Deferred never resolves.
       // Awaiting it would wedge the test for the full RPC_TIMEOUT_MS.
       const rpcFiber = yield* Effect.fork(
-        sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
+        sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }).pipe(
+          Effect.ignore,
+        ),
       );
       yield* waitUntil(() => events.length > 0);
       expect(events[0]).toMatchObject({
@@ -419,7 +414,9 @@ effectTest("does NOT route a notification frame missing the method field", () =>
 
       // Fire-and-forget: see the well-formed-event test above for rationale.
       const rpcFiber = yield* Effect.fork(
-        sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
+        sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }).pipe(
+          Effect.ignore,
+        ),
       );
       yield* Effect.sleep(Duration.millis(POST_TIMEOUT_SETTLE_MS));
       expect(events).toHaveLength(0);
@@ -448,7 +445,9 @@ effectTest(
         // Fire-and-forget: server responds with 101 malformed frames, no
         // actual RPC response, so awaiting the noop would wedge the test.
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, TaskList, {}).pipe(Effect.ignore),
+          sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }).pipe(
+            Effect.ignore,
+          ),
         );
 
         // Wait for the malformed frames to flush through the reader fiber.
@@ -481,7 +480,7 @@ effectTest(
         yield* connectClient(client);
 
         const rpcFiber = yield* Effect.fork(
-          sendRpcEffect(client, TaskList, {}),
+          sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }),
         );
         yield* waitUntil(() => server.connections[0]!.received.length >= 2);
 
@@ -515,7 +514,7 @@ effectTest(
         yield* connectClient(client);
 
         yield* expectEffectFailure(
-          sendRpcEffect(client, TaskList, {}),
+          sendRpcEffect(client, TaskClose, { taskId: TEST_TASK_ID }),
           /WebSocket not connected/,
         );
         yield* closeClient(client);
@@ -531,16 +530,16 @@ effectTest("uses definition.name as the wire-level method string", () =>
   withTestServer(
     Effect.gen(function* () {
       const captured: MutableRef<RequestFrame | null> = { current: null };
-      const server = yield* startAgentsLookupByNameServer(captured);
+      const server = yield* startTaskCloseServer(captured);
       const client = makeClient(server.url);
       yield* connectClient(client);
 
-      const result = yield* sendRpcEffect(client, AgentsLookupByName, {
-        names: ["alice"],
-      });
-      expect(result.agents).toEqual([]);
-      expect(captured.current?.method).toBe(AgentsLookupByName.name);
-      expect(captured.current?.params).toEqual({ names: ["alice"] });
+      const result = (yield* sendRpcEffect(client, TaskClose, {
+        taskId: TEST_TASK_ID,
+      })) as { task: { id: string } };
+      expect(result.task.id).toBe(TEST_TASK_ID);
+      expect(captured.current?.method).toBe(TaskClose.name);
+      expect(captured.current?.params).toEqual({ taskId: TEST_TASK_ID });
 
       yield* closeClient(client);
     }),

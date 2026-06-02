@@ -200,12 +200,18 @@ function emitPlainAgentsListResponse(
     .pipe(Effect.orElseSucceed(() => undefined));
 }
 
+// A numeric id no pending call ever minted (the native engine's ids start near
+// zero). The JSON-RPC wire id is numeric — `RpcMessage.RequestId` parses it with
+// `BigInt(id)` — so a stray response still rides a well-formed id; the "spurious"
+// part is that nothing is pending for it, which the client must drop.
+const SPURIOUS_RESPONSE_ID = "999999999999" as JsonRpcId;
+
 function emitSpuriousAgentsListResponse(
   fx: ClientFixture,
 ): Effect.Effect<void> {
   return fx.connection
     .emitResponse(
-      responseFrame("spurious-id-that-was-never-requested", {
+      responseFrame(SPURIOUS_RESPONSE_ID, {
         result: { __spurious: true },
       }),
     )
