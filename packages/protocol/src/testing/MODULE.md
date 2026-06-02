@@ -42,6 +42,15 @@ export const waitUntil = (
 
 Poll `predicate` until it returns true.
 
+### [`WIRE_ERROR_TAG`](./wire-error-tags.ts#L9)
+
+_Variable_
+
+```ts
+export const WIRE_ERROR_TAG =
+```
+
 ## Files
 
 - `wait.ts`
+- `wire-error-tags.ts`

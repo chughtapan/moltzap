@@ -8,7 +8,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./client-callable-groups.ts#L118)
+### [`AgentCallableGroup`](./client-callable-groups.ts#L117)
 
 _Variable_
 
@@ -22,7 +22,7 @@ The outbound group a first-party AGENT client may originate: every
 `serverRpcMethods` member whose `callablePrincipal` is `"agent"` or `"any"`. A
 first-party `agentClient.taskClose(...)` (app-only) does not typecheck.
 
-### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L112)
+### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L91)
 
 _Variable_
 
@@ -32,7 +32,7 @@ export const AgentClientRpcGroup = groupFromCatalog(agentClientRpcMethods)
 
 Outbound group callable from `MoltZapAgentClient`.
 
-### [`AgentsListAuth`](./auth-middleware.ts#L159)
+### [`AgentsListAuth`](./auth-middleware.ts#L163)
 
 _Class_
 
@@ -44,18 +44,18 @@ export class AgentsListAuth extends Context.Tag(
 
 `agents/list` proof: agent principal, no caps.
 
-### [`AgentsListAuthMw`](./auth-middleware.ts#L162)
+### [`AgentsListAuthMw`](./auth-middleware.ts#L166)
 
 _Class_
 
 ```ts
 export class AgentsListAuthMw extends RpcMiddleware.Tag<AgentsListAuthMw>()(
   "@moltzap/protocol/auth/mw/agents-list",
-  { provides: AgentsListAuth, failure: WireErrorSchema },
+  { provides: AgentsListAuth, failure: AgentsList.errorSchema },
 ) {}
 ```
 
-### [`AgentsLookupAuth`](./auth-middleware.ts#L141)
+### [`AgentsLookupAuth`](./auth-middleware.ts#L145)
 
 _Class_
 
@@ -67,18 +67,18 @@ export class AgentsLookupAuth extends Context.Tag(
 
 `agents/lookup` proof: agent principal, no caps.
 
-### [`AgentsLookupAuthMw`](./auth-middleware.ts#L144)
+### [`AgentsLookupAuthMw`](./auth-middleware.ts#L148)
 
 _Class_
 
 ```ts
 export class AgentsLookupAuthMw extends RpcMiddleware.Tag<AgentsLookupAuthMw>()(
   "@moltzap/protocol/auth/mw/agents-lookup",
-  { provides: AgentsLookupAuth, failure: WireErrorSchema },
+  { provides: AgentsLookupAuth, failure: AgentsLookup.errorSchema },
 ) {}
 ```
 
-### [`AgentsLookupByNameAuth`](./auth-middleware.ts#L150)
+### [`AgentsLookupByNameAuth`](./auth-middleware.ts#L154)
 
 _Class_
 
@@ -90,41 +90,35 @@ export class AgentsLookupByNameAuth extends Context.Tag(
 
 `agents/lookupByName` proof: agent principal, no caps.
 
-### [`AgentsLookupByNameAuthMw`](./auth-middleware.ts#L153)
+### [`AgentsLookupByNameAuthMw`](./auth-middleware.ts#L157)
 
 _Class_
 
 ```ts
 export class AgentsLookupByNameAuthMw extends RpcMiddleware.Tag<AgentsLookupByNameAuthMw>()(
   "@moltzap/protocol/auth/mw/agents-lookup-by-name",
-  { provides: AgentsLookupByNameAuth, failure: WireErrorSchema },
+  { provides: AgentsLookupByNameAuth, failure: AgentsLookupByName.errorSchema },
 ) {}
 ```
 
-### [`AlreadyConnected`](./wire-errors.ts#L161)
+### [`AlreadyConnected`](./wire-errors.ts#L76)
 
 _Class_
 
 ```ts
-export class AlreadyConnected extends Data.TaggedError("AlreadyConnected")<
-  RpcErrorPayload & {
-    readonly principal: "agent" | "app";
-  }
-> {
-  static readonly code = -32010;
+export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
+  "AlreadyConnected",
+  { ...errorPayloadFields, principal: Schema.Literal("agent", "app") },
+) {
   static readonly message =
     "Principal already has an active connection. Disconnect the prior session first.";
 }
 ```
 
-A principal (agent or app) already holds an active connection. Fires at
-the Connect handler's per-connection preflight/atomic gate (a socket
-already authenticated as either arm) and at the per-principal gate
-(`AgentEndpointResolver.add` / `AppRegistry.register` rejecting a second
-binding). The `principal` discriminator names which arm the conflict is
-on; the wire code is shared.
+A principal (agent or app) already holds an active connection. The
+`principal` discriminator names which arm the conflict is on.
 
-### [`AppCallableGroup`](./client-callable-groups.ts#L128)
+### [`AppCallableGroup`](./client-callable-groups.ts#L127)
 
 _Variable_
 
@@ -139,7 +133,7 @@ The outbound group a first-party APP client may originate: every
 first-party `appClient.taskRequest(...)` (agent-only) does not typecheck — the
 compile-time Principle-1 win.
 
-### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L115)
+### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L94)
 
 _Variable_
 
@@ -181,7 +175,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the app's typed
 verdict drives the lifecycle transition.
 
-### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L109)
+### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L88)
 
 _Variable_
 
@@ -191,7 +185,7 @@ export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods)
 
 Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`.
 
-### [`AppsRegisterAuth`](./auth-middleware.ts#L314)
+### [`AppsRegisterAuth`](./auth-middleware.ts#L336)
 
 _Class_
 
@@ -203,14 +197,14 @@ export class AppsRegisterAuth extends Context.Tag(
 
 `apps/register` proof: app principal, no caps.
 
-### [`AppsRegisterAuthMw`](./auth-middleware.ts#L317)
+### [`AppsRegisterAuthMw`](./auth-middleware.ts#L339)
 
 _Class_
 
 ```ts
 export class AppsRegisterAuthMw extends RpcMiddleware.Tag<AppsRegisterAuthMw>()(
   "@moltzap/protocol/auth/mw/apps-register",
-  { provides: AppsRegisterAuth, failure: WireErrorSchema },
+  { provides: AppsRegisterAuth, failure: AppsRegister.errorSchema },
 ) {}
 ```
 
@@ -246,7 +240,7 @@ method-narrowed principal plus the cap proofs derived from its `caps` tuple.
 The handler reads `principal` (narrowed, no kind re-check) and each cap value
 by the cap tag's identifier.
 
-### [`authMiddlewareByMethod`](./auth-middleware.ts#L344)
+### [`authMiddlewareByMethod`](./auth-middleware.ts#L366)
 
 _Variable_
 
@@ -266,7 +260,7 @@ authenticated method that forgets its `*AuthMw` entry is not in this map, so
 the partition canary (`server-engine-group.types-check.ts`) leaves it ungated
 and fails the build.
 
-### [`AuthMiddlewareByMethod`](./auth-middleware.ts#L375)
+### [`AuthMiddlewareByMethod`](./auth-middleware.ts#L397)
 
 _TypeAlias_
 
@@ -276,7 +270,7 @@ export type AuthMiddlewareByMethod = typeof authMiddlewareByMethod;
 
 The type-level `name → *AuthMw` map the engine's per-tag conditional indexes.
 
-### [`AuthProof`](./auth-middleware.ts#L79)
+### [`AuthProof`](./auth-middleware.ts#L80)
 
 _TypeAlias_
 
@@ -290,7 +284,7 @@ the cap proofs, both projected from the descriptor's own
 `callablePrincipal` is `"agent"` carries an agent-narrowed `principal`; adding
 a cap to its `caps` adds that cap's proof field.
 
-### [`CallablePrincipal`](./method.ts#L23)
+### [`CallablePrincipal`](./method.ts#L25)
 
 _TypeAlias_
 
@@ -298,14 +292,14 @@ _TypeAlias_
 export type CallablePrincipal = "agent" | "app" | "any";
 
 /**
- * A capability tag a method requires: the `Context.Tag` the per-method
- * `AuthMiddleware` provides as a field of the method's `AuthContext` proof. The
- * cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
- * caps the method requires and in what order. `Context.Tag<any, any>` is the
- * variance-agnostic carrier (a concrete class tag is not assignable to
- * `Context.Tag<unknown, unknown>`).
+ * A wire-discriminable tagged-error CLASS: a `Schema.TaggedError`-derived class
+ * usable both as the runtime constructor and as a `Schema` for the wire `error`
+ * union. The `_tag` literal is the union discriminant the engine decodes against;
+ * a method's `error` Schema is `Schema.Union(...effective error classes)`, so the
+ * per-method decode picks the right class by `_tag` with no code lookup.
  */
-export type RpcCapTag = Context.Tag<any, any>;
+export type RpcErrorClass = Schema.Schema.AnyNoContext &
+  (new (...args: never[]) => { readonly _tag: string });
 ```
 
 The calling-principal axis of one RPC: which principal arm may originate it.
@@ -340,6 +334,36 @@ and found a NON-agent arm. Every live descriptor cap is agent-originated
 guarantees an agent caller; an app arm here is a wiring defect, not a
 caller-actionable error. Effect.die (not a caller-visible error)
 because the principal-kind gate already rejected non-agent callers.
+
+### [`CallErrorsOf`](./method.ts#L233)
+
+_TypeAlias_
+
+```ts
+export type CallErrorsOf<
+  D extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
+> =
+```
+
+The full typed error channel of a per-method call: the method's handler-domain
+errors, its caps' declared errors, its principal-gate errors, plus the
+always-possible transport errors. This is exactly what the typed client
+surfaces on `client["method/name"](payload)`'s Effect — the same union the
+wire `errorSchema` decodes, plus transport.
+
+### [`CapErrorsOf`](./method.ts#L202)
+
+_TypeAlias_
+
+```ts
+export type CapErrorsOf<Caps extends ReadonlyArray<RpcCapTag>> =
+```
+
+The union of every declared cap's error instances for a `caps` tuple.
 
 ### [`CapProofs`](./auth-context.ts#L58)
 
@@ -409,35 +433,22 @@ export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
 )
 ```
 
-### [`code`](./wire-errors.ts#L179)
-
-_Property_
-
-```ts
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-};
-
-const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
-```
-
-### [`ConflictError`](./wire-errors.ts#L123)
+### [`ConflictError`](./wire-errors.ts#L57)
 
 _Class_
 
 ```ts
-export class ConflictError extends Data.TaggedError(
+export class ConflictError extends Schema.TaggedError<ConflictError>()(
   "Conflict",
-)<RpcErrorPayload> {
-  static readonly code = -32003;
+  errorPayloadFields,
+) {
   static readonly message = "Conflict";
 }
 ```
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
 
-### [`ContactsAcceptAuth`](./auth-middleware.ts#L186)
+### [`ContactsAcceptAuth`](./auth-middleware.ts#L190)
 
 _Class_
 
@@ -449,18 +460,18 @@ export class ContactsAcceptAuth extends Context.Tag(
 
 `contacts/accept` proof: agent principal, no caps.
 
-### [`ContactsAcceptAuthMw`](./auth-middleware.ts#L189)
+### [`ContactsAcceptAuthMw`](./auth-middleware.ts#L193)
 
 _Class_
 
 ```ts
 export class ContactsAcceptAuthMw extends RpcMiddleware.Tag<ContactsAcceptAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-accept",
-  { provides: ContactsAcceptAuth, failure: WireErrorSchema },
+  { provides: ContactsAcceptAuth, failure: ContactsAccept.errorSchema },
 ) {}
 ```
 
-### [`ContactsAddAuth`](./auth-middleware.ts#L177)
+### [`ContactsAddAuth`](./auth-middleware.ts#L181)
 
 _Class_
 
@@ -472,18 +483,18 @@ export class ContactsAddAuth extends Context.Tag(
 
 `contacts/add` proof: agent principal, no caps.
 
-### [`ContactsAddAuthMw`](./auth-middleware.ts#L180)
+### [`ContactsAddAuthMw`](./auth-middleware.ts#L184)
 
 _Class_
 
 ```ts
 export class ContactsAddAuthMw extends RpcMiddleware.Tag<ContactsAddAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-add",
-  { provides: ContactsAddAuth, failure: WireErrorSchema },
+  { provides: ContactsAddAuth, failure: ContactsAdd.errorSchema },
 ) {}
 ```
 
-### [`ContactsByIdAuth`](./auth-middleware.ts#L195)
+### [`ContactsByIdAuth`](./auth-middleware.ts#L199)
 
 _Class_
 
@@ -495,18 +506,18 @@ export class ContactsByIdAuth extends Context.Tag(
 
 `contacts/byId` proof: agent principal, no caps.
 
-### [`ContactsByIdAuthMw`](./auth-middleware.ts#L198)
+### [`ContactsByIdAuthMw`](./auth-middleware.ts#L202)
 
 _Class_
 
 ```ts
 export class ContactsByIdAuthMw extends RpcMiddleware.Tag<ContactsByIdAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-by-id",
-  { provides: ContactsByIdAuth, failure: WireErrorSchema },
+  { provides: ContactsByIdAuth, failure: ContactsById.errorSchema },
 ) {}
 ```
 
-### [`ContactsListAuth`](./auth-middleware.ts#L168)
+### [`ContactsListAuth`](./auth-middleware.ts#L172)
 
 _Class_
 
@@ -518,14 +529,14 @@ export class ContactsListAuth extends Context.Tag(
 
 `contacts/list` proof: agent principal, no caps.
 
-### [`ContactsListAuthMw`](./auth-middleware.ts#L171)
+### [`ContactsListAuthMw`](./auth-middleware.ts#L175)
 
 _Class_
 
 ```ts
 export class ContactsListAuthMw extends RpcMiddleware.Tag<ContactsListAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-list",
-  { provides: ContactsListAuth, failure: WireErrorSchema },
+  { provides: ContactsListAuth, failure: ContactsList.errorSchema },
 ) {}
 ```
 
@@ -547,18 +558,7 @@ Provided ONLY on authenticated/capability-bearing methods — capabilities
 never run on the unauth Connect frame — so the unauth arm is never a
 concern here.
 
-### [`data`](./wire-errors.ts#L181)
-
-_Property_
-
-```ts
-  readonly data?: unknown;
-};
-
-const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
-```
-
-### [`DecodedFrame`](./wire.ts#L133)
+### [`DecodedFrame`](./wire.ts#L137)
 
 _TypeAlias_
 
@@ -606,7 +606,7 @@ _TypeAlias_
 export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
 ```
 
-### [`decodeFrame`](./wire.ts#L167)
+### [`decodeFrame`](./wire.ts#L171)
 
 _Function_
 
@@ -671,7 +671,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L279)
+### [`decodeRpcResult`](./method.ts#L479)
 
 _Function_
 
@@ -686,7 +686,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L249)
+### [`defineNotification`](./method.ts#L449)
 
 _Function_
 
@@ -701,7 +701,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L157)
+### [`defineRpc`](./method.ts#L340)
 
 _Function_
 
@@ -712,6 +712,7 @@ export function defineRpc<
   R extends Schema.Schema.AnyNoContext,
   const K extends CallablePrincipal = "any",
   const Caps extends ReadonlyArray<RpcCapTag> = readonly [],
+  const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
 >(def: {
   name: Name;
   params: P;
@@ -719,7 +720,16 @@ export function defineRpc<
   callablePrincipal?: K;
   requiresActive?: boolean;
   caps?: Caps;
-}): RpcDefinition<Name, P, R, K, Caps>
+
+  /**
+   * REQUIRED. The handler-domain tagged-error classes this method can fail
+   * with — only what the handler itself raises. The principal-gate errors
+   * (`Unauthorized`/`Forbidden` for authenticated methods) and each cap's own
+   * `errors` are added automatically. A method with no handler-domain error
+   * declares `[]`.
+   */
+  errors: Errs;
+}): RpcDefinition<Name, P, R, K, Caps, Errs>
 ```
 
 Create one wire method's frozen descriptor: name, Effect `Schema` shapes,
@@ -754,7 +764,25 @@ string can never accidentally type-fit a method position. See
 Sibling: defineNotification — same pipeline minus the
 result schema and response encoder.
 
-### [`DispatchesGetAuth`](./auth-middleware.ts#L323)
+### [`dispatchCall`](./typed-dispatch.ts#L61)
+
+_Function_
+
+```ts
+export function dispatchCall<Rpcs extends Rpc.Any, E, K extends Rpcs["_tag"]>(
+  map: TypedDispatchMap<Rpcs, E>,
+  tag: K,
+  payload: PayloadForTag<Rpcs, K>,
+): Effect.Effect<SuccessForTag<Rpcs, K>, ErrorForTag<Rpcs, K> | E>
+```
+
+Dispatch one call through the typed map at tag `K` — cast-free. `map[tag]` is
+the method's typed call; applying it to `payload` yields the per-tag result +
+error. Leaf call sites pass a literal tag and recover the precise types; a
+caller generic over `K` keeps the correlation because the map is keyed on the
+literal tag, not on a widened def union.
+
+### [`DispatchesGetAuth`](./auth-middleware.ts#L345)
 
 _Class_
 
@@ -766,18 +794,18 @@ export class DispatchesGetAuth extends Context.Tag(
 
 `dispatches/get` proof: app principal, no caps.
 
-### [`DispatchesGetAuthMw`](./auth-middleware.ts#L326)
+### [`DispatchesGetAuthMw`](./auth-middleware.ts#L348)
 
 _Class_
 
 ```ts
 export class DispatchesGetAuthMw extends RpcMiddleware.Tag<DispatchesGetAuthMw>()(
   "@moltzap/protocol/auth/mw/dispatches-get",
-  { provides: DispatchesGetAuth, failure: WireErrorSchema },
+  { provides: DispatchesGetAuth, failure: DispatchesGet.errorSchema },
 ) {}
 ```
 
-### [`DispatchRequestAuth`](./auth-middleware.ts#L204)
+### [`DispatchRequestAuth`](./auth-middleware.ts#L208)
 
 _Class_
 
@@ -789,18 +817,52 @@ export class DispatchRequestAuth extends Context.Tag(
 
 `dispatch/request` proof: agent principal, no caps.
 
-### [`DispatchRequestAuthMw`](./auth-middleware.ts#L207)
+### [`DispatchRequestAuthMw`](./auth-middleware.ts#L211)
 
 _Class_
 
 ```ts
 export class DispatchRequestAuthMw extends RpcMiddleware.Tag<DispatchRequestAuthMw>()(
   "@moltzap/protocol/auth/mw/dispatch-request",
-  { provides: DispatchRequestAuth, failure: WireErrorSchema },
+  { provides: DispatchRequestAuth, failure: DispatchRequest.errorSchema },
 ) {}
 ```
 
-### [`encodeErrorResponse`](./wire.ts#L259)
+### [`DomainErrorsOf`](./method.ts#L208)
+
+_TypeAlias_
+
+```ts
+export type DomainErrorsOf<
+  D extends RpcDefinition<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
+> =
+```
+
+The handler-domain error instance union a descriptor declares.
+
+### [`effectiveErrorClasses`](./method.ts#L262)
+
+_Function_
+
+```ts
+export function effectiveErrorClasses(
+  callablePrincipal: CallablePrincipal,
+  caps: ReadonlyArray<RpcCapTag>,
+  handlerErrors: ReadonlyArray<RpcErrorClass>,
+): ReadonlyArray<RpcErrorClass>
+```
+
+The effective wire-error class list for a method: principal-gate errors (none
+for the unauthenticated `"any"` method), each cap's declared errors in cap
+order, then the handler-domain errors, deduped by identity (a class shared
+across a cap and the handler list appears once). This is the single source the
+wire `errorSchema`, the server gate, and the typed client all read.
+
+### [`encodeErrorResponse`](./wire.ts#L268)
 
 _Function_
 
@@ -815,15 +877,18 @@ Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
 
-### [`errorClassFor`](./wire-errors.ts#L73)
+### [`ErrorForTag`](./typed-dispatch.ts#L37)
 
-_Function_
+_TypeAlias_
 
 ```ts
-export function errorClassFor(code: number): RpcErrorClass | undefined
+export type ErrorForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.Error<RpcForTag<Rpcs, K>>;
 ```
 
-Returns the registered class for a wire code, or `undefined`.
+The method's own tagged-error union for one tag (from its `errorSchema`).
 
 ### [`findEngineGatingMismatch`](./server-engine-group.ts#L294)
 
@@ -833,22 +898,22 @@ _Function_
 export const findEngineGatingMismatch = (): string | undefined
 ```
 
-### [`ForbiddenError`](./wire-errors.ts#L105)
+### [`ForbiddenError`](./wire-errors.ts#L41)
 
 _Class_
 
 ```ts
-export class ForbiddenError extends Data.TaggedError(
+export class ForbiddenError extends Schema.TaggedError<ForbiddenError>()(
   "Forbidden",
-)<RpcErrorPayload> {
-  static readonly code = -32001;
+  errorPayloadFields,
+) {
   static readonly message = "Forbidden";
 }
 ```
 
 Authenticated but not authorized for this resource.
 
-### [`FrameDecodeError`](./wire.ts#L138)
+### [`FrameDecodeError`](./wire.ts#L142)
 
 _Class_
 
@@ -887,7 +952,7 @@ on which `Context.Tag`s the handler's R channel may reference; the
 app-callback catalog declares no capabilities, so callers bind `Caps =
 never`. The app client's reverse `RpcServer` serves each slot's `handle`.
 
-### [`HttpOnlyMethod`](./server-engine-group.ts#L72)
+### [`HttpOnlyMethod`](./server-engine-group.ts#L71)
 
 _TypeAlias_
 
@@ -897,23 +962,20 @@ export type HttpOnlyMethod = (typeof HTTP_ONLY_METHODS)[number];
 
 A plain (unbranded) member of HTTP_ONLY_METHODS.
 
-### [`InvalidParamsError`](./wire-errors.ts#L137)
+### [`InvalidParamsError`](./wire-errors.ts#L65)
 
 _Class_
 
 ```ts
-export class InvalidParamsError extends Data.TaggedError("InvalidParamsError")<{
-  readonly message: string;
-}> {
-  static readonly code = JSON_RPC_RESERVED_CODES.InvalidParams;
+export class InvalidParamsError extends Schema.TaggedError<InvalidParamsError>()(
+  "InvalidParamsError",
+  errorPayloadFields,
+) {
   static readonly message = "Invalid params";
 }
 ```
 
-Boundary validation error — JSON-RPC reserved code -32602. Raised by
-protocol- and server-layer handlers when params fail schema validation;
-registered with the wire-error registry so handler-raised instances map
-to a `-32602 InvalidParams` wire response via `wireErrorFromInstance`.
+Boundary validation error — params failed schema validation.
 
 ### [`isDecodedNotification`](./rpc-groups.ts#L153)
 
@@ -926,17 +988,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`isRegisteredErrorInstance`](./wire-errors.ts#L78)
-
-_Function_
-
-```ts
-export function isRegisteredErrorInstance(value: object): boolean
-```
-
-Returns true iff `value`'s constructor is in the registered class set.
-
-### [`isUnauthenticatedMethod`](./server-engine-group.ts#L81)
+### [`isUnauthenticatedMethod`](./server-engine-group.ts#L80)
 
 _Function_
 
@@ -949,16 +1001,6 @@ membership check both the engine-group construction (which omits the gate
 for these) and the server's `principalKinds` projection (which omits them
 from the policy table) share, so the two agree on the partition by
 construction.
-
-### [`JSON_RPC_RESERVED_CODES`](./wire-errors.ts#L6)
-
-_Variable_
-
-```ts
-export const JSON_RPC_RESERVED_CODES =
-```
-
-JSON-RPC 2.0 reserved codes. Emitted by TypedDispatcher; never raised by handlers.
 
 ### [`JSON_RPC_VERSION`](./wire.ts#L11)
 
@@ -1084,34 +1126,25 @@ enveloped chunk; the live connection passes `Socket.Socket["writer"]`).
 `disconnects` is the Mailbox the live connection offers a client id to on
 socket close, so the engine runs per-client teardown.
 
-### [`MalformedFrameError`](./wire-errors.ts#L146)
+### [`MalformedFrameError`](./wire-errors.ts#L89)
 
 _Class_
 
 ```ts
-export class MalformedFrameError extends Data.TaggedError(
+export class MalformedFrameError extends Schema.TaggedError<MalformedFrameError>()(
   "MalformedFrameError",
-)<{
-  readonly raw: string;
-  readonly cause?: unknown;
-}> {}
+  {
+    raw: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
 ```
 
 Inbound frame failed to parse as JSON or did not match the expected shape.
+Transport-internal — not a wire `error` union member (never crosses the wire
+as a method failure).
 
-### [`message`](./wire-errors.ts#L180)
-
-_Property_
-
-```ts
-  readonly message: string;
-  readonly data?: unknown;
-};
-
-const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
-```
-
-### [`MessagesListAuth`](./auth-middleware.ts#L96)
+### [`MessagesListAuth`](./auth-middleware.ts#L97)
 
 _Class_
 
@@ -1123,18 +1156,18 @@ export class MessagesListAuth extends Context.Tag(
 
 `messages/list` proof: agent principal + `TaskReadAccess` + `ConversationInTask`.
 
-### [`MessagesListAuthMw`](./auth-middleware.ts#L99)
+### [`MessagesListAuthMw`](./auth-middleware.ts#L100)
 
 _Class_
 
 ```ts
 export class MessagesListAuthMw extends RpcMiddleware.Tag<MessagesListAuthMw>()(
   "@moltzap/protocol/auth/mw/messages-list",
-  { provides: MessagesListAuth, failure: WireErrorSchema },
+  { provides: MessagesListAuth, failure: MessagesList.errorSchema },
 ) {}
 ```
 
-### [`MessagesSendAuth`](./auth-middleware.ts#L87)
+### [`MessagesSendAuth`](./auth-middleware.ts#L88)
 
 _Class_
 
@@ -1146,14 +1179,14 @@ export class MessagesSendAuth extends Context.Tag(
 
 `messages/send` proof: agent principal + `ConversationInTask` + `MessageSendPermission`.
 
-### [`MessagesSendAuthMw`](./auth-middleware.ts#L90)
+### [`MessagesSendAuthMw`](./auth-middleware.ts#L91)
 
 _Class_
 
 ```ts
 export class MessagesSendAuthMw extends RpcMiddleware.Tag<MessagesSendAuthMw>()(
   "@moltzap/protocol/auth/mw/messages-send",
-  { provides: MessagesSendAuth, failure: WireErrorSchema },
+  { provides: MessagesSendAuth, failure: MessagesSend.errorSchema },
 ) {}
 ```
 
@@ -1208,7 +1241,7 @@ The envelope's decoded form. `ch` is narrowed to MuxChannel;
 `f` is the per-endpoint encoded wire string awaiting that endpoint's
 Parser.
 
-### [`NetworkPingAuth`](./auth-middleware.ts#L213)
+### [`NetworkPingAuth`](./auth-middleware.ts#L217)
 
 _Class_
 
@@ -1220,18 +1253,18 @@ export class NetworkPingAuth extends Context.Tag(
 
 `network/ping` proof: agent principal, no caps.
 
-### [`NetworkPingAuthMw`](./auth-middleware.ts#L216)
+### [`NetworkPingAuthMw`](./auth-middleware.ts#L220)
 
 _Class_
 
 ```ts
 export class NetworkPingAuthMw extends RpcMiddleware.Tag<NetworkPingAuthMw>()(
   "@moltzap/protocol/auth/mw/network-ping",
-  { provides: NetworkPingAuth, failure: WireErrorSchema },
+  { provides: NetworkPingAuth, failure: NetworkPing.errorSchema },
 ) {}
 ```
 
-### [`NotConnectedError`](./rpc-errors.ts#L19)
+### [`NotConnectedError`](./rpc-errors.ts#L15)
 
 _Class_
 
@@ -1243,20 +1276,20 @@ export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
 
 The socket is not in the OPEN state when an RPC was attempted.
 
-### [`NotFoundError`](./wire-errors.ts#L114)
+### [`NotFoundError`](./wire-errors.ts#L49)
 
 _Class_
 
 ```ts
-export class NotFoundError extends Data.TaggedError(
+export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
   "NotFound",
-)<RpcErrorPayload> {
-  static readonly code = -32002;
+  errorPayloadFields,
+) {
   static readonly message = "Not found";
 }
 ```
 
-Resource not found (cross-cutting variant; domain-specific NotFound errors live with their domain).
+Resource not found (cross-cutting; domain-specific NotFound errors live with their domain).
 
 ### [`NotificationDecodeError`](./rpc-groups.ts#L94)
 
@@ -1293,7 +1326,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L226)
+### [`NotificationDefinition`](./method.ts#L426)
 
 _Interface_
 
@@ -1330,7 +1363,7 @@ Descriptor role at the transport layer: encode + decode + schema
 validation. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`notificationFrame`](./wire.ts#L267)
+### [`notificationFrame`](./wire.ts#L276)
 
 _Function_
 
@@ -1344,7 +1377,7 @@ export function notificationFrame<
 ): NotificationFrame &
 ```
 
-### [`NotificationFrame`](./wire.ts#L90)
+### [`NotificationFrame`](./wire.ts#L94)
 
 _TypeAlias_
 
@@ -1354,7 +1387,7 @@ export type NotificationFrame = Schema.Schema.Type<
 >;
 ```
 
-### [`notificationFrameSchema`](./wire.ts#L102)
+### [`notificationFrameSchema`](./wire.ts#L106)
 
 _Function_
 
@@ -1362,7 +1395,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L237)
+### [`NotificationParamsOf`](./method.ts#L437)
 
 _TypeAlias_
 
@@ -1374,7 +1407,7 @@ export type NotificationParamsOf<
 
 Type-only accessor for a notification's params payload.
 
-### [`NotificationRpcGroup`](./rpc-method-groups.ts#L183)
+### [`NotificationRpcGroup`](./rpc-method-groups.ts#L157)
 
 _Variable_
 
@@ -1390,7 +1423,7 @@ channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
 machinery as AppCallbackRpcGroup.
 
-### [`ParamsOf`](./method.ts#L101)
+### [`ParamsOf`](./method.ts#L151)
 
 _TypeAlias_
 
@@ -1406,7 +1439,20 @@ export type ParamsOf<
 
 Type-only accessor for a definition's params payload.
 
-### [`PresenceSubscribeAuth`](./auth-middleware.ts#L222)
+### [`PayloadForTag`](./typed-dispatch.ts#L25)
+
+_TypeAlias_
+
+```ts
+export type PayloadForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.PayloadConstructor<RpcForTag<Rpcs, K>>;
+```
+
+The payload type one tag accepts.
+
+### [`PresenceSubscribeAuth`](./auth-middleware.ts#L226)
 
 _Class_
 
@@ -1418,14 +1464,14 @@ export class PresenceSubscribeAuth extends Context.Tag(
 
 `presence/subscribe` proof: agent principal, no caps.
 
-### [`PresenceSubscribeAuthMw`](./auth-middleware.ts#L225)
+### [`PresenceSubscribeAuthMw`](./auth-middleware.ts#L229)
 
 _Class_
 
 ```ts
 export class PresenceSubscribeAuthMw extends RpcMiddleware.Tag<PresenceSubscribeAuthMw>()(
   "@moltzap/protocol/auth/mw/presence-subscribe",
-  { provides: PresenceSubscribeAuth, failure: WireErrorSchema },
+  { provides: PresenceSubscribeAuth, failure: PresenceSubscribe.errorSchema },
 ) {}
 ```
 
@@ -1451,6 +1497,20 @@ extra fields are fine for a read-only consumer), so the server provides
 the live narrowed arm directly. The `appId` of the app arm is sourced
 from the live `AppConnection.auth` minted at auth time, NOT hardcoded.
 
+### [`PrincipalErrorClassesOf`](./method.ts#L190)
+
+_TypeAlias_
+
+```ts
+export type PrincipalErrorClassesOf<K extends CallablePrincipal> =
+```
+
+The principal-gate tagged-error classes a method's `callablePrincipal` admits.
+Every authenticated method's principal middleware can fail
+`Unauthorized`/`Forbidden`; the lone `"any"` method (`network/connect`) has no
+principal gate, so it admits none. Sourced as a value at
+principalErrorClasses; this is its type-level mirror.
+
 ### [`PrincipalForKind`](./auth-context.ts#L33)
 
 _TypeAlias_
@@ -1468,38 +1528,20 @@ gate narrows the live connection to exactly this arm, so the handler reads
 (`network/connect`) carries no proof — it reads the live arm via
 `ConnectionTag` — so it never instantiates an `AuthContext`.
 
-### [`registerErrorClass`](./wire-errors.ts#L61)
+### [`principalGateErrorClasses`](./wire-errors.ts#L98)
 
-_Function_
+_Variable_
 
 ```ts
-export function registerErrorClass(cls: RpcErrorClass): void
+export const principalGateErrorClasses = [
+  UnauthorizedError,
+  ForbiddenError,
+] as const
 ```
 
-Register a tagged-error class so the originator can resurrect it
-from a wire `error` payload by code. Each registered class carries
-`static readonly code: number` and `static readonly message:
-string`; both are read at registration time. Throws
-`DuplicateErrorCodeError` at module-load if two classes claim the
-same code.
+The principal-gate error classes every authenticated method's gate can fail with.
 
-```mermaid
-flowchart LR
-  A["domain module load:<br>class FooError extends Data.TaggedError(...)<br>static code = -32019<br>registerErrorClass(FooError)"]
-  A --> B["codeToClass.set(-32019, FooError)"]
-  B --> C["client side: errorClassFor(code)<br>→ FooError instance | undefined"]
-  C --> D["caller: Effect.catchTag('Foo', ...)"]
-  B --> E["server side: wireErrorFromInstance<br>→ wire 'error' sub-object"]
-```
-
-`JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec
-codes (-32700, -32600, -32601, -32602, -32603). Every other code
-lives in the runtime registry, not in a central table. The
-`RegisteredTaggedError` union in `rpc-registry.ts` mirrors the
-registered classes and must be hand-kept in sync — the TS type
-system cannot enumerate the static-side registry into a union.
-
-### [`requestFrame`](./wire.ts#L203)
+### [`requestFrame`](./wire.ts#L207)
 
 _Function_
 
@@ -1515,7 +1557,7 @@ export function requestFrame<
 ): RequestFrame &
 ```
 
-### [`RequestFrame`](./wire.ts#L88)
+### [`RequestFrame`](./wire.ts#L92)
 
 _TypeAlias_
 
@@ -1523,7 +1565,7 @@ _TypeAlias_
 export type RequestFrame = Schema.Schema.Type<typeof RequestFrameSchema>;
 ```
 
-### [`requestFrameSchema`](./wire.ts#L94)
+### [`requestFrameSchema`](./wire.ts#L98)
 
 _Function_
 
@@ -1531,7 +1573,30 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`responseFrame`](./wire.ts#L235)
+### [`ResponseErrorsOf`](./method.ts#L181)
+
+_TypeAlias_
+
+```ts
+export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
+
+/**
+ * The principal-gate tagged-error classes a method's `callablePrincipal` admits.
+ * Every authenticated method's principal middleware can fail
+ * `Unauthorized`/`Forbidden`; the lone `"any"` method (`network/connect`) has no
+ * principal gate, so it admits none. Sourced as a value at
+ * {@link principalErrorClasses}; this is its type-level mirror.
+ */
+export type PrincipalErrorClassesOf<K extends CallablePrincipal> =
+```
+
+The transport-level errors any descriptor-driven call can surface regardless
+of the method: the socket was not connected, or the response frame never
+arrived. They originate at the client transport, not the handler, so they are
+NOT in a descriptor's effective error union; the typed client adds them to
+every per-method call's error channel.
+
+### [`responseFrame`](./wire.ts#L244)
 
 _Function_
 
@@ -1542,7 +1607,7 @@ export function responseFrame(
 ): ResponseFrame
 ```
 
-### [`ResponseFrame`](./wire.ts#L89)
+### [`ResponseFrame`](./wire.ts#L93)
 
 _TypeAlias_
 
@@ -1550,7 +1615,7 @@ _TypeAlias_
 export type ResponseFrame = Schema.Schema.Type<typeof ResponseFrameSchema>;
 ```
 
-### [`ResponseFrameBody`](./wire.ts#L231)
+### [`ResponseFrameBody`](./wire.ts#L240)
 
 _TypeAlias_
 
@@ -1559,7 +1624,7 @@ export type ResponseFrameBody =
   | { result: unknown }
 ```
 
-### [`responseFrameSchema`](./wire.ts#L98)
+### [`responseFrameSchema`](./wire.ts#L102)
 
 _Function_
 
@@ -1567,7 +1632,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L113)
+### [`ResultOf`](./method.ts#L163)
 
 _TypeAlias_
 
@@ -1583,7 +1648,7 @@ export type ResultOf<
 
 Type-only accessor for a definition's result payload.
 
-### [`ReverseRpcGroup`](./rpc-method-groups.ts#L197)
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L171)
 
 _Variable_
 
@@ -1618,55 +1683,7 @@ a single malformed frame must not tear down every endpoint on the
 shared connection. Each endpoint's Parser may yield zero or more
 decoded frames per wire string; every frame is injected in order.
 
-### [`RpcCallError`](./rpc-errors.ts#L43)
-
-_TypeAlias_
-
-```ts
-export type RpcCallError =
-  | NotConnectedError
-  | RpcServerError
-  | RegisteredTaggedError;
-
-/**
- * Reconstruct a wire-error envelope (`{ code, message, data? }`) into a typed
- * {@link RpcCallError}: a registered tagged error when the code is in the
- * registry (so `catchTag` callers narrow the concrete class), else
- * `RpcServerError`. Forwarding both `message` and `data` keeps the decoded
- * instance reflecting the server's error text + payload.
- */
-export function wireErrorToRpcCallError(error: {
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-}): RpcCallError {
-  const cls = errorClassFor(error.code);
-  if (cls === undefined) {
-    return new RpcServerError({
-      code: error.code,
-      message: error.message,
-      data: error.data,
-    });
-  }
-  // The registry stores the class factory keyed by code; the constructor
-  // produces a concrete tagged-error instance whose runtime tag matches one of
-  // the `RegisteredTaggedError` union arms. TS cannot see through the open
-  // `new (...) => { _tag: string }` factory shape, so the cast bridges the
-  // static factory to the closed runtime union.
-  return new cls({
-    message: error.message,
-    data: error.data,
-  } as never) as RegisteredTaggedError;
-}
-```
-
-The error union a descriptor-driven RPC call can surface: a transport-level
-`NotConnectedError`, a registered tagged error reconstructed from the wire
-code, or `RpcServerError` for an unregistered code. The native client's flat
-engine yields the group's `WireError` envelope on a server-side failure;
-wireErrorToRpcCallError reconstructs it onto this union.
-
-### [`RpcCapTag`](./method.ts#L33)
+### [`RpcCapTag`](./method.ts#L51)
 
 _TypeAlias_
 
@@ -1674,14 +1691,20 @@ _TypeAlias_
 export type RpcCapTag = Context.Tag<any, any>;
 ```
 
-A capability tag a method requires: the `Context.Tag` the per-method
-`AuthMiddleware` provides as a field of the method's `AuthContext` proof. The
-cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
-caps the method requires and in what order. `Context.Tag<any, any>` is the
-variance-agnostic carrier (a concrete class tag is not assignable to
-`Context.Tag<unknown, unknown>`).
+A capability tag a method requires: a `Context.Tag` (the proof the per-method
+middleware provides). A capability IS a middleware — it resolves a proof into
+context and declares its own `errors` (the tagged-error classes its
+derive/obtain can fail with) as a static tuple on the tag class. The
+descriptor unions every cap's `errors` into the method's effective error
+channel (CapErrorsOf), so a method that requires a cap inherits that
+cap's failure modes with no re-declaration.
 
-### [`RpcDefinition`](./method.ts#L54)
+The type is the plain `Context.Tag<any, any>` (not intersected with an
+`errors` member): a concrete tag class does not match an intersection whose
+other arm is the variance-laden Tag, so the `errors` static is read
+structurally by CapErrorClassesOf rather than constrained here.
+
+### [`RpcDefinition`](./method.ts#L83)
 
 _Interface_
 
@@ -1692,6 +1715,7 @@ export interface RpcDefinition<
   R extends Schema.Schema.AnyNoContext,
   K extends CallablePrincipal = CallablePrincipal,
   Caps extends ReadonlyArray<RpcCapTag> = ReadonlyArray<RpcCapTag>,
+  Errs extends ReadonlyArray<RpcErrorClass> = ReadonlyArray<RpcErrorClass>,
 > {
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
@@ -1713,12 +1737,32 @@ export interface RpcDefinition<
   readonly requiresActive: boolean;
 
   /**
-   * The capability tags this method requires, in run order. The per-method
-   * `AuthMiddleware` runs each cap's derive/obtain (server-side) after
-   * resolving the principal, then provides the combined proof. Empty for a
-   * method with no caps.
+   * The capability tags this method requires, in run order. Each cap IS a
+   * middleware: it provides a proof into the handler's Context and declares its
+   * own `errors`. The per-method middleware runs each cap's derive/obtain after
+   * resolving the principal. Empty for a method with no caps.
    */
   readonly caps: Caps;
+
+  /**
+   * The handler-domain tagged-error classes this method can fail with — only
+   * the errors the HANDLER raises, not the principal-gate or cap errors (those
+   * come from {@link principalErrorClasses} and each cap's own `errors`). The
+   * method's effective wire error union is the dedup'd union of all three; see
+   * {@link effectiveErrorClasses} / {@link errorSchema}.
+   */
+  readonly errors: Errs;
+
+  /**
+   * The wire `error` Schema the `@effect/rpc` engine encodes/decodes this
+   * method's failures against: `Schema.Union(...effectiveErrorClasses)`. The
+   * union discriminates on each error's `_tag`, so the per-method decode picks
+   * the exact tagged-error class with no code lookup and no global registry.
+   * `Schema.Never` when the method has no effective errors (only the lone
+   * unauthenticated `network/connect`, which still inherits transport errors at
+   * the client surface via {@link ResponseErrorsOf}).
+   */
+  readonly errorSchema: Schema.Schema.AnyNoContext;
 
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
@@ -1751,42 +1795,47 @@ descriptor carries only the wire shape. The server's per-method `*AuthMw`
 impl Layer runs each declared cap's derive/obtain
 (`server-core auth-middleware-layers.ts`).
 
-### [`RpcErrorClass`](./wire-errors.ts#L21)
+### [`RpcErrorClass`](./method.ts#L34)
 
 _TypeAlias_
 
 ```ts
-export type RpcErrorClass = (new (
-  ...args: never[]
-) => {
-  readonly _tag: string;
-}) & {
-  readonly code: number;
-  readonly message: string;
-};
+export type RpcErrorClass = Schema.Schema.AnyNoContext &
+  (new (...args: never[]) => { readonly _tag: string });
 ```
 
-A `Data.TaggedError`-derived class with static wire metadata
-(`code` + `message`). The typed dispatcher reads
-`err.constructor.code` to encode outbound error responses; the
-originator looks up the class by code via `errorClassFor` for inbound
-response decode.
+A wire-discriminable tagged-error CLASS: a `Schema.TaggedError`-derived class
+usable both as the runtime constructor and as a `Schema` for the wire `error`
+union. The `_tag` literal is the union discriminant the engine decodes against;
+a method's `error` Schema is `Schema.Union(...effective error classes)`, so the
+per-method decode picks the right class by `_tag` with no code lookup.
 
-### [`RpcErrorPayload`](./wire-errors.ts#L88)
+### [`RpcErrorPayload`](./wire-errors.ts#L27)
 
 _Interface_
 
 ```ts
 export interface RpcErrorPayload {
   readonly message?: string;
-  readonly data?: JsonValue;
+  readonly data?: unknown;
 }
 ```
 
-Optional per-instance overrides for tagged-error classes. The static
-`message` on the class is the default; instances may carry a more
-specific message and/or supplemental `data` payload that TypedDispatcher
-forwards to the wire response.
+The supplemental-payload type a tagged-error instance accepts at construction:
+an optional overriding message and optional `data`.
+
+### [`RpcForTag`](./typed-dispatch.ts#L19)
+
+_TypeAlias_
+
+```ts
+export type RpcForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.ExtractTag<Rpcs, K>;
+```
+
+The `Rpc` member of `Rpcs` whose tag is `K`.
 
 ### [`RpcRequestDecodeError`](./rpc-groups.ts#L77)
 
@@ -1804,7 +1853,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L268)
+### [`RpcResultDecodeError`](./method.ts#L468)
 
 _Class_
 
@@ -1821,21 +1870,7 @@ export class RpcResultDecodeError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcServerError`](./rpc-errors.ts#L30)
-
-_Class_
-
-```ts
-export class RpcServerError extends Data.TaggedError("RpcServerError")<{
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-}> {}
-```
-
-The peer returned an `error` response frame.
-
-### [`RpcTimeoutError`](./rpc-errors.ts#L24)
+### [`RpcTimeoutError`](./rpc-errors.ts#L20)
 
 _Class_
 
@@ -1911,7 +1946,7 @@ export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
 )
 ```
 
-### [`ServerRpcGroup`](./rpc-method-groups.ts#L106)
+### [`ServerRpcGroup`](./rpc-method-groups.ts#L85)
 
 _Variable_
 
@@ -1925,7 +1960,20 @@ onto these via `RpcGroup.toLayer` (server inbound) and derives typed clients
 via `RpcClient.make`; the dual-endpoint demux pairs ServerRpcGroup
 (client-to-server) with AppCallbackRpcGroup (server-to-client).
 
-### [`TaskAddParticipantAuth`](./auth-middleware.ts#L242)
+### [`SuccessForTag`](./typed-dispatch.ts#L31)
+
+_TypeAlias_
+
+```ts
+export type SuccessForTag<
+  Rpcs extends Rpc.Any,
+  K extends Rpcs["_tag"],
+> = Rpc.Success<RpcForTag<Rpcs, K>>;
+```
+
+The success type one tag returns.
+
+### [`TaskAddParticipantAuth`](./auth-middleware.ts#L246)
 
 _Class_
 
@@ -1937,18 +1985,18 @@ export class TaskAddParticipantAuth extends Context.Tag(
 
 `task/addParticipant` proof: app principal, no caps.
 
-### [`TaskAddParticipantAuthMw`](./auth-middleware.ts#L245)
+### [`TaskAddParticipantAuthMw`](./auth-middleware.ts#L249)
 
 _Class_
 
 ```ts
 export class TaskAddParticipantAuthMw extends RpcMiddleware.Tag<TaskAddParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-add-participant",
-  { provides: TaskAddParticipantAuth, failure: WireErrorSchema },
+  { provides: TaskAddParticipantAuth, failure: TaskAddParticipant.errorSchema },
 ) {}
 ```
 
-### [`TaskCloseAuth`](./auth-middleware.ts#L233)
+### [`TaskCloseAuth`](./auth-middleware.ts#L237)
 
 _Class_
 
@@ -1960,18 +2008,18 @@ export class TaskCloseAuth extends Context.Tag(
 
 `task/close` proof: app principal, no caps.
 
-### [`TaskCloseAuthMw`](./auth-middleware.ts#L236)
+### [`TaskCloseAuthMw`](./auth-middleware.ts#L240)
 
 _Class_
 
 ```ts
 export class TaskCloseAuthMw extends RpcMiddleware.Tag<TaskCloseAuthMw>()(
   "@moltzap/protocol/auth/mw/task-close",
-  { provides: TaskCloseAuth, failure: WireErrorSchema },
+  { provides: TaskCloseAuth, failure: TaskClose.errorSchema },
 ) {}
 ```
 
-### [`TaskConversationAddParticipantAuth`](./auth-middleware.ts#L290)
+### [`TaskConversationAddParticipantAuth`](./auth-middleware.ts#L306)
 
 _Class_
 
@@ -1986,18 +2034,21 @@ export class TaskConversationAddParticipantAuth extends Context.Tag(
 
 `task/conversation/participants/add` proof: app principal + `ConversationInTask`.
 
-### [`TaskConversationAddParticipantAuthMw`](./auth-middleware.ts#L296)
+### [`TaskConversationAddParticipantAuthMw`](./auth-middleware.ts#L312)
 
 _Class_
 
 ```ts
 export class TaskConversationAddParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationAddParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-add-participant",
-  { provides: TaskConversationAddParticipantAuth, failure: WireErrorSchema },
+  {
+    provides: TaskConversationAddParticipantAuth,
+    failure: TaskConversationAddParticipant.errorSchema,
+  },
 ) {}
 ```
 
-### [`TaskConversationArchiveAuth`](./auth-middleware.ts#L269)
+### [`TaskConversationArchiveAuth`](./auth-middleware.ts#L279)
 
 _Class_
 
@@ -2009,18 +2060,21 @@ export class TaskConversationArchiveAuth extends Context.Tag(
 
 `task/conversation/archive` proof: app principal + `ConversationInTask`.
 
-### [`TaskConversationArchiveAuthMw`](./auth-middleware.ts#L272)
+### [`TaskConversationArchiveAuthMw`](./auth-middleware.ts#L282)
 
 _Class_
 
 ```ts
 export class TaskConversationArchiveAuthMw extends RpcMiddleware.Tag<TaskConversationArchiveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-archive",
-  { provides: TaskConversationArchiveAuth, failure: WireErrorSchema },
+  {
+    provides: TaskConversationArchiveAuth,
+    failure: TaskConversationArchive.errorSchema,
+  },
 ) {}
 ```
 
-### [`TaskConversationCreateAuth`](./auth-middleware.ts#L260)
+### [`TaskConversationCreateAuth`](./auth-middleware.ts#L267)
 
 _Class_
 
@@ -2032,18 +2086,21 @@ export class TaskConversationCreateAuth extends Context.Tag(
 
 `task/conversation/create` proof: app principal, no caps.
 
-### [`TaskConversationCreateAuthMw`](./auth-middleware.ts#L263)
+### [`TaskConversationCreateAuthMw`](./auth-middleware.ts#L270)
 
 _Class_
 
 ```ts
 export class TaskConversationCreateAuthMw extends RpcMiddleware.Tag<TaskConversationCreateAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-create",
-  { provides: TaskConversationCreateAuth, failure: WireErrorSchema },
+  {
+    provides: TaskConversationCreateAuth,
+    failure: TaskConversationCreate.errorSchema,
+  },
 ) {}
 ```
 
-### [`TaskConversationListAuth`](./auth-middleware.ts#L132)
+### [`TaskConversationListAuth`](./auth-middleware.ts#L133)
 
 _Class_
 
@@ -2055,18 +2112,21 @@ export class TaskConversationListAuth extends Context.Tag(
 
 `task/conversation/list` proof: agent principal, no caps.
 
-### [`TaskConversationListAuthMw`](./auth-middleware.ts#L135)
+### [`TaskConversationListAuthMw`](./auth-middleware.ts#L136)
 
 _Class_
 
 ```ts
 export class TaskConversationListAuthMw extends RpcMiddleware.Tag<TaskConversationListAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-list",
-  { provides: TaskConversationListAuth, failure: WireErrorSchema },
+  {
+    provides: TaskConversationListAuth,
+    failure: TaskConversationList.errorSchema,
+  },
 ) {}
 ```
 
-### [`TaskConversationRemoveParticipantAuth`](./auth-middleware.ts#L302)
+### [`TaskConversationRemoveParticipantAuth`](./auth-middleware.ts#L321)
 
 _Class_
 
@@ -2081,18 +2141,21 @@ export class TaskConversationRemoveParticipantAuth extends Context.Tag(
 
 `task/conversation/participants/remove` proof: app principal + `ConversationInTask`.
 
-### [`TaskConversationRemoveParticipantAuthMw`](./auth-middleware.ts#L308)
+### [`TaskConversationRemoveParticipantAuthMw`](./auth-middleware.ts#L327)
 
 _Class_
 
 ```ts
 export class TaskConversationRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationRemoveParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-remove-participant",
-  { provides: TaskConversationRemoveParticipantAuth, failure: WireErrorSchema },
+  {
+    provides: TaskConversationRemoveParticipantAuth,
+    failure: TaskConversationRemoveParticipant.errorSchema,
+  },
 ) {}
 ```
 
-### [`TaskConversationUnarchiveAuth`](./auth-middleware.ts#L278)
+### [`TaskConversationUnarchiveAuth`](./auth-middleware.ts#L291)
 
 _Class_
 
@@ -2107,18 +2170,21 @@ export class TaskConversationUnarchiveAuth extends Context.Tag(
 
 `task/conversation/unarchive` proof: app principal + `ConversationInTask`.
 
-### [`TaskConversationUnarchiveAuthMw`](./auth-middleware.ts#L284)
+### [`TaskConversationUnarchiveAuthMw`](./auth-middleware.ts#L297)
 
 _Class_
 
 ```ts
 export class TaskConversationUnarchiveAuthMw extends RpcMiddleware.Tag<TaskConversationUnarchiveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-unarchive",
-  { provides: TaskConversationUnarchiveAuth, failure: WireErrorSchema },
+  {
+    provides: TaskConversationUnarchiveAuth,
+    failure: TaskConversationUnarchive.errorSchema,
+  },
 ) {}
 ```
 
-### [`TaskLeaveAuth`](./auth-middleware.ts#L123)
+### [`TaskLeaveAuth`](./auth-middleware.ts#L124)
 
 _Class_
 
@@ -2130,18 +2196,18 @@ export class TaskLeaveAuth extends Context.Tag(
 
 `task/leave` proof: agent principal, no caps.
 
-### [`TaskLeaveAuthMw`](./auth-middleware.ts#L126)
+### [`TaskLeaveAuthMw`](./auth-middleware.ts#L127)
 
 _Class_
 
 ```ts
 export class TaskLeaveAuthMw extends RpcMiddleware.Tag<TaskLeaveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-leave",
-  { provides: TaskLeaveAuth, failure: WireErrorSchema },
+  { provides: TaskLeaveAuth, failure: TaskLeave.errorSchema },
 ) {}
 ```
 
-### [`TaskListAuth`](./auth-middleware.ts#L105)
+### [`TaskListAuth`](./auth-middleware.ts#L106)
 
 _Class_
 
@@ -2153,18 +2219,18 @@ export class TaskListAuth extends Context.Tag(
 
 `task/list` proof: agent principal, no caps.
 
-### [`TaskListAuthMw`](./auth-middleware.ts#L108)
+### [`TaskListAuthMw`](./auth-middleware.ts#L109)
 
 _Class_
 
 ```ts
 export class TaskListAuthMw extends RpcMiddleware.Tag<TaskListAuthMw>()(
   "@moltzap/protocol/auth/mw/task-list",
-  { provides: TaskListAuth, failure: WireErrorSchema },
+  { provides: TaskListAuth, failure: TaskList.errorSchema },
 ) {}
 ```
 
-### [`TaskRemoveParticipantAuth`](./auth-middleware.ts#L251)
+### [`TaskRemoveParticipantAuth`](./auth-middleware.ts#L255)
 
 _Class_
 
@@ -2176,18 +2242,21 @@ export class TaskRemoveParticipantAuth extends Context.Tag(
 
 `task/removeParticipant` proof: app principal, no caps.
 
-### [`TaskRemoveParticipantAuthMw`](./auth-middleware.ts#L254)
+### [`TaskRemoveParticipantAuthMw`](./auth-middleware.ts#L258)
 
 _Class_
 
 ```ts
 export class TaskRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskRemoveParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-remove-participant",
-  { provides: TaskRemoveParticipantAuth, failure: WireErrorSchema },
+  {
+    provides: TaskRemoveParticipantAuth,
+    failure: TaskRemoveParticipant.errorSchema,
+  },
 ) {}
 ```
 
-### [`TaskRequestAuth`](./auth-middleware.ts#L114)
+### [`TaskRequestAuth`](./auth-middleware.ts#L115)
 
 _Class_
 
@@ -2199,18 +2268,35 @@ export class TaskRequestAuth extends Context.Tag(
 
 `task/request` proof: agent principal + `ContactPolicyAllowsReach`.
 
-### [`TaskRequestAuthMw`](./auth-middleware.ts#L117)
+### [`TaskRequestAuthMw`](./auth-middleware.ts#L118)
 
 _Class_
 
 ```ts
 export class TaskRequestAuthMw extends RpcMiddleware.Tag<TaskRequestAuthMw>()(
   "@moltzap/protocol/auth/mw/task-request",
-  { provides: TaskRequestAuth, failure: WireErrorSchema },
+  { provides: TaskRequestAuth, failure: TaskRequest.errorSchema },
 ) {}
 ```
 
-### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L49)
+### [`TypedDispatchMap`](./typed-dispatch.ts#L48)
+
+_TypeAlias_
+
+```ts
+export type TypedDispatchMap<Rpcs extends Rpc.Any, E> = {
+  readonly [K in Rpcs["_tag"]]: (
+    payload: PayloadForTag<Rpcs, K>,
+  ) => Effect.Effect<SuccessForTag<Rpcs, K>, ErrorForTag<Rpcs, K> | E>;
+};
+```
+
+The per-method dispatch map a non-flat `RpcClient.make(group)` conforms to:
+keyed by every member tag, each value the method's typed call
+`(payload) => Effect&lt;success, methodErrors | E>`. `E` is the engine's
+transport error (`RpcClientError`) the caller folds into its own channel.
+
+### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L48)
 
 _Variable_
 
@@ -2226,7 +2312,7 @@ reviewed security decision — the partition canary
 (`server-engine-group.types-check.ts`) FAILS the build if a method is in
 neither partition or both.
 
-### [`UnauthenticatedMethod`](./server-engine-group.ts#L52)
+### [`UnauthenticatedMethod`](./server-engine-group.ts#L51)
 
 _TypeAlias_
 
@@ -2236,20 +2322,22 @@ export type UnauthenticatedMethod = (typeof UNAUTHENTICATED_METHODS)[number];
 
 A plain (unbranded) member of UNAUTHENTICATED_METHODS.
 
-### [`UnauthorizedError`](./wire-errors.ts#L96)
+### [`UnauthorizedError`](./wire-errors.ts#L33)
 
 _Class_
 
 ```ts
-export class UnauthorizedError extends Data.TaggedError(
+export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   "Unauthorized",
-)<RpcErrorPayload> {
-  static readonly code = -32000;
+  errorPayloadFields,
+) {
   static readonly message = "Not authenticated. Send network/connect first.";
 }
 ```
 
-### [`validateNotificationFrame`](./wire.ts#L128)
+Not authenticated — `network/connect` has not run on this socket.
+
+### [`validateNotificationFrame`](./wire.ts#L132)
 
 _Function_
 
@@ -2257,7 +2345,7 @@ _Function_
 export const validateNotificationFrame = (v: unknown): v is NotificationFrame
 ```
 
-### [`validateRequestFrame`](./wire.ts#L124)
+### [`validateRequestFrame`](./wire.ts#L128)
 
 _Function_
 
@@ -2265,85 +2353,13 @@ _Function_
 export const validateRequestFrame = (v: unknown): v is RequestFrame
 ```
 
-### [`validateResponseFrame`](./wire.ts#L126)
+### [`validateResponseFrame`](./wire.ts#L130)
 
 _Function_
 
 ```ts
 export const validateResponseFrame = (v: unknown): v is ResponseFrame
 ```
-
-### [`WireError`](./wire-errors.ts#L178)
-
-_TypeAlias_
-
-```ts
-export type WireError = {
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-};
-```
-
-The JSON-RPC error envelope a wire response carries: code, message, optional
-data. The shape `WireErrorSchema` decodes to, every per-method `*AuthMw`
-`failure` channel carries, and wireErrorFromInstance projects a
-registered tagged-error instance onto.
-
-### [`wireErrorFromInstance`](./wire-errors.ts#L211)
-
-_Function_
-
-```ts
-export function wireErrorFromInstance(value: unknown): WireError | null
-```
-
-Read wire metadata (code/message/data) off an `RpcErrorClass` instance.
-Returns `null` when the failure is not a registered wire-error class (the
-caller routes to InternalError). A `Data.TaggedError` inherits `message: ""`
-from `Error`, so an empty instance message is treated as absent and the
-class's static default reaches the wire.
-
-### [`WireErrorSchema`](./rpc-method-groups.ts#L31)
-
-_Variable_
-
-```ts
-export const WireErrorSchema = Schema.Struct({
-  code: Schema.Number.pipe(Schema.int()),
-  message: Schema.String,
-  data: Schema.optional(Schema.Unknown),
-})
-```
-
-The JSON-RPC error envelope every wire response carries on its `error`
-sub-object: code, message, and optional data. This is the Schema form of the
-`WireError` shape `transport/dispatch.ts → wireErrorFromInstance` projects a
-registered tagged-error instance onto, so it is the `Rpc.make` error Schema
-for every group member: the engine encodes a handler failure onto these
-three fields, and the client side reconstructs the typed tagged error from
-the code via `wire-errors.ts → errorClassFor`. Per-tag error narrowing stays
-a registry concern (the `RegisteredTaggedError` union in `rpc-registry.ts`),
-not a per-member Schema union — the wire only ever carries the coded
-envelope.
-
-### [`wireErrorToRpcCallError`](./rpc-errors.ts#L55)
-
-_Function_
-
-```ts
-export function wireErrorToRpcCallError(error: {
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-}): RpcCallError
-```
-
-Reconstruct a wire-error envelope (`{ code, message, data? }`) into a typed
-RpcCallError: a registered tagged error when the code is in the
-registry (so `catchTag` callers narrow the concrete class), else
-`RpcServerError`. Forwarding both `message` and `data` keeps the decoded
-instance reflecting the server's error text + payload.
 
 ### [`WireWrite`](./native-mux.ts#L79)
 
@@ -2397,5 +2413,6 @@ export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
 - `rpc-groups.ts`
 - `rpc-method-groups.ts`
 - `server-engine-group.ts`
+- `typed-dispatch.ts`
 - `wire-errors.ts`
 - `wire.ts`

@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`AgentClientOptions`](./agent-client.ts#L103)
+### [`AgentClientOptions`](./agent-client.ts#L106)
 
 _Interface_
 
@@ -21,7 +21,7 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AppCallbackContext`](./app-client.ts#L110)
+### [`AppCallbackContext`](./app-client.ts#L114)
 
 _Interface_
 
@@ -36,7 +36,7 @@ id (for tracing / logging). The reverse `RpcServer` engine assigns request
 ids internally; the authored handlers that read `requestId` receive a
 placeholder, the payload is the load-bearing input.
 
-### [`AppClientOptions`](./app-client.ts#L152)
+### [`AppClientOptions`](./app-client.ts#L156)
 
 _Interface_
 
@@ -187,7 +187,7 @@ export interface ContextBlocks {
 }
 ```
 
-### [`ContextOptions`](./service.ts#L158)
+### [`ContextOptions`](./service.ts#L198)
 
 _Interface_
 
@@ -199,7 +199,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L151)
+### [`ConversationMeta`](./service.ts#L191)
 
 _Interface_
 
@@ -212,7 +212,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`CrossConversationEntry`](./service.ts#L165)
+### [`CrossConversationEntry`](./service.ts#L205)
 
 _Interface_
 
@@ -230,7 +230,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](./service.ts#L251)
+### [`CrossConvMessage`](./service.ts#L291)
 
 _Interface_
 
@@ -383,7 +383,7 @@ export interface EnrichedSender {
 }
 ```
 
-### [`formatCrossConversationBlock`](./service.ts#L185)
+### [`formatCrossConversationBlock`](./service.ts#L225)
 
 _Function_
 
@@ -413,7 +413,7 @@ error channel is part of the type — callers fail with a tagged error and the
 consumer fiber logs it instead of dropping it on the floor like a Promise
 rejection would.
 
-### [`MoltZapAgentClient`](./agent-client.ts#L115)
+### [`MoltZapAgentClient`](./agent-client.ts#L118)
 
 _Class_
 
@@ -454,19 +454,23 @@ export class MoltZapAgentClient {
   }
 
   /**
-   * Outbound RPC. The compile-time constraint accepts any
-   * `RpcDefinition` so generic forwarders (service.sendRpc, CLI
-   * transport) can pass through without per-method narrowing; the R11
-   * agent-client catalog narrowing applies at runtime inside
-   * `AgentClientConnection` and rejects app-only methods.
+   * Outbound RPC, typed per method. `call("task/request", payload)` returns
+   * `Effect&lt;TaskRequestResult, &lt;that method's errors> | NotConnectedError |
+   * RpcTimeoutError>` — the result and the tagged-error union are recovered per
+   * tag from `AgentCallableGroup`, so an app-only method or a wrong-shape
+   * payload does not typecheck. The agent group's tags are the only callable
+   * surface; there is no generic `sendRpc` escape hatch.
    */
-  sendRpc<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
+  call<Tag extends AgentCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AgentCallableRpcs, Tag>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ConnectError> {
+  ): Effect.Effect<
+    SuccessForTag<AgentCallableRpcs, Tag>,
+    ErrorForTag<AgentCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
+  > {
     const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.sendRpcEffect(definition, params, timeoutMs);
+    return this.callEffect(tag, payload, timeoutMs);
   }
 
   subscribe<D extends AnyNotificationDefinition>(
@@ -534,17 +538,13 @@ export class MoltZapAgentClient {
         }),
       ),
     );
-  }
-
-  disconnect(): Effect.Effect<void, never> {
-    return Effect.sync(() => this.disconnectSync());
 ```
 
 MoltZap agent client — outbound RPC only, no app-callback inbound
 dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; app-only
 methods are unreachable at compile time (Spec D3 R11/R13).
 
-### [`MoltZapAppClient`](./app-client.ts#L240)
+### [`MoltZapAppClient`](./app-client.ts#L244)
 
 _Class_
 
@@ -640,22 +640,22 @@ export class MoltZapAppClient {
   }
 
   /**
-   * Send an RPC. Fails with a typed error:
-   *   - `NotConnectedError` if the socket isn't OPEN or closes mid-RPC
-   *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
-   *   - a registered tagged error for known protocol error codes
-   *   - `RpcServerError` for unknown protocol error codes
-   *
-   * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
-   * client extracts the wire method only inside the encoder path.
+   * Outbound RPC, typed per method. `call("task/close", payload)` returns
+   * `Effect<TaskCloseResult, <that method's errors> | NotConnectedError |
+   * RpcTimeoutError>` — the result and tagged-error union are recovered per tag
+   * from `AppCallableGroup`. The app group's tags are the only callable
+   * surface; an agent-only method does not typecheck.
    */
-  sendRpc<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
+  call<Tag extends AppCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AppCallableRpcs, Tag>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ConnectError> {
+  ): Effect.Effect<
+    SuccessForTag<AppCallableRpcs, Tag>,
+    ErrorForTag<AppCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
+  > {
     const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.sendRpcEffect(definition, params, timeoutMs);
+    return this.callEffect(tag, payload, timeoutMs);
   }
 
   /**
@@ -884,7 +884,7 @@ Parking semantics: `hold` re-enters at `parked[convId]` FRONT.
 `takeDispatchCandidate` prefers the parked queue for the next pull
 so backpressure within one conversation does not starve others.
 
-### [`MoltZapService`](./service.ts#L303)
+### [`MoltZapService`](./service.ts#L343)
 
 _Class_
 
@@ -1113,7 +1113,7 @@ export interface RegisterResponse {
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register` and `/api/v1/admin/register-agent`).
 
-### [`RpcCallOptions`](./app-client.ts#L65)
+### [`RpcCallOptions`](./app-client.ts#L72)
 
 _Interface_
 
@@ -1123,7 +1123,7 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`sanitizeForSystemReminder`](./service.ts#L176)
+### [`sanitizeForSystemReminder`](./service.ts#L216)
 
 _Function_
 
@@ -1149,7 +1149,7 @@ page, decoding its typed result. Parameterized over the sender's error
 channel `E` so the helper stays decoupled from any one client's error
 union.
 
-### [`ServiceOptions`](./service.ts#L205)
+### [`ServiceOptions`](./service.ts#L245)
 
 _Interface_
 
@@ -1171,23 +1171,20 @@ export interface ServiceOptions {
 }
 ```
 
-### [`ServiceRpcError`](./service.ts#L149)
+### [`ServiceRpcError`](./service.ts#L156)
 
 _TypeAlias_
 
 ```ts
-export type ServiceRpcError = RpcCallError | RpcTimeoutError;
-
-export interface ConversationMeta {
-  id: string;
-  type: string;
-  name?: string;
-  participants: string[];
-}
+export type ServiceRpcError =
+  | Rpc.Error<AgentCallableRpcs>
 ```
 
-Errors that can surface from the Effect-based service API. Matches the
-failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
+Errors that can surface from the Effect-based service API: any tagged error
+an agent-callable method declares (recovered from the group's per-method
+error unions) plus the transport errors. Methods that fan multiple calls
+(e.g. `sendToAgent`) surface this broad union; a single-method call narrows
+to that method's errors at the `call` site.
 
 ## Files
 

@@ -133,7 +133,7 @@ export interface DispatchTestDriver {
    */
   readonly getLeaseFromNonModerator: (
     dispatchId: Schema.Schema.Type<typeof DispatchId>,
-  ) => Effect.Effect<{ readonly errorCode: number }, PropertyFailure>;
+  ) => Effect.Effect<{ readonly errorTag: string }, PropertyFailure>;
 
   /**
    * Poll `dispatches/get` until the lease reaches `expected` or the
@@ -208,12 +208,12 @@ _Variable_
 export const FAST_ACK_THRESHOLD_MS = 1_000
 ```
 
-### [`FORBIDDEN_ERROR_CODE`](./_helpers.ts#L22)
+### [`FORBIDDEN_ERROR_TAG`](./_helpers.ts#L22)
 
 _Variable_
 
 ```ts
-export const FORBIDDEN_ERROR_CODE = -32001
+export const FORBIDDEN_ERROR_TAG = "Forbidden"
 ```
 
 ### [`freshMessageId`](./_helpers.ts#L72)
@@ -358,7 +358,7 @@ export interface RecipientHandle {
   }) => Effect.Effect<
     {
       readonly messageId: Schema.Schema.Type<typeof MessageId>;
-      readonly errorCode?: number;
+      readonly errorTag?: string;
       readonly errorState?: string;
     },
     PropertyFailure
@@ -558,7 +558,7 @@ export interface RecipientHandle {
   }) => Effect.Effect<
     {
       readonly messageId: Schema.Schema.Type<typeof MessageId>;
-      readonly errorCode?: number;
+      readonly errorTag?: string;
       readonly errorState?: string;
     },
     PropertyFailure

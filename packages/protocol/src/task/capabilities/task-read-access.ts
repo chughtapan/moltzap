@@ -24,5 +24,7 @@ export class TaskReadAccess extends Context.Tag(
 )<TaskReadAccess, TaskReadAccessValue>() {
   // Fails closed as not-found (rather than a distinct forbidden) so the obtain
   // does not leak task existence to a caller without read access.
-  static readonly errors = [TaskNotFoundError] as const;
+  static get errors() {
+    return [TaskNotFoundError] as const;
+  }
 }

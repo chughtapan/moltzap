@@ -17,5 +17,7 @@ export interface ContactPolicyAllowsReachValue {
 export class ContactPolicyAllowsReach extends Context.Tag(
   "@moltzap/protocol/ContactPolicyAllowsReach",
 )<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {
-  static readonly errors = [NotInContactsError] as const;
+  static get errors() {
+    return [NotInContactsError] as const;
+  }
 }

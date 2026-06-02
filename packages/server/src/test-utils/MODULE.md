@@ -206,13 +206,13 @@ _Function_
 ```ts
 export const expectRpcFailure = <A, R>(
   effect: Effect.Effect<A, RpcTestError, R>,
-  expectedCode: number,
+  expectedTag: string,
 ): Effect.Effect<RpcResponseError, never, R>
 ```
 
-Asserts the RPC effect fails with `RpcServerError(code)` and returns the
-narrowed error for follow-up assertions. `catchTags` routes by tag name
-declaratively so callers never reach for `err._tag`.
+Asserts the RPC effect fails with a wire `error` carrying `expectedTag` and
+returns the narrowed error for follow-up assertions. `catchTags` routes by
+tag name declaratively so callers never reach for `err._tag`.
 
 ### [`getBaseUrl`](./server.ts#L376)
 

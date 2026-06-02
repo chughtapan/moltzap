@@ -6,6 +6,8 @@ description: "List messages in a conversation with cursor-based pagination using
 # messages/list
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
+Conversation-not-found and not-a-participant ride the `TaskReadAccess` /
+`ConversationInTask` cap error channels.
 
 ## Parameters
 
@@ -34,10 +36,3 @@ List messages in a conversation with cursor-based pagination using sequence numb
 <ResponseField name="hasMore" type="boolean">
   The hasMore field.
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `NotFoundError` | Conversation not found |
-| `ForbiddenError` | Not a participant |

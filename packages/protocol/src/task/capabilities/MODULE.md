@@ -122,17 +122,27 @@ export const assertTaskReadAccessMatchesTask = (
 Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. A
 separate overload keeps the type narrowed at the call site.
 
-### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L9)
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L17)
 
 _Class_
 
 ```ts
 export class ContactPolicyAllowsReach extends Context.Tag(
   "@moltzap/protocol/ContactPolicyAllowsReach",
-)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {}
+)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {
+  static get errors() {
+    return [NotInContactsError] as const;
+  }
+}
 ```
 
-### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L4)
+Capability-as-middleware: resolves whether the creator may reach every
+target under the recipients' contact policy. Its `obtain` (server-side) fails
+with `NotInContactsError`; the descriptor unions that into every method that
+requires this cap, so the failure is part of the method's typed error channel
+with no server-side error definition of its own.
+
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L5)
 
 _Interface_
 
@@ -163,17 +173,21 @@ export interface ConversationCreateAuthorizationValue {
 }
 ```
 
-### [`ConversationInTask`](./conversation-in-task.ts#L18)
+### [`ConversationInTask`](./conversation-in-task.ts#L19)
 
 _Class_
 
 ```ts
 export class ConversationInTask extends Context.Tag(
   "@moltzap/protocol/ConversationInTask",
-)<ConversationInTask, ConversationInTaskValue>() {}
+)<ConversationInTask, ConversationInTaskValue>() {
+  static get errors() {
+    return [ConversationNotFoundError] as const;
+  }
+}
 ```
 
-### [`ConversationInTaskValue`](./conversation-in-task.ts#L13)
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L14)
 
 _Interface_
 
@@ -247,17 +261,26 @@ Value payload carries `(creatorAgentId, invitedAgentIds)` to match
 the obtain-time argument set; service methods consuming the capability
 verify the count matches handler input.
 
-### [`MessageSendPermission`](./message-send-permission.ts#L31)
+### [`MessageSendPermission`](./message-send-permission.ts#L37)
 
 _Class_
 
 ```ts
 export class MessageSendPermission extends Context.Tag(
   "@moltzap/protocol/MessageSendPermission",
-)<MessageSendPermission, MessageSendPermissionValue>() {}
+)<MessageSendPermission, MessageSendPermissionValue>() {
+  static get errors() {
+    return [
+    ConversationNotFoundError,
+    NotAParticipantError,
+    ConversationArchivedError,
+    TaskClosedError,
+  ] as const;
+  }
+}
 ```
 
-### [`MessageSendPermissionValue`](./message-send-permission.ts#L15)
+### [`MessageSendPermissionValue`](./message-send-permission.ts#L21)
 
 _Interface_
 
@@ -330,7 +353,7 @@ export interface ObtainConversationCreateAuthorizationInput {
 }
 ```
 
-### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L42)
+### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L57)
 
 _Interface_
 
@@ -424,17 +447,23 @@ to call inside the same transaction that reads the task row;
 cross-transaction reuse is a defect (re-obtain by re-reading the
 column).
 
-### [`TaskReadAccess`](./task-read-access.ts#L21)
+### [`TaskReadAccess`](./task-read-access.ts#L22)
 
 _Class_
 
 ```ts
 export class TaskReadAccess extends Context.Tag(
   "@moltzap/protocol/TaskReadAccess",
-)<TaskReadAccess, TaskReadAccessValue>() {}
+)<TaskReadAccess, TaskReadAccessValue>() {
+  // Fails closed as not-found (rather than a distinct forbidden) so the obtain
+  // does not leak task existence to a caller without read access.
+  static get errors() {
+    return [TaskNotFoundError] as const;
+  }
+}
 ```
 
-### [`TaskReadAccessValue`](./task-read-access.ts#L16)
+### [`TaskReadAccessValue`](./task-read-access.ts#L17)
 
 _Interface_
 

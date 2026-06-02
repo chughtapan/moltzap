@@ -55,7 +55,7 @@ _Variable_
 export const AppId = brandedId("AppId")
 ```
 
-### [`Conversation`](./conversations.ts#L88)
+### [`Conversation`](./conversations.ts#L104)
 
 _TypeAlias_
 
@@ -63,33 +63,33 @@ _TypeAlias_
 export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
 ```
 
-### [`ConversationArchivedError`](./conversations.ts#L25)
+### [`ConversationArchivedError`](./conversations.ts#L43)
 
 _Class_
 
 ```ts
-export class ConversationArchivedError extends Data.TaggedError(
+export class ConversationArchivedError extends Schema.TaggedError<ConversationArchivedError>()(
   "ConversationArchived",
-)<RpcErrorPayload> {
-  static readonly code = -32022;
+  errorPayloadFields,
+) {
   static readonly message = "Conversation is archived";
 }
 ```
 
-### [`ConversationFullError`](./conversations.ts#L33)
+### [`ConversationFullError`](./conversations.ts#L50)
 
 _Class_
 
 ```ts
-export class ConversationFullError extends Data.TaggedError(
+export class ConversationFullError extends Schema.TaggedError<ConversationFullError>()(
   "ConversationFull",
-)<RpcErrorPayload> {
-  static readonly code = -32007;
+  errorPayloadFields,
+) {
   static readonly message = "Conversation is full";
 }
 ```
 
-### [`ConversationId`](./conversations.ts#L15)
+### [`ConversationId`](./conversations.ts#L17)
 
 _TypeAlias_
 
@@ -97,7 +97,7 @@ _TypeAlias_
 export const ConversationId = brandedId("ConversationId");
 ```
 
-### [`ConversationId`](./conversations.ts#L15)
+### [`ConversationId`](./conversations.ts#L17)
 
 _Variable_
 
@@ -105,7 +105,22 @@ _Variable_
 export const ConversationId = brandedId("ConversationId")
 ```
 
-### [`ConversationParticipant`](./conversations.ts#L89)
+### [`ConversationNotFoundError`](./conversations.ts#L28)
+
+_Class_
+
+```ts
+export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
+  "ConversationNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Conversation not found";
+}
+```
+
+The referenced conversation does not exist under the task (or is not visible).
+
+### [`ConversationParticipant`](./conversations.ts#L105)
 
 _TypeAlias_
 
@@ -115,7 +130,7 @@ export type ConversationParticipant = Schema.Schema.Type<
 >;
 ```
 
-### [`conversationSchema`](./conversations.ts#L96)
+### [`conversationSchema`](./conversations.ts#L112)
 
 _Function_
 
@@ -123,7 +138,7 @@ _Function_
 export function conversationSchema(): typeof ConversationSchema
 ```
 
-### [`ConversationSummary`](./conversations.ts#L92)
+### [`ConversationSummary`](./conversations.ts#L108)
 
 _TypeAlias_
 
@@ -141,7 +156,7 @@ _Variable_
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
 ```
 
-### [`DispatchDecision`](./messages.ts#L131)
+### [`DispatchDecision`](./messages.ts#L133)
 
 _TypeAlias_
 
@@ -151,7 +166,7 @@ export type DispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`dispatchDecisionSchema`](./messages.ts#L148)
+### [`dispatchDecisionSchema`](./messages.ts#L150)
 
 _Function_
 
@@ -159,20 +174,20 @@ _Function_
 export function dispatchDecisionSchema(): typeof DispatchDecisionSchema
 ```
 
-### [`HookBlockedError`](./tasks.ts#L57)
+### [`HookBlockedError`](./tasks.ts#L73)
 
 _Class_
 
 ```ts
-export class HookBlockedError extends Data.TaggedError(
+export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
   "HookBlocked",
-)<RpcErrorPayload> {
-  static readonly code = -32019;
+  errorPayloadFields,
+) {
   static readonly message = "Hook blocked the dispatch";
 }
 ```
 
-### [`InitialConversationInput`](./tasks.ts#L280)
+### [`InitialConversationInput`](./tasks.ts#L298)
 
 _TypeAlias_
 
@@ -182,7 +197,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 >;
 ```
 
-### [`LeaseId`](./messages.ts#L18)
+### [`LeaseId`](./messages.ts#L20)
 
 _TypeAlias_
 
@@ -190,7 +205,7 @@ _TypeAlias_
 export const LeaseId = brandedId("LeaseId");
 ```
 
-### [`LeaseId`](./messages.ts#L18)
+### [`LeaseId`](./messages.ts#L20)
 
 _Variable_
 
@@ -198,7 +213,7 @@ _Variable_
 export const LeaseId = brandedId("LeaseId")
 ```
 
-### [`LogicalClock`](./tasks.ts#L93)
+### [`LogicalClock`](./tasks.ts#L107)
 
 _TypeAlias_
 
@@ -206,7 +221,7 @@ _TypeAlias_
 export type LogicalClock = Schema.Schema.Type<typeof LogicalClockSchema>;
 ```
 
-### [`logicalClockSchema`](./tasks.ts#L95)
+### [`logicalClockSchema`](./tasks.ts#L109)
 
 _Function_
 
@@ -214,7 +229,7 @@ _Function_
 export function logicalClockSchema(): typeof LogicalClockSchema
 ```
 
-### [`Message`](./messages.ts#L76)
+### [`Message`](./messages.ts#L78)
 
 _TypeAlias_
 
@@ -222,7 +237,7 @@ _TypeAlias_
 export type Message = Schema.Schema.Type<typeof MessageSchema>;
 ```
 
-### [`MessageId`](./conversations.ts#L22)
+### [`MessageId`](./conversations.ts#L24)
 
 _TypeAlias_
 
@@ -230,7 +245,7 @@ _TypeAlias_
 export const MessageId = brandedId("MessageId");
 ```
 
-### [`MessageId`](./conversations.ts#L22)
+### [`MessageId`](./conversations.ts#L24)
 
 _Variable_
 
@@ -238,7 +253,7 @@ _Variable_
 export const MessageId = brandedId("MessageId")
 ```
 
-### [`messagePartsSchema`](./messages.ts#L96)
+### [`messagePartsSchema`](./messages.ts#L98)
 
 _Function_
 
@@ -246,7 +261,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L218)
+### [`MessageReceivedNotification`](./messages.ts#L225)
 
 _TypeAlias_
 
@@ -256,7 +271,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L226)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L233)
 
 _Variable_
 
@@ -269,7 +284,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](./messages.ts#L190)
+### [`MessagesList`](./messages.ts#L196)
 
 _Variable_
 
@@ -295,12 +310,15 @@ export const MessagesList = defineRpc({
   // Run order: `TaskReadAccess` proves the caller may read the task before
   // `ConversationInTask` resolves the conversation's task membership.
   caps: [TaskReadAccess, ConversationInTask],
+  errors: [],
 })
 ```
 
 List messages in a conversation with cursor-based pagination using sequence numbers.
+Conversation-not-found and not-a-participant ride the `TaskReadAccess` /
+`ConversationInTask` cap error channels.
 
-### [`MessagesSend`](./messages.ts#L167)
+### [`MessagesSend`](./messages.ts#L169)
 
 _Variable_
 
@@ -321,6 +339,10 @@ export const MessagesSend = defineRpc({
   // first, so `MessageSendPermission` obtains against an already-verified
   // conversation.
   caps: [ConversationInTask, MessageSendPermission],
+  // `ForbiddenError`/`NotFoundError` ride the dispatch-lease claim path: a
+  // consumed/invalid lease maps to `ForbiddenError(data.reason: "LeaseInvalid")`,
+  // a missing lease to `NotFoundError`.
+  errors: [HookBlockedError, ForbiddenError, NotFoundError],
 })
 ```
 
@@ -331,7 +353,7 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithDispatchDecision`](./messages.ts#L144)
+### [`MessageWithDispatchDecision`](./messages.ts#L146)
 
 _TypeAlias_
 
@@ -341,7 +363,7 @@ export type MessageWithDispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`messageWithDispatchDecisionSchema`](./messages.ts#L152)
+### [`messageWithDispatchDecisionSchema`](./messages.ts#L154)
 
 _Function_
 
@@ -349,7 +371,22 @@ _Function_
 export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema
 ```
 
-### [`Part`](./messages.ts#L58)
+### [`NotAParticipantError`](./conversations.ts#L36)
+
+_Class_
+
+```ts
+export class NotAParticipantError extends Schema.TaggedError<NotAParticipantError>()(
+  "NotAParticipant",
+  errorPayloadFields,
+) {
+  static readonly message = "Not a participant in the conversation";
+}
+```
+
+The caller is not a participant in the conversation it is acting on.
+
+### [`Part`](./messages.ts#L60)
 
 _TypeAlias_
 
@@ -357,15 +394,15 @@ _TypeAlias_
 export type Part = Schema.Schema.Type<typeof PartSchema>;
 ```
 
-### [`ParticipantNotAdmittedError`](./tasks.ts#L72)
+### [`ParticipantNotAdmittedError`](./tasks.ts#L87)
 
 _Class_
 
 ```ts
-export class ParticipantNotAdmittedError extends Data.TaggedError(
+export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantNotAdmittedError>()(
   "ParticipantNotAdmitted",
-)<RpcErrorPayload> {
-  static readonly code = -32023;
+  errorPayloadFields,
+) {
   static readonly message = "Agent is not admitted to the task";
 }
 ```
@@ -376,7 +413,7 @@ tag lets clients distinguish "wrong agentId shape" (InvalidParams)
 from "agent exists but is not admitted to this task" (this tag)
 without parsing message strings.
 
-### [`Task`](./tasks.ts#L114)
+### [`Task`](./tasks.ts#L128)
 
 _TypeAlias_
 
@@ -384,7 +421,7 @@ _TypeAlias_
 export type Task = Schema.Schema.Type<typeof TaskSchema>;
 ```
 
-### [`TaskAddParticipant`](./tasks.ts#L150)
+### [`TaskAddParticipant`](./tasks.ts#L166)
 
 _Variable_
 
@@ -397,10 +434,11 @@ export const TaskAddParticipant = defineRpc({
   }),
   result: Schema.Struct({ participant: TaskParticipantSchema }),
   callablePrincipal: "app",
+  errors: [TaskNotFoundError],
 })
 ```
 
-### [`TaskClose`](./tasks.ts#L143)
+### [`TaskClose`](./tasks.ts#L158)
 
 _Variable_
 
@@ -410,23 +448,24 @@ export const TaskClose = defineRpc({
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({ task: TaskSchema }),
   callablePrincipal: "app",
+  errors: [TaskNotFoundError],
 })
 ```
 
-### [`TaskClosedError`](./tasks.ts#L32)
+### [`TaskClosedError`](./tasks.ts#L50)
 
 _Class_
 
 ```ts
-export class TaskClosedError extends Data.TaggedError(
+export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
   "TaskClosed",
-)<RpcErrorPayload> {
-  static readonly code = -32020;
+  errorPayloadFields,
+) {
   static readonly message = "Task is closed";
 }
 ```
 
-### [`TaskClosedNotificationDefinition`](./tasks.ts#L210)
+### [`TaskClosedNotificationDefinition`](./tasks.ts#L228)
 
 _Variable_
 
@@ -439,7 +478,7 @@ export const TaskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`TaskConversationAddParticipant`](./tasks.ts#L422)
+### [`TaskConversationAddParticipant`](./tasks.ts#L450)
 
 _Variable_
 
@@ -457,6 +496,7 @@ export const TaskConversationAddParticipant = defineRpc({
   // BEFORE `requireAgentsAreInTaskParticipants` (so a non-owner sees
   // `ForbiddenError`, not the participant-admitted state probe).
   caps: [ConversationInTask],
+  errors: [ParticipantNotAdmittedError],
 })
 ```
 
@@ -464,7 +504,7 @@ TM-only: add an agent to one conversation. The agent MUST already
 appear in `task_participants` for `taskId`; otherwise
 `ParticipantNotAdmittedError`. Spec body Goal 1.
 
-### [`TaskConversationArchive`](./tasks.ts#L400)
+### [`TaskConversationArchive`](./tasks.ts#L426)
 
 _Variable_
 
@@ -475,12 +515,13 @@ export const TaskConversationArchive = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
+  errors: [],
 })
 ```
 
 TM-only: archive one conversation. Task stays open.
 
-### [`TaskConversationArchivedNotification`](./tasks.ts#L502)
+### [`TaskConversationArchivedNotification`](./tasks.ts#L532)
 
 _TypeAlias_
 
@@ -490,7 +531,7 @@ export type TaskConversationArchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L523)
+### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L553)
 
 _Variable_
 
@@ -502,7 +543,7 @@ export const TaskConversationArchivedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationCreate`](./tasks.ts#L355)
+### [`TaskConversationCreate`](./tasks.ts#L375)
 
 _Variable_
 
@@ -523,6 +564,11 @@ export const TaskConversationCreate = defineRpc({
   // inline by the handler as a capacity-only proof (a TM minting on the task's
   // behalf has no agent contact-edges; targets are gated by
   // `requireAgentsAreInTaskParticipants`).
+  errors: [
+    TaskNotFoundError,
+    ParticipantNotAdmittedError,
+    ConversationFullError,
+  ],
 })
 ```
 
@@ -530,7 +576,7 @@ TM-only: mint a new conversation under an existing task. Every
 entry in `participants` MUST already appear in `task_participants`
 for `taskId`; violations return `ParticipantNotAdmittedError`.
 
-### [`TaskConversationCreatedNotification`](./tasks.ts#L499)
+### [`TaskConversationCreatedNotification`](./tasks.ts#L529)
 
 _TypeAlias_
 
@@ -540,7 +586,7 @@ export type TaskConversationCreatedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L516)
+### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L546)
 
 _Variable_
 
@@ -553,7 +599,7 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 )
 ```
 
-### [`TaskConversationList`](./tasks.ts#L379)
+### [`TaskConversationList`](./tasks.ts#L404)
 
 _Variable_
 
@@ -570,6 +616,7 @@ export const TaskConversationList = defineRpc({
   }),
   callablePrincipal: "agent",
   requiresActive: true,
+  errors: [],
 })
 ```
 
@@ -578,7 +625,7 @@ in (across all tasks). No filter params; archived rows are
 included; callers filter `archivedAt` locally. See spec body
 Goal 1 for the full pagination + visibility contract.
 
-### [`TaskConversationListItem`](./tasks.ts#L290)
+### [`TaskConversationListItem`](./tasks.ts#L308)
 
 _TypeAlias_
 
@@ -588,7 +635,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L508)
+### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L538)
 
 _TypeAlias_
 
@@ -598,7 +645,7 @@ export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L535)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L565)
 
 _Variable_
 
@@ -610,7 +657,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L511)
+### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L541)
 
 _TypeAlias_
 
@@ -621,7 +668,7 @@ export type TaskConversationParticipantsRemovedNotification =
   >;
 ```
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L541)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L571)
 
 _Variable_
 
@@ -633,7 +680,7 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationRemoveParticipant`](./tasks.ts#L442)
+### [`TaskConversationRemoveParticipant`](./tasks.ts#L471)
 
 _Variable_
 
@@ -648,6 +695,7 @@ export const TaskConversationRemoveParticipant = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
+  errors: [ParticipantNotAdmittedError],
 })
 ```
 
@@ -655,7 +703,7 @@ TM-only: remove an agent from one conversation. The agent stays
 in `task_participants` (so they may still receive messages on
 other conversations within the task).
 
-### [`TaskConversationUnarchive`](./tasks.ts#L409)
+### [`TaskConversationUnarchive`](./tasks.ts#L436)
 
 _Variable_
 
@@ -666,12 +714,13 @@ export const TaskConversationUnarchive = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
+  errors: [],
 })
 ```
 
 TM-only: reverse of `task/conversation/archive`.
 
-### [`TaskConversationUnarchivedNotification`](./tasks.ts#L505)
+### [`TaskConversationUnarchivedNotification`](./tasks.ts#L535)
 
 _TypeAlias_
 
@@ -681,7 +730,7 @@ export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L529)
+### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L559)
 
 _Variable_
 
@@ -693,7 +742,7 @@ export const TaskConversationUnarchivedNotificationDefinition =
   })
 ```
 
-### [`TaskCreatedNotificationDefinition`](./tasks.ts#L201)
+### [`TaskCreatedNotificationDefinition`](./tasks.ts#L219)
 
 _Variable_
 
@@ -710,7 +759,7 @@ transitions from `waiting` to `active`. Carries the full Task row
 (matching `task/closed`'s shape) so subscribers don't need a
 second read to discover the post-transition state.
 
-### [`TaskFailedNotificationDefinition`](./tasks.ts#L189)
+### [`TaskFailedNotificationDefinition`](./tasks.ts#L207)
 
 _Variable_
 
@@ -739,7 +788,7 @@ _Variable_
 export const TaskId = brandedId("TaskId")
 ```
 
-### [`TaskLeave`](./tasks.ts#L342)
+### [`TaskLeave`](./tasks.ts#L361)
 
 _Variable_
 
@@ -750,6 +799,7 @@ export const TaskLeave = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "agent",
   requiresActive: true,
+  errors: [TaskNotFoundError],
 })
 ```
 
@@ -765,7 +815,7 @@ the task transitions to `status = 'closed'` and
 `TaskClosedNotificationDefinition` fires alongside in the same
 transaction.
 
-### [`TaskList`](./tasks.ts#L130)
+### [`TaskList`](./tasks.ts#L144)
 
 _Variable_
 
@@ -781,8 +831,24 @@ export const TaskList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   callablePrincipal: "agent",
+  errors: [],
 })
 ```
+
+### [`TaskNotFoundError`](./tasks.ts#L43)
+
+_Class_
+
+```ts
+export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
+  "TaskNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Task not found";
+}
+```
+
+The referenced task does not exist (or the caller cannot see it).
 
 ### [`taskNotifications`](./methods.ts#L69)
 
@@ -802,7 +868,7 @@ export const taskNotifications = [
 ] as const
 ```
 
-### [`TaskParticipant`](./tasks.ts#L128)
+### [`TaskParticipant`](./tasks.ts#L142)
 
 _TypeAlias_
 
@@ -810,15 +876,15 @@ _TypeAlias_
 export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 ```
 
-### [`TaskRejectedError`](./tasks.ts#L49)
+### [`TaskRejectedError`](./tasks.ts#L66)
 
 _Class_
 
 ```ts
-export class TaskRejectedError extends Data.TaggedError(
+export class TaskRejectedError extends Schema.TaggedError<TaskRejectedError>()(
   "TaskRejected",
-)<RpcErrorPayload> {
-  static readonly code = -32024;
+  errorPayloadFields,
+) {
   static readonly message = "Task request was rejected by the task manager";
 }
 ```
@@ -831,7 +897,7 @@ rejected by the moderator" — an expected, actionable outcome —
 from an opaque internal error. The TM's reason rides in the
 `data` arm when present.
 
-### [`TaskRemoveParticipant`](./tasks.ts#L160)
+### [`TaskRemoveParticipant`](./tasks.ts#L177)
 
 _Variable_
 
@@ -844,10 +910,11 @@ export const TaskRemoveParticipant = defineRpc({
   }),
   result: Schema.Struct({}),
   callablePrincipal: "app",
+  errors: [TaskNotFoundError],
 })
 ```
 
-### [`TaskRequest`](./tasks.ts#L313)
+### [`TaskRequest`](./tasks.ts#L331)
 
 _Variable_
 
@@ -866,6 +933,7 @@ export const TaskRequest = defineRpc({
   callablePrincipal: "agent",
   requiresActive: true,
   caps: [ContactPolicyAllowsReach],
+  errors: [TaskRejectedError],
 })
 ```
 
@@ -910,7 +978,7 @@ export const taskRpcMethods = [
 ] as const
 ```
 
-### [`TaskStatus`](./tasks.ts#L102)
+### [`TaskStatus`](./tasks.ts#L116)
 
 _TypeAlias_
 
@@ -918,7 +986,7 @@ _TypeAlias_
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`validateDispatchDecision`](./messages.ts#L137)
+### [`validateDispatchDecision`](./messages.ts#L139)
 
 _Variable_
 
@@ -926,7 +994,7 @@ _Variable_
 export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
 ```
 
-### [`validateMessage`](./messages.ts#L94)
+### [`validateMessage`](./messages.ts#L96)
 
 _Variable_
 
@@ -934,7 +1002,7 @@ _Variable_
 export const validateMessage = closedGuard(MessageSchema)
 ```
 
-### [`validateTextPart`](./messages.ts#L93)
+### [`validateTextPart`](./messages.ts#L95)
 
 _Variable_
 
