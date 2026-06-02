@@ -8,11 +8,14 @@
  * invariants the build guarantees:
  *
  *   1. every group is a non-empty `RpcGroup`;
- *   2. every member carries the `WireErrorSchema` envelope as its error Schema;
- *   3. each member's tag correlates with its own payload Schema — the group's
+ *   2. each member's tag correlates with its own payload Schema — the group's
  *      member type is the per-slot tuple union, not a single widened element,
  *      so `RpcClient.make` types each method and `RpcGroup.toLayer` types each
  *      handler against the right payload.
+ *
+ * Per-method error typing (each member's `error` Schema is the method's own
+ * `_tag`-discriminated union) is recovered and asserted at the typed-client
+ * surface (`@moltzap/client`), where the precise union is observable.
  *
  * The file is compiled by the package's standard `tsc` pass (no separate
  * script). A positive canary wraps an `Equal` comparison in `Expect`, which
@@ -38,10 +41,6 @@ type Equal<A, B> =
 
 type MemberOf<G> = G extends RpcGroup.RpcGroup<infer R> ? R : never;
 type IsNever<T> = [T] extends [never] ? true : false;
-type ErrorSchemaOf<R> =
-  R extends Rpc.Rpc<infer _Tag, infer _Payload, infer _Success, infer Error>
-    ? Error
-    : never;
 
 // The member of group `G` whose wire name is `Name`, and that member's payload
 // type. Member tags are branded `JsonRpcMethod<Name>`, so the match brands the
@@ -67,25 +66,7 @@ type _N2 = Expect<Equal<IsNever<MemberOf<typeof AppCallbackRpcGroup>>, false>>;
 type _N3 = Expect<Equal<IsNever<MemberOf<typeof AgentClientRpcGroup>>, false>>;
 type _N4 = Expect<Equal<IsNever<MemberOf<typeof AppCallableRpcGroup>>, false>>;
 
-// Canary 2: members carry the `{ code, message, data? }` wire-error envelope.
-//
-// The error Schema decodes to the `WireError` shape `transport/dispatch.ts →
-// wireErrorFromInstance` projects every registered tagged-error instance onto.
-// Dropping a field (e.g. `data`) breaks the wire-error registry round trip the
-// native engine relies on. Asserted on the callback group's member; every group
-// shares the same envelope.
-type _E1 = Expect<
-  Equal<
-    Schema.Schema.Type<ErrorSchemaOf<MemberOf<typeof AppCallbackRpcGroup>>>,
-    {
-      readonly code: number;
-      readonly message: string;
-      readonly data?: unknown;
-    }
-  >
->;
-
-// Canary 3: per-tag payload correlation survives the catalog map.
+// Canary 2: per-tag payload correlation survives the catalog map.
 //
 // `dispatch/authorize` carries the `DispatchAuthorize` context payload, whose
 // `attempt` field is unique to it among the callback members: `messages/authorize`

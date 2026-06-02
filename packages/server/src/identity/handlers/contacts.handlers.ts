@@ -24,7 +24,7 @@ import {
   ContactsServiceTag,
   NetworkSendServiceTag,
 } from "../../app/layers.js";
-import { agentArm, toWireError } from "../../app/native-handlers-runtime.js";
+import { agentArm } from "../../app/native-handlers-runtime.js";
 
 const ERR_NEED_OWNER = "Contacts require a claimed agent owner";
 
@@ -126,13 +126,13 @@ export const nativeContactsList = (params: ParamsOf<typeof ContactsList>) =>
   Effect.gen(function* () {
     yield* ContactsListAuth;
     return yield* contactsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeContactsList"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeContactsList"));
 
 export const nativeContactsAdd = (params: ParamsOf<typeof ContactsAdd>) =>
   Effect.gen(function* () {
     yield* ContactsAddAuth;
     return yield* contactsAddBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeContactsAdd"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeContactsAdd"));
 
 export const nativeContactsAccept = (params: ParamsOf<typeof ContactsAccept>) =>
   Effect.gen(function* () {
@@ -140,11 +140,10 @@ export const nativeContactsAccept = (params: ParamsOf<typeof ContactsAccept>) =>
     return yield* contactsAcceptBody(params, yield* agentArm);
   }).pipe(
     Effect.withSpan("nativeContactsAccept"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeContactsById = (params: ParamsOf<typeof ContactsById>) =>
   Effect.gen(function* () {
     yield* ContactsByIdAuth;
     return yield* contactsByIdBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeContactsById"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeContactsById"));

@@ -79,12 +79,7 @@ import {
   taskReadAccessMiddleware,
   contactPolicyAllowsReachMiddleware,
 } from "../app/capability-middlewares.js";
-import {
-  narrowByPolicy,
-  peekLiveArm,
-  toWireError,
-  type WireError,
-} from "./principal-gate.js";
+import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
 /** The cap obtains' service env (`capability-middlewares.ts → MwEnv`). */
 type MwEnv = TaskServiceTag | ConversationServiceTag | MessageServiceTag;
@@ -315,12 +310,12 @@ const capBearingImpl =
         spec.kind === "app"
           ? yield* asAppPrincipal(narrowed)
           : yield* asAgentPrincipal(narrowed);
+      // Cap obtains fail with their declared tagged-error instances; the engine
+      // encodes them against the method's per-method error union (the
+      // middleware `failure` schema). No coded-envelope projection.
       return yield* spec.runCaps(principal, payload).pipe(
         Effect.provide(env),
         Effect.provideService(CurrentPrincipal, principal),
-        Effect.catchAll((cause: unknown) =>
-          Effect.fail<WireError>(toWireError(cause)),
-        ),
       );
     }).pipe(Effect.withSpan(spec.span));
 

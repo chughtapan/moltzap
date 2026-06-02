@@ -13,7 +13,7 @@ import { AppId } from "@moltzap/protocol/task";
 import { Effect, Schema } from "effect";
 import { AppHostTag, ConnectionTag } from "../layers.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
-import { agentArm, toWireError } from "../native-handlers-runtime.js";
+import { agentArm } from "../native-handlers-runtime.js";
 
 // A client-originated `apps/register` stores the calling WS connection as the
 // moderator endpoint for `manifest.appId`. `dispatch/authorize` and
@@ -116,7 +116,7 @@ export const nativeAppsRegister = (params: ParamsOf<typeof AppsRegister>) =>
   Effect.gen(function* () {
     yield* AppsRegisterAuth;
     return yield* appsRegisterBody(params);
-  }).pipe(Effect.withSpan("nativeAppsRegister"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeAppsRegister"));
 
 export const nativeDispatchRequest = (
   params: ParamsOf<typeof DispatchRequest>,
@@ -126,11 +126,10 @@ export const nativeDispatchRequest = (
     return yield* dispatchRequestBody(params, yield* agentArm);
   }).pipe(
     Effect.withSpan("nativeDispatchRequest"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeDispatchesGet = (params: ParamsOf<typeof DispatchesGet>) =>
   Effect.gen(function* () {
     yield* DispatchesGetAuth;
     return yield* dispatchesGetBody(params);
-  }).pipe(Effect.withSpan("nativeDispatchesGet"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeDispatchesGet"));

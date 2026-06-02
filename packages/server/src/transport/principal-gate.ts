@@ -1,24 +1,20 @@
 /**
- * @file The #720 principal-kind gate, consumed by the per-method `AuthMiddleware`
+ * @file The principal-kind gate, consumed by the per-method `AuthMiddleware`
  * impl Layers (`auth-middleware-layers.ts`).
  *
  * The gate narrows the live 3-arm `Connection` to the 2-arm `Principal` a
- * method's policy demands, failing with the coded {@link WireError} envelope the
- * `@effect/rpc` middleware `failure` schema (`WireErrorSchema`) carries. The
- * narrowing and the descriptor's `callablePrincipal` are the SAME arm by
- * construction: an `"agent"` policy yields the agent arm, `"app"` the app arm.
+ * method's policy demands, failing with a `ForbiddenError` INSTANCE. The
+ * `@effect/rpc` engine encodes that tagged error against the method's per-method
+ * error union (the middleware `failure` schema), so there is no coded-envelope
+ * projection step. The narrowing and the descriptor's `callablePrincipal` are
+ * the SAME arm by construction: an `"agent"` policy yields the agent arm,
+ * `"app"` the app arm.
  */
 import { absurd, Effect, Option } from "effect";
-import {
-  ForbiddenError,
-  JSON_RPC_RESERVED_CODES,
-  wireErrorFromInstance,
-} from "@moltzap/protocol";
-import type { Principal, WireError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol";
+import type { Principal } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConnectionManager, Connection } from "./connection.js";
-
-export type { WireError };
 
 /** The principal axis a gated method's policy demands (descriptor `callablePrincipal`). */
 type CallablePrincipal = "agent" | "app" | "any";
@@ -29,11 +25,9 @@ const FORBIDDEN_APP_ONLY = "This method is callable only by an app principal";
 const FORBIDDEN_INACTIVE =
   "Agent must be claimed before performing this action";
 
-/** A wrong-principal / inactive rejection as the coded wire envelope. */
-const forbidden = (message: string): WireError => ({
-  code: ForbiddenError.code,
-  message,
-});
+/** A wrong-principal / inactive rejection as the tagged `ForbiddenError`. */
+const forbidden = (message: string): ForbiddenError =>
+  new ForbiddenError({ message });
 
 /**
  * Peek the live arm by `connId` off the shared manager. A missing entry is an
@@ -58,13 +52,13 @@ export const peekLiveArm = (
   );
 
 /**
- * Narrow the live arm to the agent principal (#705 #720 §B1). Rejects a
- * non-agent arm and (when `requiresActive`) a not-yet-claimed agent.
+ * Narrow the live arm to the agent principal. Rejects a non-agent arm and
+ * (when `requiresActive`) a not-yet-claimed agent.
  */
 const narrowAgentArm = (
   connection: Connection,
   requiresActive: boolean,
-): Effect.Effect<Principal, WireError> => {
+): Effect.Effect<Principal, ForbiddenError> => {
   if (connection._tag !== "AgentConnection") {
     return Effect.fail(forbidden(FORBIDDEN_AGENT_ONLY));
   }
@@ -74,10 +68,10 @@ const narrowAgentArm = (
   return Effect.succeed(connection.auth);
 };
 
-/** Narrow the live arm to the app principal (#705 #720 §B1). */
+/** Narrow the live arm to the app principal. */
 const narrowAppArm = (
   connection: Connection,
-): Effect.Effect<Principal, WireError> =>
+): Effect.Effect<Principal, ForbiddenError> =>
   connection._tag === "AppConnection"
     ? Effect.succeed(connection.auth)
     : Effect.fail(forbidden(FORBIDDEN_APP_ONLY));
@@ -94,7 +88,7 @@ export const narrowByPolicy = (
   callablePrincipal: CallablePrincipal,
   requiresActive: boolean,
   connection: Connection,
-): Effect.Effect<Principal, WireError> => {
+): Effect.Effect<Principal, ForbiddenError> => {
   switch (callablePrincipal) {
     case "agent":
       return narrowAgentArm(connection, requiresActive);
@@ -108,16 +102,3 @@ export const narrowByPolicy = (
       return absurd(callablePrincipal);
   }
 };
-
-/**
- * Project a cap-obtain failure onto the coded wire envelope the middleware
- * `failure` schema carries. A registered tagged error (e.g. `ForbiddenError`,
- * `NotFoundError`) maps to its `code`/`message`; an unregistered failure is an
- * `InternalError` -32603, the same fallback the dispatcher's Exit projection
- * uses.
- */
-export const toWireError = (cause: unknown): WireError =>
-  wireErrorFromInstance(cause) ?? {
-    code: JSON_RPC_RESERVED_CODES.InternalError,
-    message: "Internal error",
-  };

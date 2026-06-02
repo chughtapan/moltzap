@@ -102,13 +102,13 @@ type AnyRpcDefinition = RpcDefinition<
 type EngineRpcFromDef<D> =
   D extends RpcDefinition<infer Name, infer P, infer R>
     ? Name extends UnauthenticatedMethod | HttpOnlyMethod
-      ? Rpc.Rpc<JsonRpcMethod<Name>, P, R, typeof WireErrorSchema>
+      ? Rpc.Rpc<JsonRpcMethod<Name>, P, R, Schema.Schema.AnyNoContext>
       : Name extends keyof AuthMiddlewareByMethod
         ? Rpc.Rpc<
             JsonRpcMethod<Name>,
             P,
             R,
-            typeof WireErrorSchema,
+            Schema.Schema.AnyNoContext,
             AuthMiddlewareByMethod[Name]
           >
         : never
@@ -136,7 +136,7 @@ const buildEngineMember = (definition: AnyRpcDefinition) => {
   const member = Rpc.make(definition.name, {
     payload: definition.paramsSchema,
     success: definition.resultSchema,
-    error: WireErrorSchema,
+    error: definition.errorSchema,
   });
   if (isUnauthenticatedMethod(definition.name)) {
     return member;

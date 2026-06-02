@@ -21,21 +21,29 @@ import { Deferred, Effect, Layer, Scope } from "effect";
 import {
   ReverseRpcGroup,
   makeClientChannelProtocol,
+  NotConnectedError,
+  RpcTimeoutError,
   type ChannelSink,
   type NotificationDefinition,
   type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
-  type RpcCallError,
   type RpcDefinition,
   type WireWrite,
 } from "@moltzap/protocol";
+
+/**
+ * The error channel of a reverse (server → client) call. The s2c callbacks
+ * declare no domain error (`errors: []`); a reverse call fails only at the
+ * transport — the socket closed or the round-trip timed out.
+ */
+export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 
 /** The flat reverse client's tag-keyed call function. */
 type FlatCall = (
   tag: string,
   payload: unknown,
-) => Effect.Effect<unknown, RpcCallError>;
+) => Effect.Effect<unknown, ReverseCallError>;
 
 /**
  * A per-connection reverse client: the descriptor-driven `call` the server
@@ -52,7 +60,7 @@ export interface ReverseClient {
   readonly call: <D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+  ) => Effect.Effect<ResultOf<D>, ReverseCallError>;
 
   /**
    * Fire a notification (a `void`-result reverse RPC) at the connected client.
@@ -63,7 +71,7 @@ export interface ReverseClient {
   readonly notify: <D extends NotificationDefinition<string, any>>(
     definition: D,
     params: NotificationParamsOf<D>,
-  ) => Effect.Effect<void, RpcCallError>;
+  ) => Effect.Effect<void, ReverseCallError>;
 
   /** The s2c inbound sink the demux feeds the void-acks into. */
   readonly sink: ChannelSink;
@@ -101,15 +109,15 @@ export const buildReverseClient = (options: {
     const call = <D extends RpcDefinition<string, any, any>>(
       definition: D,
       params: ParamsOf<D>,
-    ): Effect.Effect<ResultOf<D>, RpcCallError> =>
+    ): Effect.Effect<ResultOf<D>, ReverseCallError> =>
       flatCall(definition.name, params) as Effect.Effect<
         ResultOf<D>,
-        RpcCallError
+        ReverseCallError
       >;
     const notify = <D extends NotificationDefinition<string, any>>(
       definition: D,
       params: NotificationParamsOf<D>,
-    ): Effect.Effect<void, RpcCallError> =>
+    ): Effect.Effect<void, ReverseCallError> =>
       flatCall(definition.name, params).pipe(Effect.asVoid);
     return { call, notify, sink };
   }).pipe(Effect.withSpan("buildReverseClient"));

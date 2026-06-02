@@ -46,7 +46,7 @@ import {
 } from "../layers.js";
 import { obtainConversationCreateAuthorization } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
-import { agentArm, toWireError } from "../native-handlers-runtime.js";
+import { agentArm } from "../native-handlers-runtime.js";
 
 type TaskRequestParams = {
   readonly appId: AppId;
@@ -222,4 +222,4 @@ export const nativeTaskRequest = (params: ParamsOf<typeof TaskRequest>) =>
         auth[ContactPolicyAllowsReach.key],
       ),
     );
-  }).pipe(Effect.withSpan("nativeTaskRequest"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeTaskRequest"));

@@ -42,12 +42,15 @@ type AnyRpcDefinition = RpcDefinition<
 
 /**
  * The `Rpc` a single descriptor maps to: its branded wire `name` is the member
- * tag, its `paramsSchema`/`resultSchema` are payload/success verbatim, and the
- * shared {@link WireErrorSchema} envelope is the error Schema.
+ * tag, its `paramsSchema`/`resultSchema` are payload/success verbatim, and its
+ * per-method `errorSchema` (the `_tag`-discriminated union of the method's
+ * effective errors) is the error Schema. The engine encodes a handler's tagged
+ * failure against that union, so the server emits the typed wire error directly
+ * — no coded-envelope projection.
  */
 type RpcFromDef<D> =
   D extends RpcDefinition<infer Name, infer P, infer R>
-    ? Rpc.Rpc<JsonRpcMethod<Name>, P, R, typeof WireErrorSchema>
+    ? Rpc.Rpc<JsonRpcMethod<Name>, P, R, Schema.Schema.AnyNoContext>
     : never;
 
 /**
@@ -91,7 +94,7 @@ const groupFromCatalog = <const Defs extends readonly AnyRpcDefinition[]>(
       Rpc.make(definition.name, {
         payload: definition.paramsSchema,
         success: definition.resultSchema,
-        error: WireErrorSchema,
+        error: definition.errorSchema,
       }),
     ) as GroupMembers<Defs>),
   );

@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { toWireError } from "../../app/native-handlers-runtime.js";
 
 const pingBody = () => Effect.sync(() => ({ ts: new Date().toISOString() }));
 
@@ -9,4 +8,4 @@ const pingBody = () => Effect.sync(() => ({ ts: new Date().toISOString() }));
  * server timestamp with no principal read.
  */
 export const nativePing = () =>
-  pingBody().pipe(Effect.withSpan("nativePing"), Effect.mapError(toWireError));
+  pingBody().pipe(Effect.withSpan("nativePing"));
