@@ -100,37 +100,3 @@ export function makeHandlerAppEndpoint(args: {
   };
 }
 
-/**
- * Minimal {@link AppEndpoint} for tests that only assert the
- * registration surface (connId keying, unregister-side effects, etc.).
- * Every dispatch method defects — tests that actually drive
- * `runMessageAuthorize` / `runDispatchAuthorize` against a declared hook
- * MUST use {@link makeHandlerAppEndpoint} (or a real wire connection via
- * `acquireConnectionRpcClient`).
- *
- * Optional `originatorCall` override lets a test mock the outbound
- * RPC channel (e.g., to simulate a stale-connection `NotConnectedError`
- * without spinning up a real socket).
- */
-export function makeInertAppEndpoint(args: {
-  readonly id: ConnectionId;
-  readonly originatorCall?: <D extends AnyAppCallbackRpcDefinition>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
-}): AppEndpoint {
-  const call =
-    args.originatorCall ??
-    (() => defectingOp(args.id, "inert", "originator.call"));
-  return {
-    connId: args.id,
-    originator: {
-      call,
-      notify: () => defectingOp(args.id, "inert", "originator.notify"),
-      sink: {
-        parser: undefined as never,
-        inject: () => defectingOp(args.id, "inert", "originator.sink.inject"),
-      },
-    } as Originator,
-  };
-}
