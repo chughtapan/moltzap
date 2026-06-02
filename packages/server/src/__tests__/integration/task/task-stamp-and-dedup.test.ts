@@ -1,4 +1,4 @@
-import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   it,
@@ -16,11 +16,6 @@ beforeAll(() => Effect.runPromise(startTestServerEffect()));
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
-
-// Pre-#677 the server deduped DEFAULT_APP_ID TaskRequest by participant
-// set. Server dedup retired; the "one DM per pair" UX moves to clients
-// (list + filter + create-or-use). Re-add coverage in the SDK package.
-vit.todo("client-side DEFAULT_APP_ID dedup — list + match");
 
 it("messages/send stamps task_id matching conversations.task_id", () =>
   Effect.gen(function* () {
