@@ -7,7 +7,6 @@ import {
   Exit,
   Layer,
   Mailbox,
-  Option,
   type Scope,
 } from "effect";
 import type { ChannelSink } from "@moltzap/protocol";

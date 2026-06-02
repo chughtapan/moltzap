@@ -1,7 +1,7 @@
 /**
  * @file The server-side reverse `@effect/rpc` client over the s2c channel.
  *
- * Per connection, the server stands ONE `RpcClient<ReverseRpcGroup>` over the
+ * Per connection, the server stands ONE `RpcClient&lt;ReverseRpcGroup>` over the
  * s2c mux channel. `ReverseRpcGroup` is the moderator callbacks ∪ the
  * notifications. The server FIRES these as reverse RPCs at the connected client
  * (which serves them via its reverse `RpcServer`):
@@ -95,7 +95,8 @@ export const buildReverseClient = (options: {
     const flat = yield* RpcClient.make(ReverseRpcGroup, {
       flatten: true,
     }).pipe(Effect.provide(protocolLayer), Scope.extend(options.scope));
-    const flatCall = flat as unknown as FlatCall;
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- RpcClient.Flat erases to a tag-keyed call fn at the value boundary; the descriptor-driven call re-types its result per definition.
+    const flatCall = flat as unknown as FlatCall; // #ignore-sloppy-code[as-unknown-as]: flat RpcClient value-boundary erasure to the tag-keyed call shape.
     const sink = yield* Deferred.await(sinkReady);
     const call = <D extends RpcDefinition<string, any, any>>(
       definition: D,
@@ -111,4 +112,4 @@ export const buildReverseClient = (options: {
     ): Effect.Effect<void, RpcCallError> =>
       flatCall(definition.name, params).pipe(Effect.asVoid);
     return { call, notify, sink };
-  });
+  }).pipe(Effect.withSpan("buildReverseClient"));

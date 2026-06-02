@@ -16,9 +16,7 @@ import {
   agentContextFrom,
   AgentContext,
   AppContext,
-  type ServerRpcSlots,
 } from "../../transport/context.js";
-import { defineConnectMethod } from "../../transport/define-layered-method.js";
 import {
   AgentEndpointResolverTag,
   AppAuthServiceTag,
@@ -355,6 +353,58 @@ function fireConnectionHooks(auth: AgentContext, connId: ConnectionId) {
   }).pipe(Effect.withSpan("connect.fireConnectionHooks"));
 }
 
+/**
+ * Prefix-resolve the single `credential` on the unauthenticated arm:
+ * `moltzap_app_` mints an `AppConnection` (no agent identity, no
+ * conversation/presence hydration); `moltzap_agent_` runs the full agent-side
+ * hydration; neither prefix is `UnauthorizedError`. The prefix is the principal
+ * selector — an app credential can never mint an agent arm and vice versa.
+ */
+function resolveCredential(
+  credential: string,
+  connId: ConnectionId,
+  deps: {
+    readonly connections: ConnectionManager;
+    readonly appAuthService: AppAuthService;
+    readonly appHost: AppHost;
+  },
+): Effect.Effect<
+  HelloOk,
+  UnauthorizedError | NotConnectedError | InvalidParamsError,
+  | AuthServiceTag
+  | ConversationServiceTag
+  | PresenceServiceTag
+  | ConnectionManagerTag
+  | AgentEndpointResolverTag
+  | ConnectionHooksTag
+  | DbTag
+> {
+  return Effect.gen(function* () {
+    if (credential.startsWith(APP_KEY_PREFIX)) {
+      const { auth: appAuth, manifest } = yield* authenticateAppKey(
+        credential,
+        deps.appAuthService,
+      );
+      yield* registerAppArmTransition({
+        connections: deps.connections,
+        appHost: deps.appHost,
+        connId,
+        auth: appAuth,
+        manifest,
+      });
+      return HELLO_OK;
+    }
+    if (credential.startsWith(API_KEY_PREFIX)) {
+      return yield* completeAgentConnect(credential, connId);
+    }
+    return yield* Effect.fail(
+      new UnauthorizedError({
+        message: "Credential has no recognized principal prefix",
+      }),
+    );
+  });
+}
+
 function handleConnect(params: ConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
@@ -398,36 +448,11 @@ function handleConnect(params: ConnectParams) {
         return HELLO_OK;
       }
 
-      // Prefix-resolve the single `credential`: `moltzap_app_` mints an
-      // `AppConnection` (no agent identity, no conversation/presence
-      // hydration); `moltzap_agent_` runs the full agent-side hydration in
-      // `completeAgentConnect`; neither prefix is `UnauthorizedError`. The
-      // prefix is the principal selector — the security meaning is that an app
-      // credential can never mint an agent arm and vice versa.
-      if (params.credential.startsWith(APP_KEY_PREFIX)) {
-        const { auth: appAuth, manifest } = yield* authenticateAppKey(
-          params.credential,
-          appAuthService,
-        );
-        yield* registerAppArmTransition({
-          connections,
-          appHost,
-          connId: conn.connId,
-          auth: appAuth,
-          manifest,
-        });
-        return HELLO_OK;
-      }
-
-      if (params.credential.startsWith(API_KEY_PREFIX)) {
-        return yield* completeAgentConnect(params.credential, conn.connId);
-      }
-
-      return yield* Effect.fail(
-        new UnauthorizedError({
-          message: "Credential has no recognized principal prefix",
-        }),
-      );
+      return yield* resolveCredential(params.credential, conn.connId, {
+        connections,
+        appAuthService,
+        appHost,
+      });
     }).pipe(Effect.withSpan("network.connect")),
   );
 }
