@@ -24,14 +24,11 @@ import {
   Data,
   Effect,
   Either,
-  Match,
   Option,
   Redacted,
   Schema,
 } from "effect";
-import { FormatRegistry, Type } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
-import type { ConfigError } from "effect/ConfigError";
+import { TreeFormatter } from "effect/ParseResult";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Db } from "./db/client.js";
 
@@ -135,273 +132,116 @@ export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
   readonly path: string;
   readonly message: string;
   readonly cause?: unknown;
-  /** Present when `kind === "validation"` — the raw Effect ConfigError tree. */
-  readonly configError?: ConfigError;
 }> {}
 
 // ─────────────────────────────────────────────────────────────────────
-// Private: YAML schema (Effect Config descriptions)
+// Private: YAML schema — the single source of truth for the file shape
+//
+// `Schema.decodeUnknownEither` with `onExcessProperty: "error"` rejects
+// unknown keys and requires `master_secret`, so a camelCase typo
+// (`masterSecret`) or `encryption: {}` cannot pass and silently disable
+// at-rest encryption (plaintext storage). The same decode pins the port
+// range, the webhook URI, the `timeout_ms` floor, the `log_level` enum,
+// and every `minLength` rule, and produces the typed `YamlConfig` value
+// the boot-plan build reads — one pass for both validation and shape.
 // ─────────────────────────────────────────────────────────────────────
 
 const MAX_PORT_NUMBER = 65_535;
 
-const nonEmptyString = (name: string) =>
-  Config.string(name).pipe(
-    Config.validate({
-      message: `${name} must be a non-empty string`,
-      validation: (s: string) => s.length > 0,
-    }),
-  );
-
-const portNumber = (name: string) =>
-  Config.integer(name).pipe(
-    Config.validate({
-      message: `${name} must be in range [1, ${MAX_PORT_NUMBER}]`,
-      validation: (n: number) => n >= 1 && n <= MAX_PORT_NUMBER,
-    }),
-  );
-
 const opt = <A>(c: Config.Config<A>) =>
   c.pipe(Config.option, Config.map(Option.getOrUndefined));
 
-interface YamlWebhookService {
-  readonly type: "webhook";
-  readonly webhook_url: string;
-  readonly timeout_ms?: number;
-  readonly callback_token?: string;
-}
-
-interface YamlInProcessService {
-  readonly type: "in_process";
-}
-
-type YamlServiceConfig = YamlWebhookService | YamlInProcessService;
-
-const YamlWebhookServiceConfig: Config.Config<YamlWebhookService> = Config.all({
-  type: Config.literal("webhook")("type"),
-  webhook_url: nonEmptyString("webhook_url"),
-  timeout_ms: opt(Config.integer("timeout_ms")),
-  callback_token: opt(nonEmptyString("callback_token")),
-}).pipe(
-  Config.map(
-    ({ type, webhook_url, timeout_ms, callback_token }): YamlWebhookService => {
-      const out: YamlWebhookService = { type, webhook_url };
-      if (timeout_ms !== undefined && callback_token !== undefined) {
-        return { ...out, timeout_ms, callback_token };
-      }
-      if (timeout_ms !== undefined) return { ...out, timeout_ms };
-      if (callback_token !== undefined) return { ...out, callback_token };
-      return out;
-    },
-  ),
+// `URL.canParse` requires an absolute URI (a scheme present), so
+// `not-a-url` is rejected while `https://hooks.example.com/x` passes.
+const UriString = Schema.String.pipe(
+  Schema.filter((s) => URL.canParse(s) || "must be a valid absolute URI"),
 );
 
-const YamlInProcessServiceConfig: Config.Config<YamlInProcessService> =
-  Config.all({ type: Config.literal("in_process")("type") }).pipe(
-    Config.map(({ type }): YamlInProcessService => ({ type })),
-  );
+const PortNumber = Schema.Number.pipe(
+  Schema.int(),
+  Schema.greaterThanOrEqualTo(1),
+  Schema.lessThanOrEqualTo(MAX_PORT_NUMBER),
+);
 
-const YamlServiceBlock: Config.Config<YamlServiceConfig> =
-  YamlWebhookServiceConfig.pipe(
-    Config.orElse(() => YamlInProcessServiceConfig),
-  );
+const NonEmpty = Schema.String.pipe(Schema.minLength(1));
 
-interface YamlConfig {
-  readonly server?: {
-    readonly port?: number;
-    readonly cors_origins?: string[];
-  };
-  readonly database?: { readonly url?: string; readonly data_dir?: string };
-  readonly encryption?: { readonly master_secret?: string };
-  readonly services?: {
-    readonly contacts?: YamlServiceConfig;
-  };
-  readonly registration?: { readonly secret?: string };
-  readonly dev_mode?: { readonly enabled: boolean; readonly user_id?: string };
-  readonly apps?: ReadonlyArray<{ readonly manifest: string }>;
-}
-
-const YamlConfigSchema: Config.Config<YamlConfig> = Config.all({
-  server: opt(
-    Config.all({
-      port: opt(portNumber("port")),
-      cors_origins: opt(Config.array(Config.string(), "cors_origins")),
-    }).pipe(Config.nested("server")),
+const WebhookServiceShape = Schema.Struct({
+  type: Schema.Literal("webhook"),
+  webhook_url: UriString,
+  timeout_ms: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(100)),
   ),
-  database: opt(
-    Config.all({
-      url: opt(nonEmptyString("url")),
-      data_dir: opt(Config.string("data_dir")),
-    }).pipe(Config.nested("database")),
-  ),
-  encryption: opt(
-    Config.all({
-      master_secret: opt(nonEmptyString("master_secret")),
-    }).pipe(Config.nested("encryption")),
-  ),
-  services: opt(
-    Config.all({
-      contacts: opt(YamlServiceBlock.pipe(Config.nested("contacts"))),
-    }).pipe(Config.nested("services")),
-  ),
-  registration: opt(
-    Config.all({ secret: opt(nonEmptyString("secret")) }).pipe(
-      Config.nested("registration"),
-    ),
-  ),
-  dev_mode: opt(
-    Config.all({
-      enabled: Config.boolean("enabled"),
-      user_id: opt(nonEmptyString("user_id")),
-    }).pipe(Config.nested("dev_mode")),
-  ),
-  apps: opt(
-    Config.array(Config.all({ manifest: nonEmptyString("manifest") }), "apps"),
-  ),
+  callback_token: Schema.optional(NonEmpty),
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Private: structural YAML validation (TypeBox Value.Check)
-//
-// Effect `Config` (above) is lenient by design — it relaxes
-// `encryption.master_secret` to optional and silently ignores keys it
-// does not read. Both gaps are dangerous: a camelCase typo
-// (`masterSecret`) or `encryption: {}` would pass Config validation and
-// silently disable at-rest encryption (plaintext storage). This TypeBox
-// schema runs first and rejects everything the prior Ajv schema rejected:
-// unknown keys (`additionalProperties: false`), missing required
-// `master_secret`, malformed `webhook_url`, sub-100ms `timeout_ms`, and
-// invalid `log_level`. Ajv itself is gone; the project's own schema lib
-// supplies the same structural guarantees.
-// ─────────────────────────────────────────────────────────────────────
+const InProcessServiceShape = Schema.Struct({
+  type: Schema.Literal("in_process"),
+});
 
-// TypeBox `Value.Check` ignores `format` unless the format name is
-// registered. ajv-formats `uri` requires an absolute URI (a scheme);
-// `URL.canParse` enforces exactly that, so `not-a-url` is rejected while
-// `https://hooks.example.com/x` passes — matching the prior Ajv behavior.
-FormatRegistry.Set("uri", (value: string): boolean => URL.canParse(value));
+const ServiceShape = Schema.Union(WebhookServiceShape, InProcessServiceShape);
 
-const WebhookServiceShape = Type.Object(
-  {
-    type: Type.Literal("webhook"),
-    webhook_url: Type.String({ format: "uri" }),
-    timeout_ms: Type.Optional(Type.Integer({ minimum: 100 })),
-    callback_token: Type.Optional(Type.String({ minLength: 1 })),
-  },
-  { additionalProperties: false },
-);
+const AppRefShape = Schema.Struct({ manifest: NonEmpty });
 
-const InProcessServiceShape = Type.Object(
-  { type: Type.Literal("in_process") },
-  { additionalProperties: false },
-);
+const MoltZapConfigShape = Schema.Struct({
+  server: Schema.optional(
+    Schema.Struct({
+      port: Schema.optional(PortNumber),
+      cors_origins: Schema.optional(Schema.Array(Schema.String)),
+    }),
+  ),
+  database: Schema.optional(
+    Schema.Struct({
+      url: Schema.optional(NonEmpty),
+      data_dir: Schema.optional(Schema.String),
+    }),
+  ),
+  encryption: Schema.optional(Schema.Struct({ master_secret: NonEmpty })),
+  services: Schema.optional(
+    Schema.Struct({ contacts: Schema.optional(ServiceShape) }),
+  ),
+  registration: Schema.optional(
+    Schema.Struct({ secret: Schema.optional(NonEmpty) }),
+  ),
+  dev_mode: Schema.optional(
+    Schema.Struct({
+      enabled: Schema.Boolean,
+      user_id: Schema.optional(NonEmpty),
+    }),
+  ),
+  apps: Schema.optional(Schema.Array(AppRefShape)),
+  // `log_level` is validated here but read nowhere downstream — operators
+  // get a typo rejection, the boot plan ignores the field.
+  log_level: Schema.optional(Schema.Literal("debug", "info", "warn", "error")),
+});
 
-const ServiceShape = Type.Union([WebhookServiceShape, InProcessServiceShape]);
+type YamlConfig = Schema.Schema.Type<typeof MoltZapConfigShape>;
+type YamlServiceConfig = Schema.Schema.Type<typeof ServiceShape>;
 
-const AppRefShape = Type.Object(
-  { manifest: Type.String({ minLength: 1 }) },
-  { additionalProperties: false },
-);
-
-const MoltZapConfigShape = Type.Object(
-  {
-    server: Type.Optional(
-      Type.Object(
-        {
-          port: Type.Optional(Type.Integer({ minimum: 1, maximum: 65_535 })),
-          cors_origins: Type.Optional(Type.Array(Type.String())),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    database: Type.Optional(
-      Type.Object(
-        {
-          url: Type.Optional(Type.String({ minLength: 1 })),
-          data_dir: Type.Optional(Type.String()),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    encryption: Type.Optional(
-      Type.Object(
-        { master_secret: Type.String({ minLength: 1 }) },
-        { additionalProperties: false },
-      ),
-    ),
-    services: Type.Optional(
-      Type.Object(
-        {
-          contacts: Type.Optional(ServiceShape),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    registration: Type.Optional(
-      Type.Object(
-        { secret: Type.Optional(Type.String({ minLength: 1 })) },
-        { additionalProperties: false },
-      ),
-    ),
-    dev_mode: Type.Optional(
-      Type.Object(
-        {
-          enabled: Type.Boolean(),
-          user_id: Type.Optional(Type.String({ minLength: 1 })),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    apps: Type.Optional(Type.Array(AppRefShape)),
-    log_level: Type.Optional(
-      Type.Union([
-        Type.Literal("debug"),
-        Type.Literal("info"),
-        Type.Literal("warn"),
-        Type.Literal("error"),
-      ]),
-    ),
-  },
-  { additionalProperties: false },
-);
+const decodeConfigShape = Schema.decodeUnknownEither(MoltZapConfigShape, {
+  errors: "all",
+  onExcessProperty: "error",
+});
 
 /**
- * Structural validation of the interpolated YAML before the lenient
- * Effect `Config` decode. Surfaces every `Value.Errors` leaf (path +
- * message) as a single `ConfigLoadError`. Softer messages than Ajv's
- * keyword-by-keyword formatter, identical structural rejections.
+ * Decode the interpolated YAML into the typed `YamlConfig`. Surfaces the
+ * full `ParseError` tree (path + message per leaf) as a single
+ * `ConfigLoadError`.
  */
-function validateYamlShape(
+function decodeYamlShape(
   value: unknown,
   configPath: string,
-): Effect.Effect<unknown, ConfigLoadError> {
-  return Effect.sync(() => Value.Check(MoltZapConfigShape, value)).pipe(
-    Effect.flatMap((ok) =>
-      ok
-        ? Effect.succeed(value)
-        : Effect.fail(
-            new ConfigLoadError({
-              kind: "validation",
-              path: configPath,
-              message: `Invalid config in "${configPath}":${formatValueErrors(value)}`,
-            }),
-          ),
-    ),
-    Effect.withSpan("validateYamlShape"),
-  );
-}
-
-function formatValueErrors(value: unknown): string {
-  const lines: string[] = [];
-  const seen = new Set<string>();
-  for (const error of Value.Errors(MoltZapConfigShape, value)) {
-    const line = `  ${error.path || "/"}: ${error.message}`;
-    if (!seen.has(line)) {
-      seen.add(line);
-      lines.push(line);
-    }
-  }
-  return "\n" + lines.join("\n");
+): Effect.Effect<YamlConfig, ConfigLoadError> {
+  return Either.match(decodeConfigShape(value), {
+    onLeft: (error) =>
+      Effect.fail(
+        new ConfigLoadError({
+          kind: "validation",
+          path: configPath,
+          message: `Invalid config in "${configPath}":\n${TreeFormatter.formatErrorSync(error)}`,
+        }),
+      ),
+    onRight: (yaml) => Effect.succeed(yaml),
+  }).pipe(Effect.withSpan("decodeYamlShape"));
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -411,11 +251,10 @@ function formatValueErrors(value: unknown): string {
 type ProcessEnvSnapshot = Readonly<Record<string, string | undefined>>;
 
 /**
- * Top-level YAML document shape. `ConfigProvider.fromJson` silently
- * accepts any input — handing it a scalar, array, or `null` turns every
- * subsequent `Config.nested(...)` lookup into a "missing key" error that
- * hides the real problem (the file is not a config mapping). Decoding
- * at the boundary fails loudly with one clear message instead.
+ * Top-level YAML document shape. A scalar, array, or `null` at the top
+ * level is not a config mapping. Decoding it here — before env
+ * interpolation — fails loudly with one clear "must be a mapping"
+ * message instead of a confusing per-key validation error downstream.
  */
 const YamlDocumentSchema = Schema.Record({
   key: Schema.String,
@@ -522,7 +361,7 @@ function interpolateEnvVars(
         // Treat empty string the same as undefined: an accidentally empty
         // env var would otherwise silently interpolate into strings like
         // `https://${HOST}/callback` and produce a broken URL that still
-        // passes `nonEmptyString` at the outer key.
+        // passes the outer key's minLength check.
         if (value === undefined || value === "") {
           if (missing === null) missing = varName;
           return "";
@@ -562,31 +401,6 @@ function interpolateEnvVars(
   return Effect.succeed(obj);
 }
 
-function decodeYaml(
-  raw: unknown,
-  configPath: string,
-): Effect.Effect<YamlConfig, ConfigLoadError> {
-  return YamlConfigSchema.pipe(
-    Effect.withConfigProvider(ConfigProvider.fromJson(raw ?? {})),
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: (configError) =>
-          Effect.fail(
-            new ConfigLoadError({
-              kind: "validation",
-              path: configPath,
-              message: `Invalid config in "${configPath}": ${formatConfigError(configError)}`,
-              configError,
-            }),
-          ),
-        onRight: (value) => Effect.succeed(value),
-      }),
-    ),
-    Effect.withSpan("decodeYaml"),
-  );
-}
-
 function resolveConfigDir(
   configPath: string,
 ): Effect.Effect<string, never, FileSystem.FileSystem | Path.Path> {
@@ -602,41 +416,6 @@ function resolveConfigDir(
       ),
     );
   }).pipe(Effect.withSpan("resolveConfigDir"));
-}
-
-function formatConfigError(err: ConfigError): string {
-  const lines: string[] = [];
-  const pushLeaf = (e: { path: ReadonlyArray<string>; message: string }) => {
-    lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
-  };
-  const walk = (e: ConfigError): void =>
-    Match.value(e).pipe(
-      Match.discriminatorsExhaustive("_op")({
-        And: (and) => {
-          walk(and.left);
-          walk(and.right);
-        },
-        Or: (or) => {
-          walk(or.left);
-          walk(or.right);
-        },
-        InvalidData: pushLeaf,
-        MissingData: pushLeaf,
-        Unsupported: pushLeaf,
-        SourceUnavailable: pushLeaf,
-      }),
-    );
-  walk(err);
-  // Dedupe while preserving order.
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const line of lines) {
-    if (!seen.has(line)) {
-      seen.add(line);
-      out.push(line);
-    }
-  }
-  return "\n" + out.join("\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -947,8 +726,7 @@ function loadYamlFromDisk(
       configPath,
       processEnv,
     );
-    const validated = yield* validateYamlShape(interpolated, configPath);
-    const yaml = yield* decodeYaml(validated, configPath);
+    const yaml = yield* decodeYamlShape(interpolated, configPath);
     const configDirectory = yield* resolveConfigDir(configPath);
     return { yaml, configDirectory };
   });

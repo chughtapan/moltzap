@@ -55,7 +55,6 @@
     "@opentelemetry/sdk-trace-base": "2.7.1",
     "@opentelemetry/sdk-trace-node": "2.7.1",
     "@opentelemetry/semantic-conventions": "1.41.1",
-    "@sinclair/typebox": "^0.34.0",
     "effect": "3.21.2",
     "kysely": "^0.28.2",
     "kysely-pglite": "^0.6.1",
