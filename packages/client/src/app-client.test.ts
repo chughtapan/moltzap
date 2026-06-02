@@ -51,7 +51,7 @@ import {
   DOMAIN_REJECTED_MESSAGE,
   DOMAIN_REJECTED_REASON,
   GRANT_DECISION,
-  HANDLER_REJECTION_CODE,
+  HANDLER_REJECTION_TAG,
   JSON_RPC_VERSION,
   LOCALHOST_HOST,
   MALFORMED_FRAME_FLUSH_MS,
@@ -232,7 +232,7 @@ scopedEffectTest(
         const beforeCount = serverConn.received.length;
 
         const rpcFiber = yield* Effect.fork(
-          client.call(MessagesSend.name, {
+          sendRpcEffect(client, MessagesSend, {
             taskId: TEST_TASK_ID,
             conversationId: TEST_CONVERSATION_ID,
             parts: [{ type: "text", text: "payload" }],
@@ -535,7 +535,7 @@ effectTest("uses definition.name as the wire-level method string", () =>
       const client = makeClient(server.url);
       yield* connectClient(client);
 
-      const result = yield* client.call(AgentsLookupByName.name, {
+      const result = yield* sendRpcEffect(client, AgentsLookupByName, {
         names: ["alice"],
       });
       expect(result.agents).toEqual([]);
@@ -775,7 +775,7 @@ effectTest(
         if (!validateResponseFrame(parsed)) return;
         expect("error" in parsed).toBe(true);
         if (!("error" in parsed)) return;
-        expect(parsed.error.code).toBe(HANDLER_REJECTION_CODE);
+        expect(parsed.error._tag).toBe(HANDLER_REJECTION_TAG);
         expect(parsed.error.message).toBe(DOMAIN_REJECTED_MESSAGE);
         expect((parsed.error.data as { reason: string }).reason).toBe(
           DOMAIN_REJECTED_REASON,
