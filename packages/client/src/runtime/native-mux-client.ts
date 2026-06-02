@@ -9,47 +9,45 @@
  * registers the `c2s` sink so `runMuxReader` routes inbound `{ch,f}` envelopes
  * back into the client engine.
  *
- * The client is built in `flatten` mode, so its surface is one tag-keyed call
- * function `(tag, payload) => Effect&lt;result, RpcClientError>` — the descriptor-
- * driven `.call(def, params)` the high-level clients already speak maps onto it
- * by passing `def.name` (the branded wire tag) as the tag.
+ * The client is built in `flatten` mode: its surface is the typed tag-keyed call
+ * `<Tag>(tag, payload) => Effect<result, error>`. The result and error are
+ * recovered PER TAG from the group's member — the engine decodes the wire error
+ * against that method's own `errorSchema` union, so the call's error channel is
+ * the method's typed tagged errors. The descriptor-driven `call(def, params)`
+ * passes `def.name` (the branded wire tag) as the tag; the flat client's own
+ * signature re-types the result + error per tag with no cast.
  */
 import { RpcClient, type Rpc, type RpcGroup } from "@effect/rpc";
+import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Deferred, Effect, Layer, Scope } from "effect";
 import {
   makeClientChannelProtocol,
   type ChannelSink,
-  type ParamsOf,
-  type ResultOf,
-  type RpcCallError,
-  type RpcDefinition,
   type WireWrite,
 } from "@moltzap/protocol";
 
 /**
- * The flat client's tag-keyed call function shape: `(tag, payload) => Effect`.
- * The `RpcClient.Flat` type erases to this at the value boundary, so the
- * descriptor-driven `call` re-types its result per definition.
+ * The typed tag-keyed call surface of the native flat client. `Tag` is a
+ * member tag of the group's `Rpcs`; the result and error are recovered per tag
+ * (the error includes the method's `errorSchema` union plus the engine's
+ * `RpcClientError`). The high-level clients pass `definition.name` as `Tag`.
  */
-type FlatCall = (
-  tag: string,
-  payload: unknown,
-) => Effect.Effect<unknown, RpcCallError>;
+export type NativeFlatCall<Rpcs extends Rpc.Any> = RpcClient.RpcClient.Flat<
+  Rpcs,
+  RpcClientError
+>;
 
 /**
- * Build the native client engine over one socket channel. Returns the
- * descriptor-driven connection plus a `Deferred` already resolved with the
- * `c2s` sink. The engine reader is forked into the provided `Scope`.
+ * Build the native client engine over one socket channel. Returns the typed
+ * flat `call` plus a `Deferred` already resolved with the `c2s` sink. The engine
+ * reader is forked into the provided `Scope`.
  */
 export const buildNativeClient = <Rpcs extends Rpc.Any>(options: {
   readonly group: RpcGroup.RpcGroup<Rpcs>;
   readonly write: WireWrite;
   readonly scope: Scope.Scope;
 }): Effect.Effect<{
-  readonly call: <D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
+  readonly call: NativeFlatCall<Rpcs>;
   readonly sink: ChannelSink;
 }> =>
   Effect.gen(function* () {
@@ -67,19 +65,9 @@ export const buildNativeClient = <Rpcs extends Rpc.Any>(options: {
         ),
       ),
     );
-    const flat = yield* RpcClient.make(options.group, {
+    const call = yield* RpcClient.make(options.group, {
       flatten: true,
     }).pipe(Effect.provide(protocolLayer), Scope.extend(options.scope));
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- RpcClient.Flat erases to a tag-keyed call fn at the value boundary; the descriptor-driven call re-types its result per definition.
-    const flatCall = flat as unknown as FlatCall; // #ignore-sloppy-code[as-unknown-as]: flat RpcClient value-boundary erasure to the tag-keyed call shape.
     const sink = yield* Deferred.await(sinkReady);
-    const call = <D extends RpcDefinition<string, any, any>>(
-      definition: D,
-      params: ParamsOf<D>,
-    ): Effect.Effect<ResultOf<D>, RpcCallError> =>
-      flatCall(definition.name, params) as Effect.Effect<
-        ResultOf<D>,
-        RpcCallError
-      >;
     return { call, sink };
   }).pipe(Effect.withSpan("buildNativeClient"));
