@@ -165,24 +165,54 @@ const mwEnv = Effect.gen(function* () {
 });
 
 /**
- * Build one cap mw impl Layer: the impl maps the decoded `payload` (+ the
- * caller's agent id, peeked off the live arm) to the obtain's input, runs the
- * obtain under the `mwEnv` snapshot, and provides the cap's value. The single
- * shape every caller-reading cap middleware shares.
+ * The Layer requirement every cap mw impl shares: the obtain services plus the
+ * connection manager (for the caller-peeking variant).
+ */
+type CapMwLayerR =
+  | TaskServiceTag
+  | ConversationServiceTag
+  | MessageServiceTag
+  | ConnectionManagerTag;
+
+/**
+ * Build a cap mw impl Layer whose `derive` reads ONLY the decoded `payload` (no
+ * caller). Used for caps that gate on pure params — e.g. `ConversationInTask`,
+ * which the app-principal `task/conversation/*` methods declare, so its impl
+ * MUST NOT peek the caller's AGENT id (the live arm is an `AppConnection`).
  */
 const capMwLayer = <Mw extends RpcMiddleware.TagClassAny, Value, Err, In>(
+  mw: Mw,
+  derive: (payload: unknown) => In,
+  obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
+): Layer.Layer<Context.Tag.Identifier<Mw>, never, CapMwLayerR> =>
+  Layer.effect(
+    mw,
+    Effect.map(
+      mwEnv,
+      (env) =>
+        ({ payload }: MwOptions) =>
+          obtain(derive(payload)).pipe(Effect.provide(env)),
+    ),
+  );
+
+/**
+ * Build a cap mw impl Layer whose `derive` ALSO reads the caller's agent id,
+ * peeked off the live arm. Used by the agent-principal caps
+ * (`ConversationSendAccess`, `TaskReadAccess`, `ContactPolicyAllowsReach`); the
+ * peek dies on a non-agent arm, which is sound only because these caps gate
+ * agent-callable methods.
+ */
+const capMwLayerWithCaller = <
+  Mw extends RpcMiddleware.TagClassAny,
+  Value,
+  Err,
+  In,
+>(
   mw: Mw,
   connId: ConnectionId,
   derive: (payload: unknown, callerAgentId: AgentId) => In,
   obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
-): Layer.Layer<
-  Context.Tag.Identifier<Mw>,
-  never,
-  | TaskServiceTag
-  | ConversationServiceTag
-  | MessageServiceTag
-  | ConnectionManagerTag
-> =>
+): Layer.Layer<Context.Tag.Identifier<Mw>, never, CapMwLayerR> =>
   Layer.effect(
     mw,
     Effect.map(
@@ -203,21 +233,21 @@ const capMwLayer = <Mw extends RpcMiddleware.TagClassAny, Value, Err, In>(
  * Every per-socket cap-middleware impl Layer, merged. The engine stacks each cap
  * mw on the methods that declare it; this provides ONE impl per cap mw Tag for
  * the socket (the impl ignores methods that do not stack it). `ConversationInTask`
- * reads no caller (pure params); the rest peek the caller's agent id.
+ * reads no caller (pure params — it gates app-principal methods too); the rest
+ * peek the caller's agent id.
  */
 export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
   Layer.mergeAll(
     makePrincipalGateLayer(connId),
     capMwLayer(
       ConversationInTaskMw,
-      connId,
       (payload) => {
         const p = payload as TaskAndConvParams;
         return { taskId: p.taskId, conversationId: p.conversationId };
       },
       obtainConversationInTask,
     ),
-    capMwLayer(
+    capMwLayerWithCaller(
       ConversationSendAccessMw,
       connId,
       (payload, senderAgentId) => {
@@ -230,7 +260,7 @@ export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
       },
       obtainConversationSendAccess,
     ),
-    capMwLayer(
+    capMwLayerWithCaller(
       TaskReadAccessMw,
       connId,
       (payload, callerAgentId) => ({
@@ -239,7 +269,7 @@ export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
       }),
       obtainTaskReadAccess,
     ),
-    capMwLayer(
+    capMwLayerWithCaller(
       ContactPolicyAllowsReachMw,
       connId,
       (payload, creatorAgentId) => ({

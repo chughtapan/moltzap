@@ -163,17 +163,27 @@ const buildEngineMember = (definition: AnyRpcDefinition) => {
   ) {
     return member;
   }
-  // Authenticated WS method: stack the principal gate first, then one
-  // middleware per declared cap in run order (resolved by the cap tag's `key`).
-  let gated: ReturnType<typeof member.middleware> =
-    member.middleware(PrincipalGateMw);
+  // Authenticated WS method: stack one middleware per declared cap, THEN the
+  // principal gate last. `@effect/rpc` folds the middleware set in insertion
+  // order, wrapping the handler each step, so the LAST-attached middleware runs
+  // FIRST at request time. The gate (a no-`provides` middleware) folds as
+  // `Effect.zipRight(gate, inner)` — it runs before whatever it wraps; attaching
+  // it last therefore puts it ahead of every cap obtain, so an unauthenticated
+  // or wrong-arm caller is rejected BEFORE any cap does its DB work.
+  // A declared cap with no registered middleware is left UNGATED here, which the
+  // boot guard `findEngineGatingMismatch` detects: `expectedCapMwKeysByTag`
+  // records the cap's own `key` as expected (a placeholder, since no mw key
+  // exists), so the built member's middleware set is missing it and the guard
+  // fails the boot.
+  let gated: ReturnType<typeof member.middleware> | typeof member = member;
   for (const cap of definition.caps) {
     const capMw = capMiddlewareByCapKey[cap.key];
-    if (capMw !== undefined) {
-      gated = gated.middleware(capMw);
+    if (capMw === undefined) {
+      continue;
     }
+    gated = gated.middleware(capMw);
   }
-  return gated;
+  return gated.middleware(PrincipalGateMw);
 };
 
 /**
@@ -285,7 +295,14 @@ const ungatedMethods = new Set<string>([
   ...HTTP_ONLY_METHODS,
 ]);
 
-/** The cap-mw keys a descriptor's `caps` map to (skips a cap with no mw). */
+/**
+ * The cap-mw keys a descriptor's `caps` map to — the EXPECTED middleware set for
+ * the method (principal gate + each cap's mw key). A declared cap with NO
+ * middleware in {@link capMiddlewareByCapKey} records the cap's OWN `key` as a
+ * placeholder expected key; `buildEngineMember` cannot stack a non-existent mw,
+ * so the built member is missing that key and {@link findEngineGatingMismatch}
+ * fails the boot — catching an under-gated method rather than shipping it.
+ */
 const expectedCapMwKeysByTag = new Map<string, ReadonlySet<string>>(
   serverRpcMethods.map((definition) => {
     const tag = definition.name as string;
@@ -295,9 +312,7 @@ const expectedCapMwKeysByTag = new Map<string, ReadonlySet<string>>(
     const keys = new Set<string>([PrincipalGateMw.key]);
     for (const cap of definition.caps) {
       const capMw = capMiddlewareByCapKey[cap.key];
-      if (capMw !== undefined) {
-        keys.add(capMw.key);
-      }
+      keys.add(capMw === undefined ? cap.key : capMw.key);
     }
     return [tag, keys] as const;
   }),
