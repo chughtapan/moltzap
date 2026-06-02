@@ -18,7 +18,8 @@
  * channel `s2c`): the client originates nothing on s2c, it only serves. The
  * caller registers the returned sink with `runMuxReader`.
  */
-import { RpcGroup, RpcServer } from "@effect/rpc";
+import { RpcServer } from "@effect/rpc";
+import type { RpcGroup } from "@effect/rpc";
 import { Deferred, Effect, Layer, Scope } from "effect";
 import {
   ReverseRpcGroup,
@@ -55,11 +56,24 @@ const notificationHandler =
     return registry.dispatch(decoded);
   };
 
+/** One erased reverse-handler slot: any payload, any failure, `void`-ish result. */
+type ReverseHandler = (
+  params: never,
+) => Effect.Effect<unknown, unknown>;
+
 /**
  * Build the reverse handler map. Every notification tag routes into the
  * registry; the three callback tags use the supplied `callbackHandlers` (the
  * app client's moderator handlers) or a default reject (an agent client serves
  * the group but is never a moderator).
+ *
+ * The return is annotated `HandlersFrom&lt;Rpcs>` (a plain type annotation, NOT a
+ * cast): TS checks the dynamically-keyed `Record` is assignable to the branded
+ * per-tag shape — each slot's erased `(params: never) => Effect&lt;unknown,
+ * unknown>` is broad enough to satisfy every member's `ToHandlerFn` — so the
+ * binding is type-verified, not laundered. The per-tag payload↔handler
+ * correlation holds by construction (each notification handler is bound to its
+ * own definition; each callback handler keyed by its method name).
  */
 const buildReverseHandlers = (options: {
   readonly registry: SubscriberRegistry;
@@ -67,26 +81,18 @@ const buildReverseHandlers = (options: {
     string,
     (params: unknown) => Effect.Effect<unknown, unknown>
   >;
-}) => {
-  const handlers: Record<
-    string,
-    (params: never) => Effect.Effect<unknown, unknown>
-  > = {};
+}): RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ReverseRpcGroup>> => {
+  const handlers: Record<string, ReverseHandler> = {};
   for (const definition of notificationDefinitions) {
     handlers[definition.name] = notificationHandler(
       options.registry,
       definition,
-    ) as (params: never) => Effect.Effect<unknown, unknown>;
+    );
   }
   for (const [tag, handler] of Object.entries(options.callbackHandlers)) {
-    handlers[tag] = handler as (
-      params: never,
-    ) => Effect.Effect<unknown, unknown>;
+    handlers[tag] = handler;
   }
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- the handler map is built by tag from notificationDefinitions + callbackHandlers; the per-tag payload→handler correlation is sound by construction (each notification handler is bound to its own definition), relabelled to the branded HandlersFrom shape so toLayer binds.
-  return handlers as unknown as RpcGroup.HandlersFrom<
-    RpcGroup.Rpcs<typeof ReverseRpcGroup>
-  >; // #ignore-sloppy-code[as-unknown-as]: tag-keyed reverse handler map relabel to the branded HandlersFrom shape.
+  return handlers;
 };
 
 /**

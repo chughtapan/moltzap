@@ -20,7 +20,7 @@
  * closed-over `connId` is the only connection key. The 2-concurrent-socket
  * cross-principal isolation test is the regression proof.
  */
-import { RpcGroup } from "@effect/rpc";
+import type { RpcGroup } from "@effect/rpc";
 import { Effect, Layer, type Deferred, type Mailbox } from "effect";
 import {
   ServerEngineLayer,
@@ -130,14 +130,15 @@ const makeAuthMwLayer = (connId: ConnectionId) =>
  * `ExcludeProvides` keys its per-handler proof exclusion on `K extends
  * Rpcs["_tag"]` — a plain-string key never matches the branded member tag, so
  * the per-method `*Auth` proof would leak into the bound Layer's requirement
- * channel as an unsatisfiable static dependency. Relabelling the keys to the
- * branded `HandlersFrom` shape lets `ExcludeProvides` fire: each handler's own
- * proof drops out (the per-method `*AuthMw` provides it at request time).
+ * channel as an unsatisfiable static dependency. A plain type annotation
+ * (NOT a cast) checks the literal is assignable to the branded `HandlersFrom`
+ * shape — the brand is structural, so it passes — and gives the binding the
+ * branded type so `ExcludeProvides` fires: each handler's own proof drops out
+ * (the per-method `*AuthMw` provides it at request time).
  */
-// eslint-disable-next-line agent-code-guard/as-unknown-as -- brand relabel: the runtime map keys by plain wire-string literals, the group members by branded JsonRpcMethod tags; structurally identical (the brand is a phantom), relabelled so toLayer's ExcludeProvides keys its per-handler proof exclusion correctly.
-const brandedHandlers = serverNativeHandlers as unknown as RpcGroup.HandlersFrom<
+const brandedHandlers: RpcGroup.HandlersFrom<
   RpcGroup.Rpcs<typeof WsServerEngineRpcGroup>
->; // #ignore-sloppy-code[as-unknown-as]: plain-string→branded-tag handler-key relabel so toLayer excludes each method's *Auth proof.
+> = serverNativeHandlers;
 
 /**
  * Build the full per-socket engine Layer: `RpcServer.layer` (the dispatch
