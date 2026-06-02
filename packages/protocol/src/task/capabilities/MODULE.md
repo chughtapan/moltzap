@@ -271,11 +271,11 @@ export class MessageSendPermission extends Context.Tag(
 )<MessageSendPermission, MessageSendPermissionValue>() {
   static get errors() {
     return [
-    ConversationNotFoundError,
-    NotAParticipantError,
-    ConversationArchivedError,
-    TaskClosedError,
-  ] as const;
+      ConversationNotFoundError,
+      NotAParticipantError,
+      ConversationArchivedError,
+      TaskClosedError,
+    ] as const;
   }
 }
 ```
