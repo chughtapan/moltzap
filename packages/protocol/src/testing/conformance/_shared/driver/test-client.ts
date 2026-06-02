@@ -878,6 +878,15 @@ const MuxEnvelopeSchema = Schema.Struct({
 });
 const decodeMuxEnvelope = Schema.decodeUnknownEither(MuxEnvelopeSchema);
 
+// The wire-method names the server fires as fire-and-forget NOTIFICATIONS (no
+// reply expected). `RpcSerialization.jsonRpc` carries every server→client frame
+// as a Request (with an `id`); the driver demotes a known-notification frame to
+// a no-`id` notification so `isNotificationFrame` routes it to subscribers, and
+// keeps the `id` on the app-callback methods (genuine s2c requests).
+const NOTIFICATION_METHODS = new Set<string>(
+  notificationDefinitions.map((d) => d.name as string),
+);
+
 function decodeSocketData(data: string | Uint8Array): string {
   const text =
     typeof data === "string" ? data : new TextDecoder("utf-8").decode(data);
@@ -887,43 +896,76 @@ function decodeSocketData(data: string | Uint8Array): string {
     onLeft: () => text,
     onRight: (env) => env.f,
   });
-  return normalizeFrameId(frame);
+  return normalizeNativeFrame(frame);
 }
 
 /**
- * The native engine round-trips the request id through `BigInt`, so a numeric
- * driver id comes back as a JSON number. The driver's frame schema brands a
- * STRING id, so re-stringify a numeric TOP-LEVEL `id` before the frame decoder
- * runs. Parses and re-serializes (only when the id is numeric) so a numeric
- * `id` nested in a payload is never touched.
+ * Reconcile a native `@effect/rpc`/jsonRpc wire frame with the driver's strict
+ * JSON-RPC frame schema:
+ *   - strip the native-engine extras (`headers`, `traceId`, `spanId`,
+ *     `sampled`) the strict schema rejects as excess keys;
+ *   - re-stringify a numeric top-level `id` (the driver brands a STRING id);
+ *   - drop the `id` entirely for a known-notification method, so it classifies
+ *     as a notification, not a request.
+ * A payload the bridge does not recognize passes through unchanged.
  */
-function normalizeFrameId(frame: string): string {
-  return Either.match(decodeNumericIdFrame(safeJsonParse(frame)), {
+function normalizeNativeFrame(frame: string): string {
+  const parsed = safeJsonParse(frame);
+  if (typeof parsed !== "object" || parsed === null) return frame;
+  return Either.match(decodeNativeFrame(parsed), {
     onLeft: () => frame,
-    onRight: (decoded) =>
-      JSON.stringify({ ...decoded.rest, id: String(decoded.id) }),
+    onRight: ({ id, method, rest }) => {
+      const isNotification =
+        method !== undefined && NOTIFICATION_METHODS.has(method);
+      return JSON.stringify({
+        ...rest,
+        ...(method !== undefined ? { method } : {}),
+        ...(id !== undefined && !isNotification ? { id: String(id) } : {}),
+      });
+    },
   });
 }
 
-// Matches a frame whose top-level `id` is a JSON number; `rest` keeps the other
-// top-level keys verbatim. A frame with a string id (or no numeric id) fails the
-// decode and `normalizeFrameId` returns it unchanged.
-const NumericIdFrameSchema = Schema.Struct(
-  { id: Schema.Number },
+// Picks the native extras off a frame and exposes `id`/`method` for the
+// notification demotion; `rest` keeps the JSON-RPC keys (`jsonrpc`, `params`,
+// `result`, `error`) verbatim. A non-object frame fails the decode and the
+// caller returns the frame unchanged.
+const NativeFrameSchema = Schema.Struct(
+  {
+    id: Schema.optional(Schema.Union(Schema.Number, Schema.String)),
+    method: Schema.optional(Schema.String),
+    headers: Schema.optional(Schema.Unknown),
+    traceId: Schema.optional(Schema.Unknown),
+    spanId: Schema.optional(Schema.Unknown),
+    sampled: Schema.optional(Schema.Unknown),
+  },
   { key: Schema.String, value: Schema.Unknown },
 ).pipe(
   Schema.transform(
     Schema.Struct({
-      id: Schema.Number,
+      id: Schema.optional(Schema.Union(Schema.Number, Schema.String)),
+      method: Schema.optional(Schema.String),
       rest: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
     }),
     {
-      decode: ({ id, ...rest }) => ({ id, rest }),
-      encode: ({ id, rest }) => ({ id, ...rest }),
+      // The source struct's index signature folds `headers`/`traceId`/`spanId`/
+      // `sampled` into the indexed rest; drop them so only the JSON-RPC keys
+      // (`jsonrpc`, `params`, `result`, `error`) survive into `rest`.
+      decode: ({ id, method, ...indexed }) => {
+        const {
+          headers: _h,
+          traceId: _t,
+          spanId: _s,
+          sampled: _sp,
+          ...rest
+        } = indexed;
+        return { id, method, rest };
+      },
+      encode: ({ id, method, rest }) => ({ id, method, ...rest }),
     },
   ),
 );
-const decodeNumericIdFrame = Schema.decodeUnknownEither(NumericIdFrameSchema);
+const decodeNativeFrame = Schema.decodeUnknownEither(NativeFrameSchema);
 
 /**
  * Parse JSON, returning `null` on failure (callers fail over to the raw text). A
