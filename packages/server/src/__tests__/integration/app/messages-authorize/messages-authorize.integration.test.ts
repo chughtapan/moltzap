@@ -37,6 +37,7 @@ import {
 import {
   conversationId as toConversationId,
   messageId as toMessageId,
+  WIRE_ERROR_TAG,
 } from "@moltzap/protocol/testing";
 
 const it = effectIt.live;
