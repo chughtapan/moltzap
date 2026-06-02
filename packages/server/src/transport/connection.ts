@@ -1,83 +1,53 @@
 import { Data, Effect, HashMap, Match, Option, Ref, type Scope } from "effect";
-import * as Socket from "@effect/platform/Socket";
+import type * as Socket from "@effect/platform/Socket";
 import {
-  makeServerConnection,
   type AnyAppCallbackRpcDefinition,
   type ParamsOf,
   type ResultOf,
   type RpcCallError,
-  type RpcDefinition,
-  type ServerConnection,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { AgentContext, AppContext } from "../transport/context.js";
-import type { ServerRpcSlotTable } from "../transport/context.js";
-import type { ConnectionTag } from "../app/layers.js";
-import type { AppTags } from "./layer-tags.js";
-
-/** Residual `Env` the server slot's `invoke` requires (see `context.ts`). */
-type ServerSlotEnv = Exclude<AppTags, ConnectionTag>;
+import { buildReverseClient, type ReverseClient } from "./reverse-rpc-client.js";
 
 /**
- * Allocate a per-connection #705 HALF-1 cast-free `ServerConnection`
- * whose request ids are prefixed `srv-${connectionId}` (keeps
- * server-originated ids disjoint from client ids in logs and captures).
- * The Scope finalizer registered by the internalized originator helper
- * drains pending Deferreds with `NotConnectedError` when the connection
- * scope closes.
- *
- * Test-only: `slots` defaults to the empty table (no inbound dispatch).
- * Production code passes the application's {@link ServerRpcSlotTable}
- * via `socket-handler.ts → openSocketSession`. The per-method capability
- * discharge lives inside each slot, so there is no separate provider
- * table here (the pre-HALF-1 `handlers` + `capabilities` pair is gone).
+ * Allocate a per-connection reverse `RpcClient<ReverseRpcGroup>` over the
+ * socket's `write`. The server fires moderator callbacks (awaited) and
+ * notifications (fork-and-forget) at the connected client through it; the
+ * client serves them via its reverse `RpcServer`. The returned client's s2c
+ * sink is registered with the socket's `runMuxReader` (the caller threads it
+ * in). Scope-bound: the client + its engine reader tear down with the
+ * connection scope.
  */
 export function acquireConnectionRpcClient(
   connectionId: ConnectionId,
   write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
-  slots: ServerRpcSlotTable = {},
-): Effect.Effect<
-  ServerConnection<ServerSlotEnv, Connection>,
-  never,
-  Scope.Scope
-> {
-  return makeServerConnection({
-    id: connectionId,
-    slots,
-    write,
-    idPrefix: `srv-${connectionId}`,
+): Effect.Effect<ReverseClient, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const scope = yield* Effect.scope;
+    return yield* buildReverseClient({
+      write: (chunk) => write(chunk),
+      scope,
+    });
   });
 }
 
 /**
- * Send an awaitable RPC from server → client over `originator`'s WebSocket.
- *
- * Generic-narrowing wrapper around `originator.call` that constrains `D` to
- * the task-callback RPC union — prevents accidental dispatch of a
- * client→server method on the appCallback channel. Takes the bare
- * {@link Originator} surface (the only field a server→client RPC needs); the
- * caller (`AppHost.callAppRpc`) sources it from the registered app's
- * `AppEndpoint`, which is minted from the live `AppConnection` arm's
- * `originator`.
- *
- * Caller controls timeout via `Effect.timeout` at the call site.
+ * Send an awaitable RPC from server → client over the connection's reverse
+ * client. Narrows `D` to the moderator-callback union so a client→server method
+ * cannot be fired on the reverse channel by mistake. The caller
+ * (`AppHost.callAppRpc`) sources the {@link Originator} from the registered
+ * app's `AppEndpoint`, minted from the live `AppConnection` arm. Caller controls
+ * timeout via `Effect.timeout` at the call site.
  */
 export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
   originator: Originator,
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, RpcCallError, never> {
-  // `AnyAppCallbackRpcDefinition` is a strict subset of the originator's
-  // `AnyServerRpcDefinition` bound; the cast widens to the originator's
-  // generic constraint shape without losing the per-definition
-  // narrowing the caller provides.
-  const call = originator.call as <D2 extends RpcDefinition<string, any, any>>(
-    definition: D2,
-    params: ParamsOf<D2>,
-  ) => Effect.Effect<ResultOf<D2>, RpcCallError>;
-  return call(definition, params);
+  return originator.call(definition, params);
 }
 
 // ===========================================================================
@@ -90,11 +60,12 @@ export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
 // ===========================================================================
 
 /**
- * The outbound originator + inbound dispatcher carried by every connection.
- * Publicly constructible (via `acquireConnectionRpcClient` above); passed to
+ * The per-connection reverse `RpcClient<ReverseRpcGroup>` the server fires
+ * callbacks/notifications through. Publicly constructible (via
+ * `acquireConnectionRpcClient` above); passed to
  * `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
  */
-export type Originator = ServerConnection<ServerSlotEnv, Connection>;
+export type Originator = ReverseClient;
 
 /**
  * The per-connection socket handle (write + shutdown). Lifted to a standalone

@@ -11,6 +11,10 @@
  * own `AppEndpoint` originator inside `AppHost`, not through here.
  */
 import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
+import type {
+  NotificationDefinition,
+  NotificationParamsOf,
+} from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
@@ -241,5 +245,58 @@ export class NetworkSendService {
         ),
       );
     });
+  }
+
+  /**
+   * Fan a server→client notification out to every live connection of each agent
+   * in `agentIds`. The notification rides each target connection's reverse
+   * `RpcClient` (`originator.call`), fired fork-and-forget — the `void` result
+   * settles on the client's ack, the fan-out does not block on the round-trip.
+   * Applies the same per-connection gate as {@link broadcast}
+   * (`connectionCanReceive`): conversation membership + `excludeConnectionId`.
+   */
+  broadcastNotification<D extends NotificationDefinition<string, any>>(
+    agentIds: readonly AgentId[],
+    definition: D,
+    params: NotificationParamsOf<D>,
+    options: BroadcastOptions = {},
+  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
+    return Effect.gen(this, function* () {
+      const delivered: AgentId[] = [];
+      for (const target of agentIds) {
+        const connIds = yield* this.resolver.resolveAll(target);
+        let reached = false;
+        for (const cid of HashSet.values(connIds)) {
+          const connOpt = yield* this.connectionCanReceive(cid, options);
+          if (Option.isNone(connOpt)) continue;
+          this.forkNotificationFire(connOpt.value, cid, definition, params);
+          reached = true;
+        }
+        if (reached) delivered.push(target);
+      }
+      return { delivered };
+    });
+  }
+
+  private forkNotificationFire<D extends NotificationDefinition<string, any>>(
+    conn: AgentConnection,
+    cid: ConnectionId,
+    definition: D,
+    params: NotificationParamsOf<D>,
+  ): void {
+    Effect.runFork(
+      conn.originator.notify(definition, params).pipe(
+        Effect.catchAll((cause) =>
+          Effect.logWarning("broadcast: notification fire failed").pipe(
+            Effect.annotateLogs({
+              event: "broadcast.notify_failed",
+              connId: cid,
+              method: definition.name,
+              cause: String(cause),
+            }),
+          ),
+        ),
+      ),
+    );
   }
 }

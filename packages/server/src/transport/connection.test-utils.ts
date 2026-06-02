@@ -13,13 +13,12 @@ import type { ConnectionManager, Originator } from "./connection.js";
  * consumers.
  */
 const unusedOriginator = (): Originator => ({
-  id: "test-fake-originator",
   call: () => Effect.die("test fake originator.call invoked"),
-  resolve: () => Effect.die("test fake originator.resolve invoked"),
-  failAllPending: () =>
-    Effect.die("test fake originator.failAllPending invoked"),
-  notify: (() => Effect.die("test fake originator.notify invoked")) as never,
-  handle: () => Effect.die("test fake originator.handle invoked"),
+  notify: () => Effect.die("test fake originator.notify invoked"),
+  sink: {
+    parser: undefined as never,
+    inject: () => Effect.die("test fake originator.sink.inject invoked"),
+  },
 });
 
 /**
