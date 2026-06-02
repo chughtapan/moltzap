@@ -4,14 +4,13 @@ _`packages/protocol/src/task/capabilities`_
 
 ## Purpose
 
-Public barrel for R-channel capability tag classes.
+Public barrel for the capability/permission tag classes.
 
-Tag classes + value types, plus the `refine*` helpers (which validate
-an already-fetched row and need no server service). The `obtain*`
-helpers that depend on server-side services live in
-`@moltzap/server-core` — paired with their `CapabilityMiddleware` in
-`app/capability-middlewares.ts`, with the composites in
-`task/services/`.
+Each tag is a permission the server's `*AuthMw` proves before a handler runs:
+the tag class + its value type + the wire errors its proof can fail with
+(`static get errors()`). The `obtain*` impls that resolve a permission against
+server-side services live in `@moltzap/server-core`, paired with their
+`CapabilityMiddleware` in `app/capability-middlewares.ts`.
 
 ## Public surface
 
@@ -205,32 +204,43 @@ verifies the carried `taskId` matches the handler-input `taskId` at
 call time — the one-line runtime check that catches "handler passed
 a different taskId than the obtain proved".
 
-### [`ConversationNotArchived`](./conversation-not-archived.ts#L19)
+### [`ConversationSendAccess`](./conversation-send-access.ts#L26)
 
 _Class_
 
 ```ts
-export class ConversationNotArchived extends Context.Tag(
-  "@moltzap/protocol/ConversationNotArchived",
-)<ConversationNotArchived, ConversationNotArchivedValue>() {}
+export class ConversationSendAccess extends Context.Tag(
+  "@moltzap/protocol/ConversationSendAccess",
+)<ConversationSendAccess, ConversationSendAccessValue>() {
+  static get errors() {
+    return [ForbiddenError] as const;
+  }
+}
 ```
 
-### [`ConversationNotArchivedValue`](./conversation-not-archived.ts#L15)
+### [`ConversationSendAccessValue`](./conversation-send-access.ts#L18)
 
 _Interface_
 
 ```ts
-export interface ConversationNotArchivedValue {
+export interface ConversationSendAccessValue {
   readonly conversationId: ConversationId;
+  readonly taskId: TaskId;
+  readonly appId: AppId | null;
+  readonly taskStatus: TaskStatus;
+  readonly archivedAt: Date | null;
 }
 ```
 
-Tier 4 refine-shape capability — `conversation.archived_at IS NULL`.
-
-Refine-shape: takes the `archived_at` column read inline by the
-caller. Folded into the composite `MessageSendPermission` value
-for the MessagesSend path (every constructor verifies the
-conversation is open).
+Permission: the caller may send to this conversation — proven by participant
+membership. Its `obtain` does the one joined read (`conversations ⋈ tasks`)
+after the participant check, and the value carries that send row to the
+handler. The remaining send preconditions (task-active,
+conversation-not-archived, reply-target) are handler-body guards that refine
+this row — `@effect/rpc` middlewares cannot read each other's provided value,
+so a refinement of the fetched row is a handler guard, not a standalone
+middleware. The whole send path costs one joined read. `appId` identifies the
+authorizing app for the task on the verdict route.
 
 ### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
 
@@ -261,87 +271,6 @@ Value payload carries `(creatorAgentId, invitedAgentIds)` to match
 the obtain-time argument set; service methods consuming the capability
 verify the count matches handler input.
 
-### [`MessageSendPermission`](./message-send-permission.ts#L37)
-
-_Class_
-
-```ts
-export class MessageSendPermission extends Context.Tag(
-  "@moltzap/protocol/MessageSendPermission",
-)<MessageSendPermission, MessageSendPermissionValue>() {
-  static get errors() {
-    return [
-      ConversationNotFoundError,
-      NotAParticipantError,
-      ConversationArchivedError,
-      TaskClosedError,
-    ] as const;
-  }
-}
-```
-
-### [`MessageSendPermissionValue`](./message-send-permission.ts#L21)
-
-_Interface_
-
-```ts
-export interface MessageSendPermissionValue {
-  readonly task: Task;
-  readonly conversationId: ConversationId;
-  readonly senderAgentId: AgentId;
-
-  /**
-   * Reply-target proof. Tagged union — `ValidReply` carries the
-   * verified `replyToId`; `NoReply` is the absence sentinel. Kept as
-   * a sub-union because the verification step is a separate concern
-   * from message-send admission.
-   */
-  readonly replyTarget:
-    | { readonly _tag: "ValidReply"; readonly replyToId: MessageId }
-    | { readonly _tag: "NoReply" };
-}
-```
-
-Composite capability for `MessageService.send`.
-
-One tag carrying one payload shape. The handler obtains the value
-via `provideServiceEffect`; the service body destructures the
-carried proof rows directly. TM authority to send into a task is
-proved at obtain time via app-ownership of the calling WS
-connection, so there is no per-variant bypass flag on the payload.
-
-### [`noReplyTarget`](./reply-target.ts#L39)
-
-_Function_
-
-```ts
-export const noReplyTarget = (): NoReplyTargetValue
-```
-
-Synchronous constructor — no runtime check needed.
-
-### [`NoReplyTarget`](./reply-target.ts#L34)
-
-_Class_
-
-```ts
-export class NoReplyTarget extends Context.Tag(
-  "@moltzap/protocol/NoReplyTarget",
-)<NoReplyTarget, NoReplyTargetValue>() {}
-```
-
-### [`NoReplyTargetValue`](./reply-target.ts#L30)
-
-_Interface_
-
-```ts
-export interface NoReplyTargetValue {
-  readonly _tag: "NoReplyTarget";
-}
-```
-
-Zero-payload tag: declared when the send has no reply target.
-
 ### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L12)
 
 _Interface_
@@ -352,100 +281,6 @@ export interface ObtainConversationCreateAuthorizationInput {
   readonly creatorAgentId: AgentId;
 }
 ```
-
-### [`ObtainMessageSendPermissionInput`](./message-send-permission.ts#L57)
-
-_Interface_
-
-```ts
-export interface ObtainMessageSendPermissionInput {
-  /**
-   * Optional defensive cross-check. When supplied (e.g. by the
-   * `TaskConversation*` handlers whose wire shape names `taskId`
-   * independently of the conversation), `obtainMessageSendPermission`
-   * runs an `assertConvBelongsToTask` defense against the conv lookup.
-   * `MessagesSend` omits the field; when omitted the obtain helper
-   * uses `conv.task_id` directly.
-   */
-  readonly taskId?: TaskId;
-  readonly conversationId: ConversationId;
-  readonly senderAgentId: AgentId;
-  readonly replyToId?: MessageId;
-}
-```
-
-Input shape consumed by the dispatch-time smart constructor. The
-handler passes the raw `MessagesSend` params + the authenticated
-`ctx.agentId`; the constructor handles the conversation lookup,
-participant check, task-active refinement, reply-target check, and
-returns the populated value.
-
-### [`refineConversationNotArchived`](./conversation-not-archived.ts#L28)
-
-_Function_
-
-```ts
-export const refineConversationNotArchived = (
-  conversationId: ConversationId,
-  archivedAt: Date | null,
-): Effect.Effect<ConversationNotArchivedValue, ConversationArchivedError>
-```
-
-Refine constructor. Fails with `ConversationArchivedError` when
-`archivedAt` is non-null. Consumed by `obtainMessageSendPermission`
-after the conversation projection lookup.
-
-### [`refineTaskActive`](./task-active.ts#L35)
-
-_Function_
-
-```ts
-export const refineTaskActive = (
-  taskId: TaskId,
-  status: TaskStatus,
-): Effect.Effect<TaskActiveValue, TaskClosedError>
-```
-
-Refine constructor. Fails with `TaskClosedError` when status is
-`closed` / `failed`. Consumed by `obtainMessageSendPermission`.
-
-### [`TaskActive`](./task-active.ts#L26)
-
-_Class_
-
-```ts
-export class TaskActive extends Context.Tag("@moltzap/protocol/TaskActive")<
-  TaskActive,
-  TaskActiveValue
->() {}
-```
-
-### [`TaskActiveValue`](./task-active.ts#L21)
-
-_Interface_
-
-```ts
-export interface TaskActiveValue {
-  readonly taskId: TaskId;
-  readonly status: TaskStatus;
-}
-```
-
-Tier 4 refine-shape capability — task status accepts messages
-(NOT `closed` / `failed`).
-
-Refine-shape: takes a `SendConversationRow` already fetched by
-`MessageService.readSendConversation` and validates the `task_status`
-column inline. No DB call. Consumed by `obtainMessageSendPermission`
-when populating the composite `MessageSendPermission` value.
-
-## Staleness window
-
-`TaskActive` is a liveness proof — `tasks.status` can transition
-`active → closed` between obtain and use. The refine helper is safe
-to call inside the same transaction that reads the task row;
-cross-transaction reuse is a defect (re-obtain by re-reading the
-column).
 
 ### [`TaskReadAccess`](./task-read-access.ts#L22)
 
@@ -484,42 +319,6 @@ Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
 `getMessagesSince`) via the R-channel; handlers wire the value with
 `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
 
-### [`ValidReplyTarget`](./reply-target.ts#L25)
-
-_Class_
-
-```ts
-export class ValidReplyTarget extends Context.Tag(
-  "@moltzap/protocol/ValidReplyTarget",
-)<ValidReplyTarget, ValidReplyTargetValue>() {}
-```
-
-### [`ValidReplyTargetValue`](./reply-target.ts#L20)
-
-_Interface_
-
-```ts
-export interface ValidReplyTargetValue {
-  readonly conversationId: ConversationId;
-  readonly replyToId: MessageId;
-}
-```
-
-Tier 4 capabilities — reply-target presence proof.
-
-One of `ValidReplyTarget` / `NoReplyTarget` is required by
-`MessagesSend`. The two tags model the input-shape branch:
-`input.replyToId !== undefined` obtains `ValidReplyTarget` (which
-verifies the referenced message exists in the target conversation);
-`input.replyToId === undefined` obtains the zero-payload
-`NoReplyTarget` constructor.
-
-These two tags are folded into the composite `MessageSendPermission`
-value (every constructor variant carries one of the reply-target
-proofs); they are not provided as separate R-channel tags at the
-`MessagesSend` handler. They stay standalone tags so a handler can
-require them independently.
-
 ## Files
 
 - `agent-exists.ts`
@@ -528,9 +327,6 @@ require them independently.
 - `contact-policy-allows-reach.ts`
 - `conversation-create-authorization.ts`
 - `conversation-in-task.ts`
-- `conversation-not-archived.ts`
+- `conversation-send-access.ts`
 - `group-capacity-for-create.ts`
-- `message-send-permission.ts`
-- `reply-target.ts`
-- `task-active.ts`
 - `task-read-access.ts`

@@ -156,7 +156,7 @@ _Variable_
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
 ```
 
-### [`DispatchDecision`](./messages.ts#L133)
+### [`DispatchDecision`](./messages.ts#L134)
 
 _TypeAlias_
 
@@ -166,7 +166,7 @@ export type DispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`dispatchDecisionSchema`](./messages.ts#L150)
+### [`dispatchDecisionSchema`](./messages.ts#L151)
 
 _Function_
 
@@ -197,7 +197,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 >;
 ```
 
-### [`LeaseId`](./messages.ts#L20)
+### [`LeaseId`](./messages.ts#L21)
 
 _TypeAlias_
 
@@ -205,7 +205,7 @@ _TypeAlias_
 export const LeaseId = brandedId("LeaseId");
 ```
 
-### [`LeaseId`](./messages.ts#L20)
+### [`LeaseId`](./messages.ts#L21)
 
 _Variable_
 
@@ -229,7 +229,7 @@ _Function_
 export function logicalClockSchema(): typeof LogicalClockSchema
 ```
 
-### [`Message`](./messages.ts#L78)
+### [`Message`](./messages.ts#L79)
 
 _TypeAlias_
 
@@ -253,7 +253,7 @@ _Variable_
 export const MessageId = brandedId("MessageId")
 ```
 
-### [`messagePartsSchema`](./messages.ts#L98)
+### [`messagePartsSchema`](./messages.ts#L99)
 
 _Function_
 
@@ -261,7 +261,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](./messages.ts#L225)
+### [`MessageReceivedNotification`](./messages.ts#L242)
 
 _TypeAlias_
 
@@ -271,7 +271,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L233)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L250)
 
 _Variable_
 
@@ -284,7 +284,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](./messages.ts#L196)
+### [`MessagesList`](./messages.ts#L213)
 
 _Variable_
 
@@ -318,7 +318,7 @@ List messages in a conversation with cursor-based pagination using sequence numb
 Conversation-not-found and not-a-participant ride the `TaskReadAccess` /
 `ConversationInTask` cap error channels.
 
-### [`MessagesSend`](./messages.ts#L169)
+### [`MessagesSend`](./messages.ts#L170)
 
 _Variable_
 
@@ -335,14 +335,30 @@ export const MessagesSend = defineRpc({
   result: Schema.Struct({ message: MessageSchema }),
   callablePrincipal: "agent",
   requiresActive: true,
-  // Run order: `ConversationInTask` resolves the conversation's task membership
-  // first, so `MessageSendPermission` obtains against an already-verified
-  // conversation.
-  caps: [ConversationInTask, MessageSendPermission],
-  // `ForbiddenError`/`NotFoundError` ride the dispatch-lease claim path: a
-  // consumed/invalid lease maps to `ForbiddenError(data.reason: "LeaseInvalid")`,
-  // a missing lease to `NotFoundError`.
-  errors: [HookBlockedError, ForbiddenError, NotFoundError],
+  // Two stacked cap middlewares form the send authorization spine:
+  // `ConversationInTask` resolves the conversation's task membership;
+  // `ConversationSendAccess` proves participation and does the ONE joined
+  // (`conversations ⋈ tasks`) read, providing the row to the handler. The
+  // remaining send preconditions — task-active, conversation-not-archived,
+  // reply-target — are handler-body guards that refine that provided row (they
+  // share the one read; `@effect/rpc` middlewares cannot read each other's
+  // provided value, so a refinement that depends on the row is a handler guard,
+  // not a standalone middleware).
+  caps: [ConversationInTask, ConversationSendAccess],
+  // Handler-domain errors, including the send-guard failures (`TaskClosed`,
+  // `ConversationArchived`, reply-target `NotFound`) that the handler raises
+  // while refining the `ConversationSendAccess` row. `ForbiddenError`/
+  // `NotFoundError` also ride the dispatch-lease claim path: a consumed/invalid
+  // lease maps to `ForbiddenError(data.reason: "LeaseInvalid")`, a missing lease
+  // to `NotFoundError`. The principal-gate + cap-middleware errors come from
+  // their middlewares.
+  errors: [
+    HookBlockedError,
+    ForbiddenError,
+    NotFoundError,
+    TaskClosedError,
+    ConversationArchivedError,
+  ],
 })
 ```
 
@@ -353,7 +369,7 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithDispatchDecision`](./messages.ts#L146)
+### [`MessageWithDispatchDecision`](./messages.ts#L147)
 
 _TypeAlias_
 
@@ -363,7 +379,7 @@ export type MessageWithDispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`messageWithDispatchDecisionSchema`](./messages.ts#L154)
+### [`messageWithDispatchDecisionSchema`](./messages.ts#L155)
 
 _Function_
 
@@ -386,7 +402,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
 
 The caller is not a participant in the conversation it is acting on.
 
-### [`Part`](./messages.ts#L60)
+### [`Part`](./messages.ts#L61)
 
 _TypeAlias_
 
@@ -986,7 +1002,7 @@ _TypeAlias_
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`validateDispatchDecision`](./messages.ts#L139)
+### [`validateDispatchDecision`](./messages.ts#L140)
 
 _Variable_
 
@@ -994,7 +1010,7 @@ _Variable_
 export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
 ```
 
-### [`validateMessage`](./messages.ts#L96)
+### [`validateMessage`](./messages.ts#L97)
 
 _Variable_
 
@@ -1002,7 +1018,7 @@ _Variable_
 export const validateMessage = closedGuard(MessageSchema)
 ```
 
-### [`validateTextPart`](./messages.ts#L95)
+### [`validateTextPart`](./messages.ts#L96)
 
 _Variable_
 
