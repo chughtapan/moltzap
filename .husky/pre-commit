@@ -10,6 +10,12 @@ if ! git diff --quiet; then
   exit 1
 fi
 
+# The CI `docs:check:drift` gate is more than the regen-idempotency check above:
+# it also rejects hardcoded constants in docs and unresolvable doc imports. Run
+# those two here so the hook catches what CI does, not just generated-file drift.
+pnpm docs:check:no-hardcoded-constants
+pnpm docs:check:doc-imports-resolve
+
 pnpm check
 pnpm build
 pnpm exec nx run-many -t typecheck:tests

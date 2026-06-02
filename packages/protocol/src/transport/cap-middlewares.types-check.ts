@@ -25,12 +25,25 @@ import {
   ConversationInTask,
   ConversationSendAccess,
 } from "../task/capabilities/index.js";
+import type { ParamsOf } from "./method.js";
+import type { MessagesSend, MessagesList } from "../task/messages.js";
+import type {
+  TaskRequest,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+} from "../task/tasks.js";
+import type { AgentId } from "../identity/agents.js";
+import type { TaskId } from "../task/ids.js";
+import type { ConversationId } from "../task/conversations.js";
 
 type Expect<T extends true> = T;
 type Equal<A, B> =
   (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2
     ? true
     : false;
+type Extends<A, B> = [A] extends [B] ? true : false;
 
 // ── mw.provides — a cap middleware provides its capability Tag ────────────
 
@@ -72,6 +85,66 @@ type _CsaFailureNotNever = Expect<
   >
 >;
 
+// ── cap.params — every gating method's params carry the fields its cap derives ──
+//
+// The server cap-middleware impls (`auth-middleware-layers.ts`) derive each
+// cap's obtain input from the decoded `payload`, which the engine types as
+// `unknown` — so a derive reading a field the method does NOT declare (e.g. the
+// real `task/request` bug where `ContactPolicyAllowsReach` read `targetAgentIds`
+// instead of `invitedAgentIds`) compiles. These canaries close that gap: each
+// gating method's `ParamsOf` MUST carry the fields its caps read, so a method or
+// derive drift fails the build instead of defecting at runtime.
+
+/** The params `ConversationInTask`'s derive reads. */
+interface ConversationInTaskParams {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+/** The params `ConversationSendAccess`'s derive reads. */
+interface ConversationSendAccessParams {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+/** The params `ContactPolicyAllowsReach`'s derive reads (the `task/request` cap). */
+interface ContactPolicyAllowsReachParams {
+  readonly invitedAgentIds: readonly AgentId[];
+}
+
+// `ConversationInTask` gates `messages/send`, `messages/list`, and the four
+// `task/conversation/*` admin methods — each must carry `taskId`+`conversationId`.
+type _CitSend = Expect<
+  Extends<ParamsOf<typeof MessagesSend>, ConversationInTaskParams>
+>;
+type _CitList = Expect<
+  Extends<ParamsOf<typeof MessagesList>, ConversationInTaskParams>
+>;
+type _CitArchive = Expect<
+  Extends<ParamsOf<typeof TaskConversationArchive>, ConversationInTaskParams>
+>;
+type _CitUnarchive = Expect<
+  Extends<ParamsOf<typeof TaskConversationUnarchive>, ConversationInTaskParams>
+>;
+type _CitAddPart = Expect<
+  Extends<
+    ParamsOf<typeof TaskConversationAddParticipant>,
+    ConversationInTaskParams
+  >
+>;
+type _CitRemovePart = Expect<
+  Extends<
+    ParamsOf<typeof TaskConversationRemoveParticipant>,
+    ConversationInTaskParams
+  >
+>;
+// `ConversationSendAccess` gates `messages/send`.
+type _CsaSend = Expect<
+  Extends<ParamsOf<typeof MessagesSend>, ConversationSendAccessParams>
+>;
+// `ContactPolicyAllowsReach` gates `task/request` — must carry `invitedAgentIds`.
+type _CparReach = Expect<
+  Extends<ParamsOf<typeof TaskRequest>, ContactPolicyAllowsReachParams>
+>;
+
 export type {
   _CitProvides,
   _CsaProvides,
@@ -79,4 +152,12 @@ export type {
   _GateNonOptional,
   _CitNonOptional,
   _CsaFailureNotNever,
+  _CitSend,
+  _CitList,
+  _CitArchive,
+  _CitUnarchive,
+  _CitAddPart,
+  _CitRemovePart,
+  _CsaSend,
+  _CparReach,
 };
