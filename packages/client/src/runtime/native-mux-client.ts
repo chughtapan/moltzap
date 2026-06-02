@@ -14,7 +14,7 @@
  * driven `.call(def, params)` the high-level clients already speak maps onto it
  * by passing `def.name` (the branded wire tag) as the tag.
  */
-import { RpcClient } from "@effect/rpc";
+import { RpcClient, type Rpc, type RpcGroup } from "@effect/rpc";
 import { Deferred, Effect, Layer, Scope } from "effect";
 import {
   makeClientChannelProtocol,
@@ -41,8 +41,8 @@ type FlatCall = (
  * descriptor-driven connection plus a `Deferred` already resolved with the
  * `c2s` sink. The engine reader is forked into the provided `Scope`.
  */
-export const buildNativeClient = (options: {
-  readonly group: Parameters<typeof RpcClient.make>[0];
+export const buildNativeClient = <Rpcs extends Rpc.Any>(options: {
+  readonly group: RpcGroup.RpcGroup<Rpcs>;
   readonly write: WireWrite;
   readonly scope: Scope.Scope;
 }): Effect.Effect<{
