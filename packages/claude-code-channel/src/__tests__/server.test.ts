@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { RpcServerError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol";
 
 import {
   CHANNEL_CAPABILITIES,
@@ -377,8 +377,7 @@ function surfacesLeaseAlreadyConsumedAsStructuredToolError() {
         new LeaseAlreadyConsumed({
           leaseId: LEASE_ID,
           consumedAt: LEASE_CONSUMED_AT,
-          cause: new RpcServerError({
-            code: LEASE_FORBIDDEN_CODE,
+          cause: new ForbiddenError({
             message: LEASE_FORBIDDEN_MESSAGE,
             data: { reason: "LeaseInvalid" },
           }),

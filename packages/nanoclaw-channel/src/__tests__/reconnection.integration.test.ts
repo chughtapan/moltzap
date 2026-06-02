@@ -127,7 +127,7 @@ function listMessageTexts(
   taskId: TaskId,
   conversationId: ConversationId,
 ): Effect.Effect<readonly string[], ReconnectionIntegrationError> {
-  return client.sendRpc(MessagesList, { taskId, conversationId }).pipe(
+  return client.call(MessagesList.name, { taskId, conversationId }).pipe(
     Effect.map((result) => messageTexts(result.messages)),
     Effect.mapError(
       (cause) =>
@@ -156,7 +156,7 @@ function peerSendText(
   text: string,
 ): Effect.Effect<void, ReconnectionIntegrationError> {
   return peerClient
-    .sendRpc(MessagesSend, {
+    .call(MessagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: TEXT_PART_TYPE, text }],
@@ -190,7 +190,7 @@ function createDm(
   ReconnectionIntegrationError
 > {
   return peerClient
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },

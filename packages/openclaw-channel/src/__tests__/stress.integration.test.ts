@@ -183,7 +183,7 @@ function createConversation(
   receiverAgentId: AgentId,
 ) {
   return client
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [receiverAgentId],
       initialConversation: { participants: [receiverAgentId] },
@@ -212,7 +212,7 @@ function sendBatch(
   count: number,
 ) {
   return Array.from({ length: count }, (_, i) =>
-    client.sendRpc(MessagesSend, {
+    client.call(MessagesSend.name, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
       parts: [{ type: TEXT_PART_TYPE, text: `${prefix}-msg-${i}` }],
@@ -284,7 +284,7 @@ function listMatchingReplies(params: {
   readonly receiverAgentId: AgentId;
 }) {
   return params.client
-    .sendRpc(MessagesList, {
+    .call(MessagesList.name, {
       taskId: params.binding.taskId,
       conversationId: params.binding.conversationId,
       limit: TOTAL_STRESS_MESSAGE_COUNT,

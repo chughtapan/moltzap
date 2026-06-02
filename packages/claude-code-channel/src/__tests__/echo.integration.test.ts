@@ -149,7 +149,7 @@ function createPeerConversation(
   ServiceRpcError
 > {
   return Effect.gen(function* () {
-    const response = yield* peerService.sendRpc(TaskRequest, {
+    const response = yield* peerService.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },

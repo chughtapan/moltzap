@@ -1,7 +1,7 @@
 import { describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { RpcServerError } from "@moltzap/protocol";
+import { ConversationFullError } from "@moltzap/protocol";
 import { MoltZapChannelCore } from "@moltzap/client";
 import {
   buildMessage,
@@ -347,8 +347,7 @@ function rejectsSecondSendForSameDispatch() {
         sendCount += 1;
         if (sendCount <= 1) return Effect.void;
         return Effect.fail(
-          new RpcServerError({
-            code: -32007,
+          new ConversationFullError({
             message: `lease ${opts?.dispatchLeaseId ?? "(none)"} not claimable: state=CONSUMED`,
             data: {
               reason: "LeaseInvalid",

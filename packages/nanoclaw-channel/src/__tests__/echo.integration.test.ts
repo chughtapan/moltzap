@@ -202,7 +202,7 @@ function createDm(
   EchoIntegrationError
 > {
   return peerService
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },
