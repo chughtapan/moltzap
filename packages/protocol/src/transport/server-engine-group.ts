@@ -30,7 +30,6 @@ import { Rpc, RpcGroup, RpcMiddleware } from "@effect/rpc";
 import type { Schema } from "effect";
 import type { RpcDefinition } from "./method.js";
 import { serverRpcMethods } from "../rpc-registry.js";
-import { WireErrorSchema } from "./rpc-method-groups.js";
 import type { JsonRpcMethod } from "./wire.js";
 import {
   authMiddlewareByMethod,
@@ -90,8 +89,9 @@ type AnyRpcDefinition = RpcDefinition<
 /**
  * The engine member a single descriptor maps to: its branded wire `name` is the
  * member tag, `paramsSchema`/`resultSchema` are payload/success verbatim, the
- * shared {@link WireErrorSchema} envelope is the error Schema, and the 5th
- * (`Middleware`) param is that method's OWN `*AuthMw` (looked up in
+ * method's own `errorSchema` (its `_tag`-discriminated error union) is the error
+ * Schema, and the 5th (`Middleware`) param is that method's OWN `*AuthMw`
+ * (looked up in
  * {@link AuthMiddlewareByMethod} by the tag). An unauthenticated method
  * ({@link UNAUTHENTICATED_METHODS}) and an HTTP-only method
  * ({@link HTTP_ONLY_METHODS}, no WS handler) carry no middleware. The per-tag

@@ -10,30 +10,6 @@ import {
   notificationDefinitions,
 } from "../rpc-registry.js";
 
-/**
- * The JSON-RPC error envelope every wire response carries on its `error`
- * sub-object: code, message, and optional data. This is the Schema form of the
- * `WireError` shape `transport/dispatch.ts → wireErrorFromInstance` projects a
- * registered tagged-error instance onto, so it is the `Rpc.make` error Schema
- * for every group member: the engine encodes a handler failure onto these
- * three fields, and the client side reconstructs the typed tagged error from
- * the code via `wire-errors.ts → errorClassFor`. Per-tag error narrowing stays
- * a registry concern (the `RegisteredTaggedError` union in `rpc-registry.ts`),
- * not a per-member Schema union — the wire only ever carries the coded
- * envelope.
- */
-// The canonical wire-error envelope is the `error` Schema of every group
-// member AND the `failure` Schema of every per-method `*AuthMw` middleware
-// (`auth-middleware.ts`) — one envelope across both surfaces so a gate/cap
-// rejection rides the same coded wire shape as a handler failure. Exported for
-// that cross-file reuse.
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the wire-error envelope is shared cross-file: it is every group member's `error` Schema AND every per-method `*AuthMw` `failure` Schema, so it is exported once for that reuse rather than duplicated.
-export const WireErrorSchema = Schema.Struct({
-  code: Schema.Number.pipe(Schema.int()),
-  message: Schema.String,
-  data: Schema.optional(Schema.Unknown),
-});
-
 type AnyRpcDefinition = RpcDefinition<
   string,
   Schema.Schema.AnyNoContext,
@@ -69,9 +45,9 @@ type GroupMembers<Defs extends readonly AnyRpcDefinition[]> = {
 /**
  * Build the `@effect/rpc` `RpcGroup` for one per-kind descriptor catalog. Each
  * `defineRpc` descriptor maps to an `Rpc.make` whose payload and success are
- * the descriptor's Effect `Schema`s verbatim and whose error is the shared
- * {@link WireErrorSchema} envelope; the descriptor's branded wire `name`
- * becomes the member tag.
+ * the descriptor's Effect `Schema`s verbatim and whose error is the method's
+ * own `errorSchema` (its `_tag`-discriminated error union); the descriptor's
+ * branded wire `name` becomes the member tag.
  *
  * Members are derived by mapping the catalog rather than hand-listing each
  * method, so the group can never drift from `rpc-registry.ts`. {@link
@@ -127,16 +103,11 @@ type AnyNotificationDefinition = NotificationDefinition<
  * reverse channel: the notification's wire `name` is the member tag, its
  * `paramsSchema` is the payload, the success is `Void` (a notification is
  * fire-and-forget — the server fires it without awaiting a meaningful result),
- * and the error is the shared {@link WireErrorSchema} envelope.
+ * and the error is `Never` — a notification cannot fail with a typed wire error.
  */
 type NotificationRpcFromDef<D> =
   D extends NotificationDefinition<infer Name, infer P>
-    ? Rpc.Rpc<
-        JsonRpcMethod<Name>,
-        P,
-        typeof Schema.Void,
-        typeof WireErrorSchema
-      >
+    ? Rpc.Rpc<JsonRpcMethod<Name>, P, typeof Schema.Void, typeof Schema.Never>
     : never;
 
 type NotificationGroupMembers<
@@ -171,7 +142,7 @@ const groupFromNotifications = <
       Rpc.make(definition.name, {
         payload: definition.paramsSchema,
         success: Schema.Void,
-        error: WireErrorSchema,
+        error: Schema.Never,
       }),
     ) as unknown as NotificationGroupMembers<Defs>), // #ignore-sloppy-code[as-unknown-as]: tuple-keying proof TS cannot express; verified by rpc-method-groups.types-check.ts.
   );

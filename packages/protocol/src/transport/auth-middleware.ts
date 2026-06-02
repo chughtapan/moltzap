@@ -19,9 +19,11 @@
  * the descriptor's `callablePrincipal` + `caps`); the server provides the
  * runtime.
  *
- * `failure: WireErrorSchema` types the gate/cap rejection as the same coded wire
- * envelope every member's `error` carries. Non-optional (no `optional: true`):
- * an optional middleware's runtime fold falls through to the handler on failure,
+ * Each middleware's `failure` is its method's own `errorSchema` (the
+ * `_tag`-discriminated union of the method's effective errors), so the engine
+ * encodes a gate/cap rejection as the SAME per-method typed wire error the
+ * handler's failures decode against. Non-optional (no `optional: true`): an
+ * optional middleware's runtime fold falls through to the handler on failure,
  * which would let a rejected principal/cap reach the body — the gate must
  * HARD-fail.
  *
@@ -34,7 +36,6 @@ import { Context } from "effect";
 import { RpcMiddleware } from "@effect/rpc";
 import type { AuthContextValue } from "./auth-context.js";
 import type { RpcDefinition } from "./method.js";
-import { WireErrorSchema } from "./rpc-method-groups.js";
 
 import {
   AgentsList,
@@ -89,7 +90,7 @@ export class MessagesSendAuth extends Context.Tag(
 )<MessagesSendAuth, AuthProof<typeof MessagesSend>>() {}
 export class MessagesSendAuthMw extends RpcMiddleware.Tag<MessagesSendAuthMw>()(
   "@moltzap/protocol/auth/mw/messages-send",
-  { provides: MessagesSendAuth, failure: WireErrorSchema },
+  { provides: MessagesSendAuth, failure: MessagesSend.errorSchema },
 ) {}
 
 /** `messages/list` proof: agent principal + `TaskReadAccess` + `ConversationInTask`. */
@@ -98,7 +99,7 @@ export class MessagesListAuth extends Context.Tag(
 )<MessagesListAuth, AuthProof<typeof MessagesList>>() {}
 export class MessagesListAuthMw extends RpcMiddleware.Tag<MessagesListAuthMw>()(
   "@moltzap/protocol/auth/mw/messages-list",
-  { provides: MessagesListAuth, failure: WireErrorSchema },
+  { provides: MessagesListAuth, failure: MessagesList.errorSchema },
 ) {}
 
 /** `task/list` proof: agent principal, no caps. */
@@ -107,7 +108,7 @@ export class TaskListAuth extends Context.Tag(
 )<TaskListAuth, AuthProof<typeof TaskList>>() {}
 export class TaskListAuthMw extends RpcMiddleware.Tag<TaskListAuthMw>()(
   "@moltzap/protocol/auth/mw/task-list",
-  { provides: TaskListAuth, failure: WireErrorSchema },
+  { provides: TaskListAuth, failure: TaskList.errorSchema },
 ) {}
 
 /** `task/request` proof: agent principal + `ContactPolicyAllowsReach`. */
@@ -116,7 +117,7 @@ export class TaskRequestAuth extends Context.Tag(
 )<TaskRequestAuth, AuthProof<typeof TaskRequest>>() {}
 export class TaskRequestAuthMw extends RpcMiddleware.Tag<TaskRequestAuthMw>()(
   "@moltzap/protocol/auth/mw/task-request",
-  { provides: TaskRequestAuth, failure: WireErrorSchema },
+  { provides: TaskRequestAuth, failure: TaskRequest.errorSchema },
 ) {}
 
 /** `task/leave` proof: agent principal, no caps. */
@@ -125,7 +126,7 @@ export class TaskLeaveAuth extends Context.Tag(
 )<TaskLeaveAuth, AuthProof<typeof TaskLeave>>() {}
 export class TaskLeaveAuthMw extends RpcMiddleware.Tag<TaskLeaveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-leave",
-  { provides: TaskLeaveAuth, failure: WireErrorSchema },
+  { provides: TaskLeaveAuth, failure: TaskLeave.errorSchema },
 ) {}
 
 /** `task/conversation/list` proof: agent principal, no caps. */
@@ -134,7 +135,7 @@ export class TaskConversationListAuth extends Context.Tag(
 )<TaskConversationListAuth, AuthProof<typeof TaskConversationList>>() {}
 export class TaskConversationListAuthMw extends RpcMiddleware.Tag<TaskConversationListAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-list",
-  { provides: TaskConversationListAuth, failure: WireErrorSchema },
+  { provides: TaskConversationListAuth, failure: TaskConversationList.errorSchema },
 ) {}
 
 /** `agents/lookup` proof: agent principal, no caps. */
@@ -143,7 +144,7 @@ export class AgentsLookupAuth extends Context.Tag(
 )<AgentsLookupAuth, AuthProof<typeof AgentsLookup>>() {}
 export class AgentsLookupAuthMw extends RpcMiddleware.Tag<AgentsLookupAuthMw>()(
   "@moltzap/protocol/auth/mw/agents-lookup",
-  { provides: AgentsLookupAuth, failure: WireErrorSchema },
+  { provides: AgentsLookupAuth, failure: AgentsLookup.errorSchema },
 ) {}
 
 /** `agents/lookupByName` proof: agent principal, no caps. */
@@ -152,7 +153,7 @@ export class AgentsLookupByNameAuth extends Context.Tag(
 )<AgentsLookupByNameAuth, AuthProof<typeof AgentsLookupByName>>() {}
 export class AgentsLookupByNameAuthMw extends RpcMiddleware.Tag<AgentsLookupByNameAuthMw>()(
   "@moltzap/protocol/auth/mw/agents-lookup-by-name",
-  { provides: AgentsLookupByNameAuth, failure: WireErrorSchema },
+  { provides: AgentsLookupByNameAuth, failure: AgentsLookupByName.errorSchema },
 ) {}
 
 /** `agents/list` proof: agent principal, no caps. */
@@ -161,7 +162,7 @@ export class AgentsListAuth extends Context.Tag(
 )<AgentsListAuth, AuthProof<typeof AgentsList>>() {}
 export class AgentsListAuthMw extends RpcMiddleware.Tag<AgentsListAuthMw>()(
   "@moltzap/protocol/auth/mw/agents-list",
-  { provides: AgentsListAuth, failure: WireErrorSchema },
+  { provides: AgentsListAuth, failure: AgentsList.errorSchema },
 ) {}
 
 /** `contacts/list` proof: agent principal, no caps. */
@@ -170,7 +171,7 @@ export class ContactsListAuth extends Context.Tag(
 )<ContactsListAuth, AuthProof<typeof ContactsList>>() {}
 export class ContactsListAuthMw extends RpcMiddleware.Tag<ContactsListAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-list",
-  { provides: ContactsListAuth, failure: WireErrorSchema },
+  { provides: ContactsListAuth, failure: ContactsList.errorSchema },
 ) {}
 
 /** `contacts/add` proof: agent principal, no caps. */
@@ -179,7 +180,7 @@ export class ContactsAddAuth extends Context.Tag(
 )<ContactsAddAuth, AuthProof<typeof ContactsAdd>>() {}
 export class ContactsAddAuthMw extends RpcMiddleware.Tag<ContactsAddAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-add",
-  { provides: ContactsAddAuth, failure: WireErrorSchema },
+  { provides: ContactsAddAuth, failure: ContactsAdd.errorSchema },
 ) {}
 
 /** `contacts/accept` proof: agent principal, no caps. */
@@ -188,7 +189,7 @@ export class ContactsAcceptAuth extends Context.Tag(
 )<ContactsAcceptAuth, AuthProof<typeof ContactsAccept>>() {}
 export class ContactsAcceptAuthMw extends RpcMiddleware.Tag<ContactsAcceptAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-accept",
-  { provides: ContactsAcceptAuth, failure: WireErrorSchema },
+  { provides: ContactsAcceptAuth, failure: ContactsAccept.errorSchema },
 ) {}
 
 /** `contacts/byId` proof: agent principal, no caps. */
@@ -197,7 +198,7 @@ export class ContactsByIdAuth extends Context.Tag(
 )<ContactsByIdAuth, AuthProof<typeof ContactsById>>() {}
 export class ContactsByIdAuthMw extends RpcMiddleware.Tag<ContactsByIdAuthMw>()(
   "@moltzap/protocol/auth/mw/contacts-by-id",
-  { provides: ContactsByIdAuth, failure: WireErrorSchema },
+  { provides: ContactsByIdAuth, failure: ContactsById.errorSchema },
 ) {}
 
 /** `dispatch/request` proof: agent principal, no caps. */
@@ -206,7 +207,7 @@ export class DispatchRequestAuth extends Context.Tag(
 )<DispatchRequestAuth, AuthProof<typeof DispatchRequest>>() {}
 export class DispatchRequestAuthMw extends RpcMiddleware.Tag<DispatchRequestAuthMw>()(
   "@moltzap/protocol/auth/mw/dispatch-request",
-  { provides: DispatchRequestAuth, failure: WireErrorSchema },
+  { provides: DispatchRequestAuth, failure: DispatchRequest.errorSchema },
 ) {}
 
 /** `network/ping` proof: agent principal, no caps. */
@@ -215,7 +216,7 @@ export class NetworkPingAuth extends Context.Tag(
 )<NetworkPingAuth, AuthProof<typeof NetworkPing>>() {}
 export class NetworkPingAuthMw extends RpcMiddleware.Tag<NetworkPingAuthMw>()(
   "@moltzap/protocol/auth/mw/network-ping",
-  { provides: NetworkPingAuth, failure: WireErrorSchema },
+  { provides: NetworkPingAuth, failure: NetworkPing.errorSchema },
 ) {}
 
 /** `presence/subscribe` proof: agent principal, no caps. */
@@ -224,7 +225,7 @@ export class PresenceSubscribeAuth extends Context.Tag(
 )<PresenceSubscribeAuth, AuthProof<typeof PresenceSubscribe>>() {}
 export class PresenceSubscribeAuthMw extends RpcMiddleware.Tag<PresenceSubscribeAuthMw>()(
   "@moltzap/protocol/auth/mw/presence-subscribe",
-  { provides: PresenceSubscribeAuth, failure: WireErrorSchema },
+  { provides: PresenceSubscribeAuth, failure: PresenceSubscribe.errorSchema },
 ) {}
 
 // ── App-callable methods ────────────────────────────────────────────────
@@ -235,7 +236,7 @@ export class TaskCloseAuth extends Context.Tag(
 )<TaskCloseAuth, AuthProof<typeof TaskClose>>() {}
 export class TaskCloseAuthMw extends RpcMiddleware.Tag<TaskCloseAuthMw>()(
   "@moltzap/protocol/auth/mw/task-close",
-  { provides: TaskCloseAuth, failure: WireErrorSchema },
+  { provides: TaskCloseAuth, failure: TaskClose.errorSchema },
 ) {}
 
 /** `task/addParticipant` proof: app principal, no caps. */
@@ -244,7 +245,7 @@ export class TaskAddParticipantAuth extends Context.Tag(
 )<TaskAddParticipantAuth, AuthProof<typeof TaskAddParticipant>>() {}
 export class TaskAddParticipantAuthMw extends RpcMiddleware.Tag<TaskAddParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-add-participant",
-  { provides: TaskAddParticipantAuth, failure: WireErrorSchema },
+  { provides: TaskAddParticipantAuth, failure: TaskAddParticipant.errorSchema },
 ) {}
 
 /** `task/removeParticipant` proof: app principal, no caps. */
@@ -253,7 +254,7 @@ export class TaskRemoveParticipantAuth extends Context.Tag(
 )<TaskRemoveParticipantAuth, AuthProof<typeof TaskRemoveParticipant>>() {}
 export class TaskRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskRemoveParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-remove-participant",
-  { provides: TaskRemoveParticipantAuth, failure: WireErrorSchema },
+  { provides: TaskRemoveParticipantAuth, failure: TaskRemoveParticipant.errorSchema },
 ) {}
 
 /** `task/conversation/create` proof: app principal, no caps. */
@@ -262,7 +263,7 @@ export class TaskConversationCreateAuth extends Context.Tag(
 )<TaskConversationCreateAuth, AuthProof<typeof TaskConversationCreate>>() {}
 export class TaskConversationCreateAuthMw extends RpcMiddleware.Tag<TaskConversationCreateAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-create",
-  { provides: TaskConversationCreateAuth, failure: WireErrorSchema },
+  { provides: TaskConversationCreateAuth, failure: TaskConversationCreate.errorSchema },
 ) {}
 
 /** `task/conversation/archive` proof: app principal + `ConversationInTask`. */
@@ -271,7 +272,7 @@ export class TaskConversationArchiveAuth extends Context.Tag(
 )<TaskConversationArchiveAuth, AuthProof<typeof TaskConversationArchive>>() {}
 export class TaskConversationArchiveAuthMw extends RpcMiddleware.Tag<TaskConversationArchiveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-archive",
-  { provides: TaskConversationArchiveAuth, failure: WireErrorSchema },
+  { provides: TaskConversationArchiveAuth, failure: TaskConversationArchive.errorSchema },
 ) {}
 
 /** `task/conversation/unarchive` proof: app principal + `ConversationInTask`. */
@@ -283,7 +284,7 @@ export class TaskConversationUnarchiveAuth extends Context.Tag(
 >() {}
 export class TaskConversationUnarchiveAuthMw extends RpcMiddleware.Tag<TaskConversationUnarchiveAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-unarchive",
-  { provides: TaskConversationUnarchiveAuth, failure: WireErrorSchema },
+  { provides: TaskConversationUnarchiveAuth, failure: TaskConversationUnarchive.errorSchema },
 ) {}
 
 /** `task/conversation/participants/add` proof: app principal + `ConversationInTask`. */
@@ -295,7 +296,7 @@ export class TaskConversationAddParticipantAuth extends Context.Tag(
 >() {}
 export class TaskConversationAddParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationAddParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-add-participant",
-  { provides: TaskConversationAddParticipantAuth, failure: WireErrorSchema },
+  { provides: TaskConversationAddParticipantAuth, failure: TaskConversationAddParticipant.errorSchema },
 ) {}
 
 /** `task/conversation/participants/remove` proof: app principal + `ConversationInTask`. */
@@ -307,7 +308,7 @@ export class TaskConversationRemoveParticipantAuth extends Context.Tag(
 >() {}
 export class TaskConversationRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationRemoveParticipantAuthMw>()(
   "@moltzap/protocol/auth/mw/task-conversation-remove-participant",
-  { provides: TaskConversationRemoveParticipantAuth, failure: WireErrorSchema },
+  { provides: TaskConversationRemoveParticipantAuth, failure: TaskConversationRemoveParticipant.errorSchema },
 ) {}
 
 /** `apps/register` proof: app principal, no caps. */
@@ -316,7 +317,7 @@ export class AppsRegisterAuth extends Context.Tag(
 )<AppsRegisterAuth, AuthProof<typeof AppsRegister>>() {}
 export class AppsRegisterAuthMw extends RpcMiddleware.Tag<AppsRegisterAuthMw>()(
   "@moltzap/protocol/auth/mw/apps-register",
-  { provides: AppsRegisterAuth, failure: WireErrorSchema },
+  { provides: AppsRegisterAuth, failure: AppsRegister.errorSchema },
 ) {}
 
 /** `dispatches/get` proof: app principal, no caps. */
@@ -325,7 +326,7 @@ export class DispatchesGetAuth extends Context.Tag(
 )<DispatchesGetAuth, AuthProof<typeof DispatchesGet>>() {}
 export class DispatchesGetAuthMw extends RpcMiddleware.Tag<DispatchesGetAuthMw>()(
   "@moltzap/protocol/auth/mw/dispatches-get",
-  { provides: DispatchesGetAuth, failure: WireErrorSchema },
+  { provides: DispatchesGetAuth, failure: DispatchesGet.errorSchema },
 ) {}
 
 /**

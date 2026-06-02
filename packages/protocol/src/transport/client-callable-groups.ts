@@ -22,7 +22,6 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
 import type { CallablePrincipal, RpcDefinition } from "./method.js";
-import { WireErrorSchema } from "./rpc-method-groups.js";
 import type { JsonRpcMethod } from "./wire.js";
 import { serverRpcMethods } from "../rpc-registry.js";
 
@@ -36,11 +35,11 @@ type AnyRpcDefinition = RpcDefinition<
  * The `Rpc` a single descriptor maps to — identical to
  * {@link rpc-method-groups.RpcFromDef} (the member tag is the descriptor's
  * branded wire `name`, payload/success are the descriptor Schemas, error is the
- * shared {@link WireErrorSchema} envelope).
+ * method's own `errorSchema` — its `_tag`-discriminated error union).
  */
 type RpcFromDef<D> =
   D extends RpcDefinition<infer Name, infer P, infer R>
-    ? Rpc.Rpc<JsonRpcMethod<Name>, P, R, typeof WireErrorSchema>
+    ? Rpc.Rpc<JsonRpcMethod<Name>, P, R, Schema.Schema.AnyNoContext>
     : never;
 
 /**
@@ -105,7 +104,7 @@ const callableGroup = <Kinds extends CallablePrincipal>(
         Rpc.make(definition.name, {
           payload: definition.paramsSchema,
           success: definition.resultSchema,
-          error: WireErrorSchema,
+          error: definition.errorSchema,
         }),
       ) as unknown as MembersWhereKind<typeof serverRpcMethods, Kinds>[]), // #ignore-sloppy-code[as-unknown-as]: tuple-filter/keying proof TS cannot express; verified by client-callable-groups.types-check.ts.
   );
