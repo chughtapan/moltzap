@@ -61,9 +61,15 @@ export const makeServerProtocolLayer = (options: {
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
   readonly sinkReady: Deferred.Deferred<ChannelSink>;
+  /**
+   * Which mux channel this server engine binds. The live server's inbound
+   * engine binds `c2s`; the client's reverse notification/callback server binds
+   * `s2c`. Defaults to `c2s` (the server inbound engine, the common case).
+   */
+  readonly channel?: "c2s" | "s2c";
 }): Layer.Layer<RpcServer.Protocol> => {
   const builder = makeServerChannelProtocol({
-    channel: "c2s",
+    channel: options.channel ?? "c2s",
     write: options.write,
     disconnects: options.disconnects,
   });

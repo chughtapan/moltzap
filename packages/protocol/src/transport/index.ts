@@ -107,6 +107,7 @@ export {
 export {
   AppCallbackRpcGroup,
   NotificationRpcGroup,
+  ReverseRpcGroup,
   ServerRpcGroup,
 } from "./rpc-method-groups.js";
 export {

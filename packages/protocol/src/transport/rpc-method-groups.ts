@@ -178,3 +178,15 @@ const groupFromNotifications = <
 export const NotificationRpcGroup = groupFromNotifications(
   notificationDefinitions,
 );
+
+/**
+ * The full server→client reverse group: the moderator callbacks
+ * ({@link AppCallbackRpcGroup}) ∪ the notifications ({@link NotificationRpcGroup}).
+ * The server holds one `RpcClient<ReverseRpcGroup>` per connection (fires
+ * callbacks awaiting a verdict, fires notifications fork-and-forget); the agent
+ * + app clients stand one `RpcServer<ReverseRpcGroup>` on the s2c sink. An agent
+ * client only ever receives notifications (its handlers for the three callback
+ * methods are never invoked — an agent is not a moderator), but it serves the
+ * whole group so the s2c engine binds one handler map.
+ */
+export const ReverseRpcGroup = AppCallbackRpcGroup.merge(NotificationRpcGroup);
