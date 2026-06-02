@@ -1,4 +1,4 @@
-import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   it,
@@ -86,9 +86,3 @@ it("create group, send messages, verify seq monotonicity", () =>
     yield* bob.client.close();
     yield* eve.client.close();
   }));
-
-// TaskConversationAddParticipant is TM-only. DEFAULT_APP_ID tasks have
-// no registered TM (#677); re-add coverage when the test fixture
-// rewires to AppsRegister + a custom app OR a future invitation-accept
-// RPC adds a non-TM path.
-vit.todo("addParticipant adds an agent — needs AppsRegister fixture");

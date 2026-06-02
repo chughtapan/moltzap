@@ -10,7 +10,7 @@ import type {
   ChatCompletionChunk,
   ChatCompletionCreateParams,
   ChatCompletionContentPartText,
-} from "openai/resources/chat/completions";
+} from "./openai-shapes.js";
 
 export type EchoServer = { port: number; close: () => void };
 

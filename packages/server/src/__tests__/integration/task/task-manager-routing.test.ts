@@ -10,7 +10,7 @@
  *    auto-mints a default-TM-bound task; `messages/send` succeeds.
  */
 import * as fc from "fast-check";
-import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   DEFAULT_APP_ID,
@@ -161,20 +161,6 @@ it(
   TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
 );
 
-// DEFAULT_APP_ID has no per-task TM (#677); closing the task creator's
-// socket no longer makes messages/send unreachable. Re-add via AppsRegister
-// fixture + custom appId once the TM moderator test driver lands.
-vit.todo(
-  "TM offline: messages/send surfaces RpcFailure — needs AppsRegister fixture",
-);
-
-// TaskClose requires TM authority (#677); DEFAULT_APP_ID has no TM, so
-// the close path is unreachable for unmoderated tasks. Re-add coverage
-// via AppsRegister fixture + custom appId.
-vit.todo(
-  "Closed task: messages/send fails closed with TaskClosed — needs AppsRegister fixture",
-);
-
 it(
   "Default-DM-TM: TaskRequest auto-binds the default TM; messages/send succeeds without a custom TM",
   () =>
@@ -246,12 +232,4 @@ it(
       expect(receivedMsg.id).toBe(sent.message.id);
     }),
   TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
-);
-
-// The TM self-loop bug was specific to the path where a registered TM
-// hook handler re-emits a message it just sent. DEFAULT_APP_ID has no
-// TM hook (#677); this scenario is unreachable here. Re-add via
-// AppsRegister fixture + custom appId once that test driver lands.
-vit.todo(
-  "TM-authored messages/send does not self-loop via network.send (codex HIGH-1) — needs AppsRegister fixture",
 );
