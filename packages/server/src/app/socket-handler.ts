@@ -136,7 +136,14 @@ function openSocketSession(
     );
     const sink = yield* Deferred.await(sinkReady);
 
-    const reader = runMuxReader(socket, { c2s: sink }, disconnects);
+    // Route both channels: c2s into the inbound engine's sink, s2c into the
+    // reverse client's sink (the void-acks for the server's
+    // callback/notification RPCs).
+    const reader = runMuxReader(
+      socket,
+      { c2s: sink, s2c: serverConn.sink },
+      disconnects,
+    );
     yield* runSocketReader(reader, session, options);
   }).pipe(Effect.withSpan("socket.openSession"));
 }

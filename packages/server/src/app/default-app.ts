@@ -61,12 +61,14 @@ function makeDefaultAppEndpoint(): AppEndpoint {
   return {
     connId: DEFAULT_APP_CONNECTION_ID,
     originator: {
-      id: DEFAULT_APP_CONNECTION_ID,
       call: () => inertOriginatorOp("originator.call"),
       notify: () => inertOriginatorOp("originator.notify"),
-      failAllPending: () => Effect.void,
-      handle: () => inertOriginatorOp("originator.handle"),
-      resolve: () => inertOriginatorOp("originator.resolve"),
+      // The inert endpoint serves no inbound s2c frames; its sink is never
+      // routed to (the default app makes no round-trips).
+      sink: {
+        parser: undefined as never,
+        inject: () => inertOriginatorOp("originator.sink.inject"),
+      },
     } as Originator,
   };
 }

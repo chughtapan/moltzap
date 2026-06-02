@@ -4,16 +4,20 @@ import {
   type NotificationParamsOf,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import {
-  opaquePayload,
-  type NetworkSendService,
-} from "../../network/network-send.js";
+import { type NetworkSendService } from "../../network/network-send.js";
 import { NetworkSendServiceTag } from "../../app/layers.js";
 
 type BroadcastOptions = NonNullable<
-  Parameters<NetworkSendService["broadcast"]>[2]
+  Parameters<NetworkSendService["broadcastNotification"]>[3]
 >;
 
+/**
+ * Fan a server→client notification out to every live connection of each agent
+ * in `agentIds`. The notification rides the reverse `RpcClient` on each target
+ * connection (fired fork-and-forget, the `void` result settles on the client's
+ * ack); the client's reverse `RpcServer` routes it into its
+ * `SubscriberRegistry`. Replaces the raw `socket.write(encodedFrame)` path.
+ */
 export const broadcastNotificationToAgents = <
   D extends NotificationDefinition<string, any>,
 >(
@@ -25,7 +29,10 @@ export const broadcastNotificationToAgents = <
   Effect.gen(function* () {
     if (agentIds.length === 0) return;
     const networkSendService = yield* NetworkSendServiceTag;
-    const frame = definition.encode(params);
-    const payload = opaquePayload(JSON.stringify(frame));
-    yield* networkSendService.broadcast(agentIds, payload, options);
+    yield* networkSendService.broadcastNotification(
+      agentIds,
+      definition,
+      params,
+      options,
+    );
   }).pipe(Effect.withSpan("notifications.broadcastToAgents"));

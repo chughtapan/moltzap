@@ -88,14 +88,14 @@ export function makeHandlerAppEndpoint(args: {
   return {
     connId: args.id,
     originator: {
-      id: args.id,
       call,
-      notify: () => Effect.void,
-      failAllPending: () => Effect.void,
-      handle: () =>
-        defectingOp(args.id, "handler-endpoint", "originator.handle"),
-      resolve: () =>
-        defectingOp(args.id, "handler-endpoint", "originator.resolve"),
+      notify: () =>
+        defectingOp(args.id, "handler-endpoint", "originator.notify"),
+      sink: {
+        parser: undefined as never,
+        inject: () =>
+          defectingOp(args.id, "handler-endpoint", "originator.sink.inject"),
+      },
     } as Originator,
   };
 }
@@ -125,12 +125,12 @@ export function makeInertAppEndpoint(args: {
   return {
     connId: args.id,
     originator: {
-      id: args.id,
       call,
-      notify: () => Effect.void,
-      failAllPending: () => Effect.void,
-      handle: () => defectingOp(args.id, "inert", "originator.handle"),
-      resolve: () => defectingOp(args.id, "inert", "originator.resolve"),
+      notify: () => defectingOp(args.id, "inert", "originator.notify"),
+      sink: {
+        parser: undefined as never,
+        inject: () => defectingOp(args.id, "inert", "originator.sink.inject"),
+      },
     } as Originator,
   };
 }
