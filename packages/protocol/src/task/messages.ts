@@ -13,7 +13,10 @@ import { ForbiddenError, NotFoundError } from "../transport/wire-errors.js";
 import { TaskId } from "./ids.js";
 import {
   ConversationInTask,
-  MessageSendPermission,
+  ConversationSendAccess,
+  ActiveTaskPermission,
+  OpenConversationPermission,
+  ReplyTargetPermission,
   TaskReadAccess,
 } from "./capabilities/index.js";
 
@@ -178,13 +181,23 @@ export const MessagesSend = defineRpc({
   result: Schema.Struct({ message: MessageSchema }),
   callablePrincipal: "agent",
   requiresActive: true,
-  // Run order: `ConversationInTask` resolves the conversation's task membership
-  // first, so `MessageSendPermission` obtains against an already-verified
-  // conversation.
-  caps: [ConversationInTask, MessageSendPermission],
-  // `ForbiddenError`/`NotFoundError` ride the dispatch-lease claim path: a
-  // consumed/invalid lease maps to `ForbiddenError(data.reason: "LeaseInvalid")`,
-  // a missing lease to `NotFoundError`.
+  // Each cap is its own middleware, stacked in run order. `ConversationInTask`
+  // resolves the conversation's task membership; `ConversationSendAccess`
+  // proves participation and does the one joined read the rest read off;
+  // `ActiveTaskPermission` runs before `OpenConversationPermission` so a closed
+  // task surfaces `TaskClosed`, not the auto-archive's `ConversationArchived`;
+  // `ReplyTargetPermission` verifies the reply target.
+  caps: [
+    ConversationInTask,
+    ConversationSendAccess,
+    ActiveTaskPermission,
+    OpenConversationPermission,
+    ReplyTargetPermission,
+  ],
+  // Handler-domain errors. `ForbiddenError`/`NotFoundError` ride the
+  // dispatch-lease claim path: a consumed/invalid lease maps to
+  // `ForbiddenError(data.reason: "LeaseInvalid")`, a missing lease to
+  // `NotFoundError`. The principal-gate + cap errors come from their middlewares.
   errors: [HookBlockedError, ForbiddenError, NotFoundError],
 });
 
