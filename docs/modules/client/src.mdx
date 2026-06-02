@@ -13,7 +13,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/agent-client.ts#L91)
+### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/agent-client.ts#L103)
 
 _Interface_
 
@@ -26,7 +26,7 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AppCallbackContext`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L180)
+### [`AppCallbackContext`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L110)
 
 _Interface_
 
@@ -36,15 +36,12 @@ export interface AppCallbackContext {
 }
 ```
 
-Per-frame context the WS client threads through the Spec F typed
-dispatcher when invoking a app-callback handler. The dispatcher reads
-the slot's definition off the static handler table — handlers only need
-the request id (e.g. for tracing / logging). The empty `traceparent`
-passthrough is intentional: when the wire frame carries an OTel
-traceparent header, the surrounding transport may layer it on; the
-typed-dispatcher does not encode tracing into the type.
+Per-callback context handed to an authored app-callback handler — the request
+id (for tracing / logging). The reverse `RpcServer` engine assigns request
+ids internally; the authored handlers that read `requestId` receive a
+placeholder, the payload is the load-bearing input.
 
-### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L254)
+### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L152)
 
 _Interface_
 
@@ -238,7 +235,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L240)
+### [`CrossConvMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L248)
 
 _Interface_
 
@@ -421,14 +418,13 @@ error channel is part of the type — callers fail with a tagged error and the
 consumer fiber logs it instead of dropping it on the floor like a Promise
 rejection would.
 
-### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/agent-client.ts#L103)
+### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/agent-client.ts#L115)
 
 _Class_
 
 ```ts
 export class MoltZapAgentClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
-  private readonly malformedRef: Ref.Ref<number>;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
@@ -443,7 +439,6 @@ export class MoltZapAgentClient {
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
-    this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
   }
 
@@ -522,7 +517,8 @@ export class MoltZapAgentClient {
         this.reconnectFiber = null;
         yield* Effect.forkDaemon(Fiber.interrupt(f));
       }
-      yield* this.failAllPending(MSG_NOT_CONNECTED);
+      // The native engine fails its in-flight RPCs with `NotConnectedError`
+      // when the connection scope closes below; no separate pending-drain.
       yield* this.subscribers.closeAll;
       const state = yield* Ref.getAndSet(this.stateRef, Option.none());
       if (Option.isSome(state)) {
@@ -546,35 +542,36 @@ export class MoltZapAgentClient {
   }
 
   disconnect(): Effect.Effect<void, never> {
+    return Effect.sync(() => this.disconnectSync());
 ```
 
 MoltZap agent client — outbound RPC only, no app-callback inbound
 dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; app-only
 methods are unreachable at compile time (Spec D3 R11/R13).
 
-### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L342)
+### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L240)
 
 _Class_
 
 ```ts
 export class MoltZapAppClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
-  private readonly malformedRef: Ref.Ref<number>;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
   >;
 
   /**
-   * Per-subscription notification registry. Spec #596 / Spec B: callback-based
-   * storage feeds `Stream.async` consumers via `notification/stream.ts`.
+   * Per-subscription notification registry. Callback-based storage feeds
+   * `Stream.async` consumers via `notification/stream.ts`; the s2c reverse
+   * server's notification handlers dispatch into it.
    */
   private readonly subscribers: SubscriberRegistry;
 
   /**
-   * Spec F (#617) immutable app-callback handler table. Captured from
-   * `AppClientOptions.handlers` at construction and threaded through
-   * every `makeAppClientConnection` call (including reconnects).
+   * Immutable app-callback handler table. Captured from
+   * `AppClientOptions.handlers` at construction and threaded into the s2c
+   * reverse `RpcServer` on every connect (including reconnects).
    */
   private readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 
@@ -587,7 +584,6 @@ export class MoltZapAppClient {
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
-    this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
     this.handlers = options.handlers;
   }
@@ -677,6 +673,7 @@ export class MoltZapAppClient {
    * Stream's payload to `DecodedNotification<D, R>`.
    *
    * Lifecycle (spec §"Stream lifecycle contract"):
+   *   - Subscription construction is pure (no I/O, no scope). Legal
 ```
 
 WebSocket lifecycle: open → network/connect → active. On disconnect,
@@ -892,7 +889,7 @@ Parking semantics: `hold` re-enters at `parked[convId]` FRONT.
 `takeDispatchCandidate` prefers the parked queue for the next pull
 so backpressure within one conversation does not starve others.
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L292)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L300)
 
 _Class_
 
@@ -1121,7 +1118,7 @@ export interface RegisterResponse {
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register` and `/api/v1/admin/register-agent`).
 
-### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L79)
+### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L65)
 
 _Interface_
 
@@ -1165,6 +1162,14 @@ _Interface_
 export interface ServiceOptions {
   serverUrl: string;
   agentKey: string;
+
+  /**
+   * The agent's own id, registered and stored by the client via the
+   * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries
+   * no identity back, so `ownAgentId` (isFromMe, the `~/.moltzap/<agentId>`
+   * socket path, status, trace records) sources from here.
+   */
+  agentId: string;
 }
 ```
 
