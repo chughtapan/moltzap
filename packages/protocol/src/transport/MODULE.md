@@ -1575,7 +1575,7 @@ export type NotificationParamsOf<
 
 Type-only accessor for a notification's params payload.
 
-### [`NotificationRpcGroup`](./rpc-method-groups.ts#L178)
+### [`NotificationRpcGroup`](./rpc-method-groups.ts#L183)
 
 _Variable_
 
@@ -1812,7 +1812,7 @@ export type ResultOf<
 
 Type-only accessor for a definition's result payload.
 
-### [`ReverseRpcGroup`](./rpc-method-groups.ts#L192)
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L197)
 
 _Variable_
 
@@ -2114,7 +2114,7 @@ the channel sink named by its envelope. The owner forks this and
 surfaces socket close to the server engine's `disconnects` Mailbox so
 per-client teardown runs.
 
-### [`ServerEngineLayer`](./native-server-engine.ts#L109)
+### [`ServerEngineLayer`](./native-server-engine.ts#L107)
 
 _Variable_
 

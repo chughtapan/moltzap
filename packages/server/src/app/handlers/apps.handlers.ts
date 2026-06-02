@@ -110,7 +110,6 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
   }).pipe(Effect.withSpan("dispatches.get"));
 }
 
-
 // ── Native @effect/rpc handler bodies ───────────────────────────────────────
 
 export const nativeAppsRegister = (params: ParamsOf<typeof AppsRegister>) =>

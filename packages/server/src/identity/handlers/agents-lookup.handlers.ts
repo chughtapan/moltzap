@@ -200,7 +200,6 @@ function agentsListBody(
   }).pipe(Effect.withSpan("agents.list.handler"));
 }
 
-
 // ── Native @effect/rpc handler bodies ───────────────────────────────────────
 
 export const nativeAgentsLookup = (params: ParamsOf<typeof AgentsLookup>) =>

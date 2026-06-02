@@ -483,11 +483,7 @@ const renderWsConnectSnippet = ({
   // The HelloOk is empty: success is the only signal. The handshake sends a
   // single prefixed `credential`; the server resolves the principal off the
   // prefix and replies with `{ }` on success.
-  const json = JSON.stringify(
-    { jsonrpc: "2.0", id: "1", result: {} },
-    null,
-    2,
-  );
+  const json = JSON.stringify({ jsonrpc: "2.0", id: "1", result: {} }, null, 2);
   const request = JSON.stringify(
     {
       jsonrpc: "2.0",

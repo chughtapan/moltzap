@@ -57,9 +57,7 @@ const notificationHandler =
   };
 
 /** One erased reverse-handler slot: any payload, any failure, `void`-ish result. */
-type ReverseHandler = (
-  params: never,
-) => Effect.Effect<unknown, unknown>;
+type ReverseHandler = (params: never) => Effect.Effect<unknown, unknown>;
 
 /**
  * Build the reverse handler map. Every notification tag routes into the

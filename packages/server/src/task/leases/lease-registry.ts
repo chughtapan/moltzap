@@ -640,14 +640,19 @@ function emitDispatchRelease(
 ): Effect.Effect<void, never, never> {
   const wire = leaseVerdictToWire(verdict);
   if (wire === null) return Effect.void;
-  return fireNotification(state, record.binding.recipientConnectionId, DispatchRelease, {
-    dispatchId: record.dispatchId,
-    leaseId: record.leaseId,
-    verdict: wire,
-    ...(verdict._tag === "grant" && verdict.leaseTimeoutMs !== undefined
-      ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
-      : {}),
-  });
+  return fireNotification(
+    state,
+    record.binding.recipientConnectionId,
+    DispatchRelease,
+    {
+      dispatchId: record.dispatchId,
+      leaseId: record.leaseId,
+      verdict: wire,
+      ...(verdict._tag === "grant" && verdict.leaseTimeoutMs !== undefined
+        ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
+        : {}),
+    },
+  );
 }
 
 function emitDispatchesConsumed(
@@ -656,13 +661,18 @@ function emitDispatchesConsumed(
   messageId: MessageId,
   consumedAt: string,
 ): Effect.Effect<void, never, never> {
-  return fireNotification(state, record.binding.moderatorConnectionId, DispatchesConsumed, {
-    dispatchId: record.dispatchId,
-    leaseId: record.leaseId,
-    conversationId: record.binding.conversationId,
-    messageId,
-    consumedAt,
-  });
+  return fireNotification(
+    state,
+    record.binding.moderatorConnectionId,
+    DispatchesConsumed,
+    {
+      dispatchId: record.dispatchId,
+      leaseId: record.leaseId,
+      conversationId: record.binding.conversationId,
+      messageId,
+      consumedAt,
+    },
+  );
 }
 
 function emitDispatchesExpired(
@@ -670,12 +680,17 @@ function emitDispatchesExpired(
   record: LeaseRecord,
   expiredAt: string,
 ): Effect.Effect<void, never, never> {
-  return fireNotification(state, record.binding.moderatorConnectionId, DispatchesExpired, {
-    dispatchId: record.dispatchId,
-    leaseId: record.leaseId,
-    conversationId: record.binding.conversationId,
-    expiredAt,
-  });
+  return fireNotification(
+    state,
+    record.binding.moderatorConnectionId,
+    DispatchesExpired,
+    {
+      dispatchId: record.dispatchId,
+      leaseId: record.leaseId,
+      conversationId: record.binding.conversationId,
+      expiredAt,
+    },
+  );
 }
 
 function replaceEntry(

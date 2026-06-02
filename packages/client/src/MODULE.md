@@ -230,7 +230,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](./service.ts#L248)
+### [`CrossConvMessage`](./service.ts#L251)
 
 _Interface_
 
@@ -884,7 +884,7 @@ Parking semantics: `hold` re-enters at `parked[convId]` FRONT.
 `takeDispatchCandidate` prefers the parked queue for the next pull
 so backpressure within one conversation does not starve others.
 
-### [`MoltZapService`](./service.ts#L300)
+### [`MoltZapService`](./service.ts#L303)
 
 _Class_
 
@@ -1159,12 +1159,15 @@ export interface ServiceOptions {
   agentKey: string;
 
   /**
-   * The agent's own id, registered and stored by the client via the
-   * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries
-   * no identity back, so `ownAgentId` (isFromMe, the `~/.moltzap/<agentId>`
-   * socket path, status, trace records) sources from here.
+   * The agent's own id, registered and stored by the caller via the
+   * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries no
+   * identity back, so `ownAgentId` (isFromMe, the `~/.moltzap/<agentId>` socket
+   * path, status, trace records) sources from here. Optional: a caller that has
+   * not yet registered leaves it unset and `ownAgentId` is `undefined` until it
+   * registers — the same pre-identity state the old HelloOk-sourced id had
+   * before the handshake completed.
    */
-  agentId: string;
+  agentId?: string;
 }
 ```
 

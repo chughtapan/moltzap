@@ -128,7 +128,12 @@ type AnyNotificationDefinition = NotificationDefinition<
  */
 type NotificationRpcFromDef<D> =
   D extends NotificationDefinition<infer Name, infer P>
-    ? Rpc.Rpc<JsonRpcMethod<Name>, P, typeof Schema.Void, typeof WireErrorSchema>
+    ? Rpc.Rpc<
+        JsonRpcMethod<Name>,
+        P,
+        typeof Schema.Void,
+        typeof WireErrorSchema
+      >
     : never;
 
 type NotificationGroupMembers<

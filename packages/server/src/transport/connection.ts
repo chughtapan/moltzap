@@ -10,7 +10,10 @@ import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { AgentContext, AppContext } from "../transport/context.js";
-import { buildReverseClient, type ReverseClient } from "./reverse-rpc-client.js";
+import {
+  buildReverseClient,
+  type ReverseClient,
+} from "./reverse-rpc-client.js";
 
 /**
  * Allocate a per-connection reverse `RpcClient&lt;ReverseRpcGroup>` over the
