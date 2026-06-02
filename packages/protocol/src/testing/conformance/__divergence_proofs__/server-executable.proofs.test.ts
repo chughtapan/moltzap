@@ -10,7 +10,6 @@ import {
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
-import { JSON_RPC_RESERVED_CODES } from "../../../transport/wire-errors.js";
 import { responseFrame } from "../../../transport/wire.js";
 import {
   TaskConversationArchive,
@@ -462,7 +461,7 @@ function handleBadServerResponseFrame(
     encodeFrame(
       responseFrame(response.id, {
         error: {
-          code: JSON_RPC_RESERVED_CODES.InvalidRequest,
+          _tag: "InvalidParamsError",
           message: "bad server replied to a stray response frame",
         },
       }),
@@ -481,7 +480,7 @@ function makeBadResponse(
   if (shouldRejectBadResponse(request, behavior)) {
     return responseFrame(request.id, {
       error: {
-        code: JSON_RPC_RESERVED_CODES.InternalError,
+        _tag: "InternalError",
         message: "bad server rejects model-ok call",
       },
     });
