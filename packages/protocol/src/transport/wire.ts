@@ -40,7 +40,7 @@ const JsonRpcIdBrand = Brand.nominal<JsonRpcId>();
 
 const RpcErrorSchema = Schema.Struct({
   _tag: Schema.String,
-  message: Schema.String,
+  message: Schema.optional(Schema.String),
   data: Schema.optional(Schema.Unknown),
 });
 
@@ -234,7 +234,7 @@ export function requestFrame<
 // eslint-disable-next-line agent-code-guard/manual-tagged-error -- wire envelope type (the `_tag` projection of a `Schema.TaggedError`), not a tagged-error class
 type ResponseFrameError = {
   _tag: string;
-  message: string;
+  message?: string;
   data?: unknown;
 };
 export type ResponseFrameBody =

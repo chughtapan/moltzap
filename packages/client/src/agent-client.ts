@@ -405,10 +405,9 @@ export class MoltZapAgentClient {
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectFiber !== null) return;
     // The reconnect loop body is shared (`runtime/reconnect.ts →
-    // makeReconnectLoop`, #705 CP-F A6-base — byte-identical to
-    // `MoltZapAppClient`). The per-class guard above + `runtime.runFork`
-    // here stay local because they touch this client's `reconnectFiber` /
-    // `closed` state.
+    // makeReconnectLoop`, identical to `MoltZapAppClient`). The per-class
+    // guard above + `runtime.runFork` here stay local because they touch this
+    // client's `reconnectFiber` / `closed` state.
     const loop = makeReconnectLoop({
       connectEffect: () => this.connectEffect(),
       onReconnect: (helloOk) => this.options.onReconnect?.(helloOk),

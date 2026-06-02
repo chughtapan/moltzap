@@ -282,8 +282,8 @@ export interface TestClient {
    * the handler runs and its outcome is encoded as the JSON-RPC
    * response:
    *   - `Effect.succeed(value)` → `{ result: value }`
-   *   - `Effect.fail(err: RpcResponseError)` → `{ error: { code, message, data? } }`
-   *   - defects collapse to a generic `-32603 InternalError` reply so the
+   *   - `Effect.fail(err: RpcResponseError)` → `{ error: { _tag, message?, data? } }`
+   *   - defects collapse to a generic `InternalError` reply so the
    *     server's `Deferred.await` cannot hang on a crashing handler.
    *
    * Re-registration replaces the prior handler (later wins) — mirrors

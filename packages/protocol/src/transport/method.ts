@@ -70,10 +70,9 @@ type CapErrorClassesOf<C> = C extends {
  * The `paramsSchema`/`resultSchema` are Effect `Schema` values (`P`/`R extends
  * Schema.Schema.AnyNoContext` — the wire schemas have no decode context).
  * `validateParams`/`validateResult` are strict, excess-rejecting type guards
- * (`closedStructGuard`) that match the former `ajv.compile(schema)` strict
- * behavior: a bare `Schema.is` would ACCEPT extra keys, so the guards wrap a
- * `Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" })`
- * to preserve AJV `strict` rejection at the trust boundary.
+ * (`closedStructGuard`): a bare `Schema.is` would ACCEPT extra keys, so the
+ * guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
+ * "error" })` to reject excess properties at the trust boundary.
  *
  * A method's per-frame capabilities are NOT descriptor metadata: the
  * descriptor carries only the wire shape. The server's per-method `*AuthMw`
@@ -372,8 +371,8 @@ export function defineRpc<
     name: jsonRpcMethod(def.name),
     paramsSchema: def.params,
     resultSchema: def.result,
-    // §F.3a auth axis — the single descriptor-level source. The client groups
-    // partition on it; the server principal gate reads it. `"any"` is the lone
+    // The single descriptor-level auth source: the client groups partition on
+    // it, the server principal gate reads it. `"any"` is the lone
     // unauthenticated method (`network/connect`).
     callablePrincipal,
     requiresActive: def.requiresActive ?? false,
