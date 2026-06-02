@@ -23,7 +23,7 @@ import {
   type UnauthenticatedMethod,
   type HttpOnlyMethod,
 } from "@moltzap/protocol";
-import type { JsonRpcMethod, MessagesSendAuth } from "@moltzap/protocol";
+import type { JsonRpcMethod, ConversationInTask } from "@moltzap/protocol";
 import { serverNativeHandlers } from "./native-handlers.js";
 
 type Expect<T extends true> = T;
@@ -90,12 +90,12 @@ type ResidualOf<Name extends keyof typeof serverNativeHandlers & string> =
     ? Rpc.ExcludeProvides<R, MemberWithTag<Name>, JsonRpcMethod<Name>>
     : never;
 
-// A cap-bearing agent method: `messages/send` carries the `MessagesSendAuth`
-// proof. Its handler's residual MUST NOT contain `MessagesSendAuth` — the
-// per-method middleware provides it. Mirrors `server-engine-group.types-check.ts`
-// E.1 at the handler-map level.
+// A cap-bearing agent method: `messages/send` stacks the `ConversationInTask`
+// cap middleware (among others). Its handler's residual MUST NOT contain
+// `ConversationInTask` — the stacked cap middleware provides it. Mirrors
+// `server-engine-group.types-check.ts` E.1 at the handler-map level.
 type _SendProofExcluded = Expect<
-  [MessagesSendAuth] extends [ResidualOf<"messages/send">] ? false : true
+  [ConversationInTask] extends [ResidualOf<"messages/send">] ? false : true
 >;
 
 // `network/connect` reads no proof; its handler still type-checks as a

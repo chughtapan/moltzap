@@ -175,70 +175,23 @@ export {
   AppCallableGroup,
 } from "./client-callable-groups.js";
 
-// §H — the per-method `AuthContext` proof tags + their `AuthMiddleware`
-// descriptors. Each authenticated method carries ONE native `RpcMiddleware`
-// whose `provides` is that method's proof tag; the middleware impl (server
-// per-socket `Layer`) resolves the principal, runs the method's caps with the
-// principal in scope, and provides the combined `{ principal, <cap proofs> }`
-// proof. The proof VALUE type is projected from the descriptor's
-// `callablePrincipal` + `caps` (`AuthProof`), so it cannot drift.
-export type {
-  CapProofs,
-  AuthContextValue,
-  PrincipalForKind,
-} from "./auth-context.js";
-export type { AuthProof } from "./auth-middleware.js";
+// Per-capability `@effect/rpc` middlewares. Each capability is its own
+// `RpcMiddleware.Tag`; the engine stacks the principal gate plus a method's
+// declared cap middlewares (`server-engine-group.ts → buildEngineMember`). Each
+// cap mw `provides` its capability `Context.Tag` and carries its own `failure`
+// (the cap's error union), which the engine unions into the method's wire error.
+// The server supplies each mw's impl as a per-socket Layer
+// (`server-core auth-middleware-layers.ts`).
 export {
-  MessagesSendAuth,
-  MessagesSendAuthMw,
-  MessagesListAuth,
-  MessagesListAuthMw,
-  TaskListAuth,
-  TaskListAuthMw,
-  TaskRequestAuth,
-  TaskRequestAuthMw,
-  TaskLeaveAuth,
-  TaskLeaveAuthMw,
-  TaskConversationListAuth,
-  TaskConversationListAuthMw,
-  AgentsLookupAuth,
-  AgentsLookupAuthMw,
-  AgentsLookupByNameAuth,
-  AgentsLookupByNameAuthMw,
-  AgentsListAuth,
-  AgentsListAuthMw,
-  ContactsListAuth,
-  ContactsListAuthMw,
-  ContactsAddAuth,
-  ContactsAddAuthMw,
-  ContactsAcceptAuth,
-  ContactsAcceptAuthMw,
-  ContactsByIdAuth,
-  ContactsByIdAuthMw,
-  DispatchRequestAuth,
-  DispatchRequestAuthMw,
-  NetworkPingAuth,
-  NetworkPingAuthMw,
-  PresenceSubscribeAuth,
-  PresenceSubscribeAuthMw,
-  TaskCloseAuth,
-  TaskCloseAuthMw,
-  TaskAddParticipantAuth,
-  TaskAddParticipantAuthMw,
-  TaskRemoveParticipantAuth,
-  TaskRemoveParticipantAuthMw,
-  TaskConversationCreateAuth,
-  TaskConversationCreateAuthMw,
-  TaskConversationArchiveAuth,
-  TaskConversationArchiveAuthMw,
-  TaskConversationUnarchiveAuth,
-  TaskConversationUnarchiveAuthMw,
-  TaskConversationAddParticipantAuth,
-  TaskConversationAddParticipantAuthMw,
-  TaskConversationRemoveParticipantAuth,
-  TaskConversationRemoveParticipantAuthMw,
-  AppsRegisterAuth,
-  AppsRegisterAuthMw,
-  DispatchesGetAuth,
-  DispatchesGetAuthMw,
-} from "./auth-middleware.js";
+  PrincipalGateMw,
+  ConversationInTaskMw,
+  ConversationSendAccessMw,
+  ActiveTaskPermissionMw,
+  OpenConversationPermissionMw,
+  ReplyTargetPermissionMw,
+  TaskReadAccessMw,
+  ContactPolicyAllowsReachMw,
+  capMiddlewareByCapKey,
+  type CapMwFor,
+  type MwStackFor,
+} from "./cap-middlewares.js";
