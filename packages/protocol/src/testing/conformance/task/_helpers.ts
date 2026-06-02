@@ -471,15 +471,14 @@ export interface AssertConversationRejectsMessagesInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly propertyName: string;
-  readonly expectedError?: { readonly code: number; readonly label: string };
+  readonly expectedError?: { readonly tag: string };
 }
 
 export function assertConversationRejectsMessages(
   input: AssertConversationRejectsMessagesInput,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   const expectedError = input.expectedError ?? {
-    code: ConversationArchivedError.code,
-    label: "ConversationArchived",
+    tag: "ConversationArchived",
   };
   const { actor, taskId, conversationId, propertyName } = input;
   return Effect.gen(function* () {
@@ -498,17 +497,15 @@ export function assertConversationRejectsMessages(
       onLeft: (error) => {
         if (
           error instanceof RpcResponseError &&
-          error.code === expectedError.code
+          error.tag === expectedError.tag
         ) {
           return null;
         }
         const errorLabel =
-          error instanceof RpcResponseError
-            ? `${error._tag}/${error.code}`
-            : error._tag;
+          error instanceof RpcResponseError ? error.tag : error._tag;
         return deliveryViolation(
           propertyName,
-          `messages/send returned ${errorLabel}, expected ${expectedError.label}`,
+          `messages/send returned ${errorLabel}, expected ${expectedError.tag}`,
         );
       },
     });

@@ -102,13 +102,12 @@ function assertAuthResponseError(error: unknown) {
       invariant(`expected RpcResponseError, got ${String(error)}`),
     );
   }
-  const isAuthShaped =
-    error.code === UnauthorizedError.code || error.code === ForbiddenError.code;
+  const isAuthShaped = error.tag === "Unauthorized" || error.tag === "Forbidden";
   return isAuthShaped
     ? Effect.void
     : Effect.fail(
         invariant(
-          `expected Unauthorized/Forbidden code (${UnauthorizedError.code} / ${ForbiddenError.code}), got ${error.code}`,
+          `expected Unauthorized/Forbidden error, got ${error.tag}`,
         ),
       );
 }

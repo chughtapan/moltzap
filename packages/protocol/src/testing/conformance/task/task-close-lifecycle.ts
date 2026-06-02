@@ -89,7 +89,7 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
         taskId: fixture.taskId,
         conversationId: fixture.conversationId,
         propertyName: PROPERTY,
-        expectedError: { code: TaskClosedError.code, label: "TaskClosed" },
+        expectedError: { tag: "TaskClosed" },
       });
     }),
   );

@@ -44,13 +44,17 @@ export class RpcTimeoutError extends Data.TaggedError(
   readonly timeoutMs: number;
 }> {}
 
-/** Server returned a typed `ErrorFrame` for a request. */
+/**
+ * Server returned a typed `error` frame for a request. The wire `error` is a
+ * `_tag`-discriminated tagged error now (no numeric code); `tag` carries that
+ * discriminant so conformance assertions match on the error class identity.
+ */
 export class RpcResponseError extends Data.TaggedError(
   "TestingRpcResponseError",
 )<{
   readonly method: string;
   readonly requestId: string;
-  readonly code: number;
+  readonly tag: string;
   readonly message: string;
   readonly data?: unknown;
 }> {}
