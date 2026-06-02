@@ -13,7 +13,7 @@ it("buffer stores all messages without eviction", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);

@@ -9,7 +9,7 @@ H.setupServiceIntegration();
 it("connect() returns HelloOk with agentId", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("svc-agent");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
 
     expect(service.ownAgentId).toBe(reg.agentId);
     expect(service.connected).toBe(true);
@@ -35,7 +35,7 @@ it("task/conversation/list returns existing conversations after connect", () =>
     // conversations payload). The service cache populates from
     // notifications going forward; existing conversations are fetched
     // explicitly via `task/conversation/list`.
-    const service = yield* H.connectService(regB.apiKey);
+    const service = yield* H.connectService(regB.apiKey, regB.agentId);
     expect(service.getConversation(conv.conversation!.id)).toBeUndefined();
 
     const list = yield* service.call(H.TaskConversationList.name, {});
@@ -55,7 +55,10 @@ it("on('message') fires for incoming message from another agent", () =>
     const regReceiver = yield* H.registerAgent("receiver");
 
     yield* regSender.client.connect();
-    const service = yield* H.connectService(regReceiver.apiKey);
+    const service = yield* H.connectService(
+      regReceiver.apiKey,
+      regReceiver.agentId,
+    );
 
     const conv = yield* regSender.client.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,

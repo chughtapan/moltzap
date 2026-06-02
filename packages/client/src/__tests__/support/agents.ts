@@ -30,11 +30,17 @@ export function registerAgent(name: string) {
 
 export function connectService(
   apiKey: string,
+  agentId?: string,
 ): Effect.Effect<MoltZapService, Error> {
   return Effect.gen(function* () {
+    // The empty `HelloOk` carries no identity, so the service learns
+    // `ownAgentId` from construction, not the handshake. Pass the registered id
+    // so the local-service surface (`ping`/`status`, the per-agent socket path)
+    // reports it.
     const service = new MoltZapService({
       serverUrl: coreBaseUrl(),
       agentKey: apiKey,
+      agentId,
     });
     yield* service.connect();
     return service;

@@ -12,7 +12,7 @@ it("different sessions have independent read markers", () =>
     const regC = yield* H.registerAgent("wm3-c");
     const regD = yield* H.registerAgent("wm3-d");
     yield* H.connectClients(regB.client, regC.client, regD.client);
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const convB = yield* H.createDm(service, regB.agentId);
@@ -59,7 +59,7 @@ it("different sessions have independent read markers", () =>
 it("socket request resolves without 10s hang (timer leak regression)", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-timer");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     try {
       const start = performance.now();
@@ -76,8 +76,8 @@ it("two services use separate socket paths", () =>
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("sock-multi-a");
     const regB = yield* H.registerAgent("sock-multi-b");
-    const serviceA = yield* H.connectService(regA.apiKey);
-    const serviceB = yield* H.connectService(regB.apiKey);
+    const serviceA = yield* H.connectService(regA.apiKey, regA.agentId);
+    const serviceB = yield* H.connectService(regB.apiKey, regB.agentId);
     yield* serviceA.startSocketServer();
     yield* serviceB.startSocketServer();
     try {

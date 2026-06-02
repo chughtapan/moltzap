@@ -18,7 +18,7 @@ function expectSocketFailure(
 it("unknown socket method rejects with error", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-unknown");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     try {
       const result = yield* Effect.either(
@@ -34,7 +34,7 @@ it("unknown socket method rejects with error", () =>
 it("history rejects when required fields are missing or wrong type", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-validate");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     const tryReq = (params: Record<string, unknown>) =>
       H.socketRequest(H.LocalServiceCommands.History, params);

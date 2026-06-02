@@ -195,10 +195,12 @@ function onReconnectReceivesHelloOk() {
     const aliceClient = createStrippedClient(alice.apiKey);
     yield* aliceClient.connect();
     const binding = yield* createDmConversation(aliceClient, bob.agentId);
-    let reconnectHelloOk: unknown = null;
+    let reconnectFired = false;
+    let reconnectHelloOk: unknown = undefined;
     const bobClient = createClient(bob.apiKey, {
       onDisconnect: () => undefined,
       onReconnect: (helloOk: unknown) => {
+        reconnectFired = true;
         reconnectHelloOk = helloOk;
       },
     });
@@ -207,11 +209,13 @@ function onReconnectReceivesHelloOk() {
     yield* bobClient.disconnect();
     yield* sendText(aliceClient, binding, MISSED_WHILE_OFFLINE_TEXT);
     yield* waitUntil(
-      () => reconnectHelloOk !== null,
+      () => reconnectFired,
       RECONNECT_WAIT_MS,
       "missed-message reconnect",
     );
-    expect(reconnectHelloOk).toMatchObject({ agentId: bob.agentId });
+    // `HelloOk` carries no payload — the connecting client already holds its own
+    // id, so success (a delivered, well-formed envelope) is the whole signal.
+    expect(reconnectHelloOk).toEqual({});
     expect(yield* listMessageTexts(bobClient, binding)).toContain(
       MISSED_WHILE_OFFLINE_TEXT,
     );

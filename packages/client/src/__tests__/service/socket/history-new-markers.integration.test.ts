@@ -11,7 +11,7 @@ it("history via socket returns messages with isOwn labels", () =>
     const regA = yield* H.registerAgent("sock-hist-a");
     const regB = yield* H.registerAgent(H.SOCK_HIST_B_NAME);
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const conv = yield* H.socketRpcRequest(TaskRequest.name, {
@@ -59,7 +59,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
     const regC = yield* H.registerAgent("wm-c");
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const convB = yield* H.createDm(service, regB.agentId);
@@ -116,7 +116,7 @@ it("new messages after history read are marked *NEW*", () =>
     const regB = yield* H.registerAgent("wm2-b");
     const regC = yield* H.registerAgent("wm2-c");
     yield* H.connectClients(regB.client, regC.client);
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const convB = yield* H.createDm(service, regB.agentId);

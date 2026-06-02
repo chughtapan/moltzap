@@ -13,7 +13,7 @@ it("markers are per-viewing-conversation", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);
@@ -64,7 +64,7 @@ it("multiple other conversations appear in context", () =>
     yield* regB.client.connect();
     yield* regC.client.connect();
     yield* regD.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);
@@ -104,7 +104,7 @@ it("maxConversations limits output", () =>
     );
     for (const a of agents) yield* a.client.connect();
 
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convs = [];
     for (const a of agents) {
