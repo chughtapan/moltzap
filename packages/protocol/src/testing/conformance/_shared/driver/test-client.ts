@@ -917,13 +917,43 @@ function normalizeNativeFrame(frame: string): string {
     onRight: ({ id, method, rest }) => {
       const isNotification =
         method !== undefined && NOTIFICATION_METHODS.has(method);
+      const flat =
+        "error" in rest
+          ? { ...rest, error: unwrapCauseError(rest["error"]) }
+          : rest;
       return JSON.stringify({
-        ...rest,
+        ...flat,
         ...(method !== undefined ? { method } : {}),
         ...(id !== undefined && !isNotification ? { id: String(id) } : {}),
       });
     },
   });
+}
+
+/**
+ * Flatten the `jsonRpc` error envelope to the driver's `{ _tag, message?, data?
+ * }` wire error. The serialization wraps an Exit failure as
+ * `{ _tag: "Cause", data: { _tag: "Fail", error: <taggedError> } }` (a typed
+ * failure) or `{ _tag: "Defect", … }` (a die). A `Fail` cause unwraps to its
+ * inner tagged error; anything else collapses to a generic internal error.
+ */
+function unwrapCauseError(error: unknown): unknown {
+  if (typeof error !== "object" || error === null) return error;
+  const e = error as Record<string, unknown>;
+  if (e["_tag"] !== "Cause" && e["_tag"] !== "Defect") return error;
+  const cause = e["data"] as Record<string, unknown> | undefined;
+  const inner = cause?.["_tag"] === "Fail" ? cause["error"] : undefined;
+  if (
+    typeof inner === "object" &&
+    inner !== null &&
+    typeof (inner as { readonly _tag?: unknown })._tag === "string"
+  ) {
+    return inner;
+  }
+  return {
+    _tag: "InternalError",
+    message: typeof e["message"] === "string" ? e["message"] : "server defect",
+  };
 }
 
 // Picks the native extras off a frame and exposes `id`/`method` for the
