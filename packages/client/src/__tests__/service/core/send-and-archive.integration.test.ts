@@ -1,4 +1,4 @@
-import { expect, it as vit } from "vitest";
+import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Duration, Effect, Fiber, Option, Stream } from "effect";
 import * as H from "../../support/index.js";
@@ -58,15 +58,3 @@ it("send() delivers message to other agent", () =>
     yield* regA.client.close();
     yield* regB.client.close();
   }));
-
-// `TaskConversationArchive` is TM-only (#677) — i.e. gated to the TM
-// authority, which post-#705 belongs to the App principal. Driving it
-// from the owner requires (a) AppsRegister on a custom appId AND (b) a
-// `messages/authorize` wire-callback handler — `MoltZapAgentClient`
-// doesn't expose `onAppCallback`, only `TestClient`/`MoltZapAppClient`
-// do. Re-enable when client-side test infra adds wire-callback
-// registration (tracked alongside the 11 server-side TM-only markers
-// in chughtapan/moltzap#681).
-vit.todo(
-  "conversation archive events purge service state and block late sends — needs TM-callback test infra (#681)",
-);
