@@ -5,16 +5,22 @@ import type { AgentId } from "../app/types.js";
 import { AgentContext, type AgentStatus } from "./context.js";
 import type { ConnectionManager, Originator } from "./connection.js";
 
+type SocketWrite = (raw: string) => Effect.Effect<void, Socket.SocketError>;
+
 /**
- * Defect-throwing {@link Originator} stub for the arm seeders below — the
- * seeded arms never exercise the appCallback channel or the inbound-dispatch
- * path. If a test inadvertently drives any method the defect surfaces loudly
- * rather than silently passing. Module-private: the seeders are the only
- * consumers.
+ * An {@link Originator} stub whose `notify` mirrors production: it encodes the
+ * notification to its JSON-RPC wire frame and writes it through the arm's
+ * recording `socket.write`, so fan-out tests observe pushed notifications on
+ * the same channel a real client would receive them. `call` and `sink` stay
+ * defect-throwing — the seeded arms never drive the appCallback or
+ * inbound-dispatch paths, and a stray invocation should surface loudly.
  */
-const unusedOriginator = (): Originator => ({
+const recordingOriginator = (write: SocketWrite): Originator => ({
   call: () => Effect.die("test fake originator.call invoked"),
-  notify: () => Effect.die("test fake originator.notify invoked"),
+  notify: (definition, params) =>
+    write(JSON.stringify({ method: definition.name, params })).pipe(
+      Effect.catchAll(() => Effect.void),
+    ),
   sink: {
     parser: undefined as never,
     inject: () => Effect.die("test fake originator.sink.inject invoked"),
@@ -38,7 +44,7 @@ export const seedUnauthenticatedConnection = (args: {
     .addUnauthenticated(
       args.connId,
       { write: args.write, shutdown: args.shutdown ?? Effect.void },
-      unusedOriginator(),
+      recordingOriginator(args.write),
     )
     .pipe(Effect.withSpan("seedUnauthenticatedConnection"));
 
@@ -61,7 +67,7 @@ export const seedAgentConnection = (args: {
     yield* args.manager.addUnauthenticated(
       args.connId,
       { write: args.write, shutdown: args.shutdown ?? Effect.void },
-      unusedOriginator(),
+      recordingOriginator(args.write),
     );
     yield* args.manager.authenticate(
       args.connId,

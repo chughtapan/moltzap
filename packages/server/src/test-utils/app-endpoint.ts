@@ -75,13 +75,35 @@ export function makeHandlerAppEndpoint(args: {
   readonly id: ConnectionId;
   readonly handlers: AppEndpointHandlers;
 }): AppEndpoint {
-  const call = <D extends AnyAppCallbackRpcDefinition>(
-    definition: D,
-    params: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, ReverseCallError> => {
-    const handler = args.handlers[
-      definition.name as D["name"]
-    ] as AppEndpointHandler<D>;
+  // Mirrors the live `ReverseClient.call(tag, payload)` contract
+  // (`sendRpcToClient` passes the wire NAME, not the definition): index the
+  // in-process handler map by that tag. The mapped `AppEndpointHandlers` key
+  // is each member's `name`; a union index does not preserve the per-member
+  // payload/result correlation, so the lookup reads through a name→handler
+  // view and the per-tag types are pinned at the registration sites.
+  const handlersByName = new Map<
+    string,
+    AppEndpointHandler<AnyAppCallbackRpcDefinition>
+  >(
+    Object.entries(args.handlers) as ReadonlyArray<
+      readonly [string, AppEndpointHandler<AnyAppCallbackRpcDefinition>]
+    >,
+  );
+  const call = (
+    tag: AnyAppCallbackRpcDefinition["name"],
+    params: ParamsOf<AnyAppCallbackRpcDefinition>,
+  ): Effect.Effect<ResultOf<AnyAppCallbackRpcDefinition>, ReverseCallError> => {
+    const handler = handlersByName.get(tag);
+    if (handler === undefined) {
+      return defectingOp(
+        args.id,
+        "handler-endpoint",
+        `originator.call(${tag})`,
+      ) as Effect.Effect<
+        ResultOf<AnyAppCallbackRpcDefinition>,
+        ReverseCallError
+      >;
+    }
     return handler(params);
   };
 

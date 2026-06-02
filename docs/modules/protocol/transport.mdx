@@ -247,7 +247,7 @@ middleware param carries the EXACT cap mws, keeping the per-cap `provides`
 type-visible (a handler that `yield*`s a cap Tag has it stripped from the
 Layer's residual requirement — the proof-exclusion guarantee).
 
-### [`ChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L211)
+### [`ChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L284)
 
 _Interface_
 
@@ -745,6 +745,19 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
+### [`isHttpOnlyMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L90)
+
+_Function_
+
+```ts
+export const isHttpOnlyMethod = (tag: string): boolean
+```
+
+Whether a wire tag is HTTP-only (HTTP_ONLY_METHODS) — the membership
+check the WS-subset group construction shares with the partition, so the two
+agree on which methods the WS engine omits. Declared before
+buildEngineMember (which reads it at module-load) to avoid a TDZ.
+
 ### [`isUnauthenticatedMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L81)
 
 _Function_
@@ -797,7 +810,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeClientChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L273)
+### [`makeClientChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L346)
 
 _Function_
 
@@ -818,7 +831,7 @@ feeds decoded inbound `FromServerEncoded` frames into the engine. The
 client engine has no `disconnects` Mailbox — socket close fails the
 client call channel through the underlying socket.
 
-### [`makeServerChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L228)
+### [`makeServerChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L301)
 
 _Function_
 
@@ -926,7 +939,7 @@ Inbound frame failed to parse as JSON or did not match the expected shape.
 Transport-internal — not a wire `error` union member (never crosses the wire
 as a method failure).
 
-### [`MUX_CLIENT_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L171)
+### [`MUX_CLIENT_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L244)
 
 _Variable_
 
@@ -1392,7 +1405,7 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`routeInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L129)
+### [`routeInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L216)
 
 _Function_
 
@@ -1400,15 +1413,9 @@ _Function_
 export function routeInbound(
   raw: string | Uint8Array,
   sinks: Partial<Record<MuxChannel, ChannelSink>>,
+  reply?: WireWrite,
 ): Effect.Effect<void>
 ```
-
-Route one raw socket chunk to the channel sink named by its envelope.
-A chunk that is not a well-formed envelope, or names an unregistered
-channel, is dropped after a warning rather than failing the socket —
-a single malformed frame must not tear down every endpoint on the
-shared connection. Each endpoint's Parser may yield zero or more
-decoded frames per wire string; every frame is injected in order.
 
 ### [`RpcCapTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L51)
 
@@ -1620,7 +1627,7 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`runMuxReader`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L309)
+### [`runMuxReader`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L382)
 
 _Function_
 
@@ -1629,6 +1636,7 @@ export function runMuxReader(
   socket: Socket.Socket,
   sinks: Partial<Record<MuxChannel, ChannelSink>>,
   disconnects: Mailbox.Mailbox<number>,
+  reply?: WireWrite,
 ): Effect.Effect<void, Socket.SocketError>
 ```
 

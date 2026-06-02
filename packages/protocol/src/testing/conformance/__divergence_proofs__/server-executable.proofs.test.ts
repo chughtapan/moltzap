@@ -55,6 +55,8 @@ import { registerRpcMapCoverage } from "../transport/rpc-map-coverage.js";
 import {
   expectAssertionFailure,
   expectInvariant,
+  muxUnwrap,
+  muxWrapC2s,
   runExpectingFailure,
 } from "./executable-proof-helpers.js";
 
@@ -429,13 +431,18 @@ function rawSocketDataToString(data: string | Uint8Array): string {
     : new TextDecoder("utf-8").decode(data);
 }
 
+const writeEnveloped = (
+  writer: BadServerWriter,
+  frame: string,
+): Effect.Effect<void> => writer(muxWrapC2s(frame)).pipe(Effect.orDie);
+
 function handleBadServerRawData(
   data: string | Uint8Array,
   writer: BadServerWriter,
   requestCounter: Ref.Ref<number>,
   behavior: BadServerBehavior,
 ): Effect.Effect<void> {
-  const raw = rawSocketDataToString(data);
+  const raw = muxUnwrap(rawSocketDataToString(data));
   return Effect.gen(function* () {
     const decoded = yield* Effect.either(decodeFrame(raw, "inbound"));
     const frame = Either.getOrNull(decoded);
@@ -447,7 +454,7 @@ function handleBadServerRawData(
     const ordinal = yield* Ref.updateAndGet(requestCounter, (n) => n + 1);
     const response = makeBadResponse(frame, behavior, ordinal);
     if (response === null) return;
-    yield* writer(encodeFrame(response)).pipe(Effect.orDie);
+    yield* writeEnveloped(writer, encodeFrame(response));
   });
 }
 
@@ -457,7 +464,8 @@ function handleBadServerResponseFrame(
   behavior: BadServerBehavior,
 ): Effect.Effect<void> {
   if (behavior !== "reply-to-spurious-response") return Effect.void;
-  return writer(
+  return writeEnveloped(
+    writer,
     encodeFrame(
       responseFrame(response.id, {
         error: {
@@ -466,7 +474,7 @@ function handleBadServerResponseFrame(
         },
       }),
     ),
-  ).pipe(Effect.orDie);
+  );
 }
 
 function makeBadResponse(

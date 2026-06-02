@@ -31,7 +31,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`makeCloseableTestClient`](./test-client.ts#L1235)
+### [`makeCloseableTestClient`](./test-client.ts#L1358)
 
 _Function_
 
@@ -44,7 +44,7 @@ export function makeCloseableTestClient(
 >
 ```
 
-### [`makeTestClient`](./test-client.ts#L1222)
+### [`makeTestClient`](./test-client.ts#L1345)
 
 _Function_
 

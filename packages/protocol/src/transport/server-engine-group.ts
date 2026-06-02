@@ -87,7 +87,7 @@ export const isUnauthenticatedMethod = (tag: string): boolean =>
  * agree on which methods the WS engine omits. Declared before
  * {@link buildEngineMember} (which reads it at module-load) to avoid a TDZ.
  */
-const isHttpOnlyMethod = (tag: string): boolean =>
+export const isHttpOnlyMethod = (tag: string): boolean =>
   (HTTP_ONLY_METHODS as readonly string[]).includes(tag);
 
 type AnyRpcDefinition = RpcDefinition<

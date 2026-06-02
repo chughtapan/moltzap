@@ -20,6 +20,7 @@ import {
   Cause,
   Deferred,
   Effect,
+  Either,
   Exit,
   Option,
   Ref,
@@ -105,10 +106,28 @@ const appendReceivedData =
     rawSocketDataToString(data),
   ];
 
+// The TestClient multiplexes the socket with a `{ ch, f }` envelope
+// (`native-mux.ts`): it wraps every outbound frame and unwraps every inbound
+// one. This scripted server mirrors that framing — record the inner frame so
+// assertions read the bare JSON-RPC reply, and send server-originated callbacks
+// wrapped on the `s2c` channel the client's reverse reader consumes.
+const muxUnwrap = (raw: string): string => {
+  const parsed = Either.getOrNull(Either.try(() => JSON.parse(raw) as unknown));
+  if (typeof parsed !== "object" || parsed === null) return raw;
+  const f = (parsed as { readonly f?: unknown }).f;
+  return typeof f === "string" ? f : raw;
+};
+
+const muxWrapServerFrame = (frame: unknown): string =>
+  JSON.stringify({ ch: "s2c", f: JSON.stringify(frame) });
+
 const recordReceivedData = (
   receivedRef: Ref.Ref<ReadonlyArray<string>>,
   data: string | Uint8Array,
-): Effect.Effect<void> => Ref.update(receivedRef, appendReceivedData(data));
+): Effect.Effect<void> => {
+  const text = typeof data === "string" ? data : new TextDecoder().decode(data);
+  return Ref.update(receivedRef, appendReceivedData(muxUnwrap(text)));
+};
 
 const ignoreWriterErrors =
   (
@@ -168,7 +187,7 @@ const makeScriptedServer: Effect.Effect<
     Effect.gen(function* () {
       const writer = yield* Ref.get(writerRef);
       if (writer === null) return;
-      yield* writer(JSON.stringify(frame));
+      yield* writer(muxWrapServerFrame(frame));
     });
 
   return {

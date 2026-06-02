@@ -22,7 +22,11 @@ const PROPERTY = "spurious-app-callback-frame-handling";
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 32;
 const SPURIOUS_QUIESCENCE_MS = 100;
-const SPURIOUS_RESPONSE_ID = "spurious-app-callback-response";
+// A numeric id no server-originated callback would mint (the reverse client's
+// ids start near zero). The JSON-RPC wire id is numeric — `RpcMessage.RequestId`
+// parses it with `BigInt(id)` — so a stray frame still rides a well-formed id;
+// the "stray" part is that nothing is pending for it, which the server drops.
+const SPURIOUS_RESPONSE_ID = "999999999999";
 
 export function registerSpuriousAppCallbackFrameHandling(
   ctx: ConformanceRunContext,

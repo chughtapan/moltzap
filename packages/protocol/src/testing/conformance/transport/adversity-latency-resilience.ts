@@ -5,7 +5,7 @@
  */
 import { Effect } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
-import { isNotificationFrame } from "../_shared/frame-mutator.js";
+import { inboundNotificationMethod } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import type { TestClient } from "../_shared/driver/test-client.js";
 import { ConversationId, MessagesSend, TaskId } from "../../../task/methods.js";
@@ -101,10 +101,7 @@ function sendLatencyProbe(
 }
 
 function isMessageNotification(frame: CapturedFrame): boolean {
-  return (
-    frame.kind === "inbound" &&
-    frame.frame !== null &&
-    isNotificationFrame(frame.frame) &&
-    frame.frame.method.includes("message")
-  );
+  if (frame.kind !== "inbound" || frame.frame === null) return false;
+  const method = inboundNotificationMethod(frame.frame);
+  return method !== null && method.includes("message");
 }

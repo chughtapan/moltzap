@@ -13,7 +13,7 @@
  */
 import { Effect } from "effect";
 import { MessagesSend } from "../../../task/methods.js";
-import { isNotificationFrame } from "../_shared/frame-mutator.js";
+import { inboundNotificationMethod } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -99,10 +99,7 @@ function assertDeliveredCount(
 }
 
 function isInboundMessageNotification(frame: CapturedFrame): boolean {
-  return (
-    frame.kind === "inbound" &&
-    frame.frame !== null &&
-    isNotificationFrame(frame.frame) &&
-    frame.frame.method.includes("message")
-  );
+  if (frame.kind !== "inbound" || frame.frame === null) return false;
+  const method = inboundNotificationMethod(frame.frame);
+  return method !== null && method.includes("message");
 }

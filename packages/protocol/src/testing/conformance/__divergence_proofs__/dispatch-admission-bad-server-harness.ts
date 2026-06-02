@@ -17,7 +17,11 @@ import {
   collectProperties,
   type PropertyFailure,
 } from "../_shared/registry.js";
-import { runExpectingFailure } from "./executable-proof-helpers.js";
+import {
+  muxUnwrap,
+  muxWrapC2s,
+  runExpectingFailure,
+} from "./executable-proof-helpers.js";
 import type {
   BadAppRegistration,
   BadAppRegistry,
@@ -210,7 +214,12 @@ function runBadDispatchConnection(
   return Effect.gen(function* () {
     const connId = yield* Ref.updateAndGet(refs.connCounter, (n) => n + 1);
     const writer = yield* socket.writer;
-    const writeEffect = (raw: string) => writer(raw).pipe(Effect.orDie);
+    // The live transport multiplexes the socket with a `{ ch, f }` envelope
+    // (`native-mux.ts`). Mirror that framing at the transport boundary so the
+    // raw-frame handlers below stay envelope-agnostic: wrap every outbound
+    // reply on the c2s channel, unwrap every inbound chunk before decode.
+    const writeEffect = (raw: string) =>
+      writer(muxWrapC2s(raw)).pipe(Effect.orDie);
     yield* Ref.update(refs.stateRef, (s) => {
       s.writers.set(connId, writeEffect);
       return s;
@@ -218,7 +227,7 @@ function runBadDispatchConnection(
     yield* socket
       .runRaw((data) =>
         handleInboundFrame({
-          raw: socketDataToString(data),
+          raw: muxUnwrap(socketDataToString(data)),
           connId,
           stateRef: refs.stateRef,
           authorizeWaiters: refs.authorizeWaiters,

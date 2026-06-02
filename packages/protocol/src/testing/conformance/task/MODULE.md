@@ -427,7 +427,7 @@ export function registerConversationLifecycle(
 ): void
 ```
 
-### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L45)
+### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L43)
 
 _Function_
 
