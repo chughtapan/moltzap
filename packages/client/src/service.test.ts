@@ -1074,7 +1074,7 @@ function expectArchivedSendFailure(
   Either.match(result, {
     onLeft: (error) =>
       expect(error).toMatchObject({
-        code: ConversationArchivedError.code,
+        _tag: "ConversationArchived",
         message: CONVERSATION_ARCHIVED_MESSAGE,
       }),
     onRight: () =>

@@ -3,14 +3,11 @@ import { expect, it } from "vitest";
 import {
   MessagesSend,
   NotConnectedError,
-  RpcServerError,
   RpcTimeoutError,
 } from "@moltzap/protocol";
 
 const RPC_TIMEOUT_MS = 30_000;
-const NOT_FOUND_CODE = -32002;
 const RPC_TIMEOUT_TAG = "RpcTimeoutError";
-const NOT_FOUND_MESSAGE = "Not found";
 const SOCKET_CLOSED_MESSAGE = "socket closed";
 
 it("tagged errors discriminate by _tag", () =>
@@ -35,16 +32,6 @@ it("tagged errors discriminate by _tag", () =>
       }
     }),
   ));
-
-it("RpcServerError preserves wire fields", () => {
-  const err = new RpcServerError({
-    code: NOT_FOUND_CODE,
-    message: NOT_FOUND_MESSAGE,
-  });
-  expect(err.code).toBe(NOT_FOUND_CODE);
-  expect(err.message).toBe(NOT_FOUND_MESSAGE);
-  expect(err.data).toBeUndefined();
-});
 
 it("NotConnectedError compiles and carries message", () => {
   const err = new NotConnectedError({ message: SOCKET_CLOSED_MESSAGE });

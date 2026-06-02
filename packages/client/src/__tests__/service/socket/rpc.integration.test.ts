@@ -53,7 +53,7 @@ it("passthrough RPC works via socket", () =>
       });
       expect(conv.conversation!.id).toBeDefined();
 
-      const msg = yield* H.socketRpcRequest(H.MessagesSend, {
+      const msg = yield* H.socketRpcRequest(H.MessagesSend.name, {
         taskId: conv.task.id,
         conversationId: conv.conversation!.id,
         parts: [{ type: "text", text: "via socket" }],

@@ -38,7 +38,7 @@ it("messages/list returns both own and other agent messages", () =>
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     // Fetch history via RPC (same as CLI moltzap history would do)
-    const result = yield* service.sendRpc(H.MessagesList, {
+    const result = yield* service.call(H.MessagesList.name, {
       taskId: conv.task.id,
       conversationId: conv.conversation!.id,
       limit: 10,
@@ -96,7 +96,7 @@ it("group conversation history shows all participants", () =>
     yield* H.sendAndSettle(regC.client, taskId, conversationId, "Agent C here");
 
     // Fetch history
-    const result = yield* service.sendRpc(H.MessagesList, {
+    const result = yield* service.call(H.MessagesList.name, {
       taskId,
       conversationId,
       limit: 10,
