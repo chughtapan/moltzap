@@ -14,11 +14,12 @@ on:
       - "docker-compose.conformance.yml"
       - ".github/workflows/conformance.yml"
 
-# Nx Cloud remote cache: CI authenticates with a read-only access token, so
-# `nx run-many`/`affected` reuse cached task outputs across runs. Read-only means
-# CI reads but never writes the cache; local read-write builds populate it.
+# Self-hosted Nx remote cache: CI points `nx run-many`/`affected` at the cache
+# server so task outputs are reused across runs. The access token grants
+# read+write, so CI runs both read and populate the shared cache.
 env:
-  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+  NX_SELF_HOSTED_REMOTE_CACHE_SERVER: https://nx-cache-server-production.up.railway.app
+  NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN }}
 
 jobs:
   conformance:
