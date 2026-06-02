@@ -8,6 +8,7 @@ import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ConversationId, MessageId } from "./conversations.js";
+import { HookBlockedError } from "./tasks.js";
 import { TaskId } from "./ids.js";
 import {
   ConversationInTask,
@@ -180,12 +181,13 @@ export const MessagesSend = defineRpc({
   // first, so `MessageSendPermission` obtains against an already-verified
   // conversation.
   caps: [ConversationInTask, MessageSendPermission],
+  errors: [HookBlockedError],
 });
 
 /**
  * List messages in a conversation with cursor-based pagination using sequence numbers.
- * @error NotFoundError when Conversation not found
- * @error ForbiddenError when Not a participant
+ * Conversation-not-found and not-a-participant ride the `TaskReadAccess` /
+ * `ConversationInTask` cap error channels.
  */
 export const MessagesList = defineRpc({
   name: "messages/list",
@@ -208,6 +210,7 @@ export const MessagesList = defineRpc({
   // Run order: `TaskReadAccess` proves the caller may read the task before
   // `ConversationInTask` resolves the conversation's task membership.
   caps: [TaskReadAccess, ConversationInTask],
+  errors: [],
 });
 
 const MessageReceivedNotificationSchema = Schema.Struct({

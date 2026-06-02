@@ -8,6 +8,11 @@ import {
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc } from "../transport/method.js";
+import {
+  ConflictError,
+  UnauthorizedError,
+  ForbiddenError,
+} from "../transport/wire-errors.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -91,6 +96,7 @@ export const Register = defineRpc({
     claimUrl: formatString("uri"),
     claimToken: Schema.String,
   }),
+  errors: [ConflictError],
 });
 
 /**
@@ -133,6 +139,7 @@ export const Claim = defineRpc({
     agentId: AgentId,
     ownerUserId: formatString("uuid"),
   }),
+  errors: [UnauthorizedError, ForbiddenError],
 });
 
 /**
@@ -145,6 +152,7 @@ export const InviteAgent = defineRpc({
     {},
     Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   ),
+  errors: [],
 });
 
 /**
@@ -160,6 +168,7 @@ export const AgentsLookup = defineRpc({
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
   callablePrincipal: "agent",
+  errors: [],
 });
 
 /**
@@ -174,6 +183,7 @@ export const AgentsLookupByName = defineRpc({
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
   callablePrincipal: "agent",
+  errors: [],
 });
 
 /**
@@ -191,4 +201,5 @@ export const AgentsList = defineRpc({
   }),
   callablePrincipal: "agent",
   requiresActive: true,
+  errors: [],
 });

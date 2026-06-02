@@ -1,5 +1,6 @@
 import { Context } from "effect";
 import type { ConversationId } from "../conversations.js";
+import { ConversationNotFoundError } from "../conversations.js";
 import type { TaskId } from "../tasks.js";
 
 /**
@@ -17,4 +18,6 @@ export interface ConversationInTaskValue {
 
 export class ConversationInTask extends Context.Tag(
   "@moltzap/protocol/ConversationInTask",
-)<ConversationInTask, ConversationInTaskValue>() {}
+)<ConversationInTask, ConversationInTaskValue>() {
+  static readonly errors = [ConversationNotFoundError] as const;
+}
