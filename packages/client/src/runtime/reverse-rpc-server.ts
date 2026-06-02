@@ -1,7 +1,7 @@
 /**
  * @file The client-side reverse `@effect/rpc` server over the s2c channel.
  *
- * A connected client stands ONE `RpcServer<ReverseRpcGroup>` on the s2c mux
+ * A connected client stands ONE `RpcServer&lt;ReverseRpcGroup>` on the s2c mux
  * sink. `ReverseRpcGroup` is the moderator callbacks (`dispatch/authorize`,
  * `messages/authorize`, `task/create`) ∪ every notification. The server fires
  * these as reverse RPCs over the s2c channel; this engine serves them:
@@ -90,7 +90,7 @@ const buildReverseHandlers = (options: {
 };
 
 /**
- * Stand the reverse `RpcServer<ReverseRpcGroup>` over one socket's s2c channel.
+ * Stand the reverse `RpcServer&lt;ReverseRpcGroup>` over one socket's s2c channel.
  * Returns the s2c {@link ChannelSink} the caller registers with `runMuxReader`.
  * The engine reader is forked into the provided `Scope`.
  */

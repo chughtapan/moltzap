@@ -402,7 +402,7 @@ function resolveCredential(
         message: "Credential has no recognized principal prefix",
       }),
     );
-  });
+  }).pipe(Effect.withSpan("connect.resolveCredential"));
 }
 
 function handleConnect(params: ConnectParams) {

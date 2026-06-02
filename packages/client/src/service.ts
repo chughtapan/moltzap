@@ -205,6 +205,7 @@ export function formatCrossConversationBlock(
 export interface ServiceOptions {
   serverUrl: string;
   agentKey: string;
+
   /**
    * The agent's own id, registered and stored by the client via the
    * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries

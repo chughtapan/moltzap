@@ -1,4 +1,4 @@
-/* eslint-disable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, sonarjs/max-lines-per-function -- regression-only suite: each case names a contractual transition (online/working/offline, dedup, fast-reconnect race). PresenceStatus literals are contractual wire values; making them imports would lose the regression intent. Vitest `describe`/`it` + Effect.gen naturally nest 4 deep. */
+/* eslint-disable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks -- regression-only suite: each case names a contractual transition (online/working/offline, dedup, fast-reconnect race). PresenceStatus literals are contractual wire values; making them imports would lose the regression intent. Vitest `describe`/`it` + Effect.gen naturally nest 4 deep. */
 
 /**
  * Unit tests for the `PresenceService` status engine.

@@ -10,7 +10,7 @@
  * back into the client engine.
  *
  * The client is built in `flatten` mode, so its surface is one tag-keyed call
- * function `(tag, payload) => Effect<result, RpcClientError>` — the descriptor-
+ * function `(tag, payload) => Effect&lt;result, RpcClientError>` — the descriptor-
  * driven `.call(def, params)` the high-level clients already speak maps onto it
  * by passing `def.name` (the branded wire tag) as the tag.
  */

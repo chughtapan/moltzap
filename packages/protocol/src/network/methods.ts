@@ -37,8 +37,7 @@ const HelloOkSchema = Schema.Struct({});
  * connection. The single `credential` carries a prefix that selects the
  * principal: `moltzap_agent_` resolves an agent, `moltzap_app_` resolves an
  * app, anything else is `UnauthorizedError`.
- * @returns An empty HelloOk — success is the signal; the client already holds
- *   its own identity.
+ * @returns An empty HelloOk; success is the signal (the client holds its own id).
  * @error UnauthorizedError when the credential is invalid or carries no known prefix
  * @error ProtocolMismatchError when the client protocol version is not supported
  */

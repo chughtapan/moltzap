@@ -141,9 +141,9 @@ type NotificationGroupMembers<
  * Build the server→client reverse `RpcGroup` for the notification catalog. Each
  * `defineNotification` descriptor maps to a `void`-result `Rpc.make`: the
  * notification's params is the payload, the success is `Schema.Void`. The
- * server holds the `RpcClient<NotificationRpcGroup>` (fires each notification on
+ * server holds the `RpcClient&lt;NotificationRpcGroup>` (fires each notification on
  * a target connection's reverse channel, fork-and-forget); the agent + app
- * clients hold the `RpcServer<NotificationRpcGroup>` whose handlers route each
+ * clients hold the `RpcServer&lt;NotificationRpcGroup>` whose handlers route each
  * payload into the `SubscriberRegistry`, preserving the
  * `client.subscribe(def) → Stream` surface unchanged.
  */
@@ -171,7 +171,7 @@ const groupFromNotifications = <
 /**
  * Server→client reverse notification group. The server fires each notification
  * as a fire-and-forget `void`-result RPC on a target connection's reverse
- * channel; the client serves it via `RpcServer<NotificationRpcGroup>`, routing
+ * channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
  * each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
  * machinery as {@link AppCallbackRpcGroup}.
  */
@@ -182,9 +182,9 @@ export const NotificationRpcGroup = groupFromNotifications(
 /**
  * The full server→client reverse group: the moderator callbacks
  * ({@link AppCallbackRpcGroup}) ∪ the notifications ({@link NotificationRpcGroup}).
- * The server holds one `RpcClient<ReverseRpcGroup>` per connection (fires
+ * The server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires
  * callbacks awaiting a verdict, fires notifications fork-and-forget); the agent
- * + app clients stand one `RpcServer<ReverseRpcGroup>` on the s2c sink. An agent
+ * + app clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent
  * client only ever receives notifications (its handlers for the three callback
  * methods are never invoked — an agent is not a moderator), but it serves the
  * whole group so the s2c engine binds one handler map.
