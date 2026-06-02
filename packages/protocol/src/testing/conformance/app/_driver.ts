@@ -165,7 +165,7 @@ export interface RecipientHandle {
   }) => Effect.Effect<
     {
       readonly messageId: Schema.Schema.Type<typeof MessageId>;
-      readonly errorCode?: number;
+      readonly errorTag?: string;
       readonly errorState?: string;
     },
     PropertyFailure
@@ -288,7 +288,7 @@ export interface DispatchTestDriver {
    */
   readonly getLeaseFromNonModerator: (
     dispatchId: Schema.Schema.Type<typeof DispatchId>,
-  ) => Effect.Effect<{ readonly errorCode: number }, PropertyFailure>;
+  ) => Effect.Effect<{ readonly errorTag: string }, PropertyFailure>;
 
   /**
    * Poll `dispatches/get` until the lease reaches `expected` or the
@@ -660,7 +660,7 @@ function messageSendSuccess(result: unknown): {
 function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
   {
     readonly messageId: Schema.Schema.Type<typeof MessageId>;
-    readonly errorCode: number;
+    readonly errorTag: string;
     readonly errorState?: string;
   },
   PropertyFailure
@@ -680,7 +680,7 @@ function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
     // there is no real id to decode.
     // eslint-disable-next-line agent-code-guard/no-schema-type-cast -- sentinel empty-string id on an error path, not a wire decode
     messageId: "" as Schema.Schema.Type<typeof MessageId>,
-    errorCode: rpcErr.code,
+    errorTag: rpcErr.tag,
     ...(errorState !== undefined ? { errorState } : {}),
   });
 }
@@ -1247,7 +1247,7 @@ function getLeaseFromNonModerator(
     }
     const rpcErr = firstRpcResponseError(exit);
     if (rpcErr === null) return yield* nonModeratorLeaseMissingRpcError(exit);
-    return { errorCode: rpcErr.code };
+    return { errorTag: rpcErr.tag };
   });
 }
 

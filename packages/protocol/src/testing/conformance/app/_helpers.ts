@@ -19,7 +19,7 @@ export const TINY_MODERATOR_TIMEOUT_MS = 200;
 export const TTL_OBSERVATION_BUFFER_MS = 1_500;
 export const ABANDON_OBSERVATION_BUFFER_MS = 1_000;
 export const NEGATIVE_OBSERVABILITY_WINDOW_MS = 750;
-export const FORBIDDEN_ERROR_CODE = -32001;
+export const FORBIDDEN_ERROR_TAG = "Forbidden";
 // Buffer added to ABANDON_OBSERVATION_BUFFER_MS when polling for the
 // finalizer-driven ABANDONED transition: the finalizer runs on a
 // fiber-scoped scope-close, so the poll bound must outlast both the

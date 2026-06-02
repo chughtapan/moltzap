@@ -98,11 +98,11 @@ function consumeLease(
       leaseId,
       text: "consume-for-getlease-stage",
     });
-    if (sent.errorCode !== undefined) {
+    if (sent.errorTag !== undefined) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `messages/send failed: code=${sent.errorCode}`,
+          `messages/send failed: code=${sent.errorTag}`,
         ),
       );
     }

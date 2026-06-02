@@ -3,7 +3,7 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
-  FORBIDDEN_ERROR_CODE,
+  FORBIDDEN_ERROR_TAG,
   NEGATIVE_OBSERVABILITY_WINDOW_MS,
   dispatchAdmissionViolation,
   freshMessageId,
@@ -63,11 +63,11 @@ function assertFirstSendConsumes(
       leaseId,
       text: "first",
     });
-    if (first.errorCode !== undefined) {
+    if (first.errorTag !== undefined) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `first send failed: code=${first.errorCode}`,
+          `first send failed: code=${first.errorTag}`,
         ),
       );
     }
@@ -88,7 +88,7 @@ function assertSecondSendRejected(
       leaseId,
       text: "second",
     });
-    if (second.errorCode === undefined) {
+    if (second.errorTag === undefined) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
@@ -96,7 +96,7 @@ function assertSecondSendRejected(
         ),
       );
     }
-    yield* assertSecondErrorCode(propertyName, second.errorCode);
+    yield* assertSecondErrorCode(propertyName, second.errorTag);
     const errorState = second.errorState;
     if (errorState === undefined) {
       return yield* Effect.fail(
@@ -110,13 +110,13 @@ function assertSecondSendRejected(
   });
 }
 
-function assertSecondErrorCode(propertyName: string, errorCode: number) {
-  return errorCode === FORBIDDEN_ERROR_CODE
+function assertSecondErrorCode(propertyName: string, errorTag: string) {
+  return errorTag === FORBIDDEN_ERROR_TAG
     ? Effect.void
     : Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `second send error code ${errorCode} != Forbidden(${FORBIDDEN_ERROR_CODE})`,
+          `second send error code ${errorTag} != Forbidden(${FORBIDDEN_ERROR_TAG})`,
         ),
       );
 }
