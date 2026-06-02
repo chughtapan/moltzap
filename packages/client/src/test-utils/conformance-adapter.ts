@@ -16,15 +16,15 @@
  */
 import { Data, Effect, Either, Ref, Scope, Stream } from "effect";
 import {
+  AgentCallableGroup,
   serverRpcMethods,
   type AnyServerRpcDefinition,
   type AnyNotificationDefinition,
   type DecodedNotification,
   type NotificationFrame,
-  type ParamsOf,
   type ResponseFrame,
-  type RpcCallError,
 } from "@moltzap/protocol";
+import type { RpcGroup, Rpc } from "@effect/rpc";
 import type {
   RealClientCloseEvent,
   RealClientNotificationFilter,
@@ -37,14 +37,15 @@ import type {
   ObservedNotification,
 } from "@moltzap/protocol/testing";
 import { MoltZapAgentClient, type CloseInfo } from "@moltzap/client";
-import {
-  NotConnectedError,
-  RpcServerError,
-  RpcTimeoutError,
-} from "@moltzap/protocol";
+import { NotConnectedError, RpcTimeoutError } from "@moltzap/protocol";
 
 const CONNECT_READY_TIMEOUT_MS = 30_000;
-type ClientRpcCause = RpcCallError | RpcTimeoutError;
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+/** The error channel of an agent client `call`: per-method errors + transport. */
+type ClientRpcCause =
+  | Rpc.Error<AgentCallableRpcs>
+  | RpcTimeoutError
+  | NotConnectedError;
 type ReadyState = "pending" | "resolved" | { readonly cause: unknown };
 
 /**
@@ -81,14 +82,6 @@ function rpcError(cause: ClientRpcCause, method: string): RealClientRpcError {
       cause,
       documentedErrorTag: "RpcTimeoutError",
       kind: "timeout",
-      method,
-    }) as RealClientRpcError;
-  }
-  if (cause instanceof RpcServerError) {
-    return new RealClientRpcFailure({
-      cause,
-      documentedErrorTag: "RpcServerError",
-      kind: "server-error",
       method,
     }) as RealClientRpcError;
   }
@@ -329,6 +322,32 @@ function makeNotificationSubscriber(
   };
 }
 
+/**
+ * Name-indexed dispatch over the agent-callable methods: forward an
+ * already-validated payload to the live client's typed `call` for a fixed tag.
+ * Built once from the agent group's request set; consumption (`.get(method)`)
+ * is cast-free. The construction launders the group's `string` request keys
+ * into the `AgentCallableTag` the typed `call` requires — the live request set
+ * IS the agent-callable tags, and the params are descriptor-validated.
+ */
+const AGENT_CALL_DISPATCH: ReadonlyMap<
+  string,
+  (
+    ws: MoltZapAgentClient,
+    params: unknown,
+  ) => Effect.Effect<unknown, ClientRpcCause>
+> = new Map(
+  [...AgentCallableGroup.requests.keys()].map((tag) => [
+    tag,
+    (ws: MoltZapAgentClient, params: unknown) =>
+      // eslint-disable-next-line agent-code-guard/as-unknown-as -- runtime request-key → AgentCallableTag launder; the live request set IS the agent-callable tags, and params are descriptor-validated before reaching here.
+      ws.call(
+        tag as Parameters<MoltZapAgentClient["call"]>[0],
+        params as Parameters<MoltZapAgentClient["call"]>[1],
+      ),
+  ]),
+);
+
 function callRealClientRpc(
   ws: MoltZapAgentClient,
   method: string,
@@ -336,9 +355,20 @@ function callRealClientRpc(
 ): Effect.Effect<ResponseFrame, RealClientRpcError> {
   return Effect.gen(function* () {
     const definition = yield* resolveRpcDefinition(method, params);
-    const result = yield* ws
-      .sendRpc(definition, params as ParamsOf<typeof definition>)
-      .pipe(Effect.mapError(rpcErrorForMethod(method)));
+    const dispatch = AGENT_CALL_DISPATCH.get(method);
+    if (dispatch === undefined) {
+      return yield* Effect.fail(
+        new RealClientRpcFailure({
+          cause: { method },
+          documentedErrorTag: null,
+          kind: "malformed-response",
+          method,
+        }) as RealClientRpcError,
+      );
+    }
+    const result = yield* dispatch(ws, params).pipe(
+      Effect.mapError(rpcErrorForMethod(method)),
+    );
     return definition.encodeResponse(null, result) as ResponseFrame;
   });
 }
