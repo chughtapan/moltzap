@@ -19,10 +19,10 @@
  *   cli->>start: StartCommandArgs
  *   Note over start: 1. validateAppId — bad UUID → exit 64
  *   Note over start: 2. resolveAgentTokens — classify each token<br>UUID short-circuits, names batch into ONE AgentsLookupByName call
- *   start->>tx: rpc(AgentsLookupByName, {names})
+ *   start->>tx: rpc(AgentsLookupByName.name, {names})
  *   tx-->>start: {agents}
  *   Note over start: unresolved → exit 64
- *   start->>tx: rpc(TaskRequest, {appId, invitedAgentIds, initialConversation})
+ *   start->>tx: rpc(TaskRequest.name, {appId, invitedAgentIds, initialConversation})
  *   tx-->>start: {task, conversation | null}
  *   alt conversation present (fresh create)
  *     Note over start: stdout — Task started — taskId — convId
@@ -37,7 +37,7 @@
  *     end
  *   end
  *   opt --message
- *     start->>tx: rpc(MessagesSend, {conversationId, parts})
+ *     start->>tx: rpc(MessagesSend.name, {conversationId, parts})
  *     alt success
  *       Note over start: stdout — Message sent — exit 0
  *     else failure
@@ -68,7 +68,7 @@
  *   through `runStartCommand` because the stdout `Task started: ...`
  *   line has already been printed; re-throwing would discard it from
  *   the user's view. The handler uses
- *   `Effect.either(rpc(MessagesSend, ...))` + `Effect.sync(() => { ...
+ *   `Effect.either(rpc(MessagesSend.name, ...))` + `Effect.sync(() => { ...
  *   process.exit(2) })`.
  *
  * **Dedup branch** — when `appId === DEFAULT_APP_ID` and the caller
@@ -326,7 +326,7 @@ const lookupAgentIdsByName = (
     }
     // `AgentsLookupByName.params.names` is `Schema.Array` → `ReadonlyArray`,
     // so the `readonly string[]` param passes through as-is.
-    const result = yield* rpc(AgentsLookupByName, { names });
+    const result = yield* rpc(AgentsLookupByName.name, { names });
     for (const agent of result.agents) {
       if (!byName.has(agent.name)) byName.set(agent.name, agent.id);
     }
@@ -417,7 +417,7 @@ const sendFirstMessage = (
   text: string,
 ): Effect.Effect<void, never, Transport> =>
   Effect.either(
-    rpc(MessagesSend, {
+    rpc(MessagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: "text", text }],
@@ -469,7 +469,7 @@ const createTaskAtomic = (
       invitedAgentIds.length === 0
         ? { name }
         : { name, participants: invitedAgentIds };
-    const result = yield* rpc(TaskRequest, {
+    const result = yield* rpc(TaskRequest.name, {
       appId,
       invitedAgentIds,
       initialConversation,
@@ -535,7 +535,7 @@ const findReusableConversation = (
         limit: DEDUP_LOOKUP_PAGE_SIZE,
       };
       if (cursor !== undefined) params.cursor = cursor;
-      const result = yield* rpc(TaskConversationList, params);
+      const result = yield* rpc(TaskConversationList.name, params);
       const hit = pickReusableFromPage(result.items, taskId);
       if (hit !== null) return hit;
       if (result.nextCursor === undefined) return null;
@@ -606,7 +606,7 @@ const handleDedupOutcome = (
  *      batched `AgentsLookupByName` RPC for name-shaped tokens;
  *      UUID-shaped tokens short-circuit). Any token failure ->
  *      `UnresolvedParticipantError` -> exit 64.
- *   3. `rpc(TaskRequest, { appId, invitedAgentIds, initialConversation })`
+ *   3. `rpc(TaskRequest.name, { appId, invitedAgentIds, initialConversation })`
  *      where `initialConversation` carries `participants` ONLY when
  *      `invitedAgentIds.length > 0`. Two success outcomes:
  *      - `created`: server returned a fresh `conversation`. Print
@@ -624,7 +624,7 @@ const handleDedupOutcome = (
  *      `TaskRequest` wire failure -> `TransportError` -> exit 1 via
  *      `runStartCommand`, no stdout.
  *   4. If `args.message` is set AND a conversation was produced (either
- *      kind), call `rpc(MessagesSend, { conversationId, parts: [{ type:
+ *      kind), call `rpc(MessagesSend.name, { conversationId, parts: [{ type:
  *      "text", text }] })` wrapped in `Effect.either`. Success -> print
  *      `Message sent: &lt;msgId>`, exit 0. Failure -> print
  *      `Error sending message: &lt;err>` to stderr, exit 2 via inline

@@ -98,7 +98,7 @@ const replyToOption = Options.text("reply-to").pipe(
  *
  *   shell->>cli: moltzap send task:taskId:convId msg
  *   cli->>send: handler({target, message, replyTo})
- *   send->>sock: request(MessagesSend, {taskId, conversationId, parts})
+ *   send->>sock: request(MessagesSend.name, {taskId, conversationId, parts})
  *   Note over sock: NodeSocket.makeNet(~/.moltzap/service.sock, 10s) — ENOENT/ECONNREFUSED → SocketRequestError "not running"
  *   sock->>daemon: NDJSON RPC — LocalDaemonCall — method messages/send
  *   Note over daemon: handleSocketRequest → sendRpc(MessagesSend) → agent-client → server
@@ -121,7 +121,7 @@ export const sendCommand = Command.make(
     const reply: { replyToId?: MessageId } = Option.isSome(replyTo)
       ? { replyToId: replyTo.value }
       : {};
-    return request(MessagesSend, {
+    return request(MessagesSend.name, {
       taskId: target.taskId,
       conversationId: target.conversationId,
       parts: [{ type: "text", text: message }],

@@ -16,10 +16,30 @@ import {
 } from "../runtime/local-service-commands.js";
 
 import {
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
+  AgentCallableGroup,
+  serverRpcMethods,
+  type AnyServerRpcDefinition,
 } from "@moltzap/protocol";
+import type { RpcGroup } from "@effect/rpc";
+import type {
+  PayloadForTag,
+  SuccessForTag,
+} from "../runtime/typed-dispatch.js";
+
+/** The agent group's member `Rpc`s — the tag-keyed daemon-request surface. */
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+
+/** The branded wire tags the daemon request may carry. */
+type AgentCallableTag = AgentCallableRpcs["_tag"];
+
+/** Tag → descriptor for the agent-callable methods, for daemon result validation. */
+const AGENT_DEF_BY_TAG: ReadonlyMap<string, AnyServerRpcDefinition> = new Map(
+  serverRpcMethods
+    .filter((d): d is AnyServerRpcDefinition =>
+      AgentCallableGroup.requests.has(d.name),
+    )
+    .map((d) => [d.name, d]),
+);
 
 const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -96,21 +116,25 @@ const fromParseError = (
  *   - remote validation/RPC errors from the daemon
  *   - protocol errors from `@effect/rpc`
  */
-export const request = <D extends RpcDefinition<string, any, any>>(
-  definition: D,
-  params: ParamsOf<D>,
+export const request = <Tag extends AgentCallableTag>(
+  tag: Tag,
+  payload: PayloadForTag<AgentCallableRpcs, Tag>,
   socketPath?: string,
-): Effect.Effect<ResultOf<D>, SocketRequestError> =>
+): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, SocketRequestError> =>
   Effect.suspend(() => {
     const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
-    return sendSocketRequest(definition.name, params, resolvedSocketPath).pipe(
+    const definition = AGENT_DEF_BY_TAG.get(tag);
+    return sendSocketRequest(tag, payload, resolvedSocketPath).pipe(
       Effect.flatMap((result) =>
-        definition.validateResult(result)
-          ? Effect.succeed(result as ResultOf<D>)
+        definition !== undefined && definition.validateResult(result)
+          ? // The daemon validated the result against the same descriptor; the
+            // tag pins the success type, so the validated wire value IS that
+            // method's result. `validateResult` is the runtime confirmation.
+            Effect.succeed(result as SuccessForTag<AgentCallableRpcs, Tag>)
           : Effect.fail(
               socketRequestError(
-                definition.name,
-                `Malformed result for method: ${definition.name}`,
+                tag,
+                `Malformed result for method: ${tag}`,
                 result,
               ),
             ),
