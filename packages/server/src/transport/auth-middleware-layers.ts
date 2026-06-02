@@ -143,7 +143,7 @@ type TaskAndConvParams = {
   readonly conversationId: ConversationId;
 };
 type TaskAndAgentParams = { readonly taskId: TaskId };
-type CreateConvParams = { readonly targetAgentIds: readonly AgentId[] };
+type TaskRequestParams = { readonly invitedAgentIds: readonly AgentId[] };
 
 /**
  * The cap obtains' service env as a `Context` snapshot, read once at Layer build
@@ -274,7 +274,7 @@ export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
       connId,
       (payload, creatorAgentId) => ({
         creatorAgentId,
-        targetAgentIds: (payload as CreateConvParams).targetAgentIds,
+        targetAgentIds: [...(payload as TaskRequestParams).invitedAgentIds],
       }),
       obtainContactPolicyAllowsReach,
     ),

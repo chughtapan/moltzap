@@ -23,38 +23,59 @@
  * the engine's `ResponseDefect`.
  */
 import { Effect } from "effect";
-import { ConnectionTag } from "./layers.js";
+import { ConnectionManagerTag, ConnectionTag } from "./layers.js";
+import { peekLiveArm } from "../transport/principal-gate.js";
 import type { AgentContext, AppContext } from "../transport/context.js";
 
 /**
- * Read the request-scoped agent context for a native handler whose `*AuthMw`
- * gated the arm to `"agent"`. A non-agent arm is an impossible-state defect:
- * the gate runs before the handler, so reaching here off a non-agent arm means
- * the engine ran a handler whose middleware should have rejected the frame.
+ * Read the LIVE connection arm for this request. `ConnectionTag` is a per-socket
+ * BUILD-time snapshot (it predates `network/connect`, so its `_tag` is still
+ * `UnauthenticatedConnection`); the connection arm transitions to
+ * `AgentConnection` / `AppConnection` AFTER connect runs. The handler must read
+ * the CURRENT arm — `ConnectionTag` only carries the stable `connId` used to
+ * re-peek the live arm off the manager.
  */
-export const agentArm: Effect.Effect<AgentContext, never, ConnectionTag> =
-  Effect.gen(function* () {
-    const connection = yield* ConnectionTag;
-    if (connection._tag !== "AgentConnection") {
-      return yield* Effect.dieMessage(
-        `native handler: agent-gated method reached on ${connection._tag} arm`,
-      );
-    }
-    return connection.auth;
-  }).pipe(Effect.withSpan("native.agentArm"));
+const liveArm = Effect.gen(function* () {
+  const snapshot = yield* ConnectionTag;
+  const manager = yield* ConnectionManagerTag;
+  return yield* peekLiveArm(manager, snapshot.connId);
+});
 
 /**
- * Read the request-scoped app context for a native handler whose `*AuthMw`
- * gated the arm to `"app"`. A non-app arm is an impossible-state defect for the
- * same reason as {@link agentArm}.
+ * Read the request-scoped agent context for a native handler whose principal
+ * gate narrowed the arm to `"agent"`. A non-agent arm is an impossible-state
+ * defect: the gate runs before the handler, so reaching here off a non-agent arm
+ * means the engine ran a handler whose middleware should have rejected the frame.
  */
-export const appArm: Effect.Effect<AppContext, never, ConnectionTag> =
-  Effect.gen(function* () {
-    const connection = yield* ConnectionTag;
-    if (connection._tag !== "AppConnection") {
-      return yield* Effect.dieMessage(
-        `native handler: app-gated method reached on ${connection._tag} arm`,
-      );
-    }
-    return connection.auth;
-  }).pipe(Effect.withSpan("native.appArm"));
+export const agentArm: Effect.Effect<
+  AgentContext,
+  never,
+  ConnectionTag | ConnectionManagerTag
+> = Effect.gen(function* () {
+  const connection = yield* liveArm;
+  if (connection._tag !== "AgentConnection") {
+    return yield* Effect.dieMessage(
+      `native handler: agent-gated method reached on ${connection._tag} arm`,
+    );
+  }
+  return connection.auth;
+}).pipe(Effect.withSpan("native.agentArm"));
+
+/**
+ * Read the request-scoped app context for a native handler whose principal gate
+ * narrowed the arm to `"app"`. A non-app arm is an impossible-state defect for
+ * the same reason as {@link agentArm}.
+ */
+export const appArm: Effect.Effect<
+  AppContext,
+  never,
+  ConnectionTag | ConnectionManagerTag
+> = Effect.gen(function* () {
+  const connection = yield* liveArm;
+  if (connection._tag !== "AppConnection") {
+    return yield* Effect.dieMessage(
+      `native handler: app-gated method reached on ${connection._tag} arm`,
+    );
+  }
+  return connection.auth;
+}).pipe(Effect.withSpan("native.appArm"));

@@ -341,7 +341,12 @@ let requestIdCounter = 0;
 const DEFAULT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_MALFORMED_QUIESCENCE_MS = 500;
 const HANDLER_DEFECT_MESSAGE_LIMIT = 200;
-const REQUEST_ID_RADIX = 36;
+
+// The native engine parses the wire request id with `BigInt(id)`
+// (`@effect/rpc/RpcMessage → RequestId`), so the driver's id must be
+// numeric. A process-start epoch base keeps ids unique across clients on one
+// socket without colliding with another client's counter.
+const REQUEST_ID_BASE = Date.now() * 1_000_000;
 
 const outboundTransportIoError = (cause: unknown): TransportIoError =>
   new TransportIoError({ direction: "outbound", cause });
@@ -359,7 +364,7 @@ const inboundFrameSchemaError = (
 
 function nextRequestId(): string {
   requestIdCounter += 1;
-  return `tc-${Date.now().toString(REQUEST_ID_RADIX)}-${requestIdCounter.toString(REQUEST_ID_RADIX)}`;
+  return String(REQUEST_ID_BASE + requestIdCounter);
 }
 
 function awaitEntryMatches(params: unknown, entry: AwaitEntry): boolean {
@@ -614,7 +619,13 @@ function writeFrame(
         }),
       );
     }
-    yield* runtime.writer(raw).pipe(Effect.mapError(outboundTransportIoError));
+    // The live server multiplexes the socket with a `{ ch, f }` envelope
+    // (`native-mux.ts`); the driver is the c2s (client→server) endpoint. `f` is
+    // the JSON-RPC frame the server's `RpcSerialization.jsonRpc` parser decodes.
+    const enveloped = JSON.stringify({ ch: "c2s", f: raw });
+    yield* runtime
+      .writer(enveloped)
+      .pipe(Effect.mapError(outboundTransportIoError));
   });
 }
 
@@ -856,10 +867,71 @@ function startSocketReader(
   return Effect.forkScoped(reader).pipe(Effect.asVoid);
 }
 
+/**
+ * The channel-mux envelope every wire chunk rides in (`native-mux.ts`). The
+ * driver decodes `f` — the JSON-RPC frame — and ignores `ch` (it serves the
+ * single c2s endpoint plus the s2c reverse frames the server pushes).
+ */
+const MuxEnvelopeSchema = Schema.Struct({
+  ch: Schema.Literal("c2s", "s2c"),
+  f: Schema.String,
+});
+const decodeMuxEnvelope = Schema.decodeUnknownEither(MuxEnvelopeSchema);
+
 function decodeSocketData(data: string | Uint8Array): string {
-  return typeof data === "string"
-    ? data
-    : new TextDecoder("utf-8").decode(data);
+  const text =
+    typeof data === "string" ? data : new TextDecoder("utf-8").decode(data);
+  // Unwrap the `{ ch, f }` mux envelope to the JSON-RPC frame. A chunk that is
+  // not an envelope (a bare frame from a non-mux peer) passes through unchanged.
+  const frame = Either.match(decodeMuxEnvelope(safeJsonParse(text)), {
+    onLeft: () => text,
+    onRight: (env) => env.f,
+  });
+  return normalizeFrameId(frame);
+}
+
+/**
+ * The native engine round-trips the request id through `BigInt`, so a numeric
+ * driver id comes back as a JSON number. The driver's frame schema brands a
+ * STRING id, so re-stringify a numeric TOP-LEVEL `id` before the frame decoder
+ * runs. Parses and re-serializes (only when the id is numeric) so a numeric
+ * `id` nested in a payload is never touched.
+ */
+function normalizeFrameId(frame: string): string {
+  return Either.match(decodeNumericIdFrame(safeJsonParse(frame)), {
+    onLeft: () => frame,
+    onRight: (decoded) =>
+      JSON.stringify({ ...decoded.rest, id: String(decoded.id) }),
+  });
+}
+
+// Matches a frame whose top-level `id` is a JSON number; `rest` keeps the other
+// top-level keys verbatim. A frame with a string id (or no numeric id) fails the
+// decode and `normalizeFrameId` returns it unchanged.
+const NumericIdFrameSchema = Schema.Struct(
+  { id: Schema.Number },
+  { key: Schema.String, value: Schema.Unknown },
+).pipe(
+  Schema.transform(
+    Schema.Struct({
+      id: Schema.Number,
+      rest: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+    }),
+    {
+      decode: ({ id, ...rest }) => ({ id, rest }),
+      encode: ({ id, rest }) => ({ id, ...rest }),
+    },
+  ),
+);
+const decodeNumericIdFrame = Schema.decodeUnknownEither(NumericIdFrameSchema);
+
+/**
+ * Parse JSON, returning `null` on failure (callers fail over to the raw text). A
+ * non-JSON socket chunk is an expected wire condition here, not an error to log,
+ * so the parse failure is folded to `null` via `Either`.
+ */
+function safeJsonParse(text: string): unknown {
+  return Either.getOrNull(Either.try(() => JSON.parse(text) as unknown));
 }
 
 function handleSocketReaderFailure(

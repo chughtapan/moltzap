@@ -121,7 +121,7 @@ export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods)
 
 Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`.
 
-### [`assertWsEngineSize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L266)
+### [`assertWsEngineSize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L276)
 
 _Function_
 
@@ -647,7 +647,7 @@ export type ErrorForTag<
 
 The method's own tagged-error union for one tag (from its `errorSchema`).
 
-### [`findEngineGatingMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L337)
+### [`findEngineGatingMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L352)
 
 _Function_
 
@@ -1663,7 +1663,7 @@ makeServerProtocolLayer, the handler bodies via
 runtime via its per-socket server-supplied `Layer`
 (`auth-middleware-layers.ts`).
 
-### [`ServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L207)
+### [`ServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L217)
 
 _Variable_
 
@@ -1817,7 +1817,7 @@ The raw-write surface the mux drives. Mirrors the effect returned by
 `Socket.Socket["writer"]`: one call writes one chunk to the wire and
 fails with a Socket.SocketError if the socket is gone.
 
-### [`WS_ENGINE_MEMBER_COUNT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L256)
+### [`WS_ENGINE_MEMBER_COUNT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L266)
 
 _Variable_
 
@@ -1831,7 +1831,7 @@ The number of WS-dispatched engine members: the full catalog
 server's handler map (`serverNativeHandlers`) has exactly this many entries;
 the boot guard assertWsEngineSize pins the built group to it.
 
-### [`WsServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L247)
+### [`WsServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L257)
 
 _Variable_
 
