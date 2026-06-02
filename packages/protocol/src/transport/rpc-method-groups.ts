@@ -1,12 +1,13 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import { Schema } from "effect";
-import type { RpcDefinition } from "./method.js";
+import type { NotificationDefinition, RpcDefinition } from "./method.js";
 import type { JsonRpcMethod } from "./wire.js";
 import {
   serverRpcMethods,
   appCallbackMethods,
   agentClientRpcMethods,
   appCallableRpcMethods,
+  notificationDefinitions,
 } from "../rpc-registry.js";
 
 /**
@@ -112,3 +113,68 @@ export const AgentClientRpcGroup = groupFromCatalog(agentClientRpcMethods);
 
 /** Outbound group callable from an app connection: superset of the agent-client group. */
 export const AppCallableRpcGroup = groupFromCatalog(appCallableRpcMethods);
+
+type AnyNotificationDefinition = NotificationDefinition<
+  string,
+  Schema.Schema.AnyNoContext
+>;
+
+/**
+ * The `Rpc` a single notification definition maps to on the server→client
+ * reverse channel: the notification's wire `name` is the member tag, its
+ * `paramsSchema` is the payload, the success is `Void` (a notification is
+ * fire-and-forget — the server fires it without awaiting a meaningful result),
+ * and the error is the shared {@link WireErrorSchema} envelope.
+ */
+type NotificationRpcFromDef<D> =
+  D extends NotificationDefinition<infer Name, infer P>
+    ? Rpc.Rpc<JsonRpcMethod<Name>, P, typeof Schema.Void, typeof WireErrorSchema>
+    : never;
+
+type NotificationGroupMembers<
+  Defs extends readonly AnyNotificationDefinition[],
+> = {
+  readonly [K in keyof Defs]: NotificationRpcFromDef<Defs[K]>;
+};
+
+/**
+ * Build the server→client reverse `RpcGroup` for the notification catalog. Each
+ * `defineNotification` descriptor maps to a `void`-result `Rpc.make`: the
+ * notification's params is the payload, the success is `Schema.Void`. The
+ * server holds the `RpcClient<NotificationRpcGroup>` (fires each notification on
+ * a target connection's reverse channel, fork-and-forget); the agent + app
+ * clients hold the `RpcServer<NotificationRpcGroup>` whose handlers route each
+ * payload into the `SubscriberRegistry`, preserving the
+ * `client.subscribe(def) → Stream` surface unchanged.
+ */
+const groupFromNotifications = <
+  const Defs extends readonly AnyNotificationDefinition[],
+>(
+  defs: Defs,
+): RpcGroup.RpcGroup<NotificationGroupMembers<Defs>[number]> =>
+  RpcGroup.make(
+    // Same homogeneous-map laundering as `groupFromCatalog`: `Array.map`'s
+    // element type cannot prove the per-slot tuple, but at runtime it yields one
+    // `void`-result `Rpc` per notification descriptor in source order, precisely
+    // the `NotificationGroupMembers` tuple. Verified by
+    // `rpc-method-groups.types-check.ts`.
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- tuple-keying proof TS cannot express, same single assertion `groupFromCatalog` uses, verified by rpc-method-groups.types-check.ts
+    ...(defs.map((definition) =>
+      Rpc.make(definition.name, {
+        payload: definition.paramsSchema,
+        success: Schema.Void,
+        error: WireErrorSchema,
+      }),
+    ) as unknown as NotificationGroupMembers<Defs>), // #ignore-sloppy-code[as-unknown-as]: tuple-keying proof TS cannot express; verified by rpc-method-groups.types-check.ts.
+  );
+
+/**
+ * Server→client reverse notification group. The server fires each notification
+ * as a fire-and-forget `void`-result RPC on a target connection's reverse
+ * channel; the client serves it via `RpcServer<NotificationRpcGroup>`, routing
+ * each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
+ * machinery as {@link AppCallbackRpcGroup}.
+ */
+export const NotificationRpcGroup = groupFromNotifications(
+  notificationDefinitions,
+);
