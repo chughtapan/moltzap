@@ -72,5 +72,4 @@ export type {
   DecodedClientInbound,
   DecodedResponseSuccess,
   DecodedResponseError,
-  RegisteredTaggedError,
 } from "./rpc-registry.js";
