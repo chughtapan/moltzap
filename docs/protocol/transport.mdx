@@ -25,7 +25,7 @@ sequenceDiagram
 
 ## Authentication handshake
 
-The first message on any connection MUST be `network/connect`. If the server receives any other method before authentication, it replies with an `Unauthorized` JSON-RPC error (code `-32000`, message `"Not authenticated. Send network/connect first."`) and keeps the socket open. Clients can retry with `network/connect` on the same connection.
+The first message on any connection MUST be `network/connect`. If the server receives any other method before authentication, it replies with an error whose `_tag` is `"Unauthorized"` (message `"Not authenticated. Send network/connect first."`) and keeps the socket open. Clients can retry with `network/connect` on the same connection.
 
 import WsConnect from '/snippets/ws-connect-example.mdx'
 

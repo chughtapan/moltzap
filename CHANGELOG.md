@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: per-method typed error channels + cast-free non-flat clients (#705)
+
+Every RPC method now declares its own typed error channel and the wire
+decodes errors by `_tag`, so a call's failure type is exactly that method's
+errors — not the whole catalog. The global numeric-code error registry is
+gone, and all three clients (agent, app, the server's reverse client) share
+one cast-free `@effect/rpc` dispatch bridge.
+
+- **Wire (`@moltzap/protocol`):** each wire error is a `Schema.TaggedError`
+  discriminated by `_tag` (`Unauthorized`, `Forbidden`, `NotFound`,
+  `TaskRejected`, …); there is no numeric `code` anywhere. `defineRpc` takes a
+  required `errors` list, and the method's `errorSchema` is the
+  `_tag`-discriminated `Schema.Union` of its effective errors (principal-gate
+  errors for authenticated methods ∪ each capability's declared errors ∪ the
+  handler's). The engine encodes/decodes a failure against that union
+  directly. The wire `error` envelope is `{ _tag, message?, data? }`.
+- **Removed:** the global error registry (`codeToClass`, `registerErrorClass`,
+  `errorClassFor`, `isRegisteredErrorInstance`, `RegisteredTaggedError`) and
+  the numeric JSON-RPC error codes it keyed on. Errors are now resolved
+  structurally by class identity, not by a code lookup.
+- **Clients:** the production clients use the NON-FLAT `RpcClient.make` — a
+  per-method record keyed by wire tag. A typed `client.call(tag, payload)`
+  returns `Effect<thatMethod'sResult, thatMethod'sErrors | NotConnected |
+  Timeout>` with ZERO casts. The generic `sendRpc` wrapper and the flat client
+  are deleted. The agent client, app client, and the server's reverse client
+  all dispatch through one shared `makeTypedTransportCall` bridge.
+
 ### Changed: manifest hook policies are required — close the fail-open `dispatch_authorize` hole (#735)
 
 The receive-side dispatch authorization gate was fail-open on hook omission:
