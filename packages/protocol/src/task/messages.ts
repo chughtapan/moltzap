@@ -8,15 +8,13 @@ import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ConversationId, MessageId } from "./conversations.js";
-import { HookBlockedError } from "./tasks.js";
+import { HookBlockedError, TaskClosedError } from "./tasks.js";
+import { ConversationArchivedError } from "./conversations.js";
 import { ForbiddenError, NotFoundError } from "../transport/wire-errors.js";
 import { TaskId } from "./ids.js";
 import {
   ConversationInTask,
   ConversationSendAccess,
-  ActiveTaskPermission,
-  OpenConversationPermission,
-  ReplyTargetPermission,
   TaskReadAccess,
 } from "./capabilities/index.js";
 
@@ -181,24 +179,30 @@ export const MessagesSend = defineRpc({
   result: Schema.Struct({ message: MessageSchema }),
   callablePrincipal: "agent",
   requiresActive: true,
-  // Each cap is its own middleware, stacked in run order. `ConversationInTask`
-  // resolves the conversation's task membership; `ConversationSendAccess`
-  // proves participation and does the one joined read the rest read off;
-  // `ActiveTaskPermission` runs before `OpenConversationPermission` so a closed
-  // task surfaces `TaskClosed`, not the auto-archive's `ConversationArchived`;
-  // `ReplyTargetPermission` verifies the reply target.
-  caps: [
-    ConversationInTask,
-    ConversationSendAccess,
-    ActiveTaskPermission,
-    OpenConversationPermission,
-    ReplyTargetPermission,
+  // Two stacked cap middlewares form the send authorization spine:
+  // `ConversationInTask` resolves the conversation's task membership;
+  // `ConversationSendAccess` proves participation and does the ONE joined
+  // (`conversations ⋈ tasks`) read, providing the row to the handler. The
+  // remaining send preconditions — task-active, conversation-not-archived,
+  // reply-target — are handler-body guards that refine that provided row (they
+  // share the one read; `@effect/rpc` middlewares cannot read each other's
+  // provided value, so a refinement that depends on the row is a handler guard,
+  // not a standalone middleware).
+  caps: [ConversationInTask, ConversationSendAccess],
+  // Handler-domain errors, including the send-guard failures (`TaskClosed`,
+  // `ConversationArchived`, reply-target `NotFound`) that the handler raises
+  // while refining the `ConversationSendAccess` row. `ForbiddenError`/
+  // `NotFoundError` also ride the dispatch-lease claim path: a consumed/invalid
+  // lease maps to `ForbiddenError(data.reason: "LeaseInvalid")`, a missing lease
+  // to `NotFoundError`. The principal-gate + cap-middleware errors come from
+  // their middlewares.
+  errors: [
+    HookBlockedError,
+    ForbiddenError,
+    NotFoundError,
+    TaskClosedError,
+    ConversationArchivedError,
   ],
-  // Handler-domain errors. `ForbiddenError`/`NotFoundError` ride the
-  // dispatch-lease claim path: a consumed/invalid lease maps to
-  // `ForbiddenError(data.reason: "LeaseInvalid")`, a missing lease to
-  // `NotFoundError`. The principal-gate + cap errors come from their middlewares.
-  errors: [HookBlockedError, ForbiddenError, NotFoundError],
 });
 
 /**

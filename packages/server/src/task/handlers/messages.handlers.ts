@@ -3,6 +3,7 @@ import {
   MessagesList,
   NotFoundError,
   ForbiddenError,
+  ConversationSendAccess,
   type LeaseId,
   type ParamsOf,
 } from "@moltzap/protocol";
@@ -15,6 +16,11 @@ import {
   LeaseRegistryTag,
   MessageServiceTag,
 } from "../../app/layers.js";
+import {
+  guardTaskActive,
+  guardConversationNotArchived,
+  guardReplyTarget,
+} from "../services/send-permissions.js";
 import { LeaseInvalidError } from "../leases/lease-registry.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type { LeaseRegistry } from "../leases/lease-registry.js";
@@ -92,6 +98,18 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
       const messageService = yield* MessageServiceTag;
       const leaseRegistry = yield* LeaseRegistryTag;
       const connection = yield* ConnectionTag;
+      // `ConversationSendAccess` is provided by its cap middleware (the one
+      // joined `conversations ⋈ tasks` read after the participant check). The
+      // remaining send preconditions refine that row, in order: a closed task
+      // surfaces `TaskClosed` BEFORE the auto-archive's `ConversationArchived`,
+      // then the reply target is verified.
+      const sendRow = yield* ConversationSendAccess;
+      yield* guardTaskActive(sendRow);
+      yield* guardConversationNotArchived(sendRow);
+      yield* guardReplyTarget({
+        conversationId: params.conversationId,
+        replyToId: params.replyToId,
+      });
       if (params.dispatchLeaseId !== undefined) {
         return yield* sendWithDispatchLease({
           connId: connection.connId,

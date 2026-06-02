@@ -1,10 +1,6 @@
 import { Cause, Effect } from "effect";
 import {
-  ConversationSendAccess,
   type ConversationSendAccessValue,
-  type ActiveTaskPermissionValue,
-  type OpenConversationPermissionValue,
-  type ReplyTargetPermissionValue,
   TaskClosedError,
   ConversationArchivedError,
   ForbiddenError,
@@ -72,67 +68,54 @@ export const obtainConversationSendAccess = (input: {
     };
   }).pipe(Effect.withSpan("obtainConversationSendAccess"));
 
+// ── Send-precondition handler guards ──────────────────────────────────────────
+//
+// The remaining send preconditions refine the `ConversationSendAccess` row the
+// cap middleware already fetched. `@effect/rpc` middlewares cannot read each
+// other's provided value, so these are HANDLER guards (called in order at the
+// top of the `messages/send` body), not standalone middlewares. They take the
+// provided row as a value — no DB read, no service env.
+
 /**
- * `ActiveTaskPermission` obtain: read the `taskStatus` column off the shared
- * `ConversationSendAccess` row and fail `TaskClosed` when the task is not
- * active. Runs before `OpenConversationPermission` so a closed task surfaces
- * `TaskClosed`, not the auto-archive's `ConversationArchived`.
+ * Refine the task is active (status is NOT `closed`/`failed`). Called BEFORE
+ * {@link guardConversationNotArchived} so a closed task surfaces `TaskClosed`
+ * before the auto-archive's `ConversationArchived`.
  */
-export const obtainActiveTaskPermission = (): Effect.Effect<
-  ActiveTaskPermissionValue,
-  TaskClosedError,
-  ConversationSendAccess
-> =>
-  Effect.gen(function* () {
-    const ctx = yield* ConversationSendAccess;
-    if (ctx.taskStatus === "closed" || ctx.taskStatus === "failed") {
-      return yield* Effect.fail(
+export const guardTaskActive = (
+  row: ConversationSendAccessValue,
+): Effect.Effect<void, TaskClosedError> =>
+  row.taskStatus === "closed" || row.taskStatus === "failed"
+    ? Effect.fail(
         new TaskClosedError({
-          message: `Task is ${ctx.taskStatus}`,
+          message: `Task is ${row.taskStatus}`,
           data: {
             reason: "TaskClosed",
-            taskId: ctx.taskId,
-            status: ctx.taskStatus,
+            taskId: row.taskId,
+            status: row.taskStatus,
           },
         }),
-      );
-    }
-    return { taskId: ctx.taskId, status: ctx.taskStatus };
-  }).pipe(Effect.withSpan("obtainActiveTaskPermission"));
+      )
+    : Effect.void;
+
+/** Refine the conversation is open (`archived_at IS NULL`). */
+export const guardConversationNotArchived = (
+  row: ConversationSendAccessValue,
+): Effect.Effect<void, ConversationArchivedError> =>
+  row.archivedAt !== null
+    ? Effect.fail(new ConversationArchivedError({}))
+    : Effect.void;
 
 /**
- * `OpenConversationPermission` obtain: read the `archivedAt` column off the
- * shared `ConversationSendAccess` row and fail `ConversationArchived` when the
- * conversation is archived.
- */
-export const obtainOpenConversationPermission = (): Effect.Effect<
-  OpenConversationPermissionValue,
-  ConversationArchivedError,
-  ConversationSendAccess
-> =>
-  Effect.gen(function* () {
-    const ctx = yield* ConversationSendAccess;
-    if (ctx.archivedAt !== null) {
-      return yield* Effect.fail(new ConversationArchivedError({}));
-    }
-    return { conversationId: ctx.conversationId };
-  }).pipe(Effect.withSpan("obtainOpenConversationPermission"));
-
-/**
- * `ReplyTargetPermission` obtain: when the send names a `replyToId`, verify the
+ * Refine the reply target: when the send names a `replyToId`, verify the
  * referenced message exists in the conversation (fails `NotFound` if absent);
- * otherwise resolve the `NoReply` sentinel with no DB read.
+ * a send with no reply target passes with no DB read.
  */
-export const obtainReplyTargetPermission = (input: {
+export const guardReplyTarget = (input: {
   readonly conversationId: ConversationId;
   readonly replyToId?: MessageId;
-}): Effect.Effect<
-  ReplyTargetPermissionValue,
-  NotFoundError,
-  MessageServiceTag
-> => {
+}): Effect.Effect<void, NotFoundError, MessageServiceTag> => {
   if (input.replyToId === undefined) {
-    return Effect.succeed({ _tag: "NoReply" });
+    return Effect.void;
   }
   const replyToId = input.replyToId;
   return Effect.gen(function* () {
@@ -140,6 +123,5 @@ export const obtainReplyTargetPermission = (input: {
     yield* catchSqlErrorAsDefect(
       msgService.assertReplyTarget(input.conversationId, replyToId),
     );
-    return { _tag: "ValidReply", replyToId } as const;
-  }).pipe(Effect.withSpan("obtainReplyTargetPermission"));
+  }).pipe(Effect.withSpan("guardReplyTarget"));
 };
