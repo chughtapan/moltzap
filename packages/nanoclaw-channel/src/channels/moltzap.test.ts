@@ -1,7 +1,7 @@
 import { describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { ConversationFullError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol";
 import { MoltZapChannelCore } from "@moltzap/client";
 import {
   buildMessage,
@@ -346,8 +346,11 @@ function rejectsSecondSendForSameDispatch() {
       Effect.suspend(() => {
         sendCount += 1;
         if (sendCount <= 1) return Effect.void;
+        // Mirror the server's `claimDispatchLease`: a CONSUMED lease surfaces
+        // as `ForbiddenError(data.reason: "LeaseInvalid")`, which channel-base's
+        // `catchLeaseInvalid` projects to `LeaseAlreadyConsumed`.
         return Effect.fail(
-          new ConversationFullError({
+          new ForbiddenError({
             message: `lease ${opts?.dispatchLeaseId ?? "(none)"} not claimable: state=CONSUMED`,
             data: {
               reason: "LeaseInvalid",

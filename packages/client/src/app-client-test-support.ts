@@ -265,20 +265,30 @@ function muxUnwrap(raw: string): string {
   });
 }
 
+// A monotonic id for the server-originated reverse RPCs the mock pushes; the
+// client's reverse engine processes a request only when it carries an `id`.
+let serverPushId = 0;
+
 // A response to a client `c2s` request rides back on `c2s` so the client's
 // outbound engine correlates it; a server-originated request/notification rides
 // on `s2c` where the client's reverse reader consumes it. Pick the channel from
-// the frame shape: a `method` key marks a server-originated frame.
-const muxWrapServerFrame = (frame: string): string => {
-  const channel = Option.match(parseJsonObject(frame), {
-    onNone: () => "c2s" as const,
-    onSome: (parsed) =>
-      typeof parsed["method"] === "string"
-        ? ("s2c" as const)
-        : ("c2s" as const),
+// the frame shape: a `method` key marks a server-originated frame. The real
+// server fires notifications as void-result reverse RPCs (a request WITH an
+// `id` the client acks), so a method-bearing frame lacking an `id` gets one —
+// otherwise the client's reverse engine never dispatches it.
+const muxWrapServerFrame = (frame: string): string =>
+  Option.match(parseJsonObject(frame), {
+    onNone: () => JSON.stringify({ ch: "c2s", f: frame }),
+    onSome: (parsed) => {
+      if (typeof parsed["method"] !== "string") {
+        return JSON.stringify({ ch: "c2s", f: frame });
+      }
+      serverPushId += 1;
+      const withId =
+        "id" in parsed ? parsed : { ...parsed, id: String(serverPushId) };
+      return JSON.stringify({ ch: "s2c", f: JSON.stringify(withId) });
+    },
   });
-  return JSON.stringify({ ch: channel, f: frame });
-};
 
 function handleTestServerRawData(
   conn: TestServerConnection,

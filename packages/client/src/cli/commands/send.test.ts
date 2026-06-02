@@ -58,7 +58,7 @@ describe("send command handler", () => {
         message: HELLO_WORLD,
         replyTo: Option.none(),
       });
-      expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
+      expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
         taskId,
         conversationId,
         parts: [{ type: "text", text: HELLO_WORLD }],
@@ -72,7 +72,7 @@ describe("send command handler", () => {
         message: REPLY_TEXT,
         replyTo: Option.some(replyToId),
       });
-      expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
+      expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
         taskId,
         conversationId,
         parts: [{ type: "text", text: REPLY_TEXT }],
