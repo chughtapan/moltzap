@@ -56,7 +56,7 @@ describe("codec decoding", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const frame: AnyFrame = requestFrame("req-1", Connect, {
-          agentKey: "k",
+          credential: "k",
           minProtocol: "0.1.0",
           maxProtocol: "0.1.0",
         });
@@ -91,7 +91,7 @@ describe("codec decoding", () => {
 describe("codec malformed frames", () => {
   it("malformFrame never throws for any kind + seed", () => {
     const base: AnyFrame = requestFrame("r", Connect, {
-      agentKey: "k",
+      credential: "k",
       minProtocol: "0.1.0",
       maxProtocol: "0.1.0",
     });

@@ -155,7 +155,7 @@ function connectManually(agentId: string, apiKey: string) {
 
 function sendConnect(client: ConnectedTestClient, key: string) {
   return client.sendRpc(Connect, {
-    agentKey: key,
+    credential: key,
     minProtocol: PROTOCOL_VERSION,
     maxProtocol: PROTOCOL_VERSION,
   });
@@ -260,7 +260,8 @@ function rejectsOldApiKeyAfterReregister() {
 
     const freshClient = yield* connectManually(rotated.agentId, rotated.apiKey);
     const hello = yield* sendConnect(freshClient, rotated.apiKey);
-    expect(hello.agentId).toBe(rotated.agentId);
+    // The HelloOk is empty: a successful connect is the only signal.
+    expect(hello).toEqual({});
   });
 }
 

@@ -60,12 +60,12 @@ function registeredAgentCanUseMethods() {
     });
 
     const hello = yield* client.sendRpc(Connect, {
-      agentKey: reg.apiKey,
+      credential: reg.apiKey,
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
     });
-    expect(hello.protocolVersion).toBeDefined();
-    expect(hello.agentId).toBe(reg.agentId);
+    // The HelloOk is empty: a successful connect is the only signal.
+    expect(hello).toEqual({});
 
     const result = yield* client.sendRpc(TaskConversationList, {});
     expect(result.items).toEqual([]);
@@ -98,7 +98,7 @@ function suspendedAgentCannotConnect() {
     });
     const result = yield* Effect.exit(
       client.sendRpc(Connect, {
-        agentKey: reg.apiKey,
+        credential: reg.apiKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
       }),

@@ -47,7 +47,7 @@ it("bad API key is rejected with authentication error", () =>
 
     const result = yield* Effect.exit(
       client.sendRpc(Connect, {
-        agentKey: INVALID_API_KEY,
+        credential: INVALID_API_KEY,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
       }),
@@ -68,7 +68,7 @@ it("unauthenticated RPC call is rejected", () =>
 
     const result = yield* Effect.exit(
       client.sendRpc(Connect, {
-        agentKey: FAKE_API_KEY,
+        credential: FAKE_API_KEY,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
       }),
@@ -100,7 +100,7 @@ it("suspended agent cannot call protected RPCs", () =>
     });
     const result = yield* Effect.exit(
       client.sendRpc(Connect, {
-        agentKey: reg.apiKey,
+        credential: reg.apiKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
       }),

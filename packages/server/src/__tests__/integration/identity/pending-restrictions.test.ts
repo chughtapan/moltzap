@@ -57,7 +57,7 @@ it("suspended agent cannot connect", () =>
     });
     const result = yield* Effect.exit(
       client.sendRpc(Connect, {
-        agentKey: reg.apiKey,
+        credential: reg.apiKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
       }),
