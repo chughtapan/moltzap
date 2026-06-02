@@ -97,6 +97,18 @@ export {
   makeAgentClientConnection,
   makeAppClientConnection,
 } from "./connection.js";
+
+// Reverse server→client RPC groups (the s2c channel). `AppCallbackRpcGroup`
+// carries the moderator callbacks (`dispatch/authorize`, `messages/authorize`,
+// `task/create`); `NotificationRpcGroup` carries every `defineNotification` as
+// a fire-and-forget `void`-result RPC. The server holds the `RpcClient`; the
+// client stands the `RpcServer` (the notification handlers route into the
+// `SubscriberRegistry`).
+export {
+  AppCallbackRpcGroup,
+  NotificationRpcGroup,
+  ServerRpcGroup,
+} from "./rpc-method-groups.js";
 export {
   buildServerDispatcher,
   buildAgentClientDispatcher,
