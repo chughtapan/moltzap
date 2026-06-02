@@ -149,7 +149,7 @@ export const AppCallableRpcGroup = groupFromCatalog(appCallableRpcMethods)
 
 Outbound group callable from an app connection: superset of the agent-client group.
 
-### [`AppCallbackHandlers`](./handlers.ts#L109)
+### [`AppCallbackHandlers`](./handlers.ts#L98)
 
 _TypeAlias_
 
@@ -160,7 +160,7 @@ export type AppCallbackHandlers<
 > = HandlerTable<AppCallbackInboundRpcDefinition, Ctx, Caps>;
 ```
 
-### [`AppCallbackInboundRpcDefinition`](./handlers.ts#L107)
+### [`AppCallbackInboundRpcDefinition`](./handlers.ts#L96)
 
 _TypeAlias_
 
@@ -303,8 +303,7 @@ export type CallablePrincipal = "agent" | "app" | "any";
  * cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
  * caps the method requires and in what order. `Context.Tag<any, any>` is the
  * variance-agnostic carrier (a concrete class tag is not assignable to
- * `Context.Tag<unknown, unknown>`), matching `capability-middleware.ts`'s
- * `AnyContextTag`.
+ * `Context.Tag<unknown, unknown>`).
  */
 export type RpcCapTag = Context.Tag<any, any>;
 ```
@@ -672,7 +671,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L283)
+### [`decodeRpcResult`](./method.ts#L279)
 
 _Function_
 
@@ -687,7 +686,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L253)
+### [`defineNotification`](./method.ts#L249)
 
 _Function_
 
@@ -702,7 +701,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L161)
+### [`defineRpc`](./method.ts#L157)
 
 _Function_
 
@@ -742,9 +741,8 @@ flowchart TD
 
 - Every slot is REQUIRED in the handler table (Spec D3 R14b);
   omitting any key fails TS2741 at the factory call.
-- #705 HALF-2: capabilities are NOT descriptor metadata. They are
-  declared at the server binding site as `CapabilityMiddleware` tuples;
-  `defineRpc` carries only the wire shape.
+- Capabilities are NOT descriptor metadata; `defineRpc` carries only the
+  wire shape, and the server's per-method `*AuthMw` runs the caps.
 - The validators reject excess keys (`closedStructGuard`), preserving the
   AJV `strict` + `additionalProperties:false` rejection the conformance
   suite's `extra-property` / `oversized` mutators assert.
@@ -861,7 +859,7 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
 }> {}
 ```
 
-### [`HandlerSlot`](./handlers.ts#L36)
+### [`HandlerSlot`](./handlers.ts#L25)
 
 _Interface_
 
@@ -883,18 +881,11 @@ export interface HandlerSlot<
 }
 ```
 
-Per-definition handler slot (app-callback authoring shape). `Ctx` is
-the per-frame context the client hands every handler. `Caps` is the
-upper bound on which `Context.Tag`s the handler's R channel may
-reference; the app-callback catalog declares no capabilities, so
-callers bind `Caps = never`.
-
-The WS client wraps each authored slot into an `ErasedSlot` (cap-less)
-at connection time via makeMiddlewareSlot; the slot's `invoke`
-decodes params and runs `handle`. The cross-package handler-R / cap
-totality lockstep that the server side enforces lives on the
-`defineXMiddlewareMethod` `weaveCaps` bound
-(`server-core` `middleware-slot.types-check.ts`).
+Per-definition handler slot (app-callback authoring shape). `Ctx` is the
+per-frame context the client hands every handler. `Caps` is the upper bound
+on which `Context.Tag`s the handler's R channel may reference; the
+app-callback catalog declares no capabilities, so callers bind `Caps =
+never`. The app client's reverse `RpcServer` serves each slot's `handle`.
 
 ### [`HttpOnlyMethod`](./server-engine-group.ts#L72)
 
@@ -1302,7 +1293,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L230)
+### [`NotificationDefinition`](./method.ts#L226)
 
 _Interface_
 
@@ -1371,7 +1362,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L241)
+### [`NotificationParamsOf`](./method.ts#L237)
 
 _TypeAlias_
 
@@ -1399,7 +1390,7 @@ channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
 machinery as AppCallbackRpcGroup.
 
-### [`ParamsOf`](./method.ts#L104)
+### [`ParamsOf`](./method.ts#L101)
 
 _TypeAlias_
 
@@ -1576,7 +1567,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L116)
+### [`ResultOf`](./method.ts#L113)
 
 _TypeAlias_
 
@@ -1675,7 +1666,7 @@ code, or `RpcServerError` for an unregistered code. The native client's flat
 engine yields the group's `WireError` envelope on a server-side failure;
 wireErrorToRpcCallError reconstructs it onto this union.
 
-### [`RpcCapTag`](./method.ts#L34)
+### [`RpcCapTag`](./method.ts#L33)
 
 _TypeAlias_
 
@@ -1688,10 +1679,9 @@ A capability tag a method requires: the `Context.Tag` the per-method
 cap's runtime derive/obtain lives server-side; the descriptor names only WHICH
 caps the method requires and in what order. `Context.Tag<any, any>` is the
 variance-agnostic carrier (a concrete class tag is not assignable to
-`Context.Tag<unknown, unknown>`), matching `capability-middleware.ts`'s
-`AnyContextTag`.
+`Context.Tag<unknown, unknown>`).
 
-### [`RpcDefinition`](./method.ts#L57)
+### [`RpcDefinition`](./method.ts#L54)
 
 _Interface_
 
@@ -1756,12 +1746,10 @@ behavior: a bare `Schema.is` would ACCEPT extra keys, so the guards wrap a
 `Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" })`
 to preserve AJV `strict` rejection at the trust boundary.
 
-#705 HALF-2 — a method's per-frame capabilities are NO LONGER descriptor
-metadata. They are declared at the server binding site as
-`CapabilityMiddleware` tuples woven by `defineXMiddlewareMethod`; the
-descriptor carries only the wire shape. The former optional
-`capabilities` field (+ its `argsOf` resolvers) and the runtime
-`dischargeCaps` fold that read it are gone.
+A method's per-frame capabilities are NOT descriptor metadata: the
+descriptor carries only the wire shape. The server's per-method `*AuthMw`
+impl Layer runs each declared cap's derive/obtain
+(`server-core auth-middleware-layers.ts`).
 
 ### [`RpcErrorClass`](./wire-errors.ts#L21)
 
@@ -1816,7 +1804,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L272)
+### [`RpcResultDecodeError`](./method.ts#L268)
 
 _Class_
 
