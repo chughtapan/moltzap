@@ -7,7 +7,6 @@
 import { Effect } from "effect";
 import {
   TaskClosedNotificationDefinition,
-  TaskClosedError,
   TaskAddParticipant,
   TaskClose,
   TaskConversationCreate,

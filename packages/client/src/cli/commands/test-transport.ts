@@ -47,7 +47,7 @@ export const makeFakeTransport = (
       // The fake harness asserts on the recorded `calls`, not on the typed
       // result; the canned response is the matching method's success by test
       // construction.
-       
+
       return Effect.succeed(out as SuccessForTag<AgentCallableRpcs, Tag>);
     },
   };

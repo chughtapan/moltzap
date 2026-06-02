@@ -5,10 +5,7 @@
  * with a typed error (not a success, not a crash).
  */
 import { Effect, Either } from "effect";
-import {
-  ForbiddenError,
-  UnauthorizedError,
-} from "../../../transport/wire-errors.js";
+import {} from "../../../transport/wire-errors.js";
 import { TaskList } from "../../../task/methods.js";
 import { authorizationOutcome } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";

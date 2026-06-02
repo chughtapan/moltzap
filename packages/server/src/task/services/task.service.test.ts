@@ -92,12 +92,9 @@ function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
   const v = failure.value;
-  return typeof v === "object" &&
-    v !== null &&
-    "_tag" in v &&
-    typeof v._tag === "string"
-    ? v._tag
-    : null;
+  if (typeof v !== "object" || v === null) return null;
+  const tag = (v as { readonly _tag?: unknown })._tag;
+  return typeof tag === "string" ? tag : null;
 }
 
 // D #705 R7 — the `TmAuthority` capability is dissolved; the
@@ -245,7 +242,7 @@ function rejectsGetForNonParticipant() {
     const exit = yield* Effect.exit(
       svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
     );
-    expect(rpcFailureTag(exit)).toBe("Forbidden");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 
@@ -257,7 +254,7 @@ function rejectsUnknownTaskGet() {
         .get(UNKNOWN_TASK_ID, ALICE)
         .pipe(withReadAccess(UNKNOWN_TASK_ID, ALICE, svc)),
     );
-    expect(rpcFailureTag(exit)).toBe("NotFound");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.NotFound);
   });
 }
 
@@ -306,7 +303,7 @@ function loadOpenTaskRejectsAfterClose() {
     const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
     yield* svc.close(task.id);
     const exit = yield* Effect.exit(svc.loadOpenTask(task.id));
-    expect(rpcFailureTag(exit)).toBe("Forbidden");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 
@@ -328,7 +325,7 @@ function deniesReadAccessToPendingInvitee() {
     const exit = yield* Effect.exit(
       svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
     );
-    expect(rpcFailureTag(exit)).toBe("Forbidden");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 

@@ -32,7 +32,6 @@ import * as fc from "fast-check";
 import { Brand, Effect, Exit } from "effect";
 import {
   DEFAULT_APP_ID,
-  ParticipantNotAdmittedError,
   TaskConversationAddParticipant,
   TaskConversationArchive,
   TaskConversationCreate,
@@ -58,7 +57,7 @@ import {
   expectEitherLeft,
   type ServerTestClient,
 } from "../helpers.js";
-import { agentId } from "@moltzap/protocol/testing";
+import { agentId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { awaitOneNotification } from "../../../test-utils/helpers.js";
 
 const REGISTRATION_SECRET = "tcf-test-secret-xyz1";
@@ -325,7 +324,7 @@ it("TaskConversationCreate denies non-TM caller BEFORE the participant invariant
       tag?: string;
       message?: string;
     };
-    expect(err.tag).not.toBe("ParticipantNotAdmitted");
+    expect(err.tag).not.toBe(WIRE_ERROR_TAG.ParticipantNotAdmitted);
     // The actual code is `ForbiddenError` (-32001) per Spec E
     // capability-shape. Pin the negative invariant (not Admitted)
     // separately so renaming the error code doesn't regress the
@@ -428,7 +427,7 @@ it("TaskConversationAddParticipant: non-TM caller denied BEFORE the participant 
     // whether `carol` is in `task_participants`. Authority denial
     // fires before the invariant runs; tag must NOT be
     // `ParticipantNotAdmitted`.
-    expect(err.tag).not.toBe("ParticipantNotAdmitted");
+    expect(err.tag).not.toBe(WIRE_ERROR_TAG.ParticipantNotAdmitted);
     expect(err.tag).toBeDefined();
   }));
 

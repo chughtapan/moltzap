@@ -110,31 +110,7 @@ export const buildReverseClient = (options: {
         Scope.extend(options.scope),
       );
     const sink = yield* Deferred.await(sinkReady);
-    const call = <Tag extends ReverseTag>(
-      tag: Tag,
-      payload: PayloadForTag<ReverseRpcs, Tag>,
-    ): Effect.Effect<SuccessForTag<ReverseRpcs, Tag>, ReverseCallError> => {
-      // The non-flat client `client[tag](payload)` is typed per tag; over the
-      // MERGED `ReverseRpcGroup` (callbacks ∪ notifications) TS does not reduce
-      // the per-tag success through `dispatchCall` at a generic `Tag`, so the
-      // single-tag dispatch is named back to `SuccessForTag` here. No value-
-      // boundary flat erasure — the client is the real per-method record.
-      const dispatched = dispatchCall(client, tag, payload).pipe(
-        // The engine surfaces a closed s2c socket as `RpcClientError`; the
-        // reverse call's transport contract is `NotConnectedError`.
-        Effect.catchTag("RpcClientError", () =>
-          Effect.fail(
-            new NotConnectedError({ message: "reverse socket closed" }),
-          ),
-        ),
-      );
-       
-      // #ignore-sloppy-code-next-line[as-unknown-as]: merged ReverseRpcGroup per-tag success not reducible through dispatchCall at a generic Tag; the dispatch IS the single-tag call.
-      return dispatched as unknown as Effect.Effect<
-        SuccessForTag<ReverseRpcs, Tag>,
-        ReverseCallError
-      >;
-    };
+    const call = makeReverseCall(client);
     const notify = <D extends NotificationDefinition<string, any>>(
       definition: D,
       params: NotificationParamsOf<D>,
@@ -145,3 +121,33 @@ export const buildReverseClient = (options: {
       ).pipe(Effect.asVoid);
     return { call, notify, sink };
   }).pipe(Effect.withSpan("buildReverseClient"));
+
+/**
+ * The typed per-method reverse call over a non-flat client. `client[tag]` is
+ * typed per tag; over the MERGED `ReverseRpcGroup` (callbacks ∪ notifications)
+ * TS does not reduce the per-tag success through `dispatchCall` at a generic
+ * `Tag`, so the single-tag dispatch is named back to `SuccessForTag`. No value-
+ * boundary flat erasure — the client is the real per-method record.
+ */
+const makeReverseCall =
+  (client: TypedDispatchMap<ReverseRpcs, RpcClientError>) =>
+  <Tag extends ReverseTag>(
+    tag: Tag,
+    payload: PayloadForTag<ReverseRpcs, Tag>,
+  ): Effect.Effect<SuccessForTag<ReverseRpcs, Tag>, ReverseCallError> => {
+    const dispatched = dispatchCall(client, tag, payload).pipe(
+      // The engine surfaces a closed s2c socket as `RpcClientError`; the
+      // reverse call's transport contract is `NotConnectedError`.
+      Effect.catchTag("RpcClientError", () =>
+        Effect.fail(
+          new NotConnectedError({ message: "reverse socket closed" }),
+        ),
+      ),
+    );
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- merged ReverseRpcGroup per-tag success not reducible through dispatchCall at a generic Tag; the dispatch IS the single-tag call.
+    return dispatched as unknown as Effect.Effect<
+      // #ignore-sloppy-code[as-unknown-as]: merged ReverseRpcGroup per-tag success not reducible through dispatchCall at a generic Tag.
+      SuccessForTag<ReverseRpcs, Tag>,
+      ReverseCallError
+    >;
+  };

@@ -18,7 +18,6 @@ import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
 import type { NotificationParamsOf } from "../../../transport/method.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
 import {
-  ConversationArchivedError,
   MessageReceivedNotificationDefinition,
   MessagesSend,
   ConversationId,

@@ -1,7 +1,7 @@
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Cause, Effect, Exit } from "effect";
-import { userId } from "@moltzap/protocol/testing";
+import { userId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -35,12 +35,9 @@ function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
   const value = failure.value;
-  return typeof value === "object" &&
-    value !== null &&
-    "_tag" in value &&
-    typeof value._tag === "string"
-    ? value._tag
-    : null;
+  if (typeof value !== "object" || value === null) return null;
+  const tag = (value as { readonly _tag?: unknown })._tag;
+  return typeof tag === "string" ? tag : null;
 }
 
 function createsPendingContact() {
@@ -55,7 +52,7 @@ function rejectsSelfAdd() {
   return Effect.gen(function* () {
     const svc = new ContactsService(db);
     const exit = yield* Effect.exit(svc.add(ALICE, { contactUserId: ALICE }));
-    expect(rpcFailureTag(exit)).toBe("Forbidden");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 
@@ -64,7 +61,7 @@ function rejectsDuplicateAdd() {
     const svc = new ContactsService(db);
     yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.add(ALICE, { contactUserId: BOB }));
-    expect(rpcFailureTag(exit)).toBe("Conflict");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Conflict);
   });
 }
 
@@ -86,7 +83,7 @@ function rejectsUnknownContactAccept() {
     const exit = yield* Effect.exit(
       svc.accept(BOB, "00000000-0000-4000-8000-000000000404" as never),
     );
-    expect(rpcFailureTag(exit)).toBe("NotFound");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.NotFound);
   });
 }
 
@@ -95,7 +92,7 @@ function rejectsRequesterAcceptingOwnRequest() {
     const svc = new ContactsService(db);
     const requested = yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.accept(ALICE, requested.id));
-    expect(rpcFailureTag(exit)).toBe("Forbidden");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 
@@ -104,7 +101,7 @@ function rejectsUnrelatedAcceptor() {
     const svc = new ContactsService(db);
     const requested = yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.accept(CAROL, requested.id));
-    expect(rpcFailureTag(exit)).toBe("Forbidden");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 
@@ -150,7 +147,7 @@ function byIdDoesNotLeakOtherOwnersRows() {
     const svc = new ContactsService(db);
     const created = yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.byId(CAROL, created.id));
-    expect(rpcFailureTag(exit)).toBe("NotFound");
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.NotFound);
   });
 }
 

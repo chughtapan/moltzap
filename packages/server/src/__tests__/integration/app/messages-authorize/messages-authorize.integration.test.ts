@@ -9,7 +9,6 @@ import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import {
   TaskCreate,
-  HookBlockedError,
   MessagesAuthorize,
   MessagesList,
   MessagesSend,
@@ -280,7 +279,7 @@ function expectHookBlocked(
   Either.match(outcome, {
     onLeft: (error) => {
       const wire = error as { code?: number; message?: string };
-      expect(wire.code).toBe("HookBlocked");
+      expect(wire.code).toBe(WIRE_ERROR_TAG.HookBlocked);
       if (messagePattern !== undefined) {
         expect(String(wire.message)).toMatch(messagePattern);
       }

@@ -3,6 +3,7 @@
  * boundary checks. Integration coverage of the direct-WS branch lives in
  * the E2E fixture (`__tests__/cli-multi-agent.int.test.ts`).
  */
+import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { Cause, Effect, Exit, Option } from "effect";
 import * as fc from "fast-check";
 import { it as effectIt } from "@effect/vitest";
@@ -28,7 +29,6 @@ import {
 import { TaskList, TaskRejectedError } from "@moltzap/protocol";
 
 const it = effectIt.effect;
-const SESSION_NOT_FOUND_CODE = -32001;
 const RPC_TIMEOUT_MS = 15_000;
 const SERVER_URL = "wss://example.test";
 const TEST_SOCKET_PATH = "/var/run/moltzap-test.sock";
@@ -256,7 +256,7 @@ function rpcServerErrorMapsToTransportRpcError() {
     expect(err).toBeInstanceOf(TransportRpcError);
     expect(err._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
     if (err instanceof TransportRpcError) {
-      expect(err.tag).toBe("NotFound");
+      expect(err.tag).toBe(WIRE_ERROR_TAG.NotFound);
       expect(err.message).toBe(SESSION_NOT_FOUND_MESSAGE);
     }
   });
@@ -277,7 +277,7 @@ function registeredWireErrorMapsToTransportRpcError() {
     expect(err).toBeInstanceOf(TransportRpcError);
     expect(err._tag).toBe(TRANSPORT_RPC_ERROR_TAG);
     if (err instanceof TransportRpcError) {
-      expect(err.tag).toBe("TaskRejected");
+      expect(err.tag).toBe(WIRE_ERROR_TAG.TaskRejected);
       expect(err.message).toBe(TaskRejectedError.message);
       expect(err.data).toEqual({ taskId: "task-1" });
     }

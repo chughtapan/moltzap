@@ -1,4 +1,4 @@
-import { Data, Either, ParseResult, Schema } from "effect";
+import { Either, ParseResult, Schema } from "effect";
 import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
 import { messagePartsSchema, logicalClockSchema } from "../task/methods.js";

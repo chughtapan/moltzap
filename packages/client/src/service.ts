@@ -181,7 +181,6 @@ const AGENT_DISPATCH: ReadonlyMap<string, AgentDispatchEntry> = new Map(
   [...AgentCallableGroup.requests.keys()].map((tag) => [
     tag,
     (service: MoltZapService, params: LocalDaemonParams) =>
-       
       service.call(
         tag as AgentCallableTag,
         params as PayloadForTag<AgentCallableRpcs, AgentCallableTag>,
