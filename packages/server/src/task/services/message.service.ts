@@ -476,19 +476,23 @@ export class MessageService {
     input: SendCommitInput,
     recipientList: readonly AgentId[],
   ): Effect.Effect<readonly AgentId[], never> {
-    const event = MessageReceivedNotificationDefinition.encode({
-      taskId: input.carrier.conv.task_id,
-      message: input.carrier.message,
-    });
     const audience = Array.from(
       new Set([...recipientList, input.senderAgentId]),
     ) as AgentId[];
     return this.networkSendService
-      .broadcast(audience, opaquePayload(JSON.stringify(event)), {
-        forConversation: input.conversationId,
-        excludeConnectionId: input.carrier.excludeConnectionId,
-        messageId: input.carrier.message.id,
-      })
+      .broadcastNotification(
+        audience,
+        MessageReceivedNotificationDefinition,
+        {
+          taskId: input.carrier.conv.task_id,
+          message: input.carrier.message,
+        },
+        {
+          forConversation: input.conversationId,
+          excludeConnectionId: input.carrier.excludeConnectionId,
+          messageId: input.carrier.message.id,
+        },
+      )
       .pipe(Effect.map((result) => result.delivered as readonly AgentId[]));
   }
 
