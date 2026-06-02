@@ -13,9 +13,7 @@ import {
 } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { AgentId as ServerAgentId } from "../../app/types.js";
-import type { ServerRpcSlots } from "../../transport/context.js";
 import type { AgentContext } from "../../transport/context.js";
-import { defineNetworkMethod } from "../../transport/define-layered-method.js";
 import { agentArm, toWireError } from "../../app/native-handlers-runtime.js";
 import { DbTag } from "../../app/layers.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
@@ -202,21 +200,6 @@ function agentsListBody(
   }).pipe(Effect.withSpan("agents.list.handler"));
 }
 
-export const agentsLookupHandlers: ServerRpcSlots = [
-  defineNetworkMethod(AgentsLookup, {
-    callablePrincipal: "agent",
-    handler: (params) => agentsLookupBody(params),
-  }),
-  defineNetworkMethod(AgentsLookupByName, {
-    callablePrincipal: "agent",
-    handler: agentsLookupByNameBody,
-  }),
-  defineNetworkMethod(AgentsList, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: agentsListBody,
-  }),
-];
 
 // ── Native @effect/rpc handler bodies ───────────────────────────────────────
 

@@ -1,6 +1,4 @@
-import type { ServerRpcSlots } from "../../transport/context.js";
 import type { AgentContext } from "../../transport/context.js";
-import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   PresenceSubscribe,
   PresenceSubscribeAuth,
@@ -56,14 +54,6 @@ function presenceSubscribeBody(
     return { statuses };
   }).pipe(Effect.withSpan("presence.subscribe"));
 }
-
-export const presenceHandlers: ServerRpcSlots = [
-  defineTaskMethod(PresenceSubscribe, {
-    callablePrincipal: "agent",
-    requiresActive: true,
-    handler: presenceSubscribeBody,
-  }),
-];
 
 // ── Native @effect/rpc handler body ─────────────────────────────────────────
 
