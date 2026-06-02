@@ -43,7 +43,6 @@ import type {
   Originator,
 } from "../../transport/connection.js";
 import type { AppHost } from "../../app/app-host.js";
-import { toWireError } from "../../app/native-handlers-runtime.js";
 
 type ConnectParams = ParamsOf<typeof Connect>;
 
@@ -466,5 +465,4 @@ function handleConnect(params: ConnectParams) {
 export const nativeConnect = (params: ConnectParams) =>
   handleConnect(params).pipe(
     Effect.withSpan("nativeConnect"),
-    Effect.mapError(toWireError),
   );

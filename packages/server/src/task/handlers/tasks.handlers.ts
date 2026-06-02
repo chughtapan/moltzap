@@ -49,7 +49,6 @@ import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 import {
   agentArm,
   appArm,
-  toWireError,
 } from "../../app/native-handlers-runtime.js";
 
 /**
@@ -490,13 +489,13 @@ export const nativeTaskList = (params: ParamsOf<typeof TaskList>) =>
   Effect.gen(function* () {
     yield* TaskListAuth;
     return yield* taskListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeTaskList"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeTaskList"));
 
 export const nativeTaskLeave = (params: ParamsOf<typeof TaskLeave>) =>
   Effect.gen(function* () {
     yield* TaskLeaveAuth;
     return yield* taskLeaveBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeTaskLeave"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeTaskLeave"));
 
 export const nativeTaskConversationList = (
   params: ParamsOf<typeof TaskConversationList>,
@@ -506,14 +505,13 @@ export const nativeTaskConversationList = (
     return yield* taskConversationListBody(params, yield* agentArm);
   }).pipe(
     Effect.withSpan("nativeTaskConversationList"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeTaskClose = (params: ParamsOf<typeof TaskClose>) =>
   Effect.gen(function* () {
     yield* TaskCloseAuth;
     return yield* taskCloseBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("nativeTaskClose"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeTaskClose"));
 
 export const nativeTaskAddParticipant = (
   params: ParamsOf<typeof TaskAddParticipant>,
@@ -523,7 +521,6 @@ export const nativeTaskAddParticipant = (
     return yield* taskAddParticipantBody(params, yield* appArm);
   }).pipe(
     Effect.withSpan("nativeTaskAddParticipant"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeTaskRemoveParticipant = (
@@ -534,7 +531,6 @@ export const nativeTaskRemoveParticipant = (
     return yield* taskRemoveParticipantBody(params, yield* appArm);
   }).pipe(
     Effect.withSpan("nativeTaskRemoveParticipant"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeTaskConversationCreate = (
@@ -545,7 +541,6 @@ export const nativeTaskConversationCreate = (
     return yield* taskConversationCreateBody((yield* appArm).appId, params);
   }).pipe(
     Effect.withSpan("nativeTaskConversationCreate"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeTaskConversationArchive = (
@@ -558,7 +553,6 @@ export const nativeTaskConversationArchive = (
     );
   }).pipe(
     Effect.withSpan("nativeTaskConversationArchive"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeTaskConversationUnarchive = (
@@ -571,7 +565,6 @@ export const nativeTaskConversationUnarchive = (
     );
   }).pipe(
     Effect.withSpan("nativeTaskConversationUnarchive"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeTaskConversationAddParticipant = (
@@ -587,7 +580,6 @@ export const nativeTaskConversationAddParticipant = (
     );
   }).pipe(
     Effect.withSpan("nativeTaskConversationAddParticipant"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeTaskConversationRemoveParticipant = (
@@ -603,5 +595,4 @@ export const nativeTaskConversationRemoveParticipant = (
     );
   }).pipe(
     Effect.withSpan("nativeTaskConversationRemoveParticipant"),
-    Effect.mapError(toWireError),
   );

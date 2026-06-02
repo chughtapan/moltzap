@@ -9,7 +9,7 @@ import type { AgentId as ServerAgentId } from "../../app/types.js";
 import { Effect } from "effect";
 import { ConnectionTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
-import { agentArm, toWireError } from "../../app/native-handlers-runtime.js";
+import { agentArm } from "../../app/native-handlers-runtime.js";
 
 /**
  * `presence/subscribe` registers fan-out interest via
@@ -65,5 +65,4 @@ export const nativePresenceSubscribe = (
     return yield* presenceSubscribeBody(params, yield* agentArm);
   }).pipe(
     Effect.withSpan("nativePresenceSubscribe"),
-    Effect.mapError(toWireError),
   );

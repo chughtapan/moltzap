@@ -14,7 +14,7 @@ import {
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { AgentId as ServerAgentId } from "../../app/types.js";
 import type { AgentContext } from "../../transport/context.js";
-import { agentArm, toWireError } from "../../app/native-handlers-runtime.js";
+import { agentArm } from "../../app/native-handlers-runtime.js";
 import { DbTag } from "../../app/layers.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
@@ -206,7 +206,7 @@ export const nativeAgentsLookup = (params: ParamsOf<typeof AgentsLookup>) =>
   Effect.gen(function* () {
     yield* AgentsLookupAuth;
     return yield* agentsLookupBody(params);
-  }).pipe(Effect.withSpan("nativeAgentsLookup"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeAgentsLookup"));
 
 export const nativeAgentsLookupByName = (
   params: ParamsOf<typeof AgentsLookupByName>,
@@ -216,11 +216,10 @@ export const nativeAgentsLookupByName = (
     return yield* agentsLookupByNameBody(params, yield* agentArm);
   }).pipe(
     Effect.withSpan("nativeAgentsLookupByName"),
-    Effect.mapError(toWireError),
   );
 
 export const nativeAgentsList = (params: ParamsOf<typeof AgentsList>) =>
   Effect.gen(function* () {
     yield* AgentsListAuth;
     return yield* agentsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("nativeAgentsList"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeAgentsList"));

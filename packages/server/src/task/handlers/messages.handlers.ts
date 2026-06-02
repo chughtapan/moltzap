@@ -12,7 +12,7 @@ import {
   type ParamsOf,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
-import { agentArm, toWireError } from "../../app/native-handlers-runtime.js";
+import { agentArm } from "../../app/native-handlers-runtime.js";
 import { Effect, Exit } from "effect";
 import type { AgentContext } from "../../transport/context.js";
 import {
@@ -151,7 +151,7 @@ export const nativeMessagesSend = (params: MessagesSendParams) =>
       ),
       Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
     );
-  }).pipe(Effect.withSpan("nativeMessagesSend"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeMessagesSend"));
 
 export const nativeMessagesList = (params: ParamsOf<typeof MessagesList>) =>
   Effect.gen(function* () {
@@ -161,4 +161,4 @@ export const nativeMessagesList = (params: ParamsOf<typeof MessagesList>) =>
       Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
       Effect.provideService(TaskReadAccess, auth[TaskReadAccess.key]),
     );
-  }).pipe(Effect.withSpan("nativeMessagesList"), Effect.mapError(toWireError));
+  }).pipe(Effect.withSpan("nativeMessagesList"));

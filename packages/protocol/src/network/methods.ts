@@ -5,6 +5,7 @@ import { defineRpc, defineNotification } from "../transport/method.js";
 import {
   UnauthorizedError,
   AlreadyConnected,
+  InvalidParamsError,
 } from "../transport/wire-errors.js";
 
 const DateTimeString = dateTimeStringSchema();
@@ -89,9 +90,14 @@ export const Connect = defineRpc({
   }),
   result: HelloOkSchema,
   // The unauthenticated handshake declares its failures directly (no principal
-  // gate runs before it): bad credential, version mismatch, or a principal
-  // that already holds a live connection.
-  errors: [UnauthorizedError, ProtocolMismatchError, AlreadyConnected],
+  // gate runs before it): malformed params, bad credential, version mismatch,
+  // or a principal that already holds a live connection.
+  errors: [
+    InvalidParamsError,
+    UnauthorizedError,
+    ProtocolMismatchError,
+    AlreadyConnected,
+  ],
 });
 
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;

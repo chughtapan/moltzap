@@ -17,18 +17,14 @@
  * native handler via `Effect.provideService` around the body effect, reading
  * each value off the method's proof keyed by the cap tag's `key`.
  *
- * `toWireError` re-exports the live dispatcher's domain-error→wire projection so
- * a native handler maps its `Effect.gen` body's domain error channel to the
- * `WireError` envelope each engine member's `error` schema carries. Defects
- * bypass it and surface as the engine's `ResponseDefect`, matching the live
- * path's untagged `-32603` reply.
+ * A native handler fails with its declared tagged-error INSTANCES; the engine
+ * encodes them against the method's per-method `errorSchema` union. There is no
+ * domain-error→envelope projection — defects bypass typed errors and surface as
+ * the engine's `ResponseDefect`.
  */
 import { Effect } from "effect";
 import { ConnectionTag } from "./layers.js";
 import type { AgentContext, AppContext } from "../transport/context.js";
-import { toWireError } from "../transport/principal-gate.js";
-
-export { toWireError };
 
 /**
  * Read the request-scoped agent context for a native handler whose `*AuthMw`

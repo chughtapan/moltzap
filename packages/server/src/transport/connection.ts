@@ -4,7 +4,6 @@ import {
   type AnyAppCallbackRpcDefinition,
   type ParamsOf,
   type ResultOf,
-  type RpcCallError,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
@@ -13,6 +12,7 @@ import { AgentContext, AppContext } from "../transport/context.js";
 import {
   buildReverseClient,
   type ReverseClient,
+  type ReverseCallError,
 } from "./reverse-rpc-client.js";
 
 /**
@@ -49,7 +49,7 @@ export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
   originator: Originator,
   definition: D,
   params: ParamsOf<D>,
-): Effect.Effect<ResultOf<D>, RpcCallError, never> {
+): Effect.Effect<ResultOf<D>, ReverseCallError, never> {
   return originator.call(definition, params);
 }
 

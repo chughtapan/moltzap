@@ -23,12 +23,12 @@ import { Effect } from "effect";
 import type {
   AnyAppCallbackRpcDefinition,
   ParamsOf,
-  RpcCallError,
   ResultOf,
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { AppEndpoint } from "../app/app-registration.js";
 import type { Originator } from "../transport/connection.js";
+import type { ReverseCallError } from "../transport/reverse-rpc-client.js";
 
 /**
  * In-process handler for one task-callback RPC. The handler returns
@@ -37,7 +37,7 @@ import type { Originator } from "../transport/connection.js";
  */
 type AppEndpointHandler<D extends AnyAppCallbackRpcDefinition> = (
   params: ParamsOf<D>,
-) => Effect.Effect<ResultOf<D>, RpcCallError>;
+) => Effect.Effect<ResultOf<D>, ReverseCallError>;
 
 /**
  * Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
@@ -78,7 +78,7 @@ export function makeHandlerAppEndpoint(args: {
   const call = <D extends AnyAppCallbackRpcDefinition>(
     definition: D,
     params: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, RpcCallError> => {
+  ): Effect.Effect<ResultOf<D>, ReverseCallError> => {
     const handler = args.handlers[
       definition.name as D["name"]
     ] as AppEndpointHandler<D>;
