@@ -99,45 +99,6 @@ const readTopLevelLiteral = (
 };
 
 /**
- * Walk an object literal initializer + collect numeric-literal fields
- * keyed by property name. Used for `buildHelloOk`'s policy block —
- * the AST is `Effect.sync(() => { ... return { policy: { ... } }; })`,
- * so we recurse into the function body and pick out the `policy: { ... }`
- * property assignment.
- */
-const readHelloPolicyNumbers = (
-  filePath: string,
-): ReadResult<Record<string, number>> => {
-  const src = parseSource(filePath);
-  const want = new Set([
-    "maxMessageBytes",
-    "maxPartsPerMessage",
-    "maxTextLength",
-    "maxGroupParticipants",
-    "heartbeatIntervalMs",
-    "messagesPerMinute",
-    "requestsPerMinute",
-  ]);
-  const out: Record<string, number> = {};
-  const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name)) {
-      const key = node.name.text;
-      if (want.has(key) && ts.isNumericLiteral(node.initializer)) {
-        out[key] = Number(node.initializer.text);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(src);
-  const missing = [...want].filter((k) => !(k in out));
-  return missing.length === 0
-    ? ok(out)
-    : err(
-        `buildHelloOk: missing numeric fields in ${filePath}: ${missing.join(", ")}`,
-      );
-};
-
-/**
  * Read the quickstart's preferred host port out of `scripts/quickstart.sh`.
  * Shell file → regex is the right tool; the source line is
  * `PORT="${MOLTZAP_PORT:-41973}"` and the gate treats this snippet as
@@ -278,31 +239,7 @@ const collect = (): readonly Constant[] => {
     process.exit(1);
   }
 
-  const helloPolicy = readHelloPolicyNumbers(
-    resolve(
-      workspaceRoot,
-      "packages/server/src/identity/handlers/connect.handlers.ts",
-    ),
-  );
-  if (helloPolicy._tag === "err") {
-    console.error(`generate-constants-snippets: ${helloPolicy.reason}`);
-    process.exit(1);
-  }
-
-  const helloEntries = Object.entries(helloPolicy.value).map(
-    ([key, value]): NumberConstant => ({
-      kind: "number",
-      name: `HELLO_${key.replace(/([A-Z])/g, "_$1").toUpperCase()}`,
-      value,
-      sourcePath: "packages/server/src/identity/handlers/connect.handlers.ts",
-      note: `HelloOk policy field: ${key}`,
-    }),
-  );
-
-  return [
-    ...constants.filter((c): c is Constant => c !== null),
-    ...helloEntries,
-  ];
+  return [...constants.filter((c): c is Constant => c !== null)];
 };
 
 // ─── Render ──────────────────────────────────────────────────────────────

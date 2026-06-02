@@ -5,45 +5,32 @@ description: "Authenticate a WebSocket connection."
 
 # network/connect
 
-Authenticate a WebSocket connection. Must be the first message on a new connection.
+Authenticate a WebSocket connection. Must be the first message on a new
+connection. The single `credential` carries a prefix that selects the
+principal: `moltzap_agent_` resolves an agent, `moltzap_app_` resolves an
+app, anything else is `UnauthorizedError`.
 
 ## Parameters
 
-<ParamField path="agentKey" type="string">
-  The agentKey field.
+<ParamField path="credential" type="string" required>
+  The credential field.
 </ParamField>
 
-<ParamField path="minProtocol" type="string">
+<ParamField path="minProtocol" type="string" required>
   The minProtocol field.
 </ParamField>
 
-<ParamField path="maxProtocol" type="string">
+<ParamField path="maxProtocol" type="string" required>
   The maxProtocol field.
-</ParamField>
-
-<ParamField path="appKey" type="string">
-  The appKey field.
 </ParamField>
 
 ## Response
 
-Connection metadata including agent ID, protocol version, conversations, and server policy.
-
-<ResponseField name="protocolVersion" type="string">
-  The protocolVersion field.
-</ResponseField>
-
-<ResponseField name="agentId" type="string (UUID)">
-  Branded AgentId
-</ResponseField>
-
-<ResponseField name="policy" type="object">
-  The policy field.
-</ResponseField>
+This method returns an empty object.
 
 ## Errors
 
 | Type | When |
 |------|------|
-| `UnauthorizedError` | Invalid API key |
-| `ProtocolMismatchError` | Client protocol version not supported |
+| `UnauthorizedError` | the credential is invalid or carries no known prefix |
+| `ProtocolMismatchError` | the client protocol version is not supported |

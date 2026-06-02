@@ -26,7 +26,6 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  collectNumericProperties,
   readTopLevelStringConst,
   type ReadResult,
 } from "./generate-cli-docs.helpers.js";
@@ -424,67 +423,7 @@ const renderCommandsTable = (commands: readonly CommandHelp[]): string => {
 const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
   [AUTO_GEN_NOTE, "", rootHelp.description, ""].join("\n");
 
-// ─── HelloOk policy snippet (drift-proof against connect.handlers.ts) ────
-
-interface HelloPolicy {
-  readonly maxMessageBytes: number;
-  readonly maxPartsPerMessage: number;
-  readonly maxTextLength: number;
-  readonly maxGroupParticipants: number;
-  readonly heartbeatIntervalMs: number;
-  readonly rateLimits: {
-    readonly messagesPerMinute: number;
-    readonly requestsPerMinute: number;
-  };
-}
-
-const HELLO_FIELDS: ReadonlySet<string> = new Set([
-  "maxMessageBytes",
-  "maxPartsPerMessage",
-  "maxTextLength",
-  "maxGroupParticipants",
-  "heartbeatIntervalMs",
-  "messagesPerMinute",
-  "requestsPerMinute",
-]);
-
-/**
- * Read the integer literals out of `buildHelloOk` via the TS compiler
- * API. Doctrine-aligned: the AST is the contract, not a regex over the
- * source. A missing field produces a typed failure (no raw throw); the
- * `main` function surfaces it and exits non-zero with a clear message.
- */
-const readHelloPolicy = (): ReadResult<HelloPolicy> => {
-  const sourcePath = resolve(
-    workspaceRoot,
-    "packages/server/src/identity/handlers/connect.handlers.ts",
-  );
-  const found = collectNumericProperties(
-    readFileSync(sourcePath, "utf8"),
-    HELLO_FIELDS,
-  );
-  const missing = [...HELLO_FIELDS].filter((k) => !(k in found));
-  if (missing.length > 0) {
-    return {
-      _tag: "err",
-      reason: `generate-cli-docs: missing HelloOk policy fields in ${sourcePath}: ${missing.join(", ")}`,
-    };
-  }
-  return {
-    _tag: "ok",
-    value: {
-      maxMessageBytes: found.maxMessageBytes ?? 0,
-      maxPartsPerMessage: found.maxPartsPerMessage ?? 0,
-      maxTextLength: found.maxTextLength ?? 0,
-      maxGroupParticipants: found.maxGroupParticipants ?? 0,
-      heartbeatIntervalMs: found.heartbeatIntervalMs ?? 0,
-      rateLimits: {
-        messagesPerMinute: found.messagesPerMinute ?? 0,
-        requestsPerMinute: found.requestsPerMinute ?? 0,
-      },
-    },
-  };
-};
+// ─── network/connect example snippet ─────────────────────────────────────
 
 /**
  * Read `PROTOCOL_VERSION` from `packages/protocol/src/version.ts` so
@@ -533,26 +472,19 @@ const readApiKeyPrefix = (): ReadResult<string> => {
 };
 
 interface SnippetInputs {
-  readonly policy: HelloPolicy;
   readonly protocolVersion: string;
   readonly apiKeyPrefix: string;
 }
 
-const renderHelloPolicySnippet = ({
-  policy,
+const renderWsConnectSnippet = ({
   protocolVersion,
   apiKeyPrefix,
 }: SnippetInputs): string => {
+  // The HelloOk is empty: success is the only signal. The handshake sends a
+  // single prefixed `credential`; the server resolves the principal off the
+  // prefix and replies with `{ }` on success.
   const json = JSON.stringify(
-    {
-      jsonrpc: "2.0",
-      id: "1",
-      result: {
-        agentId: "550e8400-e29b-41d4-a716-446655440000",
-        protocolVersion,
-        policy,
-      },
-    },
+    { jsonrpc: "2.0", id: "1", result: {} },
     null,
     2,
   );
@@ -562,7 +494,7 @@ const renderHelloPolicySnippet = ({
       id: "1",
       method: "network/connect",
       params: {
-        agentKey: `${apiKeyPrefix}abc123...`,
+        credential: `${apiKeyPrefix}abc123...`,
         minProtocol: protocolVersion,
         maxProtocol: protocolVersion,
       },
@@ -571,13 +503,12 @@ const renderHelloPolicySnippet = ({
     2,
   );
   // Marker exempts the file from the constants gate for these
-  // generator-managed literals. Numeric HELLO_* policy values + the
-  // `apiKeyPrefix` + `protocolVersion` strings appear inside fenced
-  // JSON, where MDX cannot evaluate JSX — baked-at-generation is the
-  // robust path. Drift gate catches via git-diff after regen.
+  // generator-managed literals (`apiKeyPrefix` + `protocolVersion` inside
+  // fenced JSON, where MDX cannot evaluate JSX). Drift gate catches via
+  // git-diff after regen.
   return [
     AUTO_GEN_NOTE,
-    "{/* @bake-constants: API_KEY_PREFIX PROTOCOL_VERSION HELLO_MAX_MESSAGE_BYTES HELLO_MAX_PARTS_PER_MESSAGE HELLO_MAX_TEXT_LENGTH HELLO_MAX_GROUP_PARTICIPANTS HELLO_HEARTBEAT_INTERVAL_MS HELLO_MESSAGES_PER_MINUTE HELLO_REQUESTS_PER_MINUTE */}",
+    "{/* @bake-constants: API_KEY_PREFIX PROTOCOL_VERSION */}",
     "",
     "<Tabs>",
     '  <Tab title="Request">',
@@ -617,13 +548,8 @@ const main = (): void => {
     renderGlobalFlagsSnippet(rootHelp),
   );
 
-  const policy = readHelloPolicy();
   const protocolVersion = readProtocolVersion();
   const apiKeyPrefix = readApiKeyPrefix();
-  if (policy._tag === "err") {
-    console.error(policy.reason);
-    process.exit(1);
-  }
   if (protocolVersion._tag === "err") {
     console.error(protocolVersion.reason);
     process.exit(1);
@@ -634,15 +560,14 @@ const main = (): void => {
   }
   writeFileSync(
     resolve(snippetsDir, "ws-connect-example.mdx"),
-    renderHelloPolicySnippet({
-      policy: policy.value,
+    renderWsConnectSnippet({
       protocolVersion: protocolVersion.value,
       apiKeyPrefix: apiKeyPrefix.value,
     }),
   );
 
   console.log(
-    `[generate-cli-docs] wrote reference + ${commands.length} commands + HelloOk snippet (PROTOCOL_VERSION=${protocolVersion.value})`,
+    `[generate-cli-docs] wrote reference + ${commands.length} commands + connect snippet (PROTOCOL_VERSION=${protocolVersion.value})`,
   );
 };
 

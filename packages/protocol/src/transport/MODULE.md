@@ -22,41 +22,7 @@ The outbound group a first-party AGENT client may originate: every
 `serverRpcMethods` member whose `callablePrincipal` is `"agent"` or `"any"`. A
 first-party `agentClient.taskClose(...)` (app-only) does not typecheck.
 
-### [`AgentClientConnection`](./connection.ts#L171)
-
-_Interface_
-
-```ts
-export interface AgentClientConnection
-  extends ConnectionIdentity,
-    OutboundCall<AnyAgentClientRpcDefinition>,
-```
-
-`AgentClientConnection` — plain agent client. Outbound surface is
-the full `serverRpcMethods` catalog. Outbound notifications: none
-(clients consume notifications; they do not originate them) — the
-`notify` method is typed `never`, which fails any call site. No
-inbound surface (the AgentClient kind's inbound catalog is empty).
-
-### [`AgentClientConnectionConfig`](./connection.ts#L232)
-
-_Interface_
-
-```ts
-export interface AgentClientConnectionConfig<Env, Conn> {
-  readonly id: string;
-  readonly slots: ErasedSlotTable<Env, Conn>;
-  readonly write: (raw: string) => Effect.Effect<void, unknown>;
-  readonly idPrefix: string;
-}
-```
-
-Equivalent config for the AgentClient factory. `slots` is the empty
-table (the AgentClient kind's inbound catalog is empty); the factory
-accepts it for forward compatibility (if a future spec adds
-AgentClient-inbound RPCs, the slot table demands coverage).
-
-### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L111)
+### [`AgentClientRpcGroup`](./rpc-method-groups.ts#L112)
 
 _Variable_
 
@@ -193,7 +159,7 @@ The outbound group a first-party APP client may originate: every
 first-party `appClient.taskRequest(...)` (agent-only) does not typecheck — the
 compile-time Principle-1 win.
 
-### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L114)
+### [`AppCallableRpcGroup`](./rpc-method-groups.ts#L115)
 
 _Variable_
 
@@ -235,7 +201,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the app's typed
 verdict drives the lifecycle transition.
 
-### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L108)
+### [`AppCallbackRpcGroup`](./rpc-method-groups.ts#L109)
 
 _Variable_
 
@@ -244,43 +210,6 @@ export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods)
 ```
 
 Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`.
-
-### [`AppClientConnection`](./connection.ts#L197)
-
-_Interface_
-
-```ts
-export interface AppClientConnection<Env = unknown, Conn = unknown>
-```
-
-`AppClientConnection` — the CLIENT-facing outbound connection a
-moderating app drives (distinct from the SERVER-side `AppConnection`
-arm in `packages/server/src/transport/connection.ts → AppConnection`,
-which is the inbound app-authenticated socket state the server stores).
-Outbound surface is the full `serverRpcMethods` catalog (an app client
-is a superset of an AgentClient at the type level). Outbound
-notifications: none. Inbound surface is the `appCallbackMethods`
-catalog, dispatched via the kind's ErasedSlotTable; every slot
-is a REQUIRED real handler (Spec D3 R14b retired the optional
-`forbidden` / `noOpNotification` sentinels), so vacuous-deny moderators
-must bind an explicit `ForbiddenError`-returning handler per catalog
-method.
-
-### [`AppClientConnectionConfig`](./connection.ts#L243)
-
-_Interface_
-
-```ts
-export interface AppClientConnectionConfig<Env, Conn> {
-  readonly id: string;
-  readonly slots: ErasedSlotTable<Env, Conn>;
-  readonly write: (raw: string) => Effect.Effect<void, unknown>;
-  readonly idPrefix: string;
-}
-```
-
-Config for the app-client factory. The app owns the `appCallbackMethods`
-catalog inbound; its outbound surface is the full `serverRpcMethods` catalog.
 
 ### [`AppsRegisterAuth`](./auth-middleware.ts#L314)
 
@@ -380,53 +309,6 @@ the cap proofs, both projected from the descriptor's own
 `callablePrincipal`/`caps` (not re-declared). A descriptor whose
 `callablePrincipal` is `"agent"` carries an agent-narrowed `principal`; adding
 a cap to its `caps` adds that cap's proof field.
-
-### [`buildAgentClientDispatcher`](./dispatch.ts#L110)
-
-_Function_
-
-```ts
-export function buildAgentClientDispatcher<Env, Conn>(
-  config: AgentClientConnectionConfig<Env, Conn>,
-): Effect.Effect<AgentClientConnection, never, Scope.Scope>
-```
-
-Build the agent-client dispatcher. Wires the originator only (no
-inbound dispatch — the AgentClient kind's inbound catalog is empty,
-so `config.slots` is the empty table `{}`). The empty `notify` shape
-is `never`-typed at the type level (no call site can satisfy the
-constraint).
-
-### [`buildAppClientDispatcher`](./dispatch.ts#L138)
-
-_Function_
-
-```ts
-export function buildAppClientDispatcher<Env, Conn>(
-  config: AppClientConnectionConfig<Env, Conn>,
-): Effect.Effect<AppClientConnection<Env, Conn>, never, Scope.Scope>
-```
-
-Build the app-client dispatcher. Wires both the inbound dispatch loop
-(against `appCallbackMethods`) and the outbound originator (against
-`serverRpcMethods`). Spec D3 R14b made every app-inbound slot
-REQUIRED: callers must register a handler for each catalog method;
-vacuous-deny moderators bind an explicit `ForbiddenError` handler.
-
-### [`buildServerDispatcher`](./dispatch.ts#L83)
-
-_Function_
-
-```ts
-export function buildServerDispatcher<Env, Conn>(
-  config: ServerConnectionConfig<Env, Conn>,
-): Effect.Effect<ServerConnection<Env, Conn>, never, Scope.Scope>
-```
-
-Build the server-side dispatcher. Wires the inbound slot-table
-dispatch loop + the outbound originator (app-callback path) into a
-single `ServerConnection` value. `Env` is the slot table's residual
-service-tag union; `Conn` is the server's three-arm `Connection`.
 
 ### [`CallablePrincipal`](./method.ts#L23)
 
@@ -587,7 +469,7 @@ export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
 )
 ```
 
-### [`code`](./dispatch.ts#L72)
+### [`code`](./wire-errors.ts#L179)
 
 _Property_
 
@@ -597,13 +479,7 @@ _Property_
   readonly data?: unknown;
 };
 
-/**
- * Build the server-side dispatcher. Wires the inbound slot-table
- * dispatch loop + the outbound originator (app-callback path) into a
- * single `ServerConnection` value. `Env` is the slot table's residual
- * service-tag union; `Conn` is the server's three-arm `Connection`.
- */
-export function buildServerDispatcher<Env, Conn>(
+const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
 ```
 
 ### [`ConflictError`](./wire-errors.ts#L123)
@@ -731,7 +607,7 @@ Provided ONLY on authenticated/capability-bearing methods — capabilities
 never run on the unauth Connect frame — so the unauth arm is never a
 concern here.
 
-### [`data`](./dispatch.ts#L74)
+### [`data`](./wire-errors.ts#L181)
 
 _Property_
 
@@ -739,13 +615,7 @@ _Property_
   readonly data?: unknown;
 };
 
-/**
- * Build the server-side dispatcher. Wires the inbound slot-table
- * dispatch loop + the outbound originator (app-callback path) into a
- * single `ServerConnection` value. `Env` is the slot table's residual
- * service-tag union; `Conn` is the server's three-arm `Connection`.
- */
-export function buildServerDispatcher<Env, Conn>(
+const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
 ```
 
 ### [`DecodedFrame`](./wire.ts#L133)
@@ -1285,39 +1155,6 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`makeAgentClientConnection`](./connection.ts#L274)
-
-_Function_
-
-```ts
-export function makeAgentClientConnection<Env, Conn>(
-  config: AgentClientConnectionConfig<Env, Conn>,
-): Effect.Effect<AgentClientConnection, never, Scope.Scope>
-```
-
-Factory — agent client. Delegates to `buildAgentClientDispatcher`
-which wires the originator only (no inbound dispatch — the AgentClient
-kind's inbound catalog is empty, so `config.slots` is `{}`).
-
-### [`makeAppClientConnection`](./connection.ts#L290)
-
-_Function_
-
-```ts
-export function makeAppClientConnection<Env, Conn>(
-  config: AppClientConnectionConfig<Env, Conn>,
-): Effect.Effect<AppClientConnection<Env, Conn>, never, Scope.Scope>
-```
-
-Factory — app client. Delegates to `buildAppClientDispatcher` which
-wires both the inbound dispatch loop (against `appCallbackMethods`)
-and the outbound originator (against the full `serverRpcMethods` catalog).
-Every app-inbound slot is REQUIRED. Spec D3 R14b retired the optional
-sentinel defaults the prior shape carried; callers build the slot
-table via `makeErasedSlot` per catalog method. Vacuous-deny
-moderators bind an explicit `ForbiddenError`-returning handler for
-each catalog method.
-
 ### [`makeClientChannelProtocol`](./native-mux.ts#L273)
 
 _Function_
@@ -1363,17 +1200,6 @@ there is no runtime-fold carve-out to subtract R — the residual `R = Env`
 is the body's own honest type. `invoke` adds the param decode; on decode
 success it runs the body (which already returns the inner `Exit`).
 
-### [`makeOriginator`](./originator.ts#L230)
-
-_Function_
-
-```ts
-export const makeOriginator = (config: {
-  readonly write: (raw: string) => Effect.Effect<void, unknown>;
-  readonly idPrefix: string;
-}): Effect.Effect<Originator, never, Scope.Scope>
-```
-
 ### [`makeServerChannelProtocol`](./native-mux.ts#L228)
 
 _Function_
@@ -1399,29 +1225,7 @@ writes the enveloped wire string. The sink's `inject` feeds decoded
 inbound `FromClientEncoded` frames into the engine via `write`.
 Socket close is surfaced through the shared `disconnects` Mailbox.
 
-### [`makeServerConnection`](./connection.ts#L263)
-
-_Function_
-
-```ts
-export function makeServerConnection<Env, Conn>(
-  config: ServerConnectionConfig<Env, Conn>,
-): Effect.Effect<ServerConnection<Env, Conn>, never, Scope.Scope>
-```
-
-Factory — server side. Delegates to `buildServerDispatcher`
-(`dispatch.ts`) which wires:
-  - inbound: per-frame dispatch via the kind's ErasedSlotTable;
-    each slot decodes params via its own validator + discharges the
-    method's declared capabilities from its own positional providers
-    tuple INSIDE `invoke`, so the dispatcher just routes and projects
-    the slot's `Exit` to a wire response.
-  - outbound: an internalized originator (formerly the body of
-    `makeOriginator`) that mints `${idPrefix}-N` ids and tracks
-    pending Deferreds. Scope finalizer drains pending Deferreds with
-    `NotConnectedError`.
-
-### [`makeServerProtocolLayer`](./native-server-engine.ts#L48)
+### [`makeServerProtocolLayer`](./native-server-engine.ts#L60)
 
 _Function_
 
@@ -1429,6 +1233,14 @@ _Function_
 export const makeServerProtocolLayer = (options: {
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
+  readonly sinkReady: Deferred.Deferred<ChannelSink>;
+
+  /**
+   * Which mux channel this server engine binds. The live server's inbound
+   * engine binds `c2s`; the client's reverse notification/callback server binds
+   * `s2c`. Defaults to `c2s` (the server inbound engine, the common case).
+   */
+  readonly channel?: "c2s" | "s2c";
 }): Layer.Layer<RpcServer.Protocol>
 ```
 
@@ -1437,8 +1249,16 @@ channel. `RpcServer.Protocol.make` hands the engine's inbound `write`
 injector to makeServerChannelProtocol's builder, which returns the
 protocol impl record (the engine binds to) plus the channel sink (the mux
 demux feeds decoded inbound frames into). Only the impl crosses into the
-`Protocol` Tag here; the live connection owns the sink registration and the
-`disconnects` Mailbox wiring.
+`Protocol` Tag; the built ChannelSink is fulfilled into the
+caller-provided `sinkReady` Deferred so the live connection's
+`runMuxReader` can route inbound `c2s` chunks into the engine.
+
+The sink's `inject` closes over the SAME `write` injector the engine handed
+the builder, so a chunk routed to the sink enters the engine's dispatch
+loop. The Deferred handoff is necessary because the sink is only knowable
+after the engine builds the Protocol (the `write` injector does not exist
+until then), and `runMuxReader` must register it before the socket reader
+forks.
 
 `write` is the raw-write surface of the shared socket (one call writes one
 enveloped chunk; the live connection passes `Socket.Socket["writer"]`).
@@ -1460,7 +1280,7 @@ export class MalformedFrameError extends Data.TaggedError(
 
 Inbound frame failed to parse as JSON or did not match the expected shape.
 
-### [`message`](./dispatch.ts#L73)
+### [`message`](./wire-errors.ts#L180)
 
 _Property_
 
@@ -1469,13 +1289,7 @@ _Property_
   readonly data?: unknown;
 };
 
-/**
- * Build the server-side dispatcher. Wires the inbound slot-table
- * dispatch loop + the outbound originator (app-callback path) into a
- * single `ServerConnection` value. `Env` is the slot table's residual
- * service-tag union; `Conn` is the server's three-arm `Connection`.
- */
-export function buildServerDispatcher<Env, Conn>(
+const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
 ```
 
 ### [`MessagesListAuth`](./auth-middleware.ts#L96)
@@ -1618,7 +1432,7 @@ export class NetworkPingAuthMw extends RpcMiddleware.Tag<NetworkPingAuthMw>()(
 ) {}
 ```
 
-### [`NotConnectedError`](./rpc-errors.ts#L17)
+### [`NotConnectedError`](./rpc-errors.ts#L19)
 
 _Class_
 
@@ -1761,23 +1575,21 @@ export type NotificationParamsOf<
 
 Type-only accessor for a notification's params payload.
 
-### [`Originator`](./originator.ts#L35)
+### [`NotificationRpcGroup`](./rpc-method-groups.ts#L178)
 
-_Interface_
+_Variable_
 
 ```ts
-export interface Originator {
-  readonly call: <D extends AnyServerRpcDefinition>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
-  readonly resolve: (frame: ResponseFrame) => Effect.Effect<boolean>;
-  readonly failAllPending: (error: NotConnectedError) => Effect.Effect<void>;
-}
+export const NotificationRpcGroup = groupFromNotifications(
+  notificationDefinitions,
+)
 ```
 
-Originator side of a JSON-RPC connection. Scope-bound: closing the
-scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
+Server→client reverse notification group. The server fires each notification
+as a fire-and-forget `void`-result RPC on a target connection's reverse
+channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
+each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
+machinery as AppCallbackRpcGroup.
 
 ### [`ParamsOf`](./method.ts#L104)
 
@@ -2000,6 +1812,23 @@ export type ResultOf<
 
 Type-only accessor for a definition's result payload.
 
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L192)
+
+_Variable_
+
+```ts
+export const ReverseRpcGroup = AppCallbackRpcGroup.merge(NotificationRpcGroup)
+```
+
+The full server→client reverse group: the moderator callbacks
+(AppCallbackRpcGroup) ∪ the notifications (NotificationRpcGroup).
+The server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires
+callbacks awaiting a verdict, fires notifications fork-and-forget); the agent
++ app clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent
+client only ever receives notifications (its handlers for the three callback
+methods are never invoked — an agent is not a moderator), but it serves the
+whole group so the s2c engine binds one handler map.
+
 ### [`routeInbound`](./native-mux.ts#L129)
 
 _Function_
@@ -2018,7 +1847,7 @@ a single malformed frame must not tear down every endpoint on the
 shared connection. Each endpoint's Parser may yield zero or more
 decoded frames per wire string; every frame is injected in order.
 
-### [`RpcCallError`](./originator.ts#L26)
+### [`RpcCallError`](./rpc-errors.ts#L43)
 
 _TypeAlias_
 
@@ -2029,18 +1858,42 @@ export type RpcCallError =
   | RegisteredTaggedError;
 
 /**
- * Originator side of a JSON-RPC connection. Scope-bound: closing the
- * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
+ * Reconstruct a wire-error envelope (`{ code, message, data? }`) into a typed
+ * {@link RpcCallError}: a registered tagged error when the code is in the
+ * registry (so `catchTag` callers narrow the concrete class), else
+ * `RpcServerError`. Forwarding both `message` and `data` keeps the decoded
+ * instance reflecting the server's error text + payload.
  */
-export interface Originator {
-  readonly call: <D extends AnyServerRpcDefinition>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
-  readonly resolve: (frame: ResponseFrame) => Effect.Effect<boolean>;
-  readonly failAllPending: (error: NotConnectedError) => Effect.Effect<void>;
+export function wireErrorToRpcCallError(error: {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+}): RpcCallError {
+  const cls = errorClassFor(error.code);
+  if (cls === undefined) {
+    return new RpcServerError({
+      code: error.code,
+      message: error.message,
+      data: error.data,
+    });
+  }
+  // The registry stores the class factory keyed by code; the constructor
+  // produces a concrete tagged-error instance whose runtime tag matches one of
+  // the `RegisteredTaggedError` union arms. TS cannot see through the open
+  // `new (...) => { _tag: string }` factory shape, so the cast bridges the
+  // static factory to the closed runtime union.
+  return new cls({
+    message: error.message,
+    data: error.data,
+  } as never) as RegisteredTaggedError;
 }
 ```
+
+The error union a descriptor-driven RPC call can surface: a transport-level
+`NotConnectedError`, a registered tagged error reconstructed from the wire
+code, or `RpcServerError` for an unregistered code. The native client's flat
+engine yields the group's `WireError` envelope on a server-side failure;
+wireErrorToRpcCallError reconstructs it onto this union.
 
 ### [`RpcCapTag`](./method.ts#L34)
 
@@ -2217,7 +2070,7 @@ export class RpcResultDecodeError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcServerError`](./rpc-errors.ts#L28)
+### [`RpcServerError`](./rpc-errors.ts#L30)
 
 _Class_
 
@@ -2231,7 +2084,7 @@ export class RpcServerError extends Data.TaggedError("RpcServerError")<{
 
 The peer returned an `error` response frame.
 
-### [`RpcTimeoutError`](./rpc-errors.ts#L22)
+### [`RpcTimeoutError`](./rpc-errors.ts#L24)
 
 _Class_
 
@@ -2261,51 +2114,7 @@ the channel sink named by its envelope. The owner forks this and
 surfaces socket close to the server engine's `disconnects` Mailbox so
 per-client teardown runs.
 
-### [`ServerConnection`](./connection.ts#L158)
-
-_Interface_
-
-```ts
-export interface ServerConnection<Env = unknown, Conn = unknown>
-```
-
-`ServerConnection` — server side. Outbound surface is the
-`AnyAppCallbackRpcDefinition` union: the server may call INTO an app
-for `DispatchAuthorize` and `MessagesAuthorize`. Outbound notifications
-are the full `AnyNotificationDefinition` set (the server originates
-delivery + lifecycle notifications). Inbound surface is the closed
-`serverRpcMethods` catalog, dispatched via the kind's
-ErasedSlotTable.
-
-### [`ServerConnectionConfig`](./connection.ts#L219)
-
-_Interface_
-
-```ts
-export interface ServerConnectionConfig<Env, Conn> {
-  readonly id: string;
-  readonly slots: ErasedSlotTable<Env, Conn>;
-  readonly write: (raw: string) => Effect.Effect<void, unknown>;
-  readonly idPrefix: string;
-}
-```
-
-Config record consumed by `makeServerConnection`. `slots` is the
-kind's ErasedSlotTable: a `Record&lt;methodName, ErasedSlot&gt;`
-each owning its typed `(definition, handler, providers)` triple. The
-per-method capability discharge lives INSIDE each slot, so there is
-no separate provider table on the config (the pre-HALF-1
-`handlers` + `capabilities` pair).
-
-`Env` is the residual service-tag union each slot's `invoke` requires
-(resolved by the surrounding `ManagedRuntime` at request time); `Conn`
-is the dispatcher's connection-ctx shape (`SlotDispatchContext&lt;Conn&gt;`).
-
-`write` is the wire-level write effect the surrounding transport
-supplies; `idPrefix` mirrors `makeOriginator`'s idPrefix convention
-for the outbound app-callback path.
-
-### [`ServerEngineLayer`](./native-server-engine.ts#L84)
+### [`ServerEngineLayer`](./native-server-engine.ts#L109)
 
 _Variable_
 
@@ -2351,7 +2160,7 @@ export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
 )
 ```
 
-### [`ServerRpcGroup`](./rpc-method-groups.ts#L105)
+### [`ServerRpcGroup`](./rpc-method-groups.ts#L106)
 
 _Variable_
 
@@ -2737,7 +2546,7 @@ _Function_
 export const validateResponseFrame = (v: unknown): v is ResponseFrame
 ```
 
-### [`WireError`](./dispatch.ts#L71)
+### [`WireError`](./wire-errors.ts#L178)
 
 _TypeAlias_
 
@@ -2749,12 +2558,12 @@ export type WireError = {
 };
 ```
 
-The JSON-RPC error envelope a handler/middleware failure encodes onto: the
-coded `error` sub-object the client reconstructs the typed tagged error from
-via `wire-errors.ts → errorClassFor`. The same shape `WireErrorSchema`
-decodes to and every per-method `*AuthMw` `failure` channel carries.
+The JSON-RPC error envelope a wire response carries: code, message, optional
+data. The shape `WireErrorSchema` decodes to, every per-method `*AuthMw`
+`failure` channel carries, and wireErrorFromInstance projects a
+registered tagged-error instance onto.
 
-### [`wireErrorFromInstance`](./dispatch.ts#L371)
+### [`wireErrorFromInstance`](./wire-errors.ts#L211)
 
 _Function_
 
@@ -2762,11 +2571,13 @@ _Function_
 export function wireErrorFromInstance(value: unknown): WireError | null
 ```
 
-Reads wire metadata (code/message/data) off an `RpcErrorClass` instance.
-Returns `null` when the failure isn't a registered wire-error class
-(caller routes to InternalError).
+Read wire metadata (code/message/data) off an `RpcErrorClass` instance.
+Returns `null` when the failure is not a registered wire-error class (the
+caller routes to InternalError). A `Data.TaggedError` inherits `message: ""`
+from `Error`, so an empty instance message is treated as absent and the
+class's static default reaches the wire.
 
-### [`WireErrorSchema`](./rpc-method-groups.ts#L30)
+### [`WireErrorSchema`](./rpc-method-groups.ts#L31)
 
 _Variable_
 
@@ -2788,6 +2599,24 @@ the code via `wire-errors.ts → errorClassFor`. Per-tag error narrowing stays
 a registry concern (the `RegisteredTaggedError` union in `rpc-registry.ts`),
 not a per-member Schema union — the wire only ever carries the coded
 envelope.
+
+### [`wireErrorToRpcCallError`](./rpc-errors.ts#L55)
+
+_Function_
+
+```ts
+export function wireErrorToRpcCallError(error: {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+}): RpcCallError
+```
+
+Reconstruct a wire-error envelope (`{ code, message, data? }`) into a typed
+RpcCallError: a registered tagged error when the code is in the
+registry (so `catchTag` callers narrow the concrete class), else
+`RpcServerError`. Forwarding both `message` and `data` keeps the decoded
+instance reflecting the server's error text + payload.
 
 ### [`WireWrite`](./native-mux.ts#L79)
 
@@ -2832,9 +2661,7 @@ export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
 - `auth-middleware.ts`
 - `capability-middleware.ts`
 - `client-callable-groups.ts`
-- `connection.ts`
 - `current-principal.ts`
-- `dispatch.ts`
 - `erased-slot.ts`
 - `handlers.ts`
 - `method.ts`
@@ -2842,7 +2669,6 @@ export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
 - `native-mux.ts`
 - `native-mux.types-check.ts`
 - `native-server-engine.ts`
-- `originator.ts`
 - `rpc-errors.ts`
 - `rpc-groups.ts`
 - `rpc-method-groups.ts`

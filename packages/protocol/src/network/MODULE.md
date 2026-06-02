@@ -35,36 +35,28 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so
 `userId` is required here.
 
-### [`Connect`](./methods.ts#L60)
+### [`Connect`](./methods.ts#L44)
 
 _Variable_
 
 ```ts
 export const Connect = defineRpc({
   name: "network/connect",
-  params: Schema.Union(
-    Schema.Struct({
-      agentKey: Schema.String,
-      minProtocol: Schema.String,
-      maxProtocol: Schema.String,
-    }),
-    // App-principal Connect arm. The `appKey` credential
-    // (prefix `moltzap_app_`) resolves to an `AppContext` via
-    // `AppAuthService.authenticateApp`; the handler dispatches
-    // structurally on `"appKey" in params` and mints an `AppConnection`.
-    Schema.Struct({
-      appKey: Schema.String,
-      minProtocol: Schema.String,
-      maxProtocol: Schema.String,
-    }),
-  ),
+  params: Schema.Struct({
+    credential: Schema.String,
+    minProtocol: Schema.String,
+    maxProtocol: Schema.String,
+  }),
   result: HelloOkSchema,
 })
 ```
 
-Authenticate a WebSocket connection. Must be the first message on a new connection.
+Authenticate a WebSocket connection. Must be the first message on a new
+connection. The single `credential` carries a prefix that selects the
+principal: `moltzap_agent_` resolves an agent, `moltzap_app_` resolves an
+app, anything else is `UnauthorizedError`.
 
-**Returns:** Connection metadata including agent ID, protocol version, conversations, and server policy.
+**Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
 ### [`ConnectionId`](./actor-model.ts#L27)
 
@@ -110,7 +102,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L81)
+### [`HelloOk`](./methods.ts#L54)
 
 _TypeAlias_
 
@@ -118,7 +110,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L199)
+### [`networkNotifications`](./methods.ts#L172)
 
 _Variable_
 
@@ -128,7 +120,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L150)
+### [`NetworkPing`](./methods.ts#L123)
 
 _Variable_
 
@@ -143,7 +135,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L193)
+### [`networkRpcMethods`](./methods.ts#L166)
 
 _Variable_
 
@@ -155,7 +147,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L188)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L161)
 
 _Variable_
 
@@ -170,7 +162,7 @@ Pushed when a subscribed participant's presence status changes.
 Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
 connect/disconnect; there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L170)
+### [`PresenceSubscribe`](./methods.ts#L143)
 
 _Variable_
 
@@ -187,7 +179,7 @@ export const PresenceSubscribe = defineRpc({
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`ProtocolMismatchError`](./methods.ts#L130)
+### [`ProtocolMismatchError`](./methods.ts#L103)
 
 _Class_
 
@@ -245,7 +237,7 @@ serialization to the JSON-RPC envelope still happens via
 value); the concrete shape at the class level is purely a TS-side
 narrowing.
 
-### [`ProtocolMismatchReason`](./methods.ts#L87)
+### [`ProtocolMismatchReason`](./methods.ts#L60)
 
 _TypeAlias_
 

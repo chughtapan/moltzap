@@ -35,55 +35,6 @@
       "kind": "number",
       "sourcePath": "scripts/quickstart.sh",
       "note": "Port the quickstart.sh script binds the local server to (chosen to avoid 3000/3100 conflicts)."
-    },
-    {
-      "name": "HELLO_MAX_MESSAGE_BYTES",
-      "value": 65536,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxMessageBytes"
-    },
-    {
-      "name": "HELLO_MAX_PARTS_PER_MESSAGE",
-      "value": 10,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxPartsPerMessage"
-    },
-    {
-      "name": "HELLO_MAX_TEXT_LENGTH",
-      "value": 32768,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxTextLength"
-    },
-    {
-      "name": "HELLO_MAX_GROUP_PARTICIPANTS",
-      "value": 256,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxGroupParticipants"
-    },
-    {
-      "name": "HELLO_HEARTBEAT_INTERVAL_MS",
-      "value": 30000,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: heartbeatIntervalMs"
-    },
-    {
-      "name": "HELLO_MESSAGES_PER_MINUTE",
-      "value": 60,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: messagesPerMinute"
-    },
-    {
-      "name": "HELLO_REQUESTS_PER_MINUTE",
-      "value": 120,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: requestsPerMinute"
     }
   ]
 }
