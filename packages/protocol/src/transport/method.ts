@@ -266,18 +266,8 @@ export function defineNotification<
   return d;
 }
 
-// ── Per-handler decoders (Effect-shape) ──────────────────────────────
-
-export class RpcParamsDecodeError extends Data.TaggedError(
-  "RpcParamsDecodeError",
-)<{
-  readonly definition: RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >;
-  readonly data: unknown;
-}> {}
+// ── Per-handler result decoder (Effect-shape; consumed by the conformance
+// test-client to verify a response decodes against the descriptor schema) ───
 
 export class RpcResultDecodeError extends Data.TaggedError(
   "RpcResultDecodeError",
@@ -289,19 +279,6 @@ export class RpcResultDecodeError extends Data.TaggedError(
   >;
   readonly data: unknown;
 }> {}
-
-export function decodeRpcParams<
-  Name extends string,
-  P extends Schema.Schema.AnyNoContext,
-  R extends Schema.Schema.AnyNoContext,
->(
-  definition: RpcDefinition<Name, P, R>,
-  data: unknown,
-): Effect.Effect<Schema.Schema.Type<P>, RpcParamsDecodeError> {
-  return definition.validateParams(data)
-    ? Effect.succeed(data)
-    : Effect.fail(new RpcParamsDecodeError({ definition, data }));
-}
 
 export function decodeRpcResult<
   Name extends string,

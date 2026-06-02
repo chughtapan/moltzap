@@ -17,14 +17,14 @@
  * subtracts the principal, so residual R bottoms out at `Env`,
  * compiler-checked.
  */
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import {
   ConversationInTask,
   TaskReadAccess,
   MessageSendPermission,
   ContactPolicyAllowsReach,
   callerAgentId,
-  type CapabilityMiddleware,
+  CurrentPrincipal,
   type ObtainMessageSendPermissionInput,
   type ParamsOf,
   type ConversationId,
@@ -37,6 +37,30 @@ import {
   TaskConversationRemoveParticipant,
   TaskRequest,
 } from "@moltzap/protocol";
+
+/**
+ * One capability middleware: a `provides` service Tag, a typed payload
+ * derivation (reads the decoded per-method params + `CurrentPrincipal`), and an
+ * `obtain` that resolves the service value under `Env`. The per-method
+ * `*AuthMw` impl Layers (`auth-middleware-layers.ts → runCap`) run
+ * `derivePayload` then `obtain` per declared cap. Owned here because the cap
+ * impls are the only consumers post-cutover.
+ */
+interface CapabilityMiddleware<
+  Params,
+  Provides extends Context.Tag<any, any>,
+  Input,
+  Env,
+  Fail = never,
+> {
+  readonly provides: Provides;
+  readonly derivePayload: (
+    params: Params,
+  ) => Effect.Effect<Input, never, CurrentPrincipal>;
+  readonly obtain: (
+    input: Input,
+  ) => Effect.Effect<Context.Tag.Service<Provides>, Fail, Env>;
+}
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
   ConversationServiceTag,
