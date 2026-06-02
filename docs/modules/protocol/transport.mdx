@@ -37,75 +37,6 @@ export const AgentClientRpcGroup = groupFromCatalog(agentClientRpcMethods)
 
 Outbound group callable from `MoltZapAgentClient`.
 
-### [`AgentsListAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L163)
-
-_Class_
-
-```ts
-export class AgentsListAuth extends Context.Tag(
-  "@moltzap/protocol/auth/agents-list",
-)<AgentsListAuth, AuthProof<typeof AgentsList>>() {}
-```
-
-`agents/list` proof: agent principal, no caps.
-
-### [`AgentsListAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L166)
-
-_Class_
-
-```ts
-export class AgentsListAuthMw extends RpcMiddleware.Tag<AgentsListAuthMw>()(
-  "@moltzap/protocol/auth/mw/agents-list",
-  { provides: AgentsListAuth, failure: AgentsList.errorSchema },
-) {}
-```
-
-### [`AgentsLookupAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L145)
-
-_Class_
-
-```ts
-export class AgentsLookupAuth extends Context.Tag(
-  "@moltzap/protocol/auth/agents-lookup",
-)<AgentsLookupAuth, AuthProof<typeof AgentsLookup>>() {}
-```
-
-`agents/lookup` proof: agent principal, no caps.
-
-### [`AgentsLookupAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L148)
-
-_Class_
-
-```ts
-export class AgentsLookupAuthMw extends RpcMiddleware.Tag<AgentsLookupAuthMw>()(
-  "@moltzap/protocol/auth/mw/agents-lookup",
-  { provides: AgentsLookupAuth, failure: AgentsLookup.errorSchema },
-) {}
-```
-
-### [`AgentsLookupByNameAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L154)
-
-_Class_
-
-```ts
-export class AgentsLookupByNameAuth extends Context.Tag(
-  "@moltzap/protocol/auth/agents-lookup-by-name",
-)<AgentsLookupByNameAuth, AuthProof<typeof AgentsLookupByName>>() {}
-```
-
-`agents/lookupByName` proof: agent principal, no caps.
-
-### [`AgentsLookupByNameAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L157)
-
-_Class_
-
-```ts
-export class AgentsLookupByNameAuthMw extends RpcMiddleware.Tag<AgentsLookupByNameAuthMw>()(
-  "@moltzap/protocol/auth/mw/agents-lookup-by-name",
-  { provides: AgentsLookupByNameAuth, failure: AgentsLookupByName.errorSchema },
-) {}
-```
-
 ### [`AlreadyConnected`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L76)
 
 _Class_
@@ -190,30 +121,7 @@ export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods)
 
 Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`.
 
-### [`AppsRegisterAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L336)
-
-_Class_
-
-```ts
-export class AppsRegisterAuth extends Context.Tag(
-  "@moltzap/protocol/auth/apps-register",
-)<AppsRegisterAuth, AuthProof<typeof AppsRegister>>() {}
-```
-
-`apps/register` proof: app principal, no caps.
-
-### [`AppsRegisterAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L339)
-
-_Class_
-
-```ts
-export class AppsRegisterAuthMw extends RpcMiddleware.Tag<AppsRegisterAuthMw>()(
-  "@moltzap/protocol/auth/mw/apps-register",
-  { provides: AppsRegisterAuth, failure: AppsRegister.errorSchema },
-) {}
-```
-
-### [`assertWsEngineSize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L248)
+### [`assertWsEngineSize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L266)
 
 _Function_
 
@@ -226,68 +134,6 @@ WS_ENGINE_MEMBER_COUNT. The type-level canary pins the member SET; this
 inspects the ACTUAL built `.requests` map, so a filter regression that drops or
 duplicates a member is caught at boot rather than shipping a misbound engine.
 Returns the violation string, or `undefined` when the count matches.
-
-### [`AuthContextValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-context.ts#L87)
-
-_TypeAlias_
-
-```ts
-export type AuthContextValue<
-  K extends CallablePrincipal,
-  Caps extends ReadonlyArray<RpcCapTag>,
-> = {
-  readonly principal: PrincipalForKind<K>;
-} & CapProofs<Caps>;
-```
-
-The combined proof value a method's `AuthMiddleware` provides: the
-method-narrowed principal plus the cap proofs derived from its `caps` tuple.
-The handler reads `principal` (narrowed, no kind re-check) and each cap value
-by the cap tag's identifier.
-
-### [`authMiddlewareByMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L366)
-
-_Variable_
-
-```ts
-export const authMiddlewareByMethod =
-```
-
-The `wire method name → that method's *AuthMw` registry. The single source the
-engine group reads to attach each authenticated member's OWN middleware
-(`server-engine-group.ts → buildEngineMember`/`EngineRpcFromDef`); the type
-AuthMiddlewareByMethod is the type-level map the per-tag conditional
-indexes. `network/connect` is absent (it is unauthenticated, no middleware).
-
-Keyed by the literal wire name so the engine's per-tag attach and the proof
-tag each member provides stay in lockstep with the descriptor catalog: a new
-authenticated method that forgets its `*AuthMw` entry is not in this map, so
-the partition canary (`server-engine-group.types-check.ts`) leaves it ungated
-and fails the build.
-
-### [`AuthMiddlewareByMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L397)
-
-_TypeAlias_
-
-```ts
-export type AuthMiddlewareByMethod = typeof authMiddlewareByMethod;
-```
-
-The type-level `name → *AuthMw` map the engine's per-tag conditional indexes.
-
-### [`AuthProof`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L80)
-
-_TypeAlias_
-
-```ts
-export type AuthProof<D> =
-```
-
-The combined proof value for one descriptor: the method-narrowed principal +
-the cap proofs, both projected from the descriptor's own
-`callablePrincipal`/`caps` (not re-declared). A descriptor whose
-`callablePrincipal` is `"agent"` carries an agent-narrowed `principal`; adding
-a cap to its `caps` adds that cap's proof field.
 
 ### [`CallablePrincipal`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L25)
 
@@ -340,7 +186,7 @@ guarantees an agent caller; an app arm here is a wiring defect, not a
 caller-actionable error. Effect.die (not a caller-visible error)
 because the principal-kind gate already rejected non-agent callers.
 
-### [`CallErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L232)
+### [`CallErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L243)
 
 _TypeAlias_
 
@@ -360,7 +206,7 @@ always-possible transport errors. This is exactly what the typed client
 surfaces on `client["method/name"](payload)`'s Effect — the same union the
 wire `errorSchema` decodes, plus transport.
 
-### [`CapErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L201)
+### [`CapErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L212)
 
 _TypeAlias_
 
@@ -370,31 +216,36 @@ export type CapErrorsOf<Caps extends ReadonlyArray<RpcCapTag>> =
 
 The union of every declared cap's error instances for a `caps` tuple.
 
-### [`CapProofs`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-context.ts#L58)
+### [`capMiddlewareByCapKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L89)
+
+_Variable_
+
+```ts
+export const capMiddlewareByCapKey: Readonly<
+  Record<string, RpcMiddleware.TagClassAny>
+> =
+```
+
+Cap `Context.Tag` key → its `RpcMiddleware.Tag`. The engine binding
+(`server-engine-group.ts → buildEngineMember`) reads a method's `caps` tuple
+and stacks each cap's middleware in declared order. A cap that a method can
+require MUST appear here, or the binding leaves it ungated — the boot guard
+(`assertCapMiddlewareCoverage`) fails the build if a declared cap has no
+middleware.
+
+### [`CapMwFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L105)
 
 _TypeAlias_
 
 ```ts
-export type CapProofs<Caps extends ReadonlyArray<RpcCapTag>> =
+export type CapMwFor<Cap> = Cap extends typeof ConversationInTask
 ```
 
-The cap-proof fields a method's `AuthContext` carries: one field per declared
-cap, keyed by the cap tag's own string `key` (the `Context.Tag` identifier
-string, e.g. `"@moltzap/protocol/ConversationInTask"`) and valued by the cap's
-`Context.Tag.Service`. The middleware impl runs each cap's derive/obtain and
-writes its value here, so a handler reads the cap value off the combined proof
-(`proof[ConversationInTask.key]`) rather than `yield`-ing the cap's own Tag.
-
-Keying by `key` (a string literal) is what makes the proof index-readable: a
-cap tag's `Context.Tag.Identifier` is the tag's `Self` INSTANCE type, an object
-type that is not a valid index key. The `key` is the same single identifier
-`@effect/rpc` uses to route the Tag, so the proof field and the cap stay in
-lockstep with no separate name map.
-
-The mapped type intersects one single-key object per tuple element, collapsing
-to the record `{ [key]: Service }`. An empty `caps` tuple yields
-`Record&lt;never, never&gt;` — a cap-less authenticated method's proof is just
-`{ principal }`.
+Type-level cap `Context.Tag` → its `RpcMiddleware.Tag` (the runtime mirror is
+capMiddlewareByCapKey). Matches by tag IDENTITY so the engine member's
+middleware param carries the EXACT cap mws, keeping the per-cap `provides`
+type-visible (a handler that `yield*`s a cap Tag has it stripped from the
+Layer's residual requirement — the proof-exclusion guarantee).
 
 ### [`ChannelProtocol`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L211)
 
@@ -453,95 +304,42 @@ export class ConflictError extends Schema.TaggedError<ConflictError>()(
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
 
-### [`ContactsAcceptAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L190)
+### [`ContactPolicyAllowsReachMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L73)
 
 _Class_
 
 ```ts
-export class ContactsAcceptAuth extends Context.Tag(
-  "@moltzap/protocol/auth/contacts-accept",
-)<ContactsAcceptAuth, AuthProof<typeof ContactsAccept>>() {}
-```
-
-`contacts/accept` proof: agent principal, no caps.
-
-### [`ContactsAcceptAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L193)
-
-_Class_
-
-```ts
-export class ContactsAcceptAuthMw extends RpcMiddleware.Tag<ContactsAcceptAuthMw>()(
-  "@moltzap/protocol/auth/mw/contacts-accept",
-  { provides: ContactsAcceptAuth, failure: ContactsAccept.errorSchema },
+export class ContactPolicyAllowsReachMw extends RpcMiddleware.Tag<ContactPolicyAllowsReachMw>()(
+  "@moltzap/protocol/cap/mw/contact-policy-allows-reach",
+  {
+    provides: ContactPolicyAllowsReach,
+    failure: capFailure(ContactPolicyAllowsReach),
+  },
 ) {}
 ```
 
-### [`ContactsAddAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L181)
+### [`ConversationInTaskMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L55)
 
 _Class_
 
 ```ts
-export class ContactsAddAuth extends Context.Tag(
-  "@moltzap/protocol/auth/contacts-add",
-)<ContactsAddAuth, AuthProof<typeof ContactsAdd>>() {}
-```
-
-`contacts/add` proof: agent principal, no caps.
-
-### [`ContactsAddAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L184)
-
-_Class_
-
-```ts
-export class ContactsAddAuthMw extends RpcMiddleware.Tag<ContactsAddAuthMw>()(
-  "@moltzap/protocol/auth/mw/contacts-add",
-  { provides: ContactsAddAuth, failure: ContactsAdd.errorSchema },
+export class ConversationInTaskMw extends RpcMiddleware.Tag<ConversationInTaskMw>()(
+  "@moltzap/protocol/cap/mw/conversation-in-task",
+  { provides: ConversationInTask, failure: capFailure(ConversationInTask) },
 ) {}
 ```
 
-### [`ContactsByIdAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L199)
+### [`ConversationSendAccessMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L60)
 
 _Class_
 
 ```ts
-export class ContactsByIdAuth extends Context.Tag(
-  "@moltzap/protocol/auth/contacts-by-id",
-)<ContactsByIdAuth, AuthProof<typeof ContactsById>>() {}
-```
-
-`contacts/byId` proof: agent principal, no caps.
-
-### [`ContactsByIdAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L202)
-
-_Class_
-
-```ts
-export class ContactsByIdAuthMw extends RpcMiddleware.Tag<ContactsByIdAuthMw>()(
-  "@moltzap/protocol/auth/mw/contacts-by-id",
-  { provides: ContactsByIdAuth, failure: ContactsById.errorSchema },
-) {}
-```
-
-### [`ContactsListAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L172)
-
-_Class_
-
-```ts
-export class ContactsListAuth extends Context.Tag(
-  "@moltzap/protocol/auth/contacts-list",
-)<ContactsListAuth, AuthProof<typeof ContactsList>>() {}
-```
-
-`contacts/list` proof: agent principal, no caps.
-
-### [`ContactsListAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L175)
-
-_Class_
-
-```ts
-export class ContactsListAuthMw extends RpcMiddleware.Tag<ContactsListAuthMw>()(
-  "@moltzap/protocol/auth/mw/contacts-list",
-  { provides: ContactsListAuth, failure: ContactsList.errorSchema },
+export class ConversationSendAccessMw extends RpcMiddleware.Tag<ConversationSendAccessMw>()(
+  "@moltzap/protocol/cap/mw/conversation-send-access",
+  {
+    provides: ConversationSendAccess,
+    failure: capFailure(ConversationSendAccess),
+  },
 ) {}
 ```
 
@@ -676,7 +474,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L478)
+### [`decodeRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L492)
 
 _Function_
 
@@ -691,7 +489,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L448)
+### [`defineNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L462)
 
 _Function_
 
@@ -706,7 +504,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L339)
+### [`defineRpc`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L350)
 
 _Function_
 
@@ -787,53 +585,7 @@ error. Leaf call sites pass a literal tag and recover the precise types; a
 caller generic over `K` keeps the correlation because the map is keyed on the
 literal tag, not on a widened def union.
 
-### [`DispatchesGetAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L345)
-
-_Class_
-
-```ts
-export class DispatchesGetAuth extends Context.Tag(
-  "@moltzap/protocol/auth/dispatches-get",
-)<DispatchesGetAuth, AuthProof<typeof DispatchesGet>>() {}
-```
-
-`dispatches/get` proof: app principal, no caps.
-
-### [`DispatchesGetAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L348)
-
-_Class_
-
-```ts
-export class DispatchesGetAuthMw extends RpcMiddleware.Tag<DispatchesGetAuthMw>()(
-  "@moltzap/protocol/auth/mw/dispatches-get",
-  { provides: DispatchesGetAuth, failure: DispatchesGet.errorSchema },
-) {}
-```
-
-### [`DispatchRequestAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L208)
-
-_Class_
-
-```ts
-export class DispatchRequestAuth extends Context.Tag(
-  "@moltzap/protocol/auth/dispatch-request",
-)<DispatchRequestAuth, AuthProof<typeof DispatchRequest>>() {}
-```
-
-`dispatch/request` proof: agent principal, no caps.
-
-### [`DispatchRequestAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L211)
-
-_Class_
-
-```ts
-export class DispatchRequestAuthMw extends RpcMiddleware.Tag<DispatchRequestAuthMw>()(
-  "@moltzap/protocol/auth/mw/dispatch-request",
-  { provides: DispatchRequestAuth, failure: DispatchRequest.errorSchema },
-) {}
-```
-
-### [`DomainErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L207)
+### [`DomainErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L218)
 
 _TypeAlias_
 
@@ -849,7 +601,7 @@ export type DomainErrorsOf<
 
 The handler-domain error instance union a descriptor declares.
 
-### [`effectiveErrorClasses`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L261)
+### [`effectiveErrorClasses`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L272)
 
 _Function_
 
@@ -895,7 +647,7 @@ export type ErrorForTag<
 
 The method's own tagged-error union for one tag (from its `errorSchema`).
 
-### [`findEngineGatingMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L294)
+### [`findEngineGatingMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L337)
 
 _Function_
 
@@ -957,7 +709,7 @@ on which `Context.Tag`s the handler's R channel may reference; the
 app-callback catalog declares no capabilities, so callers bind `Caps =
 never`. The app client's reverse `RpcServer` serves each slot's `handle`.
 
-### [`HttpOnlyMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L71)
+### [`HttpOnlyMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L72)
 
 _TypeAlias_
 
@@ -993,7 +745,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`isUnauthenticatedMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L80)
+### [`isUnauthenticatedMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L81)
 
 _Function_
 
@@ -1174,52 +926,6 @@ Inbound frame failed to parse as JSON or did not match the expected shape.
 Transport-internal — not a wire `error` union member (never crosses the wire
 as a method failure).
 
-### [`MessagesListAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L97)
-
-_Class_
-
-```ts
-export class MessagesListAuth extends Context.Tag(
-  "@moltzap/protocol/auth/messages-list",
-)<MessagesListAuth, AuthProof<typeof MessagesList>>() {}
-```
-
-`messages/list` proof: agent principal + `TaskReadAccess` + `ConversationInTask`.
-
-### [`MessagesListAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L100)
-
-_Class_
-
-```ts
-export class MessagesListAuthMw extends RpcMiddleware.Tag<MessagesListAuthMw>()(
-  "@moltzap/protocol/auth/mw/messages-list",
-  { provides: MessagesListAuth, failure: MessagesList.errorSchema },
-) {}
-```
-
-### [`MessagesSendAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L88)
-
-_Class_
-
-```ts
-export class MessagesSendAuth extends Context.Tag(
-  "@moltzap/protocol/auth/messages-send",
-)<MessagesSendAuth, AuthProof<typeof MessagesSend>>() {}
-```
-
-`messages/send` proof: agent principal + `ConversationInTask` + `MessageSendPermission`.
-
-### [`MessagesSendAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L91)
-
-_Class_
-
-```ts
-export class MessagesSendAuthMw extends RpcMiddleware.Tag<MessagesSendAuthMw>()(
-  "@moltzap/protocol/auth/mw/messages-send",
-  { provides: MessagesSendAuth, failure: MessagesSend.errorSchema },
-) {}
-```
-
 ### [`MUX_CLIENT_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/native-mux.ts#L171)
 
 _Variable_
@@ -1271,28 +977,18 @@ The envelope's decoded form. `ch` is narrowed to MuxChannel;
 `f` is the per-endpoint encoded wire string awaiting that endpoint's
 Parser.
 
-### [`NetworkPingAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L217)
+### [`MwStackFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L121)
 
-_Class_
-
-```ts
-export class NetworkPingAuth extends Context.Tag(
-  "@moltzap/protocol/auth/network-ping",
-)<NetworkPingAuth, AuthProof<typeof NetworkPing>>() {}
-```
-
-`network/ping` proof: agent principal, no caps.
-
-### [`NetworkPingAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L220)
-
-_Class_
+_TypeAlias_
 
 ```ts
-export class NetworkPingAuthMw extends RpcMiddleware.Tag<NetworkPingAuthMw>()(
-  "@moltzap/protocol/auth/mw/network-ping",
-  { provides: NetworkPingAuth, failure: NetworkPing.errorSchema },
-) {}
+export type MwStackFor<Caps extends ReadonlyArray<unknown>> =
 ```
+
+The middleware stack an authenticated method's `caps` tuple maps to: the
+`PrincipalGateMw` (every authenticated method) ∪ each declared cap's
+middleware Tag. The engine member's `Middleware` param is this union, so each
+cap's `provides` is type-visible at the binding.
 
 ### [`NotConnectedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/rpc-errors.ts#L15)
 
@@ -1356,7 +1052,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L425)
+### [`NotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L439)
 
 _Interface_
 
@@ -1425,7 +1121,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L436)
+### [`NotificationParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L450)
 
 _TypeAlias_
 
@@ -1453,7 +1149,7 @@ channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
 machinery as AppCallbackRpcGroup.
 
-### [`ParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L150)
+### [`ParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L161)
 
 _TypeAlias_
 
@@ -1482,29 +1178,6 @@ export type PayloadForTag<
 
 The payload type one tag accepts.
 
-### [`PresenceSubscribeAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L226)
-
-_Class_
-
-```ts
-export class PresenceSubscribeAuth extends Context.Tag(
-  "@moltzap/protocol/auth/presence-subscribe",
-)<PresenceSubscribeAuth, AuthProof<typeof PresenceSubscribe>>() {}
-```
-
-`presence/subscribe` proof: agent principal, no caps.
-
-### [`PresenceSubscribeAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L229)
-
-_Class_
-
-```ts
-export class PresenceSubscribeAuthMw extends RpcMiddleware.Tag<PresenceSubscribeAuthMw>()(
-  "@moltzap/protocol/auth/mw/presence-subscribe",
-  { provides: PresenceSubscribeAuth, failure: PresenceSubscribe.errorSchema },
-) {}
-```
-
 ### [`Principal`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/current-principal.ts#L42)
 
 _TypeAlias_
@@ -1527,7 +1200,7 @@ extra fields are fine for a read-only consumer), so the server provides
 the live narrowed arm directly. The `appId` of the app arm is sourced
 from the live `AppConnection.auth` minted at auth time, NOT hardcoded.
 
-### [`PrincipalErrorClassesOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L189)
+### [`PrincipalErrorClassesOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L200)
 
 _TypeAlias_
 
@@ -1541,23 +1214,6 @@ Every authenticated method's principal middleware can fail
 principal gate, so it admits none. Sourced as a value at
 principalErrorClasses; this is its type-level mirror.
 
-### [`PrincipalForKind`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-context.ts#L33)
-
-_TypeAlias_
-
-```ts
-export type PrincipalForKind<K extends CallablePrincipal> = K extends "agent"
-```
-
-The method-narrowed principal arm carried by a method's proof: the agent arm
-for `callablePrincipal: "agent"`, the app arm for `"app"`. The middleware
-gate narrows the live connection to exactly this arm, so the handler reads
-`auth.principal.agentId` / `auth.principal.appId` with no re-check.
-
-`"any"` resolves to `never`: the lone unauthenticated method
-(`network/connect`) carries no proof — it reads the live arm via
-`ConnectionTag` — so it never instantiates an `AuthContext`.
-
 ### [`principalGateErrorClasses`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-errors.ts#L98)
 
 _Variable_
@@ -1570,6 +1226,21 @@ export const principalGateErrorClasses = [
 ```
 
 The principal-gate error classes every authenticated method's gate can fail with.
+
+### [`PrincipalGateMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L50)
+
+_Class_
+
+```ts
+export class PrincipalGateMw extends RpcMiddleware.Tag<PrincipalGateMw>()(
+  "@moltzap/protocol/cap/mw/principal-gate",
+  { failure: principalGateFailure },
+) {}
+```
+
+The principal gate: narrows the live connection to the method's principal arm
+and fails `Unauthorized` / `Forbidden`. No `provides` — the handler reads the
+narrowed arm off `ConnectionTag`. Stacked first on every authenticated method.
 
 ### [`requestFrame`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire.ts#L207)
 
@@ -1603,7 +1274,7 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`ResponseErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L180)
+### [`ResponseErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L191)
 
 _TypeAlias_
 
@@ -1662,7 +1333,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L162)
+### [`ResultOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L173)
 
 _TypeAlias_
 
@@ -1820,6 +1491,17 @@ export interface RpcDefinition<
    */
   readonly errorSchema: Schema.Schema.AnyNoContext;
 
+  /**
+   * The wire `error` Schema for the HANDLER-DOMAIN errors ALONE
+   * (`Schema.Union(...errors)`) — what the server engine member sets as its
+   * `error`. The principal-gate and cap errors are NOT here; they ride each
+   * stacked middleware's own `failure`, and the engine unions them into the
+   * method's error (`Rpc.ErrorSchema = _Error | _Middleware`). The catalog/client
+   * group uses the full {@link errorSchema} (the client carries no middleware,
+   * so it needs the aggregate union for its typed error channel).
+   */
+  readonly handlerErrorSchema: Schema.Schema.AnyNoContext;
+
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
   // `unknown` for variance compatibility with the
@@ -1908,7 +1590,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L467)
+### [`RpcResultDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L481)
 
 _Class_
 
@@ -1981,7 +1663,7 @@ makeServerProtocolLayer, the handler bodies via
 runtime via its per-socket server-supplied `Layer`
 (`auth-middleware-layers.ts`).
 
-### [`ServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L181)
+### [`ServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L207)
 
 _Variable_
 
@@ -2028,309 +1710,14 @@ export type SuccessForTag<
 
 The success type one tag returns.
 
-### [`TaskAddParticipantAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L246)
+### [`TaskReadAccessMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/cap-middlewares.ts#L68)
 
 _Class_
 
 ```ts
-export class TaskAddParticipantAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-add-participant",
-)<TaskAddParticipantAuth, AuthProof<typeof TaskAddParticipant>>() {}
-```
-
-`task/addParticipant` proof: app principal, no caps.
-
-### [`TaskAddParticipantAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L249)
-
-_Class_
-
-```ts
-export class TaskAddParticipantAuthMw extends RpcMiddleware.Tag<TaskAddParticipantAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-add-participant",
-  { provides: TaskAddParticipantAuth, failure: TaskAddParticipant.errorSchema },
-) {}
-```
-
-### [`TaskCloseAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L237)
-
-_Class_
-
-```ts
-export class TaskCloseAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-close",
-)<TaskCloseAuth, AuthProof<typeof TaskClose>>() {}
-```
-
-`task/close` proof: app principal, no caps.
-
-### [`TaskCloseAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L240)
-
-_Class_
-
-```ts
-export class TaskCloseAuthMw extends RpcMiddleware.Tag<TaskCloseAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-close",
-  { provides: TaskCloseAuth, failure: TaskClose.errorSchema },
-) {}
-```
-
-### [`TaskConversationAddParticipantAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L306)
-
-_Class_
-
-```ts
-export class TaskConversationAddParticipantAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-conversation-add-participant",
-)<
-  TaskConversationAddParticipantAuth,
-  AuthProof<typeof TaskConversationAddParticipant>
->() {}
-```
-
-`task/conversation/participants/add` proof: app principal + `ConversationInTask`.
-
-### [`TaskConversationAddParticipantAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L312)
-
-_Class_
-
-```ts
-export class TaskConversationAddParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationAddParticipantAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-conversation-add-participant",
-  {
-    provides: TaskConversationAddParticipantAuth,
-    failure: TaskConversationAddParticipant.errorSchema,
-  },
-) {}
-```
-
-### [`TaskConversationArchiveAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L279)
-
-_Class_
-
-```ts
-export class TaskConversationArchiveAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-conversation-archive",
-)<TaskConversationArchiveAuth, AuthProof<typeof TaskConversationArchive>>() {}
-```
-
-`task/conversation/archive` proof: app principal + `ConversationInTask`.
-
-### [`TaskConversationArchiveAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L282)
-
-_Class_
-
-```ts
-export class TaskConversationArchiveAuthMw extends RpcMiddleware.Tag<TaskConversationArchiveAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-conversation-archive",
-  {
-    provides: TaskConversationArchiveAuth,
-    failure: TaskConversationArchive.errorSchema,
-  },
-) {}
-```
-
-### [`TaskConversationCreateAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L267)
-
-_Class_
-
-```ts
-export class TaskConversationCreateAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-conversation-create",
-)<TaskConversationCreateAuth, AuthProof<typeof TaskConversationCreate>>() {}
-```
-
-`task/conversation/create` proof: app principal, no caps.
-
-### [`TaskConversationCreateAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L270)
-
-_Class_
-
-```ts
-export class TaskConversationCreateAuthMw extends RpcMiddleware.Tag<TaskConversationCreateAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-conversation-create",
-  {
-    provides: TaskConversationCreateAuth,
-    failure: TaskConversationCreate.errorSchema,
-  },
-) {}
-```
-
-### [`TaskConversationListAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L133)
-
-_Class_
-
-```ts
-export class TaskConversationListAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-conversation-list",
-)<TaskConversationListAuth, AuthProof<typeof TaskConversationList>>() {}
-```
-
-`task/conversation/list` proof: agent principal, no caps.
-
-### [`TaskConversationListAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L136)
-
-_Class_
-
-```ts
-export class TaskConversationListAuthMw extends RpcMiddleware.Tag<TaskConversationListAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-conversation-list",
-  {
-    provides: TaskConversationListAuth,
-    failure: TaskConversationList.errorSchema,
-  },
-) {}
-```
-
-### [`TaskConversationRemoveParticipantAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L321)
-
-_Class_
-
-```ts
-export class TaskConversationRemoveParticipantAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-conversation-remove-participant",
-)<
-  TaskConversationRemoveParticipantAuth,
-  AuthProof<typeof TaskConversationRemoveParticipant>
->() {}
-```
-
-`task/conversation/participants/remove` proof: app principal + `ConversationInTask`.
-
-### [`TaskConversationRemoveParticipantAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L327)
-
-_Class_
-
-```ts
-export class TaskConversationRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskConversationRemoveParticipantAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-conversation-remove-participant",
-  {
-    provides: TaskConversationRemoveParticipantAuth,
-    failure: TaskConversationRemoveParticipant.errorSchema,
-  },
-) {}
-```
-
-### [`TaskConversationUnarchiveAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L291)
-
-_Class_
-
-```ts
-export class TaskConversationUnarchiveAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-conversation-unarchive",
-)<
-  TaskConversationUnarchiveAuth,
-  AuthProof<typeof TaskConversationUnarchive>
->() {}
-```
-
-`task/conversation/unarchive` proof: app principal + `ConversationInTask`.
-
-### [`TaskConversationUnarchiveAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L297)
-
-_Class_
-
-```ts
-export class TaskConversationUnarchiveAuthMw extends RpcMiddleware.Tag<TaskConversationUnarchiveAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-conversation-unarchive",
-  {
-    provides: TaskConversationUnarchiveAuth,
-    failure: TaskConversationUnarchive.errorSchema,
-  },
-) {}
-```
-
-### [`TaskLeaveAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L124)
-
-_Class_
-
-```ts
-export class TaskLeaveAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-leave",
-)<TaskLeaveAuth, AuthProof<typeof TaskLeave>>() {}
-```
-
-`task/leave` proof: agent principal, no caps.
-
-### [`TaskLeaveAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L127)
-
-_Class_
-
-```ts
-export class TaskLeaveAuthMw extends RpcMiddleware.Tag<TaskLeaveAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-leave",
-  { provides: TaskLeaveAuth, failure: TaskLeave.errorSchema },
-) {}
-```
-
-### [`TaskListAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L106)
-
-_Class_
-
-```ts
-export class TaskListAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-list",
-)<TaskListAuth, AuthProof<typeof TaskList>>() {}
-```
-
-`task/list` proof: agent principal, no caps.
-
-### [`TaskListAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L109)
-
-_Class_
-
-```ts
-export class TaskListAuthMw extends RpcMiddleware.Tag<TaskListAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-list",
-  { provides: TaskListAuth, failure: TaskList.errorSchema },
-) {}
-```
-
-### [`TaskRemoveParticipantAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L255)
-
-_Class_
-
-```ts
-export class TaskRemoveParticipantAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-remove-participant",
-)<TaskRemoveParticipantAuth, AuthProof<typeof TaskRemoveParticipant>>() {}
-```
-
-`task/removeParticipant` proof: app principal, no caps.
-
-### [`TaskRemoveParticipantAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L258)
-
-_Class_
-
-```ts
-export class TaskRemoveParticipantAuthMw extends RpcMiddleware.Tag<TaskRemoveParticipantAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-remove-participant",
-  {
-    provides: TaskRemoveParticipantAuth,
-    failure: TaskRemoveParticipant.errorSchema,
-  },
-) {}
-```
-
-### [`TaskRequestAuth`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L115)
-
-_Class_
-
-```ts
-export class TaskRequestAuth extends Context.Tag(
-  "@moltzap/protocol/auth/task-request",
-)<TaskRequestAuth, AuthProof<typeof TaskRequest>>() {}
-```
-
-`task/request` proof: agent principal + `ContactPolicyAllowsReach`.
-
-### [`TaskRequestAuthMw`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/auth-middleware.ts#L118)
-
-_Class_
-
-```ts
-export class TaskRequestAuthMw extends RpcMiddleware.Tag<TaskRequestAuthMw>()(
-  "@moltzap/protocol/auth/mw/task-request",
-  { provides: TaskRequestAuth, failure: TaskRequest.errorSchema },
+export class TaskReadAccessMw extends RpcMiddleware.Tag<TaskReadAccessMw>()(
+  "@moltzap/protocol/cap/mw/task-read-access",
+  { provides: TaskReadAccess, failure: capFailure(TaskReadAccess) },
 ) {}
 ```
 
@@ -2351,7 +1738,7 @@ keyed by every member tag, each value the method's typed call
 `(payload) => Effect&lt;success, methodErrors | E>`. `E` is the engine's
 transport error (`RpcClientError`) the caller folds into its own channel.
 
-### [`UNAUTHENTICATED_METHODS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L48)
+### [`UNAUTHENTICATED_METHODS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L49)
 
 _Variable_
 
@@ -2367,7 +1754,7 @@ reviewed security decision — the partition canary
 (`server-engine-group.types-check.ts`) FAILS the build if a method is in
 neither partition or both.
 
-### [`UnauthenticatedMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L51)
+### [`UnauthenticatedMethod`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L52)
 
 _TypeAlias_
 
@@ -2430,7 +1817,7 @@ The raw-write surface the mux drives. Mirrors the effect returned by
 `Socket.Socket["writer"]`: one call writes one chunk to the wire and
 fails with a Socket.SocketError if the socket is gone.
 
-### [`WS_ENGINE_MEMBER_COUNT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L238)
+### [`WS_ENGINE_MEMBER_COUNT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L256)
 
 _Variable_
 
@@ -2444,7 +1831,7 @@ The number of WS-dispatched engine members: the full catalog
 server's handler map (`serverNativeHandlers`) has exactly this many entries;
 the boot guard assertWsEngineSize pins the built group to it.
 
-### [`WsServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L229)
+### [`WsServerEngineRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/server-engine-group.ts#L247)
 
 _Variable_
 
@@ -2455,8 +1842,7 @@ export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
 
 ## Files
 
-- `auth-context.ts`
-- `auth-middleware.ts`
+- `cap-middlewares.ts`
 - `client-callable-groups.ts`
 - `current-principal.ts`
 - `handlers.ts`

@@ -81,6 +81,15 @@ export type HttpOnlyMethod = (typeof HTTP_ONLY_METHODS)[number];
 export const isUnauthenticatedMethod = (tag: string): boolean =>
   (UNAUTHENTICATED_METHODS as readonly string[]).includes(tag);
 
+/**
+ * Whether a wire tag is HTTP-only ({@link HTTP_ONLY_METHODS}) — the membership
+ * check the WS-subset group construction shares with the partition, so the two
+ * agree on which methods the WS engine omits. Declared before
+ * {@link buildEngineMember} (which reads it at module-load) to avoid a TDZ.
+ */
+const isHttpOnlyMethod = (tag: string): boolean =>
+  (HTTP_ONLY_METHODS as readonly string[]).includes(tag);
+
 type AnyRpcDefinition = RpcDefinition<
   string,
   Schema.Schema.AnyNoContext,
@@ -198,14 +207,6 @@ const engineMembers = rawEngineMembers as unknown as EngineMemberTuple; // #igno
 export const ServerEngineRpcGroup: RpcGroup.RpcGroup<
   EngineMembers<typeof serverRpcMethods>[number]
 > = RpcGroup.make(...engineMembers);
-
-/**
- * Whether a wire tag is HTTP-only ({@link HTTP_ONLY_METHODS}) — the membership
- * check the WS-subset group construction shares with the partition, so the two
- * agree on which methods the WS engine omits.
- */
-const isHttpOnlyMethod = (tag: string): boolean =>
-  (HTTP_ONLY_METHODS as readonly string[]).includes(tag);
 
 /**
  * One WS-handled engine member: every {@link ServerEngineRpcGroup} member whose
