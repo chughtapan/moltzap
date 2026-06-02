@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`AgentClientOptions`](./agent-client.ts#L106)
+### [`AgentClientOptions`](./agent-client.ts#L107)
 
 _Interface_
 
@@ -21,7 +21,7 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AppCallbackContext`](./app-client.ts#L114)
+### [`AppCallbackContext`](./app-client.ts#L115)
 
 _Interface_
 
@@ -36,7 +36,7 @@ id (for tracing / logging). The reverse `RpcServer` engine assigns request
 ids internally; the authored handlers that read `requestId` receive a
 placeholder, the payload is the load-bearing input.
 
-### [`AppClientOptions`](./app-client.ts#L156)
+### [`AppClientOptions`](./app-client.ts#L157)
 
 _Interface_
 
@@ -413,7 +413,7 @@ error channel is part of the type — callers fail with a tagged error and the
 consumer fiber logs it instead of dropping it on the floor like a Promise
 rejection would.
 
-### [`MoltZapAgentClient`](./agent-client.ts#L118)
+### [`MoltZapAgentClient`](./agent-client.ts#L119)
 
 _Class_
 
@@ -506,7 +506,7 @@ export class MoltZapAgentClient {
   }
 
   close(): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.sync(() => {
       if (this.closed) return;
       const hasCompletedHandshake = this._helloOk !== null;
       this.closed = true;
@@ -514,37 +514,37 @@ export class MoltZapAgentClient {
       if (this.reconnectFiber !== null) {
         const f = this.reconnectFiber;
         this.reconnectFiber = null;
-        yield* Effect.forkDaemon(Fiber.interrupt(f));
+        this.runtime.runFork(Fiber.interrupt(f));
       }
-      // The native engine fails its in-flight RPCs with `NotConnectedError`
-      // when the connection scope closes below; no separate pending-drain.
-      yield* this.subscribers.closeAll;
-      const state = yield* Ref.getAndSet(this.stateRef, Option.none());
-      if (Option.isSome(state)) {
-        if (hasCompletedHandshake) {
-          yield* state.value
-            .write(new Socket.CloseEvent(NORMAL_CLOSE_CODE, "normal"))
-            .pipe(Effect.orDie);
-          yield* Scope.close(state.value.scope, Exit.void);
-        } else {
-          this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
-        }
-      }
-    }).pipe(
-      Effect.asVoid,
-      Effect.ensuring(
-        Effect.sync(() => {
-          this.runtime.dispose();
-        }),
-      ),
-    );
+      const state = this.runtime.runSync(
+        Ref.getAndSet(this.stateRef, Option.none()),
+      );
+      // Tear down off the caller's fiber so `close()` stays synchronous
+      // (`Effect.runSync` must not hit an asynchronous boundary). `dispose` runs
+      // last in the `ensuring` finalizer so the forked teardown is never cut
+      // short.
+      const drainConnection = Option.isSome(state)
+        ? drainConnectionEffect({
+            write: state.value.write,
+            scope: state.value.scope,
+            hasCompletedHandshake,
+          })
+        : Effect.void;
+      this.runtime.runFork(
+        this.subscribers.closeAll.pipe(
+          Effect.zipRight(drainConnection),
+          Effect.ensuring(Effect.sync(() => this.runtime.dispose())),
+        ),
+      );
+    });
+  }
 ```
 
 MoltZap agent client — outbound RPC only, no app-callback inbound
 dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; app-only
 methods are unreachable at compile time (Spec D3 R11/R13).
 
-### [`MoltZapAppClient`](./app-client.ts#L244)
+### [`MoltZapAppClient`](./app-client.ts#L245)
 
 _Class_
 
@@ -1113,7 +1113,7 @@ export interface RegisterResponse {
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register` and `/api/v1/admin/register-agent`).
 
-### [`RpcCallOptions`](./app-client.ts#L72)
+### [`RpcCallOptions`](./app-client.ts#L73)
 
 _Interface_
 

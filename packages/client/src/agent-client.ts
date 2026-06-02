@@ -45,7 +45,8 @@ import {
 } from "./notification/stream.js";
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
 import {
-  NORMAL_CLOSE_CODE,
+  callWithTimeout,
+  drainConnectionEffect,
   makeNotConnectedError,
   makeReconnectLoop,
   openSocket,
@@ -203,7 +204,7 @@ export class MoltZapAgentClient {
   }
 
   close(): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.sync(() => {
       if (this.closed) return;
       const hasCompletedHandshake = this._helloOk !== null;
       this.closed = true;
@@ -211,30 +212,29 @@ export class MoltZapAgentClient {
       if (this.reconnectFiber !== null) {
         const f = this.reconnectFiber;
         this.reconnectFiber = null;
-        yield* Effect.forkDaemon(Fiber.interrupt(f));
+        this.runtime.runFork(Fiber.interrupt(f));
       }
-      // The native engine fails its in-flight RPCs with `NotConnectedError`
-      // when the connection scope closes below; no separate pending-drain.
-      yield* this.subscribers.closeAll;
-      const state = yield* Ref.getAndSet(this.stateRef, Option.none());
-      if (Option.isSome(state)) {
-        if (hasCompletedHandshake) {
-          yield* state.value
-            .write(new Socket.CloseEvent(NORMAL_CLOSE_CODE, "normal"))
-            .pipe(Effect.orDie);
-          yield* Scope.close(state.value.scope, Exit.void);
-        } else {
-          this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
-        }
-      }
-    }).pipe(
-      Effect.asVoid,
-      Effect.ensuring(
-        Effect.sync(() => {
-          this.runtime.dispose();
-        }),
-      ),
-    );
+      const state = this.runtime.runSync(
+        Ref.getAndSet(this.stateRef, Option.none()),
+      );
+      // Tear down off the caller's fiber so `close()` stays synchronous
+      // (`Effect.runSync` must not hit an asynchronous boundary). `dispose` runs
+      // last in the `ensuring` finalizer so the forked teardown is never cut
+      // short.
+      const drainConnection = Option.isSome(state)
+        ? drainConnectionEffect({
+            write: state.value.write,
+            scope: state.value.scope,
+            hasCompletedHandshake,
+          })
+        : Effect.void;
+      this.runtime.runFork(
+        this.subscribers.closeAll.pipe(
+          Effect.zipRight(drainConnection),
+          Effect.ensuring(Effect.sync(() => this.runtime.dispose())),
+        ),
+      );
+    });
   }
 
   disconnect(): Effect.Effect<void, never> {
@@ -303,7 +303,7 @@ export class MoltZapAgentClient {
           disconnects,
         ).pipe(
           Effect.onExit((exit) =>
-            this.handleReaderExit(exit, handshakeSettled),
+            this.handleReaderExit(exit, handshakeSettled, scope),
           ),
         ),
       );
@@ -339,6 +339,7 @@ export class MoltZapAgentClient {
   private handleReaderExit(
     exit: Exit.Exit<void, Socket.SocketError>,
     handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
+    scope: Scope.CloseableScope,
   ): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       if (Exit.isFailure(exit)) {
@@ -349,6 +350,11 @@ export class MoltZapAgentClient {
         Effect.ignore,
       );
       yield* Ref.set(this.stateRef, Option.none());
+      // Close the dead connection's scope so every in-flight call forked into it
+      // (`callWithTimeout`) is interrupted — otherwise a call awaiting a response
+      // when the server drops the socket hangs until its own deadline.
+      // `callWithTimeout` maps that interrupt to `NotConnectedError`.
+      yield* Scope.close(scope, Exit.void);
       yield* this.notifyDisconnect(extractCloseInfo(exit));
       if (!this.closed) this.scheduleReconnect();
     });
@@ -385,17 +391,14 @@ export class MoltZapAgentClient {
   > {
     return Ref.get(this.stateRef).pipe(
       Effect.flatMap((state) => {
-        const client = Option.isSome(state) ? state.value.client : undefined;
-        if (client === undefined) return Effect.fail(makeNotConnectedError());
-        // The same `makeTypedTransportCall` bridge the reverse client uses: a
-        // closed socket (`RpcClientError`) folds into `NotConnectedError`, the
-        // per-tag success + the method's typed errors reduce cast-free.
-        const call = makeTypedTransportCall(client, makeNotConnectedError);
-        return call(tag, payload).pipe(
-          Effect.timeoutFail({
-            duration: `${timeoutMs} millis`,
-            onTimeout: () => new RpcTimeoutError({ method: tag, timeoutMs }),
-          }),
+        if (Option.isNone(state)) return Effect.fail(makeNotConnectedError());
+        return callWithTimeout(
+          state.value.scope,
+          makeTypedTransportCall(state.value.client, makeNotConnectedError)(
+            tag,
+            payload,
+          ),
+          { method: tag, timeoutMs },
         );
       }),
     );

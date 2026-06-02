@@ -8,7 +8,7 @@ import {
   stringEnum,
 } from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
-import { ConflictError } from "../transport/wire-errors.js";
+import { ConflictError, ForbiddenError } from "../transport/wire-errors.js";
 
 /** Optional supplemental wire fields every domain tagged-error carries. */
 const errorPayloadFields = {
@@ -308,7 +308,11 @@ export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
   result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
-  errors: [],
+  // A moderator handler may reject outright with `ForbiddenError`; declaring it
+  // lets the reverse engine serialize the flat tagged error rather than a
+  // `Die` defect. The server collapses any callback failure to a fail-closed
+  // deny verdict, so the error type is observed on the wire but never escapes.
+  errors: [ForbiddenError],
 });
 
 /**
@@ -484,7 +488,10 @@ export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
   result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
-  errors: [],
+  // Mirrors `DispatchAuthorize`: a moderator handler may reject with
+  // `ForbiddenError`, serialized as the flat tagged error and collapsed to a
+  // fail-closed Block by the server.
+  errors: [ForbiddenError],
 });
 
 // ── task/create (TM recruitment) ────────────────────────────────────
@@ -561,7 +568,10 @@ export const TaskCreate = defineRpc({
   name: "task/create",
   params: TaskCreateContextSchema,
   result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
-  errors: [],
+  // Mirrors `DispatchAuthorize`: a TM handler may reject with `ForbiddenError`,
+  // serialized as the flat tagged error and collapsed to a fail-closed reject
+  // by the server.
+  errors: [ForbiddenError],
 });
 
 // ── Aggregators ─────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
-### [`appCallbackMethods`](./methods.ts#L575)
+### [`appCallbackMethods`](./methods.ts#L585)
 
 _Variable_
 
@@ -39,7 +39,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L581)
+### [`appNotifications`](./methods.ts#L591)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](./methods.ts#L569)
+### [`appRpcMethods`](./methods.ts#L579)
 
 _Variable_
 
@@ -88,7 +88,11 @@ export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
   result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
-  errors: [],
+  // A moderator handler may reject outright with `ForbiddenError`; declaring it
+  // lets the reverse engine serialize the flat tagged error rather than a
+  // `Die` defect. The server collapses any callback failure to a fail-closed
+  // deny verdict, so the error type is observed on the wire but never escapes.
+  errors: [ForbiddenError],
 })
 ```
 
@@ -98,7 +102,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 `LeaseRegistry.resolve`. The server emits this RPC only for a manifest
 whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 
-### [`DispatchesConsumed`](./methods.ts#L347)
+### [`DispatchesConsumed`](./methods.ts#L351)
 
 _Variable_
 
@@ -121,7 +125,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./methods.ts#L364)
+### [`DispatchesExpired`](./methods.ts#L368)
 
 _Variable_
 
@@ -142,7 +146,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./methods.ts#L421)
+### [`DispatchesGet`](./methods.ts#L425)
 
 _Variable_
 
@@ -204,7 +208,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 
 The referenced dispatch lease does not exist (or the caller is not its moderator).
 
-### [`DispatchRelease`](./methods.ts#L326)
+### [`DispatchRelease`](./methods.ts#L330)
 
 _Variable_
 
@@ -280,7 +284,7 @@ export const manifestPolicyCanaries =
 
 Aggregate so each binding is referenced (no unused-variable lint).
 
-### [`MessagesAuthorize`](./methods.ts#L483)
+### [`MessagesAuthorize`](./methods.ts#L487)
 
 _Variable_
 
@@ -289,7 +293,10 @@ export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
   result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
-  errors: [],
+  // Mirrors `DispatchAuthorize`: a moderator handler may reject with
+  // `ForbiddenError`, serialized as the flat tagged error and collapsed to a
+  // fail-closed Block by the server.
+  errors: [ForbiddenError],
 })
 ```
 
@@ -307,7 +314,7 @@ participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`TaskCreate`](./methods.ts#L560)
+### [`TaskCreate`](./methods.ts#L567)
 
 _Variable_
 
@@ -316,7 +323,10 @@ export const TaskCreate = defineRpc({
   name: "task/create",
   params: TaskCreateContextSchema,
   result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
-  errors: [],
+  // Mirrors `DispatchAuthorize`: a TM handler may reject with `ForbiddenError`,
+  // serialized as the flat tagged error and collapsed to a fail-closed reject
+  // by the server.
+  errors: [ForbiddenError],
 })
 ```
 

@@ -33,6 +33,20 @@ one cast-free `@effect/rpc` dispatch bridge.
   Timeout>` with ZERO casts. The generic `sendRpc` wrapper and the flat client
   are deleted. The agent client, app client, and the server's reverse client
   all dispatch through one shared `makeTypedTransportCall` bridge.
+- **Connection-close + timeout semantics:** a value RPC in flight when the
+  socket drops (server close, `disconnect()`, or `close()`) now fails with
+  `NotConnectedError` instead of vanishing as an interrupt — the reader-exit
+  path closes the connection scope, which clears the engine's pending requests.
+  A per-call timeout stays LOCAL: it fails the caller with `RpcTimeoutError`
+  without writing an `@effect/rpc/Interrupt` frame or dropping the shared
+  socket.
+- **Reverse-handler error wire shape:** a reverse callback handler that rejects
+  with a tagged error (e.g. `ForbiddenError`) now serializes the FLAT tagged
+  error `{error:{_tag:"Forbidden", …}}`, matching the forward path, rather than
+  the raw `@effect/rpc` `{_tag:"Cause"}` envelope. The moderator callbacks
+  (`dispatch/authorize`, `messages/authorize`, `task/create`) declare
+  `ForbiddenError` in their error channel so the engine can encode a handler
+  rejection instead of emitting an un-encodable defect.
 
 ### Changed: manifest hook policies are required — close the fail-open `dispatch_authorize` hole (#735)
 
