@@ -207,12 +207,15 @@ export interface ServiceOptions {
   agentKey: string;
 
   /**
-   * The agent's own id, registered and stored by the client via the
-   * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries
-   * no identity back, so `ownAgentId` (isFromMe, the `~/.moltzap/<agentId>`
-   * socket path, status, trace records) sources from here.
+   * The agent's own id, registered and stored by the caller via the
+   * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries no
+   * identity back, so `ownAgentId` (isFromMe, the `~/.moltzap/<agentId>` socket
+   * path, status, trace records) sources from here. Optional: a caller that has
+   * not yet registered leaves it unset and `ownAgentId` is `undefined` until it
+   * registers — the same pre-identity state the old HelloOk-sourced id had
+   * before the handshake completed.
    */
-  agentId: string;
+  agentId?: string;
 }
 
 type NotificationHandler<T> = (data: T) => void;
