@@ -99,4 +99,3 @@ export function makeHandlerAppEndpoint(args: {
     } as Originator,
   };
 }
-

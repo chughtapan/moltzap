@@ -308,31 +308,6 @@ arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
   - `originator.handle` / `originator.resolve` defect — an in-process
     endpoint never receives inbound frames; a call here is a wiring bug.
 
-### [`makeInertAppEndpoint`](./app-endpoint.ts#L115)
-
-_Function_
-
-```ts
-export function makeInertAppEndpoint(args: {
-  readonly id: ConnectionId;
-  readonly originatorCall?: <D extends AnyAppCallbackRpcDefinition>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, RpcCallError>;
-}): AppEndpoint
-```
-
-Minimal AppEndpoint for tests that only assert the
-registration surface (connId keying, unregister-side effects, etc.).
-Every dispatch method defects — tests that actually drive
-`runMessageAuthorize` / `runDispatchAuthorize` against a declared hook
-MUST use makeHandlerAppEndpoint (or a real wire connection via
-`acquireConnectionRpcClient`).
-
-Optional `originatorCall` override lets a test mock the outbound
-RPC channel (e.g., to simulate a stale-connection `NotConnectedError`
-without spinning up a real socket).
-
 ### [`makePgliteHarness`](./pglite-harness.ts#L72)
 
 _Function_
