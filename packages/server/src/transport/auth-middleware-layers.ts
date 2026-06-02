@@ -28,25 +28,13 @@ import {
   PrincipalGateMw,
   ConversationInTaskMw,
   ConversationSendAccessMw,
-  ActiveTaskPermissionMw,
-  OpenConversationPermissionMw,
-  ReplyTargetPermissionMw,
   TaskReadAccessMw,
   ContactPolicyAllowsReachMw,
-  ConversationInTask,
-  ConversationSendAccess,
-  ActiveTaskPermission,
-  OpenConversationPermission,
-  ReplyTargetPermission,
-  TaskReadAccess,
-  ContactPolicyAllowsReach,
-  CurrentPrincipal,
+  serverRpcMethods,
   type CallablePrincipal,
   type ConversationId,
   type TaskId,
-  type MessageId,
 } from "@moltzap/protocol";
-import { serverRpcMethods } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import {
@@ -60,12 +48,7 @@ import {
   obtainConversationInTask,
   obtainContactPolicyAllowsReach,
 } from "../app/capability-middlewares.js";
-import {
-  obtainConversationSendAccess,
-  obtainActiveTaskPermission,
-  obtainOpenConversationPermission,
-  obtainReplyTargetPermission,
-} from "../task/services/send-permissions.js";
+import { obtainConversationSendAccess } from "../task/services/send-permissions.js";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
 /** The principal policy a method's gate enforces. */
@@ -152,7 +135,6 @@ interface MwOptions {
 type SendParams = {
   readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
-  readonly replyToId?: MessageId;
 };
 type TaskAndConvParams = {
   readonly taskId: TaskId;
@@ -220,29 +202,6 @@ export const makeConversationSendAccessMwLayer = (connId: ConnectionId) =>
     ),
   );
 
-/** `ActiveTaskPermission` cap mw impl Layer: reads the shared send row. */
-export const makeActiveTaskPermissionMwLayer = (_connId: ConnectionId) =>
-  Layer.succeed(ActiveTaskPermissionMw, () => obtainActiveTaskPermission());
-
-/** `OpenConversationPermission` cap mw impl Layer: reads the shared send row. */
-export const makeOpenConversationPermissionMwLayer = (_connId: ConnectionId) =>
-  Layer.succeed(OpenConversationPermissionMw, () =>
-    obtainOpenConversationPermission(),
-  );
-
-/** `ReplyTargetPermission` cap mw impl Layer: conditional reply existence read. */
-export const makeReplyTargetPermissionMwLayer = (_connId: ConnectionId) =>
-  Layer.effect(
-    ReplyTargetPermissionMw,
-    Effect.map(mwEnv, (env) => ({ payload }: MwOptions) => {
-      const p = payload as SendParams;
-      return obtainReplyTargetPermission({
-        conversationId: p.conversationId,
-        replyToId: p.replyToId,
-      }).pipe(Effect.provide(env));
-    }),
-  );
-
 /** `TaskReadAccess` cap mw impl Layer: peek caller, prove read access. */
 export const makeTaskReadAccessMwLayer = (connId: ConnectionId) =>
   Layer.effect(
@@ -297,13 +256,8 @@ export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
     makePrincipalGateLayer(connId),
     makeConversationInTaskMwLayer(connId),
     makeConversationSendAccessMwLayer(connId),
-    makeActiveTaskPermissionMwLayer(connId),
-    makeOpenConversationPermissionMwLayer(connId),
-    makeReplyTargetPermissionMwLayer(connId),
     makeTaskReadAccessMwLayer(connId),
     makeContactPolicyAllowsReachMwLayer(connId),
   );
 
-// Re-export so `CurrentPrincipal`/`MwEnv` consumers keep a stable path.
-export { CurrentPrincipal };
 export type { MwEnv };

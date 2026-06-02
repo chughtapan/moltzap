@@ -27,9 +27,6 @@ import type { RpcErrorClass } from "./method.js";
 import {
   ConversationInTask,
   ConversationSendAccess,
-  ActiveTaskPermission,
-  OpenConversationPermission,
-  ReplyTargetPermission,
   TaskReadAccess,
   ContactPolicyAllowsReach,
 } from "../task/capabilities/index.js";
@@ -68,27 +65,6 @@ export class ConversationSendAccessMw extends RpcMiddleware.Tag<ConversationSend
   },
 ) {}
 
-export class ActiveTaskPermissionMw extends RpcMiddleware.Tag<ActiveTaskPermissionMw>()(
-  "@moltzap/protocol/cap/mw/active-task-permission",
-  { provides: ActiveTaskPermission, failure: capFailure(ActiveTaskPermission) },
-) {}
-
-export class OpenConversationPermissionMw extends RpcMiddleware.Tag<OpenConversationPermissionMw>()(
-  "@moltzap/protocol/cap/mw/open-conversation-permission",
-  {
-    provides: OpenConversationPermission,
-    failure: capFailure(OpenConversationPermission),
-  },
-) {}
-
-export class ReplyTargetPermissionMw extends RpcMiddleware.Tag<ReplyTargetPermissionMw>()(
-  "@moltzap/protocol/cap/mw/reply-target-permission",
-  {
-    provides: ReplyTargetPermission,
-    failure: capFailure(ReplyTargetPermission),
-  },
-) {}
-
 export class TaskReadAccessMw extends RpcMiddleware.Tag<TaskReadAccessMw>()(
   "@moltzap/protocol/cap/mw/task-read-access",
   { provides: TaskReadAccess, failure: capFailure(TaskReadAccess) },
@@ -115,9 +91,6 @@ export const capMiddlewareByCapKey: Readonly<
 > = {
   [ConversationInTask.key]: ConversationInTaskMw,
   [ConversationSendAccess.key]: ConversationSendAccessMw,
-  [ActiveTaskPermission.key]: ActiveTaskPermissionMw,
-  [OpenConversationPermission.key]: OpenConversationPermissionMw,
-  [ReplyTargetPermission.key]: ReplyTargetPermissionMw,
   [TaskReadAccess.key]: TaskReadAccessMw,
   [ContactPolicyAllowsReach.key]: ContactPolicyAllowsReachMw,
 };
@@ -133,17 +106,11 @@ export type CapMwFor<Cap> = Cap extends typeof ConversationInTask
   ? typeof ConversationInTaskMw
   : Cap extends typeof ConversationSendAccess
     ? typeof ConversationSendAccessMw
-    : Cap extends typeof ActiveTaskPermission
-      ? typeof ActiveTaskPermissionMw
-      : Cap extends typeof OpenConversationPermission
-        ? typeof OpenConversationPermissionMw
-        : Cap extends typeof ReplyTargetPermission
-          ? typeof ReplyTargetPermissionMw
-          : Cap extends typeof TaskReadAccess
-            ? typeof TaskReadAccessMw
-            : Cap extends typeof ContactPolicyAllowsReach
-              ? typeof ContactPolicyAllowsReachMw
-              : never;
+    : Cap extends typeof TaskReadAccess
+      ? typeof TaskReadAccessMw
+      : Cap extends typeof ContactPolicyAllowsReach
+        ? typeof ContactPolicyAllowsReachMw
+        : never;
 
 /**
  * The middleware stack an authenticated method's `caps` tuple maps to: the

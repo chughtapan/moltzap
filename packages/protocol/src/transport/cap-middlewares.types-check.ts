@@ -20,7 +20,6 @@ import {
   PrincipalGateMw,
   ConversationInTaskMw,
   ConversationSendAccessMw,
-  ActiveTaskPermissionMw,
 } from "./cap-middlewares.js";
 import {
   ConversationInTask,
@@ -61,11 +60,12 @@ type _CitNonOptional = Expect<
 
 // ── mw.failure — a cap middleware's failure is a real Schema (non-never) ──
 
-// `ActiveTaskPermission` declares `TaskClosedError`, so its middleware's
-// `failure` is a concrete Schema (not the `Schema.Never` default).
-type _AtpFailureNotNever = Expect<
+// `ConversationSendAccess` declares `ForbiddenError`, so its middleware's
+// `failure` is a concrete Schema (not the `Schema.Never` default), which the
+// engine unions into `messages/send`'s wire error.
+type _CsaFailureNotNever = Expect<
   Equal<
-    (typeof ActiveTaskPermissionMw)["failure"] extends typeof Schema.Never
+    (typeof ConversationSendAccessMw)["failure"] extends typeof Schema.Never
       ? true
       : false,
     false
@@ -78,5 +78,5 @@ export type {
   _GateNoProvides,
   _GateNonOptional,
   _CitNonOptional,
-  _AtpFailureNotNever,
+  _CsaFailureNotNever,
 };
