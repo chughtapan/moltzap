@@ -101,3 +101,23 @@ export class ContactPolicyAllowsReachMw extends RpcMiddleware.Tag<ContactPolicyA
     failure: capFailure(ContactPolicyAllowsReach),
   },
 ) {}
+
+/**
+ * Cap `Context.Tag` key → its `RpcMiddleware.Tag`. The engine binding
+ * (`server-engine-group.ts → buildEngineMember`) reads a method's `caps` tuple
+ * and stacks each cap's middleware in declared order. A cap that a method can
+ * require MUST appear here, or the binding leaves it ungated — the boot guard
+ * (`assertCapMiddlewareCoverage`) fails the build if a declared cap has no
+ * middleware.
+ */
+export const capMiddlewareByCapKey: Readonly<
+  Record<string, RpcMiddleware.TagClassAny>
+> = {
+  [ConversationInTask.key]: ConversationInTaskMw,
+  [ConversationSendAccess.key]: ConversationSendAccessMw,
+  [ActiveTaskPermission.key]: ActiveTaskPermissionMw,
+  [OpenConversationPermission.key]: OpenConversationPermissionMw,
+  [ReplyTargetPermission.key]: ReplyTargetPermissionMw,
+  [TaskReadAccess.key]: TaskReadAccessMw,
+  [ContactPolicyAllowsReach.key]: ContactPolicyAllowsReachMw,
+};
