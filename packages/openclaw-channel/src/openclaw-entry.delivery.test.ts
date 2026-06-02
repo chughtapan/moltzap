@@ -22,7 +22,7 @@ import {
   type TaskId,
 } from "@moltzap/protocol";
 import { TaskClosedError } from "@moltzap/protocol/task";
-import { RpcServerError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
@@ -619,8 +619,7 @@ function reportsSendFailure() {
 
 function serverRejected(): Effect.Effect<void, ServiceRpcError> {
   return Effect.fail(
-    new RpcServerError({
-      code: NON_TASK_CLOSED_CODE,
+    new ForbiddenError({
       message: SERVER_REJECTED_MESSAGE,
     }),
   );
@@ -638,8 +637,7 @@ function taskClosedIsConsumed() {
 
 function taskClosed(): Effect.Effect<void, ServiceRpcError> {
   return Effect.fail(
-    new RpcServerError({
-      code: TaskClosedError.code,
+    new TaskClosedError({
       message: TaskClosedError.message,
     }),
   );
@@ -649,8 +647,7 @@ function nonTaskClosedFails() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
-        new RpcServerError({
-          code: NON_TASK_CLOSED_CODE,
+        new ForbiddenError({
           message: INTERNAL_SERVER_ERROR_MESSAGE,
         }),
       ),
@@ -680,8 +677,7 @@ function leaseGuardUnconsumedOnTransientFailure() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
-        new RpcServerError({
-          code: NON_TASK_CLOSED_CODE,
+        new ForbiddenError({
           message: INTERNAL_SERVER_ERROR_MESSAGE,
         }),
       ),

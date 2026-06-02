@@ -115,7 +115,7 @@ function createDmConversation(
   invitee: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return client
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [invitee],
       initialConversation: { participants: [invitee] },
@@ -133,7 +133,7 @@ function sendText(
   binding: DmBinding,
   text: string,
 ) {
-  return client.sendRpc(MessagesSend, {
+  return client.call(MessagesSend.name, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
@@ -142,7 +142,7 @@ function sendText(
 
 function listMessageTexts(client: MoltZapAgentClient, binding: DmBinding) {
   return client
-    .sendRpc(MessagesList, {
+    .call(MessagesList.name, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     })
@@ -321,7 +321,7 @@ function rpcCallsWorkAfterReconnect() {
     yield* client.connect();
     yield* client.disconnect();
     yield* waitUntil(() => reconnected, RECONNECT_WAIT_MS, "reconnect");
-    const result = yield* client.sendRpc(AgentsLookup, {
+    const result = yield* client.call(AgentsLookup.name, {
       agentIds: [bob.agentId],
     });
 

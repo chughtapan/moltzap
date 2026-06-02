@@ -278,7 +278,7 @@ function duplicateTargetReusesConversation() {
 function missingAgentLookupFails() {
   return Effect.gen(function* () {
     const agentClient = yield* connectedClaimedClient("err-sender");
-    const result = yield* agentClient.sendRpc(AgentsLookupByName, {
+    const result = yield* agentClient.call(AgentsLookupByName.name, {
       names: [MISSING_AGENT_NAME],
     });
     expect(result.agents).toEqual([]);
@@ -358,7 +358,7 @@ function createDm(
   invitee: AgentId,
 ): Effect.Effect<TaskBinding, unknown> {
   return client
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [invitee],
       initialConversation: { participants: [invitee] },
@@ -372,7 +372,7 @@ function createGroup(
   agentIds: ReadonlyArray<AgentId>,
 ): Effect.Effect<TaskBinding, unknown> {
   return client
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: agentIds,
       initialConversation: { name, participants: agentIds },
@@ -385,7 +385,7 @@ function sendText(
   binding: TaskBinding,
   text: string,
 ) {
-  return client.sendRpc(MessagesSend, {
+  return client.call(MessagesSend.name, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
@@ -468,7 +468,7 @@ function expectConversationMessageFrom(
 }
 
 function lookupAgentId(client: MoltZapAgentClient, name: string) {
-  return client.sendRpc(AgentsLookupByName, { names: [name] }).pipe(
+  return client.call(AgentsLookupByName.name, { names: [name] }).pipe(
     Effect.flatMap((result) => {
       const found = result.agents[0]?.id;
       return found === undefined
