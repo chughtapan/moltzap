@@ -59,7 +59,7 @@ export const messagesListHandler = (
             conversationId: args.conversationId,
             limit: args.limit,
           };
-    const result = yield* rpc(MessagesList, params);
+    const result = yield* rpc(MessagesList.name, params);
     yield* Effect.sync(() => {
       for (const m of result.messages) {
         const text = m.parts.find((p) => p.type === "text")?.text ?? "";

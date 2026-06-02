@@ -401,7 +401,7 @@ function directRpcFailurePropagates() {
       serverUrl: DIRECT_TEST_SERVER_URL,
     };
     const exit = yield* Transport.pipe(
-      Effect.flatMap((transport) => transport.rpc(TaskList, {})),
+      Effect.flatMap((transport) => transport.rpc(TaskList.name, {})),
       Effect.exit,
       Effect.provide(makeTransportLayer(opts)),
     );

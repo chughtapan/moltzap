@@ -28,7 +28,7 @@ const wrap = <A>(
 
 const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
   wrap(
-    request(ContactsList, {}) as Effect.Effect<
+    request(ContactsList.name, {}) as Effect.Effect<
       {
         readonly contacts: ReadonlyArray<Contact>;
         readonly nextCursor?: string;
@@ -66,7 +66,7 @@ const userIdArg = Args.text({ name: "userId" }).pipe(
 
 const addContact = Command.make("add", { userId: userIdArg }, ({ userId: u }) =>
   wrap(
-    request(ContactsAdd, {
+    request(ContactsAdd.name, {
       contactUserId: u as UserId,
     }) as Effect.Effect<{ contact: Contact }, Error>,
     (r) => {
@@ -84,7 +84,7 @@ const acceptContact = Command.make(
   { contactId: contactIdArg },
   ({ contactId }) =>
     wrap(
-      request(ContactsAccept, {
+      request(ContactsAccept.name, {
         contactId: contactId as ContactId,
       }) as Effect.Effect<{ contact: Contact }, Error>,
       (r) => {

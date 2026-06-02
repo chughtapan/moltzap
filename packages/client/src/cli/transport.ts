@@ -27,11 +27,10 @@ import {
 import { MoltZapService } from "../service.js";
 import {
   NotConnectedError,
-  RpcServerError,
   RpcTimeoutError,
-  isRegisteredErrorInstance,
-  type RpcErrorClass,
+  AgentCallableGroup,
 } from "@moltzap/protocol";
+import type { RpcGroup } from "@effect/rpc";
 import { MoltZapAgentClient } from "../agent-client.js";
 import { request as daemonRequest } from "./socket-client.js";
 import type { ProfileError } from "./profile.js";
@@ -40,7 +39,16 @@ import {
   parseProfileName,
   resolveProfileAuth,
 } from "./profile.js";
-import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol";
+import type {
+  PayloadForTag,
+  SuccessForTag,
+} from "../runtime/typed-dispatch.js";
+
+/** The agent group's member `Rpc`s — the tag-keyed CLI transport surface. */
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+
+/** The branded wire tags the CLI may originate. */
+type AgentCallableTag = AgentCallableRpcs["_tag"];
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -72,12 +80,13 @@ export class TransportTimeoutError extends Data.TaggedError(
 }> {}
 
 /**
- * Server returned a structured error response frame. `code` matches the
- * JSON-RPC-style error code emitted by `packages/server`.
+ * Server returned a typed wire `error` for a request. `tag` is the failing
+ * method's tagged-error discriminant (e.g. `"TaskRejected"`, `"Forbidden"`) —
+ * the `_tag` the engine decoded the error against, not a numeric code.
  */
 export class TransportRpcError extends Data.TaggedError("TransportRpcError")<{
   readonly method: string;
-  readonly code: number;
+  readonly tag: string;
   readonly message: string;
   readonly data?: unknown;
 }> {}
@@ -111,15 +120,16 @@ export const DIRECT_TRANSPORT_KIND = "direct";
 type TransportKind = "daemon" | typeof DIRECT_TRANSPORT_KIND | "test";
 
 /**
- * Transport surface used by every CLI command. One generic RPC call; the
- * `kind` is for logs/tests. Commands never branch on `kind`.
+ * Transport surface used by every CLI command. One typed per-method call keyed
+ * by wire tag; the `kind` is for logs/tests. Commands never branch on `kind`.
+ * The agent group's tags are the only callable surface.
  */
 export interface Transport {
   readonly kind: TransportKind;
-  readonly rpc: <D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) => Effect.Effect<ResultOf<D>, TransportError>;
+  readonly rpc: <Tag extends AgentCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AgentCallableRpcs, Tag>,
+  ) => Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, TransportError>;
 }
 
 export const Transport = Context.GenericTag<Transport>("moltzap/cli/Transport");
@@ -270,49 +280,44 @@ const tagDaemonError = (method: string, err: Error): TransportError => {
 
 const makeDaemonTransport = (socketPath: string): Transport => ({
   kind: "daemon",
-  rpc: <D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
-  ) =>
-    daemonRequest(definition, params, socketPath).pipe(
-      Effect.mapError((err) => tagDaemonError(definition.name, err)),
+  rpc: (tag, payload) =>
+    daemonRequest(tag, payload, socketPath).pipe(
+      Effect.mapError((err) => tagDaemonError(tag, err)),
     ),
 });
 
-// Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError |
-// any registered domain wire error) to TransportError tags.
-
-// Registered domain wire errors (e.g. `TaskRejectedError`, -32024) decode to a
-// tagged-error instance whose numeric `code` lives on the constructor, not the
-// instance. Map them to `TransportRpcError` so the CLI surfaces the real
-// code/reason rather than misreporting a decode failure. Returns null when
-// `err` is not a registered wire error (caller falls through to decode).
-function mapRegisteredWireError(
+/**
+ * A domain wire error decoded by the engine — any `Schema.TaggedError` instance
+ * with a `_tag` discriminant. Maps to `TransportRpcError` carrying that `_tag`.
+ * Returns null when `err` is not a tagged-error record (caller falls through to
+ * a decode error).
+ */
+function mapTaggedWireError(
   method: string,
   err: unknown,
 ): TransportRpcError | null {
-  if (
-    typeof err !== "object" ||
-    err === null ||
-    !isRegisteredErrorInstance(err)
-  ) {
+  if (typeof err !== "object" || err === null || !("_tag" in err)) {
     return null;
   }
-  const cls = err.constructor as RpcErrorClass;
-  const payload = err as { readonly message?: string; readonly data?: unknown };
-  const message =
-    payload.message !== undefined && payload.message.length > 0
-      ? payload.message
-      : cls.message;
+  const payload = err as {
+    readonly _tag: string;
+    readonly message?: string;
+    readonly data?: unknown;
+  };
   return new TransportRpcError({
     method,
-    code: cls.code,
-    message,
+    tag: payload._tag,
+    message: payload.message ?? payload._tag,
     data: payload.data,
   });
 }
 
 /**
+ * Map a typed call error to the CLI's `TransportError`. Transport-level
+ * `NotConnectedError`/`RpcTimeoutError` map to their reachability/timeout
+ * variants; every other failure is a method's tagged wire error, mapped to
+ * `TransportRpcError` by `_tag`.
+ *
  * Exported for decoder-fixture tests only.
  * @internal
  */
@@ -329,17 +334,9 @@ export const tagWsError = (method: string, err: unknown): TransportError => {
       timeoutMs: err.timeoutMs,
     });
   }
-  if (err instanceof RpcServerError) {
-    return new TransportRpcError({
-      method,
-      code: err.code,
-      message: err.message,
-      data: err.data,
-    });
-  }
-  const registered = mapRegisteredWireError(method, err);
-  if (registered !== null) {
-    return registered;
+  const tagged = mapTaggedWireError(method, err);
+  if (tagged !== null) {
+    return tagged;
   }
   return new TransportDecodeError({ method, cause: err });
 };
@@ -350,16 +347,14 @@ function mapDirectRpcError(method: string): (err: unknown) => TransportError {
   return (err) => tagWsError(method, err);
 }
 
-function sendDirectRpc<D extends RpcDefinition<string, any, any>>(
+function sendDirectRpc<Tag extends AgentCallableTag>(
   connectOnce: DirectConnectOnce,
-  definition: D,
-  params: ParamsOf<D>,
-): Effect.Effect<ResultOf<D>, TransportError> {
+  tag: Tag,
+  payload: PayloadForTag<AgentCallableRpcs, Tag>,
+): Effect.Effect<SuccessForTag<AgentCallableRpcs, Tag>, TransportError> {
   return connectOnce.pipe(
     Effect.flatMap((client) =>
-      client
-        .sendRpc(definition, params)
-        .pipe(Effect.mapError(mapDirectRpcError(definition.name))),
+      client.call(tag, payload).pipe(Effect.mapError(mapDirectRpcError(tag))),
     ),
   );
 }
@@ -424,11 +419,7 @@ const makeDirectTransport = (
 
     return {
       kind: DIRECT_TRANSPORT_KIND,
-      rpc: <D extends RpcDefinition<string, any, any>>(
-        definition: D,
-        params: ParamsOf<D>,
-      ): Effect.Effect<ResultOf<D>, TransportError> =>
-        sendDirectRpc(connectOnce, definition, params),
+      rpc: (tag, payload) => sendDirectRpc(connectOnce, tag, payload),
     };
   });
 
@@ -483,11 +474,14 @@ export const makeTransportLayer = (
  * Every subcommand routes through this helper; command handlers do not
  * import `socket-client.request` directly.
  */
-export const rpc = <D extends RpcDefinition<string, any, any>>(
-  definition: D,
-  params: ParamsOf<D>,
-): Effect.Effect<ResultOf<D>, TransportError, Transport> =>
-  Effect.flatMap(Transport, (t) => t.rpc(definition, params));
+export const rpc = <Tag extends AgentCallableTag>(
+  tag: Tag,
+  payload: PayloadForTag<AgentCallableRpcs, Tag>,
+): Effect.Effect<
+  SuccessForTag<AgentCallableRpcs, Tag>,
+  TransportError,
+  Transport
+> => Effect.flatMap(Transport, (t) => t.rpc(tag, payload));
 
 /**
  * Uniform error-to-exit adapter for subcommand handlers. Catches every error
