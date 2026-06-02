@@ -304,11 +304,9 @@ export interface DispatchTestDriver {
   ) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Advance the test clock by `durationMs`. If the conformance harness
-   * is running against `TestClock`, this fast-forwards TTLs; otherwise
-   * (real-time mode) it is a `Effect.sleep`. Property authors call this
-   * for `dispatches-expired-fires-on-ttl` and the moderator-response
-   * timeout property.
+   * Sleep `durationMs` against the real clock to let server-side TTLs elapse.
+   * Property authors call this for `dispatches-expired-fires-on-ttl` and the
+   * moderator-response timeout property, which both run against a live server.
    */
   readonly advanceTime: (durationMs: number) => Effect.Effect<void>;
 }

@@ -8,7 +8,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
-### [`appCallbackMethods`](./methods.ts#L585)
+### [`appCallbackMethods`](./methods.ts#L577)
 
 _Variable_
 
@@ -39,7 +39,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L591)
+### [`appNotifications`](./methods.ts#L583)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](./methods.ts#L579)
+### [`appRpcMethods`](./methods.ts#L571)
 
 _Variable_
 
@@ -79,7 +79,7 @@ export const AppsRegister = defineRpc({
 
 Register an app manifest for the current connection.
 
-### [`DispatchAuthorize`](./methods.ts#L307)
+### [`DispatchAuthorize`](./methods.ts#L303)
 
 _Variable_
 
@@ -102,7 +102,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 `LeaseRegistry.resolve`. The server emits this RPC only for a manifest
 whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 
-### [`DispatchesConsumed`](./methods.ts#L351)
+### [`DispatchesConsumed`](./methods.ts#L345)
 
 _Variable_
 
@@ -125,7 +125,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./methods.ts#L368)
+### [`DispatchesExpired`](./methods.ts#L362)
 
 _Variable_
 
@@ -146,7 +146,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./methods.ts#L425)
+### [`DispatchesGet`](./methods.ts#L419)
 
 _Variable_
 
@@ -165,7 +165,7 @@ the handler: the calling connection must match the lease's
 `moderatorConnectionId` (the binding tuple recorded at mint time);
 non-moderator callers fail with `ForbiddenError`.
 
-### [`DispatchId`](./methods.ts#L265)
+### [`DispatchId`](./methods.ts#L261)
 
 _TypeAlias_
 
@@ -179,7 +179,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./methods.ts#L265)
+### [`DispatchId`](./methods.ts#L261)
 
 _Variable_
 
@@ -208,7 +208,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 
 The referenced dispatch lease does not exist (or the caller is not its moderator).
 
-### [`DispatchRelease`](./methods.ts#L330)
+### [`DispatchRelease`](./methods.ts#L324)
 
 _Variable_
 
@@ -226,18 +226,16 @@ export const DispatchRelease = defineNotification({
 })
 ```
 
-Server → recipient verdict notification. Fire-and-forget on the wire
-(Final Decision #2). Always emitted, including default-grant and
-synthesized infra-hold (Final Decisions #3, #10). The recipient parks
-client-side on `leaseId` and unparks on this notification.
+Server → recipient verdict notification. Fire-and-forget on the wire. Always
+emitted, including default-grant and synthesized infra-hold. The recipient
+parks client-side on `leaseId` and unparks on this notification.
 
-`leaseTimeoutMs` is set on the `grant` arm only and is the post-
-grant TTL (Final Decision #9). HOLD inherits the same TTL by ageing
-out via the standard EXPIRED path; no `leaseTimeoutMs` field needed
-on the hold arm because the grant TTL has not started yet (lease
-never reached GRANTED).
+`leaseTimeoutMs` is set on the `grant` arm only and is the post-grant TTL.
+HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
+`leaseTimeoutMs` field needed on the hold arm because the grant TTL has not
+started yet (lease never reached GRANTED).
 
-### [`DispatchRequest`](./methods.ts#L277)
+### [`DispatchRequest`](./methods.ts#L273)
 
 _Variable_
 
@@ -284,7 +282,7 @@ export const manifestPolicyCanaries =
 
 Aggregate so each binding is referenced (no unused-variable lint).
 
-### [`MessagesAuthorize`](./methods.ts#L487)
+### [`MessagesAuthorize`](./methods.ts#L479)
 
 _Variable_
 
@@ -314,7 +312,7 @@ participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`TaskCreate`](./methods.ts#L567)
+### [`TaskCreate`](./methods.ts#L559)
 
 _Variable_
 
@@ -355,8 +353,8 @@ terminal `setStatus` runs AFTER it. The sequence is not atomic
 (the callback is a network call, not a DB op), so a crash or fiber
 interrupt in that window can strand a task in `waiting`. Stranded
 waiting tasks are invisible to delivery (no conversation, no
-participants observe them) and are reaped by follow-up work (the
-stale-waiting-task sweep, #684).
+participants observe them) and would be reaped by a stale-waiting-task
+sweep.
 
 ### [`validateAppManifest`](./methods.ts#L166)
 

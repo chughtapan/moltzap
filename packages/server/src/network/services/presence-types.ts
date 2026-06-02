@@ -91,7 +91,7 @@ export function deriveEntryStatus(
  * producing duplicate `working` notifications: the second GRANT sees
  * `previous = working` and elides the emission.
  */
-export function emitPresenceTransition(
+export function dedupePresenceStatus(
   previous: DerivedPresenceStatus,
   next: DerivedPresenceStatus,
 ): Option.Option<DerivedPresenceStatus> {
@@ -158,7 +158,7 @@ export type PresenceAuditEvent =
     };
 
 /**
- * Observer surface the {@link LeaseRegistry} calls at each transition
+ * Observer surface the `LeaseRegistry` calls at each transition
  * that crosses the lease's "active for presence" boundary. "Active"
  * means GRANTED or CLAIMED — the two states that count toward
  * `working`.
@@ -205,7 +205,7 @@ export interface LeaseTransitionObserver {
 }
 
 /**
- * Default observer used by {@link LeaseRegistryDeps.transitionObserver}
+ * Default observer used by `LeaseRegistry`'s `transitionObserver`
  * when the registry is constructed without a presence service (e.g. in
  * `lease-registry.test.ts` unit tests that do not exercise presence).
  *

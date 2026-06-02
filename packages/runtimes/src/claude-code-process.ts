@@ -1,9 +1,9 @@
 /**
- * Claude-Code-specific config helpers (issue #255).
+ * Claude-Code-specific config helpers.
  *
  * The plugin-install + workspace-seed helpers live in
  * `channel-plugin-install.ts` so openclaw and claude-code share one
- * implementation (issue #272 item 8). What stays here is the bit unique
+ * implementation. What stays here is the bit unique
  * to claude-code: the MCP-config JSON `claude --mcp-config` reads.
  */
 import { FileSystem, Path } from "@effect/platform";

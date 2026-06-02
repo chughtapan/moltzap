@@ -10,15 +10,22 @@
     "packages/nanoclaw-channel",
     "packages/openclaw-channel"
   ],
+  "externalSymbolLinkMappings": {
+    "effect": {
+      "Effect.die": "https://effect.website/docs",
+      "Ref.update": "https://effect.website/docs",
+      "HashSet.add": "https://effect.website/docs"
+    },
+    "@effect/platform": {
+      "Socket.SocketError": "https://effect.website/docs"
+    }
+  },
   "packageOptions": {
     "entryPoints": ["src/index.ts"],
     "excludeInternal": true,
     "excludePrivate": true,
     "readme": "none",
     "skipErrorChecking": true,
-    "outputs": [
-      { "name": "json", "path": "node_modules/.cache/typedoc-pkg.json" }
-    ],
     "blockTags": [
       "@file",
       "@failure",

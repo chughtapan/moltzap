@@ -12,10 +12,8 @@
  * These layer Tag unions bound a handler's residual R-channel so a handler at
  * layer L cannot pull a service that only layer L+1 owns.
  *
- * **Audit method.** Each Tag below is placed at the lowest layer whose
- * handlers yield it post-Phase-2A.0 DI migration. The audit ran against
- * `main@adc2e18` handler bodies; result is documented in the Phase 2A r2
- * architect plan §3 ("Handler audit matrix").
+ * **Placement.** Each Tag below sits at the lowest layer whose handlers yield
+ * it.
  *
  * **Maintenance contract.** Adding a new service Tag is a TWO-step edit
  * that lands in the same PR:
@@ -25,9 +23,8 @@
  *      `eslint.config.js` so the structural lint and the type system
  *      agree.
  *
- * The two-source-of-truth shape is intentional and named in §10 of the
- * Phase 2A r2 architect plan; the user explicitly accepted the
- * maintenance cost over a codegen pipeline.
+ * The two-source-of-truth shape is intentional: it keeps the structural lint
+ * and the type system in agreement without a codegen pipeline.
  */
 import type {
   ConnectionTag,
@@ -105,7 +102,6 @@ type TaskTags =
  */
 export type AppTags = TaskTags | AppHostTag;
 
-// #705 — the former `CapabilityTags` SIBLING alias (Spec E #601) is
-// retired. Per-frame capability tags are not admitted into a global union;
-// each method's caps ride its own `*AuthMw` proof (server-core
-// `auth-middleware-layers.ts`), so the global cap alias has no consumer.
+// There is no global capability-tag union: per-frame capability tags are not
+// admitted into one. Each method's caps ride its own `*AuthMw` proof (server-core
+// `auth-middleware-layers.ts`).

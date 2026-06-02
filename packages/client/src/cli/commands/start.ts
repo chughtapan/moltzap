@@ -729,8 +729,8 @@ const messageOption = Options.text("message").pipe(
 
 const appIdOption = Options.text("app-id").pipe(
   Options.withDescription(
-    "App UUID v4. Defaults to DEFAULT_APP_ID (D1 #635). Invalid syntax " +
-      "exits 64 with NO RPC calls (Goal 7).",
+    "App UUID v4. Defaults to DEFAULT_APP_ID. Invalid syntax " +
+      "exits 64 with NO RPC calls.",
   ),
   Options.optional,
 );
@@ -765,8 +765,7 @@ export const startCommand = Command.make(
 ).pipe(
   Command.withDescription(
     "Start a task with named participants and (optionally) send the " +
-      "first message in one atomic step. Spec D2 #599 — composes Spec D1 " +
-      "TaskRequest + MessagesSend.\n" +
+      "first message in one atomic step. Composes TaskRequest + MessagesSend.\n" +
       "\n" +
       "Zero participants creates a caller-only task (rare; usually you " +
       "will pass one or more `agent:<name>` tokens).\n" +

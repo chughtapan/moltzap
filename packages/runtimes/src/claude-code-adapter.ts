@@ -1,7 +1,7 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 
 /**
- * Claude Code runtime adapter (issue #255).
+ * Claude Code runtime adapter.
  *
  * Mirrors `openclaw-adapter.ts`'s shape: the agent runtime binary is
  * Anthropic's `claude` CLI; the channel plugin is `@moltzap/claude-code-

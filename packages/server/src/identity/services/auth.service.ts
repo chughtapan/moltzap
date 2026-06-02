@@ -10,7 +10,7 @@ import {
   generateClaimToken,
   parseApiKey,
   hashSecret,
-} from "../../identity/services/agent-auth.js";
+} from "../../identity/services/credential-keys.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,

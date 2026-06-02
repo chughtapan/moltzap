@@ -1,7 +1,7 @@
 /**
  * Shared plugin-install + workspace-seed helpers consumed by every
  * runtime adapter that needs to drop a moltzap channel package onto disk
- * for an external agent runtime to load (issue #272 item 8).
+ * for an external agent runtime to load.
  *
  * Both `openclaw-adapter` and `claude-code-adapter` install a channel
  * package into a per-agent state dir, then either copy or symlink the

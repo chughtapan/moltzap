@@ -248,10 +248,6 @@ const DispatchAuthorizeContextSchema = Schema.Struct({
 // forks the moderator round-trip, and emits `dispatch/release` as a
 // notification when the verdict is in (or synthesized for default-grant
 // / moderator-unavailable paths).
-//
-// Naming and shape constraints come from the parent plan's Final
-// Decisions §1-§12 (see `/home/tapanc/.claude/plans/okay-now-look-that-
-// swirling-snail.md`).
 
 import { LeaseId } from "../task/messages.js";
 
@@ -316,16 +312,14 @@ export const DispatchAuthorize = defineRpc({
 });
 
 /**
- * Server → recipient verdict notification. Fire-and-forget on the wire
- * (Final Decision #2). Always emitted, including default-grant and
- * synthesized infra-hold (Final Decisions #3, #10). The recipient parks
- * client-side on `leaseId` and unparks on this notification.
+ * Server → recipient verdict notification. Fire-and-forget on the wire. Always
+ * emitted, including default-grant and synthesized infra-hold. The recipient
+ * parks client-side on `leaseId` and unparks on this notification.
  *
- * `leaseTimeoutMs` is set on the `grant` arm only and is the post-
- * grant TTL (Final Decision #9). HOLD inherits the same TTL by ageing
- * out via the standard EXPIRED path; no `leaseTimeoutMs` field needed
- * on the hold arm because the grant TTL has not started yet (lease
- * never reached GRANTED).
+ * `leaseTimeoutMs` is set on the `grant` arm only and is the post-grant TTL.
+ * HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
+ * `leaseTimeoutMs` field needed on the hold arm because the grant TTL has not
+ * started yet (lease never reached GRANTED).
  */
 export const DispatchRelease = defineNotification({
   name: "dispatch/release",
@@ -339,7 +333,7 @@ export const DispatchRelease = defineNotification({
   }),
 });
 
-// ── dispatches/* moderator-observability surfaces (#529, decision #11) ─
+// ── dispatches/* moderator-observability surfaces ───────────────────
 
 /**
  * Server → moderator notification: a lease was consumed by a
@@ -377,7 +371,7 @@ export const DispatchesExpired = defineNotification({
 
 /**
  * Lease-record snapshot returned by `dispatches/get`. Includes live
- * `leaseId` because the moderator IS the authority by design (#11) —
+ * `leaseId` because the moderator IS the authority by design —
  * leaking the live id to the moderator is not an escalation surface.
  *
  * `state` mirrors the LeaseRegistry state machine (PENDING / CLAIMED
@@ -432,13 +426,11 @@ export const DispatchesGet = defineRpc({
 
 // ── messages/authorize (send-side fan-out gate) ─────────────────────
 //
-// #560: restore the send-side authority gate that Phase 9b (#461)
-// deleted. The TM declares per-message fan-out policy as a verdict;
-// the server enforces it via the existing `NetworkSendService.broad-
-// cast` machinery. Verdict shape is the 2-arm subset of #142:
-// `Forward { recipients } | Block { reason }`. The remaining arms
-// (`Modify | Close | AttachConversation`) defer to follow-ups; the
-// 2-arm shape is forward-extensible.
+// The send-side authority gate: the TM declares per-message fan-out policy as
+// a verdict; the server enforces it via the `NetworkSendService.broadcast`
+// machinery. Verdict shape is `Forward { recipients } | Block { reason }`. The
+// 2-arm shape is forward-extensible (`Modify | Close | AttachConversation` arms
+// would extend it).
 //
 // Symmetric to `dispatch/authorize`: same context shape (`taskId`,
 // `appId`, `conversationId`, `message`, `receivedAt`, `clock`), same
@@ -496,8 +488,8 @@ export const MessagesAuthorize = defineRpc({
 
 // ── task/create (TM recruitment) ────────────────────────────────────
 //
-// Issue #683: agent-driven `task/request` creates a task in
-// `"waiting"` state and forks this wire callback to the registered
+// Agent-driven `task/request` creates a task in `"waiting"` state and
+// forks this wire callback to the registered
 // TM. The TM responds with an accept/reject verdict; on accept the
 // task transitions to `"active"` and the TM is responsible for
 // creating any conversations (via the TM-only
@@ -561,8 +553,8 @@ const TaskCreateVerdictSchema = Schema.Union(
  * (the callback is a network call, not a DB op), so a crash or fiber
  * interrupt in that window can strand a task in `waiting`. Stranded
  * waiting tasks are invisible to delivery (no conversation, no
- * participants observe them) and are reaped by follow-up work (the
- * stale-waiting-task sweep, #684).
+ * participants observe them) and would be reaped by a stale-waiting-task
+ * sweep.
  */
 export const TaskCreate = defineRpc({
   name: "task/create",

@@ -66,22 +66,19 @@ export interface AppClientOptions {
   appKey?: string;
 
   /**
-   * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
-   * `close` is the typed close metadata — real WebSocket `{code, reason}`
-   * when the transport surfaces them, OQ-5 defaults otherwise.
+   * Called once per disconnect (not reconnect). `close` is the typed close
+   * metadata — real WebSocket `{code, reason}` when the transport surfaces
+   * them, synthesized defaults otherwise.
    *
-   * Migration note (spec #596): the previous `subscribe(filter, handler)` /
-   * `waitForNotification` / `notificationsBufferRef` surface was deleted in
-   * Spec B. Callers consume notifications via `subscribe(def, refinement?)`
-   * returning a `Stream`, or `subscribeAll(refinement?)` for the broad-union
-   * escape hatch.
+   * Callers consume notifications via `subscribe(def, refinement?)` returning a
+   * `Stream`, or `subscribeAll(refinement?)` for the broad-union escape hatch.
    */
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: ConnectResult) => void;
 
   /**
-   * Spec D3 R14b — REQUIRED. app-callback handler table immutable at
-   * construction (Spec F I1). Keys are catalog method names
+   * REQUIRED. app-callback handler table immutable at construction. Keys are
+   * catalog method names
    * (`"dispatch/authorize"`, `"messages/authorize"`); each value carries
    * the matching `defineRpc` descriptor and its handler effect.
    * Vacuous-deny moderators write the explicit ForbiddenError handler.
@@ -547,9 +544,9 @@ export class MoltZapAgentClient {
 
 MoltZap agent client — outbound RPC only, no app-callback inbound
 dispatch. `request` is narrowed to `AnyAgentClientRpcDefinition`; app-only
-methods are unreachable at compile time (Spec D3 R11/R13).
+methods are unreachable at compile time.
 
-### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L245)
+### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/app-client.ts#L242)
 
 _Class_
 
@@ -664,16 +661,16 @@ export class MoltZapAppClient {
   }
 
   /**
-   * Typed-payload subscribe (spec #596 Goal #1). Returns a Stream of
-   * `DecodedNotification<D>` whose error channel is `NotConnectedError`
-   * and whose requirement set is `never`.
+   * Typed-payload subscribe. Returns a Stream of `DecodedNotification<D>` whose
+   * error channel is `NotConnectedError` and whose requirement set is `never`.
    *
    * `refinement` is a typed predicate over the definition's params shape.
    * The user-defined-type-guard overload (signature below) narrows the
    * Stream's payload to `DecodedNotification<D, R>`.
    *
-   * Lifecycle (spec §"Stream lifecycle contract"):
+   * Lifecycle:
    *   - Subscription construction is pure (no I/O, no scope). Legal
+   *     pre-`connect()`.
 ```
 
 WebSocket lifecycle: open → network/connect → active. On disconnect,
@@ -899,10 +896,9 @@ export class MoltZapService {
   private _connected = false;
 
   /**
-   * Service-owned scope (spec #596 / Spec B §"4.2 service.ts" lifecycle
-   * reshape). Opened in `connect()`, owns the `subscribeAll → Stream.runForEach`
-   * fan-out fiber. Closed in `close()` so the fiber terminates with the
-   * service.
+   * Service-owned scope. Opened in `connect()`, owns the
+   * `subscribeAll → Stream.runForEach` fan-out fiber. Closed in `close()` so
+   * the fiber terminates with the service.
    *
    * Held off the public `connect()` signature so callers do not need to
    * thread a `Scope` requirement.
@@ -1014,6 +1010,7 @@ export class MoltZapService {
       (notification) =>
         fanout(
           this.handlers.dispatchesConsumed,
+          notification.params as NotificationParamsOf<
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,

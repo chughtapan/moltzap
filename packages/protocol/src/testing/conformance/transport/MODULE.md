@@ -56,7 +56,7 @@ export function adversityViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`attachToxic`](./_helpers.ts#L112)
+### [`attachToxic`](./_helpers.ts#L114)
 
 _Property_
 
@@ -64,7 +64,7 @@ _Property_
   readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
 ```
 
-### [`createOneOnOneConversation`](./_helpers.ts#L217)
+### [`createOneOnOneConversation`](./_helpers.ts#L219)
 
 _Function_
 
@@ -87,7 +87,7 @@ _Variable_
 export const DEFAULT_CAPTURE_CAPACITY = 128
 ```
 
-### [`proxy`](./_helpers.ts#L110)
+### [`proxy`](./_helpers.ts#L112)
 
 _Property_
 
@@ -216,7 +216,7 @@ _Function_
 export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 ```
 
-### [`ToxicBodyParams`](./_helpers.ts#L109)
+### [`ToxicBodyParams`](./_helpers.ts#L111)
 
 _TypeAlias_
 
@@ -231,13 +231,15 @@ export type ToxicBodyParams = {
 Body params — `attachToxic` attaches the toxic inside the caller's
 scope. Nesting matters: the caller typically does
 
-  Effect.scoped(gen(function* () {
-    const client = yield* acquireProxiedClient(...)  // outer
-    yield* Effect.scoped(gen(function* () {
-      yield* attachToxic                             // inner
-      yield* assertion(client)
-    }))                                              // toxic removed
-  }))                                                // client close OK
+```ts
+Effect.scoped(gen(function* () {
+  const client = yield* acquireProxiedClient(...)  // outer
+  yield* Effect.scoped(gen(function* () {
+    yield* attachToxic                             // inner
+    yield* assertion(client)
+  }))                                              // toxic removed
+}))                                                // client close OK
+```
 
 so the toxic is removed BEFORE TestClient's socket close. Under
 disruptive toxics (timeout, reset_peer), this lets the WS close
@@ -271,7 +273,7 @@ All transport-layer property registrars, in the order
 `_shared/suite.ts` invokes them: schema-conformance subset (5) →
 rpc-semantics subset (2) → adversity (5) → boundary subset (1).
 
-### [`unavailable`](./_helpers.ts#L111)
+### [`unavailable`](./_helpers.ts#L113)
 
 _Property_
 
@@ -279,7 +281,7 @@ _Property_
   readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
-### [`withToxicProxy`](./_helpers.ts#L121)
+### [`withToxicProxy`](./_helpers.ts#L123)
 
 _Function_
 

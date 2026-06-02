@@ -59,16 +59,7 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
-### [`AnyAppCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L71)
-
-_TypeAlias_
-
-```ts
-export type AnyAppCallableRpcDefinition =
-  (typeof appCallableRpcMethods)[number] & RpcDefinition<string, any, any>;
-```
-
-### [`AnyAppCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L74)
+### [`AnyAppCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L72)
 
 _TypeAlias_
 
@@ -76,7 +67,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L76)
+### [`AnyNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L74)
 
 _TypeAlias_
 
@@ -104,7 +95,7 @@ export const appCallableRpcMethods = [
 ] as const
 ```
 
-### [`brandedId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L178)
+### [`brandedId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L143)
 
 _Function_
 
@@ -118,45 +109,7 @@ canonical way to define wire id types in this package
 The format check runs the `UUID_RE` regex at decode time and annotates the
 schema so `JSONSchema.make` emits `format:"uuid"` for the docs walker.
 
-### [`brandedNumber`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L152)
-
-_Function_
-
-```ts
-export function brandedNumber<const BrandName extends string>(
-  brand: BrandName,
-  options: BrandedNumberOptions = {},
-): Schema.Schema<BrandedNumber<BrandName>, number>
-```
-
-Effect `Schema` whose decoded type is `BrandedNumber&lt;BrandName>`. Same
-shape as brandedString for the numeric case.
-
-### [`BrandedNumber`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L21)
-
-_TypeAlias_
-
-```ts
-export type BrandedNumber<BrandName extends string> = number &
-```
-
-A `number` carrying a nominal `Brand.Brand&lt;BrandName>` tag.
-
-### [`BrandedNumberOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L37)
-
-_Interface_
-
-```ts
-export interface BrandedNumberOptions {
-  readonly minimum?: number;
-  readonly maximum?: number;
-  readonly description?: string;
-}
-```
-
-Refinement options accepted by brandedNumber.
-
-### [`brandedString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L57)
+### [`brandedString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L45)
 
 _Function_
 
@@ -169,11 +122,10 @@ export function brandedString<const BrandName extends string>(
 
 Effect `Schema` whose decoded type is `BrandedString&lt;BrandName>`. The
 brand exists only at the type level — decode runs against the underlying
-string with the requested refinements (`minLength`, `maxLength`,
-`pattern`, and the three wire `format` checkers below). Replaces the
-former TypeBox `Type.String` + AJV `format` registry: the regex/finiteness
-checks are now `Schema.pattern` / `Schema.filter` refinements that run
-inside the same `Schema.decode*` engine as everything else.
+string with the requested refinements (`minLength`, `maxLength`, `pattern`,
+and the three wire `format` checkers below) as `Schema.pattern` /
+`Schema.filter` refinements inside the same `Schema.decode*` engine as
+everything else.
 
 `format` annotates the schema with `{ jsonSchema: { format } }` so
 `JSONSchema.make` re-emits the draft-07 `format` keyword the docs walker
@@ -195,7 +147,7 @@ a `string` from accidentally type-fitting a slot expecting the brand.
 this alias, so a `brandedString("Foo")` schema's `Schema.Schema.Type` is
 assignable both ways with `BrandedString&lt;"Foo">`.
 
-### [`BrandedStringOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L28)
+### [`BrandedStringOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L24)
 
 _Interface_
 
@@ -256,13 +208,13 @@ Production callers (`handleConnect`) pass the live
 `PROTOCOL_VERSION` constant; tests inject future-version values
 to exercise rejection paths against an unbumped branch.
 
-Example test usage: `Effect.runSync(Effect.either(checkProtocolRange({
+Example test usage: `Effect.runSync(Effect.either(checkProtocolRange(&#123;
 minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
 "2026.527.0")))` resolves to a `Left` carrying a
 `ProtocolMismatchError` whose `data.reason` is
 `"server-above-client-max"`.
 
-### [`closedStructGuard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L285)
+### [`closedStructGuard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L246)
 
 _Function_
 
@@ -291,7 +243,7 @@ dotted numeric segments (NOT lexicographically).
 
 CalVer values of the form `YYYY.NNNN.M` carry variable-digit middle
 components, so lexicographic ordering is wrong:
-`"2026.1001.0".localeCompare("2026.527.0") === -1` (lex: `1001 <
+`"2026.1001.0".localeCompare("2026.527.0") === -1` (lex: `1001 &lt;
 527`), opposite of the numeric truth. The `network/connect`
 old-client-rejection gate routes through this helper so it stays
 correct as the publish workflow rolls the middle component past
@@ -319,7 +271,7 @@ through checkProtocolRange, which wraps this call in
 `Effect.try` so the parse error flows through the Effect channel
 rather than escaping as a sync throw into the JSON-RPC handler.
 
-### [`dateTimeStringSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L226)
+### [`dateTimeStringSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L188)
 
 _Function_
 
@@ -330,40 +282,7 @@ export function dateTimeStringSchema(): typeof DateTimeStringSchema
 Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
 can keep `as const` references stable while the schema body is owned here.
 
-### [`decodeClientInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L221)
-
-_Function_
-
-```ts
-export function decodeClientInbound(
-  parsed: unknown,
-): Effect.Effect<DecodedClientInbound, MalformedFrameError>
-```
-
-Typed entry point for server-inbound frames (used by the server to
-decode what a client sends). Same shape as
-decodeServerInbound but admits the FULL `rpcMethods` set
-on the request arm.
-
-Fails closed with `MalformedFrameError` on any mismatch, including
-a response frame whose `id` is `null` (no pending call to settle).
-
-### [`DecodedClientInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L119)
-
-_TypeAlias_
-
-```ts
-export type DecodedClientInbound =
-  | ({
-      readonly _tag: "ClientRequest";
-    } & DecodedRpcRequest<AnyServerRpcDefinition>)
-```
-
-Decoded shape of a frame inbound to the server (from client):
-a client RPC request, a response (success XOR error) to a
-server-initiated callback, or a notification.
-
-### [`DecodedResponseError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L93)
+### [`DecodedResponseError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L91)
 
 _Class_
 
@@ -379,7 +298,7 @@ Discriminated error arm of a decoded JSON-RPC response — wire-frame
 decoder discriminator, not an Effect tagged error (the wire `error`
 sub-object carries `code`/`message`/`data`, no Effect machinery).
 
-### [`DecodedResponseSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L80)
+### [`DecodedResponseSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L78)
 
 _Class_
 
@@ -395,7 +314,7 @@ export class DecodedResponseSuccess extends Data.TaggedClass(
 
 Discriminated success arm of a decoded JSON-RPC response.
 
-### [`DecodedServerInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L104)
+### [`DecodedServerInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L102)
 
 _TypeAlias_
 
@@ -412,7 +331,7 @@ Decoded shape of a frame inbound to the client (from server):
 a response (success XOR error), a server-initiated task-callback
 request, or a notification.
 
-### [`decodeServerInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L187)
+### [`decodeServerInbound`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-registry.ts#L167)
 
 _Function_
 
@@ -445,10 +364,7 @@ back into the client — `dispatch/authorize`, etc.). Response
 frames with `id === null` fail closed since a null id has no
 pending call to resolve.
 
-Sibling: decodeClientInbound — same pipeline, but admits
-the full `rpcMethods` set on the request arm (server-side use).
-
-### [`decodesStrictly`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L268)
+### [`decodesStrictly`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L229)
 
 _Function_
 
@@ -472,7 +388,7 @@ _Variable_
 export const DEFAULT_PAGE_LIMIT = 50
 ```
 
-### [`formatString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L192)
+### [`formatString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L157)
 
 _Function_
 
@@ -480,11 +396,11 @@ _Function_
 export function formatString(format: WireStringFormat): Schema.Schema<string>
 ```
 
-Unbranded `Schema.String` carrying one of the three wire `format` checkers
-(the former AJV `FormatRegistry` formats). Use for `result`/nested string
-fields that need a `format` but no brand (e.g. a `claimUrl` `uri`, a raw
-`uuid`-shaped id field). Emits the draft-07 `format` keyword for the docs
-walker and runs the regex/finiteness refinement at decode time.
+Unbranded `Schema.String` carrying one of the three wire `format` checkers.
+Use for `result`/nested string fields that need a `format` but no brand
+(e.g. a `claimUrl` `uri`, a raw `uuid`-shaped id field). Emits the draft-07
+`format` keyword for the docs walker and runs the regex/finiteness
+refinement at decode time.
 
 ### [`InvalidProtocolVersionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/version.ts#L29)
 
@@ -517,7 +433,7 @@ strings, not a wire-protocol error. The `network/connect` handler
 catches it and maps to `InvalidParamsError` (JSON-RPC -32602) so the
 client gets a typed malformed-input response, not a defect.
 
-### [`ListCursor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L233)
+### [`ListCursor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L195)
 
 _TypeAlias_
 
@@ -525,7 +441,7 @@ _TypeAlias_
 export type ListCursor = BrandedString<"ListCursor">;
 ```
 
-### [`listCursorSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L242)
+### [`listCursorSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L204)
 
 _Function_
 
@@ -589,7 +505,7 @@ export const serverRpcMethods = [
 ] as const
 ```
 
-### [`STRICT_DECODE`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L260)
+### [`STRICT_DECODE`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L221)
 
 _Variable_
 
@@ -602,13 +518,12 @@ Decode-time option that makes a `Schema.Struct` REJECT extra keys.
 Effect's `Schema.Struct` STRIPS excess keys by default
 (`onExcessProperty:"ignore"`) — `Schema.decodeUnknownEither(S)({a,extra})`
 returns `Right` with `extra` silently dropped, and `Schema.is(S)` returns
-`true`. The former wire engine was `new Ajv({ strict: true })` +
-`additionalProperties:false`, which REJECTED excess at every boundary, and
-the conformance `extra-property` / `oversized` mutators assert frames with
-an extra key still FAIL. So every ported decode boundary MUST pass this
-option (or use closedStructGuard) to preserve that rejection.
+`true`. The wire boundary must REJECT excess instead: the conformance
+`extra-property` / `oversized` mutators assert that a frame with an extra
+key FAILS. So every decode boundary MUST pass this option (or use
+closedStructGuard) to enforce that rejection.
 
-### [`stringEnum`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L204)
+### [`stringEnum`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L168)
 
 _Function_
 
@@ -619,13 +534,12 @@ export function stringEnum<T extends string[]>(
 ```
 
 `Schema.Literal(...values)` typed as the union of the literal values. Use
-instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` —
-same wire shape, simpler schema. Replaces the former TypeBox
-`Type.String({ enum })`; `JSONSchema.make` renders a literal union as
+instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` — same
+wire shape, simpler schema. `JSONSchema.make` renders a literal union as
 `{ "enum": [...] }` (string-valued), which the docs walker reads off
 `.enum`.
 
-### [`WireStringFormat`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L25)
+### [`WireStringFormat`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/schema-primitives.ts#L21)
 
 _TypeAlias_
 
@@ -642,7 +556,7 @@ export interface BrandedStringOptions {
 }
 ```
 
-The three wire string formats (former AJV `FormatRegistry` entries).
+The three wire string formats.
 
 ## Files
 

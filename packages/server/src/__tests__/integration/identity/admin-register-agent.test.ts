@@ -4,7 +4,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import { Connect, PROTOCOL_VERSION } from "@moltzap/protocol";
 import { agentId } from "@moltzap/protocol/testing";
-import { parseApiKey } from "../../../identity/services/agent-auth.js";
+import { parseApiKey } from "../../../identity/services/credential-keys.js";
 import {
   startTestServerEffect,
   stopTestServerEffect,

@@ -14,59 +14,6 @@ server-side services live in `@moltzap/server-core`, paired with their
 
 ## Public surface
 
-### [`AgentExists`](./agent-exists.ts#L15)
-
-_Class_
-
-```ts
-export class AgentExists extends Context.Tag("@moltzap/protocol/AgentExists")<
-  AgentExists,
-  AgentExistsValue
->() {}
-```
-
-### [`AgentExistsValue`](./agent-exists.ts#L10)
-
-_Interface_
-
-```ts
-export interface AgentExistsValue {
-  readonly agentId: AgentId;
-  readonly ownerUserId: string | null;
-}
-```
-
-Tier 2 capability — `agentId` resolves to a real, active `agents` row.
-
-Value payload carries `ownerUserId` (nullable, since unclaimed agents
-are valid existence proofs but have no owner).
-
-### [`AgentInTaskParticipants`](./agent-in-task-participants.ts#L16)
-
-_Class_
-
-```ts
-export class AgentInTaskParticipants extends Context.Tag(
-  "@moltzap/protocol/AgentInTaskParticipants",
-)<AgentInTaskParticipants, AgentInTaskParticipantsValue>() {}
-```
-
-### [`AgentInTaskParticipantsValue`](./agent-in-task-participants.ts#L11)
-
-_Interface_
-
-```ts
-export interface AgentInTaskParticipantsValue {
-  readonly taskId: TaskId;
-  readonly agentId: AgentId;
-}
-```
-
-Tier 2 capability — `agentId` is in `task_participants` for `taskId`.
-The `TaskConversationAddParticipant` handler requires it to prove the
-agent being added to a conversation already participates in the
-parent task.
-
 ### [`assertAppOwnsTask`](./assert-capability-matches-task.ts#L78)
 
 _Function_
@@ -242,35 +189,6 @@ so a refinement of the fetched row is a handler guard, not a standalone
 middleware. The whole send path costs one joined read. `appId` identifies the
 authorizing app for the task on the verdict route.
 
-### [`GroupCapacityForCreate`](./group-capacity-for-create.ts#L18)
-
-_Class_
-
-```ts
-export class GroupCapacityForCreate extends Context.Tag(
-  "@moltzap/protocol/GroupCapacityForCreate",
-)<GroupCapacityForCreate, GroupCapacityForCreateValue>() {}
-```
-
-### [`GroupCapacityForCreateValue`](./group-capacity-for-create.ts#L13)
-
-_Interface_
-
-```ts
-export interface GroupCapacityForCreateValue {
-  readonly creatorAgentId: AgentId;
-  readonly invitedAgentIds: readonly AgentId[];
-}
-```
-
-Tier 4 capability — admitting the proposed `invitedAgentIds` to a new
-task respects policy limits on group capacity. Required by
-`TaskRequest` ONLY when `invitedAgentIds.length > 1`.
-
-Value payload carries `(creatorAgentId, invitedAgentIds)` to match
-the obtain-time argument set; service methods consuming the capability
-verify the count matches handler input.
-
 ### [`ObtainConversationCreateAuthorizationInput`](./conversation-create-authorization.ts#L12)
 
 _Interface_
@@ -321,12 +239,9 @@ Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
 
 ## Files
 
-- `agent-exists.ts`
-- `agent-in-task-participants.ts`
 - `assert-capability-matches-task.ts`
 - `contact-policy-allows-reach.ts`
 - `conversation-create-authorization.ts`
 - `conversation-in-task.ts`
 - `conversation-send-access.ts`
-- `group-capacity-for-create.ts`
 - `task-read-access.ts`

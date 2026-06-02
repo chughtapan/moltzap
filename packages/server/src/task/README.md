@@ -16,7 +16,7 @@ Conversations, messages, tasks, task-manager dispatch.
   `messages/list`.
 - `handlers/tasks.handlers.ts` — `task/*` + `task/conversation/*`
   admin family. `task/request` lives in
-  `app/handlers/task-request.handler.ts` because its handler binds
+  `app/handlers/task-request.handlers.ts` because its handler binds
   via `defineAppMethod`.
 - `handlers/notification-broadcast.ts` — shared best-effort fan-out
   helper (forks socket writes via `Effect.runFork`).

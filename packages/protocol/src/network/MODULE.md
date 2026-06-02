@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so
 `userId` is required here.
 
-### [`Connect`](./methods.ts#L85)
+### [`Connect`](./methods.ts#L84)
 
 _Variable_
 
@@ -111,7 +111,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L104)
+### [`HelloOk`](./methods.ts#L103)
 
 _TypeAlias_
 
@@ -119,7 +119,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L163)
+### [`networkNotifications`](./methods.ts#L162)
 
 _Variable_
 
@@ -129,7 +129,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L111)
+### [`NetworkPing`](./methods.ts#L110)
 
 _Variable_
 
@@ -145,7 +145,7 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L157)
+### [`networkRpcMethods`](./methods.ts#L156)
 
 _Variable_
 
@@ -157,7 +157,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L152)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L151)
 
 _Variable_
 
@@ -172,7 +172,7 @@ Pushed when a subscribed participant's presence status changes.
 Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
 connect/disconnect; there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L132)
+### [`PresenceSubscribe`](./methods.ts#L131)
 
 _Variable_
 
@@ -191,7 +191,7 @@ export const PresenceSubscribe = defineRpc({
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`ProtocolMismatchError`](./methods.ts#L58)
+### [`ProtocolMismatchError`](./methods.ts#L57)
 
 _Class_
 
@@ -222,7 +222,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./methods.ts#L46)
+### [`ProtocolMismatchReason`](./methods.ts#L45)
 
 _TypeAlias_
 

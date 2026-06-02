@@ -15,11 +15,10 @@ const DateTimeString = dateTimeStringSchema();
 
 // v7 (architect plan #706 / codex r6 P2 #2) — narrowed from
 // `["online", "offline", "away"]` to `["online", "working", "offline"]`.
-// Presence is now server-derived from `LeaseRegistry` lifecycle:
+// Presence is server-derived from `LeaseRegistry` lifecycle:
 // `online` = connected, no active lease; `working` = connected, ≥1
-// lease in GRANTED or CLAIMED; `offline` = disconnected. The `away`
-// state is gone — there is no longer a `presence/update` RPC for
-// clients to set status manually (deleted in the same cutover).
+// lease in GRANTED or CLAIMED; `offline` = disconnected. There is no
+// client-set status: presence is a pure function of connection + lease state.
 const PresenceStatusEnum = stringEnum(["online", "working", "offline"]);
 
 const PresenceEntrySchema = Schema.Struct({

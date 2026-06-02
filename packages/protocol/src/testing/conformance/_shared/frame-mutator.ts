@@ -42,7 +42,7 @@ const RequestFrameSchema = requestFrameSchema();
 const ResponseFrameSchema = responseFrameSchema();
 const NotificationFrameSchema = notificationFrameSchema();
 
-// Strict, excess-rejecting decode check (former AJV `strict` `Value.Check`).
+// Strict, excess-rejecting decode check.
 // `decodesStrictly` passes `{ onExcessProperty: "error" }`, which is
 // LOAD-BEARING: the `extra-property` / `oversized` mutators below append a
 // stray key, and the adversity properties assert those frames FAIL the schema

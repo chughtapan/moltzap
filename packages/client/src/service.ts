@@ -345,10 +345,9 @@ export class MoltZapService {
   private _connected = false;
 
   /**
-   * Service-owned scope (spec #596 / Spec B §"4.2 service.ts" lifecycle
-   * reshape). Opened in `connect()`, owns the `subscribeAll → Stream.runForEach`
-   * fan-out fiber. Closed in `close()` so the fiber terminates with the
-   * service.
+   * Service-owned scope. Opened in `connect()`, owns the
+   * `subscribeAll → Stream.runForEach` fan-out fiber. Closed in `close()` so
+   * the fiber terminates with the service.
    *
    * Held off the public `connect()` signature so callers do not need to
    * thread a `Scope` requirement.
@@ -497,9 +496,9 @@ export class MoltZapService {
       const client = new MoltZapAgentClient({
         serverUrl: this.opts.serverUrl,
         agentKey: this.opts.agentKey,
-        // Spec #222 OQ-6: arg required. The body doesn't branch on
-        // close metadata today; signature kept explicit so a future
-        // disconnect-handler chain can plumb code/reason through.
+        // The body doesn't branch on close metadata today; the signature is
+        // kept explicit so a future disconnect-handler chain can plumb
+        // code/reason through.
         onDisconnect: () => {
           this._connected = false;
           fanout(this.handlers.disconnect, undefined);
@@ -511,11 +510,10 @@ export class MoltZapService {
       });
       this.client = client;
 
-      // Spec #596 / Spec B Goal #8: the legacy `subscribe({}, handler)` site
-      // is replaced by `subscribeAll().pipe(Stream.runForEach, …)` forked
-      // into a service-owned scope. The Stream is materialized BEFORE
-      // `connect()` so subscriptions are registered with the registry
-      // pre-handshake (pre-connect legality, preserved invariant).
+      // `subscribeAll().pipe(Stream.runForEach, …)` is forked into a
+      // service-owned scope. The Stream is materialized BEFORE `connect()` so
+      // subscriptions are registered with the registry pre-handshake (a
+      // pre-connect-legal operation).
       //
       // Stream errors of type `NotConnectedError` are surfaced on the
       // fiber's failure channel only when the client transitions to
@@ -553,9 +551,9 @@ export class MoltZapService {
   close(): void {
     this._connected = false;
     Effect.runFork(this.stopSocketServer());
-    // Spec #596 / Spec B §"4.2 service.ts": close the service-owned scope
-    // BEFORE the client. Closing the scope interrupts the
-    // `subscribeAll().pipe(Stream.runForEach, …)` fiber; the client's
+    // Close the service-owned scope BEFORE the client. Closing the scope
+    // interrupts the `subscribeAll().pipe(Stream.runForEach, …)` fiber; the
+    // client's
     // `close()` then closes the registry which fires `onClose` on every
     // live subscription's Stream — but since our consumer fiber has
     // already been interrupted, the typed-error delivery is to a
@@ -808,8 +806,8 @@ export class MoltZapService {
   }
 
   private fetchHistoryConversationMeta(convId: string) {
-    // Spec D3 D10: ConversationsGet retires; client filters
-    // TaskConversationList output for the matching conversation id.
+    // The client filters `TaskConversationList` output for the matching
+    // conversation id (there is no per-conversation get RPC).
     return this.call(TaskConversationList.name, {}).pipe(
       Effect.map((result) => {
         const hit = result.items.find(

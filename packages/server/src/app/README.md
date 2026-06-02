@@ -46,7 +46,7 @@ dispatch lease registry lives in `task/leases/`.)
 - `core-schema.sql` — bundled DDL for fresh schemas.
 - `handlers/apps.handlers.ts` — `apps/*` RPC handlers (register +
   authorize callbacks).
-- `handlers/task-request.handler.ts` — `task/request` entry point;
+- `handlers/task-request.handlers.ts` — `task/request` entry point;
   mints the initial conversation server-side after the app's
   `task/create` accept verdict.
 

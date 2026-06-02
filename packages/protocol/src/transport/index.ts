@@ -24,8 +24,8 @@ export {
 } from "./wire.js";
 
 // RPC + notification descriptor types. Decoders are protocol-internal;
-// consumers go through `decodeServerInbound` / `decodeClientInbound`
-// (rpc-registry.ts) or per-def `validateParams`.
+// consumers go through `decodeServerInbound` (rpc-registry.ts) or per-def
+// `validateParams`.
 export type {
   RpcDefinition,
   NotificationDefinition,
@@ -71,7 +71,7 @@ export {
   NotFoundError,
   ConflictError,
   InvalidParamsError,
-  // D #705 §3.1 — Connect-handler wire error.
+  // Connect-handler wire error.
   AlreadyConnected,
   principalGateErrorClasses,
 } from "./wire-errors.js";
@@ -79,18 +79,17 @@ export type { RpcErrorPayload } from "./wire-errors.js";
 
 // Decoded RPC + notification types. Group-level decode helpers
 // (`decodeRpcRequest`, `decodeNotification`) remain protocol-internal —
-// consumers reach the same surface via `decodeServerInbound` /
-// `decodeClientInbound` and discriminate on `definition` identity.
-// `isDecodedNotification` is the typed-guard companion that Spec B
-// (#596) Stream-based `client.notifications`/`subscribeTo` callers use to
-// narrow filtered frames to `DecodedNotification<D>`; it is part of the
+// consumers reach the same surface via `decodeServerInbound` and discriminate
+// on `definition` identity. `isDecodedNotification` is the typed-guard
+// companion the Stream-based `client.notifications`/`subscribeTo` callers use
+// to narrow filtered frames to `DecodedNotification<D>`; it is part of the
 // public surface.
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 export { isDecodedNotification } from "./rpc-groups.js";
 
-// Spec F (#617) — typed dispatcher. Per-kind static handler tables and
-// three connection factories (`make{Server,AgentClient,AppClient}Connection`).
-// Type-level invariants are exercised by `typed-dispatcher.types-check.ts`.
+// Typed dispatcher. Per-kind static handler tables and three connection
+// factories (`make{Server,AgentClient,AppClient}Connection`). Type-level
+// invariants are exercised by `typed-dispatcher.types-check.ts`.
 export type {
   HandlerSlot,
   AppCallbackHandlers,

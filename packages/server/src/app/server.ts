@@ -13,7 +13,7 @@ import {
 
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
-import { PrincipalKindRegistryError } from "../transport/server-method-bindings.js";
+import { PrincipalKindRegistryError } from "../transport/principal-kind-registry-error.js";
 import {
   assertWsEngineSize,
   findEngineGatingMismatch,

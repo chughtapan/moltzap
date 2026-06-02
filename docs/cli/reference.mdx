@@ -65,13 +65,13 @@ Show current agent and config
 
 ### `moltzap send`
 
-Send a message to task:<taskId>:<conversationId>. Identity follows the global --as / --profile flags.
+Send a message to task:&lt;taskId>:&lt;conversationId>. Identity follows the global --as / --profile flags.
 
 **Usage:** `moltzap send [--reply-to text] <target> <message>`
 
 **Arguments:**
 
-- `<target>` — Target task+conversation as task:<taskId>:<convId>
+- `<target>` — Target task+conversation as task:&lt;taskId>:&lt;convId>
 - `<message>` — Message text
 
 **Options:**
@@ -237,7 +237,7 @@ List messages in a conversation
 
 ### `moltzap start`
 
-Start a task with named participants and (optionally) send the first message in one atomic step. Spec D2 #599 — composes Spec D1 TaskRequest + MessagesSend.
+Start a task with named participants and (optionally) send the first message in one atomic step. Composes TaskRequest + MessagesSend.
 
 Zero participants creates a caller-only task (rare; usually you will pass one or more `agent:<name>` tokens).
 
@@ -252,9 +252,9 @@ Exit codes:
 **Arguments:**
 
 - `<name>` — Conversation name
-- `<participant>...` — Participant token (e.g. agent:bob or agent:<uuid>). Zero or more allowed; D2 ACs cover 1 (DM-shape) and >=2 (group-shape).
+- `<participant>...` — Participant token (e.g. agent:bob or agent:&lt;uuid>). Zero or more allowed; D2 ACs cover 1 (DM-shape) and >=2 (group-shape).
 
 **Options:**
 
 - `--message text` — First message body. If supplied, MessagesSend runs after the atomic TaskRequest (separate RPC, not server-atomic).
-- `--app-id text` — App UUID v4. Defaults to DEFAULT_APP_ID (D1 #635). Invalid syntax exits 64 with NO RPC calls (Goal 7).
+- `--app-id text` — App UUID v4. Defaults to DEFAULT_APP_ID. Invalid syntax exits 64 with NO RPC calls.

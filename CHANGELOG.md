@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: pre-stamina cleanup — dead-code deletion, naming alignment, and comment cold-reader pass
+
+A mechanical cleanup sweep across the protocol/server/client surface.
+
+- **Dead code deleted.** The three never-bound capability shells
+  (`AgentExists`, `AgentInTaskParticipants`, `GroupCapacityForCreate`),
+  `brandedNumber` / `BrandedNumber`, the `decodeClientInbound` /
+  `DecodedClientInbound` pair, and `AnyAppCallableRpcDefinition` had zero live
+  consumers and are removed.
+- **Naming + file alignment.** `arbitraries/from-typebox.ts` →
+  `schema-arbitrary.ts`, `identity/services/agent-auth.ts` →
+  `credential-keys.ts` (it mints both agent and app keys),
+  `app/handlers/task-request.handler.ts` → `.handlers.ts`,
+  `transport/server-method-bindings.ts` → `principal-kind-registry-error.ts`.
+  The pure presence-dedup helper `emitPresenceTransition` is renamed
+  `dedupePresenceStatus` (the `emit` verb promised a side effect it never had),
+  and `arbitraryForParams` folds into `arbitraryFromSchema`.
+- **Doc generation.** The module + CLI doc generators now MDX-escape JSDoc prose
+  (a bare `<` / `{` parsed as JSX on the Mintlify pages), skipping fenced and
+  indented code blocks. `typedoc.json` drops the redundant `packageOptions`
+  output and maps the Effect/platform external symbols that JSDoc `{@link}`s
+  reference.
+- **Comments.** Migration-history breadcrumbs (issue / spec / phase / decision
+  labels, `formerly` / `no longer` / `replaces` narration) are stripped from
+  long-lived comments and canary headers and rewritten to present tense;
+  phantom `{@link}` citations are repointed to real symbols
+  (`writeFrame` → `fireNotification`, cross-file links to backticked names).
+
 ### Changed: transport-surface cleanup — drop the `native-` prefix, dead groups, and vestigial HTTP-only descriptors (#728)
 
 The transport layer carried scaffolding names and dead surface from the

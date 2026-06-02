@@ -1,10 +1,10 @@
 /**
- * @file D #705 §7.4 — compile-time canary for the three-arm `Connection`
- * discriminated union and the principal context arms (§1.1, §3.3). These
- * assertions encode the type-level invariants the runtime never re-checks:
- * the nominal brand seal, per-arm `auth` narrowing, and exhaustive
- * `Match.tag` discrimination. A regression in `connection.ts` /
- * `context.ts` surfaces here as a compile error, not at runtime.
+ * @file Compile-time canary for the three-arm `Connection` discriminated union
+ * and the principal context arms. These assertions encode the type-level
+ * invariants the runtime never re-checks: the nominal brand seal, per-arm
+ * `auth` narrowing, and exhaustive `Match.tag` discrimination. A regression in
+ * `connection.ts` / `context.ts` surfaces here as a compile error, not at
+ * runtime.
  *
  * This file is never executed. Typed `const _x: T = ...` assignments and
  * `@ts-expect-error` directives carry the whole payload; `tsc` fails with
@@ -28,7 +28,7 @@ declare const appConn: AppConnection;
 declare const unauthConn: UnauthenticatedConnection;
 declare const conn: Connection;
 
-// --- §1.1 per-arm `auth` narrowing -----------------------------------------
+// --- per-arm `auth` narrowing -----------------------------------------
 
 // AgentConnection.auth is AgentContext: agentId reads, appId does not.
 const _agentAuth: AgentContext = agentConn.auth;
@@ -46,7 +46,7 @@ const _noAgentIdOnApp = appConn.auth.agentId;
 // @ts-expect-error - the unauthenticated arm carries no auth
 const _noAuthOnUnauth = unauthConn.auth;
 
-// --- §3.3 nominal brand seal (structural forgery rejected) ------------------
+// --- nominal brand seal (structural forgery rejected) ------------------
 
 // An object literal matching the public field shape cannot satisfy any arm —
 // the module-private `__brand: never` member is unreachable from outside the
@@ -61,7 +61,7 @@ declare const forgedBase: {
 // @ts-expect-error - structural forgery rejected: missing private __brand
 const _forged: AgentConnection = forgedBase;
 
-// --- §1.1 exhaustive Match.tag discrimination -------------------------------
+// --- exhaustive Match.tag discrimination -------------------------------
 
 const _principalOf = (c: Connection): "agent" | "app" | "anon" =>
   Match.value(c).pipe(
@@ -72,7 +72,7 @@ const _principalOf = (c: Connection): "agent" | "app" | "anon" =>
   );
 const _principalTag: "agent" | "app" | "anon" = _principalOf(conn);
 
-// --- §3 split-per-arm TransitionOutcome narrows `authed` without a cast ------
+// --- split-per-arm TransitionOutcome narrows `authed` without a cast ------
 
 declare const outcome: TransitionOutcome;
 const _narrowOutcome = (): AgentConnection | AppConnection | null =>
@@ -85,7 +85,7 @@ const _narrowOutcome = (): AgentConnection | AppConnection | null =>
     Match.exhaustive,
   );
 
-// --- §2.7 ServerBootFailedError phase discriminator -------------------------
+// --- ServerBootFailedError phase discriminator -------------------------
 
 declare const httpErr: unknown;
 const _bootFail: ServerBootFailedError = new ServerBootFailedError({

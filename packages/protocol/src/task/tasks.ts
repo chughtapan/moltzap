@@ -269,7 +269,7 @@ export const TaskClosedNotificationDefinition = defineNotification({
 // `taskId`. Conversations are scoped strictly within their task's
 // admission set; missing rows fail with `ParticipantNotAdmittedError`.
 //
-// Authority (D #705 R7): the 8 task-admin RPCs bind via
+// Authority: the 8 task-admin RPCs bind via
 // `defineAppMethod` and gate on `assertCallerAppOwnsTask` (the app-arm
 // successor to the dissolved `TmAuthority` capability) BEFORE any
 // participant probe — so a non-owner sees `ForbiddenError` rather than
@@ -324,9 +324,9 @@ export type TaskConversationListItem = Schema.Schema.Type<
  * participant set" semantics list their tasks and filter locally
  * before creating a new one.
  *
- * NOTE (#683): the agent-facing entry RPC is `task/request`; the
- * TM-facing wire callback `task/create` lives in
- * `packages/protocol/src/app/methods.ts`. The server forks
+ * The agent-facing entry RPC is `task/request`; the TM-facing wire callback
+ * `task/create` lives in `packages/protocol/src/app/methods.ts`. The server
+ * forks
  * `task/create` to the bound TM after inserting the task in
  * `waiting`; the TM's verdict drives the lifecycle (accept → active
  * + `task/created`; reject → failed + `task/failed`). The synchronous
@@ -427,9 +427,9 @@ export const TaskConversationList = defineRpc({
 
 // The four conversation-targeted descriptors below share the IDENTICAL
 // `[ConversationInTask]` capability. App-ownership is gated in the app-arm
-// handlers (D #705 R7); only `ConversationInTask` applies, declared at the
-// server binding site as a `CapabilityMiddleware` (#705 HALF-2). The wire
-// descriptors here carry only their params/result shape.
+// handlers; only `ConversationInTask` applies, declared at the server binding
+// site as a `CapabilityMiddleware`. The wire descriptors here carry only their
+// params/result shape.
 
 /** TM-only: archive one conversation. Task stays open. */
 export const TaskConversationArchive = defineRpc({

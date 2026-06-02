@@ -54,7 +54,7 @@ The outbound group a first-party APP client may originate: every
 first-party `appClient.taskRequest(...)` (agent-only) does not typecheck — the
 compile-time Principle-1 win.
 
-### [`AppCallbackHandlers`](./handlers.ts#L98)
+### [`AppCallbackHandlers`](./handlers.ts#L96)
 
 _TypeAlias_
 
@@ -65,7 +65,7 @@ export type AppCallbackHandlers<
 > = HandlerTable<AppCallbackInboundRpcDefinition, Ctx, Caps>;
 ```
 
-### [`AppCallbackInboundRpcDefinition`](./handlers.ts#L96)
+### [`AppCallbackInboundRpcDefinition`](./handlers.ts#L94)
 
 _TypeAlias_
 
@@ -124,7 +124,7 @@ unauthenticated method (`network/connect`, dispatched while the arm is still
 unauthenticated). This is the single descriptor-level source the client
 groups partition on and the server's principal gate reads.
 
-### [`callerAgentId`](./current-principal.ts#L67)
+### [`callerAgentId`](./current-principal.ts#L66)
 
 _Variable_
 
@@ -308,7 +308,7 @@ export class ConversationSendAccessMw extends RpcMiddleware.Tag<ConversationSend
 ) {}
 ```
 
-### [`CurrentPrincipal`](./current-principal.ts#L55)
+### [`CurrentPrincipal`](./current-principal.ts#L54)
 
 _Class_
 
@@ -353,9 +353,9 @@ this struct, so the strict-additionalProperties wire schema stays unstuck.
 
 The optional second parameter `R` narrows the `params` field to the refined
 type — used by `MoltZapAgentClient.subscribe`'s user-defined-type-guard
-overload (spec #596 / architect plan §5.2). The default sentinel
-`unknown` resolves to the per-branch `NotificationParamsOf<D>` shape,
-preserving the one-arg form for every existing consumer.
+overload. The default sentinel `unknown` resolves to the per-branch
+`NotificationParamsOf<D>` shape, preserving the one-arg form for every
+consumer.
 
 The default uses an `unknown` sentinel rather than `NotificationParamsOf<D>`
 because TS does not distribute type-alias defaults through the
@@ -374,7 +374,7 @@ _TypeAlias_
 export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
 ```
 
-### [`decodeFrame`](./wire.ts#L171)
+### [`decodeFrame`](./wire.ts#L170)
 
 _Function_
 
@@ -388,12 +388,11 @@ Classify one already-`JSON.parse`d value as a JSON-RPC Request, Response,
 or Notification frame — fail-closed on anything else.
 
 The discrimination runs `Schema.decodeUnknownEither(...,
-{ onExcessProperty: "error" })` against each frame schema in the existing
-precedence (Request → Response → Notification). The `{ onExcessProperty:
-"error" }` option preserves the former AJV `strict` rejection: a frame with
-an extra top-level key fails decode at EVERY arm and falls through to
-`FrameDecodeError` — the conformance `extra-property` / `oversized`
-mutators depend on this.
+{ onExcessProperty: "error" })` against each frame schema in precedence order
+(Request → Response → Notification). The `{ onExcessProperty: "error" }`
+option rejects excess keys: a frame with an extra top-level key fails decode
+at EVERY arm and falls through to `FrameDecodeError` — the conformance
+`extra-property` / `oversized` mutators depend on this.
 
 ```mermaid
 flowchart TD
@@ -517,8 +516,8 @@ flowchart TD
   E --> F["aggregated into rpcMethods"]
 ```
 
-- Every slot is REQUIRED in the handler table (Spec D3 R14b);
-  omitting any key fails TS2741 at the factory call.
+- Every slot is REQUIRED in the handler table; omitting any key fails TS2741
+  at the factory call.
 - Capabilities are NOT descriptor metadata; `defineRpc` carries only the
   wire shape, and the server's per-method `*AuthMw` runs the caps.
 - The validators reject excess keys (`closedStructGuard`), preserving the
@@ -584,7 +583,7 @@ order, then the handler-domain errors, deduped by identity (a class shared
 across a cap and the handler list appears once). This is the single source the
 wire `errorSchema`, the server gate, and the typed client all read.
 
-### [`encodeErrorResponse`](./wire.ts#L268)
+### [`encodeErrorResponse`](./wire.ts#L267)
 
 _Function_
 
@@ -1044,7 +1043,7 @@ Descriptor role at the transport layer: encode + decode + schema
 validation. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`notificationFrame`](./wire.ts#L276)
+### [`notificationFrame`](./wire.ts#L275)
 
 _Function_
 
@@ -1133,7 +1132,7 @@ export type PayloadForTag<
 
 The payload type one tag accepts.
 
-### [`Principal`](./current-principal.ts#L42)
+### [`Principal`](./current-principal.ts#L41)
 
 _TypeAlias_
 
@@ -1197,7 +1196,7 @@ The principal gate: narrows the live connection to the method's principal arm
 and fails `Unauthorized` / `Forbidden`. No `provides` — the handler reads the
 narrowed arm off `ConnectionTag`. Stacked first on every authenticated method.
 
-### [`requestFrame`](./wire.ts#L207)
+### [`requestFrame`](./wire.ts#L206)
 
 _Function_
 
@@ -1252,7 +1251,7 @@ arrived. They originate at the client transport, not the handler, so they are
 NOT in a descriptor's effective error union; the typed client adds them to
 every per-method call's error channel.
 
-### [`responseFrame`](./wire.ts#L244)
+### [`responseFrame`](./wire.ts#L243)
 
 _Function_
 
@@ -1271,7 +1270,7 @@ _TypeAlias_
 export type ResponseFrame = Schema.Schema.Type<typeof ResponseFrameSchema>;
 ```
 
-### [`ResponseFrameBody`](./wire.ts#L240)
+### [`ResponseFrameBody`](./wire.ts#L239)
 
 _TypeAlias_
 

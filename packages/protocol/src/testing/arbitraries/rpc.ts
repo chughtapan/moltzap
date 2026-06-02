@@ -13,7 +13,7 @@ import {
 } from "../../rpc-registry.js";
 import { applyCall } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
-import { arbitraryForParams } from "./from-typebox.js";
+import { arbitraryFromSchema } from "./schema-arbitrary.js";
 
 type MethodName = (typeof serverRpcMethods)[number]["name"];
 
@@ -57,7 +57,7 @@ export function arbitraryCallFor(
       message: `arbitraryCallFor: unknown method ${String(method)}`,
     });
   }
-  return arbitraryForParams(def.paramsSchema).map(
+  return arbitraryFromSchema(def.paramsSchema).map(
     (params) =>
       ({
         definition: def,

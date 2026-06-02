@@ -14,7 +14,7 @@ import {
   type AgentPresenceEntry,
   deriveEntryStatus,
   type DerivedPresenceStatus,
-  emitPresenceTransition,
+  dedupePresenceStatus,
   type LeaseTransitionObserver,
   type PresenceAuditEvent,
 } from "./presence-types.js";
@@ -303,7 +303,7 @@ function fanOut(
  * Presence service: subscriber registry + lease-derived status engine
  * + `presence/changed` fan-out.
  *
- * Implements {@link LeaseTransitionObserver} so the {@link LeaseRegistry}
+ * Implements {@link LeaseTransitionObserver} so the `LeaseRegistry`
  * can drive lease transitions through it — the registry depends on the
  * narrow observer contract, not on this whole surface. The WS-lifecycle
  * hooks (`onAgentConnect` / `onAgentDisconnect`) feed connection
@@ -327,7 +327,7 @@ function fanOut(
  * emission decision.** Every observer/lifecycle method computes its
  * result inside a single `Ref.modify` predicate, then publishes the
  * dedup-gated emission AFTER the CAS commits. The dedup rule
- * ({@link emitPresenceTransition}) NAMES the previous status at the
+ * ({@link dedupePresenceStatus}) NAMES the previous status at the
  * emission site, so concurrent GRANTED leases elide duplicate
  * `working` notifications.
  *
@@ -354,7 +354,7 @@ function fanOut(
  *   PS->>PS: Ref.modify computes BOTH new entry AND emission decision in one CAS
  *   alt agent has entry AND recipientConnId ∈ entry.liveConns
  *     PS->>PS: prev = deriveEntryStatus(entry)<br>leasesByConn[recipientConnId] ∪= {leaseId}<br>next = any bucket non-empty ? "working" : "online"
- *     PS->>PS: emitPresenceTransition(prev, next) — dedup
+ *     PS->>PS: dedupePresenceStatus(prev, next) — dedup
  *     alt decision = some(status)
  *       PS->>PS: snapshot = new Set(getSubscribers(agentId))
  *       PS->>Subs: presence/changed { agentId, status }
@@ -472,7 +472,7 @@ export class PresenceService implements LeaseTransitionObserver {
   /**
    * Snapshot the live subscriber set BEFORE fan-out iterates, then
    * publish iff the dedup decision is `Some`. The two-arg dedup
-   * (`emitPresenceTransition`) is the sole gate; this is the only path
+   * (`dedupePresenceStatus`) is the sole gate; this is the only path
    * from in-memory state to wire publish.
    */
   private emit(
@@ -481,7 +481,7 @@ export class PresenceService implements LeaseTransitionObserver {
     agentId: AgentId,
   ): Effect.Effect<void, never, never> {
     return Effect.gen(this, function* () {
-      const decision = emitPresenceTransition(previous, next);
+      const decision = dedupePresenceStatus(previous, next);
       if (Option.isNone(decision)) return;
       const subscriberConnIds = new Set(this.getSubscribers(agentId));
       yield* fanOut(

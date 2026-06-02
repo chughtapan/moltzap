@@ -979,9 +979,9 @@ Dedup is a client-side concern: clients that want "one DM per
 participant set" semantics list their tasks and filter locally
 before creating a new one.
 
-NOTE (#683): the agent-facing entry RPC is `task/request`; the
-TM-facing wire callback `task/create` lives in
-`packages/protocol/src/app/methods.ts`. The server forks
+The agent-facing entry RPC is `task/request`; the TM-facing wire callback
+`task/create` lives in `packages/protocol/src/app/methods.ts`. The server
+forks
 `task/create` to the bound TM after inserting the task in
 `waiting`; the TM's verdict drives the lifecycle (accept → active
 + `task/created`; reject → failed + `task/failed`). The synchronous

@@ -39,7 +39,7 @@ export type { ListCursor } from "./schema-primitives.js";
 // Brand aliases the wire id types resolve to. Re-exported so downstream
 // `.d.ts` emit can name them via the package entry (not the deep
 // `dist/schema-primitives.js` path) — TS2742 portability.
-export type { BrandedString, BrandedNumber } from "./schema-primitives.js";
+export type { BrandedString } from "./schema-primitives.js";
 
 // Shared pagination limits for the cursor-paginated list RPCs.
 export {
@@ -60,16 +60,13 @@ export {
   appCallableRpcMethods,
   notificationDefinitions,
   decodeServerInbound,
-  decodeClientInbound,
 } from "./rpc-registry.js";
 export type {
   AnyServerRpcDefinition,
   AnyAgentClientRpcDefinition,
-  AnyAppCallableRpcDefinition,
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
   DecodedServerInbound,
-  DecodedClientInbound,
   DecodedResponseSuccess,
   DecodedResponseError,
 } from "./rpc-registry.js";

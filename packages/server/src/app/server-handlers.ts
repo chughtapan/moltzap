@@ -46,7 +46,7 @@ import {
   taskConversationAddParticipant,
   taskConversationRemoveParticipant,
 } from "../task/handlers/tasks.handlers.js";
-import { taskRequest } from "./handlers/task-request.handler.js";
+import { taskRequest } from "./handlers/task-request.handlers.js";
 import {
   appsRegister,
   dispatchRequest,

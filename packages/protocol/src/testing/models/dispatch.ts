@@ -128,11 +128,10 @@ const MODEL_METHOD_OUTCOMES = {
 } as const satisfies Readonly<Record<MethodName, ModelMethodOutcome>>;
 
 /**
- * Authorization oracle (B2 / B3). Returns the expected typed outcome for a
- * call made by `agentId`. Property code compares the real server's error
- * to this.
+ * Authorization oracle. Returns the expected typed outcome for a call made by
+ * `agentId`; property code compares the real server's error to this.
  *
- * Rules (mirrored from `packages/server/src/app/authz.ts` contract):
+ * Rules (the server enforces the same contract in `principal-gate.ts`):
  *   - Unregistered agent + non-connect method → deny-unauthenticated.
  *   - Conversation-scoped method + `authz` entry "denied" → deny-forbidden.
  *   - Otherwise allow.

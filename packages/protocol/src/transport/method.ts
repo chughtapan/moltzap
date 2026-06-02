@@ -332,8 +332,8 @@ function makeErrorSchema(
  *   E --> F["aggregated into rpcMethods"]
  * ```
  *
- * - Every slot is REQUIRED in the handler table (Spec D3 R14b);
- *   omitting any key fails TS2741 at the factory call.
+ * - Every slot is REQUIRED in the handler table; omitting any key fails TS2741
+ *   at the factory call.
  * - Capabilities are NOT descriptor metadata; `defineRpc` carries only the
  *   wire shape, and the server's per-method `*AuthMw` runs the caps.
  * - The validators reject excess keys (`closedStructGuard`), preserving the

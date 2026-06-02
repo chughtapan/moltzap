@@ -149,12 +149,11 @@ export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
  * or Notification frame — fail-closed on anything else.
  *
  * The discrimination runs `Schema.decodeUnknownEither(...,
- * { onExcessProperty: "error" })` against each frame schema in the existing
- * precedence (Request → Response → Notification). The `{ onExcessProperty:
- * "error" }` option preserves the former AJV `strict` rejection: a frame with
- * an extra top-level key fails decode at EVERY arm and falls through to
- * `FrameDecodeError` — the conformance `extra-property` / `oversized`
- * mutators depend on this.
+ * { onExcessProperty: "error" })` against each frame schema in precedence order
+ * (Request → Response → Notification). The `{ onExcessProperty: "error" }`
+ * option rejects excess keys: a frame with an extra top-level key fails decode
+ * at EVERY arm and falls through to `FrameDecodeError` — the conformance
+ * `extra-property` / `oversized` mutators depend on this.
  *
  * ```mermaid
  * flowchart TD

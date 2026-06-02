@@ -149,11 +149,9 @@ export interface DispatchTestDriver {
   ) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Advance the test clock by `durationMs`. If the conformance harness
-   * is running against `TestClock`, this fast-forwards TTLs; otherwise
-   * (real-time mode) it is a `Effect.sleep`. Property authors call this
-   * for `dispatches-expired-fires-on-ttl` and the moderator-response
-   * timeout property.
+   * Sleep `durationMs` against the real clock to let server-side TTLs elapse.
+   * Property authors call this for `dispatches-expired-fires-on-ttl` and the
+   * moderator-response timeout property, which both run against a live server.
    */
   readonly advanceTime: (durationMs: number) => Effect.Effect<void>;
 }
@@ -164,7 +162,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchTestDriverConfig`](./_driver.ts#L329)
+### [`DispatchTestDriverConfig`](./_driver.ts#L327)
 
 _Interface_
 
@@ -380,7 +378,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L951)
+### [`makeDispatchTestDriver`](./_driver.ts#L949)
 
 _Function_
 

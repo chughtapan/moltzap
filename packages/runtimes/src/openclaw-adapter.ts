@@ -570,7 +570,7 @@ function installChannelPlugin(
   repoRoot: string,
 ): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   // OpenClaw's plugin imports `effect` at load time. Resolve it the way
-  // Node would when the channel package itself imported it (#285) — that
+  // Node would when the channel package itself imported it — that
   // walks parent `node_modules` directories, so it handles both per-pkg
   // installs (`<pkg>/node_modules/effect`) and workspace hoists
   // (`<repoRoot>/node_modules/effect`). The legacy `dist/node_modules`

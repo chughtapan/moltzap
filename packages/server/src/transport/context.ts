@@ -11,14 +11,14 @@ import type { AgentId, UserId } from "../app/types.js";
 export type AgentStatus = "active" | "pending_claim" | "suspended";
 
 /**
- * The two tagged principal arms (D #705 §1.1). These are the only
- * "context" classes; a connection's principal is reached via `conn.auth`
+ * The two tagged principal arms. These are the only "context" classes; a
+ * connection's principal is reached via `conn.auth`
  * off the three-arm `Connection` union (`transport/connection.ts`). No
  * `AuthenticatedContext`-style wrapper sits above them — the bare union
  * `AgentContext | AppContext` is the principal type, minted directly on the
  * Connect path. Handlers receive their NARROWED arm
  * ({@link AgentContext} for agent-callable RPCs, {@link AppContext} for
- * app-callable), keyed by each binding's {@link PrincipalKind}.
+ * app-callable), keyed by each binding's `PrincipalKind`.
  */
 export class AgentContext extends Data.TaggedClass("AgentContext")<{
   readonly agentId: AgentId;
@@ -31,7 +31,7 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 }> {}
 
 /**
- * D #705 — mint the closed-union {@link AgentContext} arm DIRECTLY from the
+ * Mint the closed-union {@link AgentContext} arm DIRECTLY from the
  * raw fields an authenticator resolves (the Connect path's sole minting site;
  * there is no `AuthenticatedContext` intermediary). The `agent_status` SQL
  * enum (`core-schema.sql → CREATE TYPE agent_status`) constrains the stored

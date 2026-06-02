@@ -23,7 +23,7 @@
  *      `onAgentDisconnect(agentId, connId)` plus `statusOf` /
  *      `statusMany` plus the subscriber-registry CRUD
  *      (`subscribe` / `getSubscribers` / `removeConnection`).
- *    - `emitPresenceTransition` is a pure
+ *    - `dedupePresenceStatus` is a pure
  *      `(prev, next) => Option` of the status union.
  *    - `deriveEntryStatus` is the lease-count-to-status helper.
  *    - `PresenceAuditEvent` is the discriminated union for "expected
@@ -58,7 +58,7 @@ import type {
 } from "./presence-types.js";
 import {
   deriveEntryStatus,
-  emitPresenceTransition,
+  dedupePresenceStatus,
   noopLeaseTransitionObserver,
 } from "./presence-types.js";
 import { PresenceService } from "./presence.service.js";
@@ -103,7 +103,7 @@ void _connectArity;
 const _noopIsObserver: LeaseTransitionObserver = noopLeaseTransitionObserver;
 void _noopIsObserver;
 
-declare const emitResult: ReturnType<typeof emitPresenceTransition>;
+declare const emitResult: ReturnType<typeof dedupePresenceStatus>;
 const _emitResultCheck: Option.Option<DerivedPresenceStatus> = emitResult;
 void _emitResultCheck;
 

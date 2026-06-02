@@ -20,7 +20,7 @@ import type {
   MalformedFrameKind,
   AnyFrame,
 } from "../conformance/_shared/frame-mutator.js";
-import { arbitraryFromSchema } from "./from-typebox.js";
+import { arbitraryFromSchema } from "./schema-arbitrary.js";
 
 const FRAME_SEED_MAX = 2_147_483_647;
 const RequestFrameSchema = requestFrameSchema();
