@@ -5,6 +5,7 @@ import {
   agentId,
   appId as makeAppId,
   taskId as makeTaskId,
+  WIRE_ERROR_TAG,
 } from "@moltzap/protocol/testing";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskService } from "./task.service.js";
