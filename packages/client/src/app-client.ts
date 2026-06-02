@@ -158,7 +158,7 @@ export interface AppClientOptions {
   agentKey: string;
 
   /**
-   * D #705 CP8 — app-principal credential. When set, the `network/connect`
+   * App-principal credential. When set, the `network/connect`
    * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
    * instead of the `agentKey` arm, so the server mints an `AppConnection`
    * and the HelloOk carries no `agentId`. Used by wire app clients (a
@@ -633,10 +633,9 @@ export class MoltZapAppClient {
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectFiber !== null) return;
     // The reconnect loop body is shared (`runtime/reconnect.ts →
-    // makeReconnectLoop`, #705 CP-F A6-base — byte-identical to
-    // `MoltZapAgentClient`). The per-class guard above + `runtime.runFork`
-    // here stay local because they touch this client's `reconnectFiber` /
-    // `closed` state.
+    // makeReconnectLoop`, identical to `MoltZapAgentClient`). The per-class
+    // guard above + `runtime.runFork` here stay local because they touch this
+    // client's `reconnectFiber` / `closed` state.
     const loop = makeReconnectLoop({
       connectEffect: () => this.connectEffect(),
       onReconnect: (helloOk) => this.options.onReconnect?.(helloOk),

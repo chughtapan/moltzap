@@ -51,7 +51,7 @@ export interface AppClientOptions {
   agentKey: string;
 
   /**
-   * D #705 CP8 — app-principal credential. When set, the `network/connect`
+   * App-principal credential. When set, the `network/connect`
    * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
    * instead of the `agentKey` arm, so the server mints an `AppConnection`
    * and the HelloOk carries no `agentId`. Used by wire app clients (a

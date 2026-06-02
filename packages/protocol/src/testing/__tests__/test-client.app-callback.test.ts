@@ -239,7 +239,7 @@ function expectResponseResult(reply: ResponseFrame): unknown {
 
 function expectResponseError(reply: ResponseFrame): {
   readonly _tag: string;
-  readonly message: string;
+  readonly message?: string;
   readonly data?: unknown;
 } {
   expect("error" in reply).toBe(true);

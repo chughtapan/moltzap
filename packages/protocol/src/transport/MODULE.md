@@ -335,7 +335,7 @@ guarantees an agent caller; an app arm here is a wiring defect, not a
 caller-actionable error. Effect.die (not a caller-visible error)
 because the principal-kind gate already rejected non-agent callers.
 
-### [`CallErrorsOf`](./method.ts#L233)
+### [`CallErrorsOf`](./method.ts#L232)
 
 _TypeAlias_
 
@@ -355,7 +355,7 @@ always-possible transport errors. This is exactly what the typed client
 surfaces on `client["method/name"](payload)`'s Effect — the same union the
 wire `errorSchema` decodes, plus transport.
 
-### [`CapErrorsOf`](./method.ts#L202)
+### [`CapErrorsOf`](./method.ts#L201)
 
 _TypeAlias_
 
@@ -671,7 +671,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L479)
+### [`decodeRpcResult`](./method.ts#L478)
 
 _Function_
 
@@ -686,7 +686,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L449)
+### [`defineNotification`](./method.ts#L448)
 
 _Function_
 
@@ -701,7 +701,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L340)
+### [`defineRpc`](./method.ts#L339)
 
 _Function_
 
@@ -828,7 +828,7 @@ export class DispatchRequestAuthMw extends RpcMiddleware.Tag<DispatchRequestAuth
 ) {}
 ```
 
-### [`DomainErrorsOf`](./method.ts#L208)
+### [`DomainErrorsOf`](./method.ts#L207)
 
 _TypeAlias_
 
@@ -844,7 +844,7 @@ export type DomainErrorsOf<
 
 The handler-domain error instance union a descriptor declares.
 
-### [`effectiveErrorClasses`](./method.ts#L262)
+### [`effectiveErrorClasses`](./method.ts#L261)
 
 _Function_
 
@@ -1326,7 +1326,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L426)
+### [`NotificationDefinition`](./method.ts#L425)
 
 _Interface_
 
@@ -1395,7 +1395,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L437)
+### [`NotificationParamsOf`](./method.ts#L436)
 
 _TypeAlias_
 
@@ -1423,7 +1423,7 @@ channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
 machinery as AppCallbackRpcGroup.
 
-### [`ParamsOf`](./method.ts#L151)
+### [`ParamsOf`](./method.ts#L150)
 
 _TypeAlias_
 
@@ -1497,7 +1497,7 @@ extra fields are fine for a read-only consumer), so the server provides
 the live narrowed arm directly. The `appId` of the app arm is sourced
 from the live `AppConnection.auth` minted at auth time, NOT hardcoded.
 
-### [`PrincipalErrorClassesOf`](./method.ts#L190)
+### [`PrincipalErrorClassesOf`](./method.ts#L189)
 
 _TypeAlias_
 
@@ -1573,7 +1573,7 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`ResponseErrorsOf`](./method.ts#L181)
+### [`ResponseErrorsOf`](./method.ts#L180)
 
 _TypeAlias_
 
@@ -1632,7 +1632,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L163)
+### [`ResultOf`](./method.ts#L162)
 
 _TypeAlias_
 
@@ -1704,7 +1704,7 @@ The type is the plain `Context.Tag<any, any>` (not intersected with an
 other arm is the variance-laden Tag, so the `errors` static is read
 structurally by CapErrorClassesOf rather than constrained here.
 
-### [`RpcDefinition`](./method.ts#L83)
+### [`RpcDefinition`](./method.ts#L82)
 
 _Interface_
 
@@ -1785,10 +1785,9 @@ property.
 The `paramsSchema`/`resultSchema` are Effect `Schema` values (`P`/`R extends
 Schema.Schema.AnyNoContext` — the wire schemas have no decode context).
 `validateParams`/`validateResult` are strict, excess-rejecting type guards
-(`closedStructGuard`) that match the former `ajv.compile(schema)` strict
-behavior: a bare `Schema.is` would ACCEPT extra keys, so the guards wrap a
-`Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" })`
-to preserve AJV `strict` rejection at the trust boundary.
+(`closedStructGuard`): a bare `Schema.is` would ACCEPT extra keys, so the
+guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
+"error" })` to reject excess properties at the trust boundary.
 
 A method's per-frame capabilities are NOT descriptor metadata: the
 descriptor carries only the wire shape. The server's per-method `*AuthMw`
@@ -1853,7 +1852,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L468)
+### [`RpcResultDecodeError`](./method.ts#L467)
 
 _Class_
 
