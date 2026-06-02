@@ -11,7 +11,7 @@ it("lastRead tracks seen message IDs across reads", () =>
     const regA = yield* H.registerAgent("sock-page-a");
     const regB = yield* H.registerAgent("sock-page-b");
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const conv = yield* H.socketRpcRequest(TaskRequest.name, {
@@ -67,7 +67,7 @@ it("non-text message parts render as markers in socket history", () =>
     const regA = yield* H.registerAgent("sock-attach-a");
     const regB = yield* H.registerAgent("sock-attach-b");
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const conv = yield* H.socketRpcRequest(TaskRequest.name, {
@@ -106,7 +106,7 @@ it("non-text message parts render as markers in socket history", () =>
 it("socketPath is stable after connect (cached at startSocketServer time)", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-stable");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     const pathAtStart = service.socketPath;
     try {

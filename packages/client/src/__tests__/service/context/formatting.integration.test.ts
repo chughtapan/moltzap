@@ -13,7 +13,7 @@ it("format matches @name (Xm ago): (N new) pattern", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     // Resolve C's name so it appears in context
     yield* service.resolveAgentName(regC.agentId);
@@ -45,7 +45,7 @@ it("truncates long messages at 120 chars", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);
@@ -77,7 +77,7 @@ it("advances markers — second call returns null", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);

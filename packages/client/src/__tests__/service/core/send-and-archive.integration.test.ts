@@ -11,7 +11,7 @@ it("send() delivers message to other agent", () =>
     const regB = yield* H.registerAgent("send-b");
 
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const conv = yield* H.createDm(service, regB.agentId);
 

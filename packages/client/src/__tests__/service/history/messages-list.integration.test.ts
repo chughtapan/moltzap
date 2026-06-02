@@ -12,7 +12,7 @@ it("messages/list returns both own and other agent messages", () =>
     const regB = yield* H.registerAgent("hist-b");
 
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     // Create DM between A and B
     const conv = yield* H.createDm(service, regB.agentId);
@@ -75,7 +75,7 @@ it("group conversation history shows all participants", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     // Create group
     const conv = yield* service.call(TaskRequest.name, {

@@ -9,7 +9,7 @@ H.setupServiceIntegration();
 it("ping responds with agentId", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-ping");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     try {
       const result = yield* H.requestLocalService(H.LocalServiceCommands.Ping);
@@ -24,7 +24,7 @@ it("ping responds with agentId", () =>
 it("status returns connection info", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-status");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     try {
       const result = yield* H.requestLocalService(
@@ -43,7 +43,7 @@ it("passthrough RPC works via socket", () =>
     const regA = yield* H.registerAgent("sock-rpc-a");
     const regB = yield* H.registerAgent("sock-rpc-b");
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const conv = yield* H.socketRpcRequest(TaskRequest.name, {
