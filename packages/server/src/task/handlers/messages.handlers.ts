@@ -1,13 +1,8 @@
 import {
   MessagesSend,
   MessagesList,
-  MessagesSendAuth,
-  MessagesListAuth,
   NotFoundError,
   ForbiddenError,
-  ConversationInTask,
-  MessageSendPermission,
-  TaskReadAccess,
   type LeaseId,
   type ParamsOf,
 } from "@moltzap/protocol";
@@ -142,23 +137,17 @@ function handleMessageList(
 
 export const nativeMessagesSend = (params: MessagesSendParams) =>
   Effect.gen(function* () {
-    const auth = yield* MessagesSendAuth;
+    // The send-permission cap middlewares gated this frame in the engine stack
+    // before this handler runs; the body trusts the gated `params` and reads no
+    // cap proof. `agentArm` reads the narrowed principal off `ConnectionTag`.
     const ctx = yield* agentArm;
-    return yield* handleMessageSend(params, ctx).pipe(
-      Effect.provideService(
-        MessageSendPermission,
-        auth[MessageSendPermission.key],
-      ),
-      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
-    );
+    return yield* handleMessageSend(params, ctx);
   }).pipe(Effect.withSpan("nativeMessagesSend"));
 
 export const nativeMessagesList = (params: ParamsOf<typeof MessagesList>) =>
   Effect.gen(function* () {
-    const auth = yield* MessagesListAuth;
+    // Gated by the `TaskReadAccess` + `ConversationInTask` cap middlewares in the
+    // engine stack; the body reads no cap proof and trusts the gated `params`.
     const ctx = yield* agentArm;
-    return yield* handleMessageList(params, ctx).pipe(
-      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
-      Effect.provideService(TaskReadAccess, auth[TaskReadAccess.key]),
-    );
+    return yield* handleMessageList(params, ctx);
   }).pipe(Effect.withSpan("nativeMessagesList"));
