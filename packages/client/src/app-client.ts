@@ -6,42 +6,32 @@ import {
   Effect,
   Exit,
   Fiber,
+  Mailbox,
   ManagedRuntime,
   Option,
-  Queue,
   Ref,
   Scope,
   Stream,
-  Schema,
 } from "effect";
 import {
   PROTOCOL_VERSION,
+  AppCallableGroup,
   Connect,
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-  encodeErrorResponse,
-  makeMiddlewareSlot,
-  makeAppClientConnection,
   NotConnectedError,
   RpcTimeoutError,
+  runMuxReader,
   type AnyNotificationDefinition,
   type DecodedNotification,
-  type DecodedServerInbound,
-  type ErasedSlot,
-  type ErasedSlotTable,
   type JsonRpcId,
   type NotificationParamsOf,
   type ParamsOf,
-  type ResponseFrame,
   type ResultOf,
   type RpcCallError,
   type RpcDefinition,
-  type SlotDispatchContext,
-  type AppClientConnection,
   type AppCallbackHandlers,
 } from "@moltzap/protocol";
-import { decodeFrames } from "./runtime/frame.js";
+import { buildNativeClient } from "./runtime/native-mux-client.js";
+import { buildReverseServer } from "./runtime/reverse-rpc-server.js";
 import {
   makeSubscriberRegistry,
   type SubscriberRegistry,
@@ -52,14 +42,10 @@ import {
 } from "./notification/stream.js";
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
 import {
-  MALFORMED_FRAME_PREVIEW_CHARS,
-  MSG_NOT_CONNECTED,
   NORMAL_CLOSE_CODE,
-  UTF8_DECODER,
   makeNotConnectedError,
   makeReconnectLoop,
   openSocket,
-  shouldLogMalformedFrame,
   webSocketUrl,
   type ClientWebSocket,
 } from "./runtime/reconnect.js";
@@ -82,44 +68,23 @@ export interface RpcCallOptions {
 
 type ConnectError = RpcCallError | RpcTimeoutError;
 
-/**
- * Capacity of the per-connection task-callback executor queue. Sized at
- * 8192 to preserve the pre-cutover burst envelope (256 partitions × 32
- * per-partition queue depth = 8192). Sized once at queue construction;
- * the queue is bounded so the WS reader exerts back-pressure on a slow
- * handler instead of leaking memory.
- *
- * Per architect plan #533 §"Revisions r1 correction 3": this matches
- * today's burst envelope under the partition-replaced single-drain
- * topology.
- */
-const APP_CALLBACK_QUEUE_CAPACITY = 8192;
-
 type ConnectResult = ResultOf<typeof Connect>;
-type DecodedIncomingFrame = Effect.Effect.Success<
-  ReturnType<typeof decodeFrames>
->[number];
-type DecodedIncomingResponse = Extract<
-  DecodedIncomingFrame,
-  { readonly _tag: "ResponseSuccess" | "ResponseError" }
->;
-type DecodedIncomingNotification = Extract<
-  DecodedIncomingFrame,
-  { readonly _tag: "Notification" }
->;
+
+/**
+ * The native client's descriptor-driven outbound call surface
+ * (`buildNativeClient`): `(def, params) => Effect<result, RpcCallError>` over
+ * the c2s channel.
+ */
+type NativeCall = <D extends RpcDefinition<string, any, any>>(
+  definition: D,
+  params: ParamsOf<D>,
+) => Effect.Effect<ResultOf<D>, RpcCallError>;
 
 /**
  * Per-connection runtime state. `None` = not connected → `sendRpc` fails fast
- * with `NotConnectedError`.
- *
- * Cutover (#533): the partitioned dispatcher is replaced by a single
- * bounded global queue + single drain fiber. The queue holds decoded
- * server-initiated requests; the drain fiber runs handlers serially.
- * Capacity = `APP_CALLBACK_QUEUE_CAPACITY` (8192, preserves the
- * pre-cutover 256×32 burst envelope). Held here alongside its own
- * `dispatcherScope` (NOT bound to the socket scope) so
- * `runSync(client.close())` can `runFork(Scope.close(…))` without
- * yielding through the runtime — the load-bearing regression gate.
+ * with `NotConnectedError`. The c2s native client's `call` is the outbound
+ * surface; the s2c reverse `RpcServer` (built in `connectEffect`) serves the
+ * moderator callbacks + notifications and is owned by the connection scope.
  */
 interface ConnState {
   readonly write: (
@@ -127,55 +92,20 @@ interface ConnState {
   ) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
-
-  /**
-   * Spec F (#617) typed-dispatcher Connection. Carries the originator
-   * (outbound `call` + response `resolve`) and the inbound app-callback
-   * `handle` driven by the immutable handler table the client was
-   * constructed with.
-   */
-  readonly appConn: AppClientConnection<never, AppCallbackContext>;
+  readonly call: NativeCall;
 
   /**
    * Settled when the reader fiber exits, letting `connect()` race against
    * pre-open close and fail fast instead of waiting the RPC timeout.
    */
   readonly handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>;
-
-  /**
-   * Per-connection task-callback executor queue. Bounded; the WS reader
-   * non-blockingly offers decoded requests, the drain fiber runs
-   * handlers one at a time. Replaces the pre-cutover partitioned
-   * dispatcher with the simpler single-queue topology.
-   */
-  readonly appCallbackQueue: Queue.Queue<DecodedServerRequest>;
-
-  /**
-   * Closeable Scope owning the drain fiber. Off-Scope from the socket
-   * so `runSync(client.close())` can `runFork(Scope.close(...))`
-   * without yielding.
-   */
-  readonly dispatcherScope: Scope.CloseableScope;
-}
-
-type DecodedServerRequest = Extract<
-  DecodedServerInbound,
-  { readonly _tag: "ServerRequest" }
->;
-
-interface AppCallbackDispatcher {
-  readonly dispatcherScope: Scope.CloseableScope;
-  readonly appCallbackQueue: Queue.Queue<DecodedServerRequest>;
 }
 
 /**
- * Per-frame context the WS client threads through the Spec F typed
- * dispatcher when invoking a app-callback handler. The dispatcher reads
- * the slot's definition off the static handler table — handlers only need
- * the request id (e.g. for tracing / logging). The empty `traceparent`
- * passthrough is intentional: when the wire frame carries an OTel
- * traceparent header, the surrounding transport may layer it on; the
- * typed-dispatcher does not encode tracing into the type.
+ * Per-callback context handed to an authored app-callback handler — the request
+ * id (for tracing / logging). The reverse `RpcServer` engine assigns request
+ * ids internally; the authored handlers that read `requestId` receive a
+ * placeholder, the payload is the load-bearing input.
  */
 export interface AppCallbackContext {
   readonly requestId: JsonRpcId;
@@ -183,71 +113,39 @@ export interface AppCallbackContext {
 
 /**
  * Public handler-table type for `AppClientOptions.handlers`. Re-exported
- * straight from `@moltzap/protocol`; the client binds the per-frame
- * context generic to {@link AppCallbackContext} at each use site
- * (`AppCallbackHandlers<AppCallbackContext>`). Spec D3 R14b made every
- * slot REQUIRED; vacuous-deny moderators bind an explicit
- * `ForbiddenError -32001` handler.
+ * straight from `@moltzap/protocol`. Every slot is REQUIRED; vacuous-deny
+ * moderators bind an explicit `ForbiddenError` handler.
  */
 export type { AppCallbackHandlers };
 
-/**
- * The cast-free slot table the app-client connection dispatches against (#705
- * HALF-1). `Env = never` (app-callback handlers yield no service tags) and
- * `Conn = AppCallbackContext` (the per-frame ctx carried by
- * `SlotDispatchContext`).
- */
-type AppCallbackSlotTable = ErasedSlotTable<never, AppCallbackContext>;
+/** Placeholder request id for the authored handler's `AppCallbackContext`. */
+const CALLBACK_CONTEXT: AppCallbackContext = {
+  requestId: "reverse-rpc" as JsonRpcId,
+};
 
 /**
- * Wrap ONE authored app-callback slot into a cast-free `ErasedSlot` (#705
- * HALF-2), generic over its `params`/`result` schemas (`P`/`R`) so those
- * types stay correlated per method. The app-callback catalog declares NO
- * capabilities and runs no principal gate (the app callback carries its own
- * {@link AppCallbackContext}, not a `Connection` arm), so the slot is built
- * by {@link makeMiddlewareSlot} with a bare gated body: decode (done by
- * `makeMiddlewareSlot`) → run the authored `handle` on the unwrapped
- * `ctx.connection` → `Effect.exit` into the inner `Exit` the dispatcher
- * projects. No `weaveCaps` chain, no `CurrentPrincipal` (the cap-less
- * successor to the deleted `makeErasedSlot` + empty-providers path).
+ * Convert the authored {@link AppCallbackHandlers} table into the reverse
+ * `RpcServer` handler shape (`tag → (params) => Effect<result>`). Each authored
+ * `handle(params, ctx)` becomes a `(params) => handle(params, ctx)` the engine
+ * serves over the s2c channel; the engine encodes the result back as the
+ * callback's wire response.
  */
-function wrapAppCallbackSlot<
-  P extends Schema.Schema.AnyNoContext,
-  R extends Schema.Schema.AnyNoContext,
->(slot: {
-  readonly definition: RpcDefinition<string, P, R>;
-  readonly handle: (
-    params: Schema.Schema.Type<P>,
-    ctx: AppCallbackContext,
-  ) => Effect.Effect<Schema.Schema.Type<R>, unknown, never>;
-}): ErasedSlot<never, AppCallbackContext> {
-  return makeMiddlewareSlot(
-    slot.definition,
-    (params, ctx: SlotDispatchContext<AppCallbackContext>) =>
-      slot.handle(params, ctx.connection).pipe(Effect.exit),
-  );
-}
-
-/**
- * Convert the public {@link AppCallbackHandlers} authoring table into the cast-free
- * {@link AppCallbackSlotTable} `makeAppClientConnection` consumes (#705 HALF-2). The
- * app-callback catalog is closed (`DispatchAuthorize`, `MessagesAuthorize`,
- * `TaskCreate`); each slot is wrapped at its own concrete definition type via
- * {@link wrapAppCallbackSlot} so the per-method `params`/`result` lockstep holds (a
- * `Object.values` loop would collapse the three arms into a union and break
- * `makeMiddlewareSlot`'s typed `definition`/`handler` correlation).
- */
-function appCallbackHandlersToSlots(
+function makeAppCallbackHandlers(
   handlers: AppCallbackHandlers<AppCallbackContext>,
-): AppCallbackSlotTable {
+): Record<string, (params: unknown) => Effect.Effect<unknown, unknown>> {
+  const adapt =
+    (slot: {
+      readonly handle: (
+        params: never,
+        ctx: AppCallbackContext,
+      ) => Effect.Effect<unknown, unknown, never>;
+    }) =>
+    (params: unknown) =>
+      slot.handle(params as never, CALLBACK_CONTEXT);
   return {
-    [DispatchAuthorize.name]: wrapAppCallbackSlot(
-      handlers["dispatch/authorize"],
-    ),
-    [MessagesAuthorize.name]: wrapAppCallbackSlot(
-      handlers["messages/authorize"],
-    ),
-    [TaskCreate.name]: wrapAppCallbackSlot(handlers["task/create"]),
+    "dispatch/authorize": adapt(handlers["dispatch/authorize"]),
+    "messages/authorize": adapt(handlers["messages/authorize"]),
+    "task/create": adapt(handlers["task/create"]),
   };
 }
 
@@ -341,22 +239,22 @@ export interface AppClientOptions {
  */
 export class MoltZapAppClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
-  private readonly malformedRef: Ref.Ref<number>;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
   >;
 
   /**
-   * Per-subscription notification registry. Spec #596 / Spec B: callback-based
-   * storage feeds `Stream.async` consumers via `notification/stream.ts`.
+   * Per-subscription notification registry. Callback-based storage feeds
+   * `Stream.async` consumers via `notification/stream.ts`; the s2c reverse
+   * server's notification handlers dispatch into it.
    */
   private readonly subscribers: SubscriberRegistry;
 
   /**
-   * Spec F (#617) immutable app-callback handler table. Captured from
-   * `AppClientOptions.handlers` at construction and threaded through
-   * every `makeAppClientConnection` call (including reconnects).
+   * Immutable app-callback handler table. Captured from
+   * `AppClientOptions.handlers` at construction and threaded into the s2c
+   * reverse `RpcServer` on every connect (including reconnects).
    */
   private readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 
@@ -369,7 +267,6 @@ export class MoltZapAppClient {
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
-    this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
     this.handlers = options.handlers;
   }
@@ -525,13 +422,11 @@ export class MoltZapAppClient {
         this.reconnectFiber = null;
         yield* Effect.forkDaemon(Fiber.interrupt(f));
       }
-      yield* this.failAllPending(MSG_NOT_CONNECTED);
-      // Drop every live subscription so handlers stop firing once
-      // the client is permanently torn down. The registry invokes each
-      // sub's `onClose(new NotConnectedError(...))` callback, which fires
-      // `emit.fail` on the corresponding consumer Stream. Subsumes the
-      // deleted `failAllNotificationWaiters` semantic (spec #596 §3.2 +
-      // §"Stream lifecycle contract" row 5).
+      // Drop every live subscription so handlers stop firing once the client is
+      // permanently torn down. The registry invokes each sub's
+      // `onClose(new NotConnectedError(...))` callback, which fires `emit.fail`
+      // on the corresponding consumer Stream. The native engine fails its
+      // in-flight RPCs when the connection scope closes below.
       yield* this.subscribers.closeAll;
       const state = yield* Ref.getAndSet(this.stateRef, Option.none());
       if (Option.isSome(state)) {
@@ -543,15 +438,6 @@ export class MoltZapAppClient {
         } else {
           this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
         }
-        // The dispatcher Scope is NOT bound to the socket Scope (see
-        // ConnState doc): tear it down via runFork so this Effect
-        // remains sync-runnable for callers using
-        // `runSync(client.close())`. Closing the dispatcher Scope
-        // interrupts the drain fiber via Scope finalizers; the
-        // bounded queue is then garbage-collected.
-        this.runtime.runFork(
-          Scope.close(state.value.dispatcherScope, Exit.void),
-        );
       }
     }).pipe(
       Effect.asVoid,
@@ -573,18 +459,12 @@ export class MoltZapAppClient {
     if (Option.isNone(state)) return;
     // Detach from state first so sendRpc fails fast while we tear down.
     this.runtime.runSync(Ref.set(this.stateRef, Option.none()));
-    this.runtime.runFork(this.failConnectionPending(state.value));
     // Interrupt the reader fiber. runRaw exits, the socket scope closes,
     // ws.close(1000) fires as part of that teardown.
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
-    // Close the per-connection scope as a belt-and-braces guarantee.
+    // Close the per-connection scope; the native engine drains its in-flight
+    // RPCs as the scope tears down.
     this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
-    // Tear down the task-callback dispatcher Scope (off-scope, see
-    // ConnState doc). runFork so disconnectSync stays synchronous for
-    // callers using `runSync(client.disconnect())`. Closing the
-    // dispatcher Scope interrupts the drain fiber via Scope
-    // finalizers.
-    this.runtime.runFork(Scope.close(state.value.dispatcherScope, Exit.void));
   }
 
   private notifyDisconnect(close: CloseInfo): Effect.Effect<void> {
@@ -607,32 +487,46 @@ export class MoltZapAppClient {
       const scope = yield* Scope.make();
       const socket = yield* this.openSocket(url, scope);
       const write = yield* Scope.extend(socket.writer, scope);
-      const appConn = yield* Scope.extend(
-        makeAppClientConnection<never, AppCallbackContext>({
-          id: "app-client",
-          slots: appCallbackHandlersToSlots(this.handlers),
-          write: (raw) => write(raw),
-          idPrefix: "rpc",
-        }),
+      const wireWrite = (chunk: string) => write(chunk);
+
+      // c2s: the native outbound client (app-callable surface).
+      const native = yield* buildNativeClient({
+        group: AppCallableGroup,
+        write: wireWrite,
         scope,
-      );
+      });
+      // s2c: the reverse server serving moderator callbacks (from the authored
+      // handler table) + notifications (into the subscriber registry).
+      const reverse = yield* buildReverseServer({
+        registry: this.subscribers,
+        callbackHandlers: makeAppCallbackHandlers(this.handlers),
+        write: wireWrite,
+        scope,
+      });
+
       const handshakeSettled = yield* Deferred.make<
         ConnectResult,
         ConnectError
       >();
-      const dispatcher = yield* this.startAppCallbackDispatcher(write, appConn);
+      const disconnects = yield* Mailbox.make<number>();
       const readerFiber = this.runtime.runFork(
-        this.readerEffect(socket, handshakeSettled, dispatcher.dispatcherScope),
+        runMuxReader(
+          socket,
+          { c2s: native.sink, s2c: reverse.sink },
+          disconnects,
+        ).pipe(
+          Effect.onExit((exit) =>
+            this.handleReaderExit(exit, handshakeSettled),
+          ),
+        ),
       );
 
       yield* this.publishConnectionState({
         write,
         readerFiber,
         scope,
-        appConn,
+        call: native.call,
         handshakeSettled,
-        appCallbackQueue: dispatcher.appCallbackQueue,
-        dispatcherScope: dispatcher.dispatcherScope,
       });
       return yield* this.awaitConnectAuth(handshakeSettled);
     });
@@ -655,61 +549,19 @@ export class MoltZapAppClient {
     });
   }
 
-  private startAppCallbackDispatcher(
-    write: ConnState["write"],
-    appConn: AppClientConnection<never, AppCallbackContext>,
-  ): Effect.Effect<AppCallbackDispatcher> {
-    return Effect.gen(this, function* () {
-      const dispatcherScope = yield* Scope.make();
-      const appCallbackQueue = yield* Queue.bounded<DecodedServerRequest>(
-        APP_CALLBACK_QUEUE_CAPACITY,
-      );
-      const drainEffect = Effect.forever(
-        Queue.take(appCallbackQueue).pipe(
-          Effect.flatMap((req) =>
-            this.dispatchInboundServerRequest(req, write, appConn),
-          ),
-        ),
-      );
-      yield* Effect.forkIn(drainEffect, dispatcherScope);
-      return { dispatcherScope, appCallbackQueue };
-    });
-  }
-
-  private readerEffect(
-    socket: ClientWebSocket,
-    handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
-    dispatcherScope: Scope.CloseableScope,
-  ): Effect.Effect<void, Socket.SocketError> {
-    return socket
-      .runRaw((data) =>
-        this.handleIncoming(
-          typeof data === "string" ? data : UTF8_DECODER.decode(data),
-        ),
-      )
-      .pipe(
-        Effect.onExit((exit) =>
-          this.handleReaderExit(exit, handshakeSettled, dispatcherScope),
-        ),
-      );
-  }
-
   private handleReaderExit(
     exit: Exit.Exit<void, Socket.SocketError>,
     handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
-    dispatcherScope: Scope.CloseableScope,
   ): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       if (Exit.isFailure(exit)) {
         yield* Effect.logWarning("WebSocket error", exit.cause);
       }
       this._helloOk = null;
-      yield* this.failAllPending(MSG_NOT_CONNECTED);
       yield* Deferred.fail(handshakeSettled, makeNotConnectedError()).pipe(
         Effect.ignore,
       );
       yield* Ref.set(this.stateRef, Option.none());
-      this.runtime.runFork(Scope.close(dispatcherScope, Exit.void));
       yield* this.notifyDisconnect(extractCloseInfo(exit));
       if (!this.closed) {
         this.scheduleReconnect();
@@ -753,184 +605,12 @@ export class MoltZapAppClient {
       if (Option.isNone(state)) {
         return yield* Effect.fail(makeNotConnectedError());
       }
-      // `sendRpc` is the public surface; callers pass concrete descriptors
-      // narrowed at the call site. The typed-dispatcher's `call` is
-      // constrained to `AnyServerRpcDefinition` (the union of catalog members);
-      // the bound carry-through is preserved by widening to the union here.
-      const call = state.value.appConn.call as <
-        D2 extends RpcDefinition<string, any, any>,
-      >(
-        definition: D2,
-        params: ParamsOf<D2>,
-      ) => Effect.Effect<ResultOf<D2>, ConnectError>;
-      return yield* call(definition, params).pipe(
+      return yield* state.value.call(definition, params).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
           onTimeout: () =>
             new RpcTimeoutError({ method: definition.name, timeoutMs }),
         }),
-      );
-    });
-  }
-
-  /**
-   * Write a "queue-full" error response back to the server when the
-   * task-callback executor queue is saturated. Bounded-queue offer
-   * returns `false` rather than blocking; we surface that to the
-   * server's `Deferred.await` so it settles deterministically.
-   */
-  private writeQueueFullRejection(
-    requestId: JsonRpcId,
-    write: ConnState["write"],
-  ): Effect.Effect<void, never> {
-    const reply: ResponseFrame = encodeErrorResponse(requestId, {
-      code: -32000,
-      message: `Server busy: task-callback executor queue full (capacity=${APP_CALLBACK_QUEUE_CAPACITY})`,
-    });
-    return write(JSON.stringify(reply)).pipe(
-      Effect.catchAll((werr) =>
-        Effect.logWarning(
-          "task-callback queue-full rejection write failed",
-          werr,
-        ),
-      ),
-    );
-  }
-
-  /**
-   * Dispatch one inbound appCallback request through the typed Spec F
-   * dispatcher and write its wire response back to the server. Spec D3
-   * R14b made every app-callback slot REQUIRED at construction, so the
-   * dispatcher always finds a bound handler. Handler defects collapse
-   * to a generic InternalError reply so the server's `Deferred.await`
-   * always settles deterministically.
-   */
-  private dispatchInboundServerRequest(
-    request: DecodedServerRequest,
-    write: ConnState["write"],
-    appConn: AppClientConnection<never, AppCallbackContext>,
-  ): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
-      // #705 HALF-1 — the dispatcher ctx is `SlotDispatchContext<Conn>`
-      // (`{ connection: Conn }`); `Conn = AppCallbackContext`, so the
-      // per-frame `requestId` rides on `connection`. The slot's
-      // `wrapAppCallbackSlot` wrapper unwraps `.connection` to hand the
-      // authored `handle` its bare `AppCallbackContext`.
-      const reply = yield* appConn.handle(request.frame, {
-        connection: { requestId: request.id },
-      });
-      yield* this.writeInboundServerReply(write, reply);
-    });
-  }
-
-  private writeInboundServerReply(
-    write: ConnState["write"],
-    reply: ResponseFrame,
-  ): Effect.Effect<void, never> {
-    return write(JSON.stringify(reply)).pipe(
-      Effect.catchAll((err) =>
-        Effect.logWarning("appCallback response write failed", err),
-      ),
-    );
-  }
-
-  private recordMalformedFrame(err: {
-    readonly raw: string;
-  }): Effect.Effect<null> {
-    return Effect.gen(this, function* () {
-      const count = yield* Ref.updateAndGet(this.malformedRef, (n) => n + 1);
-      if (shouldLogMalformedFrame(count)) {
-        yield* Effect.logWarning(`Malformed frame (#${count})`).pipe(
-          Effect.annotateLogs({
-            rawPreview: err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
-          }),
-        );
-      }
-      return null;
-    });
-  }
-
-  private handleDecodedResponse(
-    decoded: DecodedIncomingResponse,
-  ): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const state = yield* Ref.get(this.stateRef);
-      if (Option.isNone(state)) return;
-      yield* state.value.appConn.resolve(decoded.frame).pipe(Effect.asVoid);
-    });
-  }
-
-  private handleDecodedServerRequest(
-    decoded: DecodedServerRequest,
-  ): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const state = yield* Ref.get(this.stateRef);
-      if (Option.isNone(state)) return;
-      const offered = yield* Queue.offer(state.value.appCallbackQueue, decoded);
-      if (!offered) {
-        yield* this.writeQueueFullRejection(decoded.id, state.value.write);
-      }
-    });
-  }
-
-  /**
-   * Inbound notification routing. Spec #596 / Spec B: dispatch fans out
-   * through the registry's stored `onFrame` callbacks into each
-   * subscription's `Stream.async` source. The pre-arrival buffer and
-   * waiter-pop branches were deleted in Spec B (no top-level waiter, no
-   * `notificationsBufferRef`).
-   */
-  private handleDecodedNotification(
-    decoded: DecodedIncomingNotification,
-  ): Effect.Effect<void> {
-    return this.subscribers.dispatch(decoded);
-  }
-
-  private handleDecodedFrame(
-    decoded: DecodedIncomingFrame,
-  ): Effect.Effect<void> {
-    switch (decoded._tag) {
-      case "ResponseSuccess":
-      case "ResponseError":
-        return this.handleDecodedResponse(decoded);
-      case "ServerRequest":
-        return this.handleDecodedServerRequest(decoded);
-      case "Notification":
-        return this.handleDecodedNotification(decoded);
-    }
-  }
-
-  /**
-   * Route an inbound frame. Malformed frames are logged + dropped; notification
-   * frames fan out through the per-subscription registry (Spec B).
-   */
-  private handleIncoming(raw: string): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const decodedFrames = yield* decodeFrames(raw).pipe(
-        Effect.catchTag("MalformedFrameError", (err) =>
-          this.recordMalformedFrame(err),
-        ),
-      );
-      if (decodedFrames === null) return;
-
-      for (const decoded of decodedFrames) {
-        yield* this.handleDecodedFrame(decoded);
-      }
-    });
-  }
-
-  private failConnectionPending(state: ConnState): Effect.Effect<void> {
-    return state.appConn.failAllPending(
-      new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-    );
-  }
-
-  private failAllPending(message: string): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const state = yield* Ref.get(this.stateRef);
-      if (Option.isNone(state)) return;
-      yield* state.value.appConn.failAllPending(
-        new NotConnectedError({ message }),
       );
     });
   }
