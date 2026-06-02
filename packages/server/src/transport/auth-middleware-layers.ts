@@ -1,66 +1,53 @@
 /**
- * @file The per-method `AuthMiddleware` impl Layers — one server-supplied
- * per-socket `Layer` over each protocol-owned `*AuthMw` descriptor
- * (`@moltzap/protocol` `auth-middleware.ts`).
+ * @file The per-capability `@effect/rpc` middleware impl Layers — one
+ * server-supplied per-socket `Layer` over each protocol-owned cap middleware
+ * (`@moltzap/protocol` `cap-middlewares.ts`).
  *
- * Each authenticated method carries ONE native `@effect/rpc` `RpcMiddleware`
- * whose `provides` is that method's `AuthContext` proof tag. The descriptor (the
- * proof Tag + the middleware Tag) is protocol-owned; the impl that resolves a
- * connection to its narrowed arm and runs each declared cap's derive/obtain is a
- * server concern, supplied here as a per-socket `Layer` over the descriptor.
+ * Each capability is its own `RpcMiddleware.Tag`; the engine stacks the
+ * principal gate plus the method's declared cap middlewares
+ * (`server-engine-group.ts → buildEngineMember`). The descriptor (the cap
+ * `Context.Tag` + the middleware Tag + its `failure`) is protocol-owned; the
+ * impl that resolves a connection to its narrowed arm (the gate) or runs a cap's
+ * derive/obtain (a cap mw) is a server concern, supplied here.
  *
- * Every factory closes over the connection's `ConnectionId` (the per-socket key)
- * and requires `ConnectionManagerTag`; the cap-bearing factories additionally
- * require the cap obtains' service env (`MwEnv`). The impl peeks the live arm,
- * runs the #720 gate to the method's narrowed principal, then — for a cap-bearing
- * method — runs each declared cap's `derivePayload` → `obtain` WITH the principal
- * in scope and assembles the combined proof (the principal plus one field per
- * declared cap) keyed by each cap tag's identifier. A cap-obtain failure maps to
- * the coded wire
- * envelope the middleware `failure` schema carries (`toWireError`).
+ * The principal gate is ONE impl over `PrincipalGateMw`, stacked on every
+ * authenticated method: it reads the running `rpc._tag`, looks up that method's
+ * policy (`callablePrincipal` + `requiresActive`) in {@link policyByTag}, narrows
+ * the live arm, and fails `Unauthorized` / `Forbidden`. It provides nothing —
+ * the handler reads the narrowed arm off `ConnectionTag` (`agentArm`/`appArm`).
  *
- * Cap run order matches the binding-site weave (`messages.handlers.ts`):
- * FIRST-declared cap obtains FIRST, so a Forbidden rejection precedes a later
- * cap's state probe, and a DB-resolved field (e.g. `ConversationInTask`'s
- * membership) is available to the next cap.
+ * Each cap mw impl peeks the live arm for the caller's agent id, derives its
+ * input from the decoded `payload`, and runs the cap's `obtain` — providing the
+ * cap's `Context.Tag` value. The engine composes the stack in order, so a
+ * downstream cap (`ActiveTaskPermission`) reads an upstream cap's provided value
+ * (`ConversationSendAccess`) from context. A cap-obtain failure encodes against
+ * that cap mw's own `failure` schema.
  */
-import { Context, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import {
-  CurrentPrincipal,
+  PrincipalGateMw,
+  ConversationInTaskMw,
+  ConversationSendAccessMw,
+  ActiveTaskPermissionMw,
+  OpenConversationPermissionMw,
+  ReplyTargetPermissionMw,
+  TaskReadAccessMw,
+  ContactPolicyAllowsReachMw,
   ConversationInTask,
+  ConversationSendAccess,
+  ActiveTaskPermission,
+  OpenConversationPermission,
+  ReplyTargetPermission,
   TaskReadAccess,
-  MessageSendPermission,
   ContactPolicyAllowsReach,
-  MessagesSend,
-  TaskConversationArchive,
-  MessagesSendAuthMw,
-  MessagesListAuthMw,
-  TaskListAuthMw,
-  TaskRequestAuthMw,
-  TaskLeaveAuthMw,
-  TaskConversationListAuthMw,
-  AgentsLookupAuthMw,
-  AgentsLookupByNameAuthMw,
-  AgentsListAuthMw,
-  ContactsListAuthMw,
-  ContactsAddAuthMw,
-  ContactsAcceptAuthMw,
-  ContactsByIdAuthMw,
-  DispatchRequestAuthMw,
-  NetworkPingAuthMw,
-  PresenceSubscribeAuthMw,
-  TaskCloseAuthMw,
-  TaskAddParticipantAuthMw,
-  TaskRemoveParticipantAuthMw,
-  TaskConversationCreateAuthMw,
-  TaskConversationArchiveAuthMw,
-  TaskConversationUnarchiveAuthMw,
-  TaskConversationAddParticipantAuthMw,
-  TaskConversationRemoveParticipantAuthMw,
-  AppsRegisterAuthMw,
-  DispatchesGetAuthMw,
-  type AuthProof,
+  CurrentPrincipal,
+  type CallablePrincipal,
+  type ConversationId,
+  type TaskId,
+  type MessageId,
 } from "@moltzap/protocol";
+import { serverRpcMethods } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import {
   ConnectionManagerTag,
@@ -69,429 +56,219 @@ import {
   TaskServiceTag,
 } from "../app/layers.js";
 import {
-  conversationInTaskForArchive,
-  conversationInTaskForUnarchive,
-  conversationInTaskForAddParticipant,
-  conversationInTaskForRemoveParticipant,
-  conversationInTaskForSend,
-  conversationInTaskForList,
-  messageSendPermissionMiddleware,
-  taskReadAccessMiddleware,
-  contactPolicyAllowsReachMiddleware,
+  obtainTaskReadAccess,
+  obtainConversationInTask,
+  obtainContactPolicyAllowsReach,
 } from "../app/capability-middlewares.js";
+import {
+  obtainConversationSendAccess,
+  obtainActiveTaskPermission,
+  obtainOpenConversationPermission,
+  obtainReplyTargetPermission,
+} from "../task/services/send-permissions.js";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
-/** The cap obtains' service env (`capability-middlewares.ts → MwEnv`). */
-type MwEnv = TaskServiceTag | ConversationServiceTag | MessageServiceTag;
-
-/** The agent-arm proof principal shape (`PrincipalForKind&lt;"agent">`). */
-type AgentPrincipal = AuthProof<typeof MessagesSend>["principal"];
-/** The app-arm proof principal shape (`PrincipalForKind&lt;"app">`). */
-type AppPrincipal = AuthProof<typeof TaskConversationArchive>["principal"];
-
-/**
- * Retype the gate output to the agent-arm proof principal. The gate already
- * rejected the wrong arm, so a non-agent `_tag` here is an impossible-state
- * defect.
- */
-const asAgentPrincipal = (principal: {
-  readonly _tag: string;
-}): Effect.Effect<AgentPrincipal> =>
-  principal._tag === "AgentContext"
-    ? Effect.succeed(principal as AgentPrincipal)
-    : Effect.dieMessage(
-        `auth middleware: agent gate yielded non-agent arm ${principal._tag}`,
-      );
-
-/** Retype the gate output to the app-arm proof principal (impossible-state otherwise). */
-const asAppPrincipal = (principal: {
-  readonly _tag: string;
-}): Effect.Effect<AppPrincipal> =>
-  principal._tag === "AppContext"
-    ? Effect.succeed(principal as AppPrincipal)
-    : Effect.dieMessage(
-        `auth middleware: app gate yielded non-app arm ${principal._tag}`,
-      );
-
-/**
- * Run ONE capability middleware: `derivePayload(params)` (reads
- * `CurrentPrincipal`) → `obtain`. Generic over the OWNING method's params type;
- * the caller provides `CurrentPrincipal` + `MwEnv` around the assembled chain.
- */
-const runCap = <
-  Params,
-  Provides extends Context.Tag<any, any>,
-  Input,
-  Fail,
-  ObtainR = never,
->(
-  mw: {
-    readonly provides: Provides;
-    readonly derivePayload: (
-      p: Params,
-    ) => Effect.Effect<Input, never, CurrentPrincipal>;
-    readonly obtain: (
-      i: Input,
-    ) => Effect.Effect<Context.Tag.Service<Provides>, Fail, MwEnv | ObtainR>;
-  },
-  params: Params,
-): Effect.Effect<
-  Context.Tag.Service<Provides>,
-  Fail,
-  MwEnv | CurrentPrincipal | ObtainR
-> => mw.derivePayload(params).pipe(Effect.flatMap(mw.obtain));
-
-/** Build the `MwEnv` Context snapshot the cap obtains run under. */
-const mwEnv = Effect.gen(function* () {
-  const taskService = yield* TaskServiceTag;
-  const conversationService = yield* ConversationServiceTag;
-  const messageService = yield* MessageServiceTag;
-  return Context.empty().pipe(
-    Context.add(TaskServiceTag, taskService),
-    Context.add(ConversationServiceTag, conversationService),
-    Context.add(MessageServiceTag, messageService),
-  );
-});
-
-// ── Cap-less Layers (19 methods) ────────────────────────────────────────────
-//
-// A cap-less method's proof is `{ principal }`. The narrowed arm IS the proof's
-// `PrincipalForKind<K>` (extra `AgentContext`/`AppContext` fields are fine for a
-// read-only consumer). The gate runs the method's static policy
-// (`callablePrincipal` + `requiresActive`), not a table lookup: each `*AuthMw`
-// is already method-specific.
-
-/**
- * Build a cap-less method's impl: peek the live arm, gate to the narrowed
- * principal, return `{ principal }` (the whole proof for a cap-less method). The
- * `manager` is captured once at Layer build; the returned function is the
- * per-request `@effect/rpc` middleware impl (payload-only, ignored here).
- */
-const capLessImpl =
-  (
-    manager: Context.Tag.Service<typeof ConnectionManagerTag>,
-    connId: ConnectionId,
-    kind: "agent" | "app",
-    requiresActive: boolean,
-  ) =>
-  () =>
-    Effect.gen(function* () {
-      const connection = yield* peekLiveArm(manager, connId);
-      const narrowed = yield* narrowByPolicy(kind, requiresActive, connection);
-      const principal =
-        kind === "app"
-          ? yield* asAppPrincipal(narrowed)
-          : yield* asAgentPrincipal(narrowed);
-      return { principal };
-    }).pipe(Effect.withSpan("AuthMiddleware.capLess"));
-
-const capLessLayer = <Mw extends Context.Tag<any, any>>(
-  mw: Mw,
-  connId: ConnectionId,
-  kind: "agent" | "app",
-  requiresActive: boolean,
-): Layer.Layer<Context.Tag.Identifier<Mw>, never, ConnectionManagerTag> =>
-  Layer.effect(
-    mw,
-    ConnectionManagerTag.pipe(
-      Effect.map(
-        (manager) =>
-          capLessImpl(
-            manager,
-            connId,
-            kind,
-            requiresActive,
-          ) as Context.Tag.Service<Mw>,
-      ),
-    ),
-  );
-
-const capLessAgentLayer = <Mw extends Context.Tag<any, any>>(
-  mw: Mw,
-  connId: ConnectionId,
-  requiresActive: boolean,
-) => capLessLayer(mw, connId, "agent", requiresActive);
-
-const capLessAppLayer = <Mw extends Context.Tag<any, any>>(
-  mw: Mw,
-  connId: ConnectionId,
-) => capLessLayer(mw, connId, "app", false);
-
-// Agent-callable, cap-less. `requiresActive` mirrors each descriptor's policy:
-// `task/leave` / `task/conversation/list` require an active agent; the lookups,
-// listings, and ping do not (a pending agent may still resolve identities).
-export const makeTaskListAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(TaskListAuthMw, connId, false);
-export const makeTaskLeaveAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(TaskLeaveAuthMw, connId, true);
-export const makeTaskConversationListAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(TaskConversationListAuthMw, connId, true);
-export const makeAgentsLookupAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(AgentsLookupAuthMw, connId, false);
-export const makeAgentsLookupByNameAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(AgentsLookupByNameAuthMw, connId, false);
-export const makeAgentsListAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(AgentsListAuthMw, connId, false);
-export const makeContactsListAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(ContactsListAuthMw, connId, false);
-export const makeContactsAddAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(ContactsAddAuthMw, connId, false);
-export const makeContactsAcceptAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(ContactsAcceptAuthMw, connId, false);
-export const makeContactsByIdAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(ContactsByIdAuthMw, connId, false);
-export const makeDispatchRequestAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(DispatchRequestAuthMw, connId, true);
-export const makeNetworkPingAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(NetworkPingAuthMw, connId, false);
-export const makePresenceSubscribeAuthMwLayer = (connId: ConnectionId) =>
-  capLessAgentLayer(PresenceSubscribeAuthMw, connId, false);
-
-// App-callable, cap-less.
-export const makeTaskCloseAuthMwLayer = (connId: ConnectionId) =>
-  capLessAppLayer(TaskCloseAuthMw, connId);
-export const makeTaskAddParticipantAuthMwLayer = (connId: ConnectionId) =>
-  capLessAppLayer(TaskAddParticipantAuthMw, connId);
-export const makeTaskRemoveParticipantAuthMwLayer = (connId: ConnectionId) =>
-  capLessAppLayer(TaskRemoveParticipantAuthMw, connId);
-export const makeTaskConversationCreateAuthMwLayer = (connId: ConnectionId) =>
-  capLessAppLayer(TaskConversationCreateAuthMw, connId);
-export const makeAppsRegisterAuthMwLayer = (connId: ConnectionId) =>
-  capLessAppLayer(AppsRegisterAuthMw, connId);
-export const makeDispatchesGetAuthMwLayer = (connId: ConnectionId) =>
-  capLessAppLayer(DispatchesGetAuthMw, connId);
-
-// ── Cap-bearing Layers (7 methods) ──────────────────────────────────────────
-//
-// The proof is the principal plus one field per declared cap, keyed by each cap
-// tag's identifier. Each cap's `derivePayload`/`obtain` runs with the gate's
-// narrowed principal in scope (`CurrentPrincipal`) and the cap obtains' service
-// env (`MwEnv`); a cap-obtain failure maps to the wire envelope.
-
-/**
- * The caps an authenticated request runs, producing the cap-proof record.
- *
- * `payload` is the request's params AFTER the engine's schema decode (the
- * `@effect/rpc` server decodes against the member's `payloadSchema` and writes
- * the decoded value back before the middleware runs). Each `runCaps` re-widens
- * it to its method's decoded params type — a re-typing of an already-validated
- * value at the per-method boundary, not a wire decode.
- */
-type RunCaps<Principal> = (
-  principal: Principal,
-  payload: unknown,
-) => Effect.Effect<object, unknown, MwEnv | CurrentPrincipal>;
-
-/** The per-method cap-bearing policy + cap-run closure a Layer is built from. */
-interface CapBearingSpec<Mw extends Context.Tag<any, any>> {
-  readonly mw: Mw;
-  readonly connId: ConnectionId;
-  readonly kind: "agent" | "app";
+/** The principal policy a method's gate enforces. */
+interface PrincipalPolicy {
+  readonly callablePrincipal: CallablePrincipal;
   readonly requiresActive: boolean;
-  readonly span: string;
-  readonly runCaps: RunCaps<AgentPrincipal | AppPrincipal>;
 }
 
 /**
- * Compose one cap-bearing method impl: gate to the narrowed principal, run the
- * method's caps with the principal plus `MwEnv` in scope, map a cap failure to
- * the wire envelope. `runCaps` returns the per-method cap-proof record; the impl
- * merges the principal in and the whole satisfies the method's `AuthProof`.
+ * Method wire tag → its principal policy. Built once from the descriptor catalog
+ * so the single `PrincipalGateMw` impl narrows per the running method's
+ * `callablePrincipal` + `requiresActive` (read off `rpc._tag`), with no parallel
+ * literal table.
  */
-const capBearingImpl =
-  <Mw extends Context.Tag<any, any>>(
-    spec: CapBearingSpec<Mw>,
-    manager: Context.Tag.Service<typeof ConnectionManagerTag>,
-    env: Context.Context<MwEnv>,
-  ) =>
-  ({ payload }: { readonly payload: unknown }) =>
-    Effect.gen(function* () {
-      const connection = yield* peekLiveArm(manager, spec.connId);
-      const narrowed = yield* narrowByPolicy(
-        spec.kind,
-        spec.requiresActive,
-        connection,
-      );
-      const principal =
-        spec.kind === "app"
-          ? yield* asAppPrincipal(narrowed)
-          : yield* asAgentPrincipal(narrowed);
-      // Cap obtains fail with their declared tagged-error instances; the engine
-      // encodes them against the method's per-method error union (the
-      // middleware `failure` schema). No coded-envelope projection.
-      return yield* spec
-        .runCaps(principal, payload)
-        .pipe(
-          Effect.provide(env),
-          Effect.provideService(CurrentPrincipal, principal),
-        );
-    }).pipe(Effect.withSpan(spec.span));
+const policyByTag: ReadonlyMap<string, PrincipalPolicy> = new Map(
+  serverRpcMethods.map((d) => [
+    d.name as string,
+    {
+      callablePrincipal: d.callablePrincipal,
+      requiresActive: d.requiresActive,
+    },
+  ]),
+);
 
-/** Build a cap-bearing Layer from a {@link CapBearingSpec}. */
-const capBearingLayer = <Mw extends Context.Tag<any, any>>(
-  spec: CapBearingSpec<Mw>,
-): Layer.Layer<
-  Context.Tag.Identifier<Mw>,
-  never,
-  ConnectionManagerTag | MwEnv
-> =>
+/** Read the caller's agent id off the live arm (cap mws derive from it). */
+const callerAgentIdFor = (
+  manager: ConnectionManagerService,
+  connId: ConnectionId,
+): Effect.Effect<AgentId> =>
+  peekLiveArm(manager, connId).pipe(
+    Effect.flatMap((connection) =>
+      connection._tag === "AgentConnection"
+        ? Effect.succeed(connection.auth.agentId)
+        : Effect.dieMessage(
+            `cap middleware: agent-gated cap reached on ${connection._tag} arm`,
+          ),
+    ),
+  );
+
+type ConnectionManagerService = Parameters<typeof peekLiveArm>[0];
+
+// ── Principal gate ───────────────────────────────────────────────────────────
+
+/**
+ * The `PrincipalGateMw` impl Layer for one socket: reads the running method's
+ * policy, narrows the live arm, fails `Unauthorized`/`Forbidden`. Returns void —
+ * a pure gate. Stacked on every authenticated method by `buildEngineMember`.
+ */
+export const makePrincipalGateLayer = (connId: ConnectionId) =>
   Layer.effect(
-    spec.mw,
+    PrincipalGateMw,
     Effect.gen(function* () {
       const manager = yield* ConnectionManagerTag;
-      const env = yield* mwEnv;
-      return capBearingImpl(spec, manager, env) as Context.Tag.Service<Mw>;
+      return ({ rpc }) =>
+        Effect.gen(function* () {
+          const policy = policyByTag.get(rpc._tag);
+          if (policy === undefined) {
+            return yield* Effect.dieMessage(
+              `principal gate: no policy for method ${rpc._tag}`,
+            );
+          }
+          const connection = yield* peekLiveArm(manager, connId);
+          yield* narrowByPolicy(
+            policy.callablePrincipal,
+            policy.requiresActive,
+            connection,
+          );
+        }).pipe(Effect.withSpan("AuthMiddleware.principalGate"));
+    }),
+  );
+
+// ── Cap middlewares ───────────────────────────────────────────────────────────
+
+/** The cap obtains' service env. */
+type MwEnv = TaskServiceTag | ConversationServiceTag | MessageServiceTag;
+
+type SendParams = {
+  readonly taskId?: TaskId;
+  readonly conversationId: ConversationId;
+  readonly replyToId?: MessageId;
+};
+type TaskAndConvParams = {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+};
+type TaskAndAgentParams = { readonly taskId: TaskId };
+type CreateConvParams = { readonly targetAgentIds: readonly AgentId[] };
+
+/** `ConversationInTask` cap mw impl Layer (no principal read; pure params). */
+export const makeConversationInTaskMwLayer = (_connId: ConnectionId) =>
+  Layer.effect(
+    ConversationInTaskMw,
+    Effect.succeed(({ payload }) => {
+      const p = payload as TaskAndConvParams;
+      return obtainConversationInTask({
+        taskId: p.taskId,
+        conversationId: p.conversationId,
+      });
     }),
   );
 
 /**
- * `messages/send` — agent + `[ConversationInTask, MessageSendPermission]`.
- * `ConversationInTask` resolves membership first; `MessageSendPermission`
- * probes against it.
+ * `ConversationSendAccess` cap mw impl Layer: peek the caller's agent id, prove
+ * participation, and do the one joined read the downstream send caps read off.
  */
-export const makeMessagesSendAuthMwLayer = (connId: ConnectionId) =>
-  capBearingLayer({
-    mw: MessagesSendAuthMw,
-    connId,
-    kind: "agent",
-    requiresActive: true,
-    span: "AuthMiddleware.messagesSend",
-    runCaps: (principal, payload) =>
-      Effect.gen(function* () {
-        const params = payload as Parameters<
-          typeof conversationInTaskForSend.derivePayload
-        >[0];
-        const conversationInTask = yield* runCap(
-          conversationInTaskForSend,
-          params,
-        );
-        const messageSendPermission = yield* runCap(
-          messageSendPermissionMiddleware,
-          params,
-        );
-        return {
-          principal,
-          [ConversationInTask.key]: conversationInTask,
-          [MessageSendPermission.key]: messageSendPermission,
-        };
-      }).pipe(Effect.withSpan("AuthMiddleware.messagesSend.caps")),
-  });
+export const makeConversationSendAccessMwLayer = (connId: ConnectionId) =>
+  Layer.effect(
+    ConversationSendAccessMw,
+    Effect.gen(function* () {
+      const manager = yield* ConnectionManagerTag;
+      return ({ payload }) =>
+        Effect.gen(function* () {
+          const p = payload as SendParams;
+          const senderAgentId = yield* callerAgentIdFor(manager, connId);
+          return yield* obtainConversationSendAccess({
+            conversationId: p.conversationId,
+            senderAgentId,
+            taskId: p.taskId,
+          });
+        });
+    }),
+  );
 
-/** `messages/list` — agent + `[TaskReadAccess, ConversationInTask]`. */
-export const makeMessagesListAuthMwLayer = (connId: ConnectionId) =>
-  capBearingLayer({
-    mw: MessagesListAuthMw,
-    connId,
-    kind: "agent",
-    requiresActive: true,
-    span: "AuthMiddleware.messagesList",
-    runCaps: (principal, payload) =>
-      Effect.gen(function* () {
-        const params = payload as Parameters<
-          typeof conversationInTaskForList.derivePayload
-        >[0];
-        const taskReadAccess = yield* runCap(taskReadAccessMiddleware, params);
-        const conversationInTask = yield* runCap(
-          conversationInTaskForList,
-          params,
-        );
-        return {
-          principal,
-          [TaskReadAccess.key]: taskReadAccess,
-          [ConversationInTask.key]: conversationInTask,
-        };
-      }).pipe(Effect.withSpan("AuthMiddleware.messagesList.caps")),
-  });
+/** `ActiveTaskPermission` cap mw impl Layer: reads the shared send row. */
+export const makeActiveTaskPermissionMwLayer = (_connId: ConnectionId) =>
+  Layer.effect(
+    ActiveTaskPermissionMw,
+    Effect.succeed(() => obtainActiveTaskPermission()),
+  );
 
-/** `task/request` — agent + `[ContactPolicyAllowsReach]`. */
-export const makeTaskRequestAuthMwLayer = (connId: ConnectionId) =>
-  capBearingLayer({
-    mw: TaskRequestAuthMw,
-    connId,
-    kind: "agent",
-    requiresActive: true,
-    span: "AuthMiddleware.taskRequest",
-    runCaps: (principal, payload) =>
-      Effect.gen(function* () {
-        const params = payload as Parameters<
-          typeof contactPolicyAllowsReachMiddleware.derivePayload
-        >[0];
-        const contactPolicyAllowsReach = yield* runCap(
-          contactPolicyAllowsReachMiddleware,
-          params,
-        );
-        return {
-          principal,
-          [ContactPolicyAllowsReach.key]: contactPolicyAllowsReach,
-        };
-      }).pipe(Effect.withSpan("AuthMiddleware.taskRequest.caps")),
-  });
+/** `OpenConversationPermission` cap mw impl Layer: reads the shared send row. */
+export const makeOpenConversationPermissionMwLayer = (_connId: ConnectionId) =>
+  Layer.effect(
+    OpenConversationPermissionMw,
+    Effect.succeed(() => obtainOpenConversationPermission()),
+  );
+
+/** `ReplyTargetPermission` cap mw impl Layer: conditional reply existence read. */
+export const makeReplyTargetPermissionMwLayer = (_connId: ConnectionId) =>
+  Layer.effect(
+    ReplyTargetPermissionMw,
+    Effect.succeed(({ payload }) => {
+      const p = payload as SendParams;
+      return obtainReplyTargetPermission({
+        conversationId: p.conversationId,
+        replyToId: p.replyToId,
+      });
+    }),
+  );
+
+/** `TaskReadAccess` cap mw impl Layer: peek caller, prove read access. */
+export const makeTaskReadAccessMwLayer = (connId: ConnectionId) =>
+  Layer.effect(
+    TaskReadAccessMw,
+    Effect.gen(function* () {
+      const manager = yield* ConnectionManagerTag;
+      return ({ payload }) =>
+        Effect.gen(function* () {
+          const p = payload as TaskAndAgentParams;
+          const callerAgentId = yield* callerAgentIdFor(manager, connId);
+          return yield* obtainTaskReadAccess({
+            taskId: p.taskId,
+            callerAgentId,
+          });
+        });
+    }),
+  );
+
+/** `ContactPolicyAllowsReach` cap mw impl Layer: peek caller, check policy. */
+export const makeContactPolicyAllowsReachMwLayer = (connId: ConnectionId) =>
+  Layer.effect(
+    ContactPolicyAllowsReachMw,
+    Effect.gen(function* () {
+      const manager = yield* ConnectionManagerTag;
+      return ({ payload }) =>
+        Effect.gen(function* () {
+          const p = payload as CreateConvParams;
+          const creatorAgentId = yield* callerAgentIdFor(manager, connId);
+          return yield* obtainContactPolicyAllowsReach({
+            creatorAgentId,
+            targetAgentIds: p.targetAgentIds,
+          });
+        });
+    }),
+  );
 
 /**
- * The four `task/conversation/*` admin RPCs — app + `[ConversationInTask]`.
- * App-ownership of the task is gated separately in each handler body; the cap
- * proof carries only the conversation-in-task membership. The four share the
- * IDENTICAL impl shape, differing only in the per-method-typed cap middleware.
+ * Every per-socket cap-middleware impl Layer, merged. The engine stacks each cap
+ * mw on the methods that declare it; this provides ONE impl per cap mw Tag for
+ * the socket (the impl ignores methods that do not stack it).
  */
-const makeConversationAdminAuthMwLayer = <
-  Mw extends Context.Tag<any, any>,
-  Params,
->(
-  mw: Mw,
-  cap: {
-    readonly provides: typeof ConversationInTask;
-    readonly derivePayload: (
-      p: Params,
-    ) => Effect.Effect<
-      Parameters<typeof conversationInTaskForArchive.obtain>[0],
-      never,
-      CurrentPrincipal
-    >;
-    readonly obtain: typeof conversationInTaskForArchive.obtain;
-  },
-  connId: ConnectionId,
-) =>
-  capBearingLayer({
-    mw,
-    connId,
-    kind: "app",
-    requiresActive: false,
-    span: "AuthMiddleware.conversationAdmin",
-    runCaps: (principal, payload) =>
-      Effect.gen(function* () {
-        const params = payload as Params;
-        const conversationInTask = yield* runCap(cap, params);
-        return { principal, [ConversationInTask.key]: conversationInTask };
-      }).pipe(Effect.withSpan("AuthMiddleware.conversationAdmin.caps")),
-  });
+export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
+  Layer.mergeAll(
+    makePrincipalGateLayer(connId),
+    makeConversationInTaskMwLayer(connId),
+    makeConversationSendAccessMwLayer(connId),
+    makeActiveTaskPermissionMwLayer(connId),
+    makeOpenConversationPermissionMwLayer(connId),
+    makeReplyTargetPermissionMwLayer(connId),
+    makeTaskReadAccessMwLayer(connId),
+    makeContactPolicyAllowsReachMwLayer(connId),
+  );
 
-export const makeTaskConversationArchiveAuthMwLayer = (connId: ConnectionId) =>
-  makeConversationAdminAuthMwLayer(
-    TaskConversationArchiveAuthMw,
-    conversationInTaskForArchive,
-    connId,
-  );
-export const makeTaskConversationUnarchiveAuthMwLayer = (
-  connId: ConnectionId,
-) =>
-  makeConversationAdminAuthMwLayer(
-    TaskConversationUnarchiveAuthMw,
-    conversationInTaskForUnarchive,
-    connId,
-  );
-export const makeTaskConversationAddParticipantAuthMwLayer = (
-  connId: ConnectionId,
-) =>
-  makeConversationAdminAuthMwLayer(
-    TaskConversationAddParticipantAuthMw,
-    conversationInTaskForAddParticipant,
-    connId,
-  );
-export const makeTaskConversationRemoveParticipantAuthMwLayer = (
-  connId: ConnectionId,
-) =>
-  makeConversationAdminAuthMwLayer(
-    TaskConversationRemoveParticipantAuthMw,
-    conversationInTaskForRemoveParticipant,
-    connId,
-  );
+// Re-export so `CurrentPrincipal`/`MwEnv` consumers keep a stable path.
+export { CurrentPrincipal };
+export type { MwEnv };
