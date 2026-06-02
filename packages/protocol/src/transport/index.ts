@@ -43,6 +43,18 @@ export type {
 } from "./method.js";
 export { effectiveErrorClasses } from "./method.js";
 
+// The cast-free per-method dispatch over a non-flat `RpcClient`: the typed map
+// shape `RpcClient.make(group)` conforms to, plus `dispatchCall` for tag-keyed
+// dispatch. Shared by the production client and the server's reverse client.
+export { dispatchCall } from "./typed-dispatch.js";
+export type {
+  TypedDispatchMap,
+  RpcForTag,
+  PayloadForTag,
+  SuccessForTag,
+  ErrorForTag,
+} from "./typed-dispatch.js";
+
 // Transport-layer call errors — the failures that originate at the CLIENT
 // transport, not at a method handler. Domain failures ride their own
 // `Schema.TaggedError` class, decoded per-method against the method's
