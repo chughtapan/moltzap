@@ -324,15 +324,22 @@ const memberGatingMismatch = (
   return undefined;
 };
 
+/**
+ * One built middleware's string `key` (its `Context.Tag` identifier). The
+ * group-member union erases `middlewares`'s element type to `never` at the type
+ * level, so this reflects over the runtime set: each entry is a real Tag with a
+ * string `key`.
+ */
+const middlewareKey = (m: unknown): string =>
+  (m as { readonly key: string }).key;
+
 export const findEngineGatingMismatch = (): string | undefined => {
   for (const [tag, rpc] of ServerEngineRpcGroup.requests) {
-    // Compare by each middleware Tag's `key`, not identity: the union member type
-    // narrows `middlewares` to `Set<never>`, so `.has(mw)` does not type-check.
-    const keys = new Set(
-      [...rpc.middlewares].map(
-        (m) => (m as unknown as { readonly key: string }).key,
-      ),
-    );
+    // Compare by each middleware Tag's `key`, not identity: the group member
+    // union narrows `middlewares` to `Set<never>` at the type level, so the
+    // runtime Tag's `key` is not type-visible. This walks the BUILT runtime set
+    // (each entry is a real `RpcMiddleware` Tag with a string `key`).
+    const keys = new Set([...rpc.middlewares].map(middlewareKey));
     const mismatch = memberGatingMismatch(tag, keys);
     if (mismatch !== undefined) {
       return mismatch;
