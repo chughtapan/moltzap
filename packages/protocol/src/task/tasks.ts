@@ -6,6 +6,7 @@ import {
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
+import { ForbiddenError } from "../transport/wire-errors.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
   ConversationId,
@@ -160,7 +161,9 @@ export const TaskClose = defineRpc({
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({ task: TaskSchema }),
   callablePrincipal: "app",
-  errors: [TaskNotFoundError],
+  // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
+  // before the body, rejecting a caller that does not own the task.
+  errors: [ForbiddenError, TaskNotFoundError],
 });
 
 export const TaskAddParticipant = defineRpc({
@@ -171,7 +174,9 @@ export const TaskAddParticipant = defineRpc({
   }),
   result: Schema.Struct({ participant: TaskParticipantSchema }),
   callablePrincipal: "app",
-  errors: [TaskNotFoundError],
+  // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
+  // before the body, rejecting a caller that does not own the task.
+  errors: [ForbiddenError, TaskNotFoundError],
 });
 
 export const TaskRemoveParticipant = defineRpc({
@@ -182,7 +187,9 @@ export const TaskRemoveParticipant = defineRpc({
   }),
   result: Schema.Struct({}),
   callablePrincipal: "app",
-  errors: [TaskNotFoundError],
+  // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
+  // before the body, rejecting a caller that does not own the task.
+  errors: [ForbiddenError, TaskNotFoundError],
 });
 
 const TaskFailedNotificationSchema = Schema.Struct({
@@ -384,11 +391,13 @@ export const TaskConversationCreate = defineRpc({
   result: Schema.Struct({ conversation: ConversationSchema }),
   callablePrincipal: "app",
   // No caps. App-ownership is gated by the app-arm handler's
-  // `assertCallerAppOwnsTask`; `ConversationCreateAuthorization` is provided
-  // inline by the handler as a capacity-only proof (a TM minting on the task's
-  // behalf has no agent contact-edges; targets are gated by
+  // `assertCallerAppOwnsTask` (raising `ForbiddenError` for a non-owner before
+  // the body); `ConversationCreateAuthorization` is provided inline by the
+  // handler as a capacity-only proof (a TM minting on the task's behalf has no
+  // agent contact-edges; targets are gated by
   // `requireAgentsAreInTaskParticipants`).
   errors: [
+    ForbiddenError,
     TaskNotFoundError,
     ParticipantNotAdmittedError,
     ConversationFullError,
@@ -429,7 +438,9 @@ export const TaskConversationArchive = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
-  errors: [],
+  // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
+  // before the body, rejecting a caller that does not own the task.
+  errors: [ForbiddenError],
 });
 
 /** TM-only: reverse of `task/conversation/archive`. */
@@ -439,7 +450,9 @@ export const TaskConversationUnarchive = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
-  errors: [],
+  // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
+  // before the body, rejecting a caller that does not own the task.
+  errors: [ForbiddenError],
 });
 
 /**
@@ -460,7 +473,7 @@ export const TaskConversationAddParticipant = defineRpc({
   // BEFORE `requireAgentsAreInTaskParticipants` (so a non-owner sees
   // `ForbiddenError`, not the participant-admitted state probe).
   caps: [ConversationInTask],
-  errors: [ParticipantNotAdmittedError],
+  errors: [ForbiddenError, ParticipantNotAdmittedError],
 });
 
 /**
@@ -478,7 +491,9 @@ export const TaskConversationRemoveParticipant = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
-  errors: [ParticipantNotAdmittedError],
+  // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
+  // before the body, rejecting a caller that does not own the task.
+  errors: [ForbiddenError, ParticipantNotAdmittedError],
 });
 
 // ─── task/conversation/* notifications ──────────────────────────────

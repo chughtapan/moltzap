@@ -39,11 +39,16 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
  * Bypasses `MoltZapTestClient` so we can send frames that don't pass the
  * protocol validator.
  */
+// Server replies ride the mux envelope `{ ch, f }` where `f` is the
+// JSON-RPC wire string for that channel. Unwrap one level so assertions
+// read the inner JSON-RPC frame (`{ id, error: { code, message } }`).
 const parseRawFrame = (data: string | Uint8Array): unknown => {
   const raw =
     typeof data === "string" ? data : new TextDecoder("utf-8").decode(data);
   try {
-    return JSON.parse(raw) as unknown;
+    const outer = JSON.parse(raw) as unknown;
+    const inner = (outer as { f?: unknown }).f;
+    return typeof inner === "string" ? (JSON.parse(inner) as unknown) : outer;
   } catch (cause) {
     return { __raw: raw, __parseError: String(cause) };
   }

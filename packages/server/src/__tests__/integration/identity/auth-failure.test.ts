@@ -14,8 +14,11 @@ import { getCoreDb } from "../../../test-utils/index.js";
 import { Connect } from "@moltzap/protocol";
 
 const BAD_AGENT_ID = "00000000-0000-4000-8000-000000000bad";
-const INVALID_API_KEY = "invalid_key_12345";
-const FAKE_API_KEY = "mz_totally_fake_api_key_000000000000";
+// Carry the agent prefix so the credential reaches agent-key validation
+// (`completeAgentConnect`) and fails there with "Authentication failed",
+// rather than short-circuiting at the unrecognized-prefix gate.
+const INVALID_API_KEY = "moltzap_agent_invalid_key_12345";
+const FAKE_API_KEY = "moltzap_agent_totally_fake_api_key_000000000000";
 const SUSPENDED_STATUS = "suspended";
 const AUTHENTICATION_FAILED_MESSAGE = "Authentication failed";
 

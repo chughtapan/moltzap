@@ -119,45 +119,115 @@ interface ChannelSink {
 }
 
 /**
- * Route one raw socket chunk to the channel sink named by its envelope.
- * A chunk that is not a well-formed envelope, or names an unregistered
- * channel, is dropped after a warning rather than failing the socket —
- * a single malformed frame must not tear down every endpoint on the
- * shared connection. Each endpoint's Parser may yield zero or more
- * decoded frames per wire string; every frame is injected in order.
+ * The JSON-RPC reserved parse-error code (JSON-RPC 2.0 §5.1). The
+ * server replies with this — rather than silently dropping — for a
+ * chunk it cannot decode into a routable protocol frame, so a buggy or
+ * hostile client gets a typed signal instead of a dead connection.
  */
-export function routeInbound(
+const JSON_RPC_PARSE_ERROR_CODE = -32700;
+
+/**
+ * The enveloped reply the mux writes back when a chunk cannot be turned
+ * into a protocol frame. The id is `null` (the frame was unparseable, so
+ * no request id is recoverable) and the channel matches the inbound
+ * `c2s` request channel so the client's reader routes it like any
+ * response. This is a fixed JSON-RPC shape, not an engine-encoded frame:
+ * the inner parser already failed, so the engine never saw the request.
+ */
+const parseErrorReply = (channel: MuxChannel): string =>
+  JSON.stringify({
+    ch: channel,
+    f: JSON.stringify({
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: JSON_RPC_PARSE_ERROR_CODE,
+        message: "invalid json",
+      },
+    }),
+  } satisfies MuxEnvelope);
+
+/**
+ * Route one raw socket chunk to the channel sink named by its envelope.
+ * A chunk that does not decode into a routable protocol frame — non-JSON,
+ * a malformed `{ch, f}` envelope, an unknown channel, or an inner wire
+ * string the endpoint Parser rejects — is answered with a JSON-RPC
+ * `-32700` parse-error reply (via `reply`) rather than failing the
+ * socket: a single malformed frame must not tear down every endpoint on
+ * the shared connection. When `reply` is omitted the chunk is dropped
+ * after a warning. Each endpoint's Parser may yield zero or more decoded
+ * frames per wire string; every frame is injected in order.
+ */
+type RoutedChunk = readonly [ChannelSink, MuxChannel, string];
+
+/** Log + (when `reply` is set) write the `-32700` parse-error envelope. */
+const replyMalformed =
+  (reply: WireWrite | undefined) =>
+  (logMessage: string, channel: MuxChannel): Effect.Effect<void> =>
+    Effect.logWarning(logMessage).pipe(
+      Effect.zipRight(
+        reply === undefined
+          ? Effect.void
+          : reply(parseErrorReply(channel)).pipe(Effect.catchAll(() => Effect.void)),
+      ),
+    );
+
+/**
+ * Decode the `{ch, f}` envelope and resolve its target sink. Returns
+ * `None` (after a malformed reply) for a chunk that is not JSON, not a
+ * well-formed envelope, or names an unregistered channel.
+ */
+function resolveRoute(
   raw: string | Uint8Array,
   sinks: Partial<Record<MuxChannel, ChannelSink>>,
-): Effect.Effect<void> {
+  onMalformed: (logMessage: string, channel: MuxChannel) => Effect.Effect<void>,
+): Effect.Effect<Option.Option<RoutedChunk>> {
   return Effect.gen(function* () {
     const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
     const parsed = yield* Effect.try(() => JSON.parse(text) as unknown).pipe(
       Effect.option,
     );
     if (Option.isNone(parsed)) {
-      yield* Effect.logWarning("native-mux: dropping non-JSON socket chunk");
-      return;
+      yield* onMalformed("native-mux: non-JSON socket chunk", "c2s");
+      return Option.none();
     }
-    const sink = yield* decodeEnvelope(parsed.value).pipe(
+    return yield* decodeEnvelope(parsed.value).pipe(
       Either.match({
         onLeft: () =>
-          Effect.logWarning(
-            "native-mux: dropping chunk with malformed envelope",
-          ).pipe(Effect.as(Option.none<readonly [ChannelSink, string]>())),
+          onMalformed("native-mux: malformed envelope", "c2s").pipe(
+            Effect.as(Option.none<RoutedChunk>()),
+          ),
         onRight: (env) => {
           const matched = sinks[env.ch];
           return matched === undefined
-            ? Effect.logWarning(
-                "native-mux: dropping chunk for unknown channel",
-              ).pipe(Effect.as(Option.none<readonly [ChannelSink, string]>()))
-            : Effect.succeedSome([matched, env.f] as const);
+            ? onMalformed("native-mux: chunk for unknown channel", env.ch).pipe(
+                Effect.as(Option.none<RoutedChunk>()),
+              )
+            : Effect.succeedSome([matched, env.ch, env.f] as const);
         },
       }),
     );
-    if (Option.isNone(sink)) return;
-    const [channelSink, wire] = sink.value;
-    for (const frame of channelSink.parser.decode(wire)) {
+  });
+}
+
+export function routeInbound(
+  raw: string | Uint8Array,
+  sinks: Partial<Record<MuxChannel, ChannelSink>>,
+  reply?: WireWrite,
+): Effect.Effect<void> {
+  const onMalformed = replyMalformed(reply);
+  return Effect.gen(function* () {
+    const route = yield* resolveRoute(raw, sinks, onMalformed);
+    if (Option.isNone(route)) return;
+    const [channelSink, channel, wire] = route.value;
+    const frames = yield* Effect.try(() => channelSink.parser.decode(wire)).pipe(
+      Effect.option,
+    );
+    if (Option.isNone(frames)) {
+      yield* onMalformed("native-mux: undecodable inner frame", channel);
+      return;
+    }
+    for (const frame of frames.value) {
       yield* channelSink.inject(frame);
     }
   }).pipe(Effect.withSpan("native-mux.routeInbound"));
@@ -310,9 +380,10 @@ export function runMuxReader(
   socket: Socket.Socket,
   sinks: Partial<Record<MuxChannel, ChannelSink>>,
   disconnects: Mailbox.Mailbox<number>,
+  reply?: WireWrite,
 ): Effect.Effect<void, Socket.SocketError> {
   return socket
-    .runRaw((data) => routeInbound(data, sinks))
+    .runRaw((data) => routeInbound(data, sinks, reply))
     .pipe(
       Effect.ensuring(disconnects.offer(MUX_CLIENT_ID).pipe(Effect.asVoid)),
     );

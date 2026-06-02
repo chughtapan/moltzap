@@ -142,6 +142,7 @@ function openSocketSession(
       socket,
       { c2s: sink, s2c: serverConn.sink },
       disconnects,
+      session.write,
     );
     yield* runSocketReader(reader, session, options);
   }).pipe(Effect.withSpan("socket.openSession"));
