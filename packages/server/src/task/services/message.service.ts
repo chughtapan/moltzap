@@ -7,10 +7,7 @@ import type {
   MessageId,
   DispatchDecision,
 } from "@moltzap/protocol/task";
-import {
-  MessageSendPermission,
-  validateDispatchDecision,
-} from "@moltzap/protocol/task";
+import { validateDispatchDecision } from "@moltzap/protocol/task";
 import type { AppHost } from "../../app/app-host.js";
 import {
   ConversationArchivedError,
@@ -233,11 +230,7 @@ export class MessageService {
 
   sendInsert(
     input: SendInsertInput,
-  ): Effect.Effect<
-    SendInsertResult,
-    MessageServiceError,
-    MessageSendPermission
-  > {
+  ): Effect.Effect<SendInsertResult, MessageServiceError> {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
 
@@ -245,22 +238,14 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<
     SendInsertResult,
-    MessageServiceError | SqlError | Cause.NoSuchElementException,
-    MessageSendPermission
+    MessageServiceError | SqlError | Cause.NoSuchElementException
   > {
     return Effect.gen(this, function* () {
-      const permission = yield* MessageSendPermission;
-      // Defensive: handler-input <-> capability identity match.
-      if (
-        permission.conversationId !== input.conversationId ||
-        permission.senderAgentId !== input.senderAgentId
-      ) {
-        return yield* Effect.fail(
-          new ForbiddenError({
-            message: "capability/message-send target mismatch",
-          }),
-        );
-      }
+      // The send-permission cap middlewares (`ConversationSendAccess`,
+      // `ActiveTaskPermission`, `OpenConversationPermission`,
+      // `ReplyTargetPermission`) gate this method in the engine middleware stack
+      // before the handler runs, so `send` requires no permission token in its
+      // Env and trusts `input` (the handler's already-gated params).
       const conv = yield* this.readSendConversation(input.conversationId);
       const parts = [...input.parts];
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
@@ -275,8 +260,8 @@ export class MessageService {
   }
 
   /**
-   * Send-conversation projection consumed by
-   * `obtainMessageSendPermission` (composite capability) AND
+   * Send-conversation projection consumed by the `ConversationSendAccess` cap
+   * `obtain` (which feeds the downstream send-permission caps) AND
    * `MessageService.sendCommit`'s `messages/authorize` verdict route.
    * Joins `conversations` ⋈ `tasks` and returns
    * `(archived_at, task_id, app_id, task_status)`.
@@ -655,9 +640,7 @@ export class MessageService {
     );
   }
 
-  send(
-    input: SendMessageInput,
-  ): Effect.Effect<Message, MessageServiceError, MessageSendPermission> {
+  send(input: SendMessageInput): Effect.Effect<Message, MessageServiceError> {
     return Effect.gen(this, function* () {
       const carrier = yield* this.sendInsert(input);
       return yield* this.sendCommit(

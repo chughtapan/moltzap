@@ -63,7 +63,9 @@ export const obtainConversationSendAccess = (input: {
     return {
       conversationId: input.conversationId,
       taskId: input.taskId ?? conv.task_id,
-      appId: conv.app_id,
+      // `tasks.app_id` is the branded `AppId` of the task's authorizing app; the
+      // DB row types it as a bare string, re-branded here at the read boundary.
+      appId: conv.app_id as AppId,
       taskStatus: conv.task_status,
       archivedAt: conv.archived_at,
     };
