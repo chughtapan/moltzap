@@ -1,16 +1,18 @@
-import { Data, Schema } from "effect";
+import { Schema } from "effect";
 import {
   dateTimeStringSchema,
   brandedId,
   formatString,
 } from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
-import {
-  registerErrorClass,
-  type RpcErrorPayload,
-} from "../transport/wire-errors.js";
 
 const DateTimeString = dateTimeStringSchema();
+
+/** Optional supplemental wire fields every domain tagged-error carries. */
+const errorPayloadFields = {
+  message: Schema.optional(Schema.String),
+  data: Schema.optional(Schema.Unknown),
+} as const;
 
 export const ConversationId = brandedId("ConversationId");
 export type ConversationId = Schema.Schema.Type<typeof ConversationId>;
@@ -22,21 +24,27 @@ export type ConversationId = Schema.Schema.Type<typeof ConversationId>;
 export const MessageId = brandedId("MessageId");
 export type MessageId = Schema.Schema.Type<typeof MessageId>;
 
-export class ConversationArchivedError extends Data.TaggedError(
+/** The referenced conversation does not exist under the task (or is not visible). */
+export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
+  "ConversationNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Conversation not found";
+}
+
+export class ConversationArchivedError extends Schema.TaggedError<ConversationArchivedError>()(
   "ConversationArchived",
-)<RpcErrorPayload> {
-  static readonly code = -32022;
+  errorPayloadFields,
+) {
   static readonly message = "Conversation is archived";
 }
-registerErrorClass(ConversationArchivedError);
 
-export class ConversationFullError extends Data.TaggedError(
+export class ConversationFullError extends Schema.TaggedError<ConversationFullError>()(
   "ConversationFull",
-)<RpcErrorPayload> {
-  static readonly code = -32007;
+  errorPayloadFields,
+) {
   static readonly message = "Conversation is full";
 }
-registerErrorClass(ConversationFullError);
 
 const AgentParticipantRefSchema = Schema.Struct({
   type: Schema.Literal("agent"),

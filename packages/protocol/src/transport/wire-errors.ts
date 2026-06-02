@@ -6,6 +6,14 @@ import { Schema } from "effect";
  * payload. Both are part of the error's wire Schema, so the engine round-trips
  * them when it encodes/decodes the error against a method's per-method error
  * union.
+ *
+ * Each wire error class is declared inline (extending `Schema.TaggedError`
+ * directly) rather than through a factory: a factory return type leaks the
+ * Schema's private `TypeId`/`RefineSchemaId` and is not a nameable base class.
+ * The class is BOTH the runtime constructor AND a `Schema` for the wire `error`
+ * union — its `_tag` literal is the union discriminant the `@effect/rpc` engine
+ * decodes against, so a method's `Schema.Union(...errors)` picks the exact class
+ * by `_tag` with no lookup and no global registry. There is no numeric code.
  */
 const errorPayloadFields = {
   message: Schema.optional(Schema.String),
@@ -21,66 +29,62 @@ export interface RpcErrorPayload {
   readonly data?: unknown;
 }
 
-/**
- * Build one wire tagged-error class. The class is BOTH the runtime constructor
- * (a `Data.TaggedError`-style failure) AND a `Schema` for the wire `error`
- * union: its `_tag` literal is the union discriminant the `@effect/rpc` engine
- * decodes against, so a method's `Schema.Union(...errors)` picks the exact class
- * by `_tag` with no lookup and no global registry. `_tag` is the wire
- * discriminant — there is no numeric code.
- */
-const defineWireError = <
-  Tag extends string,
-  ExtraFields extends Schema.Struct.Fields,
->(
-  tag: Tag,
-  staticMessage: string,
-  extraFields: ExtraFields,
-) =>
-  class WireTaggedError extends Schema.TaggedError<WireTaggedError>()(tag, {
-    ...errorPayloadFields,
-    ...extraFields,
-  }) {
-    static readonly message = staticMessage;
-  };
-
 /** Not authenticated — `network/connect` has not run on this socket. */
-export class UnauthorizedError extends defineWireError(
+export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   "Unauthorized",
-  "Not authenticated. Send network/connect first.",
-  {},
-) {}
+  errorPayloadFields,
+) {
+  static readonly message = "Not authenticated. Send network/connect first.";
+}
 
 /** Authenticated but not authorized for this resource. */
-export class ForbiddenError extends defineWireError("Forbidden", "Forbidden", {}) {}
+export class ForbiddenError extends Schema.TaggedError<ForbiddenError>()(
+  "Forbidden",
+  errorPayloadFields,
+) {
+  static readonly message = "Forbidden";
+}
 
 /** Resource not found (cross-cutting; domain-specific NotFound errors live with their domain). */
-export class NotFoundError extends defineWireError("NotFound", "Not found", {}) {}
+export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
+  "NotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Not found";
+}
 
 /** Conflict on a resource (cross-cutting; e.g., duplicate registration). */
-export class ConflictError extends defineWireError("Conflict", "Conflict", {}) {}
+export class ConflictError extends Schema.TaggedError<ConflictError>()(
+  "Conflict",
+  errorPayloadFields,
+) {
+  static readonly message = "Conflict";
+}
 
 /** Boundary validation error — params failed schema validation. */
-export class InvalidParamsError extends defineWireError(
+export class InvalidParamsError extends Schema.TaggedError<InvalidParamsError>()(
   "InvalidParamsError",
-  "Invalid params",
-  {},
-) {}
+  errorPayloadFields,
+) {
+  static readonly message = "Invalid params";
+}
 
 /**
  * A principal (agent or app) already holds an active connection. The
  * `principal` discriminator names which arm the conflict is on.
  */
-export class AlreadyConnected extends defineWireError(
+export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
   "AlreadyConnected",
-  "Principal already has an active connection. Disconnect the prior session first.",
-  { principal: Schema.Literal("agent", "app") },
-) {}
+  { ...errorPayloadFields, principal: Schema.Literal("agent", "app") },
+) {
+  static readonly message =
+    "Principal already has an active connection. Disconnect the prior session first.";
+}
 
 /**
  * Inbound frame failed to parse as JSON or did not match the expected shape.
  * Transport-internal — not a wire `error` union member (never crosses the wire
- * as a method failure), so it stays a plain non-schema tagged error.
+ * as a method failure).
  */
 export class MalformedFrameError extends Schema.TaggedError<MalformedFrameError>()(
   "MalformedFrameError",

@@ -3,26 +3,11 @@ import { Data, Effect } from "effect";
 import {
   identityRpcMethods,
   identityNotifications,
-  NotInContactsError,
 } from "./identity/methods.js";
-import {
-  networkRpcMethods,
-  networkNotifications,
-  // v11 (codex r10 P2 #2): ProtocolMismatchError joins the wire-error
-  // union so clients can `catchTag("ProtocolMismatchError", ...)` on
-  // a Connect call. v10 declared the class + self-registered it via
-  // `registerErrorClass` but didn't extend `RegisteredTaggedError`;
-  // typed narrowing was missing.
-  ProtocolMismatchError,
-} from "./network/methods.js";
+import { networkRpcMethods, networkNotifications } from "./network/methods.js";
 import {
   taskRpcMethods,
   taskNotifications,
-  TaskClosedError,
-  TaskRejectedError,
-  ConversationArchivedError,
-  ConversationFullError,
-  HookBlockedError,
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
 } from "./task/methods.js";
@@ -43,53 +28,9 @@ import {
   type DecodedNotification,
   type DecodedRpcRequest,
 } from "./transport/rpc-groups.js";
-import {
-  MalformedFrameError,
-  UnauthorizedError,
-  ForbiddenError,
-  NotFoundError,
-  ConflictError,
-  InvalidParamsError,
-  AlreadyConnected,
-} from "./transport/wire-errors.js";
+import { MalformedFrameError } from "./transport/wire-errors.js";
 
 export { appCallbackMethods };
-
-/**
- * Single source of truth for the wire-registered tagged-error classes.
- * {@link RegisteredTaggedError} derives its instance union from this array
- * (`InstanceType<(typeof arr)[number]>`), so adding a class here is the only
- * edit needed — the union, and any consumer `Effect.catchTag(...)` narrowing
- * against it, follow automatically. Each member must also self-register its
- * wire `code`/`message` via `registerErrorClass` at its declaration site.
- */
-const registeredTaggedErrorClasses = [
-  UnauthorizedError,
-  ForbiddenError,
-  NotFoundError,
-  ConflictError,
-  InvalidParamsError,
-  NotInContactsError,
-  TaskClosedError,
-  TaskRejectedError,
-  ConversationArchivedError,
-  ConversationFullError,
-  HookBlockedError,
-  // protocol-version mismatch on `network/connect`.
-  ProtocolMismatchError,
-  // D #705 §3.1 — principal-already-connected discriminator.
-  AlreadyConnected,
-] as const;
-
-/**
- * Closed union of every wire-registered tagged-error class instance.
- * Drives `RpcCallError` so consumers can `Effect.catchTag(...)` against
- * concrete tags (e.g. "Forbidden", "NotInContacts"). Derived from
- * {@link registeredTaggedErrorClasses} — the single source of truth.
- */
-export type RegisteredTaggedError = InstanceType<
-  (typeof registeredTaggedErrorClasses)[number]
->;
 
 // Spec D3 R11 — per-kind outbound catalogs.
 //   `agentClientRpcMethods` — callable from `MoltZapAgentClient`.

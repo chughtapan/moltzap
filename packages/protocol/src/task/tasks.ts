@@ -1,4 +1,4 @@
-import { Data, Schema } from "effect";
+import { Schema } from "effect";
 import {
   stringEnum,
   dateTimeStringSchema,
@@ -8,10 +8,10 @@ import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
-  registerErrorClass,
-  type RpcErrorPayload,
-} from "../transport/wire-errors.js";
-import { ConversationId, conversationSchema } from "./conversations.js";
+  ConversationId,
+  conversationSchema,
+  ConversationFullError,
+} from "./conversations.js";
 import { AppId, TaskId } from "./ids.js";
 import {
   ConversationInTask,
@@ -29,13 +29,30 @@ export { AppId, DEFAULT_APP_ID, TaskId } from "./ids.js";
 const DateTimeString = dateTimeStringSchema();
 const ConversationSchema = conversationSchema();
 
-export class TaskClosedError extends Data.TaggedError(
+/**
+ * Optional supplemental wire fields every domain tagged-error carries: an
+ * overriding `message` and a free-form `data` payload, round-tripped by the
+ * engine when it encodes/decodes the error against a method's error union.
+ */
+const errorPayloadFields = {
+  message: Schema.optional(Schema.String),
+  data: Schema.optional(Schema.Unknown),
+} as const;
+
+/** The referenced task does not exist (or the caller cannot see it). */
+export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
+  "TaskNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Task not found";
+}
+
+export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
   "TaskClosed",
-)<RpcErrorPayload> {
-  static readonly code = -32020;
+  errorPayloadFields,
+) {
   static readonly message = "Task is closed";
 }
-registerErrorClass(TaskClosedError);
 
 /**
  * `task/request` failed because the bound TM rejected the
@@ -46,21 +63,19 @@ registerErrorClass(TaskClosedError);
  * from an opaque internal error. The TM's reason rides in the
  * `data` arm when present.
  */
-export class TaskRejectedError extends Data.TaggedError(
+export class TaskRejectedError extends Schema.TaggedError<TaskRejectedError>()(
   "TaskRejected",
-)<RpcErrorPayload> {
-  static readonly code = -32024;
+  errorPayloadFields,
+) {
   static readonly message = "Task request was rejected by the task manager";
 }
-registerErrorClass(TaskRejectedError);
 
-export class HookBlockedError extends Data.TaggedError(
+export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
   "HookBlocked",
-)<RpcErrorPayload> {
-  static readonly code = -32019;
+  errorPayloadFields,
+) {
   static readonly message = "Hook blocked the dispatch";
 }
-registerErrorClass(HookBlockedError);
 
 /**
  * `task/conversation/create` and `task/conversation/participants/add`
@@ -69,13 +84,12 @@ registerErrorClass(HookBlockedError);
  * from "agent exists but is not admitted to this task" (this tag)
  * without parsing message strings.
  */
-export class ParticipantNotAdmittedError extends Data.TaggedError(
+export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantNotAdmittedError>()(
   "ParticipantNotAdmitted",
-)<RpcErrorPayload> {
-  static readonly code = -32023;
+  errorPayloadFields,
+) {
   static readonly message = "Agent is not admitted to the task";
 }
-registerErrorClass(ParticipantNotAdmittedError);
 
 /**
  * Logical time frontier per delivery domain (usually a conversation):
@@ -138,6 +152,7 @@ export const TaskList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   callablePrincipal: "agent",
+  errors: [],
 });
 
 export const TaskClose = defineRpc({
@@ -145,6 +160,7 @@ export const TaskClose = defineRpc({
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({ task: TaskSchema }),
   callablePrincipal: "app",
+  errors: [TaskNotFoundError],
 });
 
 export const TaskAddParticipant = defineRpc({
@@ -155,6 +171,7 @@ export const TaskAddParticipant = defineRpc({
   }),
   result: Schema.Struct({ participant: TaskParticipantSchema }),
   callablePrincipal: "app",
+  errors: [TaskNotFoundError],
 });
 
 export const TaskRemoveParticipant = defineRpc({
@@ -165,6 +182,7 @@ export const TaskRemoveParticipant = defineRpc({
   }),
   result: Schema.Struct({}),
   callablePrincipal: "app",
+  errors: [TaskNotFoundError],
 });
 
 const TaskFailedNotificationSchema = Schema.Struct({
@@ -324,6 +342,7 @@ export const TaskRequest = defineRpc({
   callablePrincipal: "agent",
   requiresActive: true,
   caps: [ContactPolicyAllowsReach],
+  errors: [TaskRejectedError],
 });
 
 /**
@@ -345,6 +364,7 @@ export const TaskLeave = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "agent",
   requiresActive: true,
+  errors: [TaskNotFoundError],
 });
 
 /**
@@ -368,6 +388,11 @@ export const TaskConversationCreate = defineRpc({
   // inline by the handler as a capacity-only proof (a TM minting on the task's
   // behalf has no agent contact-edges; targets are gated by
   // `requireAgentsAreInTaskParticipants`).
+  errors: [
+    TaskNotFoundError,
+    ParticipantNotAdmittedError,
+    ConversationFullError,
+  ],
 });
 
 /**
@@ -388,6 +413,7 @@ export const TaskConversationList = defineRpc({
   }),
   callablePrincipal: "agent",
   requiresActive: true,
+  errors: [],
 });
 
 // The four conversation-targeted descriptors below share the IDENTICAL
@@ -403,6 +429,7 @@ export const TaskConversationArchive = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
+  errors: [],
 });
 
 /** TM-only: reverse of `task/conversation/archive`. */
@@ -412,6 +439,7 @@ export const TaskConversationUnarchive = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
+  errors: [],
 });
 
 /**
@@ -432,6 +460,7 @@ export const TaskConversationAddParticipant = defineRpc({
   // BEFORE `requireAgentsAreInTaskParticipants` (so a non-owner sees
   // `ForbiddenError`, not the participant-admitted state probe).
   caps: [ConversationInTask],
+  errors: [ParticipantNotAdmittedError],
 });
 
 /**
@@ -449,6 +478,7 @@ export const TaskConversationRemoveParticipant = defineRpc({
   result: Schema.Struct({}),
   callablePrincipal: "app",
   caps: [ConversationInTask],
+  errors: [ParticipantNotAdmittedError],
 });
 
 // ─── task/conversation/* notifications ──────────────────────────────

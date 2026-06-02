@@ -32,23 +32,27 @@ export type {
   ParamsOf,
   ResultOf,
   NotificationParamsOf,
+  RpcErrorClass,
+  RpcCapTag,
+  CallablePrincipal,
+  CallErrorsOf,
+  DomainErrorsOf,
+  CapErrorsOf,
+  ResponseErrorsOf,
+  PrincipalErrorClassesOf,
 } from "./method.js";
+export { effectiveErrorClasses } from "./method.js";
 
-// Transport-layer call errors (raised by the native client + ws-client).
-export {
-  NotConnectedError,
-  RpcTimeoutError,
-  RpcServerError,
-  wireErrorToRpcCallError,
-} from "./rpc-errors.js";
-export type { RpcCallError } from "./rpc-errors.js";
+// Transport-layer call errors — the failures that originate at the CLIENT
+// transport, not at a method handler. Domain failures ride their own
+// `Schema.TaggedError` class, decoded per-method against the method's
+// `errorSchema` union by `_tag`.
+export { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
 
-// Wire-coded tagged errors. `registerErrorClass` is intentionally NOT
-// re-exported here: the registered-class set is closed (mirrored by the
-// `RegisteredTaggedError` union in `rpc-registry.ts`); protocol-internal
-// classes self-register via relative imports of `./wire-errors.js`.
+// Cross-cutting wire tagged-error classes. Each is a `Schema.TaggedError`: both
+// the runtime failure constructor AND a wire `Schema` whose `_tag` is the
+// per-method error-union discriminant the engine decodes against.
 export {
-  JSON_RPC_RESERVED_CODES,
   MalformedFrameError,
   UnauthorizedError,
   ForbiddenError,
@@ -57,13 +61,9 @@ export {
   InvalidParamsError,
   // D #705 §3.1 — Connect-handler wire error.
   AlreadyConnected,
-  // Read-only registry predicate — lets a consumer (e.g. the CLI transport)
-  // recognise any registered wire-error instance and recover its static
-  // `code`/`message`. Does NOT expose `registerErrorClass`: the registered set
-  // stays closed.
-  isRegisteredErrorInstance,
+  principalGateErrorClasses,
 } from "./wire-errors.js";
-export type { RpcErrorClass, RpcErrorPayload } from "./wire-errors.js";
+export type { RpcErrorPayload } from "./wire-errors.js";
 
 // Decoded RPC + notification types. Group-level decode helpers
 // (`decodeRpcRequest`, `decodeNotification`) remain protocol-internal —
@@ -96,8 +96,6 @@ export {
   ReverseRpcGroup,
   ServerRpcGroup,
 } from "./rpc-method-groups.js";
-export { wireErrorFromInstance } from "./wire-errors.js";
-export type { WireError } from "./wire-errors.js";
 
 // Principal-as-service: the protocol-owned `CurrentPrincipal` Tag a cap
 // middleware reads (`yield* CurrentPrincipal`) when deriving its payload.
