@@ -33,7 +33,6 @@ const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
 export const NORMAL_CLOSE_CODE = 1000;
 
 /** Preview length when logging a malformed inbound frame. */
-export const MALFORMED_FRAME_PREVIEW_CHARS = 200;
 
 /**
  * Log 1-of-N malformed frames. A misbehaving server could flood us
@@ -46,10 +45,9 @@ export const shouldLogMalformedFrame = (count: number): boolean =>
   count === 1 || count % MALFORMED_LOG_EVERY === 0;
 
 /** Message both clients surface on a not-connected `sendRpc`/close. */
-export const MSG_NOT_CONNECTED = "WebSocket not connected";
+const MSG_NOT_CONNECTED = "WebSocket not connected";
 
 /** Shared UTF-8 decoder for binary inbound frames. */
-export const UTF8_DECODER = new TextDecoder("utf-8");
 
 export const makeNotConnectedError = (): NotConnectedError =>
   new NotConnectedError({ message: MSG_NOT_CONNECTED });

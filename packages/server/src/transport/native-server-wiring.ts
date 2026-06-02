@@ -76,7 +76,7 @@ import {
  * the full-arm read for the handler-body context the proof's `PrincipalForKind`
  * projection omits.
  */
-export const makeConnectionTagLayer = (
+const makeConnectionTagLayer = (
   connId: ConnectionId,
 ): Layer.Layer<ConnectionTag, never, ConnectionManagerTag> =>
   Layer.effect(
