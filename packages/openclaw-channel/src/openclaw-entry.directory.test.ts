@@ -45,11 +45,6 @@ const SERVER_PAGE_SIZE = 50;
 const CONTACT_COUNT = 130;
 const EXPECTED_PAGE_CALLS = Math.ceil(CONTACT_COUNT / SERVER_PAGE_SIZE);
 
-type SendRpcFn = <D extends RpcDefinition<string, any, any>>(
-  definition: D,
-  params: ParamsOf<D>,
-) => Effect.Effect<ResultOf<D>, ServiceRpcError>;
-
 interface PeerContact {
   readonly id: string;
   readonly agents: ReadonlyArray<{
@@ -146,24 +141,31 @@ function peerNameForId(id: string): string {
 // thunk, mirroring `this.client`: the directory code MUST bind `sendRpc` to
 // the service before handing it to its drain consumers (binding to the
 // service restores `this`), or `listPeers` rejects instead of resolving.
+type ReceiverDependentCall = (
+  tag: string,
+  payload: unknown,
+) => Effect.Effect<unknown, ServiceRpcError>;
+
 interface ReceiverDependentService extends ChannelService {
   readonly live: true;
-  sendRpc: SendRpcFn;
+  call: ReceiverDependentCall;
 }
 
-function makeReceiverDependentSendRpc(): SendRpcFn {
-  return function sendRpc<D extends RpcDefinition<string, any, any>>(
+function makeReceiverDependentCall(): ReceiverDependentCall {
+  return function call(
     this: ReceiverDependentService | undefined,
-    definition: D,
-    params: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
+    tag: string,
+    payload: unknown,
+  ): Effect.Effect<unknown, ServiceRpcError> {
     return Effect.suspend(() => {
       // `this.live` throws synchronously when `this` is undefined (receiver
-      // stripped), matching `MoltZapService.sendRpc` reading `this.client`.
+      // stripped), matching `MoltZapService.call` reading `this.client`. The
+      // directory MUST bind `service.call` to the service before forwarding it
+      // to the drain consumers, or this thunk dies on `this`-undefined.
       if (!this?.live) {
         throw new TypeError("Cannot read properties of undefined");
       }
-      return directorySendRpc(definition, params);
+      return directoryCall(tag, payload);
     });
   };
 }
@@ -184,11 +186,34 @@ function startGatewayWithService(build: () => ChannelService): void {
   });
 }
 
+// The directory code drives the agent service's typed `call(tag, payload)`
+// (bridged to a def-based `SendRpcFn` by `callAsSendRpc`), NOT `sendRpc`. Adapt
+// the by-definition fixture to that contract: route on the wire tag.
+function directoryCall(
+  tag: string,
+  payload: unknown,
+): Effect.Effect<unknown, ServiceRpcError> {
+  return directorySendRpc(
+    { name: tag } as RpcDefinition<string, any, any>,
+    payload as ParamsOf<RpcDefinition<string, any, any>>,
+  );
+}
+
+// `ChannelService` plus the optional `call` the openclaw directory reads
+// (`OpenClawClientService.call`). The fixture is by-definition; the directory
+// is by-tag, so the test attaches the tag-routing adapter here.
+type ServiceWithCall = ChannelService & {
+  readonly call: typeof directoryCall;
+};
+
 function startDirectoryGateway(): void {
-  startGatewayWithService(() => ({
-    ...fixture.service,
-    sendRpc: directorySendRpc,
-  }));
+  startGatewayWithService(
+    () =>
+      ({
+        ...fixture.service,
+        call: directoryCall,
+      }) satisfies ServiceWithCall as ChannelService,
+  );
 }
 
 beforeEach(startDirectoryGateway);
@@ -238,11 +263,12 @@ function startReceiverDependentGateway(): void {
   // instance lands in `activeClients`. The directory code must bind it to
   // `service` before forwarding; an unbound forward dies on `this`-undefined.
   startGatewayWithService(
-    (): ReceiverDependentService => ({
-      ...fixture.service,
-      live: true,
-      sendRpc: makeReceiverDependentSendRpc(),
-    }),
+    () =>
+      ({
+        ...fixture.service,
+        live: true,
+        call: makeReceiverDependentCall(),
+      }) satisfies ReceiverDependentService as ChannelService,
   );
 }
 
