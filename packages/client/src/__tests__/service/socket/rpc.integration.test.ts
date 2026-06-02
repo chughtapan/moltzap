@@ -46,7 +46,7 @@ it("passthrough RPC works via socket", () =>
     const service = yield* H.connectService(regA.apiKey);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskRequest, {
+      const conv = yield* H.socketRpcRequest(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },

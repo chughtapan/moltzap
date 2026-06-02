@@ -25,7 +25,7 @@ it("task/conversation/list returns existing conversations after connect", () =>
 
     // Connect agent-a and create a conversation before agent-b connects as service
     yield* regA.client.connect();
-    const conv = yield* regA.client.sendRpc(TaskRequest, {
+    const conv = yield* regA.client.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regB.agentId],
       initialConversation: { participants: [regB.agentId] },
@@ -57,7 +57,7 @@ it("on('message') fires for incoming message from another agent", () =>
     yield* regSender.client.connect();
     const service = yield* H.connectService(regReceiver.apiKey);
 
-    const conv = yield* regSender.client.sendRpc(TaskRequest, {
+    const conv = yield* regSender.client.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regReceiver.agentId],
       initialConversation: { participants: [regReceiver.agentId] },

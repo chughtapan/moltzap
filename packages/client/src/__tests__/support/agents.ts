@@ -48,7 +48,7 @@ export function sendAndSettle(
   text: string,
 ) {
   return Effect.gen(function* () {
-    yield* client.sendRpc(MessagesSend, {
+    yield* client.call(MessagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: "text", text }],
@@ -66,7 +66,7 @@ type TestClient = Effect.Effect.Success<
 
 export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agentId],
       initialConversation: { participants: [agentId] },

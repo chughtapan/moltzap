@@ -78,7 +78,7 @@ it("group conversation history shows all participants", () =>
     const service = yield* H.connectService(regA.apiKey);
 
     // Create group
-    const conv = yield* service.sendRpc(TaskRequest, {
+    const conv = yield* service.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regB.agentId, regC.agentId],
       initialConversation: {
