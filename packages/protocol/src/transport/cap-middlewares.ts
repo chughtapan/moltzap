@@ -121,3 +121,36 @@ export const capMiddlewareByCapKey: Readonly<
   [TaskReadAccess.key]: TaskReadAccessMw,
   [ContactPolicyAllowsReach.key]: ContactPolicyAllowsReachMw,
 };
+
+/**
+ * Type-level cap `Context.Tag` → its `RpcMiddleware.Tag` (the runtime mirror is
+ * {@link capMiddlewareByCapKey}). Matches by tag IDENTITY so the engine member's
+ * middleware param carries the EXACT cap mws, keeping the per-cap `provides`
+ * type-visible (a handler that `yield*`s a cap Tag has it stripped from the
+ * Layer's residual requirement — the proof-exclusion guarantee).
+ */
+export type CapMwFor<Cap> = Cap extends typeof ConversationInTask
+  ? ConversationInTaskMw
+  : Cap extends typeof ConversationSendAccess
+    ? ConversationSendAccessMw
+    : Cap extends typeof ActiveTaskPermission
+      ? ActiveTaskPermissionMw
+      : Cap extends typeof OpenConversationPermission
+        ? OpenConversationPermissionMw
+        : Cap extends typeof ReplyTargetPermission
+          ? ReplyTargetPermissionMw
+          : Cap extends typeof TaskReadAccess
+            ? TaskReadAccessMw
+            : Cap extends typeof ContactPolicyAllowsReach
+              ? ContactPolicyAllowsReachMw
+              : never;
+
+/**
+ * The middleware stack an authenticated method's `caps` tuple maps to: the
+ * `PrincipalGateMw` (every authenticated method) ∪ each declared cap's
+ * middleware. The engine member's `Middleware` param is this union, so each
+ * cap's `provides` is type-visible at the binding.
+ */
+export type MwStackFor<Caps extends ReadonlyArray<unknown>> =
+  | PrincipalGateMw
+  | CapMwFor<Caps[number]>;
