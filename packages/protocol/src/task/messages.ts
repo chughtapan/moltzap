@@ -9,6 +9,7 @@ import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { ConversationId, MessageId } from "./conversations.js";
 import { HookBlockedError } from "./tasks.js";
+import { ForbiddenError, NotFoundError } from "../transport/wire-errors.js";
 import { TaskId } from "./ids.js";
 import {
   ConversationInTask,
@@ -181,7 +182,10 @@ export const MessagesSend = defineRpc({
   // first, so `MessageSendPermission` obtains against an already-verified
   // conversation.
   caps: [ConversationInTask, MessageSendPermission],
-  errors: [HookBlockedError],
+  // `ForbiddenError`/`NotFoundError` ride the dispatch-lease claim path: a
+  // consumed/invalid lease maps to `ForbiddenError(data.reason: "LeaseInvalid")`,
+  // a missing lease to `NotFoundError`.
+  errors: [HookBlockedError, ForbiddenError, NotFoundError],
 });
 
 /**

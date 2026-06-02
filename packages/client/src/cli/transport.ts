@@ -270,10 +270,11 @@ const tagDaemonError = (method: string, err: Error): TransportError => {
   if (msg.startsWith("Malformed")) {
     return new TransportDecodeError({ method, cause: err });
   }
-  // Remote error surfaces as a bare message from the service.
+  // Remote error surfaces as a bare message from the daemon; it is not a
+  // decoded tagged error, so it carries the generic server-error tag.
   return new TransportRpcError({
     method,
-    code: JSON_RPC_SERVER_ERROR_CODE,
+    tag: "ServerError",
     message: msg,
   });
 };
