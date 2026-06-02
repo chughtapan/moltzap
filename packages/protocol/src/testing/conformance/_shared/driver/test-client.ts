@@ -701,7 +701,7 @@ function completePendingResponse(
         new RpcResponseError({
           method: "",
           requestId: frame.id,
-          code: frame.error.code,
+          tag: frame.error._tag,
           message: frame.error.message,
           data: frame.error.data,
         }),
@@ -727,7 +727,7 @@ function handleRequestFrame(
 function invalidCallbackRequestReply(frame: RequestFrame): ResponseFrame {
   return responseFrame(frame.id, {
     error: {
-      code: -32601,
+      _tag: "InvalidParamsError",
       message: "Invalid app-callback request descriptor or params",
     },
   });
@@ -786,7 +786,7 @@ function buildServerRequestReply(
 function missingHandlerReply(request: ServerRequestDispatch): ResponseFrame {
   return responseFrame(request.requestId, {
     error: {
-      code: -32601,
+      _tag: "NotFound",
       message: `No handler registered for app callback descriptor ${request.definition.name}`,
     },
   });
@@ -805,7 +805,7 @@ function buildHandlerReply(
       onFailure: (err) =>
         responseFrame(request.requestId, {
           error: {
-            code: err.code,
+            _tag: err.tag,
             message: err.message,
             ...(err.data !== undefined ? { data: err.data } : {}),
           },
@@ -823,7 +823,7 @@ function handlerDefectedReply(
 ): ResponseFrame {
   return responseFrame(requestId, {
     error: {
-      code: -32603,
+      _tag: "InternalError",
       message: `Handler defected: ${Cause.pretty(cause).slice(0, HANDLER_DEFECT_MESSAGE_LIMIT)}`,
     },
   });

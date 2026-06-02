@@ -33,9 +33,13 @@ export const jsonRpcMethod = <const Name extends string>(
 const JsonRpcIdBrand = Brand.nominal<JsonRpcId>();
 
 // ── Wire error envelope schema ───────────────────────────────────────
+//
+// The wire `error` is a `_tag`-discriminated tagged error: `_tag` names the
+// error class (the decode discriminant), `message`/`data` are supplemental.
+// There is no numeric code — the per-method error union decodes by `_tag`.
 
 const RpcErrorSchema = Schema.Struct({
-  code: Schema.Number.pipe(Schema.int()),
+  _tag: Schema.String,
   message: Schema.String,
   data: Schema.optional(Schema.Unknown),
 });
@@ -224,7 +228,7 @@ export function requestFrame<
 }
 
 type ResponseFrameError = {
-  code: number;
+  _tag: string;
   message: string;
   data?: unknown;
 };
