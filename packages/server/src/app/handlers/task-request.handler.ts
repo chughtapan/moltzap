@@ -27,7 +27,6 @@ import {
   TaskFailedNotificationDefinition,
   TaskRejectedError,
   TaskRequest,
-  TaskRequestAuth,
   type AppId,
   type Conversation,
   type ParamsOf,
@@ -210,16 +209,11 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 
 // ── Native @effect/rpc handler body ─────────────────────────────────────────
 //
-// `ContactPolicyAllowsReach` is provided off the `TaskRequestAuth` proof; the
-// body drains the tag as a precondition of `taskService.create`.
+// The `ContactPolicyAllowsReach` cap middleware gates the frame and provides the
+// proof into context; the body drains the tag as a precondition of
+// `taskService.create`. `agentArm` reads the narrowed principal.
 export const nativeTaskRequest = (params: ParamsOf<typeof TaskRequest>) =>
   Effect.gen(function* () {
-    const auth = yield* TaskRequestAuth;
     const ctx = yield* agentArm;
-    return yield* taskRequestBody(params, ctx).pipe(
-      Effect.provideService(
-        ContactPolicyAllowsReach,
-        auth[ContactPolicyAllowsReach.key],
-      ),
-    );
+    return yield* taskRequestBody(params, ctx);
   }).pipe(Effect.withSpan("nativeTaskRequest"));

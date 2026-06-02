@@ -12,6 +12,7 @@ import {
   type ConversationId,
   type MessageId,
   type TaskId,
+  type AppId,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag, MessageServiceTag } from "../../app/layers.js";

@@ -17,17 +17,6 @@ import {
   TaskClose,
   TaskList,
   TaskRemoveParticipant,
-  TaskListAuth,
-  TaskLeaveAuth,
-  TaskCloseAuth,
-  TaskAddParticipantAuth,
-  TaskRemoveParticipantAuth,
-  TaskConversationCreateAuth,
-  TaskConversationListAuth,
-  TaskConversationArchiveAuth,
-  TaskConversationUnarchiveAuth,
-  TaskConversationAddParticipantAuth,
-  TaskConversationRemoveParticipantAuth,
   ConversationInTask,
   InvalidParamsError,
   type Conversation,
@@ -484,13 +473,11 @@ function taskConversationRemoveParticipantBody(
 
 export const nativeTaskList = (params: ParamsOf<typeof TaskList>) =>
   Effect.gen(function* () {
-    yield* TaskListAuth;
     return yield* taskListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeTaskList"));
 
 export const nativeTaskLeave = (params: ParamsOf<typeof TaskLeave>) =>
   Effect.gen(function* () {
-    yield* TaskLeaveAuth;
     return yield* taskLeaveBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeTaskLeave"));
 
@@ -498,13 +485,11 @@ export const nativeTaskConversationList = (
   params: ParamsOf<typeof TaskConversationList>,
 ) =>
   Effect.gen(function* () {
-    yield* TaskConversationListAuth;
     return yield* taskConversationListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeTaskConversationList"));
 
 export const nativeTaskClose = (params: ParamsOf<typeof TaskClose>) =>
   Effect.gen(function* () {
-    yield* TaskCloseAuth;
     return yield* taskCloseBody(params, yield* appArm);
   }).pipe(Effect.withSpan("nativeTaskClose"));
 
@@ -512,7 +497,6 @@ export const nativeTaskAddParticipant = (
   params: ParamsOf<typeof TaskAddParticipant>,
 ) =>
   Effect.gen(function* () {
-    yield* TaskAddParticipantAuth;
     return yield* taskAddParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("nativeTaskAddParticipant"));
 
@@ -520,7 +504,6 @@ export const nativeTaskRemoveParticipant = (
   params: ParamsOf<typeof TaskRemoveParticipant>,
 ) =>
   Effect.gen(function* () {
-    yield* TaskRemoveParticipantAuth;
     return yield* taskRemoveParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("nativeTaskRemoveParticipant"));
 
@@ -528,7 +511,6 @@ export const nativeTaskConversationCreate = (
   params: ParamsOf<typeof TaskConversationCreate>,
 ) =>
   Effect.gen(function* () {
-    yield* TaskConversationCreateAuth;
     return yield* taskConversationCreateBody((yield* appArm).appId, params);
   }).pipe(Effect.withSpan("nativeTaskConversationCreate"));
 
@@ -536,44 +518,26 @@ export const nativeTaskConversationArchive = (
   params: ParamsOf<typeof TaskConversationArchive>,
 ) =>
   Effect.gen(function* () {
-    const auth = yield* TaskConversationArchiveAuth;
-    return yield* taskConversationArchiveBody(params, yield* appArm).pipe(
-      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
-    );
+    return yield* taskConversationArchiveBody(params, yield* appArm);
   }).pipe(Effect.withSpan("nativeTaskConversationArchive"));
 
 export const nativeTaskConversationUnarchive = (
   params: ParamsOf<typeof TaskConversationUnarchive>,
 ) =>
   Effect.gen(function* () {
-    const auth = yield* TaskConversationUnarchiveAuth;
-    return yield* taskConversationUnarchiveBody(params, yield* appArm).pipe(
-      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
-    );
+    return yield* taskConversationUnarchiveBody(params, yield* appArm);
   }).pipe(Effect.withSpan("nativeTaskConversationUnarchive"));
 
 export const nativeTaskConversationAddParticipant = (
   params: ParamsOf<typeof TaskConversationAddParticipant>,
 ) =>
   Effect.gen(function* () {
-    const auth = yield* TaskConversationAddParticipantAuth;
-    return yield* taskConversationAddParticipantBody(
-      params,
-      yield* appArm,
-    ).pipe(
-      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
-    );
+    return yield* taskConversationAddParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("nativeTaskConversationAddParticipant"));
 
 export const nativeTaskConversationRemoveParticipant = (
   params: ParamsOf<typeof TaskConversationRemoveParticipant>,
 ) =>
   Effect.gen(function* () {
-    const auth = yield* TaskConversationRemoveParticipantAuth;
-    return yield* taskConversationRemoveParticipantBody(
-      params,
-      yield* appArm,
-    ).pipe(
-      Effect.provideService(ConversationInTask, auth[ConversationInTask.key]),
-    );
+    return yield* taskConversationRemoveParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("nativeTaskConversationRemoveParticipant"));

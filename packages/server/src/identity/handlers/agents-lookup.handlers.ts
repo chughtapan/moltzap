@@ -3,9 +3,6 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
-  AgentsLookupAuth,
-  AgentsLookupByNameAuth,
-  AgentsListAuth,
   DEFAULT_PAGE_LIMIT,
   InvalidParamsError,
   type AgentCard,
@@ -204,7 +201,6 @@ function agentsListBody(
 
 export const nativeAgentsLookup = (params: ParamsOf<typeof AgentsLookup>) =>
   Effect.gen(function* () {
-    yield* AgentsLookupAuth;
     return yield* agentsLookupBody(params);
   }).pipe(Effect.withSpan("nativeAgentsLookup"));
 
@@ -212,12 +208,10 @@ export const nativeAgentsLookupByName = (
   params: ParamsOf<typeof AgentsLookupByName>,
 ) =>
   Effect.gen(function* () {
-    yield* AgentsLookupByNameAuth;
     return yield* agentsLookupByNameBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeAgentsLookupByName"));
 
 export const nativeAgentsList = (params: ParamsOf<typeof AgentsList>) =>
   Effect.gen(function* () {
-    yield* AgentsListAuth;
     return yield* agentsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeAgentsList"));

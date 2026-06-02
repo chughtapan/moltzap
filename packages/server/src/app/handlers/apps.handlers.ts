@@ -3,9 +3,6 @@ import {
   AppsRegister,
   DispatchRequest,
   DispatchesGet,
-  AppsRegisterAuth,
-  DispatchRequestAuth,
-  DispatchesGetAuth,
   ForbiddenError,
   type ParamsOf,
 } from "@moltzap/protocol";
@@ -114,7 +111,6 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
 
 export const nativeAppsRegister = (params: ParamsOf<typeof AppsRegister>) =>
   Effect.gen(function* () {
-    yield* AppsRegisterAuth;
     return yield* appsRegisterBody(params);
   }).pipe(Effect.withSpan("nativeAppsRegister"));
 
@@ -122,12 +118,10 @@ export const nativeDispatchRequest = (
   params: ParamsOf<typeof DispatchRequest>,
 ) =>
   Effect.gen(function* () {
-    yield* DispatchRequestAuth;
     return yield* dispatchRequestBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeDispatchRequest"));
 
 export const nativeDispatchesGet = (params: ParamsOf<typeof DispatchesGet>) =>
   Effect.gen(function* () {
-    yield* DispatchesGetAuth;
     return yield* dispatchesGetBody(params);
   }).pipe(Effect.withSpan("nativeDispatchesGet"));

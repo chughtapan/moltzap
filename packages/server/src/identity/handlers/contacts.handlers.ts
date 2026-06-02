@@ -4,10 +4,6 @@ import {
   ContactsAdd,
   ContactsAccept,
   ContactsById,
-  ContactsListAuth,
-  ContactsAddAuth,
-  ContactsAcceptAuth,
-  ContactsByIdAuth,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   InvalidParamsError,
@@ -124,24 +120,20 @@ function contactsByIdBody(
 
 export const nativeContactsList = (params: ParamsOf<typeof ContactsList>) =>
   Effect.gen(function* () {
-    yield* ContactsListAuth;
     return yield* contactsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeContactsList"));
 
 export const nativeContactsAdd = (params: ParamsOf<typeof ContactsAdd>) =>
   Effect.gen(function* () {
-    yield* ContactsAddAuth;
     return yield* contactsAddBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeContactsAdd"));
 
 export const nativeContactsAccept = (params: ParamsOf<typeof ContactsAccept>) =>
   Effect.gen(function* () {
-    yield* ContactsAcceptAuth;
     return yield* contactsAcceptBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeContactsAccept"));
 
 export const nativeContactsById = (params: ParamsOf<typeof ContactsById>) =>
   Effect.gen(function* () {
-    yield* ContactsByIdAuth;
     return yield* contactsByIdBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativeContactsById"));
