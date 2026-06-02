@@ -202,10 +202,11 @@ function compareThrough(
  * caller is {@link checkProtocolRange}, the canonical server-side
  * raise path for `ProtocolMismatchError`.
  *
- * The wire error is registered in
- * `@moltzap/protocol/network/methods.ts` with `static code = -32006`
- * and self-registers via `registerErrorClass`. The discriminant
- * `reason` lives in the `data` field per the wire-error convention.
+ * `ProtocolMismatchError` is declared in
+ * `@moltzap/protocol/network/methods.ts` as a `Schema.TaggedError`; the
+ * engine decodes it by its `_tag` against `network/connect`'s error union.
+ * The discriminant `reason` lives in the `data` field per the wire-error
+ * convention.
  */
 function failProtocolMismatch(
   params: { readonly minProtocol: string; readonly maxProtocol: string },
