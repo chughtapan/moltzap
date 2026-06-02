@@ -29,6 +29,7 @@ import {
   AppCallbackRpcGroup,
   AgentClientRpcGroup,
   AppCallableRpcGroup,
+  ReverseRpcGroup,
 } from "./rpc-method-groups.js";
 import type { JsonRpcMethod } from "./wire.js";
 
@@ -85,5 +86,36 @@ type _C1 = Expect<
   Equal<
     Pick<PayloadTypeOf<DispatchAuthorizeMember>, "attempt">,
     { readonly attempt: number }
+  >
+>;
+
+// Canary 3: `ReverseRpcGroup` is one group over the COMBINED callback ∪
+// notification member tuple (not `RpcGroup.merge`), so a generic `Tag`'s success
+// reduces per tag through `makeTypedTransportCall` cast-free. The construction
+// asserts `... as readonly ReverseRpcMember[]`; these pin that the runtime
+// members keep per-slot tag↔payload correlation across BOTH a callback and a
+// notification member. A widened or merge-shaped member type collapses one of
+// the `MemberWithTag` selections to `never` (flipping `_R0`/`_R2`) or returns a
+// cross-member payload (failing `_R1`/`_R3`).
+type ReverseDispatchMember = MemberWithTag<
+  typeof ReverseRpcGroup,
+  "dispatch/authorize"
+>;
+type _R0 = Expect<Equal<IsNever<ReverseDispatchMember>, false>>;
+type _R1 = Expect<
+  Equal<
+    Pick<PayloadTypeOf<ReverseDispatchMember>, "attempt">,
+    { readonly attempt: number }
+  >
+>;
+type ReversePresenceMember = MemberWithTag<
+  typeof ReverseRpcGroup,
+  "presence/changed"
+>;
+type _R2 = Expect<Equal<IsNever<ReversePresenceMember>, false>>;
+type _R3 = Expect<
+  Equal<
+    Pick<PayloadTypeOf<ReversePresenceMember>, "status">,
+    { readonly status: "online" | "working" | "offline" }
   >
 >;

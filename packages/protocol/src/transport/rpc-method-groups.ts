@@ -159,13 +159,55 @@ export const NotificationRpcGroup = groupFromNotifications(
 );
 
 /**
- * The full server→client reverse group: the moderator callbacks
- * ({@link AppCallbackRpcGroup}) ∪ the notifications ({@link NotificationRpcGroup}).
- * The server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires
- * callbacks awaiting a verdict, fires notifications fork-and-forget); the agent
- * + app clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent
- * client only ever receives notifications (its handlers for the three callback
- * methods are never invoked — an agent is not a moderator), but it serves the
- * whole group so the s2c engine binds one handler map.
+ * The precise per-slot member union of the reverse channel: the moderator
+ * callbacks (result-bearing) ∪ the notifications (`void`-result). One union,
+ * not a merged pair of groups, so `RpcClient.make(ReverseRpcGroup)` keys each
+ * tag to its own success and `dispatchCall(client, tag, payload)` reduces to
+ * that one success cast-free — the same reduction the direct callable groups
+ * get. `RpcGroup.merge` widens the per-tag success to the whole union at a
+ * generic `Tag`, which is what forced a value-boundary cast; building one group
+ * over the combined member tuple keeps the correlation.
  */
-export const ReverseRpcGroup = AppCallbackRpcGroup.merge(NotificationRpcGroup);
+type ReverseRpcMemberTuple = readonly [
+  ...GroupMembers<typeof appCallbackMethods>,
+  ...NotificationGroupMembers<typeof notificationDefinitions>,
+];
+type ReverseRpcMember = ReverseRpcMemberTuple[number];
+
+/**
+ * The full server→client reverse group: the moderator callbacks
+ * ({@link AppCallbackRpcGroup}) ∪ the notifications ({@link NotificationRpcGroup}),
+ * built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
+ * server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
+ * awaiting a verdict, fires notifications fork-and-forget); the agent + app
+ * clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent client
+ * only ever receives notifications (its handlers for the three callback methods
+ * are never invoked — an agent is not a moderator), but it serves the whole
+ * group so the s2c engine binds one handler map.
+ */
+export const ReverseRpcGroup: RpcGroup.RpcGroup<ReverseRpcMember> =
+  RpcGroup.make(
+    // Same homogeneous-map laundering as `groupFromCatalog` /
+    // `groupFromNotifications`: `Array.map`'s element type cannot prove the
+    // per-slot tuple, but at runtime each callback maps to a result-bearing
+    // `Rpc` and each notification to a `void`-result `Rpc`, in source order —
+    // precisely the `ReverseRpcMember` union. Verified by
+    // `rpc-method-groups.types-check.ts`.
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- combined-tuple keying proof TS cannot express, the same single assertion the per-catalog builders use, verified by rpc-method-groups.types-check.ts
+    ...([
+      ...appCallbackMethods.map((definition) =>
+        Rpc.make(definition.name, {
+          payload: definition.paramsSchema,
+          success: definition.resultSchema,
+          error: definition.errorSchema,
+        }),
+      ),
+      ...notificationDefinitions.map((definition) =>
+        Rpc.make(definition.name, {
+          payload: definition.paramsSchema,
+          success: Schema.Void,
+          error: Schema.Never,
+        }),
+      ),
+    ] as unknown as readonly ReverseRpcMember[]), // #ignore-sloppy-code[as-unknown-as]: combined-tuple keying proof TS cannot express; verified by rpc-method-groups.types-check.ts.
+  );

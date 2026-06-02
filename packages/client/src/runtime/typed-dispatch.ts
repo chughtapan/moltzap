@@ -6,7 +6,7 @@
  * This module keeps the client-local import path stable.
  */
 export {
-  dispatchCall,
+  makeTypedTransportCall,
   type TypedDispatchMap,
   type PayloadForTag,
   type SuccessForTag,

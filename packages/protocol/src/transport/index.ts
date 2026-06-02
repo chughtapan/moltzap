@@ -46,7 +46,7 @@ export { effectiveErrorClasses } from "./method.js";
 // The cast-free per-method dispatch over a non-flat `RpcClient`: the typed map
 // shape `RpcClient.make(group)` conforms to, plus `dispatchCall` for tag-keyed
 // dispatch. Shared by the production client and the server's reverse client.
-export { dispatchCall } from "./typed-dispatch.js";
+export { dispatchCall, makeTypedTransportCall } from "./typed-dispatch.js";
 export type {
   TypedDispatchMap,
   RpcForTag,

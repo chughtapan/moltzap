@@ -764,7 +764,7 @@ string can never accidentally type-fit a method position. See
 Sibling: defineNotification — same pipeline minus the
 result schema and response encoder.
 
-### [`dispatchCall`](./typed-dispatch.ts#L61)
+### [`dispatchCall`](./typed-dispatch.ts#L62)
 
 _Function_
 
@@ -877,7 +877,7 @@ Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
 responses go through `RpcDefinition.encodeResponse`.
 
-### [`ErrorForTag`](./typed-dispatch.ts#L37)
+### [`ErrorForTag`](./typed-dispatch.ts#L38)
 
 _TypeAlias_
 
@@ -1125,6 +1125,31 @@ forks.
 enveloped chunk; the live connection passes `Socket.Socket["writer"]`).
 `disconnects` is the Mailbox the live connection offers a client id to on
 socket close, so the engine runs per-client teardown.
+
+### [`makeTypedTransportCall`](./typed-dispatch.ts#L82)
+
+_Function_
+
+```ts
+export function makeTypedTransportCall<Rpcs extends Rpc.Any, TransportError>(
+  client: TypedDispatchMap<Rpcs, RpcClientError>,
+  onTransportError: () => TransportError,
+): <Tag extends Rpcs["_tag"]>(
+  tag: Tag,
+  payload: PayloadForTag<Rpcs, Tag>,
+)
+```
+
+Bind a non-flat `RpcClient` (viewed as a TypedDispatchMap) into a
+per-method `call(tag, payload)` that folds the engine's transport-level
+`RpcClientError` (a closed socket) into the caller's own `TransportError`.
+
+Generic over `Rpcs`: the body type-checks `dispatchCall` against the abstract
+`SuccessForTag&lt;Rpcs, Tag>`, so the per-tag success reduces at every concrete
+instantiation — including the combined callback ∪ notification group — with
+no value-boundary cast. Every endpoint that stands a non-flat client (the
+agent + app clients, the server's reverse client) shares this one bridge, so
+the transport-error fold is written once.
 
 ### [`MalformedFrameError`](./wire-errors.ts#L89)
 
@@ -1439,7 +1464,7 @@ export type ParamsOf<
 
 Type-only accessor for a definition's params payload.
 
-### [`PayloadForTag`](./typed-dispatch.ts#L25)
+### [`PayloadForTag`](./typed-dispatch.ts#L26)
 
 _TypeAlias_
 
@@ -1648,22 +1673,48 @@ export type ResultOf<
 
 Type-only accessor for a definition's result payload.
 
-### [`ReverseRpcGroup`](./rpc-method-groups.ts#L171)
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L188)
 
 _Variable_
 
 ```ts
-export const ReverseRpcGroup = AppCallbackRpcGroup.merge(NotificationRpcGroup)
+export const ReverseRpcGroup: RpcGroup.RpcGroup<ReverseRpcMember> =
+  RpcGroup.make(
+    // Same homogeneous-map laundering as `groupFromCatalog` /
+    // `groupFromNotifications`: `Array.map`'s element type cannot prove the
+    // per-slot tuple, but at runtime each callback maps to a result-bearing
+    // `Rpc` and each notification to a `void`-result `Rpc`, in source order —
+    // precisely the `ReverseRpcMember` union. Verified by
+    // `rpc-method-groups.types-check.ts`.
+    // eslint-disable-next-line agent-code-guard/as-unknown-as -- combined-tuple keying proof TS cannot express, the same single assertion the per-catalog builders use, verified by rpc-method-groups.types-check.ts
+    ...([
+      ...appCallbackMethods.map((definition) =>
+        Rpc.make(definition.name, {
+          payload: definition.paramsSchema,
+          success: definition.resultSchema,
+          error: definition.errorSchema,
+        }),
+      ),
+      ...notificationDefinitions.map((definition) =>
+        Rpc.make(definition.name, {
+          payload: definition.paramsSchema,
+          success: Schema.Void,
+          error: Schema.Never,
+        }),
+      ),
+    ] as unknown as readonly ReverseRpcMember[]), // #ignore-sloppy-code[as-unknown-as]: combined-tuple keying proof TS cannot express; verified by rpc-method-groups.types-check.ts.
+  )
 ```
 
 The full server→client reverse group: the moderator callbacks
-(AppCallbackRpcGroup) ∪ the notifications (NotificationRpcGroup).
-The server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires
-callbacks awaiting a verdict, fires notifications fork-and-forget); the agent
-+ app clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent
-client only ever receives notifications (its handlers for the three callback
-methods are never invoked — an agent is not a moderator), but it serves the
-whole group so the s2c engine binds one handler map.
+(AppCallbackRpcGroup) ∪ the notifications (NotificationRpcGroup),
+built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
+server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
+awaiting a verdict, fires notifications fork-and-forget); the agent + app
+clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent client
+only ever receives notifications (its handlers for the three callback methods
+are never invoked — an agent is not a moderator), but it serves the whole
+group so the s2c engine binds one handler map.
 
 ### [`routeInbound`](./native-mux.ts#L129)
 
@@ -1823,7 +1874,7 @@ export interface RpcErrorPayload {
 The supplemental-payload type a tagged-error instance accepts at construction:
 an optional overriding message and optional `data`.
 
-### [`RpcForTag`](./typed-dispatch.ts#L19)
+### [`RpcForTag`](./typed-dispatch.ts#L20)
 
 _TypeAlias_
 
@@ -1959,7 +2010,7 @@ onto these via `RpcGroup.toLayer` (server inbound) and derives typed clients
 via `RpcClient.make`; the dual-endpoint demux pairs ServerRpcGroup
 (client-to-server) with AppCallbackRpcGroup (server-to-client).
 
-### [`SuccessForTag`](./typed-dispatch.ts#L31)
+### [`SuccessForTag`](./typed-dispatch.ts#L32)
 
 _TypeAlias_
 
@@ -2278,7 +2329,7 @@ export class TaskRequestAuthMw extends RpcMiddleware.Tag<TaskRequestAuthMw>()(
 ) {}
 ```
 
-### [`TypedDispatchMap`](./typed-dispatch.ts#L48)
+### [`TypedDispatchMap`](./typed-dispatch.ts#L49)
 
 _TypeAlias_
 
