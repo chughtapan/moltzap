@@ -766,7 +766,7 @@ export function registerSlowFirstDoesNotDelaySecondAck(
 ): void
 ```
 
-### [`registerSpuriousAppCallbackFrameHandling`](./spurious-app-callback-frame.ts#L27)
+### [`registerSpuriousAppCallbackFrameHandling`](./spurious-app-callback-frame.ts#L31)
 
 _Function_
 

@@ -978,22 +978,35 @@ function normalizeNativeFrame(frame: string): string {
  * failure) or `{ _tag: "Defect", … }` (a die). A `Fail` cause unwraps to its
  * inner tagged error; anything else collapses to a generic internal error.
  */
+/** A value carrying a string `_tag` — the shape a flattened tagged error has. */
+const taggedError = (
+  value: unknown,
+): Option.Option<{ readonly _tag: string }> =>
+  Option.fromNullable(value).pipe(
+    Option.filter(
+      (v): v is { readonly _tag: string } =>
+        typeof v === "object" &&
+        typeof (v as { readonly _tag?: unknown })._tag === "string",
+    ),
+  );
+
 function unwrapCauseError(error: unknown): unknown {
-  if (typeof error !== "object" || error === null) return error;
-  const e = error as Record<string, unknown>;
-  if (e["_tag"] !== "Cause" && e["_tag"] !== "Defect") return error;
-  const cause = e["data"] as Record<string, unknown> | undefined;
-  const inner = cause?.["_tag"] === "Fail" ? cause["error"] : undefined;
-  if (
-    typeof inner === "object" &&
-    inner !== null &&
-    typeof (inner as { readonly _tag?: unknown })._tag === "string"
-  ) {
-    return inner;
-  }
+  const envelope = taggedError(error);
+  if (Option.isNone(envelope)) return error;
+  const e = envelope.value;
+  if (e._tag !== "Cause" && e._tag !== "Defect") return error;
+  const cause = taggedError((e as { readonly data?: unknown }).data);
+  const inner = Option.flatMap(cause, (c) =>
+    c._tag === "Fail"
+      ? taggedError((c as { readonly error?: unknown }).error)
+      : Option.none(),
+  );
+  if (Option.isSome(inner)) return inner.value;
+  const message = (e as { readonly message?: unknown }).message;
+  // eslint-disable-next-line agent-code-guard/manual-tagged-error -- this builds the WIRE `{ _tag, message }` error payload the driver re-serializes into a response frame (read at `frame.error._tag`), not an Effect error to raise; `Data.TaggedError` would change the serialized shape.
   return {
     _tag: "InternalError",
-    message: typeof e["message"] === "string" ? e["message"] : "server defect",
+    message: typeof message === "string" ? message : "server defect",
   };
 }
 
@@ -1023,13 +1036,10 @@ const NativeFrameSchema = Schema.Struct(
       // `sampled` into the indexed rest; drop them so only the JSON-RPC keys
       // (`jsonrpc`, `params`, `result`, `error`) survive into `rest`.
       decode: ({ id, method, ...indexed }) => {
-        const {
-          headers: _h,
-          traceId: _t,
-          spanId: _s,
-          sampled: _sp,
-          ...rest
-        } = indexed;
+        const rest: Record<string, unknown> = { ...indexed };
+        for (const key of ["headers", "traceId", "spanId", "sampled"]) {
+          delete rest[key];
+        }
         return { id, method, rest };
       },
       encode: ({ id, method, rest }) => ({ id, method, ...rest }),

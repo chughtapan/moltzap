@@ -160,15 +160,18 @@ const parseErrorReply = (channel: MuxChannel): string =>
  */
 type RoutedChunk = readonly [ChannelSink, MuxChannel, string];
 
-/** Log + (when `reply` is set) write the `-32700` parse-error envelope. */
+/** A no-op writer: the default when a caller wires no parse-error reply path. */
+const dropWrite: WireWrite = () => Effect.void;
+
+/** Log + write the `-32700` parse-error envelope through the resolved writer. */
 const replyMalformed =
-  (reply: WireWrite | undefined) =>
+  (reply: WireWrite) =>
   (logMessage: string, channel: MuxChannel): Effect.Effect<void> =>
     Effect.logWarning(logMessage).pipe(
       Effect.zipRight(
-        reply === undefined
-          ? Effect.void
-          : reply(parseErrorReply(channel)).pipe(Effect.catchAll(() => Effect.void)),
+        reply(parseErrorReply(channel)).pipe(
+          Effect.catchAll(() => Effect.void),
+        ),
       ),
     );
 
@@ -215,14 +218,14 @@ export function routeInbound(
   sinks: Partial<Record<MuxChannel, ChannelSink>>,
   reply?: WireWrite,
 ): Effect.Effect<void> {
-  const onMalformed = replyMalformed(reply);
+  const onMalformed = replyMalformed(reply ?? dropWrite);
   return Effect.gen(function* () {
     const route = yield* resolveRoute(raw, sinks, onMalformed);
     if (Option.isNone(route)) return;
     const [channelSink, channel, wire] = route.value;
-    const frames = yield* Effect.try(() => channelSink.parser.decode(wire)).pipe(
-      Effect.option,
-    );
+    const frames = yield* Effect.try(() =>
+      channelSink.parser.decode(wire),
+    ).pipe(Effect.option);
     if (Option.isNone(frames)) {
       yield* onMalformed("native-mux: undecodable inner frame", channel);
       return;

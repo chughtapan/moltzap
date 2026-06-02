@@ -23,6 +23,15 @@ import {
   type NotificationFrame,
 } from "../../../transport/wire.js";
 import { type JsonRpcId } from "../../../transport/wire.js";
+import { notificationDefinitions } from "../../../rpc-registry.js";
+
+// The wire-method names the server fires as notifications. A server-pushed
+// notification arrives as a void-result s2c REQUEST (it carries an `id`), so an
+// `id`-bearing frame is only a notification when its method is in this set — an
+// app-callback request (e.g. `messages/authorize`) is NOT.
+const NOTIFICATION_METHOD_NAMES = new Set<string>(
+  notificationDefinitions.map((d) => d.name as string),
+);
 
 const BIT_FLIP_VARIANTS = 8;
 const OVERSIZED_PADDING_BYTES = 65_536;
@@ -82,6 +91,26 @@ export function isNotificationFrame(
   frame: AnyFrame,
 ): frame is NotificationFrame {
   return !("id" in frame) && "method" in frame;
+}
+
+/**
+ * The wire `method` of an inbound server-originated NOTIFICATION, whether it
+ * arrived as a bare notification frame OR as a void-result s2c request (the
+ * server fires notifications as RPCs and awaits the client's ack, so the
+ * captured frame carries an `id`). Returns `null` for any frame that is not a
+ * known notification method — an app-callback request (`messages/authorize`,
+ * `dispatch/authorize`, `task/create`) carries an `id` too but is NOT a
+ * notification, so the method allowlist gates it out. Capture-scanning
+ * conformance properties read this instead of {@link isNotificationFrame} so
+ * they observe notifications regardless of the request/notification framing
+ * without miscounting a callback request as a delivered notification.
+ */
+export function inboundNotificationMethod(frame: AnyFrame): string | null {
+  if (isNotificationFrame(frame)) return frame.method;
+  if (isRequestFrame(frame) && NOTIFICATION_METHOD_NAMES.has(frame.method)) {
+    return frame.method;
+  }
+  return null;
 }
 
 /**

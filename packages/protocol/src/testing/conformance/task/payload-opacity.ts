@@ -2,7 +2,7 @@
 import * as fc from "fast-check";
 import { Effect } from "effect";
 import { MessagesSend } from "../../../task/methods.js";
-import { isNotificationFrame } from "../_shared/frame-mutator.js";
+import { inboundNotificationMethod } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
@@ -83,7 +83,7 @@ function containsDeliveredText(frame: CapturedFrame, text: string): boolean {
   return (
     frame.kind === "inbound" &&
     frame.frame !== null &&
-    isNotificationFrame(frame.frame) &&
+    inboundNotificationMethod(frame.frame) !== null &&
     frame.raw.includes(text)
   );
 }

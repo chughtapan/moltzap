@@ -237,10 +237,13 @@ function handleConnect(args: {
   readonly appRegistry: HandleInboundFrameOpts["appRegistry"];
 }): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const appKey = stringParam(args.frame.params, "appKey");
-    if (appKey !== null) {
+    // The live `network/connect` carries ONE `credential` whose prefix selects
+    // the principal: a registered app key binds the moderator `AppConnection`;
+    // a `bad-server-key-N` agent key binds an agent arm.
+    const credential = stringParam(args.frame.params, "credential");
+    if (credential !== null) {
       const registry = yield* Ref.get(args.appRegistry);
-      const registration = registry.get(appKey);
+      const registration = registry.get(credential);
       if (registration !== undefined) {
         yield* Ref.update(args.stateRef, (s) => {
           s.moderatorAgentId = null;
@@ -248,26 +251,19 @@ function handleConnect(args: {
           s.moderatorResponseTimeoutMs = registration.moderatorTimeoutMs;
           return s;
         });
-      }
-      yield* writeResponse(args.stateRef, args.connId, args.frame.id, {
-        result: {},
-      });
-      return;
-    }
-    const apiKey = stringParam(args.frame.params, "agentKey");
-    if (apiKey !== null) {
-      // Map `apiKey → agentId` per the HTTP register's known issuance.
-      // Because the bad-dispatch tests run with a single HTTP server
-      // shared across the WS, we synthesize a stable agentId from the
-      // key suffix.
-      const match = /bad-server-key-(\d+)/.exec(apiKey);
-      if (match !== null) {
-        const counter = Number(match[1]);
-        const agentId = badServerAgentId(counter);
-        yield* Ref.update(args.stateRef, (s) => {
-          s.agentByConn.set(args.connId, agentId);
-          return s;
-        });
+      } else {
+        // Map `agentKey → agentId` per the HTTP register's known issuance.
+        // The bad-dispatch tests share one HTTP server across the WS, so the
+        // agentId is synthesized from the key suffix.
+        const match = /^bad-server-key-(\d+)$/.exec(credential);
+        if (match !== null) {
+          const counter = Number(match[1]);
+          const agentId = badServerAgentId(counter);
+          yield* Ref.update(args.stateRef, (s) => {
+            s.agentByConn.set(args.connId, agentId);
+            return s;
+          });
+        }
       }
     }
     yield* writeResponse(args.stateRef, args.connId, args.frame.id, {

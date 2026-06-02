@@ -19,7 +19,12 @@ import {
 } from "../_shared/driver/test-client.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
-import { isNotificationFrame } from "../_shared/frame-mutator.js";
+import {
+  isNotificationFrame,
+  isRequestFrame,
+} from "../_shared/frame-mutator.js";
+import type { AnyFrame } from "../_shared/frame-mutator.js";
+import type { NotificationFrame } from "../../../transport/wire.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 
@@ -210,16 +215,33 @@ export function presenceStatusesFor(
   }).pipe(Effect.withSpan("presenceStatusesFor"));
 }
 
+// The server pushes notifications as void-result s2c RPCs, so an inbound
+// presence/changed is captured as a REQUEST frame (carrying an `id`) rather
+// than a bare notification. Project either onto the notification shape the
+// `decodeNotification` decoder reads.
+function asNotificationFrame(frame: AnyFrame): NotificationFrame | null {
+  if (isNotificationFrame(frame)) return frame;
+  if (isRequestFrame(frame)) {
+    return {
+      jsonrpc: "2.0",
+      method: frame.method,
+      ...(frame.params !== undefined ? { params: frame.params } : {}),
+    };
+  }
+  return null;
+}
+
 function presenceStatusFromCapture(
   entry: CapturedFrame,
   agentId: AgentId,
 ): Effect.Effect<PresenceStatus | null> {
   return Effect.gen(function* () {
-    if (entry.kind !== "inbound") return null;
-    if (entry.frame === null || !isNotificationFrame(entry.frame)) return null;
+    if (entry.kind !== "inbound" || entry.frame === null) return null;
+    const notificationFrame = asNotificationFrame(entry.frame);
+    if (notificationFrame === null) return null;
     const notification = yield* decodeNotification(
       notificationDefinitions,
-      entry.frame,
+      notificationFrame,
     ).pipe(Effect.option);
     const presenceNotification = Option.filter(notification, (decoded) =>
       isDecodedNotification(PresenceChangedNotificationDefinition, decoded),

@@ -220,13 +220,73 @@ function rawSocketDataToString(data: string | Uint8Array): string {
     : new TextDecoder("utf-8").decode(data);
 }
 
+const parseJsonObject = (raw: string): Option.Option<Record<string, unknown>> =>
+  parseJsonOption(raw).pipe(
+    Option.filter(
+      (v): v is Record<string, unknown> =>
+        typeof v === "object" && v !== null && !Array.isArray(v),
+    ),
+  );
+
+// The native-engine extras the JSON-RPC serialization rides; the strict
+// `validateRequestFrame` rejects them as excess keys.
+const NATIVE_FRAME_EXTRAS = [
+  "headers",
+  "traceId",
+  "spanId",
+  "sampled",
+] as const;
+
+// The native client multiplexes the socket with a `{ ch, f }` envelope
+// (`@moltzap/protocol transport/native-mux.ts`): it wraps every outbound frame
+// and unwraps every inbound one. This scripted server mirrors that framing so
+// its raw handlers stay envelope-agnostic. Unwrap strips the envelope AND the
+// native extras, then stringifies the numeric engine id the branded string
+// schema requires — so the handlers below assert on a bare JSON-RPC frame.
+function muxUnwrap(raw: string): string {
+  const outer = parseJsonObject(raw);
+  const inner = Option.match(outer, {
+    onNone: () => raw,
+    onSome: (o) => (typeof o["f"] === "string" ? o["f"] : raw),
+  });
+  return Option.match(parseJsonObject(inner), {
+    onNone: () => inner,
+    onSome: (frame) => {
+      const cleaned: Record<string, unknown> = { ...frame };
+      for (const key of NATIVE_FRAME_EXTRAS) delete cleaned[key];
+      // The native engine mints NUMERIC ids; the strict wire schema brands a
+      // STRING id. Stringify ONLY a numeric id so `validateRequestFrame` accepts
+      // it — a `null` id (JSON-RPC parse-error responses) stays `null`.
+      if (typeof cleaned["id"] === "number") {
+        cleaned["id"] = String(cleaned["id"]);
+      }
+      return JSON.stringify(cleaned);
+    },
+  });
+}
+
+// A response to a client `c2s` request rides back on `c2s` so the client's
+// outbound engine correlates it; a server-originated request/notification rides
+// on `s2c` where the client's reverse reader consumes it. Pick the channel from
+// the frame shape: a `method` key marks a server-originated frame.
+const muxWrapServerFrame = (frame: string): string => {
+  const channel = Option.match(parseJsonObject(frame), {
+    onNone: () => "c2s" as const,
+    onSome: (parsed) =>
+      typeof parsed["method"] === "string"
+        ? ("s2c" as const)
+        : ("c2s" as const),
+  });
+  return JSON.stringify({ ch: channel, f: frame });
+};
+
 function handleTestServerRawData(
   conn: TestServerConnection,
   receivedList: string[],
   handler: ServerHandler,
   data: string | Uint8Array,
 ): Effect.Effect<void> {
-  const raw = rawSocketDataToString(data);
+  const raw = muxUnwrap(rawSocketDataToString(data));
   receivedList.push(raw);
   return handler(conn, raw);
 }
@@ -291,7 +351,7 @@ function makeTestServerConnection(
   receivedList: string[],
 ): TestServerConnection {
   return {
-    send: (raw) => write(raw).pipe(Effect.ignore),
+    send: (raw) => write(muxWrapServerFrame(raw)).pipe(Effect.ignore),
     close: (code = NORMAL_CLOSE_CODE, reason = "test close") =>
       write(new Socket.CloseEvent(code, reason)).pipe(Effect.ignore),
     get received(): ReadonlyArray<string> {

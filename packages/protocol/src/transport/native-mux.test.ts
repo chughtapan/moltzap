@@ -59,7 +59,7 @@ function recordingSink(): {
   return {
     received,
     sink: {
-      parser: RpcSerialization.json.unsafeMake(),
+      parser: RpcSerialization.jsonRpc().unsafeMake(),
       inject: (frame) =>
         Effect.sync(() => {
           received.push(frame);
@@ -68,9 +68,33 @@ function recordingSink(): {
   };
 }
 
-// Drive the server engine-facing `send` with `frame`; assert the captured
-// envelope is on channel c2s and its `f` payload roundtrips back to `frame`.
-const serverSendRoundtrips = (frame: Record<string, unknown>) =>
+// A valid `FromServerEncoded` response — the only frame shape the endpoint
+// serialization (`jsonRpc`) encodes. An arbitrary dictionary is not a wire
+// response, so the encoder rejects it; the mux only ever carries engine
+// frames, never raw payloads.
+const exitFrame = (requestId: string, value: unknown) =>
+  ({
+    _tag: "Exit",
+    requestId,
+    exit: { _tag: "Success", value },
+  }) as never;
+
+// Decode an envelope's `f` with a fresh jsonRpc parser and return the lone
+// decoded frame.
+const decodeOne = (f: string): unknown => {
+  const [frame] = RpcSerialization.jsonRpc().unsafeMake().decode(f);
+  return frame;
+};
+
+// The jsonRpc wire id must be a non-falsy numeric value (`id: requestId &&
+// Number(requestId)`); an empty string collapses to `undefined`. Use a fixed
+// numeric request id and vary only the success value.
+const REQUEST_ID = "7";
+
+// Drive the server engine-facing `send` with a response frame; assert the
+// captured envelope is on channel c2s and its `f` payload decodes back to an
+// Exit carrying the same success value (the id round-trips numerically).
+const serverSendRoundtrips = (value: unknown) =>
   Effect.gen(function* () {
     const wire = recordingWire();
     const disconnects = yield* Mailbox.make<number>();
@@ -80,22 +104,29 @@ const serverSendRoundtrips = (frame: Record<string, unknown>) =>
       disconnects,
     });
     const built = yield* builder(noopInject);
-    yield* built.impl.send(0, frame as never);
+    yield* built.impl.send(0, exitFrame(REQUEST_ID, value));
     const env = soleEnvelope(wire.written);
     expect(env.ch).toBe("c2s");
-    expect(RpcSerialization.json.unsafeMake().decode(env.f)).toEqual([frame]);
+    expect(decodeOne(env.f)).toMatchObject({
+      requestId: REQUEST_ID,
+      exit: { _tag: "Success", value },
+    });
   });
 
-// Encode `frame` on the c2s channel, route the envelope, assert it lands
-// verbatim in the c2s sink and nowhere else.
-const routesToMatchingSink = (frame: Record<string, unknown>) =>
+// Encode a response frame on the c2s channel, route the envelope, assert it
+// lands in the c2s sink and nowhere else.
+const routesToMatchingSink = (value: unknown) =>
   Effect.gen(function* () {
     const c2s = recordingSink();
     const s2c = recordingSink();
-    const encoded = c2s.sink.parser.encode(frame) as string;
+    const encoded = c2s.sink.parser.encode(
+      exitFrame(REQUEST_ID, value),
+    ) as string;
     const env = JSON.stringify({ ch: "c2s", f: encoded });
     yield* routeInbound(env, { c2s: c2s.sink, s2c: s2c.sink });
-    expect(c2s.received).toEqual([frame]);
+    expect(c2s.received).toMatchObject([
+      { requestId: REQUEST_ID, exit: { _tag: "Success", value } },
+    ]);
     expect(s2c.received).toEqual([]);
   });
 
@@ -113,14 +144,11 @@ const hasNegativeZero = (value: unknown): boolean => {
   return false;
 };
 
-const jsonFrame: fc.Arbitrary<Record<string, unknown>> = fc
-  .dictionary(fc.string(), fc.jsonValue())
-  .filter((d) => !hasNegativeZero(d));
-
 describe("native-mux envelope", () => {
   it("server send wraps the frame in a {ch, f} envelope that roundtrips", () => {
-    const property = fc.property(jsonFrame, (frame) =>
-      Effect.runSync(serverSendRoundtrips(frame)),
+    const property = fc.property(
+      fc.jsonValue().filter((v) => !hasNegativeZero(v)),
+      (value) => Effect.runSync(serverSendRoundtrips(value)),
     );
     fc.assert(property, { numRuns: 50 });
     expect(true).toBe(true);
@@ -135,7 +163,7 @@ describe("native-mux envelope", () => {
           write: wire.write,
         });
         const built = yield* builder(noopInject);
-        yield* built.impl.send({ hello: "world" } as never);
+        yield* built.impl.send(exitFrame("1", { hello: "world" }));
         const env = soleEnvelope(wire.written);
         expect(env.ch).toBe("s2c");
       }),
@@ -144,8 +172,9 @@ describe("native-mux envelope", () => {
 
 describe("native-mux routeInbound", () => {
   it("routes any well-formed envelope verbatim to the matching sink", () => {
-    const property = fc.property(jsonFrame, (frame) =>
-      Effect.runSync(routesToMatchingSink(frame)),
+    const property = fc.property(
+      fc.jsonValue().filter((v) => !hasNegativeZero(v)),
+      (value) => Effect.runSync(routesToMatchingSink(value)),
     );
     fc.assert(property, { numRuns: 50 });
     expect(true).toBe(true);
@@ -176,7 +205,9 @@ describe("native-mux routeInbound", () => {
     Effect.runSync(
       Effect.gen(function* () {
         const c2s = recordingSink();
-        const encoded = c2s.sink.parser.encode({ x: 1 }) as string;
+        const encoded = c2s.sink.parser.encode(
+          exitFrame("1", { x: 1 }),
+        ) as string;
         const env = JSON.stringify({ ch: "s2c", f: encoded });
         yield* routeInbound(env, { c2s: c2s.sink });
         expect(c2s.received).toEqual([]);

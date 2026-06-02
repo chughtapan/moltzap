@@ -8,7 +8,7 @@ import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
 import { MessagesSend } from "../../../task/methods.js";
 import {
-  isNotificationFrame,
+  inboundNotificationMethod,
   type AnyFrame,
 } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
@@ -30,12 +30,10 @@ function isInboundMessageNotification(snapshotEntry: {
   readonly frame: unknown;
 }): boolean {
   const frame = snapshotEntry.frame;
-  return (
-    snapshotEntry.kind === "inbound" &&
-    isFrameCandidate(frame) &&
-    isNotificationFrame(frame) &&
-    frame.method.includes("message")
-  );
+  if (snapshotEntry.kind !== "inbound" || !isFrameCandidate(frame))
+    return false;
+  const method = inboundNotificationMethod(frame);
+  return method !== null && method.includes("message");
 }
 
 function isFrameCandidate(frame: unknown): frame is AnyFrame {
