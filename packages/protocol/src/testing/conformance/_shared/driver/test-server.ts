@@ -12,7 +12,7 @@
  * Satisfies AC3. Consumed by Tier A (A2), Tier B (server-emitted notification
  * replay), and Tier E E2 (schema-exhaustive fuzz).
  */
-import { Context, Effect, Ref, type Scope } from "effect";
+import { Context, Effect, Either, Ref, type Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
 import * as SocketServer from "@effect/platform/SocketServer";
@@ -53,6 +53,61 @@ const outboundTransportClosedError = (
     code: opts.code,
     reason: `${opts.reason}: ${String(cause)}`,
   });
+
+// ── Mux envelope ─────────────────────────────────────────────────────────────
+//
+// The real clients (`packages/client`, the channels) multiplex the socket with
+// a `{ ch, f }` envelope (`transport/native-mux.ts`) and the native engine mints
+// NUMERIC ids the strict wire schema brands as strings, riding extra keys
+// (`headers`/`traceId`/`spanId`/`sampled`). TestServer drives the same wire so
+// its strict-frame `encodeFrame`/`decodeFrame` core stays envelope-agnostic:
+// unwrap + strip extras + stringify a numeric id on receipt, wrap on send
+// (responses on `c2s` where the request arrived, server-pushed
+// notifications/callbacks on `s2c`).
+const NATIVE_FRAME_EXTRAS = ["headers", "traceId", "spanId", "sampled"];
+
+const parseObject = (raw: string): { readonly [k: string]: unknown } | null => {
+  const v = Either.getOrNull(Either.try(() => JSON.parse(raw) as unknown));
+  return typeof v === "object" && v !== null && !Array.isArray(v)
+    ? (v as { readonly [k: string]: unknown })
+    : null;
+};
+
+function muxUnwrap(raw: string): string {
+  const outer = parseObject(raw);
+  // Only a WELL-FORMED envelope unwraps: `ch` MUST be a valid channel AND `f`
+  // a string. A malformed envelope (missing/wrong `ch`) passes through raw so
+  // `decodeFrame` rejects it — TestServer must still catch garbage framing, not
+  // silently treat any `{ f }` object as the inner frame.
+  const isEnvelope =
+    outer !== null &&
+    (outer["ch"] === "c2s" || outer["ch"] === "s2c") &&
+    typeof outer["f"] === "string";
+  const inner = isEnvelope ? (outer["f"] as string) : raw;
+  const parsed = parseObject(inner);
+  if (parsed === null) return inner;
+  const frame: Record<string, unknown> = { ...parsed };
+  for (const key of NATIVE_FRAME_EXTRAS) delete frame[key];
+  if (typeof frame["id"] === "number") frame["id"] = String(frame["id"]);
+  return JSON.stringify(frame);
+}
+
+// A monotonic id for server-pushed reverse RPCs (notifications/callbacks); the
+// real client's reverse engine dispatches a request only when it carries an
+// `id`, so a method-bearing frame lacking one gets a synthetic id.
+let serverPushId = 0;
+
+function muxWrap(raw: string): string {
+  const parsed = parseObject(raw);
+  if (parsed === null || typeof parsed["method"] !== "string") {
+    // A response (no `method`) rides back on the c2s request channel.
+    return JSON.stringify({ ch: "c2s", f: raw });
+  }
+  serverPushId += 1;
+  const withId =
+    "id" in parsed ? parsed : { ...parsed, id: String(serverPushId) };
+  return JSON.stringify({ ch: "s2c", f: JSON.stringify(withId) });
+}
 
 export interface TestServerConfig {
   /** If 0, bind to an ephemeral port. */
@@ -134,7 +189,9 @@ function makeConnection(
         const raw = encodeFrame(frame);
         // Validate on the way out as well — Invariant I3.
         yield* decodeFrame(raw, "outbound");
-        yield* writer(raw).pipe(Effect.mapError(outboundTransportIoError));
+        yield* writer(muxWrap(raw)).pipe(
+          Effect.mapError(outboundTransportIoError),
+        );
         yield* recordFrame(inbound, "outbound", raw, frame);
       });
 
@@ -148,7 +205,12 @@ function makeConnection(
         Effect.gen(function* () {
           const base: AnyFrame = opts.baseNotification as AnyFrame;
           const raw = malformFrame(base, opts.kind, opts.seed);
-          yield* writer(raw).pipe(Effect.mapError(outboundTransportIoError));
+          // Wrap on the `s2c` channel so the malformed bytes reach the real
+          // client's reverse reader — the malformed-frame property asserts the
+          // client survives a poisoned NOTIFICATION, which rides s2c.
+          yield* writer(JSON.stringify({ ch: "s2c", f: raw })).pipe(
+            Effect.mapError(outboundTransportIoError),
+          );
           yield* recordMalformed(inbound, raw, opts.kind);
         }),
       close: (opts) =>
@@ -169,7 +231,7 @@ function recordConnectionInbound(
   conn: TestServerConnection,
   data: string | Uint8Array,
 ): Effect.Effect<void> {
-  const raw = rawSocketDataToString(data);
+  const raw = muxUnwrap(rawSocketDataToString(data));
   return decodeFrame(raw, "inbound").pipe(
     Effect.matchEffect({
       onFailure: () => recordMalformed(conn.inbound, raw, "bit-flip"),

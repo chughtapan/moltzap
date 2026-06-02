@@ -62,7 +62,7 @@ Open a real WS connection to `config.serverUrl`, complete the `connect`
 handshake, and yield a `TestClient`. The surrounding `Scope` owns the
 socket; releasing it closes the WS and drains captures.
 
-### [`makeTestServer`](./test-server.ts#L186)
+### [`makeTestServer`](./test-server.ts#L248)
 
 _Function_
 
@@ -378,7 +378,7 @@ Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of
 the real server; `agentKey` + `agentId` are for the `connect` handshake.
 `defaultTimeoutMs` bounds each `sendRpc` unless overridden per call.
 
-### [`TestServer`](./test-server.ts#L91)
+### [`TestServer`](./test-server.ts#L146)
 
 _Interface_
 
@@ -392,7 +392,7 @@ export interface TestServer {
 }
 ```
 
-### [`TestServer`](./test-server.ts#L91)
+### [`TestServer`](./test-server.ts#L146)
 
 _Variable_
 
@@ -400,7 +400,7 @@ _Variable_
 export interface TestServer
 ```
 
-### [`TestServerConfig`](./test-server.ts#L57)
+### [`TestServerConfig`](./test-server.ts#L112)
 
 _Interface_
 
@@ -414,7 +414,7 @@ export interface TestServerConfig {
 }
 ```
 
-### [`TestServerConnection`](./test-server.ts#L70)
+### [`TestServerConnection`](./test-server.ts#L125)
 
 _Interface_
 

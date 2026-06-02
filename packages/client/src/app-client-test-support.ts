@@ -44,12 +44,10 @@ import {
 } from "@moltzap/protocol";
 
 import {
-  AgentsLookupByName,
   DispatchAuthorize,
   Connect,
-  TaskList,
+  TaskClose,
   MessagesAuthorize,
-  MessagesSend,
   MessageReceivedNotificationDefinition,
   PROTOCOL_VERSION,
   TaskCreate,
@@ -134,8 +132,11 @@ const STALE_PORT_TEST_TIMEOUT_MS = 15_000;
 const HANDLER_REJECTION_TAG = "Forbidden";
 const NORMAL_CLOSE_REASON = "normal";
 const SERVER_ERROR_REASON = "boom";
-const SERVER_TEST_REQUEST_ID = "srv-test-1";
-const SERVER_ERROR_REQUEST_ID = "srv-err-1";
+// Server-originated request ids are NUMERIC on the wire: the native engine
+// parses them with `BigInt(id)` (`RpcMessage.RequestId`), so a non-numeric id
+// kills the socket. High values no client request collides with.
+const SERVER_TEST_REQUEST_ID = "900000001";
+const SERVER_ERROR_REQUEST_ID = "900000002";
 const GRANT_DECISION = "grant";
 const DOMAIN_REJECTED_MESSAGE = "domain-rejected";
 const DOMAIN_REJECTED_REASON = "test";
@@ -143,6 +144,21 @@ const TEST_CONVERSATION_ID = conversationId(
   "33333333-3333-4333-8333-333333333333",
 );
 const TEST_TASK_ID = taskId("44444444-4444-4444-8444-444444444444");
+// A `task/close` result for the transport-resilience probes. They drive an
+// app-callable method through the typed app client (`TaskClose`,
+// `callablePrincipal: "app"`); the response shape only matters for the two
+// tests that decode the result — the rest assert on socket lifecycle.
+const TEST_TASK_RESULT = {
+  task: {
+    id: TEST_TASK_ID,
+    appId: "00000000-0000-4000-8000-00000000a99a",
+    initiatorAgentId: TEST_AGENT_ID,
+    status: "closed" as const,
+    startedAt: null,
+    endedAt: "2026-05-03T00:00:00.000Z",
+    createdAt: "2026-05-03T00:00:00.000Z",
+  },
+};
 const TEST_POLICY = {
   maxMessageBytes: 1_000_000,
   maxPartsPerMessage: 10,
@@ -245,9 +261,15 @@ const NATIVE_FRAME_EXTRAS = [
 // schema requires — so the handlers below assert on a bare JSON-RPC frame.
 function muxUnwrap(raw: string): string {
   const outer = parseJsonObject(raw);
+  // Only a WELL-FORMED envelope unwraps: a valid `ch` AND a string `f`. A
+  // malformed envelope passes through raw so the strict frame validator can
+  // reject it, rather than accepting any `{ f }` object as the inner frame.
   const inner = Option.match(outer, {
     onNone: () => raw,
-    onSome: (o) => (typeof o["f"] === "string" ? o["f"] : raw),
+    onSome: (o) =>
+      (o["ch"] === "c2s" || o["ch"] === "s2c") && typeof o["f"] === "string"
+        ? o["f"]
+        : raw,
   });
   return Option.match(parseJsonObject(inner), {
     onNone: () => inner,
@@ -269,23 +291,30 @@ function muxUnwrap(raw: string): string {
 // client's reverse engine processes a request only when it carries an `id`.
 let serverPushId = 0;
 
-// A response to a client `c2s` request rides back on `c2s` so the client's
-// outbound engine correlates it; a server-originated request/notification rides
-// on `s2c` where the client's reverse reader consumes it. Pick the channel from
-// the frame shape: a `method` key marks a server-originated frame. The real
-// server fires notifications as void-result reverse RPCs (a request WITH an
-// `id` the client acks), so a method-bearing frame lacking an `id` gets one —
-// otherwise the client's reverse engine never dispatches it.
+// Channel selection by frame shape:
+//   - a RESPONSE (carries `id` AND `result`/`error`) rides `c2s` so the client's
+//     outbound engine correlates it to the request it answered;
+//   - everything else is server-originated and rides `s2c` where the reverse
+//     reader consumes it — a notification/callback REQUEST (has `method`), OR a
+//     MALFORMED frame missing both (the malformed-s2c-notification property).
+// The real server fires notifications as void-result reverse RPCs (a request
+// WITH an `id` the client acks), so a method-bearing frame lacking an `id` gets
+// a synthetic one — otherwise the reverse engine never dispatches it.
+const isResponseShape = (parsed: Record<string, unknown>): boolean =>
+  "id" in parsed && ("result" in parsed || "error" in parsed);
+
 const muxWrapServerFrame = (frame: string): string =>
   Option.match(parseJsonObject(frame), {
     onNone: () => JSON.stringify({ ch: "c2s", f: frame }),
     onSome: (parsed) => {
-      if (typeof parsed["method"] !== "string") {
+      if (isResponseShape(parsed)) {
         return JSON.stringify({ ch: "c2s", f: frame });
       }
-      serverPushId += 1;
-      const withId =
-        "id" in parsed ? parsed : { ...parsed, id: String(serverPushId) };
+      let withId = parsed;
+      if (typeof parsed["method"] === "string" && !("id" in parsed)) {
+        serverPushId += 1;
+        withId = { ...parsed, id: String(serverPushId) };
+      }
       return JSON.stringify({ ch: "s2c", f: JSON.stringify(withId) });
     },
   });
@@ -634,18 +663,14 @@ function sendMalformedFramesAndResponse(
   frame: RequestFrame,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
-    if (frame.method !== TaskList.name) return;
+    if (frame.method !== TaskClose.name) return;
     yield* conn.send("not json at all");
     yield* conn.send(JSON.stringify({ jsonrpc: JSON_RPC_VERSION, result: {} }));
     yield* conn.send(
       JSON.stringify({ jsonrpc: JSON_RPC_VERSION, id: frame.id }),
     );
     yield* conn.send(
-      JSON.stringify(
-        TaskList.encodeResponse(frame.id, {
-          tasks: [],
-        }),
-      ),
+      JSON.stringify(TaskClose.encodeResponse(frame.id, TEST_TASK_RESULT)),
     );
   });
 }
@@ -655,15 +680,11 @@ function sendPaddedNotificationAndResponse(
   _raw: string,
   frame: RequestFrame,
 ): Effect.Effect<void> {
-  if (frame.method !== TaskList.name) return Effect.void;
+  if (frame.method !== TaskClose.name) return Effect.void;
   return conn.send(
     JSON.stringify(messageReceivedFrame()) +
       "\u0000" +
-      JSON.stringify(
-        TaskList.encodeResponse(frame.id, {
-          tasks: [],
-        }),
-      ),
+      JSON.stringify(TaskClose.encodeResponse(frame.id, TEST_TASK_RESULT)),
   );
 }
 
@@ -677,16 +698,14 @@ function sendMalformedFrameBurst(
   });
 }
 
-function startAgentsLookupByNameServer(
+function startTaskCloseServer(
   captured: MutableRef<RequestFrame | null>,
 ): Effect.Effect<TestServer, unknown, Scope.Scope> {
   return startHandshakingServer((conn, _raw, frame) =>
     Effect.gen(function* () {
       captured.current = frame;
       yield* conn.send(
-        JSON.stringify(
-          AgentsLookupByName.encodeResponse(frame.id, { agents: [] }),
-        ),
+        JSON.stringify(TaskClose.encodeResponse(frame.id, TEST_TASK_RESULT)),
       );
     }),
   );
@@ -808,14 +827,12 @@ function makeClient(
 }
 
 export {
-  AgentsLookupByName,
-  TaskList,
+  TaskClose,
   DispatchAuthorize,
   Duration,
   Fiber,
   ForbiddenError,
   MessageReceivedNotificationDefinition,
-  MessagesSend,
   RpcTimeoutError,
   TestClock,
   closeClient,
@@ -835,7 +852,7 @@ export {
   sendPaddedNotificationAndResponse,
   sendRpcEffect,
   setRef,
-  startAgentsLookupByNameServer,
+  startTaskCloseServer,
   startDispatchAuthorizeServer,
   startHandshakingServer,
   startReconnectServer,
@@ -871,7 +888,6 @@ export {
   GRANT_DECISION,
   DOMAIN_REJECTED_MESSAGE,
   DOMAIN_REJECTED_REASON,
-  TEST_CONVERSATION_ID,
   TEST_TASK_ID,
 };
 export type { CloseInfo, MutableRef, RequestFrame };
