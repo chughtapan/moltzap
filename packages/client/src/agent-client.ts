@@ -76,19 +76,18 @@ export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
 
-type ConnectError = RpcCallError | RpcTimeoutError;
-
 type ConnectResult = ResultOf<typeof Connect>;
 
+/** The agent group's member `Rpc`s — the tag-keyed surface the flat call exposes. */
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+
 /**
- * The native client's descriptor-driven outbound call surface
- * (`buildNativeClient`): `(def, params) => Effect&lt;result, RpcCallError>` over
- * the c2s channel.
+ * The native typed flat call over the agent-callable group. `call(def.name,
+ * params)` recovers the result + the method's `errorSchema` error union per
+ * tag, plus the engine's `RpcClientError`. The high-level `request`/`sendRpc`
+ * map `RpcClientError` to `NotConnectedError` and add the per-call timeout.
  */
-type NativeCall = <D extends RpcDefinition<string, any, any>>(
-  definition: D,
-  params: ParamsOf<D>,
-) => Effect.Effect<ResultOf<D>, RpcCallError>;
+type AgentNativeCall = NativeFlatCall<AgentCallableRpcs>;
 
 interface ConnState {
   readonly write: (
@@ -96,7 +95,7 @@ interface ConnState {
   ) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
-  readonly call: NativeCall;
+  readonly call: AgentNativeCall;
   readonly handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>;
 }
 
