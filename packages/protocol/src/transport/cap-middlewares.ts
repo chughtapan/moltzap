@@ -130,27 +130,27 @@ export const capMiddlewareByCapKey: Readonly<
  * Layer's residual requirement — the proof-exclusion guarantee).
  */
 export type CapMwFor<Cap> = Cap extends typeof ConversationInTask
-  ? ConversationInTaskMw
+  ? typeof ConversationInTaskMw
   : Cap extends typeof ConversationSendAccess
-    ? ConversationSendAccessMw
+    ? typeof ConversationSendAccessMw
     : Cap extends typeof ActiveTaskPermission
-      ? ActiveTaskPermissionMw
+      ? typeof ActiveTaskPermissionMw
       : Cap extends typeof OpenConversationPermission
-        ? OpenConversationPermissionMw
+        ? typeof OpenConversationPermissionMw
         : Cap extends typeof ReplyTargetPermission
-          ? ReplyTargetPermissionMw
+          ? typeof ReplyTargetPermissionMw
           : Cap extends typeof TaskReadAccess
-            ? TaskReadAccessMw
+            ? typeof TaskReadAccessMw
             : Cap extends typeof ContactPolicyAllowsReach
-              ? ContactPolicyAllowsReachMw
+              ? typeof ContactPolicyAllowsReachMw
               : never;
 
 /**
  * The middleware stack an authenticated method's `caps` tuple maps to: the
  * `PrincipalGateMw` (every authenticated method) ∪ each declared cap's
- * middleware. The engine member's `Middleware` param is this union, so each
+ * middleware Tag. The engine member's `Middleware` param is this union, so each
  * cap's `provides` is type-visible at the binding.
  */
 export type MwStackFor<Caps extends ReadonlyArray<unknown>> =
-  | PrincipalGateMw
+  | typeof PrincipalGateMw
   | CapMwFor<Caps[number]>;
