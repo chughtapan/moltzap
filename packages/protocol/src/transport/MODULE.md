@@ -116,7 +116,7 @@ export const AppCallbackRpcGroup = groupFromCatalog(appCallbackMethods)
 
 Server-to-client callback group: `dispatch/authorize`, `messages/authorize`, `task/create`.
 
-### [`assertWsEngineSize`](./server-engine-group.ts#L266)
+### [`assertWsEngineSize`](./server-engine-group.ts#L276)
 
 _Function_
 
@@ -642,7 +642,7 @@ export type ErrorForTag<
 
 The method's own tagged-error union for one tag (from its `errorSchema`).
 
-### [`findEngineGatingMismatch`](./server-engine-group.ts#L337)
+### [`findEngineGatingMismatch`](./server-engine-group.ts#L352)
 
 _Function_
 
@@ -1658,7 +1658,7 @@ makeServerProtocolLayer, the handler bodies via
 runtime via its per-socket server-supplied `Layer`
 (`auth-middleware-layers.ts`).
 
-### [`ServerEngineRpcGroup`](./server-engine-group.ts#L207)
+### [`ServerEngineRpcGroup`](./server-engine-group.ts#L217)
 
 _Variable_
 
@@ -1812,7 +1812,7 @@ The raw-write surface the mux drives. Mirrors the effect returned by
 `Socket.Socket["writer"]`: one call writes one chunk to the wire and
 fails with a Socket.SocketError if the socket is gone.
 
-### [`WS_ENGINE_MEMBER_COUNT`](./server-engine-group.ts#L256)
+### [`WS_ENGINE_MEMBER_COUNT`](./server-engine-group.ts#L266)
 
 _Variable_
 
@@ -1826,7 +1826,7 @@ The number of WS-dispatched engine members: the full catalog
 server's handler map (`serverNativeHandlers`) has exactly this many entries;
 the boot guard assertWsEngineSize pins the built group to it.
 
-### [`WsServerEngineRpcGroup`](./server-engine-group.ts#L247)
+### [`WsServerEngineRpcGroup`](./server-engine-group.ts#L257)
 
 _Variable_
 

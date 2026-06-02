@@ -232,7 +232,7 @@ export function makeServerChannelProtocol(options: {
 }): (
   write: (clientId: number, data: FromClientEncoded) => Effect.Effect<void>,
 ) => Effect.Effect<ChannelProtocol<ServerProtocolImpl>> {
-  const parser = RpcSerialization.json.unsafeMake();
+  const parser = RpcSerialization.jsonRpc().unsafeMake();
   const encode = makeEnvelopeEncoder(options.channel, parser);
   return (write) =>
     Effect.succeed({
@@ -276,7 +276,7 @@ export function makeClientChannelProtocol(options: {
 }): (
   write: (data: FromServerEncoded) => Effect.Effect<void>,
 ) => Effect.Effect<ChannelProtocol<ClientProtocolImpl>> {
-  const parser = RpcSerialization.json.unsafeMake();
+  const parser = RpcSerialization.jsonRpc().unsafeMake();
   const encode = makeEnvelopeEncoder(options.channel, parser);
   return (write) =>
     Effect.succeed({
