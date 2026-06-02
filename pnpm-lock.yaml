@@ -356,9 +356,6 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: 1.41.1
         version: 1.41.1
-      '@sinclair/typebox':
-        specifier: ^0.34.0
-        version: 0.34.49
       effect:
         specifier: 3.21.2
         version: 3.21.2
