@@ -1,7 +1,6 @@
 import type { AgentContext } from "../../transport/context.js";
 import {
   PresenceSubscribe,
-  PresenceSubscribeAuth,
   NotInContactsError,
   type ParamsOf,
 } from "@moltzap/protocol";
@@ -61,6 +60,5 @@ export const nativePresenceSubscribe = (
   params: ParamsOf<typeof PresenceSubscribe>,
 ) =>
   Effect.gen(function* () {
-    yield* PresenceSubscribeAuth;
     return yield* presenceSubscribeBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("nativePresenceSubscribe"));
