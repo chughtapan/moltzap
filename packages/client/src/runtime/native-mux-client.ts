@@ -69,10 +69,7 @@ export const buildNativeClient = <Rpcs extends Rpc.Any>(options: {
     );
     const flat = yield* RpcClient.make(options.group, {
       flatten: true,
-    }).pipe(
-      Effect.provide(protocolLayer),
-      Scope.extend(options.scope),
-    );
+    }).pipe(Effect.provide(protocolLayer), Scope.extend(options.scope));
     // eslint-disable-next-line agent-code-guard/as-unknown-as -- RpcClient.Flat erases to a tag-keyed call fn at the value boundary; the descriptor-driven call re-types its result per definition.
     const flatCall = flat as unknown as FlatCall; // #ignore-sloppy-code[as-unknown-as]: flat RpcClient value-boundary erasure to the tag-keyed call shape.
     const sink = yield* Deferred.await(sinkReady);

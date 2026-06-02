@@ -14,7 +14,10 @@ import {
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
 import { PrincipalKindRegistryError } from "../transport/server-method-bindings.js";
-import { assertWsEngineSize, findEngineGatingMismatch } from "@moltzap/protocol";
+import {
+  assertWsEngineSize,
+  findEngineGatingMismatch,
+} from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
@@ -151,7 +154,12 @@ function makeCoreRuntime(config: CoreConfig) {
     disconnectionHooks,
   });
   const dispatchRuntime = ManagedRuntime.make(
-    Layer.mergeAll(NodeHttpServer.layerContext, FullLive, HooksLive, TracingLive),
+    Layer.mergeAll(
+      NodeHttpServer.layerContext,
+      FullLive,
+      HooksLive,
+      TracingLive,
+    ),
   );
   const services = dispatchRuntime.runSync(resolveServices);
   return { dispatchRuntime, services, connectionHooks, disconnectionHooks };

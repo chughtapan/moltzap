@@ -78,9 +78,7 @@ export const makeServerProtocolLayer = (options: {
     RpcServer.Protocol,
     RpcServer.Protocol.make((write) =>
       builder(write).pipe(
-        Effect.tap((built) =>
-          Deferred.succeed(options.sinkReady, built.sink),
-        ),
+        Effect.tap((built) => Deferred.succeed(options.sinkReady, built.sink)),
         Effect.map((built) => built.impl),
       ),
     ),

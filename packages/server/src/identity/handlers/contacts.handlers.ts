@@ -45,7 +45,11 @@ const fanOut = <D extends NotificationDefinition<string, any>>(
     const networkSendService = yield* NetworkSendServiceTag;
     const agentIds = yield* authService.agentsForOwner(target);
     if (agentIds.length === 0) return;
-    yield* networkSendService.broadcastNotification(agentIds, definition, params);
+    yield* networkSendService.broadcastNotification(
+      agentIds,
+      definition,
+      params,
+    );
   }).pipe(Effect.withSpan("contacts.fanOut"));
 
 function contactsListBody(
