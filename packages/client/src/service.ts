@@ -12,8 +12,6 @@ import {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-  DispatchesGet,
-  type DispatchId,
   type Message,
   type MessageReceivedNotification,
   type TaskConversationCreatedNotification,
@@ -30,15 +28,18 @@ import {
   TaskRequest,
   TaskConversationList,
   NotConnectedError,
-  serverRpcMethods,
-  type RpcCallError,
-  RpcServerError,
+  AgentCallableGroup,
   RpcTimeoutError,
+  serverRpcMethods,
   type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
-  type RpcDefinition,
 } from "@moltzap/protocol";
+import type { RpcGroup, Rpc } from "@effect/rpc";
+import type {
+  PayloadForTag,
+  SuccessForTag,
+} from "./runtime/typed-dispatch.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId,
@@ -142,11 +143,54 @@ function appendClientEventTrace(
   );
 }
 
+/** The agent group's member `Rpc`s — the tag-keyed surface the service drives. */
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+
+/** The branded wire tags the service may originate. */
+type AgentCallableTag = AgentCallableRpcs["_tag"];
+
 /**
- * Errors that can surface from the Effect-based service API. Matches the
- * failure channel of `MoltZapAgentClient.sendRpc` / `connect`.
+ * Errors that can surface from the Effect-based service API: any tagged error
+ * an agent-callable method declares (recovered from the group's per-method
+ * error unions) plus the transport errors. Methods that fan multiple calls
+ * (e.g. `sendToAgent`) surface this broad union; a single-method call narrows
+ * to that method's errors at the `call` site.
  */
-export type ServiceRpcError = RpcCallError | RpcTimeoutError;
+export type ServiceRpcError =
+  | Rpc.Error<AgentCallableRpcs>
+  | RpcTimeoutError
+  | NotConnectedError;
+
+/**
+ * One entry in {@link AGENT_DISPATCH}: forward already-validated daemon-socket
+ * params to a service's typed `call` for a fixed tag. The closure captures the
+ * concrete tag so the indexed dispatch (`map.get(name)`) is the only runtime
+ * lookup — the per-tag `call` typing lives inside the closure.
+ */
+type AgentDispatchEntry = (
+  service: MoltZapService,
+  params: LocalDaemonParams,
+) => Effect.Effect<unknown, ServiceRpcError>;
+
+/**
+ * Name-indexed dispatch over the agent-callable methods, built once from the
+ * group's request set. Each entry forwards to `service.call(tag, …)` for its
+ * own tag. The construction launders the group's `string` request keys into the
+ * `AgentCallableTag` the typed `call` requires — the same tuple-keying proof
+ * `AgentCallableGroup` itself cannot express; the live request set is exactly
+ * the agent-callable tags. Consumption (`AGENT_DISPATCH.get(name)`) is cast-free.
+ */
+const AGENT_DISPATCH: ReadonlyMap<string, AgentDispatchEntry> = new Map(
+  [...AgentCallableGroup.requests.keys()].map((tag) => [
+    tag,
+    (service: MoltZapService, params: LocalDaemonParams) =>
+      // eslint-disable-next-line agent-code-guard/as-unknown-as -- runtime request-key → AgentCallableTag launder; the live request set IS the agent-callable tags, and params are descriptor-validated before reaching here.
+      service.call(
+        tag as AgentCallableTag,
+        params as PayloadForTag<AgentCallableRpcs, AgentCallableTag>,
+      ),
+  ]),
+);
 
 export interface ConversationMeta {
   id: string;
@@ -601,6 +645,35 @@ export class MoltZapService {
     return { socketScope, sockPath };
   }
 
+  /**
+   * Forward a daemon-socket RPC (resolved by name, params already validated by
+   * the descriptor) to the server through the typed `call`. The local socket
+   * only carries agent-callable methods; a name outside the agent group is
+   * rejected rather than forwarded. The validated params are the matching
+   * method's payload — `call` recovers the per-method result + error union.
+   *
+   * This is the one runtime-string dispatch site: the method name arrives over
+   * the daemon socket, resolved against the catalog and schema-validated, so
+   * the static per-tag correlation cannot be expressed. The agent-group
+   * membership guard makes the forward well-formed; the dispatch indexes the
+   * group's own request set.
+   */
+  private forwardSocketRpc(
+    definition: AnyServerRpcDefinition,
+    params: LocalDaemonParams,
+  ): Effect.Effect<unknown, ServiceRpcError | ServiceInputError> {
+    const tag = definition.name;
+    const entry = AGENT_DISPATCH.get(tag);
+    if (entry === undefined) {
+      return Effect.fail(
+        new ServiceInputError({
+          message: `method not callable by an agent: ${tag}`,
+        }),
+      );
+    }
+    return entry(this, params);
+  }
+
   private stopSocketServer(): Effect.Effect<void, never> {
     const { socketScope, sockPath } = this.resetSocketServerState();
     return stopLocalSocketServer({
@@ -650,10 +723,7 @@ export class MoltZapService {
                 }),
               );
             }
-            return this.sendRpc(
-              definition,
-              params as ParamsOf<typeof definition>,
-            );
+            return this.forwardSocketRpc(definition, params);
           }
         }
       },
@@ -668,7 +738,7 @@ export class MoltZapService {
   > {
     return Effect.gen(this, function* () {
       const request = yield* decodeHistoryRequest(params);
-      const result = yield* this.sendRpc(MessagesList, {
+      const result = yield* this.call(MessagesList.name, {
         taskId: request.taskId as TaskId,
         conversationId: request.conversationId as ConversationId,
         limit: request.limit,
@@ -725,7 +795,7 @@ export class MoltZapService {
         ...new Set(messages.map((message) => message.senderId)),
       ].filter((id) => !HashMap.has(knownNames, id));
       if (unknownAgentIds.length === 0) return;
-      yield* this.sendRpc(AgentsLookup, { agentIds: unknownAgentIds }).pipe(
+      yield* this.call(AgentsLookup.name, { agentIds: unknownAgentIds }).pipe(
         Effect.tap((result) =>
           Ref.update(this.agentNamesRef, (names) => {
             let next = names;
@@ -744,7 +814,7 @@ export class MoltZapService {
   private fetchHistoryConversationMeta(convId: string) {
     // Spec D3 D10: ConversationsGet retires; client filters
     // TaskConversationList output for the matching conversation id.
-    return this.sendRpc(TaskConversationList, {}).pipe(
+    return this.call(TaskConversationList.name, {}).pipe(
       Effect.map((result) => {
         const hit = result.items.find(
           (item) => item.conversation.id === (convId as ConversationId),
@@ -833,7 +903,7 @@ export class MoltZapService {
       );
       if (cached !== undefined) return cached;
 
-      return yield* this.sendRpc(AgentsLookup, {
+      return yield* this.call(AgentsLookup.name, {
         agentIds: [agentId],
       }).pipe(
         Effect.flatMap((result) => {
@@ -895,14 +965,11 @@ export class MoltZapService {
   ): Effect.Effect<void, ServiceRpcError> {
     if (this.isConversationArchived(conversationId)) {
       return Effect.fail(
-        new RpcServerError({
-          code: ConversationArchivedError.code,
-          message: "Conversation is archived",
-        }),
+        new ConversationArchivedError({ message: "Conversation is archived" }),
       );
     }
     return Effect.asVoid(
-      this.sendRpc(MessagesSend, {
+      this.call(MessagesSend.name, {
         taskId,
         conversationId,
         parts: [{ type: "text", text }],
@@ -922,18 +989,7 @@ export class MoltZapService {
   requestDispatch(
     params: ParamsOf<typeof DispatchRequest>,
   ): Effect.Effect<ResultOf<typeof DispatchRequest>, ServiceRpcError> {
-    return this.sendRpc(DispatchRequest, params);
-  }
-
-  /**
-   * Issue `dispatches/get`. Moderator-only — calls from non-moderator
-   * connections fail with a typed wire error. The server enforces the
-   * binding tuple recorded at lease-mint time.
-   */
-  dispatchesGet(params: {
-    readonly dispatchId: DispatchId;
-  }): Effect.Effect<ResultOf<typeof DispatchesGet>, ServiceRpcError> {
-    return this.sendRpc(DispatchesGet, params);
+    return this.call(DispatchRequest.name, params);
   }
 
   sendToAgent(
@@ -945,14 +1001,14 @@ export class MoltZapService {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
       let entry = Option.getOrUndefined(HashMap.get(cache, agentName));
       if (entry === undefined) {
-        const lookupResult = yield* this.sendRpc(AgentsLookupByName, {
+        const lookupResult = yield* this.call(AgentsLookupByName.name, {
           names: [agentName],
         });
         const agent = lookupResult.agents[0];
         if (!agent) {
           return yield* Effect.fail(new AgentNotFoundError({ agentName }));
         }
-        const createResult = yield* this.sendRpc(TaskRequest, {
+        const createResult = yield* this.call(TaskRequest.name, {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [agent.id as AgentId],
           initialConversation: { participants: [agent.id as AgentId] },
@@ -989,7 +1045,7 @@ export class MoltZapService {
           limit: SEND_TO_AGENT_LOOKUP_PAGE_SIZE,
         };
         if (cursor !== undefined) params.cursor = cursor;
-        const result = yield* this.sendRpc(TaskConversationList, params);
+        const result = yield* this.call(TaskConversationList.name, params);
         const hit = result.items.find(
           (item) =>
             item.taskId === taskId &&
@@ -1170,16 +1226,25 @@ export class MoltZapService {
 
   // --- RPC passthrough ---
 
-  sendRpc<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
+  /**
+   * Outbound RPC, typed per method — delegates to the agent client's typed
+   * `call`. `call("agents/lookup", payload)` recovers the result and that
+   * method's tagged-error union; an app-only method does not typecheck.
+   */
+  call<Tag extends AgentCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AgentCallableRpcs, Tag>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
+  ): Effect.Effect<
+    SuccessForTag<AgentCallableRpcs, Tag>,
+    ServiceRpcError
+  > {
     return Effect.suspend(() => {
-      if (!this.client) {
+      const client = this.client;
+      if (!client) {
         return Effect.fail(new NotConnectedError({ message: "Not connected" }));
       }
-      return this.client.sendRpc(definition, params, opts);
+      return client.call(tag, payload, opts);
     });
   }
 
