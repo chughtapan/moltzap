@@ -17,7 +17,7 @@ import {
   type PgliteHarness,
 } from "../../test-utils/index.js";
 import { TaskReadAccess } from "@moltzap/protocol/task";
-import { taskReadAccessMiddleware } from "../../app/capability-middlewares.js";
+import { obtainTaskReadAccess } from "../../app/capability-middlewares.js";
 import { TaskServiceTag } from "../../app/layers.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
@@ -112,9 +112,9 @@ function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
     eff.pipe(
       Effect.provideServiceEffect(
         TaskReadAccess,
-        // Exercise the live `TaskReadAccess` obtain (the cap-as-middleware
-        // successor to the deleted `provideTaskReadAccess`); same input shape.
-        taskReadAccessMiddleware.obtain({
+        // Exercise the live `TaskReadAccess` obtain (provided into context by its
+        // cap middleware in production); same input shape.
+        obtainTaskReadAccess({
           taskId,
           callerAgentId: caller,
         }),

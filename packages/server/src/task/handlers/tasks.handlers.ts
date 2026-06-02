@@ -17,7 +17,6 @@ import {
   TaskClose,
   TaskList,
   TaskRemoveParticipant,
-  ConversationInTask,
   InvalidParamsError,
   type Conversation,
   type ParamsOf,

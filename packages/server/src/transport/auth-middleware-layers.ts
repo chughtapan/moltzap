@@ -18,10 +18,11 @@
  *
  * Each cap mw impl peeks the live arm for the caller's agent id, derives its
  * input from the decoded `payload`, and runs the cap's `obtain` — providing the
- * cap's `Context.Tag` value. The engine composes the stack in order, so a
- * downstream cap (`ActiveTaskPermission`) reads an upstream cap's provided value
- * (`ConversationSendAccess`) from context. A cap-obtain failure encodes against
- * that cap mw's own `failure` schema.
+ * cap's `Context.Tag` value to the handler. `@effect/rpc` runs each middleware
+ * impl in isolation (no `R`), so a cap mw cannot read another mw's provided
+ * value; a precondition that refines a fetched row (the send guards on
+ * `ConversationSendAccess`) is a handler-body guard, not a middleware. A
+ * cap-obtain failure encodes against that cap mw's own `failure` schema.
  */
 import { Context, Effect, Layer } from "effect";
 import {
@@ -97,7 +98,7 @@ type ConnectionManagerService = Parameters<typeof peekLiveArm>[0];
  * policy, narrows the live arm, fails `Unauthorized`/`Forbidden`. Returns void —
  * a pure gate. Stacked on every authenticated method by `buildEngineMember`.
  */
-export const makePrincipalGateLayer = (connId: ConnectionId) =>
+const makePrincipalGateLayer = (connId: ConnectionId) =>
   Layer.effect(
     PrincipalGateMw,
     Effect.gen(function* () {
@@ -122,9 +123,6 @@ export const makePrincipalGateLayer = (connId: ConnectionId) =>
 
 // ── Cap middlewares ───────────────────────────────────────────────────────────
 
-/** The cap obtains' service env. */
-type MwEnv = TaskServiceTag | ConversationServiceTag | MessageServiceTag;
-
 /** The options an `@effect/rpc` `RpcMiddleware` impl receives per request. */
 interface MwOptions {
   readonly clientId: number;
@@ -146,9 +144,8 @@ type CreateConvParams = { readonly targetAgentIds: readonly AgentId[] };
 /**
  * The cap obtains' service env as a `Context` snapshot, read once at Layer build
  * (per socket). Each cap mw impl `Effect.provide`s it so the impl's Effect has
- * no service `R` — the `RpcMiddleware` contract is `Effect<Provides, E>`.
- * Upstream cap Tags an impl reads (e.g. `ConversationSendAccess`) stay in `R`
- * and the engine satisfies them from the composed middleware stack.
+ * no service `R` — the `RpcMiddleware` contract is `Effect&lt;Provides, E>` with
+ * no context channel.
  */
 const mwEnv = Effect.gen(function* () {
   const taskService = yield* TaskServiceTag;
@@ -164,7 +161,7 @@ const mwEnv = Effect.gen(function* () {
 });
 
 /** `ConversationInTask` cap mw impl Layer (no principal read; pure params). */
-export const makeConversationInTaskMwLayer = (_connId: ConnectionId) =>
+const makeConversationInTaskMwLayer = (_connId: ConnectionId) =>
   Layer.effect(
     ConversationInTaskMw,
     Effect.map(mwEnv, (env) => ({ payload }: MwOptions) => {
@@ -180,7 +177,7 @@ export const makeConversationInTaskMwLayer = (_connId: ConnectionId) =>
  * `ConversationSendAccess` cap mw impl Layer: peek the caller's agent id, prove
  * participation, and do the one joined read the downstream send caps read off.
  */
-export const makeConversationSendAccessMwLayer = (connId: ConnectionId) =>
+const makeConversationSendAccessMwLayer = (connId: ConnectionId) =>
   Layer.effect(
     ConversationSendAccessMw,
     Effect.map(
@@ -203,7 +200,7 @@ export const makeConversationSendAccessMwLayer = (connId: ConnectionId) =>
   );
 
 /** `TaskReadAccess` cap mw impl Layer: peek caller, prove read access. */
-export const makeTaskReadAccessMwLayer = (connId: ConnectionId) =>
+const makeTaskReadAccessMwLayer = (connId: ConnectionId) =>
   Layer.effect(
     TaskReadAccessMw,
     Effect.map(
@@ -225,7 +222,7 @@ export const makeTaskReadAccessMwLayer = (connId: ConnectionId) =>
   );
 
 /** `ContactPolicyAllowsReach` cap mw impl Layer: peek caller, check policy. */
-export const makeContactPolicyAllowsReachMwLayer = (connId: ConnectionId) =>
+const makeContactPolicyAllowsReachMwLayer = (connId: ConnectionId) =>
   Layer.effect(
     ContactPolicyAllowsReachMw,
     Effect.map(
@@ -259,5 +256,3 @@ export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
     makeTaskReadAccessMwLayer(connId),
     makeContactPolicyAllowsReachMwLayer(connId),
   );
-
-export type { MwEnv };
