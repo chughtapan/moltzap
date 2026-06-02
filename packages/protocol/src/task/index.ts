@@ -7,9 +7,12 @@ export * from "./capabilities/index.js";
 
 export {
   TaskClosedError,
+  TaskNotFoundError,
   TaskRejectedError,
   ConversationArchivedError,
   ConversationFullError,
+  ConversationNotFoundError,
+  NotAParticipantError,
   HookBlockedError,
   ParticipantNotAdmittedError,
   MessagesSend,

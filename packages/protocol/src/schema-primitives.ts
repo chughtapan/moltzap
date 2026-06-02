@@ -243,19 +243,6 @@ export function listCursorSchema(): typeof ListCursorSchema {
   return ListCursorSchema;
 }
 
-// Recursive JSON value — pins the wire-payload shape so decoded `data`
-// fields cannot smuggle Date / Map / Symbol. Consumed by
-// `wire-errors.ts → RpcErrorPayload.data`. (The matching runtime
-// `JsonValueSchema` was unused dead code — present but never consumed even at
-// base, where TypeBox masked it from knip — and was deleted in #723.)
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<JsonValue>
-  | { readonly [k: string]: JsonValue };
-
 // ── Closed (excess-rejecting) struct guards ──────────────────────────
 
 /**

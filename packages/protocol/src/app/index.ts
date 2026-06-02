@@ -13,6 +13,7 @@ export {
   MessagesAuthorize,
   TaskCreate,
   validateAppManifest,
+  DispatchNotFoundError,
 } from "./methods.js";
 
 export type { AppManifest } from "./methods.js";

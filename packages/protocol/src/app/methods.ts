@@ -146,7 +146,7 @@ export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 
 const decodeAppManifest = Schema.decodeUnknownEither(AppManifestSchema);
 
-export class AppManifestInvalid extends Schema.TaggedError<AppManifestInvalid>()(
+class AppManifestInvalid extends Schema.TaggedError<AppManifestInvalid>()(
   "AppManifestInvalid",
   { errors: Schema.Array(Schema.String) },
 ) {}

@@ -8,7 +8,6 @@
 export {
   dispatchCall,
   type TypedDispatchMap,
-  type RpcForTag,
   type PayloadForTag,
   type SuccessForTag,
   type ErrorForTag,
