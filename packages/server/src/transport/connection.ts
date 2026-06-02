@@ -56,7 +56,7 @@ export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
   // union: inside it the per-tag payload/result correlation is not statically
   // recoverable, so the descriptor (validated by `AnyAppCallbackRpcDefinition`)
   // pins the types and the dispatch launders the generic tag.
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- generic callback-def → reverse tag launder; each call site passes a concrete callback descriptor whose name IS a reverse-channel tag.
+   
   return originator.call(
     definition.name as never,
     params as never,

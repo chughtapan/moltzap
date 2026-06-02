@@ -128,7 +128,7 @@ export const buildReverseClient = (options: {
           ),
         ),
       );
-      // eslint-disable-next-line agent-code-guard/as-unknown-as -- merged-group per-tag success not reducible through dispatchCall at a generic Tag; the dispatch IS the single-tag call, named back to its own SuccessForTag.
+       
       // #ignore-sloppy-code-next-line[as-unknown-as]: merged ReverseRpcGroup per-tag success not reducible through dispatchCall at a generic Tag; the dispatch IS the single-tag call.
       return dispatched as unknown as Effect.Effect<
         SuccessForTag<ReverseRpcs, Tag>,

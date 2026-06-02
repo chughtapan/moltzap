@@ -635,7 +635,7 @@ function callAsSendRpc(service: {
   readonly call: MoltZapService["call"];
 }): SendRpcFn<ServiceRpcError> {
   return (definition, params) =>
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- generic descriptor → agent-callable tag launder; the drained list/lookup RPCs are all agent-callable.
+     
     service.call(
       definition.name as Parameters<MoltZapService["call"]>[0],
       params as Parameters<MoltZapService["call"]>[1],

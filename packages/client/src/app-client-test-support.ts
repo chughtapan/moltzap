@@ -445,7 +445,7 @@ const sendRpcEffect = <D extends RpcDefinition<string, any, any>>(
   client.call(
     definition.name as Parameters<MoltZapAppClient["call"]>[0],
     params as Parameters<MoltZapAppClient["call"]>[1],
-    // eslint-disable-next-line agent-code-guard/as-unknown-as -- transport-test fixture
+     
     // #ignore-sloppy-code-next-line[as-unknown-as]: transport-test fixture; any descriptor drives the socket lifecycle, result named off the passed descriptor.
   ) as unknown as Effect.Effect<ResultOf<D>, unknown>;
 

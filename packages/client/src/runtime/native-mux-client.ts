@@ -10,7 +10,7 @@
  * back into the client engine.
  *
  * The client is the NON-FLAT `RpcClient` — a per-method record keyed by wire
- * tag, each value `(payload) => Effect<result, error>`. The engine recovers the
+ * tag, each value `(payload) => Effect&lt;result, error>`. The engine recovers the
  * result and the method's `errorSchema` error union per tag, so a call's error
  * channel is the method's typed tagged errors plus the engine's
  * `RpcClientError`. The record is consumed as a {@link TypedDispatchMap}: a
@@ -25,6 +25,7 @@ import {
   type ChannelSink,
   type WireWrite,
 } from "@moltzap/protocol";
+
 /**
  * Build the native client engine over one socket channel. Returns the non-flat
  * per-method `RpcClient` (the record the high-level clients view as a
@@ -35,7 +36,7 @@ import {
  * The return is the raw `RpcClient.make` type, not a `TypedDispatchMap`: the
  * mapped shape only conforms once `Rpcs` is the caller's CONCRETE group (the
  * `From` key-remapping does not reduce against an abstract `Rpcs`). The caller
- * binds the result into a concrete `TypedDispatchMap<ConcreteRpcs, …>` field.
+ * binds the result into a concrete `TypedDispatchMap&lt;ConcreteRpcs, …>` field.
  */
 export const buildNativeClient = <Rpcs extends Rpc.Any>(options: {
   readonly group: RpcGroup.RpcGroup<Rpcs>;

@@ -152,7 +152,7 @@ export class MoltZapAgentClient {
 
   /**
    * Outbound RPC, typed per method. `call("task/request", payload)` returns
-   * `Effect<TaskRequestResult, <that method's errors> | NotConnectedError |
+   * `Effect&lt;TaskRequestResult, &lt;that method's errors> | NotConnectedError |
    * RpcTimeoutError>` — the result and the tagged-error union are recovered per
    * tag from `AgentCallableGroup`, so an app-only method or a wrong-shape
    * payload does not typecheck. The agent group's tags are the only callable
