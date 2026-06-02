@@ -27,7 +27,7 @@
  * | TaskConversationRemoveParticipant | TM-only + idempotency + dual-emit |
  */
 
-import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import * as fc from "fast-check";
 import { Brand, Effect, Exit } from "effect";
 import {
@@ -154,11 +154,6 @@ it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all partici
     // No initialConversation supplied -> null per spec body Goal 3.
     expect(result.conversation).toBeNull();
   }));
-
-// Server-side TaskRequest dedup retired in #677. Re-add coverage as a
-// client-side test once the SDK helper for "list + filter + create-or-use"
-// lands.
-vit.todo("client-side DEFAULT_APP dedup — list + match");
 
 it("TaskRequest (different appId) does NOT dedup across apps", () =>
   Effect.gen(function* () {

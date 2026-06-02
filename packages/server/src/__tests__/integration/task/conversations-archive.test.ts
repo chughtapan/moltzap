@@ -1,5 +1,5 @@
 import * as fc from "fast-check";
-import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   ForbiddenError,
@@ -57,15 +57,6 @@ it("property: conversation membership lookup follows listed IDs", () =>
       { numRuns: PROPERTY_RUNS },
     );
   }));
-
-// TaskConversationArchive / Unarchive are TM-only (#677); DEFAULT_APP_ID
-// tasks have no registered TM. Re-add positive coverage by rewriting
-// the fixture to AppsRegister a moderator app.
-vit.todo("owner archives and unarchives; needs AppsRegister fixture");
-vit.todo("archive of archived conversation is idempotent");
-vit.todo("unarchive of active conversation is idempotent");
-vit.todo("archive of task-attached conversation succeeds for the owner");
-vit.todo("concurrent archive by the same privileged caller is idempotent");
 
 it("non-owner/admin member gets 403 on archive", () =>
   Effect.gen(function* () {
