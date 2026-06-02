@@ -7,6 +7,7 @@ import {
   AlreadyConnected,
   InvalidParamsError,
 } from "../transport/wire-errors.js";
+import { NotInContactsError } from "../identity/contacts.js";
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -134,7 +135,8 @@ export const PresenceSubscribe = defineRpc({
   result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
   callablePrincipal: "agent",
   requiresActive: true,
-  errors: [],
+  // The handler rejects an agentId outside the caller's contact-visible set.
+  errors: [NotInContactsError],
 });
 
 const PresenceChangedNotificationSchema = Schema.Struct({
