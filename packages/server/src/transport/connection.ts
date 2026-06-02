@@ -13,7 +13,7 @@ import { AgentContext, AppContext } from "../transport/context.js";
 import { buildReverseClient, type ReverseClient } from "./reverse-rpc-client.js";
 
 /**
- * Allocate a per-connection reverse `RpcClient<ReverseRpcGroup>` over the
+ * Allocate a per-connection reverse `RpcClient&lt;ReverseRpcGroup>` over the
  * socket's `write`. The server fires moderator callbacks (awaited) and
  * notifications (fork-and-forget) at the connected client through it; the
  * client serves them via its reverse `RpcServer`. The returned client's s2c
@@ -31,7 +31,7 @@ export function acquireConnectionRpcClient(
       write: (chunk) => write(chunk),
       scope,
     });
-  });
+  }).pipe(Effect.withSpan("acquireConnectionRpcClient"));
 }
 
 /**
@@ -60,7 +60,7 @@ export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
 // ===========================================================================
 
 /**
- * The per-connection reverse `RpcClient<ReverseRpcGroup>` the server fires
+ * The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
  * callbacks/notifications through. Publicly constructible (via
  * `acquireConnectionRpcClient` above); passed to
  * `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.

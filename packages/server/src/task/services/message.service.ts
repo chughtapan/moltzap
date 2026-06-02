@@ -34,7 +34,6 @@ export type MessageServiceError =
 import { nextSnowflakeId } from "../../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
-import { opaquePayload } from "../../network/network-send.js";
 import {
   HttpClient,
   HttpClientRequest,

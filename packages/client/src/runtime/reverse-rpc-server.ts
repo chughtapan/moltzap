@@ -83,9 +83,10 @@ const buildReverseHandlers = (options: {
       params: never,
     ) => Effect.Effect<unknown, unknown>;
   }
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- the handler map is built by tag from notificationDefinitions + callbackHandlers; the per-tag payload→handler correlation is sound by construction (each notification handler is bound to its own definition), relabelled to the branded HandlersFrom shape so toLayer binds.
   return handlers as unknown as RpcGroup.HandlersFrom<
     RpcGroup.Rpcs<typeof ReverseRpcGroup>
-  >;
+  >; // #ignore-sloppy-code[as-unknown-as]: tag-keyed reverse handler map relabel to the branded HandlersFrom shape.
 };
 
 /**
@@ -119,4 +120,4 @@ export const buildReverseServer = (options: {
     yield* Layer.build(engineLayer).pipe(Scope.extend(options.scope));
     const sink = yield* Deferred.await(sinkReady);
     return { sink };
-  });
+  }).pipe(Effect.withSpan("buildReverseServer"));

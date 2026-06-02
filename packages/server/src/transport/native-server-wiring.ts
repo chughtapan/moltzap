@@ -1,7 +1,7 @@
 /**
  * @file Per-socket native `@effect/rpc` server engine composition.
  *
- * Stands one `RpcServer<WsServerEngineRpcGroup>` per WebSocket inside the
+ * Stands one `RpcServer&lt;WsServerEngineRpcGroup>` per WebSocket inside the
  * connection's `Scope`. The engine needs three per-socket layers, each
  * closing over THIS socket's `connId`:
  *
@@ -123,18 +123,9 @@ const makeAuthMwLayer = (connId: ConnectionId) =>
   );
 
 /**
- * Build the full per-socket engine Layer: `RpcServer.layer` (the dispatch
- * loop) provided with the handler-map binding
- * (`WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`), the 26 `*AuthMw`
- * impl Layers, the per-socket `ConnectionTag`, and the `c2s` Protocol. The
- * returned Layer's residual requirement is the application Env the handler
- * bodies + AuthMw caps demand (every service tag) plus `ConnectionManagerTag`
- * — provided by the surrounding application runtime.
- */
-/**
  * The handler map under the engine group's `HandlersFrom` shape. The runtime
  * map (`native-handlers.ts → serverNativeHandlers`) keys by PLAIN wire-string
- * literals; the group members key by the BRANDED `JsonRpcMethod<...>` tags. The
+ * literals; the group members key by the BRANDED `JsonRpcMethod&lt;...>` tags. The
  * two are structurally identical (the brand is a phantom), but `toLayer`'s
  * `ExcludeProvides` keys its per-handler proof exclusion on `K extends
  * Rpcs["_tag"]` — a plain-string key never matches the branded member tag, so
@@ -143,10 +134,20 @@ const makeAuthMwLayer = (connId: ConnectionId) =>
  * branded `HandlersFrom` shape lets `ExcludeProvides` fire: each handler's own
  * proof drops out (the per-method `*AuthMw` provides it at request time).
  */
+// eslint-disable-next-line agent-code-guard/as-unknown-as -- brand relabel: the runtime map keys by plain wire-string literals, the group members by branded JsonRpcMethod tags; structurally identical (the brand is a phantom), relabelled so toLayer's ExcludeProvides keys its per-handler proof exclusion correctly.
 const brandedHandlers = serverNativeHandlers as unknown as RpcGroup.HandlersFrom<
   RpcGroup.Rpcs<typeof WsServerEngineRpcGroup>
->;
+>; // #ignore-sloppy-code[as-unknown-as]: plain-string→branded-tag handler-key relabel so toLayer excludes each method's *Auth proof.
 
+/**
+ * Build the full per-socket engine Layer: `RpcServer.layer` (the dispatch
+ * loop) provided with the handler-map binding
+ * (`WsServerEngineRpcGroup.toLayer(serverNativeHandlers)`), the 26 `*AuthMw`
+ * impl Layers, the per-socket `ConnectionTag`, and the `c2s` Protocol. The
+ * returned Layer's residual requirement is the application Env the handler
+ * bodies + AuthMw caps demand (every service tag) plus `ConnectionManagerTag`
+ * — provided by the surrounding application runtime.
+ */
 export const makeSocketEngineLayer = (options: {
   readonly connId: ConnectionId;
   readonly write: WireWrite;

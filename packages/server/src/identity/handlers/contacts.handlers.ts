@@ -18,7 +18,6 @@ import {
 } from "@moltzap/protocol";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AuthService } from "../../identity/services/auth.service.js";
-import { opaquePayload } from "../../network/network-send.js";
 import type { AgentContext } from "../../transport/context.js";
 import {
   AuthServiceTag,
