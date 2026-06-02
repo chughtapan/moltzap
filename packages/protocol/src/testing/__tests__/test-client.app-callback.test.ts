@@ -52,8 +52,8 @@ const CONVERSATION_ID = conversationId("550e8400-e29b-41d4-a716-446655440001");
 const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440002");
 const MESSAGE_ID = messageId("550e8400-e29b-41d4-a716-446655440003");
 const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" } as const;
-const HANDLER_REJECTION_CODE = -32099;
-const JSON_RPC_METHOD_NOT_FOUND_CODE = -32601;
+const HANDLER_REJECTION_TAG = "Forbidden";
+const METHOD_NOT_FOUND_TAG = "NotFound";
 const SHORT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 50;
 const GENEROUS_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 60_000;
 const DOMAIN_REJECTED_MESSAGE = "domain-rejected";
@@ -238,7 +238,7 @@ function expectResponseResult(reply: ResponseFrame): unknown {
 }
 
 function expectResponseError(reply: ResponseFrame): {
-  readonly code: number;
+  readonly _tag: string;
   readonly message: string;
   readonly data?: unknown;
 } {
@@ -281,7 +281,7 @@ const encodesTypedHandlerError = withClient((client, server) =>
         new RpcResponseError({
           method: DispatchAuthorize.name,
           requestId: "srv-2",
-          code: HANDLER_REJECTION_CODE,
+          tag: HANDLER_REJECTION_TAG,
           message: DOMAIN_REJECTED_MESSAGE,
           data: { reason: "x" },
         }),
@@ -292,7 +292,7 @@ const encodesTypedHandlerError = withClient((client, server) =>
     );
     const reply = yield* waitForResponse(server, "srv-2");
     const error = expectResponseError(reply);
-    expect(error.code).toBe(HANDLER_REJECTION_CODE);
+    expect(error._tag).toBe(HANDLER_REJECTION_TAG);
     expect(error.message).toBe(DOMAIN_REJECTED_MESSAGE);
     expect(error.data).toEqual({ reason: "x" });
   }),
@@ -305,7 +305,7 @@ const rejectsUnregisteredTaskCallback = withClient((_client, server) =>
     );
     const reply = yield* waitForResponse(server, "srv-3");
     const error = expectResponseError(reply);
-    expect(error.code).toBe(JSON_RPC_METHOD_NOT_FOUND_CODE);
+    expect(error._tag).toBe(METHOD_NOT_FOUND_TAG);
     expect(error.message).toContain(DispatchAuthorize.name);
   }),
 );
