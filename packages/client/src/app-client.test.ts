@@ -232,7 +232,7 @@ scopedEffectTest(
         const beforeCount = serverConn.received.length;
 
         const rpcFiber = yield* Effect.fork(
-          client.sendRpc(MessagesSend, {
+          client.call(MessagesSend.name, {
             taskId: TEST_TASK_ID,
             conversationId: TEST_CONVERSATION_ID,
             parts: [{ type: "text", text: "payload" }],
@@ -535,7 +535,7 @@ effectTest("uses definition.name as the wire-level method string", () =>
       const client = makeClient(server.url);
       yield* connectClient(client);
 
-      const result = yield* client.sendRpc(AgentsLookupByName, {
+      const result = yield* client.call(AgentsLookupByName.name, {
         names: ["alice"],
       });
       expect(result.agents).toEqual([]);

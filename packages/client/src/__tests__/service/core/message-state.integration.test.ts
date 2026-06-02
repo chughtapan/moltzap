@@ -38,7 +38,7 @@ it("getHistory() stores received messages", () =>
     yield* regSender.client.connect();
     const service = yield* H.connectService(regReceiver.apiKey);
 
-    const conv = yield* regSender.client.sendRpc(TaskRequest, {
+    const conv = yield* regSender.client.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regReceiver.agentId],
       initialConversation: { participants: [regReceiver.agentId] },
