@@ -117,8 +117,8 @@ it("task/request returns an active task bound to the supplied appId", () =>
 it("TM authority: only the app principal may mutate task membership", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient, bobAgentId } = yield* setupAliceAndBob();
-    // D #705 CP9 — TM-admin RPCs (`task/close`, `task/addParticipant`,
-    // `task/removeParticipant`) are `callablePrincipal: "app"`. The
+    // TM-admin RPCs (`task/close`, `task/addParticipant`,
+    // `task/removeParticipant`) head their `requires` with `AppPrincipal`. The
     // moderator is a SEPARATE app principal: it registers via HTTP, then
     // `appKey`-Connects to bind its `AppConnection` as the app's endpoint.
     // Alice (agent) drives the agent-only `task/request`; the app client

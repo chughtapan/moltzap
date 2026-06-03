@@ -56,8 +56,8 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
       const fixture = yield* acquireTaskCloseFixture(ctx);
-      // tasks/close is `callablePrincipal: "app"` — drive it through the
-      // moderator app principal, not the agent owner.
+      // tasks/close heads its `requires` with `AppPrincipal` — drive it through
+      // the moderator app principal, not the agent owner.
       const close = yield* fixture.moderatorClient
         .sendRpc(TaskClose, { taskId: fixture.taskId })
         .pipe(Effect.either);
@@ -132,8 +132,8 @@ function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
   });
 }
 
-// `task/request` is agent-called by `owner`; `task/addParticipant` is
-// `callablePrincipal: "app"` and routes through the moderator app principal.
+// `task/request` is agent-called by `owner`; `task/addParticipant` heads its
+// `requires` with `AppPrincipal` and routes through the moderator app principal.
 function createTaskAndAddParticipant(
   owner: ConversationActor,
   participant: ConversationActor,
@@ -162,8 +162,8 @@ function createTaskAndAddParticipant(
   });
 }
 
-// `task/conversation/create` is `callablePrincipal: "app"` — the moderator
-// app creates it. `owner` is included as a participant so its subscriber
+// `task/conversation/create` heads its `requires` with `AppPrincipal` — the
+// moderator app creates it. `owner` is included as a participant so its subscriber
 // observes the `task/conversation/created` event (`awaitConversationReady`
 // polls a map fed by the owner's agent-broadcast stream; an `AppConnection`
 // cannot receive that broadcast).

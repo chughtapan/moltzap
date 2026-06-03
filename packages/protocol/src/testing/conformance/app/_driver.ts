@@ -1148,8 +1148,8 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
     addRecipient: (opts) =>
       addRecipient({
         ctx: parts.ctx,
-        // task/addParticipant + task/conversation/participants/add are
-        // `callablePrincipal: "app"` — route through the app principal.
+        // task/addParticipant + task/conversation/participants/add head their
+        // `requires` with `AppPrincipal` — route through the app principal.
         moderatorClient:
           parts.clients.appClient ?? parts.clients.moderatorClient,
         taskId: parts.fixtures.taskId,

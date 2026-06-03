@@ -43,13 +43,13 @@ type AsMethod<Names extends string> = Names extends Names
 type AgentCallableTags = RpcGroup.Rpcs<typeof AgentCallableGroup>["_tag"];
 type AppCallableTags = RpcGroup.Rpcs<typeof AppCallableGroup>["_tag"];
 
-// Canary 1: `task/request` is `callablePrincipal: "agent"` → MUST NOT be
-// app-callable.
+// Canary 1: `task/request` heads its `requires` with `AgentPrincipal` → MUST NOT
+// be app-callable.
 type _AgentOnlyAbsentFromApp = Expect<
   [AsMethod<"task/request">] extends [AppCallableTags] ? false : true
 >;
 
-// Canary 2: `task/close` is `callablePrincipal: "app"` → MUST NOT be
+// Canary 2: `task/close` heads its `requires` with `AppPrincipal` → MUST NOT be
 // agent-callable.
 type _AppOnlyAbsentFromAgent = Expect<
   [AsMethod<"task/close">] extends [AgentCallableTags] ? false : true
