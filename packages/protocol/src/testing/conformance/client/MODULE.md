@@ -394,7 +394,7 @@ export interface RealClientHandle {
   readonly notifications: RealClientNotificationSubscriber;
 
   /**
-   * Real client's documented RPC caller. The model-equivalence,
+   * Real client's documented RPC caller. The response-correlation,
    * request-id-uniqueness, and adversity-timeout predicates invoke this
    * and assert on the returned promise's resolution / rejection.
    */
@@ -625,7 +625,7 @@ deadline.
 
 Predicate: liveness — next tagged notification surfaces within deadline.
 
-### [`registerModelEquivalenceClient`](./rpc-semantics.ts#L41)
+### [`registerModelEquivalenceClient`](./rpc-semantics.ts#L44)
 
 _Function_
 
@@ -635,10 +635,10 @@ export function registerModelEquivalenceClient(
 ): void
 ```
 
-Client half of `model-equivalence` — property issues
-`realClient.call("agents/list", {})`; TestServer captures the inbound
-request id and emits a well-shaped response; the client's pending call
-resolves with that result.
+Response-correlation property — issues `realClient.call("agents/list",
+{})`; the TestServer captures the inbound request id and emits a
+well-shaped response carrying that id; the client's pending call must
+resolve with that result.
 
 Discriminates: a client that routes the response to the wrong
 pending call (id-to-deferred mis-match) fails — the promise will
@@ -685,7 +685,7 @@ includes the emitted token byte-for-byte. A client that routes
 payloads through a lossy re-serialization (e.g., key-reorder JSON
 stringify) fails.
 
-### [`registerRequestIdUniquenessClient`](./rpc-semantics.ts#L88)
+### [`registerRequestIdUniquenessClient`](./rpc-semantics.ts#L91)
 
 _Function_
 

@@ -101,7 +101,7 @@ export interface RealClientHandle {
   readonly notifications: RealClientNotificationSubscriber;
 
   /**
-   * Real client's documented RPC caller. The model-equivalence,
+   * Real client's documented RPC caller. The response-correlation,
    * request-id-uniqueness, and adversity-timeout predicates invoke this
    * and assert on the returned promise's resolution / rejection.
    */
