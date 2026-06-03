@@ -161,6 +161,11 @@ const architectureSettings = {
           subpath: "./test-support",
           reason: "Channel test support exposed for integration tests",
         },
+        {
+          subpath: "./testing",
+          reason:
+            "Conformance + driver surface for cross-package integration testing; consumed by moltzap-arena. The 5 protocol domain subpaths (./transport ./identity ./network ./task ./app) mirror the enforced layer DAG; ./testing is the one sanctioned test-only public subpath.",
+        },
       ],
     },
   },
