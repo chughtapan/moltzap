@@ -23,6 +23,7 @@ import {
 
 import { AgentsLookupByName } from "@moltzap/protocol";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { notificationFrame } from "@moltzap/protocol/testing";
 
 const effectTest = effectIt.effect;
 
@@ -1048,7 +1049,7 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
     }),
   });
   service.emitEvent(
-    TaskConversationCreatedNotificationDefinition.encode({
+    notificationFrame(TaskConversationCreatedNotificationDefinition, {
       taskId: TASK_ARCHIVED_ID,
       conversationId: CONVERSATION_ARCHIVED_ID,
       name: ARCHIVED_DISPLAY_NAME,
@@ -1091,7 +1092,8 @@ function archiveLifecyclePurgesAndRejectsSends() {
     service.on("conversationArchived", (data) => archivedEvents.push(data));
     service.on("conversationUnarchived", (data) => unarchivedEvents.push(data));
 
-    const archivedEvent = TaskConversationArchivedNotificationDefinition.encode(
+    const archivedEvent = notificationFrame(
+      TaskConversationArchivedNotificationDefinition,
       {
         taskId: TASK_ARCHIVED_ID,
         conversationId: CONVERSATION_ARCHIVED_ID,
@@ -1117,11 +1119,13 @@ function archiveLifecyclePurgesAndRejectsSends() {
       service.calls.filter((call) => call.method === MessagesSend.name),
     ).toEqual([]);
 
-    const unarchivedEvent =
-      TaskConversationUnarchivedNotificationDefinition.encode({
+    const unarchivedEvent = notificationFrame(
+      TaskConversationUnarchivedNotificationDefinition,
+      {
         taskId: TASK_ARCHIVED_ID,
         conversationId: CONVERSATION_ARCHIVED_ID,
-      });
+      },
+    );
     service.emitEvent(unarchivedEvent);
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(
@@ -1157,7 +1161,7 @@ describe("MoltZapService.fanout — message handlers", () => {
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-16T00:00:00.000Z",
     });
-    const event = MessageReceivedNotificationDefinition.encode({
+    const event = notificationFrame(MessageReceivedNotificationDefinition, {
       taskId: TASK_ALICE_ID,
       message: msg,
     });

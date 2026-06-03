@@ -36,6 +36,7 @@ import type {
   RealClientSubscription,
   ObservedNotification,
 } from "@moltzap/protocol/testing";
+import { responseFrame } from "@moltzap/protocol/testing";
 import { MoltZapAgentClient, type CloseInfo } from "@moltzap/client";
 import { NotConnectedError, RpcTimeoutError } from "@moltzap/protocol";
 
@@ -353,7 +354,9 @@ function callRealClientRpc(
   params: unknown,
 ): Effect.Effect<ResponseFrame, RealClientRpcError> {
   return Effect.gen(function* () {
-    const definition = yield* resolveRpcDefinition(method, params);
+    // Validates the method + params (fails on unknown method / malformed
+    // params); the resolved definition itself is no longer needed for encoding.
+    yield* resolveRpcDefinition(method, params);
     const dispatch = AGENT_CALL_DISPATCH.get(method);
     if (dispatch === undefined) {
       return yield* Effect.fail(
@@ -368,7 +371,7 @@ function callRealClientRpc(
     const result = yield* dispatch(ws, params).pipe(
       Effect.mapError(rpcErrorForMethod(method)),
     );
-    return definition.encodeResponse(null, result) as ResponseFrame;
+    return responseFrame(null, { result }) as ResponseFrame;
   });
 }
 

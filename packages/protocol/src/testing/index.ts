@@ -24,8 +24,16 @@ export {
   taskId,
 } from "./conformance/_shared/test-fixtures.js";
 
-// Wire-frame validators + protocol literal exposed only for test use.
+// Wire-frame builders + validators + the protocol literal — exposed ONLY for
+// test use. Production builds frames via the live transport, never these raw
+// constructors; the conformance harness + test scaffolds use them to assemble
+// frames (valid and adversarial) for the codec/decoder boundary properties.
+// This `/testing` barrel is the single sanctioned re-export of these wire
+// internals — test code imports them from here, never by reaching `wire.js`.
 export {
+  requestFrame,
+  responseFrame,
+  notificationFrame,
   validateRequestFrame,
   validateResponseFrame,
   JSON_RPC_VERSION,

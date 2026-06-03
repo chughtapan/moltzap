@@ -2,17 +2,7 @@
 import { Data, Effect, Schema } from "effect";
 import { closedStructGuard } from "../schema-primitives.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
-import {
-  jsonRpcMethod,
-  notificationFrame,
-  requestFrame,
-  responseFrame,
-  type JsonRpcId,
-  type JsonRpcMethod,
-  type NotificationFrame,
-  type RequestFrame,
-  type ResponseFrame,
-} from "./wire.js";
+import { jsonRpcMethod, type JsonRpcMethod } from "./wire.js";
 
 /**
  * A wire-discriminable tagged-error CLASS: a `Schema.TaggedError`-derived class
@@ -116,14 +106,6 @@ export interface RpcDefinition<
 
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
-  // `unknown` for variance compatibility with the
-  // `<string, AnyNoContext, AnyNoContext>` supertype; concrete call sites
-  // pass typed values.
-  readonly encodeRequest: (id: string, params: unknown) => RequestFrame;
-  readonly encodeResponse: (
-    id: JsonRpcId | null,
-    result: unknown,
-  ) => ResponseFrame;
 }
 
 /** Type-only accessor for a definition's params payload. */
@@ -337,16 +319,6 @@ export function defineRpc<
     handlerErrorSchema: makeErrorSchema(def.errors),
     validateParams: closedStructGuard(def.params),
     validateResult: closedStructGuard(def.result),
-    // `params` is `unknown` ONLY because the descriptor's `encodeRequest`
-    // signature is the variance-erased supertype shape; the caller passes an
-    // already-typed `Schema.Schema.Type<P>`. This is an ENCODE-side
-    // re-widening of a trusted local value, not a decode of untrusted wire
-    // input, so it does not go through `Schema.decode*` (which is what the
-    // no-schema-type-cast rule guards against at trust boundaries).
-    encodeRequest: (id, params) =>
-      // eslint-disable-next-line agent-code-guard/no-schema-type-cast -- encode-side re-widen of trusted typed params, not a wire decode
-      requestFrame(id, d, params as Schema.Schema.Type<P>),
-    encodeResponse: (id, result) => responseFrame(id, { result }),
   };
   return d;
 }
@@ -380,7 +352,6 @@ export interface NotificationDefinition<
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
-  readonly encode: (params: unknown) => NotificationFrame;
 }
 
 /** Type-only accessor for a notification's params payload. */
@@ -393,23 +364,18 @@ export type NotificationParamsOf<
 
 /**
  * Sibling of {@link defineRpc} for server-to-client notifications.
- * Same pipeline minus the result schema and response encoder —
- * notifications are fire-and-forget, no `id` field, no `result`.
+ * Same pipeline minus the result schema — notifications are
+ * fire-and-forget, no `id` field, no `result`.
  */
 export function defineNotification<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
 >(def: { name: Name; params: P }): NotificationDefinition<Name, P> {
-  const d: NotificationDefinition<Name, P> = {
+  return {
     name: jsonRpcMethod(def.name),
     paramsSchema: def.params,
     validateParams: closedStructGuard(def.params),
-    // Encode-side re-widen of trusted typed params (see `defineRpc`'s
-    // `encodeRequest` note); not a wire decode.
-    // eslint-disable-next-line agent-code-guard/no-schema-type-cast -- encode-side re-widen of trusted typed params, not a wire decode
-    encode: (params) => notificationFrame(d, params as Schema.Schema.Type<P>),
   };
-  return d;
 }
 
 // ── Per-handler result decoder (Effect-shape; consumed by the conformance

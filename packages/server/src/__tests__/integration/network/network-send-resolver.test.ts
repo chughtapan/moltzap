@@ -36,7 +36,10 @@ import {
 } from "../helpers.js";
 import { getBaseUrl } from "../../../test-utils/index.js";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
+import {
+  agentId as protocolAgentId,
+  notificationFrame,
+} from "@moltzap/protocol/testing";
 import {
   DeliveryAck,
   opaquePayload,
@@ -79,7 +82,7 @@ it("network.send delivers a real notification to a durable address", () =>
     // Asserts end-to-end wire delivery, not just the server-side write
     // ack — the `subscribe(def)` Stream only emits a frame after it
     // decodes through the validation pipeline at the client edge.
-    const frame = PresenceChangedNotificationDefinition.encode({
+    const frame = notificationFrame(PresenceChangedNotificationDefinition, {
       agentId: protocolAgentId(alice.agentId),
       status: "online",
     });
@@ -144,7 +147,7 @@ it("two connections of the same agent share durable address routing", () =>
     // connection is live; both connections register under the same
     // agent in the resolver's forward map.
     const address = protocolAgentId(aId);
-    const frame = PresenceChangedNotificationDefinition.encode({
+    const frame = notificationFrame(PresenceChangedNotificationDefinition, {
       agentId: protocolAgentId(aId),
       status: "online",
     });
