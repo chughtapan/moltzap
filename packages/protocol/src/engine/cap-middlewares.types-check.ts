@@ -28,7 +28,7 @@ import {
 } from "../task/capabilities/index.js";
 import { ConversationCreateAuthorization } from "../task/capabilities/conversation-create-authorization.js";
 import type { CapabilityRequirement, Requirement } from "./requirements.js";
-import type { ParamsOf } from "./method.js";
+import type { ParamsOf } from "../transport/method.js";
 import type { MessagesSend, MessagesList } from "../task/messages.js";
 import type {
   TaskRequest,

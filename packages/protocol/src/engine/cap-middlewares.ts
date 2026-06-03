@@ -22,9 +22,9 @@
  */
 import { Schema } from "effect";
 import { RpcMiddleware } from "@effect/rpc";
-import { principalGateErrorClasses } from "./wire-errors.js";
-import type { RpcErrorClass } from "./method.js";
-import { AgentPrincipal, AppPrincipal } from "./requirements.js";
+import { principalGateErrorClasses } from "../transport/wire-errors.js";
+import type { RpcErrorClass } from "../transport/method.js";
+import { AgentPrincipal, AppPrincipal } from "../transport/principal.js";
 import {
   ConversationInTask,
   ConversationSendAccess,

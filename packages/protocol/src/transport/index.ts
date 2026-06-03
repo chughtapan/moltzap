@@ -84,26 +84,14 @@ export type { RpcErrorPayload } from "./wire-errors.js";
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 export { isDecodedNotification } from "./rpc-groups.js";
 
-// Typed dispatcher. Per-kind static handler tables and three connection
-// factories (`make{Server,AgentClient,AppClient}Connection`). Type-level
-// invariants are exercised by `typed-dispatcher.types-check.ts`.
-export type {
-  HandlerSlot,
-  AppCallbackHandlers,
-  AppCallbackInboundRpcDefinition,
-} from "./handlers.js";
-// Reverse server→client RPC groups (the s2c channel). `ReverseRpcGroup` carries
-// the moderator callbacks (`dispatch/authorize`, `messages/authorize`,
-// `task/create`) ∪ every notification; `NotificationRpcGroup` carries every
-// `defineNotification` as a fire-and-forget `void`-result RPC. The server holds
-// the `RpcClient`; the client stands the `RpcServer` (the notification handlers
-// route into the `SubscriberRegistry`).
-export { NotificationRpcGroup, ReverseRpcGroup } from "./rpc-method-groups.js";
-
-// Principal-as-service: the protocol-owned `CurrentPrincipal` Tag a cap
-// middleware reads (`yield* CurrentPrincipal`) when deriving its payload.
-export type { Principal } from "./current-principal.js";
-export { CurrentPrincipal, callerAgentId } from "./current-principal.js";
+// The principal + refinement requirement tags — the low head of a method's
+// `requires` list, depended on DOWNWARD by every domain descriptor.
+// `AgentPrincipal`/`AppPrincipal` narrow the connection to that arm;
+// `AgentClaimed` (agent-only) refines to a claimed agent. The capability half of
+// the requirement model + `CurrentPrincipal` live in the engine layer (above
+// the domains), surfaced through the package's main barrel.
+export { AgentPrincipal, AppPrincipal, AgentClaimed } from "./principal.js";
+export type { PrincipalRequirement } from "./principal.js";
 
 // Channel-multiplexed `@effect/rpc` transport. One physical WebSocket
 // carries every logical endpoint, split by the `{ch, f}` envelope; each
@@ -124,73 +112,3 @@ export type {
   ChannelProtocol,
   ChannelSink,
 } from "./mux.js";
-
-// `@effect/rpc` server engine over the mux. `ServerEngineLayer` runs
-// `RpcServer` for the WS-dispatched `WsServerEngineRpcGroup`;
-// `makeServerProtocolLayer` builds the `RpcServer.Protocol` over a c→s
-// mux channel. The live connection composes these with
-// `WsServerEngineRpcGroup.toLayer(serverHandlers)`.
-export { makeServerProtocolLayer, ServerEngineLayer } from "./server-engine.js";
-
-// The middleware-attached server engine group + the WS-dispatched subset the
-// live engine binds + the unauthenticated-method allowlist that partitions it.
-// `ServerEngineRpcGroup` gates every member except `UNAUTHENTICATED_METHODS`
-// with that method's own `*AuthMw`; `WsServerEngineRpcGroup` is the same group
-// (every catalog method is WS-dispatched), so its members map one-to-one onto
-// the server's handler map. The server derives its `principalKinds` policy from
-// the same single-source binding registry.
-export {
-  ServerEngineRpcGroup,
-  WsServerEngineRpcGroup,
-  UNAUTHENTICATED_METHODS,
-  isUnauthenticatedMethod,
-} from "./server-engine-group.js";
-export type { UnauthenticatedMethod } from "./server-engine-group.js";
-
-// The principal + refinement requirements — the head of a method's `requires`
-// list. `AgentPrincipal`/`AppPrincipal` narrow the connection to that arm;
-// `AgentClaimed` (agent-only) refines to a claimed agent.
-export {
-  AgentPrincipal,
-  AppPrincipal,
-  AgentClaimed,
-  principalRequirementOf,
-  requiresClaimed,
-  capRequirementsOf,
-} from "./requirements.js";
-export type {
-  Requirement,
-  CapabilityRequirement,
-  PrincipalRequirement,
-  PrincipalRequirementOf,
-} from "./requirements.js";
-
-// §F — the two first-party client-callable group projections of the
-// `serverRpcMethods` catalog, partitioned by each descriptor's principal
-// requirement (its `requires` head). An agent client types against
-// `AgentCallableGroup`, an app client against `AppCallableGroup`, so a
-// cross-principal call is a compile error (the runtime gate stays the
-// untrusted-peer backstop).
-export {
-  AgentCallableGroup,
-  AppCallableGroup,
-} from "./client-callable-groups.js";
-
-// Per-requirement `@effect/rpc` middlewares. Each requirement is its own
-// `RpcMiddleware.Tag`; the engine stacks one per `requires` entry
-// (`server-engine-group.ts → buildEngineMember`). Each cap mw `provides` its
-// capability `Context.Tag` and carries its own `failure` (the cap's error
-// union), which the engine unions into the method's wire error. The server
-// supplies each mw's impl as a per-socket Layer
-// (`server-core auth-middleware-layers.ts`).
-export {
-  PrincipalGateMw,
-  ConversationInTaskMw,
-  ConversationSendAccessMw,
-  TaskReadAccessMw,
-  ContactPolicyAllowsReachMw,
-  requirementMiddleware,
-  type MiddlewareRequirementKey,
-  type MwForRequirement,
-  type MwStackFor,
-} from "./cap-middlewares.js";

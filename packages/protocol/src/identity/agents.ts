@@ -8,7 +8,7 @@ import {
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc } from "../transport/method.js";
-import { AgentPrincipal, AgentClaimed } from "../transport/requirements.js";
+import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
 import {
   ConflictError,
   UnauthorizedError,

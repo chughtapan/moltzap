@@ -12,7 +12,7 @@ import {
   AgentPrincipal,
   AppPrincipal,
   AgentClaimed,
-} from "../transport/requirements.js";
+} from "../transport/principal.js";
 import {
   ConversationId,
   conversationSchema,

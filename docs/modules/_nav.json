@@ -5,6 +5,7 @@
     "modules/client/runtime",
     "modules/client/src",
     "modules/protocol/app",
+    "modules/protocol/engine",
     "modules/protocol/identity",
     "modules/protocol/network",
     "modules/protocol/src",

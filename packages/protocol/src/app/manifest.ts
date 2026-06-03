@@ -1,7 +1,7 @@
 import { Either, ParseResult, Schema } from "effect";
 import { stringEnum } from "../schema-primitives.js";
 import { defineRpc } from "../transport/method.js";
-import { AppPrincipal } from "../transport/requirements.js";
+import { AppPrincipal } from "../transport/principal.js";
 import { ConflictError } from "../transport/wire-errors.js";
 
 // ═══════════════════════════════════════════════════════════════════

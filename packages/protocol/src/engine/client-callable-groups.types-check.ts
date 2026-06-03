@@ -27,7 +27,7 @@ import {
   AgentCallableGroup,
   AppCallableGroup,
 } from "./client-callable-groups.js";
-import type { JsonRpcMethod } from "./wire.js";
+import type { JsonRpcMethod } from "../transport/wire.js";
 
 type Expect<T extends true> = T;
 type Equal<A, B> =

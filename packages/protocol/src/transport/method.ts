@@ -2,7 +2,6 @@
 import { Data, Effect, Schema } from "effect";
 import { closedStructGuard } from "../schema-primitives.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
-import type { Requirement } from "./requirements.js";
 import {
   jsonRpcMethod,
   notificationFrame,
@@ -26,6 +25,25 @@ export type RpcErrorClass = Schema.Schema.AnyNoContext &
   (new (...args: never[]) => { readonly _tag: string });
 
 /**
+ * The STRUCTURAL shape of one `requires` entry at the wire layer: a requirement
+ * tag carries a `key` (its `Context.Tag` identifier) and a `static errors` tuple
+ * the descriptor folds into the wire error union. The descriptor factory needs
+ * only this shape — it reads `.errors` and treats the tag as an opaque marker.
+ *
+ * The GENUINE closed union of the actual requirement tags (principal | claimed |
+ * capability) and the compile-error-on-unregistered-cap guarantee live in the
+ * engine layer (`engine/requirements.ts` → `Requirement` / `capRequirementsOf`),
+ * above the domains: that is where a cap with no registered middleware fails to
+ * compile, at the engine-member binding. Keeping the wire-layer constraint
+ * structural is what lets the domains call `defineRpc` without the wire layer
+ * importing the capability tags upward.
+ */
+export type RequirementShape = {
+  readonly key: string;
+  readonly errors: ReadonlyArray<RpcErrorClass>;
+};
+
+/**
  * Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
  * decode-time validators + the `requires` authority list. Type-only payload
  * accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>` — there is no
@@ -47,7 +65,8 @@ export interface RpcDefinition<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  Requires extends ReadonlyArray<Requirement> = ReadonlyArray<Requirement>,
+  Requires extends
+    ReadonlyArray<RequirementShape> = ReadonlyArray<RequirementShape>,
   Errs extends ReadonlyArray<RpcErrorClass> = ReadonlyArray<RpcErrorClass>,
 > {
   readonly name: JsonRpcMethod<Name>;
@@ -143,11 +162,12 @@ export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
 /**
  * The union of every requirement's error instances for a `requires` tuple: each
  * requirement (principal, agent-claimed refinement, capability) declares its own
- * `static errors`, read directly off the genuine {@link Requirement} union (no
+ * `static errors`, read directly off each entry's {@link RequirementShape} (no
  * structural cast). The lone empty `requires` (`network/connect`) yields `never`.
  */
-export type RequirementErrorsOf<Requires extends ReadonlyArray<Requirement>> =
-  InstanceType<Requires[number]["errors"][number]>;
+export type RequirementErrorsOf<
+  Requires extends ReadonlyArray<RequirementShape>,
+> = InstanceType<Requires[number]["errors"][number]>;
 
 /**
  * The handler-domain error instance union a descriptor declares.
@@ -163,7 +183,7 @@ export type DomainErrorsOf<
     string,
     Schema.Schema.AnyNoContext,
     Schema.Schema.AnyNoContext,
-    ReadonlyArray<Requirement>,
+    ReadonlyArray<RequirementShape>,
     infer Errs
   >
     ? InstanceType<Errs[number]>
@@ -201,7 +221,7 @@ export type CallErrorsOf<
  * the typed client all read.
  */
 export function effectiveErrorClasses(
-  requires: ReadonlyArray<Requirement>,
+  requires: ReadonlyArray<RequirementShape>,
   handlerErrors: ReadonlyArray<RpcErrorClass>,
 ): ReadonlyArray<RpcErrorClass> {
   const all = [...requires.flatMap(requirementErrorClasses), ...handlerErrors];
@@ -209,12 +229,12 @@ export function effectiveErrorClasses(
 }
 
 /**
- * Read a requirement tag's declared static `errors` — read directly off the
- * genuine {@link Requirement} union (every requirement tag has `static errors`),
- * the runtime mirror of {@link RequirementErrorsOf}.
+ * Read a requirement tag's declared static `errors` — read directly off its
+ * {@link RequirementShape} (every requirement tag has `static errors`), the
+ * runtime mirror of {@link RequirementErrorsOf}.
  */
 function requirementErrorClasses(
-  req: Requirement,
+  req: RequirementShape,
 ): ReadonlyArray<RpcErrorClass> {
   return req.errors;
 }
@@ -274,7 +294,7 @@ export function defineRpc<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  const Requires extends ReadonlyArray<Requirement> = readonly [],
+  const Requires extends ReadonlyArray<RequirementShape> = readonly [],
   const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
 >(def: {
   name: Name;

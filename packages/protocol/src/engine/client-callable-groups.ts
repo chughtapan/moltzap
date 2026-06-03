@@ -20,21 +20,27 @@
  */
 import { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
-import type { RpcDefinition } from "./method.js";
+import type { RpcDefinition } from "../transport/method.js";
+import { AgentPrincipal, AppPrincipal } from "../transport/principal.js";
 import {
-  AgentPrincipal,
-  AppPrincipal,
+  type Requirement,
   type PrincipalRequirement,
   type PrincipalRequirementOf,
   principalRequirementOf,
 } from "./requirements.js";
-import type { JsonRpcMethod } from "./wire.js";
+import type { JsonRpcMethod } from "../transport/wire.js";
 import { serverRpcMethods } from "../rpc-registry.js";
 
+// The engine partitions the live catalog descriptors, whose `requires` are
+// built from the concrete requirement tags. The wire-layer `RpcDefinition`
+// erases `requires` to the structural `RequirementShape`; re-pin the 4th type
+// arg to the genuine `Requirement` union so `PrincipalRequirementOf` /
+// `principalRequirementOf` read the concrete head tag.
 type AnyRpcDefinition = RpcDefinition<
   string,
   Schema.Schema.AnyNoContext,
-  Schema.Schema.AnyNoContext
+  Schema.Schema.AnyNoContext,
+  ReadonlyArray<Requirement>
 >;
 
 /**
@@ -68,7 +74,7 @@ type MembersWhereHead<
     string,
     Schema.Schema.AnyNoContext,
     Schema.Schema.AnyNoContext,
-    infer Requires
+    infer Requires extends ReadonlyArray<Requirement>
   >
     ? PrincipalRequirementOf<Requires> extends Heads | undefined
       ? RpcFromDef<Defs[K]>

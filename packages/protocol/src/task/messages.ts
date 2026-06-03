@@ -7,7 +7,7 @@ import {
 import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
-import { AgentPrincipal, AgentClaimed } from "../transport/requirements.js";
+import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
 import { ConversationId, MessageId } from "./conversations.js";
 import { HookBlockedError, TaskClosedError } from "./tasks.js";
 import { ConversationArchivedError } from "./conversations.js";
