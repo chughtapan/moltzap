@@ -477,7 +477,7 @@ function makeBadResponse(
     return responseFrame(request.id, {
       error: {
         _tag: "InternalError",
-        message: "bad server rejects model-ok call",
+        message: "bad server rejects an authorized call",
       },
     });
   }

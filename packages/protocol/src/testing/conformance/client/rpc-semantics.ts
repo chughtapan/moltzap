@@ -1,15 +1,18 @@
 /**
  * Client-side RPC-semantics properties:
- *   model-equivalence (client half of the both-sides property)
- *   request-id-uniqueness (client half of the both-sides property)
+ *   model-equivalence-client — response-correlation: a well-shaped
+ *     response on the client's own request id resolves its pending call.
+ *   request-id-uniqueness — client half of the both-sides property whose
+ *     server half lives in `transport/request-id-uniqueness.ts`.
  *
- * Sampling discipline: the model-equivalence client half samples RPC
- * methods the real client is known to originate during normal operation.
- * The client mints its own request id; the property reads it off
- * `RealClientHandle.call.outboundIdFeed` and filters by that id.
+ * Both drive `agents/list` through the real client. The client mints its
+ * own request id; each property reads that id off the captured outbound
+ * frame and scripts the TestServer's reply around it.
  *
- * Typed-error precision: model-equivalence asserts `model-ok ⇒ client-ok`;
- * request-id-uniqueness asserts set equality — no typed-error involvement.
+ * `model-equivalence-client` asserts the call resolves with a `result`
+ * (correct id-to-deferred routing). `request-id-uniqueness` asserts a
+ * spurious-id response never resolves a pending call while a matching-id
+ * one does.
  */
 import { Effect, type Scope } from "effect";
 import type { JsonRpcId } from "../../../transport/index.js";
@@ -29,10 +32,10 @@ const PROPERTY_MODEL_EQUIVALENCE_CLIENT = "model-equivalence-client";
 const PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT = "request-id-uniqueness-client";
 
 /**
- * Client half of `model-equivalence` — property issues
- * `realClient.call("agents/list", {})`; TestServer captures the inbound
- * request id and emits a well-shaped response; the client's pending call
- * resolves with that result.
+ * Response-correlation property — issues `realClient.call("agents/list",
+ * {})`; the TestServer captures the inbound request id and emits a
+ * well-shaped response carrying that id; the client's pending call must
+ * resolve with that result.
  *
  * Discriminates: a client that routes the response to the wrong
  * pending call (id-to-deferred mis-match) fails — the promise will
