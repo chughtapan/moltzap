@@ -12,7 +12,6 @@ import {
 } from "./commands/conversations.js";
 import { inviteCommand } from "./commands/invite.js";
 import { messagesCommand } from "./commands/messages.js";
-import { pingCommand } from "./commands/ping.js";
 import { registerCommand } from "./commands/register.js";
 import { sendCommand } from "./commands/send.js";
 import { startCommand } from "./commands/start.js";
@@ -147,7 +146,6 @@ const moltzapBase = Command.make("moltzap", {
     conversationsCommand,
     historyCommand,
     inviteCommand,
-    pingCommand,
     statusCommand,
     agentsCommand,
     messagesCommand,
