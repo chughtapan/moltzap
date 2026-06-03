@@ -22,25 +22,25 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type AgentId,
-} from "../../identity/methods.js";
-import { Connect } from "../../network/methods.js";
+} from "../../identity/index.js";
+import { Connect } from "../../network/index.js";
 import {
   AppsRegister,
   DispatchRequest,
   DispatchesGet,
-} from "../../app/methods.js";
+} from "../../app/index.js";
 import {
   type ConversationId,
   TaskClose,
   TaskRequest,
   TaskList,
-} from "../../task/methods.js";
+} from "../../task/index.js";
 import {
   ContactsAccept,
   ContactsAdd,
   ContactsById,
   ContactsList,
-} from "../../identity/methods.js";
+} from "../../identity/index.js";
 import {
   TaskAddParticipant,
   TaskConversationArchive,
@@ -48,11 +48,11 @@ import {
   TaskConversationList,
   TaskConversationUnarchive,
   TaskLeave,
-} from "../../task/methods.js";
-import { MessagesList, MessagesSend } from "../../task/methods.js";
+} from "../../task/index.js";
+import { MessagesList, MessagesSend } from "../../task/index.js";
 // v7 (architect plan #706): PresenceUpdate deleted in the cutover.
-import { PresenceSubscribe } from "../../network/methods.js";
-import { NetworkPing } from "../../network/methods.js";
+import { PresenceSubscribe } from "../../network/index.js";
+import { NetworkPing } from "../../network/index.js";
 
 /**
  * Observable outcome of one RPC against the model, in the same shape the

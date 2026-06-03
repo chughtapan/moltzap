@@ -6,7 +6,7 @@
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { MessagesSend } from "../../../task/methods.js";
+import { MessagesSend } from "../../../task/index.js";
 import {
   inboundNotificationMethod,
   type AnyFrame,

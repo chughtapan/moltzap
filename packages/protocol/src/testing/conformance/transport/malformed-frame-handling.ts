@@ -9,7 +9,7 @@ import {
   arbitraryMalformedFrame,
   type ArbitraryMalformedFrame,
 } from "../../arbitraries/frames.js";
-import { AgentsList } from "../../../identity/methods.js";
+import { AgentsList } from "../../../identity/index.js";
 import type { RpcResponseError } from "../_shared/errors.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";

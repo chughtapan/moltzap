@@ -3,14 +3,12 @@
  */
 import { Effect, Option, Stream, Duration, type Scope } from "effect";
 
-import { PresenceChangedNotificationDefinition } from "../../../network/methods.js";
+import { PresenceChangedNotificationDefinition } from "../../../network/index.js";
 import { notificationDefinitions } from "../../../rpc-registry.js";
-import {
-  decodeNotification,
-  isDecodedNotification,
-} from "../../../transport/rpc-groups.js";
-import { PresenceSubscribe } from "../../../network/methods.js";
-import { AgentId } from "../../../identity/methods.js";
+import { isDecodedNotification } from "../../../transport/index.js";
+import { decodeNotification } from "../../index.js";
+import { PresenceSubscribe } from "../../../network/index.js";
+import { AgentId } from "../../../identity/index.js";
 import {
   makeCloseableTestClient,
   makeTestClient,
@@ -24,7 +22,7 @@ import {
   isRequestFrame,
 } from "../_shared/frame-mutator.js";
 import type { AnyFrame } from "../_shared/frame-mutator.js";
-import type { NotificationFrame } from "../../../transport/wire.js";
+import type { NotificationFrame } from "../../../transport/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 

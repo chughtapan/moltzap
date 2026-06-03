@@ -5,11 +5,11 @@ import type {
   NotificationFrame,
   RequestFrame,
   ResponseFrame,
-} from "../../../transport/wire.js";
+} from "../../../transport/index.js";
 import {
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,
-} from "../../../task/methods.js";
+} from "../../../task/index.js";
 import type {
   TestServer,
   TestServerConnection,
@@ -20,10 +20,10 @@ import {
   type CaptureBuffer,
 } from "../_shared/captures.js";
 import { encodeFrame } from "../_shared/frame-mutator.js";
-import { requestFrame } from "../../../transport/wire.js";
+import { requestFrame } from "../../index.js";
 import { serverRpcMethods } from "../../../rpc-registry.js";
 import type { AnyServerRpcDefinition } from "../../../rpc-registry.js";
-import { jsonRpcMethod } from "../../../transport/wire.js";
+import { jsonRpcMethod } from "../../../transport/index.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import {
   collectProperties,

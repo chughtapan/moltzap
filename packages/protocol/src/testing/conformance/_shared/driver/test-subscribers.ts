@@ -38,8 +38,8 @@
  */
 import { Brand, Effect, Ref, Stream } from "effect";
 import type { AnyNotificationDefinition } from "../../../../rpc-registry.js";
-import type { DecodedNotification } from "../../../../transport/rpc-groups.js";
-import type { NotificationParamsOf } from "../../../../transport/method.js";
+import type { DecodedNotification } from "../../../../transport/index.js";
+import type { NotificationParamsOf } from "../../../../transport/index.js";
 import { TransportClosedError } from "../errors.js";
 
 /** Branded identifier for a subscription handle. Minted by `register`. */

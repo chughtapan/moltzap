@@ -20,9 +20,9 @@ import {
   PropertyInvariantViolation,
   registerProperty,
 } from "../_shared/registry.js";
-import { AgentsList, ContactsList } from "../../../identity/methods.js";
-import { Connect } from "../../../network/methods.js";
-import { TaskList } from "../../../task/methods.js";
+import { AgentsList, ContactsList } from "../../../identity/index.js";
+import { Connect } from "../../../network/index.js";
+import { TaskList } from "../../../task/index.js";
 
 const CATEGORY = "schema-conformance" as const;
 const PROPERTY = "rpc-map-coverage";

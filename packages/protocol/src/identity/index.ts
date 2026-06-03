@@ -26,4 +26,4 @@ export {
   ContactNotFoundError,
 } from "./methods.js";
 
-export type { AgentCard, Contact } from "./methods.js";
+export type { Agent, AgentCard, Contact } from "./methods.js";

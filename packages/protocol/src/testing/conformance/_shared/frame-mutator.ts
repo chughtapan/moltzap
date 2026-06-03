@@ -14,15 +14,17 @@
  */
 import { Data, Effect, Either, ParseResult, Schema } from "effect";
 import { decodesStrictly, STRICT_DECODE } from "../../../schema-primitives.js";
+import type {
+  RequestFrame,
+  ResponseFrame,
+  NotificationFrame,
+  JsonRpcId,
+} from "../../../transport/index.js";
 import {
   requestFrameSchema,
   responseFrameSchema,
   notificationFrameSchema,
-  type RequestFrame,
-  type ResponseFrame,
-  type NotificationFrame,
-} from "../../../transport/wire.js";
-import { type JsonRpcId } from "../../../transport/wire.js";
+} from "../../index.js";
 import { notificationDefinitions } from "../../../rpc-registry.js";
 
 // The wire-method names the server fires as notifications. A server-pushed

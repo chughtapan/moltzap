@@ -27,10 +27,10 @@ import {
 import type {
   NotificationFrame,
   ResponseFrame,
-} from "../../../transport/wire.js";
-import { responseFrame } from "../../../transport/wire.js";
+} from "../../../transport/index.js";
+import { responseFrame } from "../../index.js";
 import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
-import type { DecodedNotification } from "../../../transport/rpc-groups.js";
+import type { DecodedNotification } from "../../../transport/index.js";
 import { isRequestFrame } from "../_shared/frame-mutator.js";
 import {
   makeTestServer,
@@ -47,7 +47,7 @@ import { conformanceNumRunsFromEnv } from "../_shared/env.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";
 
-import { Connect } from "../../../network/methods.js";
+import { Connect } from "../../../network/index.js";
 
 const DEFAULT_ACCEPT_TIMEOUT_MS = 5_000;
 const RANDOM_TAG_LENGTH = 8;

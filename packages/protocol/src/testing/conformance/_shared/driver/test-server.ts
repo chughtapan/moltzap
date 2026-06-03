@@ -19,7 +19,7 @@ import * as SocketServer from "@effect/platform/SocketServer";
 import type {
   NotificationFrame,
   ResponseFrame,
-} from "../../../../transport/wire.js";
+} from "../../../../transport/index.js";
 import {
   makeCaptureBuffer,
   mergeCaptures,

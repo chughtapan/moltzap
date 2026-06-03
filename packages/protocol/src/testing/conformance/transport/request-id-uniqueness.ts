@@ -4,8 +4,8 @@
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { TaskList } from "../../../task/methods.js";
-import { type JsonRpcId } from "../../../transport/wire.js";
+import { TaskList } from "../../../task/index.js";
+import { type JsonRpcId } from "../../../transport/index.js";
 import { isRequestFrame, isResponseFrame } from "../_shared/frame-mutator.js";
 import {
   makeTestClient,

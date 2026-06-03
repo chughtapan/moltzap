@@ -38,7 +38,7 @@ import {
   PropertyInvariantViolation,
   type PropertyFailure,
 } from "../_shared/registry.js";
-import type { AgentId } from "../../../identity/agents.js";
+import type { AgentId } from "../../../identity/index.js";
 import {
   type ConversationId,
   type MessageId,
@@ -50,7 +50,7 @@ import {
   TaskRequest,
   MessagesSend,
 } from "@moltzap/protocol/task";
-import type { TaskId } from "../../../task/tasks.js";
+import type { TaskId } from "../../../task/index.js";
 import {
   DispatchAuthorize,
   DispatchRelease,
@@ -61,7 +61,7 @@ import {
   type DispatchId,
 } from "../../../app/index.js";
 import { LeaseId } from "../../../task/index.js";
-import type { DecodedNotification } from "../../../transport/rpc-groups.js";
+import type { DecodedNotification } from "../../../transport/index.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
   makeCloseableTestClient,

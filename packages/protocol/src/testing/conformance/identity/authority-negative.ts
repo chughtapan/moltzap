@@ -6,7 +6,7 @@
  */
 import { Effect, Either } from "effect";
 import {} from "../../../transport/wire-errors.js";
-import { TaskList } from "../../../task/methods.js";
+import { TaskList } from "../../../task/index.js";
 import { authorizationOutcome } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";
 import { agentId } from "../_shared/test-fixtures.js";

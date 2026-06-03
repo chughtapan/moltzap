@@ -16,7 +16,7 @@ import {
   arbitraryCallFor,
   type ArbitraryRpcCall,
 } from "../../arbitraries/rpc.js";
-import { AgentsList } from "../../../identity/methods.js";
+import { AgentsList } from "../../../identity/index.js";
 import {
   makeTestClient,
   type TestClient,

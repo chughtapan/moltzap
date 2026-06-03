@@ -10,12 +10,12 @@
  * no network, no clocks — all actions are total functions.
  */
 import { Brand } from "effect";
-import type { Agent, AgentId } from "../../identity/methods.js";
+import type { Agent, AgentId } from "../../identity/index.js";
 import type {
   Conversation,
   ConversationId,
   Message,
-} from "../../task/methods.js";
+} from "../../task/index.js";
 import type { NotificationFrame } from "../../transport/wire.js";
 
 /** Monotonic logical clock — the model does not read wall time. */

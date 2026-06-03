@@ -17,7 +17,7 @@ Re-exporting keeps external consumers on the public testing entrypoint.
 
 ## Public surface
 
-### [`CloseableTestClient`](./test-client.ts#L284)
+### [`CloseableTestClient`](./test-client.ts#L283)
 
 _Interface_
 
@@ -31,7 +31,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`makeCloseableTestClient`](./test-client.ts#L1358)
+### [`makeCloseableTestClient`](./test-client.ts#L1357)
 
 _Function_
 
@@ -44,7 +44,7 @@ export function makeCloseableTestClient(
 >
 ```
 
-### [`makeTestClient`](./test-client.ts#L1345)
+### [`makeTestClient`](./test-client.ts#L1344)
 
 _Function_
 
@@ -93,7 +93,7 @@ Construct an empty registry. Called once from
 finalizer — consumers see `emit.fail(TransportClosedError)` before
 the transport tears down.
 
-### [`ServerRequestWaitError`](./test-client.ts#L256)
+### [`ServerRequestWaitError`](./test-client.ts#L255)
 
 _Class_
 
@@ -107,7 +107,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 }> {}
 ```
 
-### [`ServerRpcContext`](./test-client.ts#L279)
+### [`ServerRpcContext`](./test-client.ts#L278)
 
 _Interface_
 
@@ -118,7 +118,7 @@ export interface ServerRpcContext {
 }
 ```
 
-### [`ServerRpcDefinition`](./test-client.ts#L267)
+### [`ServerRpcDefinition`](./test-client.ts#L266)
 
 _TypeAlias_
 
@@ -133,7 +133,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Descriptor constraint for app-callback RPC test surface.
 
-### [`ServerRpcParams`](./test-client.ts#L272)
+### [`ServerRpcParams`](./test-client.ts#L271)
 
 _TypeAlias_
 
@@ -143,7 +143,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Inbound params type for an app-callback method.
 
-### [`ServerRpcResult`](./test-client.ts#L277)
+### [`ServerRpcResult`](./test-client.ts#L276)
 
 _TypeAlias_
 
@@ -205,7 +205,7 @@ notification regardless of definition. Used by conformance helpers
 that need to filter on params-shaped predicates not expressible at
 the definition level (e.g. presence/changed by agentId+status).
 
-### [`TestClient`](./test-client.ts#L141)
+### [`TestClient`](./test-client.ts#L140)
 
 _Interface_
 
@@ -330,7 +330,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`TestClient`](./test-client.ts#L141)
+### [`TestClient`](./test-client.ts#L140)
 
 _Variable_
 
@@ -340,7 +340,7 @@ export interface TestClient
 
 Context tag so property code can `Effect.serviceWith(TestClient, …)`.
 
-### [`TestClientConfig`](./test-client.ts#L100)
+### [`TestClientConfig`](./test-client.ts#L99)
 
 _Interface_
 

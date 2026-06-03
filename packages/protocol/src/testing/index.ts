@@ -24,22 +24,33 @@ export {
   taskId,
 } from "./conformance/_shared/test-fixtures.js";
 
-// Wire-frame builders + validators + the protocol literal — exposed ONLY for
-// test use. Production builds frames via the live transport, never these raw
-// constructors; the conformance harness + test scaffolds use them to assemble
-// frames (valid and adversarial) for the codec/decoder boundary properties.
-// This `/testing` barrel is the single sanctioned re-export of these wire
-// internals — test code imports them from here, never by reaching `wire.js`.
+// Wire-frame builders + schemas + validators + the protocol literal, and the
+// group-level decoders — exposed ONLY for test use. Production builds frames via
+// the live transport and decodes via `decodeServerInbound`, never these raw
+// constructors/decoders; the conformance harness + test scaffolds use them to
+// assemble frames (valid and adversarial) and exercise the codec/decoder
+// boundary properties. This `/testing` barrel is the single sanctioned
+// re-export of these wire internals — test code imports them from here, never
+// by reaching `wire.js` / `rpc-groups.js` / `method.js`.
 export {
   requestFrame,
   responseFrame,
   notificationFrame,
+  requestFrameSchema,
+  responseFrameSchema,
+  notificationFrameSchema,
   validateRequestFrame,
   validateResponseFrame,
+  validateNotificationFrame,
   JSON_RPC_VERSION,
 } from "../transport/wire.js";
+export {
+  decodeRpcRequest,
+  decodeNotification,
+} from "../transport/rpc-groups.js";
+export { decodeRpcResult } from "../transport/method.js";
 export type { JsonRpcMethod } from "../transport/wire.js";
-export { TaskFailedNotificationDefinition } from "../task/methods.js";
+export { TaskFailedNotificationDefinition } from "../task/index.js";
 export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 
 // Primitives.

@@ -20,11 +20,11 @@
  */
 import { Effect } from "effect";
 import { decodesStrictly } from "../../../schema-primitives.js";
+import type { NotificationFrame } from "../../../transport/index.js";
 import {
   notificationFrameSchema,
   validateNotificationFrame,
-  type NotificationFrame,
-} from "../../../transport/wire.js";
+} from "../../index.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import * as fc from "fast-check";
 import type { ClientConformanceRunContext } from "./runner.js";

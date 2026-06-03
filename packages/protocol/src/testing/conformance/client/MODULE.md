@@ -39,7 +39,7 @@ alongside tier "D".
 
 Errors are typed; no raw throws.
 
-### [`acquireFixture`](./_fixtures.ts#L64)
+### [`acquireFixture`](./_fixtures.ts#L62)
 
 _Function_
 
@@ -153,7 +153,7 @@ export interface ClientConformanceSuiteOptions {
 Consumer-facing options. Mirror of `ConformanceSuiteOptions` on the
 server side; only the factory name differs.
 
-### [`ClientFixture`](./_fixtures.ts#L50)
+### [`ClientFixture`](./_fixtures.ts#L48)
 
 _Interface_
 
@@ -216,7 +216,7 @@ _Variable_
 export interface ClientHandshakeWindow
 ```
 
-### [`collectTagged`](./_fixtures.ts#L163)
+### [`collectTagged`](./_fixtures.ts#L161)
 
 _Function_
 
@@ -240,7 +240,7 @@ Utility: resolve a fresh tag from a handshake window in synchronous-
 friendly Effect code. Property bodies call this at the top of each
 fast-check iteration.
 
-### [`invariant`](./_fixtures.ts#L186)
+### [`invariant`](./_fixtures.ts#L184)
 
 _Function_
 
@@ -309,7 +309,7 @@ window whose `awaitHandshakeComplete` resolves when `handle.ready`
 does; emissions are passed through to the connection the property
 body chooses (TestServer may have multiple connections).
 
-### [`notificationParamsRecord`](./_fixtures.ts#L120)
+### [`notificationParamsRecord`](./_fixtures.ts#L118)
 
 _Function_
 
@@ -625,7 +625,7 @@ deadline.
 
 Predicate: liveness — next tagged notification surfaces within deadline.
 
-### [`registerModelEquivalenceClient`](./rpc-semantics.ts#L40)
+### [`registerModelEquivalenceClient`](./rpc-semantics.ts#L41)
 
 _Function_
 
@@ -685,7 +685,7 @@ includes the emitted token byte-for-byte. A client that routes
 payloads through a lossy re-serialization (e.g., key-reorder JSON
 stringify) fails.
 
-### [`registerRequestIdUniquenessClient`](./rpc-semantics.ts#L87)
+### [`registerRequestIdUniquenessClient`](./rpc-semantics.ts#L88)
 
 _Function_
 
@@ -854,7 +854,7 @@ wrapper matching the AC22 template (see
 `packages/protocol/CLAUDE.md`) and the suite runs against their
 real WS client.
 
-### [`subscribeAll`](./_fixtures.ts#L199)
+### [`subscribeAll`](./_fixtures.ts#L197)
 
 _Function_
 
@@ -868,7 +868,7 @@ Subscribe the fixture's real client to all notifications (no filter) so the
 property body can observe every tagged emission. Returns the
 subscription so the Scope teardown can call `unsubscribe`.
 
-### [`TaggedObservation`](./_fixtures.ts#L112)
+### [`TaggedObservation`](./_fixtures.ts#L110)
 
 _Interface_
 

@@ -15,8 +15,8 @@ import {
   TaskCreate,
   type AppManifest,
 } from "../../../app/index.js";
-import { AppId } from "../../../task/ids.js";
-import { AgentId } from "../../../identity/methods.js";
+import { AppId } from "../../../task/index.js";
+import { AgentId } from "../../../identity/index.js";
 import { makeTestClient, type TestClient } from "./driver/test-client.js";
 import type {
   ServerRpcDefinition,

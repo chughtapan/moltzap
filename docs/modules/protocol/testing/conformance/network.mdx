@@ -27,7 +27,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L73)
+### [`acquireClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L71)
 
 _Function_
 
@@ -43,7 +43,7 @@ export function acquireClient(
 >
 ```
 
-### [`acquireCloseableClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L102)
+### [`acquireCloseableClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L100)
 
 _Function_
 
@@ -56,7 +56,7 @@ export function acquireCloseableClient(
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`countPresenceChangedFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L255)
+### [`countPresenceChangedFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L253)
 
 _Function_
 
@@ -86,7 +86,7 @@ export const NETWORK_PROPERTIES: ReadonlyArray<
 
 All network-layer property registrars, in suite walk order.
 
-### [`PRESENCE_CATEGORY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L31)
+### [`PRESENCE_CATEGORY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L29)
 
 _Variable_
 
@@ -94,7 +94,7 @@ _Variable_
 export const PRESENCE_CATEGORY = "presence" as const
 ```
 
-### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L33)
+### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L31)
 
 _Variable_
 
@@ -102,7 +102,7 @@ _Variable_
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
 ```
 
-### [`PRESENCE_DEFAULT_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L32)
+### [`PRESENCE_DEFAULT_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L30)
 
 _Variable_
 
@@ -110,7 +110,7 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceChangedPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L39)
+### [`PresenceChangedPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L37)
 
 _Interface_
 
@@ -121,7 +121,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`PresenceStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L37)
+### [`PresenceStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L35)
 
 _TypeAlias_
 
@@ -134,7 +134,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`presenceStatusesFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L201)
+### [`presenceStatusesFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L199)
 
 _Function_
 
@@ -145,7 +145,7 @@ export function presenceStatusesFor(
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
-### [`presenceViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L44)
+### [`presenceViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L42)
 
 _Function_
 
@@ -156,7 +156,7 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L55)
+### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L53)
 
 _Function_
 
@@ -222,7 +222,7 @@ export function registerSubscribeAfterConnect(
 ): void
 ```
 
-### [`subscribePresence`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L133)
+### [`subscribePresence`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L131)
 
 _Function_
 
@@ -234,7 +234,7 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L157)
+### [`waitForPresenceWithStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/network/_helpers.ts#L155)
 
 _Function_
 

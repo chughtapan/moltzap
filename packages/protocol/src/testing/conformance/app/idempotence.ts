@@ -10,8 +10,8 @@
  * requires "identical results", not "identical outcome kinds".
  */
 import { Effect, Either } from "effect";
-import { AgentsList } from "../../../identity/methods.js";
-import { TaskList } from "../../../task/methods.js";
+import { AgentsList } from "../../../identity/index.js";
+import { TaskList } from "../../../task/index.js";
 import { isIdempotent } from "../../models/dispatch.js";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {

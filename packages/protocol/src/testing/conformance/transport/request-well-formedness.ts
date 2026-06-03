@@ -16,7 +16,7 @@ import {
   responseFrameSchema,
   type RequestFrame,
   type ResponseFrame,
-} from "../../../transport/wire.js";
+} from "../../../transport/index.js";
 import { isRequestFrame, isResponseFrame } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";
