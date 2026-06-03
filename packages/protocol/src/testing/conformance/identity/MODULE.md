@@ -30,7 +30,7 @@ export const IDENTITY_PROPERTIES: ReadonlyArray<
 All identity-layer property registrars, in suite walk order
 (authority-positive → authority-negative).
 
-### [`registerAuthorityNegative`](./authority-negative.ts#L37)
+### [`registerAuthorityNegative`](./authority-negative.ts#L36)
 
 _Function_
 
