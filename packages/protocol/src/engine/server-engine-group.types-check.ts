@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the middleware-attached server engine group
- * (`transport/server-engine-group.ts`).
+ * (`engine/server-engine-group.ts`).
  *
  * These canaries are the group's live type consumer AND the fail-closed
  * invariants it relies on:

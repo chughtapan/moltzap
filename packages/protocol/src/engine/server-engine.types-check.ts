@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the native server engine layer
- * (`transport/server-engine.ts`).
+ * (`engine/server-engine.ts`).
  *
  * These pin the server-wiring guard: {@link ServerEngineLayer} binds the
  * middleware-attached engine group, so its requirement channel DEMANDS every

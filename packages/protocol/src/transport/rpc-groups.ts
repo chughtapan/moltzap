@@ -32,8 +32,9 @@ export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
 /**
  * A decoded notification carries the discriminator + descriptor + typed
  * params + the original wire `jsonrpc`. It does NOT extend `NotificationFrame`
- * — re-encoding goes through `definition.encode(params)`, not by re-serializing
- * this struct, so the strict-additionalProperties wire schema stays unstuck.
+ * — re-encoding builds a fresh frame from the descriptor + params, not by
+ * re-serializing this struct, so the strict-additionalProperties wire schema
+ * stays unstuck.
  *
  * The optional second parameter `R` narrows the `params` field to the refined
  * type — used by `MoltZapAgentClient.subscribe`'s user-defined-type-guard
@@ -140,7 +141,8 @@ export function decodeNotification<
     );
   }
   // Build the decoded view explicitly. `_tag` is enumerable; consumers
-  // that need a wire-frame must re-encode via `definition.encode(params)`.
+  // that need a wire-frame re-encode from the descriptor + params, not from
+  // this struct.
   return Effect.succeed({
     _tag: "Notification" as const,
     jsonrpc: frame.jsonrpc,

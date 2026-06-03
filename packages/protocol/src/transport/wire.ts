@@ -262,7 +262,8 @@ export function responseFrame(
 /**
  * Public wire-error response encoder. Constructs a JSON-RPC error
  * response for any wire id (no method binding). Method-tied success
- * responses go through `RpcDefinition.encodeResponse`.
+ * responses are framed by the server engine via the per-method result
+ * schema; this helper is the method-agnostic error path.
  */
 export function encodeErrorResponse(
   id: JsonRpcId | null,

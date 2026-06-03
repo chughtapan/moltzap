@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the per-capability `@effect/rpc` middlewares
- * (`transport/cap-middlewares.ts`).
+ * (`engine/cap-middlewares.ts`).
  *
  * Each capability is its own `RpcMiddleware.Tag`, stacked on a method via
  * chainable `Rpc.middleware(...)`. These pin the invariants the server's
