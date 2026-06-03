@@ -20,14 +20,13 @@
  */
 import { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
-import type { Requirement, RpcDefinition } from "./method.js";
+import type { RpcDefinition } from "./method.js";
 import { serverRpcMethods } from "../rpc-registry.js";
 import { capRequirementsOf, principalRequirementOf } from "./requirements.js";
 import type { JsonRpcMethod } from "./wire.js";
 import {
   PrincipalGateMw,
   requirementMiddleware,
-  type MiddlewareRequirementKey,
   type MwStackFor,
 } from "./cap-middlewares.js";
 
@@ -115,7 +114,7 @@ const buildEngineMember = (definition: AnyRpcDefinition) => {
     success: definition.resultSchema,
     error: definition.handlerErrorSchema,
   });
-  const requires = definition.requires as ReadonlyArray<Requirement>;
+  const requires = definition.requires;
   // No principal head (only `network/connect`, empty `requires`) → no gate, no
   // cap middleware: the member is dispatched unauthenticated.
   if (principalRequirementOf(requires) === undefined) {
@@ -131,9 +130,11 @@ const buildEngineMember = (definition: AnyRpcDefinition) => {
   // Layer reads it off `requires`), so it does not appear among the caps.
   let gated: ReturnType<typeof member.middleware> | typeof member = member;
   for (const cap of capRequirementsOf(requires)) {
-    gated = gated.middleware(
-      requirementMiddleware[cap.key as MiddlewareRequirementKey],
-    );
+    // `cap.key` is a `MiddlewareRequirementKey` by construction (every
+    // `CapabilityRequirement` is registered in `requirementMiddleware`), so the
+    // total-map lookup is exhaustive with no cast — a descriptor listing a cap
+    // with no registered middleware fails to compile at `capRequirementsOf`.
+    gated = gated.middleware(requirementMiddleware[cap.key]);
   }
   return gated.middleware(PrincipalGateMw);
 };

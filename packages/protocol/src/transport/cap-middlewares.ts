@@ -35,8 +35,7 @@ import {
 /** The `_tag`-discriminated failure union for a cap, from its `static errors`. */
 const capFailure = (cap: {
   readonly errors: ReadonlyArray<RpcErrorClass>;
-}): Schema.Schema.AnyNoContext =>
-  Schema.Union(...(cap.errors as ReadonlyArray<RpcErrorClass>));
+}): Schema.Schema.AnyNoContext => Schema.Union(...cap.errors);
 
 /** Principal-gate failure: every authenticated method admits these. */
 const principalGateFailure: Schema.Schema.AnyNoContext = Schema.Union(

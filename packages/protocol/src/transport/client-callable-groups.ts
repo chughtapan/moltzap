@@ -20,7 +20,7 @@
  */
 import { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
-import type { Requirement, RpcDefinition } from "./method.js";
+import type { RpcDefinition } from "./method.js";
 import {
   AgentPrincipal,
   AppPrincipal,
@@ -86,9 +86,7 @@ const callableBy = (
   definition: AnyRpcDefinition,
   heads: readonly PrincipalRequirement[],
 ): boolean => {
-  const head = principalRequirementOf(
-    definition.requires as ReadonlyArray<Requirement>,
-  );
+  const head = principalRequirementOf(definition.requires);
   return head === undefined || heads.includes(head);
 };
 
