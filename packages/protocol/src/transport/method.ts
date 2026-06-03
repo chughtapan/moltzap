@@ -261,9 +261,9 @@ function makeErrorSchema(
  *   at the factory call.
  * - Capabilities are NOT descriptor metadata; `defineRpc` carries only the
  *   wire shape, and the server's per-method `*AuthMw` runs the caps.
- * - The validators reject excess keys (`closedStructGuard`), preserving the
- *   AJV `strict` + `additionalProperties:false` rejection the conformance
- *   suite's `extra-property` / `oversized` mutators assert.
+ * - The param/result validators reject excess keys (`closedStructGuard`): a
+ *   bare `Schema.is` accepts unknown keys, so per-method validation closes the
+ *   struct to catch a caller that sends a field the descriptor never declared.
  *
  * Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
  * string can never accidentally type-fit a method position. See
@@ -336,8 +336,8 @@ export function defineRpc<
  *   participant Client
  *   Server->>Server: frame notification from descriptor + params
  *   Server->>Wire: {jsonrpc, method, params}
- *   Wire->>Client: frame arrives
- *   Client->>Client: decodeServerInbound<br>→ tag Notification, definition, params
+ *   Wire->>Client: frame arrives (has method → reverse RpcServer)
+ *   Client->>Client: reverse engine decodes the notification descriptor
  *   Client->>Client: subscriber dispatcher routes to handler
  * ```
  *

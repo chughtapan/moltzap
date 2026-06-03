@@ -1,13 +1,13 @@
 /**
- * @file The client-side `@effect/rpc` engine over the channel-mux
+ * @file The client-side `@effect/rpc` engine over the two-engine socket
  * transport (`@moltzap/protocol transport/mux.ts`).
  *
- * One physical WebSocket carries the `c2s` outbound RPC channel (this module)
- * and, after the callback role-inversion, the `s2c` server-originated callback
- * channel. This module stands `RpcClient.make` over a `RpcClient.Protocol`
- * built from `makeClientChannelProtocol({ channel: "c2s", write })`, and
- * registers the `c2s` sink so `runMuxReader` routes inbound `{ch,f}` envelopes
- * back into the client engine.
+ * One physical WebSocket carries the outbound RPC client (this module) and the
+ * server-originated reverse callback server. This module stands
+ * `RpcClient.make` over a `RpcClient.Protocol` built from
+ * `makeClientChannelProtocol({ write })`, and registers its sink as the socket's
+ * `client` sink so `runMuxReader` routes inbound response-family frames back
+ * into the client engine.
  *
  * The client is the NON-FLAT `RpcClient` — a per-method record keyed by wire
  * tag, each value `(payload) => Effect&lt;result, error>`. The engine recovers the
@@ -49,7 +49,6 @@ export const buildClient = <Rpcs extends Rpc.Any>(options: {
   Effect.gen(function* () {
     const sinkReady = yield* Deferred.make<ChannelSink>();
     const builder = makeClientChannelProtocol({
-      channel: "c2s",
       write: options.write,
     });
     const protocolLayer = Layer.scoped(

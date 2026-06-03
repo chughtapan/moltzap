@@ -21,11 +21,8 @@ import type {
   ResultOf,
   RpcDefinition,
 } from "@moltzap/protocol";
-import {
-  decodeServerInbound,
-  NotFoundError,
-  MalformedFrameError,
-} from "@moltzap/protocol";
+import { notificationDefinitions, NotFoundError } from "@moltzap/protocol";
+import { decodeNotification } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import type { RpcCallOptions } from "@moltzap/client";
@@ -123,21 +120,8 @@ export class FakeMoltZapService extends MoltZapService {
   /** Deliver a protocol notification through the real service handler. */
   emitEvent(event: NotificationFrame): void {
     const decoded = Effect.runSync(
-      decodeServerInbound(event).pipe(
-        Effect.catchTag("MalformedFrameError", (cause) =>
-          Effect.fail(
-            new MalformedFrameError({
-              raw: `FakeMoltZapService: invalid notification ${event.method}: ${cause.raw}`,
-            }),
-          ),
-        ),
-      ),
+      decodeNotification(notificationDefinitions, event),
     );
-    if (decoded._tag !== "Notification") {
-      throw new MalformedFrameError({
-        raw: `FakeMoltZapService: emitEvent expects a notification frame, got ${decoded._tag}`,
-      });
-    }
     this.emitNotification(decoded);
   }
 

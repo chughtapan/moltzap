@@ -38,7 +38,7 @@ handler may pull services only from layers at-or-below its own home layer.
 
 ## Public surface
 
-### [`agentClientRpcMethods`](./rpc-registry.ts#L41)
+### [`agentClientRpcMethods`](./rpc-registry.ts#L25)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const agentClientRpcMethods = [
 ] as const
 ```
 
-### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L69)
+### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L53)
 
 _TypeAlias_
 
@@ -60,7 +60,7 @@ export type AnyAgentClientRpcDefinition =
   (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
 ```
 
-### [`AnyAppCallbackRpcDefinition`](./rpc-registry.ts#L72)
+### [`AnyAppCallbackRpcDefinition`](./rpc-registry.ts#L56)
 
 _TypeAlias_
 
@@ -68,7 +68,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](./rpc-registry.ts#L74)
+### [`AnyNotificationDefinition`](./rpc-registry.ts#L58)
 
 _TypeAlias_
 
@@ -77,7 +77,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-registry.ts#L67)
+### [`AnyServerRpcDefinition`](./rpc-registry.ts#L51)
 
 _TypeAlias_
 
@@ -85,7 +85,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
 ```
 
-### [`appCallableRpcMethods`](./rpc-registry.ts#L48)
+### [`appCallableRpcMethods`](./rpc-registry.ts#L32)
 
 _Variable_
 
@@ -215,7 +215,7 @@ minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
 `ProtocolMismatchError` whose `data.reason` is
 `"server-above-client-max"`.
 
-### [`closedStructGuard`](./schema-primitives.ts#L246)
+### [`closedStructGuard`](./schema-primitives.ts#L245)
 
 _Function_
 
@@ -283,89 +283,7 @@ export function dateTimeStringSchema(): typeof DateTimeStringSchema
 Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
 can keep `as const` references stable while the schema body is owned here.
 
-### [`DecodedResponseError`](./rpc-registry.ts#L91)
-
-_Class_
-
-```ts
-export class DecodedResponseError extends Data.TaggedClass("ResponseError")<{
-  readonly frame: ResponseFrame;
-  readonly id: JsonRpcId;
-  readonly error: Extract<ResponseFrame, { error: unknown }>["error"];
-}> {}
-```
-
-Discriminated error arm of a decoded JSON-RPC response — wire-frame
-decoder discriminator, not an Effect tagged error (the wire `error`
-sub-object carries `code`/`message`/`data`, no Effect machinery).
-
-### [`DecodedResponseSuccess`](./rpc-registry.ts#L78)
-
-_Class_
-
-```ts
-export class DecodedResponseSuccess extends Data.TaggedClass(
-  "ResponseSuccess",
-)<{
-  readonly frame: ResponseFrame;
-  readonly id: JsonRpcId;
-  readonly result: unknown;
-}> {}
-```
-
-Discriminated success arm of a decoded JSON-RPC response.
-
-### [`DecodedServerInbound`](./rpc-registry.ts#L102)
-
-_TypeAlias_
-
-```ts
-export type DecodedServerInbound =
-  | DecodedResponseSuccess
-  | DecodedResponseError
-  | ({
-      readonly _tag: "ServerRequest";
-    } & DecodedRpcRequest<AnyAppCallbackRpcDefinition>)
-```
-
-Decoded shape of a frame inbound to the client (from server):
-a response (success XOR error), a server-initiated task-callback
-request, or a notification.
-
-### [`decodeServerInbound`](./rpc-registry.ts#L167)
-
-_Function_
-
-```ts
-export function decodeServerInbound(
-  parsed: unknown,
-): Effect.Effect<DecodedServerInbound, MalformedFrameError>
-```
-
-Typed entry point for client-inbound frames (used by the client to
-decode what the server sends). Fails closed with
-`MalformedFrameError` on any wire-level mismatch.
-
-```mermaid
-flowchart TD
-  A["raw socket payload<br>(JSON.parse happens before this call)"]
-  A --> B["decodeFrame(parsed)"]
-  B --> C{tag?}
-  C -->|Request| D["decodeRpcRequest(appCallbackMethods)<br>→ ServerRequest"]
-  C -->|Response| E["decodeResponseFrame<br>→ ResponseSuccess | ResponseError"]
-  C -->|Notification| F["decodeNotification(notificationDefs)<br>→ Notification"]
-  D --> G[DecodedServerInbound]
-  E --> G
-  F --> G
-```
-
-Client-inbound `Request` frames are restricted to
-`appCallbackMethods` (the subset the server is allowed to call
-back into the client — `dispatch/authorize`, etc.). Response
-frames with `id === null` fail closed since a null id has no
-pending call to resolve.
-
-### [`decodesStrictly`](./schema-primitives.ts#L229)
+### [`decodesStrictly`](./schema-primitives.ts#L228)
 
 _Function_
 
@@ -472,7 +390,7 @@ _Variable_
 export const MAX_PAGE_LIMIT = 200
 ```
 
-### [`notificationDefinitions`](./rpc-registry.ts#L60)
+### [`notificationDefinitions`](./rpc-registry.ts#L44)
 
 _Variable_
 
@@ -493,7 +411,7 @@ _Variable_
 export const PROTOCOL_VERSION = "2026.529.0"
 ```
 
-### [`serverRpcMethods`](./rpc-registry.ts#L53)
+### [`serverRpcMethods`](./rpc-registry.ts#L37)
 
 _Variable_
 
@@ -505,24 +423,6 @@ export const serverRpcMethods = [
   ...appRpcMethods,
 ] as const
 ```
-
-### [`STRICT_DECODE`](./schema-primitives.ts#L221)
-
-_Variable_
-
-```ts
-export const STRICT_DECODE =
-```
-
-Decode-time option that makes a `Schema.Struct` REJECT extra keys.
-
-Effect's `Schema.Struct` STRIPS excess keys by default
-(`onExcessProperty:"ignore"`) — `Schema.decodeUnknownEither(S)({a,extra})`
-returns `Right` with `extra` silently dropped, and `Schema.is(S)` returns
-`true`. The wire boundary must REJECT excess instead: the conformance
-`extra-property` / `oversized` mutators assert that a frame with an extra
-key FAILS. So every decode boundary MUST pass this option (or use
-closedStructGuard) to enforce that rejection.
 
 ### [`stringEnum`](./schema-primitives.ts#L168)
 

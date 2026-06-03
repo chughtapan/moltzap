@@ -19,9 +19,9 @@ import {
  * Allocate a per-connection reverse `RpcClient&lt;ReverseRpcGroup>` over the
  * socket's `write`. The server fires moderator callbacks (awaited) and
  * notifications (fork-and-forget) at the connected client through it; the
- * client serves them via its reverse `RpcServer`. The returned client's s2c
- * sink is registered with the socket's `runMuxReader` (the caller threads it
- * in). Scope-bound: the client + its engine reader tear down with the
+ * client serves them via its reverse `RpcServer`. The returned client's sink is
+ * registered as the socket's `client` sink with `runMuxReader` (the caller
+ * threads it in). Scope-bound: the client + its engine reader tear down with the
  * connection scope.
  */
 export function acquireConnectionRpcClient(

@@ -1,20 +1,21 @@
 /**
- * @file The server-side reverse `@effect/rpc` client over the s2c channel.
+ * @file The server-side reverse `@effect/rpc` client over the shared socket.
  *
  * Per connection, the server stands ONE `RpcClient&lt;ReverseRpcGroup>` over the
- * s2c mux channel. `ReverseRpcGroup` is the moderator callbacks ∪ the
- * notifications. The server FIRES these as reverse RPCs at the connected client
- * (which serves them via its reverse `RpcServer`):
+ * socket. `ReverseRpcGroup` is the moderator callbacks ∪ the notifications. The
+ * server FIRES these as reverse RPCs at the connected client (which serves them
+ * via its reverse `RpcServer`):
  *
  * - A callback (`dispatch/authorize`, `messages/authorize`, `task/create`) is
  *   awaited for its verdict (the moderator's reply).
  * - A notification is fired fork-and-forget (the `void`-result settles the
  *   reverse RPC; the server does not block on it).
  *
- * The s2c Protocol is the CLIENT side of the mux (`makeClientChannelProtocol`,
- * channel `s2c`): the server originates on s2c, the void acks come back. The
- * caller registers the returned sink with `runMuxReader` (alongside the c2s
- * engine's sink).
+ * This is the CLIENT side of the socket (`makeClientChannelProtocol`): the
+ * server originates request-family frames, and the void acks come back as
+ * response-family frames. The caller registers the returned sink as the
+ * socket's `client` sink with `runMuxReader` (alongside the server engine's
+ * sink).
  */
 import { RpcClient, type RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
@@ -96,7 +97,6 @@ export const buildReverseClient = (options: {
   Effect.gen(function* () {
     const sinkReady = yield* Deferred.make<ChannelSink>();
     const builder = makeClientChannelProtocol({
-      channel: "s2c",
       write: options.write,
     });
     const protocolLayer = Layer.scoped(

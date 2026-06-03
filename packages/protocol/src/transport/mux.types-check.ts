@@ -1,14 +1,13 @@
 /**
- * @file Type canaries for the channel-multiplexed `@effect/rpc` transport
+ * @file Type canaries for the two-engine `@effect/rpc` transport
  * (`transport/mux.ts`).
  *
- * The mux is built ahead of the live-connection cutover and is wired to no
- * socket yet. These canaries are its live type consumer (so the unused-export
- * pass does not flag the builders dead) AND the load-bearing invariant the
- * module guarantees: the impl record each channel builder returns is exactly
- * the shape the corresponding low-level `Protocol.make` extension point
- * accepts. If `@effect/rpc` changes either protocol-impl contract, these stop
- * compiling here rather than at the live-wiring site.
+ * These canaries pin the load-bearing invariant the module guarantees: the
+ * impl record each channel builder returns is exactly the shape the
+ * corresponding low-level `Protocol.make` extension point accepts. If
+ * `@effect/rpc` changes either protocol-impl contract, these stop compiling
+ * here rather than at the live-wiring site (`socket-handler.ts`,
+ * `mux-client.ts`).
  *
  * `RpcServer.Protocol.make` / `RpcClient.Protocol.make` each take a callback
  * returning an Effect of the impl record; the canaries map the builder's
@@ -30,7 +29,6 @@ declare const serverDisconnects: Mailbox.Mailbox<number>;
 // return contract: the make wrapper accepts exactly the fields the builder
 // emits (no excess, none missing).
 const serverBuilder = makeServerChannelProtocol({
-  channel: "c2s",
   write: wireWrite,
   disconnects: serverDisconnects,
 });
@@ -41,7 +39,6 @@ export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
 // The client impl record satisfies `RpcClient.Protocol.make`'s callback
 // return contract for the same reason.
 const clientBuilder = makeClientChannelProtocol({
-  channel: "s2c",
   write: wireWrite,
 });
 export const clientProtocolCanary = RpcClient.Protocol.make((write) =>

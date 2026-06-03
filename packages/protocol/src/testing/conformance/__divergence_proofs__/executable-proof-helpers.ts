@@ -1,4 +1,4 @@
-import { Cause, Chunk, Effect, Either, Option } from "effect";
+import { Cause, Chunk, Effect, Option } from "effect";
 import { expect } from "vitest";
 import {
   PropertyAssertionFailure,
@@ -8,34 +8,6 @@ import {
   type PropertyFailure,
   type RegisteredProperty,
 } from "../_shared/registry.js";
-
-// ── Mux envelope helpers ─────────────────────────────────────────────────────
-//
-// The live transport multiplexes the socket with a `{ ch, f }` envelope
-// (`mux.ts`): the driver wraps every outbound request and unwraps every
-// inbound frame. The known-bad servers mirror that framing so their raw
-// JSON-RPC handlers stay envelope-agnostic — unwrap each inbound chunk before
-// decode, wrap each reply on the `c2s` channel where its request arrived.
-
-/**
- * Strip a WELL-FORMED `{ ch, f }` mux envelope to its inner frame. An envelope
- * is only unwrapped when `ch` is a valid channel AND `f` is a string; a bare
- * frame (no envelope) passes through unchanged. A malformed envelope (e.g.
- * missing `ch`) is NOT silently accepted as the inner frame, so the harness
- * still rejects garbage framing.
- */
-export function muxUnwrap(raw: string): string {
-  const parsed = Either.getOrNull(Either.try(() => JSON.parse(raw) as unknown));
-  if (typeof parsed !== "object" || parsed === null) return raw;
-  const env = parsed as { readonly ch?: unknown; readonly f?: unknown };
-  const isEnvelope =
-    (env.ch === "c2s" || env.ch === "s2c") && typeof env.f === "string";
-  return isEnvelope ? (env.f as string) : raw;
-}
-
-/** Wrap a reply frame on the c2s channel — responses ride back where requests arrive. */
-export const muxWrapC2s = (frame: string): string =>
-  JSON.stringify({ ch: "c2s", f: frame });
 
 class ProofExpectationError extends Error {
   override readonly name = "ProofExpectationError";

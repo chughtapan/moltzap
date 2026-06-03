@@ -3,11 +3,11 @@
  * transport (`transport/mux.ts`).
  *
  * `RpcServer.make`/`RpcServer.layer` bind {@link WsServerEngineRpcGroup}
- * to a `RpcServer.Protocol` built from the server-side mux channel
+ * to a `RpcServer.Protocol` built from the server-side socket engine
  * (`makeServerChannelProtocol`). The engine reads inbound `FromClientEncoded`
- * frames the mux demuxes off the c→s channel, dispatches each to the matching
- * `WsServerEngineRpcGroup.toLayer` handler, and writes the `FromServerEncoded`
- * reply back through the same channel's Parser.
+ * frames the demux routes to the server sink by frame family, dispatches each
+ * to the matching `WsServerEngineRpcGroup.toLayer` handler, and writes the
+ * `FromServerEncoded` reply back through the engine's Parser.
  *
  * A request's authentication reaches its handler as a Context service: each
  * authenticated member carries its OWN `*AuthMw` middleware (the per-method
@@ -20,7 +20,7 @@
  *
  * ```mermaid
  * flowchart LR
- *   socket["c→s mux channel"] -->|FromClientEncoded| ENG[RpcServer engine]
+ *   socket["socket server sink"] -->|FromClientEncoded| ENG[RpcServer engine]
  *   ENG -->|clientId, rpc, payload, headers| MW["per-method *AuthMw"]
  *   MW -->|provides the method AuthContext proof| H["ServerEngineRpcGroup.toLayer handler"]
  *   H -->|FromServerEncoded| socket
@@ -43,7 +43,7 @@ import { WsServerEngineRpcGroup } from "./server-engine-group.js";
  * demux feeds decoded inbound frames into). Only the impl crosses into the
  * `Protocol` Tag; the built {@link ChannelSink} is fulfilled into the
  * caller-provided `sinkReady` Deferred so the live connection's
- * `runMuxReader` can route inbound `c2s` chunks into the engine.
+ * `runMuxReader` can route inbound request-family chunks into the engine.
  *
  * The sink's `inject` closes over the SAME `write` injector the engine handed
  * the builder, so a chunk routed to the sink enters the engine's dispatch
@@ -53,7 +53,7 @@ import { WsServerEngineRpcGroup } from "./server-engine-group.js";
  * forks.
  *
  * `write` is the raw-write surface of the shared socket (one call writes one
- * enveloped chunk; the live connection passes `Socket.Socket["writer"]`).
+ * bare frame; the live connection passes `Socket.Socket["writer"]`).
  * `disconnects` is the Mailbox the live connection offers a client id to on
  * socket close, so the engine runs per-client teardown.
  */
@@ -61,16 +61,8 @@ export const makeServerProtocolLayer = (options: {
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
   readonly sinkReady: Deferred.Deferred<ChannelSink>;
-
-  /**
-   * Which mux channel this server engine binds. The live server's inbound
-   * engine binds `c2s`; the client's reverse notification/callback server binds
-   * `s2c`. Defaults to `c2s` (the server inbound engine, the common case).
-   */
-  readonly channel?: "c2s" | "s2c";
 }): Layer.Layer<RpcServer.Protocol> => {
   const builder = makeServerChannelProtocol({
-    channel: options.channel ?? "c2s",
     write: options.write,
     disconnects: options.disconnects,
   });

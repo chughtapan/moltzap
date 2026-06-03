@@ -487,7 +487,7 @@ class RuntimeTestClient implements TestClient {
   sendResponseFrame(
     frame: ResponseFrame,
   ): ReturnType<TestClient["sendResponseFrame"]> {
-    return writeOutboundFrame(this.runtime, frame, "s2c");
+    return writeOutboundFrame(this.runtime, frame);
   }
 
   subscribe<D extends AnyNotificationDefinition>(
@@ -610,7 +610,6 @@ function openTestClientRuntime(
 function writeFrame(
   runtime: TestClientRuntime,
   raw: string,
-  channel: "c2s" | "s2c",
 ): Effect.Effect<void, TransportClosedError | TransportIoError> {
   return Effect.gen(function* () {
     const state = yield* Ref.get(runtime.closeRef);
@@ -623,14 +622,11 @@ function writeFrame(
         }),
       );
     }
-    // The live server multiplexes the socket with a `{ ch, f }` envelope
-    // (`mux.ts`). A fresh request goes on the `c2s` (client→server)
-    // endpoint; a REPLY to a server-originated callback goes back on `s2c` — the
-    // channel that callback request arrived on — so the s2c engine correlates it.
-    const enveloped = JSON.stringify({ ch: channel, f: raw });
-    yield* runtime
-      .writer(enveloped)
-      .pipe(Effect.mapError(outboundTransportIoError));
+    // The socket carries bare JSON-RPC frames (`mux.ts`): a request carries a
+    // top-level `method` and routes to the server engine; a reply to a
+    // server-originated callback carries none and routes to the server's client
+    // engine — the family split needs no envelope.
+    yield* runtime.writer(raw).pipe(Effect.mapError(outboundTransportIoError));
   });
 }
 
@@ -638,17 +634,16 @@ function writeReply(
   runtime: TestClientRuntime,
   reply: ResponseFrame,
 ): Effect.Effect<void> {
-  return writeOutboundFrame(runtime, reply, "s2c").pipe(Effect.ignore);
+  return writeOutboundFrame(runtime, reply).pipe(Effect.ignore);
 }
 
 function writeOutboundFrame(
   runtime: TestClientRuntime,
   frame: AnyFrame,
-  channel: "c2s" | "s2c",
 ): Effect.Effect<void, TransportClosedError | TransportIoError> {
   const raw = encodeFrame(frame);
   return recordFrame(runtime.captures, "outbound", raw, frame).pipe(
-    Effect.zipRight(writeFrame(runtime, raw, channel)),
+    Effect.zipRight(writeFrame(runtime, raw)),
   );
 }
 
@@ -906,17 +901,6 @@ function startSocketReader(
   return Effect.forkScoped(reader).pipe(Effect.asVoid);
 }
 
-/**
- * The channel-mux envelope every wire chunk rides in (`mux.ts`). The
- * driver decodes `f` — the JSON-RPC frame — and ignores `ch` (it serves the
- * single c2s endpoint plus the s2c reverse frames the server pushes).
- */
-const MuxEnvelopeSchema = Schema.Struct({
-  ch: Schema.Literal("c2s", "s2c"),
-  f: Schema.String,
-});
-const decodeMuxEnvelope = Schema.decodeUnknownEither(MuxEnvelopeSchema);
-
 // The wire-method names the server fires as NOTIFICATIONS. The server stands
 // these on the s2c reverse `RpcClient` as void-result RPCs (`originator.notify`)
 // and AWAITS the client's void ack — a server-side round-trip stays parked until
@@ -932,13 +916,9 @@ const NOTIFICATION_METHODS = new Set<string>(
 function decodeSocketData(data: string | Uint8Array): string {
   const text =
     typeof data === "string" ? data : new TextDecoder("utf-8").decode(data);
-  // Unwrap the `{ ch, f }` mux envelope to the JSON-RPC frame. A chunk that is
-  // not an envelope (a bare frame from a non-mux peer) passes through unchanged.
-  const frame = Either.match(decodeMuxEnvelope(safeJsonParse(text)), {
-    onLeft: () => text,
-    onRight: (env) => env.f,
-  });
-  return normalizeNativeFrame(frame);
+  // The socket carries bare JSON-RPC frames (`mux.ts`); the server's family
+  // router demuxes by `method` presence, so there is no envelope to unwrap.
+  return normalizeNativeFrame(text);
 }
 
 /**
@@ -1096,7 +1076,7 @@ function sendClientRpc<D extends AnyServerRpcDefinition>(
     >();
     runtime.pending.set(request.id, deferred);
     yield* recordFrame(runtime.captures, "outbound", raw, request);
-    yield* writeFrame(runtime, raw, "c2s");
+    yield* writeFrame(runtime, raw);
     const response = yield* awaitPendingRpcResponse(runtime, deferred, {
       id: request.id,
       method: input.definition.name,
@@ -1187,7 +1167,7 @@ function sendMalformedFrame<D extends AnyServerRpcDefinition>(
     >();
     runtime.pending.set(baseFrame.id, deferred);
     yield* recordMalformed(runtime.captures, raw, opts.kind);
-    yield* writeFrame(runtime, raw, "c2s");
+    yield* writeFrame(runtime, raw);
     return yield* waitForMalformedOutcome(runtime, deferred, baseFrame.id);
   });
 }

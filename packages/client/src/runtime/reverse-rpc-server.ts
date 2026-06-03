@@ -1,10 +1,11 @@
 /**
- * @file The client-side reverse `@effect/rpc` server over the s2c channel.
+ * @file The client-side reverse `@effect/rpc` server over the shared socket.
  *
- * A connected client stands ONE `RpcServer&lt;ReverseRpcGroup>` on the s2c mux
- * sink. `ReverseRpcGroup` is the moderator callbacks (`dispatch/authorize`,
- * `messages/authorize`, `task/create`) ∪ every notification. The server fires
- * these as reverse RPCs over the s2c channel; this engine serves them:
+ * A connected client stands ONE `RpcServer&lt;ReverseRpcGroup>` as the socket's
+ * `server` sink. `ReverseRpcGroup` is the moderator callbacks
+ * (`dispatch/authorize`, `messages/authorize`, `task/create`) ∪ every
+ * notification. The server fires these as reverse RPCs (request-family frames);
+ * this engine serves them:
  *
  * - A NOTIFICATION handler builds a `DecodedNotification` from the wire payload
  *   and routes it into the `SubscriberRegistry` (so `client.subscribe(def)`
@@ -14,9 +15,10 @@
  *   client is never a moderator, so its callback handlers reject — but they
  *   must still be present so the handler map covers every group member.
  *
- * The s2c Protocol is the SERVER side of the mux (`makeServerChannelProtocol`,
- * channel `s2c`): the client originates nothing on s2c, it only serves. The
- * caller registers the returned sink with `runMuxReader`.
+ * This is the SERVER side of the socket (`makeServerChannelProtocol`): the
+ * client originates nothing here, it only serves the server's reverse RPCs. The
+ * caller registers the returned sink as the socket's `server` sink with
+ * `runMuxReader`.
  */
 import { RpcServer } from "@effect/rpc";
 import type { RpcGroup } from "@effect/rpc";
@@ -88,17 +90,15 @@ const taggedErrorFromCause = (frame: Record<string, unknown>): unknown => {
 };
 
 /**
- * Wrap the s2c `WireWrite` so a reverse-handler error frame leaves the wire as
- * a flat tagged error, the same projection the forward call path surfaces.
- * Each chunk is a `{ch, f}` mux envelope whose `f` is an encoded engine frame.
- * Rewrite `f` only when its `error` carries the engine's `Cause` envelope,
- * otherwise pass the chunk through untouched.
+ * Wrap the reverse `WireWrite` so a reverse-handler error frame leaves the wire
+ * as a flat tagged error, the same projection the forward call path surfaces.
+ * Each chunk is a bare encoded engine frame. Rewrite it only when its `error`
+ * carries the engine's `Cause` envelope, otherwise pass the chunk through
+ * untouched.
  *
  * Only error frames need rewriting, and the `Cause` envelope always carries the
- * `Cause` discriminant, so a cheap substring guard skips the double-`JSON.parse`
- * for every success ack and notification, which is the common case. `f` is
- * JSON-string-escaped inside the envelope, so the bytes are the escaped form of
- * the word `Cause`; matching the bare word covers both escaped and unescaped.
+ * `Cause` discriminant, so a cheap substring guard skips the `JSON.parse` for
+ * every success ack and notification, which is the common case.
  */
 const flattenReverseErrors =
   (write: WireWrite): WireWrite =>
@@ -109,25 +109,17 @@ const flattenReverseErrors =
   };
 
 /**
- * Rewrite one enveloped chunk's error frame to the flat tagged error, or
- * undefined when the chunk is not a rewritable `Cause`-carrying error frame
- * (non-JSON, no `f` string, no `error`, or a non-single-failure Cause). The
- * spread preserves every envelope field, so any future mux metadata rides
- * through untouched.
+ * Rewrite one chunk's error frame to the flat tagged error, or undefined when
+ * the chunk is not a rewritable `Cause`-carrying error frame (non-JSON, no
+ * `error`, or a non-single-failure Cause). The spread preserves every frame
+ * field, so any future engine metadata rides through untouched.
  */
 const rewriteCauseFrame = (chunk: string): string | undefined => {
-  const envelope = asObject(parseJson(chunk));
-  if (envelope === undefined || typeof envelope["f"] !== "string") {
-    return undefined;
-  }
-  const frame = asObject(parseJson(envelope["f"]));
+  const frame = asObject(parseJson(chunk));
   if (frame === undefined) return undefined;
   const tagged = taggedErrorFromCause(frame);
   if (tagged === undefined) return undefined;
-  return JSON.stringify({
-    ...envelope,
-    f: JSON.stringify({ ...frame, error: tagged }),
-  });
+  return JSON.stringify({ ...frame, error: tagged });
 };
 
 /**
@@ -177,9 +169,9 @@ const buildReverseHandlers = (options: {
 };
 
 /**
- * Stand the reverse `RpcServer&lt;ReverseRpcGroup>` over one socket's s2c channel.
- * Returns the s2c {@link ChannelSink} the caller registers with `runMuxReader`.
- * The engine reader is forked into the provided `Scope`.
+ * Stand the reverse `RpcServer&lt;ReverseRpcGroup>` over one socket. Returns the
+ * {@link ChannelSink} the caller registers as the socket's `server` sink with
+ * `runMuxReader`. The engine reader is forked into the provided `Scope`.
  */
 export const buildReverseServer = (options: {
   readonly registry: SubscriberRegistry;
@@ -194,7 +186,6 @@ export const buildReverseServer = (options: {
     const sinkReady = yield* Deferred.make<ChannelSink>();
     const disconnects = yield* Mailbox.make<number>();
     const protocolLayer = makeServerProtocolLayer({
-      channel: "s2c",
       write: flattenReverseErrors(options.write),
       disconnects,
       sinkReady,

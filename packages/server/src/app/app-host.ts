@@ -629,7 +629,7 @@ export class AppHost {
    *     AH-->>AH: deny reason policy.reason resolved in-process
    *   else policy.kind hook
    *     AH->>App: callAppRpc(entry.endpoint.originator, DispatchAuthorize, params)
-   *     Note over App: decodeServerInbound → ServerRequest<br>client TypedDispatcher.handle<br>taskCallbackHandlers["dispatch/authorize"]
+   *     Note over App: reverse RpcServer decodes the callback descriptor<br>taskCallbackHandlers["dispatch/authorize"]
    *     App-->>AH: response frame — verdict {grant|deny|hold}
    *     Note over AH: wrapHookEffectWithEnvelope<br>timeout → deny reason timeout<br>RPC error → deny reason "dispatch/authorize error"
    *   end
@@ -642,10 +642,10 @@ export class AppHost {
    *   AH->>Recv: emit dispatch/release {verdict}
    * ```
    *
-   * Server→client request frames are restricted to
-   * `appCallbackMethods` by `decodeServerInbound`; a misconfigured
-   * server cannot smuggle a non-callback method through the client's
-   * inbound path. The originator lifecycle (`pending` map, id prefix,
+   * Server→client request frames are restricted to `appCallbackMethods` by
+   * the client's reverse `RpcServer` group; a misconfigured server cannot
+   * smuggle a non-callback method through the client's inbound path. The
+   * originator lifecycle (`pending` map, id prefix,
    * finalizer ordering) is the same one used for client-originated
    * RPCs — see the typed dispatcher in `@moltzap/protocol`.
    *

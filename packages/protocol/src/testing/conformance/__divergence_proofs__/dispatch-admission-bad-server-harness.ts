@@ -17,11 +17,7 @@ import {
   collectProperties,
   type PropertyFailure,
 } from "../_shared/registry.js";
-import {
-  muxUnwrap,
-  muxWrapC2s,
-  runExpectingFailure,
-} from "./executable-proof-helpers.js";
+import { runExpectingFailure } from "./executable-proof-helpers.js";
 import type {
   BadAppRegistration,
   BadAppRegistry,
@@ -214,12 +210,9 @@ function runBadDispatchConnection(
   return Effect.gen(function* () {
     const connId = yield* Ref.updateAndGet(refs.connCounter, (n) => n + 1);
     const writer = yield* socket.writer;
-    // The live transport multiplexes the socket with a `{ ch, f }` envelope
-    // (`mux.ts`). Mirror that framing at the transport boundary so the
-    // raw-frame handlers below stay envelope-agnostic: wrap every outbound
-    // reply on the c2s channel, unwrap every inbound chunk before decode.
-    const writeEffect = (raw: string) =>
-      writer(muxWrapC2s(raw)).pipe(Effect.orDie);
+    // Every frame is a bare JSON-RPC string (`mux.ts` routes by family, no
+    // envelope), so the raw-frame handlers read/write the wire verbatim.
+    const writeEffect = (raw: string) => writer(raw).pipe(Effect.orDie);
     yield* Ref.update(refs.stateRef, (s) => {
       s.writers.set(connId, writeEffect);
       return s;
@@ -227,7 +220,7 @@ function runBadDispatchConnection(
     yield* socket
       .runRaw((data) =>
         handleInboundFrame({
-          raw: muxUnwrap(socketDataToString(data)),
+          raw: socketDataToString(data),
           connId,
           stateRef: refs.stateRef,
           authorizeWaiters: refs.authorizeWaiters,

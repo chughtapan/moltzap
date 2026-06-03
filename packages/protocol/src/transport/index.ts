@@ -1,10 +1,11 @@
 /**
  * @file Public barrel for JSON-RPC transport descriptors and runtime helpers.
  */
-// Wire (frame types only — request/response/notification frame builders
-// are per-def `encode*` methods on RpcDefinition / NotificationDefinition.
-// `encodeErrorResponse` is the single method-agnostic wire encoder.)
-export { encodeErrorResponse, jsonRpcMethod } from "./wire.js";
+// Wire vocabulary: the branded JSON-RPC id + method types, the protocol
+// version literal, and the frame-shape types the group decoders
+// (`decodeRpcRequest` / `decodeNotification`) are typed against. `jsonRpcMethod`
+// brands a wire-method name at descriptor construction.
+export { jsonRpcMethod, JSON_RPC_VERSION } from "./wire.js";
 export type {
   JsonRpcId,
   JsonRpcMethod,
@@ -13,9 +14,9 @@ export type {
   NotificationFrame,
 } from "./wire.js";
 
-// Wire frame schemas (TypeBox) — exported so testing/conformance can
-// validate frames against the canonical shape via @moltzap/protocol/transport
-// rather than reaching into wire.js by relative path.
+// Wire frame schemas — exported so testing/conformance can validate frames
+// against the canonical shape via @moltzap/protocol/transport rather than
+// reaching into wire.js by relative path.
 export {
   responseFrameSchema,
   responseFrameSchema as ResponseFrameSchema,
@@ -24,8 +25,8 @@ export {
 } from "./wire.js";
 
 // RPC + notification descriptor types. Decoders are protocol-internal;
-// consumers go through `decodeServerInbound` (rpc-registry.ts) or per-def
-// `validateParams`.
+// consumers go through the group-level `decodeRpcRequest` / `decodeNotification`
+// or per-def `validateParams`.
 export type {
   RpcDefinition,
   NotificationDefinition,
@@ -74,13 +75,13 @@ export {
 } from "./wire-errors.js";
 export type { RpcErrorPayload } from "./wire-errors.js";
 
-// Decoded RPC + notification types. Group-level decode helpers
-// (`decodeRpcRequest`, `decodeNotification`) remain protocol-internal —
-// consumers reach the same surface via `decodeServerInbound` and discriminate
-// on `definition` identity. `isDecodedNotification` is the typed-guard
-// companion the Stream-based `client.notifications`/`subscribeTo` callers use
-// to narrow filtered frames to `DecodedNotification<D>`; it is part of the
-// public surface.
+// Decoded RPC + notification types. The group-level decode helpers
+// (`decodeRpcRequest`, `decodeNotification`) discriminate a frame against a
+// descriptor catalog by `method` and validate params against the descriptor;
+// callers discriminate on `definition` identity. `isDecodedNotification` is the
+// typed-guard companion the Stream-based `client.notifications`/`subscribeTo`
+// callers use to narrow filtered frames to `DecodedNotification<D>`; it is part
+// of the public surface.
 export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 export { isDecodedNotification } from "./rpc-groups.js";
 
@@ -93,9 +94,9 @@ export { isDecodedNotification } from "./rpc-groups.js";
 export { AgentPrincipal, AppPrincipal, AgentClaimed } from "./principal.js";
 export type { PrincipalRequirement } from "./principal.js";
 
-// Channel-multiplexed `@effect/rpc` transport. One physical WebSocket
-// carries every logical endpoint, split by the `{ch, f}` envelope; each
-// channel owns its own serialization Parser and binds to the engine
+// Two-engine `@effect/rpc` transport. One physical WebSocket carries a local
+// `RpcServer` and a local `RpcClient`; inbound frames route to one or the other
+// by frame family (a `method` marks the request family). Both engines bind
 // through the low-level `RpcServer.Protocol.make` / `RpcClient.Protocol.make`
 // extension points. The live connection composes these builders.
 export {
@@ -106,8 +107,7 @@ export {
   MUX_CLIENT_ID,
 } from "./mux.js";
 export type {
-  MuxChannel,
-  MuxEnvelope,
+  SocketSinks,
   WireWrite,
   ChannelProtocol,
   ChannelSink,

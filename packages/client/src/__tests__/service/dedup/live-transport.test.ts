@@ -134,7 +134,7 @@ function handleServerSocket(
   return Effect.gen(function* () {
     const write = yield* serverSock.writer;
     const conn: ServerConn = {
-      send: (raw) => write(muxWrapServerFrame(raw)).pipe(Effect.ignore),
+      send: (raw) => write(stampReverseId(raw)).pipe(Effect.ignore),
     };
     yield* Deferred.succeed(firstConn, conn);
     yield* serverSock.runRaw((data) => handleServerData(data, write));
@@ -146,11 +146,11 @@ function handleServerData(
   write: SocketWriter,
 ): Effect.Effect<void, Socket.SocketError> {
   return Effect.gen(function* () {
-    const parsed = parseRequestFrame(muxUnwrap(decodeServerData(data)));
+    const parsed = parseRequestFrame(normalizeInbound(decodeServerData(data)));
     if (parsed === null) return;
     if (parsed.method !== Connect.name) return;
     yield* write(
-      muxWrapServerFrame(
+      stampReverseId(
         JSON.stringify(responseFrame(parsed.id, { result: helloOk() })),
       ),
     ).pipe(Effect.ignore);
@@ -163,11 +163,11 @@ function decodeServerData(data: string | Uint8Array): string {
     : new TextDecoder("utf-8").decode(data);
 }
 
-// The production `MoltZapService` multiplexes the socket with a `{ ch, f }`
-// envelope (`mux.ts`) and the native engine mints NUMERIC ids the strict
-// wire schema brands as strings. The in-process server mirrors that framing:
-// unwrap + strip native extras + stringify a numeric id on receipt, wrap on
-// send (responses on `c2s`, server-pushed notifications on `s2c`).
+// The production `MoltZapService` reads/writes bare JSON-RPC frames (`mux.ts`
+// routes by frame family, no envelope), and the native engine mints NUMERIC
+// ids the strict wire schema brands as strings. The in-process server
+// reconciles inbound frames (strip native extras + stringify a numeric id) and
+// stamps a synthetic id on an id-less server-pushed reverse RPC.
 const NATIVE_EXTRAS = ["headers", "traceId", "spanId", "sampled"];
 function asObject(raw: string): { readonly [k: string]: unknown } | null {
   const v = Either.getOrNull(Either.try(() => JSON.parse(raw) as unknown));
@@ -175,23 +175,23 @@ function asObject(raw: string): { readonly [k: string]: unknown } | null {
     ? (v as { readonly [k: string]: unknown })
     : null;
 }
-function muxUnwrap(raw: string): string {
-  const outer = asObject(raw);
-  const inner =
-    outer !== null && typeof outer["f"] === "string" ? outer["f"] : raw;
-  const parsed = asObject(inner);
-  if (parsed === null) return inner;
+function normalizeInbound(raw: string): string {
+  const parsed = asObject(raw);
+  if (parsed === null) return raw;
   const frame: Record<string, unknown> = { ...parsed };
   for (const key of NATIVE_EXTRAS) delete frame[key];
   if (typeof frame["id"] === "number") frame["id"] = String(frame["id"]);
   return JSON.stringify(frame);
 }
-function muxWrapServerFrame(frame: string): string {
+function stampReverseId(frame: string): string {
   const obj = asObject(frame);
-  const channel =
-    obj !== null && typeof obj["method"] === "string" ? "s2c" : "c2s";
-  return JSON.stringify({ ch: channel, f: frame });
+  if (obj === null || typeof obj["method"] !== "string" || "id" in obj) {
+    return frame;
+  }
+  serverPushId += 1;
+  return JSON.stringify({ ...obj, id: String(serverPushId) });
 }
+let serverPushId = 0;
 
 function parseRequestFrame(raw: string): RequestFrame | null {
   const parsed: unknown = JSON.parse(raw);

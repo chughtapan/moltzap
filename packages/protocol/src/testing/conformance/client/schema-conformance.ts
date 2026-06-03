@@ -74,7 +74,7 @@ export function registerNotificationWellFormednessClient(
 
 /**
  * Client half of `malformed-frame-handling` — TestServer emits a
- * bit-flipped / truncated / oversized frame; real client drops it
+ * bit-flipped / truncated / invalid-utf8 frame; real client drops it
  * silently. A subsequent tagged valid notification still surfaces
  * (liveness proof). A client that crashes on the malformed frame
  * disconnects, preventing the liveness probe from surfacing within the

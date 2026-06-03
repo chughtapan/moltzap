@@ -100,7 +100,7 @@ transport errors. This is exactly what the typed client surfaces on
 `client["method/name"](payload)`'s Effect — the same union the wire
 `errorSchema` decodes, plus transport.
 
-### [`ChannelProtocol`](./mux.ts#L284)
+### [`ChannelProtocol`](./mux.ts#L229)
 
 _Interface_
 
@@ -111,13 +111,13 @@ export interface ChannelProtocol<Impl> {
 }
 ```
 
-A built channel protocol: the exact impl record the corresponding
-`Protocol.make` callback returns, plus the ChannelSink the
-demux registers so inbound frames on this channel reach the engine.
-The two are split so the `Protocol.make` callback returns only `impl`
-(no excess fields), while the demux owns `sink`.
+A built engine protocol: the exact impl record the corresponding
+`Protocol.make` callback returns, plus the ChannelSink the demux
+registers so inbound frames reach the engine. The two are split so the
+`Protocol.make` callback returns only `impl` (no excess fields), while the
+demux owns `sink`.
 
-### [`ChannelSink`](./mux.ts#L116)
+### [`ChannelSink`](./mux.ts#L66)
 
 _Interface_
 
@@ -128,11 +128,10 @@ interface ChannelSink {
 }
 ```
 
-The per-channel inbound sinks the demux routes decoded wire strings
-into. Each sink owns its endpoint's Parser and the engine-side
-`write` injector the Parser feeds.
+One engine's inbound sink the demux routes decoded frames into. Each sink
+owns its engine's Parser and the `write` injector the Parser feeds.
 
-### [`clientProtocolCanary`](./mux.types-check.ts#L47)
+### [`clientProtocolCanary`](./mux.types-check.ts#L44)
 
 _Variable_
 
@@ -156,15 +155,6 @@ export class ConflictError extends Schema.TaggedError<ConflictError>()(
 ```
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
-
-### [`DecodedFrame`](./wire.ts#L137)
-
-_TypeAlias_
-
-```ts
-export type DecodedFrame =
-  | { readonly _tag: "Request"; readonly frame: RequestFrame }
-```
 
 ### [`DecodedNotification`](./rpc-groups.ts#L54)
 
@@ -204,38 +194,6 @@ _TypeAlias_
 
 ```ts
 export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
-```
-
-### [`decodeFrame`](./wire.ts#L170)
-
-_Function_
-
-```ts
-export function decodeFrame(
-  parsed: unknown,
-): Effect.Effect<DecodedFrame, FrameDecodeError>
-```
-
-Classify one already-`JSON.parse`d value as a JSON-RPC Request, Response,
-or Notification frame — fail-closed on anything else.
-
-The discrimination runs `Schema.decodeUnknownEither(...,
-{ onExcessProperty: "error" })` against each frame schema in precedence order
-(Request → Response → Notification). The `{ onExcessProperty: "error" }`
-option rejects excess keys: a frame with an extra top-level key fails decode
-at EVERY arm and falls through to `FrameDecodeError` — the conformance
-`extra-property` / `oversized` mutators depend on this.
-
-```mermaid
-flowchart TD
-  A["parsed: unknown<br>(JSON.parse already ran)"]
-  A --> B["Schema.decodeUnknownEither(RequestFrame, STRICT)"]
-  B -- Right --> R["tag Request"]
-  B -- Left --> C["Schema.decodeUnknownEither(ResponseFrame, STRICT)"]
-  C -- Right --> S["tag Response"]
-  C -- Left --> D["Schema.decodeUnknownEither(NotificationFrame, STRICT)"]
-  D -- Right --> N["tag Notification"]
-  D -- Left --> X["FrameDecodeError (id salvaged if string)"]
 ```
 
 ### [`decodeNotification`](./rpc-groups.ts#L124)
@@ -358,9 +316,9 @@ flowchart TD
   at the factory call.
 - Capabilities are NOT descriptor metadata; `defineRpc` carries only the
   wire shape, and the server's per-method `*AuthMw` runs the caps.
-- The validators reject excess keys (`closedStructGuard`), preserving the
-  AJV `strict` + `additionalProperties:false` rejection the conformance
-  suite's `extra-property` / `oversized` mutators assert.
+- The param/result validators reject excess keys (`closedStructGuard`): a
+  bare `Schema.is` accepts unknown keys, so per-method validation closes the
+  struct to catch a caller that sends a field the descriptor never declared.
 
 Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
 string can never accidentally type-fit a method position. See
@@ -420,22 +378,6 @@ identity (a class shared across a requirement and the handler list appears
 once). This is the single source the wire `errorSchema`, the server gate, and
 the typed client all read.
 
-### [`encodeErrorResponse`](./wire.ts#L268)
-
-_Function_
-
-```ts
-export function encodeErrorResponse(
-  id: JsonRpcId | null,
-  error: ResponseFrameError,
-): ResponseFrame
-```
-
-Public wire-error response encoder. Constructs a JSON-RPC error
-response for any wire id (no method binding). Method-tied success
-responses are framed by the server engine via the per-method result
-schema; this helper is the method-agnostic error path.
-
 ### [`ErrorForTag`](./typed-dispatch.ts#L38)
 
 _TypeAlias_
@@ -472,17 +414,6 @@ export class ForbiddenError extends Schema.TaggedError<ForbiddenError>()(
 
 Authenticated but not authorized for this resource.
 
-### [`FrameDecodeError`](./wire.ts#L142)
-
-_Class_
-
-```ts
-export class FrameDecodeError extends Data.TaggedError("FrameDecodeError")<{
-  readonly raw: unknown;
-  readonly id: JsonRpcId | null;
-}> {}
-```
-
 ### [`InvalidParamsError`](./wire-errors.ts#L65)
 
 _Class_
@@ -509,7 +440,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`JSON_RPC_VERSION`](./wire.ts#L11)
+### [`JSON_RPC_VERSION`](./wire.ts#L6)
 
 _Variable_
 
@@ -517,7 +448,7 @@ _Variable_
 export const JSON_RPC_VERSION = "2.0" as const
 ```
 
-### [`JsonRpcId`](./wire.ts#L18)
+### [`JsonRpcId`](./wire.ts#L13)
 
 _TypeAlias_
 
@@ -525,7 +456,7 @@ _TypeAlias_
 export type JsonRpcId = Schema.Schema.Type<typeof JsonRpcIdSchema>;
 ```
 
-### [`jsonRpcMethod`](./wire.ts#L29)
+### [`jsonRpcMethod`](./wire.ts#L24)
 
 _Function_
 
@@ -537,9 +468,9 @@ export const jsonRpcMethod = <const Name extends string>(
 
 Internal factory for descriptor construction (`defineRpc`,
 `defineNotification`). Not on the package barrel — callers pass plain
-strings to frame builders, which brand internally.
+strings to descriptors, which brand internally.
 
-### [`JsonRpcMethod`](./wire.ts#L19)
+### [`JsonRpcMethod`](./wire.ts#L14)
 
 _TypeAlias_
 
@@ -556,34 +487,31 @@ _Property_
   readonly errors: ReadonlyArray<RpcErrorClass>;
 ```
 
-### [`makeClientChannelProtocol`](./mux.ts#L346)
+### [`makeClientChannelProtocol`](./mux.ts#L294)
 
 _Function_
 
 ```ts
 export function makeClientChannelProtocol(options: {
-  readonly channel: MuxChannel;
   readonly write: WireWrite;
 }): (
   write: (data: FromServerEncoded) => Effect.Effect<void>,
 )
 ```
 
-Build the client-side `RpcClient.Protocol` impl over one socket
-channel. Mirrors makeServerChannelProtocol for the client
-engine: `send` encodes a `FromClientEncoded` through the channel's
-Parser and writes the enveloped wire string; the sink's `inject`
-feeds decoded inbound `FromServerEncoded` frames into the engine. The
-client engine has no `disconnects` Mailbox — socket close fails the
-client call channel through the underlying socket.
+Build the client-side `RpcClient.Protocol` impl over one socket. Mirrors
+makeServerChannelProtocol for the client engine: `send` encodes a
+`FromClientEncoded` through the engine's Parser and writes the bare wire
+string; the sink's `inject` feeds decoded inbound `FromServerEncoded` frames
+into the engine. The client engine has no `disconnects` Mailbox — socket
+close fails the client call channel through the underlying socket.
 
-### [`makeServerChannelProtocol`](./mux.ts#L301)
+### [`makeServerChannelProtocol`](./mux.ts#L246)
 
 _Function_
 
 ```ts
 export function makeServerChannelProtocol(options: {
-  readonly channel: MuxChannel;
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
 }): (
@@ -591,16 +519,16 @@ export function makeServerChannelProtocol(options: {
 )
 ```
 
-Build the server-side `RpcServer.Protocol` impl over one socket
-channel. Pass the resulting builder the engine's `write` injector
-(the argument `RpcServer.Protocol.make` hands its callback); the
-builder returns the impl record `Protocol.make` expects plus the
-ChannelSink the demux registers.
+Build the server-side `RpcServer.Protocol` impl over one socket. Pass the
+resulting builder the engine's `write` injector (the argument
+`RpcServer.Protocol.make` hands its callback); the builder returns the impl
+record `Protocol.make` expects plus the ChannelSink the demux
+registers.
 
-`send` encodes a `FromServerEncoded` through the channel's Parser and
-writes the enveloped wire string. The sink's `inject` feeds decoded
-inbound `FromClientEncoded` frames into the engine via `write`.
-Socket close is surfaced through the shared `disconnects` Mailbox.
+`send` encodes a `FromServerEncoded` through the engine's Parser and writes
+the bare wire string. The sink's `inject` feeds decoded inbound
+`FromClientEncoded` frames into the engine via `write`. Socket close is
+surfaced through the shared `disconnects` Mailbox.
 
 ### [`makeTypedTransportCall`](./typed-dispatch.ts#L82)
 
@@ -645,7 +573,7 @@ Inbound frame failed to parse as JSON or did not match the expected shape.
 Transport-internal — not a wire `error` union member (never crosses the wire
 as a method failure).
 
-### [`MUX_CLIENT_ID`](./mux.ts#L244)
+### [`MUX_CLIENT_ID`](./mux.ts#L189)
 
 _Variable_
 
@@ -653,48 +581,9 @@ _Variable_
 const MUX_CLIENT_ID = 0
 ```
 
-The single physical client every endpoint on one socket shares. The
-server `Protocol` keys per-client state by id; a mux carries one
-socket, so every channel reports the same id.
-
-### [`MuxChannel`](./mux.ts#L51)
-
-_TypeAlias_
-
-```ts
-export type MuxChannel = "c2s" | "s2c";
-
-/**
- * The channel-tagged envelope every multiplexed frame rides in. `ch`
- * routes the frame to one endpoint's Parser; `f` is that endpoint's
- * encoded wire string (a `JSON.stringify`'d RPC frame). The mux owns
- * this framing, so the per-endpoint Parser runs with
- * `includesFraming=false`.
- */
-const MuxEnvelopeSchema = Schema.Struct({
-  ch: Schema.Literal("c2s", "s2c"),
-  f: Schema.String,
-});
-```
-
-A logical endpoint's slot on the shared socket. `c2s` carries the
-client→server RPC group; `s2c` carries the server-originated callback
-group (the role-inverted endpoint). Adding a logical endpoint adds a
-channel here so the demux stays exhaustive.
-
-### [`MuxEnvelope`](./mux.ts#L70)
-
-_TypeAlias_
-
-```ts
-export type MuxEnvelope = typeof MuxEnvelopeSchema.Type;
-
-const decodeEnvelope = Schema.decodeUnknownEither(MuxEnvelopeSchema);
-```
-
-The envelope's decoded form. `ch` is narrowed to MuxChannel;
-`f` is the per-endpoint encoded wire string awaiting that endpoint's
-Parser.
+The single physical client every engine on one socket shares. The server
+`Protocol` keys per-client state by id; one socket carries one logical
+client, so the server reports this id for the socket.
 
 ### [`NotConnectedError`](./rpc-errors.ts#L15)
 
@@ -785,8 +674,8 @@ sequenceDiagram
   participant Client
   Server->>Server: frame notification from descriptor + params
   Server->>Wire: {jsonrpc, method, params}
-  Wire->>Client: frame arrives
-  Client->>Client: decodeServerInbound<br>→ tag Notification, definition, params
+  Wire->>Client: frame arrives (has method → reverse RpcServer)
+  Client->>Client: reverse engine decodes the notification descriptor
   Client->>Client: subscriber dispatcher routes to handler
 ```
 
@@ -794,21 +683,7 @@ Descriptor role at the transport layer: the wire `name` + params schema +
 strict decode-time validator. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`notificationFrame`](./wire.ts#L276)
-
-_Function_
-
-```ts
-export function notificationFrame<
-  Name extends string,
-  P extends Schema.Schema.AnyNoContext,
->(
-  definition: NotificationDefinition<Name, P>,
-  params: Schema.Schema.Type<P>,
-): NotificationFrame &
-```
-
-### [`NotificationFrame`](./wire.ts#L94)
+### [`NotificationFrame`](./wire.ts#L82)
 
 _TypeAlias_
 
@@ -818,7 +693,7 @@ export type NotificationFrame = Schema.Schema.Type<
 >;
 ```
 
-### [`notificationFrameSchema`](./wire.ts#L106)
+### [`notificationFrameSchema`](./wire.ts#L94)
 
 _Function_
 
@@ -907,23 +782,7 @@ export type PrincipalRequirement = typeof AgentPrincipal | typeof AppPrincipal;
 
 The two principal-requirement tags — the only valid `requires` heads.
 
-### [`requestFrame`](./wire.ts#L206)
-
-_Function_
-
-```ts
-export function requestFrame<
-  Name extends string,
-  P extends Schema.Schema.AnyNoContext,
-  R extends Schema.Schema.AnyNoContext,
->(
-  id: string,
-  definition: RpcDefinition<Name, P, R>,
-  params: Schema.Schema.Type<P>,
-): RequestFrame &
-```
-
-### [`RequestFrame`](./wire.ts#L92)
+### [`RequestFrame`](./wire.ts#L80)
 
 _TypeAlias_
 
@@ -931,7 +790,7 @@ _TypeAlias_
 export type RequestFrame = Schema.Schema.Type<typeof RequestFrameSchema>;
 ```
 
-### [`requestFrameSchema`](./wire.ts#L98)
+### [`requestFrameSchema`](./wire.ts#L86)
 
 _Function_
 
@@ -1002,18 +861,7 @@ arrived. They originate at the client transport, not the handler, so they are
 NOT in a descriptor's effective error union; the typed client adds them to
 every per-method call's error channel.
 
-### [`responseFrame`](./wire.ts#L243)
-
-_Function_
-
-```ts
-export function responseFrame(
-  id: string | null,
-  body: ResponseFrameBody,
-): ResponseFrame
-```
-
-### [`ResponseFrame`](./wire.ts#L93)
+### [`ResponseFrame`](./wire.ts#L81)
 
 _TypeAlias_
 
@@ -1021,16 +869,7 @@ _TypeAlias_
 export type ResponseFrame = Schema.Schema.Type<typeof ResponseFrameSchema>;
 ```
 
-### [`ResponseFrameBody`](./wire.ts#L239)
-
-_TypeAlias_
-
-```ts
-export type ResponseFrameBody =
-  | { result: unknown }
-```
-
-### [`responseFrameSchema`](./wire.ts#L102)
+### [`responseFrameSchema`](./wire.ts#L90)
 
 _Function_
 
@@ -1054,17 +893,26 @@ export type ResultOf<
 
 Type-only accessor for a definition's result payload.
 
-### [`routeInbound`](./mux.ts#L216)
+### [`routeInbound`](./mux.ts#L139)
 
 _Function_
 
 ```ts
 export function routeInbound(
   raw: string | Uint8Array,
-  sinks: Partial<Record<MuxChannel, ChannelSink>>,
+  sinks: SocketSinks,
   reply?: WireWrite,
 ): Effect.Effect<void>
 ```
+
+Route one raw socket chunk to the engine sink named by its frame family. A
+chunk that does not decode into a routable protocol frame — non-JSON, a
+non-object body, or an inner wire string the engine Parser rejects — is
+answered with a JSON-RPC `-32700` parse-error reply (via `reply`) rather than
+failing the socket: a single malformed frame must not tear down both engines
+on the shared connection. When `reply` is omitted the chunk is dropped after
+a warning. The engine's Parser may yield zero or more decoded frames per wire
+string; every frame is injected in order.
 
 ### [`RpcDefinition`](./method.ts#L54)
 
@@ -1234,25 +1082,25 @@ export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`runMuxReader`](./mux.ts#L382)
+### [`runMuxReader`](./mux.ts#L356)
 
 _Function_
 
 ```ts
 export function runMuxReader(
   socket: Socket.Socket,
-  sinks: Partial<Record<MuxChannel, ChannelSink>>,
+  sinks: SocketSinks,
   disconnects: Mailbox.Mailbox<number>,
   reply?: WireWrite,
 ): Effect.Effect<void, Socket.SocketError>
 ```
 
-Drive the shared socket's read loop, routing every inbound chunk to
-the channel sink named by its envelope. The owner forks this and
-surfaces socket close to the server engine's `disconnects` Mailbox so
-per-client teardown runs.
+Drive the shared socket's read loop, routing every inbound chunk to the
+engine sink named by its frame family. The owner forks this and surfaces
+socket close to the server engine's `disconnects` Mailbox so per-client
+teardown runs.
 
-### [`serverProtocolCanary`](./mux.types-check.ts#L37)
+### [`serverProtocolCanary`](./mux.types-check.ts#L35)
 
 _Variable_
 
@@ -1261,6 +1109,22 @@ export const serverProtocolCanary = RpcServer.Protocol.make((write) =>
   serverBuilder(write).pipe(Effect.map((built) => built.impl)),
 )
 ```
+
+### [`SocketSinks`](./mux.ts#L77)
+
+_Interface_
+
+```ts
+export interface SocketSinks {
+  readonly server?: ChannelSink;
+  readonly client?: ChannelSink;
+}
+```
+
+The two role-inverted sinks on one socket. `server` is the local
+`RpcServer`'s inbound sink (request-family frames); `client` is the local
+`RpcClient`'s inbound sink (response-family frames). A socket may carry
+either or both.
 
 ### [`SuccessForTag`](./typed-dispatch.ts#L32)
 
@@ -1307,7 +1171,7 @@ export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
 
 Not authenticated — `network/connect` has not run on this socket.
 
-### [`validateNotificationFrame`](./wire.ts#L132)
+### [`validateNotificationFrame`](./wire.ts#L111)
 
 _Function_
 
@@ -1315,7 +1179,7 @@ _Function_
 export const validateNotificationFrame = (v: unknown): v is NotificationFrame
 ```
 
-### [`validateRequestFrame`](./wire.ts#L128)
+### [`validateRequestFrame`](./wire.ts#L107)
 
 _Function_
 
@@ -1323,7 +1187,7 @@ _Function_
 export const validateRequestFrame = (v: unknown): v is RequestFrame
 ```
 
-### [`validateResponseFrame`](./wire.ts#L130)
+### [`validateResponseFrame`](./wire.ts#L109)
 
 _Function_
 
@@ -1331,7 +1195,7 @@ _Function_
 export const validateResponseFrame = (v: unknown): v is ResponseFrame
 ```
 
-### [`WireWrite`](./mux.ts#L79)
+### [`WireWrite`](./mux.ts#L58)
 
 _TypeAlias_
 
@@ -1341,7 +1205,7 @@ export type WireWrite = (
 ) => Effect.Effect<void, Socket.SocketError>;
 ```
 
-The raw-write surface the mux drives. Mirrors the effect returned by
+The raw-write surface the transport drives. Mirrors the effect returned by
 `Socket.Socket["writer"]`: one call writes one chunk to the wire and
 fails with a Socket.SocketError if the socket is gone.
 

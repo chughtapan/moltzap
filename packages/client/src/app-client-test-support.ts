@@ -256,26 +256,15 @@ const NATIVE_FRAME_EXTRAS = [
   "sampled",
 ] as const;
 
-// The native client multiplexes the socket with a `{ ch, f }` envelope
-// (`@moltzap/protocol transport/mux.ts`): it wraps every outbound frame
-// and unwraps every inbound one. This scripted server mirrors that framing so
-// its raw handlers stay envelope-agnostic. Unwrap strips the envelope AND the
-// native extras, then stringifies the numeric engine id the branded string
-// schema requires — so the handlers below assert on a bare JSON-RPC frame.
-function muxUnwrap(raw: string): string {
-  const outer = parseJsonObject(raw);
-  // Only a WELL-FORMED envelope unwraps: a valid `ch` AND a string `f`. A
-  // malformed envelope passes through raw so the strict frame validator can
-  // reject it, rather than accepting any `{ f }` object as the inner frame.
-  const inner = Option.match(outer, {
+// The native client reads and writes bare JSON-RPC frames
+// (`@moltzap/protocol transport/mux.ts` routes by frame family, no envelope).
+// This scripted server reconciles an inbound frame with the strict wire schema:
+// strip the native engine extras, then stringify the numeric engine id the
+// branded string schema requires — so the handlers below assert on a bare
+// JSON-RPC frame.
+function normalizeInbound(raw: string): string {
+  return Option.match(parseJsonObject(raw), {
     onNone: () => raw,
-    onSome: (o) =>
-      (o["ch"] === "c2s" || o["ch"] === "s2c") && typeof o["f"] === "string"
-        ? o["f"]
-        : raw,
-  });
-  return Option.match(parseJsonObject(inner), {
-    onNone: () => inner,
     onSome: (frame) => {
       const cleaned: Record<string, unknown> = { ...frame };
       for (const key of NATIVE_FRAME_EXTRAS) delete cleaned[key];
@@ -294,31 +283,18 @@ function muxUnwrap(raw: string): string {
 // client's reverse engine processes a request only when it carries an `id`.
 let serverPushId = 0;
 
-// Channel selection by frame shape:
-//   - a RESPONSE (carries `id` AND `result`/`error`) rides `c2s` so the client's
-//     outbound engine correlates it to the request it answered;
-//   - everything else is server-originated and rides `s2c` where the reverse
-//     reader consumes it — a notification/callback REQUEST (has `method`), OR a
-//     MALFORMED frame missing both (the malformed-s2c-notification property).
 // The real server fires notifications as void-result reverse RPCs (a request
-// WITH an `id` the client acks), so a method-bearing frame lacking an `id` gets
-// a synthetic one — otherwise the reverse engine never dispatches it.
-const isResponseShape = (parsed: Record<string, unknown>): boolean =>
-  "id" in parsed && ("result" in parsed || "error" in parsed);
-
-const muxWrapServerFrame = (frame: string): string =>
+// WITH an `id` the client acks). A server-originated method-bearing frame
+// lacking an `id` gets a synthetic one — otherwise the client's reverse engine
+// never dispatches it. A response (no `method`) and a frame that already
+// carries an `id` pass through bare.
+const stampReverseId = (frame: string): string =>
   Option.match(parseJsonObject(frame), {
-    onNone: () => JSON.stringify({ ch: "c2s", f: frame }),
+    onNone: () => frame,
     onSome: (parsed) => {
-      if (isResponseShape(parsed)) {
-        return JSON.stringify({ ch: "c2s", f: frame });
-      }
-      let withId = parsed;
-      if (typeof parsed["method"] === "string" && !("id" in parsed)) {
-        serverPushId += 1;
-        withId = { ...parsed, id: String(serverPushId) };
-      }
-      return JSON.stringify({ ch: "s2c", f: JSON.stringify(withId) });
+      if (typeof parsed["method"] !== "string" || "id" in parsed) return frame;
+      serverPushId += 1;
+      return JSON.stringify({ ...parsed, id: String(serverPushId) });
     },
   });
 
@@ -328,7 +304,7 @@ function handleTestServerRawData(
   handler: ServerHandler,
   data: string | Uint8Array,
 ): Effect.Effect<void> {
-  const raw = muxUnwrap(rawSocketDataToString(data));
+  const raw = normalizeInbound(rawSocketDataToString(data));
   receivedList.push(raw);
   return handler(conn, raw);
 }
@@ -393,7 +369,7 @@ function makeTestServerConnection(
   receivedList: string[],
 ): TestServerConnection {
   return {
-    send: (raw) => write(muxWrapServerFrame(raw)).pipe(Effect.ignore),
+    send: (raw) => write(stampReverseId(raw)).pipe(Effect.ignore),
     close: (code = NORMAL_CLOSE_CODE, reason = "test close") =>
       write(new Socket.CloseEvent(code, reason)).pipe(Effect.ignore),
     get received(): ReadonlyArray<string> {
@@ -677,11 +653,14 @@ function sendMalformedFramesAndResponse(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     if (frame.method !== TaskClose.name) return;
+    // Garbage frames the transport drops without disturbing the in-flight RPC:
+    // a non-JSON chunk, and a response fragment carrying no request id (so it
+    // correlates to nothing). The real response then still resolves. A frame
+    // stamped with the live request id is NOT injected here — a body-less
+    // response for an in-flight id is a malformed RESPONSE for that request,
+    // which the engine rightly fails rather than ignores.
     yield* conn.send("not json at all");
     yield* conn.send(JSON.stringify({ jsonrpc: JSON_RPC_VERSION, result: {} }));
-    yield* conn.send(
-      JSON.stringify({ jsonrpc: JSON_RPC_VERSION, id: frame.id }),
-    );
     yield* conn.send(
       JSON.stringify(responseFrame(frame.id, { result: TEST_TASK_RESULT })),
     );

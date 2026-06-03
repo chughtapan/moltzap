@@ -213,12 +213,11 @@ export function listCursorSchema(): typeof ListCursorSchema {
  * Effect's `Schema.Struct` STRIPS excess keys by default
  * (`onExcessProperty:"ignore"`) — `Schema.decodeUnknownEither(S)({a,extra})`
  * returns `Right` with `extra` silently dropped, and `Schema.is(S)` returns
- * `true`. The wire boundary must REJECT excess instead: the conformance
- * `extra-property` / `oversized` mutators assert that a frame with an extra
- * key FAILS. So every decode boundary MUST pass this option (or use
+ * `true`. A trust boundary that must catch a caller sending an undeclared field
+ * REJECTS excess instead, so it passes this option (or uses
  * {@link closedStructGuard}) to enforce that rejection.
  */
-export const STRICT_DECODE = { onExcessProperty: "error" } as const;
+const STRICT_DECODE = { onExcessProperty: "error" } as const;
 
 /**
  * Whether `value` decodes cleanly against `schema` with excess-key rejection
