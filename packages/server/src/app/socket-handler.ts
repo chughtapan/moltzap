@@ -52,10 +52,12 @@ interface SocketSession {
  *
  * The inbound path is the native engine: `makeSocketEngineLayer` stands one
  * `RpcServer<WsServerEngineRpcGroup>` per socket (the per-method `*AuthMw`
- * gate + the per-socket `ConnectionTag` + the `c2s` mux Protocol), built into
+ * gate + the per-socket `ConnectionTag` + the server Protocol), built into
  * the connection scope so its dispatch loop runs. `runMuxReader` drives the
- * socket read loop, routing each `{ch,f}` envelope to the engine's `c2s`
- * sink; a non-envelope chunk is dropped after a warning (`routeInbound`).
+ * socket read loop, routing each bare frame by family: a request-family frame
+ * (it carries a `method`) reaches the server engine's sink, a response-family
+ * frame reaches the reverse client's sink. A malformed chunk is answered with a
+ * `-32700` reply (`routeInbound`).
  *
  * ```mermaid
  * sequenceDiagram
@@ -72,11 +74,11 @@ interface SocketSession {
  *   Note over HS: connId = randomUUID<br>writer + closeRequested + disconnects Mailbox + sinkReady Deferred
  *   HS->>CM: connections.addUnauthenticated{connId, socket, originator}
  *   HS->>ENG: Layer.build(makeSocketEngineLayer) into the connection scope
- *   Note over ENG: dispatch loop forked; Protocol fulfils the c2s sink
- *   HS->>R: runMuxReader(socket, {c2s sink}, disconnects)
- *   C->>R: {ch:c2s, f: connect frame}
- *   R->>ENG: routeInbound → sink.inject → engine write
- *   Note over ENG: *AuthMw gate → native handler → reply over c2s
+ *   Note over ENG: dispatch loop forked — Protocol fulfils the server sink
+ *   HS->>R: runMuxReader(socket, {server sink, client sink}, disconnects)
+ *   C->>R: connect frame (carries method)
+ *   R->>ENG: routeInbound → server sink.inject → engine write
+ *   Note over ENG: *AuthMw gate → native handler → bare reply
  *   R-->>Cleanup: socket closes → disconnects.offer
  *   Note over Cleanup: removeAndReturn(connId) → agent-disconnect cleanup<br>disconnection hooks → resolver/lease/presence/appHost teardown
  * ```
@@ -101,9 +103,9 @@ function openSocketSession(
   return Effect.gen(function* () {
     const session = yield* makeSocketSession(socket);
     // The per-connection originator carries the server→client appCallback
-    // outbound path (the `s2c` channel inverts at 3c). The inbound dispatcher
-    // is the native engine below, not the originator's slot table — the
-    // originator is built with an empty slot table.
+    // outbound path: a reverse `RpcClient` that originates callbacks and
+    // notifications and consumes their response-family acks. The inbound
+    // request dispatcher is the native server engine below.
     const serverConn = yield* acquireConnectionRpcClient(
       session.connId,
       session.write,
@@ -121,8 +123,9 @@ function openSocketSession(
     );
 
     // Stand the per-socket native engine inside this connection's scope. The
-    // `write` injector is the raw socket writer; the engine's c2s Protocol
-    // fulfils `sinkReady` with the channel sink `runMuxReader` routes into.
+    // `write` injector is the raw socket writer; the engine's server Protocol
+    // fulfils `sinkReady` with the channel sink `runMuxReader` routes
+    // request-family frames into.
     const disconnects = yield* Mailbox.make<number>();
     const sinkReady = yield* Deferred.make<ChannelSink>();
     yield* Layer.build(
@@ -135,12 +138,12 @@ function openSocketSession(
     );
     const sink = yield* Deferred.await(sinkReady);
 
-    // Route both channels: c2s into the inbound engine's sink, s2c into the
-    // reverse client's sink (the void-acks for the server's
-    // callback/notification RPCs).
+    // Route by frame family: request-family frames into the inbound server
+    // engine's sink, response-family frames into the reverse client's sink (the
+    // void-acks for the server's callback/notification RPCs).
     const reader = runMuxReader(
       socket,
-      { c2s: sink, s2c: serverConn.sink },
+      { server: sink, client: serverConn.sink },
       disconnects,
       session.write,
     );

@@ -510,7 +510,7 @@ export class MoltZapAppClient {
       const readerFiber = this.runtime.runFork(
         runMuxReader(
           socket,
-          { c2s: engine.sink, s2c: reverse.sink },
+          { client: engine.sink, server: reverse.sink },
           disconnects,
         ).pipe(
           Effect.onExit((exit) =>

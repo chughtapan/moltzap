@@ -280,13 +280,6 @@ export const makeServerProtocolLayer = (options: {
   readonly write: WireWrite;
   readonly disconnects: Mailbox.Mailbox<number>;
   readonly sinkReady: Deferred.Deferred<ChannelSink>;
-
-  /**
-   * Which mux channel this server engine binds. The live server's inbound
-   * engine binds `c2s`; the client's reverse notification/callback server binds
-   * `s2c`. Defaults to `c2s` (the server inbound engine, the common case).
-   */
-  readonly channel?: "c2s" | "s2c";
 }): Layer.Layer<RpcServer.Protocol>
 ```
 
@@ -297,7 +290,7 @@ protocol impl record (the engine binds to) plus the channel sink (the mux
 demux feeds decoded inbound frames into). Only the impl crosses into the
 `Protocol` Tag; the built ChannelSink is fulfilled into the
 caller-provided `sinkReady` Deferred so the live connection's
-`runMuxReader` can route inbound `c2s` chunks into the engine.
+`runMuxReader` can route inbound request-family chunks into the engine.
 
 The sink's `inject` closes over the SAME `write` injector the engine handed
 the builder, so a chunk routed to the sink enters the engine's dispatch
@@ -307,7 +300,7 @@ until then), and `runMuxReader` must register it before the socket reader
 forks.
 
 `write` is the raw-write surface of the shared socket (one call writes one
-enveloped chunk; the live connection passes `Socket.Socket["writer"]`).
+bare frame; the live connection passes `Socket.Socket["writer"]`).
 `disconnects` is the Mailbox the live connection offers a client id to on
 socket close, so the engine runs per-client teardown.
 
@@ -565,7 +558,7 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`ServerEngineLayer`](./server-engine.ts#L105)
+### [`ServerEngineLayer`](./server-engine.ts#L97)
 
 _Variable_
 

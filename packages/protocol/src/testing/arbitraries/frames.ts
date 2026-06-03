@@ -31,10 +31,8 @@ const ResponseFrameSchema = responseFrameSchema();
 const malformedKinds = [
   "bit-flip",
   "truncated",
-  "oversized",
   "invalid-utf8",
   "missing-required-field",
-  "extra-property",
 ] as const satisfies readonly MalformedFrameKind[];
 
 export function arbitraryRequestFrame(): fc.Arbitrary<RequestFrame> {

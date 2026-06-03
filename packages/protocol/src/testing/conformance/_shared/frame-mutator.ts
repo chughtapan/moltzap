@@ -1,34 +1,35 @@
 /**
- * Frame mutator — malformed-frame fuzz injector for adversity properties.
+ * Frame mutator — malformed-frame fuzz injector + JSON-RPC frame builders for
+ * the conformance driver.
  *
- * Phase 1B re-architect: replaces `testing/codec.ts`. The pre-reorg name
- * `codec` was a misnomer — `transport/wire.ts` is the real wire codec; this
- * file is the test-time mutator that takes a valid frame, applies one of six
- * deterministic mutations (`MalformedFrameKind`), and emits the malformed
- * bytes for adversity properties to inject.
+ * The driver assembles JSON-RPC frames (valid and adversarial) and classifies
+ * frames read off the wire. `encodeFrame` serializes; `decodeFrame` classifies
+ * by structural family; `malformFrame` takes a valid frame and applies one of
+ * the deterministic mutations (`MalformedFrameKind`) for adversity properties.
  *
  * `FrameSchemaError` co-locates here because schema-check failures are
  * codec-local: every call site that raises it (`decodeFrame` plus the
- * wire-driver's frame-receive path) sees the schema check fail at this
- * layer, so the typed channel stays adjacent to the producers.
+ * wire-driver's frame-receive path) sees the check fail at this layer, so the
+ * typed channel stays adjacent to the producers.
  */
-import { Data, Effect, Either, ParseResult, Schema } from "effect";
-import { decodesStrictly, STRICT_DECODE } from "../../../schema-primitives.js";
-import type {
-  RequestFrame,
-  ResponseFrame,
-  NotificationFrame,
-  JsonRpcId,
-} from "../../../transport/index.js";
+import { Data, Effect, type Schema } from "effect";
 import {
-  requestFrameSchema,
-  responseFrameSchema,
-  notificationFrameSchema,
-} from "../../index.js";
+  JSON_RPC_VERSION,
+  jsonRpcMethod,
+  type RequestFrame,
+  type ResponseFrame,
+  type NotificationFrame,
+  type JsonRpcId,
+  type JsonRpcMethod,
+} from "../../../transport/index.js";
 import { notificationDefinitions } from "../../../rpc-registry.js";
+import type {
+  RpcDefinition,
+  NotificationDefinition,
+} from "../../../transport/method.js";
 
 // The wire-method names the server fires as notifications. A server-pushed
-// notification arrives as a void-result s2c REQUEST (it carries an `id`), so an
+// notification arrives as a void-result REQUEST (it carries an `id`), so an
 // `id`-bearing frame is only a notification when its method is in this set — an
 // app-callback request (e.g. `messages/authorize`) is NOT.
 const NOTIFICATION_METHOD_NAMES = new Set<string>(
@@ -36,22 +37,11 @@ const NOTIFICATION_METHOD_NAMES = new Set<string>(
 );
 
 const BIT_FLIP_VARIANTS = 8;
-const OVERSIZED_PADDING_BYTES = 65_536;
 const LCG_MULTIPLIER = 1_664_525;
 const LCG_INCREMENT = 1_013_904_223;
 const LCG_MODULUS = 0x100000000;
-const RequestFrameSchema = requestFrameSchema();
-const ResponseFrameSchema = responseFrameSchema();
-const NotificationFrameSchema = notificationFrameSchema();
 
-// Strict, excess-rejecting decode check.
-// `decodesStrictly` passes `{ onExcessProperty: "error" }`, which is
-// LOAD-BEARING: the `extra-property` / `oversized` mutators below append a
-// stray key, and the adversity properties assert those frames FAIL the schema
-// check — a bare decode would silently strip the key and INVERT the assertion.
-const decodeRequestEither = Schema.decodeUnknownEither(RequestFrameSchema);
-
-/** A frame read off the wire failed the strict schema check. */
+/** A frame read off the wire failed the structural family check. */
 export class FrameSchemaError extends Data.TaggedError(
   "TestingFrameSchemaError",
 )<{
@@ -97,10 +87,10 @@ export function isNotificationFrame(
 
 /**
  * The wire `method` of an inbound server-originated NOTIFICATION, whether it
- * arrived as a bare notification frame OR as a void-result s2c request (the
- * server fires notifications as RPCs and awaits the client's ack, so the
- * captured frame carries an `id`). Returns `null` for any frame that is not a
- * known notification method — an app-callback request (`messages/authorize`,
+ * arrived as a bare notification frame OR as a void-result request (the server
+ * fires notifications as RPCs and awaits the client's ack, so the captured
+ * frame carries an `id`). Returns `null` for any frame that is not a known
+ * notification method — an app-callback request (`messages/authorize`,
  * `dispatch/authorize`, `task/create`) carries an `id` too but is NOT a
  * notification, so the method allowlist gates it out. Capture-scanning
  * conformance properties read this instead of {@link isNotificationFrame} so
@@ -115,90 +105,172 @@ export function inboundNotificationMethod(frame: AnyFrame): string | null {
   return null;
 }
 
-/**
- * Kinds of malformation Tier A / Tier D-slicer can inject. Each maps to a
- * deterministic mutation driven by fast-check so shrinks reproduce.
- */
-export type MalformedFrameKind =
-  | "bit-flip"
-  | "truncated"
-  | "oversized"
-  | "invalid-utf8"
-  | "missing-required-field"
-  | "extra-property";
+// ── Frame builders ───────────────────────────────────────────────────
+//
+// Pure object-literal constructors over a descriptor + params. The driver
+// assembles outbound frames with these; the `@effect/rpc` engines own the
+// production encode path.
+
+/** The wire `error` sub-object: the tagged error's `_tag` discriminant + supplement. */
+// eslint-disable-next-line agent-code-guard/manual-tagged-error -- wire envelope type (the `_tag` projection of a `Schema.TaggedError`), not a tagged-error class
+export type ResponseFrameError = {
+  _tag: string;
+  message?: string;
+  data?: unknown;
+};
+
+export type ResponseFrameBody =
+  | { result: unknown }
+  | { error: ResponseFrameError };
+
+export function requestFrame<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
+>(
+  id: string,
+  definition: RpcDefinition<Name, P, R>,
+  params: Schema.Schema.Type<P>,
+): RequestFrame & {
+  readonly method: JsonRpcMethod<Name>;
+  readonly params: Schema.Schema.Type<P>;
+} {
+  return {
+    jsonrpc: JSON_RPC_VERSION,
+    id: id as JsonRpcId,
+    method: definition.name,
+    params,
+  } as RequestFrame & {
+    readonly method: JsonRpcMethod<Name>;
+    readonly params: Schema.Schema.Type<P>;
+  };
+}
+
+export function responseFrame(
+  id: string | null,
+  body: ResponseFrameBody,
+): ResponseFrame {
+  if (id === null) {
+    return { jsonrpc: JSON_RPC_VERSION, id: null, ...body } as ResponseFrame;
+  }
+  return {
+    jsonrpc: JSON_RPC_VERSION,
+    id: id as JsonRpcId,
+    ...body,
+  } as ResponseFrame;
+}
+
+export function notificationFrame<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+>(
+  definition: NotificationDefinition<Name, P>,
+  params: Schema.Schema.Type<P>,
+): NotificationFrame & {
+  readonly method: JsonRpcMethod<Name>;
+  readonly params: Schema.Schema.Type<P>;
+} {
+  return {
+    jsonrpc: JSON_RPC_VERSION,
+    method: definition.name,
+    params,
+  } as NotificationFrame & {
+    readonly method: JsonRpcMethod<Name>;
+    readonly params: Schema.Schema.Type<P>;
+  };
+}
+
+/** Build a notification frame from a raw method name (no descriptor). */
+export function rawNotificationFrame(
+  method: string,
+  params: unknown,
+): NotificationFrame {
+  return {
+    jsonrpc: JSON_RPC_VERSION,
+    method: jsonRpcMethod(method),
+    ...(params !== undefined ? { params } : {}),
+  } as NotificationFrame;
+}
+
+// ── Codec ────────────────────────────────────────────────────────────
 
 /** Serialize a typed frame to the wire bytes. */
 export function encodeFrame(frame: AnyFrame): string {
   return JSON.stringify(frame);
 }
 
-/** Parses and validates an inbound frame. */
+type FrameCheck =
+  | { readonly object: { readonly [k: string]: unknown } }
+  | { readonly reason: string };
+
+/** Parse a wire string into a JSON object, or a reason if it is not one. */
+function parseFrameObject(raw: string): FrameCheck {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { reason: `json parse failed: ${detail}` };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { reason: "frame must be a JSON object" };
+  }
+  return { object: { ...parsed } };
+}
+
+/** Reason the object is not a well-formed JSON-RPC family, or `null` if it is. */
+function frameFamilyReason(obj: {
+  readonly [k: string]: unknown;
+}): string | null {
+  if (obj["jsonrpc"] !== JSON_RPC_VERSION) return "jsonrpc must be 2.0";
+  const hasMethod = typeof obj["method"] === "string";
+  const hasBody = "result" in obj || "error" in obj;
+  // request / notification (method present), or a response (no method, id +
+  // body). Excess keys are ignored — the `@effect/rpc` engines strip them.
+  if (hasMethod || ("id" in obj && hasBody)) return null;
+  return "frame matches no JSON-RPC family";
+}
+
+/**
+ * Classify an inbound frame by structural family. Lenient on excess keys: the
+ * `@effect/rpc` engines strip unknown keys, so the driver matches that and does
+ * NOT reject a frame carrying extra fields — it classifies on the discriminant
+ * keys only (`method`, `id`, `result`, `error`).
+ */
 export function decodeFrame(
   raw: string,
   direction: "outbound" | "inbound",
 ): Effect.Effect<AnyFrame, FrameSchemaError> {
   return Effect.suspend(() => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      return Effect.fail(
-        new FrameSchemaError({
-          direction,
-          expected: "request",
-          raw,
-          reason: `json parse failed: ${err instanceof Error ? err.message : String(err)}`,
-        }),
+    const fail = (reason: string) =>
+      Effect.fail(
+        new FrameSchemaError({ direction, expected: "request", raw, reason }),
       );
-    }
-
-    if (parsed === null || typeof parsed !== "object") {
-      return Effect.fail(
-        new FrameSchemaError({
-          direction,
-          expected: "request",
-          raw,
-          reason: "frame must be a JSON object",
-        }),
-      );
-    }
-
-    if (
-      decodesStrictly(ResponseFrameSchema, parsed) ||
-      decodesStrictly(RequestFrameSchema, parsed) ||
-      decodesStrictly(NotificationFrameSchema, parsed)
-    ) {
-      return Effect.succeed(parsed as AnyFrame);
-    }
-
-    return Effect.fail(
-      new FrameSchemaError({
-        direction,
-        expected: "request",
-        raw,
-        reason: firstParseError(parsed),
-      }),
-    );
-  });
-}
-
-function firstParseError(value: unknown): string {
-  return Either.match(decodeRequestEither(value, STRICT_DECODE), {
-    onRight: () => "schema check failed",
-    onLeft: (parseError) => {
-      const issues = ParseResult.ArrayFormatter.formatErrorSync(parseError);
-      const first = issues[0];
-      return first
-        ? `${first.path.join("/")}: ${first.message}`
-        : "schema check failed";
-    },
+    const checked = parseFrameObject(raw);
+    if ("reason" in checked) return fail(checked.reason);
+    const reason = frameFamilyReason(checked.object);
+    return reason === null
+      ? Effect.succeed(checked.object as AnyFrame)
+      : fail(reason);
   });
 }
 
 /**
+ * Kinds of malformation the adversity properties inject. Each maps to a
+ * deterministic mutation driven by fast-check so shrinks reproduce. Excess-key
+ * mutations are absent: the `@effect/rpc` engines strip unknown keys, so an
+ * excess key does not malform a frame on the wire.
+ */
+export type MalformedFrameKind =
+  | "bit-flip"
+  | "truncated"
+  | "invalid-utf8"
+  | "missing-required-field";
+
+/**
  * Produce a malformed wire payload from a valid frame. The mutation is
  * deterministic given the `kind` + `seed`; replaying with the same seed
- * reproduces the exact bytes. Used by Tier A (A4) and Tier D (D3).
+ * reproduces the exact bytes.
  */
 export function malformFrame(
   base: AnyFrame,
@@ -213,14 +285,10 @@ export function malformFrame(
       return malformBitFlip(rawJson, rand);
     case "truncated":
       return malformTruncated(rawJson, rand);
-    case "oversized":
-      return malformOversized(rawJson);
     case "invalid-utf8":
       return malformInvalidUtf8(rawJson, rand);
     case "missing-required-field":
       return malformMissingRequiredField(rawJson);
-    case "extra-property":
-      return malformExtraProperty(rawJson, seed);
     default: {
       const _exhaustive: never = kind;
       return absurdMalformedFrameKind(_exhaustive);
@@ -243,13 +311,6 @@ function malformTruncated(rawJson: string, rand: () => number): string {
   return rawJson.slice(0, keep);
 }
 
-function malformOversized(rawJson: string): string {
-  const pad = "X".repeat(OVERSIZED_PADDING_BYTES);
-  const idx = rawJson.lastIndexOf("}");
-  if (idx === -1) return rawJson + pad;
-  return `${rawJson.slice(0, idx)},"_padding":"${pad}"}`;
-}
-
 function malformInvalidUtf8(rawJson: string, rand: () => number): string {
   const pos = Math.floor(rand() * rawJson.length);
   return rawJson.slice(0, pos) + "\uD800" + rawJson.slice(pos);
@@ -257,12 +318,6 @@ function malformInvalidUtf8(rawJson: string, rand: () => number): string {
 
 function malformMissingRequiredField(rawJson: string): string {
   return rawJson.replace(/"jsonrpc":"2\.0",?/, "");
-}
-
-function malformExtraProperty(rawJson: string, seed: number): string {
-  const idx = rawJson.lastIndexOf("}");
-  if (idx === -1) return rawJson;
-  return `${rawJson.slice(0, idx)},"__extra":${seed}}`;
 }
 
 function absurdMalformedFrameKind(kind: never): never {

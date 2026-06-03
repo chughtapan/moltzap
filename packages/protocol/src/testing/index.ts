@@ -24,18 +24,15 @@ export {
   taskId,
 } from "./conformance/_shared/test-fixtures.js";
 
-// Wire-frame builders + schemas + validators + the protocol literal, and the
-// group-level decoders — exposed ONLY for test use. Production builds frames via
-// the live transport and decodes via `decodeServerInbound`, never these raw
-// constructors/decoders; the conformance harness + test scaffolds use them to
-// assemble frames (valid and adversarial) and exercise the codec/decoder
-// boundary properties. This `/testing` barrel is the single sanctioned
-// re-export of these wire internals — test code imports them from here, never
-// by reaching `wire.js` / `rpc-groups.js` / `method.js`.
+// Wire-frame schemas + validators + the protocol literal, and the group-level
+// decoders — exposed ONLY for test use. The `@effect/rpc` engines own the
+// production encode/decode path; the conformance harness + test scaffolds use
+// these to assemble frames (valid and adversarial) and exercise the
+// codec/decoder boundary properties. This `/testing` barrel is the single
+// sanctioned re-export of these wire internals — test code imports them from
+// here, never by reaching `wire.js` / `rpc-groups.js` / `method.js`. The frame
+// BUILDERS live in the testing layer (`frame-mutator.js`).
 export {
-  requestFrame,
-  responseFrame,
-  notificationFrame,
   requestFrameSchema,
   responseFrameSchema,
   notificationFrameSchema,
@@ -44,6 +41,12 @@ export {
   validateNotificationFrame,
   JSON_RPC_VERSION,
 } from "../transport/wire.js";
+export {
+  requestFrame,
+  responseFrame,
+  notificationFrame,
+  rawNotificationFrame,
+} from "./conformance/_shared/frame-mutator.js";
 export {
   decodeRpcRequest,
   decodeNotification,

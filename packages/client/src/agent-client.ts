@@ -270,18 +270,18 @@ export class MoltZapAgentClient {
       const scope = yield* Scope.make();
       const socket = yield* this.openSocket(url, scope);
       const write = yield* Scope.extend(socket.writer, scope);
-      // The native engines write only enveloped frame strings; the socket
-      // close path writes a `CloseEvent`. `WireWrite` is string-only, so the
-      // engines bind this narrowed writer.
+      // The native engines write only bare frame strings; the socket close
+      // path writes a `CloseEvent`. `WireWrite` is string-only, so the engines
+      // bind this narrowed writer.
       const wireWrite = (chunk: string) => write(chunk);
 
-      // c2s: the native outbound client (descriptor-driven `call`).
+      // Outbound: the native client (descriptor-driven `call`).
       const engine = yield* buildClient({
         group: AgentCallableGroup,
         write: wireWrite,
         scope,
       });
-      // s2c: the reverse server serving notifications into the subscriber
+      // Reverse: the server serving notifications into the subscriber
       // registry. An agent is never a moderator, so the three callback handlers
       // reject (never invoked).
       const reverse = yield* buildReverseServer({
@@ -299,7 +299,7 @@ export class MoltZapAgentClient {
       const readerFiber = this.runtime.runFork(
         runMuxReader(
           socket,
-          { c2s: engine.sink, s2c: reverse.sink },
+          { client: engine.sink, server: reverse.sink },
           disconnects,
         ).pipe(
           Effect.onExit((exit) =>

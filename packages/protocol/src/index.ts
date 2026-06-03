@@ -66,14 +66,10 @@ export {
   agentClientRpcMethods,
   appCallableRpcMethods,
   notificationDefinitions,
-  decodeServerInbound,
 } from "./rpc-registry.js";
 export type {
   AnyServerRpcDefinition,
   AnyAgentClientRpcDefinition,
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
-  DecodedServerInbound,
-  DecodedResponseSuccess,
-  DecodedResponseError,
 } from "./rpc-registry.js";

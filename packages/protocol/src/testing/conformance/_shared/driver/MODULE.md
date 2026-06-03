@@ -31,7 +31,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`makeCloseableTestClient`](./test-client.ts#L1357)
+### [`makeCloseableTestClient`](./test-client.ts#L1337)
 
 _Function_
 
@@ -44,7 +44,7 @@ export function makeCloseableTestClient(
 >
 ```
 
-### [`makeTestClient`](./test-client.ts#L1344)
+### [`makeTestClient`](./test-client.ts#L1324)
 
 _Function_
 
@@ -62,7 +62,7 @@ Open a real WS connection to `config.serverUrl`, complete the `connect`
 handshake, and yield a `TestClient`. The surrounding `Scope` owns the
 socket; releasing it closes the WS and drains captures.
 
-### [`makeTestServer`](./test-server.ts#L248)
+### [`makeTestServer`](./test-server.ts#L234)
 
 _Function_
 
@@ -378,7 +378,7 @@ Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of
 the real server; `agentKey` + `agentId` are for the `connect` handshake.
 `defaultTimeoutMs` bounds each `sendRpc` unless overridden per call.
 
-### [`TestServer`](./test-server.ts#L146)
+### [`TestServer`](./test-server.ts#L134)
 
 _Interface_
 
@@ -392,7 +392,7 @@ export interface TestServer {
 }
 ```
 
-### [`TestServer`](./test-server.ts#L146)
+### [`TestServer`](./test-server.ts#L134)
 
 _Variable_
 
@@ -400,7 +400,7 @@ _Variable_
 export interface TestServer
 ```
 
-### [`TestServerConfig`](./test-server.ts#L112)
+### [`TestServerConfig`](./test-server.ts#L100)
 
 _Interface_
 
@@ -414,7 +414,7 @@ export interface TestServerConfig {
 }
 ```
 
-### [`TestServerConnection`](./test-server.ts#L125)
+### [`TestServerConnection`](./test-server.ts#L113)
 
 _Interface_
 

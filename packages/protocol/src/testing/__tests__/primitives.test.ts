@@ -98,10 +98,8 @@ describe("codec malformed frames", () => {
     const kinds = [
       "bit-flip",
       "truncated",
-      "oversized",
       "invalid-utf8",
       "missing-required-field",
-      "extra-property",
     ] as const;
     for (const k of kinds) {
       expect(() => malformFrame(base, k, MALFORM_SEED)).not.toThrow();
