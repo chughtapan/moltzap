@@ -35,12 +35,12 @@ export function registerMultiSubscriberFanOut(
         yield* acquireCloseableClient(ctx, NAME, a, "p5-a-client");
 
         yield* waitForPresenceWithStatus(
-          s1.client,
+          s1,
           { agentId: a.agentId, status: "online" },
           NAME,
         );
         yield* waitForPresenceWithStatus(
-          s2.client,
+          s2,
           { agentId: a.agentId, status: "online" },
           NAME,
         );

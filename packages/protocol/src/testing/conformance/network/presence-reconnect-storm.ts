@@ -35,20 +35,20 @@ export function registerReconnectStorm(ctx: ConformanceRunContext): void {
 
         const c1 = yield* acquireCloseableClient(ctx, NAME, a, "p3-a-client-1");
         yield* waitForPresenceWithStatus(
-          sub.client,
+          sub,
           { agentId: a.agentId, status: "online" },
           NAME,
         );
         yield* c1.close;
         yield* waitForPresenceWithStatus(
-          sub.client,
+          sub,
           { agentId: a.agentId, status: "offline" },
           NAME,
         );
 
         yield* acquireCloseableClient(ctx, NAME, a, "p3-a-client-2");
         yield* waitForPresenceWithStatus(
-          sub.client,
+          sub,
           { agentId: a.agentId, status: "online" },
           NAME,
         );

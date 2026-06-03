@@ -33,13 +33,13 @@ export function registerDisconnectBroadcast(ctx: ConformanceRunContext): void {
           "p2-a-client",
         );
         yield* waitForPresenceWithStatus(
-          sub.client,
+          sub,
           { agentId: a.agentId, status: "online" },
           NAME,
         );
         yield* aClient.close;
         yield* waitForPresenceWithStatus(
-          sub.client,
+          sub,
           { agentId: a.agentId, status: "offline" },
           NAME,
         );

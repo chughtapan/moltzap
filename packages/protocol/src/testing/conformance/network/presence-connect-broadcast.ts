@@ -28,7 +28,7 @@ export function registerConnectBroadcast(ctx: ConformanceRunContext): void {
         yield* subscribePresence(sub.client, a.agentId, NAME);
         yield* acquireCloseableClient(ctx, NAME, a, "p1-a-client");
         yield* waitForPresenceWithStatus(
-          sub.client,
+          sub,
           { agentId: a.agentId, status: "online" },
           NAME,
         );

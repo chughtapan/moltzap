@@ -22,7 +22,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L71)
+### [`acquireClient`](./_helpers.ts#L211)
 
 _Function_
 
@@ -31,14 +31,10 @@ export function acquireClient(
   ctx: ConformanceRunContext,
   propertyName: string,
   name: string,
-): Effect.Effect<
-  { agent: TestAgent; client: TestClient },
-  PropertyInvariantViolation,
-  Scope.Scope
->
+): Effect.Effect<PresenceActor, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`acquireCloseableClient`](./_helpers.ts#L100)
+### [`acquireCloseableClient`](./_helpers.ts#L237)
 
 _Function_
 
@@ -51,7 +47,7 @@ export function acquireCloseableClient(
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`countPresenceChangedFor`](./_helpers.ts#L253)
+### [`countPresenceChangedFor`](./_helpers.ts#L387)
 
 _Function_
 
@@ -81,7 +77,33 @@ export const NETWORK_PROPERTIES: ReadonlyArray<
 
 All network-layer property registrars, in suite walk order.
 
-### [`PRESENCE_CATEGORY`](./_helpers.ts#L29)
+### [`NotificationBuffer`](./_helpers.ts#L81)
+
+_Interface_
+
+```ts
+export interface NotificationBuffer {
+  readonly snapshot: Ref.Ref<
+    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+  >;
+  readonly closed: Ref.Ref<boolean>;
+}
+```
+
+Historical notification buffer feeding `waitForPresenceWithStatus`.
+Holds every inbound notification arriving on a single subscriber's
+`subscribeAll()` Stream until a consumer pulls a matching frame. The
+pump fiber that feeds `snapshot` is interrupted by the `Scope`
+finalizer installed by `makeNotificationBuffer`. `closed` flips to
+true when the transport-side stream terminates so a waiter on a dead
+connection fails with a transport-close diagnostic rather than a
+generic timeout.
+
+Mirrors `../task/_helpers.ts → NotificationBuffer`; the presence
+helper polls with a payload predicate (agentId + status) rather than
+by descriptor alone.
+
+### [`PRESENCE_CATEGORY`](./_helpers.ts#L40)
 
 _Variable_
 
@@ -89,7 +111,7 @@ _Variable_
 export const PRESENCE_CATEGORY = "presence" as const
 ```
 
-### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L31)
+### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L42)
 
 _Variable_
 
@@ -97,7 +119,7 @@ _Variable_
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
 ```
 
-### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L30)
+### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L41)
 
 _Variable_
 
@@ -105,7 +127,26 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceChangedPayload`](./_helpers.ts#L37)
+### [`PresenceActor`](./_helpers.ts#L61)
+
+_Interface_
+
+```ts
+export interface PresenceActor {
+  readonly agent: TestAgent;
+  readonly client: TestClient;
+  readonly notifications: NotificationBuffer;
+}
+```
+
+Subscriber actor: a `TestClient` plus the historical
+`NotificationBuffer` fed by its `subscribeAll()` pump. `acquireClient`
+installs the pump before the subscriber issues `presence/subscribe`,
+so `waitForPresenceWithStatus` observes every `presence/changed` frame
+the server broadcasts — including ones that land between the
+triggering action and the wait.
+
+### [`PresenceChangedPayload`](./_helpers.ts#L48)
 
 _Interface_
 
@@ -116,7 +157,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`PresenceStatus`](./_helpers.ts#L35)
+### [`PresenceStatus`](./_helpers.ts#L46)
 
 _TypeAlias_
 
@@ -129,7 +170,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`presenceStatusesFor`](./_helpers.ts#L199)
+### [`presenceStatusesFor`](./_helpers.ts#L333)
 
 _Function_
 
@@ -140,7 +181,7 @@ export function presenceStatusesFor(
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
-### [`presenceViolation`](./_helpers.ts#L42)
+### [`presenceViolation`](./_helpers.ts#L182)
 
 _Function_
 
@@ -151,7 +192,7 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](./_helpers.ts#L53)
+### [`registerAgent`](./_helpers.ts#L193)
 
 _Function_
 
@@ -217,7 +258,7 @@ export function registerSubscribeAfterConnect(
 ): void
 ```
 
-### [`subscribePresence`](./_helpers.ts#L131)
+### [`subscribePresence`](./_helpers.ts#L268)
 
 _Function_
 
@@ -229,13 +270,13 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](./_helpers.ts#L155)
+### [`waitForPresenceWithStatus`](./_helpers.ts#L296)
 
 _Function_
 
 ```ts
 export function waitForPresenceWithStatus(
-  client: TestClient,
+  subscriber: PresenceActor,
   expected: PresenceChangedPayload,
   propertyName: string,
   timeoutMs: number = PRESENCE_DEFAULT_TIMEOUT_MS,
@@ -245,9 +286,13 @@ export function waitForPresenceWithStatus(
 Wait for the next `presence/changed` notification whose payload
 matches `expected.agentId` + `expected.status`.
 
-`TestClient.subscribe(def)` filters by descriptor only, so we
-consume the broad-union `subscribeAll()` Stream with a per-payload
-predicate and timeout it ourselves.
+Polls the subscriber's historical `NotificationBuffer` (fed by the
+`subscribeAll()` pump installed at `acquireClient` time) rather than
+materialising a fresh `subscribeAll()` Stream inline. The pump
+captures every frame from acquisition onward, so a `presence/changed`
+that lands between the triggering action and this wait is still
+observable. Each match is removed from the buffer, giving sequential
+`online → offline → online` waits a consume-once semantic.
 
 ## Files
 
