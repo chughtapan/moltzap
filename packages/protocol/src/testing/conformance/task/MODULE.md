@@ -10,8 +10,7 @@ Task-layer conformance properties.
 
 Task / conversation / message invariants — fan-out cardinality,
 store-and-replay, payload opacity, task-boundary isolation,
-conversation lifecycle, archive lifecycle, model equivalence,
-task-close lifecycle.
+conversation lifecycle, archive lifecycle, task-close lifecycle.
 
 Each `register*` lives in its own file. This barrel re-exports them
 by name AND aggregates them into `TASK_PROPERTIES` for the
@@ -435,14 +434,6 @@ _Function_
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void
 ```
 
-### [`registerModelEquivalence`](./model-equivalence.ts#L57)
-
-_Function_
-
-```ts
-export function registerModelEquivalence(ctx: ConformanceRunContext): void
-```
-
 ### [`registerPayloadOpacity`](./payload-opacity.ts#L19)
 
 _Function_
@@ -583,7 +574,7 @@ export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
 ]
 ```
 
-### [`TASK_PROPERTIES`](./index.ts#L63)
+### [`TASK_PROPERTIES`](./index.ts#L59)
 
 _Variable_
 
@@ -599,13 +590,11 @@ export const TASK_PROPERTIES: ReadonlyArray<
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
   ...TASK_CONVERSATION_FAMILY_PROPERTIES,
-  registerModelEquivalence,
 ]
 ```
 
 All task-layer property registrars: delivery subset first, then the
-`task/conversation/*` family, then `model-equivalence` from
-rpc-semantics.
+`task/conversation/*` family.
 
 ### [`unarchiveConversation`](./_helpers.ts#L336)
 
@@ -676,7 +665,6 @@ export function waitForUnarchivedEvent(
 - `conversation-lifecycle.ts`
 - `fan-out-cardinality.ts`
 - `index.ts`
-- `model-equivalence.ts`
 - `payload-opacity.ts`
 - `store-and-replay.ts`
 - `task-boundary-isolation.ts`

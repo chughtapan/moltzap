@@ -1,8 +1,8 @@
 /**
  * Idempotent RPCs yield equivalent responses on replay. For every
- * list-shaped method where empty params are valid and `isIdempotent`
- * says replay is safe, sends the same params twice and asserts both
- * succeed with **identical results** (not just identical tags).
+ * list-shaped method where empty params are valid and replay is safe,
+ * sends the same params twice and asserts both succeed with **identical
+ * results** (not just identical tags).
  *
  * Transport failures surface as `PropertyUnavailable` so the runner
  * reports them explicitly instead of folding them into a silent pass.
@@ -12,7 +12,6 @@
 import { Effect, Either } from "effect";
 import { AgentsList } from "../../../identity/index.js";
 import { TaskList } from "../../../task/index.js";
-import { isIdempotent } from "../../models/dispatch.js";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {
   makeTestClient,
@@ -57,7 +56,7 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     PROPERTY,
-    "isIdempotent methods: two sends yield identical response bodies",
+    "idempotent methods: two sends yield identical response bodies",
     assertIdempotence(ctx).pipe(Effect.withSpan("registerIdempotence")),
   );
 }
@@ -90,25 +89,10 @@ function assertDefinitionIdempotent(
 ) {
   return Effect.gen(function* () {
     const method = definition.name;
-    yield* assertOracleAgrees(method);
     const pair = yield* sendReplayPair(client, definition);
     yield* assertReplayOutcomeTags(method, pair);
     yield* assertReplayBodies(method, pair);
   });
-}
-
-function assertOracleAgrees(
-  method: typeof AgentsList.name | typeof TaskList.name,
-) {
-  return isIdempotent(method)
-    ? Effect.void
-    : Effect.fail(
-        new PropertyInvariantViolation({
-          category: CATEGORY,
-          name: PROPERTY,
-          reason: `isIdempotent(${method}) is false — oracle disagreement`,
-        }),
-      );
 }
 
 function acquireReplayClient(ctx: ConformanceRunContext) {

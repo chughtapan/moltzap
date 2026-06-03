@@ -6,9 +6,6 @@
  */
 import { Effect, Either } from "effect";
 import { TaskList } from "../../../task/index.js";
-import { authorizationOutcome } from "../../models/dispatch.js";
-import { initialReferenceState } from "../../models/state.js";
-import { agentId } from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
 import {
   makeTestClient,
@@ -50,7 +47,6 @@ function assertAuthorityNegative(ctx: ConformanceRunContext) {
     Effect.gen(function* () {
       const client = yield* acquirePreHandshakeClient(ctx);
       yield* assertTaskListDenied(client);
-      yield* assertModelDeniesUnauthenticated();
     }),
   );
 }
@@ -104,24 +100,5 @@ function assertAuthResponseError(error: unknown) {
     ? Effect.void
     : Effect.fail(
         invariant(`expected Unauthorized/Forbidden error, got ${error.tag}`),
-      );
-}
-
-function assertModelDeniesUnauthenticated() {
-  const modelVerdict = authorizationOutcome(
-    initialReferenceState,
-    {
-      definition: TaskList,
-      method: TaskList.name,
-      params: {},
-    },
-    agentId("00000000-0000-4000-8000-000000000000"),
-  );
-  return modelVerdict === "deny-unauthenticated"
-    ? Effect.void
-    : Effect.fail(
-        invariant(
-          `model oracle disagrees: expected deny-unauthenticated, got ${modelVerdict}`,
-        ),
       );
 }

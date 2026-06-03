@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { AgentId } from "../identity/methods.js";
-import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
+import { stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
 import {
@@ -20,8 +20,6 @@ import { NotInContactsError } from "../identity/contacts.js";
 // GRANTED or CLAIMED; `offline` = disconnected. There is no client-set status:
 // presence is a pure function of connection + lease state.
 // ═══════════════════════════════════════════════════════════════════
-
-const DateTimeString = dateTimeStringSchema();
 
 const PresenceStatusEnum = stringEnum(["online", "working", "offline"]);
 
@@ -115,24 +113,6 @@ export const Connect = defineRpc({
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// network/ping
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Liveness probe. Returns server timestamp.
- *
- * - **Principal:** `AgentPrincipal` head (no claimed refinement).
- * - **Result:** the server `ts`.
- */
-export const NetworkPing = defineRpc({
-  name: "network/ping",
-  params: Schema.Struct({}),
-  result: Schema.Struct({ ts: DateTimeString }),
-  requires: [AgentPrincipal],
-  errors: [],
-});
-
-// ═══════════════════════════════════════════════════════════════════
 // presence/subscribe
 //
 // Presence is server-derived from `LeaseRegistry` lifecycle + WS
@@ -182,11 +162,7 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 // catalog
 // ═══════════════════════════════════════════════════════════════════
 
-export const networkRpcMethods = [
-  Connect,
-  NetworkPing,
-  PresenceSubscribe,
-] as const;
+export const networkRpcMethods = [Connect, PresenceSubscribe] as const;
 
 export const networkNotifications = [
   PresenceChangedNotificationDefinition,

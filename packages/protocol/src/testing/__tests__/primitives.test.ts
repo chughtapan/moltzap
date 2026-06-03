@@ -5,8 +5,7 @@
  * docker-compose).
  *
  * Covers: codec encode/decode round-trip, capture buffer append/snapshot,
- * reference-model authorizationOutcome totality, toxic profile selector
- * exhaustiveness.
+ * toxic profile selector exhaustiveness.
  */
 import { describe, it, expect } from "vitest";
 import { Effect, Either } from "effect";
@@ -24,22 +23,10 @@ import {
   recordFrame,
   mergeCaptures,
 } from "../conformance/_shared/captures.js";
-import {
-  initialReferenceState,
-  applyCall,
-  isIdempotent,
-  authorizationOutcome,
-} from "../models/index.js";
-import { agentId } from "../conformance/_shared/test-fixtures.js";
 import { deliveryInvariantFor, allToxicTags } from "../toxics/index.js";
-import {
-  allRpcMethods,
-  arbitraryCallFor,
-  arbitraryAnyCall,
-} from "../arbitraries/index.js";
+import { arbitraryAnyCall } from "../arbitraries/index.js";
 
 import { Connect } from "../../network/index.js";
-import { TaskList } from "../../task/index.js";
 import {
   jsonRpcMethod,
   type NotificationFrame,
@@ -49,7 +36,6 @@ import { requestFrame } from "../index.js";
 const MALFORM_SEED = 42;
 const EXPECTED_MERGED_CAPTURE_COUNT = 2;
 const TESTING_FRAME_SCHEMA_ERROR_TAG = "TestingFrameSchemaError";
-const UNAUTHENTICATED_DENIAL = "deny-unauthenticated";
 
 describe("codec decoding", () => {
   it("round-trips a valid request frame", () =>
@@ -141,38 +127,6 @@ describe("captures", () => {
         expect(snap).toHaveLength(EXPECTED_MERGED_CAPTURE_COUNT);
       }),
     ));
-});
-
-describe("reference model", () => {
-  it("applyCall is total for every wire method", () => {
-    for (const method of allRpcMethods) {
-      const [sampled] = fc.sample(arbitraryCallFor(method), 1);
-      if (sampled === undefined) continue;
-      const { outcome, next } = applyCall(initialReferenceState, sampled);
-      expect(outcome._tag === "ok" || outcome._tag === "error").toBe(true);
-      expect(next.tick).toEqual(expect.any(Number));
-    }
-  });
-
-  it("isIdempotent returns boolean for every method", () => {
-    for (const method of allRpcMethods) {
-      expect(isIdempotent(method)).toEqual(expect.any(Boolean));
-    }
-  });
-
-  it("authorizationOutcome denies unknown agent for non-auth methods", () => {
-    const [call] = fc.sample(arbitraryCallFor(TaskList.name), {
-      numRuns: 1,
-      seed: 1,
-    });
-    if (call === undefined) throw new Error("sample failed");
-    const verdict = authorizationOutcome(
-      initialReferenceState,
-      call,
-      agentId("00000000-0000-4000-8000-000000000000"),
-    );
-    expect(verdict).toBe(UNAUTHENTICATED_DENIAL);
-  });
 });
 
 describe("toxics", () => {

@@ -27,7 +27,6 @@ import {
   contactsAccept,
   contactsById,
 } from "../identity/handlers/contacts.handlers.js";
-import { ping } from "../network/handlers/ping.handlers.js";
 import { presenceSubscribe } from "../network/handlers/presence.handlers.js";
 import {
   messagesSend,
@@ -61,7 +60,6 @@ import {
  */
 export const serverHandlers = {
   "network/connect": connect,
-  "network/ping": ping,
   "agents/lookup": agentsLookup,
   "agents/lookupByName": agentsLookupByName,
   "agents/list": agentsList,

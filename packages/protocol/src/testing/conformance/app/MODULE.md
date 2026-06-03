@@ -716,7 +716,7 @@ _Function_
 export function registerHookGatedDelivery(ctx: ConformanceRunContext): void
 ```
 
-### [`registerIdempotence`](./idempotence.ts#L55)
+### [`registerIdempotence`](./idempotence.ts#L54)
 
 _Function_
 

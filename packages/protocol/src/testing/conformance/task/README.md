@@ -13,7 +13,6 @@ the layer that owns durable state.
 - `conversation-lifecycle.ts`
 - `archive-lifecycle.ts`
 - `task-close-lifecycle.ts`
-- `model-equivalence.ts`
 - `task-conversation-family.ts` — the `task/conversation/*` family,
   one `register*` per method
 

@@ -62,13 +62,12 @@ type TransportTags = ConnectionTag | DbTag;
 type IdentityTags = TransportTags | AuthServiceTag;
 
 /**
- * Network-layer allowlist: Connect, presence, outbound routing.
- * `ping.handlers.ts` lives here. The `agentEndpointResolver` is the
- * `AgentId → ConnectionId` multimap (network-conceptual — endpoint
- * resolution is what the network layer DOES, not who owns it). The
- * presence service lives in `network/services/` post-2A.2 reshape; its
- * Tag is yielded by the presence handler at `network/handlers/`, which
- * fans out via PresenceService.
+ * Network-layer allowlist: Connect, presence, outbound routing. The
+ * `agentEndpointResolver` is the `AgentId → ConnectionId` multimap
+ * (network-conceptual — endpoint resolution is what the network layer
+ * DOES, not who owns it). The presence service lives in
+ * `network/services/`; its Tag is yielded by the presence handler at
+ * `network/handlers/`, which fans out via PresenceService.
  */
 type NetworkTags =
   | IdentityTags
