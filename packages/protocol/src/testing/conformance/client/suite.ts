@@ -459,21 +459,3 @@ function writeArtifact(
     Effect.orDie,
   );
 }
-
-/**
- * Joint-run option shape — both `realServer?` and `realClient?` supplied,
- * so the suite exercises a real client against a real server in one run.
- * The merged `runConformanceSuite` in `../suite.ts` accepts these fields
- * as an extension of `ConformanceSuiteOptions`.
- */
-export interface JointConformanceSuiteOptions {
-  readonly realServer?: ClientConformanceSuiteOptions["realClient"] extends never
-    ? never
-    : unknown;
-  readonly realClient?: ClientConformanceSuiteOptions["realClient"];
-  readonly toxiproxyUrl?: string | null;
-  readonly replaySeed?: number;
-  readonly numRuns?: number;
-  readonly artifactDir?: string;
-  readonly bindThroughToxiproxy?: boolean;
-}

@@ -20,7 +20,7 @@ primitives. Consumed by the extended `runConformanceSuite` in
 
 ## Public surface
 
-### [`acquireClientRunContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L313)
+### [`acquireClientRunContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L311)
 
 _Function_
 
@@ -63,7 +63,7 @@ under a nested Scope. Property bodies wrap their assertion in
 Errors are surfaced as `PropertyUnavailable` so a factory fault doesn't
 masquerade as a property violation.
 
-### [`awaitConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L553)
+### [`awaitConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L549)
 
 _Function_
 
@@ -78,7 +78,7 @@ Fiber-safe helper to await a TestServer connection. Times out so a
 never-connecting real client doesn't block the property body
 indefinitely.
 
-### [`ClientConformanceRunContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L271)
+### [`ClientConformanceRunContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L270)
 
 _Interface_
 
@@ -92,11 +92,10 @@ export interface ClientConformanceRunContext {
   readonly toxiproxy: ToxiproxyClient | null;
   readonly opts: ClientConformanceRunOptions;
   readonly seed: number;
-  readonly artifacts: Ref.Ref<ReadonlyArray<ConformanceArtifact>>;
 }
 ```
 
-### [`ClientConformanceRunOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L283)
+### [`ClientConformanceRunOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L281)
 
 _Interface_
 
@@ -173,7 +172,7 @@ export interface ClientFixture {
 Fixture returned to every property body after the prologue runs.
 Every field below is safe to use inside `fc.asyncProperty` bodies.
 
-### [`ClientHandshakeWindow`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L234)
+### [`ClientHandshakeWindow`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L233)
 
 _Interface_
 
@@ -213,7 +212,7 @@ emission with a property-authored `emissionTag`; the
 adversity-slow-close is the only client-side property exempt (observes
 lifecycle signals, not frames).
 
-### [`ClientHandshakeWindow`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L234)
+### [`ClientHandshakeWindow`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L233)
 
 _Variable_
 
@@ -233,7 +232,7 @@ export function collectTagged(
 ): Effect.Effect<ReadonlyArray<TaggedObservation>>
 ```
 
-### [`freshTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L544)
+### [`freshTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L540)
 
 _Function_
 
@@ -261,30 +260,7 @@ Build a `PropertyInvariantViolation` for the current property.
 Convenience so property bodies don't repeat the tagged-error
 construction.
 
-### [`JointConformanceSuiteOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/suite.ts#L469)
-
-_Interface_
-
-```ts
-export interface JointConformanceSuiteOptions {
-  readonly realServer?: ClientConformanceSuiteOptions["realClient"] extends never
-    ? never
-    : unknown;
-  readonly realClient?: ClientConformanceSuiteOptions["realClient"];
-  readonly toxiproxyUrl?: string | null;
-  readonly replaySeed?: number;
-  readonly numRuns?: number;
-  readonly artifactDir?: string;
-  readonly bindThroughToxiproxy?: boolean;
-}
-```
-
-Joint-run option shape — both `realServer?` and `realClient?` supplied,
-so the suite exercises a real client against a real server in one run.
-The merged `runConformanceSuite` in `../suite.ts` accepts these fields
-as an extension of `ConformanceSuiteOptions`.
-
-### [`lookupTagForRawBytes`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L439)
+### [`lookupTagForRawBytes`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L435)
 
 _Function_
 
@@ -299,7 +275,7 @@ pings, etc.).
 
 Exported for `_fixtures.ts`'s `filterTagged` helper.
 
-### [`makeClientHandshakeWindow`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L465)
+### [`makeClientHandshakeWindow`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L461)
 
 _Function_
 
@@ -324,7 +300,7 @@ export function notificationParamsRecord(
 ): Readonly<Record<string, unknown>>
 ```
 
-### [`ObservedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L161)
+### [`ObservedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L160)
 
 _Interface_
 
@@ -342,7 +318,7 @@ subscriber API. `rawBytes` carries the payload byte-for-byte;
 `decoded` is unknown because divergence proofs intentionally model clients
 that surface malformed notifications.
 
-### [`RealClientCloseEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L211)
+### [`RealClientCloseEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L210)
 
 _Interface_
 
@@ -356,7 +332,7 @@ export interface RealClientCloseEvent {
 
 Close-event shape surfaced by `RealClientHandle.closeSignal`.
 
-### [`RealClientFactoryArgs`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L267)
+### [`RealClientFactoryArgs`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L266)
 
 _Interface_
 
@@ -370,7 +346,7 @@ Factory arguments the suite passes to every `realClient()` invocation.
 The factory uses `testServerUrl` to point its WS client at the bound
 TestServer substrate.
 
-### [`RealClientHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L80)
+### [`RealClientHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L79)
 
 _Interface_
 
@@ -429,7 +405,7 @@ client — no private reads, no monkey-patching, no log scraping. When a
 channel package's client is private, the consumer exposes it via a
 test-support subpath export.
 
-### [`RealClientLifecycleError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L188)
+### [`RealClientLifecycleError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L187)
 
 _Class_
 
@@ -444,7 +420,7 @@ export class RealClientLifecycleError extends Data.TaggedError(
 Real-client lifecycle error tag. All three cover the Principle 3 error
 channel; no raw throws escape the factory's Scope.
 
-### [`RealClientNotificationFilter`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L151)
+### [`RealClientNotificationFilter`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L150)
 
 _TypeAlias_
 
@@ -458,7 +434,7 @@ Predicate over a decoded notification frame. The conformance adapter
 plumbs this directly to `MoltZapAgentClient.subscribeAll(refinement)` —
 no inline grammar reconstruction. Absent = match-all.
 
-### [`RealClientNotificationSubscriber`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L134)
+### [`RealClientNotificationSubscriber`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L133)
 
 _Interface_
 
@@ -480,7 +456,7 @@ to this interface.
 `filter` is a predicate over `DecodedNotification`. Pass `undefined`
 (or omit) for match-all.
 
-### [`RealClientRpcCaller`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L177)
+### [`RealClientRpcCaller`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L176)
 
 _Interface_
 
@@ -501,7 +477,7 @@ via the `result` content of the response: spurious responses carry a
 marker payload that the matching response does not, so a correctly
 correlating client returns the matching payload.
 
-### [`RealClientRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L199)
+### [`RealClientRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L198)
 
 _Class_
 
@@ -520,7 +496,7 @@ export class RealClientRpcError extends Data.TaggedError("RealClientRpcError")<{
 
 Typed error surface for real-client RPC calls.
 
-### [`RealClientSubscription`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L141)
+### [`RealClientSubscription`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L140)
 
 _Interface_
 
@@ -559,7 +535,7 @@ Archive lifecycle client — TestServer emits archive then unarchive
 lifecycle events. The real client subscriber must surface both in
 emission order.
 
-### [`registerEmittedFrameTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L427)
+### [`registerEmittedFrameTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L423)
 
 _Function_
 
@@ -803,7 +779,7 @@ Predicate (strict):
   - `RealClientRpcError.documentedErrorTag === "RpcTimeoutError"`
   - `RealClientRpcError.kind === "timeout"`
 
-### [`runAutoHandshakeResponder`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L495)
+### [`runAutoHandshakeResponder`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/client/runner.ts#L491)
 
 _Function_
 

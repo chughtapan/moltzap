@@ -15,7 +15,7 @@ primitives. Consumed by the extended `runConformanceSuite` in
 
 ## Public surface
 
-### [`acquireClientRunContext`](./runner.ts#L313)
+### [`acquireClientRunContext`](./runner.ts#L311)
 
 _Function_
 
@@ -58,7 +58,7 @@ under a nested Scope. Property bodies wrap their assertion in
 Errors are surfaced as `PropertyUnavailable` so a factory fault doesn't
 masquerade as a property violation.
 
-### [`awaitConnection`](./runner.ts#L553)
+### [`awaitConnection`](./runner.ts#L549)
 
 _Function_
 
@@ -73,7 +73,7 @@ Fiber-safe helper to await a TestServer connection. Times out so a
 never-connecting real client doesn't block the property body
 indefinitely.
 
-### [`ClientConformanceRunContext`](./runner.ts#L271)
+### [`ClientConformanceRunContext`](./runner.ts#L270)
 
 _Interface_
 
@@ -87,11 +87,10 @@ export interface ClientConformanceRunContext {
   readonly toxiproxy: ToxiproxyClient | null;
   readonly opts: ClientConformanceRunOptions;
   readonly seed: number;
-  readonly artifacts: Ref.Ref<ReadonlyArray<ConformanceArtifact>>;
 }
 ```
 
-### [`ClientConformanceRunOptions`](./runner.ts#L283)
+### [`ClientConformanceRunOptions`](./runner.ts#L281)
 
 _Interface_
 
@@ -168,7 +167,7 @@ export interface ClientFixture {
 Fixture returned to every property body after the prologue runs.
 Every field below is safe to use inside `fc.asyncProperty` bodies.
 
-### [`ClientHandshakeWindow`](./runner.ts#L234)
+### [`ClientHandshakeWindow`](./runner.ts#L233)
 
 _Interface_
 
@@ -208,7 +207,7 @@ emission with a property-authored `emissionTag`; the
 adversity-slow-close is the only client-side property exempt (observes
 lifecycle signals, not frames).
 
-### [`ClientHandshakeWindow`](./runner.ts#L234)
+### [`ClientHandshakeWindow`](./runner.ts#L233)
 
 _Variable_
 
@@ -228,7 +227,7 @@ export function collectTagged(
 ): Effect.Effect<ReadonlyArray<TaggedObservation>>
 ```
 
-### [`freshTag`](./runner.ts#L544)
+### [`freshTag`](./runner.ts#L540)
 
 _Function_
 
@@ -256,30 +255,7 @@ Build a `PropertyInvariantViolation` for the current property.
 Convenience so property bodies don't repeat the tagged-error
 construction.
 
-### [`JointConformanceSuiteOptions`](./suite.ts#L469)
-
-_Interface_
-
-```ts
-export interface JointConformanceSuiteOptions {
-  readonly realServer?: ClientConformanceSuiteOptions["realClient"] extends never
-    ? never
-    : unknown;
-  readonly realClient?: ClientConformanceSuiteOptions["realClient"];
-  readonly toxiproxyUrl?: string | null;
-  readonly replaySeed?: number;
-  readonly numRuns?: number;
-  readonly artifactDir?: string;
-  readonly bindThroughToxiproxy?: boolean;
-}
-```
-
-Joint-run option shape — both `realServer?` and `realClient?` supplied,
-so the suite exercises a real client against a real server in one run.
-The merged `runConformanceSuite` in `../suite.ts` accepts these fields
-as an extension of `ConformanceSuiteOptions`.
-
-### [`lookupTagForRawBytes`](./runner.ts#L439)
+### [`lookupTagForRawBytes`](./runner.ts#L435)
 
 _Function_
 
@@ -294,7 +270,7 @@ pings, etc.).
 
 Exported for `_fixtures.ts`'s `filterTagged` helper.
 
-### [`makeClientHandshakeWindow`](./runner.ts#L465)
+### [`makeClientHandshakeWindow`](./runner.ts#L461)
 
 _Function_
 
@@ -319,7 +295,7 @@ export function notificationParamsRecord(
 ): Readonly<Record<string, unknown>>
 ```
 
-### [`ObservedNotification`](./runner.ts#L161)
+### [`ObservedNotification`](./runner.ts#L160)
 
 _Interface_
 
@@ -337,7 +313,7 @@ subscriber API. `rawBytes` carries the payload byte-for-byte;
 `decoded` is unknown because divergence proofs intentionally model clients
 that surface malformed notifications.
 
-### [`RealClientCloseEvent`](./runner.ts#L211)
+### [`RealClientCloseEvent`](./runner.ts#L210)
 
 _Interface_
 
@@ -351,7 +327,7 @@ export interface RealClientCloseEvent {
 
 Close-event shape surfaced by `RealClientHandle.closeSignal`.
 
-### [`RealClientFactoryArgs`](./runner.ts#L267)
+### [`RealClientFactoryArgs`](./runner.ts#L266)
 
 _Interface_
 
@@ -365,7 +341,7 @@ Factory arguments the suite passes to every `realClient()` invocation.
 The factory uses `testServerUrl` to point its WS client at the bound
 TestServer substrate.
 
-### [`RealClientHandle`](./runner.ts#L80)
+### [`RealClientHandle`](./runner.ts#L79)
 
 _Interface_
 
@@ -424,7 +400,7 @@ client — no private reads, no monkey-patching, no log scraping. When a
 channel package's client is private, the consumer exposes it via a
 test-support subpath export.
 
-### [`RealClientLifecycleError`](./runner.ts#L188)
+### [`RealClientLifecycleError`](./runner.ts#L187)
 
 _Class_
 
@@ -439,7 +415,7 @@ export class RealClientLifecycleError extends Data.TaggedError(
 Real-client lifecycle error tag. All three cover the Principle 3 error
 channel; no raw throws escape the factory's Scope.
 
-### [`RealClientNotificationFilter`](./runner.ts#L151)
+### [`RealClientNotificationFilter`](./runner.ts#L150)
 
 _TypeAlias_
 
@@ -453,7 +429,7 @@ Predicate over a decoded notification frame. The conformance adapter
 plumbs this directly to `MoltZapAgentClient.subscribeAll(refinement)` —
 no inline grammar reconstruction. Absent = match-all.
 
-### [`RealClientNotificationSubscriber`](./runner.ts#L134)
+### [`RealClientNotificationSubscriber`](./runner.ts#L133)
 
 _Interface_
 
@@ -475,7 +451,7 @@ to this interface.
 `filter` is a predicate over `DecodedNotification`. Pass `undefined`
 (or omit) for match-all.
 
-### [`RealClientRpcCaller`](./runner.ts#L177)
+### [`RealClientRpcCaller`](./runner.ts#L176)
 
 _Interface_
 
@@ -496,7 +472,7 @@ via the `result` content of the response: spurious responses carry a
 marker payload that the matching response does not, so a correctly
 correlating client returns the matching payload.
 
-### [`RealClientRpcError`](./runner.ts#L199)
+### [`RealClientRpcError`](./runner.ts#L198)
 
 _Class_
 
@@ -515,7 +491,7 @@ export class RealClientRpcError extends Data.TaggedError("RealClientRpcError")<{
 
 Typed error surface for real-client RPC calls.
 
-### [`RealClientSubscription`](./runner.ts#L141)
+### [`RealClientSubscription`](./runner.ts#L140)
 
 _Interface_
 
@@ -554,7 +530,7 @@ Archive lifecycle client — TestServer emits archive then unarchive
 lifecycle events. The real client subscriber must surface both in
 emission order.
 
-### [`registerEmittedFrameTag`](./runner.ts#L427)
+### [`registerEmittedFrameTag`](./runner.ts#L423)
 
 _Function_
 
@@ -798,7 +774,7 @@ Predicate (strict):
   - `RealClientRpcError.documentedErrorTag === "RpcTimeoutError"`
   - `RealClientRpcError.kind === "timeout"`
 
-### [`runAutoHandshakeResponder`](./runner.ts#L495)
+### [`runAutoHandshakeResponder`](./runner.ts#L491)
 
 _Function_
 

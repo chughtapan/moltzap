@@ -44,7 +44,6 @@ import {
 import { RealServerAcquireError, TransportIoError } from "../_shared/errors.js";
 import type { ToxicControlError } from "../../toxics/errors.js";
 import { conformanceNumRunsFromEnv } from "../_shared/env.js";
-import type { ConformanceArtifact } from "../_shared/runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";
 
 import { Connect } from "../../../network/index.js";
@@ -277,7 +276,6 @@ export interface ClientConformanceRunContext {
   readonly toxiproxy: ToxiproxyClient | null;
   readonly opts: ClientConformanceRunOptions;
   readonly seed: number;
-  readonly artifacts: Ref.Ref<ReadonlyArray<ConformanceArtifact>>;
 }
 
 export interface ClientConformanceRunOptions {
@@ -320,7 +318,6 @@ export function acquireClientRunContext(
   return Effect.gen(function* () {
     const effectiveOpts = effectiveClientRunOptions(opts);
     const seed = effectiveOpts.replaySeed ?? (yield* loadFastCheckSeed);
-    const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
     const testServer = yield* acquireClientTestServer;
     const toxiproxy = yield* acquireClientToxiproxy(effectiveOpts);
 
@@ -331,7 +328,6 @@ export function acquireClientRunContext(
       toxiproxy,
       opts: effectiveOpts,
       seed,
-      artifacts,
     } satisfies ClientConformanceRunContext;
   }).pipe(Effect.withSpan("acquireClientRunContext"));
 }

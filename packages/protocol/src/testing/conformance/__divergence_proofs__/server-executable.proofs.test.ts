@@ -26,7 +26,6 @@ import {
   isRequestFrame,
   isResponseFrame,
 } from "../_shared/frame-mutator.js";
-import type { ConformanceArtifact } from "../_shared/runner.js";
 import type {
   ConformanceRunContext,
   RealServerHandle,
@@ -310,7 +309,6 @@ function makeBadServerContext(
   return Effect.gen(function* () {
     const httpHandle = yield* makeRegistrationHttpServer;
     const wsHandle = yield* makeBadWebSocketServer(behavior);
-    const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
     const realServer: RealServerHandle = {
       baseUrl: httpHandle.baseUrl,
       wsUrl: wsHandle.wsUrl,
@@ -325,7 +323,6 @@ function makeBadServerContext(
         numRuns: 1,
       },
       seed: 42,
-      artifacts,
     } satisfies ConformanceRunContext;
   });
 }

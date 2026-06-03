@@ -2,12 +2,9 @@
  * @file Public barrel for the protocol conformance framework.
  */
 export {
-  type ConformanceArtifact,
   type ConformanceRunContext,
   type ConformanceRunOptions,
   type RealServerHandle,
-  acquireRunContext,
-  runConformance,
 } from "./_shared/runner.js";
 export {
   type PropertyCategory,

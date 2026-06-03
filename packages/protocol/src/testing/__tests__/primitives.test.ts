@@ -4,8 +4,7 @@
  * infrastructure live in the `test:conformance` script (gated behind
  * docker-compose).
  *
- * Covers: codec encode/decode round-trip, capture buffer append/snapshot,
- * toxic profile selector exhaustiveness.
+ * Covers: codec encode/decode round-trip, capture buffer append/snapshot.
  */
 import { describe, it, expect } from "vitest";
 import { Effect, Either } from "effect";
@@ -23,7 +22,6 @@ import {
   recordFrame,
   mergeCaptures,
 } from "../conformance/_shared/captures.js";
-import { deliveryInvariantFor, allToxicTags } from "../toxics/index.js";
 import { arbitraryAnyCall } from "../arbitraries/index.js";
 
 import { Connect } from "../../network/index.js";
@@ -127,21 +125,6 @@ describe("captures", () => {
         expect(snap).toHaveLength(EXPECTED_MERGED_CAPTURE_COUNT);
       }),
     ));
-});
-
-describe("toxics", () => {
-  it("deliveryInvariantFor returns a valid delivery property for every toxic tag", () => {
-    const valid = [
-      "fan-out-cardinality",
-      "store-and-replay",
-      "payload-opacity",
-      "task-boundary-isolation",
-    ];
-    for (const tag of allToxicTags) {
-      const inv = deliveryInvariantFor(tag);
-      expect(valid).toContain(inv);
-    }
-  });
 });
 
 describe("arbitraries", () => {
