@@ -12,6 +12,7 @@ export {
   ConversationArchivedError,
   ConversationFullError,
   ConversationNotFoundError,
+  MessageNotFoundError,
   NotAParticipantError,
   HookBlockedError,
   ParticipantNotAdmittedError,

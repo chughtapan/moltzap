@@ -4,9 +4,9 @@ import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type { ContactRow } from "../../db/database.js";
 import {
   ConflictError,
+  ContactNotFoundError,
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-  NotFoundError,
   type Contact,
   type ListCursor,
 } from "@moltzap/protocol";
@@ -18,11 +18,6 @@ import {
   sortKeyExpr,
   type InvalidCursorError,
 } from "../../db/list-cursor.js";
-
-export type ContactsServiceError =
-  | ConflictError
-  | ForbiddenError
-  | NotFoundError;
 
 export interface ContactsListInput {
   readonly limit?: number;
@@ -99,7 +94,7 @@ export class ContactsService {
   add(
     owner: UserId,
     input: ContactCreateInput,
-  ): Effect.Effect<Contact, ContactsServiceError> {
+  ): Effect.Effect<Contact, ForbiddenError | ConflictError> {
     if (input.contactUserId === owner) {
       return Effect.fail(new ForbiddenError({ message: ERR_SELF_ADD }));
     }
@@ -130,7 +125,7 @@ export class ContactsService {
   accept(
     owner: UserId,
     id: ContactId,
-  ): Effect.Effect<ContactAcceptResult, ContactsServiceError> {
+  ): Effect.Effect<ContactAcceptResult, ContactNotFoundError | ForbiddenError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const updated = yield* this.markPendingContactAccepted(owner, id);
@@ -167,7 +162,7 @@ export class ContactsService {
         .where("id", "=", id);
       if (existing.length === 0) {
         return yield* Effect.fail(
-          new NotFoundError({ message: ERR_NOT_FOUND }),
+          new ContactNotFoundError({ message: ERR_NOT_FOUND }),
         );
       }
       const row = existing[0]!;
@@ -203,7 +198,7 @@ export class ContactsService {
   byId(
     owner: UserId,
     id: ContactId,
-  ): Effect.Effect<Contact, ContactsServiceError> {
+  ): Effect.Effect<Contact, ContactNotFoundError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* this.db
@@ -213,7 +208,7 @@ export class ContactsService {
           .where("owner_user_id", "=", owner);
         if (rows.length === 0) {
           return yield* Effect.fail(
-            new NotFoundError({ message: ERR_NOT_FOUND }),
+            new ContactNotFoundError({ message: ERR_NOT_FOUND }),
           );
         }
         return rowToContact(rows[0]!);

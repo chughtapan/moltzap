@@ -255,7 +255,7 @@ function rejectsUnknownTaskGet() {
         .get(UNKNOWN_TASK_ID, ALICE)
         .pipe(withReadAccess(UNKNOWN_TASK_ID, ALICE, svc)),
     );
-    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.NotFound);
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.TaskNotFound);
   });
 }
 

@@ -6,11 +6,12 @@ import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
 import { InvalidParamsError } from "@moltzap/protocol";
 import {
-  ConversationArchivedError,
+  AgentNotFoundError,
   ConversationFullError,
+  ConversationNotFoundError,
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-  NotFoundError,
+  NotAParticipantError,
   NotInContactsError,
   TaskConversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol";
@@ -39,14 +40,6 @@ export type {
   ContactPolicyResolver,
   CreateConversationOptions,
 } from "./conversation-service-types.js";
-
-export type ConversationServiceError =
-  | ConversationArchivedError
-  | ConversationFullError
-  | ForbiddenError
-  | InvalidParamsError
-  | NotFoundError
-  | NotInContactsError;
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;
@@ -84,7 +77,7 @@ export class ConversationService {
     input: CreateConversationOptions<TaskMintError>,
   ): Effect.Effect<
     Conversation,
-    ConversationServiceError | TaskMintError,
+    TaskMintError,
     ConversationCreateAuthorization
   > {
     return catchSqlErrorAsDefect(this.createConversationEffect(input));
@@ -94,7 +87,7 @@ export class ConversationService {
     input: CreateConversationOptions<TaskMintError>,
   ): Effect.Effect<
     Conversation,
-    ConversationServiceError | TaskMintError | SqlError,
+    TaskMintError | SqlError,
     ConversationCreateAuthorization
   > {
     return Effect.gen(this, function* () {
@@ -112,7 +105,7 @@ export class ConversationService {
     agentIds: ReadonlyArray<AgentId>,
   ): Effect.Effect<
     ReadonlyMap<AgentId, string | null>,
-    NotFoundError | SqlError
+    AgentNotFoundError | SqlError
   > {
     return Effect.gen(this, function* () {
       const rows =
@@ -129,7 +122,7 @@ export class ConversationService {
       for (const agentId of agentIds) {
         if (!ownerByAgentId.has(agentId)) {
           return yield* Effect.fail(
-            new NotFoundError({ message: `Agent ${agentId} not found` }),
+            new AgentNotFoundError({ message: `Agent ${agentId} not found` }),
           );
         }
       }
@@ -142,7 +135,7 @@ export class ConversationService {
     creatorAgentId: AgentId,
     targetAgentIds: ReadonlyArray<AgentId>,
     ownerByAgentId: ReadonlyMap<AgentId, string | null>,
-  ): Effect.Effect<void, ConversationServiceError> {
+  ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
     const policy = this.resolveContactPolicy();
     if (policy === null || targetAgentIds.length === 0) return Effect.void;
     return this.assertCreatorContactsAll({
@@ -165,7 +158,7 @@ export class ConversationService {
   removeParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
-  ): Effect.Effect<void, ConversationServiceError, NetworkSendServiceTag> {
+  ): Effect.Effect<void, NotAParticipantError, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         // Snapshot membership BEFORE delete so the evicted agent
@@ -189,7 +182,7 @@ export class ConversationService {
           .returning("conversation_id");
         if (deleted.length === 0) {
           return yield* Effect.fail(
-            new NotFoundError({ message: "Participant not found" }),
+            new NotAParticipantError({ message: "Participant not found" }),
           );
         }
         yield* this.connections.removeConversationFromAgent(
@@ -323,12 +316,12 @@ export class ConversationService {
   /**
    * Parent task lookup for `task/conversation/list` row projection.
    * `conversations.task_id` is NOT NULL, so the only failure mode is
-   * `NotFoundError` (row missing).
+   * `ConversationNotFoundError` (row missing).
    * @internal
    */
   taskIdForConversation(
     conversationId: ConversationId,
-  ): Effect.Effect<TaskId, NotFoundError> {
+  ): Effect.Effect<TaskId, ConversationNotFoundError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rowOpt = yield* takeFirstOption(
@@ -339,7 +332,9 @@ export class ConversationService {
         );
         if (Option.isNone(rowOpt)) {
           return yield* Effect.fail(
-            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+            new ConversationNotFoundError({
+              message: MSG_CONVERSATION_NOT_FOUND,
+            }),
           );
         }
         return rowOpt.value.task_id;
@@ -351,12 +346,12 @@ export class ConversationService {
    * By-id projection used by `task/conversation/{archive,unarchive}`
    * handlers to surface the post-mutation `Conversation` row (with
    * populated `archivedAt`) for the fan-out notification. Fails with
-   * `NotFoundError` when the row is missing.
+   * `ConversationNotFoundError` when the row is missing.
    * @internal
    */
   loadById(
     conversationId: ConversationId,
-  ): Effect.Effect<Conversation, NotFoundError> {
+  ): Effect.Effect<Conversation, ConversationNotFoundError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rowOpt = yield* takeFirstOption(
@@ -367,7 +362,9 @@ export class ConversationService {
         );
         if (Option.isNone(rowOpt)) {
           return yield* Effect.fail(
-            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+            new ConversationNotFoundError({
+              message: MSG_CONVERSATION_NOT_FOUND,
+            }),
           );
         }
         return this.mapConversation(rowOpt.value);
@@ -415,7 +412,7 @@ export class ConversationService {
   /** @internal */
   assertCreatorContactsAll(
     input: CreatorContactPolicyInput,
-  ): Effect.Effect<void, ConversationServiceError> {
+  ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const creatorOpt = yield* takeFirstOption(
@@ -426,7 +423,7 @@ export class ConversationService {
         );
         if (Option.isNone(creatorOpt)) {
           return yield* Effect.fail(
-            new NotFoundError({
+            new AgentNotFoundError({
               message: `Agent ${input.creatorAgentId} not found`,
             }),
           );
@@ -435,7 +432,7 @@ export class ConversationService {
         for (const targetAgentId of input.targetAgentIds) {
           if (!input.ownerByAgentId.has(targetAgentId)) {
             return yield* Effect.fail(
-              new NotFoundError({
+              new AgentNotFoundError({
                 message: `Agent ${targetAgentId} not found`,
               }),
             );
@@ -456,7 +453,7 @@ export class ConversationService {
   /** @internal */
   checkContactEdge(
     input: ContactEdgeInput,
-  ): Effect.Effect<void, ConversationServiceError> {
+  ): Effect.Effect<void, NotInContactsError> {
     return Effect.gen(this, function* () {
       if (!input.requesterOwnerUserId || !input.targetOwnerUserId) {
         return yield* Effect.fail(

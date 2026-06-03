@@ -5,14 +5,18 @@ import type {
   ObtainConversationCreateAuthorizationInput,
 } from "@moltzap/protocol/task";
 import { ConversationServiceTag } from "../../app/layers.js";
-import type { ConversationServiceError } from "./conversation.service.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import type {
+  AgentNotFoundError,
+  ConversationFullError,
+  NotInContactsError,
+} from "@moltzap/protocol";
 
 export const obtainConversationCreateAuthorization = (
   input: ObtainConversationCreateAuthorizationInput,
 ): Effect.Effect<
   ConversationCreateAuthorizationValue,
-  ConversationServiceError,
+  AgentNotFoundError | NotInContactsError | ConversationFullError,
   ConversationServiceTag
 > =>
   catchSqlErrorAsDefect(
@@ -44,7 +48,7 @@ export const obtainConversationCreateCapacityOnly = (
   agentIds: ReadonlyArray<AgentId>,
 ): Effect.Effect<
   ConversationCreateAuthorizationValue,
-  ConversationServiceError,
+  AgentNotFoundError | ConversationFullError,
   ConversationServiceTag
 > =>
   catchSqlErrorAsDefect(

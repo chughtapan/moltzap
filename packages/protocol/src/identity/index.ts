@@ -24,6 +24,7 @@ export {
   ContactAcceptedNotificationDefinition,
   NotInContactsError,
   ContactNotFoundError,
+  AgentNotFoundError,
 } from "./methods.js";
 
 export type { Agent, AgentCard, Contact } from "./methods.js";

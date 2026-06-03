@@ -44,7 +44,7 @@ export const appCallableTaskRpcMethods = [
 ] as const
 ```
 
-### [`AppId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L7)
+### [`AppId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L22)
 
 _TypeAlias_
 
@@ -52,7 +52,7 @@ _TypeAlias_
 export const AppId = brandedId("AppId");
 ```
 
-### [`AppId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L7)
+### [`AppId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L22)
 
 _Variable_
 
@@ -153,7 +153,7 @@ export type ConversationSummary = Schema.Schema.Type<
 >;
 ```
 
-### [`DEFAULT_APP_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L10)
+### [`DEFAULT_APP_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L25)
 
 _Variable_
 
@@ -161,7 +161,7 @@ _Variable_
 export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId
 ```
 
-### [`DispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L262)
+### [`DispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L293)
 
 _TypeAlias_
 
@@ -171,7 +171,7 @@ export type DispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`dispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L279)
+### [`dispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L310)
 
 _Function_
 
@@ -179,7 +179,26 @@ _Function_
 export function dispatchDecisionSchema(): typeof DispatchDecisionSchema
 ```
 
-### [`HookBlockedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L122)
+### [`DispatchNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L135)
+
+_Class_
+
+```ts
+export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
+  "DispatchNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Dispatch lease not found";
+}
+```
+
+The referenced dispatch lease does not exist (or the caller is not its
+moderator). Lives here next to LeaseId — the lease-id vocabulary the
+`messages/send` `dispatchLeaseId` and the app-layer `dispatches/get` both
+key on — so both layers raise the same typed not-found without a
+`task → app` import cycle.
+
+### [`HookBlockedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L118)
 
 _Class_
 
@@ -192,7 +211,7 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
 }
 ```
 
-### [`InitialConversationInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L208)
+### [`InitialConversationInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L205)
 
 _TypeAlias_
 
@@ -202,7 +221,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 >;
 ```
 
-### [`LeaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L111)
+### [`LeaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L125)
 
 _TypeAlias_
 
@@ -210,7 +229,7 @@ _TypeAlias_
 export const LeaseId = brandedId("LeaseId");
 ```
 
-### [`LeaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L111)
+### [`LeaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L125)
 
 _Variable_
 
@@ -218,7 +237,7 @@ _Variable_
 export const LeaseId = brandedId("LeaseId")
 ```
 
-### [`Message`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L83)
+### [`Message`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L97)
 
 _TypeAlias_
 
@@ -242,7 +261,22 @@ _Variable_
 export const MessageId = brandedId("MessageId")
 ```
 
-### [`messagePartsSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L103)
+### [`MessageNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L43)
+
+_Class_
+
+```ts
+export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(
+  "MessageNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Message not found";
+}
+```
+
+The referenced message does not exist (e.g. a `replyToId` reply target).
+
+### [`messagePartsSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L117)
 
 _Function_
 
@@ -250,7 +284,7 @@ _Function_
 export function messagePartsSchema(): typeof MessagePartsSchema
 ```
 
-### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L217)
+### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L248)
 
 _TypeAlias_
 
@@ -260,7 +294,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L225)
+### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L256)
 
 _Variable_
 
@@ -273,7 +307,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to your WebSocket connection.
 
-### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L200)
+### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L231)
 
 _Variable_
 
@@ -283,7 +317,7 @@ export const MessagesList = defineRpc({
   params: MessagesListParams,
   result: MessagesListResult,
   requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
-  errors: [],
+  errors: [ForbiddenError],
 })
 ```
 
@@ -295,9 +329,9 @@ numbers.
 - **Result:** the `messages` page plus `hasMore`.
 - **Caps (run order):** `TaskReadAccess` proves the caller may read the task,
   then `ConversationInTask` resolves the conversation's task membership.
-  Conversation-not-found and not-a-participant ride those cap error channels.
+  Conversation-not-found rides those cap error channels.
 
-### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L150)
+### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L179)
 
 _Variable_
 
@@ -315,7 +349,8 @@ export const MessagesSend = defineRpc({
   errors: [
     HookBlockedError,
     ForbiddenError,
-    NotFoundError,
+    MessageNotFoundError,
+    DispatchNotFoundError,
     TaskClosedError,
     ConversationArchivedError,
   ],
@@ -342,7 +377,7 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L275)
+### [`MessageWithDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L306)
 
 _TypeAlias_
 
@@ -352,7 +387,7 @@ export type MessageWithDispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`messageWithDispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L283)
+### [`messageWithDispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L314)
 
 _Function_
 
@@ -375,7 +410,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
 
 The caller is not a participant in the conversation it is acting on.
 
-### [`Part`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L65)
+### [`Part`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L79)
 
 _TypeAlias_
 
@@ -383,7 +418,7 @@ _TypeAlias_
 export type Part = Schema.Schema.Type<typeof PartSchema>;
 ```
 
-### [`ParticipantNotAdmittedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L136)
+### [`ParticipantNotAdmittedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L132)
 
 _Class_
 
@@ -402,7 +437,7 @@ tag lets clients distinguish "wrong agentId shape" (InvalidParams)
 from "agent exists but is not admitted to this task" (this tag)
 without parsing message strings.
 
-### [`Task`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L158)
+### [`Task`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L154)
 
 _TypeAlias_
 
@@ -410,7 +445,7 @@ _TypeAlias_
 export type Task = Schema.Schema.Type<typeof TaskSchema>;
 ```
 
-### [`TaskAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L305)
+### [`TaskAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L304)
 
 _Variable_
 
@@ -432,7 +467,7 @@ TM-only: admit an agent to a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`TaskClose`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L285)
+### [`TaskClose`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L284)
 
 _Variable_
 
@@ -452,7 +487,7 @@ TM-only: close a task the calling app owns.
   runs `assertCallerAppOwnsTask` before the body, rejecting a caller that
   does not own the task.
 
-### [`TaskClosedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L99)
+### [`TaskClosedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L95)
 
 _Class_
 
@@ -465,7 +500,7 @@ export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
 }
 ```
 
-### [`TaskClosedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L552)
+### [`TaskClosedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L560)
 
 _Variable_
 
@@ -478,7 +513,7 @@ export const TaskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`TaskConversationAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L471)
+### [`TaskConversationAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L479)
 
 _Variable_
 
@@ -492,7 +527,7 @@ export const TaskConversationAddParticipant = defineRpc({
   }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, ParticipantNotAdmittedError],
+  errors: [ForbiddenError, TaskNotFoundError, ParticipantNotAdmittedError],
 })
 ```
 
@@ -504,7 +539,7 @@ TM-only: add an agent to one conversation. The agent MUST already appear in
   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
   not the participant-admitted state probe).
 
-### [`TaskConversationArchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L429)
+### [`TaskConversationArchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L434)
 
 _Variable_
 
@@ -514,7 +549,7 @@ export const TaskConversationArchive = defineRpc({
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError],
+  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
 })
 ```
 
@@ -523,7 +558,7 @@ TM-only: archive one conversation. Task stays open.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationArchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L602)
+### [`TaskConversationArchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L610)
 
 _TypeAlias_
 
@@ -533,7 +568,7 @@ export type TaskConversationArchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationArchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L623)
+### [`TaskConversationArchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L631)
 
 _Variable_
 
@@ -564,6 +599,7 @@ export const TaskConversationCreate = defineRpc({
   errors: [
     ForbiddenError,
     TaskNotFoundError,
+    AgentNotFoundError,
     ParticipantNotAdmittedError,
     ConversationFullError,
   ],
@@ -581,7 +617,7 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
   behalf has no agent contact-edges; targets are gated by
   `requireAgentsAreInTaskParticipants`).
 
-### [`TaskConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L599)
+### [`TaskConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L607)
 
 _TypeAlias_
 
@@ -591,7 +627,7 @@ export type TaskConversationCreatedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L616)
+### [`TaskConversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L624)
 
 _Variable_
 
@@ -604,7 +640,7 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 )
 ```
 
-### [`TaskConversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L399)
+### [`TaskConversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L402)
 
 _Variable_
 
@@ -620,7 +656,7 @@ export const TaskConversationList = defineRpc({
     nextCursor: Schema.optional(Schema.String),
   }),
   requires: [AgentPrincipal, AgentClaimed],
-  errors: [],
+  errors: [InvalidParamsError, ConversationNotFoundError],
 })
 ```
 
@@ -630,7 +666,7 @@ all tasks). No filter params; archived rows are included; callers filter
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L388)
+### [`TaskConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L389)
 
 _TypeAlias_
 
@@ -640,7 +676,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L608)
+### [`TaskConversationParticipantsAddedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L616)
 
 _TypeAlias_
 
@@ -650,7 +686,7 @@ export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L635)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L643)
 
 _Variable_
 
@@ -662,7 +698,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationParticipantsRemovedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L611)
+### [`TaskConversationParticipantsRemovedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L619)
 
 _TypeAlias_
 
@@ -673,7 +709,7 @@ export type TaskConversationParticipantsRemovedNotification =
   >;
 ```
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L641)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L649)
 
 _Variable_
 
@@ -685,7 +721,7 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L497)
+### [`TaskConversationRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L505)
 
 _Variable_
 
@@ -699,7 +735,7 @@ export const TaskConversationRemoveParticipant = defineRpc({
   }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, ParticipantNotAdmittedError],
+  errors: [ForbiddenError, TaskNotFoundError],
 })
 ```
 
@@ -710,7 +746,7 @@ conversations within the task).
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L448)
+### [`TaskConversationUnarchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L455)
 
 _Variable_
 
@@ -720,7 +756,7 @@ export const TaskConversationUnarchive = defineRpc({
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError],
+  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
 })
 ```
 
@@ -729,7 +765,7 @@ TM-only: reverse of `task/conversation/archive`.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L605)
+### [`TaskConversationUnarchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L613)
 
 _TypeAlias_
 
@@ -739,7 +775,7 @@ export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationUnarchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L629)
+### [`TaskConversationUnarchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L637)
 
 _Variable_
 
@@ -751,7 +787,7 @@ export const TaskConversationUnarchivedNotificationDefinition =
   })
 ```
 
-### [`TaskCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L543)
+### [`TaskCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L551)
 
 _Variable_
 
@@ -767,7 +803,7 @@ the `task/create` wire callback and the task transitions from `waiting` to
 `active`. Carries the full Task row (matching `task/closed`'s shape) so
 subscribers don't need a second read to discover the post-transition state.
 
-### [`TaskFailedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L532)
+### [`TaskFailedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L540)
 
 _Variable_
 
@@ -796,7 +832,7 @@ _Variable_
 export const TaskId = brandedId("TaskId")
 ```
 
-### [`TaskLeave`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L264)
+### [`TaskLeave`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L263)
 
 _Variable_
 
@@ -821,7 +857,7 @@ fires alongside in the same transaction.
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L183)
+### [`TaskList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L180)
 
 _Variable_
 
@@ -837,7 +873,7 @@ export const TaskList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   requires: [AgentPrincipal],
-  errors: [],
+  errors: [InvalidParamsError],
 })
 ```
 
@@ -845,20 +881,25 @@ List the caller's own tasks, cursor-paginated.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`TaskNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L92)
+### [`TaskNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/ids.ts#L12)
 
 _Class_
 
 ```ts
 export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
   "TaskNotFound",
-  errorPayloadFields,
+  {
+    message: Schema.optional(Schema.String),
+    data: Schema.optional(Schema.Unknown),
+  },
 ) {
   static readonly message = "Task not found";
 }
 ```
 
-The referenced task does not exist (or the caller cannot see it).
+The referenced task does not exist (or the caller cannot see it). Lives in the
+task-id leaf so the `TaskReadAccess` capability can declare it as its
+fail-closed not-found without a `capabilities → tasks` runtime import cycle.
 
 ### [`taskNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L69)
 
@@ -878,7 +919,7 @@ export const taskNotifications = [
 ] as const
 ```
 
-### [`TaskParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L172)
+### [`TaskParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L168)
 
 _TypeAlias_
 
@@ -886,7 +927,7 @@ _TypeAlias_
 export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 ```
 
-### [`TaskRejectedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L115)
+### [`TaskRejectedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L111)
 
 _Class_
 
@@ -907,7 +948,7 @@ rejected by the moderator" — an expected, actionable outcome —
 from an opaque internal error. The TM's reason rides in the
 `data` arm when present.
 
-### [`TaskRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L328)
+### [`TaskRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L327)
 
 _Variable_
 
@@ -929,7 +970,7 @@ TM-only: remove an agent from a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`TaskRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L232)
+### [`TaskRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L231)
 
 _Variable_
 
@@ -946,7 +987,7 @@ export const TaskRequest = defineRpc({
     conversation: Schema.Union(ConversationSchema, Schema.Null),
   }),
   requires: [AgentPrincipal, AgentClaimed, ContactPolicyAllowsReach],
-  errors: [TaskRejectedError],
+  errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
 })
 ```
 
@@ -991,7 +1032,7 @@ export const taskRpcMethods = [
 ] as const
 ```
 
-### [`TaskStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L146)
+### [`TaskStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L142)
 
 _TypeAlias_
 
@@ -999,7 +1040,7 @@ _TypeAlias_
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`validateDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L268)
+### [`validateDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L299)
 
 _Variable_
 
@@ -1007,7 +1048,7 @@ _Variable_
 export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
 ```
 
-### [`validateMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L101)
+### [`validateMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L115)
 
 _Variable_
 
@@ -1015,7 +1056,7 @@ _Variable_
 export const validateMessage = closedGuard(MessageSchema)
 ```
 
-### [`validateTextPart`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L100)
+### [`validateTextPart`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/messages.ts#L114)
 
 _Variable_
 

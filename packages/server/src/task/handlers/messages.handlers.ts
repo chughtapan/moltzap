@@ -1,7 +1,7 @@
 import {
   MessagesSend,
   MessagesList,
-  NotFoundError,
+  DispatchNotFoundError,
   ForbiddenError,
   ConversationSendAccess,
   type LeaseId,
@@ -44,7 +44,7 @@ function claimDispatchLease(leaseRegistry: LeaseRegistry, leaseId: LeaseId) {
         ),
       LeaseNotFoundError: () =>
         Effect.fail(
-          new NotFoundError({ message: `lease ${leaseId} not found` }),
+          new DispatchNotFoundError({ message: `lease ${leaseId} not found` }),
         ),
     }),
   );

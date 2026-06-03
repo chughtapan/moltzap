@@ -28,34 +28,18 @@ import type { Transaction } from "../../db/kysely-vendor.js";
 import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-  NotFoundError,
+  TaskNotFoundError,
+  ConversationNotFoundError,
   ParticipantNotAdmittedError,
 } from "@moltzap/protocol";
-import type {
-  ConversationService,
-  ConversationServiceError,
-} from "./conversation.service.js";
-import type { MessageService, MessageServiceError } from "./message.service.js";
+import type { ConversationService } from "./conversation.service.js";
+import type { MessageService } from "./message.service.js";
 import {
   ConversationInTask,
   TaskReadAccess,
   assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
 } from "@moltzap/protocol/task";
-
-/**
- * Package-scoped error union. Exported so the capability obtain helpers
- * (in `app/capability-providers.ts` and the composites in
- * `task/services/`) can declare matching error channels without
- * over-narrowing.
- * @internal
- */
-export type TaskServiceError =
-  | ForbiddenError
-  | NotFoundError
-  | ParticipantNotAdmittedError
-  | ConversationServiceError
-  | MessageServiceError;
 
 const ERR_NOT_FOUND = "Task not found";
 const ERR_NOT_PARTICIPANT = "Caller is not a participant of this task";
@@ -209,7 +193,7 @@ export class TaskService {
   create(
     initiator: AgentId,
     input: TaskCreateInput,
-  ): Effect.Effect<Task, TaskServiceError> {
+  ): Effect.Effect<Task, never> {
     return catchSqlErrorAsDefect(
       transaction(this.db, (trx) =>
         Effect.gen(function* () {
@@ -270,7 +254,7 @@ export class TaskService {
   setStatus(
     id: TaskId,
     status: "active" | "failed",
-  ): Effect.Effect<Task, TaskServiceError> {
+  ): Effect.Effect<Task, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const row = yield* takeFirstOrFail(
@@ -291,7 +275,7 @@ export class TaskService {
     _caller: AgentId,
   ): Effect.Effect<
     { task: Task; participants: TaskParticipant[] },
-    TaskServiceError,
+    ForbiddenError,
     TaskReadAccess
   > {
     return Effect.gen(this, function* () {
@@ -361,15 +345,13 @@ export class TaskService {
     });
   }
 
-  close(id: TaskId): Effect.Effect<Task, TaskServiceError> {
+  close(id: TaskId): Effect.Effect<Task, never> {
     return this.closeWithLifecycle(id).pipe(
       Effect.map((closed) => closed.task),
     );
   }
 
-  closeWithLifecycle(
-    id: TaskId,
-  ): Effect.Effect<TaskCloseLifecycle, TaskServiceError> {
+  closeWithLifecycle(id: TaskId): Effect.Effect<TaskCloseLifecycle, never> {
     // App-ownership (`assertAppOwnsTask`) is enforced by the app-arm
     // handler before this call; this body assumes authority is proven.
     return catchSqlErrorAsDefect(
@@ -456,7 +438,9 @@ export class TaskService {
    * responsibility: this body performs no auth check, only the
    * existence + status gate.
    */
-  loadOpenTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
+  loadOpenTask(
+    id: TaskId,
+  ): Effect.Effect<Task, TaskNotFoundError | ForbiddenError> {
     return Effect.gen(this, function* () {
       const task = yield* this.fetchTask(id);
       switch (task.status) {
@@ -477,7 +461,7 @@ export class TaskService {
   loadTaskWithReadAccess(
     id: TaskId,
     caller: AgentId,
-  ): Effect.Effect<Task, TaskServiceError> {
+  ): Effect.Effect<Task, TaskNotFoundError | ForbiddenError> {
     return Effect.gen(this, function* () {
       const task = yield* this.fetchTask(id);
       if (task.initiatorAgentId === caller) return task;
@@ -504,7 +488,7 @@ export class TaskService {
   addParticipant(
     id: TaskId,
     target: AgentId,
-  ): Effect.Effect<TaskParticipant, TaskServiceError> {
+  ): Effect.Effect<TaskParticipant, never> {
     // App-ownership asserted by the handler before this call.
     return Effect.gen(this, function* () {
       const row = yield* catchSqlErrorAsDefect(
@@ -528,10 +512,7 @@ export class TaskService {
     });
   }
 
-  removeParticipant(
-    id: TaskId,
-    target: AgentId,
-  ): Effect.Effect<void, TaskServiceError> {
+  removeParticipant(id: TaskId, target: AgentId): Effect.Effect<void, never> {
     // App-ownership asserted by the handler before this call.
     return catchSqlErrorAsDefect(
       this.db
@@ -546,7 +527,7 @@ export class TaskService {
    * the composite `MessageSendPermission.task` payload field.
    * @internal
    */
-  fetchTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
+  fetchTask(id: TaskId): Effect.Effect<Task, TaskNotFoundError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const opt = yield* takeFirstOption(
@@ -554,7 +535,7 @@ export class TaskService {
         );
         if (Option.isNone(opt)) {
           return yield* Effect.fail(
-            new NotFoundError({ message: ERR_NOT_FOUND }),
+            new TaskNotFoundError({ message: ERR_NOT_FOUND }),
           );
         }
         return rowToTask(opt.value as TaskRow);
@@ -569,7 +550,7 @@ export class TaskService {
   assertConversationInTask(
     id: TaskId,
     conversationId: ConversationId,
-  ): Effect.Effect<void, TaskServiceError> {
+  ): Effect.Effect<void, ConversationNotFoundError | ForbiddenError> {
     return Effect.gen(this, function* () {
       const linkedOpt = yield* catchSqlErrorAsDefect(
         takeFirstOption(
@@ -581,7 +562,7 @@ export class TaskService {
       );
       if (Option.isNone(linkedOpt)) {
         return yield* Effect.fail(
-          new NotFoundError({ message: "Conversation not found" }),
+          new ConversationNotFoundError({ message: "Conversation not found" }),
         );
       }
       if (linkedOpt.value.task_id !== id) {
@@ -756,13 +737,13 @@ export class TaskService {
    *
    * Idempotent: returns `{ leftConversationIds: [], closedTask: null }`
    * when the caller is not in `task_participants` for the task.
-   * Fails with `NotFoundError` when the task does not exist.
+   * Fails with `TaskNotFoundError` when the task does not exist.
    * @internal
    */
   leaveTask(
     id: TaskId,
     caller: AgentId,
-  ): Effect.Effect<TaskLeaveResult, TaskServiceError> {
+  ): Effect.Effect<TaskLeaveResult, TaskNotFoundError> {
     return Effect.gen(this, function* () {
       // Existence probe outside the transaction so `not_found` surfaces
       // before any write attempt.
@@ -875,7 +856,7 @@ export class TaskService {
     conversationId: ConversationId,
   ): Effect.Effect<
     { conversation: Conversation; archivedAt: string },
-    TaskServiceError,
+    ConversationNotFoundError | ForbiddenError,
     ConversationInTask
   > {
     return Effect.gen(this, function* () {
@@ -907,7 +888,7 @@ export class TaskService {
             yield* this.conversations.loadById(conversationId);
           if (!conversation.archivedAt) {
             return yield* Effect.fail(
-              new NotFoundError({
+              new ConversationNotFoundError({
                 message: "Conversation not found in task",
               }),
             );
@@ -929,7 +910,7 @@ export class TaskService {
     conversationId: ConversationId,
   ): Effect.Effect<
     { conversation: Conversation },
-    TaskServiceError,
+    ConversationNotFoundError | ForbiddenError,
     ConversationInTask
   > {
     return Effect.gen(this, function* () {
@@ -969,7 +950,7 @@ export class TaskService {
     agentId: AgentId,
   ): Effect.Effect<
     { postMutationParticipants: ReadonlyArray<AgentId> },
-    TaskServiceError,
+    ForbiddenError,
     ConversationInTask
   > {
     return Effect.gen(this, function* () {
@@ -1015,7 +996,7 @@ export class TaskService {
       preMutationParticipants: ReadonlyArray<AgentId>;
       wasParticipant: boolean;
     },
-    TaskServiceError,
+    ForbiddenError,
     ConversationInTask
   > {
     return Effect.gen(this, function* () {

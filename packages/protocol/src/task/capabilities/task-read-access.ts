@@ -1,6 +1,6 @@
 import { Context } from "effect";
 import type { Task } from "../tasks.js";
-import { TaskNotFoundError } from "../tasks.js";
+import { TaskNotFoundError } from "../ids.js";
 import type { AgentId } from "../../identity/index.js";
 
 /**

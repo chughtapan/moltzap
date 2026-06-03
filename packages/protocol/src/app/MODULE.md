@@ -73,7 +73,7 @@ export const AppsRegister = defineRpc({
   params: Schema.Struct({ manifest: AppManifestSchema }),
   result: Schema.Struct({ appId: Schema.String }),
   requires: [AppPrincipal],
-  errors: [ConflictError],
+  errors: [ForbiddenError],
 })
 ```
 
@@ -81,7 +81,7 @@ Register an app manifest for the current connection.
 
 - **Principal:** `AppPrincipal` head.
 
-### [`DispatchAuthorize`](./dispatch.ts#L152)
+### [`DispatchAuthorize`](./dispatch.ts#L143)
 
 _Variable_
 
@@ -104,7 +104,7 @@ whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 - **Principal:** none — a server→client reverse callback. The client serves
   it, the server does not gate it, so `requires` is empty.
 
-### [`DispatchesConsumed`](./dispatch.ts#L197)
+### [`DispatchesConsumed`](./dispatch.ts#L188)
 
 _Variable_
 
@@ -127,7 +127,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./dispatch.ts#L214)
+### [`DispatchesExpired`](./dispatch.ts#L205)
 
 _Variable_
 
@@ -148,7 +148,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./dispatch.ts#L278)
+### [`DispatchesGet`](./dispatch.ts#L270)
 
 _Variable_
 
@@ -158,7 +158,7 @@ export const DispatchesGet = defineRpc({
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
   requires: [AppPrincipal],
-  errors: [DispatchNotFoundError],
+  errors: [DispatchNotFoundError, ForbiddenError],
 })
 ```
 
@@ -169,7 +169,7 @@ non-moderator callers fail with `ForbiddenError`.
 
 - **Principal:** `AppPrincipal` head.
 
-### [`DispatchId`](./dispatch.ts#L52)
+### [`DispatchId`](./dispatch.ts#L43)
 
 _TypeAlias_
 
@@ -183,7 +183,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./dispatch.ts#L52)
+### [`DispatchId`](./dispatch.ts#L43)
 
 _Variable_
 
@@ -197,25 +197,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchNotFoundError`](./dispatch.ts#L35)
-
-_Class_
-
-```ts
-export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
-  "DispatchNotFound",
-  {
-    message: Schema.optional(Schema.String),
-    data: Schema.optional(Schema.Unknown),
-  },
-) {
-  static readonly message = "Dispatch lease not found";
-}
-```
-
-The referenced dispatch lease does not exist (or the caller is not its moderator).
-
-### [`DispatchRelease`](./dispatch.ts#L174)
+### [`DispatchRelease`](./dispatch.ts#L165)
 
 _Variable_
 
@@ -242,7 +224,7 @@ HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
 `leaseTimeoutMs` field needed on the hold arm because the grant TTL has not
 started yet (lease never reached GRANTED).
 
-### [`DispatchRequest`](./dispatch.ts#L104)
+### [`DispatchRequest`](./dispatch.ts#L95)
 
 _Variable_
 

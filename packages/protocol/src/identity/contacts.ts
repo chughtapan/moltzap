@@ -3,6 +3,12 @@ import { brandedId, listCursorSchema } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { AgentPrincipal } from "../transport/principal.js";
+import {
+  ConflictError,
+  ForbiddenError,
+  InvalidParamsError,
+  UnauthorizedError,
+} from "../transport/wire-errors.js";
 import { UserId } from "./agents.js";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -10,8 +16,9 @@ import { UserId } from "./agents.js";
 //
 // `ContactSchema` is the contact-row shape returned by every method and pushed
 // by both notifications. `NotInContactsError` (exported; the presence /
-// messaging surface raises it too) and `ContactNotFoundError` are the contact
-// error channels.
+// messaging surface raises it too) is the contact-reach error channel;
+// `ContactNotFoundError` is the per-resource not-found; the cross-cutting
+// `ForbiddenError` / `ConflictError` ride the per-method `errors` unions.
 // ═══════════════════════════════════════════════════════════════════
 
 /** Optional supplemental wire fields every domain tagged-error carries. */
@@ -65,6 +72,8 @@ export type Contact = Schema.Schema.Type<typeof ContactSchema>;
  * List contacts for the authenticated agent.
  *
  * - **Principal:** `AgentPrincipal` head (no claimed refinement).
+ * @error InvalidParamsError when the `cursor` does not decode
+ * @error UnauthorizedError when the calling agent has no owner user
  */
 export const ContactsList = defineRpc({
   name: "contacts/list",
@@ -77,7 +86,7 @@ export const ContactsList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   requires: [AgentPrincipal],
-  errors: [],
+  errors: [InvalidParamsError, UnauthorizedError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -88,6 +97,9 @@ export const ContactsList = defineRpc({
  * Create a contact request.
  *
  * - **Principal:** `AgentPrincipal` head (no claimed refinement).
+ * @error ForbiddenError when the caller tries to add itself as a contact
+ * @error ConflictError when the contact already exists
+ * @error UnauthorizedError when the calling agent has no owner user
  */
 export const ContactsAdd = defineRpc({
   name: "contacts/add",
@@ -97,7 +109,7 @@ export const ContactsAdd = defineRpc({
   }),
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
-  errors: [],
+  errors: [ForbiddenError, ConflictError, UnauthorizedError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -109,13 +121,15 @@ export const ContactsAdd = defineRpc({
  *
  * - **Principal:** `AgentPrincipal` head (no claimed refinement).
  * @error ContactNotFoundError when the referenced contact does not exist
+ * @error ForbiddenError when the caller is not the request recipient
+ * @error UnauthorizedError when the calling agent has no owner user
  */
 export const ContactsAccept = defineRpc({
   name: "contacts/accept",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
-  errors: [ContactNotFoundError],
+  errors: [ContactNotFoundError, ForbiddenError, UnauthorizedError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -127,13 +141,14 @@ export const ContactsAccept = defineRpc({
  *
  * - **Principal:** `AgentPrincipal` head (no claimed refinement).
  * @error ContactNotFoundError when the referenced contact does not exist
+ * @error UnauthorizedError when the calling agent has no owner user
  */
 export const ContactsById = defineRpc({
   name: "contacts/byId",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
-  errors: [ContactNotFoundError],
+  errors: [ContactNotFoundError, UnauthorizedError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
